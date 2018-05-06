@@ -36,7 +36,7 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %
 %   isSparse = 0 or 1 - when r = 1 or r = 2 and isRel = 1, the resulting
 %   expectation vector (or scalar) is always full. All other cases return a
-%   sparse array structure when isSparse = 0 (the default); otherwise, it is
+%   sparse array structure when isSparse = 1 (the default); otherwise, it is
 %   converted to a full array. When doPlot = 1, isSparse is set to 0. For high
 %   dimensional tensors, the conversion to full format may be slow and may
 %   exceed available memory.
@@ -58,7 +58,7 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %   Milne, A. J. (2013). A Computational Model of the Cognition of Tonality.
 %   PhD thesis, The Open University. Chapter 3.
 %
-%   By Andrew J. Milne, The MARCS Institute, Western Sydney University
+%   By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
 persistent sigmaLast kerLenLast rLast isRelLast isPerLast limitsLast ...
     FgKer x2_e_k_2 gKer gKerLen spKer
@@ -67,7 +67,7 @@ if nargin < 10
     doPlot = 0;
 end
 if nargin < 9
-    isSparse = 0;
+    isSparse = 1;
 end
 if nargin < 8
     limits = [0 1200];

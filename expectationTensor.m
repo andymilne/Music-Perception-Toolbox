@@ -200,19 +200,20 @@ end
 
 negOffset = 0;
 limits = round(limits);
+
+if numel(limits) == 1
+    limits(2) = limits(1);
+    limits(1) = 0;
+end
+J = limits(2)-limits(1);
+
 if isPer == 1
     % Convert x_p to x_p modulo the period
-    if numel(limits) == 1
-        limits(2) = limits(1);
-        limits(1) = 0;
-    end
-    J = limits(end);
     x_p = mod(x_p,J);
 else
     if size(limits,1) ~= 1 || size(limits,2) ~= 2
         error('For nonperiodic tensors, "limits" must be a 2-entry row vector')
     end
-    J = limits(2)-limits(1);
     % Make all negative x_p values non-negative by offsetting
     negX_p = x_p;
     negX_p(x_p>0) = [];

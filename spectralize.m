@@ -1,7 +1,7 @@
 function [S, Partials_p, Partials_w] = spectralize(x_p, x_w, spec_p, spec_w)
 %SPECTRALIZE Add weighted partials to weighted pitches
 %
-%   [S, partials_p, partials_w] = spectralize(x_p, x_w, spec_p, spec_w)
+%   [S, Partials_p, Partials_w] = spectralize(x_p, x_w, spec_p, spec_w)
 %
 %   Given a pitch multiset with pitches x_p and corresponding weights x_w, 
 %   and a multiset of spectral pitches and weights (spec_p and spec_w) to be 

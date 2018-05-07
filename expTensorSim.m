@@ -1,7 +1,10 @@
-function d = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
+function s = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
                           r, isRel, isPer, limits,...
                           method, metric, p)
 %EXPTENSORDIST Similarity between two pitch multisets as expectation tensors
+%
+%   s = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, r, isRel, isPer,
+%   limits, method, metric, p)
 %
 %   Given two pitch multisets x_p and y_p with respective weights x_w and y_w,
 %   this function gives the similarity of their r-ad expectation densities.
@@ -18,6 +21,12 @@ function d = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
 %   multiple distances are being calculated (e.g., in a loop), it is best to
 %   test 'numeric' and 'analytic' on a single example to see which is the
 %   faster method.
+%
+%   For explanations of the remaining arguments, see expectationTensor.
+%
+%   By Andrew J. Milne, The MARCS Institute, Western Sydney University
+%
+%   See also EXPECTATIONTENSOR, ANALYTICTENSOR.
 
 persistent X Y x_pLast x_wLast y_pLast y_wLast sigmaLast kerLenLast ...
            rLast isRelLast isPerLast limitsLast methodLast metricLast pLast
@@ -86,7 +95,7 @@ end
 
 % Analytic cosine (calls David Bulger's cosSimExpTens function)
 if strcmp(method,'analytic') && strcmp(metric,'cosine')
-    d = cosSimExpTens(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,limits(end));
+    s = cosSimExpTens(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,limits(end));
     
 % Analytic pDist (not supported)
 elseif strcmp(method,'analytic') && strcmp(metric,'pDist')
@@ -101,7 +110,7 @@ elseif strcmp(method,'numeric') && strcmp(metric,'cosine')
     if YNew
         Y = expectationTensor(y_p,y_w,sigma,kerLen,r,isRel,isPer,limits);
     end
-    d = spCosSim(X,Y);
+    s = spCosSim(X,Y);
 
 % Numeric pDist % Numeric cosine (calls my expectationTensor function)
 elseif strcmp(method,'numeric') && strcmp(metric,'pDist')
@@ -111,7 +120,7 @@ elseif strcmp(method,'numeric') && strcmp(metric,'pDist')
     if YNew
         Y = expectationTensor(y_p,y_w,sigma,kerLen,r,isRel,isPer,limits);
     end
-    d = spPDist(X,Y,p);
+    s = spPDist(X,Y,p);
 end
 
 % Store last arguments

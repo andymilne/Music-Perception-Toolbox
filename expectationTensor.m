@@ -164,7 +164,6 @@ if newKer
         gKerLen = 1;
     end
 end
-
 % Note that gKerLen is always odd: offset gives the number of kernel entries,
 % in any single dimension, before or after the kernel's central value
 offset = (gKerLen-1)/2;
@@ -639,7 +638,7 @@ if doPlot == 1
     switch nDimX
         case 1
             plotX = X;
-            if isPer==1 % && gKerLen>1
+            if isPer==1 
                 plotX = [plotX; plotX(1)];
             end
             % hold on
@@ -661,7 +660,6 @@ if doPlot == 1
             ax = gca;
             ax.FontSize = 16;
             ax.XLabel.String = 'Log frequency (cents)';
-            
         case 2
             plotX = X;
             if isPer==1
@@ -669,39 +667,6 @@ if doPlot == 1
             else
                 plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
             end
-            % hold off
-            figure(figNum)
-            surf(plotX, 'FaceAlpha',1,'LineStyle','none')
-            title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
-            if isPer==0
-                axis([1 J+gKerLen+1 1 J+gKerLen+1])
-            elseif isPer==1
-                axis([1 J+1 1 J+1])
-            end
-            axis square
-            ax = gca;
-            ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
-            colormap bone
-            lighting phong
-            grid off
-            if isPer==0
-                if gKerLen > 1
-                    set(gca,'XTick',(1:tickGap:J+gKerLen-1)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen-1)+offset)
-                else
-                    set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
-                end
-                set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-                set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-            else
-                set(gca,'XTick',1:tickGap:J)
-                set(gca,'YTick',1:tickGap:J)
-                set(gca,'XTickLabel',pVals(1:tickGap:J))
-                set(gca,'YTickLabel',pVals(1:tickGap:J))
-            end
-            ax = gca;
-            ax.FontSize = 16;
         case 3
             plotX = squeeze(sum(X,3));
             if isPer==1
@@ -709,38 +674,6 @@ if doPlot == 1
             else
                 plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
             end
-            figure(figNum)
-            surf(plotX, 'FaceAlpha',1,'LineStyle','none')
-            title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
-            if isPer==0
-                axis([1 J+gKerLen 1 J+gKerLen]) 
-            elseif isPer==1
-                axis([1 J+1 1 J+1])
-            end
-            ax = gca;
-            ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
-            colormap bone
-            lighting phong
-            grid off
-            set(gca,'PlotBoxAspectRatio',[1,1,1])
-            if isPer==0
-                if gKerLen > 1
-                    set(gca,'XTick',(1:tickGap:J+gKerLen-1)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen-1)+offset)
-                else
-                    set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
-                end
-                set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-                set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-            else
-                set(gca,'XTick',1:tickGap:J)
-                set(gca,'YTick',1:tickGap:J)
-                set(gca,'XTickLabel',pVals(1:tickGap:J))
-                set(gca,'YTickLabel',pVals(1:tickGap:J))
-            end
-            ax = gca;
-            ax.FontSize = 16;
         case 4
             plotX = squeeze(sum(sum(X,4),3));
             if isPer==1
@@ -748,38 +681,42 @@ if doPlot == 1
             else
                 plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
             end
-            figure(figNum)
-            surf(plotX, 'FaceAlpha',1,'LineStyle','none')
-            title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
-            if isPer==0
-                axis([1 J+gKerLen 1 J+gKerLen])
-            elseif isPer==1
-                axis([1 J+1 1 J+1])
-            end
-            ax = gca;
-            ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
-            colormap bone
-            lighting phong
-            grid off
-            set(gca,'PlotBoxAspectRatio',[1,1,1])
-            if isPer==0
-                if gKerLen > 1
-                    set(gca,'XTick',(1:tickGap:J+gKerLen-1)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen-1)+offset)
-                else
-                    set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
-                    set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
-                end
-                set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-                set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
+    end
+    
+    if nDimX > 1
+        % hold off
+        figure(figNum)
+        surf(plotX, 'FaceAlpha',1,'LineStyle','none')
+        title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
+        if isPer==0
+            axis([1 J+gKerLen+1 1 J+gKerLen+1])
+        elseif isPer==1
+            axis([1 J+1 1 J+1])
+        end
+        axis square
+        ax = gca;
+        ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
+        colormap bone
+        lighting phong
+        grid off
+        if isPer==0
+            if gKerLen > 1
+                set(gca,'XTick',(1:tickGap:J+gKerLen-1)+offset)
+                set(gca,'YTick',(1:tickGap:J+gKerLen-1)+offset)
             else
-                set(gca,'XTick',1:tickGap:J)
-                set(gca,'YTick',1:tickGap:J)
-                set(gca,'XTickLabel',pVals(1:tickGap:J))
-                set(gca,'YTickLabel',pVals(1:tickGap:J))
+                set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
+                set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
             end
-            ax = gca;
-            ax.FontSize = 16;
+            set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
+            set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
+        else
+            set(gca,'XTick',1:tickGap:J)
+            set(gca,'YTick',1:tickGap:J)
+            set(gca,'XTickLabel',pVals(1:tickGap:J))
+            set(gca,'YTickLabel',pVals(1:tickGap:J))
+        end
+        ax = gca;
+        ax.FontSize = 16;
     end
     clear plotX
 end

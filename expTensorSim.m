@@ -1,20 +1,23 @@
-function d = expTensorDist(x_p, x_w, y_p, y_w, sigma, kerLen, ...
-                           r, isRel, isPer, limits,...
-                           method, metric, p)
-%EXPTENSORDIST  Distance between two pitch multisets as expectation tensors
+function d = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
+                          r, isRel, isPer, limits,...
+                          method, metric, p)
+%EXPTENSORDIST Similarity between two pitch multisets as expectation tensors
+%
 %   Given two pitch multisets x_p and y_p with respective weights x_w and y_w,
-%   this function gives the distance between their r-ad expectation densities.
+%   this function gives the similarity of their r-ad expectation densities.
 %
-%   The distance can be cosine similarity or pDist (set by the 'metric'
-%   argument).
+%   The returned value can be cosine similarity 'cosine' or the p-norm distance
+%   'pDist' (set by the 'metric' argument). Note that the former is a
+%   similarity measure (higher values mean more similar), the latter a distance
+%   measure (higher values mean greater distance or less similarity). 
 %
-%   Two methods are available: numeric and analytic. For r > 2, period = 1200,
-%   sigma and kerLen both about 6, and number of pitches < 10, analytic is
-%   typically faster. When the method argument is empty, it is chosen
-%   automatically with a very approximate heuristic that is likely to choose
-%   the slower method. For this reason, when multiple distances are being
-%   calculated (e.g., in a loop), it is best to test numeric and analytic on a
-%   single example to see which is the faster method.
+%   Two methods are available: 'numeric' and 'analytic'. Depending on the
+%   inputs, one of these methods may be substantially faster than the other.
+%   When the 'method' argument is empty, it is chosen automatically with a
+%   crude heuristic that may choose the slower method. For this reason, when
+%   multiple distances are being calculated (e.g., in a loop), it is best to
+%   test 'numeric' and 'analytic' on a single example to see which is the
+%   faster method.
 
 persistent X Y x_pLast x_wLast y_pLast y_wLast sigmaLast kerLenLast ...
            rLast isRelLast isPerLast limitsLast methodLast metricLast pLast
@@ -81,16 +84,16 @@ if ~isequal(sigma,sigmaLast) || ~isequal(kerLen,kerLenLast) ...
     YNew = 1;
 end
 
-% Analytic cosine
+% Analytic cosine (calls David Bulger's cosSimExpTens function)
 if strcmp(method,'analytic') && strcmp(metric,'cosine')
     d = cosSimExpTens(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,limits(end));
     
 % Analytic pDist (not supported)
 elseif strcmp(method,'analytic') && strcmp(metric,'pDist')
     error(['The analytic method does not support pDist. ' ... 
-           'Change method or use cosine distance.'])
+           'Change method or use cosine similarity.'])
 
-% Numeric cosine
+% Numeric cosine (calls my expectationTensor function)
 elseif strcmp(method,'numeric') && strcmp(metric,'cosine')
     if XNew
         X = expectationTensor(x_p,x_w,sigma,kerLen,r,isRel,isPer,limits);
@@ -100,7 +103,7 @@ elseif strcmp(method,'numeric') && strcmp(metric,'cosine')
     end
     d = spCosSim(X,Y);
 
-% Numeric pDist
+% Numeric pDist % Numeric cosine (calls my expectationTensor function)
 elseif strcmp(method,'numeric') && strcmp(metric,'pDist')
     if XNew
         X = expectationTensor(x_p,x_w,sigma,kerLen,r,isRel,isPer,limits);

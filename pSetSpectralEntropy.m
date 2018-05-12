@@ -11,10 +11,10 @@ function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
 %   have fewer overlapping partials, hence this serves as a model of the
 %   multiset's overall spectral complexity, possibly dissonance.
 %
-%   scale_p are the pitches of the multiset in cents (pitch classes when
+%   set_p are the pitches of the multiset in cents (pitch classes when
 %   isPer==1).
 %
-%   scale_w are the associated pitch weights: all ones, if there is only one
+%   set_w are the associated pitch weights: all ones, if there is only one
 %   zero entered or empty.
 %
 %   spec_p are the spectral pitches in cents: harmonics, if less than three

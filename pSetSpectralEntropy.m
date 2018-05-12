@@ -1,7 +1,7 @@
 function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
                                  sigma,kerLen,isPer,period)
 
-%PSETSPECTRALENTROPY Spectral entropy of a pitch (class) multi set given a
+%PSETSPECTRALENTROPY Spectral entropy of a pitch (class) multiset given a
 %   spectrum.
 %
 %   h = pSetSpectralEntropy(scalePc, scaleWt, spectrumPc, spectrumWt): The

@@ -72,10 +72,11 @@ fMid = fMin + fDiff/2; % This may be useful when attempting to take into
 % account modifications suggested in Parncutt (2006) and Vos (2006)
 % commentaries on Mashinter (2006) regarding summations within and between CBs.
 
-%% Calculate roughness
+%% Calculate subroughnesses
 allS = Dstar./(S1*fMin + S2);
 allRough = aMin.*(C1*exp(A1*allS.*fDiff) + C2*exp(A2*allS.*fDiff));
 
+%% Calculate total roughness
 if isAve == 1
     r = (1/numel(fDiff))*sum(allRough.^pNorm)^(1/pNorm);
 else

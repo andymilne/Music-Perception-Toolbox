@@ -30,7 +30,7 @@ function s = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
 
 persistent X Y x_pLast x_wLast y_pLast y_wLast sigmaLast kerLenLast ...
            rLast isRelLast isPerLast limitsLast methodLast metricLast pLast
-       
+
 if nargin < 13
     p = 2;
 end
@@ -38,23 +38,25 @@ if nargin < 12
     metric = 'cosine';
 end
 % Crude heuristic for choosing method when unspecified in the arguments
-if nargin<11 
-    if numel(limits) == 1
-        limits(2) = limits(1);
-        limits(1) = 0;
-    end
+if nargin < 11 
     nDimX = r-isRel;
     if nDimX==2 && numel(x_p)<10 && numel(y_p)<10
         method = 'analytic';
-    elseif nDimX==2
+    elseif nDimX == 2
         method = 'numeric';
     elseif nDimX==3 && numel(x_p)<24 && numel(y_p)<24
         method = 'analytic';
-    elseif nDimX==3
+    elseif nDimX == 3
         method = 'numeric';
     elseif nDimX > 3 
         method = 'analytic';
+    else
+        method = 'numeric';
     end
+end
+if numel(limits) == 1
+    limits(2) = limits(1);
+    limits(1) = 0;
 end
 
 % % Alternative heuristic 

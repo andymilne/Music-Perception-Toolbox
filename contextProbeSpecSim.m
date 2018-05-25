@@ -1,22 +1,30 @@
 function s = contextProbeSpecSim(contextPcs,contextWts,...
-                                 probesPcs,probesWts,...
-                                 sigma,rho,nHarm)
+                                 probePcs,probeWts,...
+                                 sigma,rho,nHarm,method)
 %CONTEXTPROBESPECSIM Spectral similarities of probes with context
-%   Given a vector of context pcs (in cents) and its associated weights vector,
-%   and an MxN matrix of probe pcs, where each column is a different set of N
-%   probes and each of the M rows is a pc in that set (in cents)
+%   Given the vector contextPcs comprising N context pcs (in cents), the vector
+%   contextWts comprising their associated nonnegative weights, a JxK matrix
+%   probesPcs comprising J probe pcs (in cents) in each of K probe pc sets, and
+%   their associated weights in the matrix probesWts,
 %
 %   function s = contextProbeSpecSim(contextPcs, contextWts,...
 %                                    probesPcs, probesWts, ...
 %                                    sigma, rho, numHarm)
 %
-%   returns the N spectral pitch similarities between the N probe sets and the
+%   returns the K spectral pitch similarities between the K probe sets and the
 %   context. Every pc is spectralized wih harmonic partials h = (1, 2, ...,
 %   nHarm) with weights h^-rho times the associated context or probe weight.
 %   Sigma sets the smoothing width for the spectral pitch similarity
-%   calculation. If contextWts or probesWts is 1 or empty, all weights are set
-%   to 1.
+%   calculation. If contextWts or probesWts is a scalar, all associated 
+%   weights are set to that scalar; if contextWts or probesWts is empty or 0,
+%   all associated weights are set to 1.
+%
+%   method = 'numeric' or 'analytic' -- in this context, the latter is slightly
+%   more accurate but slower.
 
+if nargin < 8
+    method = 'numeric';
+end
 if nargin < 7
     nHarm = 12;
 end
@@ -27,28 +35,32 @@ if nargin < 5
     sigma = 6;
 end
 
-nContextPcs = numel(contextPcs);
 nContextWts = numel(contextWts);
-if nContextWts == 1
-    contextWts = probesWts*ones(nContextPcs,1);
+if nContextWts <= 1
+    if isempty(contextWts) || isequal(contextWts,0)
+        contextWts = ones(size(contextPcs));
+    else
+        contextWts = probeWts*ones(size(contextPcs));
+    end
 end
 
-nProbes = size(probesPcs,2);
+nProbes = size(probePcs,2);
 s = nan(nProbes,1);
 
-nProbesPcs = numel(probesPcs);
-nProbesWts = numel(probesWts);
-if numel(probesWts) == 1
-    probesWts = probesWts*ones(size(probesPcs));
-elseif nProbesWts == 1
-    probesWts = ones(nProbesPcs,1).*probesWts;
+nProbesWts = numel(probeWts);
+if nProbesWts <= 1
+    if isempty(probeWts) || isequal(probeWts,0)
+        probeWts = ones(size(probePcs));
+    else
+        probeWts = probeWts*ones(size(probePcs));
+    end
 end
 
 %% Fixed parameters
 q = 1200;
 kerLen = 9;
 
-%% Add harmonics
+%% Add harmonics with spectralize function
 harmNos = 1:nHarm;
 specPc = 1200*log2(harmNos);
 specWt = harmNos.^-rho;
@@ -58,11 +70,11 @@ specWt = harmNos.^-rho;
 contextSpecPc = contextSpecPc(:);
 contextSpecWt = contextSpecWt(:);
 
-probesSpecPcMat = nan(size(probesPcs,1)*nHarm,nProbes);
+probesSpecPcMat = nan(size(probePcs,1)*nHarm,nProbes);
 probesSpecWtMat = probesSpecPcMat;
 for i = 1:nProbes
     [~,probesSpecPc,probesSpecWt] ...
-        = spectralize(probesPcs(:,i),probesWts(:,i),specPc,specWt);
+        = spectralize(probePcs(:,i),probeWts(:,i),specPc,specWt);
     probesSpecPcMat(:,i) = probesSpecPc(:);
     probesSpecWtMat(:,i) = probesSpecWt(:);
 end
@@ -81,7 +93,7 @@ for i = 1:nProbes
     limits = q;
     s(i) = expTensorSim(x_p, x_w, y_p, y_w, ...
                         sigma, kerLen, ...
-                        r, isRel, isPer, limits);
+                        r, isRel, isPer, limits, method);
 end
 
 end

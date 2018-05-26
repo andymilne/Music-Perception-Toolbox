@@ -1,6 +1,6 @@
 # Music-Perception-Toolbox
 
-A MATLAB toolbox dedicated to the analysis and modelling of musical patterns such as scales, chords, tonality, rhythms, and meter.
+A MATLAB toolbox dedicated to analysing musical patterns -- such as scales, chords, tonality, rhythms, and meter -- and modelling human perception and cognition of these patterns.
 
 Many of the functions require the [Sparse Array Toolbox](https://github.com/andymilne/Sparse-Array-Toolbox).
 

@@ -113,7 +113,8 @@ nDimX = r-isRel;
 if newKer
     if sigma > 0
         if nDimX > 1 || nDimX==1 && isPer==0
-            SIG = sigma^2 * eye(nDimX);
+            SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference 
+            % distributions (when isRel==1) is scaled by 2 
         end
         
         K = ceil(sigma*kerLen);
@@ -124,7 +125,9 @@ if newKer
         gKerLen = numel(k);
         
         if nDimX == 1
-            gKer = normpdf(k',ceil(K/2),sigma)';
+            gKer = normpdf(k',ceil(K/2), sigma * 2^(isRel/2))'; % standard
+            % deviation of difference distributions (when isRel==1) is scaled 
+            % by sqrt(2)
             if isRel==1 && isPer==0
                 spKer = array2spArray(gKer);
             else

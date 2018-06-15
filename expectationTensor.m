@@ -183,20 +183,19 @@ if isempty(x_w) || isequal(x_w,0)
     x_w = ones(I,1);
 end
 x_w = x_w(:);
-x_w = x_w(finInd);
 
 % Error check
 if I ~= numel(x_w)
     error('x_p and x_w, must have the same number of (finite) entries.')
 end
+x_w = x_w(finInd);
 
 % Change x_p and x_w in light of isRel, isPer, and limits arguments: If
-% nonperiodic and absolute, remove all pitches outside limits
+% nonperiodic and absolute, remove all pitches outside limits (taking into
+% account the kernel width)
 if isRel==0 && isPer==0
-    x_w(x_p<limits(1)) = [];
-    x_w(x_p>limits(2)) = [];
-    x_p(x_p<limits(1)) = [];
-    x_p(x_p>limits(2)) = [];
+    x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
+    x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
     I = numel(x_p);
 end
 
@@ -338,7 +337,7 @@ elseif r == 2
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         X = x1_e_k_2 - (x_w' * x_w) * x2_e_k_2;
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    else
+    else % isRel==0 || isPer==0
         % Term 1: Make sparse and do the outer product
         spX_j = array2spArray(X_j);
         term1 = spOuter(spX_j, spX_j);
@@ -508,15 +507,15 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
         if isPer == 0
             % Truncate/pad to match limits
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            X = spTrunc(repelem(pLo-negOffset+1,nDimX), ...
-                        repelem(pHi-negOffset+1,nDimX),X);
+            X = spTrunc(repelem(pLo-offset-negOffset+1,nDimX), ...
+                        repelem(pHi+offset-negOffset+1,nDimX),X);
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if gKerLen > 1
                 X = spConv(X,spKer,'full');            
                 % Negative noncircular shift achieved through trunction
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                X = spTrunc(repelem(offset+1,nDimX), ...
-                            repelem(pHi-pLo+offset+1,nDimX),X);
+                X = spTrunc(repelem(gKerLen,nDimX), ...
+                            repelem(gKerLen+pHi-pLo,nDimX),X);
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             end
         else % isPer == 1

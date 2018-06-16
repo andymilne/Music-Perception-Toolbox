@@ -26,7 +26,7 @@ function s = expTensorSim(x_p, x_w, y_p, y_w, sigma, kerLen, ...
 %
 %   By Andrew J. Milne, The MARCS Institute, Western Sydney University
 %
-%   See also EXPECTATIONTENSOR, ANALYTICTENSOR.
+%   See also EXPECTATIONTENSOR, COSSIMEXPTENS.
 
 persistent X Y x_pLast x_wLast y_pLast y_wLast sigmaLast kerLenLast ...
            rLast isRelLast isPerLast limitsLast methodLast metricLast pLast

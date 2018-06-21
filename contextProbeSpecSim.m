@@ -44,8 +44,9 @@ if nContextWts <= 1
     end
 end
 
-nProbes = size(probePcs,2);
-s = nan(nProbes,1);
+nProbes = size(probePcs,1);
+nProbeSets = size(probePcs,2);
+s = nan(nProbeSets,1);
 
 nProbesWts = numel(probeWts);
 if nProbesWts <= 1
@@ -70,9 +71,9 @@ specWt = harmNos.^-rho;
 contextSpecPc = contextSpecPc(:);
 contextSpecWt = contextSpecWt(:);
 
-probesSpecPcMat = nan(size(probePcs,1)*nHarm,nProbes);
+probesSpecPcMat = nan(nProbes*nHarm,nProbeSets);
 probesSpecWtMat = probesSpecPcMat;
-for i = 1:nProbes
+for i = 1:nProbeSets
     [~,probesSpecPc,probesSpecWt] ...
         = spectralize(probePcs(:,i),probeWts(:,i),specPc,specWt);
     probesSpecPcMat(:,i) = probesSpecPc(:);
@@ -84,7 +85,7 @@ end
 %% Scale-probe spectral similarities
 x_p = contextSpecPc;
 x_w = contextSpecWt;
-for i = 1:nProbes
+for i = 1:nProbeSets
     y_p = probesSpecPcMat(:,i);
     y_w = probesSpecWtMat(:,i);
     r = 1; % monad expectation tensor

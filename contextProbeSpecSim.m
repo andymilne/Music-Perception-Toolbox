@@ -80,8 +80,6 @@ for i = 1:nProbeSets
     probesSpecWtMat(:,i) = probesSpecWt(:);
 end
 
-%% Here, I could add nonlinear distortion to each spectralized probe set
-
 %% Scale-probe spectral similarities
 x_p = contextSpecPc;
 x_w = contextSpecWt;

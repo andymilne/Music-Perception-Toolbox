@@ -1,6 +1,6 @@
 function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
                                        r, isRel, isPer, limits, ...
-                                       isSparse, doPlot)
+                                       isSparse, doPlot, tol)
 %EXPECTATIONTENSOR Expectation tensor for r-ads in a weighted pitch multiset.
 %
 %   [X, pVals] = expectationTensor(x_p, x_w, sigma, kerLen, r, isRel, isPer,
@@ -45,6 +45,12 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %   the tensor has dimensionality greater than 2, the higher dimensions are
 %   summed over. Setting doPlot to 1 forces isSparse to be 0.
 %
+%   tol = all values below this are made zero (removed from sparse array) of 
+%   the unsmoothed expectation tensor prior to convolution. This can
+%   considerably speed up the calculation of the smoothed tensor. The default
+%   is 0.00001. It may be useful to set tol = 0 if the smoothed tensor is later
+%   log transformed.
+%
 %   Note that the procedures run at O(I(J^r)), where I is the number of
 %   elements in x_p, and J is the number of pitch units spanned by x_p. For
 %   higher values of r or I, it may be necessary to reduce J. High values of r
@@ -63,6 +69,9 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 persistent sigmaLast kerLenLast rLast isRelLast isPerLast limitsLast ...
     FgKer x2_e_k_2 gKer gKerLen spKer
 
+if nargin < 11
+    tol = 0.00001;
+end
 if nargin < 10
     doPlot = 0;
 end
@@ -129,7 +138,7 @@ if newKer
             % deviation of difference distributions (when isRel==1) is scaled 
             % by sqrt(2)
             if isRel==1 && isPer==0
-                spKer = array2spArray(gKer);
+                spKer = array2SpArray(gKer);
             else
                 if normalize == 1
                     %gKer = gKer/sum(gKer); % modes are expectations
@@ -146,17 +155,17 @@ if newKer
             [X1,X2] = ndgrid(k,k);
             ker = mvnpdf([X1(:) X2(:)],ceil(K/2),SIG);
             ker = reshape(ker,[gKerLen gKerLen]);
-            spKer = array2spArray(ker);
+            spKer = array2SpArray(ker);
         elseif nDimX == 3
             [X1,X2,X3] = ndgrid(k,k,k);
             ker = mvnpdf([X1(:) X2(:) X3(:)],ceil(K/2),SIG);
             ker = reshape(ker,[gKerLen gKerLen gKerLen]);
-            spKer = array2spArray(ker);
+            spKer = array2SpArray(ker);
         elseif nDimX == 4
             [X1,X2,X3,X4] = ndgrid(k,k,k,k);
             ker = mvnpdf([X1(:) X2(:) X3(:) X4(:)],ceil(K/2),SIG);
             ker = reshape(ker,[gKerLen gKerLen gKerLen gKerLen]);
-            spKer = array2spArray(ker);
+            spKer = array2SpArray(ker);
         end
         if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1
             spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
@@ -339,13 +348,13 @@ elseif r == 2
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     else % isRel==0 || isPer==0
         % Term 1: Make sparse and do the outer product
-        spX_j = array2spArray(X_j);
+        spX_j = array2SpArray(X_j);
         term1 = spOuter(spX_j, spX_j);
         
         % Term 2
         outX_ij = cell(1,I);
         for i = 1:I
-            spX_iji = array2spArray(X_ij(i,:));
+            spX_iji = array2SpArray(X_ij(i,:));
             outX_ij{i} = spOuter(spX_iji, spX_iji);
         end
         % Sum them to make the generalized Khatri-Rao product
@@ -368,14 +377,14 @@ elseif r == 3
     
     % Term 1: outer product of X_j
     % Make sparse and do the outer product
-    spX_j = array2spArray(X_j);
+    spX_j = array2SpArray(X_j);
     term1 = spOuter(spX_j,spX_j,spX_j);
     
     % Term2: Generalized Khatri-Rao products and outer product
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
-        spX_ij = array2spArray(X_ij(i,:));
+        spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
     % Sum them to make the generalized Khatri-Rao product
@@ -392,7 +401,7 @@ elseif r == 3
     % Term 3: Generalized Khatri-Rao products
     % Outer products (cubes) of rows of X_ij
     for i = 1:I
-        spX_ij = array2spArray(X_ij(i,:));
+        spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij, spX_ij);
     end
     % Sum them to make the generalized Khatri-Rao product
@@ -414,14 +423,14 @@ elseif r == 4
     
     % Term 1: Outer product of X_j
     % make sparse and do the outer product
-    spX_j = array2spArray(X_j);
+    spX_j = array2SpArray(X_j);
     term1 = spOuter(spX_j, spX_j, spX_j, spX_j);
     
     % Term2: Generalized Khatri-Rao products and outer product
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
-        spX_ij = array2spArray(X_ij(i,:));
+        spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
     % Sum them to make the generalized Khatri-Rao product
@@ -443,7 +452,7 @@ elseif r == 4
     % Outer products (cubes) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
-        spX_ij = array2spArray(X_ij(i,:));
+        spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij, spX_ij);
     end
     % Sum them to make the generalized Khatri-Rao product
@@ -462,7 +471,7 @@ elseif r == 4
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
-        spX_ij = array2spArray(X_ij(i,:));
+        spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
     % Sum them to make the generalized Khatri-Rao product
@@ -479,7 +488,7 @@ elseif r == 4
     % Term 5: Outer product for each row of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
-        X_iji = array2spArray(X_ij(i,:));
+        X_iji = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(X_iji, X_iji, X_iji, X_iji);
     end
     term5 = spTimes(-6,spPlus(outSpX_ij)); % sum and multiply by -6
@@ -498,7 +507,6 @@ end
 %% Build the expectation tensors
 if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
     if gKerLen > 1
-        tol = 0.00001;
         X = spTol(X,tol);
         spKer = spTol(spKer,tol);
     end

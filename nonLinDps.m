@@ -10,9 +10,10 @@ function A = nonLinDps(polyCoeffs,loPass,isEven,isOdd,X_f,X_w,doPlot)
 %   X_f = a matrix, each of whose rows is a set of frequencies to be 
 %   independently waveshaped in the time domain.
 %
-%   X_w = the weights of the frequencies in X_f
+%   X_w = the complex values (representing the magnitudes and phases) of the 
+%   frequencies in X_f
 %
-%   doPlot = 0 or 1 - make or do not make a plot of the resulting spectrum.
+%   doPlot = 0 or 1 - do or do not make a plot of the resulting spectrum.
 %
 %   By Andrew J. Milne, The MARCS Institute, Western Sydney University
 
@@ -53,14 +54,16 @@ end
 %% Add negative frequencies to input spectra, put into matrix "spectra"
 % (spectrum x frequency), normalize
 if isempty(spectra)
-    spectra = zeros(nSpectra,lenSpec);
+    spectra = zeros(nSpectra, lenSpec);
     for spectrumNo = 1:nSpectra
-        spectra(spectrumNo,1:lenPosSpec) ...
-            = weightedInd(X_f(spectrumNo,:),X_w(spectrumNo,:),lenPosSpec);        
+        X_f(spectrumNo,:)
+        X_w(spectrumNo,:)
+        spectra(spectrumNo, 1:lenPosSpec) ...
+            = weightedInd(X_f(spectrumNo,:),X_w(spectrumNo,:),lenPosSpec);
         % Add negative frequencies
         spectra(spectrumNo,1:lenSpec) ...
             = [spectra(spectrumNo,1:lenPosSpec) 0 ...
-            fliplr(spectra(spectrumNo,2:lenPosSpec))];
+            fliplr(conj(spectra(spectrumNo,2:lenPosSpec)))];
     end
 end
 
@@ -68,8 +71,9 @@ end
 % tensor (power x freq x spectrum)
 if isempty(inWavePowTens)
     waveMatr = ifft(spectra')';
-    % waveMatr = 2048*waveMatr; %!!!
-    waveMatr = waveMatr./max(abs(waveMatr),[],2); % normalize so max abs value is 1
+    waveMatr = real(waveMatr);
+    waveMatr = waveMatr./max(abs(waveMatr),[],2); % normalize so max abs value 
+    % is 1
     if isOdd==0 && isEven==1
         powInd = permute(0 : 2 : 2*nCoeffs-1,[1 3 2]);
     elseif isOdd==1 && isEven==0

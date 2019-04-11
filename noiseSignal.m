@@ -1,14 +1,7 @@
 function [signal,pVals] = noiseSignal(x_t, Fs, sizeMed, noiseFactor, sigma, ...
                                       fRef, doPlot)
 
-%NONLINDPS Auditory nonlinear distortion products.
-%
-%   Author: Andrew J. Milne
-%   Revision: 1.00
-%   Date: 2017/11/16
-%
-
-% Noise signal splitter 
+%NOISESIGNAL Noise signal splitter 
 % This routine accepts an audio file and splits it into noise and signal
 % components. x_t is the time domain audio audio signal, Fs is 
 % its sample rate (these can be got from an audio file by 
@@ -17,6 +10,8 @@ function [signal,pVals] = noiseSignal(x_t, Fs, sizeMed, noiseFactor, sigma, ...
 % signal is calculated. The noiseFactor multplies the median signal to 
 % set an appropriate signal-noise threshold (i.e., all frequency bins with 
 % magnitude greater than are candidate partials).
+
+% By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
 %% Parameters
 if nargin < 3

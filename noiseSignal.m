@@ -1,15 +1,24 @@
 function [signal,pVals] = noiseSignal(x_t, Fs, sizeMed, noiseFactor, sigma, ...
                                       fRef, doPlot)
 
-%NOISESIGNAL Noise signal splitter 
-% This routine accepts an audio file and splits it into noise and signal
-% components. x_t is the time domain audio audio signal, Fs is 
-% its sample rate (these can be got from an audio file by 
-% [x_t,Fs] = audioread('audiofile.wav');]). sizeMed sets the
-% number of frequency bins over which the median of the frequency domain
-% signal is calculated. The noiseFactor multplies the median signal to 
-% set an appropriate signal-noise threshold (i.e., all frequency bins with 
-% magnitude greater than are candidate partials).
+%NOISESIGNAL Filter out noise, convert to log-f, smooth with a Gaussian kernel.
+%
+% x_t is the time domain audio audio signal
+%
+% Fs is its sample rate (these can be got from an audio file by [x_t,Fs] =
+% audioread('audiofile.wav');])
+%
+% sizeMed sets the number of frequency bins over which the median of the
+% frequency domain signal is calculated.
+%
+% noiseFactor multplies the median signal to set an appropriate signal-noise
+% threshold (i.e., all frequency bins with magnitude greater than are candidate
+% partials)
+%
+% sigma is the smoothing width (standard deviation of Gaussian kernel that is
+% convolved with the peaks in the lof-f domain)
+%
+% fRef is the frequency assigned a value of 0 cents.
 
 % By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 

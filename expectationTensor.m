@@ -188,8 +188,11 @@ x_p = x_p(finInd);
 x_p = round(x_p);
 
 I = numel(x_p);
-if isempty(x_w) || isequal(x_w,0)
+if isempty(x_w)
     x_w = ones(I,1);
+end
+if numel(x_w) == 1
+    x_w = x_w*ones(I,1);
 end
 x_w = x_w(:);
 

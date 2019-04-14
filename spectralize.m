@@ -21,8 +21,11 @@ function [S, Partials_p, Partials_w] = spectralize(x_p, x_w, spec_p, spec_w)
 
 % Make all inputs column vectors
 x_p = x_p(:);
-if isempty(x_w) || isequal(x_w,0)
+if isempty(x_w)
     x_w = ones(numel(x_p),1);
+end
+if numel(x_w) == 1
+    x_w = x_w*ones(numel(x_p),1);
 end
 x_w = x_w(:);
 spec_p = spec_p(:);

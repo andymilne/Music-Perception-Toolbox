@@ -1,4 +1,4 @@
-function s = cosSimExpTens(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,period)
+function s = spSub(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,period)
 %COSSIMEXPTENS Cosine similarity of two r-ad expectation tensors
 %
 %   s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period):
@@ -39,6 +39,13 @@ else
     x_w = x_w(:);
     y_p = y_p(:);
     y_w = y_w(:);
+    
+    if isempty(x_w)
+        x_w = ones(numel(x_p),1);
+    end
+    if numel(x_w) == 1
+        x_w = x_w*ones(numel,1);
+    end
     
     if rem(r,1) || r<1
         error('''r'' must be a positive integer.');

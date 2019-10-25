@@ -1,6 +1,6 @@
-function [R,rPhase,rLag] = circApm(x_pc)
+function [R,rPhase,rLag] = circApm(x_ind)
 %CIRCAPM Circular autocorrelation phase matrix.
-%   Given a weighted indicator vector x_pc, which represents periodic
+%   Given a weighted indicator vector x_ind, which represents periodic
 %   notes/onsets by nonnegative weights and pitch/time by index, R =
 %   CIRCAPM(x_pc), returns the circular autocorrelation phase matrix (APM).
 %
@@ -15,17 +15,17 @@ function [R,rPhase,rLag] = circApm(x_pc)
 %   can be used as a model of "metrical weight" (Parncutt 1994).
 %
 %   [R,rPhase,rLag] = circApm(w) also returns the row sum of the APM, which
-%   is identical to the autocorrelation of W.
+%   is identical to the autocorrelation of x_ind.
 %
 %   By Andrew J. Milne, The MARCS Institute, Western Sydney University
 
 % Input checks
-if min(x_pc) < 0
+if min(x_ind) < 0
     error('The input must be a non-negative vector.')
 end
 
 % Preliminaries
-N = length(x_pc);
+N = length(x_ind);
 
 % Identify the indices of the indicator vector that will be pairwise multiplied 
 nIndMat1 = (1:N)' * (0:N-1);
@@ -57,8 +57,8 @@ invalidInd = invalidInd1.*invalidInd2;
 
 % Now get the values from the indicator vector using the previously
 % calculated indices
-indicatorTens1 = x_pc(mod(nIndTens1,N)+1);
-indicatorTens2 = x_pc(mod(nIndTens2,N)+1);
+indicatorTens1 = x_ind(mod(nIndTens1,N)+1);
+indicatorTens2 = x_ind(mod(nIndTens2,N)+1);
 
 % Multiply and sum to get APM matrix
 R = squeeze(sum(indicatorTens1.*indicatorTens2.*invalidInd,2));
@@ -70,8 +70,8 @@ if nargout > 2
 end
 
 % Check the APM row sum equals conventional circular autocorrelation
-% AC_test = round(cconv(tap_data_aggLoops.Indicator{rhythm}, ...
-%     fliplr(tap_data_aggLoops.Indicator{rhythm}), ...
-%     N))';
+% circConv(x_ind,fliplr(x_ind))
+% sum(R,2)
+
 end
 

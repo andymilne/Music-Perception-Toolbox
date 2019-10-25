@@ -1,6 +1,6 @@
 function h = expTensorEntropy(x_p, x_w, sigma, kerLen, ...
                               r, isRel, isPer, limits)
-%RADENTROPY Relative r-ad entropy.
+%EXPTENSORENTROPY Entropy of expectation tensor.
 %   Given a pitch time class vector x_pc, with weights x_w, and other 
 %   parameters for generating an expectation array, 
 %   h = expTensorEntropy(x_p, x_w, sigma, kerLen, ...

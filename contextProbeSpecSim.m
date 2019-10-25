@@ -58,7 +58,7 @@ if nProbesWts <= 1
 end
 
 %% Fixed parameters
-q = 1200;
+limits = 1200;
 kerLen = 9;
 
 %% Add harmonics with spectralize function
@@ -89,7 +89,6 @@ for i = 1:nProbeSets
     r = 1; % monad expectation tensor
     isRel = 0; % tensor is not tranpositionally invariant
     isPer = 1; % periodic over limits
-    limits = q;
     s(i) = expTensorSim(x_p, x_w, y_p, y_w, ...
                         sigma, kerLen, ...
                         r, isRel, isPer, limits, method);

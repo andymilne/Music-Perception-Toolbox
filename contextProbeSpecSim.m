@@ -1,13 +1,13 @@
-function s = contextProbeSpecSim(contextPcs,contextWts,...
-                                 probePcs,probeWts,...
+function s = contextProbeSpecSim(context_pc,context_w,...
+                                 probe_pc,probe_w,...
                                  sigma,rho,nHarm,method)
 %CONTEXTPROBESPECSIM Spectral similarities of probes with context
-%   Given the vector contextPcs comprising N context pcs (in cents), the vector
-%   contextWts comprising their associated nonnegative weights, a JxK matrix
+%   Given the vector context_pc comprising N context pcs (in cents), the vector
+%   context_w comprising their associated nonnegative weights, a JxK matrix
 %   probesPcs comprising J probe pcs (in cents) in each of K probe pc sets, and
 %   their associated weights in the matrix probesWts,
 %
-%   function s = contextProbeSpecSim(contextPcs, contextWts,...
+%   function s = contextProbeSpecSim(context_pc, context_w,...
 %                                    probesPcs, probesWts, ...
 %                                    sigma, rho, numHarm)
 %
@@ -15,8 +15,8 @@ function s = contextProbeSpecSim(contextPcs,contextWts,...
 %   context. Every pc is spectralized wih harmonic partials h = (1, 2, ...,
 %   nHarm) with weights h^-rho times the associated context or probe weight.
 %   Sigma sets the smoothing width for the spectral pitch similarity
-%   calculation. If contextWts or probesWts is a scalar, all associated 
-%   weights are set to that scalar; if contextWts or probesWts is empty or 0,
+%   calculation. If context_w or probesWts is a scalar, all associated 
+%   weights are set to that scalar; if context_w or probesWts is empty or 0,
 %   all associated weights are set to 1.
 %
 %   method = 'numeric' or 'analytic' -- in this context, the latter is slightly
@@ -35,25 +35,25 @@ if nargin < 5
     sigma = 6;
 end
 
-nContextWts = numel(contextWts);
-if nContextWts <= 1
-    if isempty(contextWts) || isequal(contextWts,0)
-        contextWts = ones(size(contextPcs));
+ncontext_w = numel(context_w);
+if ncontext_w <= 1
+    if isempty(context_w) || isequal(context_w,0)
+        context_w = ones(size(context_pc));
     else
-        contextWts = probeWts*ones(size(contextPcs));
+        context_w = probe_w*ones(size(context_pc));
     end
 end
 
-nProbes = size(probePcs,1);
-nProbeSets = size(probePcs,2);
+nProbes = size(probe_pc,1);
+nProbeSets = size(probe_pc,2);
 s = nan(nProbeSets,1);
 
-nProbesWts = numel(probeWts);
+nProbesWts = numel(probe_w);
 if nProbesWts <= 1
-    if isempty(probeWts) || isequal(probeWts,0)
-        probeWts = ones(size(probePcs));
+    if isempty(probe_w) || isequal(probe_w,0)
+        probe_w = ones(size(probe_pc));
     else
-        probeWts = probeWts*ones(size(probePcs));
+        probe_w = probe_w*ones(size(probe_pc));
     end
 end
 
@@ -67,7 +67,7 @@ specPc = 1200*log2(harmNos);
 specWt = harmNos.^-rho;
 
 [~,contextSpecPc,contextSpecWt] ...
-    = spectralize(contextPcs,contextWts,specPc,specWt);
+    = spectralize(context_pc,context_w,specPc,specWt);
 contextSpecPc = contextSpecPc(:);
 contextSpecWt = contextSpecWt(:);
 
@@ -75,7 +75,7 @@ probesSpecPcMat = nan(nProbes*nHarm,nProbeSets);
 probesSpecWtMat = probesSpecPcMat;
 for i = 1:nProbeSets
     [~,probesSpecPc,probesSpecWt] ...
-        = spectralize(probePcs(:,i),probeWts(:,i),specPc,specWt);
+        = spectralize(probe_pc(:,i),probe_w(:,i),specPc,specWt);
     probesSpecPcMat(:,i) = probesSpecPc(:);
     probesSpecWtMat(:,i) = probesSpecWt(:);
 end

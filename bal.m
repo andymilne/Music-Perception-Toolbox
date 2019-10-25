@@ -8,7 +8,11 @@ function b = bal(x_p, period)
 %
 %   Balance is equivalent to unity minus the circular variance of the
 %   pattern.
+%
+%   By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
+
+K = numel(x_p);
 x_a = pitch2Argand(x_p, period);
 dftScale = fft(x_a)/K;
 

@@ -9,7 +9,11 @@ function e = eve(x_p, period)
 %   Evenness is the circular variance of the pitch/time displacements
 %   between the kth note/onset and the kth equal division of the period,
 %   for all K notes/onsets.
+%
+%   By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
+
+K = numel(x_p);
 x_a = pitch2Argand(x_p, period);
 dftScale = fft(x_a)/K;
 

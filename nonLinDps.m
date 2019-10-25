@@ -53,13 +53,17 @@ end
 
 %% Add negative frequencies to input spectra, put into matrix "spectra"
 % (spectrum x frequency), normalize
+
+% NB I replaced weightedInd with pitch2Ind, which is more up-to-date. It
+% should work, but check it does (it returns a column rather than row vector,
+% which is why I have added ' to l.66. Remove this comment if all is good.
 if isempty(spectra)
     spectra = zeros(nSpectra, lenSpec);
     for spectrumNo = 1:nSpectra
         X_f(spectrumNo,:)
         X_w(spectrumNo,:)
         spectra(spectrumNo, 1:lenPosSpec) ...
-            = weightedInd(X_f(spectrumNo,:),X_w(spectrumNo,:),lenPosSpec);
+            = pitch2Ind(X_f(spectrumNo,:),X_w(spectrumNo,:),lenPosSpec)';
         % Add negative frequencies
         spectra(spectrumNo,1:lenSpec) ...
             = [spectra(spectrumNo,1:lenPosSpec) 0 ...

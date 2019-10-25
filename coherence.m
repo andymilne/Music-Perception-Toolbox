@@ -1,6 +1,6 @@
 function [c,nc] = coherence(x_ind,isStrict)
 %COHERENCE Coherence quotient and number of coherence failures.
-%   cq = COHERENCE(x_ind) returns the coherence quotient of the binary
+%   c = COHERENCE(x_ind) returns the coherence quotient of the binary
 %   indicator vector x_ind. The coherence quotient (Carey 2002, 2007) is unity
 %   minus the ratio of the number of coherence failures and the maximum
 %   possible number of coherence failues for a pattern with k events. A
@@ -8,14 +8,14 @@ function [c,nc] = coherence(x_ind,isStrict)
 %   than another two notes/onsets does not have a greater specific size
 %   (Balzano 1982).
 %
-%   cq = COHERENCE(x_ind,isStrict): when isStrict == 1 or is omitted, a
+%   c = COHERENCE(x_ind,isStrict): when isStrict == 1 or is omitted, a
 %   coherence failure is deemed to occur according to the above criteria; when
 %   isStrict == 0 a coherence failure is deemed to occur only when a pair of
 %   events with a larger generic span than another two events has a smaller
 %   specific size. These correspond to Rothernberg's distinction between strict
 %   propriety and propriety (1978).
 %   
-%   [cq,nInC] = COHERENCE(...) also returns the number of coherence failures.
+%   [c,nc] = COHERENCE(...) also returns the number of coherence failures.
 
 % Input checks
 if ~isvector(x_ind)

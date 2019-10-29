@@ -30,8 +30,11 @@ function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
 %   See also: fSetRoughness
 
 %% Fixed parameters (not intended to be optimized to the data)
-if nargin < 7
+if nargin < 8
     period = 1200; % size of period in pitch units
+end
+if nargin < 7
+    isPer = 1; % periodic (i.e. pitch classes)
 end
 if nargin < 6
     kerLen = 6; % width in standard deviations of smoothing kernel

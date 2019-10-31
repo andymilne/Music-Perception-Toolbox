@@ -46,6 +46,10 @@ end
 r = 1; % r-ads considered
 isRel = 0; % transpositional invariance (1) or not (0)
 
+if isscalar(set_w)
+    set_w = set_w*ones(numel(set_p,1));
+end
+
 %% Spectralize the scale pitches
 [~,set_p,set_w] = spectralize(set_p,set_w,spec_p,spec_w);
 set_p = set_p(:);

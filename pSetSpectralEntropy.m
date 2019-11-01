@@ -14,8 +14,8 @@ function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
 %   set_p are the pitches of the multiset in cents (pitch classes when
 %   isPer==1).
 %
-%   set_w are the associated pitch weights: all ones, if there is only one
-%   zero entered or empty.
+%   set_w are the associated pitch weights: if set_w is a scalar, all weights
+%   take that value.
 %
 %   spec_p are the spectral pitches in cents: harmonics, if less than three
 %   variables are entered.
@@ -54,6 +54,7 @@ set_w = set_w(:);
 %% Absolute monad vector and its entropy
 setExpVec = expectationTensor(set_p, set_w, sigma, kerLen, ...
                               r, isRel, isPer, period);
+stairs(setExpVec)
 h = histEntropy(setExpVec(:));
 
 end

@@ -41,6 +41,17 @@ if ~isequal(isAve,0) && ~isequal(isAve,1)
     error('isAve must be 0 or 1')
 end
 
+if isempty(x_w)
+    x_w = ones(numel(x_p),1);
+end
+if numel(x_w) == 1
+    if x_w == 0
+        warning('All weights in x_w are zero.');
+    end
+    x_w = x_w*ones(numel(x_p),1);
+end
+x_w = x_w(:);
+
 %% Fixed parameters
 Dstar = 0.24; 
 S1 = 0.0207; 

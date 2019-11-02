@@ -39,22 +39,25 @@ else
     x_w = x_w(:);
     y_p = y_p(:);
     y_w = y_w(:);
-    
+        
     if isempty(x_w)
         x_w = ones(numel(x_p),1);
     end
     if numel(x_w) == 1
-        x_w = x_w*ones(numel,1);
+        if x_w == 0
+            warning('All weights in x_w are zero.');
+        end            
+        x_w = x_w*ones(numel(x_p),1);
     end
     
     if rem(r,1) || r<1
         error('''r'' must be a positive integer.');
     elseif r > min(numel(x_p),numel(y_p))
         error(['''r'' must not exceed the cardinality of either pitch ' ...
-               'multiset.']);
+            'multiset.']);
     elseif numel(x_p)~=numel(x_w) || numel(y_p)~=numel(y_w)
         error(['x_w must have the same number of entries as x_p; ' ...
-               'likewise for y_w and y_p.']);
+            'likewise for y_w and y_p.']);
     end
     
     if isRel
@@ -90,8 +93,8 @@ end
                     diff = mod(diff + J/2,J) - J/2;
                 end
                 ipval = ipval ...
-                      + prod([u_w(j); v_w(k)]) ...
-                      * exp(-(diff'*RM*diff)/(4*sigma^2)); % This more general
+                    + prod([u_w(j); v_w(k)]) ...
+                    * exp(-(diff'*RM*diff)/(4*sigma^2)); % This more general
                 % approach could be a performance hit in the absolute case;
                 % keep an eye on it.
                 count = count+1;

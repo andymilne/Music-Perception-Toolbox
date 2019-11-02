@@ -120,61 +120,60 @@ nDimX = r-isRel;
 %% Generate smoothing kernel
 % Create nDimX-dimensional Gaussian kernel (sparse if nDimX > 1)
 if newKer
-    if sigma < 0
-        error("Sigma must be non-negative.")
-    end
-    if sigma == 0
-        sigma = eps;
-    end
-    if kerLen == 0
-        kerLen = eps;
-    end
-    if nDimX > 1 || nDimX==1 && isPer==0
-        SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference
-        % distributions (when isRel==1) is scaled by 2
-    end
-    
-    K = ceil(sigma*kerLen);
-    if bitget(K,1) == 1
-        K = K + 1;
-    end
-    k = 0:K;
-    gKerLen = numel(k);
-    
-    if nDimX == 1
-        gKer = normpdf(k',ceil(K/2), sigma * 2^(isRel/2))'; % standard
-        % deviation of difference distributions (when isRel==1) is scaled
-        % by sqrt(2)
-        if isRel==1 && isPer==0
-            spKer = array2SpArray(gKer);
-        else
-            if normalize == 1
-                gKer = gKer*sqrt(2*pi*sigma^2);
-            end
-            if isRel == 1
-                gKer = gKer/sqrt(1/2); 
-                % Is this also needed for higher r?
-            end
+    if sigma > 0
+        if nDimX > 1 || nDimX==1 && isPer==0
+            SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference 
+            % distributions (when isRel==1) is scaled by 2 
         end
-    elseif nDimX == 2
-        [X1,X2] = ndgrid(k,k);
-        ker = mvnpdf([X1(:) X2(:)],ceil(K/2),SIG);
-        ker = reshape(ker,[gKerLen gKerLen]);
-        spKer = array2SpArray(ker);
-    elseif nDimX == 3
-        [X1,X2,X3] = ndgrid(k,k,k);
-        ker = mvnpdf([X1(:) X2(:) X3(:)],ceil(K/2),SIG);
-        ker = reshape(ker,[gKerLen gKerLen gKerLen]);
-        spKer = array2SpArray(ker);
-    elseif nDimX == 4
-        [X1,X2,X3,X4] = ndgrid(k,k,k,k);
-        ker = mvnpdf([X1(:) X2(:) X3(:) X4(:)],ceil(K/2),SIG);
-        ker = reshape(ker,[gKerLen gKerLen gKerLen gKerLen]);
-        spKer = array2SpArray(ker);
-    end
-    if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1
-        spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
-        %spKer = spTimes(spKer,1/max(spKer.Val));
+        
+        K = ceil(sigma*kerLen);
+        if bitget(K,1) == 1
+            K = K + 1;
+        end
+        k = 0:K;
+        gKerLen = numel(k);
+        
+        if nDimX == 1
+            gKer = normpdf(k',ceil(K/2), sigma * 2^(isRel/2))'; % standard
+            % deviation of difference distributions (when isRel==1) is scaled 
+            % by sqrt(2)
+            if isRel==1 && isPer==0
+                spKer = array2SpArray(gKer);
+            else
+                if normalize == 1
+                    %gKer = gKer/sum(gKer); % modes are expectations
+                    gKer = gKer*sqrt(2*pi*sigma^2);
+                end
+                if isRel == 1
+                    %gKer = gKer/sqrt(sum(gKer.^2)); % Is this correct??? 
+                    % Seems so, so is this also needed for higher r?
+                    % Here's an analytic version...
+                    gKer = sqrt(sqrt(1/(pi*sigma^2)))*gKer;
+                end
+            end
+        elseif nDimX == 2
+            [X1,X2] = ndgrid(k,k);
+            ker = mvnpdf([X1(:) X2(:)],ceil(K/2),SIG);
+            ker = reshape(ker,[gKerLen gKerLen]);
+            spKer = array2SpArray(ker);
+        elseif nDimX == 3
+            [X1,X2,X3] = ndgrid(k,k,k);
+            ker = mvnpdf([X1(:) X2(:) X3(:)],ceil(K/2),SIG);
+            ker = reshape(ker,[gKerLen gKerLen gKerLen]);
+            spKer = array2SpArray(ker);
+        elseif nDimX == 4
+            [X1,X2,X3,X4] = ndgrid(k,k,k,k);
+            ker = mvnpdf([X1(:) X2(:) X3(:) X4(:)],ceil(K/2),SIG);
+            ker = reshape(ker,[gKerLen gKerLen gKerLen gKerLen]);
+            spKer = array2SpArray(ker);
+        end
+        if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1
+            spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
+            %spKer = spTimes(spKer,1/max(spKer.Val));
+        end
+    else
+        gKer = 1;
+        gKerLen = 1;
     end
 end
 % Note that gKerLen is always odd: offset gives the number of kernel entries,
@@ -193,9 +192,6 @@ if isempty(x_w)
     x_w = ones(I,1);
 end
 if numel(x_w) == 1
-    if x_w == 0
-        warning('All weights in x_w are zero.');
-    end
     x_w = x_w*ones(I,1);
 end
 x_w = x_w(:);

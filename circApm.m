@@ -27,13 +27,13 @@ end
 N = length(x_ind);
 
 % Identify the indices of the indicator vector that will be in each dot product
-nIndArray = (1:N)' * (0:N-1) + reshape((0:N-1), [1 1 N]) ;
+nIndArray = (0:N-1)' * (0:N-1) + reshape((0:N-1), [1 1 N]);
 R = nan(N, N);
 for phi = 0 : N-1
     for k = 0 : N-1
         R(k+1, phi+1) ...
-            = x_ind(mod(nIndArray(mod(k-1, N)+1, :, mod(phi, N)+1), N) + 1) ...
-            * x_ind(mod(nIndArray(mod(k-1, N)+1, :, mod(k+phi, N)+1), N) + 1)';
+            = x_ind(mod(nIndArray(k+1, :, phi+1), N) + 1) ...
+            * x_ind(mod(nIndArray(k+1, :, mod(k+phi,N)+1), N) + 1)';
     end
 end
 R = R/N;

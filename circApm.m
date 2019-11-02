@@ -47,7 +47,7 @@ if nargout > 2
 end
 
 % Check the APM row sum equals conventional circular autocorrelation
-circConv(x_ind,fliplr(x_ind))
+% circConv(x_ind,fliplr(x_ind))
 % sum(R,2)
 
 end

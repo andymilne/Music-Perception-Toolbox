@@ -4,11 +4,10 @@ function [R,rPhase,rLag] = circApm(x_ind)
 %   notes/onsets by nonnegative weights and pitch/time by index, R =
 %   CIRCAPM(x_pc), returns the circular autocorrelation phase matrix (APM).
 %
-%   This function adapts the method described by Eck (2006) for calculating
-%   a non-circular APM. The row number indexes lag; so row 1 has a lag of
-%   1, row N has a lag of N (which correponds to a lag 0). The column
-%   number minus one indexes the phase value (in pulse units); so column 1
-%   has phase 0, column N has phase N - 1.
+%   This function adapts the method described by Eck (2006) for calculating a
+%   non-circular APM. The row number minus one indexes lag; so row 1 has a lag
+%   of 0, row N has a lag of N-1. The column number minus one indexes the phase
+%   value (in pulse units); so column 1 has phase 0, column N has phase N-1.
 %
 %   [R,rPhase] = circApm(w) also returns the column sum of the APM, which
 %   can be used as a model of "metrical weight" (Parncutt 1994).
@@ -31,8 +30,8 @@ N = length(x_ind);
 nIndArray = (1:N)' * (0:N-1) + reshape((0:N-1), [1 1 N]) ;
 R = nan(N, N);
 for phi = 0 : N-1
-    for k = 1 : N
-        R(k, phi+1) ...
+    for k = 0 : N-1
+        R(k+1, phi+1) ...
             = x_ind(mod(nIndArray(mod(k-1, N)+1, :, mod(phi, N)+1), N) + 1) ...
             * x_ind(mod(nIndArray(mod(k-1, N)+1, :, mod(k+phi, N)+1), N) + 1)';
     end
@@ -45,9 +44,5 @@ end
 if nargout > 2
     rLag = sum(R,2);
 end
-
-% Check the APM row sum equals conventional circular autocorrelation
-% circConv(x_ind,fliplr(x_ind))
-% sum(R,2)
 
 end

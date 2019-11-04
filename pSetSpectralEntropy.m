@@ -63,7 +63,6 @@ set_w = set_w(:);
 %% Absolute monad vector and its entropy
 setExpVec = expectationTensor(set_p, set_w, sigma, kerLen, ...
                               r, isRel, isPer, period);
-stairs(setExpVec)
 h = histEntropy(setExpVec(:));
 
 end

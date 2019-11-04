@@ -210,13 +210,8 @@ x_w = x_w(finInd);
 % nonperiodic and absolute, remove all pitches outside limits (taking into
 % account the kernel width)
 if isRel==0 && isPer==0
-    if numel(limits) == 2
-        x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
-        x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
-    else
-        x_w(x_p<limits(1)-gKerLen) = [];
-        x_p(x_p<limits(1)-gKerLen) = [];
-    end
+    x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
+    x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
     I = numel(x_p);
 end
 

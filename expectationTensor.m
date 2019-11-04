@@ -206,36 +206,38 @@ if I ~= numel(x_w)
 end
 x_w = x_w(finInd);
 
+if numel(limits) == 1
+    limits(2) = limits(1);
+    limits(1) = 0;
+end
+if isempty(limits) 
+    if isRel == 0
+        limits = [min(x_p) max(x_p)];
+    else
+        error('A "limits" argument must be entered for periodic tensors.')
+    end
+end
+J = limits(2)-limits(1);
+
 % Change x_p and x_w in light of isRel, isPer, and limits arguments: If
-% nonperiodic and absolute, remove all pitches outside limits (taking into
+% nonperiodic and absolute remove all pitches outside limits (taking into 
 % account the kernel width)
 if isRel==0 && isPer==0
-    if numel(limits) == 2
-        if numel(x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen)) > 0
-            warning(['Some pitches in x_pc lie outside the range set by ' ... 
-                     'limits, hence they have been removed.'])
-        end
-        x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
-        x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
-    else
-        if numel(x_w(x_p>limits-gKerLen)) > 0
-            warning(['Some pitches in x_pc are higher than the limits ' ...
-                     'argument, hence they have been removed.'])
-        end
-        x_w(x_p>limits-gKerLen) = [];
-        x_p(x_p>limits-gKerLen) = [];
+    if numel(x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen)) == numel(x_p)
+        error(['All pitches have been removed from x_p because they ' ...
+               'all lie outside the range set by "limits".'])
     end
+    if numel(x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen)) > 0
+        warning(['Some pitches in x_p lie outside the range set by ' ... 
+                 '"limits", hence they have been removed.'])
+    end
+    x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
+    x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
     I = numel(x_p);
 end
 
 negOffset = 0;
 limits = round(limits);
-
-if numel(limits) == 1
-    limits(2) = limits(1);
-    limits(1) = 0;
-end
-J = limits(2)-limits(1);
 
 if isPer == 1
     % Convert x_p to x_p modulo the period

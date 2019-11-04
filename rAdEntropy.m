@@ -1,4 +1,4 @@
-function h = rAdEntropy(x_ind,r)
+function h = rAdEntropy(x_ind,r,isNorm)
 %RADENTROPY Relative r-ad entropy.
 %   Given a binary indicator vector v, which represents periodic notes/events
 %   by ones and pitch/time by index, h = rAdEntropy(v,r) returns the entropy,
@@ -22,6 +22,10 @@ function h = rAdEntropy(x_ind,r)
 %
 %   See also STEPENTROPY, HISTENTROPY, SPHISTENTROPY
 
+if nargin < 3
+    isNorm = 1;
+end
+
 x_p = ind2Pitch(x_ind);
 x_w = 1;
 sigma = 0;
@@ -36,12 +40,13 @@ else
 end
 
 X_r = expectationTensor(x_p, x_w, ...
-    sigma, kerLen, r, isRel, isPer, limits, ...
-    isSparse);
+                        sigma, kerLen, r, isRel, isPer, limits, ...
+                        isSparse);
 if r < 3
-    h = histEntropy(X_r(:));
+    X_r(abs(X_r) < 0.0001) = 0;
+    h = histEntropy(X_r(:), isNorm);
 else
-    h = spHistEntropy(X_r(:));
+    h = spHistEntropy(X_r(:), isNorm);
 end
 
 end

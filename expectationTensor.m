@@ -211,9 +211,17 @@ x_w = x_w(finInd);
 % account the kernel width)
 if isRel==0 && isPer==0
     if numel(limits) == 2
+        if numel(x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen)) > 0
+            warning(['Some pitches in x_pc lie outside the range set by ' ... 
+                     'limits, hence they have been removed.'])
+        end
         x_w(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
         x_p(x_p<limits(1)-gKerLen | x_p>limits(2)+gKerLen) = [];
     else
+        if numel(x_w(x_p>limits-gKerLen)) > 0
+            warning(['Some pitches in x_pc are higher than the limits ' ...
+                     'argument, hence they have been removed.'])
+        end
         x_w(x_p>limits-gKerLen) = [];
         x_p(x_p>limits-gKerLen) = [];
     end

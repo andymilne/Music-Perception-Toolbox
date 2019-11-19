@@ -28,8 +28,8 @@ end
 
 x_p = ind2Pitch(x_ind);
 x_w = 1;
-sigma = 0;
-kerLen = 1;
+sigma = eps;
+kerLen = 0;
 isRel = 1;
 isPer = 1;
 limits = numel(x_ind);

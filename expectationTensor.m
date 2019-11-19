@@ -112,22 +112,22 @@ else
 end
 
 %% Fixed parameters
-normalize = 1; % make modes in expectation tensors equal to counts
+normalize = 1; % make modes in expectation tensors equal to counts.
 
 %% Preliminaries
 nDimX = r-isRel;
 
 %% Generate smoothing kernel
 % Create nDimX-dimensional Gaussian kernel (sparse if nDimX > 1)
+
 if newKer
     if sigma < 0
-        error("Sigma must be non-negative.")
+        error('Sigma must be non-negative.')
     end
     if sigma == 0
+        warning(['Sigma must be greater than zero; it has been set to ' ... 
+                 '2.2204e-16.'])
         sigma = eps;
-    end
-    if kerLen == 0
-        kerLen = eps;
     end
     if nDimX > 1 || nDimX==1 && isPer==0
         SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference
@@ -135,8 +135,8 @@ if newKer
     end
     
     K = ceil(sigma*kerLen);
-    if bitget(K,1) == 1
-        K = K + 1;
+    if bitget(K,1) == 1 % 1 if K is odd
+        K = K - 1;
     end
     k = 0:K;
     gKerLen = numel(k);
@@ -362,6 +362,9 @@ elseif r == 2
         x1_e_k_2(x1_e_k_2<1e-15) = 0;
         if newKer || newLim
             FgKer = fft(gKer', J);
+            FgKer = FgKer(:); % this is required because fft of a scalar gKer
+            % (e.g., when sigma or kerLen are 0) returns a row instead of 
+            % column vector
             x2_e_k_2 = ifft(abs(FgKer).^2, J);
         end
         % Smoothed periodic relative dyad vector

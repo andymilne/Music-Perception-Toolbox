@@ -142,18 +142,15 @@ if newKer
     gKerLen = numel(k);
     
     if nDimX == 1
-        gKer = normpdf(k',ceil(K/2), sigma * 2^(isRel/2))'; % standard
+        sig = sigma * sqrt(2^isRel);
+        gKer = normpdf(k',ceil(K/2), sig)'; % standard
         % deviation of difference distributions (when isRel==1) is scaled
         % by sqrt(2)
         if isRel==1 && isPer==0
             spKer = array2SpArray(gKer);
         else
             if normalize == 1
-                gKer = gKer*sqrt(2*pi*sigma^2);
-            end
-            if isRel == 1
-                gKer = gKer/sqrt(1/2); 
-                % Is this also needed for higher r?
+                gKer = gKer*sqrt(2 * pi * sig^2);
             end
         end
     elseif nDimX == 2
@@ -174,7 +171,6 @@ if newKer
     end
     if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1
         spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
-        %spKer = spTimes(spKer,1/max(spKer.Val));
     end
 end
 % Note that gKerLen is always odd: offset gives the number of kernel entries,
@@ -355,17 +351,22 @@ elseif r == 2
         % Note that this routine uses circular convolution (calculated with
         % FFTs) because this is faster than the methods used below (this method
         % is only suitable for this set of features).
-        
+
         % Circular autocorrelation
         x1_e_k_2 = ifft(abs(fft(X_p_j', J)).^2, J); % abs(x).^2 is faster than
         % x.*conj(x)
+        x1_e_k_2 = x1_e_k_2/sum(X_p_j)*sqrt(2)*sum(x_w); % I do not fully 
+        % understand why this scaling is necessary
         x1_e_k_2(x1_e_k_2<1e-15) = 0;
+        max(x1_e_k_2)
         if newKer || newLim
             FgKer = fft(gKer', J);
             FgKer = FgKer(:); % this is required because fft of a scalar gKer
             % (e.g., when sigma or kerLen are 0) returns a row instead of 
             % column vector
             x2_e_k_2 = ifft(abs(FgKer).^2, J);
+            x2_e_k_2 = x2_e_k_2/sum(gKer)*sqrt(2); % This ensures maximum of 
+            % kernel is 1.
         end
         % Smoothed periodic relative dyad vector
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -600,7 +601,7 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
             end
         end
     end
-    
+        
     if isempty(X.Ind)
         warning('There are no nonzero expectations within specified limits')
         if isSparse == 1
@@ -728,9 +729,10 @@ if doPlot == 1
         elseif isPer==1
             axis([1 J+1 1 J+1])
         end
-        axis square
+        % axis square
         ax = gca;
         ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
+        set(gca,'color',[0.8 0.8 0.8])
         colormap bone
         lighting phong
         grid off

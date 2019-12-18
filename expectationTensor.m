@@ -37,9 +37,8 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %   isSparse = 0 or 1 - when r = 1 or r = 2 and isRel = 1, the resulting
 %   expectation vector (or scalar) is always full. All other cases return a
 %   sparse array structure when isSparse = 1 (the default); otherwise, it is
-%   converted to a full array. When doPlot = 1, isSparse is set to 0. For high
-%   dimensional tensors, the conversion to full format may be slow and may
-%   exceed available memory.
+%   converted to a full array. For high dimensional tensors, the conversion to
+%   full format may be slow and may exceed available memory.
 %
 %   doPlot = 0 or 1 - make or do not make a plot of the resulting tensor. When
 %   the tensor has dimensionality greater than 2, the higher dimensions are
@@ -615,7 +614,7 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
         end
     end
         
-    if isSparse==0 || doPlot==1
+    if isSparse==0 
         % Tensor (full)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         X = spArray2Array(X);
@@ -625,6 +624,12 @@ end
 
 %% Plots
 if doPlot == 1
+    if isSparse==1
+        plotX = spArray2Array(X);
+    else
+        plotX = X;
+    end
+    
     figNum = (r-1)*4 + isRel*2 + isPer + 1;
     
     if r == 1
@@ -673,7 +678,6 @@ if doPlot == 1
     end
     switch nDimX
         case 1
-            plotX = X;
             if isPer==1 
                 plotX = [plotX; plotX(1)];
             end
@@ -697,21 +701,20 @@ if doPlot == 1
             ax.FontSize = 16;
             ax.XLabel.String = 'Log frequency (cents)';
         case 2
-            plotX = X;
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else
                 plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
             end
         case 3
-            plotX = squeeze(sum(X,3));
+            plotX = squeeze(sum(plotX,3));
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else
                 plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
             end
         case 4
-            plotX = squeeze(sum(sum(X,4),3));
+            plotX = squeeze(sum(sum(plotX,4),3));
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else

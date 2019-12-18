@@ -1,6 +1,6 @@
 function [v,vCentred] = circConv(signal,kernel)
 %CIRCCONV Circular convolution modulo the dimension of longest vector.
-%   [v vCentred] = CCONV(A, B) circularly convolves vectors A and B.
+%   [v vCentred] = CIRCCONV(A, B) circularly convolves vectors A and B.
 
 N = length(signal);
 M = length(kernel);

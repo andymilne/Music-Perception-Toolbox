@@ -288,7 +288,9 @@ if r==1 || (r==2 && isRel==1 && isPer==1)
     lowInd = x_p + 1;
     highInd = x_p + gKerLen;
     gKer_w = x_w*gKer;
-    X_p_ij = zeros(I,J + gKerLen);
+    class(I)
+    class(J + gKerLen)
+    X_p_ij = zeros(int64(I),int64(J + gKerLen));
     for i = 1:I % Using a loop is faster than indexing that avoids looping
         X_p_ij(i,lowInd(i):highInd(i)) = gKer_w(i,:);
     end
@@ -692,7 +694,7 @@ if doPlot == 1
             end
             if isPer==0
                 set(gca,'XTick',(1:tickGap:J+1)+offset)
-                set(gca,'XTickLabel',pVals(1:tickGap:J+1)+offset-negOffset)
+                set(gca,'XTickLabel',pVals(1:tickGap:J+1)+offset+negOffset)
             else
                 set(gca,'XTick',1:tickGap:J)
                 set(gca,'XTickLabel',pVals(1:tickGap:J))
@@ -747,8 +749,8 @@ if doPlot == 1
                 set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
                 set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
             end
-            set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
-            set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset-negOffset)
+            set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset+negOffset)
+            set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset+negOffset)
         else
             set(gca,'XTick',1:tickGap:J)
             set(gca,'YTick',1:tickGap:J)

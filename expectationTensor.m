@@ -150,6 +150,9 @@ if newKer
         else
             if normalize == 1
                 gKer = gKer*sqrt(2 * pi * sig^2);
+                gKerDotP = gKer*gKer';
+            else
+                gKerDotP = 1;
             end
         end
     elseif nDimX == 2
@@ -212,7 +215,12 @@ if isempty(limits)
         error('A "limits" argument must be entered for periodic tensors.')
     end
 end
-J = limits(2)-limits(1);
+
+if isPer == 0
+    J = limits(2)-limits(1);
+else
+    J = limits(2);
+end
 
 % Change x_p and x_w in light of isRel, isPer, and limits arguments: If
 % nonperiodic and absolute remove all pitches outside limits (taking into 
@@ -259,7 +267,11 @@ else
     pHi = limits(end) - 1;
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-pVals = (pLo:pHi)';
+if isRel == 1 
+    pVals = (pLo:pHi)' - negOffset;
+else
+    pVals = (pLo:pHi)';
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %% Return all-zeros X if r > I
@@ -333,7 +345,7 @@ if r == 1
         
         % Shifted to line up with pVals
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        X = circshift(X,-offset-pLo);
+        X = circshift(X,negOffset-offset-pLo); %!!!!
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     else % isRel == 1
         % Relative monad scalar
@@ -356,18 +368,15 @@ elseif r == 2
         % Circular autocorrelation
         x1_e_k_2 = ifft(abs(fft(X_p_j', J)).^2, J); % abs(x).^2 is faster than
         % x.*conj(x)
-        x1_e_k_2 = x1_e_k_2/sum(X_p_j)*sqrt(2)*sum(x_w); % I do not fully 
-        % understand why this scaling is necessary
+        x1_e_k_2 = x1_e_k_2/gKerDotP;
         x1_e_k_2(x1_e_k_2<1e-15) = 0;
-        max(x1_e_k_2)
         if newKer || newLim
             FgKer = fft(gKer', J);
             FgKer = FgKer(:); % this is required because fft of a scalar gKer
             % (e.g., when sigma or kerLen are 0) returns a row instead of 
             % column vector
             x2_e_k_2 = ifft(abs(FgKer).^2, J);
-            x2_e_k_2 = x2_e_k_2/sum(gKer)*sqrt(2); % This ensures maximum of 
-            % kernel is 1.
+            x2_e_k_2 = x2_e_k_2/gKerDotP;
         end
         % Smoothed periodic relative dyad vector
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -678,88 +687,65 @@ if doPlot == 1
     elseif J < 36000
         tickGap = 1200;
     end
+    
+    tickVals = [ceil(pLo/tickGap)*tickGap ceil(pHi/tickGap)*tickGap];    
     switch nDimX
         case 1
             if isPer==1 
                 plotX = [plotX; plotX(1)];
-            end
-            % hold on
-            figure(figNum)
-            stairs(plotX,'LineWidth',2,'LineStyle','-')
-            title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
-            if isPer==0
-                axis([1,J+1+gKerLen,0,max(plotX)*1.1])
-            elseif isPer==1
-                axis([1,J+1,0,max(plotX)*1.1])
-            end
-            if isPer==0
-                set(gca,'XTick',(1:tickGap:J+1)+offset)
-                set(gca,'XTickLabel',pVals(1:tickGap:J+1)+offset+negOffset)
             else
-                set(gca,'XTick',1:tickGap:J)
-                set(gca,'XTickLabel',pVals(1:tickGap:J))
+                plotX = [plotX; 0];
             end
-            ax = gca;
-            ax.FontSize = 16;
-            ax.XLabel.String = 'Log frequency (cents)';
         case 2
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else
-                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
+                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0]; 
             end
         case 3
             plotX = squeeze(sum(plotX,3));
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else
-                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
+                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0]; 
             end
         case 4
             plotX = squeeze(sum(sum(plotX,4),3));
             if isPer==1
                 plotX = [plotX plotX(:,1); plotX(1,:) 0];
             else
-                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0];
+                plotX = [plotX 0*plotX(:,1); 0*plotX(1,:) 0]; 
             end
     end
     
-    if nDimX > 1
+    if nDimX == 1
+        % hold on
+        figure(figNum)
+        stairs([pVals; pVals(end)+1],plotX,'LineWidth',2,'LineStyle','-')
+        axis([pVals(1) pVals(end)+1 0,max(plotX)*1.1])
+        set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
+        ax = gca;
+        ax.FontSize = 16;
+        ax.XLabel.String = 'Log frequency (cents)';
+    else
         % hold off
         figure(figNum)
-        surf(plotX, 'FaceAlpha',1,'LineStyle','none')
-        title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
-        if isPer==0
-            axis([1 J+gKerLen+1 1 J+gKerLen+1])
-        elseif isPer==1
-            axis([1 J+1 1 J+1])
-        end
-        % axis square
-        ax = gca;
-        ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
+        surf([pVals; pVals(end)+1],[pVals; pVals(end)+1], plotX, ...
+             'FaceAlpha',1,'LineStyle','none')
+        axis([pVals(1) pVals(end)+1 pVals(1) pVals(end)+1])
+        set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
+        set(gca,'YTick',tickVals(1):tickGap:tickVals(2))
         set(gca,'color',[0.8 0.8 0.8])
+        ax = gca;
+        ax.FontSize = 16;
+        ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
         colormap bone
         lighting phong
         grid off
-        if isPer==0
-            if gKerLen > 1
-                set(gca,'XTick',(1:tickGap:J+gKerLen-1)+offset)
-                set(gca,'YTick',(1:tickGap:J+gKerLen-1)+offset)
-            else
-                set(gca,'XTick',(1:tickGap:J+gKerLen)+offset)
-                set(gca,'YTick',(1:tickGap:J+gKerLen)+offset)
-            end
-            set(gca,'XTickLabel',pVals(1:tickGap:J+gKerLen)+offset+negOffset)
-            set(gca,'YTickLabel',pVals(1:tickGap:J+gKerLen)+offset+negOffset)
-        else
-            set(gca,'XTick',1:tickGap:J)
-            set(gca,'YTick',1:tickGap:J)
-            set(gca,'XTickLabel',pVals(1:tickGap:J))
-            set(gca,'YTickLabel',pVals(1:tickGap:J))
-        end
-        ax = gca;
-        ax.FontSize = 16;
+        axis square
     end
+    title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
+
     clear plotX
 end
 

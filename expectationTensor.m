@@ -141,18 +141,20 @@ if newKer
     gKerLen = numel(k);
     
     if nDimX == 1
-        sig = sigma * sqrt(2^isRel);
-        gKer = normpdf(k',ceil(K/2), sig)'; % standard
-        % deviation of difference distributions (when isRel==1) is scaled
-        % by sqrt(2)
         if isRel==1 && isPer==0
+            gKer = normpdf(k',ceil(K/2), sigma * sqrt(2^isRel))'; % standard 
+            % deviation of a difference distribution (i.e., when isRel==1) is 
+            % scaled by sqrt(2)
             spKer = array2SpArray(gKer);
         else
+            gKer = sqrt(2 * pi * (sigma * sqrt(2^isRel))^2) ...
+                 * normpdf(k',ceil(K/2), sigma)'; % standard deviation of a
+            % difference distribution (i.e., when isRel==1) is scaled by
+            % sqrt(2)
             if normalize == 1
-                gKer = gKer*sqrt(2 * pi * sig^2);
-                gKerDotP = gKer*gKer';
+                gKerDotProd = gKer*gKer';
             else
-                gKerDotP = 1;
+                gKerDotProd = 1;
             end
         end
     elseif nDimX == 2
@@ -266,13 +268,16 @@ else
     pLo = 0;
     pHi = limits(end) - 1;
 end
+
+if isRel == 1
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-if isRel == 1 
     pVals = (pLo:pHi)' - negOffset;
-else
-    pVals = (pLo:pHi)';
-end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+else
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    pVals = (pLo:pHi)';
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+end
 
 %% Return all-zeros X if r > I
 dimX = repelem(J,nDimX); % Get size of X
@@ -300,9 +305,7 @@ if r==1 || (r==2 && isRel==1 && isPer==1)
     lowInd = x_p + 1;
     highInd = x_p + gKerLen;
     gKer_w = x_w*gKer;
-    class(I)
-    class(J + gKerLen)
-    X_p_ij = zeros(int64(I),int64(J + gKerLen));
+    X_p_ij = zeros(round(I),round(J + gKerLen));
     for i = 1:I % Using a loop is faster than indexing that avoids looping
         X_p_ij(i,lowInd(i):highInd(i)) = gKer_w(i,:);
     end
@@ -345,7 +348,7 @@ if r == 1
         
         % Shifted to line up with pVals
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        X = circshift(X,negOffset-offset-pLo); %!!!!
+        X = circshift(X,negOffset-offset-pLo); 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     else % isRel == 1
         % Relative monad scalar
@@ -368,7 +371,7 @@ elseif r == 2
         % Circular autocorrelation
         x1_e_k_2 = ifft(abs(fft(X_p_j', J)).^2, J); % abs(x).^2 is faster than
         % x.*conj(x)
-        x1_e_k_2 = x1_e_k_2/gKerDotP;
+        x1_e_k_2 = x1_e_k_2/gKerDotProd;
         x1_e_k_2(x1_e_k_2<1e-15) = 0;
         if newKer || newLim
             FgKer = fft(gKer', J);
@@ -376,7 +379,7 @@ elseif r == 2
             % (e.g., when sigma or kerLen are 0) returns a row instead of 
             % column vector
             x2_e_k_2 = ifft(abs(FgKer).^2, J);
-            x2_e_k_2 = x2_e_k_2/gKerDotP;
+            x2_e_k_2 = x2_e_k_2/gKerDotProd;
         end
         % Smoothed periodic relative dyad vector
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

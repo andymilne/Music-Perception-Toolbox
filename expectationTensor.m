@@ -24,7 +24,7 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %   isRel = transpositional invariance (1) or not (0).
 %
 %   isPer = 0 or 1 - make the tensor not periodic or periodic; that is, treat
-%   pitches as pitch classes, modulo the period, when periodic is 1).
+%   pitches as pitch classes, modulo the period, when periodic is 1.
 %
 %   limits = a scalar or a 2-entry row vector: if isPer == 0, limits sets the
 %   interval of pitches over which the expectation tensor is generated
@@ -66,7 +66,7 @@ function [X,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
 %   By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
 persistent sigmaLast kerLenLast rLast isRelLast isPerLast limitsLast ...
-    FgKer x2_e_k_2 gKer gKerLen spKer
+    FgKer x2_e_k_2 gKer gKerLen spKer gKerDotProd
 
 if nargin < 11
     tol = 0.00001;
@@ -96,6 +96,10 @@ end
 if sigma < 0
     error('sigma must be nonnegative.')
 end
+if doPlot==1 && isSparse==1
+    warning(['isSparse has been changed to 0 in order to allow plots to ' ...
+             'be drawn; doPlot must be 0 if you want sparse output.'])
+end
 
 if ~isequal(sigma,sigmaLast) || ~isequal(kerLen,kerLenLast) ...
         || ~isequal(isRel,isRelLast) || ~isequal(r,rLast) ...
@@ -124,9 +128,9 @@ if newKer
         error('Sigma must be non-negative.')
     end
     if sigma == 0
+        sigma = eps;
         warning(['Sigma must be greater than zero; it has been set to ' ... 
                  '2.2204e-16.'])
-        sigma = eps;
     end
     if nDimX > 1 || nDimX==1 && isPer==0
         SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference
@@ -305,12 +309,13 @@ if r==1 || (r==2 && isRel==1 && isPer==1)
     lowInd = x_p + 1;
     highInd = x_p + gKerLen;
     gKer_w = x_w*gKer;
-    X_p_ij = zeros(round(I),round(J + gKerLen));
+    X_p_ij = zeros(I,round(J+gKerLen));
     for i = 1:I % Using a loop is faster than indexing that avoids looping
         X_p_ij(i,lowInd(i):highInd(i)) = gKer_w(i,:);
     end
     % Wrap
-    X_p_ij(:,1:gKerLen) = X_p_ij(:,1:gKerLen) + X_p_ij(:,J+1 : J+gKerLen);
+    X_p_ij(:,1:gKerLen) = X_p_ij(:,1:gKerLen) ...
+                        + X_p_ij(:,round(J+1) : round(J+gKerLen));
     if r == 1
         % Sum
         X_p_j = sum(X_p_ij);

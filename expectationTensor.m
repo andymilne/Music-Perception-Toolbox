@@ -304,7 +304,6 @@ if (r==1 && isRel==0) || (r==2 && isRel==1 && isPer==1)
     gKer_w = x_w*gKer;
     X_p_ij = zeros(I,J+gKerLen);
     for i = 1:I % Using a loop is faster than indexing that avoids looping
-        lowInd(i)
         X_p_ij(i,lowInd(i):highInd(i)) = gKer_w(i,:);
     end
     % Shift/wrap 

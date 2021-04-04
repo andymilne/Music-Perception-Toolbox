@@ -122,7 +122,6 @@ nDimX = r-isRel;
 
 %% Generate smoothing kernel
 % Create nDimX-dimensional Gaussian kernel (sparse if nDimX > 1)
-
 if newKer
     if sigma < 0
         error('Sigma must be non-negative.')
@@ -177,13 +176,14 @@ if newKer
         ker = reshape(ker,[gKerLen gKerLen gKerLen gKerLen]);
         spKer = array2SpArray(ker);
     end
-    if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1
+%     if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1 % CHECK THIS!!
+    if nDimX>1 && normalize==1
         spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
     end
 end
 % Note that gKerLen is always odd: offset gives the number of kernel entries,
 % in any single dimension, before or after the kernel's central value
-offset = (gKerLen-1)/2;
+halfKerLen = (gKerLen-1)/2;
 
 %% Transforms of x_p, x_w, y_p, and y_w 
 % Remove invalid x_p and x_w values
@@ -191,25 +191,25 @@ x_p = x_p(:);
 finInd = isfinite(x_p);
 x_p = x_p(finInd);
 x_p = round(x_p);
-
 I = numel(x_p);
-if isempty(x_w)
-    x_w = ones(I,1);
-end
-if numel(x_w) == 1
+
+if numel(x_w) > 1
+    x_w = x_w(finInd);
+    % Error check
+    if I ~= numel(x_w)
+        error('x_p and x_w, must have the same number of (finite) entries.')
+    end
+elseif numel(x_w) == 1
     if x_w == 0
         warning('All weights in x_w are zero.');
     end
     x_w = x_w*ones(I,1);
+elseif isempty(x_w)
+    x_w = ones(I,1);
 end
 x_w = x_w(:);
 
-% Error check
-if I ~= numel(x_w)
-    error('x_p and x_w, must have the same number of (finite) entries.')
-end
-x_w = x_w(finInd);
-
+limits = round(limits);
 if numel(limits) == 1
     limits(2) = limits(1);
     limits(1) = 0;
@@ -220,12 +220,6 @@ if isempty(limits)
     else
         error('A "limits" argument must be entered for periodic tensors.')
     end
-end
-
-if isPer == 0
-    J = limits(2)-limits(1);
-else
-    J = limits(2);
 end
 
 % Change x_p and x_w in light of isRel, isPer, and limits arguments: If
@@ -245,29 +239,28 @@ if isRel==0 && isPer==0
     I = numel(x_p);
 end
 
-negOffset = 0;
-limits = round(limits);
-
 if isPer == 1
+    J = limits(2);
+    if J < 0
+        error('For periodic tensors, the last entry of "limits" must be greater than 0.')
+    end
     % Convert x_p to x_p modulo the period
     x_p = mod(x_p,J);
-else
+    offset = 0;
+else % isPer = 0
+    J = limits(2)-limits(1);
     if size(limits,1) ~= 1 || size(limits,2) ~= 2
-        error('For nonperiodic tensors, "limits" must be a 2-entry row vector')
+        error('For nonperiodic tensors, "limits" must be a 2-entry row vector.')
     end
-    % Make all negative x_p values non-negative by offsetting
-    negX_p = x_p;
-    negX_p(x_p>0) = [];
-    if ~isempty(negX_p)
-        negOffset = min(negX_p);
-    end
-    x_p = x_p - negOffset;
+    % Offset to make lowest x_p equal 0
+    offset = min(x_p);
+    x_p = x_p - offset;
 end
 
 %% Get pVals in light of isPer, limits, and kernel
 if isPer == 0
-    pLo = limits(1) - offset;
-    pHi = limits(2) + offset;
+    pLo = limits(1) - halfKerLen;
+    pHi = limits(2) + halfKerLen;
 else
     pLo = 0;
     pHi = limits(end) - 1;
@@ -275,7 +268,7 @@ end
 
 if isRel == 1
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    pVals = (pLo:pHi)' - negOffset;
+    pVals = (pLo:pHi)' - offset;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 else
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -305,17 +298,18 @@ if r > I
 end
 
 %% Pitch matrices X_p_ij (smoothed) or X_ij (unsmoothed) and their column sum
-if r==1 || (r==2 && isRel==1 && isPer==1) 
+if (r==1 && isRel==0) || (r==2 && isRel==1 && isPer==1)
     lowInd = x_p + 1;
     highInd = x_p + gKerLen;
     gKer_w = x_w*gKer;
-    X_p_ij = zeros(I,round(J+gKerLen));
+    X_p_ij = zeros(I,J+gKerLen);
     for i = 1:I % Using a loop is faster than indexing that avoids looping
+        lowInd(i)
         X_p_ij(i,lowInd(i):highInd(i)) = gKer_w(i,:);
     end
-    % Wrap
-    X_p_ij(:,1:gKerLen) = X_p_ij(:,1:gKerLen) ...
-                        + X_p_ij(:,round(J+1) : round(J+gKerLen));
+    % Shift/wrap 
+    X_p_ij(:,1:gKerLen) ...
+        = X_p_ij(:,1:gKerLen) + isPer*X_p_ij(:,J+1 : J+gKerLen);
     if r == 1
         % Sum
         X_p_j = sum(X_p_ij);
@@ -353,7 +347,7 @@ if r == 1
         
         % Shifted to line up with pVals
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        X = circshift(X,negOffset-offset-pLo); 
+        X = circshift(X,offset-halfKerLen-pLo); 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     else % isRel == 1
         % Relative monad scalar
@@ -559,8 +553,8 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
         if isPer == 0
             % Truncate/pad to match limits
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            X = spTrunc(repelem(pLo-offset-negOffset+1,nDimX), ...
-                        repelem(pHi+offset-negOffset+1,nDimX),X);
+            X = spTrunc(repelem(pLo-halfKerLen-offset+1,nDimX), ...
+                        repelem(pHi+halfKerLen-offset+1,nDimX),X);
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             if gKerLen > 1
                 X = spConv(X,spKer,'full');            
@@ -576,7 +570,7 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
                 % Negative circular shift to line up with pVals after 
                 % convolution
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                X = spShift(X,repelem(-offset,nDimX),isPer);
+                X = spShift(X,repelem(-halfKerLen,nDimX),isPer);
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             end
         end
@@ -592,16 +586,16 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
             if gKerLen == 1
                 % Truncate/pad to match limits
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                X = spTrunc(repelem(pLo-negOffset+max(x_p)+1,nDimX), ...
-                            repelem(pHi-negOffset+max(x_p)+1,nDimX),X); 
+                X = spTrunc(repelem(pLo-offset+max(x_p)+1,nDimX), ...
+                            repelem(pHi-offset+max(x_p)+1,nDimX),X); 
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             else % gKerLen > 1
                 X = spConv(X,spKer,'full');            
                 % Truncate/remove all entries outside pLo - offset and pHi +
                 % gKerLen (entries pLo and and pLo - offset, and entries
                 % between pHi and pHi + offset are removed after convolution)
-                X = spTrunc(repelem(pLo-offset-negOffset+max(x_p)+1,nDimX), ...
-                            repelem(pHi+offset-negOffset+max(x_p)+1,nDimX),X); 
+                X = spTrunc(repelem(pLo-halfKerLen-offset+max(x_p)+1,nDimX), ...
+                            repelem(pHi+halfKerLen-offset+max(x_p)+1,nDimX),X); 
                 % Negative noncircular shift achieved through truncation and
                 % also truncating outside limits
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -614,14 +608,14 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
                 X = spConv(X,spKer,'circ');
                 % Negative circ shift to line up with pVals after convolution
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                X = spShift(X,repelem(-offset,nDimX),isPer); 
+                X = spShift(X,repelem(-halfKerLen,nDimX),isPer); 
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  
             end
         end
     end
         
     if isempty(X.Ind)
-        warning('There are no nonzero expectations within specified limits')
+        warning('There are no nonzero expectations within the "limits" specified in the argument.')
         if isSparse == 1
             return
         else
@@ -696,7 +690,8 @@ if doPlot == 1
         tickGap = 1200;
     end
     
-    tickVals = [ceil(pLo/tickGap)*tickGap ceil(pHi/tickGap)*tickGap];    
+    tickVals ...
+        = [ceil(pVals(1)/tickGap)*tickGap ceil(pVals(end)/tickGap)*tickGap];    
     switch nDimX
         case 1
             if isPer==1 
@@ -726,33 +721,35 @@ if doPlot == 1
             end
     end
     
-    if nDimX == 1
-        % hold on
-        figure(figNum)
-        stairs([pVals; pVals(end)+1],plotX,'LineWidth',2,'LineStyle','-')
-        axis([pVals(1) pVals(end)+1 0,max(plotX)*1.1])
-        set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
-        ax = gca;
-        ax.FontSize = 16;
-        ax.XLabel.String = 'Log frequency (cents)';
-    else
-        % hold off
-        figure(figNum)
-        surf([pVals; pVals(end)+1],[pVals; pVals(end)+1], plotX, ...
-             'FaceAlpha',1,'LineStyle','none')
-        axis([pVals(1) pVals(end)+1 pVals(1) pVals(end)+1])
-        set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
-        set(gca,'YTick',tickVals(1):tickGap:tickVals(2))
-        set(gca,'color',[0.8 0.8 0.8])
-        ax = gca;
-        ax.FontSize = 16;
-        ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
-        colormap bone
-        lighting phong
-        grid off
-        axis square
+    if figNum ~= 3 && figNum ~= 4
+        if nDimX == 1
+            % hold on
+            figure(figNum)
+            stairs([pVals; pVals(end)+1],plotX,'LineWidth',2,'LineStyle','-')
+            axis([pVals(1) pVals(end)+1 0,max(plotX)*1.1])
+            set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
+            ax = gca;
+            ax.FontSize = 16;
+            ax.XLabel.String = 'Log frequency (cents)';
+        elseif nDimX > 1
+            % hold off
+            figure(figNum)
+            surf([pVals; pVals(end)+1],[pVals; pVals(end)+1], plotX, ...
+                'FaceAlpha',1,'LineStyle','none')
+            axis([pVals(1) pVals(end)+1 pVals(1) pVals(end)+1])
+            set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
+            set(gca,'YTick',tickVals(1):tickGap:tickVals(2))
+            set(gca,'color',[0.8 0.8 0.8])
+            ax = gca;
+            ax.FontSize = 16;
+            ax.CLim = 1200*[0,max(plotX(:)/50)]/J;
+            colormap bone
+            lighting phong
+            grid off
+            axis square
+        end
+        title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
     end
-    title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
 
     clear plotX
 end

@@ -255,6 +255,8 @@ else % isPer = 0
     % Offset to make lowest x_p equal 0
     offset = min(x_p);
     x_p = x_p - offset;
+    min(x_p)
+    x_p
 end
 
 %% Get pVals in light of isPer, limits, and kernel
@@ -265,16 +267,9 @@ else
     pLo = 0;
     pHi = limits(end) - 1;
 end
-
-if isRel == 1
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    pVals = (pLo:pHi)' - offset;
+pVals = (pLo:pHi)';
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-else
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    pVals = (pLo:pHi)';
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-end
 
 %% Return all-zeros X if r > I
 dimX = repelem(J,nDimX); % Get size of X
@@ -387,7 +382,8 @@ elseif r == 2
         % Term 1: Make sparse and do the outer product
         spX_j = array2SpArray(X_j);
         term1 = spOuter(spX_j, spX_j);
-        
+        term1.Ind
+        term1.Val
         % Term 2
         outX_ij = cell(1,I);
         for i = 1:I
@@ -583,18 +579,23 @@ if nDimX > 1 || (nDimX==1 && isPer==0 && isRel==1)
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         if isPer == 0
             if gKerLen == 1
+                here = 'here'
                 % Truncate/pad to match limits
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                X = spTrunc(repelem(pLo-offset+max(x_p)+1,nDimX), ...
-                            repelem(pHi-offset+max(x_p)+1,nDimX),X); 
+%                 X = spTrunc(repelem(pLo-offset+max(x_p)+1,nDimX), ...
+%                             repelem(pHi-offset+max(x_p)+1,nDimX),X); 
+                X = spTrunc(repelem(pLo+max(x_p)+1,nDimX), ...
+                            repelem(pHi+max(x_p)+1,nDimX),X); 
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             else % gKerLen > 1
                 X = spConv(X,spKer,'full');            
                 % Truncate/remove all entries outside pLo - offset and pHi +
                 % gKerLen (entries pLo and and pLo - offset, and entries
                 % between pHi and pHi + offset are removed after convolution)
-                X = spTrunc(repelem(pLo-halfKerLen-offset+max(x_p)+1,nDimX), ...
-                            repelem(pHi+halfKerLen-offset+max(x_p)+1,nDimX),X); 
+%                 X = spTrunc(repelem(pLo-halfKerLen-offset+max(x_p)+1,nDimX), ...
+%                             repelem(pHi+halfKerLen-offset+max(x_p)+1,nDimX),X); 
+                X = spTrunc(repelem(pLo-halfKerLen+max(x_p)+1,nDimX), ...
+                            repelem(pHi+halfKerLen+max(x_p)+1,nDimX),X); 
                 % Negative noncircular shift achieved through truncation and
                 % also truncating outside limits
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

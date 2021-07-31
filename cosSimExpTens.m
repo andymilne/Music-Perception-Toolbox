@@ -1,4 +1,4 @@
-function s = spSub(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,period)
+function s = cosSimExpTens(x_p,x_w,y_p,y_w,sigma,r,isRel,isPer,period)
 %COSSIMEXPTENS Cosine similarity of two r-ad expectation tensors
 %
 %   s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period):
@@ -28,12 +28,12 @@ if r > min(numel(x_p),numel(y_p))
     s = NaN;
 else
     J = period;
-    if isempty(x_w) || isequal(x_w,0)
-        x_w = ones(numel(x_p),1);
-    end
-    if isempty(y_w) || isequal(y_w,0)
-        y_w = ones(numel(y_p),1);
-    end
+%     if isempty(x_w) || isequal(x_w,0)
+%         x_w = ones(numel(x_p),1);
+%     end
+%     if isempty(y_w) || isequal(y_w,0)
+%         y_w = ones(numel(y_p),1);
+%     end
     
     x_p = x_p(:);
     x_w = x_w(:);
@@ -48,6 +48,16 @@ else
             warning('All weights in x_w are zero.');
         end            
         x_w = x_w*ones(numel(x_p),1);
+    end
+    
+    if isempty(y_w)
+        y_w = ones(numel(y_p),1);
+    end
+    if numel(y_w) == 1
+        if y_w == 0
+            warning('All weights in x_w are zero.');
+        end            
+        y_w = y_w*ones(numel(x_p),1);
     end
     
     if rem(r,1) || r<1

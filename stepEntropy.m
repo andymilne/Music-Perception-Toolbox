@@ -16,6 +16,11 @@ function h = stepEntropy(x_pc,period,k)
 % has three 2-tuples of sizes (2,2), two 2-tuples of sizes (2,1), two 2-tuples
 % of sizes (1,2), and zero 2-tuples of sizes (1,1). This defines a probability
 % mass function over all such tuples and, hence a respective entropy value.
+%
+% This function requires histcn: Bruno Luong (2021).
+% N-dimensional histogram
+% (https://www.mathworks.com/matlabcentral/fileexchange/23897-n-dimensional-histogram),
+% MATLAB Central File Exchange. Retrieved May 1, 2021.
 % 
 % See also RADENTROPY and HISTENTROPY.
 
@@ -27,14 +32,21 @@ if nargin < 2
     period = 12;
 end
 
+if exist('histcn') == 0
+    error("The stepEntropy function requires the function histcn: https://www.mathworks.com/matlabcentral/fileexchange/23897-n-dimensional-histogram")
+end
+
 N = period;
 x_pc = x_pc(:);
-x_pc = sort(x_pc); % We are here interested in pitches/times ordered by size (i.e., so seconds/IOIs are between  )
+x_pc = sort(x_pc); % We are here interested in pitches/times ordered by size 
+% (i.e., so seconds/IOIs are between  )
 K = numel(x_pc);
 eventIndex = x_pc + 1;
 
 % Calculate all steps sizes
-allRotations = eventIndex(mod((0 : K-1)' + (0 : K-1),K) + 1); % adapted from https://au.mathworks.com/matlabcentral/fileexchange/22858-circulant-matrix/content/circulant.m
+allRotations = eventIndex(mod((0 : K-1)' + (0 : K-1),K) + 1); % adapted from 
+% https://au.mathworks.com/matlabcentral/fileexchange/22858-circulant-matrix/
+% content/circulant.m
 allStepSizes = mod(diff(allRotations,1),N);
 
 % Entropy of consecutive events and permutations thereof
@@ -44,7 +56,8 @@ edges = (0:N) - 0.5;
 if k<2 || k>8 || floor(k)~=k
     error('k must be an integer from 2 to 8.')
 elseif k > K
-    error('k must be smaller than the number of notes/events (ones) in the indicator vector.')
+    error(['k must be smaller than the number of notes/events (ones) in ' ...
+           'the indicator vector.'])
 elseif k == 2
     stepCounts = histcn(allStepSizes(1,:)',edges);
     h = histEntropy(stepCounts);
@@ -61,10 +74,12 @@ elseif k == 6
     stepCounts = histcn(allStepSizes(1:5,:)',edges,edges,edges,edges,edges);
     h = histEntropy(stepCounts(:));
 elseif k == 7
-    stepCounts = histcn(allStepSizes(1:6,:)',edges,edges,edges,edges,edges,edges);
+    stepCounts = histcn(allStepSizes(1:6,:)',edges,edges,edges,edges,edges,...
+        edges);
     h = histEntropy(stepCounts(:));
 elseif k == 8
-    stepCounts = histcn(allStepSizes(1:7,:)',edges,edges,edges,edges,edges,edges,edges);
+    stepCounts = histcn(allStepSizes(1:7,:)',edges,edges,edges,edges,edges,...
+        edges,edges);
     h = histEntropy(stepCounts(:));
 end
 

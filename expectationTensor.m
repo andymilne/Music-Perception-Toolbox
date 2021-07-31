@@ -135,6 +135,9 @@ if newKer
         SIG = sigma^2 * eye(nDimX) * 2^isRel; % variance of difference
         % distributions (when isRel==1) is scaled by 2
     end
+    if nDimX == 0 
+        SIG = 0;
+    end
     
     K = ceil(sigma*kerLen);
     if bitget(K,1) == 1 % 1 if K is odd
@@ -176,8 +179,8 @@ if newKer
         ker = reshape(ker,[gKerLen gKerLen gKerLen gKerLen]);
         spKer = array2SpArray(ker);
     end
-%     if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1 % CHECK THIS!!
-    if nDimX>1 && normalize==1
+    if (nDimX>1 || (isRel==1 && isPer==0)) && normalize==1 % CHECK THIS!!
+%    if nDimX>1 && normalize==1
         spKer = spTimes(sqrt(det(2*pi*SIG)),spKer);
     end
 end
@@ -712,6 +715,8 @@ if doPlot == 1
             end
     end
     
+    plotX = plotX/sum(plotX(1 : end-1)); %%%%% !!!!!! %%%%%%
+    
     if figNum ~= 3 && figNum ~= 4
         if nDimX == 1
             % hold on
@@ -741,7 +746,6 @@ if doPlot == 1
         end
         title([figNameP figNameA figNameR figNameT], 'Fontweight','normal')
     end
-
     clear plotX
 end
 

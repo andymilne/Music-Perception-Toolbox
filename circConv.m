@@ -1,6 +1,12 @@
 function [v,vCentred] = circConv(signal,kernel)
 %CIRCCONV Circular convolution modulo the dimension of longest vector.
 %   [v vCentred] = CIRCCONV(A, B) circularly convolves vectors A and B.
+%
+%   See also: gaussianKernel
+
+if any(isnan(signal))
+    error('All NaNs must be removed from the signal vector.')
+end
 
 N = length(signal);
 M = length(kernel);

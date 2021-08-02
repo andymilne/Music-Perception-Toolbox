@@ -26,7 +26,7 @@
 %% Import audio files (.wav) from the folder "AudioFiles"
 % Get all wav filenames
 allWavsNames = dir('AudioFiles/*.wav')
-numWavs = length(allWavsNames)
+nWav = length(allWavsNames)
 
 %% Smooth spectra and find their peaks
 % Set some parameters
@@ -44,9 +44,9 @@ doPlot = 0; % plotting?
 % Make table to store time domain signals, their smoothed spectra, their peaks, 
 % and other features
 wavFeatures = table;
-for wavNum = 1:numWavs
-    audio_file = fullfile('AudioFiles', (allWavsNames(wavNum).name));
-    wavFeatures.Name{wavNum} = audio_file; % name of audio file
+for wav = 1:nWav
+    audio_file = fullfile('AudioFiles', (allWavsNames(wav).name));
+    wavFeatures.Name{wav} = audio_file; % name of audio file
     
     [x_t, Fs] = audioread(char(audio_file));
     x_t = sum(x_t, 2)/2; % Collapse stereo to mono
@@ -59,7 +59,7 @@ for wavNum = 1:numWavs
         envelope = envelope';
         x_t = x_t .* envelope;
     end
-    wavFeatures.Audio{wavNum,:} = x_t; % time-domain signal
+    wavFeatures.Audio{wav,:} = x_t; % time-domain signal
     
     % Extract peaks from smoothed log-f spectra, where smoothing has
     % standard deviation sigma. Narrower smoothing (smaller sigma) allows
@@ -70,10 +70,10 @@ for wavNum = 1:numWavs
     % peaks. Hence a compromise is necessary. By eye, sigma of about 9 or
     % 12 cents typically look optimal. Also return the log-f spectrum.
     [pks_p, pks_w, sig_p] = peakPicker(x_t, Fs, sigma, fRef, doPlot);
-    wavFeatures.Pks_p{wavNum,:} = pks_p; % pitches of peaks
-    wavFeatures.Pks_w{wavNum,:} = pks_w; % amplitudes of peaks
-    wavFeatures.Sig_p{wavNum,:} = sig_p; % unsmoothed log-f spectrum
-    wavFeatures.SmoothSig{wavNum,:} ...
+    wavFeatures.Pks_p{wav,:} = pks_p; % pitches of peaks
+    wavFeatures.Pks_w{wav,:} = pks_w; % amplitudes of peaks
+    wavFeatures.Sig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
+    wavFeatures.SmoothSig{wav,:} ...
         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
 end
 
@@ -81,11 +81,11 @@ end
 % Set parameters (see fSetRoughness for more details)
 pNorm = 1; 
 isAve = 0;
-for wavNum = 1:numWavs
-    Pks_f = fRef * 2.^(wavFeatures.Pks_p{wavNum}/1200); % convert peaks back to
+for wav = 1:nWav
+    Pks_f = fRef * 2.^(wavFeatures.Pks_p{wav}/1200); % convert peaks back to
     % frequency domain
-    Pks_w = wavFeatures.Pks_w{wavNum};
-    wavFeatures.AudRoughness(wavNum) = fSetRoughness(Pks_f,Pks_w,pNorm,isAve);
+    Pks_w = wavFeatures.Pks_w{wav};
+    wavFeatures.AudRoughness(wav) = fSetRoughness(Pks_f,Pks_w,pNorm,isAve);
 end
 
 %% Harmonicity: Milne 2013
@@ -118,19 +118,19 @@ templateX = expectationTensor(template_p, template_w, sigma, kerLen, ...
 % plot(templateX)
 
 templateDotProd = templateX' * templateX;
-for wavNum = 1:numWavs
+for wav = 1:nWav
     SmoothSigDotProd ...
-        = wavFeatures.SmoothSig{wavNum}' * wavFeatures.SmoothSig{wavNum};
-    wavFeatures.AudHarmMilne2013(wavNum) ...
-        = max(conv(wavFeatures.SmoothSig{wavNum}, flipud(templateX)) ...
+        = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
+    wavFeatures.AudHarmMilne2013(wav) ...
+        = max(conv(wavFeatures.SmoothSig{wav}, flipud(templateX)) ...
         / sqrt(SmoothSigDotProd*templateDotProd));
 end
 
 %% Harmonicity: Harrison 2020
 % Calculate harmonicity as the entropy of the cross-correlation vector
-% defined above. Note that this code is identical to Harmonicity: Milne 2013
-% except for the line setting wavFeatures.harmHarrison2020(wavNum) and the extra
-% parameter isNorm.
+% defined above. Note that this code is identical to Harmonicity: Milne
+% 2013 except for the line setting wavFeatures.harmHarrison2020(wav) and
+% the extra parameter isNorm.
 
 % Set parameters
 nHarmonics = 36; % number of harmonics in the template
@@ -156,18 +156,18 @@ templateX = expectationTensor(template_p, template_w, sigma, kerLen, ...
 % plot(templateX)
 
 templateDotProd = templateX' * templateX;
-for wavNum = 1:numWavs
+for wav = 1:nWav
     SmoothSigDotProd ...
-        = wavFeatures.SmoothSig{wavNum}' * wavFeatures.SmoothSig{wavNum};
-    wavFeatures.AudHarmHarrison2020(wavNum) ...
-        = histEntropy(conv(wavFeatures.SmoothSig{wavNum}, ...
+        = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
+    wavFeatures.AudHarmHarrison2020(wav) ...
+        = histEntropy(conv(wavFeatures.SmoothSig{wav}, ...
         flipud(templateX)) / sqrt(SmoothSigDotProd*templateDotProd), ...
         isNorm);
 end
 
 %% Spectral Entropy: Milne 2017
 % Calculate spectral entropy, as defined in Milne 2017 and Smit 2019.
-for wavNum = 1:numWavs
-    wavFeatures.AudSpectralEnt(wavNum) ...
-        = histEntropy(wavFeatures.SmoothSig{wavNum});
+for wav = 1:nWav
+    wavFeatures.AudSpectralEnt(wav) ...
+        = histEntropy(wavFeatures.SmoothSig{wav});
 end

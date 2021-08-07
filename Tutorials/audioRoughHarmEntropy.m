@@ -44,9 +44,48 @@ doPlot = 0; % plotting?
 % Make table to store time domain signals, their smoothed spectra, their peaks, 
 % and other features
 wavFeatures = table;
+% for wav = 1:nWav
+%     audio_file = fullfile('AudioFiles', (allWavsNames(wav).name));
+%     wavFeatures.Name{wav} = audio_file; % name of audio file
+%     
+%     [x_t, Fs] = audioread(char(audio_file));
+%     x_t = sum(x_t, 2)/2; % Collapse stereo to mono
+%             
+%     % Envelope audio with ramps
+%     if rampLength > 0
+%         envelope = ones(1,length(x3_t));
+%         envelope(1 : rampLength+1) = 0 : 1/rampLength : 1;
+%         envelope(end-rampLength : end) = fliplr(0 : 1/rampLength : 1);
+%         envelope = envelope';
+%         x_t = x_t .* envelope;
+%     end
+%     wavFeatures.Audio{wav,:} = x_t; % time-domain signal
+%     
+%     % Extract peaks from smoothed log-f spectra, where smoothing has
+%     % standard deviation sigma. Narrower smoothing (smaller sigma) allows
+%     % for closer spectral peaks to be separately resolved (partials
+%     % differing by about 2 * sigma + 1 cents will be separately resolved as
+%     % peaks). However, if the smoothing is too narrow, a single pitch with
+%     % some vibrato will, unhelpfully, be resolved as multiple separate
+%     % peaks. Hence a compromise is necessary. By eye, sigma of about 9 or
+%     % 12 cents typically look optimal. Also return the log-f spectrum.
+%     [pks_p, pks_w, sig_p] = peakPicker(x_t, Fs, sigma, fRef, doPlot);
+%     wavFeatures.Pks_p{wav,:} = pks_p; % pitches of peaks
+%     wavFeatures.Pks_w{wav,:} = pks_w; % amplitudes of peaks
+%     wavFeatures.Sig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
+%     wavFeatures.SmoothSig{wav,:} ...
+%         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
+% end
+
+name = cell(nWav,1);
+audio = cell(nWav,1);
+allPks_p = cell(nWav,1);
+allPks_w = cell(nWav,1);
+allSig_p = cell(nWav,1);
+allSmoothSig = cell(nWav,1);
 for wav = 1:nWav
     audio_file = fullfile('AudioFiles', (allWavsNames(wav).name));
-    wavFeatures.Name{wav} = audio_file; % name of audio file
+    name{wav} = audio_file; % name of audio file
     
     [x_t, Fs] = audioread(char(audio_file));
     x_t = sum(x_t, 2)/2; % Collapse stereo to mono
@@ -59,7 +98,7 @@ for wav = 1:nWav
         envelope = envelope';
         x_t = x_t .* envelope;
     end
-    wavFeatures.Audio{wav,:} = x_t; % time-domain signal
+    audio{wav,:} = x_t; % time-domain signal
     
     % Extract peaks from smoothed log-f spectra, where smoothing has
     % standard deviation sigma. Narrower smoothing (smaller sigma) allows
@@ -70,23 +109,32 @@ for wav = 1:nWav
     % peaks. Hence a compromise is necessary. By eye, sigma of about 9 or
     % 12 cents typically look optimal. Also return the log-f spectrum.
     [pks_p, pks_w, sig_p] = peakPicker(x_t, Fs, sigma, fRef, doPlot);
-    wavFeatures.Pks_p{wav,:} = pks_p; % pitches of peaks
-    wavFeatures.Pks_w{wav,:} = pks_w; % amplitudes of peaks
-    wavFeatures.Sig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
-    wavFeatures.SmoothSig{wav,:} ...
+    allPks_p{wav,:} = pks_p; % pitches of peaks
+    allPks_w{wav,:} = pks_w; % amplitudes of peaks
+    allSig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
+    allSmoothSig{wav,:} ...
         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
 end
+wavFeatures.Name = name;
+wavFeatures.Audio = audio;
+wavFeatures.Pks_p = allPks_p;
+wavFeatures.Pks_w = allPks_w;
+wavFeatures.Sig_p = allSig_p;
+wavFeatures.SmoothSig = allSmoothSig;
 
 %% Roughness: Sethares 2005
 % Set parameters (see fSetRoughness for more details)
 pNorm = 1; 
 isAve = 0;
+audRoughness = nan(nWav,1);
 for wav = 1:nWav
     Pks_f = fRef * 2.^(wavFeatures.Pks_p{wav}/1200); % convert peaks back to
     % frequency domain
     Pks_w = wavFeatures.Pks_w{wav};
-    wavFeatures.AudRoughness(wav) = fSetRoughness(Pks_f,Pks_w,pNorm,isAve);
+    audRoughness(wav) = fSetRoughness(Pks_f,Pks_w,pNorm,isAve);
 end
+wavFeatures.AudRoughness = audRoughness;
+
 
 %% Harmonicity: Milne 2013
 % Calculate the harmonicity using the method defined in Milne 2013, 2016,
@@ -96,7 +144,7 @@ end
 % template and the signal.
 
 % Set parameters
-nHarmonics = 36; % number of harmonics in the template
+nHarm = 36; % number of harmonics in the template
 rho = 1; % roll-off of harmonics in template
 
 sigma = 12; % smoothing width (9-15 are typically good values)
@@ -108,23 +156,25 @@ r = 1; % do not change
 isRel = 0; % do not change
 isPer = 0; % if set to 1, harmonicity will be calculated with pitch classes 
 % rather than pitches; in which case, make sure to set limits = 1200
-limits = ceil(1200*log2(nHarmonics) + sigma*kerLen); 
+limits = ceil(1200*log2(nHarm) + sigma*kerLen); 
 
 % Make the template tone
-template_p = 1200*log2(1:nHarmonics);
-template_w = (1:nHarmonics).^(-rho);
-templateX = expectationTensor(template_p, template_w, sigma, kerLen, ...
+tmplSpec_p = 1200*log2(1:nHarm);
+tmplSpec_w = (1:nHarm).^(-rho);
+templateX = expectationTensor(tmplSpec_p, tmplSpec_w, sigma, kerLen, ...
                               r, isRel, isPer, limits);
 % plot(templateX)
 
 templateDotProd = templateX' * templateX;
+audHarmMilne2013 = nan(nWav,1);
 for wav = 1:nWav
     SmoothSigDotProd ...
         = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
-    wavFeatures.AudHarmMilne2013(wav) ...
+    audHarmMilne2013(wav) ...
         = max(conv(wavFeatures.SmoothSig{wav}, flipud(templateX)) ...
         / sqrt(SmoothSigDotProd*templateDotProd));
 end
+wavFeatures.AudHarmMilne2013 = audHarmMilne2013;
 
 %% Harmonicity: Harrison 2020
 % Calculate harmonicity as the entropy of the cross-correlation vector
@@ -133,7 +183,7 @@ end
 % the extra parameter isNorm.
 
 % Set parameters
-nHarmonics = 36; % number of harmonics in the template
+nHarm = 36; % number of harmonics in the template
 rho = 1; % roll-off of harmonics in template
 isNorm = 1; % normalize the entropy to [0,1]
 
@@ -146,28 +196,32 @@ r = 1; % do not change
 isRel = 0; % do not change
 isPer = 0; % if set to 1, harmonicity will be calculated with pitch classes 
 % rather than pitches; in which case, make sure to set limits = 1200
-limits = ceil(1200*log2(nHarmonics) + sigma*kerLen);
+limits = ceil(1200*log2(nHarm) + sigma*kerLen);
 
 % Make the template tone
-template_p = 1200*log2(1:nHarmonics);
-template_w = (1:nHarmonics).^(-rho);
-templateX = expectationTensor(template_p, template_w, sigma, kerLen, ...
+tmplSpec_p = 1200*log2(1:nHarm);
+tmplSpec_w = (1:nHarm).^(-rho);
+templateX = expectationTensor(tmplSpec_p, tmplSpec_w, sigma, kerLen, ...
                               r, isRel, isPer, limits);
 % plot(templateX)
 
 templateDotProd = templateX' * templateX;
+audHarmHarrison2020 = nan(nWav,1);
 for wav = 1:nWav
     SmoothSigDotProd ...
         = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
-    wavFeatures.AudHarmHarrison2020(wav) ...
+    audHarmHarrison2020(wav) ...
         = histEntropy(conv(wavFeatures.SmoothSig{wav}, ...
         flipud(templateX)) / sqrt(SmoothSigDotProd*templateDotProd), ...
         isNorm);
 end
+wavFeatures.AudHarmHarrison2020 = audHarmHarrison2020;
 
 %% Spectral Entropy: Milne 2017
 % Calculate spectral entropy, as defined in Milne 2017 and Smit 2019.
+audSpectralEnt = nan(nWav,1);
 for wav = 1:nWav
-    wavFeatures.AudSpectralEnt(wav) ...
+    audSpectralEnt(wav) ...
         = histEntropy(wavFeatures.SmoothSig{wav});
 end
+wavFeatures.AudSpectralEnt = audSpectralEnt;

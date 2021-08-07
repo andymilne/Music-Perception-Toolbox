@@ -1,10 +1,10 @@
 function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
-                                 sigma,kerLen,isPer,period)
+                                 sigma,kerLen,isPer,limits)
 
 %PSETSPECTRALENTROPY Spectral entropy of a pitch (class) multiset given a
 %   spectrum.
 %
-%   h = pSetSpectralEntropy(scalePc, scaleWt, spectrumPc, spectrumWt): The
+%   h = pSetSpectralEntropy(set_p, set_p, spec_p, spec_w): The
 %   spectral entropy of the gaussian smoothed spectra produced by a pitch
 %   (class) multiset (e.g., a scale or chord) where each pitch stands for a
 %   spectrum of pitches given by 'spectrum'. Pitch sets with higher entropy
@@ -23,7 +23,8 @@ function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
 %   spec_w are the associated spectral weights: all ones, if less than four
 %   variables are entered.
 %
-%   For explanations of the remaining arguments, see expectationTensor.
+%   For explanations of the remaining arguments (sigma, kerLen, isPer, ...
+%   limits), see expectationTensor.
 %
 %   By Andrew J. Milne, The MARCS Institute, Western Sydney University
 %
@@ -32,7 +33,7 @@ function h = pSetSpectralEntropy(set_p,set_w,spec_p,spec_w,...
 %% Fixed parameters (not intended to be optimized to the data)
 if nargin < 8
     if isPer == 1
-        period = 1200; % size of period in pitch units
+        limits = 1200; % size of period in pitch units
     else
         error(['When isPer = 0, the "limits" argument must be a 2-entry ' ...
                'vector. When comparing entropies of different pitch sets, ' ...
@@ -63,8 +64,7 @@ set_w = set_w(:);
 
 %% Absolute monad vector and its entropy
 setExpVec = expectationTensor(set_p, set_w, sigma, kerLen, ...
-                              r, isRel, isPer, period);
-stairs(setExpVec)
+                              r, isRel, isPer, limits);
 h = histEntropy(setExpVec(:));
 
 end

@@ -44,39 +44,6 @@ doPlot = 0; % plotting?
 % Make table to store time domain signals, their smoothed spectra, their peaks, 
 % and other features
 wavFeatures = table;
-% for wav = 1:nWav
-%     audio_file = fullfile('AudioFiles', (allWavsNames(wav).name));
-%     wavFeatures.Name{wav} = audio_file; % name of audio file
-%     
-%     [x_t, Fs] = audioread(char(audio_file));
-%     x_t = sum(x_t, 2)/2; % Collapse stereo to mono
-%             
-%     % Envelope audio with ramps
-%     if rampLength > 0
-%         envelope = ones(1,length(x3_t));
-%         envelope(1 : rampLength+1) = 0 : 1/rampLength : 1;
-%         envelope(end-rampLength : end) = fliplr(0 : 1/rampLength : 1);
-%         envelope = envelope';
-%         x_t = x_t .* envelope;
-%     end
-%     wavFeatures.Audio{wav,:} = x_t; % time-domain signal
-%     
-%     % Extract peaks from smoothed log-f spectra, where smoothing has
-%     % standard deviation sigma. Narrower smoothing (smaller sigma) allows
-%     % for closer spectral peaks to be separately resolved (partials
-%     % differing by about 2 * sigma + 1 cents will be separately resolved as
-%     % peaks). However, if the smoothing is too narrow, a single pitch with
-%     % some vibrato will, unhelpfully, be resolved as multiple separate
-%     % peaks. Hence a compromise is necessary. By eye, sigma of about 9 or
-%     % 12 cents typically look optimal. Also return the log-f spectrum.
-%     [pks_p, pks_w, sig_p] = peakPicker(x_t, Fs, sigma, fRef, doPlot);
-%     wavFeatures.Pks_p{wav,:} = pks_p; % pitches of peaks
-%     wavFeatures.Pks_w{wav,:} = pks_w; % amplitudes of peaks
-%     wavFeatures.Sig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
-%     wavFeatures.SmoothSig{wav,:} ...
-%         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
-% end
-
 name = cell(nWav,1);
 audio = cell(nWav,1);
 allPks_p = cell(nWav,1);

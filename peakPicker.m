@@ -1,5 +1,5 @@
-function [pks_p,pks_w,sig_p] = peakPicker(x_t, Fs, sigma, ...
-                                          fRef, doPlot)
+function [pks_p,pks_w,absDft_f,smoothX_p,pVals] ...
+        = peakPicker(x_t, Fs, sigma, fRef, doPlot)
 
 %PEAKPICKER Convert time-domain signal to log-f spectrum, smooth, find peaks.
 %
@@ -19,7 +19,11 @@ function [pks_p,pks_w,sig_p] = peakPicker(x_t, Fs, sigma, ...
 %
 % pks_w are the magnitudes of the peaks with pitches pks_p
 %
-% sig_p is the DFT of x_t translated into the pitch (log-f) domain.
+% absDft_f is the magnitude of the DFT of x_t (frequency domain, unsmoothed).
+%
+% smoothX_p is the absolute expectation vector (with sigma-width smoothing)
+%
+% pVals give the pitch values (cents relative to fRef) of xSmooth_p
 
 % By Andrew J. Milne, The MARCS Institute, Western Sydney University.
 
@@ -36,30 +40,39 @@ X = dft2sss(x_f,Fs,'MP','FRef',fRef);
 x_p = X.MP;
 x_w = abs(X.Phasors);
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-sig_p = x_w;
+absDft_f = x_w;
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 x_p(x_w < 0.0001) = []; % remove almost zero values
 x_w(x_w < 0.0001) = []; % remove almost zero values
+
 r = 1;
 isRel = 0;
 isPer = 0;
-limits = 1200*log2([20/fRef 20000/fRef]);
+limits = 1200*log2([20/fRef 20000/fRef]); % the audible frequency range
 isSparse = 0;
 kerLen = 12;
-[xSmooth_p,xSmooth_wp] = expectationTensor(x_p, x_w, sigma, kerLen, ...
-                                           r, isRel, isPer, limits, ...
-                                           isSparse, doPlot);
 
+% These two lines are not necessary (because out-of-limits values are
+% automatically removed by expectationTensor) but removing them here means
+% warnings are not displayed.
+x_w(x_p < limits(1) | x_p > limits(2)) = []; % remove inaudible frequencies
+x_p(x_p < limits(1) | x_p > limits(2)) = []; % remove inaudible frequencies
+
+[smoothX_p,pVals] = expectationTensor(x_p, x_w, sigma, kerLen, ...
+                                      r, isRel, isPer, limits, ...
+                                      isSparse, 0);
+                                       
 %% Extract the peaks
 if doPlot==1   
     figure()
-    findpeaks(xSmooth_p, xSmooth_wp, ...
+    findpeaks(smoothX_p, pVals, ...
         'MinPeakDistance', 0, ...
         'MinPeakProminence', 0.002, ...
         'Annotate', 'Extents')
 end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-[pks_w, pks_p] = findpeaks(xSmooth_p, xSmooth_wp, ...
+[pks_w, pks_p] = findpeaks(smoothX_p, pVals, ...
                   'MinPeakDistance', 0, ...
                   'MinPeakProminence', 0.002, ...
                   'Annotate', 'Extents');

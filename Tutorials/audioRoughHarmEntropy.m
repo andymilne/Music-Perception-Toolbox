@@ -36,9 +36,7 @@ rampLength = 0; % ramp length (samples) of envelope applied to audio files;
 % 1000 ms may be useful.
 sigma = 12; % smoothing width, in cents, for spectrum (9-12 cents are typically
 % good values to use).
-kerLen = 12;
-gKer = gaussianKernel(sigma, kerLen);
-fRef = 261.6256; % reference frequecy -- i.e., the frequency that is 0 cents
+fRef = 261.6256; % reference frequency -- i.e., the frequency that is 0 cents
 doPlot = 0; % plotting?
 
 % Make table to store time domain signals, their smoothed spectra, their peaks, 
@@ -48,8 +46,9 @@ name = cell(nWav,1);
 audio = cell(nWav,1);
 allPks_p = cell(nWav,1);
 allPks_w = cell(nWav,1);
-allSig_p = cell(nWav,1);
-allSmoothSig = cell(nWav,1);
+allAbsDFT_f = cell(nWav,1);
+allSmoothX_p = cell(nWav,1);
+allPVals = cell(nWav,1);
 for wav = 1:nWav
     audio_file = fullfile('AudioFiles', (allWavsNames(wav).name));
     name{wav} = audio_file; % name of audio file
@@ -75,19 +74,23 @@ for wav = 1:nWav
     % some vibrato will, unhelpfully, be resolved as multiple separate
     % peaks. Hence a compromise is necessary. By eye, sigma of about 9 or
     % 12 cents typically look optimal. Also return the log-f spectrum.
-    [pks_p, pks_w, sig_p] = peakPicker(x_t, Fs, sigma, fRef, doPlot);
+    [pks_p, pks_w, absDFT_f, xSmooth_p, pVals] ...
+        = peakPicker(x_t, Fs, sigma, fRef, doPlot);
     allPks_p{wav,:} = pks_p; % pitches of peaks
     allPks_w{wav,:} = pks_w; % amplitudes of peaks
-    allSig_p{wav,:} = sig_p; % unsmoothed log-f spectrum
-    allSmoothSig{wav,:} ...
-        = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
+    allAbsDFT_f{wav,:} = absDFT_f; % unsmoothed freq spectrum
+    allSmoothX_p{wav,:} = xSmooth_p; % smoothed log-f spectrum
+    allPVals{wav,:} = pVals; % pitches in xSmooth_p
+%     allSmoothX_p{wav,:} ...
+%         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
 end
 wavFeatures.Name = name;
 wavFeatures.Audio = audio;
 wavFeatures.Pks_p = allPks_p;
 wavFeatures.Pks_w = allPks_w;
-wavFeatures.Sig_p = allSig_p;
-wavFeatures.SmoothSig = allSmoothSig;
+wavFeatures.absDFT_f = allAbsDFT_f;
+wavFeatures.SmoothX_p = allSmoothX_p;
+wavFeatures.PVals = allPVals;
 
 %% Roughness: Sethares 2005
 % Set parameters (see fSetRoughness for more details)
@@ -101,7 +104,6 @@ for wav = 1:nWav
     audRoughness(wav) = fSetRoughness(Pks_f,Pks_w,pNorm,isAve);
 end
 wavFeatures.AudRoughness = audRoughness;
-
 
 %% Harmonicity: Milne 2013
 % Calculate the harmonicity using the method defined in Milne 2013, 2016,
@@ -130,16 +132,17 @@ tmplSpec_p = 1200*log2(1:nHarm);
 tmplSpec_w = (1:nHarm).^(-rho);
 templateX = expectationTensor(tmplSpec_p, tmplSpec_w, sigma, kerLen, ...
                               r, isRel, isPer, limits);
+                          
 % plot(templateX)
 
 templateDotProd = templateX' * templateX;
 audHarmMilne2013 = nan(nWav,1);
 for wav = 1:nWav
-    SmoothSigDotProd ...
-        = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
+    SmoothX_pDotProd ...
+        = wavFeatures.SmoothX_p{wav}' * wavFeatures.SmoothX_p{wav};
     audHarmMilne2013(wav) ...
-        = max(conv(wavFeatures.SmoothSig{wav}, flipud(templateX)) ...
-        / sqrt(SmoothSigDotProd*templateDotProd));
+        = max(conv(wavFeatures.SmoothX_p{wav}, flipud(templateX)) ...
+        / sqrt(SmoothX_pDotProd*templateDotProd));
 end
 wavFeatures.AudHarmMilne2013 = audHarmMilne2013;
 
@@ -175,11 +178,11 @@ templateX = expectationTensor(tmplSpec_p, tmplSpec_w, sigma, kerLen, ...
 templateDotProd = templateX' * templateX;
 audHarmHarrison2020 = nan(nWav,1);
 for wav = 1:nWav
-    SmoothSigDotProd ...
-        = wavFeatures.SmoothSig{wav}' * wavFeatures.SmoothSig{wav};
+    SmoothX_pDotProd ...
+        = wavFeatures.SmoothX_p{wav}' * wavFeatures.SmoothX_p{wav};
     audHarmHarrison2020(wav) ...
-        = histEntropy(conv(wavFeatures.SmoothSig{wav}, ...
-        flipud(templateX)) / sqrt(SmoothSigDotProd*templateDotProd), ...
+        = histEntropy(conv(wavFeatures.SmoothX_p{wav}, ...
+        flipud(templateX)) / sqrt(SmoothX_pDotProd*templateDotProd), ...
         isNorm);
 end
 wavFeatures.AudHarmHarrison2020 = audHarmHarrison2020;
@@ -189,6 +192,16 @@ wavFeatures.AudHarmHarrison2020 = audHarmHarrison2020;
 audSpectralEnt = nan(nWav,1);
 for wav = 1:nWav
     audSpectralEnt(wav) ...
-        = histEntropy(wavFeatures.SmoothSig{wav});
+        = histEntropy(wavFeatures.SmoothX_p{wav});
 end
 wavFeatures.AudSpectralEnt = audSpectralEnt;
+
+%% Mean spectral pitch
+audMeanSpecPitch = nan(nWav,1);
+for wav = 1:nWav
+    audMeanSpecPitch(wav) ...
+        = (wavFeatures.PVals{wav}'*wavFeatures.SmoothX_p{wav}) ...
+        /sum(wavFeatures.SmoothX_p{wav});
+end
+wavFeatures.AudMeanSpecPitch = audMeanSpecPitch;
+

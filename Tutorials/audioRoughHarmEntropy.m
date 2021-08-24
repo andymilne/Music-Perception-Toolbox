@@ -1,5 +1,6 @@
 % This tutorial shows how to calculate the roughness, harmonicity, and 
-% spectral entropy of every member of a set of audio files. 
+% spectral entropy of every member of a set of audio files. These values are
+% returned in the table wavFeatures.
 %
 % Note that after having run the code to the end of "Smooth spectra and
 % find their peaks", each following section (which calculates a single
@@ -81,8 +82,6 @@ for wav = 1:nWav
     allAbsDFT_f{wav,:} = absDFT_f; % unsmoothed freq spectrum
     allSmoothX_p{wav,:} = xSmooth_p; % smoothed log-f spectrum
     allPVals{wav,:} = pVals; % pitches in xSmooth_p
-%     allSmoothX_p{wav,:} ...
-%         = conv(sig_p, gKer, 'same'); % smoothed log-f spectrum. 
 end
 wavFeatures.Name = name;
 wavFeatures.Audio = audio;
@@ -141,8 +140,8 @@ for wav = 1:nWav
     SmoothX_pDotProd ...
         = wavFeatures.SmoothX_p{wav}' * wavFeatures.SmoothX_p{wav};
     audHarmMilne2013(wav) ...
-        = max(conv(wavFeatures.SmoothX_p{wav}, flipud(templateX)) ...
-        / sqrt(SmoothX_pDotProd*templateDotProd));
+        = max(conv(wavFeatures.SmoothX_p{wav}, flipud(templateX), 'full')) ...
+        / sqrt(SmoothX_pDotProd*templateDotProd);
 end
 wavFeatures.AudHarmMilne2013 = audHarmMilne2013;
 
@@ -182,7 +181,8 @@ for wav = 1:nWav
         = wavFeatures.SmoothX_p{wav}' * wavFeatures.SmoothX_p{wav};
     audHarmHarrison2020(wav) ...
         = histEntropy(conv(wavFeatures.SmoothX_p{wav}, ...
-        flipud(templateX)) / sqrt(SmoothX_pDotProd*templateDotProd), ...
+        flipud(templateX), 'full') ...
+        / sqrt(SmoothX_pDotProd*templateDotProd), ...
         isNorm);
 end
 wavFeatures.AudHarmHarrison2020 = audHarmHarrison2020;

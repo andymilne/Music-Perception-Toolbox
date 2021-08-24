@@ -106,10 +106,8 @@ tmplSpec_p = 1200*log2(1:nHarm);
 tmplSpec_w = (1:nHarm).^(-rho);
 templateX = expectationTensor(tmplSpec_p, tmplSpec_w, sigma, kerLen, ...
                               r, isRel, isPer, limits);
-                          
-% plot(templateX)
-
 templateDotProd = templateX' * templateX;
+
 offset = floor(ceil(sigma*kerLen)/2); % for calculating pitch values pValsExt 
 % in cross-correlation vector
 
@@ -127,7 +125,7 @@ for wav = 1:nWav
 end
 wavFeatures.AudFundMilne2021 = [pValsExt audFundMilne2021];
 % The first column of AudFundMilne2021 gives the pitches in cents relative
-% to middle C, the secind column shows the weight given to that pitch being
+% to middle C, the second column shows the weight given to that pitch being
 % a fundamental (or virtual pitch) of the spectrum
 
 % Example plot

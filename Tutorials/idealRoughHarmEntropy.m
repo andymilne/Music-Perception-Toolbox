@@ -1,7 +1,7 @@
 % This tutorial shows how to calculate the idealized roughness,
-% harmonicity, and spectral entropy of every member of a set of chords
-% specified by pitches (e.g., semitones or cents). These values are
-% returned in the table chordFeatures.
+% harmonicity, spectral entropy, and mean spectral pitch of every member of
+% a set of chords specified by pitches (e.g., semitones or cents). These
+% values are returned in the table chordFeatures.
 %
 % Note that, in order to keep the calculation of each feature distinct,
 % there is some duplication of calclations; if more than one feature is
@@ -306,6 +306,9 @@ end
 chordFeatures.IdealSpectralEnt = idealSpectralEnt;
 
 %% Mean spectral pitch
+% Similar to the spectral centroid except the spectraum's weighted mean is
+% taken over log-frequency instead of frequency
+
 % Parameters
 nHarm = 32; % number of harmonics in the template
 rho = 1; % roll-off of harmonics in template

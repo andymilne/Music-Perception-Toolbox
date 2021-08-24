@@ -1,6 +1,6 @@
-% This tutorial shows how to calculate the roughness, harmonicity, and 
-% spectral entropy of every member of a set of audio files. These values are
-% returned in the table wavFeatures.
+% This tutorial shows how to calculate the roughness, harmonicity, spectral
+% entropy, and mean spectral pitch of every member of a set of audio files.
+% These values are returned in the table wavFeatures.
 %
 % Note that after having run the code to the end of "Smooth spectra and
 % find their peaks", each following section (which calculates a single
@@ -197,6 +197,9 @@ end
 wavFeatures.AudSpectralEnt = audSpectralEnt;
 
 %% Mean spectral pitch
+% Similar to the spectral centroid except the spectraum's weighted mean is
+% taken over log-frequency instead of frequency
+
 audMeanSpecPitch = nan(nWav,1);
 for wav = 1:nWav
     audMeanSpecPitch(wav) ...

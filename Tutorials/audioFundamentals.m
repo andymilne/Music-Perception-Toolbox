@@ -126,7 +126,7 @@ end
 wavFeatures.AudFundMilne2021 = [pValsExt audFundMilne2021];
 % The first column of AudFundMilne2021 gives the pitches in cents relative
 % to middle C, the second column shows the weight given to that pitch being
-% a fundamental (or virtual pitch) of the spectrum
+% a fundamental (or virtual pitch) of the spectrum.
 
 % Example plot
 wavToPlot = 4;

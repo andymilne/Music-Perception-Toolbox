@@ -2,7 +2,7 @@
 % fundamentals (virtual pitches) of every member of a set of chords (here
 % specified by MIDI pitches). (See idealRoughHarmEntropy for how the vector
 % of fundamental weights calculated here can be used to calculate the
-% harmonicity of the audio files.)
+% harmonicity of the chords.)
 %
 % References:
 % Milne, A. J. (2013). A Computational Model of the Cognition of Tonality. PhD 
@@ -96,7 +96,7 @@ end
 chordFeatures.IdealFundMilne2021 = [pValsExt idealFundMilne2021];
 % The first column of IdealFundMilne2021 gives the pitches in cents relative
 % to middle C, the second column shows the weight given to that pitch being
-% a fundamental (or virtual pitch) of the spectrum
+% a fundamental (or virtual pitch) of the spectrum.
 
 % Example plot
 figure(1)

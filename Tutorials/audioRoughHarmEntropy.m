@@ -197,7 +197,7 @@ end
 wavFeatures.AudSpectralEnt = audSpectralEnt;
 
 %% Mean spectral pitch
-% Similar to the spectral centroid except the spectraum's weighted mean is
+% Similar to the spectral centroid except the spectrum's weighted mean is
 % taken over log-frequency instead of frequency
 
 audMeanSpecPitch = nan(nWav,1);

@@ -98,8 +98,10 @@ chordFeatures.IdealFundMilne2021 = [pValsExt idealFundMilne2021];
 % to middle C, the second column shows the weight given to that pitch being
 % a fundamental (or virtual pitch) of the spectrum.
 
-% Example plot
+% Example plot with MIDI pitches on the horizontal axis 
 figure(1)
-chordToPlot = 3;
-plot(chordFeatures.IdealFundMilne2021{chordToPlot,1}, ...
-    chordFeatures.IdealFundMilne2021{chordToPlot,2})
+chordToPlot = 4;
+plot(chordFeatures.IdealFundMilne2021{chordToPlot,1}/100 + 60, ... % MIDI piches
+     chordFeatures.IdealFundMilne2021{chordToPlot,2})
+xticks(0:4:128)
+axis([0, 128, 0, 1.1*max(chordFeatures.IdealFundMilne2021{chordToPlot,2})])

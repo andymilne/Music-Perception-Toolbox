@@ -128,7 +128,10 @@ wavFeatures.AudFundMilne2021 = [pValsExt audFundMilne2021];
 % to middle C, the second column shows the weight given to that pitch being
 % a fundamental (or virtual pitch) of the spectrum.
 
-% Example plot
+% Example plot with MIDI pitches on the horizontal axis 
+figure(1)
 wavToPlot = 4;
-plot(wavFeatures.AudFundMilne2021{wavToPlot,1}, ...
-    wavFeatures.AudFundMilne2021{wavToPlot,2})
+plot(wavFeatures.AudFundMilne2021{wavToPlot,1}/100 + 60, ... % MIDI piches
+     wavFeatures.AudFundMilne2021{wavToPlot,2})
+xticks([0:4:130])
+axis([0, 128, 0, 1.1*max(wavFeatures.AudFundMilne2021{wavToPlot,2})])

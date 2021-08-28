@@ -4,4 +4,6 @@ A MATLAB toolbox dedicated to analysing musical patterns – such as scales, cho
 
 Many of the functions require the [Sparse Array Toolbox](https://github.com/andymilne/Sparse-Array-Toolbox).
 
+The tutorial scripts (in the folder Tutorials) provide examples of some uses of this toolbox.
+
 This work forms part of an Australian Research Council Discovery Early Career Researcher Award (project number DE170100353) funded by the Australian Government. 

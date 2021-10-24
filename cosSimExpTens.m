@@ -57,7 +57,7 @@ else
         if y_w == 0
             warning('All weights in x_w are zero.');
         end            
-        y_w = y_w*ones(numel(x_p),1);
+        y_w = y_w*ones(numel(y_p),1);
     end
     
     if rem(r,1) || r<1

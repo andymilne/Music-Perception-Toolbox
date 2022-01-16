@@ -389,7 +389,7 @@ elseif r == 2
             spX_iji = array2SpArray(X_ij(i,:));
             outX_ij{i} = spOuter(spX_iji, spX_iji);
         end
-        % Sum them to make the generalized Khatri-Rao product
+        % Sum row-wise outer products
         sumOutX_ij = spPlus(outX_ij);
         
         term2 = spTimes(-1,sumOutX_ij); % multiply by -1
@@ -412,17 +412,17 @@ elseif r == 3
     spX_j = array2SpArray(X_j);
     term1 = spOuter(spX_j,spX_j,spX_j);
     
-    % Term2: Generalized Khatri-Rao products and outer product
+    % Term2: Generalized Khatri-Rao products
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
         spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
-    % Sum them to make the generalized Khatri-Rao product
+    % Sum row-wise outer products
     sumOutSpX_ij = spPlus(outSpX_ij);
     
-    % Outer product with results of KR product and relevant permutations
+    % Outer product of X_j and summed KR product and relevant permutations
     term2_123 = spOuter(spX_j,sumOutSpX_ij);
     term2_213 = spPerm(term2_123,[2 1 3]);
     term2_231 = spPerm(term2_123,[2 3 1]);
@@ -436,7 +436,7 @@ elseif r == 3
         spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij, spX_ij);
     end
-    % Sum them to make the generalized Khatri-Rao product
+    % Sum row-wise outer products
     sumOutSpX_ij = spPlus(outSpX_ij);
     
     term3 = spTimes(2,sumOutSpX_ij);
@@ -458,17 +458,17 @@ elseif r == 4
     spX_j = array2SpArray(X_j);
     term1 = spOuter(spX_j, spX_j, spX_j, spX_j);
     
-    % Term2: Generalized Khatri-Rao products and outer product
+    % Term2: Generalized Khatri-Rao products
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
         spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
-    % Sum them to make the generalized Khatri-Rao product
+    % Sum row-wise outer products
     sumOutSpX_ij = spPlus(outSpX_ij);
     
-    % Outer product of X_j and KR product and relevant permutations
+    % Outer product of X_j and summed KR product and relevant permutations
     term2_1234 = spOuter(spX_j, spX_j, sumOutSpX_ij);
     term2_1324 = spPerm(term2_1234,[1 3 2 4]);
     term2_1342 = spPerm(term2_1234,[1 3 4 2]);
@@ -480,17 +480,17 @@ elseif r == 4
     term2 = spTimes(-1,spPlus(term2_1234,term2_1324,term2_1342,...
         term2_3124,term2_3142,term2_3412));
     
-    % Term3: Generalized Khatri-Rao products and outer product
+    % Term3: Generalized Khatri-Rao products
     % Outer products (cubes) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
         spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij, spX_ij);
     end
-    % Sum them to make the generalized Khatri-Rao product
+    % Sum row-wise outer products
     sumOutSpX_ij = spPlus(outSpX_ij);
     
-    % Outer product of X_j and KR product and relevant permutations
+    % Outer product of X_j and summed KR product and relevant permutations
     term3_1234 = spOuter(spX_j, sumOutSpX_ij);
     term3_2134 = spPerm(term3_1234,[2 1 3 4]);
     term3_2314 = spPerm(term3_1234,[2 3 1 4]);
@@ -499,17 +499,17 @@ elseif r == 4
     % Sum the permutations and multiply by 2
     term3 = spTimes(2,spPlus(term3_1234,term3_2134,term3_2314,term3_2341));
     
-    % Term4: Generalized Khatri-Rao products and outer product
+    % Term4: Generalized Khatri-Rao products
     % Outer products (squares) of rows of X_ij
     outSpX_ij = cell(1,I);
     for i = 1:I
         spX_ij = array2SpArray(X_ij(i,:));
         outSpX_ij{i} = spOuter(spX_ij, spX_ij);
     end
-    % Sum them to make the generalized Khatri-Rao product
+    % Sum row-wise outer products
     sumOutSpX_ij = spPlus(outSpX_ij);
     
-    % Outer product (square) of KR product and relevant permutations
+    % Outer product (square) of summed KR product and relevant permutations
     term4_1234 = spOuter(sumOutSpX_ij, sumOutSpX_ij);
     term4_1324 = spPerm(term4_1234,[1 3 2 4]);
     term4_1342 = spPerm(term4_1234,[1 3 4 2]);

@@ -115,7 +115,7 @@ else
 end
 
 %% Fixed parameters
-normalize = 1; % make modes in expectation tensors equal to counts.
+normalize = 0; % make modes in expectation tensors equal to counts.
 
 %% Preliminaries
 nDimX = r-isRel;
@@ -148,13 +148,13 @@ if newKer
     
     if nDimX == 1
         if isRel==1 && isPer==0
-            gKer = normpdf(k',ceil(K/2), sigma * sqrt(2^isRel))'; % standard 
+            gKer = normpdf(k',ceil(K/2),sigma * sqrt(2^isRel))'; % standard 
             % deviation of a difference distribution (i.e., when isRel==1) is 
             % scaled by sqrt(2)
             spKer = array2SpArray(gKer);
         else
             gKer = sqrt(2 * pi * (sigma * sqrt(2^isRel))^2) ...
-                 * normpdf(k',ceil(K/2), sigma)'; % standard deviation of a
+                 * normpdf(k',ceil(K/2),sigma)'; % standard deviation of a
             % difference distribution (i.e., when isRel==1) is scaled by
             % sqrt(2)
             if normalize == 1
@@ -202,7 +202,7 @@ if numel(x_w) > 1
     if I ~= numel(x_w)
         error('x_p and x_w, must have the same number of (finite) entries.')
     end
-elseif numel(x_w) == 1
+elseif isscalar(x_w)
     if x_w == 0
         warning('All weights in x_w are zero.');
     end
@@ -213,7 +213,7 @@ end
 x_w = x_w(:);
 
 limits = round(limits);
-if numel(limits) == 1
+if isscalar(limits)
     limits(2) = limits(1);
     limits(1) = 0;
 end
@@ -682,6 +682,8 @@ if doPlot == 1
         tickGap = 400;
     elseif J < 36000
         tickGap = 1200;
+    else 
+        tickGap = 10000;
     end
     
     tickVals ...
@@ -715,14 +717,14 @@ if doPlot == 1
             end
     end
     
-    plotX = plotX/sum(plotX(1 : end-1)); %%%%% !!!!!! %%%%%%
+    plotX = plotX/abs(sum(plotX(1 : end-1)));
     
     if figNum ~= 3 && figNum ~= 4
         if nDimX == 1
             % hold on
             figure(figNum)
             stairs([pVals; pVals(end)+1],plotX,'LineWidth',2,'LineStyle','-')
-            axis([pVals(1) pVals(end)+1 0,max(plotX)*1.1])
+            axis([pVals(1) pVals(end)+1 min([plotX; 0])*1.1 max(plotX)*1.1])
             set(gca,'XTick',tickVals(1):tickGap:tickVals(2))
             ax = gca;
             ax.FontSize = 16;

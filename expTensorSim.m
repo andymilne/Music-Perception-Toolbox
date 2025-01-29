@@ -55,7 +55,7 @@ if nargin < 11
     end
 end
 % Catch empty x_p or y_p
-if numel(limits) == 1
+if isscalar(limits)
     limits(2) = limits(1);
     limits(1) = 0;
 end

@@ -1,0 +1,109 @@
+# This CITATION.cff file was generated for the Music Perception Toolbox v2.0.0.
+# https://citation-file-format.github.io/
+
+cff-version: 1.2.0
+title: Music Perception Toolbox
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+version: 2.0.0
+date-released: "2026-04-05"
+license: MIT
+repository-code: https://github.com/andymilne/Music-Perception-Toolbox
+keywords:
+  - music perception
+  - music cognition
+  - expectation tensors
+  - spectral pitch class similarity
+  - psychoacoustics
+  - computational musicology
+  - MATLAB
+  - Python
+
+authors:
+  - given-names: Andrew J.
+    family-names: Milne
+    email: A.Milne@westernsydney.edu.au
+    orcid: "https://orcid.org/0000-0002-4688-8004"
+    affiliation: >-
+      School of Humanities and Communication Arts,
+      Western Sydney University, Australia
+
+# Acknowledgment: The original cosSimExpTens algorithm and the markovS
+# function were contributed by David Bulger (Department of Mathematics
+# and Statistics, Macquarie University, Australia). These contributions
+# are credited in the respective function headers.
+
+preferred-citation:
+  type: article
+  title: >-
+    Modelling the similarity of pitch collections with
+    expectation tensors
+  authors:
+    - given-names: Andrew J.
+      family-names: Milne
+    - given-names: William A.
+      family-names: Sethares
+    - given-names: Robin
+      family-names: Laney
+    - given-names: David B.
+      family-names: Sharp
+  journal: Journal of Mathematics and Music
+  volume: 5
+  issue: 1
+  start: 1
+  end: 20
+  year: 2011
+  doi: "10.1080/17459737.2011.573678"
+
+references:
+  - type: article
+    title: >-
+      Exploring the space of perfectly balanced rhythms
+      and scales
+    authors:
+      - given-names: Andrew J.
+        family-names: Milne
+      - given-names: David
+        family-names: Bulger
+      - given-names: Steffen A.
+        family-names: Herff
+    journal: Journal of Mathematics and Music
+    volume: 11
+    issue: 2-3
+    start: 101
+    end: 133
+    year: 2017
+    doi: "10.1080/17459737.2017.1395915"
+
+  - type: article
+    title: >-
+      The perceptual relevance of balance, evenness, and
+      entropy in musical rhythms
+    authors:
+      - given-names: Andrew J.
+        family-names: Milne
+      - given-names: Steffen A.
+        family-names: Herff
+    journal: Cognition
+    volume: 203
+    year: 2020
+    doi: "10.1016/j.cognition.2020.104233"
+
+  - type: article
+    title: >-
+      The effects of rhythmic structure on tapping accuracy
+    authors:
+      - given-names: Andrew J.
+        family-names: Milne
+      - given-names: Roger T.
+        family-names: Dean
+      - given-names: David
+        family-names: Bulger
+    journal: "Attention, Perception, & Psychophysics"
+    volume: 85
+    start: 2673
+    end: 2699
+    year: 2023
+    doi: "10.3758/s13414-023-02725-7"

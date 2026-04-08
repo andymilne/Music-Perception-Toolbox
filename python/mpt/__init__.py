@@ -1,0 +1,97 @@
+"""Music Perception Toolbox (mpt).
+
+A Python package for computational music perception research,
+ported from the MATLAB Music Perception Toolbox v2.0.0.
+
+Andrew J. Milne, MARCS Institute, Western Sydney University.
+David Bulger credited as co-author of the original ``cos_sim_exp_tens``
+and ``markov_s`` functions.
+"""
+
+from __future__ import annotations
+
+__version__ = "2.0.0"
+
+# --- Pitch/frequency conversion ---
+from .convert import convert_pitch
+
+# --- Spectral enrichment ---
+from .spectra import add_spectra
+
+# --- Expectation tensors ---
+from .tensor import (
+    ExpTensDensity,
+    batch_cos_sim_exp_tens,
+    build_exp_tens,
+    cos_sim_exp_tens,
+    cos_sim_exp_tens_raw,
+    eval_exp_tens,
+    eval_exp_tens_raw,
+)
+
+# --- Circular measures ---
+from .circular import (
+    balance,
+    circ_apm,
+    coherence,
+    dft_circular,
+    edges,
+    evenness,
+    markov_s,
+    mean_offset,
+    proj_centroid,
+    sameness,
+)
+
+# --- Entropy ---
+from .entropy import entropy_exp_tens, n_tuple_entropy
+
+# --- Harmony / consonance ---
+from .harmony import (
+    roughness,
+    spectral_entropy,
+    template_harmonicity,
+    tensor_harmonicity,
+    virtual_pitches,
+)
+
+# --- Audio ---
+from .audio import AudioPeaksDetail, audio_peaks
+
+__all__ = [
+    # convert
+    "convert_pitch",
+    # spectra
+    "add_spectra",
+    # tensor
+    "ExpTensDensity",
+    "build_exp_tens",
+    "eval_exp_tens",
+    "eval_exp_tens_raw",
+    "cos_sim_exp_tens",
+    "cos_sim_exp_tens_raw",
+    "batch_cos_sim_exp_tens",
+    # circular
+    "dft_circular",
+    "balance",
+    "evenness",
+    "coherence",
+    "sameness",
+    "edges",
+    "proj_centroid",
+    "mean_offset",
+    "circ_apm",
+    "markov_s",
+    # entropy
+    "entropy_exp_tens",
+    "n_tuple_entropy",
+    # harmony
+    "spectral_entropy",
+    "template_harmonicity",
+    "tensor_harmonicity",
+    "virtual_pitches",
+    "roughness",
+    # audio
+    "audio_peaks",
+    "AudioPeaksDetail",
+]

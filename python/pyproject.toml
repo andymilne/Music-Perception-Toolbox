@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "music-perception-toolbox"
+version = "2.0.0"
+description = "Computational music perception: expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Andrew J. Milne", email = "a.milne@westernsydney.edu.au"},
+]
+keywords = [
+    "music perception",
+    "spectral pitch similarity",
+    "expectation tensor",
+    "consonance",
+    "roughness",
+    "rhythm",
+    "computational musicology",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Scientific/Engineering",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+audio = ["soundfile>=0.12"]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "soundfile>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/andymilne/Music-Perception-Toolbox"
+
+[tool.setuptools.packages.find]
+include = ["mpt*"]

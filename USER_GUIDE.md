@@ -94,7 +94,7 @@ Given a multiset **p** = (p₁, p₂, ..., pₙ) with weights **w** = (w₁, w�
 
 > f(**x**) = Σⱼ wⱼ · exp(−(**x** − **cⱼ**)ᵀ M (**x** − **cⱼ**) / (2σ²))
 
-where the sum is over all ordered r-tuples, **cⱼ** is the centre of the j-th tuple, and M is a quadratic form matrix determined by the mode (see below).
+where the sum is over all ordered r-tuples, **cⱼ** is the j-th tuple, and M is a quadratic form matrix determined by the mode (see below).
 
 The toolbox implements this in two steps: `buildExpTens` precomputes the tuple indices and weight products into a density struct, and `evalExpTens` evaluates the density at query points. The cosine similarity between two such densities — which quantifies how similar the two weighted multisets are — is computed by `cosSimExpTens`. Crucially, the inner product underlying this cosine similarity has an analytical solution (a finite double sum of Gaussian kernel evaluations), so `cosSimExpTens` computes it exactly without discretization. This analytical computation was present in v1 (due to David Bulger); what is new in v2 is that individual tensor construction and evaluation (`buildExpTens` and `evalExpTens`) are also analytical, whereas v1's `expectationTensor` required discretization onto a grid. (Note, however, that the *entropy* of a Gaussian mixture density has no known closed-form solution, so the entropy functions `entropyExpTens` and `spectralEntropy` still use grid discretization — see [Section 9](#9-known-simplifications-and-future-directions).)
 
@@ -160,7 +160,7 @@ Template harmonicity and tensor harmonicity measure harmonicity in fundamentally
 
 ### 3.5 Balance and evenness (Fourier-based measures)
 
-Several functions compute properties of multisets of points distributed around a circle, applicable to both pitches and positions. The DFT here is computed directly from the positions of the points on the circle (mapping each point to the unit circle and taking the Fourier transform), rather than from an indicator vector over a discretized grid. The mathematical foundations — including the relationship between the DFT coefficients and balance, evenness, and perfect balance — are developed in Milne, Bulger, & Herff (2017). These measures have been validated as predictors of rhythm recognition and preference (Milne & Herff, 2020) and have informed the design of algorithmic rhythm generators (Milne & Dean, 2016; Milne, 2019).
+Several functions compute properties of multisets of points distributed around a circle, applicable to both pitches and time points. The DFT here is computed directly from the positions of the points on the circle (mapping each point to the unit circle and taking the Fourier transform), rather than from an indicator vector over a discretized grid. The mathematical foundations — including the relationship between the DFT coefficients and balance, evenness, and perfect balance — are developed in Milne, Bulger, & Herff (2017). These measures have been validated as predictors of rhythm recognition and preference (Milne & Herff, 2020) and have informed the design of algorithmic rhythm generators (Milne & Dean, 2016; Milne, 2019).
 
 - **Balance** (`balanceCircular`) measures how evenly the mass is distributed around the circle (1 = perfectly balanced, with the centre of gravity at the circle's centre; 0 = all weight at one point) (Milne, Bulger, & Herff, 2017).
 - **Evenness** (`evennessCircular`) measures closeness to equal spacing (1 = equally spaced; 0 = maximally uneven) (Milne, Bulger, & Herff, 2017).

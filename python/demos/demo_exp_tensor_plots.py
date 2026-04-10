@@ -93,7 +93,7 @@ p_arr = np.asarray(p, dtype=np.float64)
 for ci, (r, is_rel, is_per) in enumerate(configs):
     # Validation
     if r > len(p_arr):
-        print(f"Config {ci}: r = {r} skipped (pitch set has only {len(p_arr)} elements).")
+        print(f"Config {ci}: r = {r} skipped (multiset has only {len(p_arr)} elements).")
         continue
     if is_rel and r < 2:
         print(f"Config {ci}: r = {r} with is_rel = True skipped (requires r >= 2).")

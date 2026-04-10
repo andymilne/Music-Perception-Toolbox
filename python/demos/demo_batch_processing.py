@@ -1,7 +1,7 @@
 """demo_batch_processing.py
 
 Batch computation of perceptual features on experimental data with
-automatic deduplication of repeated pitch sets.
+automatic deduplication of repeated weighted multisets.
 
 Two deduplication workflows are shown:
 
@@ -76,8 +76,8 @@ n_chords = len(chord_types)
 n_pairs = n_scales * n_chords * n_roots
 
 # Build all (scale, transposed chord) pairs
-pitches_a = np.zeros((n_pairs, 7))
-pitches_b = np.zeros((n_pairs, 3))
+p_mat_a = np.zeros((n_pairs, 7))
+p_mat_b = np.zeros((n_pairs, 3))
 scale_idx = np.zeros(n_pairs, dtype=int)
 chord_idx = np.zeros(n_pairs, dtype=int)
 root_vals = np.zeros(n_pairs)
@@ -86,8 +86,8 @@ idx = 0
 for si in range(n_scales):
     for ci in range(n_chords):
         for ri in range(n_roots):
-            pitches_a[idx] = scales[si]
-            pitches_b[idx] = chord_types[ci] + roots[ri]
+            p_mat_a[idx] = scales[si]
+            p_mat_b[idx] = chord_types[ci] + roots[ri]
             scale_idx[idx] = si
             chord_idx[idx] = ci
             root_vals[idx] = roots[ri]
@@ -104,7 +104,7 @@ print(f"Dataset: {n_pairs} trials "
 print("=== Workflow 1: SPCS via batch_cos_sim_exp_tens ===\n")
 
 spcs = mpt.batch_cos_sim_exp_tens(
-    pitches_a, pitches_b, sigma, r, is_rel, is_per, period,
+    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
     spectrum=spec,
 )
 spcs = np.round(spcs, 3)
@@ -131,17 +131,17 @@ for si in range(n_scales):
 #    3. Map results back to all rows via the inverse index
 #
 #  Demonstrated here for spectral entropy, template harmonicity,
-#  tensor harmonicity, and roughness applied to chords (pitches_b).
+#  tensor harmonicity, and roughness applied to chords (p_mat_b).
 # ===================================================================
 
 print(f"\n=== Workflow 2: Single-set measures (chord features) ===")
 
 # --- Step 1: Deduplicate ---
-sorted_b = np.sort(pitches_b, axis=1)
+sorted_b = np.sort(p_mat_b, axis=1)
 unique_chords, inverse_map = np.unique(sorted_b, axis=0, return_inverse=True)
 n_unique = len(unique_chords)
 
-print(f"\n  {n_pairs} trials → {n_unique} unique chord pitch-class sets.\n")
+print(f"\n  {n_pairs} trials → {n_unique} unique chord multisets.\n")
 
 # --- Step 2: Compute once per unique set ---
 # Each function handles spectral enrichment via its own parameters,

@@ -51,7 +51,7 @@ period = 1200
 # Display options
 invert_circular = True   # True: higher similarity towards centre
 n_labels = 15
-min_label_spacing = 9    # minimum spacing between labels (cents)
+min_label_spacing = 24   # minimum spacing between labels (cents)
 
 # ===================================================================
 #  Build pitch matrices (0 to period/2 only)
@@ -61,12 +61,12 @@ half_range = np.arange(0, period / 2 + gen_step / 2, gen_step)
 n_half = len(half_range)
 
 # Reference chord: same for every row
-pitches_a = np.tile(ref_pitches, (n_half, 1))
+p_mat_a = np.tile(ref_pitches, (n_half, 1))
 
-# Generator-chain pitch sets
-pitches_b = np.full((n_half, n_tones), np.nan)
+# Generator-chain multisets
+p_mat_b = np.full((n_half, n_tones), np.nan)
 for i, gen in enumerate(half_range):
-    pitches_b[i, :] = np.mod(np.arange(n_tones) * gen, period)
+    p_mat_b[i, :] = np.mod(np.arange(n_tones) * gen, period)
 
 # ===================================================================
 #  Compute similarities
@@ -77,7 +77,7 @@ print(f"Computing SPCS of {n_tones}-tone generator-chains "
       f"against {ref_name}...")
 
 s_half = mpt.batch_cos_sim_exp_tens(
-    pitches_a, pitches_b, sigma, r, is_rel, is_per, period,
+    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
     verbose=False,
 )
 s_half = np.round(s_half, 3)
@@ -126,7 +126,7 @@ for li in range(len(pk_idx)):
     gen_val = gen_range[pk_idx[li]]
     if any(abs(gen_val - g) < min_label_spacing for g in labelled_gens):
         continue
-    ax1.plot(gen_val, pk_vals[li], 'r.', markersize=3)
+    ax1.plot(gen_val, pk_vals[li], 'r.', markersize=10)
     ax1.annotate(f'  {gen_val:.1f}', (gen_val, pk_vals[li]),
                  fontsize=7, color=(0.8, 0, 0), ha='left', va='bottom')
     labelled_gens.append(gen_val)
@@ -170,7 +170,7 @@ ax2.set_title(f'SPCS of {n_tones}-tone generator-chains with {ref_name}\n'
               f'period = {period}; {title_extra})',
               pad=20)
 
-# Label top peaks (ranked by height, minimum spacing in cents)
+# Label top peaks
 labelled_gens_c = []
 labelled_c = 0
 for li in range(len(pk_idx)):
@@ -180,13 +180,13 @@ for li in range(len(pk_idx)):
     peak_theta = 2 * np.pi * gen_val / period
     if invert_circular:
         peak_r = 1 - pk_vals[li]
-        label_r = max(0, peak_r - 0.05)
+        label_r = max(0, peak_r - 0.03)
     else:
         peak_r = pk_vals[li]
-        label_r = min(1, peak_r + 0.05)
-    ax2.plot(peak_theta, peak_r, 'r.', markersize=3)
+        label_r = min(1, peak_r + 0.03)
+    ax2.plot(peak_theta, peak_r, 'r.', markersize=10)
     ax2.annotate(f'{gen_val:.1f}', (peak_theta, label_r),
-                 fontsize=7, color=(0.8, 0, 0), ha='center', va='center')
+                 fontsize=7, color=(0.8, 0, 0), ha='center')
     labelled_gens_c.append(gen_val)
     labelled_c += 1
     if labelled_c >= n_labels:

@@ -1,7 +1,7 @@
 """demo_virtual_pitches.py
 
 Computes and plots virtual pitch (fundamental) salience profiles
-for a set of example chords.
+for example chords.
 
 Each subplot shows the normalised cross-correlation between the
 chord's composite spectrum and a harmonic template, plotted against

@@ -30,45 +30,47 @@ def spectral_entropy(
     base: float = 2.0,
     resolution: float = 1.0,
 ) -> float:
-    """Spectral entropy of a pitch set.
+    """Spectral entropy of a weighted pitch multiset.
 
-    Lower entropy → greater consonance (more spectral overlap).
+    Computes the Shannon entropy of the smoothed composite spectrum
+    of a weighted pitch multiset. The spectrum is constructed by
+    adding harmonics to each pitch via :func:`~mpt.spectra.add_spectra`,
+    evaluating the resulting 1-D absolute non-periodic expectation
+    tensor on a fine grid, normalising to a probability distribution,
+    and computing the entropy.
+
+    Spectral entropy aggregates the spectral pitch similarities of
+    all pairs of sounds in the multiset: the greater the overlap
+    of partials (after Gaussian smoothing), the lower the entropy.
+    Lower entropy therefore indicates greater consonance.
 
     Parameters
     ----------
     p : array-like
         Pitch values in cents (absolute, not pitch classes).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     sigma : float
-        Gaussian smoothing width in cents.
-    spectrum : list, optional
-        Arguments for :func:`~mpt.spectra.add_spectra`, e.g.
-        ``['harmonic', 24, 'powerlaw', 1]``. If ``None``, pitches
-        are used as-is (suitable for empirical spectral peaks).
+        Gaussian smoothing width in cents (typical: 6–15).
+    spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra`.
     normalize : bool
-        Divide by log_base(N) for [0, 1] range.
+        If True (default), divide by log₂(N) to give [0, 1].
     base : float
-        Logarithm base.
+        Logarithm base (default 2 = bits).
     resolution : float
-        Grid spacing in cents.
+        Grid spacing in cents (default 1).
 
     Returns
     -------
     float
+        Spectral entropy (lower = more consonant).
 
-    Examples
-    --------
-    Spectral entropy with synthetic harmonics::
-
-        H = mpt.spectral_entropy([0, 386.31, 701.96], None, 12,
-                                  spectrum=['harmonic', 24, 'powerlaw', 1])
-
-    From empirical audio peaks (no add_spectra needed)::
-
-        f, w, _ = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
-        p = mpt.convert_pitch(f, 'hz', 'cents')
-        H = mpt.spectral_entropy(p, w, 12)
+    References
+    ----------
+    Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
+    space of perfectly balanced rhythms and scales. *Journal of
+    Mathematics and Music*, 11(2–3), 101–133.
     """
     p = np.asarray(p, dtype=np.float64).ravel()
     w = validate_weights(w, len(p))
@@ -117,45 +119,51 @@ def template_harmonicity(
 ) -> tuple[float, float]:
     """Harmonicity via template cross-correlation.
 
-    Cross-correlates the chord's spectrum with a harmonic template.
+    Measures the harmonicity of a weighted pitch multiset by
+    cross-correlating its spectral expectation tensor with a harmonic
+    template (a single complex tone). Two complementary measures:
+
+    - *h_max*: maximum normalised cross-correlation (Milne, 2013).
+      Cosine similarity at the best-matching transposition.
+    - *h_entropy*: Shannon entropy of the cross-correlation treated
+      as a probability distribution (Harrison & Pearce, 2020).
 
     Parameters
     ----------
     p : array-like
-        Pitch values in cents.
+        Pitch values in cents (absolute, not pitch classes).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     sigma : float
-        Gaussian smoothing width.
-    spectrum : list, optional
-        Template spectrum args. Default: ``['harmonic', 36, 'powerlaw', 1]``.
-    chord_spectrum : list, optional
-        Chord spectrum args. Default: ``None`` (no enrichment).
-    normalize, base : float
-        Entropy normalisation.
+        Gaussian smoothing width in cents (typical: 9–15).
+    spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` for the
+        harmonic template.
+    chord_spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` for the
+        chord. ``None`` = use pitches as given.
+    normalize : bool
+        If True (default), normalise entropy to [0, 1].
+    base : float
+        Logarithm base (default 2).
     resolution : float
-        Grid spacing in cents.
+        Grid spacing in cents (default 1).
 
     Returns
     -------
     h_max : float
-        Maximum normalized cross-correlation (Milne 2013).
+        Maximum cross-correlation in [0, 1].
     h_entropy : float
-        Entropy of the cross-correlation (Harrison 2020).
+        Entropy of the cross-correlation.
 
-    Examples
-    --------
-    With synthetic spectrum on chord::
+    References
+    ----------
+    Milne, A. J. (2013). *A computational model of the cognition
+    of tonality*. PhD thesis, The Open University.
 
-        spec = ['harmonic', 36, 'powerlaw', 1]
-        h_max, h_ent = mpt.template_harmonicity([0, 386.31, 701.96],
-                           None, 12, chord_spectrum=spec)
-
-    From empirical audio peaks::
-
-        f, w, _ = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
-        p = mpt.convert_pitch(f, 'hz', 'cents')
-        h_max, h_ent = mpt.template_harmonicity(p, w, 12)
+    Harrison, P. M. C. & Pearce, M. T. (2020). Simultaneous
+    consonance in music perception and composition. *Psychological
+    Review*, 127(2), 216–244.
     """
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
@@ -223,29 +231,38 @@ def tensor_harmonicity(
 ) -> float:
     """Harmonicity via expectation tensor lookup.
 
-    Evaluates the relative r-ad tensor of a harmonic series at the
-    chord's interval vector.
+    Measures the harmonicity of a weighted pitch multiset by
+    evaluating the relative r-ad expectation tensor of a harmonic
+    series at the multiset's interval vector. A high density at the
+    chord's intervals indicates those intervals are likely to
+    co-occur in a harmonic series.
 
     Parameters
     ----------
     p : array-like
-        Pitch values in cents (≥ 2 pitches).
+        Pitch values in cents (length K ≥ 2, absolute).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     sigma : float
-        Gaussian smoothing width.
-    spectrum : list, optional
-        Template spectrum args.
-        Default: ``['harmonic', 64, 'powerlaw', 1]``.
+        Gaussian smoothing width in cents (typical: 9–15).
+    spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` for the
+        harmonic template.
     duplicate : int
-        Template duplication count (0 = auto = chord cardinality).
+        Number of template copies (0 = auto = chord cardinality).
     normalize : str
-        ``'none'``, ``'gaussian'``, or ``'pdf'``.
+        ``'none'`` (default), ``'gaussian'``, or ``'pdf'``.
 
     Returns
     -------
     float
-        Harmonicity (higher = more harmonic).
+        Harmonicity (non-negative; higher = more harmonic).
+
+    References
+    ----------
+    Smit, E. A., Milne, A. J., Dean, R. T., & Weidemann, G.
+    (2019). Perception of affect in unfamiliar musical chords.
+    *PLOS ONE*, 14(6), e0218570.
     """
     if spectrum is None:
         spectrum = ["harmonic", 64, "powerlaw", 1]
@@ -293,47 +310,40 @@ def virtual_pitches(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Virtual pitch salience profile via template cross-correlation.
 
+    Computes the virtual pitch (fundamental) salience profile for a
+    weighted pitch multiset by cross-correlating its spectral
+    expectation tensor with a harmonic template. Peaks indicate
+    strong virtual pitches — candidate fundamentals well-supported
+    by the input spectrum.
+
     Parameters
     ----------
     p : array-like
-        Pitch values in cents.
+        Pitch values in cents (absolute).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     sigma : float
-        Gaussian smoothing width.
-    spectrum : list, optional
-        Template spectrum args. Default: ``['harmonic', 36, 'powerlaw', 1]``.
-    chord_spectrum : list, optional
-        Chord spectrum args. Default: ``None`` (no enrichment).
+        Gaussian smoothing width in cents.
+    spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` for the
+        harmonic template.
+    chord_spectrum : list or None
+        Arguments for :func:`~mpt.spectra.add_spectra` for the
+        chord. ``None`` = use pitches as given.
     resolution : float
-        Grid spacing in cents.
+        Grid spacing in cents (default 1).
 
     Returns
     -------
     vp_p : np.ndarray
-        Candidate fundamental pitches (cents).
+        Candidate pitch values in cents.
     vp_w : np.ndarray
-        Virtual pitch weights (cosine similarity at each lag).
+        Virtual pitch weights (normalised cross-correlation).
 
-    Examples
-    --------
-    Virtual pitches of a JI major triad (synthetic spectrum)::
-
-        spec = ['harmonic', 36, 'powerlaw', 1]
-        vp_p, vp_w = mpt.virtual_pitches([0, 386.31, 701.96],
-                          None, 12, chord_spectrum=spec)
-
-    From empirical audio peaks::
-
-        f, w, _ = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
-        p = mpt.convert_pitch(f, 'hz', 'cents')
-        vp_p, vp_w = mpt.virtual_pitches(p, w, 12)
-
-    MIDI input via convert_pitch::
-
-        p = mpt.convert_pitch([60, 64, 67], 'midi', 'cents')
-        spec = ['harmonic', 36, 'powerlaw', 1]
-        vp_p, vp_w = mpt.virtual_pitches(p, None, 12, chord_spectrum=spec)
+    References
+    ----------
+    Milne, A. J. (2013). *A computational model of the cognition
+    of tonality*. PhD thesis, The Open University.
     """
     if spectrum is None:
         spectrum = ["harmonic", 36, "powerlaw", 1]
@@ -387,25 +397,36 @@ def roughness(
     p_norm: float = 1.0,
     average: bool = False,
 ) -> float:
-    """Sensory roughness of a set of partials.
+    """Sensory roughness of a weighted multiset of partials.
 
-    Uses Sethares' (1993) parameterisation of Plomp & Levelt (1965).
+    Computes the total sensory roughness by summing the pairwise
+    roughness contributions of all partial pairs, using Sethares'
+    (1993) parameterisation of Plomp and Levelt's (1965) empirical
+    dissonance curve.
+
+    Frequencies must be in Hz. Use :func:`~mpt.convert.convert_pitch`
+    to convert from other scales.
 
     Parameters
     ----------
     f : array-like
-        Frequencies in Hz (must be positive).
+        Frequencies in Hz (positive).
     w : array-like or None
-        Amplitudes (linear, not dB). ``None`` for uniform.
+        Amplitudes/weights (``None`` for uniform).
     p_norm : float
         Norm exponent for combining pairwise roughnesses (default 1).
     average : bool
-        If True, divide by C(K, 2).
+        If True, divide by the number of pairs (default False).
 
     Returns
     -------
     float
-        Total (or average) roughness.
+        Total (or average) roughness (non-negative).
+
+    References
+    ----------
+    Sethares, W. A. (1993). Local consonance and the relationship
+    between timbre and scale. *JASA*, 94(3), 1218–1228.
     """
     f = np.asarray(f, dtype=np.float64).ravel()
     K = len(f)

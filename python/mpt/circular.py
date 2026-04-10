@@ -1,4 +1,4 @@
-"""Measures on circular pitch-class and time-class sets.
+"""Measures on circular multisets of pitches or positions.
 
 Includes the DFT-based family (balance, evenness), scale-theoretic
 measures (coherence, sameness), and pulse-level predictors
@@ -63,23 +63,34 @@ def dft_circular(
 
 
 def balance(p: np.ndarray, w: np.ndarray | None, period: float) -> float:
-    """Balance of a circular set.
+    """Balance of a weighted circular multiset.
 
-    ``b = 1 − |F(0)|``, where *F(0)* is the weighted centre of
-    gravity on the unit circle. Range [0, 1].
+    Computes the balance of a weighted multiset of points on a circle
+    (*p* represents pitches or positions), defined as ``1 - |F[0]|``
+    where ``F[0]`` is the k = 0 DFT coefficient (see :func:`dft_circular`).
+
+    Balance ranges from 0 to 1: 1 = perfectly balanced (centre of
+    gravity at the origin); 0 = all weight at one point.
 
     Parameters
     ----------
     p : array-like
-        Positions.
+        Pitch or position values (length *K*).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     period : float
-        Period.
+        Period of the circular domain.
 
     Returns
     -------
     float
+        Balance in [0, 1].
+
+    References
+    ----------
+    Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
+    space of perfectly balanced rhythms and scales. *Journal of
+    Mathematics and Music*, 11(2–3), 101–133.
     """
     _, mag = dft_circular(p, w, period)
     return float(1 - mag[0])
@@ -91,20 +102,32 @@ def balance(p: np.ndarray, w: np.ndarray | None, period: float) -> float:
 
 
 def evenness(p: np.ndarray, period: float) -> float:
-    """Evenness of a circular set.
+    """Evenness of a circular multiset.
 
-    ``e = |F(1)|``. Always uses uniform weights. Range [0, 1].
+    Computes the evenness of a multiset of *K* points on a circle
+    (*p* represents pitches or positions), defined as ``|F[1]|``
+    where ``F[1]`` is the k = 1 DFT coefficient (see :func:`dft_circular`).
+
+    Evenness ranges from 0 to 1: 1 = maximally even (equally spaced);
+    0 = maximally uneven. Uses uniform weights regardless of input.
 
     Parameters
     ----------
     p : array-like
-        Positions.
+        Pitch or position values (length *K*).
     period : float
-        Period.
+        Period of the circular domain.
 
     Returns
     -------
     float
+        Evenness in [0, 1].
+
+    References
+    ----------
+    Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
+    space of perfectly balanced rhythms and scales. *Journal of
+    Mathematics and Music*, 11(2–3), 101–133.
     """
     _, mag = dft_circular(p, None, period)
     return float(mag[1])
@@ -117,35 +140,45 @@ def evenness(p: np.ndarray, period: float) -> float:
 
 def coherence(
     p: np.ndarray,
-    period: float,
+    period: int,
     *,
     strict: bool = True,
 ) -> tuple[float, int]:
-    """Coherence quotient (Carey 2002, 2007; Rothenberg 1978).
+    """Coherence quotient of a circular set.
 
-    Measures how consistently the rank ordering of intervals by generic
-    span matches their ordering by specific size.  Because only rank
-    ordering matters, positions may be integers (within an equal
-    division) or floats (e.g. cents values of a just-intonation scale).
+    Returns the coherence quotient of the set of pitches or positions
+    *p* within an equal division of size *period* (Carey, 2002). A
+    coherence failure occurs when a pair with a larger generic span
+    does not have a strictly greater specific size (strict propriety).
 
     Parameters
     ----------
-    p : array-like
-        Positions (length *K*).  Non-negative values less than *period*.
-    period : float
-        Period of the circular domain.
+    p : array-like of int
+        Pitch or position values. Non-negative integers less than
+        *period*. Duplicates (modulo *period*) are not allowed.
+    period : int
+        Size of the equal division.
     strict : bool
-        If True (default), strict propriety (Rothenberg 1978).
+        If True (default), strict propriety; if False, propriety.
 
     Returns
     -------
     c : float
-        Coherence quotient in [0, 1].
+        Coherence quotient in [0, 1] (1 = no failures).
     nc : int
         Number of coherence failures.
+
+    References
+    ----------
+    Carey, N. (2002). On coherence and sameness. *Journal of Music
+    Theory*, 46(1/2), 1–56.
+
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
-    period = float(period)
+    p = np.asarray(p, dtype=np.int64).ravel()
+    period = int(period)
     p = np.sort(p % period)
     K = len(p)
     if len(np.unique(p)) != K:
@@ -154,7 +187,7 @@ def coherence(
         raise ValueError(f"At least 2 events required (got {K}).")
 
     # Interval-size table
-    size_span = np.zeros((K - 1, K), dtype=np.float64)
+    size_span = np.zeros((K - 1, K), dtype=np.int64)
     for g in range(1, K):
         size_span[g - 1] = (p[(np.arange(K) + g) % K] - p) % period
 
@@ -183,21 +216,32 @@ def sameness(
     p: np.ndarray,
     period: int,
 ) -> tuple[float, int]:
-    """Sameness quotient (Carey 2002, 2007).
+    """Sameness quotient of a circular set.
+
+    Returns the sameness quotient of the set of pitches or positions
+    *p* within an equal division of size *period* (Carey, 2002). An
+    ambiguity occurs when two different generic spans share the same
+    specific size.
 
     Parameters
     ----------
     p : array-like of int
-        Positions.
+        Pitch or position values. Non-negative integers less than
+        *period*. Duplicates (modulo *period*) are not allowed.
     period : int
-        Equal division size.
+        Size of the equal division.
 
     Returns
     -------
     sq : float
-        Sameness quotient in [0, 1].
+        Sameness quotient in [0, 1] (1 = no ambiguities).
     n_diff : int
         Number of ambiguities.
+
+    References
+    ----------
+    Carey, N. (2002). On coherence and sameness. *Journal of Music
+    Theory*, 46(1/2), 1–56.
     """
     p = np.asarray(p, dtype=np.int64).ravel()
     period = int(period)
@@ -239,29 +283,43 @@ def edges(
     *,
     kappa: float = 6.7,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Edge detection on a circular set.
+    """Edge detection on a weighted circular multiset.
 
-    Convolves with the derivative of a von Mises kernel.
+    Computes the "edginess" at each query point by evaluating the
+    circular convolution of the weighted multiset with the first
+    derivative of a von Mises kernel, and taking absolute values.
+    By default, query points are ``0, 1, ..., period-1``.
+
+    Positions near a sharp transition between event-dense and
+    event-sparse regions receive high edge weights; positions in
+    uniformly dense or sparse regions receive low weights.
 
     Parameters
     ----------
     p : array-like
-        Event positions.
+        Pitch or position values (length *K*).
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     period : float
-        Period.
+        Period of the circular domain.
     x : array-like or None
-        Query points (default ``0:period-1``).
+        Query points (default: ``0:period-1``).
     kappa : float
-        Concentration parameter.
+        Concentration parameter of the von Mises kernel (default 6.7).
+        Larger values detect sharper edges.
 
     Returns
     -------
     e : np.ndarray
-        Absolute edge weights.
+        Absolute edge weights (non-negative).
     e_signed : np.ndarray
-        Signed edge weights.
+        Signed edge weights (positive = rising edge).
+
+    References
+    ----------
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
     p = np.asarray(p, dtype=np.float64).ravel()
     K = len(p)
@@ -291,23 +349,37 @@ def proj_centroid(
     period: float,
     x: np.ndarray | None = None,
 ) -> tuple[np.ndarray, float, float]:
-    """Projected centroid of a circular set.
+    """Projected centroid of a weighted circular multiset.
+
+    Computes the projection of the circular centroid (centre of
+    gravity) onto each angular position. The centroid is the k = 0
+    Fourier coefficient of the multiset (see :func:`dft_circular`).
 
     Parameters
     ----------
-    p, w, period :
-        Event set.
+    p : array-like
+        Pitch or position values (length *K*).
+    w : array-like or None
+        Weights (``None`` for uniform).
+    period : float
+        Period of the circular domain.
     x : array-like or None
-        Query points (default ``0:period-1``).
+        Query points (default: ``0:period-1``).
 
     Returns
     -------
     y : np.ndarray
         Projected centroid values.
     cent_mag : float
-        Centroid magnitude |F(0)|.
+        Centroid magnitude |F[0]| (degree of imbalance).
     cent_phase : float
-        Centroid phase in user units.
+        Centroid phase in the units of *p*.
+
+    References
+    ----------
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
     if x is None:
         x = np.arange(period)
@@ -336,19 +408,39 @@ def mean_offset(
     period: float,
     x: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Mean offset (net upward arc) of a circular set.
+    """Mean offset (net upward arc) of a weighted circular multiset.
+
+    Computes, at each query point, the sum of upward arc lengths to
+    all elements minus the sum of downward arc lengths, with each
+    arc normalised by the period. By default, query points are
+    ``0, 1, ..., period-1``.
+
+    In a pitch-class context, this formalises and generalises
+    Huron's (2008) "average pitch height." The term "mode height"
+    for a closely related concept is used by Hearne (2020) and
+    Tymoczko (2023).
 
     Parameters
     ----------
-    p, w, period :
-        Event set.
+    p : array-like
+        Pitch or position values (length *K*).
+    w : array-like or None
+        Weights (``None`` for uniform).
+    period : float
+        Period of the circular domain.
     x : array-like or None
-        Query points (default ``0:period-1``).
+        Query points (default: ``0:period-1``).
 
     Returns
     -------
     np.ndarray
-        Mean offset at each query point.
+        Mean offset values.
+
+    References
+    ----------
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
     p = np.asarray(p, dtype=np.float64).ravel()
     K = len(p)
@@ -380,12 +472,18 @@ def circ_apm(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Circular autocorrelation phase matrix.
 
+    Returns the circular autocorrelation phase matrix (APM) of the
+    weighted multiset *p* within a cycle of length *period* (*p*
+    represents pitches or positions). The APM decomposes the circular
+    autocorrelation into contributions at each combination of lag
+    and phase.
+
     Parameters
     ----------
     p : array-like of int
-        Event positions.
+        Pitch or position values. Non-negative integers < *period*.
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     period : int
         Cycle length.
     decay : float
@@ -393,12 +491,21 @@ def circ_apm(
 
     Returns
     -------
-    R : (period, period) array
-        APM. ``R[l, phi]`` for lag *l*, phase *phi*.
-    r_phase : (period,) array
-        Column sum (metrical weight model).
-    r_lag : (period,) array
-        Row sum (circular autocorrelation).
+    R : np.ndarray
+        APM (*period* × *period*).
+    r_phase : np.ndarray
+        Column sum (1 × *period*). Model of metrical weight.
+    r_lag : np.ndarray
+        Row sum (*period* × 1). Circular autocorrelation.
+
+    References
+    ----------
+    Eck, D. (2006). Beat tracking using an autocorrelation phase
+    matrix. *Proc. ICMC*.
+
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
     p = np.asarray(p, dtype=np.int64).ravel()
     K = len(p)
@@ -447,14 +554,20 @@ def markov_s(
     period: int,
     S: int = 3,
 ) -> np.ndarray:
-    """Optimal S-step Markov predictor for a periodic event sequence.
+    """Optimal S-step Markov predictor for a periodic weighted multiset.
+
+    Returns the predicted weight at each integer position
+    ``0, 1, ..., period-1`` of a cycle (*p* represents pitches or
+    positions). For each position *j*, the predictor finds all
+    positions whose S-step future context (the binary pattern of
+    events and non-events) is identical, and averages their weights.
 
     Parameters
     ----------
     p : array-like of int
-        Event positions.
+        Pitch or position values. Non-negative integers < *period*.
     w : array-like or None
-        Weights.
+        Weights (``None`` for uniform).
     period : int
         Cycle length.
     S : int
@@ -464,6 +577,12 @@ def markov_s(
     -------
     np.ndarray
         Predicted event weights (length *period*).
+
+    References
+    ----------
+    Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
+    rhythmic structure on tapping accuracy. *Attention, Perception,
+    & Psychophysics*, 85, 2673–2699.
     """
     p = np.asarray(p, dtype=np.int64).ravel()
     K = len(p)
@@ -474,17 +593,17 @@ def markov_s(
         raise ValueError("Positions must be non-negative integers < period.")
 
     N = period
-    x_w = np.zeros(N)
+    w_cycle = np.zeros(N)
     for i in range(K):
-        x_w[p[i]] += w[i]
+        w_cycle[p[i]] += w[i]
 
-    x_bin = (x_w != 0)
+    bin_cycle = (w_cycle != 0)
 
     # E[i,j] = 1 iff positions i and j have the same binary status
-    E = (x_bin[:, None] == x_bin[None, :])
+    E = (bin_cycle[:, None] == bin_cycle[None, :])
     T = np.ones((N, N), dtype=bool)
     for k in range(1, S + 1):
         T &= np.roll(np.roll(E, k, axis=1), k, axis=0)
 
-    y = (x_w @ T.astype(np.float64)) / np.sum(T, axis=0)
+    y = (w_cycle @ T.astype(np.float64)) / np.sum(T, axis=0)
     return y

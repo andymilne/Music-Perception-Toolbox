@@ -32,29 +32,43 @@ def entropy_exp_tens(
 ) -> float:
     """Shannon entropy (in bits) of an expectation tensor.
 
-    Can accept either a precomputed :class:`ExpTensDensity` or raw
-    parameters.
+    Returns the Shannon entropy of the expectation tensor defined by
+    the weighted multiset (*p*, *w*), where *p* represents pitches or
+    positions. The tensor is discretised on a fine grid and the
+    Shannon entropy of the resulting probability mass function is
+    returned.
 
     Parameters
     ----------
-    p_or_dens : array-like or ExpTensDensity
-        Pitch values *or* a precomputed density struct.
-    w, sigma, r, is_rel, is_per, period :
-        Required when *p_or_dens* is not a struct.
-    spectrum : list, optional
+    p : array-like or ExpTensDensity
+        Pitch or position values, or a precomputed density struct.
+    w : array-like or None
+        Weights (not required if *p* is a struct).
+    sigma : float or None
+        Gaussian bandwidth.
+    r : int or None
+        Tuple size.
+    is_rel : bool or None
+        Relative (transposition-invariant).
+    is_per : bool or None
+        Periodic domain.
+    period : float or None
+        Domain period.
+    spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`.
     normalize : bool
-        Divide by log_base(N) to get [0, 1] range.
+        If True (default), divide by log(N) to give [0, 1].
     base : float
         Logarithm base (default 2).
     n_points_per_dim : int
-        Grid resolution per dimension.
+        Grid resolution per dimension (default 1200).
     x_min, x_max : float
-        Domain bounds (required when ``is_per`` is False).
+        Domain bounds (required when *is_per* is False).
 
     Returns
     -------
     float
+        Shannon entropy.
     """
     if isinstance(p_or_dens, ExpTensDensity):
         T = p_or_dens
@@ -115,27 +129,41 @@ def n_tuple_entropy(
 ) -> tuple[float, np.ndarray]:
     """Entropy of n-tuples of consecutive step sizes.
 
+    Returns the normalised entropy of the distribution of n-tuples
+    of consecutive step sizes in the set *p* within an equal
+    division of size *period* (*p* represents pitches or positions).
+
+    For n = 1, this is interonset interval (IOI) entropy. Higher
+    values of n capture progressively finer sequential structure.
+
     Parameters
     ----------
     p : array-like of int
-        Positions (non-negative integers < *period*).
+        Pitch or position values. Non-negative integers less than
+        *period*. Duplicates not allowed.
     period : int
-        Equal-division size.
+        Size of the equal division.
     n : int
-        Tuple size (default 1 = IOI entropy).
+        Tuple size (default 1).
     sigma : float
-        Circular Gaussian smoothing width (default 0).
+        Gaussian smoothing width (default 0 = no smoothing).
     normalize : bool
-        Divide by log_base(period^n) for [0, 1] range.
+        If True (default), divide by log(period^n) to give [0, 1].
     base : float
-        Logarithm base.
+        Logarithm base (default 2).
 
     Returns
     -------
     H : float
-        Shannon entropy.
-    tuples : (K, n) array
-        The n-tuples of consecutive step sizes.
+        Shannon entropy of the n-tuple distribution.
+    tuples : np.ndarray
+        (K, n) matrix of n-tuples (only if requested).
+
+    References
+    ----------
+    Milne, A. J. & Dean, R. T. (2016). Computational creation and
+    morphing of multilevel rhythms by control of evenness. *Computer
+    Music Journal*, 40(1), 35–53.
     """
     p = np.asarray(p, dtype=np.int64).ravel()
     period = int(period)

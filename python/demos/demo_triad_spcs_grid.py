@@ -61,20 +61,20 @@ ref_third = ref_pitches[1]
 
 # Build all 144 comparison triads: {root, third, root + 700}
 root_grid, third_grid = np.meshgrid(pcs, pcs)
-pitches_b = np.column_stack([
+p_mat_b = np.column_stack([
     root_grid.ravel(),
     third_grid.ravel(),
     root_grid.ravel() + 700,
 ])
 
 # Reference triad repeated
-pitches_a = np.tile(ref_pitches, (n_pcs * n_pcs, 1))
+p_mat_a = np.tile(ref_pitches, (n_pcs * n_pcs, 1))
 
 print(f"Computing SPCS for {ref_name} reference "
       f"(N={n_harm}, rho={rho})...")
 
 sim_vector = mpt.batch_cos_sim_exp_tens(
-    pitches_a, pitches_b, sigma, r, is_rel, is_per, period,
+    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
     spectrum=['harmonic', n_harm, 'powerlaw', rho],
     verbose=False,
 )

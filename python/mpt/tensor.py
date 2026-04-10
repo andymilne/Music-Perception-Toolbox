@@ -80,10 +80,17 @@ def build_exp_tens(
 ) -> ExpTensDensity:
     """Precompute an r-ad expectation tensor density object.
 
+    Precomputes the tuple index sets, pitch or position matrices,
+    weight vectors, and (for the relative case) reduced interval
+    centres for the weighted multiset (*p*, *w*). The returned
+    object can be passed to :func:`eval_exp_tens` and
+    :func:`cos_sim_exp_tens` in place of the raw arguments, avoiding
+    redundant recomputation across multiple calls.
+
     Parameters
     ----------
     p : array-like
-        Pitch values.
+        Pitch or position values.
     w : array-like or None
         Weights (``None`` or empty for uniform).
     sigma : float
@@ -102,6 +109,14 @@ def build_exp_tens(
     Returns
     -------
     ExpTensDensity
+        Precomputed density object.
+
+    References
+    ----------
+    Milne, A. J., Sethares, W. A., Laney, R., & Sharp, D. B.
+    (2011). Modelling the similarity of pitch collections with
+    expectation tensors. *Journal of Mathematics and Music*,
+    5(1), 1–20.
     """
     p = np.asarray(p, dtype=np.float64).ravel()
     w = validate_weights(w, len(p))
@@ -189,22 +204,36 @@ def eval_exp_tens(
 ) -> np.ndarray:
     """Evaluate an expectation tensor density at query points.
 
+    The density at a query point *x* is a weighted sum of Gaussian
+    kernels centred at all ordered r-tuples drawn from (*p*, *w*).
+    The cosine similarity is computed analytically — no grid
+    evaluation is required.
+
+    When *is_rel* is False (absolute), query points are
+    r-dimensional pitch or position vectors. When *is_rel* is True
+    (relative / transposition-invariant), the effective
+    dimensionality is r − 1 and query points are (r−1)-dimensional
+    interval vectors.
+
     Parameters
     ----------
     dens : ExpTensDensity
         Precomputed density from :func:`build_exp_tens`.
-    x : array-like
-        Query points. For 1-D densities, a 1-D array of length *nQ*.
-        For multi-dimensional densities, a ``(dim, nQ)`` array.
+    x : (dim, nQ) array
+        Query points (dim = r − is_rel). Each column is one point.
     normalize : str
         ``'none'`` (default), ``'gaussian'``, or ``'pdf'``.
     verbose : bool
-        Print time estimates.
+        Print progress.
 
     Returns
     -------
     np.ndarray
-        1-D array of density values (length *nQ*).
+        (nQ,) density values.
+
+    See Also
+    --------
+    build_exp_tens, cos_sim_exp_tens
     """
     x = np.asarray(x, dtype=np.float64)
     if x.ndim == 1:
@@ -325,19 +354,38 @@ def cos_sim_exp_tens(
     *,
     verbose: bool = True,
 ) -> float:
-    """Cosine similarity of two r-ad expectation tensors.
+    """Cosine similarity of two r-ad expectation tensor densities.
+
+    Computes the cosine similarity between the r-ad expectation
+    tensor densities of two precomputed weighted multisets. The
+    similarity is computed analytically — no grid evaluation is
+    required.
+
+    Four variants are available depending on *is_per* and *is_rel*.
 
     Parameters
     ----------
     dens_x, dens_y : ExpTensDensity
-        Precomputed densities from :func:`build_exp_tens`.
+        Precomputed density objects from :func:`build_exp_tens`.
+        Must share the same *r*, *sigma*, *is_rel*, *is_per*, and
+        (if periodic) *period*.
     verbose : bool
-        Print time estimates.
+        Print progress.
 
     Returns
     -------
     float
-        Cosine similarity in [−1, 1].
+        Cosine similarity in [0, 1] for non-negative weights.
+        NaN if *r* exceeds the number of elements in either multiset.
+
+    References
+    ----------
+    Originally by David Bulger, Macquarie University (2016).
+    Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
+
+    See Also
+    --------
+    build_exp_tens, eval_exp_tens, batch_cos_sim_exp_tens
     """
     if dens_x.r != dens_y.r:
         raise ValueError("Both densities must have the same r.")
@@ -389,13 +437,33 @@ def cos_sim_exp_tens(
 
 
 def cos_sim_exp_tens_raw(
-    x_p, x_w, y_p, y_w,
+    p1, w1, p2, w2,
     sigma, r, is_rel, is_per, period,
     *, verbose=True,
 ) -> float:
-    """Build two densities and compute cosine similarity in one call."""
-    dx = build_exp_tens(x_p, x_w, sigma, r, is_rel, is_per, period, verbose=verbose)
-    dy = build_exp_tens(y_p, y_w, sigma, r, is_rel, is_per, period, verbose=verbose)
+    """Build two densities and compute cosine similarity in one call.
+
+    Convenience wrapper around :func:`build_exp_tens` and
+    :func:`cos_sim_exp_tens` for the raw-argument calling convention.
+
+    Parameters
+    ----------
+    p1, w1 : array-like
+        Pitch or position values and weights for the first multiset.
+    p2, w2 : array-like
+        Pitch or position values and weights for the second multiset.
+    sigma, r, is_rel, is_per, period :
+        Tensor parameters (see :func:`build_exp_tens`).
+    verbose : bool
+        Print progress.
+
+    Returns
+    -------
+    float
+        Cosine similarity.
+    """
+    dx = build_exp_tens(p1, w1, sigma, r, is_rel, is_per, period, verbose=verbose)
+    dy = build_exp_tens(p2, w2, sigma, r, is_rel, is_per, period, verbose=verbose)
     return cos_sim_exp_tens(dx, dy, verbose=verbose)
 
 
@@ -449,8 +517,8 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 
 
 def batch_cos_sim_exp_tens(
-    pitches_a: np.ndarray,
-    pitches_b: np.ndarray,
+    p_mat_a: np.ndarray,
+    p_mat_b: np.ndarray,
     sigma: float,
     r: int,
     is_rel: bool,
@@ -464,19 +532,24 @@ def batch_cos_sim_exp_tens(
 ) -> np.ndarray:
     """Batch cosine similarity of expectation tensors.
 
+    Computes cosine similarity for many paired weighted multisets
+    (*p* represents pitches or positions). Each row of *p_mat_a*
+    and *p_mat_b* defines one pair. Automatically deduplicates rows
+    with identical sorted content.
+
     Parameters
     ----------
-    pitches_a : (nRows, nA) array
-        Pitch sets A. NaN entries are ignored.
-    pitches_b : (nRows, nB) array
-        Pitch sets B.
+    p_mat_a : (nRows, nA) array
+        Multiset A values. NaN entries are ignored.
+    p_mat_b : (nRows, nB) array
+        Multiset B values.
     sigma, r, is_rel, is_per, period :
         Tensor parameters.
     weights_a, weights_b : array, optional
-        Weight matrices matching *pitches_a* / *pitches_b*.
+        Weight matrices matching *p_mat_a* / *p_mat_b*.
     spectrum : list, optional
-        Arguments for :func:`add_spectra` (mode and params as a list,
-        e.g. ``['harmonic', 12, 'powerlaw', 1]``).
+        Arguments for :func:`~mpt.spectra.add_spectra` (mode and
+        params as a list, e.g. ``['harmonic', 12, 'powerlaw', 1]``).
     verbose : bool
         Print progress.
 
@@ -485,16 +558,16 @@ def batch_cos_sim_exp_tens(
     np.ndarray
         (nRows,) cosine similarities. NaN for invalid rows.
     """
-    pitches_a = np.asarray(pitches_a, dtype=np.float64)
-    pitches_b = np.asarray(pitches_b, dtype=np.float64)
-    if pitches_a.ndim == 1:
-        pitches_a = pitches_a.reshape(1, -1)
-    if pitches_b.ndim == 1:
-        pitches_b = pitches_b.reshape(1, -1)
+    p_mat_a = np.asarray(p_mat_a, dtype=np.float64)
+    p_mat_b = np.asarray(p_mat_b, dtype=np.float64)
+    if p_mat_a.ndim == 1:
+        p_mat_a = p_mat_a.reshape(1, -1)
+    if p_mat_b.ndim == 1:
+        p_mat_b = p_mat_b.reshape(1, -1)
 
-    n_rows = pitches_a.shape[0]
-    if pitches_b.shape[0] != n_rows:
-        raise ValueError("pitches_a and pitches_b must have the same number of rows.")
+    n_rows = p_mat_a.shape[0]
+    if p_mat_b.shape[0] != n_rows:
+        raise ValueError("p_mat_a and p_mat_b must have the same number of rows.")
 
     use_wa = weights_a is not None
     use_wb = weights_b is not None
@@ -502,12 +575,12 @@ def batch_cos_sim_exp_tens(
 
     if use_wa:
         weights_a = np.asarray(weights_a, dtype=np.float64)
-        if weights_a.shape != pitches_a.shape:
-            raise ValueError("weights_a must be the same shape as pitches_a.")
+        if weights_a.shape != p_mat_a.shape:
+            raise ValueError("weights_a must be the same shape as p_mat_a.")
     if use_wb:
         weights_b = np.asarray(weights_b, dtype=np.float64)
-        if weights_b.shape != pitches_b.shape:
-            raise ValueError("weights_b must be the same shape as pitches_b.")
+        if weights_b.shape != p_mat_b.shape:
+            raise ValueError("weights_b must be the same shape as p_mat_b.")
 
     # Build deduplication keys
     s = np.full(n_rows, np.nan)
@@ -515,8 +588,8 @@ def batch_cos_sim_exp_tens(
     n_unique = 0
 
     for i in range(n_rows):
-        pa_row = pitches_a[i]
-        pb_row = pitches_b[i]
+        pa_row = p_mat_a[i]
+        pb_row = p_mat_b[i]
         mask_a = ~np.isnan(pa_row)
         mask_b = ~np.isnan(pb_row)
         pa_valid = np.sort(pa_row[mask_a])

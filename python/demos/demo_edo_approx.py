@@ -52,13 +52,13 @@ n_edos = len(edo_range)
 max_n = n_max
 
 # Reference chord: same for every row
-pitches_a = np.tile(ref_pitches, (n_edos, 1))
+p_mat_a = np.tile(ref_pitches, (n_edos, 1))
 
-# EDO pitch sets: NaN-padded
-pitches_b = np.full((n_edos, max_n), np.nan)
+# EDO multisets: NaN-padded
+p_mat_b = np.full((n_edos, max_n), np.nan)
 for i, n in enumerate(edo_range):
     edo = np.arange(n) * (1200 / n)
-    pitches_b[i, :n] = edo
+    p_mat_b[i, :n] = edo
 
 # ===================================================================
 #  Compute similarities
@@ -66,7 +66,7 @@ for i, n in enumerate(edo_range):
 
 print(f"Computing SPCS of {n_edos} EDOs against {ref_name}...")
 s = mpt.batch_cos_sim_exp_tens(
-    pitches_a, pitches_b, sigma, r, is_rel, is_per, period,
+    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
     verbose=False,
 )
 s = np.round(s, 3)

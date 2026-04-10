@@ -1,4 +1,4 @@
-"""Spectral enrichment — add partials to pitch sets."""
+"""Spectral enrichment — add partials to weighted pitch multisets."""
 
 from __future__ import annotations
 
@@ -14,44 +14,32 @@ def add_spectra(
     *args,
     units: float = 1200.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Add spectral partials to a set of pitches.
+    """Add spectral partials to a weighted pitch multiset.
 
-    Five modes determine the partial positions.
+    Five modes determine the partial positions; for the first four,
+    a sub-option selects the weight decay law.
 
     Parameters
     ----------
     p : array-like
-        Pitch values (length *M*).
+        Pitch values (in the units specified by *units*; default
+        cents).
     w : array-like or None
-        Weights (length *M*, or ``None`` for uniform).
+        Weights (``None`` for uniform).
     mode : str
-        One of ``'harmonic'``, ``'stretched'``, ``'freqlinear'``,
+        ``'harmonic'``, ``'stretched'``, ``'freqlinear'``,
         ``'stiff'``, or ``'custom'``.
     *args
-        Mode-specific positional arguments (see below).
-    units : float, optional
-        Pitch units per octave (default 1200, i.e. cents).
-
-    Mode arguments
-    --------------
-    ``'harmonic'``:
-        ``N, weight_type, param``
-    ``'stretched'``:
-        ``N, beta, weight_type, param``
-    ``'freqlinear'``:
-        ``N, alpha, weight_type, param``
-    ``'stiff'``:
-        ``N, B, weight_type, param``
-    ``'custom'``:
-        ``offsets, spec_w``
-
-    Weight types: ``'powerlaw'`` (param = ρ ≥ 0) or
-    ``'geometric'`` (param = τ ∈ [0, 1]).
+        Mode-specific arguments (N, decay type, decay parameter,
+        etc.). See the MATLAB ``help addSpectra`` for full details.
+    units : float
+        Cents per unit (default 1200 = one octave per unit of
+        log₂ frequency).
 
     Returns
     -------
     p_out : np.ndarray
-        Column of all pitches with partials added (length *M × K*).
+        Pitch values including partials.
     w_out : np.ndarray
         Corresponding weights.
     """

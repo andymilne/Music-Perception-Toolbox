@@ -10,7 +10,7 @@
 %  Surface plots (dim = 2) additionally include a colormap shift slider
 %  and a perspective/orthographic projection toggle.
 %
-%  Edit the parameters below to experiment with different pitch sets,
+%  Edit the parameters below to experiment with different multisets,
 %  smoothing widths, plot configurations, and visualization modes.
 %
 %  Uses: buildExpTens, evalExpTens (from the Music Perception Toolbox).
@@ -30,7 +30,7 @@ sigma = 10;
 %   'gaussian' — Each Gaussian component integrates to 1. Useful for
 %                comparing densities computed with different sigma values.
 %   'pdf'      — Full probability density (integrates to 1 over the domain).
-%                Useful for comparing across pitch sets of different sizes.
+%                Useful for comparing across multisets of different sizes.
 normalize = 'none';
 
 % Gamma (power compression) for visualization: displayed = data.^gamma
@@ -75,15 +75,15 @@ configs = [
 % automatically from the axis range and step size.
 % Smaller step = finer grid = slower computation (scales as step^(-dim)).
 step_1d = 1;     % e.g., 1 cent per grid point
-step_2d = 5;     % e.g., 5 cents per dimension
-step_3d = 20;     % e.g., 20 cents per dimension
-step_4d = 50;    % e.g., 50 cents per dimension
+step_2d = 5;     % e.g., 1 cent per dimension
+step_3d = 20;     % e.g., 5 cents per dimension
+step_4d = 50;    % e.g., 10 cents per dimension
 
 % === Axis range for non-periodic configurations ===
 % For periodic configurations, the range is always [0, period].
 % For non-periodic configurations, set the range here.
 axMinNonPer = 0;
-axMaxNonPer = 1200;
+axMaxNonPer = 2400;
 
 % === 3D visualization settings ===
 
@@ -209,7 +209,7 @@ for ci = 1:nConfigs
 
     % --- Validation ---
     if r > numel(p)
-        fprintf('Config %d: r = %d skipped (pitch set has only %d elements).\n', ...
+        fprintf('Config %d: r = %d skipped (multiset has only %d elements).\n', ...
             ci, r, numel(p));
         continue;
     end

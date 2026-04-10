@@ -1,6 +1,6 @@
 %% demo_batchProcessing.m
 %  Demonstrates batch computation of perceptual features on experimental
-%  data with automatic deduplication of repeated pitch sets.
+%  data with automatic deduplication of repeated weighted multisets.
 %
 %  Two deduplication workflows are shown:
 %
@@ -61,8 +61,8 @@ nChords = size(chordTypes, 1);
 nPairs  = nScales * nChords * nRoots;
 
 % Build all (scale, transposed chord) pairs
-pitchesA = zeros(nPairs, 7);    % scales
-pitchesB = zeros(nPairs, 3);    % chords
+pMatA = zeros(nPairs, 7);    % scales
+pMatB = zeros(nPairs, 3);    % chords
 scaleIdx = zeros(nPairs, 1);
 chordIdx = zeros(nPairs, 1);
 rootVals = zeros(nPairs, 1);
@@ -72,8 +72,8 @@ for si = 1:nScales
     for ci = 1:nChords
         for ri = 1:nRoots
             idx = idx + 1;
-            pitchesA(idx, :) = scales(si, :);
-            pitchesB(idx, :) = chordTypes(ci, :) + roots(ri);
+            pMatA(idx, :) = scales(si, :);
+            pMatB(idx, :) = chordTypes(ci, :) + roots(ri);
             scaleIdx(idx) = si;
             chordIdx(idx) = ci;
             rootVals(idx) = roots(ri);
@@ -91,7 +91,7 @@ fprintf('Dataset: %d trials (%d scales × %d chord types × %d roots).\n\n', ...
 
 fprintf('=== Workflow 1: SPCS via batchCosSimExpTens ===\n\n');
 
-spcs = batchCosSimExpTens(pitchesA, pitchesB, ...
+spcs = batchCosSimExpTens(pMatA, pMatB, ...
     sigma, r, isRel, isPer, period, ...
     'spectrum', spec);
 
@@ -126,17 +126,17 @@ end
 %
 %  This works for any function. We demonstrate it here for spectral
 %  entropy, template harmonicity, tensor harmonicity, and roughness
-%  applied to the chord sets (pitchesB).
+%  applied to the chords (pMatB).
 %  =====================================================================
 
 fprintf('\n=== Workflow 2: Single-set measures (chord features) ===\n');
 
 % --- Step 1: Deduplicate ---
-sortedB = sort(pitchesB, 2);
+sortedB = sort(pMatB, 2);
 [uniqueChords, ~, chordMap] = unique(sortedB, 'rows');
 nUnique = size(uniqueChords, 1);
 
-fprintf('\n  %d trials → %d unique chord pitch-class sets.\n\n', ...
+fprintf('\n  %d trials → %d unique chord multisets.\n\n', ...
     nPairs, nUnique);
 
 % --- Step 2: Compute once per unique set ---

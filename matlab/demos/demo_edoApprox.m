@@ -8,7 +8,7 @@
 %    Modelling the similarity of pitch collections with expectation tensors.
 %    Journal of Mathematics and Music, 5(1), 1-20.
 %
-%  For each value of n, the n-EDO pitch set {0, 1200/n, 2*1200/n, ...,
+%  For each value of n, the n-EDO multiset {0, 1200/n, 2*1200/n, ...,
 %  (n-1)*1200/n} is compared to the reference chord. EDOs whose pitch
 %  classes include good approximations to the chord's intervals will have
 %  higher similarity.
@@ -49,7 +49,7 @@ nEDOs    = numel(edoRange);
 maxN     = nMax;  % maximum number of pitches in any EDO
 
 % Reference chord: same for every row
-pitchesA = repmat(refPitches, nEDOs, 1);
+pMatA = repmat(refPitches, nEDOs, 1);
 
 % Reference weights: same for every row (empty = uniform)
 if ~isempty(refWeights)
@@ -58,12 +58,12 @@ else
     weightsA = [];
 end
 
-% EDO pitch sets: NaN-padded to maxN columns
-pitchesB = NaN(nEDOs, maxN);
+% EDO multisets: NaN-padded to maxN columns
+pMatB = NaN(nEDOs, maxN);
 for i = 1:nEDOs
     n = edoRange(i);
     edoPitches = (0:n-1) * (1200 / n);
-    pitchesB(i, 1:n) = edoPitches;
+    pMatB(i, 1:n) = edoPitches;
 end
 
 %% === Compute similarities ===
@@ -73,7 +73,7 @@ opts = {'verbose', false};
 if ~isempty(weightsA)
     opts = [{'weightsA', weightsA}, opts];
 end
-s = batchCosSimExpTens(pitchesA, pitchesB, ...
+s = batchCosSimExpTens(pMatA, pMatB, ...
     sigma, r, isRel, isPer, period, opts{:});
 fprintf('Done.\n');
 

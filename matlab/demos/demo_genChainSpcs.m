@@ -51,7 +51,7 @@ invertCircular = true;   % if true, higher similarity is towards the centre
                          % (as in the article, which plots distance);
                          % if false, higher similarity is at the perimeter
 nLabels        = 15;     % maximum number of peak labels on each plot
-minLabelSpacing = 9;    % minimum spacing between labels (cents); increase
+minLabelSpacing = 24;    % minimum spacing between labels (cents); increase
                          % to reduce clutter, decrease to show more peaks
 
 %% === Build pitch matrices (0 to period/2 only) ===
@@ -63,7 +63,7 @@ halfRange = 0:genStep:(period / 2);
 nHalf     = numel(halfRange);
 
 % Reference chord: same for every row
-pitchesA = repmat(refPitches, nHalf, 1);
+pMatA = repmat(refPitches, nHalf, 1);
 
 % Reference weights
 if ~isempty(refWeights)
@@ -72,11 +72,11 @@ else
     weightsA = [];
 end
 
-% Generator-chain pitch sets: each row is a different generator value
-pitchesB = NaN(nHalf, nTones);
+% Generator-chain multisets: each row is a different generator value
+pMatB = NaN(nHalf, nTones);
 for i = 1:nHalf
     gen = halfRange(i);
-    pitchesB(i, :) = mod((0:nTones-1) * gen, period);
+    pMatB(i, :) = mod((0:nTones-1) * gen, period);
 end
 
 %% === Compute similarities ===
@@ -87,7 +87,7 @@ opts = {'verbose', false};
 if ~isempty(weightsA)
     opts = [{'weightsA', weightsA}, opts];
 end
-sHalf = batchCosSimExpTens(pitchesA, pitchesB, ...
+sHalf = batchCosSimExpTens(pMatA, pMatB, ...
     sigma, r, isRel, isPer, period, opts{:});
 fprintf('Done.\n');
 
@@ -141,7 +141,7 @@ for li = 1:numel(pks)
         continue;
     end
 
-    plot(genVal, pks(li), 'r.', 'MarkerSize', 3);
+    plot(genVal, pks(li), 'r.', 'MarkerSize', 10);
     text(genVal, pks(li), sprintf('  %.1f', genVal), ...
         'FontSize', 7, 'Color', [0.8 0 0], ...
         'HorizontalAlignment', 'left', ...
@@ -215,12 +215,12 @@ for li = 1:numel(pks)
     peakTheta = 2 * pi * genVal / period;
     if invertCircular
         peakR  = 1 - pks(li);
-        labelR = max(0, peakR - 0.05);
+        labelR = max(0, peakR - 0.03);
     else
         peakR  = pks(li);
-        labelR = min(1, peakR + 0.05);
+        labelR = min(1, peakR + 0.03);
     end
-    polarplot(peakTheta, peakR, 'r.', 'MarkerSize', 3);
+    polarplot(peakTheta, peakR, 'r.', 'MarkerSize', 10);
 
     text(peakTheta, labelR, sprintf('%.1f', genVal), ...
         'FontSize', 7, 'Color', [0.8 0 0], ...

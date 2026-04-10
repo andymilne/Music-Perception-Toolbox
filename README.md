@@ -1,18 +1,16 @@
 # Music Perception Toolbox
 
-A toolbox for computing psychoacoustically motivated similarity, consonance, and structural measures on pitch collections and rhythmic patterns. Available in **MATLAB** and **Python**.
+An open-source package — available in **MATLAB** and **Python** — for computing perceptually and cognitively motivated measures of pitch similarity, consonance, and scale and rhythmic structure. It accepts inputs from symbolic pitch data or from spectral peaks extracted from audio recordings.
 
-The toolbox implements several original theoretical frameworks grounded in probability theory, Riemannian geometry, and the discrete Fourier transform. Its measures have been validated as predictors of tonal fit, consonance, affect, and rhythmic complexity across a range of musical contexts, including microtonal tuning systems and cross-cultural settings. See the [User Guide](USER_GUIDE.md) for a full description of the theoretical foundations, function reference, and worked examples.
+The toolbox implements several original theoretical frameworks grounded in probability theory, Riemannian geometry, and the discrete Fourier transform. Its measures have been validated as predictors of tonal fit, consonance, affect, and rhythmic complexity across diverse empirical studies, including experiments with microtonal and non-Western tuning systems. See the [User Guide](USER_GUIDE.md) for a full description of the theoretical foundations, function reference, and worked examples.
 
 ## What's in the toolbox
 
-**Expectation tensors and similarity.** A unified framework for quantifying the similarity of any two weighted multisets of pitches or time points, under configurable assumptions about perceptual equivalence, uncertainty, and structural order. With spectral enrichment, this yields spectral pitch class similarity (SPCS), a powerful predictor of perceived tonal fit.
+**Similarity and complexity via expectation tensors.** A unified framework — applicable to both pitch and rhythm — for quantifying the similarity of any two weighted multisets of pitches or time points, and the complexity of a single multiset, under configurable assumptions about perceptual equivalence, uncertainty, and structural order. With spectral enrichment, this yields spectral pitch class similarity (SPCS), a powerful predictor of perceived tonal fit.
 
-**Consonance and harmonicity.** Spectral entropy, template harmonicity, tensor harmonicity, sensory roughness, and virtual pitch analysis — complementary measures capturing different aspects of consonance.
+**Consonance and harmonicity.** Spectral entropy, template harmonicity, tensor harmonicity, sensory roughness, and virtual pitch analysis — complementary measures capturing different aspects of consonance. The toolbox models roughness and harmonicity; it does not model familiarity, which requires corpus-based or learning-based approaches.
 
-**Balance and evenness.** Fourier-based measures of the distributional properties of circular multisets of pitches or positions, including a characterisation of perfectly balanced patterns.
-
-**Scale and rhythm structure.** Coherence, sameness, n-tuple entropy, circular autocorrelation phase matrices, edge detection, projected centroid, mean offset, and Markov prediction — applicable to both scales and rhythms.
+**Scale and rhythm structure.** Fourier-based balance and evenness; coherence, sameness, and n-tuple entropy; edge detection, projected centroid, mean offset, circular autocorrelation phase matrices, and Markov prediction — applicable to both scales and rhythms.
 
 **Utility.** Pitch scale conversion between seven scales (Hz, MIDI, cents, mel, Bark, ERB-rate, Greenwood) and spectral peak extraction from audio files.
 

@@ -55,6 +55,9 @@ from .harmony import (
     virtual_pitches,
 )
 
+# --- Utility ---
+from ._utils import estimate_comp_time
+
 # --- Audio ---
 from .audio import AudioPeaksDetail, audio_peaks
 
@@ -91,6 +94,8 @@ __all__ = [
     "tensor_harmonicity",
     "virtual_pitches",
     "roughness",
+    # utility
+    "estimate_comp_time",
     # audio
     "audio_peaks",
     "AudioPeaksDetail",

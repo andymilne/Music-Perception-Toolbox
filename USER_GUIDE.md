@@ -34,7 +34,7 @@ The toolbox addresses two broad domains:
 
 **Pitch and rhythm via expectation tensors.** Expectation tensors and their cosine similarities provide a general framework for quantifying the similarity of any two multisets of weighted points — whether those points are pitches, pitch classes, time points, or time classes. For pitch, spectral enrichment (adding harmonics via `addSpectra`) yields spectral pitch class similarity (SPCS), a powerful predictor of perceived tonal fit and similarity. Related functions compute consonance via spectral entropy, template harmonicity, tensor harmonicity, and sensory roughness. The only component of this framework that is specific to pitch is the spectral enrichment itself; the underlying tensor machinery can apply equally to rhythmic patterns.
 
-**Scale and rhythm structure.** A suite of functions computes structural and perceptual features of sets of points on a circle, applicable to both pitch-class sets and time-class sets. These include Fourier-based measures (balance and evenness), interval-structure measures (coherence, sameness, n-tuple entropy), and further predictors (edge detection, projected centroid, mean offset, autocorrelation phase matrices, Markov prediction).
+**Scale and rhythm structure.** A suite of functions computes structural and perceptual features of multisets of points on a circle, applicable to both pitches and positions (e.g., time onsets). These include Fourier-based measures (balance and evenness), interval-structure measures (coherence, sameness, n-tuple entropy), and further predictors (edge detection, projected centroid, mean offset, autocorrelation phase matrices, Markov prediction).
 
 Version 2.0.0 is a major rewrite. Analytical methods have replaced the previous numerical approximations wherever feasible: in v1, analytical computation was available only for the cosine similarity inner product (`cosSimExpTens`, by David Bulger); in v2, this analytical approach has been extended to the construction and evaluation of individual expectation tensors via `buildExpTens` and `evalExpTens`, eliminating the discretization error and resolution trade-offs of v1's grid-based `expectationTensor`. The `cosSimExpTens` computation itself has also been substantially optimized — the original double loop over r-ad combinations has been replaced by fully vectorized operations over pre-calculated r-ads, with automatic memory-aware chunking for large problems. Entropy computation remains discretized, as the differential entropy of a Gaussian mixture has no known closed-form solution. The expectation tensor core has been restructured around precomputed density objects (`buildExpTens`), and the toolbox has been substantially expanded. Accessibility has also been a priority: every function now includes a full help text with runnable examples, this User Guide covers the conceptual foundations and provides a complete function reference for both languages, and nine demo scripts (in both MATLAB and Python) cover all major use cases. See `CHANGELOG.md` for a full list of changes and `MIGRATION.md` for guidance on updating v1 code.
 
@@ -150,7 +150,7 @@ Typical SPCS parameters:
 
 The toolbox provides several complementary measures of consonance. These measures have been used individually and in combination to predict consonance ratings, perceived affect, and tonal stability across a variety of musical contexts including unfamiliar chords and microtonal tuning systems (Smit et al., 2019; Harrison & Pearce, 2020; Eerola & Lahdelma, 2021; Milne, Smit, Sarvasy, & Dean, 2023; Hearne, Dean, & Milne, 2025).
 
-- **Spectral entropy** (`spectralEntropy`) measures the disorder of a chord's composite spectrum. Greater spectral overlap between partials (after smoothing) produces lower entropy, indicating greater consonance. This is a property of a single pitch set, unlike SPCS which compares two sets (Milne, Bulger, & Herff, 2017; Smit et al., 2019).
+- **Spectral entropy** (`spectralEntropy`) measures the disorder of a chord's composite spectrum. Greater spectral overlap between partials (after smoothing) produces lower entropy, indicating greater consonance. This is a property of a single weighted multiset, unlike SPCS which compares two multisets (Milne, Bulger, & Herff, 2017; Smit et al., 2019).
 - **Template harmonicity** (`templateHarmonicity`) cross-correlates a chord's spectrum with a harmonic template, returning both the maximum similarity (hMax; Milne, 2013) and the entropy of the cross-correlation (hEntropy; Harrison & Pearce, 2020). These measure how well the chord's partials align with *some* harmonic series (Milne, Laney, & Sharp, 2016).
 - **Tensor harmonicity** (`tensorHarmonicity`) evaluates the expectation tensor of a harmonic series at the chord's intervals (measured from the lowest pitch to each of the remaining pitches), measuring how likely the chord's intervals are to occur within a single harmonic series (Smit et al., 2019).
 - **Roughness** (`roughness`) computes sensory roughness from the beating of close partial pairs, using Sethares' (1993) parameterization of Plomp and Levelt's (1965) empirical dissonance curve. The implementation extends Sethares' original model by allowing pairwise roughnesses to be combined via a configurable p-norm (Mashinter, 2006; Parncutt, 2006), rather than a simple sum, and by supporting optional averaging over the number of partial pairs.
@@ -160,7 +160,7 @@ Template harmonicity and tensor harmonicity measure harmonicity in fundamentally
 
 ### 3.5 Balance and evenness (Fourier-based measures)
 
-Several functions compute properties of sets of points distributed around a circle, applicable to both pitch-class sets and time-class sets. The DFT here is computed directly from the positions of the points on the circle (mapping each point to the unit circle and taking the Fourier transform), rather than from an indicator vector over a discretized grid. The mathematical foundations — including the relationship between the DFT coefficients and balance, evenness, and perfect balance — are developed in Milne, Bulger, & Herff (2017). These measures have been validated as predictors of rhythm recognition and preference (Milne & Herff, 2020) and have informed the design of algorithmic rhythm generators (Milne & Dean, 2016; Milne, 2019).
+Several functions compute properties of multisets of points distributed around a circle, applicable to both pitches and positions. The DFT here is computed directly from the positions of the points on the circle (mapping each point to the unit circle and taking the Fourier transform), rather than from an indicator vector over a discretized grid. The mathematical foundations — including the relationship between the DFT coefficients and balance, evenness, and perfect balance — are developed in Milne, Bulger, & Herff (2017). These measures have been validated as predictors of rhythm recognition and preference (Milne & Herff, 2020) and have informed the design of algorithmic rhythm generators (Milne & Dean, 2016; Milne, 2019).
 
 - **Balance** (`balanceCircular`) measures how evenly the mass is distributed around the circle (1 = perfectly balanced, with the centre of gravity at the circle's centre; 0 = all weight at one point) (Milne, Bulger, & Herff, 2017).
 - **Evenness** (`evennessCircular`) measures closeness to equal spacing (1 = equally spaced; 0 = maximally uneven) (Milne, Bulger, & Herff, 2017).
@@ -168,9 +168,9 @@ Several functions compute properties of sets of points distributed around a circ
 
 ### 3.6 Scale and rhythm structure
 
-The following functions compute structural and perceptual features of sets of points distributed around a periodic cycle, applicable to both scales and rhythms. These features have been validated as predictors of perceived rhythmic complexity and liking (Milne & Herff, 2020) and of tapping accuracy across a wide variety of rhythmic structures (Milne, Dean, & Bulger, 2023).
+The following functions compute structural and perceptual features of multisets of points distributed around a periodic cycle, applicable to both scales and rhythms. These features have been validated as predictors of perceived rhythmic complexity and liking (Milne & Herff, 2020) and of tapping accuracy across a wide variety of rhythmic structures (Milne, Dean, & Bulger, 2023).
 
-**Integer-position features.** These functions take integer event positions within a discrete cycle of integer length (an equal division of the period). They are applicable to pitch-class sets in an equal temperament (e.g., 12-EDO) and to rhythms quantized to a metrical grid:
+**Integer-position features.** These functions take integer positions within a discrete cycle of integer length (an equal division of the period). They are applicable to scales in an equal temperament (e.g., 12-EDO) and to rhythms quantized to a metrical grid:
 
 - **Coherence** (`coherence`) — the coherence quotient (Balzano, 1982; Carey, 2002; Rothenberg, 1978) measures how consistently the ordering of intervals by generic span (number of scale steps) matches their ordering by specific size (number of chromatic steps). A coherent scale or rhythm is one where larger generic spans always correspond to larger specific sizes — hearing an interval's size uniquely identifies how many scale steps it spans.
 - **Sameness** (`sameness`) — the sameness quotient (Carey, 2002, 2007) measures the proportion of interval sizes that are unambiguous: each specific size belongs to exactly one generic span. A scale with high sameness has a transparent relationship between its chromatic and generic interval structure.
@@ -222,7 +222,7 @@ In MATLAB, `cosSimExpTens` and `evalExpTens` accept either a precomputed struct 
 | MATLAB | Python |
 |:---|:---|
 | `cosSimExpTens(dens_x, dens_y)` | `cos_sim_exp_tens(dens_x, dens_y)` |
-| `cosSimExpTens(x_p, x_w, y_p, y_w, ...)` | `cos_sim_exp_tens_raw(x_p, x_w, y_p, y_w, ...)` |
+| `cosSimExpTens(p1, w1, p2, w2, ...)` | `cos_sim_exp_tens_raw(p1, w1, p2, w2, ...)` |
 | `evalExpTens(dens, X)` | `eval_exp_tens(dens, x)` |
 | `evalExpTens(p, w, sigma, r, ...)` | `eval_exp_tens_raw(p, w, sigma, r, ...)` |
 
@@ -280,7 +280,7 @@ In MATLAB, use `help functionName`. In Python, use `help(mpt.function_name)` or 
 
 **MATLAB:**
 ```matlab
-% Define two pitch sets (in cents)
+% Define two weighted pitch multisets (in cents)
 major = [0, 400, 700];       % 12-EDO major triad
 minor = [0, 300, 700];       % 12-EDO minor triad
 
@@ -443,13 +443,13 @@ Evaluates the density at the query points given by the columns of X. Three norma
 
 Query points X should have `dim` rows, where `dim = r − isRel`. For the relative case (dim = r − 1), each column of X specifies the r − 1 intervals that define an r-ad (e.g., for a triad with r = 3 and isRel = true, each column is a 2-element vector of intervals from the lowest pitch to the middle and highest pitches).
 
-**cosSimExpTens(dens_x, dens_y)** or **cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period)**
+**cosSimExpTens(dens_x, dens_y)** or **cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period)**
 
 Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`.
 
-**batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, period, ...)**
+**batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, ...)**
 
-Computes cosine similarity for many paired pitch sets. Each row of pitchesA and pitchesB defines one pair. Automatically deduplicates rows with identical sorted pitch content, computing `cosSimExpTens` only once per unique pair. Optional name-value pairs: `'weightsA'`, `'weightsB'`, `'spectrum'` (cell array of `addSpectra` arguments), `'verbose'`.
+Computes cosine similarity for many paired weighted multisets. Each row of pMatA and pMatB defines one pair. Automatically deduplicates rows with identical sorted content, computing `cosSimExpTens` only once per unique pair. Optional name-value pairs: `'weightsA'`, `'weightsB'`, `'spectrum'` (cell array of `addSpectra` arguments), `'verbose'`.
 
 **entropyExpTens(p, w, sigma, r, isRel, isPer, period, ...)**
 
@@ -459,7 +459,7 @@ Shannon entropy of the expectation tensor, discretized on a fine grid. Also acce
 
 | MATLAB | Python | Description |
 |:---|:---|:---|
-| `addSpectra` | `add_spectra` | Add spectral partials to a pitch set |
+| `addSpectra` | `add_spectra` | Add spectral partials to a weighted pitch multiset |
 
 **addSpectra(p, w, mode, ...)**
 
@@ -502,7 +502,7 @@ These two functions both measure "harmonicity" — the degree to which a chord's
 3. Evaluate both as 1-D expectation tensors on a fine grid.
 4. Cross-correlate and normalize.
 
-The maximum of the normalized cross-correlation (hMax) is the cosine similarity between the chord's spectrum and the template at the best-matching transposition. A pitch set whose partials align closely with *some* harmonic series will score high. The template is a *single* complex tone. It is not duplicated. There are no chord pitches "placed" into the template — the chord enters only through its composite spectrum, and the template slides across it looking for the best match.
+The maximum of the normalized cross-correlation (hMax) is the cosine similarity between the chord's spectrum and the template at the best-matching transposition. A weighted multiset whose partials align closely with *some* harmonic series will score high. The template is a *single* complex tone. It is not duplicated. There are no chord pitches "placed" into the template — the chord enters only through its composite spectrum, and the template slides across it looking for the best match.
 
 **tensorHarmonicity (tensor lookup).** This function evaluates the relative r-ad expectation tensor of a harmonic series at the chord's intervals (measured from the lowest pitch to each of the remaining pitches):
 
@@ -530,7 +530,7 @@ A high density value means the chord's intervals are likely to co-occur in a har
 | `balanceCircular` | `balance` | Balance (1 − \|F(0)\|) |
 | `evennessCircular` | `evenness` | Evenness (\|F(1)\|) |
 
-These functions apply equally to pitch-class sets (where the circle is one octave or other period) and to time-class sets (where the circle is one rhythmic cycle).
+These functions apply equally to pitches (where the circle is one octave or other period) and to positions (where the circle is one rhythmic cycle or other periodic domain).
 
 **dftCircular(p, w, period)** — Returns complex Fourier coefficients F and their magnitudes. F(1) (MATLAB 1-based) is the k = 0 coefficient; F(2) is k = 1; etc.
 
@@ -551,7 +551,7 @@ These functions apply equally to pitch-class sets (where the circle is one octav
 | `meanOffset` | `mean_offset` | Mean offset (net upward arc) |
 | `markovS` | `markov_s` | Optimal S-step Markov predictor |
 
-All functions in this group operate on sets of events distributed around a periodic cycle and are applicable to both scales (pitch-class sets) and rhythms (time-class sets). The first three take integer positions and an integer period; the remaining five also accept optional query points for evaluation at non-integer positions.
+All functions in this group operate on multisets of pitches or positions distributed around a periodic cycle and are applicable to both scales and rhythms. The first three take integer positions and an integer period; the remaining five also accept optional query points for evaluation at non-integer positions.
 
 **coherence(p, period, ...)** — Coherence quotient in [0, 1]. A value of 1 means no coherence failures (strict propriety: larger generic spans always have strictly larger specific sizes). The optional `'strict', false` flag uses non-strict propriety (Rothenberg's original definition: failures only when a larger span has a strictly *smaller* size).
 

@@ -1,23 +1,25 @@
-function s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, period, varargin)
+function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, varargin)
 %BATCHCOSSIMEXPTENS Batch cosine similarity of expectation tensors.
 %
-%   s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, period):
+%   s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period):
 %   Computes the cosine similarity between the r-ad expectation tensors of
-%   paired pitch sets. Each row of pitchesA and pitchesB defines one pitch
-%   set; the function returns one similarity value per row.
+%   paired weighted multisets (p represents pitches or positions). Each row
+%   of pMatA and pMatB defines one weighted multiset; the function returns
+%   one similarity value per row.
 %
-%   Rows with identical (sorted) pitch content share the same similarity
+%   Rows with identical (sorted) content share the same similarity
 %   value. The function automatically deduplicates, computing cosSimExpTens
 %   only once per unique (A, B) pair, then maps results back to all rows.
 %   This can dramatically reduce computation time when many rows share the
-%   same pitch sets (e.g., repeated experimental conditions).
+%   same multisets (e.g., repeated experimental conditions).
 %
 %   Inputs:
-%     pitchesA — nRows x nA matrix of pitches for set A. Each row is one
-%                observation; columns are individual pitches. NaN values
-%                are ignored (rows may have varying numbers of valid pitches).
-%     pitchesB — nRows x nB matrix of pitches for set B (same number of
-%                rows as pitchesA).
+%     pMatA — nRows x nA matrix of pitch or position values for
+%                multiset A. Each row is one observation; columns are
+%                individual values. NaN values are ignored (rows may have
+%                varying numbers of valid values).
+%     pMatB — nRows x nB matrix of pitch or position values for
+%                multiset B (same number of rows as pMatA).
 %     sigma    — Standard deviation of the Gaussian kernel
 %     r        — Tuple size (positive integer; r >= 2 if isRel == true)
 %     isRel    — If true, use transposition-invariant quadratic form
@@ -25,13 +27,13 @@ function s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, peri
 %     period   — Period for periodic wrapping
 %
 %   Optional name-value pairs:
-%     'weightsA', wA — nRows x nA matrix of weights for set A. If omitted
-%                      or empty, uniform weights are used.
-%     'weightsB', wB — nRows x nB matrix of weights for set B. If omitted
-%                      or empty, uniform weights are used.
+%     'weightsA', wA — nRows x nA matrix of weights for multiset A. If
+%                      omitted or empty, uniform weights are used.
+%     'weightsB', wB — nRows x nB matrix of weights for multiset B. If
+%                      omitted or empty, uniform weights are used.
 %     'spectrum', specArgs — Cell array of arguments to pass to addSpectra
 %                      (everything after p and w). If provided, partials
-%                      are added to each pitch set before computing
+%                      are added to each multiset before computing
 %                      similarity. Example:
 %                        'spectrum', {'harmonic', 12, 'powerlaw', 1}
 %                        'spectrum', {'stretched', 8, 1.02, 'powerlaw', 1}
@@ -49,7 +51,7 @@ function s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, peri
 %
 %   Output:
 %     s — nRows x 1 column vector of cosine similarities. Rows where
-%         either pitch set is empty or has fewer valid pitches than r
+%         either multiset is empty or has fewer valid elements than r
 %         are set to NaN.
 %
 %   Examples:
@@ -73,13 +75,13 @@ function s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, peri
 %
 %   When to use batchCosSimExpTens vs the lower-level functions:
 %
-%     Use batchCosSimExpTens when you have many pairs of pitch sets and
-%     want the similarity of each pair. It handles spectral enrichment
-%     (via addSpectra), deduplication of repeated pitch-set pairs, progress
+%     Use batchCosSimExpTens when you have many pairs of weighted multisets
+%     and want the similarity of each pair. It handles spectral enrichment
+%     (via addSpectra), deduplication of repeated multiset pairs, progress
 %     reporting, and NaN handling in a single call. Typical use cases:
 %       - Processing experimental data with one similarity per trial
 %       - Computing similarity matrices (all pairs from two lists)
-%       - Any situation where the same pitch sets appear in multiple rows
+%       - Any situation where the same multisets appear in multiple rows
 %         (deduplication avoids redundant computation)
 %
 %     Use addSpectra + cosSimExpTens directly when you need more control
@@ -94,7 +96,7 @@ function s = batchCosSimExpTens(pitchesA, pitchesB, sigma, r, isRel, isPer, peri
 %
 %     Use addSpectra + evalExpTens when you want to evaluate the density
 %     at specific query points rather than computing a similarity between
-%     two pitch sets.
+%     two weighted multisets.
 %
 %   See also cosSimExpTens, addSpectra, buildExpTens, evalExpTens.
 
@@ -134,16 +136,16 @@ end
 
 % === Input validation ===
 
-nRows = size(pitchesA, 1);
-if size(pitchesB, 1) ~= nRows
-    error('pitchesA and pitchesB must have the same number of rows.');
+nRows = size(pMatA, 1);
+if size(pMatB, 1) ~= nRows
+    error('pMatA and pMatB must have the same number of rows.');
 end
 
-if ~isempty(weightsA) && ~isequal(size(weightsA), size(pitchesA))
-    error('weightsA must be the same size as pitchesA.');
+if ~isempty(weightsA) && ~isequal(size(weightsA), size(pMatA))
+    error('weightsA must be the same size as pMatA.');
 end
-if ~isempty(weightsB) && ~isequal(size(weightsB), size(pitchesB))
-    error('weightsB must be the same size as pitchesB.');
+if ~isempty(weightsB) && ~isequal(size(weightsB), size(pMatB))
+    error('weightsB must be the same size as pMatB.');
 end
 
 useSpectra  = ~isempty(specArgs);
@@ -155,8 +157,8 @@ useWeightsB = ~isempty(weightsB);
 % The key for deduplication is the sorted non-NaN pitches (and weights,
 % if provided) concatenated into a fixed-width vector.
 
-nA = size(pitchesA, 2);
-nB = size(pitchesB, 2);
+nA = size(pMatA, 2);
+nB = size(pMatB, 2);
 
 % Key width: pitches + optional weights for both sides
 keyWidth = nA + nB;
@@ -168,8 +170,8 @@ valid   = false(nRows, 1);
 s       = NaN(nRows, 1);
 
 for i = 1:nRows
-    pA = pitchesA(i, :);
-    pB = pitchesB(i, :);
+    pA = pMatA(i, :);
+    pB = pMatB(i, :);
 
     % Remove NaN
     maskA = ~isnan(pA);

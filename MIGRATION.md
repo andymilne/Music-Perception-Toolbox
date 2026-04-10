@@ -54,15 +54,15 @@ v2 also eliminates the v1 dependency on the [Sparse Array Toolbox](https://githu
 
 ```matlab
 % v1 (still works in v2)
-s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period);
+s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 ```
 
 The new preferred calling convention precomputes the density objects, which is faster when comparing a fixed reference against many sets:
 
 ```matlab
 % v2 (preferred for repeated comparisons)
-dens_ref = buildExpTens(x_p, x_w, sigma, r, isRel, isPer, period);
-dens_cmp = buildExpTens(y_p, y_w, sigma, r, isRel, isPer, period);
+dens_ref = buildExpTens(p1, w1, sigma, r, isRel, isPer, period);
+dens_cmp = buildExpTens(p2, w2, sigma, r, isRel, isPer, period);
 s = cosSimExpTens(dens_ref, dens_cmp);
 ```
 
@@ -93,14 +93,14 @@ In v1, `cosSim` and `expTensorSim` computed cosine similarity from precomputed d
 
 ```matlab
 % v1
-T_x = expectationTensor(x_p, x_w, sigma, r, isRel, isPer, period, nPoints);
-T_y = expectationTensor(y_p, y_w, sigma, r, isRel, isPer, period, nPoints);
+T_x = expectationTensor(p1, w1, sigma, r, isRel, isPer, period, nPoints);
+T_y = expectationTensor(p2, w2, sigma, r, isRel, isPer, period, nPoints);
 s = cosSim(T_x, T_y);
 ```
 
 ```matlab
 % v2 equivalent
-s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period);
+s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 ```
 
 ### spectralize → addSpectra

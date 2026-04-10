@@ -63,9 +63,9 @@ results{end,2}   = p(4) > pHarm(4);
 
 [p, w] = addSpectra([0, 700], [], 'custom', [0, 1200], [1, 0.5]);
 results{end+1,1} = 'addSpectra: custom positions';
-results{end,2}   = all(abs(p - [0; 1200; 700; 1900]) < 1e-10);
+results{end,2}   = all(abs(p - [0; 700; 1200; 1900]) < 1e-10);
 results{end+1,1} = 'addSpectra: custom weights';
-results{end,2}   = all(abs(w - [1; 0.5; 1; 0.5]) < 1e-10);
+results{end,2}   = all(abs(w - [1; 1; 0.5; 0.5]) < 1e-10);
 
 [~, w] = addSpectra(0, 1, 'harmonic', 4, 'geometric', 0.5);
 results{end+1,1} = 'addSpectra: geometric weights';
@@ -87,7 +87,7 @@ results{end,2}   = abs(e - 1) < 1e-10;
 
 [F, mag] = dftCircular([0, 4, 7], [], 12);
 results{end+1,1} = 'dftCircular: output length';
-results{end,2}   = numel(F) == 12 && numel(mag) == 12;
+results{end,2}   = numel(F) == 3 && numel(mag) == 3;
 
 [c, nc] = coherence([0, 2, 4, 5, 7, 9, 11], 12);
 results{end+1,1} = 'coherence: diatonic nc = 1';

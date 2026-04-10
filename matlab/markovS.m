@@ -1,9 +1,9 @@
 function y = markovS(p, w, period, S)
-%MARKOVS Optimal S-step Markov predictor for a periodic event sequence.
+%MARKOVS Optimal S-step Markov predictor for a periodic weighted multiset.
 %
 %   y = markovS(p, w, period) returns the predicted event weight at
-%   each position in a cycle of length period, using a 3-step Markov
-%   context (the default).
+%   each integer position 0, 1, ..., period-1 of a cycle of length
+%   period, using a 3-step Markov context (the default).
 %
 %   y = markovS(p, w, period, S) uses an S-step context.
 %
@@ -25,7 +25,7 @@ function y = markovS(p, w, period, S)
 %   with different non-zero weights can still share a context.
 %
 %   Inputs:
-%     p      — Event positions (vector of length K). Must be
+%     p      — Pitch or position values (vector of length K). Must be
 %              non-negative integers less than period.
 %     w      — Weights (vector of length K, or empty for uniform).
 %     period — Length of the cycle (positive integer).
@@ -91,24 +91,24 @@ end
 % Weighted indicator for prediction; binary indicator for context matching.
 
 N = period;
-x_w = zeros(1, N);
+wCycle = zeros(1, N);
 for i = 1:K
-    x_w(p(i) + 1) = x_w(p(i) + 1) + w(i);
+    wCycle(p(i) + 1) = wCycle(p(i) + 1) + w(i);
 end
 
-x_bin = (x_w ~= 0);  % binary: event (1) or non-event (0)
+binCycle = (wCycle ~= 0);  % binary: event (1) or non-event (0)
 
 % === S-step Markov predictor ===
 % E(i, j) = 1 iff positions i and j have the same binary status.
 % T(i, j) = 1 iff the S-step future contexts of i and j are identical.
 
-E = x_bin == x_bin';
+E = binCycle == binCycle';
 T = true(N);
 for k = 1:S
     T = T & circshift(circshift(E, k, 2), k, 1);
 end
 
 % Predict: average the weighted indicator over matching positions.
-y = (x_w * double(T)) ./ sum(T);
+y = (wCycle * double(T)) ./ sum(T);
 
 end

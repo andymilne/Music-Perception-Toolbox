@@ -1,29 +1,31 @@
 function e = evennessCircular(p, period)
-%EVENNESSCIRCULAR Evenness of a pitch-class set (or time-class set).
+%EVENNESSCIRCULAR Evenness of a circular multiset.
 %
 %   e = evennessCircular(p, period):
 %
-%   Computes the evenness of a set of K points on a circle, defined as:
+%   Computes the evenness of a multiset of K points on a circle
+%   (p represents pitches or positions), defined as:
 %
 %     e = |F(1)|
 %
-%   where F(k) is the k-th DFT coefficient of the set (see dftCircular).
-%   The k = 1 coefficient captures the extent to which the K sorted
-%   elements match a maximally even (equal-step) distribution around the
-%   circle. For a maximally even set, each sorted element j (0-indexed)
-%   is at position approximately j * period / K, so:
+%   where F(k) is the k-th DFT coefficient of the multiset
+%   (see dftCircular). The k = 1 coefficient captures the extent
+%   to which the K sorted elements match a maximally even
+%   (equal-step) distribution around the circle. For a maximally
+%   even multiset, each sorted element j (0-indexed) is at position
+%   approximately j * period / K, so:
 %     z(j) * exp(-2*pi*1i*j/K) = exp(2*pi*1i*j/K) * exp(-2*pi*1i*j/K) = 1
 %   and |F(1)| = 1.
 %
 %   Evenness ranges from 0 to 1:
-%     e = 1: maximally even — the set consists of K equally spaced points.
+%     e = 1: maximally even — the multiset consists of K equally spaced
 %            Examples: the whole-tone scale (6 notes in 12-EDO), the
 %            chromatic scale, an isochronous rhythm.
 %     e = 0: maximally uneven for this cardinality.
 %
 %   Maximal evenness implies perfect balance, but perfect balance does not
-%   imply maximal evenness: a set can be perfectly balanced without being
-%   maximally even (see balanceCircular).
+%   imply maximal evenness: a multiset can be perfectly balanced without
+%   being maximally even (see balanceCircular).
 %
 %   Evenness always uses uniform (binary) weights, following Milne et al.
 %   (2017): "we focus on binary-weighted patterns, whose weights are all
@@ -40,7 +42,7 @@ function e = evennessCircular(p, period)
 %       203, 104233.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %     period — Period of the circular domain.
 %
 %   Output:

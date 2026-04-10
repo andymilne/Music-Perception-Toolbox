@@ -1,10 +1,10 @@
 function h = meanOffset(p, w, period, x)
-%MEANOFFSET Mean offset (net upward arc) of a pitch-class or time-class set.
+%MEANOFFSET Mean offset (net upward arc) of a weighted circular multiset.
 %
-%   h = meanOffset(p, w, period) computes, for each position in
-%   0, 1, ..., period-1, the sum of upward arc lengths to all events
-%   minus the sum of downward arc lengths, with each arc normalized by
-%   the period:
+%   h = meanOffset(p, w, period) computes, at each query point, the
+%   sum of upward arc lengths to all events minus the sum of downward
+%   arc lengths, with each arc normalized by the period. By default,
+%   query points are 0, 1, ..., period-1:
 %
 %     h(x_n) = sum_k w_k * [mod(p_k - x_n, period)
 %                          - mod(x_n - p_k, period)] / period
@@ -21,8 +21,7 @@ function h = meanOffset(p, w, period, x)
 %   melodies and scales (e.g., comparing the average pitch height
 %   of major and minor modes). Huron's measure is implicitly
 %   mode-dependent (the same pitch-class set yields different
-%   averages relative to different modal "tonics"), but returns a
-%   single value for a given scale and modal "tonic". meanOffset
+%   averages relative to different modal "tonics"). meanOffset
 %   makes this position-dependence explicit: it returns a value
 %   for every position around the circle, including non-scale-tone
 %   positions. The term "mode height" for a closely related concept
@@ -42,12 +41,10 @@ function h = meanOffset(p, w, period, x)
 %   and period) instead of at integer positions 0:period-1.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'.
 %     w      — Weights (vector of length K, or empty for uniform).
-%     period — Period of the circular domain (e.g., 1200 for cents,
-%              12 for chromatic pitch classes, or a rhythmic cycle
-%              length).
+%     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the mean
 %              offset (vector). Default: 0:period-1.
 %

@@ -1,8 +1,8 @@
 function r = roughness(f, w, nvArgs)
-%ROUGHNESS Sensory roughness of a set of partials.
+%ROUGHNESS Sensory roughness of a weighted multiset of partials.
 %
-%   r = roughness(f, w) returns the total sensory roughness of a set of
-%   partials with frequencies f (in Hz) and amplitudes/weights w. The
+%   r = roughness(f, w) returns the total sensory roughness of a weighted
+%   multiset of partials with frequencies f (in Hz) and amplitudes/weights
 %   roughness is computed by summing the pairwise roughness contributions
 %   of all partial pairs, using Sethares' (1993) parameterization of
 %   Plomp and Levelt's (1965) empirical dissonance curve.

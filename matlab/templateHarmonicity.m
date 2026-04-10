@@ -1,34 +1,34 @@
 function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
-%TEMPLATEHARMONICITY Harmonicity of a pitch set via template cross-correlation.
+%TEMPLATEHARMONICITY Harmonicity via template cross-correlation.
 %
 %   hMax = templateHarmonicity(p, w, sigma)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma, Name, Value)
 %
-%   Measures the harmonicity of a pitch set by cross-correlating its
-%   spectral expectation tensor with a harmonic template (a single
-%   complex tone with nHarm harmonics). Two complementary measures are
-%   returned:
+%   Measures the harmonicity of a weighted pitch multiset by
+%   cross-correlating its spectral expectation tensor with a harmonic
+%   template (a single complex tone with nHarm harmonics). Two
+%   complementary measures are returned:
 %
 %     hMax     — Maximum of the normalized cross-correlation (Milne
 %                2013). This is the cosine similarity between the
 %                chord's spectrum and the template at the best-matching
 %                transposition. Values range from 0 (no match) to 1
-%                (perfect harmonic series). A pitch set whose partials
+%                (perfect harmonic series). A multiset whose partials
 %                align closely with a harmonic series at some
 %                transposition will score high.
 %
 %     hEntropy — Normalized Shannon entropy of the cross-correlation
 %                treated as a probability distribution (Harrison 2020).
-%                A highly harmonic pitch set produces a peaked
-%                cross-correlation (low entropy); an inharmonic set
+%                A highly harmonic multiset produces a peaked
+%                cross-correlation (low entropy); an inharmonic multiset
 %                produces a flatter cross-correlation (high entropy).
 %                By default, the entropy is normalized to [0, 1] by
 %                dividing by log_base(N), removing the dependence on
 %                the arbitrary grid resolution.
 %
 %   The procedure is:
-%     1. Transpose the pitch set so the lowest pitch is 0.
+%     1. Transpose the multiset so the lowest pitch is 0.
 %     2. Build the template: add harmonics to a single pitch at 0
 %        cents using the 'spectrum' parameters.
 %     3. Build the chord spectrum: if 'chordSpectrum' is provided,

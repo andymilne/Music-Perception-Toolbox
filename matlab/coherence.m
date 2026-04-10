@@ -1,11 +1,11 @@
 function [c, nc] = coherence(p, period, nvArgs)
-%COHERENCE Coherence quotient of a pitch-class or time-class set.
+%COHERENCE Coherence quotient of a circular set.
 %
 %   c = coherence(p, period) returns the coherence quotient of the set
-%   of pitch classes (or time classes) p within an equal division of
+%   of pitches or positions p within an equal division of
 %   size period. The coherence quotient (Carey 2002, 2007) is 1 minus
 %   the ratio of coherence failures to the maximum possible number for
-%   a set of K events:
+%   a set of K elements:
 %
 %     c = 1 - nc / maxNC
 %
@@ -23,7 +23,7 @@ function [c, nc] = coherence(p, period, nvArgs)
 %   failures.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) positions (vector of
+%     p      — Pitch or position values (vector of
 %              length K). Non-negative values less than period.
 %              May be integers (within an equal division) or floats
 %              (e.g. cents values of a just-intonation scale).

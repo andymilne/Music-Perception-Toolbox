@@ -1,17 +1,17 @@
 function H = spectralEntropy(p, w, sigma, nvArgs)
-%SPECTRALENTROPY Spectral entropy of a pitch set.
+%SPECTRALENTROPY Spectral entropy of a weighted pitch multiset.
 %
 %   H = spectralEntropy(p, w, sigma)
 %   H = spectralEntropy(p, w, sigma, Name, Value)
 %
 %   Computes the Shannon entropy of the smoothed composite spectrum of
-%   a pitch set. The spectrum is constructed by adding harmonics to
-%   each pitch via addSpectra, evaluating the resulting 1-D absolute
-%   non-periodic expectation tensor on a fine grid, normalising to a
-%   probability distribution, and computing the entropy.
+%   a weighted pitch multiset. The spectrum is constructed by adding
+%   harmonics to each pitch via addSpectra, evaluating the resulting
+%   1-D absolute non-periodic expectation tensor on a fine grid,
+%   normalising to a probability distribution, and computing the entropy.
 %
 %   Spectral entropy aggregates the spectral pitch similarities of all
-%   pairs of sounds in the pitch set: the greater the overlap of
+%   pairs of sounds in the multiset: the greater the overlap of
 %   partials (after Gaussian smoothing for perceptual uncertainty),
 %   the lower the entropy. Lower entropy therefore indicates greater
 %   consonance.

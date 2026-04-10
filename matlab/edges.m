@@ -1,10 +1,11 @@
 function [e, eSigned] = edges(p, w, period, x, nvArgs)
-%EDGES Edge detection on a circular pitch-class or time-class set.
+%EDGES Edge detection on a weighted circular multiset.
 %
-%   e = edges(p, w, period) computes the "edginess" of each position
-%   in 0, 1, ..., period-1 by evaluating the circular convolution of
-%   the weighted event set with the first derivative of a von Mises
-%   kernel, and taking absolute values. The von Mises kernel is the
+%   e = edges(p, w, period) computes the "edginess" at each query
+%   point by evaluating the circular convolution of the weighted
+%   multiset with the first derivative of a von Mises kernel, and
+%   taking absolute values. By default, query points are
+%   0, 1, ..., period-1. The von Mises kernel is the
 %   circular analogue of a Gaussian; its derivative detects abrupt
 %   changes in event density around the circle — the circular analogue
 %   of edge detection in image processing.
@@ -36,12 +37,10 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
 %   and I_0 is the modified Bessel function of the first kind.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'.
 %     w      — Weights (vector of length K, or empty for uniform).
-%     period — Period of the circular domain (e.g., 12 for chromatic
-%              pitch classes, 1200 for cents, or a rhythmic cycle
-%              length).
+%     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the edge
 %              weights (vector). Default: 0:period-1.
 %

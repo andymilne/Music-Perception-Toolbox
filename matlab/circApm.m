@@ -2,9 +2,10 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
 %CIRCAPM Circular autocorrelation phase matrix.
 %
 %   R = circApm(p, w, period) returns the circular autocorrelation
-%   phase matrix (APM) of the weighted event set p within a cycle of
-%   length period. The APM decomposes the circular autocorrelation
-%   into contributions at each combination of lag and phase, adapting
+%   phase matrix (APM) of the weighted multiset p within a cycle of
+%   length period (p represents pitches or positions). The APM
+%   decomposes the circular autocorrelation into contributions at
+%   each combination of lag and phase, adapting
 %   the method described by Eck (2006) for non-circular sequences to
 %   the circular (periodic) case.
 %
@@ -37,7 +38,7 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
 %   autocorrelation of the weighted indicator vector.
 %
 %   Inputs:
-%     p      — Event positions (vector of length K). Must be
+%     p      — Pitch or position values (vector of length K). Must be
 %              non-negative integers less than period.
 %     w      — Weights (vector of length K, or empty for uniform).
 %     period — Length of the cycle (positive integer, e.g., 16 for a

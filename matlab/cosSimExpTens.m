@@ -1,5 +1,5 @@
 function s = cosSimExpTens(varargin)
-%COSSIMEXPTENS Cosine similarity of two r-ad expectation tensors.
+%COSSIMEXPTENS Cosine similarity of two r-ad expectation tensor densities.
 %
 %   s = cosSimExpTens(dens_x, dens_y):
 %   s = cosSimExpTens(dens_x, dens_y, 'verbose', false):
@@ -8,42 +8,63 @@ function s = cosSimExpTens(varargin)
 %   and is the preferred calling convention when comparing a fixed reference
 %   against many other sets.
 %
-%   s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period):
-%   s = cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period, 'verbose', false):
-%   Cosine similarity from raw arguments (builds tuples internally).
+%   s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
+%   s = cosSimExpTens(..., 'verbose', false):
+%   Cosine similarity from raw arguments (builds density structs
+%   internally via buildExpTens).
 %
-%   Computes an inner product between the r-ad expectation densities given
-%   by two weighted pitch multisets, and with normal perception error with
-%   standard deviation sigma. The tensors can be smoothed or unsmoothed,
-%   periodic or nonperiodic, absolute or relative.
+%   Computes the cosine similarity between the r-ad expectation tensor
+%   densities of two weighted multisets (p represents pitches or
+%   positions), with Gaussian perception error of standard deviation
+%   sigma. The cosine similarity is computed analytically — no grid
+%   evaluation is required.
 %
-%   Note that this function is usually faster than expectationTensor followed
-%   by cosSim or spCosSim in cases where r > 2 and I < 10.
-%
-%   Four different inner products can be computed, depending on the flags:
+%   Four variants are available, depending on the flags isPer and isRel:
 %   the inner product assumes periodic equivalence with period set by
-%   'period' if isPer == 1, and assumes transpositional equivalence
-%   (relative rather than absolute pitches) if isRel == true.
+%   'period' if isPer == true, and assumes transpositional equivalence
+%   (relative rather than absolute pitches or positions) if isRel == true.
+%   See buildExpTens for further information about these parameters.
 %
-%   See the expectationTensor function for further information about these
-%   parameters.
+%   Inputs (struct calling convention):
+%     dens_x — Precomputed density struct from buildExpTens.
+%     dens_y — Precomputed density struct from buildExpTens.
+%              Both structs must share the same r, sigma, isRel, isPer,
+%              and (if periodic) period.
+%
+%   Inputs (raw calling convention):
+%     p1     — Pitch or position values for the first multiset (vector
+%              of length n_1).
+%     w1     — Weights for the first multiset (vector of length n_1, or
+%              empty/scalar for uniform).
+%     p2     — Pitch or position values for the second multiset (vector
+%              of length n_2).
+%     w2     — Weights for the second multiset (vector of length n_2, or
+%              empty/scalar for uniform).
+%     sigma  — Standard deviation of the Gaussian kernel.
+%     r      — Tuple size (positive integer; r >= 2 if isRel == true).
+%     isRel  — If true, use transposition-invariant (relative)
+%              quadratic form.
+%     isPer  — If true, wrap differences to periodic interval [-J/2, J/2).
+%     period — Period J for periodic wrapping.
 %
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
 %
-%   Originally by David Bulger, Macquarie University, Australia (2016).
-%   (Andrew J. Milne, The MARCS Institute, Western Sydney University made a
-%   few trivial changes to comments and variable names for consistency with
-%   other routines in the Music Perception Toolbox.)
+%   Output:
+%     s      — Cosine similarity (scalar in [0, 1] for non-negative
+%              weights). Returns NaN if r exceeds the number of elements
+%              in either multiset.
 %
-%   Optimized version: preallocated permutation indices, vectorized inner
-%   product computation, simplified quadratic form (no explicit quadratic
-%   form matrix), precomputed index/pitch/weight data shared across the
+%   Originally by David Bulger, Macquarie University, Australia (2016).
+%   Adapted for the Music Perception Toolbox v2 by Andrew J. Milne
+%   (The MARCS Institute, Western Sydney University): preallocated
+%   permutation indices, vectorized inner product computation, simplified
+%   quadratic form, precomputed index/pitch/weight data shared across the
 %   three inner product calls, automatic chunking for large arrays, and
 %   optional precomputed density structs via buildExpTens.
 %
-%   See also buildExpTens, evalExpTens.
+%   See also buildExpTens, evalExpTens, batchCosSimExpTens.
 
 % === Parse arguments ===
 
@@ -113,10 +134,10 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
 
 elseif nArgs == 9
     % --- Raw arguments ---
-    x_p    = varargin{1};
-    x_w    = varargin{2};
-    y_p    = varargin{3};
-    y_w    = varargin{4};
+    p1     = varargin{1};
+    w1     = varargin{2};
+    p2     = varargin{3};
+    w2     = varargin{4};
     sigma  = varargin{5};
     r      = varargin{6};
     isRel  = varargin{7};
@@ -124,8 +145,8 @@ elseif nArgs == 9
     J      = varargin{9};
 
     % Build density structs on the fly
-    dens_x = buildExpTens(x_p, x_w, sigma, r, isRel, isPer, J, 'verbose', verbose);
-    dens_y = buildExpTens(y_p, y_w, sigma, r, isRel, isPer, J, 'verbose', verbose);
+    dens_x = buildExpTens(p1, w1, sigma, r, isRel, isPer, J, 'verbose', verbose);
+    dens_y = buildExpTens(p2, w2, sigma, r, isRel, isPer, J, 'verbose', verbose);
 
     Ux_perm  = dens_x.U_perm;
     wx_perm  = dens_x.w_perm;
@@ -143,7 +164,7 @@ elseif nArgs == 9
 
 else
     error(['Usage: cosSimExpTens(dens_x, dens_y [, ''verbose'', tf]) or ' ...
-        'cosSimExpTens(x_p, x_w, y_p, y_w, sigma, r, isRel, isPer, period ' ...
+        'cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period ' ...
         '[, ''verbose'', tf]).']);
 end
 
@@ -154,7 +175,6 @@ if r > min(numel(dens_x.p), numel(dens_y.p))
 end
 
 % === Cosine similarity from three inner products ===
-% cos_sim = ip(x,y) / sqrt(ip(x,x) * ip(y,y))
 
 % Estimated computation time for all three inner products:
 % Total pairs = nJx*nKy + nJx*nKx + nJy*nKy

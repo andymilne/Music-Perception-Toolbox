@@ -1,15 +1,16 @@
 function b = balanceCircular(p, w, period)
-%BALANCECIRCULAR Balance of a pitch-class set (or time-class set).
+%BALANCECIRCULAR Balance of a weighted circular multiset.
 %
 %   b = balanceCircular(p, w, period):
 %
-%   Computes the balance of a set of points on a circle, defined as:
+%   Computes the balance of a weighted multiset of points on a circle
+%   (p represents pitches or positions), defined as:
 %
 %     b = 1 - |F(0)|
 %
-%   where F(k) is the k-th DFT coefficient of the set (see dftCircular).
-%   |F(0)| is the magnitude of the weighted centre of gravity on the unit
-%   circle (the mean of exp(2*pi*1i*p/period)).
+%   where F(k) is the k-th DFT coefficient of the multiset (see
+%   dftCircular). |F(0)| is the magnitude of the weighted centre of
+%   gravity on the unit circle (the mean of exp(2*pi*1i*p/period)).
 %
 %   Balance ranges from 0 to 1:
 %     b = 1: perfectly balanced — the centre of gravity is at the centre
@@ -18,7 +19,7 @@ function b = balanceCircular(p, w, period)
 %     b = 0: maximally unbalanced — all weight concentrated at one point.
 %
 %   Perfect balance is a necessary condition for maximal evenness but is
-%   not sufficient: a set can be perfectly balanced without being
+%   not sufficient: a multiset can be perfectly balanced without being
 %   maximally even (see evennessCircular).
 %
 %   For further information, see:
@@ -30,7 +31,7 @@ function b = balanceCircular(p, w, period)
 %       203, 104233.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %     w      — Weights (vector of length K, or empty for uniform).
 %     period — Period of the circular domain.
 %

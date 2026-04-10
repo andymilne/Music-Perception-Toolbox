@@ -1,11 +1,11 @@
 function [sq, nDiff] = sameness(p, period)
-%SAMENESS Sameness quotient of a pitch-class or time-class set.
+%SAMENESS Sameness quotient of a circular set.
 %
 %   sq = sameness(p, period) returns the sameness quotient of the set
-%   of pitch classes (or time classes) p within an equal division of
+%   of pitches or positions p within an equal division of
 %   size period. The sameness quotient (Carey 2002, 2007) is 1 minus
 %   the ratio of the number of ambiguities to the maximum possible
-%   number for a set of K events:
+%   number for a set of K elements:
 %
 %     sq = 1 - nDiff / maxDiff
 %
@@ -19,7 +19,7 @@ function [sq, nDiff] = sameness(p, period)
 %   ambiguities.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) positions (vector of
+%     p      — Pitch or position values (vector of
 %              length K). Must be non-negative integers less than
 %              period. Duplicates (modulo period) are not allowed.
 %     period — Size of the equal division (positive integer, e.g.,

@@ -18,14 +18,15 @@ function vals = evalExpTens(varargin)
 %
 %   Dimensionality and the relative case:
 %     When isRel == false (absolute), the query points are r-dimensional
-%     pitch vectors, the tuple centres are r-tuples of pitches, and M = I.
+%     pitch or position vectors, the tuple centres are r-tuples of
+%     values from p, and M = I.
 %
 %     When isRel == true (relative / transposition-invariant), the density
 %     is constant along the all-ones direction in R^r, so the effective
 %     dimensionality is r - 1. The function works entirely in this reduced
 %     space:
 %       - Each r-tuple is reduced to an (r-1)-dimensional interval vector
-%         by taking differences from the first pitch in the tuple:
+%         by taking differences from the first element in the tuple:
 %           c_j = (p_j2 - p_j1, p_j3 - p_j1, ..., p_jr - p_j1)
 %       - Query points X should be (r-1)-dimensional interval vectors.
 %       - The quadratic form in the reduced space is:
@@ -39,7 +40,8 @@ function vals = evalExpTens(varargin)
 %                 raw arguments p, w, sigma, r, isRel, isPer, period instead)
 %     X         — Query points: dim x nQ matrix, where dim = r - isRel.
 %                 Each column is a point at which to evaluate the density.
-%                 For isRel == false: r-dimensional pitch vectors.
+%                 For isRel == false: r-dimensional pitch or position
+%                 vectors.
 %                 For isRel == true:  (r-1)-dimensional interval vectors.
 %     normalize — Optional string controlling normalization (default: 'none'):
 %
@@ -74,7 +76,7 @@ function vals = evalExpTens(varargin)
 %                   a query point is the probability density of observing
 %                   that particular r-ad. Useful for computing entropy,
 %                   for use as a prior in Bayesian models, or for comparing
-%                   densities across pitch sets of different sizes.
+%                   densities across multisets of different sizes.
 %
 %                 Computational cost of normalization: negligible. Both
 %                 modes involve only a single scalar multiply across the

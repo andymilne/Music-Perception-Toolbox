@@ -4,13 +4,14 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %   h = tensorHarmonicity(p, w, sigma)
 %   h = tensorHarmonicity(p, w, sigma, Name, Value)
 %
-%   Measures the harmonicity of a pitch set by evaluating the relative
-%   r-ad expectation tensor of a harmonic series at the pitch set's
-%   interval vector. The expectation tensor represents the density of
-%   all ordered r-tuples of intervals that arise from a harmonic
-%   series, smoothed by perceptual uncertainty sigma. A high density
-%   at the chord's intervals indicates those intervals are likely to
-%   co-occur in a harmonic series — hence the pitch set is "harmonic."
+%   Measures the harmonicity of a weighted pitch multiset by evaluating
+%   the relative r-ad expectation tensor of a harmonic series at the
+%   multiset's interval vector. The expectation tensor represents the
+%   density of all ordered r-tuples of intervals that arise from a
+%   harmonic series, smoothed by perceptual uncertainty sigma. A high
+%   density at the chord's intervals indicates those intervals are
+%   likely to co-occur in a harmonic series — hence the multiset is
+%   "harmonic."
 %
 %   The procedure is:
 %     1. Build a harmonic template spectrum via addSpectra.

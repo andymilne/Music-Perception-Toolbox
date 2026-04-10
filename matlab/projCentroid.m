@@ -1,10 +1,10 @@
 function [y, centMag, centPhase] = projCentroid(p, w, period, x)
-%PROJCENTROID Projected centroid of a pitch-class (or time-class) set.
+%PROJCENTROID Projected centroid of a weighted circular multiset.
 %
 %   y = projCentroid(p, w, period) computes the projection of the
 %   circular centroid (centre of gravity) onto each angular position in
 %   the sequence 0, 1, ..., period-1. The centroid is the k = 0 Fourier
-%   coefficient of the set (see dftCircular); its projection onto an
+%   coefficient of the multiset (see dftCircular); its projection onto an
 %   angle theta is:
 %
 %     y(theta) = |F(0)| * cos( angle(F(0)) - 2*pi*theta/period )
@@ -14,23 +14,21 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x)
 %
 %   y = projCentroid(p, w, period, x) evaluates the projection at the
 %   query points specified in the vector x (in the same units as p and
-%   period) instead of at integer positions 0:period-1.
+%   period).
 %
 %   [y, centMag, centPhase] = projCentroid(...) also returns the
 %   centroid magnitude (|F(0)|, the degree of imbalance) and its phase
 %   angle (in the same units as p, not radians).
 %
 %   The centroid magnitude is related to balance: balance = 1 - centMag
-%   (see balanceCircular). A centMag of 0 means the set is perfectly
+%   (see balanceCircular). A centMag of 0 means the multiset is perfectly
 %   balanced and all projections are zero; a centMag near 1 means the
-%   set is maximally unbalanced.
+%   multiset is maximally unbalanced.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %     w      — Weights (vector of length K, or empty for uniform).
-%     period — Period of the circular domain (e.g., 1200 for cents,
-%              12 for chromatic pitch classes, or a rhythmic cycle
-%              length).
+%     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the
 %              projection (vector). Default: 0:period-1.
 %

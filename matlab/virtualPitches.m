@@ -5,8 +5,8 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %   [vp_p, vp_w] = virtualPitches(p, w, sigma, Name, Value)
 %
 %   Computes the virtual pitch (fundamental) salience profile for a
-%   pitch set by cross-correlating its spectral expectation tensor with
-%   a harmonic template. The result is a pitch-indexed vector of
+%   weighted pitch multiset by cross-correlating its spectral expectation
+%   tensor with a harmonic template. The result is a pitch-indexed vector
 %   weights indicating how strongly each candidate fundamental is
 %   supported by the input spectrum.
 %
@@ -22,7 +22,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %   probability distribution).
 %
 %   The procedure is:
-%     1. Transpose the pitch set so the lowest pitch is 0 (internal).
+%     1. Transpose the multiset so the lowest pitch is 0 (internal).
 %     2. Build the template: add harmonics to a single pitch at 0
 %        cents using the 'spectrum' parameters.
 %     3. Build the chord spectrum: if 'chordSpectrum' is provided,

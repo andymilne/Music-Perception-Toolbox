@@ -3,17 +3,17 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %
 %   H = nTupleEntropy(p, period) returns the normalized entropy of the
 %   distribution of step sizes (seconds / interonset intervals) in the
-%   pitch-class (or time-class) set p within an equal division of size
-%   period. This is the n = 1 case (the default): each step size is a
-%   1-tuple, and the entropy measures how predictable the step sizes
-%   are.
+%   set p within an equal division of size period (p represents
+%   pitches or positions). This is the n = 1 case (the default):
+%   each step size is a 1-tuple, and the entropy measures how
+%   predictable the step sizes are.
 %
 %   H = nTupleEntropy(p, period, n) generalizes to n-tuples: ordered
 %   sequences of n consecutive step sizes drawn from the circular
 %   sequence of events. For n = 2, each starting event yields a pair
 %   of consecutive step sizes; for n = 3, an ordered triple; and so
 %   on. The function counts all K such n-tuples (one per starting
-%   event in the K-event set), builds a probability mass function
+%   element in the K-element set), builds a probability mass function
 %   over the space of all possible n-tuples, and returns the Shannon
 %   entropy.
 %
@@ -62,12 +62,10 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %   perceptual inaccuracy for each step-size measurement.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) positions (vector of
+%     p      — Pitch or position values (vector of
 %              length K). Must be non-negative integers less than
 %              period. Duplicates (modulo period) are not allowed.
-%     period — Size of the equal division (positive integer, e.g.,
-%              12 for the chromatic scale, 16 for a 16-step rhythmic
-%              cycle).
+%     period — Size of the equal division (positive integer).
 %     n      — (Optional) Tuple size: the number of consecutive step
 %              sizes in each n-tuple (positive integer, default: 1).
 %              Must satisfy 1 <= n <= K - 1. When n = 1, the function

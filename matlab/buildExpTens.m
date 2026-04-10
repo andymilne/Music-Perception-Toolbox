@@ -3,20 +3,20 @@ function dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, varargin)
 %
 %   dens = buildExpTens(p, w, sigma, r, isRel, isPer, period):
 %   dens = buildExpTens(..., 'verbose', false):
-%   Precomputes the tuple index sets, pitch matrices, weight vectors, and
-%   (for the relative case) reduced interval centres for the weighted pitch
-%   multiset (p, w). The returned struct can be passed to evalExpTens and
-%   cosSimExpTens in place of the raw arguments, avoiding redundant
-%   recomputation across multiple calls.
+%   Precomputes the tuple index sets, pitch or position matrices, weight
+%   vectors, and (for the relative case) reduced interval centres for the
+%   weighted multiset (p, w). The returned struct can be passed to
+%   evalExpTens and cosSimExpTens in place of the raw arguments,
+%   avoiding redundant recomputation across multiple calls.
 %
 %   This is especially beneficial when:
 %     - Evaluating the same density at many different query-point sets
 %     - Computing cosine similarities between a fixed reference and many
 %       comparison sets
-%     - The pitch set is large (the tuple enumeration cost grows rapidly)
+%     - The multiset is large (the tuple enumeration cost grows rapidly)
 %
 %   Inputs:
-%     p      — Pitch values (vector of length n)
+%     p      — Pitch or position values (vector of length n)
 %     w      — Weights (vector of length n, or empty/scalar for uniform)
 %     sigma  — Standard deviation of the Gaussian kernel
 %     r      — Tuple size (positive integer; r >= 2 if isRel == true)
@@ -33,31 +33,32 @@ function dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, varargin)
 %   Output:
 %     dens   — Struct with precomputed data, containing:
 %              .tag      — 'ExpTensDensity' (for identification)
-%              .p, .w    — Original pitch and weight vectors (columns)
+%              .p, .w    — Original pitch or position and weight
+%                          vectors (columns)
 %              .sigma, .r, .isRel, .isPer, .period — Parameters
 %              .dim      — Effective dimensionality = r - isRel
 %              .Centres  — dim x nJ matrix of tuple centres (reduced if
-%                          isRel == true; full pitches otherwise)
+%                          isRel == true; full values otherwise)
 %              .wJ       — 1 x nJ weight products for all ordered r-tuples
 %              .nJ       — Number of ordered r-tuples = P(n, r)
-%              .U_perm   — r x nJ_perm matrix of perm-side pitches
+%              .U_perm   — r x nJ_perm matrix of perm-side values
 %                          (for cosSimExpTens)
 %              .w_perm   — 1 x nJ_perm perm-side weight products
 %              .nJ_perm  — Number of perm-side tuples (= nJ)
-%              .V_comb   — r x nK matrix of comb-side pitches
+%              .V_comb   — r x nK matrix of comb-side values
 %              .wv_comb  — 1 x nK comb-side weight products
 %              .nK       — Number of comb-side tuples = C(n, r)
 %
 %   Terminology:
 %     The object constructed here is an unnormalized r-ad Gaussian mixture
 %     density: a weighted sum of Gaussian kernels centred at all ordered
-%     r-tuples drawn from a pitch set. The term "expectation tensor" is
-%     used because (a) the density represents the expected perceptual
-%     distribution of r-ads given a pitch set, smoothed by perceptual
-%     uncertainty sigma, and (b) "tensor" refers to the fact that the
-%     discretized density is a rank-r array (an r-dimensional grid of
-%     values), and its domain is the r-fold product of pitch space with
-%     itself. This is "tensor" in the numerical/data sense (a
+%     r-tuples drawn from a weighted multiset. The term "expectation
+%     tensor" is used because (a) the density represents the expected
+%     perceptual distribution of r-ads given a weighted multiset, smoothed
+%     by perceptual uncertainty sigma, and (b) "tensor" refers to the fact
+%     that the discretized density is a rank-r array (an r-dimensional
+%     grid of values), and its domain is the r-fold product of pitch or
+%     position space with itself. This is "tensor" in the numerical/data
 %     multidimensional array) rather than the strict algebraic sense
 %     (a multilinear map with specific transformation properties).
 %

@@ -2,8 +2,9 @@ function H = entropyExpTens(p, w, sigma, r, isRel, isPer, period, nvArgs)
 % ENTROPYEXPTENS Shannon entropy (in bits) of an expectation tensor.
 %
 %   H = ENTROPYEXPTENS(p, w, sigma, r, isRel, isPer, period) returns the
-%   Shannon entropy of the expectation tensor defined by pitch classes p
-%   with weights w. The tensor is built, evaluated at query points,
+%   Shannon entropy of the expectation tensor defined by the weighted
+%   multiset (p, w), where p represents pitches or positions. The tensor
+%   is built, evaluated at query points,
 %   normalized to a probability distribution, and the Shannon entropy
 %   returned. By default the entropy is normalized to [0, 1] by dividing
 %   by log_base(N), where N is the number of grid points.
@@ -30,27 +31,28 @@ function H = entropyExpTens(p, w, sigma, r, isRel, isPer, period, nvArgs)
 %   (isPer = false), the user must specify the domain bounds via xMin
 %   and xMax. These should be wide enough to capture the full support
 %   of the distribution (e.g., at least 3*sigma beyond the outermost
-%   pitch classes).
+%   values).
 %
 %   The convention 0 * log(0) = 0 is applied.
 %
 %   Inputs
-%       p       - Pitch classes (vector, or matrix for multi-dimensional
-%                 tensors where each column is a dimension).
+%       p       - Pitch or position values (vector, or matrix for
+%                 multi-dimensional tensors where each column is a
+%                 dimension).
 %                 Alternatively, a struct as returned by buildExpTens,
 %                 in which case w, sigma, r, isRel, isPer, and period
 %                 are not required.
 %       w       - Weights (vector, same length as p / number of rows).
 %       sigma   - Gaussian bandwidth in cents.
 %       r       - Tuple size (positive integer; r >= 2 if isRel == true).
-%       isRel   - Logical: true for relative pitch classes.
+%       isRel   - Logical: true for relative (transposition-invariant).
 %       isPer   - Logical: true for periodic domain.
 %       period  - Period of the domain (e.g., 12 for octave).
 %
 %   Name-Value Arguments
 %       'spectrum'      - Cell array of arguments to pass to addSpectra
 %                         (everything after p and w). If provided,
-%                         partials are added to the pitch set before
+%                         partials are added to the multiset before
 %                         building the tensor. Example:
 %                           'spectrum', {'harmonic', 12, 'powerlaw', 1}
 %                           'spectrum', {'stretched', 8, 1.02, 'powerlaw', 1}

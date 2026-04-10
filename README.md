@@ -10,7 +10,7 @@ The toolbox implements several original theoretical frameworks grounded in proba
 
 **Consonance and harmonicity.** Spectral entropy, template harmonicity, tensor harmonicity, sensory roughness, and virtual pitch analysis — complementary measures capturing different aspects of consonance.
 
-**Balance and evenness.** Fourier-based measures of the distributional properties of pitch-class sets and rhythmic patterns, including a characterisation of perfectly balanced patterns.
+**Balance and evenness.** Fourier-based measures of the distributional properties of circular multisets of pitches or positions, including a characterisation of perfectly balanced patterns.
 
 **Scale and rhythm structure.** Coherence, sameness, n-tuple entropy, circular autocorrelation phase matrices, edge detection, projected centroid, mean offset, and Markov prediction — applicable to both scales and rhythms.
 

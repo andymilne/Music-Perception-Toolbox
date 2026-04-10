@@ -1,29 +1,28 @@
 function [F, mag] = dftCircular(p, w, period)
-%DFTCIRCULAR Discrete Fourier transform of a set of points on a circle.
+%DFTCIRCULAR Discrete Fourier transform of a weighted circular multiset.
 %
 %   [F, mag] = dftCircular(p, w, period):
 %
-%   Computes the DFT of a set of K points distributed around a circle of
-%   circumference 'period'. This applies to pitch-class sets (where the
-%   circle represents one octave or other period of pitch-class
-%   equivalence), time-class sets (where the circle represents one
-%   rhythmic cycle), or any other periodic domain.
+%   Computes the DFT of a weighted multiset of K points distributed
+%   around a circle of circumference 'period' (p represents pitches or
+%   positions).
 %
 %   The procedure is:
 %     1. Sort p ascending (reordering w to match).
-%     2. Map each element to the unit circle: z(j) = exp(2*pi*1i*p(j)/period).
-%     3. Compute the DFT of the complex vector z, normalized by K:
-%          F(k) = (1/K) * sum_j z(j) * exp(-2*pi*1i * (j-1) * k / K)
+%     2. Map each element to the unit circle and scale by its weight:
+%          z(j) = w(j) * exp(2*pi*1i*p(j)/period).
+%     3. Compute the DFT of z, normalized by the sum of weights:
+%          F(k) = (1/sum(w)) * sum_j z(j) * exp(-2*pi*1i * (j-1) * k / K)
 %        for k = 0, 1, ..., K-1.
+%        (For uniform weights, sum(w) = K.)
 %
 %   The magnitudes of the coefficients have well-established music-
 %   theoretical interpretations (see balanceCircular and evennessCircular):
 %     |F(0)|: imbalance — distance of the centre of gravity from the
-%             origin. When |F(0)| = 0, the set is perfectly balanced.
+%             origin. When |F(0)| = 0, the multiset is perfectly balanced.
 %     |F(1)|: evenness — closeness to a maximally even (equal-step)
-%             distribution. When |F(1)| = 1, the set is maximally even.
-%   Higher coefficients capture finer distributional properties (e.g.,
-%   |F(2)| relates to dyadic structure, |F(3)| to triadic, etc.).
+%             distribution. When |F(1)| = 1, the multiset is maximally
+%   Higher coefficients capture additional distributional properties.
 %
 %   For further information, see:
 %     Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
@@ -34,7 +33,7 @@ function [F, mag] = dftCircular(p, w, period)
 %       203, 104233.
 %
 %   Inputs:
-%     p      — Pitch-class (or time-class) values (vector of length K).
+%     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'. The function sorts
 %              p internally; the caller does not need to pre-sort.
 %     w      — Weights (vector of length K, or empty for uniform). If

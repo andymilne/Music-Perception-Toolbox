@@ -1,5 +1,5 @@
 function [p, w] = addSpectra(p, w, mode, varargin)
-%ADDSPECTRA Add spectral partials to a set of pitches.
+%ADDSPECTRA Add spectral partials to a weighted pitch multiset.
 %
 %   Five modes determine the partial positions; for the first four, a
 %   sub-option selects the weight decay law.

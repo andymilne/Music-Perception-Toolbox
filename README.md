@@ -108,6 +108,7 @@ Music-Perception-Toolbox/
 ├── USER_GUIDE.md, CHANGELOG.md, MIGRATION.md
 ├── matlab/
 │   ├── *.m                  (core toolbox functions)
+│   ├── tests/               (test suite)
 │   ├── demos/               (demo scripts)
 │   └── audio/               (example audio files)
 └── python/

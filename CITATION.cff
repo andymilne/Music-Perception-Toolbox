@@ -1,5 +1,6 @@
-# This CITATION.cff file was generated for the Music Perception Toolbox v2.0.1.
 # https://citation-file-format.github.io/
+# Version and date are omitted to avoid per-release maintenance;
+# Zenodo generates versioned DOIs automatically from GitHub tags.
 
 cff-version: 1.2.0
 title: Music Perception Toolbox
@@ -7,8 +8,6 @@ message: >-
   If you use this software, please cite it using the
   metadata from this file.
 type: software
-version: 2.0.1
-date-released: "2026-04-15"
 license: MIT
 repository-code: https://github.com/andymilne/Music-Perception-Toolbox
 keywords:

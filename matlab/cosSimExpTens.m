@@ -230,11 +230,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
                     Dc = mod(Dc + J/2, J) - J/2;
                 end
 
-                if isRel
-                    Qc = sum(Dc.^2, 1) - sum(Dc, 1).^2 / r;
-                else
-                    Qc = sum(Dc.^2, 1);
-                end
+                Qc = computeQ(Dc);
 
                 Ec = reshape(exp(-Qc(:) / (4 * sigma^2)), nJ, nKc);
                 acc = acc + Ec * wV(idx)';
@@ -253,10 +249,19 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     %
     %  The quadratic form Q depends on the mode:
     %    Absolute: Q(d) = sum(d.^2)
-    %    Relative: Q(d) = sum(d.^2) - sum(d)^2 / r
-    %      where d = u_j - v_k and the quadratic form induced by the
-    %      Riemannian metric on the quotient space R^r / R*1 projects out
-    %      the mean, yielding transpositional equivalence.
+    %    Relative (non-periodic): Q(d) = sum(d.^2) - sum(d)^2 / r
+    %    Relative + periodic: Q(d) = sum_{i<j} wrap(d_i - d_j)^2 / r
+    %
+    %  The relative quadratic form (induced by the Riemannian metric on
+    %  the quotient space R^r / R*1) projects out the mean, yielding
+    %  transpositional equivalence. In the periodic case, the pairwise
+    %  differences between wrapped components are themselves wrapped to
+    %  [-J/2, J/2), which restores exact transposition invariance on the
+    %  circle.
+    %
+    %  The two relative formulas are algebraically identical in the
+    %  non-periodic case: sum_{i<j} (d_i - d_j)^2 == r*(sum(d^2) -
+    %  sum(d)^2/r).
     %
     %  The weighted sum is computed as wU' * (E * wV), avoiding the full
     %  outer-product weight matrix.
@@ -268,14 +273,42 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
             D = mod(D + J/2, J) - J/2;
         end
 
-        if isRel
-            Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;
-        else
-            Qvec = sum(D.^2, 1);
-        end
+        Qvec = computeQ(D);
 
         E = reshape(exp(-Qvec(:) / (4 * sigma^2)), nJ, nK);
         ipval = wU(:)' * (E * wV(:));
+    end
+
+    % -----------------------------------------------------------------
+    %  computeQ
+    %  Compute the quadratic form Q from the (already-wrapped)
+    %  difference array D (r x nJ x nK or r x nJ x nKc).
+    %
+    %  When isPer && isRel, pairwise differences between components of
+    %  D are wrapped to [-J/2, J/2) before squaring. This restores
+    %  exact transposition invariance on the circle, which is otherwise
+    %  broken by component-wise wrapping. The two formulas are
+    %  algebraically identical in the non-periodic case:
+    %     sum_{i<j} (d_i - d_j)^2 == r * (sum(d^2) - sum(d)^2/r).
+    % -----------------------------------------------------------------
+    function Qvec = computeQ(D)
+        if isRel
+            if isPer
+                Qvec = zeros(1, size(D, 2), size(D, 3));
+                for i = 1:r
+                    for j = i+1:r
+                        delta = D(i,:,:) - D(j,:,:);
+                        delta = mod(delta + J/2, J) - J/2;
+                        Qvec = Qvec + delta.^2;
+                    end
+                end
+                Qvec = Qvec / r;
+            else
+                Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;
+            end
+        else
+            Qvec = sum(D.^2, 1);
+        end
     end
 
 end

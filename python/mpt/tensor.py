@@ -467,6 +467,33 @@ def cos_sim_exp_tens_raw(
     return cos_sim_exp_tens(dx, dy, verbose=verbose)
 
 
+def _compute_Q(D, r, is_rel, is_per, period):
+    """Compute the quadratic form from (already-wrapped) differences D.
+
+    When *is_rel* and *is_per* are both True, pairwise differences
+    between components of D are wrapped to ``[-period/2, period/2)``
+    before squaring. This restores exact transposition invariance on
+    the circle, which is otherwise broken by component-wise wrapping.
+
+    The two formulas are algebraically identical in the non-periodic
+    case: ``sum_{i<j} (d_i - d_j)^2 == r * (sum(d^2) - sum(d)^2/r)``.
+    """
+    if is_rel:
+        if is_per:
+            Q = np.zeros(D.shape[1:])
+            for i in range(r):
+                for j in range(i + 1, r):
+                    delta = D[i] - D[j]
+                    delta = np.mod(delta + period / 2, period) - period / 2
+                    Q += delta**2
+            Q = Q / r
+        else:
+            Q = np.sum(D**2, axis=0) - np.sum(D, axis=0) ** 2 / r
+    else:
+        Q = np.sum(D**2, axis=0)
+    return Q
+
+
 def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
     """Core inner product (perm-side × comb-side)."""
     bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
@@ -485,10 +512,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
         Dc = U[:, :, None] - V[:, idx][:, None, :]
         if is_per:
             Dc = np.mod(Dc + period / 2, period) - period / 2
-        if is_rel:
-            Qc = np.sum(Dc**2, axis=0) - np.sum(Dc, axis=0) ** 2 / r
-        else:
-            Qc = np.sum(Dc**2, axis=0)
+        Qc = _compute_Q(Dc, r, is_rel, is_per, period)
         Ec = np.exp(-Qc / (4 * sigma**2))
         acc += Ec @ wV[idx]
 
@@ -502,13 +526,99 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
     if is_per:
         D = np.mod(D + period / 2, period) - period / 2
 
-    if is_rel:
-        Q = np.sum(D**2, axis=0) - np.sum(D, axis=0) ** 2 / r
-    else:
-        Q = np.sum(D**2, axis=0)
+    Q = _compute_Q(D, r, is_rel, is_per, period)
 
     E = np.exp(-Q / (4 * sigma**2))  # (nJ, nK)
     return float(wU @ (E @ wV))
+
+
+# -------------------------------------------------------------------
+#  Canonicalization helpers (for batch_cos_sim_exp_tens)
+# -------------------------------------------------------------------
+
+
+def _lex_compare(a: tuple, b: tuple) -> int:
+    """Lexicographic comparison. Returns -1, 0, or +1."""
+    for ai, bi in zip(a, b):
+        if ai < bi:
+            return -1
+        if ai > bi:
+            return 1
+    return 0
+
+
+def _cyclic_canonical(
+    p_sorted: np.ndarray,
+    w_sorted: np.ndarray | None,
+    period: float,
+) -> tuple[tuple, tuple | None]:
+    """Lexicographically smallest rotation of a periodic pitch set.
+
+    Tries all n rotations (subtract each sorted pitch, mod period,
+    re-sort with weights) and returns the lex-smallest form. This
+    captures all transposition-modulo-period equivalences.
+    """
+    n = len(p_sorted)
+    has_w = w_sorted is not None
+
+    best_p = tuple(p_sorted - p_sorted[0])
+    best_w = tuple(w_sorted) if has_w else None
+
+    for rot in range(1, n):
+        shifted = np.mod(p_sorted - p_sorted[rot], period)
+        si = np.argsort(shifted)
+        shifted = shifted[si]
+        t_p = tuple(shifted)
+
+        cmp = _lex_compare(t_p, best_p)
+        if cmp < 0:
+            best_p = t_p
+            best_w = tuple(w_sorted[si]) if has_w else None
+        elif cmp == 0 and has_w:
+            t_w = tuple(w_sorted[si])
+            if _lex_compare(t_w, best_w) < 0:
+                best_w = t_w
+
+    return best_p, best_w
+
+
+def _canonicalize_set(
+    p: np.ndarray,
+    w: np.ndarray | None,
+    is_rel: bool,
+    is_per: bool,
+    period: float,
+) -> tuple[tuple, tuple | None]:
+    """Canonical form of a pitch/weight set under isPer/isRel.
+
+    Returns hashable tuples suitable for use as dict keys.
+    """
+    has_w = w is not None
+
+    # Sort pitches, align weights
+    si = np.argsort(p)
+    p = p[si]
+    if has_w:
+        w = w[si]
+
+    # Reduce modulo period
+    if is_per:
+        p = np.mod(p, period)
+        si = np.argsort(p)
+        p = p[si]
+        if has_w:
+            w = w[si]
+
+    # Remove transposition
+    if is_rel:
+        if is_per:
+            # Cyclic canonical form: the lex-smallest rotation captures
+            # all transposition-modulo-period equivalences.
+            return _cyclic_canonical(p, w, period)
+        else:
+            p = p - p[0]
+
+    return tuple(p), (tuple(w) if has_w else None)
 
 
 # -------------------------------------------------------------------
@@ -528,14 +638,27 @@ def batch_cos_sim_exp_tens(
     weights_a: np.ndarray | None = None,
     weights_b: np.ndarray | None = None,
     spectrum: list | None = None,
+    precision: int | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Batch cosine similarity of expectation tensors.
 
     Computes cosine similarity for many paired weighted multisets
     (*p* represents pitches or positions). Each row of *p_mat_a*
-    and *p_mat_b* defines one pair. Automatically deduplicates rows
-    with identical sorted content.
+    and *p_mat_b* defines one pair.
+
+    Automatically deduplicates in three ways:
+
+    1. **Canonical-form keying** — when *is_per* is True, pitches are
+       reduced modulo *period*; when *is_rel* is True (and *is_per* is
+       False), transposition is factored out; when both are True, a
+       cyclic canonical form detects all transposition-modulo-period
+       equivalences.
+    2. **Individual-set caching** — density structs are built once per
+       unique A-set and once per unique B-set (via ``build_exp_tens``),
+       then reused across all pairs that reference them.
+    3. **Pair deduplication** — ``cos_sim_exp_tens`` is called once per
+       unique (A, B) pair.
 
     Parameters
     ----------
@@ -548,8 +671,15 @@ def batch_cos_sim_exp_tens(
     weights_a, weights_b : array, optional
         Weight matrices matching *p_mat_a* / *p_mat_b*.
     spectrum : list, optional
-        Arguments for :func:`~mpt.spectra.add_spectra` (mode and
-        params as a list, e.g. ``['harmonic', 12, 'powerlaw', 1]``).
+        Arguments for :func:`~mpt.spectra.add_spectra`.
+    precision : int, optional
+        Round pitch and weight values to this many decimal places
+        before processing. Ensures that nominally identical multisets
+        differing only by floating-point noise are correctly
+        deduplicated. For pitch data in cents, 4 is more than
+        sufficient; for fractional-cent values (e.g., from JI
+        ratios), 6 preserves all meaningful precision. Default:
+        no rounding (full floating-point precision).
     verbose : bool
         Print progress.
 
@@ -582,62 +712,139 @@ def batch_cos_sim_exp_tens(
         if weights_b.shape != p_mat_b.shape:
             raise ValueError("weights_b must be the same shape as p_mat_b.")
 
-    # Build deduplication keys
+    # Apply precision rounding
+    if precision is not None:
+        p_mat_a = np.round(p_mat_a, precision)
+        p_mat_b = np.round(p_mat_b, precision)
+        if use_wa:
+            weights_a = np.round(weights_a, precision)
+        if use_wb:
+            weights_b = np.round(weights_b, precision)
+
     s = np.full(n_rows, np.nan)
-    key_to_result: dict[tuple, float] = {}
-    n_unique = 0
+
+    # ── Phase 1: Canonicalize and build individual-set keys ──────────
+
+    # key_a[i] and key_b[i] are hashable canonical forms for valid rows
+    key_a: list[tuple | None] = [None] * n_rows
+    key_b: list[tuple | None] = [None] * n_rows
+    valid = [False] * n_rows
+
+    # Also store the canonical pitches/weights for later extraction
+    canon_data_a: dict[tuple, tuple[np.ndarray, np.ndarray | None]] = {}
+    canon_data_b: dict[tuple, tuple[np.ndarray, np.ndarray | None]] = {}
 
     for i in range(n_rows):
         pa_row = p_mat_a[i]
         pb_row = p_mat_b[i]
         mask_a = ~np.isnan(pa_row)
         mask_b = ~np.isnan(pb_row)
-        pa_valid = np.sort(pa_row[mask_a])
-        pb_valid = np.sort(pb_row[mask_b])
+        pa_valid = pa_row[mask_a]
+        pb_valid = pb_row[mask_b]
 
         if len(pa_valid) < r or len(pb_valid) < r:
             continue
 
-        # Build key
-        key_parts = [tuple(pa_valid), tuple(pb_valid)]
-        if use_wa:
-            wa_valid = weights_a[i, mask_a]
-            sort_idx = np.argsort(pa_row[mask_a])
-            key_parts.append(tuple(wa_valid[sort_idx]))
-        if use_wb:
-            wb_valid = weights_b[i, mask_b]
-            sort_idx = np.argsort(pb_row[mask_b])
-            key_parts.append(tuple(wb_valid[sort_idx]))
-        key = tuple(key_parts)
+        wa_valid = weights_a[i, mask_a] if use_wa else None
+        wb_valid = weights_b[i, mask_b] if use_wb else None
 
-        if key in key_to_result:
-            s[i] = key_to_result[key]
+        # Canonicalize each set
+        ca_p, ca_w = _canonicalize_set(pa_valid, wa_valid, is_rel, is_per, period)
+        cb_p, cb_w = _canonicalize_set(pb_valid, wb_valid, is_rel, is_per, period)
+
+        # Hashable key = (canonical_pitches, canonical_weights_or_None)
+        ka = (ca_p, ca_w)
+        kb = (cb_p, cb_w)
+
+        key_a[i] = ka
+        key_b[i] = kb
+        valid[i] = True
+
+        # Cache canonical arrays (first occurrence wins)
+        if ka not in canon_data_a:
+            canon_data_a[ka] = (
+                np.array(ca_p, dtype=np.float64),
+                np.array(ca_w, dtype=np.float64) if ca_w is not None else None,
+            )
+        if kb not in canon_data_b:
+            canon_data_b[kb] = (
+                np.array(cb_p, dtype=np.float64),
+                np.array(cb_w, dtype=np.float64) if cb_w is not None else None,
+            )
+
+    # ── Phase 2: Deduplicate individual sets, then pairs ─────────────
+
+    unique_a_keys = list(canon_data_a.keys())
+    unique_b_keys = list(canon_data_b.keys())
+    n_unique_a = len(unique_a_keys)
+    n_unique_b = len(unique_b_keys)
+
+    # Build pair keys and deduplicate
+    pair_key_to_idx: dict[tuple, int] = {}
+    row_to_pair: list[int | None] = [None] * n_rows
+    unique_pair_list: list[tuple] = []
+
+    for i in range(n_rows):
+        if not valid[i]:
             continue
+        pk = (key_a[i], key_b[i])
+        if pk not in pair_key_to_idx:
+            pair_key_to_idx[pk] = len(unique_pair_list)
+            unique_pair_list.append(pk)
+        row_to_pair[i] = pair_key_to_idx[pk]
 
-        pa = pa_valid
-        pb = pb_valid
-        wa = weights_a[i, mask_a] if use_wa else None
-        wb = weights_b[i, mask_b] if use_wb else None
-
-        if use_spec:
-            pa, wa = add_spectra(pa, wa, *spectrum)
-            pb, wb = add_spectra(pb, wb, *spectrum)
-
-        val = cos_sim_exp_tens_raw(
-            pa, wa, pb, wb, sigma, r, is_rel, is_per, period, verbose=False
-        )
-        key_to_result[key] = val
-        s[i] = val
-        n_unique += 1
-
-        if verbose and (n_unique % 100 == 0):
-            print(f"  {n_unique} unique pairs computed.")
+    n_unique_pairs = len(unique_pair_list)
 
     if verbose:
-        n_valid = int(np.sum(~np.isnan(s)))
+        n_valid = sum(valid)
         print(
             f"batch_cos_sim_exp_tens: {n_rows} rows, {n_valid} valid, "
-            f"{len(key_to_result)} unique pairs."
+            f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets, "
+            f"{n_unique_pairs} unique pairs."
         )
+
+    # ── Phase 3: Build density structs for unique individual sets ─────
+
+    dens_a: dict[tuple, object] = {}
+    for ka in unique_a_keys:
+        p_arr, w_arr = canon_data_a[ka]
+        if use_spec:
+            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
+        dens_a[ka] = build_exp_tens(
+            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+        )
+
+    dens_b: dict[tuple, object] = {}
+    for kb in unique_b_keys:
+        p_arr, w_arr = canon_data_b[kb]
+        if use_spec:
+            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
+        dens_b[kb] = build_exp_tens(
+            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+        )
+
+    if verbose:
+        print(
+            f"batch_cos_sim_exp_tens: built {n_unique_a + n_unique_b} "
+            f"density structs ({n_unique_a} A + {n_unique_b} B)."
+        )
+
+    # ── Phase 4: Compute similarity for each unique pair ─────────────
+
+    unique_s = [None] * n_unique_pairs
+    for up, (ka, kb) in enumerate(unique_pair_list):
+        unique_s[up] = cos_sim_exp_tens(dens_a[ka], dens_b[kb], verbose=False)
+
+        if verbose and ((up + 1) % 100 == 0 or up + 1 == n_unique_pairs):
+            print(f"  {up + 1} / {n_unique_pairs} unique pairs computed.")
+
+    # ── Phase 5: Map results back ────────────────────────────────────
+
+    for i in range(n_rows):
+        if valid[i]:
+            s[i] = unique_s[row_to_pair[i]]
+
+    if verbose:
+        print("batch_cos_sim_exp_tens: done.")
 
     return s

@@ -176,6 +176,68 @@ results{end,2}   = all(~isnan(s));
 results{end+1,1} = 'batchCosSimExpTens: major > minor fit';
 results{end,2}   = s(1) > s(2);
 
+% --- Transposition invariance (cosSimExpTens fix) ---
+
+B_diat = [0, 200, 400, 500, 700, 900, 1100];
+
+s0 = cosSimExpTens([0, 400, 700], [], B_diat, [], ...
+    10, 2, true, false, 1200, 'verbose', false);
+s1 = cosSimExpTens([100, 500, 800], [], B_diat, [], ...
+    10, 2, true, false, 1200, 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: isRel transposition (non-periodic)';
+results{end,2}   = abs(s0 - s1) < 1e-14;
+
+s0 = cosSimExpTens([0, 400, 700], [], B_diat, [], ...
+    10, 2, true, true, 1200, 'verbose', false);
+s1 = cosSimExpTens([100, 500, 800], [], B_diat, [], ...
+    10, 2, true, true, 1200, 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: isRel transposition (periodic)';
+results{end,2}   = abs(s0 - s1) < 1e-14;
+
+s0 = cosSimExpTens([0, 400, 700], [], B_diat, [], ...
+    10, 3, true, true, 1200, 'verbose', false);
+s1 = cosSimExpTens([500, 900, 1200], [], B_diat, [], ...
+    10, 3, true, true, 1200, 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: isRel transposition (periodic, r=3)';
+results{end,2}   = abs(s0 - s1) < 1e-14;
+
+shifts = [100, 300, 500, 700, 1100];
+s_ref = cosSimExpTens([0, 400, 700], [], B_diat, [], ...
+    10, 2, true, true, 1200, 'verbose', false);
+allMatch = true;
+for c = shifts
+    sc = cosSimExpTens([0, 400, 700] + c, [], B_diat, [], ...
+        10, 2, true, true, 1200, 'verbose', false);
+    if abs(sc - s_ref) >= 1e-14
+        allMatch = false;
+    end
+end
+results{end+1,1} = 'cosSimExpTens: isRel all shifts (periodic)';
+results{end,2}   = allMatch;
+
+s0 = cosSimExpTens([0, 400, 700], [], B_diat, [], ...
+    10, 1, false, true, 1200, 'verbose', false);
+s1 = cosSimExpTens([1200, 1600, 1900], [], B_diat, [], ...
+    10, 1, false, true, 1200, 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: isPer octave equivalence';
+results{end,2}   = abs(s0 - s1) < 1e-14;
+
+w = [1.0, 0.8, 0.6];
+s0 = cosSimExpTens([0, 400, 700], w, B_diat, [], ...
+    10, 2, true, true, 1200, 'verbose', false);
+s1 = cosSimExpTens([100, 500, 800], w, B_diat, [], ...
+    10, 2, true, true, 1200, 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: isRel+isPer with weights';
+results{end,2}   = abs(s0 - s1) < 1e-14;
+
+A3 = [0, 400, 700; 1200, 1600, 1900; 0, 400, 700];
+B3 = repmat(B_diat, 3, 1);
+sb = batchCosSimExpTens(A3, B3, 10, 1, false, true, 1200, ...
+    'verbose', false);
+results{end+1,1} = 'batchCosSimExpTens: octave deduplication';
+results{end,2}   = abs(sb(1) - sb(2)) < 1e-14 && ...
+                    abs(sb(1) - sb(3)) < 1e-14;
+
 %% ---- Entropy ----
 
 H = nTupleEntropy([0, 2, 4, 6, 8, 10], 12);

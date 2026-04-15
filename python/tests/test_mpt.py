@@ -206,6 +206,104 @@ class TestTensor:
         assert np.all(~np.isnan(s))
         assert s[0] > s[1]  # major triad fits diatonic better than minor
 
+    # --- Transposition invariance tests (cosSimExpTens fix) ----------
+
+    def test_isrel_transposition_invariance_nonperiodic(self):
+        """isRel should give exact transposition invariance (non-periodic)."""
+        B = [0, 200, 400, 500, 700, 900, 1100]
+        s0 = mpt.cos_sim_exp_tens_raw(
+            [0, 400, 700], None, B, None,
+            10, 2, True, False, 1200, verbose=False
+        )
+        s1 = mpt.cos_sim_exp_tens_raw(
+            [100, 500, 800], None, B, None,
+            10, 2, True, False, 1200, verbose=False
+        )
+        assert s0 == pytest.approx(s1, abs=1e-14)
+
+    def test_isrel_transposition_invariance_periodic(self):
+        """isPer + isRel should give exact transposition invariance."""
+        B = [0, 200, 400, 500, 700, 900, 1100]
+        s0 = mpt.cos_sim_exp_tens_raw(
+            [0, 400, 700], None, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        s1 = mpt.cos_sim_exp_tens_raw(
+            [100, 500, 800], None, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        assert s0 == pytest.approx(s1, abs=1e-14)
+
+    def test_isrel_transposition_invariance_periodic_r3(self):
+        """isPer + isRel transposition invariance should hold for r=3."""
+        B = [0, 200, 400, 500, 700, 900, 1100]
+        s0 = mpt.cos_sim_exp_tens_raw(
+            [0, 400, 700], None, B, None,
+            10, 3, True, True, 1200, verbose=False
+        )
+        s1 = mpt.cos_sim_exp_tens_raw(
+            [500, 900, 1200], None, B, None,
+            10, 3, True, True, 1200, verbose=False
+        )
+        assert s0 == pytest.approx(s1, abs=1e-14)
+
+    @pytest.mark.parametrize("shift", [100, 300, 500, 700, 1100])
+    def test_isrel_transposition_all_shifts(self, shift):
+        """isPer + isRel should be invariant across many transpositions."""
+        A = np.array([0.0, 400, 700])
+        B = np.array([0, 200, 400, 500, 700, 900, 1100], dtype=float)
+        s_ref = mpt.cos_sim_exp_tens_raw(
+            A, None, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        s_shift = mpt.cos_sim_exp_tens_raw(
+            A + shift, None, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        assert s_ref == pytest.approx(s_shift, abs=1e-14)
+
+    def test_isper_octave_equivalence(self):
+        """isPer should treat octave-displaced pitches as equivalent."""
+        B = [0, 200, 400, 500, 700, 900, 1100]
+        s0 = mpt.cos_sim_exp_tens_raw(
+            [0, 400, 700], None, B, None,
+            10, 1, False, True, 1200, verbose=False
+        )
+        s1 = mpt.cos_sim_exp_tens_raw(
+            [1200, 1600, 1900], None, B, None,
+            10, 1, False, True, 1200, verbose=False
+        )
+        assert s0 == pytest.approx(s1, abs=1e-14)
+
+    def test_isrel_with_weights_periodic(self):
+        """isPer + isRel transposition invariance should hold with weights."""
+        B = [0, 200, 400, 500, 700, 900, 1100]
+        w = [1.0, 0.8, 0.6]
+        s0 = mpt.cos_sim_exp_tens_raw(
+            [0, 400, 700], w, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        s1 = mpt.cos_sim_exp_tens_raw(
+            [100, 500, 800], w, B, None,
+            10, 2, True, True, 1200, verbose=False
+        )
+        assert s0 == pytest.approx(s1, abs=1e-14)
+
+    def test_batch_deduplication_octave(self):
+        """Batch should deduplicate octave-displaced sets under isPer."""
+        A = np.array([
+            [0, 400, 700],
+            [1200, 1600, 1900],  # octave displaced
+            [0, 400, 700],       # exact duplicate
+        ])
+        B = np.tile([0, 200, 400, 500, 700, 900, 1100], (3, 1))
+        s = mpt.batch_cos_sim_exp_tens(
+            A, B, 10, 1, False, True, 1200, verbose=False
+        )
+        # All three rows should produce the same value
+        np.testing.assert_allclose(s[0], s[1], atol=1e-14)
+        np.testing.assert_allclose(s[0], s[2], atol=1e-14)
+
 
 # ===================================================================
 #  Entropy

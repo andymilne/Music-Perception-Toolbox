@@ -7,24 +7,30 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %   of pMatA and pMatB defines one weighted multiset; the function returns
 %   one similarity value per row.
 %
-%   Rows with identical (sorted) content share the same similarity
-%   value. The function automatically deduplicates, computing cosSimExpTens
-%   only once per unique (A, B) pair, then maps results back to all rows.
-%   This can dramatically reduce computation time when many rows share the
-%   same multisets (e.g., repeated experimental conditions).
+%   The function deduplicates equivalent rows before computation.
+%   Density structs (via buildExpTens) are cached per unique individual
+%   set and cosSimExpTens is called once per unique (A, B) pair, with
+%   results mapped back to all matching rows. The equivalences exploited
+%   depend on the mode:
 %
-%   When isPer is true, pitches are reduced modulo period before
-%   deduplication, so sets that differ only by octave displacement are
-%   recognized as equivalent. When isRel is true (and isPer is false),
-%   sets that differ only by transposition are also recognized as
-%   equivalent. In the combined case (both true), the function uses a
-%   cyclic canonical form that detects all transposition-modulo-period
-%   equivalences.
+%     Absolute non-periodic (isRel = false, isPer = false):
+%       Co-transposition — (A+c, B+c) is equivalent to (A, B).
+%       Mechanism: subtract A's minimum from both A and B.
 %
-%   Additionally, density structs (via buildExpTens) are cached per unique
-%   individual set rather than per unique pair. This avoids redundant
-%   rebuilds when the same set appears in multiple pairings (e.g., one
-%   fixed reference compared against many different chords).
+%     Absolute periodic (isRel = false, isPer = true):
+%       Co-transposition and octave displacement.
+%       Mechanism: mod-reduce both sets, then apply the cyclic
+%       canonical form to A and the same shift to B.
+%
+%     Relative non-periodic (isRel = true, isPer = false):
+%       Independent transposition of each set (co-transposition is
+%       a special case).
+%       Mechanism: subtract the minimum from each set independently.
+%
+%     Relative periodic (isRel = true, isPer = true):
+%       Independent transposition and octave displacement of each
+%       set (co-transposition is a special case).
+%       Mechanism: independent cyclic canonical form for each set.
 %
 %   Inputs:
 %     pMatA — nRows x nA matrix of pitch or position values for
@@ -62,13 +68,28 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %     'verbose', tf  — Logical (default: true). If false, suppresses all
 %                      console output.
 %     'precision', nDec — Round pitch and weight values to nDec decimal
-%                      places before processing. This ensures that
+%                      places before processing (and again after
+%                      canonicalization, to absorb arithmetic noise from
+%                      mod-reduction and subtraction). This ensures that
 %                      nominally identical multisets differing only by
 %                      floating-point noise are correctly deduplicated.
-%                      For pitch data in cents, 4 is more than sufficient;
-%                      for fractional-cent values (e.g., from JI ratios),
-%                      6 preserves all meaningful precision. Default: no
-%                      rounding (full floating-point precision).
+%                      For pitch data in cents on a 12-TET grid, 4 is
+%                      more than sufficient; for fractional-cent values
+%                      (e.g., from JI ratios), 6 preserves all meaningful
+%                      precision. Default: no rounding (full
+%                      floating-point precision).
+%
+%                      Limitation: 'precision' rounds to decimal places,
+%                      so it cannot resolve discrepancies when pitches lie
+%                      on an irrational grid — e.g., N-EDO tunings where
+%                      the step size 1200/N is a repeating decimal (such
+%                      as 22-EDO: 1200/22 ≈ 54.5454...). Different
+%                      transpositions of the same set will produce
+%                      different last-digit truncations that no decimal
+%                      precision can collapse. In such cases, convert to
+%                      integer EDO steps before calling this function
+%                      (scaling sigma and period accordingly) to make
+%                      deduplication exact.
 %
 %   Output:
 %     s — nRows x 1 column vector of cosine similarities. Rows where
@@ -233,9 +254,60 @@ for i = 1:nRows
         wBv = [];
     end
 
-    % Canonicalize each set
-    [pAc, wAc] = canonicalizeSet(pAv, wAv, isRel, isPer, period);
-    [pBc, wBc] = canonicalizeSet(pBv, wBv, isRel, isPer, period);
+    % Canonicalize each set and apply joint co-transposition
+    % normalization for the absolute case.
+    if isRel
+        % Relative: independent canonicalization
+        [pAc, wAc] = canonicalizeSet(pAv, wAv, isRel, isPer, period);
+        [pBc, wBc] = canonicalizeSet(pBv, wBv, isRel, isPer, period);
+    else
+        % Absolute: joint co-transposition normalization.
+        % cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
+        % raw tuple differences cancel. Find A's canonical form and
+        % apply the same shift to B.
+
+        hasWA = ~isempty(wAv);
+        hasWB = ~isempty(wBv);
+
+        % Canonicalize A
+        [pAs, siA] = sort(pAv);
+        if hasWA, wAs = wAv(siA); else, wAs = []; end
+
+        if isPer
+            pAs = mod(pAs, period);
+            [pAs, siA2] = sort(pAs);
+            if hasWA, wAs = wAs(siA2); end
+            % Cyclic canonical form — collapses all rotations
+            [pAc, wAc, shift] = cyclicCanonical(pAs, wAs, hasWA, period);
+        else
+            shift = pAs(1);
+            pAc = pAs(:)' - shift;
+            if hasWA, wAc = wAs(:)'; else, wAc = []; end
+        end
+
+        % Apply the same shift to B
+        [pBs, siB] = sort(pBv);
+        if hasWB, wBs = wBv(siB); else, wBs = []; end
+
+        if isPer
+            pBshifted = mod(pBs - shift, period);
+            [pBshifted, siB2] = sort(pBshifted);
+            pBc = pBshifted(:)';
+            if hasWB, wBc = wBs(siB2)'; else, wBc = []; end
+        else
+            pBc = pBs(:)' - shift;
+            if hasWB, wBc = wBs(:)'; else, wBc = []; end
+        end
+    end
+
+    % Re-round after canonicalization to collapse floating-point
+    % noise introduced by mod-reduction and subtraction.
+    if ~isempty(nDec)
+        pAc = round(pAc, nDec);
+        pBc = round(pBc, nDec);
+        if ~isempty(wAc), wAc = round(wAc, nDec); end
+        if ~isempty(wBc), wBc = round(wBc, nDec); end
+    end
 
     % Build NaN-padded keys
     keyA = NaN(1, keyWidthA);
@@ -273,6 +345,24 @@ if verbose
              '%d unique A-sets, %d unique B-sets, ' ...
              '%d unique pairs.\n'], ...
         nRows, numel(validIdx), nUniqueA, nUniqueB, nUniquePairs);
+    if isRel
+        if isPer
+            fprintf(['  Canonicalization: A-sets and B-sets independently ' ...
+                     'normalized for transposition and octave equivalence.\n']);
+        else
+            fprintf(['  Canonicalization: A-sets and B-sets independently ' ...
+                     'normalized for transposition.\n']);
+        end
+    else
+        if isPer
+            fprintf(['  Canonicalization: joint co-transposition with ' ...
+                     'octave equivalence; B-set counts reflect position ' ...
+                     'relative to A.\n']);
+        else
+            fprintf(['  Canonicalization: joint co-transposition; ' ...
+                     'B-set counts reflect position relative to A.\n']);
+        end
+    end
 end
 
 % === Phase 3: Build density structs for unique individual sets ===
@@ -367,7 +457,7 @@ function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
             % rotation (subtract each pitch in turn, mod period, re-sort
             % with weights) captures all transposition-modulo-period
             % equivalences.
-            [pCan, wCan] = cyclicCanonical(p, w, hasWeights, period);
+            [pCan, wCan, ~] = cyclicCanonical(p, w, hasWeights, period);
         else
             % Subtract minimum (sort order is preserved)
             p = p - p(1);
@@ -389,12 +479,11 @@ function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
 end
 
 
-function [pBest, wBest] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
+function [pBest, wBest, bestShift] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
 %CYCLICCANONICAL Lexicographically smallest rotation of a periodic set.
 %   For n pitches, tries all n rotations (subtract p(i), mod period,
 %   re-sort with weights) and returns the lexicographically smallest
-%   (pitch, weight) vector. O(n^2 log n) per call, but n is typically
-%   small (chord/scale sizes).
+%   (pitch, weight) vector plus the shift that produced it.
 
     n = numel(pSorted);
 
@@ -405,6 +494,7 @@ function [pBest, wBest] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
     else
         wBest = [];
     end
+    bestShift = pSorted(1);
 
     for rot = 2:n
         shifted = mod(pSorted - pSorted(rot), period);
@@ -414,6 +504,7 @@ function [pBest, wBest] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
         cmp = lexCompare(shifted(:)', pBest);
         if cmp < 0
             pBest = shifted(:)';
+            bestShift = pSorted(rot);
             if hasWeights
                 wBest = wSorted(si)';
             end
@@ -421,6 +512,7 @@ function [pBest, wBest] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
             wRot = wSorted(si)';
             if lexCompare(wRot, wBest) < 0
                 wBest = wRot;
+                bestShift = pSorted(rot);
             end
         end
     end

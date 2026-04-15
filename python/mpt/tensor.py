@@ -551,18 +551,29 @@ def _cyclic_canonical(
     p_sorted: np.ndarray,
     w_sorted: np.ndarray | None,
     period: float,
-) -> tuple[tuple, tuple | None]:
+) -> tuple[tuple, tuple | None, float]:
     """Lexicographically smallest rotation of a periodic pitch set.
 
     Tries all n rotations (subtract each sorted pitch, mod period,
-    re-sort with weights) and returns the lex-smallest form. This
-    captures all transposition-modulo-period equivalences.
+    re-sort with weights) and returns the lex-smallest form plus
+    the shift that produced it. This captures all
+    transposition-modulo-period equivalences.
+
+    Returns
+    -------
+    best_p : tuple
+        Canonical pitch tuple.
+    best_w : tuple or None
+        Canonical weight tuple (if weights provided).
+    best_shift : float
+        The pitch value subtracted to produce the canonical form.
     """
     n = len(p_sorted)
     has_w = w_sorted is not None
 
     best_p = tuple(p_sorted - p_sorted[0])
     best_w = tuple(w_sorted) if has_w else None
+    best_shift = p_sorted[0]
 
     for rot in range(1, n):
         shifted = np.mod(p_sorted - p_sorted[rot], period)
@@ -574,12 +585,14 @@ def _cyclic_canonical(
         if cmp < 0:
             best_p = t_p
             best_w = tuple(w_sorted[si]) if has_w else None
+            best_shift = p_sorted[rot]
         elif cmp == 0 and has_w:
             t_w = tuple(w_sorted[si])
             if _lex_compare(t_w, best_w) < 0:
                 best_w = t_w
+                best_shift = p_sorted[rot]
 
-    return best_p, best_w
+    return best_p, best_w, best_shift
 
 
 def _canonicalize_set(
@@ -614,7 +627,8 @@ def _canonicalize_set(
         if is_per:
             # Cyclic canonical form: the lex-smallest rotation captures
             # all transposition-modulo-period equivalences.
-            return _cyclic_canonical(p, w, period)
+            ca_p, ca_w, _ = _cyclic_canonical(p, w, period)
+            return ca_p, ca_w
         else:
             p = p - p[0]
 
@@ -647,18 +661,27 @@ def batch_cos_sim_exp_tens(
     (*p* represents pitches or positions). Each row of *p_mat_a*
     and *p_mat_b* defines one pair.
 
-    Automatically deduplicates in three ways:
+    The function deduplicates equivalent rows before computation.
+    Density structs (via ``build_exp_tens``) are cached per unique
+    individual set and ``cos_sim_exp_tens`` is called once per
+    unique (A, B) pair, with results mapped back to all matching
+    rows. The equivalences exploited depend on the mode:
 
-    1. **Canonical-form keying** — when *is_per* is True, pitches are
-       reduced modulo *period*; when *is_rel* is True (and *is_per* is
-       False), transposition is factored out; when both are True, a
-       cyclic canonical form detects all transposition-modulo-period
-       equivalences.
-    2. **Individual-set caching** — density structs are built once per
-       unique A-set and once per unique B-set (via ``build_exp_tens``),
-       then reused across all pairs that reference them.
-    3. **Pair deduplication** — ``cos_sim_exp_tens`` is called once per
-       unique (A, B) pair.
+    - **Absolute non-periodic** (*is_rel* = False, *is_per* = False):
+      co-transposition — (A+c, B+c) is equivalent to (A, B).
+      Mechanism: subtract A's minimum from both A and B.
+    - **Absolute periodic** (*is_rel* = False, *is_per* = True):
+      co-transposition and octave displacement.
+      Mechanism: mod-reduce both sets, then apply the cyclic
+      canonical form to A and the same shift to B.
+    - **Relative non-periodic** (*is_rel* = True, *is_per* = False):
+      independent transposition of each set (co-transposition is a
+      special case).
+      Mechanism: subtract the minimum from each set independently.
+    - **Relative periodic** (*is_rel* = True, *is_per* = True):
+      independent transposition and octave displacement of each set
+      (co-transposition is a special case).
+      Mechanism: independent cyclic canonical form for each set.
 
     Parameters
     ----------
@@ -674,12 +697,24 @@ def batch_cos_sim_exp_tens(
         Arguments for :func:`~mpt.spectra.add_spectra`.
     precision : int, optional
         Round pitch and weight values to this many decimal places
-        before processing. Ensures that nominally identical multisets
-        differing only by floating-point noise are correctly
-        deduplicated. For pitch data in cents, 4 is more than
-        sufficient; for fractional-cent values (e.g., from JI
-        ratios), 6 preserves all meaningful precision. Default:
-        no rounding (full floating-point precision).
+        before processing (and again after canonicalization, to
+        absorb arithmetic noise from mod-reduction and subtraction).
+        Ensures that nominally identical multisets differing only by
+        floating-point noise are correctly deduplicated. For pitch
+        data in cents on a 12-TET grid, 4 is more than sufficient;
+        for fractional-cent values (e.g., from JI ratios), 6
+        preserves all meaningful precision. Default: no rounding
+        (full floating-point precision).
+
+        **Limitation:** ``precision`` rounds to decimal places, so it
+        cannot resolve discrepancies when pitches lie on an irrational
+        grid — e.g., N-EDO tunings where the step size 1200/N is a
+        repeating decimal (such as 22-EDO: 1200/22 ≈ 54.5454...).
+        Different transpositions of the same set will produce
+        different last-digit truncations that no decimal precision
+        can collapse. In such cases, convert to integer EDO steps
+        before calling this function (scaling *sigma* and *period*
+        accordingly) to make deduplication exact.
     verbose : bool
         Print progress.
 
@@ -748,9 +783,60 @@ def batch_cos_sim_exp_tens(
         wa_valid = weights_a[i, mask_a] if use_wa else None
         wb_valid = weights_b[i, mask_b] if use_wb else None
 
-        # Canonicalize each set
-        ca_p, ca_w = _canonicalize_set(pa_valid, wa_valid, is_rel, is_per, period)
-        cb_p, cb_w = _canonicalize_set(pb_valid, wb_valid, is_rel, is_per, period)
+        # Canonicalize each set and apply joint co-transposition
+        # normalization for the absolute case.
+        if is_rel:
+            # Relative: independent canonicalization (each set normalized
+            # for transposition independently)
+            ca_p, ca_w = _canonicalize_set(pa_valid, wa_valid, is_rel, is_per, period)
+            cb_p, cb_w = _canonicalize_set(pb_valid, wb_valid, is_rel, is_per, period)
+        else:
+            # Absolute: joint co-transposition normalization.
+            # cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
+            # raw tuple differences cancel. We find A's canonical form
+            # and apply the same shift to B.
+
+            # Canonicalize A
+            si_a = np.argsort(pa_valid)
+            pa_s = pa_valid[si_a]
+            wa_s = wa_valid[si_a] if wa_valid is not None else None
+
+            if is_per:
+                pa_s = np.mod(pa_s, period)
+                si = np.argsort(pa_s)
+                pa_s = pa_s[si]
+                if wa_s is not None:
+                    wa_s = wa_s[si]
+                # Cyclic canonical form — collapses all rotations
+                ca_p, ca_w, shift = _cyclic_canonical(pa_s, wa_s, period)
+            else:
+                shift = pa_s[0]
+                ca_p = tuple(pa_s - shift)
+                ca_w = tuple(wa_s) if wa_s is not None else None
+
+            # Apply the same shift to B
+            si_b = np.argsort(pb_valid)
+            pb_s = pb_valid[si_b]
+            wb_s = wb_valid[si_b] if wb_valid is not None else None
+
+            if is_per:
+                pb_shifted = np.mod(pb_s - shift, period)
+                si = np.argsort(pb_shifted)
+                cb_p = tuple(pb_shifted[si])
+                cb_w = tuple(wb_s[si]) if wb_s is not None else None
+            else:
+                cb_p = tuple(pb_s - shift)
+                cb_w = tuple(wb_s) if wb_s is not None else None
+
+        # Re-round after canonicalization to collapse floating-point
+        # noise introduced by mod-reduction and subtraction.
+        if precision is not None:
+            ca_p = tuple(round(x, precision) for x in ca_p)
+            cb_p = tuple(round(x, precision) for x in cb_p)
+            if ca_w is not None:
+                ca_w = tuple(round(x, precision) for x in ca_w)
+            if cb_w is not None:
+                cb_w = tuple(round(x, precision) for x in cb_w)
 
         # Hashable key = (canonical_pitches, canonical_weights_or_None)
         ka = (ca_p, ca_w)
@@ -802,6 +888,18 @@ def batch_cos_sim_exp_tens(
             f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets, "
             f"{n_unique_pairs} unique pairs."
         )
+        if is_rel:
+            print(
+                "  Canonicalization: A-sets and B-sets independently "
+                "normalized for transposition"
+                + (" and octave equivalence." if is_per else ".")
+            )
+        else:
+            print(
+                "  Canonicalization: joint co-transposition"
+                + (" with octave equivalence" if is_per else "")
+                + "; B-set counts reflect position relative to A."
+            )
 
     # ── Phase 3: Build density structs for unique individual sets ─────
 

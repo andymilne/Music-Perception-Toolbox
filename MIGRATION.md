@@ -1,4 +1,129 @@
-# Migration Guide: v1 → v2
+# Migration Guide
+
+This guide documents migration paths between major versions of the Music Perception Toolbox.
+
+- [v2.0 → v2.1](#v20--v21) — soft (`sigma > 0`) structural measures, Argand-DFT Monte Carlo
+- [v1 → v2](#v1--v2) — major rewrite (analytical methods, Python port, restructured core)
+
+---
+
+## v2.0 → v2.1
+
+v2.1.0 is additive: existing v2.0 calling conventions are preserved unchanged at `sigma = 0` (or for functions that did not previously take `sigma`, with the unchanged signature). One numerical change exists at `sigma > 0` for `nTupleEntropy`. No code changes are required for v2.0 callers who do not touch the new features; users who do call `nTupleEntropy` with `sigma > 0` should read the *Numerical change in nTupleEntropy* note below.
+
+### Numerical change in `nTupleEntropy` at `sigma > 0`
+
+In v2.0, `nTupleEntropy(p, period, n, 'sigma', s)` (MATLAB) and `mpt.n_tuple_entropy(p, period, n, sigma=s)` (Python) treated `s` as independent uncertainty on each derived step size — interval-space semantics in v2.1.0 terminology. v2.1.0 introduces a `sigmaSpace` flag with default `'position'`: `s` is now treated as positional uncertainty on each event, and derived steps inherit a per-slot variance of $2s^2$ via the marginal-matched approximation.
+
+At `n = 1`, the two semantics are exactly related: `sigmaSpace = 'position'` with $\sigma$ produces identical entropy to `sigmaSpace = 'interval'` with $\sigma\sqrt{2}$. To recover v2.0.0 numerical results, pass `sigmaSpace = 'interval'`:
+
+```matlab
+% v2.0 behaviour (interval-space sigma)
+H = nTupleEntropy(p, period, n, 'sigma', s);
+
+% v2.1: same numerical result via explicit flag
+H = nTupleEntropy(p, period, n, 'sigma', s, 'sigmaSpace', 'interval');
+
+% v2.1 default (position-space sigma) — different numerical result at sigma > 0
+H = nTupleEntropy(p, period, n, 'sigma', s);
+```
+
+```python
+# v2.0 behaviour (interval-space sigma)
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
+
+# v2.1: same numerical result via explicit flag
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s, sigma_space='interval')
+
+# v2.1 default (position-space sigma) — different numerical result at sigma > 0
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
+```
+
+The new default reflects the toolbox-wide convention that `sigma` describes uncertainty on the input quantity, which for `nTupleEntropy` is positions. The two semantics coincide at `sigma = 0`, so calls without an explicit `sigma` argument are unaffected.
+
+At `n \ge 2` with `sigmaSpace = 'position'`, a one-time warning fires noting that the current implementation uses the marginal-matched approximation (slots independent at $\sigma_{\text{eff}} = \sigma\sqrt{2}$) and that full position-aware $n \ge 2$ support is planned for a future release. Suppress via the standard MATLAB / Python warning-filter mechanisms (`warning('off', 'nTupleEntropy:positionApprox')`; `warnings.filterwarnings('ignore', message='.*marginal-matched.*')`).
+
+### `sameness` and `coherence` gain optional `sigma`
+
+Both functions now accept an optional `sigma` argument and a `sigmaSpace` name-value flag. At `sigma = 0` (default), the v2.0 hard counts are recovered byte-for-byte; existing call sites are unaffected.
+
+```matlab
+% v2.0 — still works in v2.1
+[sq, nDiff] = sameness(p, period);
+[c, nc] = coherence(p, period);
+
+% v2.1 — soft sigma version
+[sq, nDiff] = sameness(p, period, sigma);
+[c, nc] = coherence(p, period, sigma);
+
+% v2.1 — interval-space sigma (different per-pair variance)
+[sq, nDiff] = sameness(p, period, sigma, 'sigmaSpace', 'interval');
+```
+
+Float positions and float `period` are accepted when `sigma > 0`. The integer requirement (and rejection of non-integer input) applies only at `sigma = 0`.
+
+### `balanceCircular`, `evennessCircular` gain optional `sigma`
+
+Both functions now accept an optional `sigma` argument that triggers Monte Carlo estimation under positional jitter via the new `dftCircularSimulate`. At `sigma = 0` the v2.0 deterministic value is recovered exactly.
+
+```matlab
+% v2.0 — still works in v2.1
+b = balanceCircular(p, w, period);
+e = evennessCircular(p, period);
+
+% v2.1 — expected balance / evenness under sigma jitter
+b = balanceCircular(p, w, period, sigma);
+e = evennessCircular(p, period, sigma);
+
+% v2.1 — also request standard deviation (MATLAB nargout idiom)
+[b, bStd] = balanceCircular(p, w, period, sigma);
+[e, eStd] = evennessCircular(p, period, sigma);
+
+% Optional name-value: nDraws (default 10000), rngSeed
+[b, bStd] = balanceCircular(p, w, period, sigma, 'nDraws', 50000, 'rngSeed', 42);
+```
+
+In Python, the SD is requested via an explicit `return_std=True` flag (Python lacks `nargout`):
+
+```python
+# v2.0 — still works in v2.1
+b = mpt.balance(p, None, period)
+e = mpt.evenness(p, period)
+
+# v2.1 — scalar mean (backward-compatible signature)
+b = mpt.balance(p, None, period, sigma=s)
+e = mpt.evenness(p, period, sigma=s)
+
+# v2.1 — opt in to (mean, std) tuple
+b, b_std = mpt.balance(p, None, period, sigma=s, return_std=True)
+e, e_std = mpt.evenness(p, period, sigma=s, return_std=True)
+```
+
+### `projCentroid` gains optional `sigma` (analytical, no Monte Carlo)
+
+Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under positional jitter, the mean projection has a clean closed form: $E[y(x)] = \alpha_1 \cdot y_{\text{deterministic}}(x)$ where $\alpha_1 = \exp(-2\pi^2 \sigma^2 / P^2)$ and $P$ is the period. No Monte Carlo is involved.
+
+```matlab
+% v2.0 — still works in v2.1
+[y, centMag, centPhase] = projCentroid(p, w, period, x);
+
+% v2.1 — expected projection under sigma jitter (analytical)
+[y, centMag, centPhase] = projCentroid(p, w, period, x, sigma);
+```
+
+`centMag` returns $\alpha_1 \cdot |F(0)| = |E[\widetilde{F}(0)]|$, the magnitude of the *complex mean centroid* — consistent with the projection. The distinct scalar $E[|\widetilde{F}(0)|]$ — the *mean centroid magnitude under jitter*, picking up positive Rayleigh-style bias when the perturbation cloud straddles the origin — is what `balanceCircular(p, w, period, sigma)` returns (read as `1 - b`). The two answer different balance-related questions; see User Guide §3.5 "Two scalars, two balance-related questions" for the operational distinction. Notation: $\widetilde{F}(0)$ is the random variable $F(0)$ becomes when each $p_k$ is replaced by $\widetilde{p}_k = (p_k + \eta_k) \bmod P$ with $\eta_k \sim \mathcal{N}(0, \sigma^2)$.
+
+`centPhase` is preserved in expectation (the argument of $E[\widetilde{F}(0)]$ equals the argument of $F(0)$).
+
+### Summary of breaking changes
+
+- `nTupleEntropy` at `sigma > 0`: default semantics changed from interval-space to position-space. Pass `sigmaSpace = 'interval'` for v2.0 numerical equivalence.
+
+All other changes are additive: new optional arguments, new return-value options behind opt-in flags, no change to default behaviour at the v2.0 calling conventions.
+
+---
+
+## v1 → v2
 
 This guide maps every v1 function to its v2 equivalent. If you used only `cosSimExpTens` with its original nine-argument signature, your code will work without modification — the old calling convention is fully preserved.
 

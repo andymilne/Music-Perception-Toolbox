@@ -14,9 +14,23 @@ The toolbox implements several original theoretical frameworks grounded in proba
 
 **Utility.** Pitch scale conversion between seven scales (Hz, MIDI, cents, mel, Bark, ERB-rate, Greenwood) and spectral peak extraction from audio files.
 
+## What's new in v2.1
+
+- **Multi-attribute expectation tensors (MAET).** `buildExpTens`, `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` now accept a multi-attribute density specification alongside the v2.0 single-attribute form. Each attribute carries its own tuple order $r_a$ and per-event slot count $K_a$; groups share $\sigma$, periodicity, and relativity. The cosine-similarity inner product factorises analytically across attribute groups in the same way as the single-attribute case.
+- **Cross-event preprocessing.** `differenceEvents` produces inter-event differences (e.g., interval content, IOIs, higher-order differences) and `bindEvents` gathers $n$ consecutive events into super-events with separate per-lag attributes. Composes with the MAET pipeline; recovers `nTupleEntropy` of Milne & Dean (2016) at $\sigma \to 0$ as a special case.
+- **Post-tensor windowing.** `windowTensor` wraps a MAET with a per-group window specification; `windowedSimilarity` sweeps the window across a context and returns a windowed-similarity profile against a query, with a closed-form analytical inner product.
+- **Soft (`sigma > 0`) structural measures.** `sameness`, `coherence`, and `nTupleEntropy` now accept an optional `sigma` argument with a `sigmaSpace` flag controlling whether `sigma` describes positional uncertainty on each event (the default) or independent per-interval uncertainty.
+- **Argand-DFT Monte Carlo.** New `dftCircularSimulate` estimates the distribution of $|F(k)|$ under positional jitter; `balanceCircular`, `evennessCircular`, and `projCentroid` accept an optional `sigma` argument (Monte Carlo for the first two, closed-form analytical for the third).
+- **Sequential-analysis utilities.** `continuity` summarises the recent direction trend leading up to a query; `seqWeights` constructs position-weight vectors with named time-based decay profiles.
+- **Categorical-encoding utility.** `simplexVertices` returns equidistant vertex coordinates for simplex-coded categorical attributes (voice identity, instrument, etc.) suitable for MAET inputs.
+
+The release is additive: existing v2.0 single-attribute calling conventions are preserved unchanged. One small documented numerical change applies to `nTupleEntropy` at `sigma > 0`; see [MIGRATION.md](MIGRATION.md#v20--v21).
+
+For the full list of changes, see [CHANGELOG.md](CHANGELOG.md).
+
 ## What's new in v2
 
-This is a major rewrite. Key changes:
+This was a major rewrite. Key changes:
 
 - **Python implementation** — a functionally identical Python package (`mpt`) using snake_case naming. See the [User Guide](USER_GUIDE.md#4-api-conventions-matlab-vs-python) for the full name mapping.
 - Analytical methods have replaced the previous numerical approximations wherever feasible. In v1, analytical computation was available only for the cosine similarity inner product (`cosSimExpTens`); in v2, individual tensor construction and evaluation (`buildExpTens` / `build_exp_tens` and `evalExpTens` / `eval_exp_tens`) are also analytical, eliminating grid discretization.
@@ -29,7 +43,7 @@ This is a major rewrite. Key changes:
 
 The original `cosSimExpTens` calling convention is fully backward compatible.
 
-**v1 users:** see [MIGRATION.md](MIGRATION.md) for a complete function mapping. The original toolbox is permanently available as the [v1.0.0 release](https://github.com/andymilne/Music-Perception-Toolbox/releases/tag/v1.0.0).
+**v1 users:** see [MIGRATION.md](MIGRATION.md#v1--v2) for a complete function mapping. The original toolbox is permanently available as the [v1.0.0 release](https://github.com/andymilne/Music-Perception-Toolbox/releases/tag/v1.0.0).
 
 For a full list of changes, see [CHANGELOG.md](CHANGELOG.md).
 
@@ -121,7 +135,7 @@ Music-Perception-Toolbox/
 
 - **[User Guide](USER_GUIDE.md)** — Conceptual overview, function reference (both languages), worked examples, and demo descriptions.
 - **[CHANGELOG](CHANGELOG.md)** — Full list of changes from v1 to v2.
-- **[MIGRATION](MIGRATION.md)** — Function-by-function mapping from v1 to v2 (MATLAB only).
+- **[MIGRATION](MIGRATION.md)** — Function-by-function mapping from v1 to v2 (MATLAB only) and a short v2.0 → v2.1 migration covering the soft-sigma structural measures and DFT Monte Carlo additions.
 
 ## Citation
 

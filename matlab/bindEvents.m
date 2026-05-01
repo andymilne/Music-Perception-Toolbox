@@ -47,6 +47,18 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %                    wraps around the end of the sequence; N' = N.
 %                    When false, N' = N - n + 1.
 %
+%                    The 'circular' flag describes the *event
+%                    sequence* (whether the last event connects back
+%                    to the first), and is independent of the
+%                    *positional periodicity* set in buildExpTens via
+%                    its isPer / period arguments. Both combinations
+%                    are meaningful: a non-circular sequence on a
+%                    periodic domain (a non-cyclic motif living in
+%                    pitch-class space), and a circular sequence on a
+%                    linear domain (a cyclic rhythm represented in
+%                    linear time, e.g., for windowed analysis). The
+%                    two flags are orthogonal.
+%
 %   Outputs
 %       pBound - 1 x n cell of 1 x N' matrices. pBound{j} contains
 %                the value at lag j-1 for each window.

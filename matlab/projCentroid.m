@@ -1,11 +1,11 @@
-function [y, centMag, centPhase] = projCentroid(p, w, period, x)
+function [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma)
 %PROJCENTROID Projected centroid of a weighted circular multiset.
 %
 %   y = projCentroid(p, w, period) computes the projection of the
 %   circular centroid (centre of gravity) onto each angular position in
 %   the sequence 0, 1, ..., period-1. The centroid is the k = 0 Fourier
-%   coefficient of the multiset (see dftCircular); its projection onto an
-%   angle theta is:
+%   coefficient of the multiset (see dftCircular); its projection onto
+%   an angle theta is:
 %
 %     y(theta) = |F(0)| * cos( angle(F(0)) - 2*pi*theta/period )
 %
@@ -16,52 +16,56 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x)
 %   query points specified in the vector x (in the same units as p and
 %   period).
 %
-%   [y, centMag, centPhase] = projCentroid(...) also returns the
-%   centroid magnitude (|F(0)|, the degree of imbalance) and its phase
-%   angle (in the same units as p, not radians).
+%   y = projCentroid(p, w, period, x, sigma) returns the *expected*
+%   projection under independent Gaussian positional jitter on each
+%   event. Because y(x) is linear in F(0) and F(0) is permutation-
+%   invariant, the result has a clean closed form:
 %
-%   The centroid magnitude is related to balance: balance = 1 - centMag
-%   (see balanceCircular). A centMag of 0 means the multiset is perfectly
-%   balanced and all projections are zero; a centMag near 1 means the
-%   multiset is maximally unbalanced.
+%     E[y(x)] = alpha_1 * y_deterministic(x)
+%
+%   where alpha_1 = exp(-2 * pi^2 * sigma^2 / period^2). No Monte
+%   Carlo is needed; the deterministic projection is simply damped
+%   by the kernel-smoothing factor alpha_1. Phase is preserved in
+%   expectation, so centPhase is unchanged from the deterministic
+%   case. centMag returns alpha_1 * |F(0)| — the magnitude of the
+%   *expected* centroid, which together with centPhase reproduces
+%   y(x) consistently. (For E[|F(0)|] — the average centroid
+%   magnitude under jitter, a different scalar that picks up
+%   positive bias from the Rayleigh-style geometry — call
+%   balanceCircular(..., sigma) and read off 1 - b.)
+%
+%   At sigma = 0 the v2.0 deterministic value is recovered exactly.
+%
+%   [y, centMag, centPhase] = projCentroid(...) also returns the
+%   centroid magnitude and its phase angle (in the units of p, not
+%   radians).
 %
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
 %     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
-%     x      — (Optional) Query points at which to evaluate the
-%              projection (vector). Default: 0:period-1.
+%     x      — (Optional) Query points (vector). Default: 0:period-1.
+%     sigma  — (Optional) Positional jitter standard deviation
+%              (non-negative scalar; default 0).
 %
 %   Outputs:
-%     y         — Projected centroid values (row vector, same length
-%                 as x or as 0:period-1).
-%     centMag   — Centroid magnitude |F(0)| (scalar, range [0, 1]).
-%     centPhase — Centroid phase in the units of p/period (scalar,
-%                 range [0, period)).
+%     y         — Mean projected centroid values (row vector).
+%     centMag   — Centroid magnitude scaled by alpha_1 (scalar in
+%                 [0, 1]).
+%     centPhase — Centroid phase in user units, unchanged from
+%                 the deterministic case (scalar in [0, period)).
 %
 %   Examples:
-%     % Projected centroid of a major triad (12 chromatic positions)
+%     % Projected centroid of a major triad (deterministic)
 %     y = projCentroid([0, 4, 7], [], 12);
-%     bar(0:11, y);
-%     xlabel('Pitch class'); ylabel('Projection');
 %
-%     % Fine grid in cents (0.1-cent resolution)
-%     x = 0:0.1:1199.9;
-%     [y, cm, cp] = projCentroid([0, 400, 700], [], 1200, x);
-%     plot(x, y);
-%     fprintf('Centroid magnitude = %.3f, phase = %.1f cents\n', cm, cp);
-%
-%     % Son clave rhythm (16-step cycle)
-%     y = projCentroid([0, 3, 6, 10, 12], [], 16);
-%     bar(0:15, y);
-%     xlabel('Pulse'); ylabel('Projected centroid');
+%     % Same triad, expected projection under sigma = 0.25 semitone
+%     y = projCentroid([0, 4, 7], [], 12, 0:11, 0.25);
 %
 %   References:
 %     Milne, A. J., Dean, R. T., & Bulger, D. (2023). The effects of
 %       rhythmic structure on tapping accuracy. Attention, Perception,
 %       & Psychophysics, 85, 2673-2699.
-%       (Introduced this predictor as proj_cent — a pulse-level
-%       generalization of the rhythm-level balance predictor.)
 %
 %   See also meanOffset, edges, dftCircular, balanceCircular.
 
@@ -72,15 +76,25 @@ if nargin < 4 || isempty(x)
 end
 x = x(:).';
 
-% === Compute DFT via dftCircular ===
+if nargin < 5 || isempty(sigma)
+    sigma = 0;
+end
+if sigma < 0
+    error('projCentroid:negativeSigma', 'sigma must be non-negative.');
+end
+
+% === Compute deterministic DFT and damp by alpha_1 if sigma > 0 ===
 
 F = dftCircular(p, w, period);
+F0 = F(1);                              % MATLAB 1-based: F(1) is k = 0
 
-% === Extract centroid (k = 0 coefficient) ===
+if sigma > 0
+    alpha1 = exp(-2 * pi^2 * sigma^2 / period^2);
+    F0 = alpha1 * F0;                   % E[F̃(0)] = alpha_1 * F(0)
+end
 
-F0 = F(1);  % MATLAB 1-based: F(1) is k = 0
 centMag = abs(F0);
-centPhaseRad = mod(angle(F0), 2 * pi);  % in [0, 2*pi)
+centPhaseRad = mod(angle(F0), 2 * pi);
 
 % === Project onto query points ===
 

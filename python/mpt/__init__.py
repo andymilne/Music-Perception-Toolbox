@@ -43,6 +43,7 @@ from .circular import (
     circ_apm,
     coherence,
     dft_circular,
+    dft_circular_simulate,
     edges,
     evenness,
     markov_s,
@@ -95,6 +96,7 @@ __all__ = [
     "WindowedSimilarityPeriodicApproxWarning",
     # circular
     "dft_circular",
+    "dft_circular_simulate",
     "balance",
     "evenness",
     "coherence",

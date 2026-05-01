@@ -1,4 +1,4 @@
-function b = balanceCircular(p, w, period)
+function [b, b_std] = balanceCircular(p, w, period, sigma, nvArgs)
 %BALANCECIRCULAR Balance of a weighted circular multiset.
 %
 %   b = balanceCircular(p, w, period):
@@ -22,6 +22,21 @@ function b = balanceCircular(p, w, period)
 %   not sufficient: a multiset can be perfectly balanced without being
 %   maximally even (see evennessCircular).
 %
+%   b = balanceCircular(p, w, period, sigma) returns the expected
+%   balance under independent Gaussian positional jitter on each event,
+%   estimated by Monte Carlo simulation:
+%
+%     P_k = (p_k + eta_k) mod period,   eta_k ~ N(0, sigma^2)
+%
+%   The perturbed positions are sorted (resort) before computing the
+%   DFT — though for balance specifically, F(0) is permutation-invariant
+%   so the sort step has no effect on this coefficient. At sigma = 0 the
+%   v2.0 deterministic value is recovered exactly.
+%
+%   [b, b_std] = balanceCircular(...) also returns the standard
+%   deviation of (1 - |F(0)|) under the jitter model. b_std = 0 at
+%   sigma = 0.
+%
 %   For further information, see:
 %     Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
 %       space of perfectly balanced rhythms and scales. Journal of
@@ -34,23 +49,51 @@ function b = balanceCircular(p, w, period)
 %     p      — Pitch or position values (vector of length K).
 %     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
+%     sigma  — (Optional) Positional jitter standard deviation
+%              (non-negative scalar; default 0). In the same units as
+%              p and period.
 %
-%   Output:
-%     b      — Balance (scalar, range [0, 1]).
+%   Name-Value Arguments:
+%     'nDraws'  — Number of Monte Carlo draws when sigma > 0 (default
+%                 10000).
+%     'rngSeed' — Optional non-negative integer for reproducibility.
+%
+%   Outputs:
+%     b      — Balance (mean under jitter, scalar in [0, 1]).
+%     b_std  — Standard deviation of 1 - |F(0)| under jitter.
 %
 %   Examples:
-%     % Perfectly balanced: augmented triad
-%     b = balanceCircular([0, 400, 800], [], 1200);   % b = 1.000
+%     % Perfectly balanced: augmented triad (deterministic)
+%     b = balanceCircular([0, 400, 800], [], 1200);     % b = 1.000
 %
-%     % Nearly balanced: diatonic scale
-%     b = balanceCircular([0, 200, 400, 500, 700, 900, 1100], [], 1200);
+%     % Same triad, expected balance under sigma = 25 cents jitter
+%     [b, bs] = balanceCircular([0, 400, 800], [], 1200, 25);
 %
-%     % Unbalanced: chromatic cluster
-%     b = balanceCircular([0, 100, 200], [], 1200);
-%
-%   See also evennessCircular, dftCircular.
+%   See also evennessCircular, dftCircular, dftCircularSimulate.
 
-[~, mag] = dftCircular(p, w, period);
-b = 1 - mag(1);  % mag(1) = |F(k=0)|
+    arguments
+        p
+        w
+        period (1,1) {mustBeNumeric, mustBePositive}
+        sigma (1,1) {mustBeNumeric, mustBeNonnegative} = 0
+        nvArgs.nDraws (1,1) {mustBePositive, mustBeInteger} = 10000
+        nvArgs.rngSeed = []
+    end
 
+    if sigma == 0
+        [~, mag] = dftCircular(p, w, period);
+        b = 1 - mag(1);
+        if nargout > 1
+            b_std = 0;
+        end
+        return;
+    end
+
+    % --- Monte Carlo path ---
+    [magMean, magStd] = dftCircularSimulate(p, w, period, sigma, ...
+        'nDraws', nvArgs.nDraws, 'rngSeed', nvArgs.rngSeed);
+    b = 1 - magMean(1);
+    if nargout > 1
+        b_std = magStd(1);  % SD of |F(0)| equals SD of (1 - |F(0)|)
+    end
 end

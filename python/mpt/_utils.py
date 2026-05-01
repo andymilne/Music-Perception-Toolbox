@@ -114,3 +114,51 @@ def estimate_comp_time(
         print(f"{label}: estimated time ~{ts}{cancel}.")
 
     return est_sec
+
+
+# ---------------------------------------------------------------------------
+#  Position-aware variance
+# ---------------------------------------------------------------------------
+
+
+def position_variance(
+    idx: np.ndarray,
+    signs: np.ndarray,
+    sigma: float,
+) -> float:
+    """Variance of a signed sum of independently jittered positions.
+
+    Used by the position-aware paths of :func:`sameness`,
+    :func:`coherence`, and other measures whose readouts depend on
+    differences of intervals derived from a shared position set under
+    independent positional jitter ``p_k ~ N(p_k, sigma**2)``.
+
+    Computes::
+
+        V = sigma**2 * sum_a (sum of signs at index a)**2
+
+    Repeated indices add their signs algebraically before squaring,
+    so a position that enters once with sign +1 and once with sign -1
+    contributes nothing to the variance, while one that enters twice
+    with the same sign contributes ``4 * sigma**2``.
+
+    Parameters
+    ----------
+    idx : array-like of int
+        Position indices (with possible repeats).
+    signs : array-like
+        Signed contributions, same length as *idx*. Typically +1 or -1.
+    sigma : float
+        Per-position standard deviation.
+
+    Returns
+    -------
+    float
+        Variance of the signed sum.
+    """
+    idx = np.asarray(idx).ravel()
+    signs = np.asarray(signs, dtype=np.float64).ravel()
+    u_idx, grp = np.unique(idx, return_inverse=True)
+    net = np.zeros(u_idx.size, dtype=np.float64)
+    np.add.at(net, grp, signs)
+    return float(sigma**2 * np.sum(net**2))

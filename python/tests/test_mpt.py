@@ -8,6 +8,7 @@ import pytest
 import warnings
 
 import mpt
+from mpt._utils import position_variance
 
 
 # ===================================================================
@@ -434,6 +435,435 @@ class TestEntropy:
             np.arange(12), np.ones(12), 100, 1, False, True, 12
         )
         assert H > 0.95
+
+
+# -------------------------------------------------------------------
+#  positionVariance helper
+# -------------------------------------------------------------------
+
+
+class TestPositionVariance:
+    def test_disjoint_endpoints(self):
+        V = position_variance([1, 2, 3, 4], [+1, -1, -1, +1], 1.0)
+        assert V == pytest.approx(4.0, abs=1e-12)
+
+    def test_shared_cancelling(self):
+        V = position_variance([1, 2, 1, 3], [+1, -1, -1, +1], 1.0)
+        assert V == pytest.approx(2.0, abs=1e-12)
+
+    def test_shared_reinforcing(self):
+        # Tritone-style configuration: both endpoints shared,
+        # signs reinforce -> 8 sigma^2
+        V = position_variance([2, 1, 1, 2], [+1, -1, -1, +1], 1.0)
+        assert V == pytest.approx(8.0, abs=1e-12)
+
+    def test_scales_with_sigma_squared(self):
+        V = position_variance([1, 2], [+1, -1], 0.5)
+        assert V == pytest.approx(0.5, abs=1e-12)
+
+
+# -------------------------------------------------------------------
+#  sameness with sigma_space
+# -------------------------------------------------------------------
+
+
+class TestSamenessSigmaSpace:
+    DIATONIC = [0, 2, 4, 5, 7, 9, 11]
+
+    def test_sigma0_matches_default(self):
+        sq0, nd0 = mpt.sameness(self.DIATONIC, 12, 0)
+        sq1, nd1 = mpt.sameness(self.DIATONIC, 12)
+        assert sq0 == sq1
+        assert nd0 == nd1
+
+    def test_sigma0_flags_coincide(self):
+        sqP, _ = mpt.sameness(self.DIATONIC, 12, 0, sigma_space="position")
+        sqI, _ = mpt.sameness(self.DIATONIC, 12, 0, sigma_space="interval")
+        assert sqP == pytest.approx(sqI, abs=1e-12)
+
+    def test_diatonic_sigma05_position_regression(self):
+        sq, _ = mpt.sameness(self.DIATONIC, 12, 0.5, sigma_space="position")
+        assert sq == pytest.approx(0.422420, abs=1e-4)
+
+    def test_diatonic_sigma05_interval_regression(self):
+        sq, _ = mpt.sameness(self.DIATONIC, 12, 0.5, sigma_space="interval")
+        assert sq == pytest.approx(0.714369, abs=1e-4)
+
+    def test_position_more_aggressive_than_interval(self):
+        # Position model has wider effective kernel for typical
+        # disjoint-endpoint pairs (V = 4 sigma^2 vs interval's 2 sigma^2)
+        sqP, _ = mpt.sameness(self.DIATONIC, 12, 0.5, sigma_space="position")
+        sqI, _ = mpt.sameness(self.DIATONIC, 12, 0.5, sigma_space="interval")
+        assert sqP < sqI
+
+    def test_float_positions_accepted_when_sigma_positive(self):
+        ji = [0, 203.91, 386.31, 498.04, 701.96, 884.36, 1088.27]
+        sq, _ = mpt.sameness(ji, 1200, 25)
+        assert np.isfinite(sq)
+        assert 0 < sq <= 1.0
+
+    def test_float_positions_rejected_when_sigma_zero(self):
+        with pytest.raises(ValueError, match="integer"):
+            mpt.sameness([0.5, 2, 4, 7], 12, 0)
+
+    def test_invalid_sigma_space_errors(self):
+        with pytest.raises(ValueError, match="sigma_space"):
+            mpt.sameness(self.DIATONIC, 12, 0.5, sigma_space="bogus")
+
+
+# -------------------------------------------------------------------
+#  coherence with sigma_space
+# -------------------------------------------------------------------
+
+
+class TestCoherenceSigmaSpace:
+    DIATONIC = [0, 2, 4, 5, 7, 9, 11]
+
+    def test_sigma0_matches_default(self):
+        c0, nc0 = mpt.coherence(self.DIATONIC, 12, 0)
+        c1, nc1 = mpt.coherence(self.DIATONIC, 12)
+        assert c0 == c1
+        assert nc0 == nc1
+
+    def test_sigma0_strict_false(self):
+        c, nc = mpt.coherence(self.DIATONIC, 12, 0, strict=False)
+        # Diatonic with non-strict propriety: tritone tie does not count
+        assert nc == 0
+        assert c == pytest.approx(1.0, abs=1e-12)
+
+    def test_diatonic_sigma05_position_regression(self):
+        c, _ = mpt.coherence(self.DIATONIC, 12, 0.5, sigma_space="position")
+        assert c == pytest.approx(0.873485, abs=1e-4)
+
+    def test_diatonic_sigma05_interval_regression(self):
+        c, _ = mpt.coherence(self.DIATONIC, 12, 0.5, sigma_space="interval")
+        assert c == pytest.approx(0.944610, abs=1e-4)
+
+    def test_tritone_tie_at_any_sigma(self):
+        """The diatonic tritone (F-B as fourth, B-F as fifth) shares
+        endpoints with reinforcing signs. Var(D2 - D1) = 8 sigma^2 and
+        the means coincide exactly. Soft contribution is 0.5 at every
+        sigma > 0, so the sigma -> 0+ limit of nc is 0.5 (one tritone,
+        half a failure), giving c -> 1 - 0.5/140."""
+        c, nc = mpt.coherence(self.DIATONIC, 12, 1e-6)
+        assert c == pytest.approx(1 - 0.5 / 140, abs=1e-3)
+        assert nc == pytest.approx(0.5, abs=1e-3)
+
+    def test_invalid_sigma_space_errors(self):
+        with pytest.raises(ValueError, match="sigma_space"):
+            mpt.coherence(self.DIATONIC, 12, 0.5, sigma_space="bogus")
+
+
+# -------------------------------------------------------------------
+#  n_tuple_entropy with sigma_space
+# -------------------------------------------------------------------
+
+
+class TestNTupleEntropySigmaSpace:
+    DIATONIC = [0, 2, 4, 5, 7, 9, 11]
+
+    def test_sigma0_matches_default(self):
+        H0, _ = mpt.n_tuple_entropy(self.DIATONIC, 12, 1, sigma=0)
+        H1, _ = mpt.n_tuple_entropy(self.DIATONIC, 12, 1)
+        assert H0 == pytest.approx(H1, abs=1e-12)
+
+    def test_n1_position_equals_interval_with_sqrt2_scaling(self):
+        """At n = 1 the two models agree exactly when the interval
+        sigma matches the position sigma * sqrt(2). This is the
+        'marginal-matched' relationship the n >= 2 approximation
+        is named after."""
+        sigma = 0.5
+        H_pos, _ = mpt.n_tuple_entropy(
+            self.DIATONIC, 12, 1, sigma=sigma, sigma_space="position"
+        )
+        H_int, _ = mpt.n_tuple_entropy(
+            self.DIATONIC, 12, 1,
+            sigma=sigma * np.sqrt(2), sigma_space="interval",
+        )
+        assert H_pos == pytest.approx(H_int, abs=1e-10)
+
+    def test_smoothing_increases_entropy(self):
+        H_raw, _ = mpt.n_tuple_entropy(self.DIATONIC, 12, 1)
+        H_smooth, _ = mpt.n_tuple_entropy(self.DIATONIC, 12, 1, sigma=0.2)
+        assert H_smooth > H_raw
+
+    def test_position_smoother_than_interval_at_same_sigma(self):
+        Hpos, _ = mpt.n_tuple_entropy(
+            self.DIATONIC, 12, 1, sigma=0.3, sigma_space="position"
+        )
+        Hint, _ = mpt.n_tuple_entropy(
+            self.DIATONIC, 12, 1, sigma=0.3, sigma_space="interval"
+        )
+        # Position's effective sigma is sigma*sqrt(2), so wider kernel
+        assert Hpos > Hint
+
+    def test_float_positions_accepted_when_sigma_positive(self):
+        ji = [0, 203.91, 386.31, 498.04, 701.96, 884.36, 1088.27]
+        H, _ = mpt.n_tuple_entropy(ji, 1200, 1, sigma=25)
+        assert np.isfinite(H) and H > 0
+
+    def test_float_positions_rejected_when_sigma_zero(self):
+        with pytest.raises(ValueError, match="integer"):
+            mpt.n_tuple_entropy([0.5, 2, 4, 5, 7, 9, 11], 12, 1)
+
+    def test_n2_position_emits_approximation_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            H, _ = mpt.n_tuple_entropy(
+                self.DIATONIC, 12, 2, sigma=0.3, sigma_space="position"
+            )
+        # The function should still return a finite value
+        assert np.isfinite(H) and H > 0
+        # And exactly one UserWarning of the expected kind should fire
+        approx_warns = [
+            ww for ww in w
+            if issubclass(ww.category, UserWarning)
+            and "marginal-matched" in str(ww.message)
+        ]
+        assert len(approx_warns) == 1
+
+    def test_n2_interval_does_not_warn(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            mpt.n_tuple_entropy(
+                self.DIATONIC, 12, 2, sigma=0.3, sigma_space="interval"
+            )
+        approx_warns = [
+            ww for ww in w
+            if issubclass(ww.category, UserWarning)
+            and "marginal-matched" in str(ww.message)
+        ]
+        assert approx_warns == []
+
+    def test_invalid_sigma_space_errors(self):
+        with pytest.raises(ValueError, match="sigma_space"):
+            mpt.n_tuple_entropy(
+                self.DIATONIC, 12, 1, sigma=0.3, sigma_space="bogus"
+            )
+
+
+# -------------------------------------------------------------------
+#  dft_circular_simulate
+# -------------------------------------------------------------------
+
+
+class TestDftCircularSimulate:
+    def test_small_sigma_recovers_deterministic_mean(self):
+        """At sigma very close to 0, MC mean magnitudes should match
+        the deterministic dftCircular magnitudes within tight MC error."""
+        p = [0, 200, 400, 500, 700, 900, 1100]
+        period = 1200
+        _, mag_det = mpt.dft_circular(p, None, period)
+        m, s = mpt.dft_circular_simulate(
+            p, None, period, sigma=1e-3, n_draws=2000, rng_seed=42
+        )
+        np.testing.assert_allclose(m, mag_det, atol=1e-4)
+        np.testing.assert_allclose(s, 0, atol=1e-4)
+
+    def test_sigma_zero_exactly(self):
+        """sigma == 0 should give zero variance and exact deterministic mean."""
+        p = [0, 200, 400, 500, 700, 900, 1100]
+        period = 1200
+        _, mag_det = mpt.dft_circular(p, None, period)
+        m, s = mpt.dft_circular_simulate(
+            p, None, period, sigma=0.0, n_draws=100, rng_seed=42
+        )
+        np.testing.assert_allclose(m, mag_det, atol=1e-12)
+        np.testing.assert_allclose(s, 0, atol=1e-12)
+
+    def test_closed_form_F0_squared_mean(self):
+        """E[|F(0)|^2] = alpha_1^2 * |F_det(0)|^2 + (1 - alpha_1^2) * sum(w^2) / sum(w)^2.
+        Augmented triad has F_det(0) = 0, simplifying to the second term."""
+        p = [0, 400, 800]
+        period = 1200
+        sigma = 50
+        K = len(p)
+        alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
+        expected_F0_sq = (1 - alpha1**2) * 1.0 / K   # sum(w^2)/sum(w)^2 = K/K^2 = 1/K
+        m, s, samples = mpt.dft_circular_simulate(
+            p, None, period, sigma=sigma,
+            n_draws=50000, rng_seed=42, return_samples=True
+        )
+        mc_F0_sq = np.mean(samples[:, 0]**2)
+        assert mc_F0_sq == pytest.approx(expected_F0_sq, abs=2e-3)
+
+    def test_rng_seed_reproducibility(self):
+        p = [0, 200, 400, 500, 700, 900, 1100]
+        m1, s1 = mpt.dft_circular_simulate(
+            p, None, 1200, sigma=50, n_draws=1000, rng_seed=42
+        )
+        m2, s2 = mpt.dft_circular_simulate(
+            p, None, 1200, sigma=50, n_draws=1000, rng_seed=42
+        )
+        np.testing.assert_array_equal(m1, m2)
+        np.testing.assert_array_equal(s1, s2)
+
+    def test_return_samples_shape(self):
+        p = [0, 200, 400, 500, 700, 900, 1100]
+        m, s, samples = mpt.dft_circular_simulate(
+            p, None, 1200, sigma=50,
+            n_draws=500, rng_seed=42, return_samples=True
+        )
+        assert samples.shape == (500, len(p))
+
+    def test_F0_permutation_invariance(self):
+        """F(0) is the sum z_k = exp(2*pi*i*p_k/T), permutation-invariant.
+        This means the resort step does not affect F(0). At sigma > 0 we should
+        therefore find E[|F(0)|^2] matches the closed form exactly (up to MC
+        tolerance), regardless of how aggressively events swap."""
+        p = [0, 100, 110, 200]   # close events => high swap probability
+        period = 1200
+        sigma = 50
+        K = 4
+        alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
+        # F_det(0) = (1/K) * sum(exp(2*pi*i*p/T))
+        F_det = np.fft.fft(np.exp(2j * np.pi * np.array(p) / period)) / K
+        expected_F0_sq = alpha1**2 * abs(F_det[0])**2 + (1 - alpha1**2) / K
+        _, _, samples = mpt.dft_circular_simulate(
+            p, None, period, sigma=sigma,
+            n_draws=50000, rng_seed=42, return_samples=True
+        )
+        mc_F0_sq = np.mean(samples[:, 0]**2)
+        assert mc_F0_sq == pytest.approx(expected_F0_sq, abs=2e-3)
+
+
+# -------------------------------------------------------------------
+#  balance with sigma
+# -------------------------------------------------------------------
+
+
+class TestBalanceSigma:
+    def test_sigma_zero_returns_scalar_backward_compat(self):
+        b = mpt.balance([0, 400, 800], None, 1200)
+        assert isinstance(b, float)
+        assert b == pytest.approx(1.0, abs=1e-10)
+
+    def test_sigma_positive_default_returns_scalar(self):
+        b = mpt.balance([0, 400, 800], None, 1200, sigma=25, rng_seed=42)
+        assert isinstance(b, float)
+        assert 0 <= b <= 1
+
+    def test_return_std_yields_tuple(self):
+        result = mpt.balance(
+            [0, 400, 800], None, 1200,
+            sigma=25, return_std=True, rng_seed=42
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        b, b_std = result
+        assert isinstance(b, float)
+        assert isinstance(b_std, float)
+        assert b_std > 0
+
+    def test_return_std_at_sigma_zero(self):
+        b, b_std = mpt.balance(
+            [0, 400, 800], None, 1200, sigma=0, return_std=True
+        )
+        assert b == pytest.approx(1.0)
+        assert b_std == 0.0
+
+    def test_augmented_triad_rayleigh_bias(self):
+        """Augmented triad is perfectly balanced (F_det(0) = 0). Under
+        jitter, |F(0)| is Rayleigh-distributed with positive mean. So
+        b = 1 - E[|F(0)|] < 1 even though F_det(0) = 0."""
+        sigma = 50
+        period = 1200
+        K = 3
+        alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
+        # Rayleigh mean = sigma_R * sqrt(pi/2), with sigma_R^2 = (1-alpha1^2)/(2*K)
+        expected_mag_mean = np.sqrt((1 - alpha1**2) * np.pi / (4 * K))
+        b, b_std = mpt.balance(
+            [0, 400, 800], None, 1200,
+            sigma=sigma, return_std=True,
+            n_draws=50000, rng_seed=42,
+        )
+        mc_mag_mean = 1 - b
+        assert mc_mag_mean == pytest.approx(expected_mag_mean, abs=5e-3)
+        assert b < 1   # Rayleigh bias is strictly positive
+        assert b_std > 0
+
+
+# -------------------------------------------------------------------
+#  evenness with sigma
+# -------------------------------------------------------------------
+
+
+class TestEvennessSigma:
+    def test_sigma_zero_returns_scalar_backward_compat(self):
+        e = mpt.evenness([0, 200, 400, 600, 800, 1000], 1200)
+        assert isinstance(e, float)
+        assert e == pytest.approx(1.0, abs=1e-10)
+
+    def test_sigma_positive_default_returns_scalar(self):
+        e = mpt.evenness([0, 200, 400, 600, 800, 1000], 1200, sigma=25, rng_seed=42)
+        assert isinstance(e, float)
+        assert 0 <= e <= 1
+
+    def test_return_std_yields_tuple(self):
+        e, e_std = mpt.evenness(
+            [0, 200, 400, 600, 800, 1000], 1200,
+            sigma=25, return_std=True, rng_seed=42,
+        )
+        assert isinstance(e, float)
+        assert e_std > 0
+
+    def test_smoothing_reduces_evenness_for_irregular_pattern(self):
+        """For a pattern that isn't maximally even, jitter on average
+        reduces |F(1)| (the evenness coefficient) because the deterministic
+        signal gets damped while incoherent noise contributes equally."""
+        diatonic = [0, 200, 400, 500, 700, 900, 1100]
+        e_det = mpt.evenness(diatonic, 1200)
+        e_smooth = mpt.evenness(diatonic, 1200, sigma=100,
+                                n_draws=20000, rng_seed=42)
+        assert e_smooth < e_det
+
+
+# -------------------------------------------------------------------
+#  proj_centroid with sigma
+# -------------------------------------------------------------------
+
+
+class TestProjCentroidSigma:
+    def test_alpha_1_damping(self):
+        """y_smoothed(x) / y_deterministic(x) should equal alpha_1
+        for every query point x — closed-form linear damping."""
+        p = [0, 4, 7]
+        period = 12
+        sigma = 0.5
+        alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
+        x = np.arange(period)
+        y_det, _, _ = mpt.proj_centroid(p, None, period, x)
+        y_smooth, _, _ = mpt.proj_centroid(p, None, period, x, sigma=sigma)
+        # Avoid division by tiny y_det values; multiplication form
+        np.testing.assert_allclose(y_smooth, alpha1 * y_det, atol=1e-12)
+
+    def test_phase_unchanged(self):
+        """Centroid phase is preserved in expectation (arg of E[F(0)]
+        equals arg of F(0)_det) — so cent_phase doesn't move with sigma."""
+        p = [0, 4, 7]
+        period = 12
+        _, _, phase_det = mpt.proj_centroid(p, None, period)
+        _, _, phase_smooth = mpt.proj_centroid(p, None, period, sigma=1.0)
+        assert phase_smooth == pytest.approx(phase_det, abs=1e-12)
+
+    def test_cent_mag_damped_by_alpha_1(self):
+        """cent_mag in proj_centroid returns alpha_1 * |F_det(0)|, the
+        magnitude of E[F(0)], NOT E[|F(0)|]. (For E[|F(0)|], use balance.)"""
+        p = [0, 200, 400, 500, 700, 900, 1100]
+        period = 1200
+        sigma = 100
+        alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
+        _, cm_det, _ = mpt.proj_centroid(p, None, period)
+        _, cm_smooth, _ = mpt.proj_centroid(p, None, period, sigma=sigma)
+        assert cm_smooth == pytest.approx(alpha1 * cm_det, abs=1e-12)
+
+    def test_sigma_zero_recovers_v2(self):
+        p = [0, 4, 7]
+        y0, cm0, cp0 = mpt.proj_centroid(p, None, 12, sigma=0)
+        y1, cm1, cp1 = mpt.proj_centroid(p, None, 12)
+        np.testing.assert_array_equal(y0, y1)
+        assert cm0 == cm1
+        assert cp0 == cp1
 
 
 # ===================================================================

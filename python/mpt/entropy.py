@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from .spectra import add_spectra
@@ -368,10 +370,11 @@ def _broadcast_bounds(v, G, name):
 
 def n_tuple_entropy(
     p: np.ndarray,
-    period: int,
+    period: float,
     n: int = 1,
     *,
     sigma: float = 0.0,
+    sigma_space: str = "position",
     normalize: bool = True,
     base: float = 2.0,
     n_points_per_dim: int | None = None,
@@ -383,55 +386,77 @@ def n_tuple_entropy(
     :func:`entropy_exp_tens`. With default arguments — ``sigma = 0``
     and ``n_points_per_dim = None`` (which selects the integer-step
     grid ``period``) — this exactly replicates the discrete *n*-tuple
-    entropy of Milne & Dean (2016): the Shannon entropy of the
-    integer-step-size *n*-tuple histogram. Setting ``sigma > 0``
-    gives the smoothed extension of Milne (2024); setting
-    ``n_points_per_dim`` finer than ``period`` discretises the
-    underlying continuous density at finer resolution.
-
-    For more flexibility — non-integer values, non-uniform weights,
-    non-periodic domains, or access to the n-tuple density itself
-    for similarity comparison and other MAET operations — call
-    :func:`bind_events` and the rest of the pipeline directly. This
-    function is a convenience entry point for the common case of
-    integer-valued, uniformly-weighted, periodic step-size analyses.
+    entropy of Milne & Dean (2016).
 
     Parameters
     ----------
-    p : array-like of int
-        Pitch or position values. Non-negative integers less than
-        *period*. Duplicates not allowed.
-    period : int
-        Size of the equal division.
+    p : array-like
+        Pitch or position values. Non-negative; values less than
+        *period*. Must be integer when ``sigma == 0``; may be float
+        when ``sigma > 0``. Duplicates not allowed.
+    period : float
+        Size of the equal division. Must be integer when
+        ``sigma == 0``.
     n : int
-        Tuple size (default 1).
+        Tuple size (default 1). Must satisfy ``1 <= n <= K - 1``.
     sigma : float
-        Gaussian smoothing width in units of step sizes (default 0,
-        no smoothing).
+        Smoothing bandwidth (non-negative; default 0). In the same
+        units as *p* and *period*.
+    sigma_space : {'position', 'interval'}
+        How sigma is interpreted (default 'position'). 'position'
+        treats sigma as positional uncertainty on each ``p_k``;
+        'interval' treats sigma as independent uncertainty per
+        derived step. See "Sigma semantics" below.
     normalize : bool
-        If True (default), divide by ``log(n_points_per_dim ** n)``
-        for a value in [0, 1]. With the default
-        ``n_points_per_dim = period`` this matches the
-        ``log(period ** n)`` normalisation of Milne & Dean (2016).
+        If True (default), divide by ``log_base(n_points_per_dim ** n)``.
     base : float
-        Logarithm base (default 2; "bits"). When ``normalize`` is
-        True, the base cancels.
+        Logarithm base (default 2). Cancels when *normalize* is True.
     n_points_per_dim : int or None
-        Grid resolution per effective dimension. ``None`` (default)
-        selects ``period`` — the integer-step grid, giving exact
-        equivalence to Milne & Dean (2016) at ``sigma -> 0``. Any
-        positive integer is accepted; finer grids resolve the
-        underlying continuous density more accurately when
-        ``sigma > 0``.
+        Grid resolution per dimension. ``None`` (default) selects
+        ``period``.
+
+    Sigma semantics
+    ---------------
+    Under the toolbox convention, sigma applies to the input
+    quantity. For *n_tuple_entropy* the input is positions *p*, so
+    ``sigma_space = 'position'`` is the default and matches behavior
+    elsewhere in the toolbox (sameness, coherence, etc.).
+
+    For ``sigma_space = 'position'``:
+
+      - Each ``p_k`` is treated as ``N(p_k, sigma**2)``.
+      - Derived steps ``d_k = p_{k+1} - p_k`` have variance
+        ``2 * sigma**2`` per step, with anti-correlation
+        ``-sigma**2`` between adjacent steps (they share an endpoint
+        with opposite signs).
+      - At ``n == 1``, only the marginal step variance matters, and
+        the entropy is identical to ``sigma_space = 'interval'`` with
+        ``sigma_eff = sigma * sqrt(2)``. This case is handled
+        exactly.
+      - At ``n >= 2``, the cross-step anti-correlation in principle
+        shifts the entropy. The current implementation uses the
+        marginal-matched approximation (``sigma_eff = sigma * sqrt(2)``
+        per slot, slots independent). Full cross-slot covariance
+        handling at ``n >= 2`` is planned for a future release; a
+        warning is issued when this approximation is in effect.
+
+    For ``sigma_space = 'interval'``:
+
+      - Each step ``d_k`` is treated as ``N(d_k, sigma**2)``
+        independently.
+      - This is exactly the v2.0 behavior of this function.
+      - Use this if you want the v2 numerical results, or if your
+        psychological model treats per-step uncertainty as the
+        primitive (rather than positional uncertainty).
+
+    At ``sigma == 0`` the two flags coincide (no smoothing).
 
     Returns
     -------
     H : float
         Shannon entropy of the n-tuple distribution.
     tuples : np.ndarray
-        ``(K, n)`` matrix of n-tuples. Row *i* is the n-tuple
-        starting from the *i*-th event of the sorted circular
-        sequence; column *j* is the value at lag *j*.
+        ``(K, n)`` matrix of n-tuples.
 
     See Also
     --------
@@ -439,19 +464,29 @@ def n_tuple_entropy(
     entropy_exp_tens
     build_exp_tens
     difference_events
+    sameness
+    coherence
 
     References
     ----------
     Milne, A. J. & Dean, R. T. (2016). Computational creation and
     morphing of multilevel rhythms by control of evenness. *Computer
     Music Journal*, 40(1), 35–53.
+
     Milne, A. J. (2024). Commentary on Buechele, Cooke, &
     Berezovsky (2024): Entropic models of scales and some
     extensions. *Empirical Musicology Review*, 19(2), 143–152.
     """
-    p = np.asarray(p, dtype=np.int64).ravel()
-    period = int(period)
+    if sigma_space not in ("position", "interval"):
+        raise ValueError(
+            f"sigma_space must be 'position' or 'interval' "
+            f"(got {sigma_space!r})."
+        )
+
+    p = np.asarray(p, dtype=np.float64).ravel()
+    period = float(period)
     n = int(n)
+    sigma = float(sigma)
 
     p = np.sort(p % period)
     K = len(p)
@@ -463,8 +498,19 @@ def n_tuple_entropy(
     if n > K - 1:
         raise ValueError(f"n must not exceed K - 1 = {K - 1} (got n = {n}).")
 
+    if sigma == 0.0:
+        if not np.all(np.abs(p - np.round(p)) == 0):
+            raise ValueError(
+                "For sigma == 0, p must contain integers. "
+                "Use sigma > 0 for non-integer positions."
+            )
+        if abs(period - round(period)) != 0:
+            raise ValueError(
+                f"For sigma == 0, period must be integer (got {period})."
+            )
+
     if n_points_per_dim is None:
-        n_grid = period
+        n_grid = int(round(period))
     else:
         n_grid = int(n_points_per_dim)
         if n_grid < 1:
@@ -483,11 +529,38 @@ def n_tuple_entropy(
     # --- Bind n consecutive cyclic step sizes ---
     p_bound, w_bound = bind_events(diffs_row, None, n, circular=True)
 
+    # --- Resolve sigma per the sigma_space flag ---
+    #
+    # 'interval': sigma is per-step uncertainty (v2.0 semantics);
+    #             slots are independent with variance sigma**2 each.
+    #
+    # 'position': sigma is positional uncertainty; each step inherits
+    #             variance 2*sigma**2 (since step = p_{k+1} - p_k).
+    #             The full position model also includes -sigma**2
+    #             anti-correlation between adjacent slots, but this is
+    #             not yet implemented; the marginal-matched
+    #             approximation (sigma_eff = sigma*sqrt(2), slots
+    #             independent) is used at n >= 2. Exact at n = 1.
+
+    if sigma_space == "position":
+        sigma_use = sigma * np.sqrt(2.0)
+        if n >= 2 and sigma > 0:
+            warnings.warn(
+                "sigma_space='position' at n >= 2 currently uses a "
+                "marginal-matched approximation; cross-slot anti-"
+                "correlations are not yet captured. Full position-"
+                "aware n-tuple support is planned for a future "
+                "release.",
+                category=UserWarning,
+                stacklevel=2,
+            )
+    else:
+        sigma_use = sigma
+
+    if sigma_use <= 0:
+        sigma_use = 1e-12
+
     # --- Build MAET ---
-    # n attributes (one per lag), all in one group sharing sigma,
-    # is_per = True, period; r = 1 per attribute (each is an
-    # absolute monad).
-    sigma_use = sigma if sigma > 0 else 1e-12
     T = build_exp_tens(
         p_bound, w_bound,
         [sigma_use], [1] * n, [0] * n,
@@ -506,6 +579,6 @@ def n_tuple_entropy(
     # --- Tuples matrix (K, n) for compatibility with the prior API ---
     tuples_out = np.column_stack(
         [row.ravel() for row in p_bound]
-    ).astype(np.int64)
+    )
 
     return H, tuples_out

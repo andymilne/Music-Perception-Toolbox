@@ -1,4 +1,4 @@
-function e = evennessCircular(p, period)
+function [e, e_std] = evennessCircular(p, period, sigma, nvArgs)
 %EVENNESSCIRCULAR Evenness of a circular multiset.
 %
 %   e = evennessCircular(p, period):
@@ -19,19 +19,35 @@ function e = evennessCircular(p, period)
 %
 %   Evenness ranges from 0 to 1:
 %     e = 1: maximally even — the multiset consists of K equally spaced
-%            Examples: the whole-tone scale (6 notes in 12-EDO), the
-%            chromatic scale, an isochronous rhythm.
+%            points. Examples: the whole-tone scale, the chromatic
+%            scale, an isochronous rhythm.
 %     e = 0: maximally uneven for this cardinality.
 %
-%   Maximal evenness implies perfect balance, but perfect balance does not
-%   imply maximal evenness: a multiset can be perfectly balanced without
-%   being maximally even (see balanceCircular).
+%   Maximal evenness implies perfect balance, but perfect balance does
+%   not imply maximal evenness: a multiset can be perfectly balanced
+%   without being maximally even (see balanceCircular).
 %
-%   Evenness always uses uniform (binary) weights, following Milne et al.
-%   (2017): "we focus on binary-weighted patterns, whose weights are all
-%   zero or one." Evenness is a property of the spatial distribution of
-%   elements around the circle, not of their relative saliences. See
-%   balanceCircular for a measure that supports non-uniform weights.
+%   Evenness always uses uniform (binary) weights, following Milne et
+%   al. (2017): "we focus on binary-weighted patterns, whose weights
+%   are all zero or one." Evenness is a property of the spatial
+%   distribution of elements around the circle, not of their relative
+%   saliences. See balanceCircular for a measure that supports
+%   non-uniform weights.
+%
+%   e = evennessCircular(p, period, sigma) returns the expected
+%   evenness under independent Gaussian positional jitter on each
+%   event, estimated by Monte Carlo simulation:
+%
+%     P_k = (p_k + eta_k) mod period,   eta_k ~ N(0, sigma^2)
+%
+%   The perturbed positions are sorted (resort) before computing the
+%   DFT, capturing the perceptual reordering that occurs when noise
+%   is comparable to the smallest event-to-event gap. At sigma = 0
+%   the v2.0 deterministic value is recovered exactly.
+%
+%   [e, e_std] = evennessCircular(...) also returns the standard
+%   deviation of |F(1)| under the jitter model. e_std = 0 at
+%   sigma = 0.
 %
 %   For further information, see:
 %     Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
@@ -39,28 +55,56 @@ function e = evennessCircular(p, period)
 %       Mathematics and Music, 11(2-3), 101-133.
 %     Milne, A. J. & Herff, S. A. (2020). The perceptual relevance of
 %       balance, evenness, and entropy in musical rhythms. Cognition,
-%       203, 104233.
+%       203, 104233. (Section 5.2.1.1 documents the per-coefficient
+%       coefficient-of-variation pattern under jitter.)
 %
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
 %     period — Period of the circular domain.
+%     sigma  — (Optional) Positional jitter standard deviation
+%              (non-negative scalar; default 0). In the same units as
+%              p and period.
 %
-%   Output:
-%     e      — Evenness (scalar, range [0, 1]).
+%   Name-Value Arguments:
+%     'nDraws'  — Number of Monte Carlo draws when sigma > 0 (default
+%                 10000).
+%     'rngSeed' — Optional non-negative integer for reproducibility.
+%
+%   Outputs:
+%     e      — Evenness (mean under jitter, scalar in [0, 1]).
+%     e_std  — Standard deviation of |F(1)| under jitter.
 %
 %   Examples:
-%     % Maximally even: whole-tone scale (6 equally spaced pitches)
-%     e = evennessCircular([0, 200, 400, 600, 800, 1000], 1200);  % e = 1.000
+%     % Maximally even (deterministic): whole-tone scale
+%     e = evennessCircular([0, 200, 400, 600, 800, 1000], 1200);   % 1.000
 %
-%     % Nearly even: diatonic scale (7 notes, not equally spaced)
-%     e = evennessCircular([0, 200, 400, 500, 700, 900, 1100], 1200);
+%     % Same scale, expected evenness under sigma = 25 cents
+%     [e, es] = evennessCircular([0, 200, 400, 600, 800, 1000], 1200, 25);
 %
-%     % Rhythmic pattern: 5 onsets in a 16-step cycle
-%     e = evennessCircular([0, 3, 6, 10, 13], 16);
-%
-%   See also balanceCircular, dftCircular.
+%   See also balanceCircular, dftCircular, dftCircularSimulate.
 
-[~, mag] = dftCircular(p, [], period);  % uniform weights
-e = mag(2);  % mag(2) = |F(k=1)|
+    arguments
+        p
+        period (1,1) {mustBeNumeric, mustBePositive}
+        sigma (1,1) {mustBeNumeric, mustBeNonnegative} = 0
+        nvArgs.nDraws (1,1) {mustBePositive, mustBeInteger} = 10000
+        nvArgs.rngSeed = []
+    end
 
+    if sigma == 0
+        [~, mag] = dftCircular(p, [], period);
+        e = mag(2);
+        if nargout > 1
+            e_std = 0;
+        end
+        return;
+    end
+
+    % --- Monte Carlo path ---
+    [magMean, magStd] = dftCircularSimulate(p, [], period, sigma, ...
+        'nDraws', nvArgs.nDraws, 'rngSeed', nvArgs.rngSeed);
+    e = magMean(2);
+    if nargout > 1
+        e_std = magStd(2);
+    end
 end

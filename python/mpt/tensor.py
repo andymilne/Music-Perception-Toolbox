@@ -2570,6 +2570,16 @@ def bind_events(p, w=None, n=2, *, circular=False):
         When True, the window wraps around the end of the sequence;
         ``N' = N``. When False (default), ``N' = N - n + 1``.
 
+        The *circular* flag describes the *event sequence* (whether
+        the last event connects back to the first), and is
+        independent of the *positional periodicity* set in
+        :func:`build_exp_tens` via its ``is_per`` / ``period``
+        arguments. Both combinations are meaningful: a non-circular
+        sequence on a periodic domain (a non-cyclic motif living in
+        pitch-class space), and a circular sequence on a linear
+        domain (a cyclic rhythm represented in linear time, e.g.,
+        for windowed analysis). The two flags are orthogonal.
+
     Returns
     -------
     p_bound : list of ndarray
@@ -3013,11 +3023,13 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     :func:`cos_sim_exp_tens`. A unified closed form for the
     intermediate regime (a finite sum over periodic images) is left
     to future work. When this function is called on a windowed
-    periodic group whose window standard deviation lambda*sigma is
-    at least one quarter of the period P, a
+    periodic group, a
     :class:`WindowedSimilarityPeriodicApproxWarning` is emitted on
-    every such call. See User Guide §3.1 "Post-tensor windowing"
-    for the three-regime analysis.
+    every call, with a brief informational message within the
+    recommended bound ``lambda*sigma <= P/(2*sqrt(3))`` and a stronger
+    message past the bound. See User Guide §3.1 "Post-tensor
+    windowing" for the three-regime analysis and the warning
+    specification.
 
     Parameters
     ----------
@@ -3061,45 +3073,94 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     M = offsets.shape[1]
 
     # ---- Periodic-window approximation check ------------------------
-    # The closed-form windowed inner product used downstream is the
-    # line-case formula. It is exact for non-periodic groups, and
-    # approximate for periodic groups; the approximation degrades as
-    # the window's effective standard deviation lambda*sigma
-    # approaches half the period P (i.e., as 2*lambda*sigma -> P, the
-    # window support reaches one full period). Warn at lambda*sigma
-    # >= P/4, where the support reaches half the period and the
-    # approximation can no longer be assumed tight. For
-    # lambda*sigma >> P, the windowed inner product collapses to the
-    # unwindowed form, which can be obtained directly from
-    # cos_sim_exp_tens. See User Guide §3.1 "Post-tensor windowing".
+    # A WindowedSimilarityPeriodicApproxWarning is emitted per periodic
+    # windowed group on every call. The message has two forms:
+    #   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
+    #     a brief informational notice that the line-case approximation
+    #     is in use, with the current SD/P against the bound. The
+    #     approximation is sub-percent across the window shape family
+    #     within this bound.
+    #   - Past the bound (lambda*sigma > P/(2*sqrt(3))): a stronger
+    #     notice reporting SD/P and phi (rect half-width) against
+    #     their bounds, and describing the qualitative behaviour by
+    #     mix (at mix=1 the rect window is no longer localized on the
+    #     circle; at mix=0 the approximation degrades smoothly).
+    # See User Guide §3.1 "Post-tensor windowing".
+    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ~= 0.2887
     G = int(dens_context.n_groups)
     size_arr = np.atleast_1d(
         np.asarray(window_spec["size"], dtype=np.float64)
     ).ravel()
     if size_arr.size == 1:
         size_arr = np.repeat(size_arr, G)
+    mix_arr = np.atleast_1d(
+        np.asarray(window_spec["mix"], dtype=np.float64)
+    ).ravel()
+    if mix_arr.size == 1:
+        mix_arr = np.repeat(mix_arr, G)
     for g in range(G):
         if not bool(dens_context.is_per[g]):
             continue
         lam = float(size_arr[g])
         if not np.isfinite(lam) or lam <= 0:
             continue
-        eff_sigma = lam * float(dens_context.sigma[g])
         period_g = float(dens_context.period[g])
-        if period_g > 0 and eff_sigma >= period_g / 4:
-            warnings.warn(
-                f"Group {g} is periodic with period P = {period_g:g}, "
-                f"but the applied window standard deviation "
-                f"lambda*sigma = {eff_sigma:g} is at least P/4. The "
-                f"line-case closed form in use is the small-window "
-                f"approximation; it degrades as window support "
-                f"approaches one period. (For windows larger than a "
-                f"period, the windowed inner product collapses to "
-                f"the unwindowed form.) See User Guide §3.1 "
-                f"\"Post-tensor windowing\".",
-                WindowedSimilarityPeriodicApproxWarning,
-                stacklevel=2,
+        if period_g <= 0:
+            continue
+        eff_sigma = lam * float(dens_context.sigma[g])
+        sd_over_p = eff_sigma / period_g
+        gamma_g = float(mix_arr[g])
+
+        if sd_over_p <= SD_OVER_P_BOUND:
+            # Within-bound: brief informational form.
+            msg = (
+                f"Periodic windowed inner product on group {g} "
+                f"applies the line-case formula at wrapped "
+                f"differences -- an approximation that retains "
+                f"only the leading periodic image of the window. "
+                f"Within the recommended bound, the approximation "
+                f"is sub-percent across the window shape family.\n"
+                f"  Window SD (lambda*sigma) = {eff_sigma:g}\n"
+                f"  Period P                 = {period_g:g}\n"
+                f"  SD/P                     = {sd_over_p:.4f}\n"
+                f"  Recommended bound (SD/P) = {SD_OVER_P_BOUND:.4f} "
+                f"(= 1/(2*sqrt(3)))\n"
+                f"See User Guide \u00a73.1 \"Post-tensor windowing\". "
+                f"Suppress with warnings.filterwarnings('ignore', "
+                f"category=mpt."
+                f"WindowedSimilarityPeriodicApproxWarning)."
             )
+        else:
+            # Past-bound: stronger form, with phi and per-mix
+            # behaviour.
+            phi_g = eff_sigma * np.sqrt(3.0 * max(gamma_g, 0.0))
+            msg = (
+                f"Window SD exceeds the recommended bound for "
+                f"periodic group {g}; the line-case approximation "
+                f"is no longer reliable.\n"
+                f"  Window SD (lambda*sigma) = {eff_sigma:g}\n"
+                f"  Period P                 = {period_g:g}\n"
+                f"  SD/P                     = {sd_over_p:.4f}  "
+                f"(bound: {SD_OVER_P_BOUND:.4f})\n"
+                f"  phi (rect half-width)    = {phi_g:g}  "
+                f"(bound: {period_g / 2:g} = P/2)\n"
+                f"  mix (gamma)              = {gamma_g:g}\n"
+                f"Beyond the bound, behaviour depends on mix:\n"
+                f"  mix = 1 (pure rect):     window is no longer "
+                f"localized on the circle (pointless as a window).\n"
+                f"  mix = 0 (pure Gaussian): line-case approximation "
+                f"degrades smoothly; error grows with SD/P.\n"
+                f"  intermediate mix:        between these two cases.\n"
+                f"Reduce size or sigma so that lambda*sigma <= "
+                f"P/(2*sqrt(3)). See User Guide \u00a73.1 "
+                f"\"Post-tensor windowing\"."
+            )
+
+        warnings.warn(
+            msg,
+            WindowedSimilarityPeriodicApproxWarning,
+            stacklevel=2,
+        )
 
     # Reference point, per attribute.
     A = int(dens_query.n_attrs)

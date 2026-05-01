@@ -31,7 +31,7 @@ def dft_circular(
     p : array-like
         Pitch-class (or time-class) values (length *K*).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : float
         Period of the circular domain.
 
@@ -77,7 +77,7 @@ def balance(p: np.ndarray, w: np.ndarray | None, period: float) -> float:
     p : array-like
         Pitch or position values (length *K*).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : float
         Period of the circular domain.
 
@@ -182,7 +182,7 @@ def coherence(
     p = np.sort(p % period)
     K = len(p)
     if len(np.unique(p)) != K:
-        raise ValueError("p must not contain duplicate pitch classes (mod period).")
+        raise ValueError("p must not contain duplicate values (mod period).")
     if K < 2:
         raise ValueError(f"At least 2 events required (got {K}).")
 
@@ -248,7 +248,7 @@ def sameness(
     p = np.sort(p % period)
     K = len(p)
     if len(np.unique(p)) != K:
-        raise ValueError("p must not contain duplicate pitch classes (mod period).")
+        raise ValueError("p must not contain duplicate values (mod period).")
     if K < 2:
         raise ValueError(f"At least 2 events required (got {K}).")
 
@@ -299,7 +299,7 @@ def edges(
     p : array-like
         Pitch or position values (length *K*).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : float
         Period of the circular domain.
     x : array-like or None
@@ -360,7 +360,7 @@ def proj_centroid(
     p : array-like
         Pitch or position values (length *K*).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : float
         Period of the circular domain.
     x : array-like or None
@@ -425,7 +425,7 @@ def mean_offset(
     p : array-like
         Pitch or position values (length *K*).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : float
         Period of the circular domain.
     x : array-like or None
@@ -483,7 +483,7 @@ def circ_apm(
     p : array-like of int
         Pitch or position values. Non-negative integers < *period*.
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : int
         Cycle length.
     decay : float
@@ -567,7 +567,7 @@ def markov_s(
     p : array-like of int
         Pitch or position values. Non-negative integers < *period*.
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     period : int
         Cycle length.
     S : int

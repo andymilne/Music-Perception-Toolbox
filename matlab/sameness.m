@@ -70,7 +70,7 @@ function [sq, nDiff] = sameness(p, period)
 
     if numel(unique(p)) ~= K
         error('sameness:duplicates', ...
-              'p must not contain duplicate pitch classes (modulo period).');
+              'p must not contain duplicate values (modulo period).');
     end
 
     if K < 2

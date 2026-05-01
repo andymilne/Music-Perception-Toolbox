@@ -121,7 +121,7 @@ function [p, w] = addSpectra(p, w, mode, varargin)
 %
 %   Inputs:
 %     p       — Pitch values (vector of length M)
-%     w       — Weights (vector of length M, or empty for uniform)
+%     w       — Weights (vector of length M, or empty for all ones)
 %     mode    — 'harmonic', 'stretched', 'freqlinear', 'stiff', or 'custom'
 %
 %     For 'harmonic' mode:

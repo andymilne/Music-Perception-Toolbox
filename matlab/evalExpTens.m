@@ -126,6 +126,36 @@ end
 % Dispatch: struct vs raw arguments
 nArgs = numel(varargin);
 
+% --- WindowedMaetDensity: evaluate underlying density, multiply by window ---
+if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
+        && strcmp(varargin{1}.tag, 'WindowedMaetDensity')
+    wmd = varargin{1};
+    if nArgs ~= 2
+        error(['Usage for a WindowedMaetDensity: evalExpTens(wmd, X).']);
+    end
+    X = varargin{2};
+    underlying = localEvalMA(wmd.dens, X, normalize, verbose);
+    % Evaluate the window function on the query points and multiply.
+    W_vals = localEvaluateWindowOnQuery(wmd, X);
+    vals = underlying .* W_vals;
+    return;
+end
+
+% --- MA path: MaetDensity struct ---
+if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
+        && strcmp(varargin{1}.tag, 'MaetDensity')
+    dens = varargin{1};
+    if nArgs ~= 2
+        error(['Usage for a MaetDensity: evalExpTens(dens, X [, normalize]).\n' ...
+            'X is either a cell {X_1, ..., X_A} of per-attribute query matrices, ' ...
+            'or a single dim x nQ matrix with attribute rows stacked. ' ...
+            'normalize must be ''none'', ''gaussian'', or ''pdf''.']);
+    end
+    X = varargin{2};
+    vals = localEvalMA(dens, X, normalize, verbose);
+    return;
+end
+
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity')
     % --- Precomputed struct: evalExpTens(dens, X [, normalize]) ---
@@ -296,4 +326,290 @@ end
         v = wJ(:)' * E;
     end
 
+end
+
+% =========================================================================
+%  localEvalMA — multi-attribute (MAET) evaluation
+% =========================================================================
+
+
+function vals = localEvalMA(dens, X, normalize, verbose)
+%LOCALEVALMA  Evaluate a MaetDensity at query points.
+%
+%   Accepts X as either a 1 x A cell of per-attribute query matrices
+%   (each dim_a x nQ), or a single dim x nQ matrix with attribute rows
+%   stacked in attribute order. A 1-D input is coerced to 1 x nQ and is
+%   valid only when the total dim equals 1.
+
+    A          = dens.nAttrs;
+    N_J        = dens.nJ;
+    dim        = dens.dim;
+    dimPerAttr = dens.dimPerAttr;
+    groupOf    = dens.groupOfAttr;
+    r_         = dens.r;
+    sigmaG     = dens.sigma;
+    isRelG     = dens.isRel;
+    isPerG     = dens.isPer;
+    periodG    = dens.period;
+    Centres    = dens.Centres;
+    wJ         = dens.wJ;
+
+    % --- Normalise query-point input to cell form {X_1, ..., X_A} ---
+
+    if iscell(X)
+        if numel(X) ~= A
+            error('evalExpTens:maQueryCellLength', ...
+                  ['Query cell must have length %d (nAttrs); got %d.'], A, numel(X));
+        end
+        Xc = cell(1, A);
+        nQ = [];
+        for a = 1:A
+            Xa = X{a};
+            % Allow 1-D vectors when dim_a == 1
+            if isvector(Xa) && dimPerAttr(a) == 1
+                Xa = Xa(:).';
+            end
+            if size(Xa, 1) ~= dimPerAttr(a)
+                error('evalExpTens:maQueryAttrRows', ...
+                      ['Query for attribute %d must have %d rows; got %d.'], ...
+                      a, dimPerAttr(a), size(Xa, 1));
+            end
+            if isempty(nQ)
+                nQ = size(Xa, 2);
+            elseif size(Xa, 2) ~= nQ
+                error('evalExpTens:maQueryNQMismatch', ...
+                      ['All per-attribute query matrices must share the same ' ...
+                       'number of columns (nQ). Got %d and %d.'], nQ, size(Xa, 2));
+            end
+            Xc{a} = double(Xa);
+        end
+    else
+        % Single-matrix form
+        Xs = X;
+        if isvector(Xs) && dim == 1
+            Xs = Xs(:).';
+        end
+        if size(Xs, 1) ~= dim
+            error('evalExpTens:maQueryTotalRows', ...
+                  ['Single-matrix query must have %d rows (total dim); got %d. ' ...
+                   'For cell-form input, wrap the per-attribute query matrices ' ...
+                   'in a 1 x %d cell array.'], dim, size(Xs, 1), A);
+        end
+        nQ = size(Xs, 2);
+        Xc = cell(1, A);
+        rowStart = 1;
+        for a = 1:A
+            rowEnd = rowStart + dimPerAttr(a) - 1;
+            Xc{a} = double(Xs(rowStart:rowEnd, :));
+            rowStart = rowEnd + 1;
+        end
+    end
+
+    if nQ == 0
+        vals = zeros(1, 0);
+        return;
+    end
+
+    % --- Estimated computation time (use total dim as a conservative proxy) ---
+    nPairs = double(N_J) * double(nQ);
+    estimateCompTime(nPairs, dim, 'evalExpTens (MAET)', verbose);
+
+    % --- Core evaluation with memory-aware chunking ---
+    % Peak memory per chunk is dominated by the largest per-attribute
+    % (dim_a x nJ x nQc) difference tensor plus the (nJ x nQc)
+    % accumulator. Use (maxDim + 1) * nJ * 8 bytes as the per-column
+    % cost to size the chunk.
+
+    bytesPerCol = (max(dimPerAttr) + 1) * double(N_J) * 8;
+    try
+        memInfo  = memory;
+        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
+    catch
+        memLimit = 4e9;
+    end
+    bytesNeeded = bytesPerCol * double(nQ);
+
+    if bytesNeeded <= memLimit
+        vals = maetEvalFull(Xc, nQ);
+    else
+        chunkSize = max(1, floor(memLimit / max(bytesPerCol, 1)));
+        vals = zeros(1, nQ);
+        for c = 1:chunkSize:nQ
+            cEnd = min(c + chunkSize - 1, nQ);
+            idx  = c:cEnd;
+            Xc_c = cell(1, A);
+            for a = 1:A
+                Xc_c{a} = Xc{a}(:, idx);
+            end
+            vals(idx) = maetEvalFull(Xc_c, numel(idx));
+        end
+    end
+
+    % --- Normalisation ---
+
+    if strcmp(normalize, 'gaussian') || strcmp(normalize, 'pdf')
+        gaussConst = 1;
+        for a = 1:A
+            g = groupOf(a);
+            da = dimPerAttr(a);
+            if isRelG(g) && r_(a) >= 2
+                detM_a = 1 / r_(a);
+            else
+                detM_a = 1;
+            end
+            gaussConst = gaussConst * ...
+                (2 * pi * sigmaG(g)^2)^(-da / 2) * sqrt(detM_a);
+        end
+        vals = vals * gaussConst;
+
+        if strcmp(normalize, 'pdf')
+            sumW = sum(wJ);
+            if sumW > 0
+                vals = vals / sumW;
+            else
+                warning('evalExpTens:zeroSumW', ...
+                        'Sum of weight products is zero; cannot normalise to pdf.');
+            end
+        end
+    end
+
+    % =====================================================================
+    %  Inner helper: full MAET evaluation (single chunk)
+    % =====================================================================
+
+    function v = maetEvalFull(Xchunk, nQc)
+        % Accumulate the summed-quadratic exponent Q_total across attrs.
+        Q_total = zeros(N_J, nQc);
+
+        for a = 1:A
+            g = groupOf(a);
+            da = dimPerAttr(a);
+            if da == 0
+                % Degenerate attribute (r_a=1, isRel=true): constant along
+                % this axis. Contributes zero to Q_total. Skip.
+                continue;
+            end
+
+            % D_a: da x N_J x nQc
+            Ca = Centres{a};
+            Xa = Xchunk{a};
+            D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
+
+            if isPerG(g)
+                Pg = periodG(g);
+                D_a = mod(D_a + Pg/2, Pg) - Pg/2;
+            end
+
+            % Per-attribute quadratic form
+            if isRelG(g)
+                Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
+                    - reshape(sum(D_a, 1).^2, N_J, nQc) / r_(a);
+            else
+                Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
+            end
+
+            Q_total = Q_total + Q_a / (2 * sigmaG(g)^2);
+        end
+
+        % Kernel and weighted sum
+        E = exp(-Q_total);               % N_J x nQc
+        v = wJ(:).' * E;                  % 1 x nQc
+    end
+
+end
+
+
+% =========================================================================
+%  Window pointwise evaluator (for WindowedMaetDensity dispatch)
+% =========================================================================
+
+function W_vals = localEvaluateWindowOnQuery(wmd, X)
+%LOCALEVALUATEWINDOWONQUERY  Evaluate the window function W(x) on query
+%points, returning a 1 x nQ vector of window values.
+
+    dens       = wmd.dens;
+    A          = dens.nAttrs;
+    dimPerAttr = dens.dimPerAttr;
+    dim        = dens.dim;
+    groupOf    = dens.groupOfAttr;
+    sigmaG     = dens.sigma;
+
+    % --- Normalise X to per-attribute cell form (mirrors localEvalMA) ---
+    if iscell(X)
+        Xc = cell(1, A);
+        for a = 1:A
+            Xa = X{a};
+            if isvector(Xa) && dimPerAttr(a) == 1
+                Xa = Xa(:).';
+            end
+            Xc{a} = double(Xa);
+        end
+    else
+        Xs = X;
+        if isvector(Xs) && dim == 1
+            Xs = Xs(:).';
+        end
+        Xc = cell(1, A);
+        rowStart = 1;
+        for a = 1:A
+            rowEnd = rowStart + dimPerAttr(a) - 1;
+            Xc{a} = double(Xs(rowStart:rowEnd, :));
+            rowStart = rowEnd + 1;
+        end
+    end
+
+    if A == 0 || isempty(Xc{1})
+        W_vals = zeros(1, 0);
+        return;
+    end
+    nQ = size(Xc{1}, 2);
+    W_vals = ones(1, nQ);
+
+    for a = 1:A
+        g = groupOf(a);
+        if ~localIsWindowedGroup(wmd.size(g), wmd.mix(g))
+            continue;
+        end
+        [a_, b_] = localWindowWidthParams(wmd.size(g), wmd.mix(g), sigmaG(g));
+        da = dimPerAttr(a);
+        centre_a = wmd.centre{a};    % (da, 1)
+        centre_a = centre_a(:);
+        Xa = Xc{a};                   % (da, nQ)
+        for i = 1:da
+            u = Xa(i, :) - centre_a(i);
+            W_vals = W_vals .* localWindowFactor1D(u, a_, b_);
+        end
+    end
+end
+
+
+function tf = localIsWindowedGroup(size_g, mix_g)
+    tf = isfinite(size_g) && size_g > 0;
+end
+
+
+function [a_rect, b_conv] = localWindowWidthParams(size_g, mix_g, sigma_g)
+    s = double(size_g) * double(sigma_g);
+    a_rect = s * sqrt(3 * double(mix_g));
+    b_conv = s * sqrt(1 - double(mix_g));
+end
+
+
+function W = localWindowFactor1D(u, a_rect, b_conv)
+%LOCALWINDOWFACTOR1D  Evaluate the 1-D window function at u.
+%   Window = rect(half-a) convolved with Gaussian(b).
+    if b_conv == 0
+        % Pure rectangular.
+        W = double(abs(u) <= a_rect);
+    elseif a_rect == 0
+        % Pure Gaussian.
+        W = exp(-u.^2 / (2 * b_conv^2));
+    else
+        % Rect-conv-Gaussian, normalised to peak 1.
+        arg_plus  = (a_rect + u) / (sqrt(2) * b_conv);
+        arg_minus = (a_rect - u) / (sqrt(2) * b_conv);
+        numer = 0.5 * (erf(arg_plus) + erf(arg_minus));
+        peak = erf(a_rect / (b_conv * sqrt(2)));
+        W = numer / peak;
+    end
 end

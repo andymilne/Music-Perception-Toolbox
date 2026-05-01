@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-perception-toolbox"
-version = "2.0.0"
+version = "2.1.0"
 description = "Computational music perception: expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures."
 readme = {file = "../README.md", content-type = "text/markdown"}
 license = {text = "MIT"}

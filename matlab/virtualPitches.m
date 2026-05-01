@@ -41,7 +41,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %             pitches (e.g., MIDI 60 = 6000 cents via convertPitch),
 %             not pitch classes. The function transposes internally
 %             so the lowest pitch is 0.
-%     w     — Weights (vector same length as p, or empty for uniform).
+%     w     — Weights (vector same length as p, or empty for all ones).
 %     sigma — Gaussian smoothing width in cents. Values of 9-15 are
 %             typically effective; 12 is a good default.
 %

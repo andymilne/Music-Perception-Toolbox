@@ -27,7 +27,7 @@ function y = markovS(p, w, period, S)
 %   Inputs:
 %     p      — Pitch or position values (vector of length K). Must be
 %              non-negative integers less than period.
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Length of the cycle (positive integer).
 %     S      — (Optional) Number of lookahead steps for context
 %              matching (positive integer, default: 3). Larger values

@@ -27,7 +27,7 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x)
 %
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the
 %              projection (vector). Default: 0:period-1.

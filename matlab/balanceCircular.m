@@ -32,7 +32,7 @@ function b = balanceCircular(p, w, period)
 %
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
 %
 %   Output:

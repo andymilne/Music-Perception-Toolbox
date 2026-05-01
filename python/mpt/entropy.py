@@ -3,10 +3,22 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.fft import fft as _fft, ifft as _ifft
 
 from .spectra import add_spectra
-from .tensor import ExpTensDensity, build_exp_tens, eval_exp_tens
+from .tensor import (
+    ExpTensDensity,
+    MaetDensity,
+    WindowedMaetDensity,
+    bind_events,
+    build_exp_tens,
+    eval_exp_tens,
+)
+
+
+# Default grid-size ceiling for the Cartesian-product grid. If
+# n_points_per_dim**dim exceeds this, entropy_exp_tens raises a
+# clear error suggesting a lower n_points_per_dim.
+_DEFAULT_GRID_LIMIT = int(1e8)
 
 
 # ===================================================================
@@ -16,60 +28,162 @@ from .tensor import ExpTensDensity, build_exp_tens, eval_exp_tens
 
 def entropy_exp_tens(
     p_or_dens,
-    w=None,
-    sigma=None,
-    r=None,
-    is_rel=None,
-    is_per=None,
-    period=None,
-    *,
+    *args,
     spectrum: list | None = None,
     normalize: bool = True,
     base: float = 2.0,
     n_points_per_dim: int = 1200,
-    x_min: float = float("nan"),
-    x_max: float = float("nan"),
+    x_min=float("nan"),
+    x_max=float("nan"),
+    grid_limit: int = _DEFAULT_GRID_LIMIT,
 ) -> float:
-    """Shannon entropy (in bits) of an expectation tensor.
+    """Shannon entropy of an expectation tensor density.
 
-    Returns the Shannon entropy of the expectation tensor defined by
-    the weighted multiset (*p*, *w*), where *p* represents pitches or
-    positions. The tensor is discretised on a fine grid and the
-    Shannon entropy of the resulting probability mass function is
-    returned.
+    Dispatches on the type of the first argument:
+
+      - :class:`ExpTensDensity`, or SA raw args (*p* a 1-D array) ->
+        single-attribute path. Signature::
+
+            entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period, ...)
+            entropy_exp_tens(dens_sa, ...)
+
+      - :class:`MaetDensity`, or MA raw args (*p* a list/tuple of
+        attribute matrices) -> multi-attribute path. Signature::
+
+            entropy_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+                             is_rel_vec, is_per_vec, period_vec, ...)
+            entropy_exp_tens(dens_ma, ...)
 
     Parameters
     ----------
-    p : array-like or ExpTensDensity
-        Pitch or position values, or a precomputed density struct.
-    w : array-like or None
-        Weights (not required if *p* is a struct).
-    sigma : float or None
-        Gaussian bandwidth.
-    r : int or None
-        Tuple size.
-    is_rel : bool or None
-        Relative (transposition-invariant).
-    is_per : bool or None
-        Periodic domain.
-    period : float or None
-        Domain period.
+    p_or_dens : array-like, list of matrices, ExpTensDensity, or MaetDensity
+        Either a pitch/position input or a precomputed density object.
+    *args : tuple
+        Raw-args tail (SA: 6 further args; MA: 7 further args). Ignored
+        for precomputed densities.
     spectrum : list or None
-        Arguments for :func:`~mpt.spectra.add_spectra`.
+        Arguments for :func:`~mpt.spectra.add_spectra`. SA only; for MA,
+        apply spectral enrichment to the pitch attribute upstream.
     normalize : bool
-        If True (default), divide by log(N) to give [0, 1].
+        If True (default), divide by log(N) for a [0, 1] value.
     base : float
         Logarithm base (default 2).
     n_points_per_dim : int
-        Grid resolution per dimension (default 1200).
-    x_min, x_max : float
-        Domain bounds (required when *is_per* is False).
+        Grid resolution per effective dimension (default 1200).
+    x_min, x_max : float or length-G array
+        Domain bounds for non-periodic axes. SA: scalars. MA: scalar
+        (broadcast to all non-periodic groups) or length-G vector
+        (entries for periodic groups ignored). Required when any axis
+        is non-periodic.
+    grid_limit : int
+        Hard cap on the total grid size (``n_points_per_dim ** dim``)
+        before allocation. Default 1e8. Raises ValueError if exceeded,
+        suggesting a lower *n_points_per_dim*.
 
     Returns
     -------
     float
-        Shannon entropy.
+        Shannon entropy. In [0, 1] when *normalize* is True.
     """
+    # --- Dispatch on precomputed densities first ---
+    if isinstance(p_or_dens, WindowedMaetDensity):
+        if len(args) > 0:
+            raise TypeError(
+                "Precomputed WindowedMaetDensity takes no further positional args."
+            )
+        return _entropy_exp_tens_ma(
+            p_or_dens,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    if isinstance(p_or_dens, MaetDensity):
+        if len(args) > 0:
+            raise TypeError(
+                "Precomputed MaetDensity takes no further positional args."
+            )
+        return _entropy_exp_tens_ma(
+            p_or_dens,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    if isinstance(p_or_dens, ExpTensDensity):
+        if len(args) > 0:
+            raise TypeError(
+                "Precomputed ExpTensDensity takes no further positional args."
+            )
+        return _entropy_exp_tens_sa(
+            p_or_dens, None, None, None, None, None, None,
+            spectrum=None, normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max,
+        )
+
+    # --- Raw args: dispatch on type of p ---
+    if _looks_like_ma_p(p_or_dens):
+        if len(args) != 7:
+            raise ValueError(
+                f"Multi-attribute raw call expects 8 positional arguments "
+                f"(p_attr, w, sigma_vec, r_vec, groups, is_rel_vec, "
+                f"is_per_vec, period_vec); got {1 + len(args)}."
+            )
+        w, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
+        dens = build_exp_tens(
+            p_or_dens, w, sigma_vec, r_vec, groups,
+            is_rel_vec, is_per_vec, period_vec,
+            verbose=False,
+        )
+        return _entropy_exp_tens_ma(
+            dens,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    # SA raw args.
+    if len(args) != 6:
+        raise ValueError(
+            f"Single-attribute raw call expects 7 positional arguments "
+            f"(p, w, sigma, r, is_rel, is_per, period); got {1 + len(args)}."
+        )
+    w, sigma, r, is_rel, is_per, period = args
+    return _entropy_exp_tens_sa(
+        p_or_dens, w, sigma, r, is_rel, is_per, period,
+        spectrum=spectrum, normalize=normalize, base=base,
+        n_points_per_dim=n_points_per_dim,
+        x_min=x_min, x_max=x_max,
+    )
+
+
+def _looks_like_ma_p(p) -> bool:
+    """Return True if p is a list/tuple of attribute matrices, i.e. the
+    MA raw-args input form (as opposed to a 1-D SA pitch vector)."""
+    if isinstance(p, np.ndarray):
+        return False  # an ndarray is always SA input
+    if not isinstance(p, (list, tuple)):
+        return False
+    if len(p) == 0:
+        return False
+    first = p[0]
+    # SA: p is a list/tuple of numbers (e.g., [0, 4, 7]).
+    if np.isscalar(first):
+        return False
+    # MA: first is an array-like (matrix) with rows (slots) and cols (events).
+    return True
+
+
+# -------------------------------------------------------------------
+#  _entropy_exp_tens_sa  (single-attribute legacy path)
+# -------------------------------------------------------------------
+
+
+def _entropy_exp_tens_sa(
+    p_or_dens, w, sigma, r, is_rel, is_per, period,
+    *,
+    spectrum, normalize, base,
+    n_points_per_dim, x_min, x_max,
+) -> float:
+    """Single-attribute Shannon entropy (v2.0.0 body)."""
     if isinstance(p_or_dens, ExpTensDensity):
         T = p_or_dens
         is_per = T.is_per
@@ -89,11 +203,13 @@ def entropy_exp_tens(
     if is_per:
         x = np.linspace(0, period, n_points_per_dim + 1)[:-1]
     else:
-        if np.isnan(x_min) or np.isnan(x_max):
+        x_min_s = float(np.asarray(x_min).item()) if np.ndim(x_min) == 0 else float("nan")
+        x_max_s = float(np.asarray(x_max).item()) if np.ndim(x_max) == 0 else float("nan")
+        if np.isnan(x_min_s) or np.isnan(x_max_s):
             raise ValueError("x_min and x_max must be specified when is_per is False.")
-        if x_min >= x_max:
+        if x_min_s >= x_max_s:
             raise ValueError("x_min must be less than x_max.")
-        x = np.linspace(x_min, x_max, n_points_per_dim)
+        x = np.linspace(x_min_s, x_max_s, n_points_per_dim)
 
     t = eval_exp_tens(T, x, verbose=False)
 
@@ -113,6 +229,138 @@ def entropy_exp_tens(
     return H
 
 
+# -------------------------------------------------------------------
+#  _entropy_exp_tens_ma  (multi-attribute path)
+# -------------------------------------------------------------------
+
+
+def _entropy_exp_tens_ma(
+    dens,
+    *,
+    normalize: bool,
+    base: float,
+    n_points_per_dim: int,
+    x_min, x_max,
+    grid_limit: int,
+) -> float:
+    """Multi-attribute Shannon entropy.
+
+    Builds a Cartesian-product grid with one 1-D linspace per effective
+    dimension of the density's domain (one per non-``isRel`` tuple slot
+    for each attribute), evaluates the density at every grid point,
+    normalises to a pmf, and returns Shannon entropy.
+
+    Accepts either a :class:`MaetDensity` or a
+    :class:`WindowedMaetDensity`. Structural fields (dim, dim_per_attr,
+    groups, etc.) are read from the underlying density; evaluation
+    itself calls :func:`eval_exp_tens` on the input object, so window
+    application (if present) is handled automatically.
+    """
+    # Structural fields — same on windowed or unwindowed objects.
+    if isinstance(dens, WindowedMaetDensity):
+        base_dens = dens.dens
+    else:
+        base_dens = dens
+    dim      = int(base_dens.dim)
+    dim_per  = base_dens.dim_per_attr
+    A        = base_dens.n_attrs
+    G        = base_dens.n_groups
+    group_of = base_dens.group_of_attr
+    is_per_g = base_dens.is_per
+    period_g = base_dens.period
+
+    if dim == 0:
+        # Degenerate: no effective axes (e.g. every attribute is isRel
+        # with r=1). Density is a constant; entropy is 0.
+        return 0.0
+
+    # --- Resolve x_min/x_max to per-group arrays ---
+    x_min_g = _broadcast_bounds(x_min, G, "x_min")
+    x_max_g = _broadcast_bounds(x_max, G, "x_max")
+
+    # --- Check non-periodic groups have valid bounds ---
+    needs_bounds = np.flatnonzero(~is_per_g)
+    for g in needs_bounds:
+        if np.isnan(x_min_g[g]) or np.isnan(x_max_g[g]):
+            raise ValueError(
+                f"x_min and x_max must be specified for non-periodic "
+                f"group {int(g)}."
+            )
+        if x_min_g[g] >= x_max_g[g]:
+            raise ValueError(
+                f"x_min must be less than x_max (group {int(g)})."
+            )
+
+    # --- Grid-size guard ---
+    total_points = int(n_points_per_dim) ** dim
+    if total_points > grid_limit:
+        # Suggest the largest n_points_per_dim that would fit.
+        suggested = int(np.floor(grid_limit ** (1.0 / dim)))
+        raise ValueError(
+            f"Grid size {n_points_per_dim}**{dim} = {total_points} "
+            f"exceeds grid_limit = {grid_limit}. Reduce n_points_per_dim "
+            f"to {suggested} or lower, or raise grid_limit."
+        )
+
+    # --- Build one 1-D linspace per effective dimension ---
+    # Each effective dimension belongs to an attribute, which belongs
+    # to a group. Each 1-D linspace uses that group's domain.
+    axes = []
+    for a in range(A):
+        da = int(dim_per[a])
+        g = int(group_of[a])
+        if is_per_g[g]:
+            P = float(period_g[g])
+            ax = np.linspace(0.0, P, int(n_points_per_dim) + 1)[:-1]
+        else:
+            ax = np.linspace(
+                float(x_min_g[g]), float(x_max_g[g]), int(n_points_per_dim)
+            )
+        for _ in range(da):
+            axes.append(ax)
+
+    # --- Cartesian product as (dim, total_points) query matrix ---
+    # Use np.meshgrid with 'ij' indexing so the flatten order is
+    # consistent (first axis varies slowest).
+    mesh = np.meshgrid(*axes, indexing="ij")
+    X = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
+
+    # --- Evaluate density ---
+    t = eval_exp_tens(dens, X, verbose=False)
+
+    # --- Shannon entropy ---
+    total = float(np.sum(t))
+    if total == 0.0:
+        return 0.0
+
+    q = t / total
+    N = int(q.size)
+    q = q[q > 0]
+    H = float(-np.sum(q * np.log(q) / np.log(base)))
+
+    if normalize:
+        H /= np.log(N) / np.log(base)
+
+    return H
+
+
+def _broadcast_bounds(v, G, name):
+    """Coerce x_min or x_max input to a length-G float array.
+
+    Accepts NaN, a scalar (broadcast), or a length-G array. Entries for
+    periodic groups are not validated here (they're never used).
+    """
+    arr = np.asarray(v, dtype=np.float64)
+    if arr.ndim == 0:
+        return np.full(G, float(arr), dtype=np.float64)
+    if arr.ndim == 1 and arr.size == G:
+        return arr.astype(np.float64, copy=False)
+    raise ValueError(
+        f"{name} must be a scalar or a length-{G} vector (one entry per "
+        f"group); got shape {arr.shape}."
+    )
+
+
 # ===================================================================
 #  n_tuple_entropy
 # ===================================================================
@@ -126,15 +374,27 @@ def n_tuple_entropy(
     sigma: float = 0.0,
     normalize: bool = True,
     base: float = 2.0,
+    n_points_per_dim: int | None = None,
 ) -> tuple[float, np.ndarray]:
     """Entropy of n-tuples of consecutive step sizes.
 
-    Returns the normalised entropy of the distribution of n-tuples
-    of consecutive step sizes in the set *p* within an equal
-    division of size *period* (*p* represents pitches or positions).
+    Convenience wrapper around the bind-and-compute pipeline of
+    :func:`bind_events`, :func:`build_exp_tens`, and
+    :func:`entropy_exp_tens`. With default arguments — ``sigma = 0``
+    and ``n_points_per_dim = None`` (which selects the integer-step
+    grid ``period``) — this exactly replicates the discrete *n*-tuple
+    entropy of Milne & Dean (2016): the Shannon entropy of the
+    integer-step-size *n*-tuple histogram. Setting ``sigma > 0``
+    gives the smoothed extension of Milne (2024); setting
+    ``n_points_per_dim`` finer than ``period`` discretises the
+    underlying continuous density at finer resolution.
 
-    For n = 1, this is interonset interval (IOI) entropy. Higher
-    values of n capture progressively finer sequential structure.
+    For more flexibility — non-integer values, non-uniform weights,
+    non-periodic domains, or access to the n-tuple density itself
+    for similarity comparison and other MAET operations — call
+    :func:`bind_events` and the rest of the pipeline directly. This
+    function is a convenience entry point for the common case of
+    integer-valued, uniformly-weighted, periodic step-size analyses.
 
     Parameters
     ----------
@@ -146,24 +406,48 @@ def n_tuple_entropy(
     n : int
         Tuple size (default 1).
     sigma : float
-        Gaussian smoothing width (default 0 = no smoothing).
+        Gaussian smoothing width in units of step sizes (default 0,
+        no smoothing).
     normalize : bool
-        If True (default), divide by log(period^n) to give [0, 1].
+        If True (default), divide by ``log(n_points_per_dim ** n)``
+        for a value in [0, 1]. With the default
+        ``n_points_per_dim = period`` this matches the
+        ``log(period ** n)`` normalisation of Milne & Dean (2016).
     base : float
-        Logarithm base (default 2).
+        Logarithm base (default 2; "bits"). When ``normalize`` is
+        True, the base cancels.
+    n_points_per_dim : int or None
+        Grid resolution per effective dimension. ``None`` (default)
+        selects ``period`` — the integer-step grid, giving exact
+        equivalence to Milne & Dean (2016) at ``sigma -> 0``. Any
+        positive integer is accepted; finer grids resolve the
+        underlying continuous density more accurately when
+        ``sigma > 0``.
 
     Returns
     -------
     H : float
         Shannon entropy of the n-tuple distribution.
     tuples : np.ndarray
-        (K, n) matrix of n-tuples (only if requested).
+        ``(K, n)`` matrix of n-tuples. Row *i* is the n-tuple
+        starting from the *i*-th event of the sorted circular
+        sequence; column *j* is the value at lag *j*.
+
+    See Also
+    --------
+    bind_events
+    entropy_exp_tens
+    build_exp_tens
+    difference_events
 
     References
     ----------
     Milne, A. J. & Dean, R. T. (2016). Computational creation and
     morphing of multilevel rhythms by control of evenness. *Computer
     Music Journal*, 40(1), 35–53.
+    Milne, A. J. (2024). Commentary on Buechele, Cooke, &
+    Berezovsky (2024): Entropic models of scales and some
+    extensions. *Empirical Musicology Review*, 19(2), 143–152.
     """
     p = np.asarray(p, dtype=np.int64).ravel()
     period = int(period)
@@ -173,74 +457,55 @@ def n_tuple_entropy(
     K = len(p)
 
     if len(np.unique(p)) != K:
-        raise ValueError("p must not contain duplicate pitch classes (mod period).")
+        raise ValueError("p must not contain duplicate values (mod period).")
     if K < 2:
         raise ValueError(f"At least 2 events required (got {K}).")
     if n > K - 1:
         raise ValueError(f"n must not exceed K - 1 = {K - 1} (got n = {n}).")
 
-    N = period
-    total_bins = N**n
-    if total_bins > 1e9:
-        raise ValueError(
-            f"period^n = {N}^{n} = {total_bins:.2e} exceeds 10^9."
-        )
+    if n_points_per_dim is None:
+        n_grid = period
+    else:
+        n_grid = int(n_points_per_dim)
+        if n_grid < 1:
+            raise ValueError(
+                f"n_points_per_dim must be a positive integer "
+                f"(got {n_grid})."
+            )
 
-    # Build circulant rotations
-    idx = (np.arange(K)[:, None] + np.arange(K)[None, :]) % K
-    rotations = p[idx]  # K x K
+    # --- Cyclic step sizes: K events -> K cyclic differences ---
+    diffs = np.mod(
+        np.diff(np.concatenate([p, [p[0] + period]])),
+        period,
+    )
+    diffs_row = diffs.astype(np.float64).reshape(1, -1)
 
-    # Step sizes
-    all_steps = np.diff(rotations, axis=0) % N  # (K-1) x K
-    steps = all_steps[:n, :]  # n x K
+    # --- Bind n consecutive cyclic step sizes ---
+    p_bound, w_bound = bind_events(diffs_row, None, n, circular=True)
 
-    tuples_out = steps.T  # K x n
+    # --- Build MAET ---
+    # n attributes (one per lag), all in one group sharing sigma,
+    # is_per = True, period; r = 1 per attribute (each is an
+    # absolute monad).
+    sigma_use = sigma if sigma > 0 else 1e-12
+    T = build_exp_tens(
+        p_bound, w_bound,
+        [sigma_use], [1] * n, [0] * n,
+        [False], [True], [period],
+        verbose=False,
+    )
 
-    # Linear index for histogram
-    multipliers = N ** np.arange(n)  # (n,)
-    lin_idx = (tuples_out @ multipliers).astype(np.intp)  # (K,)
+    # --- Shannon entropy on the chosen grid ---
+    H = entropy_exp_tens(
+        T,
+        normalize=normalize,
+        base=base,
+        n_points_per_dim=n_grid,
+    )
 
-    counts = np.bincount(lin_idx, minlength=total_bins).astype(np.float64)
-
-    # Gaussian smoothing
-    if sigma > 0:
-        counts = _smooth_histogram(counts, N, n, sigma)
-
-    total = np.sum(counts)
-    if total == 0:
-        return 0.0, tuples_out
-
-    q = counts / total
-    q = q[q > 0]
-
-    H = float(-np.sum(q * np.log(q) / np.log(base)))
-
-    if normalize:
-        H /= np.log(total_bins) / np.log(base)
+    # --- Tuples matrix (K, n) for compatibility with the prior API ---
+    tuples_out = np.column_stack(
+        [row.ravel() for row in p_bound]
+    ).astype(np.int64)
 
     return H, tuples_out
-
-
-def _smooth_histogram(counts, N, n, sigma):
-    """Separable circular Gaussian convolution on an n-D histogram."""
-    # Build 1-D circular Gaussian kernel
-    x = np.arange(N, dtype=np.float64)
-    d = np.minimum(x, N - x)
-    kernel = np.exp(-d**2 / (2 * sigma**2))
-    kernel /= np.sum(kernel)
-    kernel_fft = _fft(kernel)
-
-    # Reshape to n-D
-    if n == 1:
-        hist_nd = counts.copy()
-    else:
-        hist_nd = counts.reshape([N] * n)
-
-    # Separable convolution along each dimension
-    for dim in range(n):
-        shape = [1] * max(n, 1)
-        shape[dim] = N
-        k_fft = kernel_fft.reshape(shape)
-        hist_nd = np.real(_ifft(_fft(hist_nd, axis=dim) * k_fft, axis=dim))
-
-    return np.maximum(hist_nd.ravel(), 0)

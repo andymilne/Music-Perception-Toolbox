@@ -17,7 +17,7 @@ def validate_weights(
     Parameters
     ----------
     w : array-like or None
-        Weights. ``None`` or an empty array gives uniform weights.
+        Weights. ``None`` or an empty array gives all ones.
         A scalar is broadcast to length *n*.
     n : int
         Required length of the output vector.

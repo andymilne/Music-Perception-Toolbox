@@ -53,7 +53,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %     p     — Pitch values in cents (vector of length K, where K >= 2).
 %             These are absolute pitches, not pitch classes. The
 %             function computes intervals internally.
-%     w     — Weights (vector of length K, or empty for uniform).
+%     w     — Weights (vector of length K, or empty for all ones).
 %             These weight the template's partials; typically left
 %             empty unless modelling unequal-amplitude tones.
 %     sigma — Gaussian smoothing width in cents. Models perceptual

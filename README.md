@@ -10,7 +10,7 @@ The toolbox implements several original theoretical frameworks grounded in proba
 
 **Consonance and harmonicity.** Spectral entropy, template harmonicity, tensor harmonicity, sensory roughness, and virtual pitch analysis — complementary measures capturing different aspects of consonance. The toolbox models roughness and harmonicity; it does not model familiarity, which requires corpus-based or learning-based approaches.
 
-**Scale and rhythm structure.** Fourier-based balance and evenness; coherence, sameness, and n-tuple entropy; edge detection, projected centroid, mean offset, circular autocorrelation phase matrices, and Markov prediction — applicable to both scales and rhythms.
+**Scale and rhythm structure.** Fourier-based balance and evenness; coherence, sameness, n-tuple entropy, and event binding for n-gram analyses; edge detection, projected centroid, mean offset, circular autocorrelation phase matrices, and Markov prediction — applicable to both scales and rhythms.
 
 **Utility.** Pitch scale conversion between seven scales (Hz, MIDI, cents, mel, Bark, ERB-rate, Greenwood) and spectral peak extraction from audio files.
 

@@ -100,7 +100,7 @@ function [c, nc] = coherence(p, period, nvArgs)
 
     if numel(unique(p)) ~= K
         error('coherence:duplicates', ...
-              'p must not contain duplicate pitch classes (modulo period).');
+              'p must not contain duplicate values (modulo period).');
     end
 
     if K < 2

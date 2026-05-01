@@ -237,12 +237,12 @@ for i = 1:nRows
     pAv   = pA(maskA);
     pBv   = pB(maskB);
 
-    % Check minimum pitch count
+    % Check minimum p-value count
     if numel(pAv) < r || numel(pBv) < r
         continue;
     end
 
-    % Get weights (or empty for uniform)
+    % Get weights (or empty for all ones)
     if useWeightsA
         wAv = weightsA(i, maskA);
     else
@@ -435,7 +435,7 @@ function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
 
     hasWeights = ~isempty(w);
 
-    % Sort pitches and align weights
+    % Sort p-values and align weights
     [p, si] = sort(p);
     if hasWeights
         w = w(si);
@@ -454,7 +454,7 @@ function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
     if isRel
         if isPer
             % Cyclic canonical form: the lexicographically smallest
-            % rotation (subtract each pitch in turn, mod period, re-sort
+            % rotation (subtract each p-value in turn, mod period, re-sort
             % with weights) captures all transposition-modulo-period
             % equivalences.
             [pCan, wCan, ~] = cyclicCanonical(p, w, hasWeights, period);
@@ -500,7 +500,7 @@ function [pBest, wBest, bestShift] = cyclicCanonical(pSorted, wSorted, hasWeight
         shifted = mod(pSorted - pSorted(rot), period);
         [shifted, si] = sort(shifted);
 
-        % Compare pitches first; break ties with weights
+        % Compare p-values first; break ties with weights
         cmp = lexCompare(shifted(:)', pBest);
         if cmp < 0
             pBest = shifted(:)';

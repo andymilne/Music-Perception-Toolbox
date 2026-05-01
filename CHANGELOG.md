@@ -6,6 +6,100 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.1.0] — 2026-04-30
+
+### Overview
+
+Version 2.1.0 generalises the expectation tensor framework to **multiple attributes per event** (multi-attribute expectation tensors, MAETs), and adds a **post-tensor windowing** mechanism for sliding-window template matching along any MAET group. Together these let the toolbox handle questions that the single-attribute treatment of v2.0.0 could not: locating motif recurrences over time, probe-tone scanning on irregularly timed contexts, polyphonic voice-aware analyses, and multi-quantity similarity (e.g., pitch combined with register, timbre, or metrical position) with the same closed-form analytical cosine-similarity inner product that underlies the single-attribute case.
+
+Two cross-event preprocessing primitives, `differenceEvents` and `bindEvents`, support analyses based on inter-event differences and on n-tuples of consecutive events. Two utilities for sequential analysis, `continuity` and `seqWeights`, also accompany the main additions.
+
+The release is additive: existing v2.0.0 single-attribute calling conventions for `buildExpTens`, `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` are preserved unchanged. The new multi-attribute calling form is dispatched on input shape (a cell / list of per-attribute arrays for `p`) and is otherwise separate.
+
+### Added — Multi-attribute expectation tensors
+
+- **MAET calling form for `buildExpTens`, `evalExpTens`, `cosSimExpTens`, `entropyExpTens`** — Each now accepts a multi-attribute density specification alongside the v2.0.0 single-attribute form. A MAET carries $A$ attributes in $G \le A$ groups; each attribute has its own tuple order $r_a$ and per-event slot count $K_a$, and each group has shared $\sigma$, `isRel`, `isPer`, and `period`. The density factorises as a product of per-attribute Gaussian-mixture kernels, and the cosine-similarity inner product factorises analytically in the same way. The single-attribute case is the special case $A = 1$. See User Guide §3.1 for the mathematical formulation and the post-tensor windowing mechanism built on top of it.
+
+### Added — Cross-event preprocessing
+
+- **`differenceEvents`** — Preprocessing helper that replaces each selected group's event sequence with inter-event differences before tensor construction. Per-group differencing order $k$ produces the $k$-th finite differences along the event axis (reducing the event count by $k$); periods supplied per group wrap each raw difference to the shortest signed arc. Weights propagate as rolling products of width $k + 1$, interpretable as the probability that all constituents of a difference are jointly perceived. Inputs are restricted to $K_a = 1$ slots per event; see User Guide §3.1 (Cross-event preprocessing) for the rationale and the voices-as-attributes pipeline for polyphonic step-size analyses. Output feeds directly into `buildExpTens`. This supports analyses over interval content, IOIs, and higher-order differences without needing a dedicated interval representation.
+
+- **`bindEvents`** — Preprocessing helper that gathers $n$ consecutive events into a single super-event with $n$ separate $K_a = 1$ attributes carrying the values at lags $0$ through $n-1$. Output is a length-$n$ list of single-value attribute matrices, suitable as the `pAttr` argument of `buildExpTens` with all $n$ attributes assigned to a single group sharing $\sigma$ and the other group-level parameters. Lag slots are kept as separate attributes (rather than a single $K_a = n$ multi-slot attribute) because lag identity is non-exchangeable — within-attribute multiset symmetry would otherwise collapse ordered tuples to unordered ones. Per-event weights propagate as rolling products of width $n$, mirroring the differencing rule. Default output has $N - n + 1$ super-events; a `circular` option produces $N$ by wrapping around the input sequence. Composes with `differenceEvents`: the standard pipeline `differenceEvents` $\to$ `bindEvents` $\to$ `buildExpTens` $\to$ `entropyExpTens` recovers the n-tuple entropy of Milne & Dean (2016) at $\sigma \to 0$ and uniform weights, and extends it to the smoothed continuous case, weighted events, and non-periodic domains; for $n \ge 2$ the bound MAET is itself an $n$-dimensional density supporting cosine-similarity comparison of n-tuple distributions across pieces and the rest of the MAET pipeline. Used without preceding differencing, produces n-grams in absolute pitch or time register, useful when register or absolute timing carries musical information that the differenced view discards.
+
+### Added — Post-tensor windowing
+
+- **`windowTensor`** — Wraps a MAET with a per-group window specification (widths, shapes, and centres), returning a `WindowedMaetDensity` that is consumed lazily by `evalExpTens` (pointwise multiplication by the window) and by `cosSimExpTens` (closed-form windowed inner product). Windows are specified in a one-parameter family by `size` (width, in multiples of group $\sigma$) and `mix` in $[0, 1]$ (shape: pure Gaussian at 0, pure rectangular at 1, rectangular-convolved-with-Gaussian in between).
+
+- **`windowedSimilarity`** — Sweeps a series of window centres across a windowed context and returns the windowed-similarity profile against a query. Implements cross-correlation: at each sweep centre $c$ in a windowed group, the query is translated so that its effective-space mean within that group moves onto $c$, so a peak at $c$ means the query pattern is present in the context near $c$. The unwindowed $L^2$ norms are used in the normaliser, making the returned profile magnitude-aware (denser matching content gives a higher value than sparser content). The output is *not* a cosine similarity in the strict sense (the unwindowed denominator means it is not bounded in $[-1, 1]$ across sweep positions); "cosine similarity" is reserved for the strict shape-only form, which is not currently implemented in the toolbox. See User Guide §3.1 "Post-tensor windowing".
+
+- **Periodic-window approximation warning.** `windowedSimilarity` (MATLAB) and `windowed_similarity` (Python) now emit a warning when applied to a periodic group whose window standard deviation $\lambda\sigma$ is at least $P/4$, since the closed form in use is the line-case formula and degrades as window support approaches one period. (For windows larger than a period, the windowed inner product collapses to the unwindowed form.) MATLAB warning identifier `windowedSimilarity:periodicWindowApprox`; Python warning class `WindowedSimilarityPeriodicApproxWarning`, registered with an "always" filter so it fires on every offending call (matching the MATLAB per-call behaviour). Suppressible via the standard MATLAB / Python warning-filter mechanisms. See User Guide §3.1 "Post-tensor windowing".
+
+- **Analytical closed form.** The cosine-similarity inner product between a windowed MAET and an unwindowed MAET is closed-form analytical across the full `(size, mix)` family for all 1-D groups and all multi-dimensional absolute groups; for multi-dimensional relative groups, it is established for the pure-Gaussian window only, with approximate handling of the full family left as a future extension.
+
+### Added — Sequential-analysis utilities
+
+- **`continuity`** — Expected length and signed magnitude of the backward same-direction run leading up to each query, under Gaussian pitch uncertainty. Smoothed directional-agreement score $a_k = \mathrm{erf}(i_k/(2\sigma)) \cdot \mathrm{erf}(i_N/(2\sigma))$ drives a backward walk from the most recent context interval. Two break-threshold modes (`'strict'` with $\theta = 0$, `'lenient'` with $\theta = -1$) and an explicit-threshold override. Returns `(count, magnitude)`; `magnitude / count` is a trend-slope measure. An optional `w` argument supplies per-event salience weights; the salience of difference event $k$ is the rolling product $w_k \cdot w_{k+1}$, matching `differenceEvents` at order 1, and scales each interval's contribution to `count` and `magnitude`. Internally, the function routes through `differenceEvents` to compute both the context intervals and their weights, so the preprocessing is shared with the MAET-with-differencing pipeline; the read-out (a directional, order-preserving backward walk with a break condition) is not. Defined only on linearly ordered domains.
+
+- **`seqWeights`** — Constructs length-$N$ position-weight vectors from a named specification (`'flat'`, `'primacy'`, `'recency'`, `'exponentialFromStart'`, `'exponentialFromEnd'`, `'uShape'`) or an explicit profile. Supports time-based decay via an optional time index. Combines an intrinsic per-event salience with a memory-decay or attentional profile in a single inspectable vector, usable anywhere a weight argument is accepted.
+
+### Added — Categorical-encoding utility
+
+- **`simplexVertices`** (MATLAB), **`simplex_vertices`** (Python) — Returns the $N$ vertices of a regular $(N-1)$-simplex centred at the origin in $\mathbb{R}^{N-1}$, with all pairwise vertex distances equal to a specified `edgeLength` (default 1). Supports the simplex-coded encoding of an $N$-level categorical attribute (voice identity, instrument, etc.) for MAET inputs: each level is represented by an $(N-1)$-dimensional coordinate row, fed as values for the $N-1$ numerical sub-attributes of a single categorical group. All levels are pairwise equidistant, so no level is privileged over any other --- in contrast to dummy or treatment coding. Construction uses the centred standard basis of $\mathbb{R}^N$ projected onto an orthonormal basis of $\mathbf{1}^\perp$; the result is rotation-equivalent across choices of basis, which is irrelevant for downstream MAET computations.
+
+### Added — Data structures
+
+- **`MaetDensity`** and **`WindowedMaetDensity`** — Tagged dataclasses (Python) / tagged structs (MATLAB) produced by `buildExpTens` (multi-attribute form) and `windowTensor` respectively. `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` dispatch on the tag.
+
+### Changed
+
+- Python `mpt` package version bumped to `2.1.0` (`__version__` and `pyproject.toml`).
+
+- Renamed `windowedCosSim` (MATLAB) and `windowed_cos_sim` (Python) to `windowedSimilarity` and `windowed_similarity` respectively. The function's output is a magnitude-aware *windowed similarity*, which is not a cosine similarity in the strict sense (the unwindowed denominator means it is not bounded in $[-1, 1]$ across sweep positions and does not correspond to an inner product on a single Hilbert space). "Cosine similarity" is reserved for the strict shape-only form, which is not currently implemented in the toolbox. This rename is a breaking change relative to the unreleased v2.1.0 development drafts; v2.0.0 was unaffected (the function did not exist there). See User Guide §3.1 "Post-tensor windowing".
+
+- **`windowedSimilarity` / `windowed_similarity` `reference` option.** Added a `reference` keyword argument (Python) / name-value pair (MATLAB) that allows the offset-axis origin per attribute to be set explicitly. When absent or `None` / `[]` (default), the prior unweighted-centroid behaviour is preserved byte-for-byte. When supplied, the call uses the given reference as the offset-axis origin per attribute — for example, calibrated to a canonical harmonic query so that offsets retain a stable musical-interval reading across queries with different slot counts, slot values, or slot weights. See User Guide §3.1 "Post-tensor windowing" for the practical guidance on default versus fixed-reference choices and the `demo_windowingReference` / `demo_windowing_reference` demo for a worked walkthrough.
+
+- **`nTupleEntropy` / `n_tuple_entropy` refactored as a thin wrapper.** Internally now calls the `differenceEvents` $\to$ `bindEvents` $\to$ `buildExpTens` $\to$ `entropyExpTens` pipeline. With default arguments (`sigma = 0`, `nPointsPerDim = period`, `normalize = true`) it exactly replicates the discrete n-tuple entropy of Milne & Dean (2016) byte-for-byte; existing call sites are unaffected. New optional name-value pairs expose the underlying flexibility: `nPointsPerDim` controls the entropy-evaluation grid resolution per dimension (the integer-step grid by default, finer for better resolution of smoothed densities). For non-integer values, weighted events, non-periodic domains, or to obtain the n-tuple density itself for similarity comparison and other MAET operations, call the primitives directly.
+
+### Design notes
+
+**Additivity.** The v2.0.0 single-attribute calling conventions are preserved verbatim: `buildExpTens(p, w, sigma, r, isRel, isPer, period)`, `cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period)`, and friends continue to work unchanged. The multi-attribute calling form is distinguished by passing `p` as a cell array (MATLAB) or list (Python) of per-attribute value matrices, so the single- and multi-attribute paths do not collide.
+
+**Option Z normalisation.** `windowedSimilarity` normalises by the product of the *unwindowed* L2 norms of the two operands (rather than, say, the windowed norm of the context). This makes the profile value at each sweep position reflect both how well the local content matches the query and how much matching content is present. Multiplying either operand's weights by a constant leaves the profile unchanged.
+
+**MaetDensity slot layout.** For a relative group, `buildExpTens` stores the effective-space Gaussian centres using a slot-0-anchored reduction: $v_i = u_{i+1} - u_0$ for $i = 1, \ldots, r-1$. This convention is inherited by all downstream consumers, including the cross-correlation shift lift in `windowedSimilarity`.
+
+---
+
+## [2.0.2] — 2026-04-15
+
+### Fixed
+
+- **`batchCosSimExpTens` / `batch_cos_sim_exp_tens`** — The absolute periodic deduplication path (`isRel = false`, `isPer = true`) now uses the cyclic canonical form to normalise A-sets, collapsing all transposition-modulo-period equivalences. Previously, only transpositions that preserved the sort order after mod-reduction were detected; transpositions that wrapped pitches across the period boundary produced distinct keys for the same equivalence class.
+
+### Changed
+
+- When `'precision'` is set, canonical forms are re-rounded after mod-reduction and subtraction to absorb arithmetic noise from these operations. Previously, rounding was applied only to the raw input values.
+- Verbose output now reports which canonicalisation mode was applied and notes that, in absolute mode, B-set counts reflect position relative to A's canonical form.
+- Docstring lists the equivalences exploited in all four `isRel` / `isPer` combinations, and documents the limitation of `'precision'` for pitches on irrational grids (e.g., N-EDO where 1200/N is a repeating decimal) with the workaround of converting to integer EDO steps.
+
+---
+
+## [2.0.1] — 2026-04-15
+
+### Fixed
+
+- **`cosSimExpTens` / `cos_sim_exp_tens`** — Fixed incorrect transposition invariance in the periodic relative case (`isPer = true`, `isRel = true`). The quadratic form $Q$ now wraps pairwise differences between components of the wrapped difference vector, restoring exact transposition invariance on the circle. Previously, component-wise wrapping could introduce $\pm$period artefacts, producing cosine similarity discrepancies of $\sim 5 \times 10^{-7}$ for typical parameters ($\sigma = 10$, period = 1200). This issue was present in the original v1 implementation. Non-periodic and absolute results are unchanged.
+
+### Changed
+
+- **`batchCosSimExpTens` / `batch_cos_sim_exp_tens`** — Rewritten with three optimisations:
+  - **Canonical-form deduplication** under `isPer` (mod reduction), `isRel` (transposition normalisation), and both (cyclic canonical form), reducing redundant computation when input rows contain equivalent pitch sets.
+  - **Individual-set density caching** — `buildExpTens` is called once per unique multiset rather than once per unique pair.
+  - **New `'precision'` parameter** — optionally rounds pitch and weight values to a specified number of decimal places before processing, ensuring nominally identical multisets differing only by floating-point noise are correctly deduplicated.
+- User Guide updated to document the wrapped-pairwise-difference form of $Q$ for the periodic relative case.
+
+---
+
 ## [2.0.0] — 2026-04-05
 
 ### Overview

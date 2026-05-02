@@ -54,7 +54,13 @@ end
 %  ===================================================================
 
 fprintf('\n=== 2. Smoothed n-tuple entropy (sigma > 0) ===\n');
-fprintf('    Bind+MAET pipeline extends naturally to non-zero sigma.\n\n');
+fprintf('    Bind+MAET pipeline extends naturally to non-zero sigma.\n');
+fprintf('    Here the manual pipeline applies sigma directly to the\n');
+fprintf('    differenced kernel (interval-space semantics), so the\n');
+fprintf('    nTupleEntropy reference is called with sigmaSpace =\n');
+fprintf('    ''interval'' to match. The default sigmaSpace = ''position''\n');
+fprintf('    (sigma as positional uncertainty on each event) is\n');
+fprintf('    illustrated separately in demo_sigmaSpace.\n\n');
 
 fprintf('    %3s  %6s  %12s  %15s\n', 'n', 'sigma', 'bind+MAET', 'nTupleEntropy');
 for n = 1:3
@@ -66,6 +72,7 @@ for n = 1:3
         H_bind = entropyExpTens(T, 'normalize', false, 'base', 2, ...
                                  'nPointsPerDim', P);
         H_ref = nTupleEntropy(p, P, n, 'sigma', sigma, ...
+                               'sigmaSpace', 'interval', ...
                                'normalize', false, 'base', 2);
         fprintf('    %3d  %6.1f  %12.6f  %15.6f\n', ...
                 n, sigma, H_bind, H_ref);

@@ -84,13 +84,20 @@ for n in [1, 2, 3]:
 # ===================================================================
 
 print("\n=== 2. Smoothed n-tuple entropy (sigma > 0) ===")
-print("    Bind+MAET pipeline extends naturally to non-zero sigma.\n")
+print("    Bind+MAET pipeline extends naturally to non-zero sigma.")
+print("    Here the manual pipeline applies sigma directly to the")
+print("    differenced kernel (interval-space semantics), so the")
+print("    n_tuple_entropy reference is called with sigma_space =")
+print("    'interval' to match. The default sigma_space = 'position'")
+print("    (sigma as positional uncertainty on each event) is")
+print("    illustrated separately in demo_sigma_space.\n")
 
 print(f"    {'n':>3}  {'sigma':>6}  {'bind+MAET':>12}  {'nTupleEntropy':>15}")
 for n in [1, 2, 3]:
     for sigma in [0.5, 1.0]:
         H_bind = n_tuple_entropy_via_bind(p, P, n, sigma=sigma)
         H_ref, _ = n_tuple_entropy(p, P, n=n, sigma=sigma,
+                                    sigma_space="interval",
                                     normalize=False, base=2)
         print(f"    {n:>3}  {sigma:>6}  {H_bind:>12.6f}  {H_ref:>15.6f}")
 

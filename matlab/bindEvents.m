@@ -6,7 +6,7 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %   single-attribute event sequence and slides a window of width n
 %   across it, emitting each window as an n-attribute super-event
 %   whose j-th attribute holds the value at lag j-1 (j = 1, ..., n).
-%   The output is a 1 x n cell of 1 x N' matrices, suitable for
+%   The output is a 1 x n cell of K_a x N' matrices, suitable for
 %   direct use as the pAttr argument of buildExpTens with all n
 %   attributes assigned to a single group.
 %
@@ -25,21 +25,28 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %   compared via cosSimExpTens, queried via windowed similarity, and
 %   so on.
 %
-%   The lag slots are emitted as separate K_a = 1 attributes (rather
-%   than packed into a single K_a = n attribute) because lag identity
-%   is not exchangeable: slot j and slot j+1 carry distinct
-%   positional meanings. The MAET framework's within-attribute
-%   exchangeability would collapse ordered tuples to unordered ones,
-%   so positional structure must be carried by the attribute axis.
+%   The lag slots are emitted as separate K_a-valued attributes (one
+%   attribute per lag) rather than packed into a single attribute,
+%   because lag identity is not exchangeable: the value at lag j and
+%   the value at lag j+1 carry distinct positional meanings within
+%   the bound super-event. By contrast, K_a > 1 inputs (multi-value
+%   attributes whose slots are deliberately exchangeable) are
+%   permitted: each output attribute then carries the K_a slot values
+%   of one underlying event, and the within-attribute exchangeability
+%   is preserved per output attribute. Cross-event slot alignment is
+%   never imposed, because the cross-event structure is between
+%   output attributes, not within.
 %
 %   N' = N - n + 1 (default) or N (when 'circular' is true).
 %
 %   Inputs
-%       p  - Event values: a 1 x N row vector or a 1-cell {1 x N}
-%            (the 1-cell form is accepted for symmetry with the
-%            output of differenceEvents). K_a = 1 only.
-%       w  - Weights. [], scalar, 1 x N row, or 1-cell of any of
-%            those (matching the p-input form).
+%       p  - Event values: a K_a x N matrix, a 1 x N row, a length-N
+%            vector, or a 1-cell {K_a x N} (the 1-cell form is
+%            accepted for symmetry with the output of
+%            differenceEvents). K_a >= 1.
+%       w  - Weights. [], scalar, 1 x N row, K_a x 1 column, K_a x N
+%            matrix, or a 1-cell of any of those (matching the
+%            p-input form).
 %       n  - Window size (positive integer).
 %
 %   Name-Value Arguments
@@ -60,15 +67,21 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %                    two flags are orthogonal.
 %
 %   Outputs
-%       pBound - 1 x n cell of 1 x N' matrices. pBound{j} contains
-%                the value at lag j-1 for each window.
-%       wBound - Weight of each bound super-event = product of the n
-%                input weights it spans (rolling product of width n).
-%                Shape mirrors the input:
+%       pBound - 1 x n cell of K_a x N' matrices. pBound{j} contains
+%                the value(s) at lag j-1 for each window. For K_a = 1
+%                input each cell is 1 x N'.
+%       wBound - Per-attribute weight propagation, in the form that
+%                buildExpTens accepts directly:
 %                  - []           stays []
-%                  - scalar c     becomes c^n
-%                  - 1 x N row    becomes 1 x N' row
-%                  - 1-cell input returns a 1-cell wrapper.
+%                  - scalar c     stays c (broadcast in buildExpTens)
+%                  - 1 x N row    becomes 1 x n cell of 1 x N' rows
+%                  - K_a x 1 col  becomes 1 x n cell of K_a x 1 cols
+%                  - K_a x N      becomes 1 x n cell of K_a x N' mats
+%                The end-to-end numerics are equivalent to a rolling
+%                product of slot weights: each output attribute
+%                inherits the slot weights of the underlying event at
+%                its lag, and buildExpTens multiplies across attributes
+%                during tuple enumeration.
 %
 %   Examples
 %       % 2-tuple entropy of step sizes (diatonic scale, sigma = 0)
@@ -121,22 +134,21 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
         w = w{1};
     end
 
-    % --- Validate p shape (K_a = 1 row vector) ---
+    % --- Validate p shape (allow any K_a >= 1) ---
     if ~isnumeric(p)
         error('bindEvents:badPType', 'p must be numeric.');
     end
     p = double(p);
-    if ~isvector(p) && ndims(p) <= 2 && size(p, 1) ~= 1
-        error('bindEvents:multiSlotAttribute', ...
-              ['p has shape [%s]; bindEvents requires K_a = 1 ' ...
-               '(a 1 x N row vector). Within-event slot ' ...
-               'exchangeability does not license the cross-event ' ...
-               'slot alignment that sliding-window binding imposes ' ...
-               '(same constraint as differenceEvents).'], ...
-              num2str(size(p)));
+    if ndims(p) > 2
+        error('bindEvents:badPDims', ...
+              'p must be at most 2-D; got ndims = %d.', ndims(p));
     end
-    p = p(:).';   % canonicalize to 1 x N
-    N = numel(p);
+    if isvector(p)
+        % Canonicalise length-N vector to 1 x N (K_a = 1).
+        p = reshape(p, 1, []);
+    end
+    Ka = size(p, 1);
+    N  = size(p, 2);
 
     if nvArgs.circular
         if n > N
@@ -154,8 +166,7 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
         end
     end
 
-    % --- Build the n lag matrices ---
-    % pBound{j}(1, i) = p( idx(i, j) )
+    % --- Build the n lag matrices, preserving K_a ---
     if nvArgs.circular
         idxMat = mod((0:nPrime-1).' + (0:n-1), N) + 1;   % nPrime x n
     else
@@ -163,33 +174,82 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
     end
     pBound = cell(1, n);
     for j = 1:n
-        pBound{j} = reshape(p(idxMat(:, j)), 1, nPrime);
+        pBound{j} = p(:, idxMat(:, j));      % K_a x nPrime
     end
 
-    % --- Transform weights ---
-    if isempty(w) && ~iscell(w)
+    % --- Weights: per-attribute propagation ---
+    %
+    % Each output attribute inherits the slot weights of the underlying
+    % event at its lag. buildExpTens then multiplies across attributes
+    % during tuple enumeration, so the end-to-end weight of a bound
+    % super-event equals the product of the n constituent events'
+    % weights (the same numerical contribution as the prior eager
+    % rolling product, for K_a = 1; the natural generalisation for
+    % K_a > 1).
+
+    if isempty(w)
         wBound = [];
     elseif isnumeric(w) && isscalar(w)
-        wBound = double(w) ^ n;
-    elseif isnumeric(w) && isvector(w) && numel(w) == N
-        wRow = double(w(:).');
-        if nvArgs.circular
-            % Rolling product over n consecutive entries with wrap
-            wBoundRow = zeros(1, nPrime);
-            for i = 1:nPrime
-                wBoundRow(i) = prod(wRow(idxMat(i, :)));
-            end
-        else
-            wBoundRow = zeros(1, nPrime);
-            for i = 1:nPrime
-                wBoundRow(i) = prod(wRow(i:i + n - 1));
+        % Scalar weight broadcasts in buildExpTens; pass through as scalar.
+        % Note: a scalar c here means each event has weight c, which makes
+        % each bound super-event's effective weight c^n via the multi-
+        % attribute weight machinery. Numerically equivalent to the
+        % prior c^n eager return, after buildExpTens' broadcast.
+        wBound = double(w);
+    elseif isnumeric(w)
+        if ndims(w) > 2
+            error('bindEvents:badWDims', ...
+                  'w must be at most 2-D; got ndims = %d.', ndims(w));
+        end
+        wMat = double(w);
+
+        % Coerce 1-D vector / 1 x N row / K_a x 1 col / K_a x N matrix
+        % into a 2-D matrix consistent with the p-shape.
+        if isvector(wMat)
+            if numel(wMat) == N
+                wMat = reshape(wMat, 1, []);     % 1 x N row
+            elseif numel(wMat) == Ka && Ka ~= N
+                wMat = reshape(wMat, [], 1);     % K_a x 1 col
+            elseif Ka == N
+                % Ambiguous: the input length matches both N and K_a.
+                % Honour the literal shape supplied (vectors are coerced
+                % above to a row by default, so this branch is the
+                % literal-shape pass-through).
+                wMat = reshape(wMat, 1, []);
+            else
+                error('bindEvents:badWeightShape', ...
+                      ['w as a vector must have length N = %d or ' ...
+                       'K_a = %d (got length %d).'], N, Ka, numel(wMat));
             end
         end
-        wBound = wBoundRow;
+
+        if size(wMat, 1) == 1 && size(wMat, 2) == N
+            % 1 x N row -> propagate per attribute as 1 x N' rows
+            wBound = cell(1, n);
+            for j = 1:n
+                wBound{j} = wMat(1, idxMat(:, j));   % 1 x nPrime
+            end
+        elseif size(wMat, 1) == Ka && size(wMat, 2) == 1
+            % K_a x 1 column -> per-attribute K_a x 1 (broadcast in builder)
+            wBound = cell(1, n);
+            for j = 1:n
+                wBound{j} = wMat;                    % K_a x 1
+            end
+        elseif size(wMat, 1) == Ka && size(wMat, 2) == N
+            % K_a x N matrix -> per-attribute K_a x N' matrix
+            wBound = cell(1, n);
+            for j = 1:n
+                wBound{j} = wMat(:, idxMat(:, j));   % K_a x nPrime
+            end
+        else
+            error('bindEvents:badWeightShape', ...
+                  ['w must be [], a scalar, a 1 x N row, a K_a x 1 ' ...
+                   'column, or a K_a x N matrix (got shape [%s] with ' ...
+                   'K_a = %d, N = %d).'], num2str(size(w)), Ka, N);
+        end
     else
-        error('bindEvents:badWeightShape', ...
-              ['w must be [], a scalar, or a 1 x N row vector ' ...
-               '(got shape [%s]).'], num2str(size(w)));
+        error('bindEvents:badWeightType', ...
+              'w must be [] or numeric.');
     end
 
     % --- Re-wrap weight in a 1-cell if input was 1-cell ---

@@ -2516,13 +2516,13 @@ def bind_events(p, w=None, n=2, *, circular=False):
     """Bind n consecutive events into n-attribute super-events.
 
     Cross-event preprocessing helper for multi-attribute tensor input.
-    Slides a window of width *n* across a single-attribute event
-    sequence and emits each window as an *n*-attribute super-event
-    whose *j*-th attribute holds the value at lag ``j-1``
-    (``j = 1, ..., n``). The output is a length-*n* list of
-    ``(1, N')`` arrays, suitable for direct use as the ``p_attr``
-    argument of :func:`build_exp_tens` with all *n* attributes
-    assigned to a single group.
+    Slides a window of width *n* across an event sequence and emits
+    each window as an *n*-attribute super-event whose *j*-th
+    attribute holds the value(s) at lag ``j-1`` (``j = 1, ..., n``).
+    The output is a length-*n* list of ``(K_a, N')`` arrays, suitable
+    for direct use as the ``p_attr`` argument of
+    :func:`build_exp_tens` with all *n* attributes assigned to a
+    single group.
 
     This complements :func:`difference_events`: differencing
     aggregates *across* event boundaries (collapsing ``k+1``
@@ -2540,30 +2540,33 @@ def bind_events(p, w=None, n=2, *, circular=False):
     compared via :func:`cos_sim_exp_tens`, queried via
     :func:`windowed_similarity`, and so on.
 
-    Lag slots are emitted as separate ``K_a = 1`` attributes (rather
-    than packed into a single ``K_a = n`` attribute) because lag
-    identity is not exchangeable: slot *j* and slot *j+1* carry
-    distinct positional meanings. The MAET framework's within-
-    attribute exchangeability would collapse ordered tuples to
-    unordered ones, so positional structure must be carried by the
-    attribute axis.
+    Lag slots are emitted as separate (``K_a``-valued) attributes,
+    one per lag, rather than packed into a single attribute, because
+    lag identity is not exchangeable: the value at lag *j* and the
+    value at lag *j+1* carry distinct positional meanings within the
+    bound super-event. By contrast, ``K_a > 1`` inputs (multi-value
+    attributes whose slots are deliberately exchangeable) are
+    permitted: each output attribute then carries the ``K_a`` slot
+    values of one underlying event, and the within-attribute
+    exchangeability is preserved per output attribute. Cross-event
+    slot alignment is never imposed, because the cross-event
+    structure is between output attributes, not within.
 
     ``N' = N - n + 1`` (default) or ``N`` (when *circular* is True).
 
     Parameters
     ----------
     p : array-like
-        Event values: a length-*N* 1-D array, a ``(1, N)`` row, or a
+        Event values: a ``(K_a, N)`` 2-D array, a ``(1, N)`` row, a
+        length-*N* 1-D array (interpreted as ``K_a = 1``), or a
         length-1 list/tuple wrapping one of those (the wrapped form
         is accepted for symmetry with the output of
-        :func:`difference_events`). ``K_a = 1`` only: within-event
-        slot exchangeability does not license the cross-event slot
-        alignment that sliding-window binding imposes (same
-        constraint as :func:`difference_events`).
+        :func:`difference_events`). ``K_a >= 1``.
     w : None, scalar, or array-like
-        Weights. ``None``, scalar, or length-*N* 1-D / ``(1, N)``
-        row. May also be a length-1 list/tuple wrapping any of
-        those (matching the *p* form).
+        Weights. ``None``, scalar, length-*N* 1-D, ``(1, N)`` row,
+        ``(K_a, 1)`` column, or ``(K_a, N)`` matrix. May also be a
+        length-1 list/tuple wrapping any of those (matching the *p*
+        form).
     n : int
         Window size (positive integer; default 2).
     circular : bool, keyword-only
@@ -2583,15 +2586,28 @@ def bind_events(p, w=None, n=2, *, circular=False):
     Returns
     -------
     p_bound : list of ndarray
-        Length-*n* list of ``(1, N')`` arrays. ``p_bound[j]``
-        contains the value at lag *j* for each window.
-    w_bound : same form as *w*
-        Weight of each bound super-event = product of the *n* input
-        weights it spans (rolling product of width *n*). Shape
-        mirrors the input: ``None`` stays ``None``; a scalar
-        ``c`` becomes ``c ** n``; a length-*N* / ``(1, N)`` input
-        becomes ``(1, N')``; if *p* was wrapped in a length-1 list,
-        the weight is wrapped too.
+        Length-*n* list of ``(K_a, N')`` arrays. ``p_bound[j]``
+        contains the value(s) at lag *j* for each window. For
+        ``K_a = 1`` input each entry is ``(1, N')``.
+    w_bound : None, scalar, or list of ndarray
+        Per-attribute weight propagation, in the form that
+        :func:`build_exp_tens` accepts directly:
+
+        - ``None`` stays ``None``.
+        - A scalar ``c`` stays ``c`` (broadcast in
+          :func:`build_exp_tens`).
+        - A ``(1, N)`` / length-*N* row becomes a length-*n* list of
+          ``(1, N')`` rows.
+        - A ``(K_a, 1)`` column becomes a length-*n* list of
+          ``(K_a, 1)`` columns.
+        - A ``(K_a, N)`` matrix becomes a length-*n* list of
+          ``(K_a, N')`` matrices.
+
+        The end-to-end numerics are equivalent to a rolling product
+        of slot weights: each output attribute inherits the slot
+        weights of the underlying event at its lag, and
+        :func:`build_exp_tens` multiplies across attributes during
+        tuple enumeration.
 
     Examples
     --------
@@ -2638,21 +2654,19 @@ def bind_events(p, w=None, n=2, *, circular=False):
             )
         w = w[0]
 
-    # --- Validate p shape (K_a = 1) ---
+    # --- Validate p shape (allow any K_a >= 1) ---
     arr = np.asarray(p, dtype=np.float64)
     if arr.ndim == 1:
-        p_row = arr.reshape(1, -1)
-    elif arr.ndim == 2 and arr.shape[0] == 1:
-        p_row = arr
+        p_mat = arr.reshape(1, -1)            # length-N -> (1, N)
+    elif arr.ndim == 2:
+        p_mat = arr
     else:
         raise ValueError(
-            f"p has shape {arr.shape}; bind_events requires K_a = 1 "
-            f"(a length-N 1-D array or a (1, N) row). Within-event "
-            f"slot exchangeability does not license the cross-event "
-            f"slot alignment that sliding-window binding imposes "
-            f"(same constraint as difference_events)."
+            f"p has shape {arr.shape}; bind_events requires p to be a "
+            f"length-N 1-D array or a (K_a, N) 2-D array."
         )
-    N = p_row.shape[1]
+    Ka = p_mat.shape[0]
+    N = p_mat.shape[1]
 
     # --- Determine window indices ---
     if circular:
@@ -2672,39 +2686,70 @@ def bind_events(p, w=None, n=2, *, circular=False):
             )
         idx = np.arange(n_prime)[:, None] + np.arange(n)[None, :]
 
-    # --- Build the n lag matrices ---
-    p_bound = [p_row[:, idx[:, j]].reshape(1, n_prime).copy()
-               for j in range(n)]
+    # --- Build the n lag matrices, preserving K_a ---
+    p_bound = [p_mat[:, idx[:, j]].copy() for j in range(n)]
 
-    # --- Transform weights ---
+    # --- Weights: per-attribute propagation ---
+    #
+    # Each output attribute inherits the slot weights of the
+    # underlying event at its lag. build_exp_tens multiplies across
+    # attributes during tuple enumeration, so the end-to-end weight
+    # of a bound super-event equals the product of the n constituent
+    # events' weights (the same numerical contribution as the prior
+    # eager rolling product, for K_a = 1; the natural generalisation
+    # for K_a > 1).
+
     if w is None:
         w_bound = None
     elif np.isscalar(w):
-        w_bound = float(w) ** n
+        # Scalar weight broadcasts in build_exp_tens; pass through.
+        w_bound = float(w)
     else:
         w_arr = np.asarray(w, dtype=np.float64)
-        if w_arr.ndim == 1 and w_arr.size == N:
-            w_row = w_arr
-        elif w_arr.ndim == 2 and w_arr.shape == (1, N):
-            w_row = w_arr.ravel()
-        elif w_arr.size == 1:
-            w_bound = float(w_arr.item()) ** n
-            if input_was_list_w:
-                w_bound = [w_bound]
-            return p_bound, w_bound
+
+        # Scalar packed in a 0-D or single-element array
+        if w_arr.size == 1:
+            w_bound = float(w_arr.item())
         else:
-            raise ValueError(
-                f"w has shape {w_arr.shape}; expected None, scalar, "
-                f"length-{N} 1-D, or (1, {N}) row."
-            )
-        # Rolling product over n consecutive entries (with wrap if circular)
-        w_windows = w_row[idx]                # shape (n_prime, n)
-        w_bound = np.prod(w_windows, axis=1)  # shape (n_prime,)
-        # Match the (1, N') row shape used elsewhere in the toolbox
-        w_bound = w_bound.reshape(1, n_prime)
+            # Coerce to a 2-D matrix consistent with the p-shape.
+            if w_arr.ndim == 1:
+                if w_arr.size == N:
+                    w_mat = w_arr.reshape(1, -1)         # (1, N)
+                elif w_arr.size == Ka and Ka != N:
+                    w_mat = w_arr.reshape(-1, 1)         # (K_a, 1)
+                elif Ka == N:
+                    # Ambiguous: prefer the row interpretation, matching
+                    # the v2.1-and-earlier convention for length-N input.
+                    w_mat = w_arr.reshape(1, -1)
+                else:
+                    raise ValueError(
+                        f"w as a 1-D array must have length N = {N} or "
+                        f"K_a = {Ka} (got length {w_arr.size})."
+                    )
+            elif w_arr.ndim == 2:
+                w_mat = w_arr
+            else:
+                raise ValueError(
+                    f"w has shape {w_arr.shape}; expected None, scalar, "
+                    f"1-D, or 2-D."
+                )
+
+            r, c = w_mat.shape
+            if r == 1 and c == N:
+                w_bound = [w_mat[:, idx[:, j]].copy() for j in range(n)]
+            elif r == Ka and c == 1:
+                w_bound = [w_mat.copy() for _ in range(n)]
+            elif r == Ka and c == N:
+                w_bound = [w_mat[:, idx[:, j]].copy() for j in range(n)]
+            else:
+                raise ValueError(
+                    f"w has shape {w_mat.shape}; expected None, scalar, "
+                    f"length-{N} 1-D, ({1}, {N}) row, "
+                    f"({Ka}, 1) column, or ({Ka}, {N}) matrix."
+                )
 
     # --- Re-wrap weight in a length-1 list if input was list ---
-    if input_was_list_w and not isinstance(w_bound, list):
+    if input_was_list_w:
         w_bound = [w_bound]
 
     return p_bound, w_bound

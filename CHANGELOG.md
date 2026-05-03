@@ -6,7 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
-## [2.1.0] — 2026-04-30
+## [Unreleased]
+
+### Performance
+
+- **Internal performance improvement for r = 1 single-attribute expectation tensors.** `buildExpTens` (MATLAB) and `build_exp_tens` (Python) now collapse equal-pitched events at build time when `r = 1`: events with the same pitch value are merged into a single source point whose weight is the sum of the originals. This is mathematically exact at `r = 1`, since the Gaussian-mixture density depends on the source multiset only through its measure on the pitch line. No behavioural change, no API change. Speedup is proportional to the degree of repetition in the input; for probe-tone-style contexts (7 unique pitch classes repeated 3 times) the effective speedup on downstream `evalExpTens` and `cosSimExpTens` calls is approximately 9×. Not applied for `r ≥ 2`: at higher tuple orders the source multiplicity carries information about within-tuple structure (e.g., the `r = 2` relative density at interval 0 receives genuine contributions from pairs of equal-pitched events) and collapsing would alter the density.
+
+### Fixed
+
+- **Python packaging:** the `readme` field in `python/pyproject.toml` previously referenced `../README.md` (the toolbox-level README, one directory up from the Python package). Modern `setuptools` (>= 68) refuses paths outside the package directory for security reasons, causing `pip install` and `pip install -e .` to fail with "Cannot access '<path>/python/../README.md'". The field now uses an inline `text` description pointing readers to the GitHub repository for full documentation. Editable and non-editable installs now work without modification.
+
+
 
 ### Overview
 

@@ -870,6 +870,21 @@ def _build_exp_tens_sa(
     if is_rel and r < 2:
         raise ValueError("For relative densities, r must be at least 2.")
 
+    # For r = 1, the density depends on the source multiset only through its
+    # measure on the pitch line: events with equal pitch contribute additively
+    # to the same Gaussian kernel, so they can be collapsed to a single event
+    # whose weight is the sum of the originals. This is mathematically exact
+    # at r = 1 and reduces downstream work proportionally to the number of
+    # repeated pitches in the input. (For r >= 2, multiplicity in the source
+    # multiset matters for the within-tuple structure, so collapsing would
+    # alter the density and is therefore not applied.)
+    if r == 1 and len(p) > 0:
+        p_unique, inverse = np.unique(p, return_inverse=True)
+        if len(p_unique) < len(p):
+            w_summed = np.zeros(len(p_unique), dtype=np.float64)
+            np.add.at(w_summed, inverse, w)
+            p, w = p_unique, w_summed
+
     dim = r - int(is_rel)
     n = len(p)
 

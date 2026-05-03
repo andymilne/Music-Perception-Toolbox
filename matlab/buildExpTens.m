@@ -169,6 +169,23 @@ function dens = localBuildSA(posArgs, verbose)
         error('For relative densities, ''r'' must be at least 2.');
     end
 
+    % For r = 1, the density depends on the source multiset only through its
+    % measure on the pitch line: events with equal pitch contribute additively
+    % to the same Gaussian kernel, so they can be collapsed to a single event
+    % whose weight is the sum of the originals. This is mathematically exact
+    % at r = 1 and reduces downstream work proportionally to the number of
+    % repeated pitches in the input. For r >= 2, multiplicity in the source
+    % multiset matters for the within-tuple structure, so collapsing would
+    % alter the density and is therefore not applied.
+    if r == 1 && ~isempty(p)
+        [pUnique, ~, inverse] = unique(p);
+        if numel(pUnique) < numel(p)
+            wSummed = accumarray(inverse, w, [numel(pUnique), 1]);
+            p = pUnique;
+            w = wSummed;
+        end
+    end
+
     dim = r - isRel;
 
     n      = numel(p);

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "music-perception-toolbox"
 version = "2.1.0"
 description = "Computational music perception: expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures."
-readme = {file = "../README.md", content-type = "text/markdown"}
+readme = {text = "Music Perception Toolbox: computational music perception in Python — expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures. See https://github.com/andymilne/Music-Perception-Toolbox for documentation, user guide, and citation.", content-type = "text/plain"}
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [

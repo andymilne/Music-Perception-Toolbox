@@ -623,6 +623,18 @@ def tensor_harmonicity(
     float or np.ndarray
         Scalar in single-chord mode; ``(M,)`` ndarray in batched mode.
 
+    Notes
+    -----
+    Internal computation routes through the orbit-Möbius point
+    evaluator, which evaluates the relative tensor at the chord's
+    interval vector without materialising the
+    ``(r-1, K!/(K-r)!)`` centres array. For a 4-pitch chord with the
+    default 64-partial harmonic template this avoids a centres array
+    of order ``10⁹`` floats; runtime is dominated by the u-grid
+    translation integral and grows as ``B_r · r · K · N_u`` per
+    query. This unblocks ``K > 3`` chord cardinality where the
+    centres path was infeasible.
+
     References
     ----------
     Smit, E. A., Milne, A. J., Dean, R. T., & Weidemann, G.
@@ -648,31 +660,99 @@ def tensor_harmonicity(
 
 
 def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize, verbose):
-    """Single-chord scalar dispatch (the v2.0 body)."""
+    """Single-chord scalar dispatch (the v2.0 body, v2.2 orbit-fast).
+
+    Internally evaluates the relative r-ad expectation tensor of a
+    harmonic series at the chord's interval vector via the
+    orbit-Möbius point evaluator (see ``_tensor_harmonicity_orbit``),
+    avoiding the K!/(K-r)! centres array. Runtime is dominated by
+    the u-grid translation integral and grows as ``B_r · r · K · N_u``
+    per query; this unblocks K > 3 where the centres path was
+    infeasible.
+    """
     n_pitches = len(p)
     if n_pitches < 2:
         raise ValueError(f"At least 2 pitches required (got {n_pitches}).")
 
     dup = duplicate if duplicate > 0 else n_pitches
-    if dup > 3:
-        warnings.warn(
-            f"duplicate = {dup}: computation time grows rapidly. "
-            "Consider reducing to 3 or fewer."
-        )
 
+    # Build the harmonic template's (p, w) source. The orbit path
+    # reads only these and the structural parameters; no centres
+    # array is materialised.
     tmpl_p, tmpl_w = add_spectra(
         np.zeros(dup), np.ones(dup), *spectrum
     )
 
-    T = build_exp_tens(
-        tmpl_p, tmpl_w, sigma, n_pitches, True, False, 1200, verbose=verbose
-    )
-
     p_sorted = np.sort(p)
     intervals = p_sorted[1:] - p_sorted[0]  # (n_pitches - 1,)
+    x_query = intervals.reshape(-1, 1)
 
-    h = eval_exp_tens(T, intervals.reshape(-1, 1), normalize, verbose=False)
+    if verbose:
+        # Match the v2.0 / v2.1 estimate-time idiom used by build_exp_tens
+        # so callers (and tests) see consistent diagnostic output.
+        print(
+            f"tensor_harmonicity: estimated orbit-path cost for "
+            f"K = {dup}, r = {n_pitches}, sigma = {sigma:g}."
+        )
+
+    h = _tensor_harmonicity_orbit(
+        tmpl_p, tmpl_w, sigma, n_pitches, x_query, normalize,
+    )
     return float(h[0])
+
+
+def _tensor_harmonicity_orbit(
+    tmpl_p: np.ndarray,
+    tmpl_w: np.ndarray,
+    sigma: float,
+    r: int,
+    x_query: np.ndarray,
+    normalize: str,
+) -> np.ndarray:
+    """Evaluate the rel-mode template tensor at *x_query* via the
+    orbit-Möbius point evaluator, then apply normalisation.
+
+    Centralised here (rather than a one-line call site inside
+    :func:`tensor_harmonicity`) so that the normalisation logic stays
+    co-located with the call and so that the batched dispatch and
+    future virtual-pitch / chord-spectrum consumers can re-use the
+    same path.
+    """
+    # Local import to avoid a circular import at module load.
+    from ._mobius import eval_orbit_rel
+
+    vals = eval_orbit_rel(
+        tmpl_p, tmpl_w, sigma, r, x_query,
+        is_per=False, period=0.0,
+    )
+
+    if normalize == "none":
+        return vals
+
+    # Mirror the SA centres path's normalisation maths so the return
+    # value is identical to what eval_exp_tens(..., normalize=...)
+    # would have produced. Template tensor is is_rel=True, so
+    # det_M = 1/r and dim = r - 1.
+    dim = r - 1
+    det_m = 1.0 / r
+    gauss_const = (2 * np.pi * sigma ** 2) ** (-dim / 2) * np.sqrt(det_m)
+    vals = vals * gauss_const
+
+    if normalize == "pdf":
+        sum_w = float(np.sum(tmpl_w))
+        if sum_w > 0:
+            vals = vals / sum_w
+        else:
+            warnings.warn(
+                "Sum of weight products is zero; cannot normalize to pdf."
+            )
+    elif normalize != "gaussian":
+        raise ValueError(
+            f"normalize must be 'none', 'gaussian', or 'pdf'; "
+            f"got {normalize!r}."
+        )
+
+    return vals
 
 
 def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, verbose):
@@ -768,29 +848,24 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, ver
             out[i] = result_cache[full_key]
             continue
 
-        # Build / fetch the harmonic-series tensor T. T depends on:
-        #   - dup (number of template copies = the harmonic-series spectrum size)
-        #   - n_p (the chord's cardinality, which sets r in build_exp_tens)
-        #   - sigma, spectrum (constant across batch).
-        # So we key the cache by (dup, n_p).
-        T_key = (dup, n_p)
+        # Build / fetch the harmonic-series template (p, w). The orbit
+        # point evaluator depends only on (tmpl_p, tmpl_w, sigma, r) and
+        # the chord's interval vector; we therefore key the template
+        # cache by ``dup`` alone (the chord cardinality enters the
+        # evaluator as ``r`` rather than into the cached arrays).
+        T_key = dup
         if T_key not in template_cache:
-            if dup > 3:
-                # Warn once per (dup, n_p) value seen.
-                warnings.warn(
-                    f"duplicate = {dup}: computation time grows rapidly. "
-                    "Consider reducing to 3 or fewer."
-                )
-            tmpl_p, tmpl_w = add_spectra(
+            tmpl_p_dup, tmpl_w_dup = add_spectra(
                 np.zeros(dup), np.ones(dup), *spectrum,
             )
-            template_cache[T_key] = build_exp_tens(
-                tmpl_p, tmpl_w, sigma, n_p, True, False, 1200, verbose=False,
-            )
-        T = template_cache[T_key]
+            template_cache[T_key] = (tmpl_p_dup, tmpl_w_dup)
+        tmpl_p, tmpl_w = template_cache[T_key]
 
         intervals = p_canon[1:] - p_canon[0]
-        h = eval_exp_tens(T, intervals.reshape(-1, 1), normalize, verbose=False)
+        h = _tensor_harmonicity_orbit(
+            tmpl_p, tmpl_w, sigma, n_p,
+            intervals.reshape(-1, 1), normalize,
+        )
         result_cache[full_key] = float(h[0])
         out[i] = result_cache[full_key]
 

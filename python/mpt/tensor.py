@@ -10,7 +10,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from itertools import permutations
-from math import factorial
+from math import comb as _math_comb, factorial
 
 import numpy as np
 from scipy.special import comb as _comb
@@ -32,34 +32,208 @@ def _nchoosek_indices(n: int, r: int) -> np.ndarray:
 # -------------------------------------------------------------------
 
 
-@dataclass
 class ExpTensDensity:
-    """Precomputed expectation tensor density.
+    """Precomputed single-attribute expectation tensor density.
 
-    Attributes match the MATLAB struct fields; see :func:`build_exp_tens`.
+    Stores the source multiset (``p``, ``w``) plus tensor parameters
+    (``sigma``, ``r``, ``is_rel``, ``is_per``, ``period``, ``dim``)
+    eagerly, and constructs the per-tuple permutation/combination
+    arrays (``centres``, ``u_perm``, ``w_perm``, ``w_j``, ``v_comb``,
+    ``wv_comb``, ``n_j``, ``n_j_perm``, ``n_k``) lazily on first
+    access.
+
+    Lazy materialisation matters at high-r/high-K where
+    ``n_j = K!/(K-r)!`` makes the per-tuple arrays prohibitively
+    expensive (e.g., K=256, r=4 → ~9·10⁸ tuples). Consumers that need
+    only ``p``, ``w``, and the scalar parameters — for example,
+    ``eval_exp_tens(method='orbit')``, ``cos_sim_exp_tens(method='orbit')``
+    via the orbit-Möbius IP path, or ``entropy_exp_tens(method='renyi2')``
+    — read just the eagerly-stored inputs and never trigger the build.
+    Consumers that do need them (the v2.0 centres path, the pairwise
+    cosine path, or any direct field access) trigger the build on
+    first read; subsequent reads return the cached result. The
+    materialisation is one-shot — once built, the arrays persist on
+    the object and are not rebuilt.
+
+    Use :attr:`materialised` to check whether the per-tuple arrays
+    have been built without triggering a build.
+
+    Field semantics match the v2.0 dataclass exactly; this is purely
+    an internal change and the public API of every consumer is
+    unchanged.
     """
 
-    p: np.ndarray
-    w: np.ndarray
-    sigma: float
-    r: int
-    is_rel: bool
-    is_per: bool
-    period: float
-    dim: int
+    # Slots are not used because numpy arrays are stored as attributes
+    # and the lazy cache adds attributes after construction; keeping
+    # the class slot-less avoids surprising failures in extension code
+    # that introspects via ``__dict__``.
 
-    # For eval_exp_tens
-    centres: np.ndarray  # dim x nJ
-    w_j: np.ndarray  # (nJ,)
-    n_j: int
+    def __init__(
+        self,
+        *,
+        p: np.ndarray,
+        w: np.ndarray,
+        sigma: float,
+        r: int,
+        is_rel: bool,
+        is_per: bool,
+        period: float,
+        dim: int,
+    ) -> None:
+        self.p = p
+        self.w = w
+        self.sigma = sigma
+        self.r = r
+        self.is_rel = is_rel
+        self.is_per = is_per
+        self.period = period
+        self.dim = dim
+        # Lazy cache: built on first access to any per-tuple field
+        # (``centres``, ``u_perm``, ``w_perm``, ``w_j``, ``v_comb``,
+        # ``wv_comb``, ``n_j``, ``n_j_perm``, ``n_k``). All five
+        # fields populate atomically — one build pass, no partial
+        # state.
+        self._centres = None
+        self._u_perm = None
+        self._w_perm = None
+        self._v_comb = None
+        self._wv_comb = None
+        self._n_j = None
+        self._n_k = None
 
-    # For cos_sim_exp_tens
-    u_perm: np.ndarray  # r x nJ_perm
-    w_perm: np.ndarray  # (nJ_perm,)
-    n_j_perm: int
-    v_comb: np.ndarray  # r x nK
-    wv_comb: np.ndarray  # (nK,)
-    n_k: int
+    @property
+    def materialised(self) -> bool:
+        """``True`` if the per-tuple arrays have been built."""
+        return self._centres is not None
+
+    def _build_perm_arrays(self) -> None:
+        """Build the per-tuple permutation / combination arrays.
+
+        Populates the seven cached fields in one pass. No-op if
+        already materialised. This is the only place that allocates
+        the ``O(K!/(K-r)!)`` intermediate tensors.
+        """
+        if self._centres is not None:
+            return
+
+        p = self.p
+        w = self.w
+        r = self.r
+        n = len(p)
+
+        n_perms = factorial(r)
+        n_combs = int(_comb(n, r, exact=True))
+        n_j = n_perms * n_combs
+        n_k = n_combs
+
+        # All r-combinations (r x C(n,r))
+        nck = _nchoosek_indices(n, r)
+
+        # All permutations of range(r) — each column is one permutation
+        all_perms = np.array(
+            list(permutations(range(r))), dtype=np.intp,
+        ).T  # r x r!
+
+        # Build ordered r-tuples (perm side)
+        j_idx = np.empty((r, n_j), dtype=np.intp)
+        offset = 0
+        for i in range(n_perms):
+            j_idx[:, offset:offset + n_combs] = nck[all_perms[:, i], :]
+            offset += n_combs
+
+        u_perm = p[j_idx]                      # r x nJ
+        w_perm = np.prod(w[j_idx], axis=0)     # (nJ,)
+
+        # r-combinations (comb side, for cos_sim)
+        v_comb = p[nck]                        # r x nK
+        wv_comb = np.prod(w[nck], axis=0)      # (nK,)
+
+        # Reduce to interval centres if relative
+        if self.is_rel:
+            centres = u_perm[1:, :] - u_perm[0, :]   # (r-1) x nJ
+        else:
+            centres = u_perm.copy()                  # r x nJ
+
+        self._u_perm = u_perm
+        self._w_perm = w_perm
+        self._v_comb = v_comb
+        self._wv_comb = wv_comb
+        self._centres = centres
+        self._n_j = n_j
+        self._n_k = n_k
+
+    # The seven lazy fields. Each property triggers the build on
+    # first access; subsequent reads return the cached array.
+
+    @property
+    def centres(self) -> np.ndarray:
+        """``(dim, n_j)`` array of per-tuple centres (lazy)."""
+        if self._centres is None:
+            self._build_perm_arrays()
+        return self._centres
+
+    @property
+    def u_perm(self) -> np.ndarray:
+        """``(r, n_j)`` array of per-tuple ordered pitch tuples (lazy)."""
+        if self._u_perm is None:
+            self._build_perm_arrays()
+        return self._u_perm
+
+    @property
+    def w_perm(self) -> np.ndarray:
+        """``(n_j,)`` per-tuple weight products, perm side (lazy)."""
+        if self._w_perm is None:
+            self._build_perm_arrays()
+        return self._w_perm
+
+    # Alias for w_perm — the v2.0 dataclass exposed both ``w_j`` and
+    # ``w_perm`` pointing at the same array. Preserved for back-compat.
+    @property
+    def w_j(self) -> np.ndarray:
+        """Alias for :attr:`w_perm` (lazy)."""
+        return self.w_perm
+
+    @property
+    def v_comb(self) -> np.ndarray:
+        """``(r, n_k)`` array of unordered r-combinations (lazy)."""
+        if self._v_comb is None:
+            self._build_perm_arrays()
+        return self._v_comb
+
+    @property
+    def wv_comb(self) -> np.ndarray:
+        """``(n_k,)`` per-combination weight products (lazy)."""
+        if self._wv_comb is None:
+            self._build_perm_arrays()
+        return self._wv_comb
+
+    @property
+    def n_j(self) -> int:
+        """Number of perm-side tuples ``K!/(K-r)!`` (lazy)."""
+        if self._n_j is None:
+            self._build_perm_arrays()
+        return self._n_j
+
+    # Alias for n_j — v2.0 dataclass exposed both names.
+    @property
+    def n_j_perm(self) -> int:
+        """Alias for :attr:`n_j` (lazy)."""
+        return self.n_j
+
+    @property
+    def n_k(self) -> int:
+        """Number of comb-side tuples ``C(K, r)`` (lazy)."""
+        if self._n_k is None:
+            self._build_perm_arrays()
+        return self._n_k
+
+    def __repr__(self) -> str:
+        built = "materialised" if self.materialised else "lazy"
+        return (
+            f"ExpTensDensity(K={len(self.p)}, r={self.r}, "
+            f"sigma={self.sigma}, is_rel={self.is_rel}, "
+            f"is_per={self.is_per}, dim={self.dim}, {built})"
+        )
 
 
 # -------------------------------------------------------------------
@@ -67,7 +241,6 @@ class ExpTensDensity:
 # -------------------------------------------------------------------
 
 
-@dataclass
 class MaetDensity:
     """Precomputed multi-attribute expectation tensor density (MAET).
 
@@ -77,6 +250,20 @@ class MaetDensity:
 
     See the MAET specification (``multi_attribute_tensor_specification.md``)
     §2 and §6, and :func:`build_exp_tens` for argument semantics.
+
+    Lazy materialisation
+    --------------------
+    The eager-stored fields (``p_attr``, ``w``, ``sigma``, ``r``,
+    ``k``, ``is_rel``, ``is_per``, ``period``, ``group_of_attr``,
+    ``attrs_of_group``, ``n_attrs``, ``n_groups``, ``n``, ``dim``,
+    ``dim_per_attr``, ``tag``) are populated by ``build_exp_tens``.
+    The per-tuple fields (``n_j``, ``n_k``, ``centres``, ``u_perm``,
+    ``v_comb``, ``w_j``, ``wv_comb``, ``event_of_j``, ``event_of_k``)
+    are constructed lazily on first access and cached. This keeps
+    ``build_exp_tens`` cheap and avoids OOM at high cardinality when
+    only the orbit-Möbius path is exercised (MA cosine
+    ``method='orbit'``, MA Rényi-2 entropy). Use :attr:`materialised`
+    to check the cache state without triggering a build.
 
     Conventions
     -----------
@@ -90,47 +277,152 @@ class MaetDensity:
     ``event_of_k``.
     """
 
-    tag: str
-    n_attrs: int
-    n_groups: int
-    n: int
+    def __init__(
+        self,
+        *,
+        tag: str,
+        n_attrs: int,
+        n_groups: int,
+        n: int,
+        group_of_attr: np.ndarray,
+        attrs_of_group: list,
+        r: np.ndarray,
+        k: np.ndarray,
+        p_attr: list,
+        w: list,
+        sigma: np.ndarray,
+        is_rel: np.ndarray,
+        is_per: np.ndarray,
+        period: np.ndarray,
+        dim: int,
+        dim_per_attr: np.ndarray,
+        # The build closure: a no-arg callable that returns a dict
+        # populating the lazy fields. Stored on the instance and
+        # called on first access of any lazy field.
+        _build_lazy,
+    ) -> None:
+        # Eager fields
+        self.tag = tag
+        self.n_attrs = n_attrs
+        self.n_groups = n_groups
+        self.n = n
+        self.group_of_attr = group_of_attr
+        self.attrs_of_group = attrs_of_group
+        self.r = r
+        self.k = k
+        self.p_attr = p_attr
+        self.w = w
+        self.sigma = sigma
+        self.is_rel = is_rel
+        self.is_per = is_per
+        self.period = period
+        self.dim = dim
+        self.dim_per_attr = dim_per_attr
 
-    # Grouping
-    group_of_attr: np.ndarray            # (A,) intp, 0-indexed
-    attrs_of_group: list                 # list of length G; each an (n_a,) intp array
+        # Lazy slots
+        self._build_lazy_fn = _build_lazy
+        self._n_j = None
+        self._n_k = None
+        self._centres = None
+        self._u_perm = None
+        self._v_comb = None
+        self._w_j = None
+        self._wv_comb = None
+        self._event_of_j = None
+        self._event_of_k = None
 
-    # Per-attribute parameters and data
-    r: np.ndarray                        # (A,) intp, per-attribute tuple size
-    k: np.ndarray                        # (A,) intp, per-attribute K_a
-    p_attr: list                         # list of length A; each K_a x N float64
-    w: list                              # list of length A; each K_a x N float64
+    @property
+    def materialised(self) -> bool:
+        """``True`` if the per-tuple arrays have been built."""
+        return self._n_j is not None
 
-    # Per-group parameters
-    sigma: np.ndarray                    # (G,) float64
-    is_rel: np.ndarray                   # (G,) bool
-    is_per: np.ndarray                   # (G,) bool
-    period: np.ndarray                   # (G,) float64
+    def _materialise(self) -> None:
+        """Trigger the lazy build. No-op if already materialised."""
+        if self._n_j is not None:
+            return
+        out = self._build_lazy_fn()
+        self._n_j = out['n_j']
+        self._n_k = out['n_k']
+        self._centres = out['centres']
+        self._u_perm = out['u_perm']
+        self._v_comb = out['v_comb']
+        self._w_j = out['w_j']
+        self._wv_comb = out['wv_comb']
+        self._event_of_j = out['event_of_j']
+        self._event_of_k = out['event_of_k']
+        # Drop the closure once consumed so Python can release the
+        # input references it captured.
+        self._build_lazy_fn = None
 
-    # Dimensionality
-    dim: int
-    dim_per_attr: np.ndarray             # (A,) intp
+    @property
+    def n_j(self) -> int:
+        """Total number of perm-side tuples summed across events (lazy)."""
+        if self._n_j is None:
+            self._materialise()
+        return self._n_j
 
-    # Totals
-    n_j: int
-    n_k: int
+    @property
+    def n_k(self) -> int:
+        """Total number of comb-side tuples summed across events (lazy)."""
+        if self._n_k is None:
+            self._materialise()
+        return self._n_k
 
-    # For eval_exp_tens
-    centres: list                        # list of length A; each (r_a - isRel_{g(a)}) x nJ
+    @property
+    def centres(self) -> list:
+        """List of length A; each entry is ``(r_a - is_rel[g(a)]) x n_j`` (lazy)."""
+        if self._centres is None:
+            self._materialise()
+        return self._centres
 
-    # For cos_sim_exp_tens
-    u_perm: list                         # list of length A; each r_a x nJ
-    v_comb: list                         # list of length A; each r_a x nK
-    w_j: np.ndarray                      # (nJ,)  perm-side per-tuple weight products
-    wv_comb: np.ndarray                  # (nK,)  comb-side per-tuple weight products
+    @property
+    def u_perm(self) -> list:
+        """List of length A; each entry is ``r_a x n_j`` (lazy)."""
+        if self._u_perm is None:
+            self._materialise()
+        return self._u_perm
 
-    # Event bookkeeping
-    event_of_j: np.ndarray               # (nJ,) intp
-    event_of_k: np.ndarray               # (nK,) intp
+    @property
+    def v_comb(self) -> list:
+        """List of length A; each entry is ``r_a x n_k`` (lazy)."""
+        if self._v_comb is None:
+            self._materialise()
+        return self._v_comb
+
+    @property
+    def w_j(self) -> np.ndarray:
+        """``(n_j,)`` perm-side per-tuple weight products (lazy)."""
+        if self._w_j is None:
+            self._materialise()
+        return self._w_j
+
+    @property
+    def wv_comb(self) -> np.ndarray:
+        """``(n_k,)`` comb-side per-tuple weight products (lazy)."""
+        if self._wv_comb is None:
+            self._materialise()
+        return self._wv_comb
+
+    @property
+    def event_of_j(self) -> np.ndarray:
+        """``(n_j,)`` event index per perm-side tuple (lazy)."""
+        if self._event_of_j is None:
+            self._materialise()
+        return self._event_of_j
+
+    @property
+    def event_of_k(self) -> np.ndarray:
+        """``(n_k,)`` event index per comb-side tuple (lazy)."""
+        if self._event_of_k is None:
+            self._materialise()
+        return self._event_of_k
+
+    def __repr__(self) -> str:
+        built = "materialised" if self.materialised else "lazy"
+        return (
+            f"MaetDensity(A={self.n_attrs}, G={self.n_groups}, "
+            f"N={self.n}, dim={self.dim}, {built})"
+        )
 
 
 # -------------------------------------------------------------------
@@ -577,8 +869,14 @@ def _build_exp_tens_ma(
 
     Private: users call :func:`build_exp_tens`, which dispatches here
     when given a list/tuple of attribute matrices as the first argument.
+
+    The body performs only the cheap input validation and metadata
+    work and returns a :class:`MaetDensity` whose per-tuple arrays
+    (``u_perm``, ``v_comb``, ``centres``, ``w_j``, ``wv_comb``,
+    ``event_of_j``, ``event_of_k``, ``n_j``, ``n_k``) are deferred to
+    first access. See :class:`MaetDensity` for the lazy semantics.
     """
-    # --- Input normalisation ---------------------------------------
+    # --- Input normalisation (eager) ------------------------------
 
     if not isinstance(p_attr, (list, tuple)) or len(p_attr) == 0:
         raise ValueError(
@@ -634,8 +932,97 @@ def _build_exp_tens_ma(
 
     w_list = _normalise_weights_ma(w, A, K_a, N)
 
-    # --- Per-event, per-attribute r-ad enumeration ------------------
+    # Eager per-event / per-attribute non-NaN slot count check. The
+    # heavy r-ad enumeration is deferred to first access of a lazy
+    # field, but this validation is cheap (one NaN scan per (a, n))
+    # and users reasonably expect malformed inputs to fail fast at the
+    # build call rather than later on first downstream consumer call.
+    for n in range(N):
+        for a in range(A):
+            r_a = int(r_vec[a])
+            valid_count = int(np.sum(~np.isnan(p_attr[a][:, n])))
+            if valid_count < r_a:
+                raise ValueError(
+                    f"Event {n}, attribute {a} has {valid_count} non-NaN "
+                    f"slot(s) but r_a = {r_a}."
+                )
 
+    # --- Per-attribute dim (eager; needed by callers without
+    # materialisation) -------------------------------------------------
+    dim_per_attr = np.empty(A, dtype=np.intp)
+    for a in range(A):
+        g = int(group_of_attr[a])
+        r_a = int(r_vec[a])
+        if is_rel_vec[g]:
+            dim_per_attr[a] = r_a - 1 if r_a >= 2 else 0
+        else:
+            dim_per_attr[a] = r_a
+    dim = int(dim_per_attr.sum())
+
+    if verbose:
+        print(
+            f"build_exp_tens (MAET): {A} attributes, {G} groups, "
+            f"{N} events (per-tuple arrays deferred to first access)."
+        )
+
+    # --- Lazy closure: heavy per-event/per-attribute build ----------
+    #
+    # Capture the validated inputs by closure. The closure is invoked
+    # at most once per MaetDensity, on first access of any lazy
+    # field (n_j, n_k, centres, u_perm, v_comb, w_j, wv_comb,
+    # event_of_j, event_of_k). Returns a dict consumed by
+    # MaetDensity._materialise.
+
+    def _build_lazy():
+        return _ma_build_perm_arrays(
+            p_attr=p_attr, w_list=w_list, r_vec=r_vec,
+            group_of_attr=group_of_attr,
+            is_rel_vec=is_rel_vec,
+            N=N, A=A,
+        )
+
+    return MaetDensity(
+        tag="MaetDensity",
+        n_attrs=A,
+        n_groups=G,
+        n=N,
+        group_of_attr=group_of_attr,
+        attrs_of_group=attrs_of_group,
+        r=r_vec,
+        k=K_a,
+        p_attr=p_attr,
+        w=w_list,
+        sigma=sigma_vec,
+        is_rel=is_rel_vec,
+        is_per=is_per_vec,
+        period=period_vec,
+        dim=dim,
+        dim_per_attr=dim_per_attr,
+        _build_lazy=_build_lazy,
+    )
+
+
+def _ma_build_perm_arrays(
+    *,
+    p_attr,
+    w_list,
+    r_vec,
+    group_of_attr,
+    is_rel_vec,
+    N,
+    A,
+):
+    """Heavy per-event / per-attribute r-ad enumeration and assembly.
+
+    Extracted from the v2.1 ``_build_exp_tens_ma`` body so it can be
+    invoked lazily on first access of a per-tuple field. Returns a
+    dict of the nine lazy-target fields:
+    ``n_j, n_k, centres, u_perm, v_comb, w_j, wv_comb,
+    event_of_j, event_of_k``.
+
+    Logic is unchanged from the v2.1 eager build; only when it runs
+    has changed.
+    """
     from itertools import combinations as _combinations
 
     perm_idx = [[None] * A for _ in range(N)]
@@ -655,20 +1042,6 @@ def _build_exp_tens_ma(
                     f"slot(s) but r_a = {r_a}."
                 )
 
-            # For attributes with r_a = 1, equal-valued slots within the
-            # same event are exchangeable and can be collapsed. The
-            # density at r = 1 depends on the multiset only through its
-            # measure on the value axis: events with the same value
-            # contribute additively to the same Gaussian kernel. We
-            # implement the collapse by reducing `valid` to the first
-            # occurrence of each unique value and *modifying w_col in
-            # place* so that those first-occurrence positions carry the
-            # sum of the original weights of the equal-valued slots.
-            # Downstream lookups (val_col[perm_mat], w_col[perm_mat])
-            # then read the correct values and (summed) weights without
-            # further changes. Not applied for r_a >= 2: source
-            # multiplicity carries information about within-tuple
-            # structure there.
             collapsed = False
             if r_a == 1 and K_na > 1:
                 vals_valid = val_col[valid]
@@ -676,9 +1049,6 @@ def _build_exp_tens_ma(
                     vals_valid, return_index=True, return_inverse=True
                 )
                 if first_idx.size < K_na:
-                    # Sum each duplicate's weight into the first
-                    # occurrence's slot, in a per-event copy of w_col so
-                    # the input w_list is not mutated.
                     w_col_orig = w_list[a][:, n]
                     w_col_local = w_col_orig.copy()
                     summed = np.zeros(first_idx.size, dtype=np.float64)
@@ -688,11 +1058,9 @@ def _build_exp_tens_ma(
                     K_na = int(valid.size)
                     collapsed = True
 
-            # Combinations: r_a x C(K_na, r_a)
             comb_list = list(_combinations(valid.tolist(), r_a))
             comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
 
-            # Permutations: r_a x (r_a! * C(K_na, r_a))
             if r_a == 1:
                 perm_mat = comb_mat.copy()
             else:
@@ -711,7 +1079,6 @@ def _build_exp_tens_ma(
             perm_idx[n][a] = perm_mat
             comb_idx[n][a] = comb_mat
 
-            # Slot-weight products (per-tuple)
             w_col = w_col_local if collapsed else w_list[a][:, n]
             if r_a == 1:
                 perm_w[n][a] = w_col[perm_mat].ravel()
@@ -719,8 +1086,6 @@ def _build_exp_tens_ma(
             else:
                 perm_w[n][a] = np.prod(w_col[perm_mat], axis=0)
                 comb_w[n][a] = np.prod(w_col[comb_mat], axis=0)
-
-    # --- Cartesian product within events; concatenate across events --
 
     n_j_per = np.array(
         [int(np.prod([perm_idx[n][a].shape[1] for a in range(A)]))
@@ -734,13 +1099,6 @@ def _build_exp_tens_ma(
     )
     n_j = int(n_j_per.sum())
     n_k = int(n_k_per.sum())
-
-    if verbose:
-        print(
-            f"build_exp_tens (MAET): {A} attributes, {G} groups, "
-            f"{N} events. Total tuples: n_j = {n_j} (perm), "
-            f"n_k = {n_k} (comb)."
-        )
 
     u_perm = [np.empty((int(r_vec[a]), n_j), dtype=np.float64)
               for a in range(A)]
@@ -769,12 +1127,10 @@ def _build_exp_tens_ma(
             r_a = int(r_vec[a])
             val_col = p_attr[a][:, n]
 
-            # Perm side
             slot_perm = perm_idx[n][a][:, idx_perm[a]]   # r_a x nJh
             u_perm[a][:, off_j:off_j + nJh] = val_col[slot_perm]
             wJh *= perm_w[n][a][idx_perm[a]]
 
-            # Comb side
             slot_comb = comb_idx[n][a][:, idx_comb[a]]   # r_a x nKh
             v_comb[a][:, off_k:off_k + nKh] = val_col[slot_comb]
             wKh *= comb_w[n][a][idx_comb[a]]
@@ -787,43 +1143,19 @@ def _build_exp_tens_ma(
         off_j += nJh
         off_k += nKh
 
-    # --- Centres (per-attribute isRel reduction) --------------------
-
     centres = []
-    dim_per_attr = np.empty(A, dtype=np.intp)
     for a in range(A):
         g = int(group_of_attr[a])
         r_a = int(r_vec[a])
         if is_rel_vec[g]:
             if r_a >= 2:
                 centres.append(u_perm[a][1:, :] - u_perm[a][:1, :])
-                dim_per_attr[a] = r_a - 1
             else:
-                # Degenerate: 0-dim; a warning has already been emitted.
                 centres.append(np.empty((0, n_j), dtype=np.float64))
-                dim_per_attr[a] = 0
         else:
             centres.append(u_perm[a].copy())
-            dim_per_attr[a] = r_a
-    dim = int(dim_per_attr.sum())
 
-    return MaetDensity(
-        tag="MaetDensity",
-        n_attrs=A,
-        n_groups=G,
-        n=N,
-        group_of_attr=group_of_attr,
-        attrs_of_group=attrs_of_group,
-        r=r_vec,
-        k=K_a,
-        p_attr=p_attr,
-        w=w_list,
-        sigma=sigma_vec,
-        is_rel=is_rel_vec,
-        is_per=is_per_vec,
-        period=period_vec,
-        dim=dim,
-        dim_per_attr=dim_per_attr,
+    return dict(
         n_j=n_j,
         n_k=n_k,
         centres=centres,
@@ -921,42 +1253,16 @@ def _build_exp_tens_sa(
     dim = r - int(is_rel)
     n = len(p)
 
-    n_perms = factorial(r)
-    n_combs = int(_comb(n, r, exact=True))
-    n_j = n_perms * n_combs
-    n_k = n_combs
-
     if verbose:
+        # Cheap, allocation-free scalar — no longer reports "building
+        # n_j tuples" because the tuple build is deferred to first
+        # access of a per-tuple field.
+        n_j_eager = factorial(r) * int(_comb(n, r, exact=True))
         print(
-            f"build_exp_tens: building {n_j} ordered {r}-tuples "
-            f"from {n} pitches."
+            f"build_exp_tens: SA density with K={n}, r={r} "
+            f"(per-tuple arrays deferred; n_j={n_j_eager} on first "
+            f"access)."
         )
-
-    # All r-combinations (r x C(n,r))
-    nck = _nchoosek_indices(n, r)
-
-    # All permutations of range(r) — each column is one permutation
-    all_perms = np.array(list(permutations(range(r))), dtype=np.intp).T  # r x r!
-
-    # Build ordered r-tuples (perm side)
-    j_idx = np.empty((r, n_j), dtype=np.intp)
-    offset = 0
-    for i in range(n_perms):
-        j_idx[:, offset : offset + n_combs] = nck[all_perms[:, i], :]
-        offset += n_combs
-
-    u_perm = p[j_idx]  # r x nJ
-    w_perm = np.prod(w[j_idx], axis=0)  # (nJ,)
-
-    # r-combinations (comb side, for cos_sim)
-    v_comb = p[nck]  # r x nK
-    wv_comb = np.prod(w[nck], axis=0)  # (nK,)
-
-    # Reduce to interval centres if relative
-    if is_rel:
-        centres = u_perm[1:, :] - u_perm[0, :]  # (r-1) x nJ
-    else:
-        centres = u_perm.copy()  # r x nJ
 
     return ExpTensDensity(
         p=p,
@@ -967,15 +1273,6 @@ def _build_exp_tens_sa(
         is_per=is_per,
         period=period,
         dim=dim,
-        centres=centres,
-        w_j=w_perm,
-        n_j=n_j,
-        u_perm=u_perm,
-        w_perm=w_perm,
-        n_j_perm=n_j,
-        v_comb=v_comb,
-        wv_comb=wv_comb,
-        n_k=n_k,
     )
 
 
@@ -994,6 +1291,7 @@ def eval_exp_tens(*args,
                   dedup: bool = True,
                   spectrum=None,
                   precision: int | None = None,
+                  method: str = "auto",
                   verbose: bool = True) -> np.ndarray:
     """Evaluate an expectation tensor density at query points.
 
@@ -1043,6 +1341,15 @@ def eval_exp_tens(*args,
     precision : int, optional
         FP-noise tolerance for canonical-form dedup. Raw SA batched
         only.
+    method : {'auto', 'centres', 'orbit'}, default 'auto'
+        SA-path evaluation strategy. ``'auto'`` lets the dispatcher
+        choose between the centres-array path (v2.0 behaviour, fast
+        at low r) and the orbit-Möbius point evaluator (much faster
+        at r >= 3 since it bypasses the ``(dim, n_j)`` centres tensor
+        whose memory and runtime scale as ``K!/(K-r)!``). ``'centres'``
+        forces the v2.0 path; ``'orbit'`` forces the orbit path.
+        Currently a no-op on the MA path (MA always uses centres in
+        v2.2; an MA orbit path is on the roadmap).
     verbose : bool, default True
         Print progress.
 
@@ -1051,6 +1358,24 @@ def eval_exp_tens(*args,
     np.ndarray
         Shape ``(nQ,)`` for scalar density / raw SA scalar / raw MA
         scalar; shape ``(M, nQ)`` for density list / raw SA batched.
+
+    Notes
+    -----
+    Numerical precision envelope for ``method='orbit'``.
+
+    The orbit-Möbius point evaluator is exact to floating-point
+    precision when ``K >= r + 2`` and σ is not catastrophically small
+    relative to P. The dispatcher enforces these conditions
+    structurally — it falls back to the centres path when ``K < r + 2``,
+    when ``σ/P > 0.03`` in periodic-relative mode, or when the orbit
+    output contains non-finite values (post-hoc safety net).
+
+    What is *not* currently caught: a finite, but slightly inaccurate
+    output from sub-catastrophic Möbius cancellation. None observed
+    across the v2.2 standard test regime, but a sum-level cancellation
+    diagnostic that would close this residual gap is on the v2.3
+    roadmap. See :func:`cos_sim_exp_tens` Notes for the parallel
+    discussion on the inner-product path.
 
     See Also
     --------
@@ -1101,9 +1426,11 @@ def eval_exp_tens(*args,
                 "'precision' kwarg is only valid in raw SA batched input mode."
             )
         if is_density_scalar:
-            return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
+            return _eval_exp_tens_scalar(
+                dens, x, normalize, method=method, verbose=verbose,
+            )
         return _eval_exp_tens_density_list(
-            dens, x, normalize, dedup=dedup, verbose=verbose,
+            dens, x, normalize, dedup=dedup, method=method, verbose=verbose,
         )
 
     # ------------------------------------------------------------------
@@ -1170,13 +1497,13 @@ def eval_exp_tens(*args,
             )
         return _eval_exp_tens_raw_sa_scalar(
             p, w, sigma, r_, is_rel, is_per, period, x, normalize,
-            spectrum=spectrum, verbose=verbose,
+            spectrum=spectrum, method=method, verbose=verbose,
         )
     if a_arr.ndim == 2:
         return _eval_exp_tens_raw_sa_batch(
             p, w, sigma, r_, is_rel, is_per, period, x, normalize,
             spectrum=spectrum, precision=precision,
-            dedup=dedup, verbose=verbose,
+            dedup=dedup, method=method, verbose=verbose,
         )
     raise TypeError(
         f"First argument has unsupported shape {a_arr.shape}; "
@@ -1184,8 +1511,14 @@ def eval_exp_tens(*args,
     )
 
 
-def _eval_exp_tens_scalar(dens, x, normalize: str, *, verbose: bool) -> np.ndarray:
-    """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body)."""
+def _eval_exp_tens_scalar(
+    dens, x, normalize: str, *, method: str = "auto", verbose: bool,
+) -> np.ndarray:
+    """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body).
+
+    Threads ``method`` through to :func:`_eval_exp_tens_sa` for SA densities;
+    MA path ignores ``method`` (an MA orbit path is on the v2.3 roadmap).
+    """
     if isinstance(dens, WindowedMaetDensity):
         # Evaluate underlying density, multiply elementwise by window.
         underlying = _eval_exp_tens_ma(dens.dens, x, normalize, verbose=verbose)
@@ -1196,15 +1529,19 @@ def _eval_exp_tens_scalar(dens, x, normalize: str, *, verbose: bool) -> np.ndarr
     if isinstance(dens, MaetDensity):
         return _eval_exp_tens_ma(dens, x, normalize, verbose=verbose)
     if isinstance(dens, ExpTensDensity):
-        return _eval_exp_tens_sa(dens, x, normalize, verbose=verbose)
+        return _eval_exp_tens_sa(
+            dens, x, normalize, method=method, verbose=verbose,
+        )
     raise TypeError(
         f"dens must be an ExpTensDensity, MaetDensity, or "
         f"WindowedMaetDensity; got {type(dens).__name__}."
     )
 
 
-def _eval_exp_tens_density_list(dens_list, x, normalize: str,
-                                 *, dedup: bool, verbose: bool) -> np.ndarray:
+def _eval_exp_tens_density_list(
+    dens_list, x, normalize: str,
+    *, dedup: bool, method: str = "auto", verbose: bool,
+) -> np.ndarray:
     """Evaluate a list of densities at shared query ``x``.
 
     Returns ``(M, nQ)``. With ``dedup=True``, structurally-identical
@@ -1242,7 +1579,7 @@ def _eval_exp_tens_density_list(dens_list, x, normalize: str,
             )
             if key not in result_cache:
                 result_cache[key] = _eval_exp_tens_scalar(
-                    d, x, normalize, verbose=False,
+                    d, x, normalize, method=method, verbose=False,
                 )
             rows.append(result_cache[key])
         if verbose:
@@ -1257,16 +1594,18 @@ def _eval_exp_tens_density_list(dens_list, x, normalize: str,
                 "non-SA densities; computing without dedup."
             )
         rows = [
-            _eval_exp_tens_scalar(d, x, normalize, verbose=False)
+            _eval_exp_tens_scalar(d, x, normalize, method=method, verbose=False)
             for d in dens_tuple
         ]
 
     return np.stack(rows, axis=0)
 
 
-def _eval_exp_tens_raw_sa_scalar(p, w, sigma, r, is_rel, is_per, period,
-                                  x, normalize: str,
-                                  *, spectrum=None, verbose: bool) -> np.ndarray:
+def _eval_exp_tens_raw_sa_scalar(
+    p, w, sigma, r, is_rel, is_per, period,
+    x, normalize: str,
+    *, spectrum=None, method: str = "auto", verbose: bool,
+) -> np.ndarray:
     """Raw SA scalar dispatch: build density (with optional spectrum), evaluate."""
     if spectrum is not None:
         p_arr = np.asarray(p, dtype=np.float64)
@@ -1276,14 +1615,18 @@ def _eval_exp_tens_raw_sa_scalar(p, w, sigma, r, is_rel, is_per, period,
     dens = build_exp_tens(
         p, w, sigma, r, is_rel, is_per, period, verbose=verbose,
     )
-    return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
+    return _eval_exp_tens_scalar(
+        dens, x, normalize, method=method, verbose=verbose,
+    )
 
 
-def _eval_exp_tens_raw_sa_batch(P, W, sigma, r, is_rel, is_per, period,
-                                 x, normalize: str,
-                                 *, spectrum=None, precision: int | None = None,
-                                 dedup: bool = True,
-                                 verbose: bool) -> np.ndarray:
+def _eval_exp_tens_raw_sa_batch(
+    P, W, sigma, r, is_rel, is_per, period,
+    x, normalize: str,
+    *, spectrum=None, precision: int | None = None,
+    dedup: bool = True, method: str = "auto",
+    verbose: bool,
+) -> np.ndarray:
     """Raw SA batched dispatch.
 
     Per-row chord-level dedup of density construction (via
@@ -1306,8 +1649,6 @@ def _eval_exp_tens_raw_sa_batch(P, W, sigma, r, is_rel, is_per, period,
         if use_w:
             W = np.round(W, precision)
 
-    # Determine nQ for output shape; we need it even if M == 0 or all rows are invalid.
-    # Probe by evaluating one valid density, OR (if all invalid) inferring from x.
     # First pass: build canonical-form keys + density cache.
     dens_cache: dict = {}
     row_to_key: list = [None] * M
@@ -1361,7 +1702,7 @@ def _eval_exp_tens_raw_sa_batch(P, W, sigma, r, is_rel, is_per, period,
     eval_cache: dict = {}
     for key, dens in dens_cache.items():
         eval_cache[key] = _eval_exp_tens_scalar(
-            dens, x, normalize, verbose=False,
+            dens, x, normalize, method=method, verbose=False,
         )
 
     # Determine nQ from a representative evaluation.
@@ -1376,10 +1717,12 @@ def _eval_exp_tens_raw_sa_batch(P, W, sigma, r, is_rel, is_per, period,
     return out
 
 
-def _eval_exp_tens_raw_ma_scalar(p_attr, w, sigma_vec, r_vec, groups,
-                                  is_rel_vec, is_per_vec, period_vec,
-                                  x, normalize: str,
-                                  *, verbose: bool) -> np.ndarray:
+def _eval_exp_tens_raw_ma_scalar(
+    p_attr, w, sigma_vec, r_vec, groups,
+    is_rel_vec, is_per_vec, period_vec,
+    x, normalize: str,
+    *, verbose: bool,
+) -> np.ndarray:
     """Raw MA scalar dispatch: build MA density, evaluate."""
     dens = build_exp_tens(
         p_attr, w, sigma_vec, r_vec, groups,
@@ -1431,13 +1774,66 @@ def _eval_exp_tens_sa(
     x: np.ndarray,
     normalize: str = "none",
     *,
+    method: str = "auto",
     verbose: bool = True,
 ) -> np.ndarray:
-    """Single-attribute expectation tensor evaluation (v2.0.0 body)."""
+    """Single-attribute expectation tensor evaluation (dispatcher).
+
+    Routes between the v2.0 centres-array path and the v2.2 orbit-
+    Möbius point evaluator according to ``method`` and the cost model
+    in :func:`_select_sa_eval_method`.
+    """
     x = np.asarray(x, dtype=np.float64)
     if x.ndim == 1:
         x = x.reshape(1, -1)
+    if x.shape[0] != dens.dim:
+        raise ValueError(
+            f"x must have {dens.dim} rows (each column is a "
+            f"{dens.dim}-D query point)."
+        )
+    n_q = x.shape[1]
+    if n_q == 0:
+        return np.zeros(0, dtype=np.float64)
 
+    K = int(dens.p.shape[0])
+    sigma_over_P = (
+        float(dens.sigma) / float(dens.period) if dens.is_per else 0.0
+    )
+    chosen = _select_sa_eval_method(
+        r=int(dens.r), K=K, n_q=n_q,
+        is_rel=bool(dens.is_rel),
+        is_per=bool(dens.is_per),
+        sigma_over_P=sigma_over_P,
+        user_method=method,
+    )
+
+    if chosen == "orbit":
+        vals = _eval_exp_tens_sa_orbit(dens, x, n_q, verbose=verbose)
+        # Post-hoc finiteness check. Mirrors the cosine-path safety
+        # net: if the orbit alternating sum produces non-finite output
+        # (extreme σ → 0 regime), fall back to centres rather than
+        # propagating NaN/Inf into the user's result.
+        if not np.all(np.isfinite(vals)):
+            if verbose:
+                warnings.warn(
+                    "eval_exp_tens orbit path produced non-finite "
+                    "values; falling back to centres path."
+                )
+            vals = _eval_exp_tens_sa_centres(dens, x, n_q, verbose=verbose)
+    else:  # 'centres'
+        vals = _eval_exp_tens_sa_centres(dens, x, n_q, verbose=verbose)
+
+    return _eval_exp_tens_sa_normalize(vals, dens, normalize)
+
+
+def _eval_exp_tens_sa_centres(
+    dens: ExpTensDensity,
+    x: np.ndarray,
+    n_q: int,
+    *,
+    verbose: bool = True,
+) -> np.ndarray:
+    """Centres-array path for SA evaluation (v2.0 body)."""
     centres = dens.centres
     w_j = dens.w_j
     n_j = dens.n_j
@@ -1448,31 +1844,85 @@ def _eval_exp_tens_sa(
     is_per = dens.is_per
     period = dens.period
 
-    if x.shape[0] != dim:
-        raise ValueError(
-            f"x must have {dim} rows (each column is a {dim}-D query point)."
-        )
-    n_q = x.shape[1]
-
     n_pairs = int(n_j) * int(n_q)
     estimate_comp_time(n_pairs, dim, "eval_exp_tens", verbose)
 
-    vals = _eval_core(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period)
+    return _eval_core(
+        centres, w_j, n_j, x, n_q, dim, sigma, r,
+        is_rel, is_per, period,
+    )
 
-    # Normalization
-    if normalize != "none":
-        det_m = (1.0 / r) if is_rel else 1.0
-        gauss_const = (2 * np.pi * sigma**2) ** (-dim / 2) * np.sqrt(det_m)
-        vals = vals * gauss_const
 
-        if normalize == "pdf":
-            sum_w = np.sum(w_j)
-            if sum_w > 0:
-                vals = vals / sum_w
-            else:
-                warnings.warn(
-                    "Sum of weight products is zero; cannot normalize to pdf."
-                )
+def _eval_exp_tens_sa_orbit(
+    dens: ExpTensDensity,
+    x: np.ndarray,
+    n_q: int,
+    *,
+    verbose: bool = True,
+) -> np.ndarray:
+    """Orbit-Möbius point evaluator for SA evaluation.
+
+    Dispatches to :func:`mpt._mobius.eval_orbit_abs` (absolute modes)
+    or :func:`mpt._mobius.eval_orbit_rel` (relative modes). Bypasses
+    the ``(dim, n_j, n_q)`` intermediate tensor that would dominate
+    memory in the centres path at high r.
+    """
+    from ._mobius import eval_orbit_abs, eval_orbit_rel
+
+    p = dens.p
+    w = dens.w
+    sigma = float(dens.sigma)
+    r = int(dens.r)
+    is_rel = bool(dens.is_rel)
+    is_per = bool(dens.is_per)
+    period = float(dens.period)
+
+    # Light cost note. Orbit memory is O(B_r · r · K · n_q), much
+    # smaller than the centres path's O(n_j · n_q); we don't need a
+    # separate progress estimate.
+    if verbose:
+        # Surface the path choice in the same channel as the centres
+        # path's estimate_comp_time output so users can confirm
+        # routing if they care.
+        pass
+
+    if is_rel:
+        return eval_orbit_rel(
+            p, w, sigma, r, x,
+            is_per=is_per, period=period,
+        )
+    return eval_orbit_abs(
+        p, w, sigma, r, x,
+        is_per=is_per, period=period,
+    )
+
+
+def _eval_exp_tens_sa_normalize(
+    vals: np.ndarray,
+    dens: ExpTensDensity,
+    normalize: str,
+) -> np.ndarray:
+    """Apply Gaussian / pdf normalisation to raw SA tensor values."""
+    if normalize == "none":
+        return vals
+    sigma = dens.sigma
+    r = dens.r
+    dim = dens.dim
+    is_rel = dens.is_rel
+    w_j = dens.w_j
+
+    det_m = (1.0 / r) if is_rel else 1.0
+    gauss_const = (2 * np.pi * sigma**2) ** (-dim / 2) * np.sqrt(det_m)
+    vals = vals * gauss_const
+
+    if normalize == "pdf":
+        sum_w = np.sum(w_j)
+        if sum_w > 0:
+            vals = vals / sum_w
+        else:
+            warnings.warn(
+                "Sum of weight products is zero; cannot normalize to pdf."
+            )
 
     return vals
 
@@ -1719,13 +2169,13 @@ def eval_exp_tens_raw(
           # New (identical signature):
           vals = eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, x)
 
-       This shim will be removed in a future release.
+    This shim will be removed in a future release.
     """
     warnings.warn(
-        "eval_exp_tens_raw is deprecated. The same call signature is now "
-        "supported directly by eval_exp_tens (pass raw arrays as the first "
-        "arguments instead of a pre-built density object). This shim will "
-        "be removed in a future release.",
+        "eval_exp_tens_raw is deprecated. The same call signature is "
+        "now supported directly by eval_exp_tens (pass raw arrays as the "
+        "first arguments instead of pre-built density objects). This shim "
+        "will be removed in a future release.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -1740,45 +2190,321 @@ def eval_exp_tens_raw(
 # -------------------------------------------------------------------
 
 
+def cos_sim_exp_tens(*args,
+                     mode: str = "auto",
+                     dedup: bool = True,
+                     spectrum=None,
+                     precision: int | None = None,
+                     method: str = "auto",
+                     cancellation_threshold: float = 1e-12,
+                     verbose: bool = True):
+    """Cosine similarity of two expectation tensor densities.
+
+    Unified entry point. Accepts four input forms, dispatched on the
+    type of the first argument:
+
+    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
+
+    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar (the v2.0 case).
+    - ``cos_sim_exp_tens(dens_x, [d1, d2, …])`` — broadcast, returns
+      ``(N,)``.
+    - ``cos_sim_exp_tens([a1, a2, …], [b1, b2, …])`` — list-vs-list
+      with ``mode='pairwise'`` (default ``'auto'``, resolves to
+      pairwise for equal lengths) returning ``(M,)``, or
+      ``mode='cartesian'`` returning ``(M, N)``.
+
+    **Raw single-attribute scalar input** (the v2.0 case for one-shot calls):
+
+    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
+      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
+      ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
+      Returns scalar.
+
+    **Raw single-attribute batched input** (replaces ``batch_cos_sim_exp_tens``):
+
+    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
+      where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
+      (rows are chords; NaN-padded for variable cardinality), ``W1``,
+      ``W2`` likewise (or ``None`` for uniform). Returns ``(M,)``. If
+      only one operand is a matrix and the other is a 1-D vector of
+      length ``K``, the vector is broadcast across the matrix's ``M``
+      rows.
+
+    **Raw multi-attribute scalar input** (the v2.0 MA case):
+
+    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups,
+      is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
+      lists of per-attribute matrices. Returns scalar.
+
+    Parameters
+    ----------
+    *args
+        Positional arguments. Length depends on the input form:
+        2 for density modes; 9 for raw SA modes; 10 for raw MA mode.
+    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
+        For density list-vs-list. Ignored in scalar and broadcast cases.
+    dedup : bool, default True
+        Apply canonical-form deduplication. Currently supported for
+        single-attribute pairs only; pairs involving ``MaetDensity`` /
+        ``WindowedMaetDensity`` bypass dedup transparently.
+    spectrum : list/tuple, optional
+        Per-row spectral augmentation parameters passed to
+        :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
+        (scalar or batched).
+    precision : int, optional
+        Round canonical pitch and weight values to this many decimal
+        places, to absorb FP noise when deduplicating. Only valid in
+        raw SA batched mode.
+    method : {'auto', 'pairwise', 'direct'}, default 'auto'
+        Inner-product evaluation path; threaded through to the per-pair
+        SA/MA core. ``'auto'`` lets the v2.2 dispatcher pick between the
+        orbit-Möbius path (fast at r >= 3) and the v2.1 pairwise-wrap
+        path; ``'pairwise'`` forces the v2.1 path; ``'direct'`` forces
+        direct enumeration.
+    cancellation_threshold : float, default 1e-12
+        When the orbit path is selected and ``|<A,B>|`` falls below
+        this fraction of ``sqrt(<A,A><B,B>)``, fall back to the
+        pairwise path to avoid catastrophic Möbius cancellation.
+    verbose : bool, default True
+        Print progress.
+
+    Returns
+    -------
+    float or np.ndarray
+        Scalar in scalar-vs-scalar density mode, raw SA scalar mode, and
+        raw MA scalar mode. ``ndarray`` in all batched/list modes.
+
+    Notes
+    -----
+    The orbit-Möbius path (v2.2) is exact to floating-point precision
+    when every per-attribute ``K_a`` satisfies ``K_a >= r_a + 2`` and
+    σ is not catastrophically small relative to P. The dispatcher
+    enforces these conditions structurally — it refuses orbit and
+    routes to pairwise when ``K_a < r_a + 2``, when ``σ/P > 0.03`` in
+    periodic-relative mode, or when the σ → 0 fallback triggers.
+    Pass ``method='pairwise'`` to bypass the orbit path entirely.
+
+    See Also
+    --------
+    build_exp_tens : explicit density construction.
+    eval_exp_tens : evaluate a density at query points.
+    cos_sim_exp_tens_raw : deprecated; superseded by raw input mode here.
+    batch_cos_sim_exp_tens : deprecated; superseded by raw SA batched input here.
+
+    References
+    ----------
+    Originally by David Bulger, Macquarie University (2016).
+    Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
+    Möbius–Bulger orbit reformulation added in v2.2 (2026).
+    """
+    if len(args) < 2:
+        raise TypeError(
+            "cos_sim_exp_tens requires at least 2 positional arguments."
+        )
+
+    a = args[0]
+
+    # ------------------------------------------------------------------
+    # Detect density-input intent based on the first argument.
+    # ------------------------------------------------------------------
+    is_density_scalar = isinstance(
+        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+    )
+    intends_density_list = False
+    if isinstance(a, (list, tuple)):
+        if len(a) == 0:
+            intends_density_list = True
+        elif isinstance(
+            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        ):
+            intends_density_list = True
+    elif isinstance(a, np.ndarray) and a.dtype == object:
+        intends_density_list = True
+
+    if is_density_scalar or intends_density_list:
+        if len(args) != 2:
+            raise TypeError(
+                f"Density input mode expects 2 positional arguments "
+                f"(dens_x, dens_y); got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only valid in raw SA input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        return _cos_sim_density_path(
+            args[0], args[1],
+            mode=mode, dedup=dedup,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
+
+    # ------------------------------------------------------------------
+    # Raw multi-attribute dispatch (list of per-attribute arrays)
+    # ------------------------------------------------------------------
+    if _looks_like_multi_attr(a):
+        if len(args) != 10:
+            raise TypeError(
+                f"Raw multi-attribute input expects 10 positional arguments "
+                f"(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, "
+                f"is_rel_vec, is_per_vec, period_vec); got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only supported in raw single-attribute "
+                "input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        if mode != "auto":
+            raise TypeError(
+                "'mode' kwarg only applies to density list inputs."
+            )
+        return _cos_sim_raw_ma_scalar(
+            *args,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
+
+    # ------------------------------------------------------------------
+    # Raw single-attribute dispatch.
+    # ------------------------------------------------------------------
+    if len(args) != 9:
+        raise TypeError(
+            f"Raw single-attribute input expects 9 positional arguments "
+            f"(p1, w1, p2, w2, sigma, r, is_rel, is_per, period); "
+            f"got {len(args)}."
+        )
+
+    try:
+        a_arr = np.asarray(a, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"First argument must be a density object, list of densities, "
+            f"numeric array (1-D for a single chord, 2-D for a batch), or "
+            f"list of per-attribute matrices for MA raw input; got "
+            f"{type(a).__name__}."
+        ) from exc
+
+    try:
+        b_arr = np.asarray(args[2], dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"Third positional argument (P2) must be a numeric array; got "
+            f"{type(args[2]).__name__}."
+        ) from exc
+
+    if a_arr.ndim > 2 or b_arr.ndim > 2:
+        raise TypeError(
+            f"Raw SA inputs must be 1-D (single chord) or 2-D (batched); "
+            f"got P1.ndim = {a_arr.ndim}, P2.ndim = {b_arr.ndim}."
+        )
+
+    # Batched dispatch fires whenever either operand is 2-D.
+    if a_arr.ndim == 2 or b_arr.ndim == 2:
+        sigma, r_, is_rel, is_per, period = args[4:9]
+        W1_arg, W2_arg = args[1], args[3]
+
+        # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
+        P1 = a_arr if a_arr.ndim == 2 else a_arr.reshape(1, -1)
+        P2 = b_arr if b_arr.ndim == 2 else b_arr.reshape(1, -1)
+
+        def _to_row_w(w):
+            """Match a weights argument's shape to its (now 2-D) p."""
+            if w is None:
+                return None
+            w_arr = np.asarray(w, dtype=np.float64)
+            if w_arr.ndim == 1:
+                return w_arr.reshape(1, -1)
+            return w_arr
+
+        W1 = _to_row_w(W1_arg)
+        W2 = _to_row_w(W2_arg)
+
+        M1, M2 = P1.shape[0], P2.shape[0]
+        if M1 == 1 and M2 > 1:
+            P1 = np.broadcast_to(P1, (M2, P1.shape[1])).copy()
+            if W1 is not None:
+                W1 = np.broadcast_to(W1, (M2, W1.shape[1])).copy()
+        elif M2 == 1 and M1 > 1:
+            P2 = np.broadcast_to(P2, (M1, P2.shape[1])).copy()
+            if W2 is not None:
+                W2 = np.broadcast_to(W2, (M1, W2.shape[1])).copy()
+        elif M1 != M2:
+            raise ValueError(
+                f"Batched-raw P1 and P2 must either have matching row counts, "
+                f"or one of them must be a single-row reference (1-D vector "
+                f"or shape ``(1, K)``) to broadcast against the other. Got "
+                f"{M1} and {M2} rows."
+            )
+
+        return _cos_sim_raw_sa_batch(
+            P1, P2, sigma, r_, is_rel, is_per, period,
+            weights_a=W1, weights_b=W2,
+            spectrum=spectrum, precision=precision,
+            dedup=dedup,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
+
+    # Both operands are 1-D → existing scalar SA path.
+    if precision is not None:
+        raise TypeError(
+            "'precision' kwarg is only valid for raw SA batched input "
+            "(at least one of P1, P2 must be 2-D)."
+        )
+    if mode != "auto":
+        raise TypeError(
+            "'mode' kwarg only applies to density list inputs."
+        )
+    return _cos_sim_raw_sa_scalar(
+        *args, spectrum=spectrum,
+        method=method,
+        cancellation_threshold=cancellation_threshold,
+        verbose=verbose,
+    )
+
+
+# -------------------------------------------------------------------
+#  Polymorphic-dispatch helpers for cos_sim_exp_tens
+# -------------------------------------------------------------------
+
+
 def _normalize_density_input(arg, *, name: str):
-    """Detect whether ``arg`` is a single density or a list/tuple/array of densities.
+    """Detect whether ``arg`` is a single density or a list of densities.
 
     Returns
     -------
     is_scalar : bool
         True if ``arg`` is a single density object (not a list/tuple/array).
-        Length-1 lists are NOT treated as scalars (Option II — strict shape
-        preservation, NumPy-style).
     densities : tuple
-        Tuple of density objects. Length 1 in the scalar case; length N
-        otherwise; empty tuple for empty list input.
-
-    Raises
-    ------
-    TypeError
-        If ``arg`` is not a recognised density type and not a list-like
-        of recognised density types, or if a list-like contains an
-        unrecognised element.
+        Tuple of density objects.
     """
-    # numpy arrays of dtype=object containing densities: convert to list
     if isinstance(arg, np.ndarray) and arg.dtype == object:
         arg = list(arg)
 
-    # Single density object?
     if isinstance(arg, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
         return True, (arg,)
 
-    # List/tuple of densities (or empty list, treated as a length-0 list)?
     if isinstance(arg, (list, tuple)):
         if len(arg) == 0:
             return False, ()
         for i, elem in enumerate(arg):
-            if not isinstance(elem, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
+            if not isinstance(
+                elem, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+            ):
                 raise TypeError(
                     f"{name}[{i}] must be an ExpTensDensity, MaetDensity, "
                     f"or WindowedMaetDensity; got {type(elem).__name__}."
                 )
-        # Strict shape preservation: length-1 list stays as list.
         return False, tuple(arg)
 
     raise TypeError(
@@ -1788,10 +2514,7 @@ def _normalize_density_input(arg, *, name: str):
 
 
 def _resolve_list_list_mode(mode: str, m: int, n: int) -> str:
-    """Resolve ``mode`` for the list-vs-list case. Returns 'pairwise' or 'cartesian'.
-
-    Raises ValueError on incompatible combinations.
-    """
+    """Resolve ``mode`` for the list-vs-list case. Returns 'pairwise' or 'cartesian'."""
     if mode == "pairwise":
         if m != n:
             raise ValueError(
@@ -1822,32 +2545,20 @@ def _all_sa_pairs(pairs):
     return True
 
 
-def _compute_pair_results_with_dedup_sa(pairs, verbose: bool):
-    """Compute cos_sim for a list of SA-density pairs with canonical-form dedup.
-
-    Uses :func:`_pair_canonical_key` to identify structurally-equivalent
-    pairs and computes each unique pair once; results mapped back to
-    every input position.
-    """
+def _compute_pair_results_with_dedup_sa(
+    pairs, *, method: str, cancellation_threshold: float, verbose: bool,
+):
+    """Compute cos_sim for SA-density pairs with canonical-form dedup."""
     pair_key_to_idx: dict = {}
     pair_canon_idx: list[int] = []
-    unique_pair_list: list = []  # holds (a, b) tuples for the unique pairs
+    unique_pair_list: list = []
 
     for a, b in pairs:
-        # Use A's parameters as the canonical reference; per-pair core
-        # call will validate compatibility between A and B.
         key_a, key_b, _, _, _, _ = _pair_canonical_key(
             a.p, a.w, b.p, b.w,
             sigma=a.sigma, r=a.r, is_rel=a.is_rel,
             is_per=a.is_per, period=a.period,
         )
-        # Keys include A's parameters; if B has different parameters, the
-        # key still distinguishes them via key_b (which carries B's own
-        # canonical pitch/weight content but A's reference parameters).
-        # Same-parameter pairs that genuinely differ produce different
-        # keys; cross-parameter "matches" can't collide because the
-        # per-pair core call would reject them anyway. To be safe,
-        # incorporate B's parameters explicitly into the pair key.
         pk = (
             key_a,
             key_b,
@@ -1866,26 +2577,44 @@ def _compute_pair_results_with_dedup_sa(pairs, verbose: bool):
         )
 
     unique_results = [
-        _cos_sim_exp_tens_sa(a, b, verbose=False)
+        _cos_sim_exp_tens_sa(
+            a, b,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=False,
+        )
         for a, b in unique_pair_list
     ]
     return [unique_results[idx] for idx in pair_canon_idx]
 
 
-def _compute_pair_results_no_dedup(pairs, verbose: bool):
-    """Compute cos_sim for a list of pairs without dedup. Pair-by-pair core calls."""
+def _compute_pair_results_no_dedup(
+    pairs, *, method: str, cancellation_threshold: float, verbose: bool,
+):
+    """Compute cos_sim for a list of pairs without dedup."""
     results = []
     for a, b in pairs:
-        results.append(_cos_sim_pair_core(a, b, verbose=False))
+        results.append(_cos_sim_pair_core(
+            a, b,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=False,
+        ))
     return results
 
 
-def _cos_sim_pair_core(dens_x, dens_y, *, verbose: bool):
+def _cos_sim_pair_core(
+    dens_x, dens_y, *,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
+    verbose: bool,
+):
     """Internal: dispatch a single pair to the correct core IP routine.
 
-    Reproduces the type-dispatch logic of the public ``cos_sim_exp_tens``
-    in scalar mode, but as an internal helper so that the polymorphic
-    public function can call it without recursion.
+    Routes to :func:`_cos_sim_exp_tens_sa`, :func:`_cos_sim_exp_tens_ma`,
+    or :func:`_cos_sim_exp_tens_windowed`, threading ``method`` and
+    ``cancellation_threshold`` through to the SA and MA paths (the
+    windowed path doesn't yet expose orbit dispatch).
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
@@ -1905,14 +2634,24 @@ def _cos_sim_pair_core(dens_x, dens_y, *, verbose: bool):
                 "dens_x is a MaetDensity but dens_y is not; both must be "
                 "the same type."
             )
-        return _cos_sim_exp_tens_ma(dens_x, dens_y, verbose=verbose)
+        return _cos_sim_exp_tens_ma(
+            dens_x, dens_y,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
     if isinstance(dens_x, ExpTensDensity):
         if not isinstance(dens_y, ExpTensDensity):
             raise TypeError(
                 "dens_x is an ExpTensDensity but dens_y is not; both must "
                 "be the same type."
             )
-        return _cos_sim_exp_tens_sa(dens_x, dens_y, verbose=verbose)
+        return _cos_sim_exp_tens_sa(
+            dens_x, dens_y,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
     raise TypeError(
         f"Both arguments must be ExpTensDensity, MaetDensity, or "
         f"WindowedMaetDensity; got {type(dens_x).__name__} and "
@@ -1920,344 +2659,47 @@ def _cos_sim_pair_core(dens_x, dens_y, *, verbose: bool):
     )
 
 
-def cos_sim_exp_tens(*args,
-                     mode: str = "auto",
-                     dedup: bool = True,
-                     spectrum=None,
-                     precision: int | None = None,
-                     verbose: bool = True):
-    """Cosine similarity of two expectation tensor densities.
-
-    Unified entry point. Accepts four input forms, dispatched on the
-    type of the first argument:
-
-    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
-
-    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar (the v2.0 case).
-    - ``cos_sim_exp_tens(dens_x, [d1, d2, …])`` — broadcast, returns
-      ``(N,)``.
-    - ``cos_sim_exp_tens([a1, a2, …], [b1, b2, …])`` — list-vs-list
-      with ``mode='pairwise'`` (default ``'auto'``, resolves to
-      pairwise for equal lengths) returning ``(M,)``, or
-      ``mode='cartesian'`` returning ``(M, N)``.
-
-    **Raw single-attribute scalar input** (the v2.0 case for one-shot calls):
-
-    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
-      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
-      ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
-      Returns scalar.
-
-    **Raw single-attribute batched input** (replaces ``batch_cos_sim_exp_tens``):
-
-    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
-      where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
-      with both dimensions > 1 (rows are chords; NaN-padded for
-      variable cardinality), ``W1``, ``W2`` likewise (or ``None`` for
-      uniform). Returns ``(M,)``. If only one operand is a matrix and
-      the other is a vector of length ``K`` (1-D, ``(1, K)``, or
-      ``(K, 1)``), the vector is broadcast across the matrix's ``M``
-      rows in NumPy implicit-expansion style; the corresponding
-      weights argument is broadcast in lockstep when not ``None``.
-      This avoids the explicit ``np.tile(ref_pitches, (M, 1))`` idiom
-      for the common "one reference vs many candidates" use case.
-
-    **Raw multi-attribute scalar input** (the v2.0 MA case):
-
-    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups,
-      is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
-      lists of per-attribute matrices. Returns scalar.
-
-    Dispatch rule on the first argument's type:
-
-    - ``ExpTensDensity`` / ``MaetDensity`` / ``WindowedMaetDensity`` →
-      density scalar mode.
-    - list / tuple of densities → density list mode.
-    - 1-D ``ndarray`` (or flat list of numbers) → raw SA scalar mode.
-    - 2-D ``ndarray`` → raw SA batched mode (rows are chords).
-    - list / tuple of 2-D arrays → raw MA scalar mode.
-
-    Parameters
-    ----------
-    *args
-        Positional arguments. Length depends on the input form:
-        2 for density modes; 9 for raw SA modes; 10 for raw MA mode.
-    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
-        For density list-vs-list. Ignored in scalar and broadcast cases.
-    dedup : bool, default True
-        Apply canonical-form deduplication. Currently supported for
-        single-attribute pairs only; pairs involving ``MaetDensity`` /
-        ``WindowedMaetDensity`` bypass dedup transparently.
-    spectrum : list/tuple, optional
-        Per-row spectral augmentation parameters passed to
-        :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
-        (scalar or batched). Raises if used in density or MA modes.
-    precision : int, optional
-        Round canonical pitch and weight values to this many decimal
-        places, to absorb FP noise when deduplicating. Only valid in
-        raw SA batched mode. Raises if used elsewhere.
-    verbose : bool, default True
-        Print progress.
-
-    Returns
-    -------
-    float or np.ndarray
-        Scalar in scalar-vs-scalar density mode, raw SA scalar mode, and
-        raw MA scalar mode. ``ndarray`` in all batched/list modes.
-
-    See Also
-    --------
-    build_exp_tens : explicit density construction.
-    eval_exp_tens : evaluate a density at query points.
-    cos_sim_exp_tens_raw : deprecated; superseded by raw input mode here.
-    batch_cos_sim_exp_tens : deprecated; superseded by raw SA batched input here.
-
-    References
-    ----------
-    Originally by David Bulger, Macquarie University (2016).
-    Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
-    """
-    if len(args) < 2:
-        raise TypeError(
-            "cos_sim_exp_tens requires at least 2 positional arguments."
-        )
-
-    a = args[0]
-
-    # ------------------------------------------------------------------
-    # Detect density-input intent based on the first argument.
-    #
-    # The dispatch rule: a list/tuple is treated as a density list (and
-    # validated by ``_normalize_density_input``) if it is empty or its
-    # first element is a density object. A list whose first element is
-    # an array-like (list, tuple, ndarray) is treated as raw MA input
-    # (delegated to ``_looks_like_multi_attr``). A list of numeric scalars
-    # is treated as raw SA scalar input. A list with mixed contents
-    # (e.g. ``[dens, "string"]``) is routed to the density path so the
-    # user receives a precise error from the density-list validator.
-    # ------------------------------------------------------------------
-    is_density_scalar = isinstance(
-        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
-    )
-    intends_density_list = False
-    if isinstance(a, (list, tuple)):
-        if len(a) == 0:
-            intends_density_list = True
-        elif isinstance(
-            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
-        ):
-            intends_density_list = True
-    elif isinstance(a, np.ndarray) and a.dtype == object:
-        intends_density_list = True
-
-    if is_density_scalar or intends_density_list:
-        if len(args) != 2:
-            raise TypeError(
-                f"Density input mode expects 2 positional arguments "
-                f"(dens_x, dens_y); got {len(args)}."
-            )
-        if spectrum is not None:
-            raise TypeError(
-                "'spectrum' kwarg is only valid in raw SA input mode "
-                "(prebuilt densities already have any spectral augmentation "
-                "baked in via build_exp_tens)."
-            )
-        if precision is not None:
-            raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
-            )
-        return _cos_sim_density_path(
-            args[0], args[1], mode=mode, dedup=dedup, verbose=verbose,
-        )
-
-    # ------------------------------------------------------------------
-    # Raw multi-attribute dispatch (list of per-attribute arrays)
-    # ------------------------------------------------------------------
-    if _looks_like_multi_attr(a):
-        if len(args) != 10:
-            raise TypeError(
-                f"Raw multi-attribute input expects 10 positional arguments "
-                f"(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, "
-                f"is_rel_vec, is_per_vec, period_vec); got {len(args)}."
-            )
-        if spectrum is not None:
-            raise TypeError(
-                "'spectrum' kwarg is only supported in raw single-attribute "
-                "input mode."
-            )
-        if precision is not None:
-            raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
-            )
-        if mode != "auto":
-            raise TypeError(
-                "'mode' kwarg only applies to density list inputs."
-            )
-        return _cos_sim_raw_ma_scalar(*args, verbose=verbose)
-
-    # ------------------------------------------------------------------
-    # Raw single-attribute dispatch.
-    #
-    # If at least one of P1, P2 is 2-D, we route to the batched helper
-    # (preserving Option II shape preservation: a single-row batched
-    # input returns a length-1 array).  When one operand is 1-D and the
-    # other is 2-D, the 1-D operand is reshaped to ``(1, K)`` and then
-    # broadcast across the matrix's rows in NumPy implicit-expansion
-    # style; weights are broadcast in lockstep.  When both operands are
-    # 1-D, we route to the v2.0 scalar path (returns a Python float).
-    # ------------------------------------------------------------------
-    if len(args) != 9:
-        raise TypeError(
-            f"Raw single-attribute input expects 9 positional arguments "
-            f"(p1, w1, p2, w2, sigma, r, is_rel, is_per, period); "
-            f"got {len(args)}."
-        )
-
-    # Convert P1 to ndarray. A clear error here beats a confusing
-    # NumPy ValueError from a downstream conversion.
-    try:
-        a_arr = np.asarray(a, dtype=np.float64)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(
-            f"First argument must be a density object, list of densities, "
-            f"numeric array (1-D for a single chord, 2-D for a batch), or "
-            f"list of per-attribute matrices for MA raw input; got "
-            f"{type(a).__name__} with content that could not be coerced "
-            f"to a numeric array."
-        ) from exc
-
-    # Convert P2 with the same care.
-    try:
-        b_arr = np.asarray(args[2], dtype=np.float64)
-    except (TypeError, ValueError) as exc:
-        raise TypeError(
-            f"Third positional argument (P2) must be a numeric array; got "
-            f"{type(args[2]).__name__} with content that could not be "
-            f"coerced to a numeric array."
-        ) from exc
-
-    if a_arr.ndim > 2 or b_arr.ndim > 2:
-        raise TypeError(
-            f"Raw SA inputs must be 1-D (single chord) or 2-D (batched); "
-            f"got P1.ndim = {a_arr.ndim}, P2.ndim = {b_arr.ndim}."
-        )
-
-    # Batched dispatch fires whenever either operand is 2-D.
-    if a_arr.ndim == 2 or b_arr.ndim == 2:
-        sigma, r_, is_rel, is_per, period = args[4:9]
-        W1_arg, W2_arg = args[1], args[3]
-
-        # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
-        P1 = a_arr if a_arr.ndim == 2 else a_arr.reshape(1, -1)
-        P2 = b_arr if b_arr.ndim == 2 else b_arr.reshape(1, -1)
-
-        def _to_row_w(w, p_was_1d):
-            """Match a weights argument's shape to its (now 2-D) p."""
-            if w is None:
-                return None
-            w_arr = np.asarray(w, dtype=np.float64)
-            if w_arr.ndim == 1:
-                return w_arr.reshape(1, -1)
-            return w_arr
-
-        W1 = _to_row_w(W1_arg, a_arr.ndim == 1)
-        W2 = _to_row_w(W2_arg, b_arr.ndim == 1)
-
-        M1, M2 = P1.shape[0], P2.shape[0]
-        if M1 == 1 and M2 > 1:
-            P1 = np.broadcast_to(P1, (M2, P1.shape[1])).copy()
-            if W1 is not None:
-                W1 = np.broadcast_to(W1, (M2, W1.shape[1])).copy()
-        elif M2 == 1 and M1 > 1:
-            P2 = np.broadcast_to(P2, (M1, P2.shape[1])).copy()
-            if W2 is not None:
-                W2 = np.broadcast_to(W2, (M1, W2.shape[1])).copy()
-        elif M1 != M2:
-            raise ValueError(
-                f"Batched-raw P1 and P2 must either have matching row counts, "
-                f"or one of them must be a single-row reference (1-D vector "
-                f"or shape ``(1, K)``) to broadcast against the other. Got "
-                f"{M1} and {M2} rows."
-            )
-
-        return _cos_sim_raw_sa_batch(
-            P1, P2, sigma, r_, is_rel, is_per, period,
-            weights_a=W1, weights_b=W2,
-            spectrum=spectrum, precision=precision,
-            dedup=dedup, verbose=verbose,
-        )
-
-    # Both operands are 1-D → existing scalar SA path.
-    if precision is not None:
-        raise TypeError(
-            "'precision' kwarg is only valid for raw SA batched input "
-            "(at least one of P1, P2 must be 2-D)."
-        )
-    if mode != "auto":
-        raise TypeError(
-            "'mode' kwarg only applies to density list inputs."
-        )
-    return _cos_sim_raw_sa_scalar(
-        *args, spectrum=spectrum, verbose=verbose,
-    )
-
-
 def _cos_sim_density_path(
-    dens_x,
-    dens_y,
-    *,
+    dens_x, dens_y, *,
     mode: str = "auto",
     dedup: bool = True,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ):
-    """Density-input dispatch for :func:`cos_sim_exp_tens`.
-
-    Handles four sub-cases:
-
-    - scalar density vs scalar density (the v2.0 case),
-    - scalar density vs list of densities (broadcast),
-    - list vs scalar (broadcast),
-    - list vs list with ``mode='pairwise'`` or ``mode='cartesian'``.
-
-    Empty lists return appropriately-shaped empty arrays (Option II:
-    no length-1 collapse — strict NumPy-style shape preservation).
-
-    See :func:`cos_sim_exp_tens` for full user-facing docs.
-    """
+    """Density-input dispatch for :func:`cos_sim_exp_tens`."""
     is_x_scalar, list_x = _normalize_density_input(dens_x, name="dens_x")
     is_y_scalar, list_y = _normalize_density_input(dens_y, name="dens_y")
 
-    # Scalar-vs-scalar: identical to v2.0 behaviour.
+    # Scalar-vs-scalar.
     if is_x_scalar and is_y_scalar:
-        return _cos_sim_pair_core(list_x[0], list_y[0], verbose=verbose)
+        return _cos_sim_pair_core(
+            list_x[0], list_y[0],
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
 
     m = len(list_x)
     n = len(list_y)
 
-    # Determine pair list and output shape.
     if is_x_scalar:
-        # Scalar-vs-list (broadcast). list_y may be empty.
         if n == 0:
             return np.empty((0,), dtype=np.float64)
         a = list_x[0]
         pairs = [(a, b) for b in list_y]
         out_shape = (n,)
     elif is_y_scalar:
-        # List-vs-scalar (broadcast). list_x may be empty.
         if m == 0:
             return np.empty((0,), dtype=np.float64)
         b = list_y[0]
         pairs = [(a, b) for a in list_x]
         out_shape = (m,)
     else:
-        # List-vs-list. Handle empty cases first.
         if m == 0 or n == 0:
-            # Empty list: output shape depends on resolved mode.
             try:
                 resolved = _resolve_list_list_mode(mode, m, n)
             except ValueError:
-                # mode='auto' may raise on unequal nonempty lengths; here
-                # one side is empty, treat as cartesian by default.
                 resolved = "cartesian"
             if resolved == "pairwise":
                 return np.empty((0,), dtype=np.float64)
@@ -2267,22 +2709,97 @@ def _cos_sim_density_path(
         if resolved == "pairwise":
             pairs = list(zip(list_x, list_y))
             out_shape = (m,)
-        else:  # cartesian
+        else:
             pairs = [(a, b) for a in list_x for b in list_y]
             out_shape = (m, n)
 
-    # Compute per-pair similarities, optionally deduplicating.
     if dedup and _all_sa_pairs(pairs):
-        results = _compute_pair_results_with_dedup_sa(pairs, verbose=verbose)
+        results = _compute_pair_results_with_dedup_sa(
+            pairs,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
     else:
         if dedup and verbose:
             print(
                 "cos_sim_exp_tens: dedup=True requested but input includes "
                 "non-SA densities; computing without dedup."
             )
-        results = _compute_pair_results_no_dedup(pairs, verbose=verbose)
+        results = _compute_pair_results_no_dedup(
+            pairs,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            verbose=verbose,
+        )
 
     return np.array(results, dtype=np.float64).reshape(out_shape)
+
+
+def _cos_sim_raw_sa_scalar(
+    p1, w1, p2, w2,
+    sigma, r, is_rel, is_per, period,
+    *,
+    spectrum=None,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
+    verbose: bool = True,
+) -> float:
+    """Raw single-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
+    if spectrum is not None:
+        p1_aug, w1_aug = add_spectra(
+            np.asarray(p1, dtype=np.float64),
+            np.ones_like(np.asarray(p1, dtype=np.float64)) if w1 is None
+            else np.asarray(w1, dtype=np.float64),
+            *spectrum,
+        )
+        p2_aug, w2_aug = add_spectra(
+            np.asarray(p2, dtype=np.float64),
+            np.ones_like(np.asarray(p2, dtype=np.float64)) if w2 is None
+            else np.asarray(w2, dtype=np.float64),
+            *spectrum,
+        )
+    else:
+        p1_aug, w1_aug = p1, w1
+        p2_aug, w2_aug = p2, w2
+
+    dx = build_exp_tens(
+        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+    )
+    dy = build_exp_tens(
+        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+    )
+    return _cos_sim_pair_core(
+        dx, dy,
+        method=method,
+        cancellation_threshold=cancellation_threshold,
+        verbose=verbose,
+    )
+
+
+def _cos_sim_raw_ma_scalar(
+    p_attr1, w1, p_attr2, w2,
+    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
+    *,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
+    verbose: bool = True,
+) -> float:
+    """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
+    dx = build_exp_tens(
+        p_attr1, w1, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+    dy = build_exp_tens(
+        p_attr2, w2, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+    return _cos_sim_pair_core(
+        dx, dy,
+        method=method,
+        cancellation_threshold=cancellation_threshold,
+        verbose=verbose,
+    )
 
 
 # -------------------------------------------------------------------
@@ -2290,13 +2807,75 @@ def _cos_sim_density_path(
 # -------------------------------------------------------------------
 
 
+_ORBIT_CANCELLATION_RATIO_MIN = 1e-10
+"""Minimum acceptable cancellation ratio in the orbit Möbius alternating sum.
+
+When ``|sum| / max(|term|)`` drops below this threshold the result has
+lost roughly 10 of its 16 significant decimal digits, leaving ~6
+surviving — borderline acceptable for cosine accuracy at downstream
+1e-6 user tolerance, but past this point the dispatcher falls back to
+pairwise. See V22_DEV_LOG.md for the empirical regime where this
+fires (sharp Gaussians + low K-r margin in absolute modes)."""
+
+
+def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
+    """Cheap post-hoc sanity check on orbit-computed inner products.
+
+    The orbit path's Möbius alternating sum can break down catastrophically
+    in two regimes documented during the May 2026 audit:
+
+    * σ → 0 with low K and r ≥ 3 (music-theoretical exact-match regime):
+      auto-IP terms cancel to a value with magnitude near
+      machine epsilon, then floating-point overflow can produce huge
+      garbage values when the cosine ratio is taken.
+    * Issue 4 sharp-Gaussian regime (σ small relative to data range):
+      auto-IPs lose 4–8 decimal digits of precision while looking
+      finite; this check does NOT catch that — only the catastrophic
+      overflow / sign-corruption regime.
+
+    Triggers on any of:
+    * non-finite IP (NaN or Inf in any of the three),
+    * negative auto-IP (a Gram-matrix diagonal must be ≥ 0; sign flip
+      is unambiguous corruption),
+    * cosine magnitude > 1 + 1e-6 (impossible for a genuine cosine).
+
+    Parameters
+    ----------
+    ip_xy, ip_xx, ip_yy : float
+        Cross and auto inner products from the orbit path.
+
+    Returns
+    -------
+    bool
+        True if the IPs are unsuitable for use and the caller should
+        fall back to pairwise.
+    """
+    if not (np.isfinite(ip_xy) and np.isfinite(ip_xx) and np.isfinite(ip_yy)):
+        return True
+    if ip_xx < 0 or ip_yy < 0:
+        return True
+    denom = np.sqrt(ip_xx * ip_yy)
+    if denom > 0 and abs(ip_xy) > 1.000001 * denom:
+        return True
+    return False
+
+
 def _cos_sim_exp_tens_sa(
     dens_x: ExpTensDensity,
     dens_y: ExpTensDensity,
     *,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
-    """Single-attribute cosine similarity (v2.0.0 body)."""
+    """Single-attribute cosine similarity.
+
+    v2.2 adds a ``method`` keyword that routes between the v2.1
+    pairwise-wrap path (``_ip_core``) and the orbit-Möbius path
+    introduced in v2.2. With the default ``method='auto'`` and
+    perceptually typical parameters, the orbit path is selected and
+    the result agrees with v2.1 to floating-point precision.
+    """
     if dens_x.r != dens_y.r:
         raise ValueError("Both densities must have the same r.")
     if dens_x.is_rel != dens_y.is_rel:
@@ -2308,37 +2887,63 @@ def _cos_sim_exp_tens_sa(
     if dens_x.sigma != dens_y.sigma:
         raise ValueError("Both densities must have the same sigma.")
 
+    if method not in ("auto", "pairwise", "direct", "orbit"):
+        raise ValueError(
+            f"method must be one of 'auto', 'pairwise', 'direct'; "
+            f"got {method!r}."
+        )
+
     r = dens_x.r
-    sigma = dens_x.sigma
     is_rel = dens_x.is_rel
     is_per = dens_x.is_per
     period = dens_x.period
+    sigma = dens_x.sigma
 
-    # Early return for degenerate case
+    # Early return for degenerate case.
     if r > min(len(dens_x.p), len(dens_y.p)):
         return float("nan")
 
-    n_jx, n_kx = dens_x.n_j_perm, dens_x.n_k
-    n_jy, n_ky = dens_y.n_j_perm, dens_y.n_k
+    n_max = max(len(dens_x.p), len(dens_y.p))
+    n_min = min(len(dens_x.p), len(dens_y.p))
+    sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
+    chosen = _select_sa_inner_product_method(
+        r, n_max, is_rel, is_per, sigma_over_P, method,
+        n_min=n_min,
+    )
 
-    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
-    estimate_comp_time(total_pairs, r, "cos_sim_exp_tens", verbose)
-
-    ip_xy = _ip_core(
-        dens_x.u_perm, dens_x.w_perm, n_jx,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        r, sigma, is_rel, is_per, period,
-    )
-    ip_xx = _ip_core(
-        dens_x.u_perm, dens_x.w_perm, n_jx,
-        dens_x.v_comb, dens_x.wv_comb, n_kx,
-        r, sigma, is_rel, is_per, period,
-    )
-    ip_yy = _ip_core(
-        dens_y.u_perm, dens_y.w_perm, n_jy,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        r, sigma, is_rel, is_per, period,
-    )
+    if chosen == "orbit":
+        ip_xy, ip_xx, ip_yy, worst_ratio = _cos_sim_exp_tens_sa_orbit(
+            dens_x, dens_y,
+        )
+        # Three layers of orbit-result validation, fall back on any:
+        # 1. Cross-cancellation guard: <A,B> small relative to
+        #    sqrt(<A,A><B,B>) — the orbit estimate may be dominated by
+        #    cancellation between partition-orbit terms.
+        denom_geo = np.sqrt(max(ip_xx * ip_yy, 0.0))
+        cross_cancellation = (
+            denom_geo > 0
+            and abs(ip_xy) < cancellation_threshold * denom_geo
+        )
+        # 2. Post-hoc sanity on the IPs themselves (catches the σ→0
+        #    catastrophic-overflow regime: non-finite, sign-corrupt, or
+        #    cosine outside [-1, 1]).
+        ips_corrupted = _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)
+        # 3. Runtime cancellation diagnostic: the alternating Möbius
+        #    sum has lost too many significant digits, even if the
+        #    final values look superficially fine. Catches the quieter
+        #    sharp-Gaussian regime where IPs are finite-looking but
+        #    ~1e-4 to 1e-2 wrong.
+        cancellation_too_severe = (
+            worst_ratio < _ORBIT_CANCELLATION_RATIO_MIN
+        )
+        if cross_cancellation or ips_corrupted or cancellation_too_severe:
+            ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
+                dens_x, dens_y, verbose=verbose,
+            )
+    else:  # 'pairwise' or 'direct' — coincide in SA mode
+        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
+            dens_x, dens_y, verbose=verbose,
+        )
 
     denom = np.sqrt(ip_xx * ip_yy)
     if denom == 0:
@@ -2355,9 +2960,20 @@ def _cos_sim_exp_tens_ma(
     dens_x: MaetDensity,
     dens_y: MaetDensity,
     *,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
     """Multi-attribute cosine similarity.
+
+    v2.2 adds a ``method`` keyword that routes between the v2.1
+    pairwise-wrap path (``_ip_core_ma``) and the orbit-Möbius path
+    introduced in v2.2. With the default ``method='auto'`` and
+    perceptually typical parameters (no NaN-padded ``p_attr``,
+    r_a ≤ ``_ORBIT_R_MAX_SHIPPED``, σ/P ≤
+    ``_ORBIT_SIGMA_OVER_P_THRESHOLD`` for periodic-relative groups),
+    the orbit path is selected and the result agrees with v2.1 to
+    floating-point precision.
 
     Both densities must share the full parameter structure: number of
     attributes, group assignment, per-attribute ``r``, and per-group
@@ -2388,36 +3004,89 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic groups."
         )
 
-    A          = dens_x.n_attrs
-    group_of   = dens_x.group_of_attr
-    r_vec      = dens_x.r
-    sigma_g    = dens_x.sigma
-    is_rel_g   = dens_x.is_rel
-    is_per_g   = dens_x.is_per
-    period_g   = dens_x.period
+    if method not in ("auto", "pairwise", "direct", "orbit"):
+        raise ValueError(
+            f"method must be one of 'auto', 'pairwise', 'direct'; "
+            f"got {method!r}."
+        )
 
-    n_jx, n_kx = dens_x.n_j, dens_x.n_k
-    n_jy, n_ky = dens_y.n_j, dens_y.n_k
+    # --- Dispatcher ---
+    A = dens_x.n_attrs
+    r_vec = dens_x.r
+    is_rel_g = dens_x.is_rel
+    is_per_g = dens_x.is_per
+    sigma_g = dens_x.sigma
+    period_g = dens_x.period
 
-    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
-    max_r = int(np.max(r_vec)) if A > 0 else 1
-    estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
+    r_max = int(np.max(r_vec)) if A > 0 else 1
+    has_nan = _ma_has_nan(dens_x) or _ma_has_nan(dens_y)
+    # Maximum σ/P across groups that are both relative AND periodic.
+    sop_max = 0.0
+    any_per = False
+    any_rel_nonper = False
+    any_rel_per = False
+    for g in range(int(dens_x.n_groups)):
+        if bool(is_per_g[g]):
+            any_per = True
+        if bool(is_rel_g[g]):
+            if bool(is_per_g[g]):
+                any_rel_per = True
+                if float(period_g[g]) > 0:
+                    sop_max = max(
+                        sop_max,
+                        float(sigma_g[g]) / float(period_g[g]),
+                    )
+            else:
+                any_rel_nonper = True
 
-    ip_xy = _ip_core_ma(
-        dens_x.u_perm, dens_x.w_j, n_jx,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    # Per-attribute K_a (uniform across events when has_nan=False;
+    # when has_nan=True the dispatcher will route to pairwise anyway).
+    k_vec = np.array(
+        [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
+    ) if A > 0 else np.zeros(0, dtype=np.intp)
+
+    chosen = _select_ma_inner_product_method(
+        r_vec=r_vec, k_vec=k_vec, A=A,
+        N_x=int(dens_x.n), N_y=int(dens_y.n),
+        has_nan=has_nan,
+        any_per=any_per,
+        any_rel_nonper=any_rel_nonper,
+        any_rel_per=any_rel_per,
+        sigma_over_P_max=sop_max,
+        user_method=method,
     )
-    ip_xx = _ip_core_ma(
-        dens_x.u_perm, dens_x.w_j, n_jx,
-        dens_x.v_comb, dens_x.wv_comb, n_kx,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
-    )
-    ip_yy = _ip_core_ma(
-        dens_y.u_perm, dens_y.w_j, n_jy,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
-    )
+
+    if chosen == "orbit":
+        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
+            dens_x, dens_y,
+        )
+        # Two layers of orbit-result validation, fall back on either.
+        # The per-entry worst_ratio diagnostic that previously gated
+        # this fallback (analogous to the SA case) was found to fire
+        # spuriously for self-IP matrices: it reports per-(n,m) entry
+        # cancellation in the per-attribute orbit Möbius sums, but
+        # the cosine consumes only Σ_{n,m} P[n,m], where individual
+        # entries with bad ratios contribute negligibly. Empirically,
+        # at typical musical sigmas the diagnostic flagged ~100% of
+        # MA self-IPs while the values themselves matched pairwise
+        # to FP precision. The cross-cancellation guard plus the
+        # post-hoc IP corruption check below catch the residual real
+        # failure modes (small/sign-flipped cosines and non-finite
+        # IPs respectively).
+        denom_geo = np.sqrt(max(ip_xx * ip_yy, 0.0))
+        cross_cancellation = (
+            denom_geo > 0
+            and abs(ip_xy) < cancellation_threshold * denom_geo
+        )
+        ips_corrupted = _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)
+        if cross_cancellation or ips_corrupted:
+            ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
+                dens_x, dens_y, verbose=verbose,
+            )
+    else:  # 'pairwise' or 'direct' (coincide in MA mode)
+        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
+            dens_x, dens_y, verbose=verbose,
+        )
 
     denom = np.sqrt(ip_xx * ip_yy)
     if denom == 0:
@@ -2504,73 +3173,575 @@ def _ma_log_kernel(
 
 
 # -------------------------------------------------------------------
+#  v2.2 — Möbius–Bulger orbit dispatcher (multi-attribute path)
+# -------------------------------------------------------------------
+#
+#  Per the MAET inner-product factorisation (JMM Eq. 3.4 with the
+#  per-attribute integral separation noted in JMM §3.2.1, and the
+#  Möbius–Bulger remark JMM Rem. 3.1), the cross-event inner product
+#  decomposes as
+#
+#      <T_X, T_Y>_MA = Σ_{n_X, n_Y} Π_a I_a(n_X, n_Y)
+#
+#  where I_a(n_X, n_Y) is an SA-shaped orbit-Möbius inner product over
+#  the K_a slot values of event n_X (X-side) against those of n_Y
+#  (Y-side), with the group's mode parameters. v2.1 collapses this
+#  into a flat (n_J × n_K) bilinear form that scales as
+#  N² · Π_a [r_a! · C(K_a, r_a)]² ; the orbit form scales as
+#  N² · A · |Ω_{r_a}| · K_a², a substantial saving when K_a is
+#  non-trivial.
+#
+#  Limitations of the v2.2 orbit path:
+#  - NaN-padded ``p_attr`` (variable K_a per event) is not yet
+#    supported by the per-event orbit loop; dispatcher detects and
+#    falls back to pairwise.
+#  - Per-attribute r_a > _ORBIT_R_MAX_SHIPPED falls back (no orbit
+#    table shipped at that order).
+#
+#  Per-attribute orbit calls apply the SA convention's
+#  (σ_a √π)^{r_a} prefactor, so the orbit-MA bare triple
+#  (ip_xy, ip_xx, ip_yy) differs from the pairwise-MA triple by
+#  Π_a (σ_a √π)^{r_a} · r_a! — which cancels in the cosine.
+
+
+def _ma_has_nan(dens):
+    """True if any p_attr matrix has NaN entries (variable K_a per event)."""
+    return any(np.isnan(M).any() for M in dens.p_attr)
+
+
+# Per-r K thresholds for the orbit-vs-pairwise crossover, established
+# empirically on representative MAET workloads (N = 8-12, σ = 12,
+# P = 1200, samples_per_sigma = 5). Retained for reference but
+# superseded by the cost-model dispatcher below, which also accounts
+# for N (which the K thresholds alone do not — at N = 2 the abs
+# crossover is K ≥ 14 for r = 2, but at N = 16 it is K ≥ 6, a span a
+# single threshold can't capture).
+_K_THRESHOLD_ABS = {2: 7, 3: 6, 4: 5, 5: 4, 6: 4}
+_K_THRESHOLD_REL_PER = {2: float("inf"), 3: 10, 4: 8, 5: 7, 6: 6}
+
+
+# Cost-model constants for the dispatcher. Refit on a 328-cell wall-time
+# benchmark covering all four modes (abs/rel × per/nonper) at A ∈ {1, 2},
+# r ∈ {2, 3, 4}, N ∈ {2, 4, 8, 16}, K spanning each mode's feasible
+# range. r ∈ {5, 6} extrapolated from |Ω_r| growth (4, 10, 33, 92, 306,
+# 948). Predicts pairwise and orbit wall times in milliseconds and picks
+# the smaller. Validated against 277 measured cells: 94 % within 5 % of
+# optimal, 0 mis-routes to pairwise (no OOM-zone violations), 7 close-call
+# mis-routes to orbit (max 3.9 × slowdown, all at < 100 ms absolute).
+
+# Pairwise: per-entry cost of the (n_J × n_K) kernel matrix in ms. The
+# periodic branches build a wrapped-difference tensor, which empirically
+# costs ~2.0–2.3 × the non-periodic branch (modular arithmetic plus
+# index-array growth). Verified across both abs and rel modes.
+_PW_PER_ENTRY_MS_NONPER = 1.0e-4
+_PW_PER_ENTRY_MS_PER = 7.0e-4   # p75 of measured per-entry cost (per bucket)
+
+
+def _pw_per_entry_ms(any_per):
+    """Pick the pairwise-per-entry cost based on whether any group wraps."""
+    return _PW_PER_ENTRY_MS_PER if any_per else _PW_PER_ENTRY_MS_NONPER
+
+
+# Orbit (absolute modes, both per and nonper — empirically within ±5 %
+# of each other). Vectorised across event pairs, so cost is roughly
+# constant in N_x · N_y; linear in A at r = 2, 3 and slightly sub-linear
+# at r = 4. Per-r baseline at A = 1.
+_ORBIT_ABS_PER_ATTR_MS = {2: 3.0, 3: 11.2, 4: 45.0, 5: 150.0, 6: 500.0}
+
+# Orbit (relative-periodic): vectorised across event pairs but each
+# pair carries a u-grid integration of N_u ≈ period/σ × samples_per_σ
+# samples, plus a fixed per-call setup cost (~5 ms). Cost grows with
+# A · N_x · N_y · K_max² · |Ω_r|.
+_ORBIT_RELPER_BASE_MS = 5.0
+_ORBIT_RELPER_PER_PAIR_K2_MS = {
+    2: 0.06, 3: 0.40, 4: 1.0, 5: 5.0, 6: 20.0,
+}
+
+# Orbit (relative-aperiodic): the orbit path here is a per-(n_X, n_Y)
+# Python loop (not batched across event pairs), so the per-pair-K²
+# constant is roughly 4 × the rel-periodic constant. At A = 1 this
+# orbit branch is almost always slower than pairwise; at A ≥ 2 it
+# wins comfortably once K is moderate, because pairwise grows as
+# ∏_a C(K_a, r_a)² which compounds across attributes whereas orbit
+# adds linearly.
+_ORBIT_RELNONPER_BASE_MS = 5.0
+_ORBIT_RELNONPER_PER_PAIR_K2_MS = {
+    2: 0.25, 3: 1.05, 4: 3.30, 5: 12.0, 6: 50.0,
+}
+
+
+def _orbit_beats_pairwise_per_attr(r, K, is_rel, is_per):
+    """Per-attribute K-threshold heuristic (legacy; superseded).
+
+    Retained for callers that haven't migrated; the cost-model
+    dispatcher in ``_select_ma_inner_product_method`` is preferred.
+    """
+    if r == 1:
+        return False
+    if r > _ORBIT_R_MAX_SHIPPED:
+        return False
+    if is_rel and is_per:
+        threshold = _K_THRESHOLD_REL_PER.get(r, 999)
+    else:
+        threshold = _K_THRESHOLD_ABS.get(r, 999)
+    return K >= threshold
+
+
+def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y):
+    """Predicted n_J · n_K for the pairwise MA path.
+
+    n_J^X = N_x · ∏_a r_a! · C(K_a, r_a)
+    n_K^Y = N_y · ∏_a C(K_a, r_a)
+    so n_J · n_K = N_x · N_y · ∏_a r_a! · C(K_a, r_a)².
+    """
+    if A == 0:
+        return float(N_x * N_y)
+    size = float(N_x * N_y)
+    for a in range(A):
+        r_a = int(r_vec[a])
+        K_a = int(k_vec[a])
+        if K_a < r_a:
+            return float('inf')
+        c = float(_math_comb(K_a, r_a))
+        size *= float(factorial(r_a)) * c * c
+    return size
+
+
+def _predict_orbit_cost_ms(
+    r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
+):
+    """Predicted orbit-MA wall time in milliseconds.
+
+    Routes to the appropriate per-r constant based on the group mode:
+    rel-aperiodic uses the per-pair Python-loop constants (largest);
+    rel-periodic uses the u-grid-integration constants; absolute uses
+    the vectorised batch constants. A scaling is linear (verified at
+    r = 2, 3 to within ~5 %; slightly sub-linear at r = 4 but linear-A
+    over-predicts conservatively, biasing the dispatcher toward
+    pairwise in close calls at r = 4 — and at r = 4 the pairwise side
+    explodes so quickly that this never matters in the OOM zone).
+    """
+    K_max = int(np.max(k_vec)) if A > 0 else 1
+    if any_rel_nonper:
+        c = _ORBIT_RELNONPER_PER_PAIR_K2_MS[r_max]
+        return float(A * (_ORBIT_RELNONPER_BASE_MS
+                          + N_x * N_y * K_max * K_max * c))
+    if any_rel_per:
+        c = _ORBIT_RELPER_PER_PAIR_K2_MS[r_max]
+        return float(A * (_ORBIT_RELPER_BASE_MS
+                          + N_x * N_y * K_max * K_max * c))
+    return float(A * _ORBIT_ABS_PER_ATTR_MS[r_max])
+
+
+def _select_ma_inner_product_method(
+    *,
+    r_vec, k_vec, A,
+    N_x, N_y,
+    has_nan, any_per, any_rel_nonper, any_rel_per,
+    sigma_over_P_max, user_method,
+):
+    """Pick the inner-product path for the MA case using a cost model.
+
+    Routing rules, in order:
+
+    1. ``user_method`` keyword override (anything other than 'auto').
+    2. Hard fallbacks where orbit cannot or should not run:
+       - has_nan: variable K_{a,n}; orbit path assumes uniform K_a.
+       - r_max ≤ 1: no within-tuple structure to exploit.
+       - r_max > _ORBIT_R_MAX_SHIPPED: no orbit table available.
+    3. Soft fallback: rel + per with σ/P beyond the integration-exact
+       regime warns and routes pairwise.
+    4. Otherwise predict both wall times (in ms) and pick the smaller;
+       ties favour pairwise (no orbit-table fetch, no Möbius
+       cancellation risk).
+
+    The four modes (abs+nonper, abs+per, rel+nonper, rel+per) are
+    routed as follows:
+
+    - abs + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
+      `_ORBIT_ABS_PER_ATTR_MS`.
+    - abs + per: cost model with `_PW_PER_ENTRY_MS_PER` (wrap on δ
+      tensor adds ~2 × pairwise overhead) and same orbit constants
+      (orbit cost is mode-independent in benchmark, ±5 %).
+    - rel + per: cost model with `_PW_PER_ENTRY_MS_PER` and
+      `_ORBIT_RELPER_PER_PAIR_K2_MS` (orbit u-grid integration
+      scales with N_x · N_y · K_max² · |Ω_r|).
+    - rel + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
+      `_ORBIT_RELNONPER_PER_PAIR_K2_MS` (orbit per-pair Python loop;
+      ~4 × the rel-per per-K² constant). At A = 1 the cost model
+      reliably routes to pairwise; at A ≥ 2 it routes to orbit once
+      pairwise's ∏_a C(K_a, r_a)² compounding overtakes orbit's
+      additive A · K_max² growth.
+
+    Parameters
+    ----------
+    r_vec : (A,) intp
+        Per-attribute r_a.
+    k_vec : (A,) intp
+        Per-attribute K_a (uniform across events; relevant only when
+        has_nan is False).
+    A : int
+        Number of attributes.
+    N_x, N_y : int
+        Event counts of the two densities.
+    has_nan : bool
+    any_per : bool
+        True if any group has is_per=True (drives pairwise wrap cost).
+    any_rel_nonper : bool
+    any_rel_per : bool
+    sigma_over_P_max : float
+        Maximum σ/P across periodic-relative groups.
+    user_method : {'auto', 'pairwise', 'orbit', 'direct'}
+    """
+    if user_method != 'auto':
+        return user_method
+    if has_nan:
+        return 'pairwise'
+    r_max = int(np.max(r_vec)) if A > 0 else 1
+    if r_max <= 1:
+        return 'pairwise'
+    if r_max > _ORBIT_R_MAX_SHIPPED:
+        return 'pairwise'
+    # K-vs-r precision guard. The orbit path's auto-inner-products can
+    # suffer catastrophic Möbius cancellation when any K_a is too close
+    # to its r_a (see _ORBIT_K_MINUS_R_MIN block). The cross
+    # cancellation guard at the call site does NOT catch this, since it
+    # inspects only |<T_X,T_Y>|; corrupted <T_X,T_X> propagates silently
+    # into the cosine denominator.
+    if A > 0 and not _orbit_safe_for_precision(r_vec, k_vec):
+        return 'pairwise'
+    # Periodic-relative beyond σ/P threshold: in this regime the orbit
+    # path computes the JMM Eq. 3.4 integral form, while the pairwise
+    # path computes the v2.1-toolbox single-nearest-image-wrap form.
+    # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
+    # backward compatibility with v2.1 the toolbox treats the
+    # pairwise-wrap form as canonical; orbit is therefore disabled
+    # above the threshold. Users who want the JMM-exact integral
+    # explicitly may pass method='orbit'.
+    if any_rel_per and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        warnings.warn(
+            f"Maximum σ/P = {sigma_over_P_max:.3f} across periodic-relative "
+            f"groups exceeds the orbit-path threshold "
+            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}); falling back to the "
+            f"pairwise-wrap form. Pass method='pairwise' explicitly to "
+            f"silence this warning."
+        )
+        return 'pairwise'
+
+    pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
+    pw_cost_ms = pw_size * _pw_per_entry_ms(any_per)
+    orbit_cost_ms = _predict_orbit_cost_ms(
+        r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
+    )
+    if pw_cost_ms <= orbit_cost_ms:
+        return 'pairwise'
+    return 'orbit'
+
+
+def _ma_per_attr_inner_matrix(
+    Px, Wx, Py, Wy, sigma, r, is_rel, is_per, period,
+    *, return_cancellation_ratio=False,
+):
+    """Per-attribute (event_X, event_Y) inner product matrix for the
+    orbit MA path.
+
+    ``Px`` is (K, N_x), ``Wx`` is (K, N_x); same shape for Y. Returns
+    an (N_x, N_y) matrix where entry (n_X, n_Y) is the per-attribute
+    inner product over the K slot values of event n_X (X-side) against
+    those of n_Y (Y-side). NaN-free input is assumed; the dispatcher
+    is responsible for falling back when NaN is present.
+
+    Vectorisation strategy:
+    - r = 1 : direct einsum across (n_X, n_Y) in one pass.
+    - r >= 2, absolute: build a (N_x*N_y, K, K) kernel tensor and use
+      the per-grid-weights orbit batched evaluator.
+    - r >= 2, relative + periodic: same plus a u-grid integration; the
+      kernel becomes (N_x*N_y, N_u, K, K) and we accumulate u-weighted
+      contributions in a loop over u.
+    - r >= 2, relative + non-periodic: u-grid varies per event pair,
+      so we fall back to the per-(n_X, n_Y) loop. Less common in MAET
+      practice (relative-mode pitch is typically periodic).
+
+    With ``return_cancellation_ratio=True``, additionally returns the
+    worst-case (minimum) cancellation ratio across the (N_x, N_y)
+    entries — a scalar in (0, 1]. Lower means more digits lost in the
+    Möbius alternating sum somewhere in the matrix.
+    """
+    from ._mobius import inner_product_orbit_pw_batched
+
+    K, N_x = Px.shape
+    _, N_y = Py.shape
+    out = np.empty((N_x, N_y), dtype=np.float64)
+
+    if r == 1:
+        # No within-tuple distinct-index structure to exploit.
+        diffs = Px[:, :, None, None] - Py[None, None, :, :]
+        if is_per:
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+        out = np.einsum(
+            'xn,xnym,ym->nm', Wx, K_tens, Wy, optimize=True,
+        )
+        result = out * (sigma * np.sqrt(np.pi)) ** r
+        if return_cancellation_ratio:
+            # No alternating sum at r=1; ratio is exactly 1.
+            return result, 1.0
+        return result
+
+    # r >= 2 absolute: vectorised across event pairs via per-grid weights.
+    if not is_rel:
+        diffs = Px[:, :, None, None] - Py[None, None, :, :]
+        if is_per:
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+        K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
+            N_x * N_y, K, K,
+        )
+        w_A_pairs = np.broadcast_to(
+            Wx.T[:, None, :], (N_x, N_y, K),
+        ).reshape(N_x * N_y, K)
+        w_B_pairs = np.broadcast_to(
+            Wy.T[None, :, :], (N_x, N_y, K),
+        ).reshape(N_x * N_y, K)
+        if return_cancellation_ratio:
+            flat, ratios = inner_product_orbit_pw_batched(
+                K_pairs, w_A_pairs, w_B_pairs, r,
+                prefactor=(sigma * np.sqrt(np.pi)) ** r,
+                return_cancellation_ratio=True,
+            )
+            return flat.reshape(N_x, N_y), float(np.min(ratios))
+        flat = inner_product_orbit_pw_batched(
+            K_pairs, w_A_pairs, w_B_pairs, r,
+            prefactor=(sigma * np.sqrt(np.pi)) ** r,
+        )
+        return flat.reshape(N_x, N_y)
+
+    # r >= 2 relative + periodic: vectorise over event pairs, integrate u.
+    if is_per:
+        return _ma_per_attr_inner_matrix_rel_per(
+            Px, Wx, Py, Wy, sigma, r, period,
+            return_cancellation_ratio=return_cancellation_ratio,
+        )
+
+    # r >= 2 relative + non-periodic: u-grid varies per pair; loop.
+    worst_ratio = 1.0
+    for n_X in range(N_x):
+        for n_Y in range(N_y):
+            if return_cancellation_ratio:
+                v, ratio = _orbit_inner_rel(
+                    Px[:, n_X], Wx[:, n_X], Py[:, n_Y], Wy[:, n_Y],
+                    sigma, r, False, period,
+                    return_cancellation_ratio=True,
+                )
+                out[n_X, n_Y] = v
+                if ratio < worst_ratio:
+                    worst_ratio = ratio
+            else:
+                out[n_X, n_Y] = _orbit_inner_rel(
+                    Px[:, n_X], Wx[:, n_X], Py[:, n_Y], Wy[:, n_Y],
+                    sigma, r, False, period,
+                )
+    if return_cancellation_ratio:
+        return out, worst_ratio
+    return out
+
+
+def _ma_per_attr_inner_matrix_rel_per(
+    Px, Wx, Py, Wy, sigma, r, period, samples_per_sigma=5,
+    *, return_cancellation_ratio=False,
+):
+    """Vectorised relative-periodic case of ``_ma_per_attr_inner_matrix``.
+
+    Builds an (N_pairs · N_u, K, K) kernel tensor and runs a single
+    batched orbit call across both axes; the trapezoidal weights are
+    applied after reshaping back to (N_pairs, N_u). Memory peak is
+    ``N_pairs · N_u · K^2 · 8`` bytes plus a similar-sized intermediate
+    diffs tensor; chunked along u to stay under a 1 GB ceiling.
+
+    ``samples_per_sigma=5`` is a deliberate trade-off: the Gaussian
+    integrand is smooth at the σ scale, so trapezoidal convergence is
+    geometric and 5 samples/σ delivers cosine agreement well below
+    1e-9 relative on representative MAET parameter ranges. The SA
+    relative path uses 10 because per-call cost is small there; for
+    MA the integration is run N_pairs = N_x · N_y times in parallel,
+    so halving the grid roughly halves wall-clock cost.
+
+    With ``return_cancellation_ratio=True``, additionally returns the
+    worst-case ratio across the (N_pairs · N_u) batched orbit cells.
+    """
+    from ._mobius import inner_product_orbit_pw_batched
+
+    K, N_x = Px.shape
+    _, N_y = Py.shape
+    N_pairs = N_x * N_y
+
+    N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
+    u_grid = np.linspace(0.0, period, N_u, endpoint=False)
+    du = period / N_u
+
+    # Per-pair weights (independent of u) — shape (N_pairs, K).
+    w_A_pairs = np.broadcast_to(
+        Wx.T[:, None, :], (N_x, N_y, K),
+    ).reshape(N_pairs, K)
+    w_B_pairs = np.broadcast_to(
+        Wy.T[None, :, :], (N_x, N_y, K),
+    ).reshape(N_pairs, K)
+
+    # Pair-wise raw differences, independent of u: shape (K, N_x, K, N_y).
+    diffs_pair = Px[:, :, None, None] - Py[None, None, :, :]
+
+    # Chunk along u to bound memory.
+    bytes_per_u = N_pairs * K * K * 8 * 2  # kernel + diffs
+    mem_limit = 1_000_000_000
+    chunk_u = max(1, min(N_u, mem_limit // max(bytes_per_u, 1)))
+
+    F = np.zeros((N_pairs, N_u), dtype=np.float64)
+    worst_ratio = 1.0
+    for u_start in range(0, N_u, chunk_u):
+        u_end = min(u_start + chunk_u, N_u)
+        n_uc = u_end - u_start
+        u_slice = u_grid[u_start:u_end]
+        # diffs[u, K_i, N_x, K_j, N_y] = diffs_pair + u
+        diffs = diffs_pair[None, :, :, :, :] + u_slice[:, None, None, None, None]
+        diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K_uc = np.exp(-(diffs ** 2) / (4 * sigma ** 2))  # (n_uc, K, N_x, K, N_y)
+        # Reorder to (n_uc, N_x, N_y, K, K) and flatten leading axes.
+        K_uc = np.transpose(K_uc, (0, 2, 4, 1, 3)).reshape(
+            n_uc * N_pairs, K, K,
+        )
+        # Replicate weights across u-axis for each pair.
+        w_A_uc = np.broadcast_to(
+            w_A_pairs[None, :, :], (n_uc, N_pairs, K),
+        ).reshape(n_uc * N_pairs, K)
+        w_B_uc = np.broadcast_to(
+            w_B_pairs[None, :, :], (n_uc, N_pairs, K),
+        ).reshape(n_uc * N_pairs, K)
+        if return_cancellation_ratio:
+            flat, ratios = inner_product_orbit_pw_batched(
+                K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+                return_cancellation_ratio=True,
+            )
+            chunk_min = float(np.min(ratios))
+            if chunk_min < worst_ratio:
+                worst_ratio = chunk_min
+        else:
+            flat = inner_product_orbit_pw_batched(
+                K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+            )
+        F[:, u_start:u_end] = flat.reshape(n_uc, N_pairs).T
+
+    integral = F.sum(axis=1) * du  # periodic Riemann sum
+    c = sigma * np.sqrt(2 * np.pi / r)
+    out = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
+    if return_cancellation_ratio:
+        return out.reshape(N_x, N_y), worst_ratio
+    return out.reshape(N_x, N_y)
+
+
+def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
+    """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
+    orbit Möbius (JMM Eq. 3.4 plus Rem. 3.1).
+
+    Caller is responsible for ensuring no NaN in ``p_attr`` and for
+    structural compatibility of the two densities.
+
+    Note: previous versions also returned a ``worst_ratio`` aggregating
+    per-entry cancellation ratios across the (N_x × N_y) inner-product
+    matrices. That diagnostic was found to over-conservatively flag
+    correct results — the per-entry ratio reflects cancellation in
+    individual orbit-Möbius cells, but the cosine consumes only the
+    sums Σ_{n,m} P[n,m], where individual entries with bad ratios
+    contribute negligibly when their absolute value is small. Removed
+    in v2.2.0 in favour of relying on the cross-cancellation guard
+    and the post-hoc IP corruption check (see
+    ``_orbit_ips_look_corrupted``) at the dispatcher level.
+    """
+    A = dens_x.n_attrs
+    N_x = dens_x.n
+    N_y = dens_y.n
+
+    P_xy = np.ones((N_x, N_y), dtype=np.float64)
+    P_xx = np.ones((N_x, N_x), dtype=np.float64)
+    P_yy = np.ones((N_y, N_y), dtype=np.float64)
+
+    for a in range(A):
+        g = int(dens_x.group_of_attr[a])
+        r_a = int(dens_x.r[a])
+        sigma = float(dens_x.sigma[g])
+        is_rel = bool(dens_x.is_rel[g])
+        is_per = bool(dens_x.is_per[g])
+        period = float(dens_x.period[g])
+
+        Px, Py = dens_x.p_attr[a], dens_y.p_attr[a]
+        Wx, Wy = dens_x.w[a], dens_y.w[a]
+
+        I_xy = _ma_per_attr_inner_matrix(
+            Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
+        )
+        I_xx = _ma_per_attr_inner_matrix(
+            Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
+        )
+        I_yy = _ma_per_attr_inner_matrix(
+            Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
+        )
+        P_xy *= I_xy
+        P_xx *= I_xx
+        P_yy *= I_yy
+
+    return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
+
+
+def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
+    """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the v2.1
+    pairwise path (``_ip_core_ma``).
+
+    This is the body of the original (v2.1) ``_cos_sim_exp_tens_ma``
+    factored out so the new dispatcher can route to it cleanly.
+    """
+    A = dens_x.n_attrs
+    group_of = dens_x.group_of_attr
+    r_vec = dens_x.r
+    sigma_g = dens_x.sigma
+    is_rel_g = dens_x.is_rel
+    is_per_g = dens_x.is_per
+    period_g = dens_x.period
+
+    n_jx, n_kx = dens_x.n_j, dens_x.n_k
+    n_jy, n_ky = dens_y.n_j, dens_y.n_k
+
+    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
+    max_r = int(np.max(r_vec)) if A > 0 else 1
+    estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
+
+    ip_xy = _ip_core_ma(
+        dens_x.u_perm, dens_x.w_j, n_jx,
+        dens_y.v_comb, dens_y.wv_comb, n_ky,
+        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    )
+    ip_xx = _ip_core_ma(
+        dens_x.u_perm, dens_x.w_j, n_jx,
+        dens_x.v_comb, dens_x.wv_comb, n_kx,
+        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    )
+    ip_yy = _ip_core_ma(
+        dens_y.u_perm, dens_y.w_j, n_jy,
+        dens_y.v_comb, dens_y.wv_comb, n_ky,
+        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    )
+    return ip_xy, ip_xx, ip_yy
+
+
+# -------------------------------------------------------------------
 #  cos_sim_exp_tens_raw  (dispatches SA or MA based on input shape)
 # -------------------------------------------------------------------
 
 
-def _cos_sim_raw_sa_scalar(
-    p1, w1, p2, w2,
-    sigma, r, is_rel, is_per, period,
-    *,
-    spectrum=None,
+def cos_sim_exp_tens_raw(
+    p1, w1, p2, w2, *args,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
-    """Raw single-attribute scalar dispatch for :func:`cos_sim_exp_tens`.
-
-    Builds two SA densities and returns their cosine similarity. If
-    ``spectrum`` is provided, applies :func:`add_spectra` before density
-    construction.
-    """
-    if spectrum is not None:
-        p1_aug, w1_aug = add_spectra(
-            np.asarray(p1, dtype=np.float64),
-            np.ones_like(np.asarray(p1, dtype=np.float64)) if w1 is None
-            else np.asarray(w1, dtype=np.float64),
-            *spectrum,
-        )
-        p2_aug, w2_aug = add_spectra(
-            np.asarray(p2, dtype=np.float64),
-            np.ones_like(np.asarray(p2, dtype=np.float64)) if w2 is None
-            else np.asarray(w2, dtype=np.float64),
-            *spectrum,
-        )
-    else:
-        p1_aug, w1_aug = p1, w1
-        p2_aug, w2_aug = p2, w2
-
-    dx = build_exp_tens(
-        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
-    )
-    dy = build_exp_tens(
-        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
-    )
-    return _cos_sim_pair_core(dx, dy, verbose=verbose)
-
-
-def _cos_sim_raw_ma_scalar(
-    p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
-    *,
-    verbose: bool = True,
-) -> float:
-    """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`.
-
-    Builds two MA densities and returns their cosine similarity. Spectral
-    augmentation is not supported in MA mode (the spectrum parameters are
-    SA-specific).
-    """
-    dx = build_exp_tens(
-        p_attr1, w1, sigma_vec, r_vec, groups,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
-    )
-    dy = build_exp_tens(
-        p_attr2, w2, sigma_vec, r_vec, groups,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
-    )
-    return _cos_sim_pair_core(dx, dy, verbose=verbose)
-
-
-def cos_sim_exp_tens_raw(p1, w1, p2, w2, *args, verbose: bool = True) -> float:
     """Deprecated. Use :func:`cos_sim_exp_tens` directly with raw input.
 
     .. deprecated:: 2.1
@@ -2590,7 +3761,12 @@ def cos_sim_exp_tens_raw(p1, w1, p2, w2, *args, verbose: bool = True) -> float:
         DeprecationWarning,
         stacklevel=2,
     )
-    return cos_sim_exp_tens(p1, w1, p2, w2, *args, verbose=verbose)
+    return cos_sim_exp_tens(
+        p1, w1, p2, w2, *args,
+        method=method,
+        cancellation_threshold=cancellation_threshold,
+        verbose=verbose,
+    )
 
 
 def _compute_Q(D, r, is_rel, is_per, period):
@@ -2656,6 +3832,408 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 
     E = np.exp(-Q / (4 * sigma**2))  # (nJ, nK)
     return float(wU @ (E @ wV))
+
+
+# -------------------------------------------------------------------
+#  v2.2 — Möbius–Bulger orbit dispatcher (single-attribute path)
+# -------------------------------------------------------------------
+#
+#  v2.2 layers an orbit-collapsed Möbius reformulation of the
+#  distinct-index inner product on top of the v2.1 ``_ip_core`` path.
+#  See ``v22_specification.md`` and ``mpt/_mobius.py`` for the
+#  combinatorial details.
+#
+#  The user-facing ``cos_sim_exp_tens`` gains two keywords:
+#
+#    method='auto'  : dispatcher chooses orbit or pairwise based on
+#                     (r, n, mode, sigma/period).
+#    method='pairwise' : forces the v2.1 pairwise-wrap form (``_ip_core``);
+#                     this is the closed form of JMM Eq. 3.4 — the v2.1
+#                     toolbox's defined value of the rel_per inner
+#                     product, by definition. At sigma/P > 0.03 it
+#                     differs from the alternative integration form
+#                     computed by 'orbit' by an amount that grows as the
+#                     periodic Theta-tail terms become non-negligible
+#                     (see V22_DEV_LOG.md Issue 3 for details). Slower
+#                     than orbit at high r and large K, but correct
+#                     across the full sigma/P range.
+#    method='direct'   : forces direct enumeration (no Möbius cancellation;
+#                     useful for diagnosing near-zero cosines).
+#                     In the single-attribute path, 'direct' coincides
+#                     with 'pairwise' (both route through ``_ip_core``);
+#                     the distinction surfaces in later windowed paths.
+#
+#  cancellation_threshold = 1e-12 : when the orbit path's cross-inner
+#    product falls below this fraction of sqrt(<A,A><B,B>), the orbit
+#    result may suffer from catastrophic Möbius cancellation; in that
+#    case fall back to ``_ip_core``. In typical use the guard never
+#    triggers; the cost is at most one extra pairwise pass. Note: this
+#    guard inspects the cross product only — corruption in the auto
+#    inner products (<A,A>, <B,B>) propagates through the cosine
+#    denominator silently. The K_a >= r_a + 2 margin in
+#    `_orbit_safe_for_precision` is the primary protection against
+#    auto-IP cancellation; a runtime cancellation diagnostic on
+#    auto IPs is on the v2.2 roadmap (see V22_DEV_LOG.md Issue 4).
+
+_ORBIT_R_MAX_SHIPPED = 6  # orbit tables r=2..6 ship pre-built; r>6 deferred to Phase 5
+_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which periodic-relative orbit deviates
+_ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for orbit (precision guard)
+# Rationale (May 2026 audit): the orbit Möbius reformulation expresses
+# the distinct-r-tuple sum as a signed sum over set-partition orbits.
+# When K_a is close to r_a, the expansion has very few orbit classes
+# and the Möbius alternation can produce catastrophic cancellation in
+# the auto-inner-products <T_X, T_X> and <T_Y, T_Y> (which are not
+# protected by the cross-cancellation guard, since that guard only
+# inspects |<T_X, T_Y>| / sqrt(<T_X,T_X><T_Y,T_Y>)). Empirical sweep
+# (5 seeds × all four modes × r in {2..5}) shows: K = r usually
+# catastrophic; K = r+1 typically OK but with marginal r=4,5 cases
+# losing ~1e-6 precision; K >= r+2 reaches FP precision uniformly.
+# This guard is conservative but cheap: realistic music applications
+# have K >> r, so it almost never triggers.
+
+
+def _orbit_safe_for_precision(r_vec, k_vec):
+    """Return True if every attribute satisfies K_a >= r_a + margin.
+
+    Used by both the SA and MA dispatchers to refuse the orbit path
+    when its Möbius cancellation could swamp the answer. See the
+    `_ORBIT_K_MINUS_R_MIN` rationale block above.
+    """
+    r_arr = np.atleast_1d(np.asarray(r_vec, dtype=np.intp))
+    k_arr = np.atleast_1d(np.asarray(k_vec, dtype=np.intp))
+    return bool(np.all(k_arr - r_arr >= _ORBIT_K_MINUS_R_MIN))
+
+
+def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
+                                    sigma_over_P, user_method,
+                                    n_min=None):
+    """Pick the inner-product path for the SA case.
+
+    Parameters
+    ----------
+    r : int
+        Tensor order.
+    n_max : int
+        max(n_x, n_y); the larger of the two source sizes (used for
+        the small-problem cutoff).
+    is_rel, is_per : bool
+        Mode flags.
+    sigma_over_P : float
+        σ / period; ignored if not periodic.
+    user_method : str
+        One of 'auto', 'pairwise', 'direct'. (Internal callers may also
+        pass 'orbit' to force the orbit path.)
+    n_min : int, optional
+        min(n_x, n_y); the smaller of the two source sizes. Used for
+        the K-vs-r precision guard. Defaults to ``n_max`` (i.e., the
+        guard is bypassed if the caller provides only n_max).
+
+    Returns
+    -------
+    str
+        One of 'orbit', 'pairwise', 'direct'.
+    """
+    if user_method != 'auto':
+        return user_method
+    # r=1: the orbit machinery is undefined for r<2 (single block, no
+    # distinct-index structure); pairwise is trivially fast anyway.
+    if r <= 1:
+        return 'pairwise'
+    # r=2 with small n: pairwise dominates because orbit overhead (4 orbits,
+    # numpy.einsum dispatch) exceeds the kernel-matvec cost.
+    if r == 2 and n_max <= 8:
+        return 'pairwise'
+    # r > _ORBIT_R_MAX_SHIPPED: shipped orbit tables stop here (Phase 5
+    # extends to r=7,8). At r>6 the orbit path still works correctly but
+    # the build cost (~16 s for r=7, ~3 min for r=8) could surprise users
+    # on first use; default to pairwise for now.
+    if r > _ORBIT_R_MAX_SHIPPED:
+        return 'pairwise'
+    # K-vs-r precision guard. The orbit path's auto-inner-products can
+    # suffer catastrophic Möbius cancellation when the multiset size is
+    # too close to r (see _ORBIT_K_MINUS_R_MIN block). The cross
+    # cancellation guard at the call site does NOT catch this, since it
+    # inspects only |<T_X,T_Y>|; corrupted <T_X,T_X> propagates silently
+    # into the cosine denominator.
+    n_for_guard = n_min if n_min is not None else n_max
+    if not _orbit_safe_for_precision([r], [n_for_guard]):
+        return 'pairwise'
+    # Periodic-relative beyond σ/P threshold: in this regime the orbit
+    # path computes the JMM Eq. 3.4 integral form, while the pairwise
+    # path computes the v2.1-toolbox single-nearest-image-wrap form.
+    # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
+    # backward compatibility with v2.1 the toolbox treats the
+    # pairwise-wrap form as canonical; orbit is therefore disabled
+    # above the threshold. Users who want the JMM-exact integral
+    # explicitly may pass method='orbit'.
+    if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        warnings.warn(
+            f"σ/P = {sigma_over_P:.3f} exceeds the orbit-path threshold "
+            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
+            f"falling back to the pairwise-wrap form. Pass method='pairwise' "
+            f"explicitly to silence this warning."
+        )
+        return 'pairwise'
+    return 'orbit'
+
+
+def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
+                           user_method):
+    """Pick the evaluation path for ``eval_exp_tens`` (SA case).
+
+    The choice is between the centres-array path (the v2.0 body — build
+    a ``(dim, n_j)`` centres tensor at ``build_exp_tens`` time, then
+    evaluate as a vectorised Gaussian product against the queries) and
+    the orbit-Möbius point evaluator (Möbius-decomposed sum over set
+    partitions; ``O(B_r · r · K · n_q)`` per query independent of
+    ``n_j``).
+
+    Cost rule of thumb. The centres path scales as
+    ``O(r · n_j · n_q)`` with ``n_j = K!/(K-r)!``, so it explodes at
+    high r. Orbit replaces ``n_j`` with ``B_r · r · K``, where ``B_r``
+    is the Bell number of ``r`` (5 at r=3, 15 at r=4, 52 at r=5, 203
+    at r=6). Crossover analysis (5 partitions × N work per partition
+    vs N!/(N-r)!) shows orbit is ~22× faster at r=3 N=20, ~100× at
+    r=4. At r=2 the costs are comparable; centres is simpler and
+    avoids partition-table dispatch overhead, so default to centres
+    there.
+
+    Precision guard. Orbit suffers catastrophic Möbius cancellation
+    when ``K - r < 2`` (same regime as the IP path); fall back to
+    centres.
+
+    Convention guard. In periodic-relative mode at ``σ/P > 0.03``,
+    ``eval_orbit_rel`` integrates the JMM Eq. 3.4 form while the
+    centres path computes the v2.0 single-nearest-image-wrap form.
+    The two diverge at this regime; centres remains the canonical
+    output for backward compatibility.
+
+    Parameters
+    ----------
+    r : int
+        Tensor order.
+    K : int
+        Number of source events (``len(p)``).
+    n_q : int
+        Number of query points.
+    is_rel, is_per : bool
+        Mode flags.
+    sigma_over_P : float
+        ``σ / period``; ignored if not periodic.
+    user_method : str
+        One of ``'auto'``, ``'centres'``, ``'orbit'``. Internal callers
+        may also pass ``'direct'`` as a synonym for ``'centres'``.
+
+    Returns
+    -------
+    str
+        ``'orbit'`` or ``'centres'``.
+    """
+    if user_method in ('centres', 'direct'):
+        return 'centres'
+    if user_method == 'orbit':
+        return 'orbit'
+    if user_method != 'auto':
+        raise ValueError(
+            f"method must be 'auto', 'centres', or 'orbit'; got "
+            f"{user_method!r}."
+        )
+    # r=1: the orbit machinery reduces to the direct Σ_i w_i K_i sum
+    # (one partition with μ=1). Centres path coincides; pick centres
+    # for code simplicity.
+    if r <= 1:
+        return 'centres'
+    # Relative mode: eval_orbit_rel performs u-grid quadrature with
+    # N_u ~ max(64, P/σ * 10) per query. The per-query cost is
+    # O(B_r · r · K · N_u), much larger than the centres path's
+    # O(n_j) per query at typical σ/P (~0.025 → N_u ≈ 360, vs n_j
+    # of 100s to 1000s for r in {3, 4}). Orbit-rel is only ever
+    # cheaper at very high r combined with very large K and large σ
+    # — a corner case that's safer to route via explicit
+    # method='orbit'. Default to centres for rel mode.
+    if is_rel:
+        return 'centres'
+    # r=2 with small K: centres is competitive and avoids the
+    # partition-table dispatch overhead.
+    if r == 2 and K <= 8:
+        return 'centres'
+    # Beyond shipped orbit tables (r > 6): the eval_orbit_* helpers
+    # use set-partition machinery rather than orbit tables, so they
+    # work at any r in principle, but we defer to centres for
+    # consistency with the IP-path policy until r=7,8 phase.
+    if r > _ORBIT_R_MAX_SHIPPED:
+        return 'centres'
+    # K-vs-r precision guard. Without K - r >= 2 the orbit path's
+    # alternating sum can lose all significant digits.
+    if not _orbit_safe_for_precision([r], [K]):
+        return 'centres'
+    return 'orbit'
+
+
+def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
+                     *, return_cancellation_ratio=False):
+    """<T_A, T_B> in absolute mode via Möbius–orbit machinery.
+
+    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
+    where ratio is ``|sum| / max(|term|)`` from the orbit alternating
+    sum (1.0 means no cancellation; <<1 means digits lost). See
+    :func:`mpt._mobius.inner_product_orbit` for full semantics.
+    """
+    from ._mobius import inner_product_orbit
+
+    diffs = p_a[:, None] - p_b[None, :]
+    if is_per:
+        diffs = diffs - period * np.floor(diffs / period + 0.5)
+    K = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+    return inner_product_orbit(
+        K, w_a, w_b, r, prefactor=(sigma * np.sqrt(np.pi)) ** r,
+        return_cancellation_ratio=return_cancellation_ratio,
+    )
+
+
+def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
+                     samples_per_sigma=10, *,
+                     return_cancellation_ratio=False):
+    """<T_A, T_B> in relative mode via orbit machinery + translation grid.
+
+    Marginalises a translation u over either ``[0, P)`` (periodic) or a
+    Gaussian-supported window around the alignment of A and B
+    (non-periodic), and integrates the orbit-evaluated kernel against u.
+    The grid density is ``samples_per_sigma`` points per σ; the
+    truncation in the non-periodic case extends 8σ beyond the natural
+    overlap window. (The 4σ default of v2.1 truncated tails of the
+    orbit-Möbius integrand at ~5e-10 — small per kernel value, but
+    enough to corrupt the auto-inner products at ~1e-6 relative
+    precision once Möbius cancellation amplified them. 8σ pushes the
+    truncation tail to FP noise; 12σ is empirically no improvement.)
+
+    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
+    where ratio is the worst-case (minimum) cancellation ratio across
+    the u-grid points. A point with severe cancellation drives the
+    integration result toward catastrophic loss of significance.
+    """
+    from ._mobius import inner_product_orbit_grid
+
+    if is_per:
+        N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
+        u_grid = np.linspace(0.0, period, N_u, endpoint=False)
+        du = period / N_u
+        diffs = (p_a[None, :, None] - p_b[None, None, :]
+                 + u_grid[:, None, None])
+        diffs = diffs - period * np.floor(diffs / period + 0.5)
+    else:
+        u_min = p_b.min() - p_a.max() - 8.0 * sigma
+        u_max = p_b.max() - p_a.min() + 8.0 * sigma
+        N_u = max(
+            64,
+            int(np.ceil(max(u_max - u_min, 1.0) / sigma * samples_per_sigma)),
+        )
+        u_grid = np.linspace(u_min, u_max, N_u)
+        diffs = (p_a[None, :, None] - p_b[None, None, :]
+                 + u_grid[:, None, None])
+    K_u = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+    if return_cancellation_ratio:
+        F, ratios = inner_product_orbit_grid(
+            K_u, w_a, w_b, r, return_cancellation_ratio=True,
+        )
+    else:
+        F = inner_product_orbit_grid(K_u, w_a, w_b, r)
+    if is_per:
+        integral = float(F.sum() * du)
+    else:
+        integral = float(np.trapezoid(F, u_grid))
+    c = sigma * np.sqrt(2 * np.pi / r)
+    value = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
+    if return_cancellation_ratio:
+        # Worst case across u-grid is the relevant signal — even one
+        # bad point could dominate the integration if it sits near a
+        # peak of the integrand.
+        ratio = float(np.min(ratios))
+        return value, ratio
+    return value
+
+
+def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
+    """Compute (ip_xy, ip_xx, ip_yy, worst_ratio) for the SA case via
+    orbit Möbius.
+
+    ``worst_ratio`` is the minimum cancellation ratio across the three
+    inner-product computations. Values below ~1e-10 indicate the
+    Möbius alternating sum has lost most of its significant digits and
+    the dispatcher should fall back to pairwise.
+    """
+    sigma = dens_x.sigma
+    r = dens_x.r
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    period = dens_x.period
+    p_x, w_x = dens_x.p, dens_x.w
+    p_y, w_y = dens_y.p, dens_y.w
+
+    if is_rel:
+        ip_xy, r_xy = _orbit_inner_rel(
+            p_x, w_x, p_y, w_y, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+        ip_xx, r_xx = _orbit_inner_rel(
+            p_x, w_x, p_x, w_x, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+        ip_yy, r_yy = _orbit_inner_rel(
+            p_y, w_y, p_y, w_y, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+    else:
+        ip_xy, r_xy = _orbit_inner_abs(
+            p_x, w_x, p_y, w_y, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+        ip_xx, r_xx = _orbit_inner_abs(
+            p_x, w_x, p_x, w_x, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+        ip_yy, r_yy = _orbit_inner_abs(
+            p_y, w_y, p_y, w_y, sigma, r, is_per, period,
+            return_cancellation_ratio=True,
+        )
+    return ip_xy, ip_xx, ip_yy, min(r_xy, r_xx, r_yy)
+
+
+def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True):
+    """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the v2.1
+    pairwise path (``_ip_core``).
+
+    This is the body of the original (v2.1) ``_cos_sim_exp_tens_sa``
+    factored out so the new dispatcher can route to it cleanly.
+    """
+    r = dens_x.r
+    sigma = dens_x.sigma
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    period = dens_x.period
+
+    n_jx, n_kx = dens_x.n_j_perm, dens_x.n_k
+    n_jy, n_ky = dens_y.n_j_perm, dens_y.n_k
+
+    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
+    estimate_comp_time(total_pairs, r, "cos_sim_exp_tens", verbose)
+
+    ip_xy = _ip_core(
+        dens_x.u_perm, dens_x.w_perm, n_jx,
+        dens_y.v_comb, dens_y.wv_comb, n_ky,
+        r, sigma, is_rel, is_per, period,
+    )
+    ip_xx = _ip_core(
+        dens_x.u_perm, dens_x.w_perm, n_jx,
+        dens_x.v_comb, dens_x.wv_comb, n_kx,
+        r, sigma, is_rel, is_per, period,
+    )
+    ip_yy = _ip_core(
+        dens_y.u_perm, dens_y.w_perm, n_jy,
+        dens_y.v_comb, dens_y.wv_comb, n_ky,
+        r, sigma, is_rel, is_per, period,
+    )
+    return ip_xy, ip_xx, ip_yy
 
 
 # -------------------------------------------------------------------
@@ -2963,7 +4541,8 @@ def _pair_canonical_key(
 
 
 # -------------------------------------------------------------------
-#  batch_cos_sim_exp_tens
+#  Raw SA batched dispatch (used by the polymorphic cos_sim_exp_tens
+#  for 2-D pitch-matrix input)
 # -------------------------------------------------------------------
 
 
@@ -2981,6 +4560,8 @@ def _cos_sim_raw_sa_batch(
     spectrum: list | None = None,
     precision: int | None = None,
     dedup: bool = True,
+    method: str = "auto",
+    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> np.ndarray:
     """Raw single-attribute batched dispatch for :func:`cos_sim_exp_tens`.
@@ -2989,67 +4570,40 @@ def _cos_sim_raw_sa_batch(
     (*p* represents pitches or positions). Each row of *p_mat_a*
     and *p_mat_b* defines one pair.
 
-    The function deduplicates equivalent rows before computation.
-    Density structs (via ``build_exp_tens``) are cached per unique
-    individual set and ``cos_sim_exp_tens`` is called once per
-    unique (A, B) pair, with results mapped back to all matching
-    rows. The equivalences exploited depend on the mode:
-
-    - **Absolute non-periodic** (*is_rel* = False, *is_per* = False):
-      co-transposition — (A+c, B+c) is equivalent to (A, B).
-      Mechanism: subtract A's minimum from both A and B.
-    - **Absolute periodic** (*is_rel* = False, *is_per* = True):
-      co-transposition and octave displacement.
-      Mechanism: mod-reduce both sets, then apply the cyclic
-      canonical form to A and the same shift to B.
-    - **Relative non-periodic** (*is_rel* = True, *is_per* = False):
-      independent transposition of each set (co-transposition is a
-      special case).
-      Mechanism: subtract the minimum from each set independently.
-    - **Relative periodic** (*is_rel* = True, *is_per* = True):
-      independent transposition and octave displacement of each set
-      (co-transposition is a special case).
-      Mechanism: independent cyclic canonical form for each set.
+    Two-stage dedup: Phase 1 builds canonical-form keys per side and
+    constructs each unique density once (chord-level dedup); Phase 3
+    delegates pair-level dedup to the polymorphic
+    :func:`cos_sim_exp_tens` (in pairwise list-vs-list mode), which
+    in turn threads ``method`` and ``cancellation_threshold`` through
+    to v2.2's per-pair orbit/pairwise dispatcher.
 
     Parameters
     ----------
-    p_mat_a : (nRows, nA) array
-        Multiset A values. NaN entries are ignored.
-    p_mat_b : (nRows, nB) array
-        Multiset B values.
+    p_mat_a, p_mat_b : 2-D arrays
+        Multiset values per row. NaN entries are ignored.
     sigma, r, is_rel, is_per, period :
         Tensor parameters.
-    weights_a, weights_b : array, optional
-        Weight matrices matching *p_mat_a* / *p_mat_b*.
+    weights_a, weights_b : 2-D arrays or None
+        Weights matching the corresponding ``p_mat_*``.
     spectrum : list, optional
         Arguments for :func:`~mpt.spectra.add_spectra`.
     precision : int, optional
-        Round pitch and weight values to this many decimal places
-        before processing (and again after canonicalization, to
-        absorb arithmetic noise from mod-reduction and subtraction).
-        Ensures that nominally identical multisets differing only by
-        floating-point noise are correctly deduplicated. For pitch
-        data in cents on a 12-TET grid, 4 is more than sufficient;
-        for fractional-cent values (e.g., from JI ratios), 6
-        preserves all meaningful precision. Default: no rounding
-        (full floating-point precision).
-
-        **Limitation:** ``precision`` rounds to decimal places, so it
-        cannot resolve discrepancies when pitches lie on an irrational
-        grid — e.g., N-EDO tunings where the step size 1200/N is a
-        repeating decimal (such as 22-EDO: 1200/22 ≈ 54.5454...).
-        Different transpositions of the same set will produce
-        different last-digit truncations that no decimal precision
-        can collapse. In such cases, convert to integer EDO steps
-        before calling this function (scaling *sigma* and *period*
-        accordingly) to make deduplication exact.
+        Round canonical pitch and weight values to this many decimal
+        places, to absorb FP noise when deduplicating.
+    dedup : bool, default True
+        Apply pair-level canonical-form dedup at Phase 3.
+    method : {'auto', 'pairwise', 'direct'}, default 'auto'
+        Inner-product evaluation path; threaded through to the per-pair
+        SA core via the inner ``cos_sim_exp_tens`` call.
+    cancellation_threshold : float, default 1e-12
+        Orbit-path cancellation guard threshold.
     verbose : bool
         Print progress.
 
     Returns
     -------
     np.ndarray
-        (nRows,) cosine similarities. NaN for invalid rows.
+        ``(nRows,)`` cosine similarities. NaN for invalid rows.
     """
     p_mat_a = np.asarray(p_mat_a, dtype=np.float64)
     p_mat_b = np.asarray(p_mat_b, dtype=np.float64)
@@ -3075,7 +4629,6 @@ def _cos_sim_raw_sa_batch(
         if weights_b.shape != p_mat_b.shape:
             raise ValueError("weights_b must be the same shape as p_mat_b.")
 
-    # Apply precision rounding
     if precision is not None:
         p_mat_a = np.round(p_mat_a, precision)
         p_mat_b = np.round(p_mat_b, precision)
@@ -3086,14 +4639,11 @@ def _cos_sim_raw_sa_batch(
 
     s = np.full(n_rows, np.nan)
 
-    # ── Phase 1: Canonicalize and build individual-set keys ──────────
-
-    # key_a[i] and key_b[i] are hashable canonical forms for valid rows
+    # ── Phase 1: Canonicalise and build individual-set keys ─────────
     key_a: list[tuple | None] = [None] * n_rows
     key_b: list[tuple | None] = [None] * n_rows
     valid = [False] * n_rows
 
-    # Also store the canonical pitches/weights for later extraction
     canon_data_a: dict[tuple, tuple[np.ndarray, np.ndarray | None]] = {}
     canon_data_b: dict[tuple, tuple[np.ndarray, np.ndarray | None]] = {}
 
@@ -3111,9 +4661,6 @@ def _cos_sim_raw_sa_batch(
         wa_valid = weights_a[i, mask_a] if use_wa else None
         wb_valid = weights_b[i, mask_b] if use_wb else None
 
-        # Canonicalise the pair via the shared helper (handles both
-        # is_rel and absolute joint-shift cases, plus post-canonicalisation
-        # precision rounding).
         ka, kb, ca_p_arr, ca_w_arr, cb_p_arr, cb_w_arr = _pair_canonical_key(
             pa_valid, wa_valid, pb_valid, wb_valid,
             sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
@@ -3124,18 +4671,12 @@ def _cos_sim_raw_sa_batch(
         key_b[i] = kb
         valid[i] = True
 
-        # Cache canonical arrays (first occurrence wins)
         if ka not in canon_data_a:
             canon_data_a[ka] = (ca_p_arr, ca_w_arr)
         if kb not in canon_data_b:
             canon_data_b[kb] = (cb_p_arr, cb_w_arr)
 
-    # ── Phase 2: Build density structs for unique individual sets ─────
-    #
-    # Chord-level dedup: build each density object exactly once per
-    # unique canonical chord on each side. Pair-level dedup is delegated
-    # to the polymorphic ``cos_sim_exp_tens`` in Phase 3.
-
+    # ── Phase 2: Build density structs for unique individual sets ───
     dens_cache_a: dict[tuple, object] = {}
     for ka, (p_arr, w_arr) in canon_data_a.items():
         if use_spec:
@@ -3178,32 +4719,25 @@ def _cos_sim_raw_sa_batch(
             f"density structs ({n_unique_a} A + {n_unique_b} B)."
         )
 
-    # ── Phase 3: Compute via polymorphic cos_sim_exp_tens ─────────────
-    #
-    # The polymorphic ``cos_sim_exp_tens`` does pair-level deduplication
-    # internally (via ``_pair_canonical_key``); identical pairs collapse
-    # there. Verbose-mode pair-count diagnostics come from the inner
-    # call.
-
+    # ── Phase 3: Compute via polymorphic cos_sim_exp_tens ────────────
     if n_valid == 0:
         if verbose:
             print("batch_cos_sim_exp_tens: done.")
         return s
 
-    # Build per-row density lists for valid rows. Density objects are
-    # shared across rows that map to the same canonical chord (chord-
-    # level dedup from Phase 2).
     valid_indices = [i for i in range(n_rows) if valid[i]]
     list_a_dens = [dens_cache_a[key_a[i]] for i in valid_indices]
     list_b_dens = [dens_cache_b[key_b[i]] for i in valid_indices]
 
     cos_results = cos_sim_exp_tens(
         list_a_dens, list_b_dens,
-        mode="pairwise", dedup=dedup, verbose=verbose,
+        mode="pairwise", dedup=dedup,
+        method=method,
+        cancellation_threshold=cancellation_threshold,
+        verbose=verbose,
     )
 
     # ── Phase 4: Map results back ────────────────────────────────────
-
     for k, idx in enumerate(valid_indices):
         s[idx] = cos_results[k]
 
@@ -3211,6 +4745,11 @@ def _cos_sim_raw_sa_batch(
         print("batch_cos_sim_exp_tens: done.")
 
     return s
+
+
+# -------------------------------------------------------------------
+#  batch_cos_sim_exp_tens (deprecated convenience wrapper)
+# -------------------------------------------------------------------
 
 
 def batch_cos_sim_exp_tens(
@@ -3263,6 +4802,7 @@ def batch_cos_sim_exp_tens(
         spectrum=spectrum, precision=precision,
         verbose=verbose,
     )
+
 
 
 # ===================================================================
@@ -3861,32 +5401,11 @@ def window_tensor(dens, window_spec):
             Per-group shape parameter in [0, 1]: 0 = pure Gaussian,
             1 = pure rectangular, in between = rectangular-convolved-
             with-Gaussian. A scalar is broadcast.
-        ``centre`` : numeric (scalar or array), or length-A list of array-like
-            Per-attribute centre coordinates. Three forms are accepted:
-
-            * **Numeric scalar** (Python scalar, 0-D ndarray, or any
-              numeric ndarray of size 1): broadcast to fill every
-              per-attribute slot uniformly. Convenient when one window
-              centre is wanted everywhere.
-            * **Cell/list form**: a length-A list/tuple, each entry a
-              1-D array of length ``dim_per_attr[a]``, giving the
-              per-attribute centres explicitly.
-            * **Flat form**: a single numeric array of total length
-              ``dim``, split across attributes in attribute order.
-
-            List/tuple inputs are always interpreted structurally — they
-            never broadcast, even if size-1. A length-1 list/tuple on a
-            density with A > 1 raises ``ValueError`` rather than
-            silently broadcasting; this preserves backward compatibility
-            with the contract that a wrong-length cell is a user error.
-            Likewise, a length-A list of scalars (e.g. ``[5.0, 10.0]``)
-            is interpreted as flat form and rejected on length mismatch
-            against ``dim``; users wanting per-attribute uniform centres
-            at distinct values per attribute should pass an explicit
-            ``[np.full(d_a_0, 5.0), np.full(d_a_1, 10.0)]``.
-
-            Entries whose attribute's group has ``size`` NaN/Inf are
-            ignored.
+        ``centre`` : length-A list of array-like, or a single array-like
+            Per-attribute centre coordinates. Each entry has length
+            ``dim_per_attr[a]``. A single 1-D array of total length
+            ``dim`` is split across attributes in order. Entries whose
+            attribute's group has ``size`` NaN/Inf are ignored.
 
     Returns
     -------
@@ -3932,40 +5451,22 @@ def window_tensor(dens, window_spec):
         # Default: centre at origin for all attributes.
         centre_list = [np.zeros(int(dim_per[a]), dtype=np.float64)
                        for a in range(A)]
-    elif isinstance(centre_in, (list, tuple)):
-        # List/tuple inputs are always structural, not broadcast: a
-        # list whose first element is scalar is flat form (split by
-        # ``dim_per_attr``); otherwise it is cell form (length-A list
-        # of per-attribute centre vectors). This preserves the
-        # contract that a wrong-length cell raises.
-        if len(centre_in) > 0 and np.isscalar(centre_in[0]):
-            flat = np.asarray(centre_in, dtype=np.float64).ravel()
-            if flat.size != dim_total:
+    elif isinstance(centre_in, (list, tuple)) and not (
+            len(centre_in) > 0 and np.isscalar(centre_in[0])):
+        if len(centre_in) != A:
+            raise ValueError(
+                f"window_spec['centre'] (list form) must have length A = {A}; "
+                f"got length {len(centre_in)}."
+            )
+        centre_list = []
+        for a, ca in enumerate(centre_in):
+            arr = np.asarray(ca, dtype=np.float64).ravel()
+            if arr.size != int(dim_per[a]):
                 raise ValueError(
-                    f"window_spec['centre'] (flat form) must have length "
-                    f"dim = {dim_total}; got length {flat.size}."
+                    f"window_spec['centre'][{a}] must have length "
+                    f"{int(dim_per[a])}; got length {arr.size}."
                 )
-            centre_list = []
-            offset = 0
-            for a in range(A):
-                da = int(dim_per[a])
-                centre_list.append(flat[offset:offset + da].astype(np.float64))
-                offset += da
-        else:
-            if len(centre_in) != A:
-                raise ValueError(
-                    f"window_spec['centre'] (list form) must have length A = {A}; "
-                    f"got length {len(centre_in)}."
-                )
-            centre_list = []
-            for a, ca in enumerate(centre_in):
-                arr = np.asarray(ca, dtype=np.float64).ravel()
-                if arr.size != int(dim_per[a]):
-                    raise ValueError(
-                        f"window_spec['centre'][{a}] must have length "
-                        f"{int(dim_per[a])}; got length {arr.size}."
-                    )
-                centre_list.append(arr)
+            centre_list.append(arr)
     else:
         # Numeric input (scalar, 0-D ndarray, or ndarray of any shape).
         # Two interpretations:
@@ -4137,272 +5638,6 @@ warnings.filterwarnings(
 )
 
 
-def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
-                        reference=None, mode: str = "auto",
-                        verbose: bool = True):
-    """Sliding-window similarity profile (cross-correlation).
-
-    For each offset column, *dens_context* is windowed with
-    *window_spec* at the corresponding centre, and its similarity
-    against *dens_query* (unwindowed) is computed. The normaliser
-    uses the unwindowed L2 norms of both operands (Option Z in the
-    spec).
-
-    Note on naming
-    --------------
-    This function was named ``windowed_cos_sim`` in earlier drafts.
-    The output is a magnitude-aware *windowed similarity*: because
-    the denominator uses unwindowed L2 norms (rather than the
-    windowed norm of the context), the profile is not bounded in
-    [-1, 1] across sweep positions and does not correspond to an
-    inner product on a single Hilbert space. This is the intended
-    behaviour for sliding-motif analysis -- a dense local match
-    should outscore a sparse one -- but it means "cosine similarity"
-    is not the right name for the object. The strict shape-only
-    cosine similarity (with windowed denominator) is reserved as a
-    separate notion in the manuscript and is not currently
-    implemented in the toolbox. See manuscript §5.4.
-
-    Reference-point semantics
-    -------------------------
-    Offsets are measured from a reference point to the window centre
-    on each windowed attribute. Two options are provided:
-
-      * Default (``reference=None``): the reference on each attribute
-        is the unweighted column mean of the query's tuple centres.
-        A purely geometric property of the tuple centres, independent
-        of the tuple weights.
-
-      * User-supplied (``reference`` given): one vector per query
-        attribute, of length equal to that attribute's dimension. The
-        reference does not depend on the query.
-
-    The peak offset under either option equals ``P* - ref``, where
-    ``P*`` is the window centre (in context coordinates) at which the
-    profile peaks. Peak offsets under the default therefore track the
-    quantity ``P* - mu_q`` across between-query variation; peak
-    offsets under a fixed reference track ``P*`` directly.
-
-    The choice matters most when a pitch attribute has more than one
-    slot per event (chords with exchangeable voices, or partials added
-    by ``add_spectra``), because queries can then vary in slot count,
-    slot values, and slot weights. For slot-weight sweeps the two
-    options coincide. For slot-value sweeps (e.g., stretching
-    partials), the default's peak offset drifts while a fixed
-    reference's stays put. For slot-count sweeps, the default's peak
-    offset is stable only for harmonic queries -- those whose slots
-    lie at (or close to) integer-harmonic values ``f_e + 1200*log2(n)``
-    cents. See User Guide §3.1 "Post-tensor windowing" and the
-    ``demo_windowing_reference`` demo for analysis and worked examples.
-
-    In both cases, a peak at offset ``delta`` means the context has
-    similarity-relevant structure at ``reference + delta``.
-
-    Periodic groups
-    ---------------
-    The closed-form windowed inner product implemented here is the
-    line-case formula -- exact for non-periodic groups, but only an
-    approximation when applied to a periodic group whose window
-    support is comparable to one period. For windows larger than a
-    period the windowed inner product collapses to the unwindowed
-    form, which can be obtained directly from
-    :func:`cos_sim_exp_tens`. A unified closed form for the
-    intermediate regime (a finite sum over periodic images) is left
-    to future work. When this function is called on a windowed
-    periodic group, a
-    :class:`WindowedSimilarityPeriodicApproxWarning` is emitted on
-    every call, with a brief informational message within the
-    recommended bound ``lambda*sigma <= P/(2*sqrt(3))`` and a stronger
-    message past the bound. See User Guide §3.1 "Post-tensor
-    windowing" for the three-regime analysis and the warning
-    specification.
-
-    Parameters
-    ----------
-    dens_query : MaetDensity, or list/tuple of MaetDensity
-        The query density (not windowed). A single density gives the
-        v2.0 scalar behaviour; a list/tuple is broadcast or paired
-        against the context (see Returns).
-    dens_context : MaetDensity, or list/tuple of MaetDensity
-        The context density to be windowed. As above, scalar or list.
-    window_spec : dict
-        Window specification (see :func:`window_tensor`). Only the
-        ``size`` and ``mix`` fields are read; any ``centre`` field is
-        ignored (offsets replace it).
-    offsets : (dim, M) array-like
-        Per-sweep offsets in effective space, using the
-        attribute-concatenated flat convention of
-        :func:`window_tensor`. A 1-D array is accepted when dim == 1.
-    reference : optional
-        Reference point(s) for the offset frame. Three forms:
-
-          * ``None`` (default): per-query auto-centroid (the unweighted
-            mean of the query's tuple centres on each attribute). Peak
-            offsets track ``P* − μ_q`` and so vary with the query.
-          * length-``n_attrs`` list of 1-D arrays: shared reference,
-            broadcast to every query. Each entry has length
-            ``dim_per_attr[a]``.
-          * length-``n_q`` list of (length-``n_attrs`` list of 1-D
-            arrays): per-query reference, one full reference list per
-            query in the batch.
-
-        Disambiguation when both forms are syntactically possible is
-        on element type: outer-list elements that are 1-D
-        arrays/lists-of-numbers indicate the shared form; outer-list
-        elements that are themselves lists/tuples indicate per-query.
-    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
-        For list-vs-list. Ignored otherwise.
-    verbose : bool
-
-    Returns
-    -------
-    np.ndarray
-        - scalar query, scalar context → ``(M,)`` (the v2.0 case).
-        - scalar query, list of n_c contexts → ``(n_c, M)``.
-        - list of n_q queries, scalar context → ``(n_q, M)``.
-        - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
-          ``(n_q, M)``.
-        - list-vs-list, ``mode='cartesian'`` → ``(n_q, n_c, M)``.
-
-        Length-1 lists do NOT collapse to scalars (Option II — strict
-        shape preservation).
-    """
-    # ------------------------------------------------------------------
-    # Normalise query and context inputs.
-    # ------------------------------------------------------------------
-    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
-    c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
-
-    # Validate every density is a plain MaetDensity (not Windowed, not SA).
-    # MaetDensity, WindowedMaetDensity, and ExpTensDensity are independent
-    # classes (no inheritance), so a single isinstance(d, MaetDensity) check
-    # suffices to exclude the other two.
-    for label, scalar_flag, densities in (
-        ("dens_query", q_scalar, q_list),
-        ("dens_context", c_scalar, c_list),
-    ):
-        for i, d in enumerate(densities):
-            if not isinstance(d, MaetDensity):
-                idx = "" if scalar_flag else f"[{i}]"
-                raise TypeError(
-                    f"{label}{idx} must be a MaetDensity (not "
-                    f"WindowedMaetDensity, not ExpTensDensity); got "
-                    f"{type(d).__name__}."
-                )
-
-    n_q = len(q_list)
-    n_c = len(c_list)
-
-    # ------------------------------------------------------------------
-    # Validate offsets shape against the (shared) context dimension.
-    # All contexts in a list must have matching dim; we check against
-    # the first and rely on per-pair structural compatibility checks
-    # in the underlying cos_sim_exp_tens to catch mismatches between
-    # query and context.
-    # ------------------------------------------------------------------
-    if n_c == 0 or n_q == 0:
-        # Empty list: produce a correctly-shaped empty output.
-        offsets_arr = np.asarray(offsets, dtype=np.float64)
-        if offsets_arr.ndim == 1:
-            offsets_arr = offsets_arr.reshape(-1, 1)
-        M = offsets_arr.shape[1] if offsets_arr.ndim >= 2 else 0
-        if q_scalar:
-            return np.empty((0, M), dtype=np.float64)
-        if c_scalar:
-            return np.empty((0, M), dtype=np.float64)
-        # both lists, at least one empty
-        if mode == "auto":
-            mode_resolved = "pairwise" if n_q == n_c else "cartesian"
-        else:
-            mode_resolved = mode
-        if mode_resolved == "pairwise":
-            return np.empty((0, M), dtype=np.float64)
-        return np.empty((n_q, n_c, M), dtype=np.float64)
-
-    template_context = c_list[0]
-
-    # ------------------------------------------------------------------
-    # Resolve reference into a list of length n_q (each entry a list of
-    # n_attrs 1-D arrays). None signals "auto-centroid per query".
-    # ------------------------------------------------------------------
-    references_per_query = _resolve_windowed_similarity_reference(
-        reference, q_list,
-    )
-
-    # ------------------------------------------------------------------
-    # Periodic-window approximation warning. The warning depends only
-    # on the context's group structure and the window spec, not on the
-    # query — so we emit it once per call against template_context.
-    # ------------------------------------------------------------------
-    _emit_periodic_window_warning(template_context, window_spec)
-
-    # ------------------------------------------------------------------
-    # Dispatch on (q_scalar, c_scalar).
-    # ------------------------------------------------------------------
-    if q_scalar and c_scalar:
-        return _windowed_similarity_pair(
-            q_list[0], c_list[0], window_spec, offsets,
-            ref_per_a=references_per_query[0], verbose=verbose,
-        )
-
-    if q_scalar:
-        # 1 query × n_c contexts → (n_c, M).
-        rows = [
-            _windowed_similarity_pair(
-                q_list[0], c, window_spec, offsets,
-                ref_per_a=references_per_query[0], verbose=verbose,
-            )
-            for c in c_list
-        ]
-        return np.stack(rows, axis=0)
-
-    if c_scalar:
-        # n_q queries × 1 context → (n_q, M).
-        rows = [
-            _windowed_similarity_pair(
-                q, c_list[0], window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
-            )
-            for q, ref in zip(q_list, references_per_query)
-        ]
-        return np.stack(rows, axis=0)
-
-    # Both lists.
-    resolved = _resolve_list_list_mode(mode, n_q, n_c)
-    if resolved == "pairwise":
-        rows = [
-            _windowed_similarity_pair(
-                q, c, window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
-            )
-            for q, c, ref in zip(q_list, c_list, references_per_query)
-        ]
-        return np.stack(rows, axis=0)
-
-    # cartesian
-    # Determine M from a probe call.
-    probe = _windowed_similarity_pair(
-        q_list[0], c_list[0], window_spec, offsets,
-        ref_per_a=references_per_query[0], verbose=verbose,
-    )
-    M = probe.shape[0]
-    out = np.empty((n_q, n_c, M), dtype=np.float64)
-    out[0, 0, :] = probe
-    for j in range(1, n_c):
-        out[0, j, :] = _windowed_similarity_pair(
-            q_list[0], c_list[j], window_spec, offsets,
-            ref_per_a=references_per_query[0], verbose=verbose,
-        )
-    for i in range(1, n_q):
-        ref = references_per_query[i]
-        for j in range(n_c):
-            out[i, j, :] = _windowed_similarity_pair(
-                q_list[i], c_list[j], window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
-            )
-    return out
-
-
 def _resolve_windowed_similarity_reference(reference, q_list):
     """Resolve the polymorphic ``reference`` argument of
     :func:`windowed_similarity` to a list (length ``n_q``) of per-query
@@ -4427,31 +5662,15 @@ def _resolve_windowed_similarity_reference(reference, q_list):
     n_attrs = int(template.n_attrs)
     dim_per_a = [int(d) for d in template.dim_per_attr]
 
-    # Disambiguate shared (length n_attrs, elements 1-D arrays) from
-    # per-query (length n_q, elements lists/tuples).
     outer_len = len(reference)
 
     if outer_len == 0:
         raise ValueError("reference must be non-empty.")
 
-    first = reference[0]
-    elements_are_listlike = isinstance(first, (list, tuple)) or (
-        isinstance(first, np.ndarray) and first.ndim >= 1
-        and (
-            # Distinguish "1-D array of numbers" from "1-D array of arrays".
-            # An ndarray with dtype != object is shared-form material.
-            first.dtype == object
-        )
-    )
-
     # The "shared" form has elements that are 1-D arrays of numbers; the
     # "per-query" form has elements that are themselves lists of arrays.
-    # Detect by checking whether the first element is iterable in a way
-    # that yields more arrays.
     def _is_per_query_outer(ref):
         first_el = ref[0]
-        # A list/tuple at this level is per-query if it's iterable AND its
-        # elements look like 1-D numeric arrays (i.e., one level deeper).
         if isinstance(first_el, (list, tuple)):
             return True
         if isinstance(first_el, np.ndarray) and first_el.dtype == object:
@@ -4513,14 +5732,19 @@ def _resolve_windowed_similarity_reference(reference, q_list):
     return [shared] * n_q
 
 
-def _emit_periodic_window_warning(dens_context, window_spec):
-    """Emit the periodic-window approximation warning once for this call.
+def _emit_periodic_approx_warnings(dens_context, window_spec):
+    """Emit a ``WindowedSimilarityPeriodicApproxWarning`` for each
+    periodic group whose window crosses the recommended SD/P bound.
 
-    The warning depends only on the context's group structure and the
-    window spec, not on the query, so it is computed once at the
-    dispatcher level and not per-pair.
+    Two regimes are distinguished:
+      * Within bound: brief informational notice that the line-case
+        formula is in use; the approximation is sub-percent across
+        the window shape family.
+      * Past bound: stronger notice describing per-mix behaviour.
+
+    See User Guide §3.1 "Post-tensor windowing".
     """
-    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ≈ 0.2887
+    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ~= 0.2887
     G = int(dens_context.n_groups)
     size_arr = np.atleast_1d(
         np.asarray(window_spec["size"], dtype=np.float64)
@@ -4546,7 +5770,6 @@ def _emit_periodic_window_warning(dens_context, window_spec):
         gamma_g = float(mix_arr[g])
 
         if sd_over_p <= SD_OVER_P_BOUND:
-            # Within-bound: brief informational form.
             msg = (
                 f"Periodic windowed inner product on group {g} "
                 f"applies the line-case formula at wrapped "
@@ -4565,8 +5788,6 @@ def _emit_periodic_window_warning(dens_context, window_spec):
                 f"WindowedSimilarityPeriodicApproxWarning)."
             )
         else:
-            # Past-bound: stronger form, with phi and per-mix
-            # behaviour.
             phi_g = eff_sigma * np.sqrt(3.0 * max(gamma_g, 0.0))
             msg = (
                 f"Window SD exceeds the recommended bound for "
@@ -4593,7 +5814,7 @@ def _emit_periodic_window_warning(dens_context, window_spec):
         warnings.warn(
             msg,
             WindowedSimilarityPeriodicApproxWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
 
 
@@ -4604,6 +5825,10 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
     ``ref_per_a`` is either ``None`` (auto-centroid) or a list of
     pre-validated per-attribute 1-D arrays (length ``n_attrs``).
     Returns the ``(M,)`` similarity profile.
+
+    Emits :class:`WindowedSimilarityPeriodicApproxWarning` once per
+    (query, context) pair for any periodic group whose window crosses
+    the recommended SD/P bound.
     """
     offsets = np.asarray(offsets, dtype=np.float64)
     if offsets.ndim == 1:
@@ -4614,6 +5839,10 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
             f"dens_context); got shape {offsets.shape}."
         )
     M = offsets.shape[1]
+
+    # Periodic-window approximation warnings (v2.2). Emitted once per
+    # (query, context) pair, before the offset loop.
+    _emit_periodic_approx_warnings(dens_context, window_spec)
 
     A = int(dens_query.n_attrs)
     dim_per_a = [int(d) for d in dens_query.dim_per_attr]
@@ -4639,6 +5868,207 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         wmd = window_tensor(dens_context, spec_m)
         profile[m] = cos_sim_exp_tens(dens_query, wmd, verbose=verbose)
     return profile
+
+
+def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
+                        reference=None, mode: str = "auto",
+                        verbose: bool = True):
+    """Sliding-window similarity profile (cross-correlation).
+
+    For each offset column, *dens_context* is windowed with
+    *window_spec* at the corresponding centre, and its similarity
+    against *dens_query* (unwindowed) is computed. The normaliser
+    uses the unwindowed L2 norms of both operands (Option Z in the
+    spec).
+
+    Note on naming
+    --------------
+    This function was named ``windowed_cos_sim`` in earlier drafts.
+    The output is a magnitude-aware *windowed similarity*: because
+    the denominator uses unwindowed L2 norms (rather than the
+    windowed norm of the context), the profile is not bounded in
+    [-1, 1] across sweep positions and does not correspond to an
+    inner product on a single Hilbert space. This is the intended
+    behaviour for sliding-motif analysis -- a dense local match
+    should outscore a sparse one -- but it means "cosine similarity"
+    is not the right name for the object. The strict shape-only
+    cosine similarity (with windowed denominator) is reserved as a
+    separate notion in the manuscript and is not currently
+    implemented in the toolbox. See manuscript §5.4.
+
+    Periodic groups
+    ---------------
+    The closed-form windowed inner product implemented here is the
+    line-case formula -- exact for non-periodic groups, but only an
+    approximation when applied to a periodic group whose window
+    support is comparable to one period. When this function is
+    called on a windowed periodic group, a
+    :class:`WindowedSimilarityPeriodicApproxWarning` is emitted on
+    every call. See User Guide §3.1 "Post-tensor windowing".
+
+    Parameters
+    ----------
+    dens_query : MaetDensity, or list/tuple of MaetDensity
+        The query density (not windowed). A single density gives the
+        v2.0 scalar behaviour; a list/tuple is broadcast or paired
+        against the context (see Returns).
+    dens_context : MaetDensity, or list/tuple of MaetDensity
+        The context density to be windowed. As above, scalar or list.
+    window_spec : dict
+        Window specification (see :func:`window_tensor`). Only the
+        ``size`` and ``mix`` fields are read; any ``centre`` field is
+        ignored (offsets replace it).
+    offsets : (dim, M) array-like
+        Per-sweep offsets in effective space, using the
+        attribute-concatenated flat convention of
+        :func:`window_tensor`. A 1-D array is accepted when dim == 1.
+    reference : optional
+        Reference point(s) for the offset frame. Three forms:
+
+          * ``None`` (default): per-query auto-centroid (the unweighted
+            mean of the query's tuple centres on each attribute). Peak
+            offsets track ``P* − μ_q`` and so vary with the query.
+          * length-``n_attrs`` list of 1-D arrays: shared reference,
+            broadcast to every query. Each entry has length
+            ``dim_per_attr[a]``.
+          * length-``n_q`` list of (length-``n_attrs`` list of 1-D
+            arrays): per-query reference, one full reference list per
+            query in the batch.
+
+        Disambiguation when both forms are syntactically possible is
+        on element type: outer-list elements that are 1-D
+        arrays/lists-of-numbers indicate the shared form; outer-list
+        elements that are themselves lists/tuples indicate per-query.
+    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
+        For list-vs-list. Ignored otherwise.
+    verbose : bool
+
+    Returns
+    -------
+    np.ndarray
+        - scalar query, scalar context → ``(M,)`` (the v2.0 case).
+        - scalar query, list of n_c contexts → ``(n_c, M)``.
+        - list of n_q queries, scalar context → ``(n_q, M)``.
+        - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
+          ``(n_q, M)``.
+        - list-vs-list, ``mode='cartesian'`` → ``(n_q, n_c, M)``.
+
+        Length-1 lists do NOT collapse to scalars (Option II — strict
+        shape preservation).
+    """
+    # ------------------------------------------------------------------
+    # Normalise query and context inputs.
+    # ------------------------------------------------------------------
+    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
+    c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
+
+    # Validate every density is a plain MaetDensity (not Windowed, not SA).
+    for label, scalar_flag, densities in (
+        ("dens_query", q_scalar, q_list),
+        ("dens_context", c_scalar, c_list),
+    ):
+        for i, d in enumerate(densities):
+            if not isinstance(d, MaetDensity):
+                idx = "" if scalar_flag else f"[{i}]"
+                raise TypeError(
+                    f"{label}{idx} must be a MaetDensity (not "
+                    f"WindowedMaetDensity, not ExpTensDensity); got "
+                    f"{type(d).__name__}."
+                )
+
+    n_q = len(q_list)
+    n_c = len(c_list)
+
+    # ------------------------------------------------------------------
+    # Validate offsets shape and handle empty-list cases up front.
+    # ------------------------------------------------------------------
+    if n_c == 0 or n_q == 0:
+        offsets_arr = np.asarray(offsets, dtype=np.float64)
+        if offsets_arr.ndim == 1:
+            offsets_arr = offsets_arr.reshape(-1, 1)
+        M = offsets_arr.shape[1] if offsets_arr.ndim >= 2 else 0
+        if q_scalar:
+            return np.empty((0, M), dtype=np.float64)
+        if c_scalar:
+            return np.empty((0, M), dtype=np.float64)
+        # both lists, at least one empty
+        if mode == "auto":
+            mode_resolved = "pairwise" if n_q == n_c else "cartesian"
+        else:
+            mode_resolved = mode
+        if mode_resolved == "pairwise":
+            return np.empty((0, M), dtype=np.float64)
+        return np.empty((n_q, n_c, M), dtype=np.float64)
+
+    # Resolve reference into a per-query list.
+    references_per_query = _resolve_windowed_similarity_reference(
+        reference, q_list,
+    )
+
+    # ------------------------------------------------------------------
+    # Scalar-vs-scalar (the v2.0 case).
+    # ------------------------------------------------------------------
+    if q_scalar and c_scalar:
+        return _windowed_similarity_pair(
+            q_list[0], c_list[0], window_spec, offsets,
+            ref_per_a=references_per_query[0], verbose=verbose,
+        )
+
+    if q_scalar:
+        # 1 query × n_c contexts → (n_c, M).
+        rows = [
+            _windowed_similarity_pair(
+                q_list[0], c, window_spec, offsets,
+                ref_per_a=references_per_query[0], verbose=verbose,
+            )
+            for c in c_list
+        ]
+        return np.stack(rows, axis=0)
+
+    if c_scalar:
+        # n_q queries × 1 context → (n_q, M).
+        rows = [
+            _windowed_similarity_pair(
+                q, c_list[0], window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+            for q, ref in zip(q_list, references_per_query)
+        ]
+        return np.stack(rows, axis=0)
+
+    # Both lists.
+    resolved = _resolve_list_list_mode(mode, n_q, n_c)
+    if resolved == "pairwise":
+        rows = [
+            _windowed_similarity_pair(
+                q, c, window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+            for q, c, ref in zip(q_list, c_list, references_per_query)
+        ]
+        return np.stack(rows, axis=0)
+
+    # cartesian
+    probe = _windowed_similarity_pair(
+        q_list[0], c_list[0], window_spec, offsets,
+        ref_per_a=references_per_query[0], verbose=verbose,
+    )
+    M = probe.shape[0]
+    out = np.empty((n_q, n_c, M), dtype=np.float64)
+    out[0, 0, :] = probe
+    for j in range(1, n_c):
+        out[0, j, :] = _windowed_similarity_pair(
+            q_list[0], c_list[j], window_spec, offsets,
+            ref_per_a=references_per_query[0], verbose=verbose,
+        )
+    for i in range(1, n_q):
+        ref = references_per_query[i]
+        for j in range(n_c):
+            out[i, j, :] = _windowed_similarity_pair(
+                q_list[i], c_list[j], window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+    return out
 
 
 # -------------------------------------------------------------------
@@ -4750,7 +6180,8 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             if d_a < 2:
                 continue
             g = int(dens_x.group_of_attr[a])
-            # Only attributes whose group is actually windowed need symmetrising.
+            # Only attributes whose group is actually windowed need
+            # symmetrising.
             if not _is_windowed_group(windowed_c.size[g], windowed_c.mix[g]):
                 continue
             c_a = np.asarray(windowed_c.centre[a], dtype=np.float64)
@@ -4758,7 +6189,9 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 continue
             if not np.allclose(c_a, c_a[0]):
                 from itertools import permutations
-                non_uniform_attr_perms.append((a, list(permutations(range(d_a)))))
+                non_uniform_attr_perms.append(
+                    (a, list(permutations(range(d_a))))
+                )
 
         if non_uniform_attr_perms:
             # Enumerate Cartesian product of within-attribute permutations.
@@ -4943,7 +6376,6 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             cy_g = np.concatenate(cy_list, axis=0)        # (d_g, nK_y)
             centre_g = np.concatenate([wmd.centre[a] for a in attrs_g])
             mu_q_g = mu_q_per_g[g]                        # (d_g,)
-            d_per_attr = [cx_list[i].shape[0] for i in range(len(attrs_g))]
 
             # Cross-correlation coordinate substitution: translate query
             # centres to origin via mu_q_g, translate context centres to
@@ -4962,8 +6394,6 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 cx_sub, cy_sub, centre_sub,
                 s_g, mix_g, sigma_gv, is_rel,
                 int(r_vec[int(attrs_g[0])]), d_g,
-                d_per_attr,
-                original_centre_g=centre_g,
             )
             log_kernel = log_kernel + contrib
             log_prefactor = log_prefactor + log_D
@@ -5033,33 +6463,29 @@ def _effective_centres_from_V(dens: "MaetDensity", side: str):
 
 
 def _windowed_group_contribution(cx_g, cy_g, centre_g,
-                                  s_g, mix_g, sigma_g, is_rel, r_a, d_g,
-                                  d_per_attr, original_centre_g=None):
+                                  s_g, mix_g, sigma_g, is_rel, r_a, d_g):
     """Compute log(V_g / U_g) as a (nJ_x, nK_y) array, and log(D_g) scalar.
 
     cx_g : (d_g, nJ_x) effective-space perm-side centres for x in group g.
     cy_g : (d_g, nK_y) effective-space comb-side centres for y in group g.
-    centre_g : (d_g,) window centre in group g's effective subspace
-        (may be the substituted-form zero vector).
+    centre_g : (d_g,) window centre in group g's effective subspace.
     s_g : window size (in sigma multiples).
     mix_g : window mix in [0, 1].
     sigma_g : group sigma.
     is_rel : whether group is relative.
     r_a : tuple size of any attribute in the group (they all share it).
     d_g : group effective dim.
-    d_per_attr : sequence of int, per-attribute d_a values matching the
-        axis layout of cx_g, cy_g, centre_g.
-    original_centre_g : optional (d_g,) array
-        The original (un-substituted) within-attribute centre values,
-        used as the symmetrisation key in the factorisable case. When
-        the caller has applied the cross-correlation substitution
-        (centre_g = 0, slot-dependent shift baked into cy_g), pass the
-        original user-supplied centre here so the within-attribute
-        symmetry can be applied correctly. Ignored in the multi-D
-        relative path (which uses its own structure).
+
+    Returns
+    -------
+    log_ratio : (nJ_x, nK_y) float64
+    log_D : float64
+        log of the window-dependent constant prefactor D_g.
     """
     a_, b_ = _window_width_params(s_g, mix_g, sigma_g)
 
+    # Determine case. "1-D" here means d_g == 1; "multi-D absolute" means
+    # d_g >= 2 and not is_rel; "multi-D relative" means d_g >= 2 and is_rel.
     is_1d = (d_g == 1)
     is_multi_abs = (d_g >= 2) and (not is_rel)
     is_multi_rel = (d_g >= 2) and is_rel
@@ -5076,11 +6502,14 @@ def _windowed_group_contribution(cx_g, cy_g, centre_g,
         )
 
     if is_1d or is_multi_abs:
+        # --- Full (size, mix) family: per-axis closed form in erf. ---
         return _windowed_contribution_factorisable(
             cx_g, cy_g, centre_g, a_, b_, sigma_g, is_rel, r_a, d_g,
-            d_per_attr, original_centre_g=original_centre_g,
         )
 
+    # --- Multi-D relative, Gaussian window (rho = 0). ---
+    # At this point we know: is_multi_rel and rho == 0, so b_ = s * sigma
+    # and a_ = 0.
     return _windowed_contribution_gaussian_multi_rel(
         cx_g, cy_g, centre_g, b_, sigma_g, r_a, d_g,
     )
@@ -5088,84 +6517,107 @@ def _windowed_group_contribution(cx_g, cy_g, centre_g,
 
 def _windowed_contribution_factorisable(cx_g, cy_g, centre_g,
                                          a_rect, b_conv, sigma_g,
-                                         is_rel, r_a, d_g, d_per_attr,
-                                         original_centre_g=None):
+                                         is_rel, r_a, d_g):
     """Closed-form windowed-vs-unwindowed log-ratio per (j, k) pair.
 
     Covers: 1-D groups (any type) and multi-D absolute groups, where
     the integrand factorises per axis.
 
-    The integrand is a product of per-axis F factors that absorb the
-    window times the pair-product Gaussian. F values are computed at
-    the substituted-coordinate midpoint shift ``m - centre_g`` per
-    axis, where ``m`` is the per-axis pair midpoint.
+    Mathematical form. For one pair (j, k) in one axis of the group:
+    the unwindowed integrand is two toolbox-convention Gaussian kernels
+    (exponent -(u - mu)^2/(2 sigma^2)) multiplied together. Their
+    product is a wider Gaussian centred at m = (mu_j + mu_k)/2 with
+    variance sigma^2/2, times a scalar factor. The unwindowed pair
+    integral already sits inside the existing unwindowed machinery (the
+    scalar factor is exp(-(mu_j - mu_k)^2 / (4 sigma^2)) — exactly what
+    _ma_log_kernel computes — and the Gaussian integrates to a constant
+    that cancels under Option Z normalisation).
 
-    Within-attribute coordinate-permutation symmetry of the integral
-    (JMM windowing-theorem remark on within-attribute symmetry) is
-    handled at the call-site level by averaging the inner product
-    over within-attribute permutations of the original (un-substituted)
-    centre vector. This function therefore does not symmetrise the F
-    factor itself; it computes the per-axis F product as written. The
-    parameters ``d_per_attr`` and ``original_centre_g`` are accepted
-    for use by future fast paths (e.g. v2.2 orbit-windowed) and are
-    unused in v2.1.
+    The windowed pair integral equals the unwindowed one times the
+    "excess factor" F_g, which is the integral of the product Gaussian
+    against the window, normalised so F_g = 1 when the window is
+    constant (size -> infinity).
 
-    Mathematical form. For one pair (j, k) on one axis:
-    the unwindowed integrand is two Gaussian kernels, product is a
-    wider Gaussian centred at ``m = (mu_j + mu_k)/2`` with variance
-    ``sigma_pair^2 = sigma^2/2`` (absolute) or ``r_a sigma^2/2``
-    (1-D relative).
+    For the rectangular-convolved-with-Gaussian window family,
 
-    The windowed pair integral equals the unwindowed one times F per
-    axis:
-
-        F = [erf((mu + a)/(sigma_t sqrt 2)) - erf((mu - a)/(sigma_t sqrt 2))]
+        F_g = [erf((mu + a)/(sigma_t sqrt 2)) - erf((mu - a)/(sigma_t sqrt 2))]
               / (2 erf(a / (b sqrt 2)))
 
-    where ``mu = m - c`` and ``sigma_t^2 = sigma_pair^2 + b^2``.
+    where mu = m - c, and sigma_t^2 = sigma_pair^2 + b^2 with
+    sigma_pair^2 = sigma_g^2/2 (absolute) or r_a * sigma_g^2/2 (1-D
+    relative with r_a = 2). The denominator normalises the window to
+    have peak value 1; the numerator is the unnormalised Gaussian
+    integrated against a boxcar of half-width a, widened by the
+    window's Gaussian-convolution component.
+
+    The formula covers the whole (size, mix) family; limits are:
+        rho = 0  (a = 0, b = s*sigma): F_g -> pure-Gaussian-window
+                  formula, reducing via l'Hopital to
+                  (b/sigma_t) exp(-mu^2 / (2 sigma_t^2)).
+        rho = 1  (a = s*sigma*sqrt(3), b = 0): F_g -> boxcar-integral
+                  formula, (1/2)[erf((mu+a)/sigma) - erf((mu-a)/sigma)].
+        size -> infinity: F_g -> 1.
+
+    For multi-D absolute groups, F_g factorises across axes as the
+    product of per-axis F values (the integrand is isotropic in
+    effective-space coordinates, so the multi-D integral reduces to a
+    product of per-axis integrals).
 
     Returns
     -------
     log_F : (nJ_x, nK_y) float64
-        log of the per-axis F product per (j, k), summed across axes.
+        log(F_g) per pair, which is what gets added to the existing
+        unwindowed log-kernel to produce the windowed log-kernel.
     log_D : float
         Window-dependent prefactor outside the per-pair computation.
-        Zero under Option Z.
+        Zero under Option Z (window-free integration constants cancel
+        between numerator and denominator because the numerator and
+        both unwindowed norms share the same per-group integration
+        factors).
     """
     from scipy.special import erf
 
     # Effective variance of the (j, k) product Gaussian, per axis.
+    # Absolute group:         sigma_pair^2 = sigma_g^2 / 2.
+    # 1-D relative (r_a = 2): sigma_pair^2 = r_a * sigma_g^2 / 2.
     if is_rel:
-        sigma_pair_sq = r_a * sigma_g ** 2 / 2.0
+        sigma_pair_sq = r_a * sigma_g**2 / 2.0
     else:
-        sigma_pair_sq = sigma_g ** 2 / 2.0
+        sigma_pair_sq = sigma_g**2 / 2.0
 
-    sigma_t_sq = sigma_pair_sq + b_conv ** 2
+    sigma_t_sq = sigma_pair_sq + b_conv**2
     sigma_t = np.sqrt(sigma_t_sq)
 
     # Per-pair midpoint m minus window centre c.
     m = 0.5 * (cx_g[:, :, None] + cy_g[:, None, :])    # (d_g, nJ_x, nK_y)
     mu_shift = m - centre_g[:, None, None]              # (d_g, nJ_x, nK_y)
 
+    # Per-axis factor F(mu_shift; a_rect, b_conv, sigma_t).
+    # Three boundary cases handled: a=0 (pure Gaussian), b=0 (pure
+    # rectangular), and general (both > 0).
     if a_rect == 0.0 and b_conv > 0.0:
-        per_axis = (b_conv / sigma_t) * np.exp(
-            -mu_shift ** 2 / (2 * sigma_t_sq)
-        )
+        # Pure Gaussian window. L'Hopital on the general formula gives:
+        # F = (b / sigma_t) * exp(-mu_shift^2 / (2 sigma_t^2))
+        # per axis.
+        per_axis = (b_conv / sigma_t) * np.exp(-mu_shift**2 / (2 * sigma_t_sq))
     elif b_conv == 0.0 and a_rect > 0.0:
+        # Pure rectangular window. sigma_t = sqrt(sigma_pair^2) here.
+        # F = 0.5 * [erf((mu + a)/(sigma_t sqrt(2))) - erf((mu - a)/(sigma_t sqrt(2)))]
         denom = sigma_t * np.sqrt(2.0)
-        per_axis = 0.5 * (
-            erf((mu_shift + a_rect) / denom)
-            - erf((mu_shift - a_rect) / denom)
-        )
+        arg_plus = (mu_shift + a_rect) / denom
+        arg_minus = (mu_shift - a_rect) / denom
+        per_axis = 0.5 * (erf(arg_plus) - erf(arg_minus))
     else:
+        # General case (0 < rho < 1). Normalised rect-conv-Gaussian window.
         denom = sigma_t * np.sqrt(2.0)
-        numer = (
-            erf((mu_shift + a_rect) / denom)
-            - erf((mu_shift - a_rect) / denom)
-        )
+        arg_plus = (mu_shift + a_rect) / denom
+        arg_minus = (mu_shift - a_rect) / denom
+        numer = erf(arg_plus) - erf(arg_minus)
         norm_denom = 2.0 * erf(a_rect / (b_conv * np.sqrt(2.0)))
         per_axis = numer / norm_denom
 
+    # Guard against tiny-or-negative values before taking log (numerical
+    # noise can give very small negatives at large distances).
     per_axis = np.clip(per_axis, 1e-300, None)
     log_F = np.sum(np.log(per_axis), axis=0)             # (nJ_x, nK_y)
     return log_F, 0.0

@@ -283,3 +283,62 @@ class TestCrossFormConsistency:
             n_points_per_dim=200,
         )
         assert h_scalar == pytest.approx(float(h_batch[0]), abs=1e-12)
+
+
+class TestEntropyExpTensVerboseEstimate:
+    """Bundle 2: entropy_exp_tens prints a time estimate via empirical
+    calibration when ``verbose=True`` (default) in the SA batched
+    dispatch, and is silent when ``verbose=False``.
+    """
+
+    def test_batched_verbose_true_silent_for_fast(self, capsys):
+        # New contract (commit 14+): batched-mode estimates are gated
+        # at the same 10-s threshold as scalar mode. A 3-row fast call
+        # is silent.
+        import mpt
+        P = np.array([
+            [0, 100, 200, 300],
+            [0, 200, 400, 600],
+            [0, 100, 200, 300],
+        ])
+        H = mpt.entropy_exp_tens(
+            P, None, 12.0, 1, False, False, 1200,
+            x_min=0, x_max=600, verbose=True,
+        )
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert H.shape == (3,)
+
+    def test_batched_verbose_false_silent(self, capsys):
+        import mpt
+        P = np.array([[0, 100, 200], [0, 200, 400]])
+        H = mpt.entropy_exp_tens(
+            P, None, 12.0, 1, False, False, 1200,
+            x_min=0, x_max=600, verbose=False,
+        )
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert H.shape == (2,)
+
+    def test_verbose_default_is_true_but_silent_for_fast(self, capsys):
+        import mpt
+        P = np.array([[0, 100, 200], [0, 200, 400]])
+        mpt.entropy_exp_tens(
+            P, None, 12.0, 1, False, False, 1200,
+            x_min=0, x_max=600,
+        )
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_numerical_results_unchanged_by_verbose(self):
+        import mpt
+        P = np.array([[0, 100, 200], [0, 200, 400]])
+        H_a = mpt.entropy_exp_tens(
+            P, None, 12.0, 1, False, False, 1200,
+            x_min=0, x_max=600, verbose=True,
+        )
+        H_b = mpt.entropy_exp_tens(
+            P, None, 12.0, 1, False, False, 1200,
+            x_min=0, x_max=600, verbose=False,
+        )
+        assert np.allclose(H_a, H_b, equal_nan=True)

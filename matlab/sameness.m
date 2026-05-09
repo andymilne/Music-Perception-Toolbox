@@ -106,9 +106,19 @@ function [sq, nDiff] = sameness(p, period, sigma, nvArgs)
 %       & Psychophysics, 85, 2673-2699.
 %
 %   See also coherence, nTupleEntropy.
+%
+%   Batched (v2.1+):
+%   [sqVec, nDiffVec] = sameness(P, period, sigma) with P an
+%   nRows-by-K matrix returns nRows-by-1 column vectors of per-row
+%   results. NaN-padded rows are accepted; rows with no valid
+%   pitches give NaN entries. Per-row dedup is over **permutation,
+%   period, and transposition** symmetries, via the necklace
+%   canonical form of the cyclic adjacent intervals — sameness is
+%   fully transposition-invariant on the circle in both 'position'
+%   and 'interval' modes.
 
     arguments
-        p (:,1) {mustBeNumeric, mustBeNonnegative}
+        p {mustBeNumeric}
         period (1,1) {mustBePositive}
         sigma (1,1) {mustBeNumeric, mustBeNonnegative} = 0
         nvArgs.sigmaSpace (1,:) char ...
@@ -116,6 +126,17 @@ function [sq, nDiff] = sameness(p, period, sigma, nvArgs)
             = 'position'
     end
 
+    % --- Batched dispatch (v2.1+) ---
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [sq, nDiff] = localBatchedSameness(p, period, sigma, nvArgs);
+        return;
+    end
+
+    p = p(:);
+    if any(p < 0)
+        error('sameness:negativePitch', ...
+            'p must contain only nonnegative values.');
+    end
     p = sort(mod(p, period));
     K = numel(p);
 
@@ -213,4 +234,79 @@ function [sq, nDiff] = sameness(p, period, sigma, nvArgs)
 
     maxDiff = K * (K - 1)^2 / 2;
     sq = 1 - nDiff / maxDiff;
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [sqVec, nDiffVec] = localBatchedSameness(P, period, sigma, nvArgs)
+%LOCALBATCHEDSAMENESS Per-row sameness from a 2-D pitch matrix.
+%
+%   Per-row dedup uses the necklace canonical form of cyclic adjacent
+%   intervals — collapses **permutation, period, and transposition**
+%   onto a single cached result. (Sameness is fully transposition-
+%   invariant on the circle in both 'position' and 'interval' modes.)
+
+    nRows = size(P, 1);
+    sqVec = nan(nRows, 1);
+    nDiffVec = nan(nRows, 1);
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if isempty(pK)
+            continue;
+        end
+        if any(pK < 0)
+            error('sameness:negativePitch', ...
+                'Row %d contains negative pitches; all valid (non-NaN) entries must be nonnegative.', k);
+        end
+
+        pCanon = sort(mod(pK(:), period));
+        keyStr = localNecklaceKey(pCanon, period);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            sqVec(k)    = stored(1);
+            nDiffVec(k) = stored(2);
+            continue;
+        end
+
+        [sqk, ndk] = sameness(pK(:), period, sigma, ...
+            'sigmaSpace', nvArgs.sigmaSpace);
+        sqVec(k)    = sqk;
+        nDiffVec(k) = ndk;
+        cache(keyStr) = [sqk, ndk];
+    end
+end
+
+
+function keyStr = localNecklaceKey(pSortedMod, period)
+%LOCALNECKLACEKEY Necklace canonical form of cyclic adjacent intervals.
+
+    K = numel(pSortedMod);
+    if K == 0
+        keyStr = '';
+        return;
+    end
+    if K == 1
+        keyStr = sprintf('%.12g,', period);
+        return;
+    end
+    intervals = [diff(pSortedMod(:)); period - pSortedMod(end) + pSortedMod(1)];
+    bestRot = intervals;
+    for i = 2:K
+        rot = [intervals(i:end); intervals(1:i-1)];
+        diffVec = rot - bestRot;
+        firstDiff = find(diffVec ~= 0, 1, 'first');
+        if ~isempty(firstDiff) && diffVec(firstDiff) < 0
+            bestRot = rot;
+        end
+    end
+    keyStr = sprintf('%.12g,', bestRot);
 end

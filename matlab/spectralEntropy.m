@@ -101,13 +101,29 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %            TEMPLATEHARMONICITY, TENSORHARMONICITY, ROUGHNESS.
 
     arguments
-        p (:,1) {mustBeNumeric}
-        w (:,1) {mustBeNumeric} = []
+        p {mustBeNumeric}
+        w {mustBeNumeric} = []
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {}
         nvArgs.normalize (1,1) logical = true
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.resolution (1,1) {mustBePositive} = 1
+        nvArgs.verbose (1,1) logical = true
+    end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % chords and return an nRows-by-1 column vector. NaN-padded rows
+    % are accepted; rows with no valid pitches yield NaN.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        H = localBatchedSpectralEntropy(p, w, sigma, nvArgs);
+        return;
+    end
+
+    % Scalar path: force column vectors for consistency below.
+    p = p(:);
+    if ~isempty(w)
+        w = w(:);
     end
 
     specArgs = nvArgs.spectrum;
@@ -164,6 +180,11 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     margin = 4 * sigma;
     x = 0:step:(max(spec_p) + margin);
 
+    % Time estimate (kernel cost only; eval_exp_tens kernel pair count
+    % is the dominant work for spectral entropy at typical scales).
+    nPairs = double(numel(spec_p)) * double(numel(x));
+    estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
+
     t = evalExpTens(T, x, 'verbose', false);
 
     % === Normalise to probability distribution ===
@@ -183,4 +204,121 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         H = H / (log(N) / log(nvArgs.base));
     end
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
+%LOCALBATCHEDSPECTRALENTROPY Per-row spectral entropy from a 2-D matrix.
+%
+%   Returns an nRows-by-1 column vector. NaN-padded rows are handled
+%   (NaN entries dropped per row); rows with fewer than 1 valid pitch
+%   yield NaN.
+
+    nRows = size(P, 1);
+    H = nan(nRows, 1);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('spectralEntropy:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    % Force inner scalar calls silent; one batched estimate at top.
+    nvArgsInner = nvArgs;
+    nvArgsInner.verbose = false;
+    nvPairs = localPackSpectralEntropyNV(nvArgsInner);
+
+    % Up-front time estimate (printed once). Empirical calibration via
+    % a uniformly-sampled subset of K rows, with one warm-up call to
+    % absorb first-call overhead.
+    if nvArgs.verbose && nRows > 1
+        nCal = min(10, nRows);
+        sampleIdx = unique(round(linspace(1, nRows, nCal)));
+
+        warmupDone = false;
+        for s = 1:numel(sampleIdx)
+            sIdx = sampleIdx(s);
+            pRowS = P(sIdx, :);
+            validS = ~isnan(pRowS);
+            pValidS = pRowS(validS);
+            if numel(pValidS) < 1
+                continue;
+            end
+            if haveRowWeights
+                wValidS = W(sIdx, validS);
+            elseif ~isempty(W)
+                wValidS = W_broadcast(validS);
+            else
+                wValidS = [];
+            end
+            spectralEntropy(pValidS(:), wValidS(:), sigma, nvPairs{:});
+            warmupDone = true;
+            break;
+        end
+
+        if warmupDone
+            tCalStart = tic;
+            nValidCal = 0;
+            for s = 1:numel(sampleIdx)
+                sIdx = sampleIdx(s);
+                pRowS = P(sIdx, :);
+                validS = ~isnan(pRowS);
+                pValidS = pRowS(validS);
+                if numel(pValidS) < 1
+                    continue;
+                end
+                if haveRowWeights
+                    wValidS = W(sIdx, validS);
+                elseif ~isempty(W)
+                    wValidS = W_broadcast(validS);
+                else
+                    wValidS = [];
+                end
+                spectralEntropy(pValidS(:), wValidS(:), sigma, nvPairs{:});
+                nValidCal = nValidCal + 1;
+            end
+            if nValidCal > 0
+                tCalTotal = toc(tCalStart);
+                tPerRow   = tCalTotal / nValidCal;
+                estTotal  = tCalTotal + tPerRow * nRows;
+                printBatchedEstimate('spectralEntropy', nRows, estTotal);
+            end
+        end
+    end
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if numel(pK) < 1
+            H(k) = NaN;
+            continue;
+        end
+        H(k) = spectralEntropy(pK(:), wK(:), sigma, nvPairs{:});
+    end
+end
+
+
+function nvPairs = localPackSpectralEntropyNV(nvArgs)
+    nvPairs = {};
+    fns = fieldnames(nvArgs);
+    for i = 1:numel(fns)
+        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+    end
 end

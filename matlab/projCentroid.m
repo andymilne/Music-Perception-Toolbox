@@ -68,6 +68,24 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma)
 %       & Psychophysics, 85, 2673-2699.
 %
 %   See also meanOffset, edges, dftCircular, balanceCircular.
+%
+%   Batched (v2.1+):
+%   [yCell, centMagCell, centPhaseCell] = projCentroid(P, W, period,
+%   x, sigma) with P an nRows-by-K matrix returns 1-by-nRows cell
+%   arrays of per-row results. NaN-padded rows are accepted; rows
+%   with no valid pitches give empty cell entries. Per-row dedup
+%   over permutation + period symmetries (not transposition).
+
+% --- Batched dispatch (v2.1+) ---
+% If p is a 2-D matrix with both dimensions > 1, treat rows as
+% multisets and return cell arrays of per-row results.
+if size(p, 1) > 1 && size(p, 2) > 1
+    if nargin < 4, x = []; end
+    if nargin < 5, sigma = []; end
+    if nargin < 2, w = []; end
+    [y, centMag, centPhase] = localBatchedProjCentroid(p, w, period, x, sigma);
+    return;
+end
 
 % === Input validation ===
 
@@ -105,4 +123,88 @@ y = centMag * cos(centPhaseRad - queryAngles);
 
 centPhase = centPhaseRad * period / (2 * pi);
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [yCell, centMagCell, centPhaseCell] = ...
+    localBatchedProjCentroid(P, W, period, x, sigma)
+%LOCALBATCHEDPROJCENTROID Per-row projected centroid from a 2-D matrix.
+
+    nRows = size(P, 1);
+    yCell         = cell(1, nRows);
+    centMagCell   = cell(1, nRows);
+    centPhaseCell = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('projCentroid:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if isempty(pK)
+            yCell{k} = [];
+            centMagCell{k} = [];
+            centPhaseCell{k} = [];
+            continue;
+        end
+
+        if isempty(wK)
+            wKcol = ones(numel(pK), 1);
+        else
+            wKcol = wK(:);
+        end
+        pMod = mod(pK(:), period);
+        [pSorted, sortIdx] = sort(pMod);
+        wSorted = wKcol(sortIdx);
+        keyStr = sprintf('%.12g,', pSorted, wSorted);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            yCell{k}         = stored{1};
+            centMagCell{k}   = stored{2};
+            centPhaseCell{k} = stored{3};
+            continue;
+        end
+
+        % Forward to scalar path with appropriate optional args.
+        if isempty(sigma)
+            if isempty(x)
+                [yk, cmk, cpk] = projCentroid(pK(:), wKcol, period);
+            else
+                [yk, cmk, cpk] = projCentroid(pK(:), wKcol, period, x);
+            end
+        else
+            if isempty(x)
+                [yk, cmk, cpk] = projCentroid(pK(:), wKcol, period, [], sigma);
+            else
+                [yk, cmk, cpk] = projCentroid(pK(:), wKcol, period, x, sigma);
+            end
+        end
+        yCell{k}         = yk;
+        centMagCell{k}   = cmk;
+        centPhaseCell{k} = cpk;
+        cache(keyStr) = {yk, cmk, cpk};
+    end
 end

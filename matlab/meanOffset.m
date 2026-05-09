@@ -40,17 +40,31 @@ function h = meanOffset(p, w, period, x)
 %   the query points specified in the vector x (in the same units as p
 %   and period) instead of at integer positions 0:period-1.
 %
+%   Batched (v2.1+):
+%   hCell = meanOffset(P, W, period) with P an nRows-by-K matrix
+%   returns a 1-by-nRows cell array of per-row results. NaN-padded
+%   rows are accepted (NaN entries dropped per row); rows with no
+%   valid pitches give empty cell entries. Per-row dedup over
+%   permutation + period symmetries: structurally-identical
+%   canonical inputs share one cached result. Transposition dedup
+%   is *not* applied — the mean-offset profile is transposition-
+%   equivariant rather than invariant, and post-transform via
+%   query-point shifting would not save work for user-supplied x.
+%
 %   Inputs:
-%     p      — Pitch or position values (vector of length K).
+%     p      — Pitch or position values (vector of length K, or
+%              nRows-by-K matrix in batched mode).
 %              Values are interpreted modulo 'period'.
-%     w      — Weights (vector of length K, or empty for all ones).
+%     w      — Weights (vector of length K, matrix the same size as p
+%              in batched mode, or empty for all ones).
 %     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the mean
-%              offset (vector). Default: 0:period-1.
+%              offset (vector, shared across all rows in batched
+%              mode). Default: 0:period-1.
 %
 %   Output:
-%     h      — Mean offset values (row vector, same length as x or
-%              as 0:period-1).
+%     h      — Mean offset values (row vector in scalar mode,
+%              1-by-nRows cell of row vectors in batched mode).
 %
 %   Examples:
 %     % Mean offset of a diatonic scale (12 chromatic positions)
@@ -90,6 +104,20 @@ function h = meanOffset(p, w, period, x)
 %       (Uses the term "mode height".)
 %
 %   See also projCentroid, edges, dftCircular.
+
+% --- Batched dispatch (v2.1+) ---
+% If p is a 2-D matrix with both dimensions > 1, treat rows as
+% multisets and return a cell of per-row results.
+if size(p, 1) > 1 && size(p, 2) > 1
+    if nargin < 4
+        x = [];
+    end
+    if nargin < 2
+        w = [];
+    end
+    h = localBatchedMeanOffset(p, w, period, x);
+    return;
+end
 
 % === Input validation ===
 
@@ -135,4 +163,73 @@ h = ((upward - downward) * w(:)) ./ period;
 
 h = h(:).';
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function hCell = localBatchedMeanOffset(P, W, period, x)
+%LOCALBATCHEDMEANOFFSET Per-row mean offset from a 2-D pitch matrix.
+%
+%   Returns 1-by-nRows cell. Per-row dedup over permutation + period
+%   symmetries via a sorted-modular canonical key.
+
+    nRows = size(P, 1);
+    hCell = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('meanOffset:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if isempty(pK)
+            hCell{k} = [];
+            continue;
+        end
+
+        % Canonical key: sort(mod(p, period)) plus matching weights.
+        if isempty(wK)
+            wKcol = ones(numel(pK), 1);
+        else
+            wKcol = wK(:);
+        end
+        pMod = mod(pK(:), period);
+        [pSorted, sortIdx] = sort(pMod);
+        wSorted = wKcol(sortIdx);
+        keyStr = sprintf('%.12g,', pSorted, wSorted);
+
+        if isKey(cache, keyStr)
+            hCell{k} = cache(keyStr);
+            continue;
+        end
+
+        if isempty(x)
+            hk = meanOffset(pK(:).', wKcol(:).', period);
+        else
+            hk = meanOffset(pK(:).', wKcol(:).', period, x);
+        end
+        hCell{k} = hk;
+        cache(keyStr) = hk;
+    end
 end

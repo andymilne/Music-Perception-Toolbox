@@ -6,6 +6,7 @@ import warnings
 
 import numpy as np
 
+from ._utils import maybe_print_batched_estimate
 from .spectra import add_spectra
 from .tensor import (
     ExpTensDensity,
@@ -40,6 +41,7 @@ def entropy_exp_tens(
     x_min=float("nan"),
     x_max=float("nan"),
     grid_limit: int = _DEFAULT_GRID_LIMIT,
+    verbose: bool = True,
 ):
     """Shannon entropy of an expectation tensor density.
 
@@ -208,6 +210,7 @@ def entropy_exp_tens(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            verbose=verbose,
         )
     raise TypeError(
         f"First argument has unsupported shape {p_arr.shape}; "
@@ -302,6 +305,7 @@ def _entropy_exp_tens_raw_sa_batch(
     P, W, sigma, r, is_rel, is_per, period,
     *, spectrum, precision, dedup,
     normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
+    verbose=True,
 ):
     """Raw SA batched entropy dispatch.
 
@@ -309,6 +313,7 @@ def _entropy_exp_tens_raw_sa_batch(
     keys); each unique density's entropy is computed once. Returns
     ``(M,)`` with ``np.nan`` for invalid rows (K < r).
     """
+    import time
     from .tensor import _chord_canonical_key
 
     P = np.asarray(P, dtype=np.float64)
@@ -324,6 +329,62 @@ def _entropy_exp_tens_raw_sa_batch(
         P = np.round(P, precision)
         if use_w:
             W = np.round(W, precision)
+
+    # Up-front time estimate (printed once for the whole batch).
+    # Empirical calibration with warm-up; see
+    # _template_harmonicity_batched for rationale.
+    if verbose and M > 1:
+        n_cal = min(10, M)
+        sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
+
+        def _run_one(s_idx):
+            p_row_s = P[s_idx]
+            mask_s = ~np.isnan(p_row_s)
+            p_valid_s = p_row_s[mask_s]
+            if len(p_valid_s) < r:
+                return False
+            w_valid_s = W[s_idx, mask_s] if use_w else None
+            if spectrum is not None:
+                p_aug, w_aug = add_spectra(
+                    p_valid_s,
+                    np.ones_like(p_valid_s) if w_valid_s is None else w_valid_s,
+                    *spectrum,
+                )
+            else:
+                p_aug = p_valid_s
+                w_aug = w_valid_s
+            T = build_exp_tens(
+                p_aug, w_aug, sigma, r, is_rel, is_per, period, verbose=False,
+            )
+            _entropy_exp_tens_scalar(
+                T, normalize=normalize, base=base,
+                n_points_per_dim=n_points_per_dim,
+                x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            )
+            return True
+
+        # Warm-up
+        warmup_done = False
+        for s_idx in sample_idx:
+            if _run_one(s_idx):
+                warmup_done = True
+                break
+
+        if warmup_done:
+            t_cal_start = time.perf_counter()
+            n_valid_cal = 0
+            for s_idx in sample_idx:
+                if _run_one(s_idx):
+                    n_valid_cal += 1
+            if n_valid_cal > 0:
+                t_cal_total = time.perf_counter() - t_cal_start
+                t_per_row = t_cal_total / n_valid_cal
+                est_total = t_cal_total + t_per_row * M
+                maybe_print_batched_estimate(
+
+                    "entropy_exp_tens", M, est_total,
+
+                )
 
     out = np.full(M, np.nan)
 
@@ -594,7 +655,7 @@ def _broadcast_bounds(v, G, name):
 
 
 def n_tuple_entropy(
-    p: np.ndarray,
+    p,
     period: float,
     n: int = 1,
     *,
@@ -603,8 +664,18 @@ def n_tuple_entropy(
     normalize: bool = True,
     base: float = 2.0,
     n_points_per_dim: int | None = None,
-) -> tuple[float, np.ndarray]:
+):
     """Entropy of n-tuples of consecutive step sizes.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(H, tuples)``.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns
+      ``(H_array, tuples_list)`` where ``H_array`` is length-``M``
+      and ``tuples_list`` is a length-``M`` list of per-row tuple
+      matrices. Per-row dedup over permutation + period symmetries
+      (not transposition — would require per-row tuple post-transform
+      that loses input fidelity).
 
     Convenience wrapper around the bind-and-compute pipeline of
     :func:`bind_events`, :func:`build_exp_tens`, and
@@ -708,7 +779,16 @@ def n_tuple_entropy(
             f"(got {sigma_space!r})."
         )
 
-    p = np.asarray(p, dtype=np.float64).ravel()
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _n_tuple_entropy_batched(
+            p_arr, period, n,
+            sigma=sigma, sigma_space=sigma_space,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+        )
+
+    p = p_arr.ravel()
     period = float(period)
     n = int(n)
     sigma = float(sigma)
@@ -807,3 +887,46 @@ def n_tuple_entropy(
     )
 
     return H, tuples_out
+
+
+def _n_tuple_entropy_batched(
+    P, period, n,
+    *,
+    sigma, sigma_space, normalize, base, n_points_per_dim,
+):
+    """Batched dispatch for ``n_tuple_entropy``.
+
+    Returns ``(H_array, tuples_list)``. NaN-padded rows are dropped
+    per row; rows with no valid pitches give NaN in ``H_array`` and
+    an empty array in ``tuples_list``. Per-row dedup via sorted-
+    modular canonical key.
+    """
+    M, K = P.shape
+    H_out = np.full(M, np.nan)
+    tuples_list: list = [np.array([]) for _ in range(M)]
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        p_canon = np.sort(np.mod(p_valid, float(period)))
+        key = tuple(np.round(p_canon, 12).tolist())
+
+        if key in cache:
+            H_out[i], tuples_list[i] = cache[key]
+            continue
+
+        H_i, t_i = n_tuple_entropy(
+            p_valid, period, n,
+            sigma=sigma, sigma_space=sigma_space,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+        )
+        H_out[i] = H_i
+        tuples_list[i] = t_i
+        cache[key] = (H_i, t_i)
+
+    return H_out, tuples_list

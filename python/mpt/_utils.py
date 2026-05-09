@@ -57,6 +57,7 @@ def estimate_comp_time(
     dim: int,
     label: str = "",
     verbose: bool = True,
+    min_print_sec: float = 10.0,
 ) -> float:
     """Estimate computation time for kernel evaluation.
 
@@ -70,6 +71,16 @@ def estimate_comp_time(
         Description for console output. Empty string suppresses output.
     verbose : bool
         If False, suppresses all console output.
+    min_print_sec : float
+        Minimum estimated time in seconds below which printing is
+        suppressed even when ``verbose`` is True. Default 10 — below
+        this threshold the wait is short enough to be its own
+        diagnostic; above it the estimate is informative enough to
+        justify the screen real estate. The print includes a
+        ``Ctrl+C to cancel`` reminder, since every printed estimate
+        by definition takes long enough to be worth offering
+        cancellation. Pass ``0`` to print every estimate regardless
+        of size.
 
     Returns
     -------
@@ -101,7 +112,7 @@ def estimate_comp_time(
 
     est_sec = float(n_pairs) / _rate_cache[dim]
 
-    if verbose and label:
+    if verbose and label and est_sec >= min_print_sec:
         if est_sec < 1:
             ts = f"{est_sec * 1000:.0f} ms"
         elif est_sec < 60:
@@ -110,10 +121,66 @@ def estimate_comp_time(
             ts = f"{est_sec / 60:.1f} min"
         else:
             ts = f"{est_sec / 3600:.1f} hr"
-        cancel = " (Ctrl+C to cancel)" if est_sec > 2 else ""
-        print(f"{label}: estimated time ~{ts}{cancel}.")
+        # Print and cancellation thresholds are by construction the same;
+        # any printed estimate carries the cancellation reminder.
+        print(f"{label}: estimated time ~{ts} (Ctrl+C to cancel).")
 
     return est_sec
+
+
+# ---------------------------------------------------------------------------
+#  Batched-mode empirical-calibration print helper
+# ---------------------------------------------------------------------------
+
+
+def maybe_print_batched_estimate(
+    label: str,
+    n_rows: int,
+    est_total: float,
+    *,
+    verbose: bool = True,
+    min_print_sec: float = 10.0,
+) -> None:
+    """Print a batched-mode upfront time estimate, gated on threshold.
+
+    Used by the batched dispatch helpers in ``template_harmonicity``,
+    ``virtual_pitches``, ``spectral_entropy``, ``entropy_exp_tens``,
+    ``tensor_harmonicity``, and similar functions, which compute their
+    estimates empirically (warm-up plus a sample of K rows) rather than
+    via :func:`estimate_comp_time`. The threshold and formatting match
+    the scalar-mode print path so behaviour is consistent across
+    dispatch modes.
+
+    Parameters
+    ----------
+    label : str
+        Function name tag used in the printed line, e.g.
+        ``"spectral_entropy"``.
+    n_rows : int
+        Total number of rows in the batched call (M).
+    est_total : float
+        Empirical estimate in seconds (calibration time plus
+        per-row time × M).
+    verbose : bool
+        If False, suppresses output.
+    min_print_sec : float
+        Minimum threshold; estimates below this are silent. Default
+        10, matching :func:`estimate_comp_time`.
+    """
+    if not verbose or est_total < min_print_sec:
+        return
+    if est_total < 1:
+        ts = f"{est_total * 1000:.0f} ms"
+    elif est_total < 60:
+        ts = f"{est_total:.1f} s"
+    elif est_total < 3600:
+        ts = f"{est_total / 60:.1f} min"
+    else:
+        ts = f"{est_total / 3600:.1f} hr"
+    print(
+        f"{label} (batched, {n_rows} rows): "
+        f"estimated time ~{ts} (Ctrl+C to cancel)."
+    )
 
 
 # ---------------------------------------------------------------------------

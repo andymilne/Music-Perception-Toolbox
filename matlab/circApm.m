@@ -90,12 +90,43 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
 %       409-464.
 %
 %   See also edges, markovS, meanOffset, projCentroid.
+%
+%   Batched (v2.1+):
+%   [Rcell, rPhaseCell, rLagCell] = circApm(P, W, period) with P an
+%   nRows-by-K matrix returns 1-by-nRows cell arrays of per-row
+%   results. NaN-padded rows are accepted; rows with no valid
+%   pitches give empty cell entries. Per-row dedup over permutation
+%   + period symmetries (not transposition).
+%
+%   Note: each R is a period-by-period dense matrix, so memory grows
+%   linearly with both nRows and period^2. For large batches consider
+%   processing rows in chunks rather than all at once.
 
     arguments
-        p (:,1) {mustBeNonnegative, mustBeInteger}
-        w (:,1) {mustBeNumeric}
+        p {mustBeNumeric}
+        w {mustBeNumeric}
         period (1,1) {mustBePositive, mustBeInteger}
         nvArgs.decay (1,1) {mustBeNonnegative} = 0
+    end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % multisets and return cell arrays of per-row results.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [R, rPhase, rLag] = localBatchedCircApm(p, w, period, nvArgs.decay);
+        return;
+    end
+
+    % Scalar path: force column vectors and integer constraint.
+    p = p(:);
+    w = w(:);
+    if any(p < 0)
+        error('circApm:negativePitch', ...
+            'p must contain only nonnegative values.');
+    end
+    if any(p ~= round(p))
+        error('circApm:nonIntegerPitch', ...
+            'p must contain integer values in scalar mode.');
     end
 
     % === Build weighted indicator vector ===
@@ -164,4 +195,88 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
         rLag = sum(R, 2);     % row sum: autocorrelation
     end
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [Rcell, rPhaseCell, rLagCell] = localBatchedCircApm(P, W, period, decay)
+%LOCALBATCHEDCIRCAPM Per-row APM from a 2-D pitch matrix.
+%
+%   Returns three 1-by-nRows cells. Per-row dedup over permutation +
+%   period symmetries via a sorted-modular canonical key.
+
+    nRows = size(P, 1);
+    Rcell      = cell(1, nRows);
+    rPhaseCell = cell(1, nRows);
+    rLagCell   = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('circApm:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if isempty(pK)
+            Rcell{k} = [];
+            rPhaseCell{k} = [];
+            rLagCell{k} = [];
+            continue;
+        end
+        if any(pK < 0)
+            error('circApm:negativePitch', ...
+                'Row %d contains negative pitches; all valid (non-NaN) entries must be nonnegative.', k);
+        end
+        if any(pK ~= round(pK))
+            error('circApm:nonIntegerPitch', ...
+                'circApm requires integer pitches; row %d violates this.', k);
+        end
+
+        if isempty(wK)
+            wKcol = ones(numel(pK), 1);
+        else
+            wKcol = wK(:);
+        end
+        % Reduce mod period for canonical key (and for the call itself,
+        % since circApm requires p < period).
+        pMod = mod(pK(:), period);
+        [pSorted, sortIdx] = sort(pMod);
+        wSorted = wKcol(sortIdx);
+        keyStr = sprintf('%d,', pSorted);
+        keyStr = [keyStr, sprintf('%.12g,', wSorted)];
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            Rcell{k}      = stored{1};
+            rPhaseCell{k} = stored{2};
+            rLagCell{k}   = stored{3};
+            continue;
+        end
+
+        [Rk, rPk, rLk] = circApm(pSorted, wSorted, period, 'decay', decay);
+        Rcell{k}      = Rk;
+        rPhaseCell{k} = rPk;
+        rLagCell{k}   = rLk;
+        cache(keyStr) = {Rk, rPk, rLk};
+    end
 end

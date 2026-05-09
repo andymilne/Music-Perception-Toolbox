@@ -11,7 +11,7 @@ import warnings
 
 import numpy as np
 
-from ._utils import estimate_comp_time, validate_weights
+from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
 from .spectra import add_spectra
 from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
 
@@ -22,15 +22,16 @@ from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
 
 
 def spectral_entropy(
-    p: np.ndarray,
-    w: np.ndarray | None = None,
+    p,
+    w=None,
     sigma: float = 12.0,
     *,
     spectrum: list | None = None,
     normalize: bool = True,
     base: float = 2.0,
     resolution: float = 1.0,
-) -> float:
+    verbose: bool = True,
+):
     """Spectral entropy of a weighted pitch multiset.
 
     Computes the Shannon entropy of the smoothed composite spectrum
@@ -45,27 +46,44 @@ def spectral_entropy(
     of partials (after Gaussian smoothing), the lower the entropy.
     Lower entropy therefore indicates greater consonance.
 
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single chord, returns a Python float (the v2.0 case).
+    - 2-D ``P`` (shape ``(M, K)``): batched chords, returns ``(M,)``
+      ndarray. NaN-padded rows are accepted; rows with no valid
+      pitches return ``np.nan``. Per-row dedup via canonical-form
+      chord identity (transposition + permutation symmetry).
+
     Parameters
     ----------
     p : array-like
-        Pitch values in cents (absolute, not pitch classes).
+        Pitch values in cents (1-D for a single chord; 2-D for a batch,
+        rows are chords).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones). If ``p`` is 2-D, ``w`` may be
+        ``None``, the same shape as ``P``, or a length-``K`` vector
+        broadcast across rows.
     sigma : float
         Gaussian smoothing width in cents (typical: 6–15).
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`.
     normalize : bool
-        If True (default), divide by log₂(N) to give [0, 1].
+        If True (default), divide by log_base(N) to give [0, 1].
     base : float
         Logarithm base (default 2 = bits).
     resolution : float
         Grid spacing in cents (default 1).
+    verbose : bool
+        If True (default), print an upfront time estimate. Scalar mode
+        prints a kernel-only ``estimate_comp_time`` estimate; batched
+        mode prints an empirical calibration (warm-up plus
+        ``min(10, M)`` sampled rows). Suppressed by ``verbose=False``.
 
     Returns
     -------
-    float
-        Spectral entropy (lower = more consonant).
+    float or np.ndarray
+        Spectral entropy (lower = more consonant). Scalar for 1-D
+        input, ``(M,)`` ndarray for 2-D input.
 
     References
     ----------
@@ -73,7 +91,24 @@ def spectral_entropy(
     space of perfectly balanced rhythms and scales. *Journal of
     Mathematics and Music*, 11(2–3), 101–133.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 1:
+        return _spectral_entropy_scalar(
+            p_arr, w, sigma, spectrum, normalize, base, resolution, verbose,
+        )
+    if p_arr.ndim == 2:
+        return _spectral_entropy_batched(
+            p_arr, w, sigma, spectrum, normalize, base, resolution, verbose,
+        )
+    raise ValueError(
+        f"p must be 1-D (single chord) or 2-D (batched, rows are "
+        f"chords); got shape {p_arr.shape}."
+    )
+
+
+def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution, verbose):
+    """Single-chord scalar dispatch (the v2.0 body)."""
+    p = p.ravel()
     w = validate_weights(w, len(p))
     p = p - np.min(p)
 
@@ -86,6 +121,12 @@ def spectral_entropy(
 
     margin = 4 * sigma
     x = np.arange(0, np.max(spec_p) + margin + resolution, resolution)
+
+    # Time estimate (kernel cost only; eval_exp_tens kernel pair count
+    # is the dominant work for spectral entropy at typical scales).
+    n_pairs = int(len(spec_p)) * int(len(x))
+    estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
+
     t = eval_exp_tens(T, x, verbose=False)
 
     total = np.sum(t)
@@ -100,6 +141,132 @@ def spectral_entropy(
     if normalize:
         H /= np.log(N) / np.log(base)
     return H
+
+
+def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution, verbose):
+    """Batched dispatch over rows of a 2-D pitch matrix.
+
+    Returns ``(M,)``. Per-row chord-level dedup of the full
+    computation: rows with structurally-identical canonical chords
+    (transposition + permutation symmetry) share one cached entropy.
+    NaN-padded rows are accepted; rows with no valid pitches
+    contribute ``np.nan``.
+    """
+    M, K = P.shape
+
+    # Weight handling: None, full matrix, or row-broadcast vector.
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    out = np.full(M, np.nan)
+    result_cache: dict = {}
+
+    # Up-front time estimate (printed once for the whole batch).
+    # Empirical calibration with warm-up; see _template_harmonicity_batched
+    # for rationale.
+    if verbose and M > 1:
+        n_cal = min(10, M)
+        sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
+
+        warmup_done = False
+        for s_idx in sample_idx:
+            p_row_s = P[s_idx]
+            mask_s = ~np.isnan(p_row_s)
+            p_valid_s = p_row_s[mask_s]
+            if len(p_valid_s) < 1:
+                continue
+            if W_full is not None:
+                w_valid_s = W_full[s_idx, mask_s]
+            elif W_broadcast is not None:
+                w_valid_s = W_broadcast[mask_s]
+            else:
+                w_valid_s = None
+            _spectral_entropy_scalar(
+                p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
+                resolution, verbose=False,
+            )
+            warmup_done = True
+            break
+
+        if warmup_done:
+            t_cal_start = time.perf_counter()
+            n_valid_cal = 0
+            for s_idx in sample_idx:
+                p_row_s = P[s_idx]
+                mask_s = ~np.isnan(p_row_s)
+                p_valid_s = p_row_s[mask_s]
+                if len(p_valid_s) < 1:
+                    continue
+                if W_full is not None:
+                    w_valid_s = W_full[s_idx, mask_s]
+                elif W_broadcast is not None:
+                    w_valid_s = W_broadcast[mask_s]
+                else:
+                    w_valid_s = None
+                _spectral_entropy_scalar(
+                    p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
+                    resolution, verbose=False,
+                )
+                n_valid_cal += 1
+            if n_valid_cal > 0:
+                t_cal_total = time.perf_counter() - t_cal_start
+                t_per_row = t_cal_total / n_valid_cal
+                est_total = t_cal_total + t_per_row * M
+                maybe_print_batched_estimate(
+
+                    "spectral_entropy", M, est_total,
+
+                )
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) < 1:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = None
+
+        # Canonical key: spectral_entropy transposes internally
+        # (p -= min), so transposition is part of the symmetry. r=1,
+        # is_rel=True (transposition-invariant after the internal
+        # shift), is_per=False.
+        key, _, _ = _chord_canonical_key(
+            p_valid, w_valid,
+            sigma=sigma, r=1, is_rel=True, is_per=False, period=1200.0,
+        )
+
+        if key in result_cache:
+            out[i] = result_cache[key]
+            continue
+
+        h = _spectral_entropy_scalar(
+            p_valid, w_valid, sigma, spectrum, normalize, base, resolution,
+            verbose=False,
+        )
+        result_cache[key] = h
+        out[i] = h
+
+    return out
 
 
 # ===================================================================
@@ -343,18 +510,10 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                 # Total estimate covers the calibration we just did (which the
                 # caller is already paying for) plus the M-row main loop.
                 est_total = t_cal_total + t_per_row * M
-                if est_total >= 3600:
-                    est_str = f"{est_total / 3600:.1f} hr"
-                elif est_total >= 60:
-                    est_str = f"{est_total / 60:.1f} min"
-                elif est_total >= 1:
-                    est_str = f"{est_total:.1f} s"
-                else:
-                    est_str = f"{est_total * 1000:.0f} ms"
-                suffix = " (Ctrl+C to cancel)" if est_total > 2 else ""
-                print(
-                    f"template_harmonicity (batched, {M} rows): "
-                    f"estimated time ~{est_str}{suffix}."
+                maybe_print_batched_estimate(
+
+                    "template_harmonicity", M, est_total,
+
                 )
 
     result_cache: dict = {}
@@ -424,6 +583,7 @@ def tensor_harmonicity(
     spectrum: list | None = None,
     duplicate: int = 0,
     normalize: str = "none",
+    verbose: bool = True,
 ):
     """Harmonicity via expectation tensor lookup.
 
@@ -475,11 +635,11 @@ def tensor_harmonicity(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _tensor_harmonicity_scalar(
-            p_arr, w, sigma, spectrum, duplicate, normalize,
+            p_arr, w, sigma, spectrum, duplicate, normalize, verbose,
         )
     if p_arr.ndim == 2:
         return _tensor_harmonicity_batched(
-            p_arr, w, sigma, spectrum, duplicate, normalize,
+            p_arr, w, sigma, spectrum, duplicate, normalize, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -487,7 +647,7 @@ def tensor_harmonicity(
     )
 
 
-def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize):
+def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
     n_pitches = len(p)
     if n_pitches < 2:
@@ -505,7 +665,7 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize):
     )
 
     T = build_exp_tens(
-        tmpl_p, tmpl_w, sigma, n_pitches, True, False, 1200, verbose=False
+        tmpl_p, tmpl_w, sigma, n_pitches, True, False, 1200, verbose=verbose
     )
 
     p_sorted = np.sort(p)
@@ -515,7 +675,7 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize):
     return float(h[0])
 
 
-def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize):
+def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Per-row chord-level dedup of harmonicity computation: rows with
@@ -533,6 +693,56 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize):
     out = np.full(M, np.nan)
     template_cache: dict = {}
     result_cache: dict = {}
+
+    # Up-front time estimate (printed once for the whole batch). Empirical
+    # calibration via a uniformly-sampled subset of K rows, with one
+    # warm-up call to absorb first-call overhead. See
+    # _template_harmonicity_batched for rationale. The estimate is an
+    # upper bound when result_cache dedup collapses repeated canonical
+    # chords in the main loop (calibration runs scalar, no cache).
+    if verbose and M > 1:
+        n_cal = min(10, M)
+        sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
+
+        warmup_done = False
+        for s_idx in sample_idx:
+            p_row_s = P[s_idx]
+            mask_s = ~np.isnan(p_row_s)
+            p_valid_s = p_row_s[mask_s]
+            if len(p_valid_s) < 2:
+                continue
+            w_valid_s = W[s_idx, mask_s] if use_w else None
+            _tensor_harmonicity_scalar(
+                p_valid_s, w_valid_s, sigma, spectrum, duplicate, normalize,
+                verbose=False,
+            )
+            warmup_done = True
+            break
+
+        if warmup_done:
+            t_cal_start = time.perf_counter()
+            n_valid_cal = 0
+            for s_idx in sample_idx:
+                p_row_s = P[s_idx]
+                mask_s = ~np.isnan(p_row_s)
+                p_valid_s = p_row_s[mask_s]
+                if len(p_valid_s) < 2:
+                    continue
+                w_valid_s = W[s_idx, mask_s] if use_w else None
+                _tensor_harmonicity_scalar(
+                    p_valid_s, w_valid_s, sigma, spectrum, duplicate, normalize,
+                    verbose=False,
+                )
+                n_valid_cal += 1
+            if n_valid_cal > 0:
+                t_cal_total = time.perf_counter() - t_cal_start
+                t_per_row = t_cal_total / n_valid_cal
+                est_total = t_cal_total + t_per_row * M
+                maybe_print_batched_estimate(
+
+                    "tensor_harmonicity", M, est_total,
+
+                )
 
     for i in range(M):
         p_row = P[i]
@@ -600,6 +810,7 @@ def virtual_pitches(
     spectrum: list | None = None,
     chord_spectrum: list | None = None,
     resolution: float = 1.0,
+    verbose: bool = True,
 ):
     """Virtual pitch salience profile via template cross-correlation.
 
@@ -656,11 +867,11 @@ def virtual_pitches(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _virtual_pitches_scalar(
-            p_arr, w, sigma, spectrum, chord_spectrum, resolution,
+            p_arr, w, sigma, spectrum, chord_spectrum, resolution, verbose,
         )
     if p_arr.ndim == 2:
         return _virtual_pitches_batched(
-            p_arr, w, sigma, spectrum, chord_spectrum, resolution,
+            p_arr, w, sigma, spectrum, chord_spectrum, resolution, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -668,7 +879,7 @@ def virtual_pitches(
     )
 
 
-def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution):
+def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -691,6 +902,16 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution):
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
     x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
 
+    # Time estimate (kernel cost only; convolve and other overheads not
+    # included, so this is a lower bound). Pair count is the sum of the
+    # two eval_exp_tens workloads. dim = 1 since both densities use
+    # r = 1, is_rel = False.
+    n_pairs = (
+        int(len(chord_p)) * int(len(x_chord))
+        + int(len(tmpl_p)) * int(len(x_tmpl))
+    )
+    estimate_comp_time(n_pairs, 1, "virtual_pitches", verbose)
+
     tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
     chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
 
@@ -707,7 +928,7 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution):
     return vp_p, vp_w
 
 
-def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution):
+def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Returns ``(vp_p_list, vp_w_list)`` — length-``M`` lists of 1-D
@@ -743,6 +964,54 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution):
     tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
     n_tmpl = len(tmpl_vals)
     tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
+
+    # Up-front time estimate (printed once for the whole batch).
+    # Empirical calibration via a uniformly-sampled subset of K rows,
+    # with one warm-up call to absorb first-call overhead. See
+    # _template_harmonicity_batched for rationale.
+    if verbose and M > 1:
+        n_cal = min(10, M)
+        sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
+
+        warmup_done = False
+        for s_idx in sample_idx:
+            p_row_s = P[s_idx]
+            mask_s = ~np.isnan(p_row_s)
+            p_valid_s = p_row_s[mask_s]
+            if len(p_valid_s) < 1:
+                continue
+            w_valid_s = W[s_idx, mask_s] if use_w else None
+            _virtual_pitches_scalar(
+                p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
+                resolution, verbose=False,
+            )
+            warmup_done = True
+            break
+
+        if warmup_done:
+            t_cal_start = time.perf_counter()
+            n_valid_cal = 0
+            for s_idx in sample_idx:
+                p_row_s = P[s_idx]
+                mask_s = ~np.isnan(p_row_s)
+                p_valid_s = p_row_s[mask_s]
+                if len(p_valid_s) < 1:
+                    continue
+                w_valid_s = W[s_idx, mask_s] if use_w else None
+                _virtual_pitches_scalar(
+                    p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
+                    resolution, verbose=False,
+                )
+                n_valid_cal += 1
+            if n_valid_cal > 0:
+                t_cal_total = time.perf_counter() - t_cal_start
+                t_per_row = t_cal_total / n_valid_cal
+                est_total = t_cal_total + t_per_row * M
+                maybe_print_batched_estimate(
+
+                    "virtual_pitches", M, est_total,
+
+                )
 
     for i in range(M):
         p_row = P[i]

@@ -1,8 +1,9 @@
-function estSec = estimateCompTime(nPairs, dim, label, verbose)
+function estSec = estimateCompTime(nPairs, dim, label, verbose, minPrintSec)
 %ESTIMATECOMPTIME Estimate computation time for kernel evaluation.
 %
 %   estSec = estimateCompTime(nPairs, dim, label):
 %   estSec = estimateCompTime(nPairs, dim, label, verbose):
+%   estSec = estimateCompTime(nPairs, dim, label, verbose, minPrintSec):
 %   Estimates how long a kernel evaluation involving 'nPairs' total
 %   (tuple, query) pair evaluations will take, where each pair involves
 %   a 'dim'-dimensional difference vector, quadratic form, exp, and
@@ -14,16 +15,27 @@ function estSec = estimateCompTime(nPairs, dim, label, verbose)
 %   calibration result is cached across calls within a MATLAB session.
 %
 %   Inputs:
-%     nPairs  — Total number of (tuple, query) pair evaluations (scalar).
-%               For evalExpTens: nJ * nQ.
-%               For cosSimExpTens: sum of nJ*nK across the three inner
-%               products.
-%     dim     — Dimensionality of the difference vectors (positive integer)
-%     label   — Description string for the console message. If empty (''),
-%               the function runs silently (useful for accumulating
-%               estimates across multiple calls).
-%     verbose — Optional logical (default: true). If false, suppresses
-%               all console output regardless of label.
+%     nPairs       — Total number of (tuple, query) pair evaluations
+%                    (scalar). For evalExpTens: nJ * nQ. For
+%                    cosSimExpTens: sum of nJ*nK across the three inner
+%                    products.
+%     dim          — Dimensionality of the difference vectors (positive
+%                    integer)
+%     label        — Description string for the console message. If
+%                    empty (''), the function runs silently (useful for
+%                    accumulating estimates across multiple calls).
+%     verbose      — Optional logical (default: true). If false,
+%                    suppresses all console output regardless of label.
+%     minPrintSec  — Optional minimum estimated time in seconds below
+%                    which printing is suppressed even when verbose is
+%                    true (default: 10). Below this threshold the wait
+%                    is short enough to be its own diagnostic; above
+%                    it the estimate is informative enough to justify
+%                    the screen real estate. The print includes a
+%                    'Ctrl+C to cancel' reminder, since every printed
+%                    estimate by definition takes long enough to be
+%                    worth offering cancellation. Pass 0 to print
+%                    every estimate regardless of size.
 %
 %   Output:
 %     estSec  — Estimated time in seconds
@@ -33,6 +45,9 @@ function estSec = estimateCompTime(nPairs, dim, label, verbose)
 
 if nargin < 4
     verbose = true;
+end
+if nargin < 5
+    minPrintSec = 10;
 end
 
 persistent rateCache;  % containers.Map: dim -> pairsPerSec
@@ -82,8 +97,11 @@ end
 pairsPerSec = rateCache(dimKey);
 estSec = double(nPairs) / pairsPerSec;
 
-% Print estimate (skip if not verbose or if label is empty)
-if verbose && ~isempty(label)
+% Print estimate (skip if not verbose, label empty, or estimate
+% below minPrintSec). Every printed estimate carries the
+% 'Ctrl+C to cancel' suffix — the print and cancellation thresholds
+% are by construction the same value (minPrintSec).
+if verbose && ~isempty(label) && estSec >= minPrintSec
     if estSec < 1
         timeStr = sprintf('%.0f ms', estSec * 1000);
     elseif estSec < 60
@@ -94,11 +112,7 @@ if verbose && ~isempty(label)
         timeStr = sprintf('%.1f hr', estSec / 3600);
     end
 
-    if estSec > 2
-        fprintf('%s: estimated time ~%s (Ctrl+C to cancel).\n', label, timeStr);
-    else
-        fprintf('%s: estimated time ~%s.\n', label, timeStr);
-    end
+    fprintf('%s: estimated time ~%s (Ctrl+C to cancel).\n', label, timeStr);
 end
 
 end

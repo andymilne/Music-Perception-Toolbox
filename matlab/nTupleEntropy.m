@@ -107,9 +107,20 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %
 %   See also BINDEVENTS, BUILDEXPTENS, ENTROPYEXPTENS,
 %   DIFFERENCEEVENTS, SAMENESS, COHERENCE.
+%
+%   Batched (v2.1+):
+%   [HVec, tuplesCell] = nTupleEntropy(P, period, n) with P an
+%   nRows-by-K matrix returns an nRows-by-1 vector of entropies and
+%   a 1-by-nRows cell of per-row tuple matrices. NaN-padded rows
+%   are accepted; rows with no valid pitches give NaN H and empty
+%   cell entries. Per-row dedup is over **permutation and period**
+%   symmetries (sorted-modular canonical key), but **not
+%   transposition** — the H value alone is transposition-invariant,
+%   but the per-row tuples output reflects the input's cyclic order
+%   from sort-min and so differs across transposed inputs.
 
     arguments
-        p (:,1) {mustBeNumeric, mustBeNonnegative}
+        p {mustBeNumeric}
         period (1,1) {mustBePositive}
         n (1,1) {mustBePositive, mustBeInteger} = 1
         nvArgs.sigma (1,1) {mustBeNumeric, mustBeNonnegative} = 0
@@ -121,8 +132,19 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         nvArgs.nPointsPerDim (1,1) {mustBeNonnegative, mustBeInteger} = 0
     end
 
+    % --- Batched dispatch (v2.1+) ---
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [H, tuples] = localBatchedNTupleEntropy(p, period, n, nvArgs);
+        return;
+    end
+
     % --- Input validation ---
 
+    p = p(:);
+    if any(p < 0)
+        error('nTupleEntropy:negativePitch', ...
+            'p must contain only nonnegative values.');
+    end
     p = sort(mod(p, period));
     K = numel(p);
 
@@ -223,5 +245,51 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         for j = 1:n
             tuples(:, j) = pBound{j}(:);
         end
+    end
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [HVec, tuplesCell] = localBatchedNTupleEntropy(P, period, n, nvArgs)
+%LOCALBATCHEDNTUPLEENTROPY Per-row n-tuple entropy from a 2-D matrix.
+
+    nRows = size(P, 1);
+    HVec = nan(nRows, 1);
+    tuplesCell = cell(1, nRows);
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if isempty(pK)
+            continue;
+        end
+        if any(pK < 0)
+            error('nTupleEntropy:negativePitch', ...
+                'Row %d contains negative pitches; all valid (non-NaN) entries must be nonnegative.', k);
+        end
+
+        pCanon = sort(mod(pK(:), period));
+        keyStr = sprintf('%.12g,', pCanon);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            HVec(k)       = stored{1};
+            tuplesCell{k} = stored{2};
+            continue;
+        end
+
+        [Hk, tk] = nTupleEntropy(pK(:), period, n, ...
+            'sigma', nvArgs.sigma, 'sigmaSpace', nvArgs.sigmaSpace, ...
+            'normalize', nvArgs.normalize, 'base', nvArgs.base, ...
+            'nPointsPerDim', nvArgs.nPointsPerDim);
+        HVec(k)       = Hk;
+        tuplesCell{k} = tk;
+        cache(keyStr) = {Hk, tk};
     end
 end

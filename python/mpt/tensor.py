@@ -2685,26 +2685,39 @@ def _cyclic_canonical(
     the shift that produced it. This captures all
     transposition-modulo-period equivalences.
 
+    Pitch values are rounded to 9 decimal places before lex
+    comparison and in the returned tuple, to absorb floating-point
+    noise from mod-reduction. 9 decimals is below any musically-
+    meaningful precision (1 attocent / 1 nanosecond) but well above
+    typical FP roundoff. Without this rounding, two
+    transposition-equivalent multisets with different FP error
+    patterns can produce different canonical forms — a real bug
+    that breaks consumer-level dedup for non-integer pitch data.
+
     Returns
     -------
     best_p : tuple
-        Canonical pitch tuple.
+        Canonical pitch tuple (rounded to 9 decimals).
     best_w : tuple or None
         Canonical weight tuple (if weights provided).
     best_shift : float
-        The pitch value subtracted to produce the canonical form.
+        The pitch value subtracted to produce the canonical form
+        (returned at full precision; only the canonical *form* is
+        rounded, not the shift itself, so callers using the shift
+        to apply to a paired set get exact arithmetic).
     """
     n = len(p_sorted)
     has_w = w_sorted is not None
+    ROUND_DIGITS = 9
 
-    best_p = tuple(p_sorted - p_sorted[0])
+    best_p = tuple(np.round(p_sorted - p_sorted[0], ROUND_DIGITS))
     best_w = tuple(w_sorted) if has_w else None
     best_shift = p_sorted[0]
 
     for rot in range(1, n):
         shifted = np.mod(p_sorted - p_sorted[rot], period)
         si = np.argsort(shifted)
-        shifted = shifted[si]
+        shifted = np.round(shifted[si], ROUND_DIGITS)
         t_p = tuple(shifted)
 
         cmp = _lex_compare(t_p, best_p)

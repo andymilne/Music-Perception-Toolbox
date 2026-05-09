@@ -374,22 +374,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
                 % the caller is already paying for) plus the nRows-row
                 % main loop.
                 estTotal  = tCalTotal + tPerRow * nRows;
-                if estTotal >= 3600
-                    estStr = sprintf('%.1f hr', estTotal / 3600);
-                elseif estTotal >= 60
-                    estStr = sprintf('%.1f min', estTotal / 60);
-                elseif estTotal >= 1
-                    estStr = sprintf('%.1f s', estTotal);
-                else
-                    estStr = sprintf('%.0f ms', estTotal * 1000);
-                end
-                if estTotal > 2
-                    suffix = ' (Ctrl+C to cancel)';
-                else
-                    suffix = '';
-                end
-                fprintf('templateHarmonicity (batched, %d rows): estimated time ~%s%s.\n', ...
-                    nRows, estStr, suffix);
+                printBatchedEstimate('templateHarmonicity', nRows, estTotal);
             end
         end
     end

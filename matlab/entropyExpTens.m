@@ -121,7 +121,8 @@ nvDefaults = struct( ...
     'nPointsPerDim', 1200, ...
     'xMin',          NaN, ...
     'xMax',          NaN, ...
-    'gridLimit',     1e8);
+    'gridLimit',     1e8, ...
+    'verbose',       true);
 
 [posArgs, nvArgs] = localParseNVPairs(varargin, nvDefaults);
 nPos = numel(posArgs);
@@ -527,7 +528,69 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
         end
     end
 
-    nvPairs = localPackNVPairs(nvArgs);
+    % Force inner scalar calls silent; one batched estimate at top.
+    nvArgsInner = nvArgs;
+    nvArgsInner.verbose = false;
+    nvPairs = localPackNVPairs(nvArgsInner);
+
+    % Up-front time estimate (printed once). Empirical calibration via
+    % a uniformly-sampled subset of K rows, with one warm-up call to
+    % absorb first-call overhead.
+    if isfield(nvArgs, 'verbose') && nvArgs.verbose && nRows > 1
+        nCal = min(10, nRows);
+        sampleIdx = unique(round(linspace(1, nRows, nCal)));
+
+        % Warm-up
+        warmupDone = false;
+        for s = 1:numel(sampleIdx)
+            sIdx = sampleIdx(s);
+            pRowS = P(sIdx, :);
+            validS = ~isnan(pRowS);
+            pValidS = pRowS(validS);
+            if numel(pValidS) < r
+                continue;
+            end
+            if haveRowWeights
+                wValidS = W(sIdx, validS);
+            elseif ~isempty(W)
+                wValidS = W_broadcast(validS);
+            else
+                wValidS = [];
+            end
+            entropyExpTens(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
+            warmupDone = true;
+            break;
+        end
+
+        if warmupDone
+            tCalStart = tic;
+            nValidCal = 0;
+            for s = 1:numel(sampleIdx)
+                sIdx = sampleIdx(s);
+                pRowS = P(sIdx, :);
+                validS = ~isnan(pRowS);
+                pValidS = pRowS(validS);
+                if numel(pValidS) < r
+                    continue;
+                end
+                if haveRowWeights
+                    wValidS = W(sIdx, validS);
+                elseif ~isempty(W)
+                    wValidS = W_broadcast(validS);
+                else
+                    wValidS = [];
+                end
+                entropyExpTens(pValidS, wValidS, sigma, r, isRel, isPer, period, nvPairs{:});
+                nValidCal = nValidCal + 1;
+            end
+            if nValidCal > 0
+                tCalTotal = toc(tCalStart);
+                tPerRow   = tCalTotal / nValidCal;
+                estTotal  = tCalTotal + tPerRow * nRows;
+                printBatchedEstimate('entropyExpTens', nRows, estTotal);
+            end
+        end
+    end
 
     for k = 1:nRows
         pRow = P(k, :);

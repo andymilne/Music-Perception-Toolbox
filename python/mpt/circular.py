@@ -20,41 +20,127 @@ from ._utils import validate_weights
 
 
 def dft_circular(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: float,
-) -> tuple[np.ndarray, np.ndarray]:
+    p,
+    w=None,
+    period: float = 1200.0,
+):
     """DFT of a set of points on a circle.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(F, mag)`` (length-K
+      arrays each). The v2.0 case.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns
+      ``(F_list, mag_list)`` — length-``M`` lists of 1-D arrays
+      (lengths can differ across rows after NaN-padded entries are
+      dropped). Per-row canonical-form dedup over permutation + period
+      symmetries: structurally-identical canonical inputs share one
+      cached pair. Transposition dedup is **not** applied — the DFT
+      is transposition-equivariant rather than invariant, so
+      transposed inputs would need a phase post-transform.
 
     Parameters
     ----------
     p : array-like
-        Pitch-class (or time-class) values (length *K*).
+        Pitch-class (or time-class) values (length *K* for 1-D input;
+        ``(M, K)`` for batched).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or a
+        length-``K`` vector broadcast across rows in batched mode).
     period : float
         Period of the circular domain.
 
     Returns
     -------
-    F : np.ndarray
-        Complex Fourier coefficients (length *K*). ``F[0]`` is *k* = 0.
-    mag : np.ndarray
-        Magnitudes |F[k]|.
+    F, mag
+        Complex Fourier coefficients and magnitudes. Single arrays in
+        scalar mode; lists of arrays in batched mode.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
-    K = len(p)
-    w = validate_weights(w, K)
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _dft_circular_batched(p_arr, w, period)
+
+    p_arr = p_arr.ravel()
+    K = len(p_arr)
+    w_arr = validate_weights(w, K)
 
     # Sort by pitch class
-    idx = np.argsort(p)
-    p = p[idx]
-    w = w[idx]
+    idx = np.argsort(p_arr)
+    p_arr = p_arr[idx]
+    w_arr = w_arr[idx]
 
-    z = w * np.exp(2j * np.pi * p / period)
-    F = np.fft.fft(z) / np.sum(w)
+    z = w_arr * np.exp(2j * np.pi * p_arr / period)
+    F = np.fft.fft(z) / np.sum(w_arr)
     mag = np.abs(F)
     return F, mag
+
+
+def _dft_circular_batched(P, W, period):
+    """Batched dispatch for ``dft_circular``.
+
+    Returns ``(F_list, mag_list)`` — length-``M`` lists of 1-D arrays.
+    Per-row dedup uses sorted modular pitches + matching weights as
+    the canonical key (permutation + period symmetries; not
+    transposition).
+    """
+    M, K = P.shape
+
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    F_list: list = [np.array([], dtype=np.complex128) for _ in range(M)]
+    mag_list: list = [np.array([], dtype=np.float64) for _ in range(M)]
+
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid)
+
+        # Canonical key: sort(mod(p, period)) plus matching weights.
+        p_mod = np.mod(p_valid, period)
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(np.round(p_sorted, 12).tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if key in cache:
+            F_list[i], mag_list[i] = cache[key]
+            continue
+
+        F_i, mag_i = dft_circular(p_valid, w_valid, period)
+        F_list[i] = F_i
+        mag_list[i] = mag_i
+        cache[key] = (F_i, mag_i)
+
+    return F_list, mag_list
 
 
 # ===================================================================
@@ -180,16 +266,25 @@ def dft_circular_simulate(
 
 
 def balance(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: float,
+    p,
+    w=None,
+    period: float = 1200.0,
     sigma: float = 0.0,
     *,
     return_std: bool = False,
     n_draws: int = 10000,
     rng_seed: int | None = None,
-) -> float | tuple[float, float]:
+    rng_scope: str = "canonical",
+):
     """Balance of a weighted circular multiset.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns a scalar (or ``(b, b_std)``
+      when ``return_std=True``).
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns a length-``M``
+      array (or pair of arrays). Per-row dedup over permutation +
+      period symmetries via sorted-modular canonical key.
 
     Computes the balance of a weighted multiset of points on a circle
     (*p* represents pitches or positions), defined as ``1 - |F[0]|``
@@ -207,27 +302,38 @@ def balance(
     Parameters
     ----------
     p : array-like
-        Pitch or position values (length *K*).
+        Pitch or position values (length *K*; or ``(M, K)`` for batched).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or
+        length-``K`` broadcast in batched mode).
     period : float
         Period of the circular domain.
     sigma : float
         Positional jitter standard deviation (non-negative; default 0).
     return_std : bool
-        If True, also return the standard deviation of
-        ``1 - |F[0]|`` under jitter (0 when ``sigma == 0``). Default
-        False (scalar return for backward compatibility with v2.0).
+        If True, also return the standard deviation of ``1 - |F[0]|``
+        under jitter (0 when ``sigma == 0``). Default False.
     n_draws : int
         Number of Monte Carlo draws when ``sigma > 0``. Default 10000.
     rng_seed : int or None
-        RNG seed for reproducibility.
+        Base RNG seed for reproducibility. In batched mode this is
+        the *base* seed from which per-row seeds are derived (see
+        ``rng_scope``). If None, a session-random base is generated
+        once per batched call so within-call dedup remains
+        reproducible.
+    rng_scope : {'canonical', 'row'}
+        Batched-mode only; ignored in scalar mode. ``'canonical'``
+        (default): derive each row's seed from the canonical-form
+        key, so transposition-equivalent rows get the same seed and
+        the same Monte-Carlo realisation, enabling full dedup.
+        ``'row'``: derive each row's seed from the row index, giving
+        independent per-row realisations and disabling dedup.
 
     Returns
     -------
-    b : float
-        Balance (mean under jitter, in [0, 1]).
-    b_std : float
+    b : float or np.ndarray
+        Balance value(s) in [0, 1].
+    b_std : float or np.ndarray
         Standard deviation, returned only when ``return_std=True``.
 
     References
@@ -240,12 +346,20 @@ def balance(
     balance, evenness, and entropy in musical rhythms. *Cognition*,
     203, 104233.
     """
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _balance_batched(
+            p_arr, w, period, sigma,
+            return_std=return_std, n_draws=n_draws,
+            rng_seed=rng_seed, rng_scope=rng_scope,
+        )
+
     if sigma == 0:
-        _, mag = dft_circular(p, w, period)
+        _, mag = dft_circular(p_arr, w, period)
         b = float(1 - mag[0])
         return (b, 0.0) if return_std else b
     m, s = dft_circular_simulate(
-        p, w, period, sigma, n_draws=n_draws, rng_seed=rng_seed
+        p_arr, w, period, sigma, n_draws=n_draws, rng_seed=rng_seed
     )
     b, b_std = float(1 - m[0]), float(s[0])
     return (b, b_std) if return_std else b
@@ -257,15 +371,24 @@ def balance(
 
 
 def evenness(
-    p: np.ndarray,
-    period: float,
+    p,
+    period: float = 1200.0,
     sigma: float = 0.0,
     *,
     return_std: bool = False,
     n_draws: int = 10000,
     rng_seed: int | None = None,
-) -> float | tuple[float, float]:
+    rng_scope: str = "canonical",
+):
     """Evenness of a circular multiset.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns a scalar (or ``(e, e_std)``
+      when ``return_std=True``).
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns a length-``M``
+      array (or pair of arrays). Per-row dedup over permutation +
+      period symmetries.
 
     Computes the evenness of a multiset of *K* points on a circle
     (*p* represents pitches or positions), defined as ``|F[1]|``
@@ -286,25 +409,27 @@ def evenness(
     Parameters
     ----------
     p : array-like
-        Pitch or position values (length *K*).
+        Pitch or position values (length *K*; or ``(M, K)`` for batched).
     period : float
         Period of the circular domain.
     sigma : float
         Positional jitter standard deviation (non-negative; default 0).
     return_std : bool
         If True, also return the standard deviation of ``|F[1]|``
-        under jitter (0 when ``sigma == 0``). Default False (scalar
-        return for backward compatibility with v2.0).
+        under jitter (0 when ``sigma == 0``). Default False.
     n_draws : int
         Number of Monte Carlo draws when ``sigma > 0``. Default 10000.
     rng_seed : int or None
-        RNG seed for reproducibility.
+        Base RNG seed; in batched mode used as the base from which
+        per-row seeds are derived (see ``rng_scope``).
+    rng_scope : {'canonical', 'row'}
+        Batched-mode only. See :func:`balance` for details.
 
     Returns
     -------
-    e : float
-        Evenness (mean under jitter, in [0, 1]).
-    e_std : float
+    e : float or np.ndarray
+        Evenness value(s) in [0, 1].
+    e_std : float or np.ndarray
         Standard deviation, returned only when ``return_std=True``.
 
     References
@@ -317,15 +442,206 @@ def evenness(
     balance, evenness, and entropy in musical rhythms. *Cognition*,
     203, 104233.
     """
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _evenness_batched(
+            p_arr, period, sigma,
+            return_std=return_std, n_draws=n_draws,
+            rng_seed=rng_seed, rng_scope=rng_scope,
+        )
+
     if sigma == 0:
-        _, mag = dft_circular(p, None, period)
+        _, mag = dft_circular(p_arr, None, period)
         e = float(mag[1])
         return (e, 0.0) if return_std else e
     m, s = dft_circular_simulate(
-        p, None, period, sigma, n_draws=n_draws, rng_seed=rng_seed
+        p_arr, None, period, sigma, n_draws=n_draws, rng_seed=rng_seed
     )
     e, e_std = float(m[1]), float(s[1])
     return (e, e_std) if return_std else e
+
+
+# ===================================================================
+#  Monte-Carlo batched dispatch helpers (Tier 4)
+# ===================================================================
+
+
+def _fnv1a_32(data: bytes) -> int:
+    """FNV-1a 32-bit hash. Deterministic, no dependencies, identical
+    across MATLAB and Python so the same canonical-form key derives
+    the same per-row seed in either language."""
+    h = 0x811C9DC5  # 2166136261
+    for byte in data:
+        h ^= byte
+        h = (h * 0x01000193) & 0xFFFFFFFF  # 16777619
+    return h
+
+
+def _derive_canonical_seed(base_seed: int, key) -> int:
+    """Derive a 32-bit seed from a base seed and a canonical-form key."""
+    key_bytes = repr(key).encode("utf-8")
+    return (base_seed + _fnv1a_32(key_bytes)) & 0xFFFFFFFF
+
+
+def _resolve_base_seed(rng_seed):
+    """Materialise a base seed for batched MC.
+
+    If ``rng_seed`` is given, use it. Otherwise generate a one-shot
+    session-random base so that within-call dedup is reproducible
+    while across-call results differ.
+    """
+    if rng_seed is None:
+        return int(np.random.default_rng().integers(0, 2**32))
+    return int(rng_seed) & 0xFFFFFFFF
+
+
+def _balance_batched(
+    P, W, period, sigma,
+    *,
+    return_std, n_draws, rng_seed, rng_scope,
+):
+    """Batched dispatch for ``balance``.
+
+    Per-row dedup uses sorted-modular canonical key (permutation +
+    period). For ``sigma > 0``, dedup also requires the seed to be
+    deterministic per canonical key — that's the ``rng_scope='canonical'``
+    contract. ``rng_scope='row'`` derives per-row seeds from the row
+    index and skips caching entirely.
+    """
+    if rng_scope not in ("canonical", "row"):
+        raise ValueError(
+            f"rng_scope must be 'canonical' or 'row' (got {rng_scope!r})."
+        )
+
+    M, K = P.shape
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast, W_full = W_arr, None
+        elif W_arr.shape == P.shape:
+            W_broadcast, W_full = None, W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast, W_full = None, None
+
+    base_seed = _resolve_base_seed(rng_seed)
+    use_cache = (sigma == 0) or (rng_scope == "canonical")
+    cache: dict = {}
+
+    b_out = np.full(M, np.nan)
+    bstd_out = np.full(M, np.nan) if return_std else None
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid)
+
+        # Canonical key over sorted modular pitches + matching weights.
+        p_mod = np.mod(p_valid, float(period))
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(np.round(p_sorted, 12).tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if use_cache and key in cache:
+            cached_b, cached_std = cache[key]
+            b_out[i] = cached_b
+            if bstd_out is not None:
+                bstd_out[i] = cached_std
+            continue
+
+        # Determine the per-row seed.
+        if sigma == 0:
+            row_seed = None  # ignored on deterministic path
+        elif rng_scope == "canonical":
+            row_seed = _derive_canonical_seed(base_seed, key)
+        else:
+            row_seed = (base_seed + i) & 0xFFFFFFFF
+
+        b_i, bstd_i = balance(
+            p_valid, w_valid, period, sigma,
+            return_std=True, n_draws=n_draws, rng_seed=row_seed,
+        )
+        b_out[i] = b_i
+        if bstd_out is not None:
+            bstd_out[i] = bstd_i
+        if use_cache:
+            cache[key] = (b_i, bstd_i)
+
+    return (b_out, bstd_out) if return_std else b_out
+
+
+def _evenness_batched(
+    P, period, sigma,
+    *,
+    return_std, n_draws, rng_seed, rng_scope,
+):
+    """Batched dispatch for ``evenness`` (no weights)."""
+    if rng_scope not in ("canonical", "row"):
+        raise ValueError(
+            f"rng_scope must be 'canonical' or 'row' (got {rng_scope!r})."
+        )
+
+    M, K = P.shape
+    base_seed = _resolve_base_seed(rng_seed)
+    use_cache = (sigma == 0) or (rng_scope == "canonical")
+    cache: dict = {}
+
+    e_out = np.full(M, np.nan)
+    estd_out = np.full(M, np.nan) if return_std else None
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+
+        p_mod = np.mod(p_valid, float(period))
+        p_sorted = np.sort(p_mod)
+        key = tuple(np.round(p_sorted, 12).tolist())
+
+        if use_cache and key in cache:
+            cached_e, cached_std = cache[key]
+            e_out[i] = cached_e
+            if estd_out is not None:
+                estd_out[i] = cached_std
+            continue
+
+        if sigma == 0:
+            row_seed = None
+        elif rng_scope == "canonical":
+            row_seed = _derive_canonical_seed(base_seed, key)
+        else:
+            row_seed = (base_seed + i) & 0xFFFFFFFF
+
+        e_i, estd_i = evenness(
+            p_valid, period, sigma,
+            return_std=True, n_draws=n_draws, rng_seed=row_seed,
+        )
+        e_out[i] = e_i
+        if estd_out is not None:
+            estd_out[i] = estd_i
+        if use_cache:
+            cache[key] = (e_i, estd_i)
+
+    return (e_out, estd_out) if return_std else e_out
 
 
 # ===================================================================
@@ -334,14 +650,22 @@ def evenness(
 
 
 def coherence(
-    p: np.ndarray,
+    p,
     period: float,
     sigma: float = 0.0,
     *,
     strict: bool = True,
     sigma_space: str = "position",
-) -> tuple[float, float]:
+):
     """Coherence quotient of a circular set, optionally smoothed.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(c, nc)``.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns
+      ``(c_array, nc_array)`` of length ``M``. Per-row dedup is over
+      **permutation, period, and transposition** symmetries via the
+      necklace canonical form of the cyclic adjacent intervals.
 
     Returns the coherence quotient of the set of pitches or positions
     *p* within an equal division of size *period* (Carey, 2002). A
@@ -356,9 +680,10 @@ def coherence(
     Parameters
     ----------
     p : array-like
-        Pitch or position values. Non-negative; values less than
-        *period*. Must be integer when ``sigma == 0``; may be float
-        when ``sigma > 0``. Duplicates (modulo *period*) not allowed.
+        Pitch or position values (length *K*; or ``(M, K)`` for
+        batched). Non-negative; values less than *period*. Must be
+        integer when ``sigma == 0``; may be float when ``sigma > 0``.
+        Duplicates (modulo *period*) not allowed.
     period : float
         Size of the equal division. Must be integer when
         ``sigma == 0``.
@@ -413,7 +738,13 @@ def coherence(
             f"(got {sigma_space!r})."
         )
 
-    p = np.asarray(p, dtype=np.float64).ravel()
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _coherence_batched(
+            p_arr, period, sigma, strict=strict, sigma_space=sigma_space,
+        )
+
+    p = p_arr.ravel()
     period = float(period)
     sigma = float(sigma)
     p = np.sort(p % period)
@@ -487,19 +818,114 @@ def coherence(
     return c, nc
 
 
+def _necklace_canonical(p_sorted_mod, period):
+    """Necklace canonical form of cyclic adjacent intervals.
+
+    Returns the lexicographically smallest rotation of the cyclic
+    sequence of adjacent intervals around the circle. Two pitch
+    multisets that are transpositions of each other on the circle
+    have identical necklace forms; multisets with different cyclic
+    interval structure (including reflections that aren't also
+    rotations) have different forms.
+
+    Used by ``coherence`` and ``sameness`` batched dispatch as a
+    transposition-invariant cache key.
+
+    Parameters
+    ----------
+    p_sorted_mod : np.ndarray
+        Pitch values, already sorted and reduced modulo *period*.
+    period : float
+        Period of the circular domain.
+
+    Returns
+    -------
+    tuple of float
+        Canonical interval sequence (length len(p_sorted_mod) for K >= 1,
+        empty for K = 0).
+    """
+    K = len(p_sorted_mod)
+    if K == 0:
+        return ()
+    if K == 1:
+        return (float(period),)
+    period_f = float(period)
+    # Cast to plain floats for stable hashing across numpy dtypes.
+    intervals = [
+        float(p_sorted_mod[i + 1]) - float(p_sorted_mod[i])
+        for i in range(K - 1)
+    ]
+    intervals.append(period_f - float(p_sorted_mod[-1]) + float(p_sorted_mod[0]))
+    intervals = [round(v, 12) for v in intervals]
+    best = tuple(intervals)
+    for i in range(1, K):
+        rot = tuple(intervals[i:] + intervals[:i])
+        if rot < best:
+            best = rot
+    return best
+
+
+def _coherence_batched(P, period, sigma, *, strict, sigma_space):
+    """Batched dispatch for ``coherence``.
+
+    Returns ``(c_array, nc_array)`` of length ``M``. NaN-padded rows
+    are dropped per row; rows with no valid pitches give NaN entries.
+    Per-row dedup uses the necklace canonical form of the cyclic
+    adjacent intervals, which collapses **permutation, period, and
+    transposition** symmetries onto a single cached result. (The output
+    is fully transposition-invariant on the circle for both
+    ``sigma_space='position'`` and ``'interval'``.)
+    """
+    M, K = P.shape
+    c_out = np.full(M, np.nan)
+    nc_out = np.full(M, np.nan)
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        p_canon = np.sort(np.mod(p_valid, float(period)))
+        key = _necklace_canonical(p_canon, period)
+
+        if key in cache:
+            c_out[i], nc_out[i] = cache[key]
+            continue
+
+        c_i, nc_i = coherence(
+            p_valid, period, sigma, strict=strict, sigma_space=sigma_space,
+        )
+        c_out[i] = c_i
+        nc_out[i] = nc_i
+        cache[key] = (c_i, nc_i)
+
+    return c_out, nc_out
+
+
 # ===================================================================
 #  Sameness
 # ===================================================================
 
 
 def sameness(
-    p: np.ndarray,
+    p,
     period: float,
     sigma: float = 0.0,
     *,
     sigma_space: str = "position",
-) -> tuple[float, float]:
+):
     """Sameness quotient of a circular set, optionally smoothed.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(sq, n_diff)``.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns
+      ``(sq_array, n_diff_array)`` of length ``M``. Per-row dedup
+      over **permutation, period, and transposition** symmetries
+      via the necklace canonical form of the cyclic adjacent
+      intervals.
 
     Returns the sameness quotient of the set of pitches or positions
     *p* within an equal division of size *period* (Carey, 2002). An
@@ -559,7 +985,13 @@ def sameness(
             f"(got {sigma_space!r})."
         )
 
-    p = np.asarray(p, dtype=np.float64).ravel()
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _sameness_batched(
+            p_arr, period, sigma, sigma_space=sigma_space,
+        )
+
+    p = p_arr.ravel()
     period = float(period)
     sigma = float(sigma)
     p = np.sort(p % period)
@@ -632,20 +1064,63 @@ def sameness(
     return sq, n_diff
 
 
+def _sameness_batched(P, period, sigma, *, sigma_space):
+    """Batched dispatch for ``sameness``.
+
+    Per-row dedup uses the necklace canonical form of the cyclic
+    adjacent intervals — permutation, period, and transposition
+    symmetries are collapsed onto a single cached result.
+    """
+    M, K = P.shape
+    sq_out = np.full(M, np.nan)
+    nd_out = np.full(M, np.nan)
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        p_canon = np.sort(np.mod(p_valid, float(period)))
+        key = _necklace_canonical(p_canon, period)
+
+        if key in cache:
+            sq_out[i], nd_out[i] = cache[key]
+            continue
+
+        sq_i, nd_i = sameness(
+            p_valid, period, sigma, sigma_space=sigma_space,
+        )
+        sq_out[i] = sq_i
+        nd_out[i] = nd_i
+        cache[key] = (sq_i, nd_i)
+
+    return sq_out, nd_out
+
+
 # ===================================================================
 #  Edges
 # ===================================================================
 
 
 def edges(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: float,
-    x: np.ndarray | None = None,
+    p,
+    w=None,
+    period: float = 1200.0,
+    x=None,
     *,
     kappa: float = 6.7,
-) -> tuple[np.ndarray, np.ndarray]:
+):
     """Edge detection on a weighted circular multiset.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(e, e_signed)``. The v2.0
+      case.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns
+      ``(e_list, e_signed_list)`` — length-``M`` lists of arrays.
+      Per-row dedup over permutation + period symmetries.
 
     Computes the "edginess" at each query point by evaluating the
     circular convolution of the weighted multiset with the first
@@ -659,23 +1134,25 @@ def edges(
     Parameters
     ----------
     p : array-like
-        Pitch or position values (length *K*).
+        Pitch or position values (length *K*; or ``(M, K)`` for
+        batched).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or
+        length-``K`` broadcast in batched mode).
     period : float
         Period of the circular domain.
     x : array-like or None
-        Query points (default: ``0:period-1``).
+        Query points (default: ``0:period-1``; shared in batched
+        mode).
     kappa : float
         Concentration parameter of the von Mises kernel (default 6.7).
         Larger values detect sharper edges.
 
     Returns
     -------
-    e : np.ndarray
-        Absolute edge weights (non-negative).
-    e_signed : np.ndarray
-        Signed edge weights (positive = rising edge).
+    e, e_signed
+        Absolute and signed edge weights. Single arrays in scalar
+        mode; lists of arrays in batched mode.
 
     References
     ----------
@@ -683,21 +1160,85 @@ def edges(
     rhythmic structure on tapping accuracy. *Attention, Perception,
     & Psychophysics*, 85, 2673–2699.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
-    K = len(p)
-    w = validate_weights(w, K)
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _edges_batched(p_arr, w, period, x, kappa)
+
+    p_arr = p_arr.ravel()
+    K = len(p_arr)
+    w_arr = validate_weights(w, K)
 
     if x is None:
         x = np.arange(period)
     x = np.asarray(x, dtype=np.float64).ravel()
 
-    theta = 2 * np.pi * (x[:, None] - p[None, :]) / period  # (nQ, K)
+    theta = 2 * np.pi * (x[:, None] - p_arr[None, :]) / period
     norm_const = 2 * np.pi * _besseli0(kappa)
     kernel = -kappa * np.sin(theta) * np.exp(kappa * np.cos(theta)) / norm_const
 
-    e_signed = (kernel @ w)  # (nQ,)
+    e_signed = (kernel @ w_arr)
     e = np.abs(e_signed)
     return e, e_signed
+
+
+def _edges_batched(P, W, period, x, kappa):
+    """Batched dispatch for ``edges``."""
+    M, K = P.shape
+
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    e_list = [np.array([], dtype=np.float64) for _ in range(M)]
+    es_list = [np.array([], dtype=np.float64) for _ in range(M)]
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid)
+
+        p_mod = np.mod(p_valid, period)
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(np.round(p_sorted, 12).tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if key in cache:
+            e_list[i], es_list[i] = cache[key]
+            continue
+
+        e_i, es_i = edges(p_valid, w_valid, period, x, kappa=kappa)
+        e_list[i] = e_i
+        es_list[i] = es_i
+        cache[key] = (e_i, es_i)
+
+    return e_list, es_list
 
 
 # ===================================================================
@@ -706,13 +1247,19 @@ def edges(
 
 
 def proj_centroid(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: float,
-    x: np.ndarray | None = None,
+    p,
+    w=None,
+    period: float = 1200.0,
+    x=None,
     sigma: float = 0.0,
-) -> tuple[np.ndarray, float, float]:
+):
     """Projected centroid of a weighted circular multiset.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(y, cent_mag, cent_phase)``.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns three length-``M``
+      lists. Per-row dedup over permutation + period symmetries.
 
     Computes the projection of the circular centroid (centre of
     gravity) onto each angular position. The centroid is the k = 0
@@ -741,24 +1288,24 @@ def proj_centroid(
     Parameters
     ----------
     p : array-like
-        Pitch or position values (length *K*).
+        Pitch or position values (length *K*; or ``(M, K)`` for
+        batched).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or
+        length-``K`` broadcast in batched mode).
     period : float
         Period of the circular domain.
     x : array-like or None
-        Query points (default: ``0:period-1``).
+        Query points (default: ``0:period-1``; shared in batched
+        mode).
     sigma : float
         Positional jitter standard deviation (non-negative; default 0).
 
     Returns
     -------
-    y : np.ndarray
-        Mean projected centroid values.
-    cent_mag : float
-        Centroid magnitude scaled by ``alpha_1`` when ``sigma > 0``.
-    cent_phase : float
-        Centroid phase, unchanged from the deterministic case.
+    y, cent_mag, cent_phase
+        In scalar mode: a length-``len(x)`` array, plus two floats.
+        In batched mode: three length-``M`` lists.
 
     References
     ----------
@@ -766,6 +1313,10 @@ def proj_centroid(
     rhythmic structure on tapping accuracy. *Attention, Perception,
     & Psychophysics*, 85, 2673–2699.
     """
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _proj_centroid_batched(p_arr, w, period, x, sigma)
+
     if x is None:
         x = np.arange(period)
     x = np.asarray(x, dtype=np.float64).ravel()
@@ -773,7 +1324,7 @@ def proj_centroid(
     if sigma < 0:
         raise ValueError("sigma must be non-negative.")
 
-    F, _ = dft_circular(p, w, period)
+    F, _ = dft_circular(p_arr.ravel(), w, period)
     F0 = F[0]
     if sigma > 0:
         alpha1 = np.exp(-2 * np.pi**2 * sigma**2 / period**2)
@@ -789,23 +1340,88 @@ def proj_centroid(
     return y, cent_mag, cent_phase
 
 
+def _proj_centroid_batched(P, W, period, x, sigma):
+    """Batched dispatch for ``proj_centroid``."""
+    M, K = P.shape
+
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    y_list = [np.array([], dtype=np.float64) for _ in range(M)]
+    cm_list: list = [None] * M
+    cp_list: list = [None] * M
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid)
+
+        p_mod = np.mod(p_valid, period)
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(np.round(p_sorted, 12).tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if key in cache:
+            y_list[i], cm_list[i], cp_list[i] = cache[key]
+            continue
+
+        y_i, cm_i, cp_i = proj_centroid(p_valid, w_valid, period, x, sigma)
+        y_list[i] = y_i
+        cm_list[i] = cm_i
+        cp_list[i] = cp_i
+        cache[key] = (y_i, cm_i, cp_i)
+
+    return y_list, cm_list, cp_list
+
+
 # ===================================================================
 #  Mean offset
 # ===================================================================
 
 
 def mean_offset(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: float,
-    x: np.ndarray | None = None,
-) -> np.ndarray:
+    p,
+    w=None,
+    period: float = 1200.0,
+    x=None,
+):
     """Mean offset (net upward arc) of a weighted circular multiset.
 
-    Computes, at each query point, the sum of upward arc lengths to
-    all elements minus the sum of downward arc lengths, with each
-    arc normalised by the period. By default, query points are
-    ``0, 1, ..., period-1``.
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns a length-``len(x)`` array
+      (or length-``period`` if ``x`` is None). The v2.0 case.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns a length-``M``
+      list of arrays. Per-row canonical-form dedup over permutation
+      + period symmetries (not transposition).
 
     In a pitch-class context, this formalises and generalises
     Huron's (2008) "average pitch height." The term "mode height"
@@ -815,18 +1431,22 @@ def mean_offset(
     Parameters
     ----------
     p : array-like
-        Pitch or position values (length *K*).
+        Pitch or position values (length *K*; or ``(M, K)`` for
+        batched).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or a
+        length-``K`` vector broadcast across rows in batched mode).
     period : float
         Period of the circular domain.
     x : array-like or None
-        Query points (default: ``0:period-1``).
+        Query points (default: ``0:period-1``; shared across all
+        rows in batched mode).
 
     Returns
     -------
-    np.ndarray
-        Mean offset values.
+    np.ndarray or list of np.ndarray
+        Mean offset values. Single array in scalar mode; list of
+        per-row arrays in batched mode.
 
     References
     ----------
@@ -834,20 +1454,81 @@ def mean_offset(
     rhythmic structure on tapping accuracy. *Attention, Perception,
     & Psychophysics*, 85, 2673–2699.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
-    K = len(p)
-    w = validate_weights(w, K)
+    p_arr = np.asarray(p, dtype=np.float64)
+    if p_arr.ndim == 2:
+        return _mean_offset_batched(p_arr, w, period, x)
+
+    p_arr = p_arr.ravel()
+    K = len(p_arr)
+    w_arr = validate_weights(w, K)
 
     if x is None:
         x = np.arange(period)
     x = np.asarray(x, dtype=np.float64).ravel()
 
-    # upward and downward arcs: (nQ, K)
-    upward = (p[None, :] - x[:, None]) % period
-    downward = (x[:, None] - p[None, :]) % period
+    upward = (p_arr[None, :] - x[:, None]) % period
+    downward = (x[:, None] - p_arr[None, :]) % period
 
-    h = ((upward - downward) @ w) / period
+    h = ((upward - downward) @ w_arr) / period
     return h
+
+
+def _mean_offset_batched(P, W, period, x):
+    """Batched dispatch for ``mean_offset``."""
+    M, K = P.shape
+
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    out = [np.array([], dtype=np.float64) for _ in range(M)]
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            continue
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid)
+
+        p_mod = np.mod(p_valid, period)
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(np.round(p_sorted, 12).tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if key in cache:
+            out[i] = cache[key]
+            continue
+
+        h_i = mean_offset(p_valid, w_valid, period, x)
+        out[i] = h_i
+        cache[key] = h_i
+
+    return out
 
 
 # ===================================================================
@@ -856,13 +1537,19 @@ def mean_offset(
 
 
 def circ_apm(
-    p: np.ndarray,
-    w: np.ndarray | None,
-    period: int,
+    p,
+    w=None,
+    period: int = 12,
     *,
     decay: float = 0.0,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+):
     """Circular autocorrelation phase matrix.
+
+    Accepts two input forms, dispatched on ``p``'s shape:
+
+    - 1-D ``p``: single multiset, returns ``(R, r_phase, r_lag)``.
+    - 2-D ``P`` (shape ``(M, K)``): batched, returns three length-``M``
+      lists. Per-row dedup over permutation + period symmetries.
 
     Returns the circular autocorrelation phase matrix (APM) of the
     weighted multiset *p* within a cycle of length *period* (*p*
@@ -873,9 +1560,11 @@ def circ_apm(
     Parameters
     ----------
     p : array-like of int
-        Pitch or position values. Non-negative integers < *period*.
+        Pitch or position values. Non-negative integers < *period*
+        (or ``(M, K)`` matrix in batched mode).
     w : array-like or None
-        Weights (``None`` for all ones).
+        Weights (``None`` for all ones; same shape as ``p`` or
+        length-``K`` broadcast in batched mode).
     period : int
         Cycle length.
     decay : float
@@ -883,12 +1572,12 @@ def circ_apm(
 
     Returns
     -------
-    R : np.ndarray
-        APM (*period* × *period*).
-    r_phase : np.ndarray
-        Column sum (1 × *period*). Model of metrical weight.
-    r_lag : np.ndarray
-        Row sum (*period* × 1). Circular autocorrelation.
+    R, r_phase, r_lag
+        In scalar mode: APM (*period* × *period*) plus column-sum
+        (metrical weight) and row-sum (autocorrelation) vectors.
+        In batched mode: three length-``M`` lists. Note: each ``R``
+        is dense ``period × period``; for large ``M`` and ``period``
+        memory grows quickly — process in chunks if needed.
 
     References
     ----------
@@ -899,18 +1588,22 @@ def circ_apm(
     rhythmic structure on tapping accuracy. *Attention, Perception,
     & Psychophysics*, 85, 2673–2699.
     """
-    p = np.asarray(p, dtype=np.int64).ravel()
-    K = len(p)
-    w = validate_weights(w, K)
+    p_arr = np.asarray(p)
+    if p_arr.ndim == 2:
+        return _circ_apm_batched(p_arr, w, period, decay)
+
+    p_arr = np.asarray(p_arr, dtype=np.int64).ravel()
+    K = len(p_arr)
+    w_arr = validate_weights(w, K)
     period = int(period)
 
-    if np.any(p >= period):
+    if np.any(p_arr >= period):
         raise ValueError("All positions in p must be less than period.")
 
     N = period
     s = np.zeros(N)
     for i in range(K):
-        s[p[i]] += w[i]
+        s[p_arr[i]] += w_arr[i]
 
     steps = np.arange(N)
     R = np.zeros((N, N))
@@ -933,6 +1626,80 @@ def circ_apm(
     r_phase = np.sum(R, axis=0)
     r_lag = np.sum(R, axis=1)
     return R, r_phase, r_lag
+
+
+def _circ_apm_batched(P, W, period, decay):
+    """Batched dispatch for ``circ_apm``."""
+    M, K = P.shape
+
+    use_w = W is not None
+    if use_w:
+        W_arr = np.asarray(W, dtype=np.float64)
+        if W_arr.ndim == 1 and W_arr.size == K:
+            W_broadcast = W_arr
+            W_full = None
+        elif W_arr.shape == P.shape:
+            W_broadcast = None
+            W_full = W_arr
+        else:
+            raise ValueError(
+                "W must be None, a matrix the same shape as P, or "
+                "a length-K vector broadcast across rows."
+            )
+    else:
+        W_broadcast = None
+        W_full = None
+
+    R_list: list = [None] * M
+    rp_list: list = [None] * M
+    rl_list: list = [None] * M
+    cache: dict = {}
+
+    for i in range(M):
+        p_row = P[i]
+        # circ_apm is integer-only; floats with fractional parts indicate
+        # an upstream bug, but NaN-padding is allowed.
+        mask = ~np.isnan(p_row.astype(np.float64))
+        p_valid = p_row[mask]
+        if len(p_valid) == 0:
+            R_list[i] = np.array([])
+            rp_list[i] = np.array([])
+            rl_list[i] = np.array([])
+            continue
+        p_valid_int = np.asarray(p_valid, dtype=np.int64)
+        if not np.array_equal(p_valid_int, p_valid):
+            raise ValueError(
+                f"circ_apm requires integer pitches; row {i} contains "
+                f"non-integer values."
+            )
+        if W_full is not None:
+            w_valid = W_full[i, mask]
+        elif W_broadcast is not None:
+            w_valid = W_broadcast[mask]
+        else:
+            w_valid = np.ones_like(p_valid_int, dtype=np.float64)
+
+        # Reduce mod period for canonical key (and for the call itself).
+        p_mod = np.mod(p_valid_int, period)
+        sort_idx = np.argsort(p_mod)
+        p_sorted = p_mod[sort_idx]
+        w_sorted = w_valid[sort_idx]
+        key = (
+            tuple(p_sorted.tolist()),
+            tuple(np.round(w_sorted, 12).tolist()),
+        )
+
+        if key in cache:
+            R_list[i], rp_list[i], rl_list[i] = cache[key]
+            continue
+
+        R_i, rp_i, rl_i = circ_apm(p_sorted, w_sorted, period, decay=decay)
+        R_list[i] = R_i
+        rp_list[i] = rp_i
+        rl_list[i] = rl_i
+        cache[key] = (R_i, rp_i, rl_i)
+
+    return R_list, rp_list, rl_list
 
 
 # ===================================================================

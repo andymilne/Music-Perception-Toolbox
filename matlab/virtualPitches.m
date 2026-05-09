@@ -136,6 +136,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
         nvArgs.resolution (1,1) {mustBePositive} = 1
+        nvArgs.verbose (1,1) logical = true
     end
 
     % --- Batched dispatch (v2.1+) ---
@@ -231,6 +232,14 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
     x_tmpl  = 0:step:(max(tmpl_p) + margin);
     x_chord = 0:step:(max(chord_p) + margin);
 
+    % Time estimate (kernel cost only; conv() and other overheads not
+    % included, so this is a lower bound). Pair count is the sum of
+    % the two evalExpTens workloads. dim = 1 since both densities use
+    % r = 1, isRel = false.
+    nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
+           + double(numel(tmpl_p))  * double(numel(x_tmpl));
+    estimateCompTime(nPairs, 1, 'virtualPitches', nvArgs.verbose);
+
     tmpl_vals  = evalExpTens(tmpl_dens, x_tmpl, 'verbose', false);
     chord_vals = evalExpTens(chord_dens, x_chord, 'verbose', false);
 
@@ -287,7 +296,69 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
         end
     end
 
-    nvPairs = localPackVirtualNV(nvArgs);
+    % Force inner scalar calls silent; batched estimate is printed once.
+    nvArgsInner = nvArgs;
+    nvArgsInner.verbose = false;
+    nvPairs = localPackVirtualNV(nvArgsInner);
+
+    % Up-front time estimate (printed once). Empirical calibration via
+    % a uniformly-sampled subset of K rows, with one warm-up call to
+    % absorb first-call overhead. See templateHarmonicity for rationale.
+    if nvArgs.verbose && nRows > 1
+        nCal = min(10, nRows);
+        sampleIdx = unique(round(linspace(1, nRows, nCal)));
+
+        % Warm-up.
+        warmupDone = false;
+        for s = 1:numel(sampleIdx)
+            sIdx = sampleIdx(s);
+            pRowS = P(sIdx, :);
+            validS = ~isnan(pRowS);
+            pValidS = pRowS(validS);
+            if numel(pValidS) < 1
+                continue;
+            end
+            if haveRowWeights
+                wValidS = W(sIdx, validS);
+            elseif ~isempty(W)
+                wValidS = W_broadcast(validS);
+            else
+                wValidS = [];
+            end
+            virtualPitches(pValidS(:), wValidS(:), sigma, nvPairs{:});
+            warmupDone = true;
+            break;
+        end
+
+        if warmupDone
+            tCalStart = tic;
+            nValidCal = 0;
+            for s = 1:numel(sampleIdx)
+                sIdx = sampleIdx(s);
+                pRowS = P(sIdx, :);
+                validS = ~isnan(pRowS);
+                pValidS = pRowS(validS);
+                if numel(pValidS) < 1
+                    continue;
+                end
+                if haveRowWeights
+                    wValidS = W(sIdx, validS);
+                elseif ~isempty(W)
+                    wValidS = W_broadcast(validS);
+                else
+                    wValidS = [];
+                end
+                virtualPitches(pValidS(:), wValidS(:), sigma, nvPairs{:});
+                nValidCal = nValidCal + 1;
+            end
+            if nValidCal > 0
+                tCalTotal = toc(tCalStart);
+                tPerRow   = tCalTotal / nValidCal;
+                estTotal  = tCalTotal + tPerRow * nRows;
+                printBatchedEstimate('virtualPitches', nRows, estTotal);
+            end
+        end
+    end
 
     for k = 1:nRows
         pRow = P(k, :);

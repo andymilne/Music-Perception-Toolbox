@@ -22,6 +22,7 @@ function [F, mag] = dftCircular(p, w, period)
 %             origin. When |F(0)| = 0, the multiset is perfectly balanced.
 %     |F(1)|: evenness — closeness to a maximally even (equal-step)
 %             distribution. When |F(1)| = 1, the multiset is maximally
+%             even.
 %   Higher coefficients capture additional distributional properties.
 %
 %   For further information, see:
@@ -33,20 +34,19 @@ function [F, mag] = dftCircular(p, w, period)
 %       203, 104233.
 %
 %   Inputs:
-%     p      — Pitch or position values (vector of length K).
-%              Values are interpreted modulo 'period'. The function sorts
-%              p internally; the caller does not need to pre-sort.
-%     w      — Weights (vector of length K, or empty for all ones). If
-%              provided, each z(j) is scaled by w(j) before the DFT.
+%     p      — Pitch or position values (vector of length K, or
+%              nRows-by-K matrix in batched mode). Values are
+%              interpreted modulo 'period'. The function sorts p
+%              internally; the caller does not need to pre-sort.
+%     w      — Weights (vector of length K, matrix the same size as p
+%              in batched mode, or empty for all ones).
 %     period — Period of the circular domain (e.g., 1200 for one octave
 %              in cents, or the cycle length for rhythmic patterns).
 %
 %   Outputs:
-%     F      — Complex Fourier coefficients (1 x K row vector).
-%              F(1) is the k = 0 coefficient, F(2) is k = 1, etc.
-%              (MATLAB's 1-based indexing: F(k+1) corresponds to the
-%              k-th coefficient.)
-%     mag    — Magnitudes |F(k)| for each k (1 x K row vector).
+%     F      — Complex Fourier coefficients (1-by-K row vector in
+%              scalar mode; 1-by-nRows cell in batched mode).
+%     mag    — Magnitudes |F(k)|, same shape as F.
 %
 %   Examples:
 %     % DFT of a 12-EDO diatonic scale (in cents)
@@ -56,7 +56,33 @@ function [F, mag] = dftCircular(p, w, period)
 %     % DFT of a rhythmic pattern (onsets in a 16-step cycle)
 %     [F, mag] = dftCircular([0, 3, 6, 8, 10, 12, 14], [], 16);
 %
+%     % Batched: DFT of multiple scales
+%     P = [0, 200, 400, 500, 700, 900, 1100;       % major
+%          0, 200, 300, 500, 700, 800, 1000];      % natural minor
+%     [Fcell, magCell] = dftCircular(P, [], 1200);
+%
+%   Batched (v2.1+):
+%   When p is a 2-D nRows-by-K matrix, each row is treated as a
+%   separate multiset and the function returns 1-by-nRows cell
+%   arrays. NaN-padded rows are accepted (NaN entries dropped per
+%   row); rows with no valid pitches give empty cell entries. Per-row
+%   canonical-form dedup over permutation + period symmetries:
+%   structurally-identical canonical inputs (sorted modular pitches
+%   plus sorted matching weights) share one cached pair. Dedup over
+%   transposition is *not* applied — the DFT is transposition-
+%   equivariant rather than invariant, so transposed inputs would
+%   need a phase post-transform; this is left as a future
+%   optimisation.
+%
 %   See also balanceCircular, evennessCircular.
+
+% --- Batched dispatch (v2.1+) ---
+% If p is a 2-D matrix with both dimensions > 1, treat rows as
+% multisets and return cell arrays of per-row results.
+if size(p, 1) > 1 && size(p, 2) > 1
+    [F, mag] = localBatchedDftCircular(p, w, period);
+    return;
+end
 
 % === Input validation ===
 
@@ -90,4 +116,77 @@ F = fft(z).' / sum(w);                    % 1 x K row vector
 
 mag = abs(F);
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [Fcell, magCell] = localBatchedDftCircular(P, W, period)
+%LOCALBATCHEDDFTCIRCULAR Per-row DFT from a 2-D pitch matrix.
+%
+%   Returns 1-by-nRows cell arrays. Per-row dedup over permutation +
+%   period symmetries via a sorted-modular canonical key.
+
+    nRows = size(P, 1);
+    Fcell = cell(1, nRows);
+    magCell = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('dftCircular:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if isempty(pK)
+            Fcell{k} = [];
+            magCell{k} = [];
+            continue;
+        end
+
+        % Canonical key: sort(mod(p, period)) plus matching weights.
+        % This collapses permutations and period-equivalent inputs
+        % onto one representative (no transposition dedup — see
+        % function help).
+        if isempty(wK)
+            wKcol = ones(numel(pK), 1);
+        else
+            wKcol = wK(:);
+        end
+        pMod = mod(pK(:), period);
+        [pSorted, sortIdx] = sort(pMod);
+        wSorted = wKcol(sortIdx);
+        keyStr = sprintf('%.12g,', pSorted, wSorted);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            Fcell{k}   = stored{1};
+            magCell{k} = stored{2};
+            continue;
+        end
+
+        [Fk, magk] = dftCircular(pK(:), wKcol, period);
+        Fcell{k}   = Fk;
+        magCell{k} = magk;
+        cache(keyStr) = {Fk, magk};
+    end
 end

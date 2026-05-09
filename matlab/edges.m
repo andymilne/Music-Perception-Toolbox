@@ -86,15 +86,34 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
 %       (Introduced this predictor — adapting standard edge-detection
 %       techniques for images to circular rhythmic patterns.)
 %
+%   Batched (v2.1+):
+%   [eCell, eSignedCell] = edges(P, W, period, x) with P an
+%   nRows-by-K matrix returns 1-by-nRows cell arrays of per-row
+%   results. NaN-padded rows are accepted; rows with no valid
+%   pitches give empty cell entries. Per-row dedup over permutation
+%   + period symmetries (not transposition).
+%
 %   See also meanOffset, projCentroid, circApm.
 
     arguments
-        p (:,1) {mustBeNumeric}
-        w (:,1) {mustBeNumeric}
+        p {mustBeNumeric}
+        w {mustBeNumeric}
         period (1,1) {mustBePositive}
         x {mustBeNumeric} = []
         nvArgs.kappa (1,1) {mustBePositive} = 6.7
     end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % multisets and return cell arrays of per-row results.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [e, eSigned] = localBatchedEdges(p, w, period, x, nvArgs.kappa);
+        return;
+    end
+
+    % Scalar path: force column vectors for consistency below.
+    p = p(:);
+    w = w(:);
 
     % === Input defaults ===
 
@@ -141,4 +160,77 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
     % Absolute edge weights
     e = abs(eSigned);
 
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [eCell, eSignedCell] = localBatchedEdges(P, W, period, x, kappa)
+%LOCALBATCHEDEDGES Per-row edges from a 2-D pitch matrix.
+%
+%   Returns two 1-by-nRows cells. Per-row dedup over permutation +
+%   period symmetries via a sorted-modular canonical key.
+
+    nRows = size(P, 1);
+    eCell = cell(1, nRows);
+    eSignedCell = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('edges:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if isempty(pK)
+            eCell{k} = [];
+            eSignedCell{k} = [];
+            continue;
+        end
+
+        if isempty(wK)
+            wKcol = ones(numel(pK), 1);
+        else
+            wKcol = wK(:);
+        end
+        pMod = mod(pK(:), period);
+        [pSorted, sortIdx] = sort(pMod);
+        wSorted = wKcol(sortIdx);
+        keyStr = sprintf('%.12g,', pSorted, wSorted);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            eCell{k}       = stored{1};
+            eSignedCell{k} = stored{2};
+            continue;
+        end
+
+        if isempty(x)
+            [ek, esk] = edges(pK(:), wKcol, period, [], 'kappa', kappa);
+        else
+            [ek, esk] = edges(pK(:), wKcol, period, x, 'kappa', kappa);
+        end
+        eCell{k}       = ek;
+        eSignedCell{k} = esk;
+        cache(keyStr) = {ek, esk};
+    end
 end

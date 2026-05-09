@@ -136,6 +136,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
         nvArgs.duplicate (1,1) {mustBeNonnegative, mustBeInteger} = 0
         nvArgs.normalize (1,1) string ...
             {mustBeMember(nvArgs.normalize, {'none','gaussian','pdf'})} = 'none'
+        nvArgs.verbose (1,1) logical = true
     end
 
     % --- Batched dispatch (v2.1+) ---
@@ -202,7 +203,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
     period = 1200;  % not used for wrapping; required by buildExpTens
 
     T = buildExpTens(tmpl_p, tmpl_w, sigma, r, isRel, isPer, period, ...
-                     'verbose', false);
+                     'verbose', nvArgs.verbose);
 
     % === Compute chord intervals ===
     % Sort pitches and take intervals relative to the lowest pitch,
@@ -242,8 +243,70 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
         end
     end
 
-    % Forward all name-value options to recursive scalar calls.
-    nvPairs = localPackTensorNV(nvArgs);
+    % Force inner scalar calls to be silent regardless of nvArgs.verbose;
+    % we print one batched estimate at the top, not per-row.
+    nvArgsInner = nvArgs;
+    nvArgsInner.verbose = false;
+    nvPairs = localPackTensorNV(nvArgsInner);
+
+    % Up-front time estimate (printed once). Empirical calibration via
+    % a uniformly-sampled subset of K rows, with one warm-up call to
+    % absorb first-call overhead. See templateHarmonicity for rationale.
+    if nvArgs.verbose && nRows > 1
+        nCal = min(10, nRows);
+        sampleIdx = unique(round(linspace(1, nRows, nCal)));
+
+        % Warm-up: run the first valid sample once, untimed.
+        warmupDone = false;
+        for s = 1:numel(sampleIdx)
+            sIdx = sampleIdx(s);
+            pRowS = P(sIdx, :);
+            validS = ~isnan(pRowS);
+            pValidS = pRowS(validS);
+            if numel(pValidS) < 2
+                continue;
+            end
+            if haveRowWeights
+                wValidS = W(sIdx, validS);
+            elseif ~isempty(W)
+                wValidS = W_broadcast(validS);
+            else
+                wValidS = [];
+            end
+            tensorHarmonicity(pValidS(:), wValidS(:), sigma, nvPairs{:});
+            warmupDone = true;
+            break;
+        end
+
+        if warmupDone
+            tCalStart = tic;
+            nValidCal = 0;
+            for s = 1:numel(sampleIdx)
+                sIdx = sampleIdx(s);
+                pRowS = P(sIdx, :);
+                validS = ~isnan(pRowS);
+                pValidS = pRowS(validS);
+                if numel(pValidS) < 2
+                    continue;
+                end
+                if haveRowWeights
+                    wValidS = W(sIdx, validS);
+                elseif ~isempty(W)
+                    wValidS = W_broadcast(validS);
+                else
+                    wValidS = [];
+                end
+                tensorHarmonicity(pValidS(:), wValidS(:), sigma, nvPairs{:});
+                nValidCal = nValidCal + 1;
+            end
+            if nValidCal > 0
+                tCalTotal = toc(tCalStart);
+                tPerRow   = tCalTotal / nValidCal;
+                estTotal  = tCalTotal + tPerRow * nRows;
+                printBatchedEstimate('tensorHarmonicity', nRows, estTotal);
+            end
+        end
+    end
 
     for k = 1:nRows
         pRow = P(k, :);

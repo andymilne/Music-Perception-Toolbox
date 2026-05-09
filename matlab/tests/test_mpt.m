@@ -207,6 +207,293 @@ results{end,2}   = max(abs(y_per([2, 6, 10, 14]) - y_per(2))) < 1e-10;
 results{end+1,1} = 'markovS: events outweigh non-events in periodic pattern';
 results{end,2}   = y_per(1) > y_per(2);
 
+%% ---- Tier-1 batched dispatch (v2.1+): dftCircular, meanOffset, edges, projCentroid, circApm ----
+%
+% Each accepts an nRows-by-K matrix in addition to the original 1-D
+% form, and returns 1-by-nRows cell arrays. Per-row dedup is over
+% permutation + period symmetries (not transposition).
+
+% --- dftCircular ---
+P_dft = [0, 200, 400, 500, 700, 900, 1100;     % major
+         0, 100, 300, 500, 700, 900, 1000;     % something else
+         0, 200, 400, 500, 700, 900, 1100];    % = row 1
+
+[FCell, magCell] = dftCircular(P_dft, [], 1200);
+results{end+1,1} = 'dftCircular batched: returns 1-by-nRows cells';
+results{end,2}   = iscell(FCell) && iscell(magCell) ...
+                && isequal(size(FCell), [1, 3]) ...
+                && isequal(size(magCell), [1, 3]);
+
+% Per-row matches scalar
+[F_scalar, mag_scalar] = dftCircular(P_dft(2, :), [], 1200);
+results{end+1,1} = 'dftCircular batched: matches scalar dispatch row-by-row';
+results{end,2}   = max(abs(FCell{2} - F_scalar)) < 1e-12 ...
+                && max(abs(magCell{2} - mag_scalar)) < 1e-12;
+
+% Permutation dedup
+P_perm = [0, 200, 400; 400, 0, 200];
+[Fperm, magPerm] = dftCircular(P_perm, [], 1200);
+results{end+1,1} = 'dftCircular batched: permutation dedup';
+results{end,2}   = isequal(Fperm{1}, Fperm{2});
+
+% NaN-padded variable cardinality
+P_nan = [0, 200, 400, NaN; 0, 100, 200, 300; NaN, NaN, NaN, NaN];
+[Fnan, magNan] = dftCircular(P_nan, [], 1200);
+results{end+1,1} = 'dftCircular batched: NaN-padded cardinality OK';
+results{end,2}   = numel(Fnan{1}) == 3 && numel(Fnan{2}) == 4 && isempty(Fnan{3});
+
+% --- meanOffset ---
+P_mo = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+hMOCell = meanOffset(P_mo, [], 12);
+results{end+1,1} = 'meanOffset batched: returns 1-by-nRows cell';
+results{end,2}   = iscell(hMOCell) && isequal(size(hMOCell), [1, 3]);
+
+hMOscalar = meanOffset(P_mo(2, :), [], 12);
+results{end+1,1} = 'meanOffset batched: matches scalar dispatch';
+results{end,2}   = max(abs(hMOCell{2} - hMOscalar)) < 1e-12;
+
+results{end+1,1} = 'meanOffset batched: dedup row 1 = row 3';
+results{end,2}   = isequal(hMOCell{1}, hMOCell{3});
+
+% --- edges ---
+P_e = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+[eCell, esCell] = edges(P_e, [], 12);
+results{end+1,1} = 'edges batched: returns two 1-by-nRows cells';
+results{end,2}   = iscell(eCell) && iscell(esCell) ...
+                && isequal(size(eCell), [1, 3]);
+
+[e_scalar, es_scalar] = edges(P_e(2, :)', [], 12);
+results{end+1,1} = 'edges batched: matches scalar dispatch';
+results{end,2}   = max(abs(eCell{2} - e_scalar)) < 1e-12 ...
+                && max(abs(esCell{2} - es_scalar)) < 1e-12;
+
+results{end+1,1} = 'edges batched: dedup row 1 = row 3';
+results{end,2}   = isequal(eCell{1}, eCell{3}) && isequal(esCell{1}, esCell{3});
+
+% --- projCentroid ---
+P_pc = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+[yCell, cmCell, cpCell] = projCentroid(P_pc, [], 12);
+results{end+1,1} = 'projCentroid batched: returns three 1-by-nRows cells';
+results{end,2}   = iscell(yCell) && iscell(cmCell) && iscell(cpCell) ...
+                && isequal(size(yCell), [1, 3]);
+
+[y_scalar, cm_scalar, cp_scalar] = projCentroid(P_pc(2, :)', [], 12);
+results{end+1,1} = 'projCentroid batched: matches scalar dispatch';
+results{end,2}   = max(abs(yCell{2} - y_scalar)) < 1e-12 ...
+                && abs(cmCell{2} - cm_scalar) < 1e-12 ...
+                && abs(cpCell{2} - cp_scalar) < 1e-12;
+
+results{end+1,1} = 'projCentroid batched: dedup centroid magnitude row 1 = row 3';
+results{end,2}   = isequal(cmCell{1}, cmCell{3});
+
+% --- circApm ---
+P_apm = [0, 3, 6, 8, 10, 12, 14;
+         0, 2, 4, 6, 8, 10, 12;
+         0, 3, 6, 8, 10, 12, 14];
+[Rcell, rPhaseCell, rLagCell] = circApm(P_apm, [], 16);
+results{end+1,1} = 'circApm batched: returns three 1-by-nRows cells';
+results{end,2}   = iscell(Rcell) && iscell(rPhaseCell) && iscell(rLagCell) ...
+                && isequal(size(Rcell), [1, 3]) ...
+                && isequal(size(Rcell{1}), [16, 16]);
+
+% Scalar-equivalent: pre-sort to canonical form (batched dedups via
+% sorted modular form before computing).
+[R_scalar, ~, ~] = circApm(sort(mod(P_apm(2, :), 16))', [], 16);
+results{end+1,1} = 'circApm batched: matches scalar dispatch (canonical form)';
+results{end,2}   = isequal(Rcell{2}, R_scalar);
+
+results{end+1,1} = 'circApm batched: dedup row 1 = row 3';
+results{end,2}   = isequal(Rcell{1}, Rcell{3});
+
+% Period reduction in canonical key
+P_apm_pred = [0, 3, 6, 8, 10, 12, 14;
+              0, 19, 6, 8, 10, 12, 14];   % 19 mod 16 = 3
+[Rred, ~, ~] = circApm(P_apm_pred, [], 16);
+results{end+1,1} = 'circApm batched: dedup over period reduction';
+results{end,2}   = isequal(Rred{1}, Rred{2});
+
+% Non-integer pitch errors clearly
+results{end+1,1} = 'circApm batched: non-integer pitches error';
+results{end,2}   = throwsErrorWithId( ...
+    @() circApm([0.5, 1.0, 2.0; 0.5, 1.0, 2.0], [], 16), ...
+    'circApm:nonIntegerPitch');
+
+%% ---- Tier-2 batched dispatch (v2.1+): coherence, sameness, nTupleEntropy ----
+%
+% These set-based functions accept an nRows-by-K matrix and return
+% per-row results: nRows-by-1 vectors for scalar outputs and 1-by-nRows
+% cell arrays for variable-shape outputs (nTupleEntropy's ``tuples``).
+% Per-row dedup uses a sorted-modular canonical key (permutation +
+% period symmetries; not transposition).
+
+% --- coherence ---
+P_coh = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+[cVec, ncVec] = coherence(P_coh, 12);
+results{end+1,1} = 'coherence batched: returns nRows-by-1 vectors';
+results{end,2}   = isnumeric(cVec) && isequal(size(cVec), [3, 1]) ...
+                && isequal(size(ncVec), [3, 1]);
+
+[c_scalar, nc_scalar] = coherence(P_coh(2, :)', 12);
+results{end+1,1} = 'coherence batched: matches scalar dispatch';
+results{end,2}   = abs(cVec(2) - c_scalar) < 1e-12 ...
+                && abs(ncVec(2) - nc_scalar) < 1e-12;
+
+results{end+1,1} = 'coherence batched: dedup row 1 = row 3';
+results{end,2}   = cVec(1) == cVec(3) && ncVec(1) == ncVec(3);
+
+% Permutation dedup
+P_coh_perm = [0, 4, 7; 4, 0, 7];
+[cPerm, ~] = coherence(P_coh_perm, 12);
+results{end+1,1} = 'coherence batched: permutation dedup';
+results{end,2}   = cPerm(1) == cPerm(2);
+
+% NaN-padded
+P_coh_pad = [0, 4, 7, NaN; 0, 1, 5, 6; NaN, NaN, NaN, NaN];
+[cPad, ~] = coherence(P_coh_pad, 12);
+results{end+1,1} = 'coherence batched: NaN-padded variable cardinality';
+results{end,2}   = ~isnan(cPad(1)) && ~isnan(cPad(2)) && isnan(cPad(3));
+
+% --- sameness ---
+P_sm = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+[sqVec, ndVec] = sameness(P_sm, 12);
+results{end+1,1} = 'sameness batched: returns nRows-by-1 vectors';
+results{end,2}   = isequal(size(sqVec), [3, 1]);
+
+[sq_s, nd_s] = sameness(P_sm(2, :)', 12);
+results{end+1,1} = 'sameness batched: matches scalar dispatch';
+results{end,2}   = abs(sqVec(2) - sq_s) < 1e-12 ...
+                && abs(ndVec(2) - nd_s) < 1e-12;
+
+results{end+1,1} = 'sameness batched: dedup row 1 = row 3';
+results{end,2}   = sqVec(1) == sqVec(3);
+
+% --- nTupleEntropy ---
+P_nte = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+[HVec, tuplesCell] = nTupleEntropy(P_nte, 12, 1);
+results{end+1,1} = 'nTupleEntropy batched: returns vector + cell';
+results{end,2}   = isnumeric(HVec) && isequal(size(HVec), [3, 1]) ...
+                && iscell(tuplesCell) && isequal(size(tuplesCell), [1, 3]);
+
+[H_s, t_s] = nTupleEntropy(P_nte(2, :)', 12, 1);
+results{end+1,1} = 'nTupleEntropy batched: matches scalar dispatch';
+results{end,2}   = abs(HVec(2) - H_s) < 1e-12 ...
+                && isequal(tuplesCell{2}, t_s);
+
+results{end+1,1} = 'nTupleEntropy batched: dedup row 1 = row 3';
+results{end,2}   = HVec(1) == HVec(3);
+
+% NaN-padded all-NaN row gives NaN H and empty tuples
+P_nte_pad = [0, 4, 7, NaN; NaN, NaN, NaN, NaN];
+[Hpad, tpad] = nTupleEntropy(P_nte_pad, 12, 1);
+results{end+1,1} = 'nTupleEntropy batched: all-NaN row returns NaN';
+results{end,2}   = ~isnan(Hpad(1)) && isnan(Hpad(2)) && isempty(tpad{2});
+
+% --- Transposition dedup (necklace canonical) for coherence and sameness ---
+% All 12 transpositions of the major triad share one necklace key, so
+% values are identical across rows.
+shifts = (0:11)';
+P_majorTrans = mod([0, 4, 7] + shifts, 12);  % 12-by-3
+[cTrans, ncTrans] = coherence(P_majorTrans, 12);
+results{end+1,1} = 'coherence batched: all 12 major-triad transpositions agree';
+results{end,2}   = all(cTrans == cTrans(1)) && all(ncTrans == ncTrans(1));
+
+% Coherence with failures: {0, 1, 5, 6} and 12 transpositions
+P_aug = mod([0, 1, 5, 6] + shifts, 12);
+[cAug, ncAug] = coherence(P_aug, 12);
+results{end+1,1} = 'coherence batched: transposition dedup with non-trivial nc';
+results{end,2}   = all(cAug == cAug(1)) && ncAug(1) == 5.0;
+
+% Sameness: 12 major-triad transpositions agree
+[sqTrans, ndTrans] = sameness(P_majorTrans, 12);
+results{end+1,1} = 'sameness batched: all 12 major-triad transpositions agree';
+results{end,2}   = all(sqTrans == sqTrans(1)) && all(ndTrans == ndTrans(1));
+
+% nTupleEntropy: H is transposition-invariant; tuples is NOT (in general).
+% Pin this down to make the dedup contract explicit.
+P_nteTrans = [0, 4, 7; 2, 7, 11];   % {0,4,7} and its shift-by-7 transposition
+[HnteTrans, tnteTrans] = nTupleEntropy(P_nteTrans, 12, 1);
+results{end+1,1} = 'nTupleEntropy batched: H is transposition-invariant';
+results{end,2}   = abs(HnteTrans(1) - HnteTrans(2)) < 1e-12;
+results{end+1,1} = 'nTupleEntropy batched: tuples differ across transpositions';
+results{end,2}   = ~isequal(tnteTrans{1}, tnteTrans{2});
+
+%% ---- Tier-4 batched dispatch (v2.1+): balanceCircular, evennessCircular ----
+%
+% These Monte-Carlo functions accept an nRows-by-K matrix and return
+% per-row column vectors. The new ``rngScope`` NV pair controls how
+% each row's RNG seed is derived from the base ``rngSeed``:
+%   'canonical' (default): derived from canonical-form key, so
+%      transposition-equivalent rows share an MC realisation; dedup
+%      works for sigma > 0.
+%   'row': derived from row index, so identical rows get distinct
+%      reproducible realisations; dedup is disabled.
+
+% --- balanceCircular: sigma = 0 (deterministic) ---
+P_b0 = [0, 4, 7; 0, 3, 7; 0, 4, 7];
+bVec0 = balanceCircular(P_b0, [], 12, 0);
+results{end+1,1} = 'balanceCircular batched sigma=0: returns nRows-by-1 vector';
+results{end,2}   = isnumeric(bVec0) && isequal(size(bVec0), [3, 1]);
+
+results{end+1,1} = 'balanceCircular batched sigma=0: matches scalar dispatch';
+results{end,2}   = abs(bVec0(2) - balanceCircular(P_b0(2, :)', [], 12, 0)) < 1e-12;
+
+results{end+1,1} = 'balanceCircular batched sigma=0: dedup (rows 1, 3 identical)';
+results{end,2}   = bVec0(1) == bVec0(3);
+
+[bVec0_, bStd0_] = balanceCircular(P_b0, [], 12, 0);
+results{end+1,1} = 'balanceCircular batched sigma=0: bStd is zero with two outputs';
+results{end,2}   = isequal(size(bStd0_), [3, 1]) && all(bStd0_ == 0);
+
+% NaN-padded
+P_b0_nan = [0, 4, 7, NaN; 0, 1, 5, 6; NaN, NaN, NaN, NaN];
+bNan = balanceCircular(P_b0_nan, [], 12, 0);
+results{end+1,1} = 'balanceCircular batched sigma=0: NaN-padded rows give NaN';
+results{end,2}   = ~isnan(bNan(1)) && ~isnan(bNan(2)) && isnan(bNan(3));
+
+% --- balanceCircular: sigma > 0 (Monte Carlo) ---
+
+% Canonical scope: identical inputs give identical MC results
+P_b1 = [0, 4, 7; 4, 0, 7; 0, 4, 7];
+bCanon = balanceCircular(P_b1, [], 12, 0.3, ...
+    'rngSeed', 42, 'rngScope', 'canonical');
+results{end+1,1} = 'balanceCircular batched MC canonical: identical inputs identical results';
+results{end,2}   = bCanon(1) == bCanon(2) && bCanon(1) == bCanon(3);
+
+% Different canonicals -> different results
+P_b2 = [0, 4, 7; 0, 3, 7];
+bDiff = balanceCircular(P_b2, [], 12, 0.3, ...
+    'rngSeed', 42, 'rngScope', 'canonical');
+results{end+1,1} = 'balanceCircular batched MC canonical: different scales give different results';
+results{end,2}   = bDiff(1) ~= bDiff(2);
+
+% Reproducibility across calls
+b_call_a = balanceCircular(P_b1, [], 12, 0.3, 'rngSeed', 42);
+b_call_b = balanceCircular(P_b1, [], 12, 0.3, 'rngSeed', 42);
+results{end+1,1} = 'balanceCircular batched MC: reproducible with same rngSeed';
+results{end,2}   = isequal(b_call_a, b_call_b);
+
+% Row scope: identical inputs give DIFFERENT realisations
+bRow = balanceCircular(P_b1, [], 12, 0.3, ...
+    'rngSeed', 42, 'rngScope', 'row');
+results{end+1,1} = 'balanceCircular batched MC row scope: identical inputs differ';
+results{end,2}   = bRow(1) ~= bRow(2) && bRow(2) ~= bRow(3) && bRow(1) ~= bRow(3);
+
+% Empty rngSeed in batched: within-call dedup still works
+bDedup = balanceCircular(P_b1, [], 12, 0.3);
+results{end+1,1} = 'balanceCircular batched MC: within-call dedup with empty rngSeed';
+results{end,2}   = bDedup(1) == bDedup(2) && bDedup(1) == bDedup(3);
+
+% --- evennessCircular: brief MC sanity ---
+P_e = [0, 4, 7; 4, 0, 7];
+eDedup = evennessCircular(P_e, 12, 0.3, 'rngSeed', 42, 'rngScope', 'canonical');
+results{end+1,1} = 'evennessCircular batched MC canonical: dedup works';
+results{end,2}   = eDedup(1) == eDedup(2);
+
+eRow = evennessCircular([0, 4, 7; 0, 4, 7], 12, 0.3, ...
+    'rngSeed', 42, 'rngScope', 'row');
+results{end+1,1} = 'evennessCircular batched MC row scope: identical inputs differ';
+results{end,2}   = eRow(1) ~= eRow(2);
+
 %% ---- Expectation tensors ----
 
 dens = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, ...
@@ -423,7 +710,7 @@ results{end+1,1} = 'cosSimExpTens batched: mismatched row counts errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(rand(4, 3), [], rand(5, 3), [], ...
         10, 1, false, true, 1200, 'verbose', false), ...
-    'cosSimExpTens:rowMismatch');
+    'MPT:CosSimBatched:RowMismatch');
 
 % --- List-mode broadcasting (v2.1.1+) ---
 % Build a small population of density structs.
@@ -610,7 +897,7 @@ H_smooth = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, 'sigma', 0.2);
 results{end+1,1} = 'nTupleEntropy: smoothing increases H';
 results{end,2}   = H_smooth > H_raw;
 
-H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12);
+H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12, 'verbose', false);
 results{end+1,1} = 'entropyExpTens: uniform ≈ 1';
 results{end,2}   = H > 0.95;
 
@@ -619,54 +906,54 @@ results{end,2}   = H > 0.95;
 % List mode: cell of density structs returns cell of entropy values
 de1 = buildExpTens([0, 4, 7], [], 50, 1, false, true, 1200, 'verbose', false);
 de2 = buildExpTens([0, 3, 7], [], 50, 1, false, true, 1200, 'verbose', false);
-HCell = entropyExpTens({de1, de2});
+HCell = entropyExpTens({de1, de2}, 'verbose', false);
 results{end+1,1} = 'entropyExpTens list: returns cell of correct length';
 results{end,2}   = iscell(HCell) && numel(HCell) == 2;
-H1 = entropyExpTens(de1);
-H2 = entropyExpTens(de2);
+H1 = entropyExpTens(de1, 'verbose', false);
+H2 = entropyExpTens(de2, 'verbose', false);
 results{end+1,1} = 'entropyExpTens list: matches scalar dispatch element-wise';
 results{end,2}   = abs(HCell{1} - H1) < 1e-14 ...
                    && abs(HCell{2} - H2) < 1e-14;
 
 % List mode: Option II (length-1 stays length-1)
-HCell1 = entropyExpTens({de1});
+HCell1 = entropyExpTens({de1}, 'verbose', false);
 results{end+1,1} = 'entropyExpTens list: length-1 returns length-1 cell';
 results{end,2}   = iscell(HCell1) && numel(HCell1) == 1;
 
 % List mode: name-value pairs forwarded
-HCellNorm = entropyExpTens({de1, de2}, 'normalize', false, 'base', exp(1));
-H1_nat = entropyExpTens(de1, 'normalize', false, 'base', exp(1));
+HCellNorm = entropyExpTens({de1, de2}, 'normalize', false, 'base', exp(1), 'verbose', false);
+H1_nat = entropyExpTens(de1, 'normalize', false, 'base', exp(1), 'verbose', false);
 results{end+1,1} = 'entropyExpTens list: name-value pairs forwarded';
 results{end,2}   = abs(HCellNorm{1} - H1_nat) < 1e-12;
 
 % List mode: non-struct entry errors
 results{end+1,1} = 'entropyExpTens list: non-struct entry errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() entropyExpTens({de1, [1, 2, 3]}), ...
+    @() entropyExpTens({de1, [1, 2, 3]}, 'verbose', false), ...
     'MPT:EntropyList:NonStruct');
 
 % Batched-raw mode: 2-D pitch matrix returns vector of entropies
 P_h = [0, 4, 7; 0, 3, 7];
-H_batched = entropyExpTens(P_h, [], 50, 1, false, true, 1200);
+H_batched = entropyExpTens(P_h, [], 50, 1, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens batched: returns vector of correct length';
 results{end,2}   = isnumeric(H_batched) && numel(H_batched) == 2;
 
 % Batched-raw matches scalar dispatch row-by-row
-H_row1 = entropyExpTens(P_h(1, :), [], 50, 1, false, true, 1200);
-H_row2 = entropyExpTens(P_h(2, :), [], 50, 1, false, true, 1200);
+H_row1 = entropyExpTens(P_h(1, :), [], 50, 1, false, true, 1200, 'verbose', false);
+H_row2 = entropyExpTens(P_h(2, :), [], 50, 1, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens batched: matches scalar dispatch row-by-row';
 results{end,2}   = abs(H_batched(1) - H_row1) < 1e-12 ...
                    && abs(H_batched(2) - H_row2) < 1e-12;
 
 % Batched-raw: NaN-padded rows
 P_h_nan = [0, 4, 7, NaN; 0, 3, 7, NaN];
-H_batched_nan = entropyExpTens(P_h_nan, [], 50, 1, false, true, 1200);
+H_batched_nan = entropyExpTens(P_h_nan, [], 50, 1, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens batched: NaN-padded rows match unpadded';
 results{end,2}   = max(abs(H_batched_nan - H_batched)) < 1e-14;
 
 % Batched-raw: insufficient pitches in a row gives NaN
 P_h_short = [0, 4, 7; 0, NaN, NaN];   % second row has only 1 valid pitch
-H_short = entropyExpTens(P_h_short, [], 50, 2, false, true, 1200);
+H_short = entropyExpTens(P_h_short, [], 50, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens batched: row with too few pitches returns NaN';
 results{end,2}   = ~isnan(H_short(1)) && isnan(H_short(2));
 
@@ -675,13 +962,13 @@ results{end,2}   = ~isnan(H_short(1)) && isnan(H_short(2));
 % r = 2, isRel = false: dim = 2. Build a periodic dyad density and
 % compute its entropy via the new Cartesian grid path.
 H_dim2_per = entropyExpTens([0, 4, 7], [], 100, 2, false, true, 1200, ...
-    'nPointsPerDim', 60);
+    'nPointsPerDim', 60, 'verbose', false);
 results{end+1,1} = 'entropyExpTens SA dim=2 periodic: returns finite value';
 results{end,2}   = isfinite(H_dim2_per) && H_dim2_per > 0 && H_dim2_per <= 1;
 
 % Non-periodic with explicit bounds
 H_dim2_nonper = entropyExpTens([0, 400, 700], [], 12, 2, false, false, 1200, ...
-    'xMin', -100, 'xMax', 800, 'nPointsPerDim', 60);
+    'xMin', -100, 'xMax', 800, 'nPointsPerDim', 60, 'verbose', false);
 results{end+1,1} = 'entropyExpTens SA dim=2 non-periodic: returns finite value';
 results{end,2}   = isfinite(H_dim2_nonper) && H_dim2_nonper > 0 && H_dim2_nonper <= 1;
 
@@ -689,12 +976,12 @@ results{end,2}   = isfinite(H_dim2_nonper) && H_dim2_nonper > 0 && H_dim2_nonper
 results{end+1,1} = 'entropyExpTens SA dim=2: gridLimit guard fires';
 results{end,2}   = throwsErrorWithId( ...
     @() entropyExpTens([0, 400, 700], [], 12, 2, false, true, 1200, ...
-        'nPointsPerDim', 1200, 'gridLimit', 1e3), ...
+        'nPointsPerDim', 1200, 'gridLimit', 1e3, 'verbose', false), ...
     'entropyExpTens:gridLimitExceeded');
 
 % Empty weights treated as uniform (same as buildExpTens convention)
-H_uni = entropyExpTens(0:11, [], 100, 1, false, true, 12);
-H_ones = entropyExpTens(0:11, ones(1, 12), 100, 1, false, true, 12);
+H_uni = entropyExpTens(0:11, [], 100, 1, false, true, 12, 'verbose', false);
+H_ones = entropyExpTens(0:11, ones(1, 12), 100, 1, false, true, 12, 'verbose', false);
 results{end+1,1} = 'entropyExpTens: w=[] equivalent to ones(1,N)';
 results{end,2}   = abs(H_uni - H_ones) < 1e-14;
 
@@ -1042,10 +1329,78 @@ results{end+1,1} = 'roughness: positive for nearby freqs';
 results{end,2}   = r > 0;
 
 spec = {'harmonic', 24, 'powerlaw', 1};
-H_ji = spectralEntropy([0, 386.31, 701.96], [], 12, 'spectrum', spec);
-H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec);
+H_ji = spectralEntropy([0, 386.31, 701.96], [], 12, 'spectrum', spec, 'verbose', false);
+H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'spectralEntropy: JI < EDO';
 results{end,2}   = H_ji < H_edo;
+
+% --- spectralEntropy 2-D batched dispatch (Bundle 2, v2.1+) ---
+P_se = [0, 386.31, 701.96; 0, 400, 700; 0, 100, 200];
+H_se_batch = spectralEntropy(P_se, [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'spectralEntropy batched: returns column vector of length nRows';
+results{end,2}   = isequal(size(H_se_batch), [3, 1]);
+
+% Per-row matches scalar
+H_se_row1 = spectralEntropy(P_se(1, :), [], 12, 'spectrum', spec, 'verbose', false);
+H_se_row2 = spectralEntropy(P_se(2, :), [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'spectralEntropy batched: matches scalar dispatch row-by-row';
+results{end,2}   = abs(H_se_batch(1) - H_se_row1) < 1e-12 ...
+                && abs(H_se_batch(2) - H_se_row2) < 1e-12;
+
+% Dedup: two rows that are transpositions of each other give identical entropy
+P_se_dup = [0, 400, 700; 100, 500, 800];   % row 2 = row 1 + 100
+H_se_dup = spectralEntropy(P_se_dup, [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'spectralEntropy batched: transposition dedup';
+results{end,2}   = abs(H_se_dup(1) - H_se_dup(2)) < 1e-12;
+
+% NaN-padded variable cardinality
+P_se_pad = [0, 400, 700, NaN; 0, 1200, NaN, NaN; 0, 300, 600, 900];
+H_se_pad = spectralEntropy(P_se_pad, [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'spectralEntropy batched: NaN-padded cardinality OK';
+results{end,2}   = all(~isnan(H_se_pad)) && isequal(size(H_se_pad), [3, 1]);
+
+% All-NaN row returns NaN
+P_se_allnan = [0, 400, 700; NaN, NaN, NaN];
+H_se_allnan = spectralEntropy(P_se_allnan, [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'spectralEntropy batched: all-NaN row returns NaN';
+results{end,2}   = ~isnan(H_se_allnan(1)) && isnan(H_se_allnan(2));
+
+% Verbose printing tests
+% Note (commit 14+): estimateCompTime default minPrintSec is 10,
+% so verbose=true
+% for typical fast inputs is silent. The print path itself is exercised
+% via the batched-mode tests below and via direct estimateCompTime tests.
+outSEScalar = evalc('spectralEntropy([0, 400, 700], [], 12, ''spectrum'', spec, ''verbose'', true);');
+results{end+1,1} = 'spectralEntropy scalar: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outSEScalar));
+
+outSEScalarSilent = evalc('spectralEntropy([0, 400, 700], [], 12, ''spectrum'', spec, ''verbose'', false);');
+results{end+1,1} = 'spectralEntropy scalar: verbose=false silent';
+results{end,2}   = isempty(strtrim(outSEScalarSilent));
+
+outSEBatch = evalc('spectralEntropy(P_se, [], 12, ''spectrum'', spec, ''verbose'', true);');
+results{end+1,1} = 'spectralEntropy batched: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outSEBatch));
+
+% --- entropyExpTens batched verbose (Bundle 2) ---
+P_ee = [0, 100, 200, 300; 0, 200, 400, 600; 0, 100, 200, 300];
+outEEBatch = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
+    '''xMin'', 0, ''xMax'', 600, ''verbose'', true);']);
+results{end+1,1} = 'entropyExpTens batched: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outEEBatch));
+
+outEEBatchSilent = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
+    '''xMin'', 0, ''xMax'', 600, ''verbose'', false);']);
+results{end+1,1} = 'entropyExpTens batched: verbose=false silent';
+results{end,2}   = isempty(strtrim(outEEBatchSilent));
+
+% Numerical results unchanged by verbose flag
+H_ee_v = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
+    'xMin', 0, 'xMax', 600, 'verbose', true);
+H_ee_q = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
+    'xMin', 0, 'xMax', 600, 'verbose', false);
+results{end+1,1} = 'entropyExpTens batched: verbose flag does not affect outputs';
+results{end,2}   = isequaln(H_ee_v, H_ee_q);
 
 [hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
 results{end+1,1} = 'templateHarmonicity: hMax in (0,1]';
@@ -1067,35 +1422,35 @@ results{end+1,1} = 'templateHarmonicity: hEntropy major triad < cluster';
 results{end,2}   = hEnt_maj < hEnt_clu;
 
 spec = {'harmonic', 12, 'powerlaw', 1};
-h_uni = tensorHarmonicity([0, 0], [], 12, 'spectrum', spec);
-h_tri = tensorHarmonicity([0, 600], [], 12, 'spectrum', spec);
+h_uni = tensorHarmonicity([0, 0], [], 12, 'spectrum', spec, 'verbose', false);
+h_tri = tensorHarmonicity([0, 600], [], 12, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity: unison > tritone';
 results{end,2}   = h_uni > h_tri;
 
 % -- tensorHarmonicity: ordered ranking
 % octave (2:1) > perfect 5th (3:2) > major triad (4:5:6) > minor triad --
-h_oct  = tensorHarmonicity([0, 1200],     [], 12, 'spectrum', spec);
-h_p5   = tensorHarmonicity([0, 700],      [], 12, 'spectrum', spec);
-h_maj  = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec);
-h_min  = tensorHarmonicity([0, 300, 700], [], 12, 'spectrum', spec);
+h_oct  = tensorHarmonicity([0, 1200],     [], 12, 'spectrum', spec, 'verbose', false);
+h_p5   = tensorHarmonicity([0, 700],      [], 12, 'spectrum', spec, 'verbose', false);
+h_maj  = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', false);
+h_min  = tensorHarmonicity([0, 300, 700], [], 12, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity: octave > P5 > major > minor';
 results{end,2}   = (h_oct > h_p5) && (h_p5 > h_maj) && (h_maj > h_min);
 
-[vp_p, vp_w] = virtualPitches([0, 400, 700], [], 12);
+[vp_p, vp_w] = virtualPitches([0, 400, 700], [], 12, 'verbose', false);
 results{end+1,1} = 'virtualPitches: non-empty';
 results{end,2}   = numel(vp_p) > 0;
 results{end+1,1} = 'virtualPitches: lengths match';
 results{end,2}   = numel(vp_p) == numel(vp_w);
 
 % -- virtualPitches: peak of a single pitch sits at the pitch itself --
-[vp_p1, vp_w1] = virtualPitches(400, [], 12);
+[vp_p1, vp_w1] = virtualPitches(400, [], 12, 'verbose', false);
 [~, i_max1] = max(vp_w1);
 results{end+1,1} = 'virtualPitches: single pitch peak at the pitch';
 results{end,2}   = abs(vp_p1(i_max1) - 400) < 5;
 
 % -- virtualPitches: peak of an octave dyad at the lower note
 % (partials 1 and 2 of a template at 0 align with both chord notes) --
-[vp_p2, vp_w2] = virtualPitches([0, 1200], [], 12);
+[vp_p2, vp_w2] = virtualPitches([0, 1200], [], 12, 'verbose', false);
 [~, i_max2] = max(vp_w2);
 results{end+1,1} = 'virtualPitches: octave peak at lower note';
 results{end,2}   = abs(vp_p2(i_max2)) < 5;
@@ -1111,14 +1466,14 @@ P_th = [0, 1200,  NaN;
         0, 400,   700;
         0, 300,   700];
 spec_th = {'harmonic', 12, 'powerlaw', 1};
-h_th = tensorHarmonicity(P_th, [], 12, 'spectrum', spec_th);
+h_th = tensorHarmonicity(P_th, [], 12, 'spectrum', spec_th, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity batched: returns column vector of correct length';
 results{end,2}   = isnumeric(h_th) && isequal(size(h_th), [3, 1]);
 
 % Matches scalar dispatch row-by-row (NaN dropped per row)
-h_oct  = tensorHarmonicity([0, 1200],     [], 12, 'spectrum', spec_th);
-h_maj3 = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th);
-h_min3 = tensorHarmonicity([0, 300, 700], [], 12, 'spectrum', spec_th);
+h_oct  = tensorHarmonicity([0, 1200],     [], 12, 'spectrum', spec_th, 'verbose', false);
+h_maj3 = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th, 'verbose', false);
+h_min3 = tensorHarmonicity([0, 300, 700], [], 12, 'spectrum', spec_th, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity batched: matches scalar dispatch row-by-row';
 results{end,2}   = abs(h_th(1) - h_oct)  < 1e-12 ...
                    && abs(h_th(2) - h_maj3) < 1e-12 ...
@@ -1130,9 +1485,36 @@ results{end,2}   = h_th(1) > h_th(2) && h_th(2) > h_th(3);
 
 % Row with fewer than 2 valid pitches returns NaN
 P_th_short = [0, 400, 700;  NaN, NaN, NaN; 0, NaN, NaN];   % row 2 empty, row 3 has 1
-h_th_short = tensorHarmonicity(P_th_short, [], 12, 'spectrum', spec_th);
+h_th_short = tensorHarmonicity(P_th_short, [], 12, 'spectrum', spec_th, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity batched: insufficient pitches return NaN';
 results{end,2}   = ~isnan(h_th_short(1)) && isnan(h_th_short(2)) && isnan(h_th_short(3));
+
+% --- tensorHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
+% Scalar verbose=true forwards to buildExpTens, which prints its own estimate.
+outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
+    '''spectrum'', spec, ''verbose'', true);']);
+results{end+1,1} = 'tensorHarmonicity scalar: verbose=true prints something';
+results{end,2}   = ~isempty(strtrim(outScalarVerb));
+
+outScalarSilent = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
+    '''spectrum'', spec, ''verbose'', false);']);
+results{end+1,1} = 'tensorHarmonicity scalar: verbose=false silent';
+results{end,2}   = isempty(strtrim(outScalarSilent));
+
+outBatchVerb = evalc(['tensorHarmonicity(P_th, [], 12, ''spectrum'', spec_th, ' ...
+    '''verbose'', true);']);
+results{end+1,1} = 'tensorHarmonicity batched: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outBatchVerb));
+
+outBatchSilent = evalc(['tensorHarmonicity(P_th, [], 12, ''spectrum'', spec_th, ' ...
+    '''verbose'', false);']);
+results{end+1,1} = 'tensorHarmonicity batched: verbose=false silent';
+results{end,2}   = isempty(strtrim(outBatchSilent));
+
+[hA] = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', true);
+[hB] = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', false);
+results{end+1,1} = 'tensorHarmonicity: verbose flag does not affect outputs';
+results{end,2}   = (hA == hB);
 
 % templateHarmonicity batched
 [hMax_b, hEnt_b] = templateHarmonicity(P_th, [], 12, 'verbose', false);
@@ -1151,29 +1533,29 @@ results{end,2}   = abs(hMax_b(1) - hMax_oct)  < 1e-12 ...
                    && abs(hEnt_b(2) - hEnt_maj3) < 1e-12;
 
 % --- templateHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
+% Note (commit 14+): estimateCompTime default minPrintSec is 10,
+% so verbose=true
+% for fast inputs is silent.
 
-% Scalar verbose=true prints an estimate line via estimateCompTime
+% Scalar verbose=true is silent for typical fast inputs (sub-half-sec)
 outScalarVerb = evalc('templateHarmonicity([0, 400, 700], [], 12, ''verbose'', true);');
-results{end+1,1} = 'templateHarmonicity scalar: verbose=true prints estimate';
-results{end,2}   = contains(outScalarVerb, 'templateHarmonicity') ...
-                && contains(outScalarVerb, 'estimated time');
+results{end+1,1} = 'templateHarmonicity scalar: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outScalarVerb));
 
 % Scalar verbose=false suppresses output entirely
 outScalarSilent = evalc('templateHarmonicity([0, 400, 700], [], 12, ''verbose'', false);');
 results{end+1,1} = 'templateHarmonicity scalar: verbose=false silent';
 results{end,2}   = isempty(strtrim(outScalarSilent));
 
-% Default verbose is true (parity with evalExpTens / cosSimExpTens)
+% Default verbose is true but fast scalar still silent under threshold
 outDefault = evalc('templateHarmonicity([0, 400, 700], [], 12);');
-results{end+1,1} = 'templateHarmonicity scalar: default verbose=true';
-results{end,2}   = contains(outDefault, 'estimated time');
+results{end+1,1} = 'templateHarmonicity scalar: default verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outDefault));
 
-% Batched verbose=true prints "batched, N rows" once
+% Batched verbose=true silent for fast call (new contract: 10s threshold)
 outBatchVerb = evalc('templateHarmonicity([0, 400, 700; 0, 300, 700; 0, 300, 600], [], 12, ''verbose'', true);');
-results{end+1,1} = 'templateHarmonicity batched: verbose=true prints rows count';
-results{end,2}   = contains(outBatchVerb, 'batched') ...
-                && contains(outBatchVerb, '3 rows') ...
-                && contains(outBatchVerb, 'estimated time');
+results{end+1,1} = 'templateHarmonicity batched: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outBatchVerb));
 
 % Batched verbose=false silent
 outBatchSilent = evalc('templateHarmonicity([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', false);');
@@ -1196,15 +1578,15 @@ results{end,2}   = isequal(size(hMax_n), [3, 1]) && all(isnan(hMax_n)) ...
                 && isequal(size(hEnt_n), [3, 1]) && all(isnan(hEnt_n));
 
 % virtualPitches batched: cell-of-arrays output
-[vp_pcell, vp_wcell] = virtualPitches(P_th, [], 12);
+[vp_pcell, vp_wcell] = virtualPitches(P_th, [], 12, 'verbose', false);
 results{end+1,1} = 'virtualPitches batched: vp_p is 1-by-nRows cell';
 results{end,2}   = iscell(vp_pcell) && isequal(size(vp_pcell), [1, 3]);
 results{end+1,1} = 'virtualPitches batched: vp_w is 1-by-nRows cell';
 results{end,2}   = iscell(vp_wcell) && isequal(size(vp_wcell), [1, 3]);
 
 % Each cell entry matches scalar dispatch
-[vp_p_oct,  vp_w_oct]  = virtualPitches([0, 1200],     [], 12);
-[vp_p_maj,  vp_w_maj]  = virtualPitches([0, 400, 700], [], 12);
+[vp_p_oct,  vp_w_oct]  = virtualPitches([0, 1200],     [], 12, 'verbose', false);
+[vp_p_maj,  vp_w_maj]  = virtualPitches([0, 400, 700], [], 12, 'verbose', false);
 results{end+1,1} = 'virtualPitches batched: cell entries match scalar dispatch';
 results{end,2}   = numel(vp_pcell{1}) == numel(vp_p_oct) ...
                    && max(abs(vp_pcell{1} - vp_p_oct)) < 1e-12 ...
@@ -1215,21 +1597,90 @@ results{end,2}   = numel(vp_pcell{1}) == numel(vp_p_oct) ...
 P_clean = [0, 1200; 0, 400; 0, 300];   % no NaN padding (cardinality 2)
 P_padded = [0, 1200, NaN; 0, 400, NaN; 0, 300, NaN];
 spec_simple = {'harmonic', 12, 'powerlaw', 1};
-h_clean  = tensorHarmonicity(P_clean,  [], 12, 'spectrum', spec_simple);
-h_padded = tensorHarmonicity(P_padded, [], 12, 'spectrum', spec_simple);
+h_clean  = tensorHarmonicity(P_clean,  [], 12, 'spectrum', spec_simple, 'verbose', false);
+h_padded = tensorHarmonicity(P_padded, [], 12, 'spectrum', spec_simple, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity batched: NaN-padded rows match unpadded';
 results{end,2}   = max(abs(h_clean - h_padded)) < 1e-12;
 
 % Scalar (vector) input still dispatches to scalar path
-h_scalar_check = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th);
+h_scalar_check = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity scalar: row vector still works (backward compat)';
 results{end,2}   = isscalar(h_scalar_check) && abs(h_scalar_check - h_maj3) < 1e-14;
+
+% --- virtualPitches verbose / estimateCompTime integration (v2.1.1+) ---
+% Note (commit 14+): estimateCompTime default minPrintSec is 10,
+% so verbose=true
+% for fast inputs is silent.
+outVPScalarVerb = evalc('virtualPitches([0, 400, 700], [], 12, ''verbose'', true);');
+results{end+1,1} = 'virtualPitches scalar: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outVPScalarVerb));
+
+outVPScalarSilent = evalc('virtualPitches([0, 400, 700], [], 12, ''verbose'', false);');
+results{end+1,1} = 'virtualPitches scalar: verbose=false silent';
+results{end,2}   = isempty(strtrim(outVPScalarSilent));
+
+outVPDefault = evalc('virtualPitches([0, 400, 700], [], 12);');
+results{end+1,1} = 'virtualPitches scalar: default verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outVPDefault));
+
+outVPBatchVerb = evalc('virtualPitches([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', true);');
+results{end+1,1} = 'virtualPitches batched: verbose=true silent for fast call';
+results{end,2}   = isempty(strtrim(outVPBatchVerb));
+
+outVPBatchSilent = evalc('virtualPitches([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', false);');
+results{end+1,1} = 'virtualPitches batched: verbose=false silent';
+results{end,2}   = isempty(strtrim(outVPBatchSilent));
+
+[vp_pA, vp_wA] = virtualPitches([0, 400, 700], [], 12, 'verbose', true);
+[vp_pB, vp_wB] = virtualPitches([0, 400, 700], [], 12, 'verbose', false);
+results{end+1,1} = 'virtualPitches: verbose flag does not affect outputs';
+results{end,2}   = isequal(vp_pA, vp_pB) && isequal(vp_wA, vp_wB);
 
 %% ---- estimateCompTime ----
 
 est = estimateCompTime(1000, 2, 'test');
 results{end+1,1} = 'estimateCompTime: positive';
 results{end,2}   = est > 0;
+
+% Default threshold (10 s): tiny work doesn't print
+outTinyEC = evalc('estimateCompTime(100, 1, ''tinywork'', true);');
+results{end+1,1} = 'estimateCompTime: default threshold suppresses sub-10s estimates';
+results{end,2}   = isempty(strtrim(outTinyEC));
+
+% Pass minPrintSec=0 to recover always-print behaviour
+outZeroEC = evalc('estimateCompTime(100, 1, ''tinywork'', true, 0);');
+results{end+1,1} = 'estimateCompTime: minPrintSec=0 prints regardless of size';
+results{end,2}   = contains(outZeroEC, 'tinywork');
+
+% Every printed estimate carries the Ctrl+C suffix
+outPrintedEC = evalc('estimateCompTime(100, 1, ''tinywork'', true, 0);');
+results{end+1,1} = 'estimateCompTime: printed estimate includes Ctrl+C suffix';
+results{end,2}   = contains(outPrintedEC, '(Ctrl+C to cancel)');
+
+%% ---- printBatchedEstimate ----
+
+% Default threshold (10 s): short estimate suppressed
+outShortPB = evalc('printBatchedEstimate(''foo'', 100, 5.0);');
+results{end+1,1} = 'printBatchedEstimate: 5 s < 10 s default threshold is silent';
+results{end,2}   = isempty(strtrim(outShortPB));
+
+% Long estimate prints
+outLongPB = evalc('printBatchedEstimate(''foo'', 100, 30.0);');
+results{end+1,1} = 'printBatchedEstimate: 30 s > 10 s threshold prints';
+results{end,2}   = contains(outLongPB, 'foo') ...
+                && contains(outLongPB, 'batched, 100 rows') ...
+                && contains(outLongPB, 'estimated time') ...
+                && contains(outLongPB, '(Ctrl+C to cancel)');
+
+% verbose=false silences regardless
+outFalsePB = evalc('printBatchedEstimate(''foo'', 100, 30.0, false);');
+results{end+1,1} = 'printBatchedEstimate: verbose=false silences large estimates';
+results{end,2}   = isempty(strtrim(outFalsePB));
+
+% Explicit minPrintSec=0 prints sub-10s
+outZeroPB = evalc('printBatchedEstimate(''foo'', 100, 0.05, true, 0);');
+results{end+1,1} = 'printBatchedEstimate: minPrintSec=0 prints regardless';
+results{end,2}   = contains(outZeroPB, 'foo') && contains(outZeroPB, '50 ms');
 
 %% ---- Input validation ----
 
@@ -1885,18 +2336,18 @@ results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_p, 'verbose', false));
 p_e = [0; 4; 7];
 w_e = [1; 1; 1];
 H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, true, 12, ...
-    'nPointsPerDim', 400);
+    'nPointsPerDim', 400, 'verbose', false);
 H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, [], false, true, 12, ...
-    'nPointsPerDim', 400);
+    'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: SA-equivalence periodic';
 results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 
 % -- entropyExpTens MA: SA-equivalence non-periodic --
 
 H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, false, 0, ...
-    'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400);
+    'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
 H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, [], false, false, 0, ...
-    'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400);
+    'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: SA-equivalence non-periodic';
 results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 
@@ -1904,16 +2355,16 @@ results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 
 p_uniform = (0:11).';
 H_u = entropyExpTens({p_uniform}, [], 100, 1, [], false, true, 12, ...
-    'nPointsPerDim', 400);
+    'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: uniform chromatic near 1';
 results{end,2}   = H_u > 0.95;
 
 % -- entropyExpTens MA: concentrated below uniform --
 
 H_one = entropyExpTens({5}, [], 20, 1, [], false, true, 12, ...
-    'nPointsPerDim', 400);
+    'nPointsPerDim', 400, 'verbose', false);
 H_all = entropyExpTens({p_uniform}, [], 20, 1, [], false, true, 12, ...
-    'nPointsPerDim', 400);
+    'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: concentrated < uniform';
 results{end,2}   = H_one < H_all;
 
@@ -1927,7 +2378,7 @@ densE = buildExpTens({pitchE, timeE}, [], ...
 results{end+1,1} = 'entropyExpTens MA: dim == 2 (r=2 pitch + r=1 time)';
 results{end,2}   = densE.dim == 2;
 H_pt = entropyExpTens(densE, ...
-    'xMin', -0.5, 'xMax', 1.5, 'nPointsPerDim', 80);
+    'xMin', -0.5, 'xMax', 1.5, 'nPointsPerDim', 80, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: pitch+time H in (0,1)';
 results{end,2}   = H_pt > 0 && H_pt < 1;
 
@@ -1935,20 +2386,20 @@ results{end,2}   = H_pt > 0 && H_pt < 1;
 
 results{end+1,1} = 'entropyExpTens MA: grid-limit exceeded errors';
 results{end,2}   = throwsError(@() entropyExpTens(densE, ...
-    'xMin', 0, 'xMax', 2, 'nPointsPerDim', 20000, 'gridLimit', 1e6));
+    'xMin', 0, 'xMax', 2, 'nPointsPerDim', 20000, 'gridLimit', 1e6, 'verbose', false));
 
 % -- entropyExpTens MA: missing bounds error --
 
 results{end+1,1} = 'entropyExpTens MA: missing non-periodic bounds errors';
 results{end,2}   = throwsError(@() entropyExpTens({p_e}, [], 10, 1, [], ...
-    false, false, 0, 'nPointsPerDim', 100));
+    false, false, 0, 'nPointsPerDim', 100, 'verbose', false));
 
 % -- entropyExpTens MA: per-group bounds vector matches scalar --
 
 H_scalar = entropyExpTens(densE, ...
-    'xMin', -0.5, 'xMax', 1.5, 'nPointsPerDim', 60);
+    'xMin', -0.5, 'xMax', 1.5, 'nPointsPerDim', 60, 'verbose', false);
 H_vec = entropyExpTens(densE, ...
-    'xMin', [NaN, -0.5], 'xMax', [NaN, 1.5], 'nPointsPerDim', 60);
+    'xMin', [NaN, -0.5], 'xMax', [NaN, 1.5], 'nPointsPerDim', 60, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: per-group bounds vector == scalar';
 results{end,2}   = abs(H_scalar - H_vec) < 1e-12;
 
@@ -2212,19 +2663,19 @@ results{end,2}   = throwsError(@() cosSimExpTens(dens_mr, wmd_mr_rr, 'verbose', 
 
 % -- windowTensor: entropy on rect-windowed multi-D rel works --
 
-H_mr_rect = entropyExpTens(wmd_mr_rect, 'nPointsPerDim', 20);
+H_mr_rect = entropyExpTens(wmd_mr_rect, 'nPointsPerDim', 20, 'verbose', false);
 results{end+1,1} = 'windowTensor: entropy on rect-windowed multi-D rel runs';
 results{end,2}   = isfinite(H_mr_rect);
 
 % -- windowTensor: narrower window yields lower entropy --
 
 H_base = entropyExpTens(dens_w, 'xMin', [0, -1], 'xMax', [1200, 4], ...
-                         'nPointsPerDim', 60);
+                         'nPointsPerDim', 60, 'verbose', false);
 spec_ew = struct('size', [Inf, 0.3], 'mix', [0, 0], ...
                  'centre', {{zeros(1, 1), 1.0}});
 wmd_ew = windowTensor(dens_w, spec_ew);
 H_narrow = entropyExpTens(wmd_ew, 'xMin', [0, -1], 'xMax', [1200, 4], ...
-                           'nPointsPerDim', 60);
+                           'nPointsPerDim', 60, 'verbose', false);
 results{end+1,1} = 'windowTensor: narrower window => lower entropy';
 results{end,2}   = H_narrow < H_base;
 

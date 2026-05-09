@@ -113,9 +113,19 @@ function [c, nc] = coherence(p, period, sigma, nvArgs)
 %       11, 199-234.
 %
 %   See also sameness.
+%
+%   Batched (v2.1+):
+%   [cVec, ncVec] = coherence(P, period, sigma) with P an
+%   nRows-by-K matrix returns nRows-by-1 column vectors of per-row
+%   results. NaN-padded rows are accepted; rows with no valid
+%   pitches give NaN entries. Per-row dedup is over **permutation,
+%   period, and transposition** symmetries, via the necklace
+%   canonical form of the cyclic adjacent intervals — coherence is
+%   fully transposition-invariant on the circle in both 'position'
+%   and 'interval' modes.
 
     arguments
-        p (:,1) {mustBeNumeric, mustBeNonnegative}
+        p {mustBeNumeric}
         period (1,1) {mustBePositive}
         sigma (1,1) {mustBeNumeric, mustBeNonnegative} = 0
         nvArgs.strict (1,1) logical = true
@@ -124,6 +134,19 @@ function [c, nc] = coherence(p, period, sigma, nvArgs)
             = 'position'
     end
 
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % multisets and return nRows-by-1 column vectors.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [c, nc] = localBatchedCoherence(p, period, sigma, nvArgs);
+        return;
+    end
+
+    p = p(:);
+    if any(p < 0)
+        error('coherence:negativePitch', ...
+            'p must contain only nonnegative values.');
+    end
     p = sort(mod(p, period));
     K = numel(p);
 
@@ -209,4 +232,85 @@ function [c, nc] = coherence(p, period, sigma, nvArgs)
 
     maxNC = K * (K - 1) * (K - 2) * (3*K - 5) / 24;
     c = 1 - nc / maxNC;
+end
+
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [cVec, ncVec] = localBatchedCoherence(P, period, sigma, nvArgs)
+%LOCALBATCHEDCOHERENCE Per-row coherence from a 2-D pitch matrix.
+%
+%   Per-row dedup uses the necklace canonical form of cyclic adjacent
+%   intervals — collapses **permutation, period, and transposition**
+%   onto a single cached result. (Coherence is fully transposition-
+%   invariant on the circle in both 'position' and 'interval' modes.)
+
+    nRows = size(P, 1);
+    cVec = nan(nRows, 1);
+    ncVec = nan(nRows, 1);
+
+    cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if isempty(pK)
+            continue;
+        end
+        if any(pK < 0)
+            error('coherence:negativePitch', ...
+                'Row %d contains negative pitches; all valid (non-NaN) entries must be nonnegative.', k);
+        end
+
+        pCanon = sort(mod(pK(:), period));
+        keyStr = localNecklaceKey(pCanon, period);
+
+        if isKey(cache, keyStr)
+            stored = cache(keyStr);
+            cVec(k)  = stored(1);
+            ncVec(k) = stored(2);
+            continue;
+        end
+
+        [ck, nck] = coherence(pK(:), period, sigma, ...
+            'strict', nvArgs.strict, 'sigmaSpace', nvArgs.sigmaSpace);
+        cVec(k)  = ck;
+        ncVec(k) = nck;
+        cache(keyStr) = [ck, nck];
+    end
+end
+
+
+function keyStr = localNecklaceKey(pSortedMod, period)
+%LOCALNECKLACEKEY Necklace canonical form of cyclic adjacent intervals.
+%
+%   Returns a char-array cache key built from the lex-min rotation of
+%   the cyclic adjacent intervals around the circle. Two pitch
+%   multisets that are transpositions of each other on the circle map
+%   to the same key.
+
+    K = numel(pSortedMod);
+    if K == 0
+        keyStr = '';
+        return;
+    end
+    if K == 1
+        keyStr = sprintf('%.12g,', period);
+        return;
+    end
+    intervals = [diff(pSortedMod(:)); period - pSortedMod(end) + pSortedMod(1)];
+    bestRot = intervals;
+    for i = 2:K
+        rot = [intervals(i:end); intervals(1:i-1)];
+        % Lex comparison of two equal-length numeric vectors.
+        diffVec = rot - bestRot;
+        firstDiff = find(diffVec ~= 0, 1, 'first');
+        if ~isempty(firstDiff) && diffVec(firstDiff) < 0
+            bestRot = rot;
+        end
+    end
+    keyStr = sprintf('%.12g,', bestRot);
 end

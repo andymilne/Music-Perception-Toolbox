@@ -1,0 +1,15 @@
+MA rel_nonper r=2 K=4 N=4 A=2 (10 seeds, comparing windows)
+  window   samples/σ     med_rel     max_rel
+    4.0σ          10    5.04e-08    5.00e-07
+    6.0σ          10    7.44e-13    1.37e-11
+    8.0σ          10    9.36e-16    1.62e-15
+   10.0σ          10    1.11e-15    1.62e-15
+   12.0σ          10    9.36e-16    1.50e-15
+   16.0σ          10    8.52e-16    1.39e-15
+    8.0σ           5    1.12e-15    1.73e-15
+   12.0σ           5    1.04e-15    1.67e-15
+
+Same but at r=3 K=4 N=4 A=2 (sanity, expect FP at any window):
+    4.0σ          10    3.41e-15    6.11e-13
+    6.0σ          10    1.84e-15    8.68e-15
+    8.0σ          10    2.27e-15    1.06e-14

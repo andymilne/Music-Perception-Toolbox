@@ -1,0 +1,9 @@
+rel_per orbit self-consistency at varied σ/P
+(orbit at sps=10 vs orbit at sps=50 — if trapezoid converges, agreement is FP)
+     σ    σ/P |        sps=10        sps=50   rel diff
+    50  0.042 |  1.723597e+03  1.723597e+03   0.00e+00
+   100  0.083 |  6.702526e+03  6.702526e+03   1.72e-08
+   200  0.167 |  2.468772e+04  2.468776e+04   1.27e-06
+   400  0.333 |  5.344294e+04  5.344295e+04   1.60e-07
+   800  0.667 |  6.902010e+04  6.901978e+04   4.70e-06
+  1200  1.000 |  7.260811e+04  7.260811e+04   0.00e+00

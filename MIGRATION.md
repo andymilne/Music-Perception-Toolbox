@@ -115,6 +115,80 @@ Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under pos
 
 `centPhase` is preserved in expectation (the argument of $E[\widetilde{F}(0)]$ equals the argument of $F(0)$).
 
+### Unified dispatch on `evalExpTens`, `cosSimExpTens`, `entropyExpTens`
+
+In v2.1.0, the three core entry points are polymorphic. Each accepts:
+
+- a single density object (the v2.0 case);
+- raw arguments for a single multiset (the v2.0 case);
+- a cell array (MATLAB) or list (Python) of density objects (new "list mode");
+- a 2-D pitch matrix with both dimensions > 1 (new "batched-raw mode").
+
+All forms produce byte-identical results to v2.0 for the v2.0 calling conventions; the new modes are dispatched on input shape and never collide with the existing paths.
+
+```matlab
+% v2.0 — still works in v2.1
+s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
+
+% v2.1 — list mode (single context against many candidates)
+densCtx = buildExpTens(pCtx, wCtx, sigma, r, isRel, isPer, period);
+densCands = arrayfun(@(i) buildExpTens(pCands{i}, wCands{i}, sigma, r, isRel, isPer, period), ...
+                     1:nCands, 'UniformOutput', false);
+sims = cosSimExpTens(densCtx, densCands);   % 1-by-nCands cell
+
+% v2.1 — batched-raw mode (paired multisets row-by-row)
+sims = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period);   % length-nRows vector
+```
+
+```python
+# v2.0 — still works in v2.1
+s = mpt.cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)
+
+# v2.1 — list mode
+dens_ctx = mpt.build_exp_tens(p_ctx, w_ctx, sigma, r, is_rel, is_per, period)
+dens_cands = [mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period) for p, w in cands]
+sims = mpt.cos_sim_exp_tens(dens_ctx, dens_cands)   # length-n_cands ndarray
+
+# v2.1 — batched-raw mode
+sims = mpt.cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
+```
+
+The batched-raw mode also supports broadcasting: when one of `P1` / `P2` is an `M`-by-`K` matrix and the other is a length-`K` vector, the vector is broadcast across the matrix's rows. Eliminates the `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference against many candidates" use case.
+
+In Python list × list mode, an additional `mode='cartesian'` returns the full `m`-by-`n` cross-product as a 2-D ndarray; MATLAB list mode is currently pairwise-only (with scalar broadcast).
+
+### Deprecated entry points
+
+The following function names are deprecated in v2.1 and emit warnings on direct use. They continue to work, forwarding to the unified entry points:
+
+| Deprecated (v2.0)              | v2.1 replacement                                                       | Migration |
+|:-------------------------------|:-----------------------------------------------------------------------|:----------|
+| `batchCosSimExpTens` (MATLAB)  | `cosSimExpTens` batched-raw mode                                       | Move weights from name-value pairs to positional arguments after each pitch matrix; pass `[]` for uniform |
+| `batch_cos_sim_exp_tens` (Python) | `cos_sim_exp_tens` batched-raw mode                                 | Same as above; `weights_a` / `weights_b` keyword-only → positional `w1` / `w2` |
+| `cos_sim_exp_tens_raw` (Python) | `cos_sim_exp_tens`                                                    | Single-line edit: drop the `_raw` suffix |
+| `eval_exp_tens_raw` (Python)   | `eval_exp_tens`                                                        | Single-line edit: drop the `_raw` suffix |
+
+The deprecation warnings will be emitted for at least one minor release before removal.
+
+### Batched-input dispatch on harmony, DFT, and structural families
+
+The following functions gained batched-input dispatch in v2.1.0 and are fully backward-compatible at the v2.0 1-D calling convention. Pass a 2-D pitch matrix (rows are multisets) to get per-row results:
+
+- **Harmony / consonance:** `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, `spectralEntropy`.
+- **DFT-equivariant:** `dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`.
+- **Structural:** `coherence`, `sameness`, `nTupleEntropy`.
+- **Monte Carlo:** `balanceCircular`, `evennessCircular` (with new `rngScope` name-value).
+
+NaN-padded rows are accepted for variable-cardinality inputs. Per-row dedup uses a canonical-form key matched to each function's invariance class — see the CHANGELOG for the per-family details.
+
+### Verbose / time-estimate options on harmony and entropy wrappers
+
+`templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyExpTens` (SA batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
+
+### `windowedCosSim` → `windowedSimilarity`
+
+The original draft name `windowedCosSim` (MATLAB) / `windowed_cos_sim` (Python) is renamed to `windowedSimilarity` / `windowed_similarity` in v2.1.0. The output is a magnitude-aware *windowed similarity*, not a cosine similarity in the strict sense — the unwindowed denominator means it is not bounded in $[-1, 1]$ across sweep positions. The strict shape-only cosine form is reserved as a separate notion in the manuscript and is not currently implemented in the toolbox. Affects only callers of dev-branch builds prior to v2.1.0 release; v2.0.0 was unaffected (the function did not exist there).
+
 ### Summary of breaking changes
 
 - `nTupleEntropy` at `sigma > 0`: default semantics changed from interval-space to position-space. Pass `sigmaSpace = 'interval'` for v2.0 numerical equivalence.

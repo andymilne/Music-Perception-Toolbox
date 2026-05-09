@@ -139,12 +139,20 @@ end
 % (one per upper-triangle entry, j >= i) and compute each feature once
 % per unique pair, then mirror into the symmetric output matrix.
 %
-% v2.1 update: tensor harmonicity and template harmonicity are now
-% computed in single batched calls (one evalExpTens with a stacked
-% query matrix; one templateHarmonicity with a stacked chord matrix),
-% which is dramatically faster than per-triad evaluation. Spectral
-% entropy and roughness do not yet support batched-input dispatch, so
-% they remain in an explicit loop with progress reporting.
+% Loop structure: each unique triad {0, ints(i), ints(j)} (j >= i) is
+% computed once and mirrored into the symmetric (nInts x nInts) result
+% grids. The upper-triangle pattern is recommended for *roughness*,
+% which has no batched-input dispatch and no internal dedup — every
+% iteration of its loop does the full computation from scratch, so
+% halving the iteration count halves the actual work. For the three
+% batched features (tensor harmonicity via evalExpTens, template
+% harmonicity, and spectral entropy), the upper triangle is a
+% code-organization choice only: passing the full (nInts^2) grid would
+% do the same amount of internal ET work, because the canonical-form
+% dedup in the batched dispatch collapses permutation-equivalent inputs
+% (i, j) and (j, i) onto a single cached density. Keeping the
+% upper-triangle pattern across all four features makes the unique-
+% triad structure explicit in the demo code.
 
 nUpper = nInts * (nInts + 1) / 2;
 
@@ -213,30 +221,34 @@ if doTmpl
     end
 end
 
-% --- Spectral entropy and roughness (no batched mode; explicit loop) ---
-if doSpecEnt || doRough
-    if doSpecEnt, specEntLin = NaN(nUpper, 1); end
-    if doRough,   roughLin   = NaN(nUpper, 1); end
+% --- Spectral entropy ---
+% One spectralEntropy call on a stacked chord matrix (v2.1+).
+if doSpecEnt
+    chordMatSE = [zeros(nUpper, 1), int1Lin, int2Lin];
+    t0 = tic;
+    specEntLin = spectralEntropy(chordMatSE, [], sigma_ent, ...
+        'spectrum', spec_ent, 'verbose', true);
+    fprintf('  Spectral entropy:     %.2f s actual (%d triads, batched)\n', ...
+        toc(t0), nUpper);
+    specEnt(linIdxUpper) = specEntLin;
+    specEnt(linIdxLower) = specEntLin;
+end
 
-    fprintf('  Spectral entropy / roughness: looping over %d triads...\n', ...
-        nUpper);
+% --- Roughness (no batched mode; explicit loop) ---
+if doRough
+    roughLin = NaN(nUpper, 1);
+
+    fprintf('  Roughness: looping over %d triads...\n', nUpper);
     t0 = tic;
     nDone = 0;
     for k = 1:nUpper
         int1k = int1Lin(k);
         int2k = int2Lin(k);
 
-        if doSpecEnt
-            specEntLin(k) = spectralEntropy([0, int1k, int2k], [], ...
-                sigma_ent, 'spectrum', spec_ent);
-        end
-
-        if doRough
-            chordCents = [refCents, refCents + int1k, refCents + int2k];
-            [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
-            fHz = convertPitch(ep, 'cents', 'hz');
-            roughLin(k) = roughness(fHz, ew);
-        end
+        chordCents = [refCents, refCents + int1k, refCents + int2k];
+        [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
+        fHz = convertPitch(ep, 'cents', 'hz');
+        roughLin(k) = roughness(fHz, ew);
 
         nDone = nDone + 1;
         if mod(nDone, 500) == 0 || nDone == nUpper
@@ -247,16 +259,10 @@ if doSpecEnt || doRough
                 nDone, nUpper, elapsed, remain);
         end
     end
-    fprintf('  Spectral entropy / roughness: %.2f s\n', toc(t0));
+    fprintf('  Roughness:            %.2f s\n', toc(t0));
 
-    if doSpecEnt
-        specEnt(linIdxUpper) = specEntLin;
-        specEnt(linIdxLower) = specEntLin;
-    end
-    if doRough
-        rough(linIdxUpper) = roughLin;
-        rough(linIdxLower) = roughLin;
-    end
+    rough(linIdxUpper) = roughLin;
+    rough(linIdxLower) = roughLin;
 end
 
 fprintf('All features computed in %.1f s.\n', toc(t0_total));

@@ -167,13 +167,20 @@ if do_tensor:
 # interval2, so we build a linear list of unordered (int1, int2) pairs
 # (one per upper-triangle entry, j >= i) and compute each feature once
 # per unique pair, then mirror into the symmetric output matrix.
-#
-# v2.1 update: tensor harmonicity and template harmonicity are now
-# computed in single batched calls (one eval_exp_tens with a stacked
-# query matrix; one template_harmonicity with a stacked chord matrix),
-# which is dramatically faster than per-triad evaluation. Spectral
-# entropy and roughness do not yet support batched-input dispatch, so
-# they remain in an explicit loop with progress reporting.
+# Loop structure: each unique triad {0, ints[i], ints[j]} (j >= i) is
+# computed once and mirrored into the symmetric (n_ints, n_ints) result
+# grids. The upper-triangle pattern is recommended for *roughness*,
+# which has no batched-input dispatch and no internal dedup — every
+# iteration of its loop does the full computation from scratch, so
+# halving the iteration count halves the actual work. For the three
+# batched features (tensor harmonicity via eval_exp_tens, template
+# harmonicity, and spectral entropy), the upper triangle is a
+# code-organization choice only: passing the full (n_ints**2) grid
+# would do the same amount of internal ET work, because the
+# canonical-form dedup in the batched dispatch collapses permutation-
+# equivalent inputs (i, j) and (j, i) onto a single cached density.
+# Keeping the upper-triangle pattern across all four features makes
+# the unique-triad structure explicit in the demo code.
 
 n_upper = n_ints * (n_ints + 1) // 2
 
@@ -235,34 +242,39 @@ if do_tmpl:
         tmpl_harm_ent[j_lin, i_lin] = h_ent_lin
         tmpl_harm_ent[i_lin, j_lin] = h_ent_lin
 
-# --- Spectral entropy and roughness (no batched mode; explicit loop) ---
-if do_spec_ent or do_rough:
-    if do_spec_ent:
-        spec_ent_lin = np.full(n_upper, np.nan)
-    if do_rough:
-        rough_lin = np.full(n_upper, np.nan)
+# --- Spectral entropy ---
+# One spectral_entropy call on a stacked chord matrix (v2.1+).
+if do_spec_ent:
+    chord_mat_se = np.column_stack([
+        np.zeros(n_upper), int1_lin, int2_lin
+    ])
+    t0 = time.time()
+    spec_ent_lin = mpt.spectral_entropy(
+        chord_mat_se, None, sigma_ent,
+        spectrum=spec_ent, verbose=True,
+    )
+    print(f"  Spectral entropy:     {time.time() - t0:.2f} s actual "
+          f"({n_upper} triads, batched)")
+    spec_ent_grid[j_lin, i_lin] = spec_ent_lin
+    spec_ent_grid[i_lin, j_lin] = spec_ent_lin
 
-    print(f"  Spectral entropy / roughness: looping over "
-          f"{n_upper} triads...")
+# --- Roughness (no batched mode; explicit loop) ---
+if do_rough:
+    rough_lin = np.full(n_upper, np.nan)
+
+    print(f"  Roughness: looping over {n_upper} triads...")
     t0 = time.time()
     n_done = 0
     for k in range(n_upper):
         int1k = int1_lin[k]
         int2k = int2_lin[k]
 
-        if do_spec_ent:
-            spec_ent_lin[k] = mpt.spectral_entropy(
-                [0, int1k, int2k], None, sigma_ent,
-                spectrum=spec_ent,
-            )
-
-        if do_rough:
-            chord_cents = np.array(
-                [ref_cents, ref_cents + int1k, ref_cents + int2k]
-            )
-            ep, ew = mpt.add_spectra(chord_cents, None, *spec_rough)
-            f_hz = mpt.convert_pitch(ep, 'cents', 'hz')
-            rough_lin[k] = mpt.roughness(f_hz, ew)
+        chord_cents = np.array(
+            [ref_cents, ref_cents + int1k, ref_cents + int2k]
+        )
+        ep, ew = mpt.add_spectra(chord_cents, None, *spec_rough)
+        f_hz = mpt.convert_pitch(ep, 'cents', 'hz')
+        rough_lin[k] = mpt.roughness(f_hz, ew)
 
         n_done += 1
         if n_done % 500 == 0 or n_done == n_upper:
@@ -271,14 +283,10 @@ if do_spec_ent or do_rough:
             remain  = (n_upper - n_done) / rate if rate > 0 else 0
             print(f"    {n_done} / {n_upper} triads "
                   f"({elapsed:.1f} s elapsed, ~{remain:.0f} s remaining)")
-    print(f"  Spectral entropy / roughness: {time.time() - t0:.2f} s")
+    print(f"  Roughness:            {time.time() - t0:.2f} s")
 
-    if do_spec_ent:
-        spec_ent_grid[j_lin, i_lin] = spec_ent_lin
-        spec_ent_grid[i_lin, j_lin] = spec_ent_lin
-    if do_rough:
-        rough_grid[j_lin, i_lin] = rough_lin
-        rough_grid[i_lin, j_lin] = rough_lin
+    rough_grid[j_lin, i_lin] = rough_lin
+    rough_grid[i_lin, j_lin] = rough_lin
 
 print(f"All features computed in {time.time() - t0_total:.1f} s.")
 

@@ -2,14 +2,18 @@
 %  Demonstrates batch computation of perceptual features on experimental
 %  data with automatic deduplication of repeated weighted multisets.
 %
-%  Two deduplication workflows are shown:
+%  Two complementary deduplication workflows are shown:
 %
-%    1. Paired measures (SPCS) — use batchCosSimExpTens, which handles
+%    1. Paired measures (SPCS) — pass 2-D pitch matrices to
+%       cosSimExpTens, which dispatches to batched-raw mode and handles
 %       deduplication internally.
 %
-%    2. Single-set measures (spectral entropy, template harmonicity,
-%       tensor harmonicity, roughness) — use the unique/map pattern
-%       shown below, which works for any function.
+%    2. Single-set measures — two patterns illustrated:
+%         2a. For functions with built-in batched-input support
+%             (spectralEntropy, templateHarmonicity, tensorHarmonicity):
+%             pass the 2-D matrix of unique chords directly.
+%         2b. For functions without batched mode (roughness): loop
+%             manually after deduplication.
 %
 %  The dataset is synthetic: 3 scales × 4 chord types × 12 root
 %  transpositions = 144 trials. Many trials share the same scale (3
@@ -17,8 +21,8 @@
 %  regardless of transposition in the periodic case), so deduplication
 %  avoids redundant computation.
 %
-%  Uses: batchCosSimExpTens, addSpectra, cosSimExpTens, spectralEntropy,
-%        templateHarmonicity, tensorHarmonicity, roughness, convertPitch
+%  Uses: cosSimExpTens, spectralEntropy, templateHarmonicity,
+%        tensorHarmonicity, addSpectra, roughness, convertPitch
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -122,10 +126,10 @@ end
 %
 %  Two complementary patterns:
 %    A. For functions with built-in batched-input support
-%       (templateHarmonicity, tensorHarmonicity, ...): pass the 2-D
-%       matrix of unique chords directly.
-%    B. For functions without batched mode (spectralEntropy, roughness,
-%       ...): loop manually after deduplication.
+%       (spectralEntropy, templateHarmonicity, tensorHarmonicity, ...):
+%       pass the 2-D matrix of unique chords directly.
+%    B. For functions without batched mode (roughness, ...): loop
+%       manually after deduplication.
 %
 %  We demonstrate both here. The dedup step (unique on sorted rows)
 %  is shared.
@@ -142,30 +146,28 @@ fprintf('\n  %d trials → %d unique chord multisets.\n\n', ...
     nPairs, nUnique);
 
 % --- Step 2a: Batched calls (v2.1+) for batch-capable functions ---
-% templateHarmonicity and tensorHarmonicity accept a 2-D pitch matrix
-% directly, with NaN-padded rows handled the same way as
-% batchCosSimExpTens. Each function handles spectral enrichment via
-% its own parameter; pre-enriching all pitches would be prohibitively
-% expensive for tensor harmonicity with many partials.
+% spectralEntropy, templateHarmonicity, and tensorHarmonicity all
+% accept a 2-D pitch matrix directly, with NaN-padded rows handled
+% the same way as cosSimExpTens batched-raw mode. Each function
+% handles spectral enrichment via its own parameter; pre-enriching
+% all pitches would be prohibitively expensive for tensor harmonicity
+% with many partials.
+uSpecEnt = spectralEntropy(uniqueChords, [], sigma, 'spectrum', spec);
 [uHMax, uHEnt] = templateHarmonicity(uniqueChords, [], sigma, ...
     'chordSpectrum', spec);
 uTensHarm = tensorHarmonicity(uniqueChords, [], sigma, 'spectrum', spec);
 
 % --- Step 2b: Manual loop for functions without batched mode ---
-% spectralEntropy and roughness do not yet accept 2-D matrix input;
-% we loop over unique rows, the same pattern that worked pre-v2.1 for
-% all single-set measures.
-uSpecEnt = NaN(nUnique, 1);
-uRough   = NaN(nUnique, 1);
+% roughness does not yet accept 2-D matrix input; we loop over unique
+% rows, the same pattern that worked pre-v2.1 for all single-set
+% measures.
+uRough = NaN(nUnique, 1);
 
 refCents = convertPitch(f0, 'hz', 'cents');
 
 for ui = 1:nUnique
     p = uniqueChords(ui, :);
     p = p(~isnan(p));  % strip NaN padding (if any)
-
-    % Spectral entropy (uses 'spectrum' parameter internally)
-    uSpecEnt(ui) = spectralEntropy(p(:), [], sigma, 'spectrum', spec);
 
     % Roughness (needs Hz and enriched spectra)
     [pSpec, wSpec] = addSpectra(p(:), [], spec{:});

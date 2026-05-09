@@ -32,7 +32,7 @@ The toolbox operates on weighted multisets of events, each event being character
 
 The toolbox is organised around a **core framework** of expectation tensors (Section 3.1) and several **application areas** that build on it:
 
-**Pitch (and pitch-class) similarity** (Section 3.3). Cosine similarity of expectation tensors quantifies how similar two collections of weighted events are — pitches, pitch classes, time points, rhythmic patterns, or combinations of these via MAETs. For pitch, spectral enrichment via `addSpectra` yields spectral pitch (class) similarity (SPS/SPCS), a robust predictor of perceived tonal fit, affect, and similarity.
+**Pitch and time (class) similarity** (Section 3.3). Cosine similarity of expectation tensors quantifies how similar two collections of weighted events are — pitches, pitch classes, time points, rhythmic patterns, or combinations of these via MAETs. For pitch, spectral enrichment via `addSpectra` yields spectral pitch (class) similarity (SPS/SPCS), a robust predictor of perceived tonal fit, affect, and similarity.
 
 **Consonance and harmonicity** (Section 3.4). Spectral entropy, template harmonicity, tensor harmonicity, and sensory roughness — complementary measures, usable singly or in combination, that together provide strong predictions of perceived consonance.
 
@@ -376,7 +376,17 @@ For the MAET calling form, `w` is a per-attribute cell (MATLAB) / list (Python) 
 
 ### Struct vs raw-argument calling
 
-In MATLAB, `cosSimExpTens` and `evalExpTens` accept either a precomputed struct or raw arguments in a single function, dispatching on the first argument's type. In Python, the same is now true (v2.1+) — `cos_sim_exp_tens` and `eval_exp_tens` are unified entry points that dispatch on the first argument's type. The earlier `*_raw` aliases remain as deprecated shims that emit a `DeprecationWarning`.
+Two ways to pass density information to the core functions, identical in result, useful in different settings.
+
+**Struct calling.** First call `buildExpTens` to construct an `ExpTensDensity` (single-attribute) or `MaetDensity` (multi-attribute) struct from the underlying $(p, w, \sigma, r, \mathrm{isRel}, \mathrm{isPer}, \mathrm{period})$ specification, then pass that struct to `evalExpTens`, `cosSimExpTens`, or `entropyExpTens`. The expensive tuple enumeration and per-event index work is performed once at construction time and shared across all subsequent uses of the same density.
+
+**Raw calling.** Skip the explicit struct and pass $(p, w, \sigma, r, \mathrm{isRel}, \mathrm{isPer}, \mathrm{period})$ directly to the core function. The struct is built internally — once per unique canonical form, when batching or in list mode — and discarded after use. "Raw" here means "untyped numeric inputs" — pitch arrays, weight arrays, and the structural parameters — as opposed to the pre-typed density object.
+
+Within any single call, the two forms are equally efficient: the raw path's internal canonical-form deduplication (see "Canonical-form deduplication" below) builds each unique density just once, so a batched call against a fixed reference (e.g., one row broadcast against many candidates) builds the reference's density only once internally. The struct path's advantage is **across separate calls** — if you compare the same reference against candidates that arrive in multiple successive function calls, building the density once with `buildExpTens` and passing the struct keeps that work alive between calls, whereas the raw path rebuilds it every time. The struct form is also useful when you want the density object itself for inspection, plotting, or further processing.
+
+In MATLAB, `cosSimExpTens` and `evalExpTens` have accepted either a precomputed struct or raw arguments in a single function — dispatching on the first argument's type — since v2.0. v2.1 retains that polymorphism and additionally extends each of these (and `entropyExpTens`) to accept list and batched-raw forms; `batchCosSimExpTens` is now deprecated in favour of `cosSimExpTens` batched-raw mode.
+
+Python's v2.0 design was different: `cos_sim_exp_tens` and `eval_exp_tens` accepted density structs only, with separate functions `cos_sim_exp_tens_raw` and `eval_exp_tens_raw` for raw scalar inputs and `batch_cos_sim_exp_tens` for raw batched inputs. v2.1 unifies these: the primary names `cos_sim_exp_tens`, `eval_exp_tens`, and `entropy_exp_tens` are now polymorphic across struct, raw, list, and batched-raw forms, with the form detected from the first argument. The earlier `*_raw` and `batch_*` function names continue to work but are now thin deprecation shims that emit a `DeprecationWarning` and forward to the unified entry.
 
 | MATLAB | Python |
 |:---|:---|
@@ -384,6 +394,32 @@ In MATLAB, `cosSimExpTens` and `evalExpTens` accept either a precomputed struct 
 | `cosSimExpTens(p1, w1, p2, w2, ...)` | `cos_sim_exp_tens(p1, w1, p2, w2, ...)` |
 | `evalExpTens(dens, X)` | `eval_exp_tens(dens, x)` |
 | `evalExpTens(p, w, sigma, r, ...)` | `eval_exp_tens(p, w, sigma, r, ...)` |
+
+Name-value arguments are uniformly available across both forms where they are meaningful. `'spectrum'` (applies `addSpectra` partials internally before density construction) is accepted in raw scalar and raw batched calls of `cosSimExpTens`, `entropyExpTens`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`, and `tensorHarmonicity`; it is rejected in struct calls (where the spectrum is already baked into the precomputed density). `'precision'` (decimal-place rounding for FP-noise-tolerant deduplication) and `'dedup'` (toggle internal deduplication) apply to batched-raw modes. `'verbose'` is universal.
+
+### Consumer-level batching: rows as multisets
+
+Most consumer-facing functions accept a 2-D pitch matrix in addition to the original 1-D form. The convention throughout the toolbox is:
+
+- **Each row of a 2-D pitch matrix is one multiset.** Row $i$ holds the pitches of the $i$-th multiset.
+- **The number of rows $M$ is the batch dimension.** The function returns one result per row.
+- **Each column is a slot.** The number of columns $K$ is the multiset's slot count; for chords this is voice count, for spectra this is partial count.
+- **NaN-padding** allows variable-cardinality batches: when row $i$ has fewer than $K$ valid pitches, pad the trailing positions with NaN; the function drops NaN entries before processing that row.
+- **Weight matrices match.** When weights are supplied, they have the same shape $(M, K)$ as the pitch matrix; uniform weights can be passed as `[]` (MATLAB) or `None` (Python).
+
+Functions with batched-input dispatch include `cosSimExpTens` (for paired-multiset comparison), `evalExpTens`, `entropyExpTens`, `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, `spectralEntropy`, `dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`, `coherence`, `sameness`, `nTupleEntropy`, `balanceCircular`, and `evennessCircular`. Each function's reference entry in §6 documents its specific return shape and any function-specific batching options.
+
+### Canonical-form deduplication
+
+Every batched path uses canonical-form deduplication: before computing per-row results, the toolbox identifies rows that map to the same equivalence class under the relevant musical symmetry (permutation of slots, transposition modulo a period, etc.) and computes the result once per equivalence class, mapping it back to all matching rows. For inputs with much repeated structure — generator-chain sweeps, EDO scans, voice-leading enumerations, transposition orbits — this can cut wall time by several factors with no change in the returned values.
+
+Which symmetries are exploited depends on what the function's output is actually invariant to:
+
+- **Transposition-invariant scalar outputs** (`coherence`, `sameness`, `nTupleEntropy`'s `H` value, `cosSimExpTens` in `isRel = true`) collapse all transpositions of a multiset onto a single canonical key.
+- **Transposition-equivariant outputs** (the DFT-equivariant family — `dftCircular`, `edges`, `projCentroid`, `circApm`) collapse only permutation and period-equivalence onto one canonical key; transposition is left alone because the per-output post-transform required to undo it varies by output and depends on user-supplied query points.
+- **Reordering-invariant outputs** (every function above) collapse slot permutations and, for periodic groups, mod-reduction.
+
+The `'precision'` name-value pair (where supported) sets the decimal-place tolerance used in canonical-key construction so that nominally identical multisets differing only by floating-point noise — typically from upstream arithmetic, not from input precision — are correctly identified as equivalent. Default is full floating-point precision; for pitch data on a 12-TET grid, `'precision', 4` is more than sufficient; for fractional-cent values from JI ratios, `'precision', 6` preserves all meaningful precision. For pitches on irrational grids (e.g., $N$-EDO tunings where the step size $1200/N$ is a repeating decimal), decimal-place rounding cannot collapse all transpositions; convert to integer EDO steps first (scaling $\sigma$ and $\mathrm{period}$ accordingly) for exact dedup in such cases.
 
 ### Return values
 
@@ -723,15 +759,15 @@ Query points X should have `dim` rows, where $\mathrm{dim} = r - \mathrm{isRel}$
 
 **cosSimExpTens(dens_x, dens_y)** or **cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period)**
 
-Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`. Accepts single-attribute `ExpTensDensity`, multi-attribute `MaetDensity`, or `WindowedMaetDensity` (the latter compares against an unwindowed counterpart using the magnitude-aware normalisation described in Section 3.1, "Post-tensor windowing"). For multi-attribute comparisons, the two densities must share the same attribute structure and per-group parameters; see the compatibility note at the end of Section 3.1.
+Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`. Accepts single-attribute `ExpTensDensity`, multi-attribute `MaetDensity`, or `WindowedMaetDensity` (the latter compares against an unwindowed counterpart using the magnitude-aware normalisation described in Section 3.1, "Post-tensor windowing"). For multi-attribute comparisons, the two densities must share the same attribute structure and per-group parameters; see the compatibility note at the end of Section 3.1. In the raw scalar form, `'spectrum'` is accepted as a name-value pair (a cell / list of `addSpectra` arguments) and applies the same partials to both `(p1, w1)` and `(p2, w2)` internally before density construction; the struct form rejects it because spectral enrichment must be baked in at construction time.
 
-*Batched-raw mode (v2.1+).* When called with two 2-D pitch matrices `P1` and `P2` of size `M`-by-`K` (and likewise-shaped or empty weights `W1`, `W2`), `cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period)` returns an `M`-by-1 vector of similarities computed pair-by-pair across rows. Rows may use NaN-padding for variable cardinality; identical sorted rows are automatically deduplicated for speed. Three additional name-value pairs are accepted in this mode: `'spectrum'` (cell array of `addSpectra` arguments — applies the same partials to both sides per row), `'precision'` (decimal places of pitch / weight rounding for dedup tolerance), and `'dedup'` (toggle internal deduplication; on by default and currently a no-op when off, emitting a warning). This mode replaces the deprecated `batchCosSimExpTens`.
+*Batched-raw mode (v2.1+).* When called with two 2-D pitch matrices `P1` and `P2` of size `M`-by-`K` (and likewise-shaped or empty weights `W1`, `W2`), `cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period)` returns an `M`-by-1 vector of similarities computed pair-by-pair across rows. Each row is a multiset; rows may use NaN-padding for variable cardinality. Symmetry-equivalent rows (permutations, transpositions in `isRel = true` modes, period-equivalents in `isPer = true` modes) are automatically deduplicated for speed — see Section 4 ("Canonical-form deduplication") for the equivalence classes that apply. Three additional name-value pairs are accepted in this mode: `'spectrum'` (applies the same partials to both sides per row), `'precision'` (decimal places of pitch / weight rounding for dedup tolerance), and `'dedup'` (toggle internal deduplication; on by default and currently a no-op when off, emitting a warning). This mode replaces the deprecated `batchCosSimExpTens`.
 
-*Broadcasting in batched-raw mode (v2.1.1+).* When one of `P1`, `P2` is `M`-by-`K` (with `M > 1`) and the other is a vector of length `K` (1-D, 1-by-`K`, or `K`-by-1 in MATLAB; 1-D or `(1, K)` 2-D in Python), the vector is broadcast across the matrix's `M` rows in NumPy / MATLAB implicit-expansion style. The corresponding weights argument is broadcast in lockstep when non-empty. Eliminates the explicit `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference multiset against many candidates" use case.
+*Broadcasting in batched-raw mode (v2.1+).* When one of `P1`, `P2` is `M`-by-`K` (with `M > 1`) and the other is a vector of length `K` (1-D, 1-by-`K`, or `K`-by-1 in MATLAB; 1-D or `(1, K)` 2-D in Python), the vector is broadcast across the matrix's `M` rows in NumPy / MATLAB implicit-expansion style. The corresponding weights argument is broadcast in lockstep when non-empty. Eliminates the explicit `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference multiset against many candidates" use case.
 
 *List mode (v2.1+).* When called with two cell arrays (MATLAB) or lists (Python) of density structs, `cosSimExpTens` returns a 1-by-`n` cell / 1-D `ndarray` of pairwise similarities. The Option II shape rule is preserved: a length-1 list returns a length-1 cell / array, never a scalar. Density structs of mixed kinds (SA, MA, Windowed) are dispatched independently, with downstream compatibility checks per pair.
 
-*List-mode broadcasting (v2.1.1+).* Either operand may be a single density struct paired with a cell / list of density structs; the single struct is broadcast against every entry of the cell / list. Returns a 1-by-`n` cell / array, mirroring the broadcast available in batched-raw mode. In Python only, list × list calls additionally accept `mode='cartesian'` to compute the full `m`-by-`n` cross-product (returns a 2-D `ndarray`); MATLAB list mode is currently pairwise-only.
+*List-mode broadcasting (v2.1+).* Either operand may be a single density struct paired with a cell / list of density structs; the single struct is broadcast against every entry of the cell / list. Returns a 1-by-`n` cell / array, mirroring the broadcast available in batched-raw mode. In Python only, list × list calls additionally accept `mode='cartesian'` to compute the full `m`-by-`n` cross-product (returns a 2-D `ndarray`); MATLAB list mode is currently pairwise-only.
 
 **~~batchCosSimExpTens~~** *(MATLAB)* / **~~batch_cos_sim_exp_tens~~** *(Python)* — deprecated as of v2.1; emits `MPT:DeprecatedAPI` (MATLAB) or `DeprecationWarning` (Python). Migrate to `cosSimExpTens` batched-raw mode (described above), which is the new public face for this path. The old positional form `batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, 'weightsA', wA, 'weightsB', wB, ...)` becomes `cosSimExpTens(pMatA, wA, pMatB, wB, sigma, r, isRel, isPer, period, ...)` — weights move from name-value pairs to positional arguments; pass `[]` (MATLAB) or `None` (Python) for uniform weights.
 
@@ -1028,7 +1064,7 @@ The Quick Start example of probe-tone fitting treated the context as an unordere
 
 Two complementary approaches are available. The first is the pooled-context approach of the Quick Start: treat the context as a weighted multiset and compute a single similarity. The second is a *time-resolved* approach: represent the context as a multi-attribute tensor carrying both pitch and time, and sweep a window along the time axis to obtain a similarity *profile* showing how probe fit evolves moment by moment. The two approaches answer different questions — "what is the aggregate fit?" versus "where and when does the probe fit best?" — and both are naturally expressed in the v2.1.0 framework.
 
-The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are encoded by a pre-built weight vector from `seqWeights`, and each probe is compared against the same weighted context via `cosSimExpTens` in list mode — the context density (a single struct) is broadcast against the cell / list of twelve probe densities in one call (v2.1.1+), avoiding an explicit loop.
+The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are encoded by a pre-built weight vector from `seqWeights`, and each probe is compared against the same weighted context via `cosSimExpTens` in list mode — the context density (a single struct) is broadcast against the cell / list of twelve probe densities in one call (v2.1+), avoiding an explicit loop.
 
 **MATLAB:**
 ```matlab
@@ -1058,7 +1094,7 @@ for i = 1:12
     probe_dens{i} = buildExpTens(probe_p, probe_w, 10, 1, false, true, 1200);
 end
 
-% List-mode broadcast: single context vs cell of probes (v2.1.1+)
+% List-mode broadcast: single context vs cell of probes (v2.1+)
 fitCell = cosSimExpTens(ctx_dens, probe_dens, 'verbose', false);
 fit     = cell2mat(fitCell);
 
@@ -1090,7 +1126,7 @@ for i in range(12):
         mpt.build_exp_tens(pp, pw, 10., 1, False, True, 1200.)
     )
 
-# List-mode broadcast: single context vs list of probes (v2.1.1+)
+# List-mode broadcast: single context vs list of probes (v2.1+)
 fit = mpt.cos_sim_exp_tens(ctx_dens, probe_dens, verbose=False)
 ```
 

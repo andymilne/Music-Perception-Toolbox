@@ -31,17 +31,21 @@ fprintf('  First 8 offsets: %s\n', mat2str(round(p(1:8)', 1)));
 
 fprintf('\n=== Spectral pitch class similarity ===\n');
 scale_cents = [0, 200, 400, 500, 700, 900, 1100];
-chords = {[0, 400, 700], [0, 300, 700], [0, 300, 600]};
+chord_mat = [0, 400, 700;     % Major
+             0, 300, 700;     % Minor
+             0, 300, 600];    % Dim
 chordNames = {'Major', 'Minor', 'Dim'};
 
-% Add harmonic spectra (24 partials, 1/n rolloff)
-[scale_p, scale_w] = addSpectra(scale_cents, [], 'harmonic', 24, 'powerlaw', 1);
+% Batched call: the scale (a single row vector) is broadcast against
+% every row of chord_mat (v2.1.1+). The 'spectrum' kwarg enriches both
+% sides identically.
+s = cosSimExpTens(scale_cents, [], chord_mat, [], ...
+                  10, 1, false, true, 1200, ...
+                  'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
+                  'verbose', false);
 
-for i = 1:numel(chords)
-    [chord_p, chord_w] = addSpectra(chords{i}, [], 'harmonic', 24, 'powerlaw', 1);
-    s = cosSimExpTens(scale_p, scale_w, chord_p, chord_w, ...
-                      10, 1, false, true, 1200, 'verbose', false);
-    fprintf('  Diatonic vs %-5s triad: %.3f\n', chordNames{i}, s);
+for i = 1:numel(chordNames)
+    fprintf('  Diatonic vs %-5s triad: %.3f\n', chordNames{i}, s(i));
 end
 
 %% === 4. Consonance and harmonicity (User Guide §6.3) ===

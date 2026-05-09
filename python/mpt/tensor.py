@@ -989,53 +989,203 @@ def _build_exp_tens_sa(
 # -------------------------------------------------------------------
 
 
-def eval_exp_tens(
-    dens,
-    x,
-    normalize: str = "none",
-    *,
-    verbose: bool = True,
-) -> np.ndarray:
+def eval_exp_tens(*args,
+                  normalize: str = "none",
+                  dedup: bool = True,
+                  spectrum=None,
+                  precision: int | None = None,
+                  verbose: bool = True) -> np.ndarray:
     """Evaluate an expectation tensor density at query points.
 
-    Dispatches on the type of *dens*:
+    Unified entry point. Accepts five input forms, dispatched on the
+    type of the first argument:
 
-      - :class:`ExpTensDensity` -> single-attribute path (v2.0.0
-        behaviour, unchanged).
-      - :class:`MaetDensity`    -> multi-attribute path.
+    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
+
+    - ``eval_exp_tens(dens, X)`` — scalar density (the v2.0 case).
+      Returns ``(nQ,)``.
+    - ``eval_exp_tens(dens, X, normalize)`` — same with positional
+      ``normalize``.
+    - ``eval_exp_tens([d1, d2, …], X)`` — list of densities at shared
+      query ``X``. Returns ``(M, nQ)`` — every density evaluated at
+      every query point. ``normalize`` (positional or kwarg) applies
+      to all rows.
+
+    **Raw single-attribute scalar input**:
+
+    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X)``.
+      Returns ``(nQ,)``.
+    - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
+
+    **Raw single-attribute batched input**:
+
+    - ``eval_exp_tens(P, W, sigma, r, is_rel, is_per, period, X)``
+      with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
+      Returns ``(M, nQ)``.
+
+    **Raw multi-attribute scalar input**:
+
+    - ``eval_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+      is_rel_vec, is_per_vec, period_vec, X)``. Returns ``(nQ,)``.
 
     Parameters
     ----------
-    dens : ExpTensDensity or MaetDensity
-        Precomputed density from :func:`build_exp_tens`.
-    x : array-like
-        Query points.
-          - SA: a (dim, nQ) array with dim = r - is_rel. A 1-D input is
-            coerced to a (1, nQ) row.
-          - MA: either a list/tuple of *A* per-attribute query matrices
-            (each ``(dim_a, nQ)`` where ``dim_a = r_a - is_rel[g(a)]``),
-            or a single ``(dim, nQ)`` matrix with attribute rows
-            stacked in attribute order. A 1-D input is coerced to
-            ``(1, nQ)`` and is valid only when the total dim equals 1.
-    normalize : str
-        ``'none'`` (default), ``'gaussian'``, or ``'pdf'``. For the MA
-        path, the Gaussian normalisation constant is the product of
-        per-attribute constants:
-        ``prod_a (2*pi*sigma[g(a)]^2)^(-dim_a/2) * sqrt(det_M_a)``
-        where ``det_M_a = 1/r_a`` when ``is_rel[g(a)]`` and ``r_a >= 2``,
-        else ``1``.
-    verbose : bool
+    *args
+        Positional arguments depending on input form.
+    normalize : {'none', 'gaussian', 'pdf'}, default 'none'
+        Density normalisation. Accepted as the trailing positional arg
+        in v2.0-compatible call patterns, or as a keyword.
+    dedup : bool, default True
+        Deduplicate structurally-identical chords (canonical-form,
+        SA-only). For list/batch input only.
+    spectrum : list/tuple, optional
+        Per-row :func:`add_spectra` parameters. Raw SA modes only.
+    precision : int, optional
+        FP-noise tolerance for canonical-form dedup. Raw SA batched
+        only.
+    verbose : bool, default True
         Print progress.
 
     Returns
     -------
     np.ndarray
-        (nQ,) density values.
+        Shape ``(nQ,)`` for scalar density / raw SA scalar / raw MA
+        scalar; shape ``(M, nQ)`` for density list / raw SA batched.
 
     See Also
     --------
     build_exp_tens, cos_sim_exp_tens
+    eval_exp_tens_raw : deprecated; superseded by raw input mode here.
     """
+    if len(args) < 2:
+        raise TypeError(
+            "eval_exp_tens requires at least 2 positional arguments."
+        )
+
+    a = args[0]
+
+    # ------------------------------------------------------------------
+    # Density input dispatch
+    # ------------------------------------------------------------------
+    is_density_scalar = isinstance(
+        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+    )
+    intends_density_list = False
+    if isinstance(a, (list, tuple)):
+        if len(a) == 0:
+            intends_density_list = True
+        elif isinstance(
+            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        ):
+            intends_density_list = True
+    elif isinstance(a, np.ndarray) and a.dtype == object:
+        intends_density_list = True
+
+    if is_density_scalar or intends_density_list:
+        # Density mode: 2 or 3 positional args (dens, x[, normalize]).
+        if len(args) == 2:
+            dens, x = args
+        elif len(args) == 3:
+            dens, x, normalize = args
+        else:
+            raise TypeError(
+                f"Density input mode expects 2 or 3 positional "
+                f"arguments (dens, x[, normalize]); got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only valid in raw SA input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        if is_density_scalar:
+            return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
+        return _eval_exp_tens_density_list(
+            dens, x, normalize, dedup=dedup, verbose=verbose,
+        )
+
+    # ------------------------------------------------------------------
+    # Raw multi-attribute dispatch
+    # ------------------------------------------------------------------
+    if _looks_like_multi_attr(a):
+        # 9 or 10 positional args.
+        if len(args) == 9:
+            (p_attr, w_in, sigma_vec, r_vec, groups,
+             is_rel_vec, is_per_vec, period_vec, x) = args
+        elif len(args) == 10:
+            (p_attr, w_in, sigma_vec, r_vec, groups,
+             is_rel_vec, is_per_vec, period_vec, x, normalize) = args
+        else:
+            raise TypeError(
+                f"Raw multi-attribute input expects 9 or 10 positional "
+                f"arguments (p_attr, w, sigma_vec, r_vec, groups, "
+                f"is_rel_vec, is_per_vec, period_vec, x[, normalize]); "
+                f"got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only supported in raw single-attribute "
+                "input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        return _eval_exp_tens_raw_ma_scalar(
+            p_attr, w_in, sigma_vec, r_vec, groups,
+            is_rel_vec, is_per_vec, period_vec, x, normalize,
+            verbose=verbose,
+        )
+
+    # ------------------------------------------------------------------
+    # Raw single-attribute dispatch (1-D = scalar, 2-D = batch)
+    # ------------------------------------------------------------------
+    if len(args) == 8:
+        p, w, sigma, r_, is_rel, is_per, period, x = args
+    elif len(args) == 9:
+        p, w, sigma, r_, is_rel, is_per, period, x, normalize = args
+    else:
+        raise TypeError(
+            f"Raw single-attribute input expects 8 or 9 positional "
+            f"arguments (p, w, sigma, r, is_rel, is_per, period, x"
+            f"[, normalize]); got {len(args)}."
+        )
+
+    try:
+        a_arr = np.asarray(a, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"First argument must be a density object, list of densities, "
+            f"numeric array (1-D for a single chord, 2-D for a batch), or "
+            f"list of per-attribute matrices for MA raw input; got "
+            f"{type(a).__name__}."
+        ) from exc
+
+    if a_arr.ndim == 1:
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid for raw SA batched input."
+            )
+        return _eval_exp_tens_raw_sa_scalar(
+            p, w, sigma, r_, is_rel, is_per, period, x, normalize,
+            spectrum=spectrum, verbose=verbose,
+        )
+    if a_arr.ndim == 2:
+        return _eval_exp_tens_raw_sa_batch(
+            p, w, sigma, r_, is_rel, is_per, period, x, normalize,
+            spectrum=spectrum, precision=precision,
+            dedup=dedup, verbose=verbose,
+        )
+    raise TypeError(
+        f"First argument has unsupported shape {a_arr.shape}; "
+        f"raw SA input must be 1-D (single chord) or 2-D (batched)."
+    )
+
+
+def _eval_exp_tens_scalar(dens, x, normalize: str, *, verbose: bool) -> np.ndarray:
+    """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body)."""
     if isinstance(dens, WindowedMaetDensity):
         # Evaluate underlying density, multiply elementwise by window.
         underlying = _eval_exp_tens_ma(dens.dens, x, normalize, verbose=verbose)
@@ -1051,6 +1201,191 @@ def eval_exp_tens(
         f"dens must be an ExpTensDensity, MaetDensity, or "
         f"WindowedMaetDensity; got {type(dens).__name__}."
     )
+
+
+def _eval_exp_tens_density_list(dens_list, x, normalize: str,
+                                 *, dedup: bool, verbose: bool) -> np.ndarray:
+    """Evaluate a list of densities at shared query ``x``.
+
+    Returns ``(M, nQ)``. With ``dedup=True``, structurally-identical
+    SA densities are evaluated once (canonical-form dedup via
+    :func:`_chord_canonical_key`); MA densities bypass dedup.
+    """
+    is_scalar, dens_tuple = _normalize_density_input(dens_list, name="dens")
+    # Note: in this code path we always have a list (intends_density_list
+    # was True in the dispatcher), so is_scalar is always False; dens_tuple
+    # is the (possibly empty) list of densities.
+    m = len(dens_tuple)
+
+    if m == 0:
+        # Empty list. Output shape is (0, nQ) where nQ is undetermined
+        # without inspecting x; return (0,) for a 1-D query, else (0, 0).
+        try:
+            x_arr = np.asarray(x, dtype=np.float64)
+            if x_arr.ndim == 0:
+                return np.empty((0,), dtype=np.float64)
+            n_q = x_arr.shape[-1] if x_arr.ndim >= 1 else 0
+            return np.empty((0, n_q), dtype=np.float64)
+        except (TypeError, ValueError):
+            return np.empty((0, 0), dtype=np.float64)
+
+    # Optional dedup for SA densities only.
+    use_dedup = dedup and all(isinstance(d, ExpTensDensity) for d in dens_tuple)
+
+    if use_dedup:
+        result_cache: dict = {}
+        rows = []
+        for d in dens_tuple:
+            key, _, _ = _chord_canonical_key(
+                d.p, d.w, sigma=d.sigma, r=d.r,
+                is_rel=d.is_rel, is_per=d.is_per, period=d.period,
+            )
+            if key not in result_cache:
+                result_cache[key] = _eval_exp_tens_scalar(
+                    d, x, normalize, verbose=False,
+                )
+            rows.append(result_cache[key])
+        if verbose:
+            print(
+                f"eval_exp_tens: {m} densities, "
+                f"{len(result_cache)} unique after canonical-form dedup."
+            )
+    else:
+        if dedup and verbose:
+            print(
+                "eval_exp_tens: dedup=True requested but input includes "
+                "non-SA densities; computing without dedup."
+            )
+        rows = [
+            _eval_exp_tens_scalar(d, x, normalize, verbose=False)
+            for d in dens_tuple
+        ]
+
+    return np.stack(rows, axis=0)
+
+
+def _eval_exp_tens_raw_sa_scalar(p, w, sigma, r, is_rel, is_per, period,
+                                  x, normalize: str,
+                                  *, spectrum=None, verbose: bool) -> np.ndarray:
+    """Raw SA scalar dispatch: build density (with optional spectrum), evaluate."""
+    if spectrum is not None:
+        p_arr = np.asarray(p, dtype=np.float64)
+        w_arr = (np.ones_like(p_arr) if w is None
+                 else np.asarray(w, dtype=np.float64))
+        p, w = add_spectra(p_arr, w_arr, *spectrum)
+    dens = build_exp_tens(
+        p, w, sigma, r, is_rel, is_per, period, verbose=verbose,
+    )
+    return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
+
+
+def _eval_exp_tens_raw_sa_batch(P, W, sigma, r, is_rel, is_per, period,
+                                 x, normalize: str,
+                                 *, spectrum=None, precision: int | None = None,
+                                 dedup: bool = True,
+                                 verbose: bool) -> np.ndarray:
+    """Raw SA batched dispatch.
+
+    Per-row chord-level dedup of density construction (via
+    :func:`_chord_canonical_key`); evaluates each unique density once
+    and maps results to all rows. Returns ``(M, nQ)``.
+    """
+    P = np.asarray(P, dtype=np.float64)
+    if P.ndim != 2:
+        raise ValueError(f"P must be 2-D for batched mode; got shape {P.shape}.")
+    M, K = P.shape
+    use_w = W is not None
+    if use_w:
+        W = np.asarray(W, dtype=np.float64)
+        if W.shape != P.shape:
+            raise ValueError("W must be the same shape as P.")
+
+    # Optional input precision rounding (collapses FP-noise rows).
+    if precision is not None:
+        P = np.round(P, precision)
+        if use_w:
+            W = np.round(W, precision)
+
+    # Determine nQ for output shape; we need it even if M == 0 or all rows are invalid.
+    # Probe by evaluating one valid density, OR (if all invalid) inferring from x.
+    # First pass: build canonical-form keys + density cache.
+    dens_cache: dict = {}
+    row_to_key: list = [None] * M
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) < r:
+            continue   # invalid row -> NaN in output
+        w_valid = W[i, mask] if use_w else None
+        key, p_canon, w_canon = _chord_canonical_key(
+            p_valid, w_valid,
+            sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
+            precision=precision,
+        )
+        if key not in dens_cache:
+            if spectrum is not None:
+                p_canon, w_canon_aug = add_spectra(
+                    p_canon,
+                    np.ones_like(p_canon) if w_canon is None else w_canon,
+                    *spectrum,
+                )
+                w_canon = w_canon_aug
+            dens_cache[key] = build_exp_tens(
+                p_canon, w_canon, sigma, r, is_rel, is_per, period,
+                verbose=False,
+            )
+        row_to_key[i] = key
+
+    n_unique = len(dens_cache)
+    n_valid = sum(1 for k in row_to_key if k is not None)
+
+    if verbose:
+        print(
+            f"eval_exp_tens: {M} rows, {n_valid} valid, "
+            f"{n_unique} unique chords after canonical-form dedup."
+        )
+
+    if n_valid == 0:
+        # All rows invalid. Need to infer nQ from x to give the right output shape.
+        x_arr = np.asarray(x, dtype=np.float64)
+        if x_arr.ndim == 1:
+            n_q = x_arr.size
+        elif x_arr.ndim == 2:
+            n_q = x_arr.shape[1]
+        else:
+            n_q = 0
+        return np.full((M, n_q), np.nan)
+
+    # Evaluate each unique density once at x.
+    eval_cache: dict = {}
+    for key, dens in dens_cache.items():
+        eval_cache[key] = _eval_exp_tens_scalar(
+            dens, x, normalize, verbose=False,
+        )
+
+    # Determine nQ from a representative evaluation.
+    sample_vals = next(iter(eval_cache.values()))
+    n_q = sample_vals.shape[0] if sample_vals.ndim >= 1 else 1
+
+    out = np.full((M, n_q), np.nan)
+    for i in range(M):
+        key = row_to_key[i]
+        if key is not None:
+            out[i] = eval_cache[key]
+    return out
+
+
+def _eval_exp_tens_raw_ma_scalar(p_attr, w, sigma_vec, r_vec, groups,
+                                  is_rel_vec, is_per_vec, period_vec,
+                                  x, normalize: str,
+                                  *, verbose: bool) -> np.ndarray:
+    """Raw MA scalar dispatch: build MA density, evaluate."""
+    dens = build_exp_tens(
+        p_attr, w, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+    return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
 
 
 def _split_query_to_attr_list(dens: MaetDensity, x):
@@ -1371,9 +1706,33 @@ def eval_exp_tens_raw(
     *,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Build and evaluate in one call. See :func:`eval_exp_tens`."""
-    dens = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=verbose)
-    return eval_exp_tens(dens, x, normalize, verbose=verbose)
+    """Deprecated. Use :func:`eval_exp_tens` directly with raw input.
+
+    .. deprecated:: 2.1
+       The raw-input dispatch has been folded into the unified
+       :func:`eval_exp_tens` entry point. Pass raw arrays directly:
+
+       .. code-block:: python
+
+          # Old:
+          vals = eval_exp_tens_raw(p, w, sigma, r, is_rel, is_per, period, x)
+          # New (identical signature):
+          vals = eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, x)
+
+       This shim will be removed in a future release.
+    """
+    warnings.warn(
+        "eval_exp_tens_raw is deprecated. The same call signature is now "
+        "supported directly by eval_exp_tens (pass raw arrays as the first "
+        "arguments instead of a pre-built density object). This shim will "
+        "be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return eval_exp_tens(
+        p, w, sigma, r, is_rel, is_per, period, x, normalize,
+        verbose=verbose,
+    )
 
 
 # -------------------------------------------------------------------
@@ -1381,54 +1740,155 @@ def eval_exp_tens_raw(
 # -------------------------------------------------------------------
 
 
-def cos_sim_exp_tens(
-    dens_x,
-    dens_y,
-    *,
-    verbose: bool = True,
-) -> float:
-    """Cosine similarity of two expectation tensor densities.
-
-    Dispatches on the type of the density objects:
-
-      - two :class:`ExpTensDensity` -> single-attribute path (v2.0.0
-        behaviour, unchanged).
-      - two :class:`MaetDensity`    -> multi-attribute path.
-
-    The analytical inner product in the multi-attribute case factors as
-    the elementwise product of per-attribute kernels (Section 2.7 of the
-    MAET specification): no numerical integration is required.
-
-    Parameters
-    ----------
-    dens_x, dens_y : ExpTensDensity or MaetDensity
-        Precomputed density objects from :func:`build_exp_tens`. Both
-        must be of the same type, and must share all structural
-        parameters (``r``, ``sigma``, ``is_rel``, ``is_per``, ``period``
-        in the SA case; ``n_attrs``, ``group_of_attr``, ``r``, ``sigma``,
-        ``is_rel``, ``is_per``, and ``period`` per group in the MA
-        case).
-    verbose : bool
-        Print progress.
+def _normalize_density_input(arg, *, name: str):
+    """Detect whether ``arg`` is a single density or a list/tuple/array of densities.
 
     Returns
     -------
-    float
-        Cosine similarity in [0, 1] for non-negative weights.
+    is_scalar : bool
+        True if ``arg`` is a single density object (not a list/tuple/array).
+        Length-1 lists are NOT treated as scalars (Option II — strict shape
+        preservation, NumPy-style).
+    densities : tuple
+        Tuple of density objects. Length 1 in the scalar case; length N
+        otherwise; empty tuple for empty list input.
 
-    References
-    ----------
-    Originally by David Bulger, Macquarie University (2016).
-    Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
+    Raises
+    ------
+    TypeError
+        If ``arg`` is not a recognised density type and not a list-like
+        of recognised density types, or if a list-like contains an
+        unrecognised element.
+    """
+    # numpy arrays of dtype=object containing densities: convert to list
+    if isinstance(arg, np.ndarray) and arg.dtype == object:
+        arg = list(arg)
 
-    See Also
-    --------
-    build_exp_tens, eval_exp_tens, batch_cos_sim_exp_tens
+    # Single density object?
+    if isinstance(arg, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
+        return True, (arg,)
+
+    # List/tuple of densities (or empty list, treated as a length-0 list)?
+    if isinstance(arg, (list, tuple)):
+        if len(arg) == 0:
+            return False, ()
+        for i, elem in enumerate(arg):
+            if not isinstance(elem, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
+                raise TypeError(
+                    f"{name}[{i}] must be an ExpTensDensity, MaetDensity, "
+                    f"or WindowedMaetDensity; got {type(elem).__name__}."
+                )
+        # Strict shape preservation: length-1 list stays as list.
+        return False, tuple(arg)
+
+    raise TypeError(
+        f"{name} must be a density object or a list/tuple of densities; "
+        f"got {type(arg).__name__}."
+    )
+
+
+def _resolve_list_list_mode(mode: str, m: int, n: int) -> str:
+    """Resolve ``mode`` for the list-vs-list case. Returns 'pairwise' or 'cartesian'.
+
+    Raises ValueError on incompatible combinations.
+    """
+    if mode == "pairwise":
+        if m != n:
+            raise ValueError(
+                f"mode='pairwise' requires equal-length lists; got M={m}, N={n}. "
+                f"Pass mode='cartesian' for the M×N case."
+            )
+        return "pairwise"
+    if mode == "cartesian":
+        return "cartesian"
+    if mode == "auto":
+        if m == n:
+            return "pairwise"
+        raise ValueError(
+            f"mode='auto' requires equal-length lists for pairwise resolution; "
+            f"got M={m}, N={n}. Pass mode='cartesian' for the M×N case "
+            f"or mode='pairwise' to assert equal lengths."
+        )
+    raise ValueError(
+        f"mode must be one of 'auto', 'pairwise', 'cartesian'; got {mode!r}."
+    )
+
+
+def _all_sa_pairs(pairs):
+    """Return True iff every (a, b) pair in ``pairs`` is two ExpTensDensity objects."""
+    for a, b in pairs:
+        if not (isinstance(a, ExpTensDensity) and isinstance(b, ExpTensDensity)):
+            return False
+    return True
+
+
+def _compute_pair_results_with_dedup_sa(pairs, verbose: bool):
+    """Compute cos_sim for a list of SA-density pairs with canonical-form dedup.
+
+    Uses :func:`_pair_canonical_key` to identify structurally-equivalent
+    pairs and computes each unique pair once; results mapped back to
+    every input position.
+    """
+    pair_key_to_idx: dict = {}
+    pair_canon_idx: list[int] = []
+    unique_pair_list: list = []  # holds (a, b) tuples for the unique pairs
+
+    for a, b in pairs:
+        # Use A's parameters as the canonical reference; per-pair core
+        # call will validate compatibility between A and B.
+        key_a, key_b, _, _, _, _ = _pair_canonical_key(
+            a.p, a.w, b.p, b.w,
+            sigma=a.sigma, r=a.r, is_rel=a.is_rel,
+            is_per=a.is_per, period=a.period,
+        )
+        # Keys include A's parameters; if B has different parameters, the
+        # key still distinguishes them via key_b (which carries B's own
+        # canonical pitch/weight content but A's reference parameters).
+        # Same-parameter pairs that genuinely differ produce different
+        # keys; cross-parameter "matches" can't collide because the
+        # per-pair core call would reject them anyway. To be safe,
+        # incorporate B's parameters explicitly into the pair key.
+        pk = (
+            key_a,
+            key_b,
+            (b.sigma, b.r, b.is_rel, b.is_per, b.period),
+        )
+        if pk not in pair_key_to_idx:
+            pair_key_to_idx[pk] = len(unique_pair_list)
+            unique_pair_list.append((a, b))
+        pair_canon_idx.append(pair_key_to_idx[pk])
+
+    n_unique = len(unique_pair_list)
+    if verbose:
+        print(
+            f"cos_sim_exp_tens: {len(pairs)} pairs, {n_unique} unique "
+            f"after canonical-form dedup."
+        )
+
+    unique_results = [
+        _cos_sim_exp_tens_sa(a, b, verbose=False)
+        for a, b in unique_pair_list
+    ]
+    return [unique_results[idx] for idx in pair_canon_idx]
+
+
+def _compute_pair_results_no_dedup(pairs, verbose: bool):
+    """Compute cos_sim for a list of pairs without dedup. Pair-by-pair core calls."""
+    results = []
+    for a, b in pairs:
+        results.append(_cos_sim_pair_core(a, b, verbose=False))
+    return results
+
+
+def _cos_sim_pair_core(dens_x, dens_y, *, verbose: bool):
+    """Internal: dispatch a single pair to the correct core IP routine.
+
+    Reproduces the type-dispatch logic of the public ``cos_sim_exp_tens``
+    in scalar mode, but as an internal helper so that the polymorphic
+    public function can call it without recursion.
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
-        # At least one operand is windowed. Reject two MaetDensity-shape
-        # incompatibilities up front.
         if isinstance(dens_x, WindowedMaetDensity):
             other = dens_y
         else:
@@ -1454,9 +1914,375 @@ def cos_sim_exp_tens(
             )
         return _cos_sim_exp_tens_sa(dens_x, dens_y, verbose=verbose)
     raise TypeError(
-        f"Both arguments must be ExpTensDensity or MaetDensity; got "
-        f"{type(dens_x).__name__} and {type(dens_y).__name__}."
+        f"Both arguments must be ExpTensDensity, MaetDensity, or "
+        f"WindowedMaetDensity; got {type(dens_x).__name__} and "
+        f"{type(dens_y).__name__}."
     )
+
+
+def cos_sim_exp_tens(*args,
+                     mode: str = "auto",
+                     dedup: bool = True,
+                     spectrum=None,
+                     precision: int | None = None,
+                     verbose: bool = True):
+    """Cosine similarity of two expectation tensor densities.
+
+    Unified entry point. Accepts four input forms, dispatched on the
+    type of the first argument:
+
+    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
+
+    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar (the v2.0 case).
+    - ``cos_sim_exp_tens(dens_x, [d1, d2, …])`` — broadcast, returns
+      ``(N,)``.
+    - ``cos_sim_exp_tens([a1, a2, …], [b1, b2, …])`` — list-vs-list
+      with ``mode='pairwise'`` (default ``'auto'``, resolves to
+      pairwise for equal lengths) returning ``(M,)``, or
+      ``mode='cartesian'`` returning ``(M, N)``.
+
+    **Raw single-attribute scalar input** (the v2.0 case for one-shot calls):
+
+    - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
+      where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
+      ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
+      Returns scalar.
+
+    **Raw single-attribute batched input** (replaces ``batch_cos_sim_exp_tens``):
+
+    - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
+      where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
+      with both dimensions > 1 (rows are chords; NaN-padded for
+      variable cardinality), ``W1``, ``W2`` likewise (or ``None`` for
+      uniform). Returns ``(M,)``. If only one operand is a matrix and
+      the other is a vector of length ``K`` (1-D, ``(1, K)``, or
+      ``(K, 1)``), the vector is broadcast across the matrix's ``M``
+      rows in NumPy implicit-expansion style; the corresponding
+      weights argument is broadcast in lockstep when not ``None``.
+      This avoids the explicit ``np.tile(ref_pitches, (M, 1))`` idiom
+      for the common "one reference vs many candidates" use case.
+
+    **Raw multi-attribute scalar input** (the v2.0 MA case):
+
+    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups,
+      is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
+      lists of per-attribute matrices. Returns scalar.
+
+    Dispatch rule on the first argument's type:
+
+    - ``ExpTensDensity`` / ``MaetDensity`` / ``WindowedMaetDensity`` →
+      density scalar mode.
+    - list / tuple of densities → density list mode.
+    - 1-D ``ndarray`` (or flat list of numbers) → raw SA scalar mode.
+    - 2-D ``ndarray`` → raw SA batched mode (rows are chords).
+    - list / tuple of 2-D arrays → raw MA scalar mode.
+
+    Parameters
+    ----------
+    *args
+        Positional arguments. Length depends on the input form:
+        2 for density modes; 9 for raw SA modes; 10 for raw MA mode.
+    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
+        For density list-vs-list. Ignored in scalar and broadcast cases.
+    dedup : bool, default True
+        Apply canonical-form deduplication. Currently supported for
+        single-attribute pairs only; pairs involving ``MaetDensity`` /
+        ``WindowedMaetDensity`` bypass dedup transparently.
+    spectrum : list/tuple, optional
+        Per-row spectral augmentation parameters passed to
+        :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
+        (scalar or batched). Raises if used in density or MA modes.
+    precision : int, optional
+        Round canonical pitch and weight values to this many decimal
+        places, to absorb FP noise when deduplicating. Only valid in
+        raw SA batched mode. Raises if used elsewhere.
+    verbose : bool, default True
+        Print progress.
+
+    Returns
+    -------
+    float or np.ndarray
+        Scalar in scalar-vs-scalar density mode, raw SA scalar mode, and
+        raw MA scalar mode. ``ndarray`` in all batched/list modes.
+
+    See Also
+    --------
+    build_exp_tens : explicit density construction.
+    eval_exp_tens : evaluate a density at query points.
+    cos_sim_exp_tens_raw : deprecated; superseded by raw input mode here.
+    batch_cos_sim_exp_tens : deprecated; superseded by raw SA batched input here.
+
+    References
+    ----------
+    Originally by David Bulger, Macquarie University (2016).
+    Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
+    """
+    if len(args) < 2:
+        raise TypeError(
+            "cos_sim_exp_tens requires at least 2 positional arguments."
+        )
+
+    a = args[0]
+
+    # ------------------------------------------------------------------
+    # Detect density-input intent based on the first argument.
+    #
+    # The dispatch rule: a list/tuple is treated as a density list (and
+    # validated by ``_normalize_density_input``) if it is empty or its
+    # first element is a density object. A list whose first element is
+    # an array-like (list, tuple, ndarray) is treated as raw MA input
+    # (delegated to ``_looks_like_multi_attr``). A list of numeric scalars
+    # is treated as raw SA scalar input. A list with mixed contents
+    # (e.g. ``[dens, "string"]``) is routed to the density path so the
+    # user receives a precise error from the density-list validator.
+    # ------------------------------------------------------------------
+    is_density_scalar = isinstance(
+        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+    )
+    intends_density_list = False
+    if isinstance(a, (list, tuple)):
+        if len(a) == 0:
+            intends_density_list = True
+        elif isinstance(
+            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        ):
+            intends_density_list = True
+    elif isinstance(a, np.ndarray) and a.dtype == object:
+        intends_density_list = True
+
+    if is_density_scalar or intends_density_list:
+        if len(args) != 2:
+            raise TypeError(
+                f"Density input mode expects 2 positional arguments "
+                f"(dens_x, dens_y); got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only valid in raw SA input mode "
+                "(prebuilt densities already have any spectral augmentation "
+                "baked in via build_exp_tens)."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        return _cos_sim_density_path(
+            args[0], args[1], mode=mode, dedup=dedup, verbose=verbose,
+        )
+
+    # ------------------------------------------------------------------
+    # Raw multi-attribute dispatch (list of per-attribute arrays)
+    # ------------------------------------------------------------------
+    if _looks_like_multi_attr(a):
+        if len(args) != 10:
+            raise TypeError(
+                f"Raw multi-attribute input expects 10 positional arguments "
+                f"(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, "
+                f"is_rel_vec, is_per_vec, period_vec); got {len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only supported in raw single-attribute "
+                "input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
+            )
+        if mode != "auto":
+            raise TypeError(
+                "'mode' kwarg only applies to density list inputs."
+            )
+        return _cos_sim_raw_ma_scalar(*args, verbose=verbose)
+
+    # ------------------------------------------------------------------
+    # Raw single-attribute dispatch.
+    #
+    # If at least one of P1, P2 is 2-D, we route to the batched helper
+    # (preserving Option II shape preservation: a single-row batched
+    # input returns a length-1 array).  When one operand is 1-D and the
+    # other is 2-D, the 1-D operand is reshaped to ``(1, K)`` and then
+    # broadcast across the matrix's rows in NumPy implicit-expansion
+    # style; weights are broadcast in lockstep.  When both operands are
+    # 1-D, we route to the v2.0 scalar path (returns a Python float).
+    # ------------------------------------------------------------------
+    if len(args) != 9:
+        raise TypeError(
+            f"Raw single-attribute input expects 9 positional arguments "
+            f"(p1, w1, p2, w2, sigma, r, is_rel, is_per, period); "
+            f"got {len(args)}."
+        )
+
+    # Convert P1 to ndarray. A clear error here beats a confusing
+    # NumPy ValueError from a downstream conversion.
+    try:
+        a_arr = np.asarray(a, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"First argument must be a density object, list of densities, "
+            f"numeric array (1-D for a single chord, 2-D for a batch), or "
+            f"list of per-attribute matrices for MA raw input; got "
+            f"{type(a).__name__} with content that could not be coerced "
+            f"to a numeric array."
+        ) from exc
+
+    # Convert P2 with the same care.
+    try:
+        b_arr = np.asarray(args[2], dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"Third positional argument (P2) must be a numeric array; got "
+            f"{type(args[2]).__name__} with content that could not be "
+            f"coerced to a numeric array."
+        ) from exc
+
+    if a_arr.ndim > 2 or b_arr.ndim > 2:
+        raise TypeError(
+            f"Raw SA inputs must be 1-D (single chord) or 2-D (batched); "
+            f"got P1.ndim = {a_arr.ndim}, P2.ndim = {b_arr.ndim}."
+        )
+
+    # Batched dispatch fires whenever either operand is 2-D.
+    if a_arr.ndim == 2 or b_arr.ndim == 2:
+        sigma, r_, is_rel, is_per, period = args[4:9]
+        W1_arg, W2_arg = args[1], args[3]
+
+        # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
+        P1 = a_arr if a_arr.ndim == 2 else a_arr.reshape(1, -1)
+        P2 = b_arr if b_arr.ndim == 2 else b_arr.reshape(1, -1)
+
+        def _to_row_w(w, p_was_1d):
+            """Match a weights argument's shape to its (now 2-D) p."""
+            if w is None:
+                return None
+            w_arr = np.asarray(w, dtype=np.float64)
+            if w_arr.ndim == 1:
+                return w_arr.reshape(1, -1)
+            return w_arr
+
+        W1 = _to_row_w(W1_arg, a_arr.ndim == 1)
+        W2 = _to_row_w(W2_arg, b_arr.ndim == 1)
+
+        M1, M2 = P1.shape[0], P2.shape[0]
+        if M1 == 1 and M2 > 1:
+            P1 = np.broadcast_to(P1, (M2, P1.shape[1])).copy()
+            if W1 is not None:
+                W1 = np.broadcast_to(W1, (M2, W1.shape[1])).copy()
+        elif M2 == 1 and M1 > 1:
+            P2 = np.broadcast_to(P2, (M1, P2.shape[1])).copy()
+            if W2 is not None:
+                W2 = np.broadcast_to(W2, (M1, W2.shape[1])).copy()
+        elif M1 != M2:
+            raise ValueError(
+                f"Batched-raw P1 and P2 must either have matching row counts, "
+                f"or one of them must be a single-row reference (1-D vector "
+                f"or shape ``(1, K)``) to broadcast against the other. Got "
+                f"{M1} and {M2} rows."
+            )
+
+        return _cos_sim_raw_sa_batch(
+            P1, P2, sigma, r_, is_rel, is_per, period,
+            weights_a=W1, weights_b=W2,
+            spectrum=spectrum, precision=precision,
+            dedup=dedup, verbose=verbose,
+        )
+
+    # Both operands are 1-D → existing scalar SA path.
+    if precision is not None:
+        raise TypeError(
+            "'precision' kwarg is only valid for raw SA batched input "
+            "(at least one of P1, P2 must be 2-D)."
+        )
+    if mode != "auto":
+        raise TypeError(
+            "'mode' kwarg only applies to density list inputs."
+        )
+    return _cos_sim_raw_sa_scalar(
+        *args, spectrum=spectrum, verbose=verbose,
+    )
+
+
+def _cos_sim_density_path(
+    dens_x,
+    dens_y,
+    *,
+    mode: str = "auto",
+    dedup: bool = True,
+    verbose: bool = True,
+):
+    """Density-input dispatch for :func:`cos_sim_exp_tens`.
+
+    Handles four sub-cases:
+
+    - scalar density vs scalar density (the v2.0 case),
+    - scalar density vs list of densities (broadcast),
+    - list vs scalar (broadcast),
+    - list vs list with ``mode='pairwise'`` or ``mode='cartesian'``.
+
+    Empty lists return appropriately-shaped empty arrays (Option II:
+    no length-1 collapse — strict NumPy-style shape preservation).
+
+    See :func:`cos_sim_exp_tens` for full user-facing docs.
+    """
+    is_x_scalar, list_x = _normalize_density_input(dens_x, name="dens_x")
+    is_y_scalar, list_y = _normalize_density_input(dens_y, name="dens_y")
+
+    # Scalar-vs-scalar: identical to v2.0 behaviour.
+    if is_x_scalar and is_y_scalar:
+        return _cos_sim_pair_core(list_x[0], list_y[0], verbose=verbose)
+
+    m = len(list_x)
+    n = len(list_y)
+
+    # Determine pair list and output shape.
+    if is_x_scalar:
+        # Scalar-vs-list (broadcast). list_y may be empty.
+        if n == 0:
+            return np.empty((0,), dtype=np.float64)
+        a = list_x[0]
+        pairs = [(a, b) for b in list_y]
+        out_shape = (n,)
+    elif is_y_scalar:
+        # List-vs-scalar (broadcast). list_x may be empty.
+        if m == 0:
+            return np.empty((0,), dtype=np.float64)
+        b = list_y[0]
+        pairs = [(a, b) for a in list_x]
+        out_shape = (m,)
+    else:
+        # List-vs-list. Handle empty cases first.
+        if m == 0 or n == 0:
+            # Empty list: output shape depends on resolved mode.
+            try:
+                resolved = _resolve_list_list_mode(mode, m, n)
+            except ValueError:
+                # mode='auto' may raise on unequal nonempty lengths; here
+                # one side is empty, treat as cartesian by default.
+                resolved = "cartesian"
+            if resolved == "pairwise":
+                return np.empty((0,), dtype=np.float64)
+            return np.empty((m, n), dtype=np.float64)
+
+        resolved = _resolve_list_list_mode(mode, m, n)
+        if resolved == "pairwise":
+            pairs = list(zip(list_x, list_y))
+            out_shape = (m,)
+        else:  # cartesian
+            pairs = [(a, b) for a in list_x for b in list_y]
+            out_shape = (m, n)
+
+    # Compute per-pair similarities, optionally deduplicating.
+    if dedup and _all_sa_pairs(pairs):
+        results = _compute_pair_results_with_dedup_sa(pairs, verbose=verbose)
+    else:
+        if dedup and verbose:
+            print(
+                "cos_sim_exp_tens: dedup=True requested but input includes "
+                "non-SA densities; computing without dedup."
+            )
+        results = _compute_pair_results_no_dedup(pairs, verbose=verbose)
+
+    return np.array(results, dtype=np.float64).reshape(out_shape)
 
 
 # -------------------------------------------------------------------
@@ -1682,76 +2508,89 @@ def _ma_log_kernel(
 # -------------------------------------------------------------------
 
 
-def cos_sim_exp_tens_raw(p1, w1, p2, w2, *args, verbose: bool = True) -> float:
-    """Build two densities and compute cosine similarity in one call.
+def _cos_sim_raw_sa_scalar(
+    p1, w1, p2, w2,
+    sigma, r, is_rel, is_per, period,
+    *,
+    spectrum=None,
+    verbose: bool = True,
+) -> float:
+    """Raw single-attribute scalar dispatch for :func:`cos_sim_exp_tens`.
 
-    Convenience wrapper around :func:`build_exp_tens` and
-    :func:`cos_sim_exp_tens`. Dispatches on the form of *p1* and *p2*
-    (which must agree):
-
-      - two numeric 1-D arrays (or flat lists of numbers) -> SA path,
-        with the v2.0.0 signature::
-
-            cos_sim_exp_tens_raw(p1, w1, p2, w2,
-                                 sigma, r, is_rel, is_per, period,
-                                 *, verbose=True)
-
-      - two list/tuple-of-attribute-matrices -> MA path::
-
-            cos_sim_exp_tens_raw(p_attr1, w1, p_attr2, w2,
-                                 sigma_vec, r_vec, groups,
-                                 is_rel_vec, is_per_vec, period_vec,
-                                 *, verbose=True)
-
-    Parameters are the same as for :func:`build_exp_tens` in the
-    corresponding path (both densities share the structural parameters
-    — ``sigma``, ``r``, etc. — so they are passed once and applied to
-    both).
-
-    Returns
-    -------
-    float
-        Cosine similarity.
+    Builds two SA densities and returns their cosine similarity. If
+    ``spectrum`` is provided, applies :func:`add_spectra` before density
+    construction.
     """
-    p1_ma = _looks_like_multi_attr(p1)
-    p2_ma = _looks_like_multi_attr(p2)
-    if p1_ma != p2_ma:
-        raise TypeError(
-            "p1 and p2 must be the same kind: either both numeric "
-            "1-D arrays (SA) or both lists/tuples of attribute matrices (MA)."
+    if spectrum is not None:
+        p1_aug, w1_aug = add_spectra(
+            np.asarray(p1, dtype=np.float64),
+            np.ones_like(np.asarray(p1, dtype=np.float64)) if w1 is None
+            else np.asarray(w1, dtype=np.float64),
+            *spectrum,
         )
-
-    if p1_ma:
-        if len(args) != 6:
-            raise ValueError(
-                f"Multi-attribute raw call expects 10 positional arguments "
-                f"(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, "
-                f"is_rel_vec, is_per_vec, period_vec); got {4 + len(args)}."
-            )
-        sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
-        dx = build_exp_tens(
-            p1, w1, sigma_vec, r_vec, groups,
-            is_rel_vec, is_per_vec, period_vec, verbose=verbose,
-        )
-        dy = build_exp_tens(
-            p2, w2, sigma_vec, r_vec, groups,
-            is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+        p2_aug, w2_aug = add_spectra(
+            np.asarray(p2, dtype=np.float64),
+            np.ones_like(np.asarray(p2, dtype=np.float64)) if w2 is None
+            else np.asarray(w2, dtype=np.float64),
+            *spectrum,
         )
     else:
-        if len(args) != 5:
-            raise ValueError(
-                f"Single-attribute raw call expects 9 positional arguments "
-                f"(p1, w1, p2, w2, sigma, r, is_rel, is_per, period); got "
-                f"{4 + len(args)}."
-            )
-        sigma, r, is_rel, is_per, period = args
-        dx = build_exp_tens(
-            p1, w1, sigma, r, is_rel, is_per, period, verbose=verbose,
-        )
-        dy = build_exp_tens(
-            p2, w2, sigma, r, is_rel, is_per, period, verbose=verbose,
-        )
-    return cos_sim_exp_tens(dx, dy, verbose=verbose)
+        p1_aug, w1_aug = p1, w1
+        p2_aug, w2_aug = p2, w2
+
+    dx = build_exp_tens(
+        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+    )
+    dy = build_exp_tens(
+        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+    )
+    return _cos_sim_pair_core(dx, dy, verbose=verbose)
+
+
+def _cos_sim_raw_ma_scalar(
+    p_attr1, w1, p_attr2, w2,
+    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
+    *,
+    verbose: bool = True,
+) -> float:
+    """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`.
+
+    Builds two MA densities and returns their cosine similarity. Spectral
+    augmentation is not supported in MA mode (the spectrum parameters are
+    SA-specific).
+    """
+    dx = build_exp_tens(
+        p_attr1, w1, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+    dy = build_exp_tens(
+        p_attr2, w2, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+    return _cos_sim_pair_core(dx, dy, verbose=verbose)
+
+
+def cos_sim_exp_tens_raw(p1, w1, p2, w2, *args, verbose: bool = True) -> float:
+    """Deprecated. Use :func:`cos_sim_exp_tens` directly with raw input.
+
+    .. deprecated:: 2.1
+       The raw-input dispatch has been folded into the unified
+       :func:`cos_sim_exp_tens` entry point. Pass raw arrays directly:
+
+       - SA: ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
+       - MA: ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec)``
+
+       This shim will be removed in a future release.
+    """
+    warnings.warn(
+        "cos_sim_exp_tens_raw is deprecated. The same call signature is "
+        "now supported directly by cos_sim_exp_tens (pass raw arrays as the "
+        "first arguments instead of pre-built density objects). This shim "
+        "will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return cos_sim_exp_tens(p1, w1, p2, w2, *args, verbose=verbose)
 
 
 def _compute_Q(D, r, is_rel, is_per, period):
@@ -1923,11 +2762,199 @@ def _canonicalize_set(
 
 
 # -------------------------------------------------------------------
+#  Canonical-key primitives for batched / deduplicated workflows
+# -------------------------------------------------------------------
+
+
+def _chord_canonical_key(
+    p,
+    w,
+    *,
+    sigma: float,
+    r: int,
+    is_rel: bool,
+    is_per: bool,
+    period: float,
+    precision: int | None = None,
+):
+    """Canonical hashable form of a single weighted multiset.
+
+    Two chords ``(p1, w1)`` and ``(p2, w2)`` produce the same key iff
+    their resulting density object is structurally identical (same
+    ``(p, w, sigma, r, is_rel, is_per, period)``-determined density),
+    regardless of input-side permutation or, in relative modes,
+    in-batch translation. Used by the consumer-level deduplication in
+    :func:`cos_sim_exp_tens`, :func:`windowed_similarity`, and the
+    harmony wrappers when given batched chord input.
+
+    Parameters
+    ----------
+    p : array-like
+        Pitch values (will be flattened; NaN handling is the caller's
+        responsibility — pass NaN-stripped arrays).
+    w : array-like or None
+        Weights, same length as ``p``. None means uniform weights.
+    sigma, r, is_rel, is_per, period :
+        Density-determining parameters. Baked into the returned key
+        so different parameter settings produce different keys.
+    precision : int, optional
+        Round the canonical pitch and weight values to this many
+        decimal places (after the canonicalisation, to absorb FP noise
+        from mod-reduction and subtraction). Default: no rounding.
+
+    Returns
+    -------
+    key : tuple
+        Hashable canonical form, suitable as a dict key.
+    p_canon : np.ndarray, dtype=float64
+        Canonical pitch array (for downstream density caching).
+    w_canon : np.ndarray | None
+        Canonical weight array, or None if ``w`` is None.
+    """
+    p_arr = np.asarray(p, dtype=np.float64)
+    w_arr = np.asarray(w, dtype=np.float64) if w is not None else None
+
+    ca_p, ca_w = _canonicalize_set(p_arr, w_arr, is_rel, is_per, period)
+
+    if precision is not None:
+        ca_p = tuple(round(x, precision) for x in ca_p)
+        if ca_w is not None:
+            ca_w = tuple(round(x, precision) for x in ca_w)
+
+    key = (ca_p, ca_w, sigma, r, is_rel, is_per, period)
+
+    p_canon = np.array(ca_p, dtype=np.float64)
+    w_canon = np.array(ca_w, dtype=np.float64) if ca_w is not None else None
+
+    return key, p_canon, w_canon
+
+
+def _pair_canonical_key(
+    p_a,
+    w_a,
+    p_b,
+    w_b,
+    *,
+    sigma: float,
+    r: int,
+    is_rel: bool,
+    is_per: bool,
+    period: float,
+    precision: int | None = None,
+):
+    """Canonical hashable forms of a paired weighted multiset (A, B).
+
+    The cosine similarity of two expectation tensor densities is
+    invariant under certain joint transformations of the pair. The
+    canonical pair form encodes these symmetries so that
+    structurally-equivalent pairs produce the same key, enabling
+    deduplication.
+
+    The exploited symmetries depend on the mode:
+
+    - **Relative** (``is_rel=True``): independent transposition of
+      each set. Each side is canonicalised separately via
+      :func:`_canonicalize_set`.
+    - **Absolute** (``is_rel=False``): joint co-transposition.
+      ``cos_sim_exp_tens(A + c, B + c) == cos_sim_exp_tens(A, B)``,
+      so A's canonical form determines a shift, and the same shift
+      is applied to B. For ``is_per=True``, A is reduced to its
+      cyclic canonical form (the lex-smallest rotation), and B is
+      shifted by the corresponding amount mod period; for
+      ``is_per=False``, A is translated so its minimum is at 0, and
+      B is shifted by the same amount.
+
+    Parameters
+    ----------
+    p_a, p_b : array-like
+        Pitch values for A and B (NaN-stripped).
+    w_a, w_b : array-like or None
+        Weights for A and B, or None for uniform.
+    sigma, r, is_rel, is_per, period :
+        Density-determining parameters. Baked into both returned keys.
+    precision : int, optional
+        Post-canonicalisation rounding. Default: no rounding.
+
+    Returns
+    -------
+    key_a, key_b : tuple
+        Hashable canonical keys for A and B. The pair key is
+        ``(key_a, key_b)``; ``key_a`` and ``key_b`` are also valid as
+        single-side dedup keys for caching A and B densities
+        respectively.
+    p_a_canon, p_b_canon : np.ndarray, dtype=float64
+        Canonical pitch arrays.
+    w_a_canon, w_b_canon : np.ndarray | None
+        Canonical weight arrays, or None if the corresponding input
+        weight was None.
+    """
+    pa_arr = np.asarray(p_a, dtype=np.float64)
+    pb_arr = np.asarray(p_b, dtype=np.float64)
+    wa_arr = np.asarray(w_a, dtype=np.float64) if w_a is not None else None
+    wb_arr = np.asarray(w_b, dtype=np.float64) if w_b is not None else None
+
+    if is_rel:
+        # Independent canonicalisation per side.
+        ca_p, ca_w = _canonicalize_set(pa_arr, wa_arr, is_rel, is_per, period)
+        cb_p, cb_w = _canonicalize_set(pb_arr, wb_arr, is_rel, is_per, period)
+    else:
+        # Joint co-transposition: A determines the shift, B inherits it.
+        si_a = np.argsort(pa_arr)
+        pa_s = pa_arr[si_a]
+        wa_s = wa_arr[si_a] if wa_arr is not None else None
+
+        if is_per:
+            pa_s = np.mod(pa_s, period)
+            si = np.argsort(pa_s)
+            pa_s = pa_s[si]
+            if wa_s is not None:
+                wa_s = wa_s[si]
+            # Cyclic canonical form — collapses all rotations.
+            ca_p, ca_w, shift = _cyclic_canonical(pa_s, wa_s, period)
+        else:
+            shift = pa_s[0]
+            ca_p = tuple(pa_s - shift)
+            ca_w = tuple(wa_s) if wa_s is not None else None
+
+        # Apply the same shift to B.
+        si_b = np.argsort(pb_arr)
+        pb_s = pb_arr[si_b]
+        wb_s = wb_arr[si_b] if wb_arr is not None else None
+
+        if is_per:
+            pb_shifted = np.mod(pb_s - shift, period)
+            si = np.argsort(pb_shifted)
+            cb_p = tuple(pb_shifted[si])
+            cb_w = tuple(wb_s[si]) if wb_s is not None else None
+        else:
+            cb_p = tuple(pb_s - shift)
+            cb_w = tuple(wb_s) if wb_s is not None else None
+
+    if precision is not None:
+        ca_p = tuple(round(x, precision) for x in ca_p)
+        cb_p = tuple(round(x, precision) for x in cb_p)
+        if ca_w is not None:
+            ca_w = tuple(round(x, precision) for x in ca_w)
+        if cb_w is not None:
+            cb_w = tuple(round(x, precision) for x in cb_w)
+
+    key_a = (ca_p, ca_w, sigma, r, is_rel, is_per, period)
+    key_b = (cb_p, cb_w, sigma, r, is_rel, is_per, period)
+
+    p_a_canon = np.array(ca_p, dtype=np.float64)
+    p_b_canon = np.array(cb_p, dtype=np.float64)
+    w_a_canon = np.array(ca_w, dtype=np.float64) if ca_w is not None else None
+    w_b_canon = np.array(cb_w, dtype=np.float64) if cb_w is not None else None
+
+    return key_a, key_b, p_a_canon, w_a_canon, p_b_canon, w_b_canon
+
+
+# -------------------------------------------------------------------
 #  batch_cos_sim_exp_tens
 # -------------------------------------------------------------------
 
 
-def batch_cos_sim_exp_tens(
+def _cos_sim_raw_sa_batch(
     p_mat_a: np.ndarray,
     p_mat_b: np.ndarray,
     sigma: float,
@@ -1940,9 +2967,10 @@ def batch_cos_sim_exp_tens(
     weights_b: np.ndarray | None = None,
     spectrum: list | None = None,
     precision: int | None = None,
+    dedup: bool = True,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Batch cosine similarity of expectation tensors.
+    """Raw single-attribute batched dispatch for :func:`cos_sim_exp_tens`.
 
     Computes cosine similarity for many paired weighted multisets
     (*p* represents pitches or positions). Each row of *p_mat_a*
@@ -2070,64 +3098,14 @@ def batch_cos_sim_exp_tens(
         wa_valid = weights_a[i, mask_a] if use_wa else None
         wb_valid = weights_b[i, mask_b] if use_wb else None
 
-        # Canonicalize each set and apply joint co-transposition
-        # normalization for the absolute case.
-        if is_rel:
-            # Relative: independent canonicalization (each set normalized
-            # for transposition independently)
-            ca_p, ca_w = _canonicalize_set(pa_valid, wa_valid, is_rel, is_per, period)
-            cb_p, cb_w = _canonicalize_set(pb_valid, wb_valid, is_rel, is_per, period)
-        else:
-            # Absolute: joint co-transposition normalization.
-            # cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
-            # raw tuple differences cancel. We find A's canonical form
-            # and apply the same shift to B.
-
-            # Canonicalize A
-            si_a = np.argsort(pa_valid)
-            pa_s = pa_valid[si_a]
-            wa_s = wa_valid[si_a] if wa_valid is not None else None
-
-            if is_per:
-                pa_s = np.mod(pa_s, period)
-                si = np.argsort(pa_s)
-                pa_s = pa_s[si]
-                if wa_s is not None:
-                    wa_s = wa_s[si]
-                # Cyclic canonical form — collapses all rotations
-                ca_p, ca_w, shift = _cyclic_canonical(pa_s, wa_s, period)
-            else:
-                shift = pa_s[0]
-                ca_p = tuple(pa_s - shift)
-                ca_w = tuple(wa_s) if wa_s is not None else None
-
-            # Apply the same shift to B
-            si_b = np.argsort(pb_valid)
-            pb_s = pb_valid[si_b]
-            wb_s = wb_valid[si_b] if wb_valid is not None else None
-
-            if is_per:
-                pb_shifted = np.mod(pb_s - shift, period)
-                si = np.argsort(pb_shifted)
-                cb_p = tuple(pb_shifted[si])
-                cb_w = tuple(wb_s[si]) if wb_s is not None else None
-            else:
-                cb_p = tuple(pb_s - shift)
-                cb_w = tuple(wb_s) if wb_s is not None else None
-
-        # Re-round after canonicalization to collapse floating-point
-        # noise introduced by mod-reduction and subtraction.
-        if precision is not None:
-            ca_p = tuple(round(x, precision) for x in ca_p)
-            cb_p = tuple(round(x, precision) for x in cb_p)
-            if ca_w is not None:
-                ca_w = tuple(round(x, precision) for x in ca_w)
-            if cb_w is not None:
-                cb_w = tuple(round(x, precision) for x in cb_w)
-
-        # Hashable key = (canonical_pitches, canonical_weights_or_None)
-        ka = (ca_p, ca_w)
-        kb = (cb_p, cb_w)
+        # Canonicalise the pair via the shared helper (handles both
+        # is_rel and absolute joint-shift cases, plus post-canonicalisation
+        # precision rounding).
+        ka, kb, ca_p_arr, ca_w_arr, cb_p_arr, cb_w_arr = _pair_canonical_key(
+            pa_valid, wa_valid, pb_valid, wb_valid,
+            sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
+            precision=precision,
+        )
 
         key_a[i] = ka
         key_b[i] = kb
@@ -2135,45 +3113,40 @@ def batch_cos_sim_exp_tens(
 
         # Cache canonical arrays (first occurrence wins)
         if ka not in canon_data_a:
-            canon_data_a[ka] = (
-                np.array(ca_p, dtype=np.float64),
-                np.array(ca_w, dtype=np.float64) if ca_w is not None else None,
-            )
+            canon_data_a[ka] = (ca_p_arr, ca_w_arr)
         if kb not in canon_data_b:
-            canon_data_b[kb] = (
-                np.array(cb_p, dtype=np.float64),
-                np.array(cb_w, dtype=np.float64) if cb_w is not None else None,
-            )
+            canon_data_b[kb] = (cb_p_arr, cb_w_arr)
 
-    # ── Phase 2: Deduplicate individual sets, then pairs ─────────────
+    # ── Phase 2: Build density structs for unique individual sets ─────
+    #
+    # Chord-level dedup: build each density object exactly once per
+    # unique canonical chord on each side. Pair-level dedup is delegated
+    # to the polymorphic ``cos_sim_exp_tens`` in Phase 3.
 
-    unique_a_keys = list(canon_data_a.keys())
-    unique_b_keys = list(canon_data_b.keys())
-    n_unique_a = len(unique_a_keys)
-    n_unique_b = len(unique_b_keys)
+    dens_cache_a: dict[tuple, object] = {}
+    for ka, (p_arr, w_arr) in canon_data_a.items():
+        if use_spec:
+            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
+        dens_cache_a[ka] = build_exp_tens(
+            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+        )
 
-    # Build pair keys and deduplicate
-    pair_key_to_idx: dict[tuple, int] = {}
-    row_to_pair: list[int | None] = [None] * n_rows
-    unique_pair_list: list[tuple] = []
+    dens_cache_b: dict[tuple, object] = {}
+    for kb, (p_arr, w_arr) in canon_data_b.items():
+        if use_spec:
+            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
+        dens_cache_b[kb] = build_exp_tens(
+            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+        )
 
-    for i in range(n_rows):
-        if not valid[i]:
-            continue
-        pk = (key_a[i], key_b[i])
-        if pk not in pair_key_to_idx:
-            pair_key_to_idx[pk] = len(unique_pair_list)
-            unique_pair_list.append(pk)
-        row_to_pair[i] = pair_key_to_idx[pk]
-
-    n_unique_pairs = len(unique_pair_list)
+    n_unique_a = len(dens_cache_a)
+    n_unique_b = len(dens_cache_b)
+    n_valid = sum(valid)
 
     if verbose:
-        n_valid = sum(valid)
         print(
             f"batch_cos_sim_exp_tens: {n_rows} rows, {n_valid} valid, "
-            f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets, "
-            f"{n_unique_pairs} unique pairs."
+            f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets."
         )
         if is_rel:
             print(
@@ -2187,52 +3160,96 @@ def batch_cos_sim_exp_tens(
                 + (" with octave equivalence" if is_per else "")
                 + "; B-set counts reflect position relative to A."
             )
-
-    # ── Phase 3: Build density structs for unique individual sets ─────
-
-    dens_a: dict[tuple, object] = {}
-    for ka in unique_a_keys:
-        p_arr, w_arr = canon_data_a[ka]
-        if use_spec:
-            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
-        dens_a[ka] = build_exp_tens(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
-        )
-
-    dens_b: dict[tuple, object] = {}
-    for kb in unique_b_keys:
-        p_arr, w_arr = canon_data_b[kb]
-        if use_spec:
-            p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
-        dens_b[kb] = build_exp_tens(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
-        )
-
-    if verbose:
         print(
             f"batch_cos_sim_exp_tens: built {n_unique_a + n_unique_b} "
             f"density structs ({n_unique_a} A + {n_unique_b} B)."
         )
 
-    # ── Phase 4: Compute similarity for each unique pair ─────────────
+    # ── Phase 3: Compute via polymorphic cos_sim_exp_tens ─────────────
+    #
+    # The polymorphic ``cos_sim_exp_tens`` does pair-level deduplication
+    # internally (via ``_pair_canonical_key``); identical pairs collapse
+    # there. Verbose-mode pair-count diagnostics come from the inner
+    # call.
 
-    unique_s = [None] * n_unique_pairs
-    for up, (ka, kb) in enumerate(unique_pair_list):
-        unique_s[up] = cos_sim_exp_tens(dens_a[ka], dens_b[kb], verbose=False)
+    if n_valid == 0:
+        if verbose:
+            print("batch_cos_sim_exp_tens: done.")
+        return s
 
-        if verbose and ((up + 1) % 100 == 0 or up + 1 == n_unique_pairs):
-            print(f"  {up + 1} / {n_unique_pairs} unique pairs computed.")
+    # Build per-row density lists for valid rows. Density objects are
+    # shared across rows that map to the same canonical chord (chord-
+    # level dedup from Phase 2).
+    valid_indices = [i for i in range(n_rows) if valid[i]]
+    list_a_dens = [dens_cache_a[key_a[i]] for i in valid_indices]
+    list_b_dens = [dens_cache_b[key_b[i]] for i in valid_indices]
 
-    # ── Phase 5: Map results back ────────────────────────────────────
+    cos_results = cos_sim_exp_tens(
+        list_a_dens, list_b_dens,
+        mode="pairwise", dedup=dedup, verbose=verbose,
+    )
 
-    for i in range(n_rows):
-        if valid[i]:
-            s[i] = unique_s[row_to_pair[i]]
+    # ── Phase 4: Map results back ────────────────────────────────────
+
+    for k, idx in enumerate(valid_indices):
+        s[idx] = cos_results[k]
 
     if verbose:
         print("batch_cos_sim_exp_tens: done.")
 
     return s
+
+
+def batch_cos_sim_exp_tens(
+    p_mat_a: np.ndarray,
+    p_mat_b: np.ndarray,
+    sigma: float,
+    r: int,
+    is_rel: bool,
+    is_per: bool,
+    period: float,
+    *,
+    weights_a: np.ndarray | None = None,
+    weights_b: np.ndarray | None = None,
+    spectrum: list | None = None,
+    precision: int | None = None,
+    verbose: bool = True,
+) -> np.ndarray:
+    """Deprecated. Use :func:`cos_sim_exp_tens` directly with 2-D matrices.
+
+    .. deprecated:: 2.1
+       The batched-raw-input dispatch has been folded into the unified
+       :func:`cos_sim_exp_tens` entry point. Pass 2-D pitch matrices
+       directly:
+
+       .. code-block:: python
+
+          # Old:
+          s = batch_cos_sim_exp_tens(P1, P2, sigma, r, is_rel, is_per, period,
+                                     weights_a=W1, weights_b=W2)
+          # New:
+          s = cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
+
+       Note the argument order: weights now follow each pitch matrix
+       positionally (matching the SA scalar raw form), instead of being
+       keyword-only. This shim preserves the old keyword-only weight API
+       for backward compatibility but issues a ``DeprecationWarning``.
+       This shim will be removed in a future release.
+    """
+    warnings.warn(
+        "batch_cos_sim_exp_tens is deprecated. Pass 2-D pitch matrices "
+        "directly to cos_sim_exp_tens (with weights as positional arguments "
+        "after each pitch matrix, matching the SA scalar raw form). This "
+        "shim will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _cos_sim_raw_sa_batch(
+        p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
+        weights_a=weights_a, weights_b=weights_b,
+        spectrum=spectrum, precision=precision,
+        verbose=verbose,
+    )
 
 
 # ===================================================================
@@ -3108,7 +4125,8 @@ warnings.filterwarnings(
 
 
 def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
-                        reference=None, verbose: bool = True):
+                        reference=None, mode: str = "auto",
+                        verbose: bool = True):
     """Sliding-window similarity profile (cross-correlation).
 
     For each offset column, *dens_context* is windowed with
@@ -3188,10 +4206,12 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
 
     Parameters
     ----------
-    dens_query : MaetDensity
-        The query density (not windowed).
-    dens_context : MaetDensity
-        The context density to be windowed.
+    dens_query : MaetDensity, or list/tuple of MaetDensity
+        The query density (not windowed). A single density gives the
+        v2.0 scalar behaviour; a list/tuple is broadcast or paired
+        against the context (see Returns).
+    dens_context : MaetDensity, or list/tuple of MaetDensity
+        The context density to be windowed. As above, scalar or list.
     window_spec : dict
         Window specification (see :func:`window_tensor`). Only the
         ``size`` and ``mix`` fields are read; any ``centre`` field is
@@ -3200,48 +4220,294 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
         Per-sweep offsets in effective space, using the
         attribute-concatenated flat convention of
         :func:`window_tensor`. A 1-D array is accepted when dim == 1.
-    reference : list of array-like, optional
-        One entry per query attribute, each a 1-D array of length
-        equal to that attribute's dimension. If given, overrides the
-        default unweighted-centroid reference. If ``None`` (default),
-        the unweighted mean of per-attribute tuple centres is used.
+    reference : optional
+        Reference point(s) for the offset frame. Three forms:
+
+          * ``None`` (default): per-query auto-centroid (the unweighted
+            mean of the query's tuple centres on each attribute). Peak
+            offsets track ``P* − μ_q`` and so vary with the query.
+          * length-``n_attrs`` list of 1-D arrays: shared reference,
+            broadcast to every query. Each entry has length
+            ``dim_per_attr[a]``.
+          * length-``n_q`` list of (length-``n_attrs`` list of 1-D
+            arrays): per-query reference, one full reference list per
+            query in the batch.
+
+        Disambiguation when both forms are syntactically possible is
+        on element type: outer-list elements that are 1-D
+        arrays/lists-of-numbers indicate the shared form; outer-list
+        elements that are themselves lists/tuples indicate per-query.
+    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
+        For list-vs-list. Ignored otherwise.
     verbose : bool
 
     Returns
     -------
-    ndarray of shape (M,)
-        Windowed similarity profile.
+    np.ndarray
+        - scalar query, scalar context → ``(M,)`` (the v2.0 case).
+        - scalar query, list of n_c contexts → ``(n_c, M)``.
+        - list of n_q queries, scalar context → ``(n_q, M)``.
+        - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
+          ``(n_q, M)``.
+        - list-vs-list, ``mode='cartesian'`` → ``(n_q, n_c, M)``.
+
+        Length-1 lists do NOT collapse to scalars (Option II — strict
+        shape preservation).
     """
-    if not isinstance(dens_query, MaetDensity):
-        raise TypeError("dens_query must be a MaetDensity.")
-    if not isinstance(dens_context, MaetDensity):
-        raise TypeError("dens_context must be a MaetDensity.")
+    # ------------------------------------------------------------------
+    # Normalise query and context inputs.
+    # ------------------------------------------------------------------
+    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
+    c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
 
-    offsets = np.asarray(offsets, dtype=np.float64)
-    if offsets.ndim == 1:
-        offsets = offsets.reshape(-1, 1)
-    if offsets.shape[0] != int(dens_context.dim):
-        raise ValueError(
-            f"offsets must have {int(dens_context.dim)} rows (dim of "
-            f"dens_context); got shape {offsets.shape}."
+    # Validate every density is a plain MaetDensity (not Windowed, not SA).
+    # MaetDensity, WindowedMaetDensity, and ExpTensDensity are independent
+    # classes (no inheritance), so a single isinstance(d, MaetDensity) check
+    # suffices to exclude the other two.
+    for label, scalar_flag, densities in (
+        ("dens_query", q_scalar, q_list),
+        ("dens_context", c_scalar, c_list),
+    ):
+        for i, d in enumerate(densities):
+            if not isinstance(d, MaetDensity):
+                idx = "" if scalar_flag else f"[{i}]"
+                raise TypeError(
+                    f"{label}{idx} must be a MaetDensity (not "
+                    f"WindowedMaetDensity, not ExpTensDensity); got "
+                    f"{type(d).__name__}."
+                )
+
+    n_q = len(q_list)
+    n_c = len(c_list)
+
+    # ------------------------------------------------------------------
+    # Validate offsets shape against the (shared) context dimension.
+    # All contexts in a list must have matching dim; we check against
+    # the first and rely on per-pair structural compatibility checks
+    # in the underlying cos_sim_exp_tens to catch mismatches between
+    # query and context.
+    # ------------------------------------------------------------------
+    if n_c == 0 or n_q == 0:
+        # Empty list: produce a correctly-shaped empty output.
+        offsets_arr = np.asarray(offsets, dtype=np.float64)
+        if offsets_arr.ndim == 1:
+            offsets_arr = offsets_arr.reshape(-1, 1)
+        M = offsets_arr.shape[1] if offsets_arr.ndim >= 2 else 0
+        if q_scalar:
+            return np.empty((0, M), dtype=np.float64)
+        if c_scalar:
+            return np.empty((0, M), dtype=np.float64)
+        # both lists, at least one empty
+        if mode == "auto":
+            mode_resolved = "pairwise" if n_q == n_c else "cartesian"
+        else:
+            mode_resolved = mode
+        if mode_resolved == "pairwise":
+            return np.empty((0, M), dtype=np.float64)
+        return np.empty((n_q, n_c, M), dtype=np.float64)
+
+    template_context = c_list[0]
+
+    # ------------------------------------------------------------------
+    # Resolve reference into a list of length n_q (each entry a list of
+    # n_attrs 1-D arrays). None signals "auto-centroid per query".
+    # ------------------------------------------------------------------
+    references_per_query = _resolve_windowed_similarity_reference(
+        reference, q_list,
+    )
+
+    # ------------------------------------------------------------------
+    # Periodic-window approximation warning. The warning depends only
+    # on the context's group structure and the window spec, not on the
+    # query — so we emit it once per call against template_context.
+    # ------------------------------------------------------------------
+    _emit_periodic_window_warning(template_context, window_spec)
+
+    # ------------------------------------------------------------------
+    # Dispatch on (q_scalar, c_scalar).
+    # ------------------------------------------------------------------
+    if q_scalar and c_scalar:
+        return _windowed_similarity_pair(
+            q_list[0], c_list[0], window_spec, offsets,
+            ref_per_a=references_per_query[0], verbose=verbose,
         )
-    M = offsets.shape[1]
 
-    # ---- Periodic-window approximation check ------------------------
-    # A WindowedSimilarityPeriodicApproxWarning is emitted per periodic
-    # windowed group on every call. The message has two forms:
-    #   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
-    #     a brief informational notice that the line-case approximation
-    #     is in use, with the current SD/P against the bound. The
-    #     approximation is sub-percent across the window shape family
-    #     within this bound.
-    #   - Past the bound (lambda*sigma > P/(2*sqrt(3))): a stronger
-    #     notice reporting SD/P and phi (rect half-width) against
-    #     their bounds, and describing the qualitative behaviour by
-    #     mix (at mix=1 the rect window is no longer localized on the
-    #     circle; at mix=0 the approximation degrades smoothly).
-    # See User Guide §3.1 "Post-tensor windowing".
-    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ~= 0.2887
+    if q_scalar:
+        # 1 query × n_c contexts → (n_c, M).
+        rows = [
+            _windowed_similarity_pair(
+                q_list[0], c, window_spec, offsets,
+                ref_per_a=references_per_query[0], verbose=verbose,
+            )
+            for c in c_list
+        ]
+        return np.stack(rows, axis=0)
+
+    if c_scalar:
+        # n_q queries × 1 context → (n_q, M).
+        rows = [
+            _windowed_similarity_pair(
+                q, c_list[0], window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+            for q, ref in zip(q_list, references_per_query)
+        ]
+        return np.stack(rows, axis=0)
+
+    # Both lists.
+    resolved = _resolve_list_list_mode(mode, n_q, n_c)
+    if resolved == "pairwise":
+        rows = [
+            _windowed_similarity_pair(
+                q, c, window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+            for q, c, ref in zip(q_list, c_list, references_per_query)
+        ]
+        return np.stack(rows, axis=0)
+
+    # cartesian
+    # Determine M from a probe call.
+    probe = _windowed_similarity_pair(
+        q_list[0], c_list[0], window_spec, offsets,
+        ref_per_a=references_per_query[0], verbose=verbose,
+    )
+    M = probe.shape[0]
+    out = np.empty((n_q, n_c, M), dtype=np.float64)
+    out[0, 0, :] = probe
+    for j in range(1, n_c):
+        out[0, j, :] = _windowed_similarity_pair(
+            q_list[0], c_list[j], window_spec, offsets,
+            ref_per_a=references_per_query[0], verbose=verbose,
+        )
+    for i in range(1, n_q):
+        ref = references_per_query[i]
+        for j in range(n_c):
+            out[i, j, :] = _windowed_similarity_pair(
+                q_list[i], c_list[j], window_spec, offsets,
+                ref_per_a=ref, verbose=verbose,
+            )
+    return out
+
+
+def _resolve_windowed_similarity_reference(reference, q_list):
+    """Resolve the polymorphic ``reference`` argument of
+    :func:`windowed_similarity` to a list (length ``n_q``) of per-query
+    reference lists (each of length ``n_attrs``, with each entry a 1-D
+    array of length ``dim_per_attr[a]``).
+
+    ``None`` is returned as a list of ``None``s, signalling that each
+    query's auto-centroid should be computed in the per-pair core.
+    """
+    n_q = len(q_list)
+    if reference is None:
+        return [None] * n_q
+
+    if not isinstance(reference, (list, tuple)):
+        raise TypeError(
+            f"reference must be None, a list of per-attribute 1-D arrays "
+            f"(shared form), or a list of length n_q of such lists "
+            f"(per-query form); got {type(reference).__name__}."
+        )
+
+    template = q_list[0]
+    n_attrs = int(template.n_attrs)
+    dim_per_a = [int(d) for d in template.dim_per_attr]
+
+    # Disambiguate shared (length n_attrs, elements 1-D arrays) from
+    # per-query (length n_q, elements lists/tuples).
+    outer_len = len(reference)
+
+    if outer_len == 0:
+        raise ValueError("reference must be non-empty.")
+
+    first = reference[0]
+    elements_are_listlike = isinstance(first, (list, tuple)) or (
+        isinstance(first, np.ndarray) and first.ndim >= 1
+        and (
+            # Distinguish "1-D array of numbers" from "1-D array of arrays".
+            # An ndarray with dtype != object is shared-form material.
+            first.dtype == object
+        )
+    )
+
+    # The "shared" form has elements that are 1-D arrays of numbers; the
+    # "per-query" form has elements that are themselves lists of arrays.
+    # Detect by checking whether the first element is iterable in a way
+    # that yields more arrays.
+    def _is_per_query_outer(ref):
+        first_el = ref[0]
+        # A list/tuple at this level is per-query if it's iterable AND its
+        # elements look like 1-D numeric arrays (i.e., one level deeper).
+        if isinstance(first_el, (list, tuple)):
+            return True
+        if isinstance(first_el, np.ndarray) and first_el.dtype == object:
+            return True
+        return False
+
+    is_per_query = _is_per_query_outer(reference)
+
+    if is_per_query:
+        if outer_len != n_q:
+            raise ValueError(
+                f"Per-query reference must have length n_q = {n_q}; "
+                f"got {outer_len}."
+            )
+        out = []
+        for i, ref_q in enumerate(reference):
+            if not isinstance(ref_q, (list, tuple)) and not (
+                isinstance(ref_q, np.ndarray) and ref_q.dtype == object
+            ):
+                raise TypeError(
+                    f"reference[{i}] must be a list/tuple of "
+                    f"{n_attrs} per-attribute 1-D arrays; got "
+                    f"{type(ref_q).__name__}."
+                )
+            if len(ref_q) != n_attrs:
+                raise ValueError(
+                    f"reference[{i}] must have {n_attrs} entries (one per "
+                    f"query attribute); got {len(ref_q)}."
+                )
+            ref_q_validated = []
+            for a in range(n_attrs):
+                ref_a = np.asarray(ref_q[a], dtype=np.float64).reshape(-1)
+                if ref_a.size != dim_per_a[a]:
+                    raise ValueError(
+                        f"reference[{i}][{a}] must have length "
+                        f"{dim_per_a[a]} (dim of attribute {a}); got "
+                        f"{ref_a.size}."
+                    )
+                ref_q_validated.append(ref_a)
+            out.append(ref_q_validated)
+        return out
+
+    # Shared form: outer_len must equal n_attrs.
+    if outer_len != n_attrs:
+        raise ValueError(
+            f"Shared reference must have {n_attrs} entries (one per query "
+            f"attribute); got {outer_len}. For per-query references, pass a "
+            f"list of length n_q = {n_q} of such per-attribute lists."
+        )
+    shared = []
+    for a in range(n_attrs):
+        ref_a = np.asarray(reference[a], dtype=np.float64).reshape(-1)
+        if ref_a.size != dim_per_a[a]:
+            raise ValueError(
+                f"reference[{a}] must have length {dim_per_a[a]} (dim of "
+                f"attribute {a}); got {ref_a.size}."
+            )
+        shared.append(ref_a)
+    return [shared] * n_q
+
+
+def _emit_periodic_window_warning(dens_context, window_spec):
+    """Emit the periodic-window approximation warning once for this call.
+
+    The warning depends only on the context's group structure and the
+    window spec, not on the query, so it is computed once at the
+    dispatcher level and not per-pair.
+    """
+    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ≈ 0.2887
     G = int(dens_context.n_groups)
     size_arr = np.atleast_1d(
         np.asarray(window_spec["size"], dtype=np.float64)
@@ -3317,28 +4583,31 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
             stacklevel=2,
         )
 
-    # Reference point, per attribute.
+
+def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
+                               *, ref_per_a, verbose: bool) -> np.ndarray:
+    """Per-pair offset sweep for a single (query, context) pair.
+
+    ``ref_per_a`` is either ``None`` (auto-centroid) or a list of
+    pre-validated per-attribute 1-D arrays (length ``n_attrs``).
+    Returns the ``(M,)`` similarity profile.
+    """
+    offsets = np.asarray(offsets, dtype=np.float64)
+    if offsets.ndim == 1:
+        offsets = offsets.reshape(-1, 1)
+    if offsets.shape[0] != int(dens_context.dim):
+        raise ValueError(
+            f"offsets must have {int(dens_context.dim)} rows (dim of "
+            f"dens_context); got shape {offsets.shape}."
+        )
+    M = offsets.shape[1]
+
     A = int(dens_query.n_attrs)
     dim_per_a = [int(d) for d in dens_query.dim_per_attr]
-    if reference is None:
+
+    if ref_per_a is None:
         # Default: unweighted mean of per-attribute tuple centres.
         ref_per_a = [dens_query.centres[a].mean(axis=1) for a in range(A)]
-    else:
-        if len(reference) != A:
-            raise ValueError(
-                f"reference must have {A} entries (one per query "
-                f"attribute); got {len(reference)}."
-            )
-        ref_per_a = []
-        for a in range(A):
-            ref_a = np.asarray(reference[a], dtype=np.float64).reshape(-1)
-            if ref_a.size != dim_per_a[a]:
-                raise ValueError(
-                    f"reference[{a}] must have length "
-                    f"{dim_per_a[a]} (dim of attribute {a}); got "
-                    f"{ref_a.size}."
-                )
-            ref_per_a.append(ref_a)
 
     # Strip any user-supplied 'centre' field; offsets replace it.
     base_spec = {k: v for k, v in window_spec.items() if k != "centre"}

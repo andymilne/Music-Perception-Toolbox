@@ -83,7 +83,7 @@ All functions are accessible from the top-level `mpt` namespace:
 
 ```python
 import mpt
-s = mpt.cos_sim_exp_tens_raw(...)
+s = mpt.cos_sim_exp_tens(...)
 ```
 
 The Python implementation uses snake_case naming and a few other syntactic differences from the MATLAB version; see [Section 4](#4-api-conventions-matlab-vs-python) for the full mapping.
@@ -376,14 +376,14 @@ For the MAET calling form, `w` is a per-attribute cell (MATLAB) / list (Python) 
 
 ### Struct vs raw-argument calling
 
-In MATLAB, `cosSimExpTens` and `evalExpTens` accept either a precomputed struct or raw arguments in a single function, dispatching on the first argument's type. In Python, these are separate functions:
+In MATLAB, `cosSimExpTens` and `evalExpTens` accept either a precomputed struct or raw arguments in a single function, dispatching on the first argument's type. In Python, the same is now true (v2.1+) — `cos_sim_exp_tens` and `eval_exp_tens` are unified entry points that dispatch on the first argument's type. The earlier `*_raw` aliases remain as deprecated shims that emit a `DeprecationWarning`.
 
 | MATLAB | Python |
 |:---|:---|
 | `cosSimExpTens(dens_x, dens_y)` | `cos_sim_exp_tens(dens_x, dens_y)` |
-| `cosSimExpTens(p1, w1, p2, w2, ...)` | `cos_sim_exp_tens_raw(p1, w1, p2, w2, ...)` |
+| `cosSimExpTens(p1, w1, p2, w2, ...)` | `cos_sim_exp_tens(p1, w1, p2, w2, ...)` |
 | `evalExpTens(dens, X)` | `eval_exp_tens(dens, x)` |
-| `evalExpTens(p, w, sigma, r, ...)` | `eval_exp_tens_raw(p, w, sigma, r, ...)` |
+| `evalExpTens(p, w, sigma, r, ...)` | `eval_exp_tens(p, w, sigma, r, ...)` |
 
 ### Return values
 
@@ -403,9 +403,9 @@ In MATLAB, query-point arguments (`X`, `x`) are row vectors or matrices whose co
 |:---|:---|:---|
 | `addSpectra` | `add_spectra` | Spectra |
 | `buildExpTens` | `build_exp_tens` | Tensor core |
-| `evalExpTens` | `eval_exp_tens` / `eval_exp_tens_raw` | Tensor core |
-| `cosSimExpTens` | `cos_sim_exp_tens` / `cos_sim_exp_tens_raw` | Tensor core |
-| `batchCosSimExpTens` | `batch_cos_sim_exp_tens` | Tensor core |
+| `evalExpTens` | `eval_exp_tens` (`eval_exp_tens_raw` *deprecated*) | Tensor core |
+| `cosSimExpTens` | `cos_sim_exp_tens` (`cos_sim_exp_tens_raw` *deprecated*) | Tensor core |
+| `batchCosSimExpTens` *(deprecated)* | `batch_cos_sim_exp_tens` *(deprecated)* | Tensor core |
 | `windowTensor` | `window_tensor` | Tensor core |
 | `windowedSimilarity` | `windowed_similarity` | Tensor core |
 | `differenceEvents` | `difference_events` | Tensor core (preprocessing) |
@@ -472,7 +472,7 @@ minor = [0, 300, 700]
 maj_p, maj_w = mpt.add_spectra(major, None, 'harmonic', 12, 'powerlaw', 1)
 min_p, min_w = mpt.add_spectra(minor, None, 'harmonic', 12, 'powerlaw', 1)
 
-s = mpt.cos_sim_exp_tens_raw(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
+s = mpt.cos_sim_exp_tens(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
 print(f'SPCS(major, minor) = {s:.3f}')
 ```
 
@@ -606,8 +606,8 @@ spec = ('harmonic', 12, 'powerlaw', 1.0)
 ctx_p, ctx_w = mpt.add_spectra(context, w, *spec)
 probe_p, probe_w = mpt.add_spectra(probe_E, None, *spec)
 
-s = mpt.cos_sim_exp_tens_raw(ctx_p, ctx_w, probe_p, probe_w,
-                              10.0, 1, False, True, 1200.0)
+s = mpt.cos_sim_exp_tens(ctx_p, ctx_w, probe_p, probe_w,
+                          10.0, 1, False, True, 1200.0)
 print(f'Probe-E fit (recency-weighted): {s:.3f}')
 ```
 
@@ -688,8 +688,8 @@ The functions below group naturally into three layers: *preprocessing* (transfor
 |:---|:---|:---|
 | `buildExpTens` | `build_exp_tens` | Precompute an r-ad expectation tensor density object |
 | `evalExpTens` | `eval_exp_tens` | Evaluate the density at query points |
-| `cosSimExpTens` | `cos_sim_exp_tens` | Cosine similarity of two expectation tensor densities |
-| `batchCosSimExpTens` | `batch_cos_sim_exp_tens` | Batch cosine similarity with deduplication |
+| `cosSimExpTens` | `cos_sim_exp_tens` | Cosine similarity of two expectation tensor densities (single, list, or batched-raw) |
+| `batchCosSimExpTens` | `batch_cos_sim_exp_tens` | *Deprecated as of v2.1.* Folded into `cosSimExpTens` batched-raw mode |
 | `entropyExpTens` | `entropy_exp_tens` | Shannon entropy of an expectation tensor |
 | `windowTensor` | `window_tensor` | Wrap a MAET with a post-tensor window specification |
 | `windowedSimilarity` | `windowed_similarity` | Sliding-window similarity profile (magnitude-aware) |
@@ -725,9 +725,15 @@ Query points X should have `dim` rows, where $\mathrm{dim} = r - \mathrm{isRel}$
 
 Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`. Accepts single-attribute `ExpTensDensity`, multi-attribute `MaetDensity`, or `WindowedMaetDensity` (the latter compares against an unwindowed counterpart using the magnitude-aware normalisation described in Section 3.1, "Post-tensor windowing"). For multi-attribute comparisons, the two densities must share the same attribute structure and per-group parameters; see the compatibility note at the end of Section 3.1.
 
-**batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, ...)**
+*Batched-raw mode (v2.1+).* When called with two 2-D pitch matrices `P1` and `P2` of size `M`-by-`K` (and likewise-shaped or empty weights `W1`, `W2`), `cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period)` returns an `M`-by-1 vector of similarities computed pair-by-pair across rows. Rows may use NaN-padding for variable cardinality; identical sorted rows are automatically deduplicated for speed. Three additional name-value pairs are accepted in this mode: `'spectrum'` (cell array of `addSpectra` arguments — applies the same partials to both sides per row), `'precision'` (decimal places of pitch / weight rounding for dedup tolerance), and `'dedup'` (toggle internal deduplication; on by default and currently a no-op when off, emitting a warning). This mode replaces the deprecated `batchCosSimExpTens`.
 
-Computes cosine similarity for many paired weighted multisets. Each row of pMatA and pMatB defines one pair. Automatically deduplicates rows with identical sorted content, computing `cosSimExpTens` only once per unique pair. Optional name-value pairs: `'weightsA'`, `'weightsB'`, `'spectrum'` (cell array of `addSpectra` arguments), `'verbose'`.
+*Broadcasting in batched-raw mode (v2.1.1+).* When one of `P1`, `P2` is `M`-by-`K` (with `M > 1`) and the other is a vector of length `K` (1-D, 1-by-`K`, or `K`-by-1 in MATLAB; 1-D or `(1, K)` 2-D in Python), the vector is broadcast across the matrix's `M` rows in NumPy / MATLAB implicit-expansion style. The corresponding weights argument is broadcast in lockstep when non-empty. Eliminates the explicit `repmat(refPitches, M, 1)` / `np.tile(ref_pitches, (M, 1))` idiom for the common "compare one reference multiset against many candidates" use case.
+
+*List mode (v2.1+).* When called with two cell arrays (MATLAB) or lists (Python) of density structs, `cosSimExpTens` returns a 1-by-`n` cell / 1-D `ndarray` of pairwise similarities. The Option II shape rule is preserved: a length-1 list returns a length-1 cell / array, never a scalar. Density structs of mixed kinds (SA, MA, Windowed) are dispatched independently, with downstream compatibility checks per pair.
+
+*List-mode broadcasting (v2.1.1+).* Either operand may be a single density struct paired with a cell / list of density structs; the single struct is broadcast against every entry of the cell / list. Returns a 1-by-`n` cell / array, mirroring the broadcast available in batched-raw mode. In Python only, list × list calls additionally accept `mode='cartesian'` to compute the full `m`-by-`n` cross-product (returns a 2-D `ndarray`); MATLAB list mode is currently pairwise-only.
+
+**~~batchCosSimExpTens~~** *(MATLAB)* / **~~batch_cos_sim_exp_tens~~** *(Python)* — deprecated as of v2.1; emits `MPT:DeprecatedAPI` (MATLAB) or `DeprecationWarning` (Python). Migrate to `cosSimExpTens` batched-raw mode (described above), which is the new public face for this path. The old positional form `batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, 'weightsA', wA, 'weightsB', wB, ...)` becomes `cosSimExpTens(pMatA, wA, pMatB, wB, sigma, r, isRel, isPer, period, ...)` — weights move from name-value pairs to positional arguments; pass `[]` (MATLAB) or `None` (Python) for uniform weights.
 
 **entropyExpTens(p, w, sigma, r, isRel, isPer, period, ...)**
 
@@ -885,7 +891,7 @@ All functions in this group operate on multisets of pitches or positions distrib
 
 ### 6.6 Ordered sequences
 
-Utility functions for analyses of event sequences over time. Position-sensitive similarity of two sequences is computed via the core tensor functions on pitch-and-time-attributed multi-attribute tensors; see Sections 3.1 and 6.1 for `buildExpTens`, `cosSimExpTens`, `batchCosSimExpTens`, `windowTensor`, and `windowedSimilarity`.
+Utility functions for analyses of event sequences over time. Position-sensitive similarity of two sequences is computed via the core tensor functions on pitch-and-time-attributed multi-attribute tensors; see Sections 3.1 and 6.1 for `buildExpTens`, `cosSimExpTens` (including its batched-raw and list dispatch forms for many-pair scanning), `windowTensor`, and `windowedSimilarity`.
 
 | MATLAB | Python | Description |
 |:---|:---|:---|
@@ -1022,7 +1028,7 @@ The Quick Start example of probe-tone fitting treated the context as an unordere
 
 Two complementary approaches are available. The first is the pooled-context approach of the Quick Start: treat the context as a weighted multiset and compute a single similarity. The second is a *time-resolved* approach: represent the context as a multi-attribute tensor carrying both pitch and time, and sweep a window along the time axis to obtain a similarity *profile* showing how probe fit evolves moment by moment. The two approaches answer different questions — "what is the aggregate fit?" versus "where and when does the probe fit best?" — and both are naturally expressed in the v2.1.0 framework.
 
-The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are encoded by a pre-built weight vector from `seqWeights`, and each probe is compared against the same weighted context via `batchCosSimExpTens` for efficient scanning.
+The example below scans twelve chromatic probes against a short melodic line `C F G C` representing a I–IV–V–I cadence, using the pooled-context approach. The final tonic is held for two beats (irregular time grid); the first and last events are metrically accented (irregular salience). Both effects are encoded by a pre-built weight vector from `seqWeights`, and each probe is compared against the same weighted context via `cosSimExpTens` in list mode — the context density (a single struct) is broadcast against the cell / list of twelve probe densities in one call (v2.1.1+), avoiding an explicit loop.
 
 **MATLAB:**
 ```matlab
@@ -1044,14 +1050,17 @@ spec = {'harmonic', 12, 'powerlaw', 1};
 [ctx_p, ctx_w] = addSpectra(context, w, spec{:});
 ctx_dens = buildExpTens(ctx_p, ctx_w, 10, 1, false, true, 1200);
 
-% Scan 12 chromatic probes
-probes = convertPitch(60:71, 'midi', 'cents');
-fit = zeros(1, 12);
+% Build all 12 chromatic probe densities up front
+probes     = convertPitch(60:71, 'midi', 'cents');
+probe_dens = cell(1, 12);
 for i = 1:12
     [probe_p, probe_w] = addSpectra(probes(i), [], spec{:});
-    probe_dens = buildExpTens(probe_p, probe_w, 10, 1, false, true, 1200);
-    fit(i) = cosSimExpTens(ctx_dens, probe_dens);
+    probe_dens{i} = buildExpTens(probe_p, probe_w, 10, 1, false, true, 1200);
 end
+
+% List-mode broadcast: single context vs cell of probes (v2.1.1+)
+fitCell = cosSimExpTens(ctx_dens, probe_dens, 'verbose', false);
+fit     = cell2mat(fitCell);
 
 bar(0:11, fit);
 xlabel('Probe pitch class (semitones from C)');
@@ -1074,11 +1083,15 @@ ctx_p, ctx_w = mpt.add_spectra(context, w, *spec)
 ctx_dens = mpt.build_exp_tens(ctx_p, ctx_w, 10., 1, False, True, 1200.)
 
 probes = mpt.convert_pitch(np.arange(60, 72), 'midi', 'cents')
-fit = np.empty(12)
+probe_dens = []
 for i in range(12):
     pp, pw = mpt.add_spectra(np.array([probes[i]]), None, *spec)
-    probe_dens = mpt.build_exp_tens(pp, pw, 10., 1, False, True, 1200.)
-    fit[i] = mpt.cos_sim_exp_tens(ctx_dens, probe_dens)
+    probe_dens.append(
+        mpt.build_exp_tens(pp, pw, 10., 1, False, True, 1200.)
+    )
+
+# List-mode broadcast: single context vs list of probes (v2.1.1+)
+fit = mpt.cos_sim_exp_tens(ctx_dens, probe_dens, verbose=False)
 ```
 
 The resulting profile peaks at C (the tonic, present at both endpoints and carried by the most heavily weighted final event), with a secondary peak at G. The emphasis on the final tonic and the decay of the intermediate events fall out of the `seqWeights` profile — primacy and recency accents, plus time-aware exponential decay — composed into a single plain numeric vector that enters `buildExpTens` as the per-event pitch weights via `addSpectra`.
@@ -1294,7 +1307,7 @@ MATLAB demo scripts are in `matlab/demos/`. To run a demo, open it in the MATLAB
 |:---|:---|:---|
 | `demo_overview` | Quick tour of all major function families: pitch conversion, spectral enrichment, SPCS, harmonicity, roughness, balance, evenness, coherence, sameness, entropy, mean offset, edges, and Markov | — |
 | `demo_audioAnalysis` | Two-pass peak extraction (unsmoothed then smoothed) from audio files, with spectral similarity, harmonicity, roughness, and virtual pitch analysis | — |
-| `demo_batchProcessing` | Batch feature computation with deduplication: paired SPCS via `batchCosSimExpTens`, and single-set measures (spectral entropy, harmonicity, roughness) via the unique/map pattern | — |
+| `demo_batchProcessing` | Batch feature computation with deduplication: paired SPCS via batched-raw `cosSimExpTens`, and single-set measures (spectral entropy, harmonicity, roughness) via a hybrid of batched calls (where supported) and the unique/map pattern | — |
 | `demo_edoApprox` | SPCS of n-EDOs against a JI chord | Milne et al. (2011), Ex. 6.3 / Fig. 4 |
 | `demo_expTensorPlots` | Interactive visualisation of expectation tensors in 1–4 dimensions, with power sliders and projection toggles | — |
 | `demo_genChainSpcs` | SPCS of generator-chain tunings as the generator is swept (linear and circular plots) | Milne et al. (2011), Ex. 6.4–6.5 / Figs. 5–7 |

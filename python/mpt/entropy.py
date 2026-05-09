@@ -32,94 +32,113 @@ def entropy_exp_tens(
     p_or_dens,
     *args,
     spectrum: list | None = None,
+    precision: int | None = None,
+    dedup: bool = True,
     normalize: bool = True,
     base: float = 2.0,
     n_points_per_dim: int = 1200,
     x_min=float("nan"),
     x_max=float("nan"),
     grid_limit: int = _DEFAULT_GRID_LIMIT,
-) -> float:
+):
     """Shannon entropy of an expectation tensor density.
 
-    Dispatches on the type of the first argument:
+    Unified entry point. Accepts five input forms, dispatched on the
+    type of the first argument:
 
-      - :class:`ExpTensDensity`, or SA raw args (*p* a 1-D array) ->
-        single-attribute path. Signature::
+    **Pre-built density input**:
 
-            entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period, ...)
-            entropy_exp_tens(dens_sa, ...)
+    - ``entropy_exp_tens(dens)`` — scalar density (the v2.0 case).
+      Returns a Python float.
+    - ``entropy_exp_tens([d1, d2, …])`` — list of densities. Returns
+      ``(M,)`` ndarray.
 
-      - :class:`MaetDensity`, or MA raw args (*p* a list/tuple of
-        attribute matrices) -> multi-attribute path. Signature::
+    **Raw single-attribute scalar input**:
 
-            entropy_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
-                             is_rel_vec, is_per_vec, period_vec, ...)
-            entropy_exp_tens(dens_ma, ...)
+    - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
+      Returns a Python float. Optional ``spectrum``.
+
+    **Raw single-attribute batched input**:
+
+    - ``entropy_exp_tens(P, W, sigma, r, is_rel, is_per, period)``
+      with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
+      Returns ``(M,)``. Optional ``spectrum``, ``precision``,
+      ``dedup``.
+
+    **Raw multi-attribute scalar input**:
+
+    - ``entropy_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+      is_rel_vec, is_per_vec, period_vec)``. Returns a Python float.
 
     Parameters
     ----------
-    p_or_dens : array-like, list of matrices, ExpTensDensity, or MaetDensity
-        Either a pitch/position input or a precomputed density object.
+    p_or_dens : various
+        See input forms above.
     *args : tuple
-        Raw-args tail (SA: 6 further args; MA: 7 further args). Ignored
-        for precomputed densities.
+        Raw-args tail. Empty for density input; 6 trailing for raw SA;
+        7 trailing for raw MA.
     spectrum : list or None
-        Arguments for :func:`~mpt.spectra.add_spectra`. SA only; for MA,
-        apply spectral enrichment to the pitch attribute upstream.
-    normalize : bool
-        If True (default), divide by log(N) for a [0, 1] value.
-    base : float
-        Logarithm base (default 2).
-    n_points_per_dim : int
-        Grid resolution per effective dimension (default 1200).
-    x_min, x_max : float or length-G array
-        Domain bounds for non-periodic axes. SA: scalars. MA: scalar
-        (broadcast to all non-periodic groups) or length-G vector
-        (entries for periodic groups ignored). Required when any axis
-        is non-periodic.
-    grid_limit : int
-        Hard cap on the total grid size (``n_points_per_dim ** dim``)
-        before allocation. Default 1e8. Raises ValueError if exceeded,
-        suggesting a lower *n_points_per_dim*.
+        Arguments for :func:`~mpt.spectra.add_spectra`. Raw SA only.
+    precision : int, optional
+        Round canonical values to this many decimal places, to absorb
+        FP noise when deduplicating. Raw SA batched only.
+    dedup : bool, default True
+        Deduplicate structurally-identical chords. List/batch only.
+    normalize, base, n_points_per_dim, x_min, x_max, grid_limit
+        Per-density entropy parameters; see v2.0 docstring.
 
     Returns
     -------
-    float
-        Shannon entropy. In [0, 1] when *normalize* is True.
+    float or np.ndarray
+        Scalar in scalar input modes; ``(M,)`` ndarray in list/batch
+        modes.
     """
-    # --- Dispatch on precomputed densities first ---
-    if isinstance(p_or_dens, WindowedMaetDensity):
+    # --- Density inputs first (scalar or list) ---
+    if isinstance(p_or_dens, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
         if len(args) > 0:
             raise TypeError(
-                "Precomputed WindowedMaetDensity takes no further positional args."
+                f"Precomputed density takes no further positional args; "
+                f"got {len(args)}."
             )
-        return _entropy_exp_tens_ma(
+        if spectrum is not None or precision is not None:
+            raise TypeError(
+                "'spectrum' and 'precision' kwargs are only valid in raw input mode."
+            )
+        return _entropy_exp_tens_scalar(
             p_or_dens,
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
         )
-    if isinstance(p_or_dens, MaetDensity):
+
+    # Density list dispatch (list/tuple/object-array of densities)
+    intends_density_list = False
+    if isinstance(p_or_dens, (list, tuple)):
+        if len(p_or_dens) == 0:
+            intends_density_list = True
+        elif isinstance(
+            p_or_dens[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        ):
+            intends_density_list = True
+    elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
+        intends_density_list = True
+
+    if intends_density_list:
         if len(args) > 0:
             raise TypeError(
-                "Precomputed MaetDensity takes no further positional args."
+                f"Density list input takes no further positional args; "
+                f"got {len(args)}."
             )
-        return _entropy_exp_tens_ma(
+        if spectrum is not None or precision is not None:
+            raise TypeError(
+                "'spectrum' and 'precision' kwargs are only valid in raw input mode."
+            )
+        return _entropy_exp_tens_density_list(
             p_or_dens,
+            dedup=dedup,
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
-        )
-    if isinstance(p_or_dens, ExpTensDensity):
-        if len(args) > 0:
-            raise TypeError(
-                "Precomputed ExpTensDensity takes no further positional args."
-            )
-        return _entropy_exp_tens_sa(
-            p_or_dens, None, None, None, None, None, None,
-            spectrum=None, normalize=normalize, base=base,
-            n_points_per_dim=n_points_per_dim,
-            x_min=x_min, x_max=x_max,
         )
 
     # --- Raw args: dispatch on type of p ---
@@ -129,6 +148,15 @@ def entropy_exp_tens(
                 f"Multi-attribute raw call expects 8 positional arguments "
                 f"(p_attr, w, sigma_vec, r_vec, groups, is_rel_vec, "
                 f"is_per_vec, period_vec); got {1 + len(args)}."
+            )
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' kwarg is only valid in raw single-attribute "
+                "input mode."
+            )
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid in raw SA batched input mode."
             )
         w, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
         dens = build_exp_tens(
@@ -142,19 +170,202 @@ def entropy_exp_tens(
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
         )
-    # SA raw args.
+
+    # SA raw args. Distinguish scalar (1-D) from batched (2-D) by shape.
     if len(args) != 6:
         raise ValueError(
             f"Single-attribute raw call expects 7 positional arguments "
             f"(p, w, sigma, r, is_rel, is_per, period); got {1 + len(args)}."
         )
     w, sigma, r, is_rel, is_per, period = args
-    return _entropy_exp_tens_sa(
-        p_or_dens, w, sigma, r, is_rel, is_per, period,
-        spectrum=spectrum, normalize=normalize, base=base,
-        n_points_per_dim=n_points_per_dim,
-        x_min=x_min, x_max=x_max,
+
+    try:
+        p_arr = np.asarray(p_or_dens, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            f"First argument must be a density object, list of densities, "
+            f"numeric array (1-D for a single chord, 2-D for a batch), or "
+            f"list of per-attribute matrices for MA raw input; got "
+            f"{type(p_or_dens).__name__}."
+        ) from exc
+
+    if p_arr.ndim == 1:
+        if precision is not None:
+            raise TypeError(
+                "'precision' kwarg is only valid for raw SA batched input."
+            )
+        return _entropy_exp_tens_sa(
+            p_or_dens, w, sigma, r, is_rel, is_per, period,
+            spectrum=spectrum, normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max,
+        )
+    if p_arr.ndim == 2:
+        return _entropy_exp_tens_raw_sa_batch(
+            p_arr, w, sigma, r, is_rel, is_per, period,
+            spectrum=spectrum, precision=precision,
+            dedup=dedup,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    raise TypeError(
+        f"First argument has unsupported shape {p_arr.shape}; "
+        f"raw SA input must be 1-D (single chord) or 2-D (batched)."
     )
+
+
+def _entropy_exp_tens_scalar(
+    dens, *, normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
+):
+    """Single-density entropy dispatch (the v2.0 type-dispatch logic)."""
+    if isinstance(dens, WindowedMaetDensity):
+        return _entropy_exp_tens_ma(
+            dens,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    if isinstance(dens, MaetDensity):
+        return _entropy_exp_tens_ma(
+            dens,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+        )
+    if isinstance(dens, ExpTensDensity):
+        return _entropy_exp_tens_sa(
+            dens, None, None, None, None, None, None,
+            spectrum=None, normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max,
+        )
+    raise TypeError(
+        f"dens must be an ExpTensDensity, MaetDensity, or "
+        f"WindowedMaetDensity; got {type(dens).__name__}."
+    )
+
+
+def _entropy_exp_tens_density_list(
+    dens_list, *, dedup, normalize, base, n_points_per_dim,
+    x_min, x_max, grid_limit,
+):
+    """List-of-densities entropy dispatch.
+
+    With ``dedup=True``, structurally-identical SA densities are
+    computed once (canonical-form dedup); MA densities bypass dedup.
+    Returns ``(M,)``.
+    """
+    # Import lazily to avoid circular import at module load time.
+    from .tensor import _chord_canonical_key
+
+    dens_list = list(dens_list)
+    m = len(dens_list)
+    if m == 0:
+        return np.empty((0,), dtype=np.float64)
+
+    use_dedup = dedup and all(isinstance(d, ExpTensDensity) for d in dens_list)
+    out = np.empty(m, dtype=np.float64)
+
+    if use_dedup:
+        result_cache: dict = {}
+        for i, d in enumerate(dens_list):
+            key, _, _ = _chord_canonical_key(
+                d.p, d.w, sigma=d.sigma, r=d.r,
+                is_rel=d.is_rel, is_per=d.is_per, period=d.period,
+            )
+            if key not in result_cache:
+                result_cache[key] = _entropy_exp_tens_scalar(
+                    d, normalize=normalize, base=base,
+                    n_points_per_dim=n_points_per_dim,
+                    x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+                )
+            out[i] = result_cache[key]
+    else:
+        for i, d in enumerate(dens_list):
+            if not isinstance(
+                d, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+            ):
+                raise TypeError(
+                    f"Density list element {i} must be a density object; "
+                    f"got {type(d).__name__}."
+                )
+            out[i] = _entropy_exp_tens_scalar(
+                d, normalize=normalize, base=base,
+                n_points_per_dim=n_points_per_dim,
+                x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            )
+    return out
+
+
+def _entropy_exp_tens_raw_sa_batch(
+    P, W, sigma, r, is_rel, is_per, period,
+    *, spectrum, precision, dedup,
+    normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
+):
+    """Raw SA batched entropy dispatch.
+
+    Per-row chord-level dedup of density construction (via canonical
+    keys); each unique density's entropy is computed once. Returns
+    ``(M,)`` with ``np.nan`` for invalid rows (K < r).
+    """
+    from .tensor import _chord_canonical_key
+
+    P = np.asarray(P, dtype=np.float64)
+    M, K = P.shape
+    use_w = W is not None
+    if use_w:
+        W = np.asarray(W, dtype=np.float64)
+        if W.shape != P.shape:
+            raise ValueError("W must be the same shape as P.")
+
+    # Input precision rounding (collapses FP-noise rows).
+    if precision is not None:
+        P = np.round(P, precision)
+        if use_w:
+            W = np.round(W, precision)
+
+    out = np.full(M, np.nan)
+
+    dens_cache: dict = {}
+    entropy_cache: dict = {}
+    row_to_key: list = [None] * M
+    for i in range(M):
+        p_row = P[i]
+        mask = ~np.isnan(p_row)
+        p_valid = p_row[mask]
+        if len(p_valid) < r:
+            continue
+        w_valid = W[i, mask] if use_w else None
+        key, p_canon, w_canon = _chord_canonical_key(
+            p_valid, w_valid,
+            sigma=sigma, r=r, is_rel=is_rel, is_per=is_per, period=period,
+            precision=precision,
+        )
+        if key not in dens_cache:
+            if spectrum is not None:
+                p_canon, w_canon_aug = add_spectra(
+                    p_canon,
+                    np.ones_like(p_canon) if w_canon is None else w_canon,
+                    *spectrum,
+                )
+                w_canon = w_canon_aug
+            dens_cache[key] = build_exp_tens(
+                p_canon, w_canon, sigma, r, is_rel, is_per, period,
+                verbose=False,
+            )
+        if not dedup or key not in entropy_cache:
+            entropy_cache[key] = _entropy_exp_tens_scalar(
+                dens_cache[key], normalize=normalize, base=base,
+                n_points_per_dim=n_points_per_dim,
+                x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            )
+        row_to_key[i] = key
+
+    for i, key in enumerate(row_to_key):
+        if key is not None:
+            out[i] = entropy_cache[key]
+    return out
 
 
 def _looks_like_ma_p(p) -> bool:
@@ -192,18 +403,26 @@ def _entropy_exp_tens_sa(
         period = T.period
     else:
         p = np.asarray(p_or_dens, dtype=np.float64).ravel()
-        if w is None or sigma is None or r is None or is_rel is None or is_per is None or period is None:
+        if (sigma is None or r is None or is_rel is None
+                or is_per is None or period is None):
             raise ValueError(
-                "When p is not a precomputed density, all positional "
-                "arguments (p, w, sigma, r, is_rel, is_per, period) are required."
+                "When p is not a precomputed density, the structural "
+                "arguments (sigma, r, is_rel, is_per, period) are required. "
+                "(w may be None for uniform weights.)"
             )
+        if w is None:
+            w = np.ones_like(p)
         if spectrum is not None:
             p, w = add_spectra(p, w, *spectrum)
         T = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
 
-    # Construct query points
+    # Construct query points. For dim == 1 the grid is a single 1-D
+    # linspace; for dim > 1 it is a Cartesian product, mirroring the
+    # MA path. (The v2.0 release only supported dim == 1 here, raising
+    # in higher dims; v2.1 lifts that limitation.)
+    dim = int(T.dim)
     if is_per:
-        x = np.linspace(0, period, n_points_per_dim + 1)[:-1]
+        ax = np.linspace(0, period, n_points_per_dim + 1)[:-1]
     else:
         x_min_s = float(np.asarray(x_min).item()) if np.ndim(x_min) == 0 else float("nan")
         x_max_s = float(np.asarray(x_max).item()) if np.ndim(x_max) == 0 else float("nan")
@@ -211,7 +430,13 @@ def _entropy_exp_tens_sa(
             raise ValueError("x_min and x_max must be specified when is_per is False.")
         if x_min_s >= x_max_s:
             raise ValueError("x_min must be less than x_max.")
-        x = np.linspace(x_min_s, x_max_s, n_points_per_dim)
+        ax = np.linspace(x_min_s, x_max_s, n_points_per_dim)
+
+    if dim == 1:
+        x = ax
+    else:
+        mesh = np.meshgrid(*([ax] * dim), indexing="ij")
+        x = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
     t = eval_exp_tens(T, x, verbose=False)
 
@@ -220,7 +445,7 @@ def _entropy_exp_tens_sa(
         return 0.0
 
     q = t / total
-    N = len(q)
+    N = q.size
     q = q[q > 0]
 
     H = float(-np.sum(q * np.log(q) / np.log(base)))

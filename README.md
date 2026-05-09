@@ -106,7 +106,7 @@ minor = [0, 300, 700]
 maj_p, maj_w = mpt.add_spectra(major, None, 'harmonic', 12, 'powerlaw', 1)
 min_p, min_w = mpt.add_spectra(minor, None, 'harmonic', 12, 'powerlaw', 1)
 
-s = mpt.cos_sim_exp_tens_raw(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
+s = mpt.cos_sim_exp_tens(maj_p, maj_w, min_p, min_w, 10, 1, False, True, 1200)
 print(f'SPCS(major, minor) = {s:.3f}')
 ```
 

@@ -344,130 +344,6 @@ warning(prevWarnState);
 results{end+1,1} = 'cosSimExpTens batched: internal call suppresses deprecation';
 results{end,2}   = ~strcmp(internalWarnId, 'MPT:DeprecatedAPI');
 
-% spectrum/precision/dedup forwarding (batched-raw only)
-spec_fwd = {'harmonic', 12, 'powerlaw', 1};
-sBatched_spec = cosSimExpTens(A2, [], B2, [], 10, 1, false, true, 1200, ...
-    'spectrum', spec_fwd, 'verbose', false);
-warnState = warning('off', 'MPT:DeprecatedAPI');
-sBatchOld_spec = batchCosSimExpTens(A2, B2, 10, 1, false, true, 1200, ...
-    'spectrum', spec_fwd, 'verbose', false);
-warning(warnState);
-results{end+1,1} = 'cosSimExpTens batched: ''spectrum'' forwards to batchCosSimExpTens';
-results{end,2}   = max(abs(sBatched_spec(:) - sBatchOld_spec(:))) < 1e-14;
-
-% spectrum kwarg rejected in non-batched modes
-results{end+1,1} = 'cosSimExpTens scalar: ''spectrum'' kwarg errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() cosSimExpTens([0, 4, 7], [], [0, 4, 7], [], 10, 1, false, true, 1200, ...
-        'spectrum', spec_fwd, 'verbose', false), ...
-    'cosSimExpTens:spectrumNotApplicable');
-
-results{end+1,1} = 'cosSimExpTens MA struct: ''spectrum'' kwarg errors';
-% Build small MA densities just for this test
-densMA_x = buildExpTens({[0; 4; 7]}, [], 0.5, 1, [], false, true, 12, 'verbose', false);
-densMA_y = buildExpTens({[0; 4; 7]}, [], 0.5, 1, [], false, true, 12, 'verbose', false);
-results{end,2}   = throwsErrorWithId( ...
-    @() cosSimExpTens(densMA_x, densMA_y, 'spectrum', spec_fwd, 'verbose', false), ...
-    'cosSimExpTens:spectrumNotApplicable');
-
-% --- Broadcasting in batched-raw mode (v2.1.1+) ---
-% Reference multiset broadcast against M candidate rows: should match
-% the explicit repmat formulation row-by-row.
-ref_pitches = [0, 386.31, 701.96];
-candidates = [0, 400, 700;
-              0, 300, 700;
-              0, 300, 600;
-              0, 400, 800];
-sims_explicit = cosSimExpTens(repmat(ref_pitches, 4, 1), [], candidates, [], ...
-    10, 1, false, true, 1200, 'verbose', false);
-
-% (a) 1×K row reference broadcast as P1
-sims_bcast_row = cosSimExpTens(ref_pitches, [], candidates, [], ...
-    10, 1, false, true, 1200, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens batched: 1xK row P1 broadcasts against MxK P2';
-results{end,2}   = isequal(size(sims_bcast_row), [4, 1]) && ...
-                   max(abs(sims_bcast_row - sims_explicit)) < 1e-12;
-
-% (b) K-by-1 column reference broadcast as P1
-sims_bcast_col = cosSimExpTens(ref_pitches.', [], candidates, [], ...
-    10, 1, false, true, 1200, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens batched: Kx1 column P1 broadcasts against MxK P2';
-results{end,2}   = max(abs(sims_bcast_col - sims_explicit)) < 1e-12;
-
-% (c) Symmetric: P1 matrix, P2 vector reference
-sims_bcast_p2 = cosSimExpTens(candidates, [], ref_pitches, [], ...
-    10, 1, false, true, 1200, 'verbose', false);
-% cos sim is symmetric in P1 vs P2 swap, so should equal sims_explicit
-results{end+1,1} = 'cosSimExpTens batched: P2 vector broadcasts against MxK P1';
-results{end,2}   = max(abs(sims_bcast_p2 - sims_explicit)) < 1e-12;
-
-% (d) Broadcast with non-empty weights: W1 vector broadcast in lockstep
-ref_w = [1.0, 0.8, 0.6];
-sims_w_bcast = cosSimExpTens(ref_pitches, ref_w, candidates, [], ...
-    10, 1, false, true, 1200, 'verbose', false);
-sims_w_explicit = cosSimExpTens(repmat(ref_pitches, 4, 1), repmat(ref_w, 4, 1), ...
-    candidates, [], 10, 1, false, true, 1200, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens batched: W1 vector broadcasts alongside P1';
-results{end,2}   = max(abs(sims_w_bcast - sims_w_explicit)) < 1e-12;
-
-% (e) Broadcast composes with 'spectrum' kwarg
-sims_bcast_spec = cosSimExpTens(ref_pitches, [], candidates, [], ...
-    10, 1, false, true, 1200, 'spectrum', spec_fwd, 'verbose', false);
-sims_explicit_spec = cosSimExpTens(repmat(ref_pitches, 4, 1), [], candidates, [], ...
-    10, 1, false, true, 1200, 'spectrum', spec_fwd, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens batched: broadcast composes with ''spectrum''';
-results{end,2}   = max(abs(sims_bcast_spec - sims_explicit_spec)) < 1e-12;
-
-% (f) Mismatched row counts (no broadcast possible) errors clearly
-results{end+1,1} = 'cosSimExpTens batched: mismatched row counts errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() cosSimExpTens(rand(4, 3), [], rand(5, 3), [], ...
-        10, 1, false, true, 1200, 'verbose', false), ...
-    'cosSimExpTens:rowMismatch');
-
-% --- List-mode broadcasting (v2.1.1+) ---
-% Build a small population of density structs.
-dRef = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
-dC1  = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
-dC2  = buildExpTens([0, 3, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
-dC3  = buildExpTens([0, 3, 6], [], 0.5, 1, false, true, 12, 'verbose', false);
-
-simExplicit = cosSimExpTens({dRef, dRef, dRef}, {dC1, dC2, dC3}, 'verbose', false);
-
-% (a) Right-broadcast: scalar struct vs cell
-simBcastR = cosSimExpTens(dRef, {dC1, dC2, dC3}, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens list: scalar vs cell broadcasts (right)';
-results{end,2}   = iscell(simBcastR) && numel(simBcastR) == 3 && ...
-    abs(simBcastR{1} - simExplicit{1}) < 1e-12 && ...
-    abs(simBcastR{2} - simExplicit{2}) < 1e-12 && ...
-    abs(simBcastR{3} - simExplicit{3}) < 1e-12;
-
-% (b) Left-broadcast: cell vs scalar struct (symmetric: cosine is symmetric)
-simBcastL = cosSimExpTens({dC1, dC2, dC3}, dRef, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens list: cell vs scalar broadcasts (left)';
-results{end,2}   = iscell(simBcastL) && numel(simBcastL) == 3 && ...
-    abs(simBcastL{1} - simExplicit{1}) < 1e-12 && ...
-    abs(simBcastL{2} - simExplicit{2}) < 1e-12 && ...
-    abs(simBcastL{3} - simExplicit{3}) < 1e-12;
-
-% (c) Length-1 cell still returns length-1 cell (Option II preserved)
-simBcastOne = cosSimExpTens(dRef, {dC1}, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens list: scalar vs length-1 cell returns length-1 cell';
-results{end,2}   = iscell(simBcastOne) && numel(simBcastOne) == 1 && ...
-    abs(simBcastOne{1} - simExplicit{1}) < 1e-12;
-
-% (d) Cell + cell with mismatched length still errors clearly
-results{end+1,1} = 'cosSimExpTens list: cell+cell length mismatch errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() cosSimExpTens({dRef, dRef}, {dC1, dC2, dC3}, 'verbose', false), ...
-    'MPT:CosSimList:LengthMismatch');
-
-% (e) Cell + non-struct, non-cell (e.g. numeric) errors with bad-broadcast id
-results{end+1,1} = 'cosSimExpTens list: cell vs non-struct other-arg errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() cosSimExpTens({dC1, dC2}, 42, 'verbose', false), ...
-    'MPT:CosSimList:BadBroadcast');
-
 % --- v2.1 unified dispatch: evalExpTens list and batched-raw modes ----
 
 % List mode: cell of density structs returns cell of value vectors
@@ -1047,22 +923,22 @@ H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec);
 results{end+1,1} = 'spectralEntropy: JI < EDO';
 results{end,2}   = H_ji < H_edo;
 
-[hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
+[hMax, hEnt] = templateHarmonicity([0, 400, 700], [], 12);
 results{end+1,1} = 'templateHarmonicity: hMax in (0,1]';
 results{end,2}   = hMax > 0 && hMax <= 1;
 results{end+1,1} = 'templateHarmonicity: hEntropy in (0,1]';
 results{end,2}   = hEnt > 0 && hEnt <= 1;
 
 % -- templateHarmonicity: hEntropy lower for octave than for cluster --
-[~, hEnt_oct] = templateHarmonicity([0, 1200], [], 12, 'verbose', false);
-[~, hEnt_clu] = templateHarmonicity([0, 100, 200], [], 12, 'verbose', false);
+[~, hEnt_oct] = templateHarmonicity([0, 1200], [], 12);
+[~, hEnt_clu] = templateHarmonicity([0, 100, 200], [], 12);
 results{end+1,1} = 'templateHarmonicity: hEntropy octave < cluster';
 results{end,2}   = hEnt_oct < hEnt_clu;
 
 % -- templateHarmonicity: hEntropy lower for major triad than for cluster
 % (3-note vs 3-note, controlling for cardinality) --
-[~, hEnt_maj] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
-[~, hEnt_clu] = templateHarmonicity([0, 100, 200], [], 12, 'verbose', false);
+[~, hEnt_maj] = templateHarmonicity([0, 400, 700], [], 12);
+[~, hEnt_clu] = templateHarmonicity([0, 100, 200], [], 12);
 results{end+1,1} = 'templateHarmonicity: hEntropy major triad < cluster';
 results{end,2}   = hEnt_maj < hEnt_clu;
 
@@ -1099,131 +975,6 @@ results{end,2}   = abs(vp_p1(i_max1) - 400) < 5;
 [~, i_max2] = max(vp_w2);
 results{end+1,1} = 'virtualPitches: octave peak at lower note';
 results{end,2}   = abs(vp_p2(i_max2)) < 5;
-
-% --- v2.1 unified dispatch: harmony wrappers batched mode ---
-
-% tensorHarmonicity: 2-D matrix dispatch returns column vector
-P_h = [0, 1200, 0, 0;     % unison-with-octave (4-pitch); cardinality 4
-       0, 700, 0, 0;       % open-fifth-doubled (4-pitch); cardinality 4
-       0, 400, 700, 0];    % major triad (3-pitch with NaN pad — wait, 0 is a pitch)
-% The above is ambiguous because 0 is a valid pitch. Use NaN padding instead.
-P_th = [0, 1200,  NaN;
-        0, 400,   700;
-        0, 300,   700];
-spec_th = {'harmonic', 12, 'powerlaw', 1};
-h_th = tensorHarmonicity(P_th, [], 12, 'spectrum', spec_th);
-results{end+1,1} = 'tensorHarmonicity batched: returns column vector of correct length';
-results{end,2}   = isnumeric(h_th) && isequal(size(h_th), [3, 1]);
-
-% Matches scalar dispatch row-by-row (NaN dropped per row)
-h_oct  = tensorHarmonicity([0, 1200],     [], 12, 'spectrum', spec_th);
-h_maj3 = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th);
-h_min3 = tensorHarmonicity([0, 300, 700], [], 12, 'spectrum', spec_th);
-results{end+1,1} = 'tensorHarmonicity batched: matches scalar dispatch row-by-row';
-results{end,2}   = abs(h_th(1) - h_oct)  < 1e-12 ...
-                   && abs(h_th(2) - h_maj3) < 1e-12 ...
-                   && abs(h_th(3) - h_min3) < 1e-12;
-
-% Major > minor preserved across batched rows (existing scalar property)
-results{end+1,1} = 'tensorHarmonicity batched: major > minor (octave > both)';
-results{end,2}   = h_th(1) > h_th(2) && h_th(2) > h_th(3);
-
-% Row with fewer than 2 valid pitches returns NaN
-P_th_short = [0, 400, 700;  NaN, NaN, NaN; 0, NaN, NaN];   % row 2 empty, row 3 has 1
-h_th_short = tensorHarmonicity(P_th_short, [], 12, 'spectrum', spec_th);
-results{end+1,1} = 'tensorHarmonicity batched: insufficient pitches return NaN';
-results{end,2}   = ~isnan(h_th_short(1)) && isnan(h_th_short(2)) && isnan(h_th_short(3));
-
-% templateHarmonicity batched
-[hMax_b, hEnt_b] = templateHarmonicity(P_th, [], 12, 'verbose', false);
-results{end+1,1} = 'templateHarmonicity batched: hMax shape';
-results{end,2}   = isequal(size(hMax_b), [3, 1]);
-results{end+1,1} = 'templateHarmonicity batched: hEntropy shape';
-results{end,2}   = isequal(size(hEnt_b), [3, 1]);
-
-% Matches scalar row-by-row
-[hMax_oct,  hEnt_oct]  = templateHarmonicity([0, 1200],     [], 12, 'verbose', false);
-[hMax_maj3, hEnt_maj3] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
-results{end+1,1} = 'templateHarmonicity batched: matches scalar dispatch row-by-row';
-results{end,2}   = abs(hMax_b(1) - hMax_oct)  < 1e-12 ...
-                   && abs(hEnt_b(1) - hEnt_oct)  < 1e-12 ...
-                   && abs(hMax_b(2) - hMax_maj3) < 1e-12 ...
-                   && abs(hEnt_b(2) - hEnt_maj3) < 1e-12;
-
-% --- templateHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
-
-% Scalar verbose=true prints an estimate line via estimateCompTime
-outScalarVerb = evalc('templateHarmonicity([0, 400, 700], [], 12, ''verbose'', true);');
-results{end+1,1} = 'templateHarmonicity scalar: verbose=true prints estimate';
-results{end,2}   = contains(outScalarVerb, 'templateHarmonicity') ...
-                && contains(outScalarVerb, 'estimated time');
-
-% Scalar verbose=false suppresses output entirely
-outScalarSilent = evalc('templateHarmonicity([0, 400, 700], [], 12, ''verbose'', false);');
-results{end+1,1} = 'templateHarmonicity scalar: verbose=false silent';
-results{end,2}   = isempty(strtrim(outScalarSilent));
-
-% Default verbose is true (parity with evalExpTens / cosSimExpTens)
-outDefault = evalc('templateHarmonicity([0, 400, 700], [], 12);');
-results{end+1,1} = 'templateHarmonicity scalar: default verbose=true';
-results{end,2}   = contains(outDefault, 'estimated time');
-
-% Batched verbose=true prints "batched, N rows" once
-outBatchVerb = evalc('templateHarmonicity([0, 400, 700; 0, 300, 700; 0, 300, 600], [], 12, ''verbose'', true);');
-results{end+1,1} = 'templateHarmonicity batched: verbose=true prints rows count';
-results{end,2}   = contains(outBatchVerb, 'batched') ...
-                && contains(outBatchVerb, '3 rows') ...
-                && contains(outBatchVerb, 'estimated time');
-
-% Batched verbose=false silent
-outBatchSilent = evalc('templateHarmonicity([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', false);');
-results{end+1,1} = 'templateHarmonicity batched: verbose=false silent';
-results{end,2}   = isempty(strtrim(outBatchSilent));
-
-% Numerical results unaffected by verbose flag
-[hMaxA, hEntA] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', true);
-[hMaxB, hEntB] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', false);
-results{end+1,1} = 'templateHarmonicity: verbose flag does not affect outputs';
-results{end,2}   = (hMaxA == hMaxB) && (hEntA == hEntB);
-
-% All-NaN batched input does not crash and gives NaN output
-P_allnan = NaN(3, 3);
-outAllNaN = evalc('[hMax_n, hEnt_n] = templateHarmonicity(P_allnan, [], 12, ''verbose'', true);');
-results{end+1,1} = 'templateHarmonicity batched: all-NaN rows yield NaN, no crash';
-% Need to capture outputs — re-run without evalc to get them
-[hMax_n, hEnt_n] = templateHarmonicity(P_allnan, [], 12, 'verbose', false);
-results{end,2}   = isequal(size(hMax_n), [3, 1]) && all(isnan(hMax_n)) ...
-                && isequal(size(hEnt_n), [3, 1]) && all(isnan(hEnt_n));
-
-% virtualPitches batched: cell-of-arrays output
-[vp_pcell, vp_wcell] = virtualPitches(P_th, [], 12);
-results{end+1,1} = 'virtualPitches batched: vp_p is 1-by-nRows cell';
-results{end,2}   = iscell(vp_pcell) && isequal(size(vp_pcell), [1, 3]);
-results{end+1,1} = 'virtualPitches batched: vp_w is 1-by-nRows cell';
-results{end,2}   = iscell(vp_wcell) && isequal(size(vp_wcell), [1, 3]);
-
-% Each cell entry matches scalar dispatch
-[vp_p_oct,  vp_w_oct]  = virtualPitches([0, 1200],     [], 12);
-[vp_p_maj,  vp_w_maj]  = virtualPitches([0, 400, 700], [], 12);
-results{end+1,1} = 'virtualPitches batched: cell entries match scalar dispatch';
-results{end,2}   = numel(vp_pcell{1}) == numel(vp_p_oct) ...
-                   && max(abs(vp_pcell{1} - vp_p_oct)) < 1e-12 ...
-                   && numel(vp_pcell{2}) == numel(vp_p_maj) ...
-                   && max(abs(vp_pcell{2} - vp_p_maj)) < 1e-12;
-
-% NaN-padded rows produce same outputs as unpadded
-P_clean = [0, 1200; 0, 400; 0, 300];   % no NaN padding (cardinality 2)
-P_padded = [0, 1200, NaN; 0, 400, NaN; 0, 300, NaN];
-spec_simple = {'harmonic', 12, 'powerlaw', 1};
-h_clean  = tensorHarmonicity(P_clean,  [], 12, 'spectrum', spec_simple);
-h_padded = tensorHarmonicity(P_padded, [], 12, 'spectrum', spec_simple);
-results{end+1,1} = 'tensorHarmonicity batched: NaN-padded rows match unpadded';
-results{end,2}   = max(abs(h_clean - h_padded)) < 1e-12;
-
-% Scalar (vector) input still dispatches to scalar path
-h_scalar_check = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th);
-results{end+1,1} = 'tensorHarmonicity scalar: row vector still works (backward compat)';
-results{end,2}   = isscalar(h_scalar_check) && abs(h_scalar_check - h_maj3) < 1e-14;
 
 %% ---- estimateCompTime ----
 

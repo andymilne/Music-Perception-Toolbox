@@ -160,56 +160,127 @@ if do_tensor:
     T = mpt.build_exp_tens(tp, tw, sigma_tens, 3, True, False, 1200, verbose=False)
     print(f"  Done ({T.n_j} ordered triples).")
 
-n_total = n_ints * (n_ints + 1) // 2
-n_done = 0
-t0 = time.time()
+# ===================================================================
+#  Compute features
+# ===================================================================
+# Exploit symmetry: features are invariant to swapping interval1 and
+# interval2, so we build a linear list of unordered (int1, int2) pairs
+# (one per upper-triangle entry, j >= i) and compute each feature once
+# per unique pair, then mirror into the symmetric output matrix.
+#
+# v2.1 update: tensor harmonicity and template harmonicity are now
+# computed in single batched calls (one eval_exp_tens with a stacked
+# query matrix; one template_harmonicity with a stacked chord matrix),
+# which is dramatically faster than per-triad evaluation. Spectral
+# entropy and roughness do not yet support batched-input dispatch, so
+# they remain in an explicit loop with progress reporting.
 
-print(f"Computing features for {n_total} triads (step = {step} cents)...")
+n_upper = n_ints * (n_ints + 1) // 2
 
+# Build the linear list of (i, j) pairs with j >= i.
+i_lin    = np.zeros(n_upper, dtype=int)
+j_lin    = np.zeros(n_upper, dtype=int)
+int1_lin = np.zeros(n_upper)
+int2_lin = np.zeros(n_upper)
+k = 0
 for i in range(n_ints):
     for j in range(i, n_ints):
-        int1 = ints[i]
-        int2 = ints[j]
+        i_lin[k]    = i
+        j_lin[k]    = j
+        int1_lin[k] = ints[i]
+        int2_lin[k] = ints[j]
+        k += 1
 
-        if do_tensor:
-            h = mpt.eval_exp_tens(T, np.array([[int1], [int2]]), verbose=False)
-            tens_harm[j, i] = h[0]
-            tens_harm[i, j] = h[0]
+print(f"Computing features for {n_upper} unique triads "
+      f"(step = {step} cents)...")
+t0_total = time.time()
 
-        if do_tmpl:
-            h_max, h_ent = mpt.template_harmonicity(
-                [0, int1, int2], None, sigma_tmpl,
-                spectrum=spec_tmpl, chord_spectrum=spec_tmpl
-            )
-            if do_tmpl_max:
-                tmpl_harm_max[j, i] = h_max
-                tmpl_harm_max[i, j] = h_max
-            if do_tmpl_ent:
-                tmpl_harm_ent[j, i] = h_ent
-                tmpl_harm_ent[i, j] = h_ent
+# --- Tensor harmonicity ---
+# One eval_exp_tens call: the precomputed harmonic-template tensor T is
+# queried at all upper-triangle interval pairs in a single
+# (2, n_upper) query matrix. eval_exp_tens prints its own time estimate
+# via estimate_comp_time when called with verbose=True.
+if do_tensor:
+    int_mat = np.vstack([int1_lin, int2_lin])    # (2, n_upper)
+    t0 = time.time()
+    tens_lin = mpt.eval_exp_tens(T, int_mat, verbose=True)
+    print(f"  Tensor harmonicity:   {time.time() - t0:.2f} s actual "
+          f"({n_upper} triads, batched)")
+    tens_harm[j_lin, i_lin] = tens_lin
+    tens_harm[i_lin, j_lin] = tens_lin
+
+# --- Template harmonicity ---
+# One template_harmonicity call: stack chords as rows of an
+# (n_upper, 3) matrix; the function returns h_max and h_entropy as
+# 1-D arrays of length n_upper (v2.1+). template_harmonicity prints
+# its own time estimate via estimate_comp_time when called with
+# verbose=True.
+if do_tmpl:
+    chord_mat = np.column_stack([
+        np.zeros(n_upper), int1_lin, int2_lin
+    ])
+
+    t0 = time.time()
+    h_max_lin, h_ent_lin = mpt.template_harmonicity(
+        chord_mat, None, sigma_tmpl,
+        spectrum=spec_tmpl, chord_spectrum=spec_tmpl,
+        verbose=True,
+    )
+    print(f"  Template harmonicity: {time.time() - t0:.2f} s actual "
+          f"({n_upper} triads, batched)")
+    if do_tmpl_max:
+        tmpl_harm_max[j_lin, i_lin] = h_max_lin
+        tmpl_harm_max[i_lin, j_lin] = h_max_lin
+    if do_tmpl_ent:
+        tmpl_harm_ent[j_lin, i_lin] = h_ent_lin
+        tmpl_harm_ent[i_lin, j_lin] = h_ent_lin
+
+# --- Spectral entropy and roughness (no batched mode; explicit loop) ---
+if do_spec_ent or do_rough:
+    if do_spec_ent:
+        spec_ent_lin = np.full(n_upper, np.nan)
+    if do_rough:
+        rough_lin = np.full(n_upper, np.nan)
+
+    print(f"  Spectral entropy / roughness: looping over "
+          f"{n_upper} triads...")
+    t0 = time.time()
+    n_done = 0
+    for k in range(n_upper):
+        int1k = int1_lin[k]
+        int2k = int2_lin[k]
 
         if do_spec_ent:
-            H = mpt.spectral_entropy([0, int1, int2], None, sigma_ent,
-                                      spectrum=spec_ent)
-            spec_ent_grid[j, i] = H
-            spec_ent_grid[i, j] = H
+            spec_ent_lin[k] = mpt.spectral_entropy(
+                [0, int1k, int2k], None, sigma_ent,
+                spectrum=spec_ent,
+            )
 
         if do_rough:
-            chord_cents = np.array([ref_cents, ref_cents + int1, ref_cents + int2])
+            chord_cents = np.array(
+                [ref_cents, ref_cents + int1k, ref_cents + int2k]
+            )
             ep, ew = mpt.add_spectra(chord_cents, None, *spec_rough)
             f_hz = mpt.convert_pitch(ep, 'cents', 'hz')
-            rough_grid[j, i] = mpt.roughness(f_hz, ew)
-            rough_grid[i, j] = rough_grid[j, i]
+            rough_lin[k] = mpt.roughness(f_hz, ew)
 
         n_done += 1
-        if n_done % 500 == 0 or n_done == n_total:
+        if n_done % 500 == 0 or n_done == n_upper:
             elapsed = time.time() - t0
-            rate = n_done / elapsed
-            remain = (n_total - n_done) / rate if rate > 0 else 0
-            print(f"  {n_done} / {n_total} triads "
+            rate    = n_done / elapsed if elapsed > 0 else 0
+            remain  = (n_upper - n_done) / rate if rate > 0 else 0
+            print(f"    {n_done} / {n_upper} triads "
                   f"({elapsed:.1f} s elapsed, ~{remain:.0f} s remaining)")
+    print(f"  Spectral entropy / roughness: {time.time() - t0:.2f} s")
 
-print(f"All features computed in {time.time() - t0:.1f} s.")
+    if do_spec_ent:
+        spec_ent_grid[j_lin, i_lin] = spec_ent_lin
+        spec_ent_grid[i_lin, j_lin] = spec_ent_lin
+    if do_rough:
+        rough_grid[j_lin, i_lin] = rough_lin
+        rough_grid[i_lin, j_lin] = rough_lin
+
+print(f"All features computed in {time.time() - t0_total:.1f} s.")
 
 # ===================================================================
 #  Assemble measures for plotting

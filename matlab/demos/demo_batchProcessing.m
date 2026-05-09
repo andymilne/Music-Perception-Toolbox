@@ -85,13 +85,14 @@ fprintf('Dataset: %d trials (%d scales × %d chord types × %d roots).\n\n', ...
     nPairs, nScales, nChords, nRoots);
 
 %% =====================================================================
-%  WORKFLOW 1: Paired measure (SPCS) via batchCosSimExpTens
-%  batchCosSimExpTens handles deduplication internally.
+%  WORKFLOW 1: Paired measure (SPCS) via batched cosSimExpTens
+%  cosSimExpTens dispatches to batched-raw mode when given 2-D pitch
+%  matrices, with internal deduplication and 'spectrum' enrichment.
 %  =====================================================================
 
-fprintf('=== Workflow 1: SPCS via batchCosSimExpTens ===\n\n');
+fprintf('=== Workflow 1: SPCS via batched cosSimExpTens ===\n\n');
 
-spcs = batchCosSimExpTens(pMatA, pMatB, ...
+spcs = cosSimExpTens(pMatA, [], pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'spectrum', spec);
 
@@ -117,16 +118,17 @@ for si = 1:nScales
 end
 
 %% =====================================================================
-%  WORKFLOW 2: Single-set measures via unique/map deduplication
+%  WORKFLOW 2: Single-set measures via deduplication
 %
-%  The pattern is:
-%    1. Sort each row and call unique(..., 'rows') to find unique sets
-%    2. Compute the measure once per unique set
-%    3. Map results back to all rows via the index from unique()
+%  Two complementary patterns:
+%    A. For functions with built-in batched-input support
+%       (templateHarmonicity, tensorHarmonicity, ...): pass the 2-D
+%       matrix of unique chords directly.
+%    B. For functions without batched mode (spectralEntropy, roughness,
+%       ...): loop manually after deduplication.
 %
-%  This works for any function. We demonstrate it here for spectral
-%  entropy, template harmonicity, tensor harmonicity, and roughness
-%  applied to the chords (pMatB).
+%  We demonstrate both here. The dedup step (unique on sorted rows)
+%  is shared.
 %  =====================================================================
 
 fprintf('\n=== Workflow 2: Single-set measures (chord features) ===\n');
@@ -139,15 +141,22 @@ nUnique = size(uniqueChords, 1);
 fprintf('\n  %d trials → %d unique chord multisets.\n\n', ...
     nPairs, nUnique);
 
-% --- Step 2: Compute once per unique set ---
-% Each function handles spectral enrichment via its own parameters,
-% rather than pre-enriching all pitches (which would be prohibitively
-% expensive for tensor harmonicity with many partials).
-uSpecEnt  = NaN(nUnique, 1);
-uHMax     = NaN(nUnique, 1);
-uHEnt     = NaN(nUnique, 1);
-uTensHarm = NaN(nUnique, 1);
-uRough    = NaN(nUnique, 1);
+% --- Step 2a: Batched calls (v2.1+) for batch-capable functions ---
+% templateHarmonicity and tensorHarmonicity accept a 2-D pitch matrix
+% directly, with NaN-padded rows handled the same way as
+% batchCosSimExpTens. Each function handles spectral enrichment via
+% its own parameter; pre-enriching all pitches would be prohibitively
+% expensive for tensor harmonicity with many partials.
+[uHMax, uHEnt] = templateHarmonicity(uniqueChords, [], sigma, ...
+    'chordSpectrum', spec);
+uTensHarm = tensorHarmonicity(uniqueChords, [], sigma, 'spectrum', spec);
+
+% --- Step 2b: Manual loop for functions without batched mode ---
+% spectralEntropy and roughness do not yet accept 2-D matrix input;
+% we loop over unique rows, the same pattern that worked pre-v2.1 for
+% all single-set measures.
+uSpecEnt = NaN(nUnique, 1);
+uRough   = NaN(nUnique, 1);
 
 refCents = convertPitch(f0, 'hz', 'cents');
 
@@ -157,13 +166,6 @@ for ui = 1:nUnique
 
     % Spectral entropy (uses 'spectrum' parameter internally)
     uSpecEnt(ui) = spectralEntropy(p(:), [], sigma, 'spectrum', spec);
-
-    % Template harmonicity (uses 'chordSpectrum' parameter)
-    [uHMax(ui), uHEnt(ui)] = templateHarmonicity(p(:), [], sigma, ...
-        'chordSpectrum', spec);
-
-    % Tensor harmonicity (uses 'spectrum' parameter for the template)
-    uTensHarm(ui) = tensorHarmonicity(p(:), [], sigma, 'spectrum', spec);
 
     % Roughness (needs Hz and enriched spectra)
     [pSpec, wSpec] = addSpectra(p(:), [], spec{:});

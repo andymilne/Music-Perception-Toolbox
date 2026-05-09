@@ -48,16 +48,8 @@ edoRange = nMin:nMax;
 nEDOs    = numel(edoRange);
 maxN     = nMax;  % maximum number of pitches in any EDO
 
-% Reference chord: same for every row
-pMatA = repmat(refPitches, nEDOs, 1);
-
-% Reference weights: same for every row (empty = all ones)
-if ~isempty(refWeights)
-    weightsA = repmat(refWeights, nEDOs, 1);
-else
-    weightsA = [];
-end
-
+% Reference: a single row vector — broadcast against all EDO rows of
+% pMatB by cosSimExpTens (v2.1.1+).
 % EDO multisets: NaN-padded to maxN columns
 pMatB = NaN(nEDOs, maxN);
 for i = 1:nEDOs
@@ -69,12 +61,9 @@ end
 %% === Compute similarities ===
 
 fprintf('Computing SPCS of %d EDOs against %s...\n', nEDOs, refName);
-opts = {'verbose', false};
-if ~isempty(weightsA)
-    opts = [{'weightsA', weightsA}, opts];
-end
-s = batchCosSimExpTens(pMatA, pMatB, ...
-    sigma, r, isRel, isPer, period, opts{:});
+s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
+    sigma, r, isRel, isPer, period, ...
+    'verbose', false);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display

@@ -3,14 +3,18 @@
 Batch computation of perceptual features on experimental data with
 automatic deduplication of repeated weighted multisets.
 
-Two deduplication workflows are shown:
+Two complementary deduplication workflows are shown:
 
-  1. Paired measures (SPCS) — use batch_cos_sim_exp_tens, which handles
-     deduplication internally.
+  1. Paired measures (SPCS) — pass 2-D pitch matrices to
+     cos_sim_exp_tens, which dispatches to batched-raw mode and
+     handles deduplication internally.
 
-  2. Single-set measures (spectral entropy, template harmonicity,
-     tensor harmonicity, roughness) — use the unique/map pattern
-     shown below, which works for any function.
+  2. Single-set measures — two patterns illustrated:
+       2a. For functions with built-in batched input
+           (template_harmonicity, tensor_harmonicity, ...): pass the
+           2-D matrix of unique chords directly.
+       2b. For functions without batched mode (spectral_entropy,
+           roughness, ...): loop manually after deduplication.
 
 The dataset is synthetic: 3 scales × 4 chord types × 12 root
 transpositions = 144 trials. Many trials share the same scale or
@@ -97,14 +101,16 @@ print(f"Dataset: {n_pairs} trials "
       f"({n_scales} scales × {n_chords} chord types × {n_roots} roots).\n")
 
 # ===================================================================
-#  WORKFLOW 1: Paired measure (SPCS) via batch_cos_sim_exp_tens
-#  Deduplication is handled internally.
+#  WORKFLOW 1: Paired measure (SPCS) via batched cos_sim_exp_tens
+#  Dispatches to batched-raw mode for 2-D matrix inputs;
+#  deduplication is handled internally.
 # ===================================================================
 
-print("=== Workflow 1: SPCS via batch_cos_sim_exp_tens ===\n")
+print("=== Workflow 1: SPCS via batched cos_sim_exp_tens ===\n")
 
-spcs = mpt.batch_cos_sim_exp_tens(
-    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
+spcs = mpt.cos_sim_exp_tens(
+    p_mat_a, None, p_mat_b, None,
+    sigma, r, is_rel, is_per, period,
     spectrum=spec,
 )
 spcs = np.round(spcs, 3)
@@ -123,15 +129,17 @@ for si in range(n_scales):
         print(row)
 
 # ===================================================================
-#  WORKFLOW 2: Single-set measures via unique/map deduplication
+#  WORKFLOW 2: Single-set measures via deduplication
 #
-#  The pattern is:
-#    1. Sort each row and call np.unique to find unique sets
-#    2. Compute the measure once per unique set
-#    3. Map results back to all rows via the inverse index
+#  Two complementary patterns:
+#    A. For functions with built-in batched-input support
+#       (template_harmonicity, tensor_harmonicity, ...): pass the
+#       2-D matrix of unique chords directly.
+#    B. For functions without batched mode (spectral_entropy,
+#       roughness, ...): loop manually after deduplication.
 #
-#  Demonstrated here for spectral entropy, template harmonicity,
-#  tensor harmonicity, and roughness applied to chords (p_mat_b).
+#  We demonstrate both here. The dedup step (np.unique on sorted rows)
+#  is shared.
 # ===================================================================
 
 print(f"\n=== Workflow 2: Single-set measures (chord features) ===")
@@ -143,15 +151,23 @@ n_unique = len(unique_chords)
 
 print(f"\n  {n_pairs} trials → {n_unique} unique chord multisets.\n")
 
-# --- Step 2: Compute once per unique set ---
-# Each function handles spectral enrichment via its own parameters,
-# rather than pre-enriching all pitches (which would be prohibitively
-# expensive for tensor harmonicity with many partials).
+# --- Step 2a: Batched calls (v2.1+) for batch-capable functions ---
+# template_harmonicity and tensor_harmonicity accept a 2-D pitch matrix
+# directly, with NaN-padded rows handled the same way as
+# cos_sim_exp_tens. Each function handles spectral enrichment via
+# its own parameter; pre-enriching all pitches would be prohibitively
+# expensive for tensor harmonicity with many partials.
+u_h_max, u_h_ent = mpt.template_harmonicity(
+    unique_chords, None, sigma, chord_spectrum=spec)
+u_tens_harm = mpt.tensor_harmonicity(
+    unique_chords, None, sigma, spectrum=spec)
+
+# --- Step 2b: Manual loop for functions without batched mode ---
+# spectral_entropy and roughness do not yet accept 2-D matrix input;
+# we loop over unique rows, the same pattern that worked pre-v2.1 for
+# all single-set measures.
 u_spec_ent = np.full(n_unique, np.nan)
-u_h_max = np.full(n_unique, np.nan)
-u_h_ent = np.full(n_unique, np.nan)
-u_tens_harm = np.full(n_unique, np.nan)
-u_rough = np.full(n_unique, np.nan)
+u_rough    = np.full(n_unique, np.nan)
 
 ref_cents = mpt.convert_pitch(f0, 'hz', 'cents')
 
@@ -161,13 +177,6 @@ for ui in range(n_unique):
 
     # Spectral entropy (uses spectrum parameter internally)
     u_spec_ent[ui] = mpt.spectral_entropy(p, None, sigma, spectrum=spec)
-
-    # Template harmonicity (uses chord_spectrum parameter)
-    u_h_max[ui], u_h_ent[ui] = mpt.template_harmonicity(
-        p, None, sigma, chord_spectrum=spec)
-
-    # Tensor harmonicity (uses spectrum parameter for the template)
-    u_tens_harm[ui] = mpt.tensor_harmonicity(p, None, sigma, spectrum=spec)
 
     # Roughness (needs Hz and enriched spectra)
     p_spec, w_spec = mpt.add_spectra(p, None, *spec)

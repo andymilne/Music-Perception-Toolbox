@@ -62,16 +62,8 @@ minLabelSpacing = 24;    % minimum spacing between labels (cents); increase
 halfRange = 0:genStep:(period / 2);
 nHalf     = numel(halfRange);
 
-% Reference chord: same for every row
-pMatA = repmat(refPitches, nHalf, 1);
-
-% Reference weights
-if ~isempty(refWeights)
-    weightsA = repmat(refWeights, nHalf, 1);
-else
-    weightsA = [];
-end
-
+% Reference: a single row vector — broadcast against all generator-chain
+% rows of pMatB by cosSimExpTens (v2.1.1+).
 % Generator-chain multisets: each row is a different generator value
 pMatB = NaN(nHalf, nTones);
 for i = 1:nHalf
@@ -83,12 +75,9 @@ end
 
 fprintf('Computing SPCS of %d-tone generator-chains (gen = 0 to %.1f, step %.2f) against %s...\n', ...
     nTones, period / 2, genStep, refName);
-opts = {'verbose', false};
-if ~isempty(weightsA)
-    opts = [{'weightsA', weightsA}, opts];
-end
-sHalf = batchCosSimExpTens(pMatA, pMatB, ...
-    sigma, r, isRel, isPer, period, opts{:});
+sHalf = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
+    sigma, r, isRel, isPer, period, ...
+    'verbose', false);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display (avoids floating-point artifacts

@@ -59,13 +59,11 @@ refThird = refPitches(2);
 [rootGrid, thirdGrid] = meshgrid(pcs, pcs);
 pMatB = [rootGrid(:), thirdGrid(:), rootGrid(:) + 700];
 
-% Reference triad repeated for every row
-pMatA = repmat(refPitches, nPCs * nPCs, 1);
-
-% Single batch call (handles spectral enrichment and deduplication)
+% Single batch call. The reference triad is a single row vector that
+% cosSimExpTens broadcasts against all rows of pMatB (v2.1.1+).
 fprintf('Computing spectral pitch class similarities for %s reference (N=%d, rho=%.2f)...\n', ...
     refName, nHarm, rho);
-simVector = batchCosSimExpTens(pMatA, pMatB, ...
+simVector = cosSimExpTens(refPitches, [], pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'spectrum', {'harmonic', nHarm, 'powerlaw', rho}, ...
     'verbose', false);

@@ -51,8 +51,8 @@ edo_range = np.arange(n_min, n_max + 1)
 n_edos = len(edo_range)
 max_n = n_max
 
-# Reference chord: same for every row
-p_mat_a = np.tile(ref_pitches, (n_edos, 1))
+# Reference: a single 1-D vector — broadcast across all EDO rows of
+# p_mat_b by cos_sim_exp_tens (v2.1.1+).
 
 # EDO multisets: NaN-padded
 p_mat_b = np.full((n_edos, max_n), np.nan)
@@ -65,8 +65,9 @@ for i, n in enumerate(edo_range):
 # ===================================================================
 
 print(f"Computing SPCS of {n_edos} EDOs against {ref_name}...")
-s = mpt.batch_cos_sim_exp_tens(
-    p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
+s = mpt.cos_sim_exp_tens(
+    ref_pitches, None, p_mat_b, None,
+    sigma, r, is_rel, is_per, period,
     verbose=False,
 )
 s = np.round(s, 3)

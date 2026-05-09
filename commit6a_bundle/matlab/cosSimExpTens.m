@@ -20,39 +20,13 @@ function s = cosSimExpTens(varargin)
 %   tag (SA, MA, or Windowed). Option II shape rule: a length-1 input
 %   returns a length-1 cell (no collapse to scalar).
 %
-%   Scalar-vs-list broadcasting (v2.1.1+). Either operand may be a single
-%   density struct paired with a cell array of density structs; the
-%   single struct is broadcast against every entry of the cell, and a
-%   1-by-n cell is returned. Useful for "compare one reference density
-%   against many" without first wrapping the reference in {ref} on the
-%   call site.
-%
 %   s = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period):
-%   Batched-raw mode (v2.1+). At least one of P1, P2 is an M-by-K
-%   matrix (both dimensions > 1); the function returns an M-by-1
-%   vector of similarities. Pass [] for W1 or W2 to use uniform
-%   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
-%
-%   Broadcasting (v2.1.1+). If one operand is a vector of length K
-%   (1-by-K, K-by-1, or 1-D) and the other is M-by-K with M > 1, the
-%   vector is broadcast across the matrix's M rows, in NumPy / MATLAB
-%   implicit-expansion style. The corresponding weight argument
-%   (W1 or W2) is broadcast in lockstep when non-empty. This avoids
-%   the explicit repmat(refPitches, M, 1) idiom for the common case
-%   "compare one reference multiset against many candidates".
-%
-%   In batched-raw mode the following name-value options are accepted
-%   (all forwarded to the underlying paired-rows implementation):
-%     'spectrum'  — Cell of arguments to addSpectra; if supplied,
-%                   partials are added to each row's pitches before
-%                   computing similarity. Example: {'harmonic', 12,
-%                   'powerlaw', 1}. Default: not applied.
-%     'precision' — Round pitch and weight values to nDec decimal
-%                   places before deduplication, to absorb arithmetic
-%                   noise. Default: full floating-point precision.
-%     'dedup'     — Logical (default true). Currently a no-op for
-%                   'dedup', true; 'dedup', false emits a warning since
-%                   the batched implementation always deduplicates.
+%   Batched-raw mode (v2.1+). P1 and P2 are nRows-by-K matrices (rows =
+%   paired multisets); the function returns an nRows-by-1 vector of
+%   similarities. Detection is by P1 having both dimensions > 1 (genuine
+%   matrix); row vectors and column vectors fall through to the existing
+%   scalar SA raw path. Pass [] for W1 or W2 to use uniform weights.
+%   Equivalent to batchCosSimExpTens (which is now deprecated).
 %
 %   Computes the cosine similarity between the r-ad expectation tensor
 %   densities of two weighted multisets (p represents pitches or
@@ -109,92 +83,23 @@ function s = cosSimExpTens(varargin)
 
 % === Parse arguments ===
 
-% Extract optional name-value pairs that may follow the positional
-% args. 'verbose' applies to all dispatch arms; 'spectrum', 'precision',
-% and 'dedup' are valid only for the batched-raw path and are forwarded
-% to batchCosSimExpTens. Each is captured (with its index range) and
-% removed from varargin before the dispatch sees it, so the dispatch
-% logic only has to inspect positional arguments.
-verbose = true;
-spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
-precisionOpt = [];    % []  ⇒ no precision kwarg passed downstream
-dedupOpt = [];        % []  ⇒ no dedup kwarg passed downstream
-spectrumGiven = false;
-precisionGiven = false;
-dedupGiven = false;
-
-i = 1;
-keepMask = true(1, numel(varargin));
-while i <= numel(varargin)
-    if (ischar(varargin{i}) || isstring(varargin{i})) && i + 1 <= numel(varargin)
-        key = lower(char(varargin{i}));
-        switch key
-            case 'verbose'
-                verbose = logical(varargin{i + 1});
-                keepMask(i)     = false;
-                keepMask(i + 1) = false;
-                i = i + 2;
-                continue;
-            case 'spectrum'
-                spectrumOpt = varargin{i + 1};
-                spectrumGiven = true;
-                keepMask(i)     = false;
-                keepMask(i + 1) = false;
-                i = i + 2;
-                continue;
-            case 'precision'
-                precisionOpt = varargin{i + 1};
-                precisionGiven = true;
-                keepMask(i)     = false;
-                keepMask(i + 1) = false;
-                i = i + 2;
-                continue;
-            case 'dedup'
-                dedupOpt = varargin{i + 1};
-                dedupGiven = true;
-                keepMask(i)     = false;
-                keepMask(i + 1) = false;
-                i = i + 2;
-                continue;
+% Extract optional 'verbose' name-value pair first
+verbose = true;  % default
+verboseIdx = [];
+for i = 1:numel(varargin)
+    if (ischar(varargin{i}) || isstring(varargin{i})) && strcmpi(varargin{i}, 'verbose')
+        if i + 1 <= numel(varargin)
+            verbose = logical(varargin{i + 1});
         end
+        verboseIdx = [i, i + 1]; %#ok<AGROW>
+        break;
     end
-    i = i + 1;
 end
-varargin = varargin(keepMask);
+if ~isempty(verboseIdx)
+    varargin(verboseIdx) = [];
+end
 
 nArgs = numel(varargin);
-
-% Determine whether we will dispatch to batched-raw (the only mode
-% that accepts 'spectrum', 'precision', and 'dedup'). Reject these
-% kwargs early in any other dispatch context so the user gets a
-% clear error rather than silent ignore.
-%
-% Batched-raw fires when nArgs == 9 AND at least one of P1, P2 is a
-% genuine 2-D matrix (both dimensions > 1).  The other operand may
-% be a vector of matching length, in which case it is broadcast
-% against the matrix's rows.
-willBatch = false;
-if nArgs == 9 && isnumeric(varargin{1}) && isnumeric(varargin{3})
-    isP1Mat = size(varargin{1}, 1) > 1 && size(varargin{1}, 2) > 1;
-    isP2Mat = size(varargin{3}, 1) > 1 && size(varargin{3}, 2) > 1;
-    willBatch = isP1Mat || isP2Mat;
-end
-if ~willBatch
-    if spectrumGiven
-        error('cosSimExpTens:spectrumNotApplicable', ...
-            ['''spectrum'' is only valid in batched-raw mode (at least one ' ...
-             'of P1, P2 must be a 2-D matrix with both dimensions > 1). For ' ...
-             'scalar input, apply addSpectra to p and w yourself before calling.']);
-    end
-    if precisionGiven
-        error('cosSimExpTens:precisionNotApplicable', ...
-            '''precision'' is only valid in batched-raw mode.');
-    end
-    if dedupGiven
-        error('cosSimExpTens:dedupNotApplicable', ...
-            '''dedup'' is only valid in batched-raw mode.');
-    end
-end
 
 % --- Windowed path: at least one operand is a WindowedMaetDensity ---
 if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
@@ -240,68 +145,29 @@ if nArgs == 10 && iscell(varargin{1})
     return;
 end
 
-% --- LIST path: nArgs == 2, at least one arg is a cell of density structs ---
-%   Three accepted shapes:
-%     cosSimExpTens({d_a_1, ..., d_a_n}, {d_b_1, ..., d_b_n})
-%       Paired entry-by-entry; cell lengths must match. Returns 1-by-n cell.
-%     cosSimExpTens(d_a, {d_b_1, ..., d_b_n})
-%     cosSimExpTens({d_a_1, ..., d_a_n}, d_b)
-%       Scalar density broadcast against the list; returns 1-by-n cell.
-%   Option II shape rule: a length-1 cell returns a length-1 cell.
-if nArgs == 2 && (iscell(varargin{1}) || iscell(varargin{2}))
+% --- LIST path: nArgs == 2, both args are cell arrays of density structs ---
+%   cosSimExpTens({d_x_1, ..., d_x_n}, {d_y_1, ..., d_y_n})
+%   Returns a 1-by-n cell of similarity values, paired entry-by-entry.
+%   Option II shape rule: a length-1 list returns a length-1 cell (no
+%   collapse to scalar).
+if nArgs == 2 && iscell(varargin{1}) && iscell(varargin{2})
     s = localCosSimDensityList(varargin{1}, varargin{2}, verbose);
     return;
 end
 
-% --- BATCHED-RAW path (with optional broadcast) ---
-%   At least one of P1, P2 is an M-by-K matrix (both dims > 1).  If
-%   the other is a vector of length K, it is broadcast against the
-%   matrix's M rows; weights (if non-empty) are broadcast in lockstep.
-%   Returns an M-by-1 vector of similarities.
-%   The 'spectrum', 'precision', and 'dedup' kwargs (if supplied) are
-%   forwarded to batchCosSimExpTens for spectral enrichment, dedup
-%   precision tolerance, and dedup on/off respectively.
-if willBatch
-    P1 = varargin{1};
-    W1 = varargin{2};
-    P2 = varargin{3};
-    W2 = varargin{4};
-
-    isP1Mat = size(P1, 1) > 1 && size(P1, 2) > 1;
-    isP2Mat = size(P2, 1) > 1 && size(P2, 2) > 1;
-
-    % Force vector operands to row form (1×K) for uniform broadcast.
-    if ~isP1Mat
-        P1 = P1(:).';
-        if ~isempty(W1), W1 = W1(:).'; end
-    end
-    if ~isP2Mat
-        P2 = P2(:).';
-        if ~isempty(W2), W2 = W2(:).'; end
-    end
-
-    M1 = size(P1, 1);
-    M2 = size(P2, 1);
-    if M1 == 1 && M2 > 1
-        P1 = repmat(P1, M2, 1);
-        if ~isempty(W1), W1 = repmat(W1, M2, 1); end
-    elseif M2 == 1 && M1 > 1
-        P2 = repmat(P2, M1, 1);
-        if ~isempty(W2), W2 = repmat(W2, M1, 1); end
-    elseif M1 ~= M2
-        error('cosSimExpTens:rowMismatch', ...
-            ['Batched-raw P1 and P2 must either have matching row counts, ' ...
-             'or one of them must be a single-row reference (vector or 1xK ' ...
-             'matrix) to broadcast against the other. Got %d and %d rows.'], ...
-            M1, M2);
-    end
-
-    s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
+% --- BATCHED-RAW path: nArgs == 9, first arg is a 2-D pitch matrix ---
+%   cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period)
+%   where P1, P2 are nRows-by-K matrices (rows = paired multisets).
+%   Returns an nRows-by-1 vector of similarities.
+%   Detection: numeric first arg with both dimensions > 1 (genuine
+%   matrix). Row vectors and column vectors fall through to the existing
+%   scalar SA raw path for backward compatibility.
+if nArgs == 9 && isnumeric(varargin{1}) ...
+        && size(varargin{1}, 1) > 1 && size(varargin{1}, 2) > 1
+    s = localCosSimBatchedRaw( ...
+        varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
         varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-        verbose, ...
-        spectrumGiven, spectrumOpt, ...
-        precisionGiven, precisionOpt, ...
-        dedupGiven, dedupOpt);
+        verbose);
     return;
 end
 
@@ -1296,89 +1162,45 @@ end
 %  v2.1 unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
-function sCell = localCosSimDensityList(a, b, verbose)
-%LOCALCOSSIMDENSITYLIST List-mode density-struct cosine similarities.
+function sCell = localCosSimDensityList(cellA, cellB, verbose)
+%LOCALCOSSIMDENSITYLIST Pairwise list of density-struct cosine similarities.
 %
-%   Three accepted shapes (v2.1.1+):
-%     (cell, cell)   — pairwise; lengths must match. Returns 1-by-n.
-%     (cell, struct) — broadcast struct against the cell. Returns 1-by-n.
-%     (struct, cell) — broadcast struct against the cell. Returns 1-by-n.
+%   Iterates over paired entries of cellA and cellB, calling cosSimExpTens
+%   recursively for each pair. Returns a 1-by-n cell of similarity values
+%   (Option II shape rule: a length-1 input returns a length-1 cell).
 %
-%   Each pair dispatches recursively to cosSimExpTens, which selects the
-%   appropriate scalar form (Windowed, MA, or SA) based on the entries'
-%   tags. Mixed-kind pairs are not prevented at this level; compatibility
-%   is checked downstream.
+%   Each pair dispatches independently to the appropriate scalar form
+%   (Windowed, MA, or SA) based on its tag. Mixed-kind pairs are not
+%   prevented at this level; compatibility is checked downstream.
 
-    aIsCell = iscell(a);
-    bIsCell = iscell(b);
-
-    if aIsCell && bIsCell
-        if numel(a) ~= numel(b)
-            error('MPT:CosSimList:LengthMismatch', ...
-                ['cosSimExpTens (list mode): the two cell arrays must have ' ...
-                 'matching length, or one operand must be a single density ' ...
-                 'struct to broadcast. Got %d and %d.'], numel(a), numel(b));
-        end
-        n = numel(a);
-        sCell = cell(1, n);
-        for i = 1:n
-            if ~isstruct(a{i}) || ~isstruct(b{i})
-                error('MPT:CosSimList:NonStruct', ...
-                    ['cosSimExpTens (list mode): cell entries must be ' ...
-                     'density structs from buildExpTens; entry %d is not ' ...
-                     'a struct.'], i);
-            end
-            sCell{i} = cosSimExpTens(a{i}, b{i}, 'verbose', verbose);
-        end
-        return;
+    if numel(cellA) ~= numel(cellB)
+        error('MPT:CosSimList:LengthMismatch', ...
+            ['cosSimExpTens (list mode): the two cell arrays must have the same ' ...
+             'length, got %d and %d.'], numel(cellA), numel(cellB));
     end
 
-    % Mixed shape: exactly one is a cell. The other must be a density
-    % struct; broadcast it against every entry of the cell.
-    if aIsCell
-        cellArg = a;
-        scalarArg = b;
-        scalarLeft = false;
-    else
-        cellArg = b;
-        scalarArg = a;
-        scalarLeft = true;
-    end
-
-    if ~isstruct(scalarArg)
-        error('MPT:CosSimList:BadBroadcast', ...
-            ['cosSimExpTens (list mode): when one operand is a cell of ' ...
-             'density structs, the other must be a single density struct ' ...
-             'to broadcast. Got a non-struct, non-cell of class %s.'], ...
-            class(scalarArg));
-    end
-
-    n = numel(cellArg);
+    n = numel(cellA);
     sCell = cell(1, n);
     for i = 1:n
-        if ~isstruct(cellArg{i})
+        if ~isstruct(cellA{i}) || ~isstruct(cellB{i})
             error('MPT:CosSimList:NonStruct', ...
                 ['cosSimExpTens (list mode): cell entries must be density ' ...
                  'structs from buildExpTens; entry %d is not a struct.'], i);
         end
-        if scalarLeft
-            sCell{i} = cosSimExpTens(scalarArg, cellArg{i}, 'verbose', verbose);
-        else
-            sCell{i} = cosSimExpTens(cellArg{i}, scalarArg, 'verbose', verbose);
-        end
+        sCell{i} = cosSimExpTens(cellA{i}, cellB{i}, 'verbose', verbose);
     end
 end
 
 
-function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, verbose, ...
-    spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt)
-%LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
+function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, verbose)
+%LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D pitch matrices.
 %
-%   P1 and P2 are nRows-by-K_? matrices. Returns a length-nRows vector.
-%   Delegates to batchCosSimExpTens with internal flag set to suppress
-%   its v2.1 deprecation warning. Forwards 'spectrum', 'precision',
-%   and 'dedup' (when supplied) for spectral enrichment, dedup
-%   precision tolerance, and dedup on/off respectively.
+%   P1 and P2 are nRows-by-K matrices; each row is one multiset.
+%   Returns an nRows-by-1 vector of similarities. Delegates to
+%   batchCosSimExpTens with an internal flag that suppresses its v2.1
+%   deprecation warning (cosSimExpTens is the new public face for this
+%   path).
+
     if size(P1, 1) ~= size(P2, 1)
         error('MPT:CosSimBatched:RowMismatch', ...
             ['cosSimExpTens (batched mode): P1 and P2 must have the same ' ...
@@ -1391,23 +1213,6 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     end
     if ~isempty(W2)
         args = [args, {'weightsB', W2}]; %#ok<AGROW>
-    end
-    if spectrumGiven
-        args = [args, {'spectrum', spectrumOpt}]; %#ok<AGROW>
-    end
-    if precisionGiven
-        args = [args, {'precision', precisionOpt}]; %#ok<AGROW>
-    end
-    if dedupGiven
-        % batchCosSimExpTens has no 'dedup' option (it always dedups).
-        % Honour 'dedup', false by warning the user that the underlying
-        % implementation always dedups; 'dedup', true is a no-op.
-        if ~dedupOpt
-            warning('cosSimExpTens:dedupNoop', ...
-                ['''dedup'', false has no effect: the batched-raw ' ...
-                 'implementation always deduplicates internally for ' ...
-                 'speed. Numerical results are unchanged.']);
-        end
     end
     args = [args, {'verbose', verbose, '__internalCall', true}];
 

@@ -5,6 +5,16 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma, Name, Value)
 %
+%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   matrix with both dimensions > 1; rows are then treated as separate
+%   multisets and the function returns hMax and hEntropy each as an
+%   nRows-by-1 column vector. NaN-padded rows are accepted; rows with
+%   fewer than 1 valid pitch return NaN. See the formulation note in
+%   `template_harmonicity_formulation_review.md` for limitations of
+%   the hMax and hEntropy measures (interval-multiset symmetry of
+%   chord inversions, single-pitch / H1 hijacking at high spectrum
+%   weights, high-harmonic-density hijacking at low rho with large N).
+%
 %   Measures the harmonicity of a weighted pitch multiset by
 %   cross-correlating its spectral expectation tensor with a harmonic
 %   template (a single complex tone with nHarm harmonics). Two
@@ -124,14 +134,31 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %            ROUGHNESS, AUDIOPEAKS.
 
     arguments
-        p (:,1) {mustBeNumeric}
-        w (:,1) {mustBeNumeric} = []
+        p {mustBeNumeric}
+        w {mustBeNumeric} = []
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
         nvArgs.normalize (1,1) logical = true
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.resolution (1,1) {mustBePositive} = 1
+        nvArgs.verbose (1,1) logical = true
+    end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % multisets and return per-row hMax and hEntropy as column
+    % vectors. NaN-padded rows are accepted; rows with fewer than 1
+    % valid pitch return NaN.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [hMax, hEntropy] = localBatchedTemplateHarmonicity(p, w, sigma, nvArgs);
+        return;
+    end
+
+    % Scalar path: force column vectors.
+    p = p(:);
+    if ~isempty(w)
+        w = w(:);
     end
 
     specArgs      = nvArgs.spectrum;
@@ -205,6 +232,14 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
     x_tmpl  = 0:step:(max(tmpl_p) + margin);
     x_chord = 0:step:(max(chord_p) + margin);
 
+    % Time estimate (kernel cost only; conv() and other overheads not
+    % included, so this is a lower bound). Pair count is the sum of
+    % the two evalExpTens workloads. dim = 1 since both densities use
+    % r = 1, isRel = false.
+    nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
+           + double(numel(tmpl_p))  * double(numel(x_tmpl));
+    estimateCompTime(nPairs, 1, 'templateHarmonicity', nvArgs.verbose);
+
     tmpl_vals  = evalExpTens(tmpl_dens, x_tmpl, 'verbose', false);
     chord_vals = evalExpTens(chord_dens, x_chord, 'verbose', false);
 
@@ -236,4 +271,161 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         end
     end
 
+end
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
+%LOCALBATCHEDTEMPLATEHARMONICITY Per-row template harmonicity from a 2-D matrix.
+%
+%   Returns hMax and hEntropy as nRows-by-1 column vectors. NaN-padded
+%   rows are handled (NaN entries dropped per row); rows with fewer
+%   than 1 valid pitch yield NaN.
+
+    nRows = size(P, 1);
+    hMax = nan(nRows, 1);
+    hEntropy = nan(nRows, 1);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('templateHarmonicity:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    % Up-front time estimate (printed once for the whole batch). The
+    % kernel-only nPairs-based estimate (as used by estimateCompTime in
+    % scalar paths and in evalExpTens) underestimates the actual cost
+    % of templateHarmonicity batched runs by 3-5x because it omits
+    % conv, addSpectra, and per-row loop overheads. So we instead run
+    % a small empirical calibration: pick K rows spaced uniformly
+    % across the input, time them via the scalar code path (results
+    % discarded), and extrapolate. K is bounded so the calibration
+    % cost stays small relative to a non-trivial batch.
+    %
+    % A single warm-up call is run before timing starts so first-call
+    % overheads (MATLAB's arguments-block parsing, JIT compilation,
+    % and the persistent rateCache inside estimateCompTime) don't
+    % bias the K-sample mean upward. The warm-up's wall time is not
+    % part of the printed estimate, but the estimate does add the
+    % K-sample calibration time itself, since the caller pays for it.
+    if nvArgs.verbose && nRows > 1
+        nCal = min(10, nRows);
+        sampleIdx = unique(round(linspace(1, nRows, nCal)));
+
+        nvArgsCal = nvArgs;
+        nvArgsCal.verbose = false;
+        nvPairsCal = localPackTemplateNV(nvArgsCal);
+
+        % Warm-up: run the first valid sample once, untimed, to absorb
+        % any first-call overhead. Result discarded.
+        warmupDone = false;
+        for s = 1:numel(sampleIdx)
+            sIdx = sampleIdx(s);
+            pRowS = P(sIdx, :);
+            validS = ~isnan(pRowS);
+            pValidS = pRowS(validS);
+            if numel(pValidS) < 1
+                continue;
+            end
+            if haveRowWeights
+                wValidS = W(sIdx, validS);
+            elseif ~isempty(W)
+                wValidS = W_broadcast(validS);
+            else
+                wValidS = [];
+            end
+            templateHarmonicity(pValidS(:), wValidS(:), sigma, nvPairsCal{:});
+            warmupDone = true;
+            break;
+        end
+
+        if warmupDone
+            tCalStart = tic;
+            nValidCal = 0;
+            for s = 1:numel(sampleIdx)
+                sIdx = sampleIdx(s);
+                pRowS = P(sIdx, :);
+                validS = ~isnan(pRowS);
+                pValidS = pRowS(validS);
+                if numel(pValidS) < 1
+                    continue;
+                end
+                if haveRowWeights
+                    wValidS = W(sIdx, validS);
+                elseif ~isempty(W)
+                    wValidS = W_broadcast(validS);
+                else
+                    wValidS = [];
+                end
+                templateHarmonicity(pValidS(:), wValidS(:), sigma, nvPairsCal{:});
+                nValidCal = nValidCal + 1;
+            end
+            if nValidCal > 0
+                tCalTotal = toc(tCalStart);
+                tPerRow   = tCalTotal / nValidCal;
+                % Total estimate covers the calibration we just did (which
+                % the caller is already paying for) plus the nRows-row
+                % main loop.
+                estTotal  = tCalTotal + tPerRow * nRows;
+                if estTotal >= 3600
+                    estStr = sprintf('%.1f hr', estTotal / 3600);
+                elseif estTotal >= 60
+                    estStr = sprintf('%.1f min', estTotal / 60);
+                elseif estTotal >= 1
+                    estStr = sprintf('%.1f s', estTotal);
+                else
+                    estStr = sprintf('%.0f ms', estTotal * 1000);
+                end
+                if estTotal > 2
+                    suffix = ' (Ctrl+C to cancel)';
+                else
+                    suffix = '';
+                end
+                fprintf('templateHarmonicity (batched, %d rows): estimated time ~%s%s.\n', ...
+                    nRows, estStr, suffix);
+            end
+        end
+    end
+
+    % Build the inner-call name-value pairs with verbose forced to false
+    % so each per-row scalar call doesn't print its own estimate.
+    nvArgsInner = nvArgs;
+    nvArgsInner.verbose = false;
+    nvPairs = localPackTemplateNV(nvArgsInner);
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if numel(pK) < 1
+            hMax(k) = NaN;
+            hEntropy(k) = NaN;
+            continue;
+        end
+        [hMax(k), hEntropy(k)] = templateHarmonicity( ...
+            pK(:), wK(:), sigma, nvPairs{:});
+    end
+end
+
+
+function nvPairs = localPackTemplateNV(nvArgs)
+    nvPairs = {};
+    fns = fieldnames(nvArgs);
+    for i = 1:numel(fns)
+        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+    end
 end

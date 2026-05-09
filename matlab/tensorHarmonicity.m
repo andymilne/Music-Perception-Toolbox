@@ -4,6 +4,12 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %   h = tensorHarmonicity(p, w, sigma)
 %   h = tensorHarmonicity(p, w, sigma, Name, Value)
 %
+%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   matrix with both dimensions > 1; rows are then treated as separate
+%   multisets and the function returns an nRows-by-1 column vector of
+%   harmonicities. NaN-padded rows are accepted; rows with fewer than
+%   2 valid pitches return NaN.
+%
 %   Measures the harmonicity of a weighted pitch multiset by evaluating
 %   the relative r-ad expectation tensor of a harmonic series at the
 %   multiset's interval vector. The expectation tensor represents the
@@ -123,13 +129,29 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %            TEMPLATEHARMONICITY, ROUGHNESS, SPECTRALENTROPY.
 
     arguments
-        p (:,1) {mustBeNumeric}
-        w (:,1) {mustBeNumeric} = []
+        p {mustBeNumeric}
+        w {mustBeNumeric} = []
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {'harmonic', 64, 'powerlaw', 1}
         nvArgs.duplicate (1,1) {mustBeNonnegative, mustBeInteger} = 0
         nvArgs.normalize (1,1) string ...
             {mustBeMember(nvArgs.normalize, {'none','gaussian','pdf'})} = 'none'
+    end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % paired multisets and return a column vector of harmonicities.
+    % NaN-padded rows are accepted; rows with fewer than 2 valid
+    % pitches return NaN.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        h = localBatchedTensorHarmonicity(p, w, sigma, nvArgs);
+        return;
+    end
+
+    % Scalar path: force column vectors for consistency below.
+    p = p(:);
+    if ~isempty(w)
+        w = w(:);
     end
 
     specArgs = nvArgs.spectrum;
@@ -193,4 +215,60 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 
     h = evalExpTens(T, intervals, nvArgs.normalize, 'verbose', false);
 
+end
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
+%LOCALBATCHEDTENSORHARMONICITY Per-row tensor harmonicity from a 2-D matrix.
+%
+%   Returns an nRows-by-1 column vector. NaN-padded rows are handled
+%   (NaN entries dropped per row); rows with fewer than 2 valid
+%   pitches yield NaN.
+
+    nRows = size(P, 1);
+    h = nan(nRows, 1);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('tensorHarmonicity:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    % Forward all name-value options to recursive scalar calls.
+    nvPairs = localPackTensorNV(nvArgs);
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if numel(pK) < 2
+            h(k) = NaN;
+            continue;
+        end
+        h(k) = tensorHarmonicity(pK(:), wK(:), sigma, nvPairs{:});
+    end
+end
+
+
+function nvPairs = localPackTensorNV(nvArgs)
+    nvPairs = {};
+    fns = fieldnames(nvArgs);
+    for i = 1:numel(fns)
+        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+    end
 end

@@ -135,71 +135,131 @@ end
 
 %% === Compute features ===
 % Exploit symmetry: features are invariant to swapping interval1 and
-% interval2, so compute only the upper triangle (j >= i) and mirror.
+% interval2, so we build a linear list of unordered (int1, int2) pairs
+% (one per upper-triangle entry, j >= i) and compute each feature once
+% per unique pair, then mirror into the symmetric output matrix.
+%
+% v2.1 update: tensor harmonicity and template harmonicity are now
+% computed in single batched calls (one evalExpTens with a stacked
+% query matrix; one templateHarmonicity with a stacked chord matrix),
+% which is dramatically faster than per-triad evaluation. Spectral
+% entropy and roughness do not yet support batched-input dispatch, so
+% they remain in an explicit loop with progress reporting.
 
-nTotal = nInts * (nInts + 1) / 2;
-nDone  = 0;
-t0     = tic;
+nUpper = nInts * (nInts + 1) / 2;
 
-fprintf('Computing features for %d triads (step = %d cents)...\n', ...
-    nTotal, step);
-
+% Build the linear list of (i, j) pairs with j >= i.
+iLin    = zeros(nUpper, 1);
+jLin    = zeros(nUpper, 1);
+int1Lin = zeros(nUpper, 1);
+int2Lin = zeros(nUpper, 1);
+k = 0;
 for i = 1:nInts
     for j = i:nInts
-        int1 = ints(i);
-        int2 = ints(j);
-
-        % --- Tensor harmonicity ---
-        if doTensor
-            intVec = [int1; int2];
-            tensHarm(j, i) = evalExpTens(T, intVec, 'verbose', false);
-            tensHarm(i, j) = tensHarm(j, i);
-        end
-
-        % --- Template harmonicity (computes both outputs in one call) ---
-        if doTmpl
-            [hMax, hEnt] = templateHarmonicity([0, int1, int2], [], ...
-                sigma_tmpl, 'spectrum', spec_tmpl, ...
-                'chordSpectrum', spec_tmpl);
-            if doTmplMax
-                tmplHarmMax(j, i) = hMax;
-                tmplHarmMax(i, j) = hMax;
-            end
-            if doTmplEnt
-                tmplHarmEnt(j, i) = hEnt;
-                tmplHarmEnt(i, j) = hEnt;
-            end
-        end
-
-        % --- Spectral entropy ---
-        if doSpecEnt
-            specEnt(j, i) = spectralEntropy([0, int1, int2], [], ...
-                sigma_ent, 'spectrum', spec_ent);
-            specEnt(i, j) = specEnt(j, i);
-        end
-
-        % --- Roughness ---
-        if doRough
-            chordCents = [refCents, refCents + int1, refCents + int2];
-            [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
-            fHz = convertPitch(ep, 'cents', 'hz');
-            rough(j, i) = roughness(fHz, ew);
-            rough(i, j) = rough(j, i);
-        end
-
-        % Progress
-        nDone = nDone + 1;
-        if mod(nDone, 500) == 0 || nDone == nTotal
-            elapsed = toc(t0);
-            rate    = nDone / elapsed;
-            remain  = (nTotal - nDone) / rate;
-            fprintf('  %d / %d triads (%.1f s elapsed, ~%.0f s remaining)\n', ...
-                nDone, nTotal, elapsed, remain);
-        end
+        k = k + 1;
+        iLin(k)    = i;
+        jLin(k)    = j;
+        int1Lin(k) = ints(i);
+        int2Lin(k) = ints(j);
     end
 end
 
-fprintf('All features computed in %.1f s.\n', toc(t0));
+% Linear indices into the (nInts x nInts) result matrices for the upper
+% triangle and its mirror. The matrices use the convention
+% rows = int2 (= ints(j)), cols = int1 (= ints(i)).
+linIdxUpper = sub2ind([nInts, nInts], jLin, iLin);   % row = j, col = i
+linIdxLower = sub2ind([nInts, nInts], iLin, jLin);   % mirror
+
+fprintf('Computing features for %d unique triads (step = %d cents)...\n', ...
+    nUpper, step);
+t0_total = tic;
+
+% --- Tensor harmonicity ---
+% One evalExpTens call: the precomputed harmonic-template tensor T is
+% queried at all upper-triangle interval pairs in a single 2 x nUpper
+% query matrix. evalExpTens prints its own time estimate via
+% estimateCompTime when called with 'verbose', true.
+if doTensor
+    intMat  = [int1Lin'; int2Lin'];   % 2 x nUpper
+    t0 = tic;
+    tensLin = evalExpTens(T, intMat, 'verbose', true);
+    fprintf('  Tensor harmonicity:   %.2f s actual (%d triads, batched)\n', ...
+        toc(t0), nUpper);
+    tensHarm(linIdxUpper) = tensLin;
+    tensHarm(linIdxLower) = tensLin;
+end
+
+% --- Template harmonicity ---
+% One templateHarmonicity call: stack chords as rows of an nUpper x 3
+% matrix; the function returns hMax and hEntropy as nUpper-element
+% column vectors (v2.1+). templateHarmonicity prints its own time
+% estimate via estimateCompTime when called with 'verbose', true.
+if doTmpl
+    chordMat = [zeros(nUpper, 1), int1Lin, int2Lin];
+    t0 = tic;
+    [hMaxLin, hEntLin] = templateHarmonicity(chordMat, [], sigma_tmpl, ...
+        'spectrum', spec_tmpl, ...
+        'chordSpectrum', spec_tmpl, ...
+        'verbose', true);
+    fprintf('  Template harmonicity: %.2f s actual (%d triads, batched)\n', ...
+        toc(t0), nUpper);
+    if doTmplMax
+        tmplHarmMax(linIdxUpper) = hMaxLin;
+        tmplHarmMax(linIdxLower) = hMaxLin;
+    end
+    if doTmplEnt
+        tmplHarmEnt(linIdxUpper) = hEntLin;
+        tmplHarmEnt(linIdxLower) = hEntLin;
+    end
+end
+
+% --- Spectral entropy and roughness (no batched mode; explicit loop) ---
+if doSpecEnt || doRough
+    if doSpecEnt, specEntLin = NaN(nUpper, 1); end
+    if doRough,   roughLin   = NaN(nUpper, 1); end
+
+    fprintf('  Spectral entropy / roughness: looping over %d triads...\n', ...
+        nUpper);
+    t0 = tic;
+    nDone = 0;
+    for k = 1:nUpper
+        int1k = int1Lin(k);
+        int2k = int2Lin(k);
+
+        if doSpecEnt
+            specEntLin(k) = spectralEntropy([0, int1k, int2k], [], ...
+                sigma_ent, 'spectrum', spec_ent);
+        end
+
+        if doRough
+            chordCents = [refCents, refCents + int1k, refCents + int2k];
+            [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
+            fHz = convertPitch(ep, 'cents', 'hz');
+            roughLin(k) = roughness(fHz, ew);
+        end
+
+        nDone = nDone + 1;
+        if mod(nDone, 500) == 0 || nDone == nUpper
+            elapsed = toc(t0);
+            rate    = nDone / elapsed;
+            remain  = (nUpper - nDone) / rate;
+            fprintf('    %d / %d triads (%.1f s elapsed, ~%.0f s remaining)\n', ...
+                nDone, nUpper, elapsed, remain);
+        end
+    end
+    fprintf('  Spectral entropy / roughness: %.2f s\n', toc(t0));
+
+    if doSpecEnt
+        specEnt(linIdxUpper) = specEntLin;
+        specEnt(linIdxLower) = specEntLin;
+    end
+    if doRough
+        rough(linIdxUpper) = roughLin;
+        rough(linIdxLower) = roughLin;
+    end
+end
+
+fprintf('All features computed in %.1f s.\n', toc(t0_total));
 
 %% === Assemble selected measures for plotting ===
 

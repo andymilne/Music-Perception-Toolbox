@@ -1985,10 +1985,14 @@ class TestMAET:
         np.testing.assert_allclose(s, 1.0, rtol=1e-12, atol=1e-12)
 
     def test_ma_cossim_raw_mismatched_types_errors(self):
-        """p1 is MA but p2 is SA -> TypeError."""
+        """p1 is MA but p2 is SA. Under the unified cos_sim_exp_tens
+        dispatcher, the first arg's type (here, list of arrays = MA)
+        sets the dispatch arm, and the resulting positional-count
+        mismatch (MA needs 10 positional args; SA-style call gives 9)
+        produces a clear TypeError."""
         pitch_ma = [np.array([[0.0, 4.0]]).T]
         pitch_sa = [0.0, 4.0]
-        with pytest.raises(TypeError, match="same kind"):
+        with pytest.raises(TypeError, match="positional"):
             mpt.cos_sim_exp_tens_raw(
                 pitch_ma, None, pitch_sa, None,
                 10.0, 2, False, True, 1200.0, verbose=False,

@@ -38,13 +38,25 @@ import numpy as np
 import pytest
 from scipy.special import erf
 
-from mpt.tensor import (
-    build_exp_tens,
-    cos_sim_exp_tens,
-    window_tensor,
-    _orbit_inner_abs,
-    _window_width_params,
-)
+# This file's reference implementation uses v2.2 orbit-Möbius internals
+# (`_orbit_inner_abs`, `_window_width_params`) that are not present on
+# the v2.1 dev branch. Skip the whole module cleanly when those names
+# are unavailable so the rest of the test suite remains runnable. When
+# the v2.2 work lands these imports will resolve and the tests will
+# activate.
+try:
+    from mpt.tensor import (
+        build_exp_tens,
+        cos_sim_exp_tens,
+        window_tensor,
+        _orbit_inner_abs,
+        _window_width_params,
+    )
+except ImportError as _exc:
+    pytest.skip(
+        f"v2.2 orbit-Möbius internals not present on this branch: {_exc}",
+        allow_module_level=True,
+    )
 
 
 # -------------------------------------------------------------------

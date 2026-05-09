@@ -153,7 +153,7 @@ for i, res_i in enumerate(smooth_results):
         elif j == i:
             row_str += f"{'1.000':<{col_w}s}"
         else:
-            s = mpt.cos_sim_exp_tens_raw(
+            s = mpt.cos_sim_exp_tens(
                 res_i['p'], res_i['w'],
                 res_j['p'], res_j['w'],
                 sigma, 1, False, True, 1200,

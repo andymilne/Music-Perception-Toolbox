@@ -38,20 +38,25 @@ print(f"  First 8 offsets: {np.round(p[:8], 1)}")
 
 print("\n=== Spectral pitch class similarity ===")
 scale_cents = [0, 200, 400, 500, 700, 900, 1100]
-major = [0, 400, 700]
-minor = [0, 300, 700]
-dim_t = [0, 300, 600]
+chord_mat = np.array([
+    [0, 400, 700],     # Major
+    [0, 300, 700],     # Minor
+    [0, 300, 600],     # Dim
+], dtype=float)
+chord_names = ["Major", "Minor", "Dim"]
 
-# Add harmonic spectra (24 partials, 1/n rolloff)
-scale_p, scale_w = mpt.add_spectra(scale_cents, None, 'harmonic', 24, 'powerlaw', 1)
+# Batched call: the scale (a 1-D vector) is broadcast against every
+# row of chord_mat (v2.1.1+). The 'spectrum' kwarg enriches both
+# sides identically.
+s = mpt.cos_sim_exp_tens(
+    np.asarray(scale_cents, dtype=float), None, chord_mat, None,
+    10, 1, False, True, 1200,
+    spectrum=['harmonic', 24, 'powerlaw', 1],
+    verbose=False,
+)
 
-for name, chord_cents in [("Major", major), ("Minor", minor), ("Dim", dim_t)]:
-    chord_p, chord_w = mpt.add_spectra(chord_cents, None, 'harmonic', 24, 'powerlaw', 1)
-    s = mpt.cos_sim_exp_tens_raw(
-        scale_p, scale_w, chord_p, chord_w,
-        10, 1, False, True, 1200, verbose=False
-    )
-    print(f"  Diatonic vs {name:5s} triad: {s:.3f}")
+for name, val in zip(chord_names, s):
+    print(f"  Diatonic vs {name:5s} triad: {val:.3f}")
 
 # ===================================================================
 #  4. Consonance and harmonicity  (User Guide §6.3)

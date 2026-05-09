@@ -4,6 +4,15 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %   [vp_p, vp_w] = virtualPitches(p, w, sigma)
 %   [vp_p, vp_w] = virtualPitches(p, w, sigma, Name, Value)
 %
+%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   matrix with both dimensions > 1; rows are then treated as separate
+%   multisets and the function returns vp_p and vp_w each as a
+%   1-by-nRows cell array of column vectors. Profile lengths vary per
+%   row (cross-correlation extent depends on the chord's pitch range
+%   plus margin), so cell-of-arrays output is used rather than NaN-
+%   padding to a common length. NaN-padded input rows are accepted;
+%   rows with fewer than 1 valid pitch yield empty cell entries.
+%
 %   Computes the virtual pitch (fundamental) salience profile for a
 %   weighted pitch multiset by cross-correlating its spectral expectation
 %   tensor with a harmonic template. The result is a pitch-indexed vector
@@ -121,12 +130,31 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %            EVALEXPTENS, CONVERTPITCH, AUDIOPEAKS.
 
     arguments
-        p (:,1) {mustBeNumeric}
-        w (:,1) {mustBeNumeric} = []
+        p {mustBeNumeric}
+        w {mustBeNumeric} = []
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {'harmonic', 36, 'powerlaw', 1}
         nvArgs.chordSpectrum = {}
         nvArgs.resolution (1,1) {mustBePositive} = 1
+    end
+
+    % --- Batched dispatch (v2.1+) ---
+    % If p is a 2-D matrix with both dimensions > 1, treat rows as
+    % multisets and return per-row vp_p and vp_w as 1-by-nRows cell
+    % arrays of column vectors. Cell-of-arrays output is used because
+    % the cross-correlation profile length varies per row (depending
+    % on the chord's pitch range plus margin), so a numeric matrix
+    % alignment is not natural. NaN-padded rows are accepted; rows
+    % with fewer than 1 valid pitch yield empty entries.
+    if size(p, 1) > 1 && size(p, 2) > 1
+        [vp_p, vp_w] = localBatchedVirtualPitches(p, w, sigma, nvArgs);
+        return;
+    end
+
+    % Scalar path: force column vectors.
+    p = p(:);
+    if ~isempty(w)
+        w = w(:);
     end
 
     specArgs      = nvArgs.spectrum;
@@ -228,4 +256,64 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
     vp_p = lag_indices * step + pOffset;
     vp_w = xcorr_norm(:);
 
+end
+
+% =====================================================================
+%  v2.1 unified dispatch helper: batched-raw mode.
+% =====================================================================
+
+function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
+%LOCALBATCHEDVIRTUALPITCHES Per-row virtual pitch profiles from a 2-D matrix.
+%
+%   Returns vp_p and vp_w each as 1-by-nRows cell arrays of column
+%   vectors. Profile lengths vary per row (cross-correlation extent
+%   depends on the chord's pitch range), so cell-of-arrays output is
+%   used rather than NaN-padding to a common length. NaN-padded rows
+%   are accepted; rows with fewer than 1 valid pitch yield empty
+%   cell entries.
+
+    nRows = size(P, 1);
+    vp_p = cell(1, nRows);
+    vp_w = cell(1, nRows);
+
+    haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    if ~isempty(W) && ~haveRowWeights
+        if isvector(W) && numel(W) == size(P, 2)
+            W_broadcast = W(:).';
+        else
+            error('virtualPitches:weightShape', ...
+                ['In batched mode, w must be empty, a matrix the same size as p, ' ...
+                 'or a vector matching the number of pitch columns.']);
+        end
+    end
+
+    nvPairs = localPackVirtualNV(nvArgs);
+
+    for k = 1:nRows
+        pRow = P(k, :);
+        validMask = ~isnan(pRow);
+        pK = pRow(validMask);
+        if haveRowWeights
+            wK = W(k, validMask);
+        elseif ~isempty(W)
+            wK = W_broadcast(validMask);
+        else
+            wK = [];
+        end
+        if numel(pK) < 1
+            vp_p{k} = [];
+            vp_w{k} = [];
+            continue;
+        end
+        [vp_p{k}, vp_w{k}] = virtualPitches(pK(:), wK(:), sigma, nvPairs{:});
+    end
+end
+
+
+function nvPairs = localPackVirtualNV(nvArgs)
+    nvPairs = {};
+    fns = fieldnames(nvArgs);
+    for i = 1:numel(fns)
+        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+    end
 end

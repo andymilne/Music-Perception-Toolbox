@@ -1,0 +1,407 @@
+--- /tmp/commit3_unified/python/mpt/tensor.py	2026-05-07 09:14:54.247435246 +0000
++++ python/mpt/tensor.py	2026-05-07 09:54:08.914921011 +0000
+@@ -4067,7 +4067,8 @@
+ 
+ 
+ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
+-                        reference=None, verbose: bool = True):
++                        reference=None, mode: str = "auto",
++                        verbose: bool = True):
+     """Sliding-window similarity profile (cross-correlation).
+ 
+     For each offset column, *dens_context* is windowed with
+@@ -4147,10 +4148,12 @@
+ 
+     Parameters
+     ----------
+-    dens_query : MaetDensity
+-        The query density (not windowed).
+-    dens_context : MaetDensity
+-        The context density to be windowed.
++    dens_query : MaetDensity, or list/tuple of MaetDensity
++        The query density (not windowed). A single density gives the
++        v2.0 scalar behaviour; a list/tuple is broadcast or paired
++        against the context (see Returns).
++    dens_context : MaetDensity, or list/tuple of MaetDensity
++        The context density to be windowed. As above, scalar or list.
+     window_spec : dict
+         Window specification (see :func:`window_tensor`). Only the
+         ``size`` and ``mix`` fields are read; any ``centre`` field is
+@@ -4159,48 +4162,294 @@
+         Per-sweep offsets in effective space, using the
+         attribute-concatenated flat convention of
+         :func:`window_tensor`. A 1-D array is accepted when dim == 1.
+-    reference : list of array-like, optional
+-        One entry per query attribute, each a 1-D array of length
+-        equal to that attribute's dimension. If given, overrides the
+-        default unweighted-centroid reference. If ``None`` (default),
+-        the unweighted mean of per-attribute tuple centres is used.
++    reference : optional
++        Reference point(s) for the offset frame. Three forms:
++
++          * ``None`` (default): per-query auto-centroid (the unweighted
++            mean of the query's tuple centres on each attribute). Peak
++            offsets track ``P* − μ_q`` and so vary with the query.
++          * length-``n_attrs`` list of 1-D arrays: shared reference,
++            broadcast to every query. Each entry has length
++            ``dim_per_attr[a]``.
++          * length-``n_q`` list of (length-``n_attrs`` list of 1-D
++            arrays): per-query reference, one full reference list per
++            query in the batch.
++
++        Disambiguation when both forms are syntactically possible is
++        on element type: outer-list elements that are 1-D
++        arrays/lists-of-numbers indicate the shared form; outer-list
++        elements that are themselves lists/tuples indicate per-query.
++    mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
++        For list-vs-list. Ignored otherwise.
+     verbose : bool
+ 
+     Returns
+     -------
+-    ndarray of shape (M,)
+-        Windowed similarity profile.
++    np.ndarray
++        - scalar query, scalar context → ``(M,)`` (the v2.0 case).
++        - scalar query, list of n_c contexts → ``(n_c, M)``.
++        - list of n_q queries, scalar context → ``(n_q, M)``.
++        - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
++          ``(n_q, M)``.
++        - list-vs-list, ``mode='cartesian'`` → ``(n_q, n_c, M)``.
++
++        Length-1 lists do NOT collapse to scalars (Option II — strict
++        shape preservation).
+     """
+-    if not isinstance(dens_query, MaetDensity):
+-        raise TypeError("dens_query must be a MaetDensity.")
+-    if not isinstance(dens_context, MaetDensity):
+-        raise TypeError("dens_context must be a MaetDensity.")
++    # ------------------------------------------------------------------
++    # Normalise query and context inputs.
++    # ------------------------------------------------------------------
++    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
++    c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
++
++    # Validate every density is a plain MaetDensity (not Windowed, not SA).
++    # MaetDensity, WindowedMaetDensity, and ExpTensDensity are independent
++    # classes (no inheritance), so a single isinstance(d, MaetDensity) check
++    # suffices to exclude the other two.
++    for label, scalar_flag, densities in (
++        ("dens_query", q_scalar, q_list),
++        ("dens_context", c_scalar, c_list),
++    ):
++        for i, d in enumerate(densities):
++            if not isinstance(d, MaetDensity):
++                idx = "" if scalar_flag else f"[{i}]"
++                raise TypeError(
++                    f"{label}{idx} must be a MaetDensity (not "
++                    f"WindowedMaetDensity, not ExpTensDensity); got "
++                    f"{type(d).__name__}."
++                )
+ 
+-    offsets = np.asarray(offsets, dtype=np.float64)
+-    if offsets.ndim == 1:
+-        offsets = offsets.reshape(-1, 1)
+-    if offsets.shape[0] != int(dens_context.dim):
++    n_q = len(q_list)
++    n_c = len(c_list)
++
++    # ------------------------------------------------------------------
++    # Validate offsets shape against the (shared) context dimension.
++    # All contexts in a list must have matching dim; we check against
++    # the first and rely on per-pair structural compatibility checks
++    # in the underlying cos_sim_exp_tens to catch mismatches between
++    # query and context.
++    # ------------------------------------------------------------------
++    if n_c == 0 or n_q == 0:
++        # Empty list: produce a correctly-shaped empty output.
++        offsets_arr = np.asarray(offsets, dtype=np.float64)
++        if offsets_arr.ndim == 1:
++            offsets_arr = offsets_arr.reshape(-1, 1)
++        M = offsets_arr.shape[1] if offsets_arr.ndim >= 2 else 0
++        if q_scalar:
++            return np.empty((0, M), dtype=np.float64)
++        if c_scalar:
++            return np.empty((0, M), dtype=np.float64)
++        # both lists, at least one empty
++        if mode == "auto":
++            mode_resolved = "pairwise" if n_q == n_c else "cartesian"
++        else:
++            mode_resolved = mode
++        if mode_resolved == "pairwise":
++            return np.empty((0, M), dtype=np.float64)
++        return np.empty((n_q, n_c, M), dtype=np.float64)
++
++    template_context = c_list[0]
++
++    # ------------------------------------------------------------------
++    # Resolve reference into a list of length n_q (each entry a list of
++    # n_attrs 1-D arrays). None signals "auto-centroid per query".
++    # ------------------------------------------------------------------
++    references_per_query = _resolve_windowed_similarity_reference(
++        reference, q_list,
++    )
++
++    # ------------------------------------------------------------------
++    # Periodic-window approximation warning. The warning depends only
++    # on the context's group structure and the window spec, not on the
++    # query — so we emit it once per call against template_context.
++    # ------------------------------------------------------------------
++    _emit_periodic_window_warning(template_context, window_spec)
++
++    # ------------------------------------------------------------------
++    # Dispatch on (q_scalar, c_scalar).
++    # ------------------------------------------------------------------
++    if q_scalar and c_scalar:
++        return _windowed_similarity_pair(
++            q_list[0], c_list[0], window_spec, offsets,
++            ref_per_a=references_per_query[0], verbose=verbose,
++        )
++
++    if q_scalar:
++        # 1 query × n_c contexts → (n_c, M).
++        rows = [
++            _windowed_similarity_pair(
++                q_list[0], c, window_spec, offsets,
++                ref_per_a=references_per_query[0], verbose=verbose,
++            )
++            for c in c_list
++        ]
++        return np.stack(rows, axis=0)
++
++    if c_scalar:
++        # n_q queries × 1 context → (n_q, M).
++        rows = [
++            _windowed_similarity_pair(
++                q, c_list[0], window_spec, offsets,
++                ref_per_a=ref, verbose=verbose,
++            )
++            for q, ref in zip(q_list, references_per_query)
++        ]
++        return np.stack(rows, axis=0)
++
++    # Both lists.
++    resolved = _resolve_list_list_mode(mode, n_q, n_c)
++    if resolved == "pairwise":
++        rows = [
++            _windowed_similarity_pair(
++                q, c, window_spec, offsets,
++                ref_per_a=ref, verbose=verbose,
++            )
++            for q, c, ref in zip(q_list, c_list, references_per_query)
++        ]
++        return np.stack(rows, axis=0)
++
++    # cartesian
++    # Determine M from a probe call.
++    probe = _windowed_similarity_pair(
++        q_list[0], c_list[0], window_spec, offsets,
++        ref_per_a=references_per_query[0], verbose=verbose,
++    )
++    M = probe.shape[0]
++    out = np.empty((n_q, n_c, M), dtype=np.float64)
++    out[0, 0, :] = probe
++    for j in range(1, n_c):
++        out[0, j, :] = _windowed_similarity_pair(
++            q_list[0], c_list[j], window_spec, offsets,
++            ref_per_a=references_per_query[0], verbose=verbose,
++        )
++    for i in range(1, n_q):
++        ref = references_per_query[i]
++        for j in range(n_c):
++            out[i, j, :] = _windowed_similarity_pair(
++                q_list[i], c_list[j], window_spec, offsets,
++                ref_per_a=ref, verbose=verbose,
++            )
++    return out
++
++
++def _resolve_windowed_similarity_reference(reference, q_list):
++    """Resolve the polymorphic ``reference`` argument of
++    :func:`windowed_similarity` to a list (length ``n_q``) of per-query
++    reference lists (each of length ``n_attrs``, with each entry a 1-D
++    array of length ``dim_per_attr[a]``).
++
++    ``None`` is returned as a list of ``None``s, signalling that each
++    query's auto-centroid should be computed in the per-pair core.
++    """
++    n_q = len(q_list)
++    if reference is None:
++        return [None] * n_q
++
++    if not isinstance(reference, (list, tuple)):
++        raise TypeError(
++            f"reference must be None, a list of per-attribute 1-D arrays "
++            f"(shared form), or a list of length n_q of such lists "
++            f"(per-query form); got {type(reference).__name__}."
++        )
++
++    template = q_list[0]
++    n_attrs = int(template.n_attrs)
++    dim_per_a = [int(d) for d in template.dim_per_attr]
++
++    # Disambiguate shared (length n_attrs, elements 1-D arrays) from
++    # per-query (length n_q, elements lists/tuples).
++    outer_len = len(reference)
++
++    if outer_len == 0:
++        raise ValueError("reference must be non-empty.")
++
++    first = reference[0]
++    elements_are_listlike = isinstance(first, (list, tuple)) or (
++        isinstance(first, np.ndarray) and first.ndim >= 1
++        and (
++            # Distinguish "1-D array of numbers" from "1-D array of arrays".
++            # An ndarray with dtype != object is shared-form material.
++            first.dtype == object
++        )
++    )
++
++    # The "shared" form has elements that are 1-D arrays of numbers; the
++    # "per-query" form has elements that are themselves lists of arrays.
++    # Detect by checking whether the first element is iterable in a way
++    # that yields more arrays.
++    def _is_per_query_outer(ref):
++        first_el = ref[0]
++        # A list/tuple at this level is per-query if it's iterable AND its
++        # elements look like 1-D numeric arrays (i.e., one level deeper).
++        if isinstance(first_el, (list, tuple)):
++            return True
++        if isinstance(first_el, np.ndarray) and first_el.dtype == object:
++            return True
++        return False
++
++    is_per_query = _is_per_query_outer(reference)
++
++    if is_per_query:
++        if outer_len != n_q:
++            raise ValueError(
++                f"Per-query reference must have length n_q = {n_q}; "
++                f"got {outer_len}."
++            )
++        out = []
++        for i, ref_q in enumerate(reference):
++            if not isinstance(ref_q, (list, tuple)) and not (
++                isinstance(ref_q, np.ndarray) and ref_q.dtype == object
++            ):
++                raise TypeError(
++                    f"reference[{i}] must be a list/tuple of "
++                    f"{n_attrs} per-attribute 1-D arrays; got "
++                    f"{type(ref_q).__name__}."
++                )
++            if len(ref_q) != n_attrs:
++                raise ValueError(
++                    f"reference[{i}] must have {n_attrs} entries (one per "
++                    f"query attribute); got {len(ref_q)}."
++                )
++            ref_q_validated = []
++            for a in range(n_attrs):
++                ref_a = np.asarray(ref_q[a], dtype=np.float64).reshape(-1)
++                if ref_a.size != dim_per_a[a]:
++                    raise ValueError(
++                        f"reference[{i}][{a}] must have length "
++                        f"{dim_per_a[a]} (dim of attribute {a}); got "
++                        f"{ref_a.size}."
++                    )
++                ref_q_validated.append(ref_a)
++            out.append(ref_q_validated)
++        return out
++
++    # Shared form: outer_len must equal n_attrs.
++    if outer_len != n_attrs:
+         raise ValueError(
+-            f"offsets must have {int(dens_context.dim)} rows (dim of "
+-            f"dens_context); got shape {offsets.shape}."
++            f"Shared reference must have {n_attrs} entries (one per query "
++            f"attribute); got {outer_len}. For per-query references, pass a "
++            f"list of length n_q = {n_q} of such per-attribute lists."
+         )
+-    M = offsets.shape[1]
++    shared = []
++    for a in range(n_attrs):
++        ref_a = np.asarray(reference[a], dtype=np.float64).reshape(-1)
++        if ref_a.size != dim_per_a[a]:
++            raise ValueError(
++                f"reference[{a}] must have length {dim_per_a[a]} (dim of "
++                f"attribute {a}); got {ref_a.size}."
++            )
++        shared.append(ref_a)
++    return [shared] * n_q
++
+ 
+-    # ---- Periodic-window approximation check ------------------------
+-    # A WindowedSimilarityPeriodicApproxWarning is emitted per periodic
+-    # windowed group on every call. The message has two forms:
+-    #   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
+-    #     a brief informational notice that the line-case approximation
+-    #     is in use, with the current SD/P against the bound. The
+-    #     approximation is sub-percent across the window shape family
+-    #     within this bound.
+-    #   - Past the bound (lambda*sigma > P/(2*sqrt(3))): a stronger
+-    #     notice reporting SD/P and phi (rect half-width) against
+-    #     their bounds, and describing the qualitative behaviour by
+-    #     mix (at mix=1 the rect window is no longer localized on the
+-    #     circle; at mix=0 the approximation degrades smoothly).
+-    # See User Guide §3.1 "Post-tensor windowing".
+-    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ~= 0.2887
++def _emit_periodic_window_warning(dens_context, window_spec):
++    """Emit the periodic-window approximation warning once for this call.
++
++    The warning depends only on the context's group structure and the
++    window spec, not on the query, so it is computed once at the
++    dispatcher level and not per-pair.
++    """
++    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ≈ 0.2887
+     G = int(dens_context.n_groups)
+     size_arr = np.atleast_1d(
+         np.asarray(window_spec["size"], dtype=np.float64)
+@@ -4276,28 +4525,31 @@
+             stacklevel=2,
+         )
+ 
+-    # Reference point, per attribute.
++
++def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
++                               *, ref_per_a, verbose: bool) -> np.ndarray:
++    """Per-pair offset sweep for a single (query, context) pair.
++
++    ``ref_per_a`` is either ``None`` (auto-centroid) or a list of
++    pre-validated per-attribute 1-D arrays (length ``n_attrs``).
++    Returns the ``(M,)`` similarity profile.
++    """
++    offsets = np.asarray(offsets, dtype=np.float64)
++    if offsets.ndim == 1:
++        offsets = offsets.reshape(-1, 1)
++    if offsets.shape[0] != int(dens_context.dim):
++        raise ValueError(
++            f"offsets must have {int(dens_context.dim)} rows (dim of "
++            f"dens_context); got shape {offsets.shape}."
++        )
++    M = offsets.shape[1]
++
+     A = int(dens_query.n_attrs)
+     dim_per_a = [int(d) for d in dens_query.dim_per_attr]
+-    if reference is None:
++
++    if ref_per_a is None:
+         # Default: unweighted mean of per-attribute tuple centres.
+         ref_per_a = [dens_query.centres[a].mean(axis=1) for a in range(A)]
+-    else:
+-        if len(reference) != A:
+-            raise ValueError(
+-                f"reference must have {A} entries (one per query "
+-                f"attribute); got {len(reference)}."
+-            )
+-        ref_per_a = []
+-        for a in range(A):
+-            ref_a = np.asarray(reference[a], dtype=np.float64).reshape(-1)
+-            if ref_a.size != dim_per_a[a]:
+-                raise ValueError(
+-                    f"reference[{a}] must have length "
+-                    f"{dim_per_a[a]} (dim of attribute {a}); got "
+-                    f"{ref_a.size}."
+-                )
+-            ref_per_a.append(ref_a)
+ 
+     # Strip any user-supplied 'centre' field; offsets replace it.
+     base_spec = {k: v for k, v in window_spec.items() if k != "centre"}

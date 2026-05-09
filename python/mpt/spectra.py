@@ -25,7 +25,7 @@ def add_spectra(
         Pitch values (in the units specified by *units*; default
         cents).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     mode : str
         ``'harmonic'``, ``'stretched'``, ``'freqlinear'``,
         ``'stiff'``, or ``'custom'``.

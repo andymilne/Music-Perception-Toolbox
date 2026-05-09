@@ -39,7 +39,7 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'.
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the edge
 %              weights (vector). Default: 0:period-1.

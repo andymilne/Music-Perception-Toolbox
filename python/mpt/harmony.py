@@ -49,7 +49,7 @@ def spectral_entropy(
     p : array-like
         Pitch values in cents (absolute, not pitch classes).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     sigma : float
         Gaussian smoothing width in cents (typical: 6–15).
     spectrum : list or None
@@ -133,7 +133,7 @@ def template_harmonicity(
     p : array-like
         Pitch values in cents (absolute, not pitch classes).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     sigma : float
         Gaussian smoothing width in cents (typical: 9–15).
     spectrum : list or None
@@ -242,7 +242,7 @@ def tensor_harmonicity(
     p : array-like
         Pitch values in cents (length K ≥ 2, absolute).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     sigma : float
         Gaussian smoothing width in cents (typical: 9–15).
     spectrum : list or None
@@ -321,7 +321,7 @@ def virtual_pitches(
     p : array-like
         Pitch values in cents (absolute).
     w : array-like or None
-        Weights (``None`` for uniform).
+        Weights (``None`` for all ones).
     sigma : float
         Gaussian smoothing width in cents.
     spectrum : list or None
@@ -412,7 +412,7 @@ def roughness(
     f : array-like
         Frequencies in Hz (positive).
     w : array-like or None
-        Amplitudes/weights (``None`` for uniform).
+        Amplitudes/weights (``None`` for all ones).
     p_norm : float
         Norm exponent for combining pairwise roughnesses (default 1).
     average : bool

@@ -5,10 +5,12 @@
 %  Uses buildExpTens to precompute the density object once per configuration,
 %  then passes it to evalExpTens.
 %
-%  Each figure includes an interactive power slider for real-time
-%  adjustment of the dynamic range compression: displayed = data.^gamma.
-%  Surface plots (dim = 2) additionally include a colormap shift slider
-%  and a perspective/orthographic projection toggle.
+%  Each figure includes an interactive transform-mode selector (Off /
+%  Gamma / Saturation) for real-time adjustment of dynamic-range
+%  compression: gamma applies v -> v.^gamma, saturation applies
+%  v -> 1 - exp(-v / eta), both with per-plot normalisation. Surface
+%  plots (dim = 2) additionally include a colormap shift slider and a
+%  perspective/orthographic projection toggle.
 %
 %  Edit the parameters below to experiment with different multisets,
 %  smoothing widths, plot configurations, and visualization modes.
@@ -33,13 +35,17 @@ sigma = 10;
 %                Useful for comparing across multisets of different sizes.
 normalize = 'none';
 
-% Gamma (power compression) for visualization: displayed = data.^gamma
-%   gamma = 1 shows the original data (no compression).
-%   gamma < 1 compresses the dynamic range, making lower-density regions
-%   more visible by reducing the dominance of high peaks.
-%   gamma -> 0 tends toward a binary (nonzero / zero) representation.
-%   An interactive slider is added to each figure for real-time adjustment.
+% Default transform-mode and parameter values for visualization.
+%   - 'off'  : no transform; data shown as-is
+%   - 'gamma': power compression  v -> v.^gamma  (gamma in [0.01, 1])
+%   - 'sat'  : saturation         v -> 1 - exp(-v / eta)  (eta log-scale 
+%              in [0.001, 5], applied to data normalised to [0, 1] then 
+%              rescaled back to the original range)
+% Both gamma and eta have per-mode memory inside each figure: switching 
+% between modes via the radio selector restores each mode's last 
+% slider value.
 gamma = 1;
+eta   = 5;
 
 % Period for periodic configurations (in the same units as p)
 period = 1200;
@@ -281,7 +287,7 @@ for ci = 1:nConfigs
             vals = evalExpTens(dens, X, normalize);
 
             fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
-            hLine = plot(x, applyGamma(vals, gamma), 'LineWidth', 1.5);
+            hLine = plot(x, applyTransform(vals, 'off', gamma, eta), 'LineWidth', 1.5);
             xlabel(sprintf('%s 1', axLabel));
             ylabel('Density');
             title(titleStr);
@@ -294,7 +300,7 @@ for ci = 1:nConfigs
             info.mode    = 'line';
             info.rawVals = vals;
             info.hLine   = hLine;
-            addPlotControls(fig, info, gamma);
+            addPlotControls(fig, info, gamma, eta);
 
         % =============================================================
         %  dim = 2: surface plot (top-down X-Y view) with controls
@@ -316,7 +322,7 @@ for ci = 1:nConfigs
             Vraw = Vraw + Vraw.' - diag(diag(Vraw));
             vals = Vraw(:).';  % 1 x res^2 for compatibility with rawVals
 
-            V = reshape(applyGamma(vals, gamma), res, res);
+            V = reshape(applyTransform(vals, 'off', gamma, eta), res, res);
 
             fig = figure('Name', sprintf('Config %d: r=%d dim=%d', ci, r, dim));
 
@@ -342,7 +348,7 @@ for ci = 1:nConfigs
             colorbar;
             xlim([axMin axMax]);
             ylim([axMin axMax]);
-            maxV = max(applyGamma(vals, gamma));
+            maxV = max(applyTransform(vals, 'off', gamma, eta));
             if maxV > 0
                 daspect([1 1 maxV / (axMax - axMin)]);
             end
@@ -356,7 +362,7 @@ for ci = 1:nConfigs
             info.hAx     = hAx;
             info.res     = res;
             info.axRange = [axMin axMax];
-            addPlotControls(fig, info, gamma);
+            addPlotControls(fig, info, gamma, eta);
 
         % =============================================================
         %  dim = 3: volumetric / isosurface / scatter
@@ -414,8 +420,14 @@ for ci = 1:nConfigs
                     gz     = Gc(mask);  gz = gz(:);
                     vMask  = vals(mask); vMask = vMask(:);
 
-                    vGamma = applyGamma(vMask, gamma);
-                    vNorm  = normalizeForDisplay(vGamma);
+                    % Initial render: 'off' mode with max-only normalisation
+                    % (matching the redraw path in addPlotControls).
+                    M_init = max(vMask);
+                    if M_init > 0
+                        vNorm = vMask / M_init;
+                    else
+                        vNorm = vMask;
+                    end
 
                     sc = scatter3(gx, gy, gz, 10, vNorm, 'filled');
                     sc.MarkerFaceAlpha = 'flat';
@@ -445,7 +457,7 @@ for ci = 1:nConfigs
                 info.mode    = 'scatter3';
                 info.rawVals = vMask;
                 info.hScatter = sc;
-                addPlotControls(fig, info, gamma);
+                addPlotControls(fig, info, gamma, eta);
             end
 
         % =============================================================
@@ -504,7 +516,7 @@ for ci = 1:nConfigs
 
                 sliceVals = evalExpTens(dens, Xq, normalize);
                 allSliceVals{si} = sliceVals;
-                Vs = reshape(applyGamma(sliceVals, gamma), res, res);
+                Vs = reshape(applyTransform(sliceVals, 'off', gamma, eta), res, res);
 
                 subplot(nRows, nCols, si);
                 allSliceImages(si) = imagesc(x, x, Vs);
@@ -535,7 +547,9 @@ for ci = 1:nConfigs
             info.rawVals     = allSliceVals;
             info.hImages     = allSliceImages;
             info.res         = res;
-            addPlotControls(fig, info, gamma);
+            info.nRows       = nRows;
+            info.nCols       = nCols;
+            addPlotControls(fig, info, gamma, eta);
     end
 
     fprintf(' done.\n');
@@ -546,15 +560,56 @@ fprintf('All plots complete.\n');
 
 %% === Helper functions ===
 
-function vg = applyGamma(vals, gamma)
-%APPLYGAMMA Apply power compression: data.^gamma, normalized to [0, 1].
-%  Normalizes to [0, 1] first so that the gamma has a consistent effect
-%  regardless of the absolute scale of the data.
-    maxV = max(vals(:));
-    if maxV > 0
-        vg = (vals / maxV) .^ gamma * maxV;  % preserve original scale
-    else
-        vg = vals;
+function vt = applyTransform(vals, mode, gamma, eta)
+%APPLYTRANSFORM Dispatch on mode.
+%
+%  'off'   identity; output range = input range.
+%  'gamma' power compression: data normalised by the empirical
+%          (min, max), then raised to gamma. Output is in [0, 1].
+%          Gamma is a display-cosmetic knob, so anchoring at the
+%          empirical min keeps the slider responsive regardless of
+%          where the data sits.
+%  'sat'   saturation: anchored at 0 (a meaningful baseline of "no
+%          density"). For tensor density, which is always non-
+%          negative, vn = vals / max. The saturation curve
+%          (1 - exp(-vn/eta)) / (1 - exp(-1/eta)) is then applied.
+%          Output is in [0, 1].
+    if strcmp(mode, 'off')
+        vt = vals;
+        return;
+    end
+
+    mn = min(vals(:));
+    mx = max(vals(:));
+
+    switch mode
+        case 'gamma'
+            if mx > mn
+                vn = (vals - mn) / (mx - mn);
+                vt = vn .^ gamma;
+            else
+                vt = vals;
+            end
+        case 'sat'
+            if mn >= 0 && mx > 0
+                vn = vals / mx;
+            elseif mx <= 0 && mn < 0
+                vn = (vals - mn) / (-mn);
+            elseif mx > mn
+                vn = (vals - mn) / (mx - mn);
+            else
+                vt = vals;
+                return;
+            end
+            num = 1 - exp(-vn / eta);
+            den = 1 - exp(-1 / eta);
+            if den > 0
+                vt = num / den;
+            else
+                vt = vn;
+            end
+        otherwise
+            vt = vals;
     end
 end
 
@@ -569,19 +624,24 @@ function vn = normalizeForDisplay(vals)
     end
 end
 
-function addPlotControls(fig, info, gammaInit)
+function addPlotControls(fig, info, gammaInit, etaInit)
 %ADDPLOTCONTROLS Add interactive controls to a figure.
 %
-%  Adds a power (gamma compression) slider to all plot types.
-%  For 'surf' mode, also adds:
-%    - A colormap shift slider that adjusts CLim
-%    - A projection toggle (orthographic / perspective)
+%  All plot modes get a transform-mode selector (radio buttons:
+%  Off / Gamma / Saturation) and an adaptive slider whose meaning
+%  depends on the chosen mode. 'gamma' applies v -> v.^gamma in
+%  [0.01, 1]; 'sat' applies v -> 1 - exp(-v / eta) with eta on a
+%  log10 scale in [0.001, 5]. Both gamma and eta have per-mode
+%  memory.
 %
-%  Layout:
-%    For 'surf' mode, the two sliders are placed as vertical sliders to
-%    the right of the colorbar (same height), with labels above and
-%    readouts below. The projection toggle sits beneath the sliders.
-%    For other modes, a horizontal power slider is placed at the bottom.
+%  For 'surf' mode, the controls are placed vertically to the right
+%  of the colorbar. There is also a colormap shift slider (with
+%  per-mode memory) and a perspective/orthographic projection toggle.
+%  In perspective mode the colorbar and slider region shift right to
+%  clear the y-axis labels.
+%
+%  For non-surf modes (line, scatter3, slices), the controls are
+%  placed in a horizontal row at the bottom of the figure.
 %
 %  Supported info.mode values:
 %    'line'     — updates YData of a line plot
@@ -591,91 +651,134 @@ function addPlotControls(fig, info, gammaInit)
 
     isSurf = strcmp(info.mode, 'surf');
 
-    if isSurf
-        % === Surf mode: vertical sliders to the right of the colorbar ===
+    info.mode_xform = 'off';        % active transform mode
+    info.gamma      = gammaInit;    % per-mode memory
+    info.eta        = etaInit;      % per-mode memory
 
-        % Force a draw so axes position is finalized
+    if isSurf
+        % === Surf mode: vertical layout to the right of the colorbar ===
+
         drawnow;
 
-        % Explicitly position the colorbar well to the right of the axes,
-        % leaving room for 3D axis labels in perspective view
+        % Position the colorbar narrowly so perspective mode has room
         hCB = findobj(fig, 'Type', 'ColorBar');
         if ~isempty(hCB)
             axPos = get(info.hAx, 'Position');
-            % Place colorbar starting at 72% of figure width, aligned
-            % vertically with the axes
             cbLeft   = axPos(1) + axPos(3) + 0.14;
             cbBottom = axPos(2);
-            cbWidth  = 0.02;
+            cbWidth  = 0.018;
             cbHeight = axPos(4);
             hCB(1).Location = 'manual';
             hCB(1).Position = [cbLeft, cbBottom, cbWidth, cbHeight];
             cbPos = hCB(1).Position;
         else
-            cbPos = [0.72, 0.12, 0.02, 0.78];
+            cbPos = [0.72, 0.12, 0.018, 0.78];
         end
 
-        % Slider dimensions: same height as colorbar, narrow, stacked to
-        % the right. Each slider gets a label above and readout below.
         sliderW    = 0.025;
-        labelH     = 0.03;
+        labelH     = 0.025;
         readoutH   = 0.025;
-        cbGap      = 0.055;  % gap between colorbar tick labels and first slider
-        sliderGap  = 0.015;  % gap between the two sliders
+        cbGap      = 0.055;
+        sliderGap  = 0.015;
+        modeGroupH = 0.025;
+        labelTopH  = 0.020;
+        labelBotH  = 0.020;
+        modeBlockH = labelTopH + modeGroupH + labelBotH + 0.005;
 
-        sliderH   = cbPos(4);
-        sliderBot = cbPos(2);
+        % Slider region anchored to the colorbar
+        sliderH    = cbPos(4) - modeBlockH - 0.005;
+        sliderBot  = cbPos(2);
+        xformX     = cbPos(1) + cbPos(3) + cbGap;
+        modeBgW    = 2 * sliderW + sliderGap + 0.01;
+        modeBlockY = sliderBot + sliderH + labelH + 0.005;
 
-        % Power slider: first column to the right of the colorbar
-        powerX = cbPos(1) + cbPos(3) + cbGap;
+        % Per-mode cmap shift memory
+        info.cmapShiftOff   = 0;
+        info.cmapShiftGamma = 0;
+        info.cmapShiftSat   = 0;
 
+        % Top labels: "Off" above column 1, "Saturation" above column 3
+        topLabelY = modeBlockY + modeGroupH + labelBotH - 0.005;
+        uicontrol(fig, 'Style', 'text', 'String', 'Off', ...
+            'Units', 'normalized', ...
+            'Position', [xformX - 0.020, topLabelY, 0.040, labelTopH], ...
+            'FontSize', 8, 'HorizontalAlignment', 'center', ...
+            'Tag', 'modeOff_label', ...
+            'BackgroundColor', get(fig, 'Color'));
+        uicontrol(fig, 'Style', 'text', 'String', 'Saturation', ...
+            'Units', 'normalized', ...
+            'Position', [xformX + modeBgW - 0.045, topLabelY, ...
+                         0.060, labelTopH], ...
+            'FontSize', 8, 'HorizontalAlignment', 'center', ...
+            'Tag', 'modeSat_label', ...
+            'BackgroundColor', get(fig, 'Color'));
+
+        % Radio row
+        radioY = modeBlockY + labelBotH;
+        modeGroup = uibuttongroup(fig, ...
+            'Units', 'normalized', ...
+            'Position', [xformX - 0.005, radioY, modeBgW, modeGroupH], ...
+            'BorderType', 'none', ...
+            'BackgroundColor', get(fig, 'Color'), ...
+            'Tag', 'modeGroup', ...
+            'SelectionChangedFcn', @(src, evt) modeChangedCallback(src, evt, fig));
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
+            'Units', 'normalized', 'Position', [0.05, 0, 0.28, 1], ...
+            'Tag', 'modeOff', 'BackgroundColor', get(fig, 'Color'), ...
+            'Value', 1);
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
+            'Units', 'normalized', 'Position', [0.39, 0, 0.28, 1], ...
+            'Tag', 'modeGamma', 'BackgroundColor', get(fig, 'Color'), ...
+            'Value', 0);
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', '', ...
+            'Units', 'normalized', 'Position', [0.72, 0, 0.28, 1], ...
+            'Tag', 'modeSat', 'BackgroundColor', get(fig, 'Color'), ...
+            'Value', 0);
+
+        % "Gamma" label below column 2
+        botLabelY = modeBlockY;
+        uicontrol(fig, 'Style', 'text', 'String', 'Gamma', ...
+            'Units', 'normalized', ...
+            'Position', [xformX + modeBgW/2 - 0.026, botLabelY, ...
+                         0.040, labelBotH], ...
+            'FontSize', 8, 'HorizontalAlignment', 'center', ...
+            'Tag', 'modeGamma_label', ...
+            'BackgroundColor', get(fig, 'Color'));
+
+        % Transform slider (initial: 'off' -> disabled)
         uicontrol(fig, 'Style', 'slider', ...
             'Min', 0.01, 'Max', 1, 'Value', gammaInit, ...
             'Units', 'normalized', ...
-            'Position', [powerX, sliderBot, sliderW, sliderH], ...
-            'Tag', 'powerSlider', ...
-            'Callback', @(src, ~) gammaCallback(src, fig));
-
-        uicontrol(fig, 'Style', 'text', ...
-            'String', 'Power', ...
+            'Position', [xformX, sliderBot, sliderW, sliderH], ...
+            'Tag', 'xformSlider', 'Enable', 'off', ...
+            'SliderStep', [0.005, 0.03], ...
+            'Callback', @(src, ~) xformSliderCallback(src, fig));
+        uicontrol(fig, 'Style', 'text', 'String', '', ...
             'Units', 'normalized', ...
-            'Position', [powerX - 0.01, sliderBot + sliderH + 0.002, ...
-                sliderW + 0.02, labelH], ...
-            'FontSize', 8, ...
-            'HorizontalAlignment', 'center', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        uicontrol(fig, 'Style', 'text', ...
-            'String', sprintf('%.2f', gammaInit), ...
-            'Units', 'normalized', ...
-            'Position', [powerX - 0.005, sliderBot - readoutH - 0.002, ...
+            'Position', [xformX - 0.005, sliderBot - readoutH - 0.002, ...
                 sliderW + 0.01, readoutH], ...
             'FontSize', 8, ...
-            'Tag', 'powerReadout', ...
+            'Tag', 'xformReadout', ...
             'HorizontalAlignment', 'center', ...
             'BackgroundColor', get(fig, 'Color'));
 
-        % Colormap shift slider: second column
-        cmapX = powerX + sliderW + sliderGap;
-
+        % Cmap slider
+        cmapX = xformX + sliderW + sliderGap;
         uicontrol(fig, 'Style', 'slider', ...
             'Min', 0, 'Max', 0.95, 'Value', 0, ...
             'Units', 'normalized', ...
             'Position', [cmapX, sliderBot, sliderW, sliderH], ...
             'Tag', 'cmapShiftSlider', ...
+            'SliderStep', [0.005, 0.03], ...
             'Callback', @(src, ~) cmapShiftCallback(src, fig));
-
-        uicontrol(fig, 'Style', 'text', ...
-            'String', 'Cmap', ...
+        uicontrol(fig, 'Style', 'text', 'String', 'Cmap', ...
             'Units', 'normalized', ...
             'Position', [cmapX - 0.01, sliderBot + sliderH + 0.002, ...
                 sliderW + 0.02, labelH], ...
-            'FontSize', 8, ...
-            'HorizontalAlignment', 'center', ...
+            'FontSize', 8, 'HorizontalAlignment', 'center', ...
+            'Tag', 'cmapShiftLabel', ...
             'BackgroundColor', get(fig, 'Color'));
-
-        uicontrol(fig, 'Style', 'text', ...
-            'String', '0.00', ...
+        uicontrol(fig, 'Style', 'text', 'String', '0.00', ...
             'Units', 'normalized', ...
             'Position', [cmapX - 0.005, sliderBot - readoutH - 0.002, ...
                 sliderW + 0.01, readoutH], ...
@@ -684,96 +787,317 @@ function addPlotControls(fig, info, gammaInit)
             'HorizontalAlignment', 'center', ...
             'BackgroundColor', get(fig, 'Color'));
 
-        % Projection toggle: beneath the sliders, spanning both columns
-        toggleW = cmapX + sliderW - powerX;
+        % Projection toggle
+        toggleW = cmapX + sliderW - xformX;
         toggleH = 0.035;
         toggleY = sliderBot - readoutH - toggleH - 0.01;
-
-        uicontrol(fig, 'Style', 'togglebutton', ...
-            'String', 'Perspective', ...
+        uicontrol(fig, 'Style', 'togglebutton', 'String', 'Perspective', ...
             'Units', 'normalized', ...
-            'Position', [powerX, toggleY, toggleW, toggleH], ...
+            'Position', [xformX, toggleY, toggleW, toggleH], ...
             'FontSize', 8, ...
-            'Tag', 'projToggle', ...
-            'Value', 0, ...
+            'Tag', 'projToggle', 'Value', 0, ...
             'Callback', @(src, ~) projCallback(src, fig));
 
+        % Save initial colorbar position and slider-region X positions
+        % so projCallback can shift them in perspective mode.
+        info.hCbar = hCB(1);
+        info.cbarPosOrtho = hCB(1).Position;
+        sliderTags = {'modeGroup', 'modeOff_label', 'modeSat_label', ...
+                       'modeGamma_label', 'xformSlider', 'xformReadout', ...
+                       'cmapShiftSlider', 'cmapShiftLabel', ...
+                       'cmapShiftReadout', 'projToggle'};
+        info.sliderTags    = sliderTags;
+        info.sliderXOrtho  = cell(1, numel(sliderTags));
+        for ti = 1:numel(sliderTags)
+            h = findobj(fig, 'Tag', sliderTags{ti});
+            xs = zeros(numel(h), 1);
+            for hi = 1:numel(h)
+                p = get(h(hi), 'Position');
+                xs(hi) = p(1);
+            end
+            info.sliderXOrtho{ti} = xs;
+        end
+
     else
-        % === Non-surf modes: horizontal power slider at the bottom ===
+        % === Non-surf modes: horizontal row at bottom ===
+        % For 'slices' mode, also include a cmap-shift slider, since
+        % the multi-panel grid benefits from clipping low values.
+        hasCmap = strcmp(info.mode, 'slices');
 
         figPos = get(fig, 'Position');
-        set(fig, 'Position', [figPos(1), figPos(2), figPos(3), figPos(4) + 30]);
+        extraH = 50;
+        if hasCmap
+            extraH = 80;        % add another row for the cmap slider
+        end
+        set(fig, 'Position', [figPos(1), figPos(2), figPos(3), ...
+                              figPos(4) + extraH]);
 
-        rowH = 0.03;
-        y1   = 0.01;
+        % In slices mode, do an explicit subplot layout so the
+        % subplots fill the figure efficiently, with a small bottom
+        % reserve for the controls and a small top reserve for the
+        % sgtitle. Subplots are placed in row-major order matching
+        % their creation by subplot(nRows, nCols, si).
+        %
+        % We use OuterPosition (which is the bounding rectangle
+        % including the axes' title, ticks, and labels) and lock
+        % PositionConstraint to 'outerposition'. This way 'axis
+        % equal' fits the inner axes inside the bounding box, all
+        % subplots align consistently regardless of whether their
+        % per-axes title or labels add extra padding, and the
+        % xlabels of the bottom row sit safely above the slider.
+        if hasCmap
+            bottomReserve = 0.14;        % space for control rows
+            topReserve    = 0.08;        % space for sgtitle
+            leftMargin    = 0.04;
+            rightMargin   = 0.02;
+            hGap          = 0.01;
+            vGap          = 0.02;
 
+            nR = info.nRows;
+            nC = info.nCols;
+
+            opW = (1 - leftMargin - rightMargin - (nC - 1) * hGap) / nC;
+            opH = (1 - bottomReserve - topReserve - (nR - 1) * vGap) / nR;
+
+            for si = 1:numel(info.hImages)
+                axK = get(info.hImages(si), 'Parent');
+                if isprop(axK, 'PositionConstraint')
+                    axK.PositionConstraint = 'outerposition';
+                end
+                % Convert linear si to (row, col) in row-major order
+                ri = ceil(si / nC) - 1;          % 0 = top row
+                ci = mod(si - 1, nC);            % 0 = left column
+                x  = leftMargin + ci * (opW + hGap);
+                y  = 1 - topReserve - (ri + 1) * opH - ri * vGap;
+                set(axK, 'OuterPosition', [x, y, opW, opH]);
+            end
+        end
+
+        rowH = 0.030;
+        y_xform = 0.060;        % bottom row reserved for transform UI
+        y_cmap  = 0.020;        % second row for cmap (slices only)
+        if ~hasCmap
+            y_xform = 0.015;
+        end
+
+        % Mode-selector buttongroup on the left, with full inline labels
+        modeBgX = 0.04;
+        modeBgW = 0.28;
+        modeGroup = uibuttongroup(fig, ...
+            'Units', 'normalized', ...
+            'Position', [modeBgX, y_xform, modeBgW, rowH], ...
+            'BorderType', 'none', ...
+            'BackgroundColor', get(fig, 'Color'), ...
+            'Tag', 'modeGroup', ...
+            'SelectionChangedFcn', @(src, evt) modeChangedCallback(src, evt, fig));
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Off', ...
+            'Units', 'normalized', 'Position', [0, 0, 1/3, 1], ...
+            'Tag', 'modeOff', 'BackgroundColor', get(fig, 'Color'), ...
+            'FontSize', 8, 'Value', 1);
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Gamma', ...
+            'Units', 'normalized', 'Position', [1/3, 0, 1/3, 1], ...
+            'Tag', 'modeGamma', 'BackgroundColor', get(fig, 'Color'), ...
+            'FontSize', 8, 'Value', 0);
+        uicontrol(modeGroup, 'Style', 'radiobutton', 'String', 'Sat', ...
+            'Units', 'normalized', 'Position', [2/3, 0, 1/3, 1], ...
+            'Tag', 'modeSat', 'BackgroundColor', get(fig, 'Color'), ...
+            'FontSize', 8, 'Value', 0);
+
+        % Transform slider (initially disabled)
         uicontrol(fig, 'Style', 'slider', ...
             'Min', 0.01, 'Max', 1, 'Value', gammaInit, ...
             'Units', 'normalized', ...
-            'Position', [0.15, y1, 0.55, rowH], ...
-            'Tag', 'powerSlider', ...
-            'Callback', @(src, ~) gammaCallback(src, fig));
+            'Position', [modeBgX + modeBgW + 0.04, y_xform, 0.50, rowH], ...
+            'Tag', 'xformSlider', 'Enable', 'off', ...
+            'SliderStep', [0.005, 0.03], ...
+            'Callback', @(src, ~) xformSliderCallback(src, fig));
 
-        uicontrol(fig, 'Style', 'text', ...
-            'String', 'Power:', ...
+        uicontrol(fig, 'Style', 'text', 'String', '', ...
             'Units', 'normalized', ...
-            'Position', [0.02, y1 - 0.002, 0.12, rowH], ...
-            'HorizontalAlignment', 'right', ...
-            'BackgroundColor', get(fig, 'Color'));
-
-        uicontrol(fig, 'Style', 'text', ...
-            'String', sprintf('%.2f', gammaInit), ...
-            'Units', 'normalized', ...
-            'Position', [0.72, y1 - 0.002, 0.08, rowH], ...
-            'Tag', 'powerReadout', ...
+            'Position', [modeBgX + modeBgW + 0.55, y_xform - 0.002, ...
+                         0.10, rowH], ...
+            'FontSize', 8, ...
+            'Tag', 'xformReadout', ...
             'HorizontalAlignment', 'left', ...
             'BackgroundColor', get(fig, 'Color'));
+
+        if hasCmap
+            % Per-mode cmap shift memory (was only set up in the surf 
+            % branch; needed here too)
+            info.cmapShiftOff   = 0;
+            info.cmapShiftGamma = 0;
+            info.cmapShiftSat   = 0;
+
+            % Cmap label (left-aligned, mirroring the radio column)
+            uicontrol(fig, 'Style', 'text', 'String', 'Cmap', ...
+                'Units', 'normalized', ...
+                'Position', [modeBgX, y_cmap - 0.002, modeBgW, rowH], ...
+                'FontSize', 8, 'HorizontalAlignment', 'center', ...
+                'Tag', 'cmapShiftLabel', ...
+                'BackgroundColor', get(fig, 'Color'));
+
+            % Cmap slider
+            uicontrol(fig, 'Style', 'slider', ...
+                'Min', 0, 'Max', 0.95, 'Value', 0, ...
+                'Units', 'normalized', ...
+                'Position', [modeBgX + modeBgW + 0.04, y_cmap, 0.50, rowH], ...
+                'Tag', 'cmapShiftSlider', ...
+                'SliderStep', [0.005, 0.03], ...
+                'Callback', @(src, ~) cmapShiftCallback(src, fig));
+
+            uicontrol(fig, 'Style', 'text', 'String', '0.00', ...
+                'Units', 'normalized', ...
+                'Position', [modeBgX + modeBgW + 0.55, y_cmap - 0.002, ...
+                             0.10, rowH], ...
+                'FontSize', 8, ...
+                'Tag', 'cmapShiftReadout', ...
+                'HorizontalAlignment', 'left', ...
+                'BackgroundColor', get(fig, 'Color'));
+        end
     end
 
     % Store the plot info in the figure's application data
     setappdata(fig, 'plotInfo', info);
 
-    % === Callbacks ===
+    % === Callbacks (nested) ===
 
-    function gammaCallback(src, fig)
-        g = get(src, 'Value');
-
-        hReadout = findobj(fig, 'Tag', 'powerReadout');
-        set(hReadout, 'String', sprintf('%.2f', g));
-
+    function modeChangedCallback(~, evt, fig)
         pInfo = getappdata(fig, 'plotInfo');
+        hSlider     = findobj(fig, 'Tag', 'xformSlider');
+        hReadout    = findobj(fig, 'Tag', 'xformReadout');
+        hCmap       = findobj(fig, 'Tag', 'cmapShiftSlider');
+        hCmapRdout  = findobj(fig, 'Tag', 'cmapShiftReadout');
+
+        % Save outgoing slider value (and cmap shift, if in surf mode)
+        switch pInfo.mode_xform
+            case 'gamma'
+                pInfo.gamma = get(hSlider, 'Value');
+                if ~isempty(hCmap)
+                    pInfo.cmapShiftGamma = get(hCmap, 'Value');
+                end
+            case 'sat'
+                pInfo.eta = 10 ^ get(hSlider, 'Value');
+                if ~isempty(hCmap)
+                    pInfo.cmapShiftSat = get(hCmap, 'Value');
+                end
+            case 'off'
+                if ~isempty(hCmap)
+                    pInfo.cmapShiftOff = get(hCmap, 'Value');
+                end
+        end
+
+        switch evt.NewValue.Tag
+            case 'modeOff',   newMode = 'off';
+            case 'modeGamma', newMode = 'gamma';
+            case 'modeSat',   newMode = 'sat';
+            otherwise,        newMode = 'off';
+        end
+        pInfo.mode_xform = newMode;
+
+        switch newMode
+            case 'off'
+                set(hSlider, 'Enable', 'off');
+                set(hReadout, 'String', '');
+            case 'gamma'
+                newMin = 0.01; newMax = 1.0;
+                cur = get(hSlider, 'Value');
+                set(hSlider, 'Value', max(min(cur, newMax), newMin));
+                set(hSlider, 'Min', newMin, 'Max', newMax);
+                set(hSlider, 'Value', pInfo.gamma);
+                set(hSlider, 'Enable', 'on');
+                set(hReadout, 'String', sprintf('%.2f', pInfo.gamma));
+            case 'sat'
+                newMin = log10(0.002); newMax = log10(5);
+                cur = get(hSlider, 'Value');
+                set(hSlider, 'Value', max(min(cur, newMax), newMin));
+                set(hSlider, 'Min', newMin, 'Max', newMax);
+                set(hSlider, 'Value', log10(pInfo.eta));
+                set(hSlider, 'Enable', 'on');
+                set(hReadout, 'String', sprintf('%.3f', pInfo.eta));
+        end
+
+        % Restore incoming mode's cmap shift (surf only)
+        if ~isempty(hCmap)
+            switch newMode
+                case 'off',   newCmap = pInfo.cmapShiftOff;
+                case 'gamma', newCmap = pInfo.cmapShiftGamma;
+                case 'sat',   newCmap = pInfo.cmapShiftSat;
+            end
+            set(hCmap, 'Value', newCmap);
+            set(hCmapRdout, 'String', sprintf('%.2f', newCmap));
+        end
+
+        setappdata(fig, 'plotInfo', pInfo);
+        applyTransformToPlot(fig);
+    end
+
+    function xformSliderCallback(src, fig)
+        pInfo = getappdata(fig, 'plotInfo');
+        hReadout = findobj(fig, 'Tag', 'xformReadout');
+
+        switch pInfo.mode_xform
+            case 'gamma'
+                pInfo.gamma = get(src, 'Value');
+                set(hReadout, 'String', sprintf('%.2f', pInfo.gamma));
+            case 'sat'
+                pInfo.eta = 10 ^ get(src, 'Value');
+                set(hReadout, 'String', sprintf('%.3f', pInfo.eta));
+            otherwise
+                return;
+        end
+
+        setappdata(fig, 'plotInfo', pInfo);
+        applyTransformToPlot(fig);
+    end
+
+    function applyTransformToPlot(fig)
+    %APPLYTRANSFORMTOPLOT Apply the current transform to all plot elements.
+        pInfo = getappdata(fig, 'plotInfo');
+        m = pInfo.mode_xform;
+        g = pInfo.gamma;
+        e = pInfo.eta;
 
         switch pInfo.mode
             case 'line'
-                set(pInfo.hLine, 'YData', applyGamma(pInfo.rawVals, g));
-
+                set(pInfo.hLine, 'YData', applyTransform(pInfo.rawVals, m, g, e));
             case 'surf'
-                Vg = reshape(applyGamma(pInfo.rawVals, g), ...
+                Vt = reshape(applyTransform(pInfo.rawVals, m, g, e), ...
                     pInfo.res, pInfo.res);
-                set(pInfo.hSurf, 'ZData', Vg, 'CData', Vg);
-                maxVg = max(Vg(:));
-                if maxVg > 0
+                set(pInfo.hSurf, 'ZData', Vt, 'CData', Vt);
+                maxVt = max(Vt(:));
+                if maxVt > 0
                     axR = pInfo.axRange;
-                    daspect(pInfo.hAx, [1 1 maxVg / (axR(2) - axR(1))]);
+                    daspect(pInfo.hAx, [1 1 maxVt / (axR(2) - axR(1))]);
                 end
-                % Reapply colormap shift to the new gamma-transformed data
                 hShift = findobj(fig, 'Tag', 'cmapShiftSlider');
                 if ~isempty(hShift)
                     cmapShiftCallback(hShift, fig);
                 end
-
             case 'scatter3'
-                vGamma = applyGamma(pInfo.rawVals, g);
-                vNorm  = normalizeForDisplay(vGamma);
-                set(pInfo.hScatter, 'CData', vNorm, ...
-                    'SizeData', 10 * ones(size(vNorm)));
-                pInfo.hScatter.AlphaData = vNorm;
-
+                vT = applyTransform(pInfo.rawVals, m, g, e);
+                % In 'off' mode, vT is in the input's native range;
+                % normalise to [0, 1] for color/alpha. In 'gamma'/'sat'
+                % modes vT is already in [0, 1] so use directly.
+                if strcmp(m, 'off')
+                    M = max(pInfo.rawVals(:));
+                    if M > 0
+                        vT = pInfo.rawVals / M;
+                    else
+                        vT = pInfo.rawVals;
+                    end
+                end
+                set(pInfo.hScatter, 'CData', vT, ...
+                    'SizeData', 10 * ones(size(vT)));
+                pInfo.hScatter.AlphaData = vT;
             case 'slices'
                 for si = 1:numel(pInfo.rawVals)
-                    Vg = reshape(applyGamma(pInfo.rawVals{si}, g), ...
+                    Vt = reshape(applyTransform(pInfo.rawVals{si}, m, g, e), ...
                         pInfo.res, pInfo.res);
-                    set(pInfo.hImages(si), 'CData', Vg);
+                    set(pInfo.hImages(si), 'CData', Vt);
+                end
+                hShift = findobj(fig, 'Tag', 'cmapShiftSlider');
+                if ~isempty(hShift)
+                    cmapShiftCallback(hShift, fig);
                 end
         end
 
@@ -782,46 +1106,71 @@ function addPlotControls(fig, info, gammaInit)
 
     function cmapShiftCallback(src, fig)
         shiftFrac = get(src, 'Value');
-
         hReadout = findobj(fig, 'Tag', 'cmapShiftReadout');
         set(hReadout, 'String', sprintf('%.2f', shiftFrac));
 
         pInfo = getappdata(fig, 'plotInfo');
-
-        cdata = get(pInfo.hSurf, 'CData');
-        minC  = min(cdata(:));
-        maxC  = max(cdata(:));
-
-        if maxC > minC
-            newLow = minC + shiftFrac * (maxC - minC);
-            set(pInfo.hAx, 'CLim', [newLow, maxC]);
+        switch pInfo.mode_xform
+            case 'off',   pInfo.cmapShiftOff   = shiftFrac;
+            case 'gamma', pInfo.cmapShiftGamma = shiftFrac;
+            case 'sat',   pInfo.cmapShiftSat   = shiftFrac;
         end
+        setappdata(fig, 'plotInfo', pInfo);
 
+        if strcmp(pInfo.mode, 'slices')
+            % Apply the same shift fraction to each imagesc panel using
+            % its own (min, max) range.
+            for si = 1:numel(pInfo.hImages)
+                cdata = get(pInfo.hImages(si), 'CData');
+                minC  = min(cdata(:));
+                maxC  = max(cdata(:));
+                if maxC > minC
+                    newLow = minC + shiftFrac * (maxC - minC);
+                    set(get(pInfo.hImages(si), 'Parent'), ...
+                        'CLim', [newLow, maxC]);
+                end
+            end
+        else
+            cdata = get(pInfo.hSurf, 'CData');
+            minC  = min(cdata(:));
+            maxC  = max(cdata(:));
+            if maxC > minC
+                newLow = minC + shiftFrac * (maxC - minC);
+                set(pInfo.hAx, 'CLim', [newLow, maxC]);
+            end
+        end
         drawnow;
     end
 
     function projCallback(src, fig)
         pInfo = getappdata(fig, 'plotInfo');
 
-        % Save axes and colorbar positions before projection change
-        axPos = get(pInfo.hAx, 'Position');
-        hCB = findobj(fig, 'Type', 'ColorBar');
-        if ~isempty(hCB)
-            cbPos = hCB(1).Position;
-        end
-
         if get(src, 'Value') == 1
-            set(pInfo.hAx, 'Projection', 'perspective');
-            set(src, 'String', 'Orthographic');
+            proj = 'perspective';
+            label = 'Orthographic';
+            cbarShift   = 0.030;
+            sliderShift = cbarShift;
         else
-            set(pInfo.hAx, 'Projection', 'orthographic');
-            set(src, 'String', 'Perspective');
+            proj = 'orthographic';
+            label = 'Perspective';
+            cbarShift   = 0;
+            sliderShift = 0;
         end
+        set(src, 'String', label);
 
-        % Restore positions (MATLAB may auto-resize on projection change)
-        set(pInfo.hAx, 'Position', axPos);
-        if ~isempty(hCB)
-            hCB(1).Position = cbPos;
+        set(pInfo.hAx, 'Projection', proj);
+        cbPos = pInfo.cbarPosOrtho;
+        cbPos(1) = cbPos(1) + cbarShift;
+        set(pInfo.hCbar, 'Position', cbPos);
+
+        % Shift slider region
+        for ti = 1:numel(pInfo.sliderTags)
+            h = findobj(fig, 'Tag', pInfo.sliderTags{ti});
+            for hi = 1:numel(h)
+                p = get(h(hi), 'Position');
+                p(1) = pInfo.sliderXOrtho{ti}(hi) + sliderShift;
+                set(h(hi), 'Position', p);
+            end
         end
 
         drawnow;

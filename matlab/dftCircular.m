@@ -36,7 +36,7 @@ function [F, mag] = dftCircular(p, w, period)
 %     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'. The function sorts
 %              p internally; the caller does not need to pre-sort.
-%     w      — Weights (vector of length K, or empty for uniform). If
+%     w      — Weights (vector of length K, or empty for all ones). If
 %              provided, each z(j) is scaled by w(j) before the DFT.
 %     period — Period of the circular domain (e.g., 1200 for one octave
 %              in cents, or the cycle length for rhythmic patterns).
@@ -84,7 +84,7 @@ w = w(sortIdx);
 
 z = w .* exp(2 * pi * 1i * p / period);  % K x 1, weighted
 F = fft(z).' / sum(w);                    % 1 x K row vector
-                                           % (sum(w) = K for uniform weights)
+                                           % (sum(w) = K for all-ones weights)
 
 % === Magnitudes ===
 

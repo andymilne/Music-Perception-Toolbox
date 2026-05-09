@@ -40,7 +40,7 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
 %   Inputs:
 %     p      — Pitch or position values (vector of length K). Must be
 %              non-negative integers less than period.
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Length of the cycle (positive integer, e.g., 16 for a
 %              16-step rhythmic loop).
 %

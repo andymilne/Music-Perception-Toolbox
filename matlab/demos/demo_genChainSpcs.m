@@ -32,7 +32,7 @@
 %   4:5:6 JI major triad: [0, 386.31, 701.96] with period 1200
 %   Bohlen-Pierce "major" triad: [0, 884.36, 1466.87] with period 1902
 refPitches = [0, 1200*log2(5/4), 1200*log2(6/4)];
-refWeights = [];   % weights for reference pitches (empty = uniform)
+refWeights = [];   % weights for reference pitches (empty = all ones)
 refName    = '4:5:6 JI major triad';
 
 % Generator-chain parameters

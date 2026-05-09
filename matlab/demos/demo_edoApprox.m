@@ -27,7 +27,7 @@
 %   5:6:7 subminor triad: [0, 315.64, 582.51]
 %   4:5:6:7 dominant seventh: [0, 386.31, 701.96, 968.83]
 refPitches = [0, 1200*log2(5/4), 1200*log2(6/4)];
-refWeights = [];   % weights for reference pitches (empty = uniform;
+refWeights = [];   % weights for reference pitches (empty = all ones;
                    % if specified, must be same length as refPitches)
 refName    = '4:5:6 JI major triad';
 
@@ -51,7 +51,7 @@ maxN     = nMax;  % maximum number of pitches in any EDO
 % Reference chord: same for every row
 pMatA = repmat(refPitches, nEDOs, 1);
 
-% Reference weights: same for every row (empty = uniform)
+% Reference weights: same for every row (empty = all ones)
 if ~isempty(refWeights)
     weightsA = repmat(refWeights, nEDOs, 1);
 else

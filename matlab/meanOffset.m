@@ -10,7 +10,7 @@ function h = meanOffset(p, w, period, x)
 %                          - mod(x_n - p_k, period)] / period
 %
 %   Each event's contribution lies in (-1, 1); the total scales with
-%   the sum of weights (i.e., with the number of events for uniform
+%   the sum of weights (i.e., with the number of events for all-ones
 %   weights). Positive values indicate that the events are, on balance,
 %   concentrated in the upper (clockwise) half relative to x_n;
 %   negative values indicate concentration in the lower half.
@@ -43,7 +43,7 @@ function h = meanOffset(p, w, period, x)
 %   Inputs:
 %     p      — Pitch or position values (vector of length K).
 %              Values are interpreted modulo 'period'.
-%     w      — Weights (vector of length K, or empty for uniform).
+%     w      — Weights (vector of length K, or empty for all ones).
 %     period — Period of the circular domain.
 %     x      — (Optional) Query points at which to evaluate the mean
 %              offset (vector). Default: 0:period-1.

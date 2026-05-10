@@ -147,10 +147,12 @@ results{end,2}   = abs(s_self_orb - 1) < 1e-8;
 
 %% ---- sigma/period threshold warning in rel+per ----
 
-p_x = [0; 200; 500; 800];
-w_x = ones(4, 1);
-p_y = [0; 200; 500; 800];
-w_y = ones(4, 1);
+% Use n=6 (n_min - r = 3 >= 2) so the K-vs-r precision guard clears and
+% the dispatcher reaches the sigma/P check.
+p_x = (0:5)' * 200;
+w_x = ones(6, 1);
+p_y = (0:5)' * 200 + 50;
+w_y = ones(6, 1);
 % sigma/period = 60/1200 = 0.05 > 0.03 threshold
 warnState = warning('on', 'cosSimExpTens:orbitSigmaOverPFallback');
 lastwarn('');

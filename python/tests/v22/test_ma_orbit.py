@@ -32,7 +32,7 @@ from mpt.tensor import (
 
 
 def _disp_kwargs(r_max=3, A=1, K=8, N_x=8, N_y=8,
-                 has_nan=False, any_per=False,
+                 any_per=False,
                  any_rel_nonper=False, any_rel_per=False,
                  sigma_over_P_max=0.0, user_method='auto'):
     """Helper to build kwargs for the cost-model dispatcher.
@@ -43,24 +43,37 @@ def _disp_kwargs(r_max=3, A=1, K=8, N_x=8, N_y=8,
     ``any_rel_per`` because the pairwise wrap on δ tensors costs ~2×
     even in absolute mode (verified by side-by-side bench across the
     four (rel, per) combinations).
+
+    Ragged K_{a,n} (NaN-padded events) is handled inside the per-attr
+    IP wrapper via the safe/unsafe partition; the dispatcher does not
+    receive a ``has_nan`` flag.
     """
     r_vec = np.array([r_max] * A, dtype=np.intp)
     k_vec = np.array([K] * A, dtype=np.intp)
     return dict(
         r_vec=r_vec, k_vec=k_vec, A=A,
         N_x=N_x, N_y=N_y,
-        has_nan=has_nan,
         any_per=any_per,
         any_rel_nonper=any_rel_nonper, any_rel_per=any_rel_per,
         sigma_over_P_max=sigma_over_P_max, user_method=user_method,
     )
 
 
-def test_ma_dispatcher_routes_pairwise_when_nan():
-    """NaN-padded p_attr always falls back to pairwise (variable K_a)."""
+def test_ma_dispatcher_routes_orbit_for_ragged_k():
+    """Ragged K_{a,n} (NaN-padded events) no longer routes to pairwise.
+
+    The MA dispatcher used to gate on a ``has_nan`` flag, but the
+    per-attribute IP wrapper now handles NaN-padded events via a
+    safe/unsafe partition (events with K_eff - r >= 2 go through
+    orbit; pairs involving any K_eff - r < 2 event go through direct
+    enumeration). The dispatcher therefore picks orbit on otherwise-
+    healthy parameters even when NaN entries are present in p_attr.
+    """
+    # Same kwargs as test_ma_dispatcher_routes_orbit_when_clean[3]:
+    # r_max=3, K=8, N=8, A=1 — auto picks orbit.
     assert _select_ma_inner_product_method(
-        **_disp_kwargs(has_nan=True),
-    ) == 'pairwise'
+        **_disp_kwargs(),
+    ) == 'orbit'
 
 
 def test_ma_dispatcher_routes_pairwise_at_r1():
@@ -158,10 +171,9 @@ def test_ma_dispatcher_routes_correctly_in_each_mode(
 
 @pytest.mark.parametrize("forced", ['pairwise', 'direct', 'orbit'])
 def test_ma_dispatcher_user_overrides_bypass_logic(forced):
-    """Explicit method bypasses everything (incl. NaN check)."""
+    """Explicit method bypasses everything (e.g. the σ/P guard)."""
     chosen = _select_ma_inner_product_method(
-        **_disp_kwargs(has_nan=True, sigma_over_P_max=0.5,
-                       user_method=forced),
+        **_disp_kwargs(sigma_over_P_max=0.5, user_method=forced),
     )
     assert chosen == forced
 
@@ -351,13 +363,14 @@ def test_orbit_ma_handles_r1_attribute():
 
 
 # ----------------------------------------------------------------------
-# NaN-padded p_attr falls back to pairwise (and still produces a result)
+# Ragged K_{a,n} (NaN-padded p_attr) still produces correct results
 # ----------------------------------------------------------------------
 
 
-def test_nan_in_p_attr_falls_back_to_pairwise():
-    """With NaN in p_attr, the orbit path is bypassed. The default-method
-    cosine must equal the explicit-pairwise cosine.
+def test_nan_in_p_attr_low_k_margin_routes_pairwise():
+    """At K_a close to r, the dispatcher routes to pairwise via the
+    K-vs-r precision guard (independent of NaN); default and explicit
+    pairwise must agree.
     """
     rng = np.random.default_rng(seed=42)
     N = 5
@@ -386,6 +399,49 @@ def test_nan_in_p_attr_falls_back_to_pairwise():
     cos_default = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
     cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
     assert cos_default == cos_pw
+
+
+def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
+    """At healthy K_a (K - r >= 2), ragged events trigger the per-pair
+    safe/unsafe partition inside the orbit wrapper. Orbit and pairwise
+    must agree to high precision on the ragged input.
+
+    This is the killer test for the hybrid: it picks K=8, r=3 so the
+    slab-level K-vs-r guard passes, then injects NaN entries to make
+    individual events unsafe (K_eff - r < 2). The orbit path then
+    routes those events to direct enumeration while keeping safe
+    events on the vectorised orbit; both submatrices stitch into a
+    correct full IP matrix.
+    """
+    rng = np.random.default_rng(seed=2026)
+    N = 6
+    K = 8
+    pitch_x = np.sort(rng.uniform(0, 2000, (K, N)), axis=0)
+    pitch_y = np.sort(rng.uniform(0, 2000, (K, N)), axis=0)
+    weights_x = np.ones_like(pitch_x)
+    weights_y = np.ones_like(pitch_y)
+    # Two unsafe events on each side: K_eff = 4 (-> K_eff-r=1 < 2).
+    pitch_x[5:, 0] = np.nan; weights_x[5:, 0] = np.nan
+    pitch_x[5:, 3] = np.nan; weights_x[5:, 3] = np.nan
+    pitch_y[5:, 1] = np.nan; weights_y[5:, 1] = np.nan
+    pitch_y[5:, 4] = np.nan; weights_y[5:, 4] = np.nan
+
+    dens_x = build_exp_tens(
+        [pitch_x], [weights_x],
+        [25.0], [3], None,
+        [False], [False], [0.0],
+        verbose=False,
+    )
+    dens_y = build_exp_tens(
+        [pitch_y], [weights_y],
+        [25.0], [3], None,
+        [False], [False], [0.0],
+        verbose=False,
+    )
+    assert _ma_has_nan(dens_x) and _ma_has_nan(dens_y)
+    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='orbit', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    assert abs(cos_orbit - cos_pw) < 1e-8
 
 
 # ----------------------------------------------------------------------

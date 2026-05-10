@@ -3019,7 +3019,6 @@ def _cos_sim_exp_tens_ma(
     period_g = dens_x.period
 
     r_max = int(np.max(r_vec)) if A > 0 else 1
-    has_nan = _ma_has_nan(dens_x) or _ma_has_nan(dens_y)
     # Maximum σ/P across groups that are both relative AND periodic.
     sop_max = 0.0
     any_per = False
@@ -3039,8 +3038,9 @@ def _cos_sim_exp_tens_ma(
             else:
                 any_rel_nonper = True
 
-    # Per-attribute K_a (uniform across events when has_nan=False;
-    # when has_nan=True the dispatcher will route to pairwise anyway).
+    # Per-attribute slab dimension K_a (the kernel slab size; events
+    # within an attribute may have lower K_eff via NaN padding, which
+    # the orbit wrapper handles via per-event safe/unsafe partition).
     k_vec = np.array(
         [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
     ) if A > 0 else np.zeros(0, dtype=np.intp)
@@ -3048,7 +3048,6 @@ def _cos_sim_exp_tens_ma(
     chosen = _select_ma_inner_product_method(
         r_vec=r_vec, k_vec=k_vec, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
-        has_nan=has_nan,
         any_per=any_per,
         any_rel_nonper=any_rel_nonper,
         any_rel_per=any_rel_per,
@@ -3337,7 +3336,7 @@ def _select_ma_inner_product_method(
     *,
     r_vec, k_vec, A,
     N_x, N_y,
-    has_nan, any_per, any_rel_nonper, any_rel_per,
+    any_per, any_rel_nonper, any_rel_per,
     sigma_over_P_max, user_method,
 ):
     """Pick the inner-product path for the MA case using a cost model.
@@ -3346,7 +3345,6 @@ def _select_ma_inner_product_method(
 
     1. ``user_method`` keyword override (anything other than 'auto').
     2. Hard fallbacks where orbit cannot or should not run:
-       - has_nan: variable K_{a,n}; orbit path assumes uniform K_a.
        - r_max ≤ 1: no within-tuple structure to exploit.
        - r_max > _ORBIT_R_MAX_SHIPPED: no orbit table available.
     3. Soft fallback: rel + per with σ/P beyond the integration-exact
@@ -3354,6 +3352,14 @@ def _select_ma_inner_product_method(
     4. Otherwise predict both wall times (in ms) and pick the smaller;
        ties favour pairwise (no orbit-table fetch, no Möbius
        cancellation risk).
+
+    Ragged K_{a,n} (NaN-padded events) is handled inside
+    :func:`_ma_per_attr_inner_matrix` via a per-event safe/unsafe
+    partition: events with K_eff - r >= 2 (the orbit precision margin)
+    flow through the vectorised batched orbit; pairs involving any
+    K_eff - r < 2 event flow through direct r-tuple enumeration (no
+    Möbius alternating sum, hence no cancellation). The dispatcher
+    therefore does not route on the presence of NaN entries.
 
     The four modes (abs+nonper, abs+per, rel+nonper, rel+per) are
     routed as follows:
@@ -3378,13 +3384,14 @@ def _select_ma_inner_product_method(
     r_vec : (A,) intp
         Per-attribute r_a.
     k_vec : (A,) intp
-        Per-attribute K_a (uniform across events; relevant only when
-        has_nan is False).
+        Per-attribute slab dimension K_a (the kernel slab size; events
+        within an attribute may have lower K_eff via NaN padding,
+        which the orbit wrapper handles via per-event safe/unsafe
+        partition).
     A : int
         Number of attributes.
     N_x, N_y : int
         Event counts of the two densities.
-    has_nan : bool
     any_per : bool
         True if any group has is_per=True (drives pairwise wrap cost).
     any_rel_nonper : bool
@@ -3395,8 +3402,6 @@ def _select_ma_inner_product_method(
     """
     if user_method != 'auto':
         return user_method
-    if has_nan:
-        return 'pairwise'
     r_max = int(np.max(r_vec)) if A > 0 else 1
     if r_max <= 1:
         return 'pairwise'
@@ -3448,102 +3453,184 @@ def _ma_per_attr_inner_matrix(
     ``Px`` is (K, N_x), ``Wx`` is (K, N_x); same shape for Y. Returns
     an (N_x, N_y) matrix where entry (n_X, n_Y) is the per-attribute
     inner product over the K slot values of event n_X (X-side) against
-    those of n_Y (Y-side). NaN-free input is assumed; the dispatcher
-    is responsible for falling back when NaN is present.
+    those of n_Y (Y-side).
 
-    Vectorisation strategy:
-    - r = 1 : direct einsum across (n_X, n_Y) in one pass.
-    - r >= 2, absolute: build a (N_x*N_y, K, K) kernel tensor and use
-      the per-grid-weights orbit batched evaluator.
-    - r >= 2, relative + periodic: same plus a u-grid integration; the
-      kernel becomes (N_x*N_y, N_u, K, K) and we accumulate u-weighted
-      contributions in a loop over u.
-    - r >= 2, relative + non-periodic: u-grid varies per event pair,
-      so we fall back to the per-(n_X, n_Y) loop. Less common in MAET
-      practice (relative-mode pitch is typically periodic).
+    Strategy (in parity with MATLAB ``mobius.maPerAttrInnerMatrix``):
+
+    - r = 1: direct kernel sum with NaN -> zero-weight padding (no
+      orbit, cancellation impossible).
+
+    - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
+      this attribute iff its non-NaN slot count K_eff satisfies
+      ``K_eff - r >= _ORBIT_K_MINUS_R_MIN`` (= 2; the precision margin
+      used elsewhere in the orbit machinery). Safe-vs-safe pairs flow
+      through the vectorised batched orbit path with within-safe-group
+      zero-padding. Pairs involving any unsafe event flow through
+      :func:`_inner_product_direct_abs_sa`, which is exact for any
+      K >= r (no Möbius alternating sum, so no cancellation).
+
+    - r >= 2 rel: per-event-pair loop with zero-pad. Auto dispatch
+      routes any rel group globally to pairwise; this path runs only
+      on explicit ``method='orbit'`` opt-in. Events with K_eff - r
+      below the precision margin in this niche regime may lose
+      precision in the orbit-rel u-grid integration; users wanting
+      exact rel + ragged orbit-mode behaviour should either filter
+      events to K_eff >= r + 2 or use ``method='auto'`` (which routes
+      to pairwise).
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case (minimum) cancellation ratio across the (N_x, N_y)
-    entries — a scalar in (0, 1]. Lower means more digits lost in the
-    Möbius alternating sum somewhere in the matrix.
+    entries — a scalar in (0, 1]. Direct-enum entries always have
+    ratio 1.0; the worst ratio comes from the safe-orbit submatrix.
+    If no safe pairs exist, the worst ratio is 1.0.
     """
     from ._mobius import inner_product_orbit_pw_batched
 
-    K, N_x = Px.shape
-    _, N_y = Py.shape
-    out = np.empty((N_x, N_y), dtype=np.float64)
+    K_x_max, N_x = Px.shape
+    K_y_max, N_y = Py.shape
 
+    # --- r = 1: direct kernel sum, zero-pad fine (no cancellation) ---
     if r == 1:
-        # No within-tuple distinct-index structure to exploit.
-        diffs = Px[:, :, None, None] - Py[None, None, :, :]
+        Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
+        diffs = Px_[:, :, None, None] - Py_[None, None, :, :]
         if is_per:
             diffs = diffs - period * np.floor(diffs / period + 0.5)
         K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
         out = np.einsum(
-            'xn,xnym,ym->nm', Wx, K_tens, Wy, optimize=True,
+            'xn,xnym,ym->nm', Wx_, K_tens, Wy_, optimize=True,
         )
         result = out * (sigma * np.sqrt(np.pi)) ** r
         if return_cancellation_ratio:
-            # No alternating sum at r=1; ratio is exactly 1.
             return result, 1.0
         return result
 
-    # r >= 2 absolute: vectorised across event pairs via per-grid weights.
-    if not is_rel:
-        diffs = Px[:, :, None, None] - Py[None, None, :, :]
+    # --- r >= 2 rel: per-pair loop, zero-pad (rare regime) ---
+    if is_rel:
+        Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
+        if is_per:
+            return _ma_per_attr_inner_matrix_rel_per(
+                Px_, Wx_, Py_, Wy_, sigma, r, period,
+                return_cancellation_ratio=return_cancellation_ratio,
+            )
+        out = np.empty((N_x, N_y), dtype=np.float64)
+        worst_ratio = 1.0
+        for n_X in range(N_x):
+            for n_Y in range(N_y):
+                if return_cancellation_ratio:
+                    v, ratio = _orbit_inner_rel(
+                        Px_[:, n_X], Wx_[:, n_X], Py_[:, n_Y], Wy_[:, n_Y],
+                        sigma, r, False, period,
+                        return_cancellation_ratio=True,
+                    )
+                    out[n_X, n_Y] = v
+                    if ratio < worst_ratio:
+                        worst_ratio = ratio
+                else:
+                    out[n_X, n_Y] = _orbit_inner_rel(
+                        Px_[:, n_X], Wx_[:, n_X], Py_[:, n_Y], Wy_[:, n_Y],
+                        sigma, r, False, period,
+                    )
+        if return_cancellation_ratio:
+            return out, worst_ratio
+        return out
+
+    # --- r >= 2 abs: hybrid safe/unsafe partition ---
+
+    K_MARGIN_MIN = _ORBIT_K_MINUS_R_MIN
+
+    # Per-event K_eff (count of non-NaN slots), per side.
+    K_eff_x = np.sum(~(np.isnan(Px) | np.isnan(Wx)), axis=0)   # (N_x,)
+    K_eff_y = np.sum(~(np.isnan(Py) | np.isnan(Wy)), axis=0)   # (N_y,)
+
+    safe_x_mask = (K_eff_x - r) >= K_MARGIN_MIN
+    safe_y_mask = (K_eff_y - r) >= K_MARGIN_MIN
+    safe_x_idx = np.where(safe_x_mask)[0]
+    unsafe_x_idx = np.where(~safe_x_mask)[0]
+    safe_y_idx = np.where(safe_y_mask)[0]
+    unsafe_y_idx = np.where(~safe_y_mask)[0]
+
+    out = np.zeros((N_x, N_y), dtype=np.float64)
+    worst_ratio = 1.0
+
+    # --- Safe x Safe submatrix: vectorised batched orbit ---
+    if safe_x_idx.size > 0 and safe_y_idx.size > 0:
+        Px_s = Px[:, safe_x_idx]
+        Wx_s = Wx[:, safe_x_idx]
+        Py_s = Py[:, safe_y_idx]
+        Wy_s = Wy[:, safe_y_idx]
+        # Within-safe zero-pad (K still varies per event in safe group).
+        Px_s, Wx_s, Py_s, Wy_s = _zero_pad_nan(Px_s, Wx_s, Py_s, Wy_s)
+
+        N_xs = safe_x_idx.size
+        N_ys = safe_y_idx.size
+        diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
         if is_per:
             diffs = diffs - period * np.floor(diffs / period + 0.5)
         K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
         K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-            N_x * N_y, K, K,
+            N_xs * N_ys, K_x_max, K_y_max,
         )
         w_A_pairs = np.broadcast_to(
-            Wx.T[:, None, :], (N_x, N_y, K),
-        ).reshape(N_x * N_y, K)
+            Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
+        ).reshape(N_xs * N_ys, K_x_max)
         w_B_pairs = np.broadcast_to(
-            Wy.T[None, :, :], (N_x, N_y, K),
-        ).reshape(N_x * N_y, K)
+            Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
+        ).reshape(N_xs * N_ys, K_y_max)
+
         if return_cancellation_ratio:
             flat, ratios = inner_product_orbit_pw_batched(
                 K_pairs, w_A_pairs, w_B_pairs, r,
                 prefactor=(sigma * np.sqrt(np.pi)) ** r,
                 return_cancellation_ratio=True,
             )
-            return flat.reshape(N_x, N_y), float(np.min(ratios))
-        flat = inner_product_orbit_pw_batched(
-            K_pairs, w_A_pairs, w_B_pairs, r,
-            prefactor=(sigma * np.sqrt(np.pi)) ** r,
-        )
-        return flat.reshape(N_x, N_y)
+            worst_ratio = min(worst_ratio, float(np.min(ratios)))
+        else:
+            flat = inner_product_orbit_pw_batched(
+                K_pairs, w_A_pairs, w_B_pairs, r,
+                prefactor=(sigma * np.sqrt(np.pi)) ** r,
+            )
+        # Use ix_ for fancy 2-D indexing into the output.
+        out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
 
-    # r >= 2 relative + periodic: vectorise over event pairs, integrate u.
-    if is_per:
-        return _ma_per_attr_inner_matrix_rel_per(
-            Px, Wx, Py, Wy, sigma, r, period,
-            return_cancellation_ratio=return_cancellation_ratio,
-        )
+    # --- Pairs involving any unsafe event: direct enumeration ---
+    # unsafe_x x all_y plus safe_x x unsafe_y covers everything not in
+    # (safe_x, safe_y) without double coverage.
 
-    # r >= 2 relative + non-periodic: u-grid varies per pair; loop.
-    worst_ratio = 1.0
-    for n_X in range(N_x):
-        for n_Y in range(N_y):
-            if return_cancellation_ratio:
-                v, ratio = _orbit_inner_rel(
-                    Px[:, n_X], Wx[:, n_X], Py[:, n_Y], Wy[:, n_Y],
-                    sigma, r, False, period,
-                    return_cancellation_ratio=True,
-                )
-                out[n_X, n_Y] = v
-                if ratio < worst_ratio:
-                    worst_ratio = ratio
-            else:
-                out[n_X, n_Y] = _orbit_inner_rel(
-                    Px[:, n_X], Wx[:, n_X], Py[:, n_Y], Wy[:, n_Y],
-                    sigma, r, False, period,
-                )
+    for n_x in unsafe_x_idx:
+        for n_y in range(N_y):
+            out[n_x, n_y] = _inner_product_direct_abs_sa(
+                Px[:, n_x], Wx[:, n_x], Py[:, n_y], Wy[:, n_y],
+                sigma, r, is_per, period,
+            )
+    for n_y in unsafe_y_idx:
+        for n_x in safe_x_idx:
+            out[n_x, n_y] = _inner_product_direct_abs_sa(
+                Px[:, n_x], Wx[:, n_x], Py[:, n_y], Wy[:, n_y],
+                sigma, r, is_per, period,
+            )
+
     if return_cancellation_ratio:
         return out, worst_ratio
     return out
+
+
+def _zero_pad_nan(Px, Wx, Py, Wy):
+    """Replace NaN entries in P / W with 0 (zero-weight padding).
+
+    Returns new arrays (does not mutate inputs). The orbit's weighted
+    contractions read ``w_i^m``, so a zero-weight slot kills any orbit
+    term involving that slot regardless of the corresponding p value
+    — mathematically equivalent to per-event truncation.
+    """
+    nan_x = np.isnan(Px) | np.isnan(Wx)
+    if nan_x.any():
+        Px = np.where(nan_x, 0.0, Px)
+        Wx = np.where(nan_x, 0.0, Wx)
+    nan_y = np.isnan(Py) | np.isnan(Wy)
+    if nan_y.any():
+        Py = np.where(nan_y, 0.0, Py)
+        Wy = np.where(nan_y, 0.0, Wy)
+    return Px, Wx, Py, Wy
 
 
 def _ma_per_attr_inner_matrix_rel_per(
@@ -4089,6 +4176,100 @@ def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
         K, w_a, w_b, r, prefactor=(sigma * np.sqrt(np.pi)) ** r,
         return_cancellation_ratio=return_cancellation_ratio,
     )
+
+
+def _inner_product_direct_abs_sa(p_x, w_x, p_y, w_y, sigma, r,
+                                   is_per, period):
+    """<T_X, T_Y> in absolute mode via direct r-tuple enumeration.
+
+    Computes the SA inner product
+        <T_X, T_Y> = (sigma * sqrt(pi))**r *
+                     sum_{J, K} wJ_x[J] * wJ_y[K] *
+                                exp(-||centres_x[:, J] - centres_y[:, K]||^2
+                                    / (4 sigma^2))
+    by enumerating ordered r-tuples on each side. No Möbius
+    alternating sum is involved, so the result is exact (no
+    catastrophic cancellation) for any K_x, K_y >= r. This is the
+    "unsafe" path of the MA per-attribute IP matrix, used for event
+    pairs where at least one event has K_eff - r below the orbit
+    precision margin (`_ORBIT_K_MINUS_R_MIN` = 2).
+
+    NaN tolerance: NaN entries in ``p_x`` / ``w_x`` / ``p_y`` / ``w_y``
+    are dropped per side before enumeration. If the dropped count
+    leaves either side with fewer than r valid slots, returns 0 by
+    convention (cannot form an r-tuple).
+
+    Cost: O(K_x! / (K_x - r)! * K_y! / (K_y - r)! * r) per call. Cheap
+    when K is close to r (the unsafe regime).
+    """
+    p_x = np.asarray(p_x, dtype=np.float64).ravel()
+    w_x = np.asarray(w_x, dtype=np.float64).ravel()
+    p_y = np.asarray(p_y, dtype=np.float64).ravel()
+    w_y = np.asarray(w_y, dtype=np.float64).ravel()
+
+    valid_x = ~(np.isnan(p_x) | np.isnan(w_x))
+    valid_y = ~(np.isnan(p_y) | np.isnan(w_y))
+    p_x = p_x[valid_x]; w_x = w_x[valid_x]
+    p_y = p_y[valid_y]; w_y = w_y[valid_y]
+    K_x = p_x.size
+    K_y = p_y.size
+
+    if K_x < r or K_y < r:
+        return 0.0
+
+    if r == 1:
+        diffs = p_x[:, None] - p_y[None, :]
+        if is_per:
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K_mat = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+        return float(sigma * np.sqrt(np.pi) *
+                     np.einsum('i,ij,j->', w_x, K_mat, w_y))
+
+    # r >= 2: enumerate ordered r-tuples and contract.
+    U_x, wJ_x = _build_ordered_r_tuples(p_x, w_x, r)   # (r, nJ_x), (nJ_x,)
+    U_y, wJ_y = _build_ordered_r_tuples(p_y, w_y, r)
+    nJ_x = U_x.shape[1]
+    nJ_y = U_y.shape[1]
+
+    diffs = U_x[:, :, None] - U_y[:, None, :]   # (r, nJ_x, nJ_y)
+    if is_per:
+        diffs = diffs - period * np.floor(diffs / period + 0.5)
+    Q = np.sum(diffs ** 2, axis=0)              # (nJ_x, nJ_y)
+    K_mat = np.exp(-Q / (4 * sigma ** 2))
+
+    return float((sigma * np.sqrt(np.pi)) ** r *
+                 np.einsum('i,ij,j->', wJ_x, K_mat, wJ_y))
+
+
+def _build_ordered_r_tuples(p, w, r):
+    """Mirror of :class:`SAExpTensDensity` ordered-tuple construction.
+
+    Returns ``(U, wJ)`` where ``U`` is ``(r, nJ)`` of position values
+    along ordered r-tuples and ``wJ`` is ``(nJ,)`` of weight products.
+    Used by :func:`_inner_product_direct_abs_sa` and any other helper
+    that needs single-event ordered tuples without going through the
+    full :func:`build_exp_tens` API.
+    """
+    import math
+    K = p.size
+    n_perms = math.factorial(r)
+    n_combs = int(_comb(K, r, exact=True))
+    n_j = n_perms * n_combs
+
+    nck = _nchoosek_indices(K, r)             # r x n_combs
+    all_perms = np.array(
+        list(permutations(range(r))), dtype=np.intp,
+    ).T                                        # r x r!
+
+    j_idx = np.empty((r, n_j), dtype=np.intp)
+    offset = 0
+    for i in range(n_perms):
+        j_idx[:, offset:offset + n_combs] = nck[all_perms[:, i], :]
+        offset += n_combs
+
+    U = p[j_idx]                               # r x nJ
+    wJ = np.prod(w[j_idx], axis=0)             # (nJ,)
+    return U, wJ
 
 
 def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,

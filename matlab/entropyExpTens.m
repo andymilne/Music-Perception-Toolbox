@@ -116,6 +116,7 @@ function H = entropyExpTens(varargin)
 
 nvDefaults = struct( ...
     'spectrum',      {{}}, ...
+    'method',        'shannon', ...
     'normalize',     true, ...
     'base',          2, ...
     'nPointsPerDim', 1200, ...
@@ -130,6 +131,29 @@ nPos = numel(posArgs);
 if nPos < 1
     error('entropyExpTens:noArgs', ...
           'At least one positional argument is required.');
+end
+
+% --- v2.2 method kwarg validation ---
+if ~ismember(nvArgs.method, {'shannon', 'renyi2'})
+    error('entropyExpTens:badMethod', ...
+          '''method'' must be ''shannon'' or ''renyi2''; got ''%s''.', ...
+          nvArgs.method);
+end
+if strcmp(nvArgs.method, 'renyi2') && nvArgs.normalize
+    error('entropyExpTens:renyi2NormalizeNotSupported', ...
+          ['method=''renyi2'' with normalize=true is not implemented. ' ...
+           'The continuous Rényi-2 entropy ranges over (-Inf, log_b V] ' ...
+           'rather than Shannon''s [0, log_b N], so a uniform ' ...
+           'normaliser does not yield a [0, 1] value. Pass ' ...
+           'normalize=false to use this method.']);
+end
+
+% --- v2.2 method=''renyi2'' short-circuit ---
+% Restricted to single-density input (scalar density or raw scalar SA/MA).
+% List and batched input forms are not yet supported under renyi2.
+if strcmp(nvArgs.method, 'renyi2')
+    H = localEntropyRenyi2Dispatch(posArgs, nvArgs);
+    return;
 end
 
 firstArg = posArgs{1};
@@ -624,4 +648,272 @@ function nvPairs = localPackNVPairs(nvArgs)
     for i = 1:numel(fns)
         nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
     end
+end
+
+
+% =========================================================================
+%  v2.2 Rényi-2 (collision) entropy via orbit-Möbius IP
+% =========================================================================
+
+function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
+%LOCALENTROPYRENYI2DISPATCH  Resolve input form and route to SA / MA helper.
+%
+%   v2.2 Rényi-2 path. Restricted to single-density input (scalar
+%   density struct, raw scalar SA, or raw scalar MA). List and batched
+%   input forms raise NotImplementedError-style errors. Windowed MA is
+%   also not yet supported.
+
+    nPos = numel(posArgs);
+    firstArg = posArgs{1};
+
+    % --- Reject unsupported input forms early ---
+    if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
+        error('entropyExpTens:renyi2ListNotSupported', ...
+            ['method=''renyi2'' does not yet support list input. ' ...
+             'Apply it to each density individually.']);
+    end
+    if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
+        error('entropyExpTens:renyi2BatchedNotSupported', ...
+            ['method=''renyi2'' does not yet support raw SA batched ' ...
+             '(2-D) input. Pass each chord row individually, or ' ...
+             'pre-build a density struct.']);
+    end
+
+    base = nvArgs.base;
+
+    % --- Resolve input to a density struct ---
+    if isstruct(firstArg) && isfield(firstArg, 'tag')
+        if nPos > 1
+            error('entropyExpTens:extraArgs', ...
+                ['When a precomputed density struct is passed, no ' ...
+                 'further positional arguments may be provided.']);
+        end
+        switch firstArg.tag
+            case 'ExpTensDensity'
+                H = localRenyi2SA(firstArg, base);
+                return;
+            case 'MaetDensity'
+                H = localRenyi2MA(firstArg, base);
+                return;
+            case 'WindowedMaetDensity'
+                error('entropyExpTens:renyi2WindowedNotSupported', ...
+                    ['method=''renyi2'' is not yet implemented for ' ...
+                     'WindowedMaetDensity. Use method=''shannon'' for ' ...
+                     'windowed MA densities, or compute on the ' ...
+                     'underlying MaetDensity.']);
+            otherwise
+                error('entropyExpTens:unknownTag', ...
+                    'Unknown density struct tag: %s.', firstArg.tag);
+        end
+    end
+
+    % --- MA raw args (first arg is a cell of arrays) ---
+    if iscell(firstArg)
+        if nPos ~= 8
+            error('entropyExpTens:wrongArgCountMA', ...
+                ['Multi-attribute raw call expects 8 positional ' ...
+                 'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                 'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+        end
+        dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, posArgs{8}, ...
+                            'verbose', false);
+        H = localRenyi2MA(dens, base);
+        return;
+    end
+
+    % --- SA raw args ---
+    if nPos ~= 7
+        error('entropyExpTens:wrongArgCountSA', ...
+            ['Single-attribute raw call expects 7 positional arguments ' ...
+             '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
+    end
+    p      = posArgs{1};
+    w      = posArgs{2};
+    sigma  = posArgs{3};
+    r      = posArgs{4};
+    isRel  = posArgs{5};
+    isPer  = posArgs{6};
+    period = posArgs{7};
+
+    % Apply spectral enrichment if requested.
+    if ~isempty(nvArgs.spectrum)
+        if ~iscell(nvArgs.spectrum)
+            error('entropyExpTens:badSpectrum', ...
+                  '''spectrum'' value must be a cell array of addSpectra arguments.');
+        end
+        [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
+    end
+
+    % buildExpTens is cheap in lazy mode; we only read cheap fields.
+    dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+    H = localRenyi2SA(dens, base);
+end
+
+
+function H = localRenyi2SA(dens, base)
+%LOCALRENYI2SA  Analytical Rényi-2 entropy of a SA expectation tensor.
+%
+%   Computes H_2 = -log_b(<T,T> / Z^2) where <T,T> is evaluated via
+%   the orbit-Möbius inner product machinery (or a direct pairwise
+%   formula at r=1 where the orbit table is undefined) and
+%   Z = integral T(x) dx via the closed-form total-mass formulae in
+%   the +mobius package.
+
+    p = dens.p; w = dens.w;
+    sigma = dens.sigma; r = dens.r;
+    isRel = dens.isRel; isPer = dens.isPer; period = dens.period;
+
+    % r=1 rel is degenerate: the relative density lives on a 0-D space
+    % (one position has no internal relative structure); H_2 is
+    % undefined as a continuous quantity. Return 0 by convention,
+    % matching the MA path's empty-density short circuit.
+    if r == 1 && isRel
+        H = 0;
+        return;
+    end
+
+    if r == 1
+        % Direct r=1 abs path: T = sum_i w_i G_sigma(x - p_i), so
+        %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j exp(-(p_i-p_j)^2/(4 sigma^2))
+        % (with wrapped differences in periodic mode).
+        p = p(:); w = w(:);
+        diffs = p - p.';
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K = exp(-(diffs.^2) / (4 * sigma^2));
+        ip_xx = sigma * sqrt(pi) * sum(sum((w * w.') .* K));
+        Z = mobius.totalMassAbs(p, w, sigma, r);
+    else
+        % r >= 2: orbit machinery. Empirical sweeps in the Python audit
+        % corpus show the orbit self-IP is robust at every tested
+        % musical sigma; the per-orbit-class cancellation ratio in abs
+        % mode dips to ~0.13 in the worst tested case, well above the
+        % 1e-10 corruption threshold. We rely on a post-hoc finite/
+        % positive check rather than a ratio-based fallback. The
+        % pairwise fallback explored earlier was abandoned: orbit and
+        % pairwise use different normalisation conventions in rel mode,
+        % so the fallback gave a different (also wrong) answer rather
+        % than recovering the correct value.
+        if isRel
+            ip_xx = mobius.orbitInnerRelSA(p, w, p, w, sigma, r, isPer, period);
+            Z = mobius.totalMassRel(p, w, sigma, r);
+        else
+            ip_xx = mobius.orbitInnerAbsSA(p, w, p, w, sigma, r, isPer, period);
+            Z = mobius.totalMassAbs(p, w, sigma, r);
+        end
+    end
+
+    if ~isfinite(ip_xx) || ip_xx <= 0
+        error('entropyExpTens:renyi2NonPositiveIP', ...
+            ['Computed <T,T>=%g via the orbit-Möbius path is non-positive ' ...
+             'or non-finite. The input density may be degenerate (all ' ...
+             'weights zero), or the parameters may lie in a regime where ' ...
+             'the alternating Möbius sum has lost all significant digits. ' ...
+             'Try a less extreme sigma/period ratio, smaller r, or ' ...
+             'larger K-r margin.'], ip_xx);
+    end
+    if ~isfinite(Z) || Z <= 0
+        error('entropyExpTens:renyi2NonPositiveZ', ...
+            'Computed Z=%g is non-positive or non-finite.', Z);
+    end
+
+    H = -log(ip_xx / (Z * Z)) / log(base);
+end
+
+
+function H = localRenyi2MA(dens, base)
+%LOCALRENYI2MA  Analytical Rényi-2 entropy of an MA expectation tensor.
+%
+%   Uses the per-attribute orbit IP factorisation
+%       <T,T> = sum_{n,m} prod_a I_a[n,m]
+%   with the per-attribute matrix coming from mobius.maPerAttrInnerMatrix
+%   (the same machinery cosSimExpTens uses), and
+%       Z = sum_n prod_a Z_a^{(n)}
+%   where each Z_a^{(n)} is the closed-form SA total mass evaluated on
+%   event n's attribute-a slot pitches and weights.
+%
+%   Windowed densities are not supported on this path.
+
+    if strcmp(dens.tag, 'WindowedMaetDensity')
+        error('entropyExpTens:renyi2WindowedNotSupported', ...
+            ['method=''renyi2'' is not yet implemented for ' ...
+             'WindowedMaetDensity.']);
+    end
+
+    A = dens.nAttrs;
+    N = dens.N;
+    if A == 0 || N == 0
+        H = 0;
+        return;
+    end
+
+    % --- <T, T> via per-attribute orbit IP ---
+    % Per-(n,m) cancellation ratios were shown empirically to fire
+    % spuriously for self-IPs in typical musical regimes (off-diagonal
+    % entries can be noisy while the diagonal entries — which dominate
+    % the sum — are clean). We rely on a post-hoc finite/positive check
+    % rather than a ratio fallback.
+    P_xx = ones(N, N);
+    for a = 1:A
+        g = dens.groupOfAttr(a);
+        r_a = dens.r(a);
+        sigma_g = dens.sigma(g);
+        isRel_g = dens.isRel(g);
+        isPer_g = dens.isPer(g);
+        period_g = dens.period(g);
+        Pa = dens.pAttr{a};
+        Wa = dens.w{a};
+        I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
+            sigma_g, r_a, isRel_g, isPer_g, period_g);
+        P_xx = P_xx .* I_xx;
+    end
+    ip_xx = sum(P_xx(:));
+
+    if ~isfinite(ip_xx) || ip_xx <= 0
+        error('entropyExpTens:renyi2NonPositiveIP', ...
+            ['Computed <T,T>=%g via the orbit-Möbius path is non-positive ' ...
+             'or non-finite. The input density may be degenerate, or the ' ...
+             'parameters may lie in a regime where the per-attribute ' ...
+             'alternating sum has lost all significant digits. Try a ' ...
+             'less extreme sigma/period ratio, smaller r, or larger ' ...
+             'K-r margin.'], ip_xx);
+    end
+
+    % --- Z = sum_n prod_a Z_a^{(n)} ---
+    % Each per-event-per-attribute factor is the SA total mass computed
+    % on that event's slot vector. NaN slots (ragged events) are dropped
+    % before calling totalMass*; the periodic mode handles wrap inside
+    % the helper.
+    Z_per_event_attr = zeros(N, A);
+    for a = 1:A
+        g = dens.groupOfAttr(a);
+        r_a = dens.r(a);
+        sigma_g = dens.sigma(g);
+        isRel_g = dens.isRel(g);
+        Pa = dens.pAttr{a};   % (K_a, N)
+        Wa = dens.w{a};       % (K_a, N)
+        for n = 1:N
+            pn = Pa(:, n);
+            wn = Wa(:, n);
+            valid = ~(isnan(pn) | isnan(wn));
+            pn = pn(valid);
+            wn = wn(valid);
+            if isRel_g
+                Z_an = mobius.totalMassRel(pn, wn, sigma_g, r_a);
+            else
+                Z_an = mobius.totalMassAbs(pn, wn, sigma_g, r_a);
+            end
+            Z_per_event_attr(n, a) = Z_an;
+        end
+    end
+    Z = sum(prod(Z_per_event_attr, 2));
+
+    if ~isfinite(Z) || Z <= 0
+        error('entropyExpTens:renyi2NonPositiveZ', ...
+            'Computed Z=%g is non-positive or non-finite.', Z);
+    end
+
+    H = -log(ip_xx / (Z * Z)) / log(base);
 end

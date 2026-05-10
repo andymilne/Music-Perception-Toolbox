@@ -236,10 +236,10 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && strcmp(varargin{1}.tag, 'MaetDensity') ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'MaetDensity')
-    s = localCosSimMA( ...
-        ensureExpTensExpensive(varargin{1}), ...
-        ensureExpTensExpensive(varargin{2}), ...
-        verbose);
+    % Kept skinny here: orbit branch reads only cheap fields; pairwise
+    % branch ensures heavy fields on demand inside localCosSimMA.
+    s = localCosSimMA(varargin{1}, varargin{2}, ...
+                       method, cancellationThreshold, verbose);
     return;
 end
 
@@ -260,11 +260,12 @@ if nArgs == 10 && iscell(varargin{1})
     isRelVec  = varargin{8};
     isPerVec  = varargin{9};
     periodVec = varargin{10};
+    % Build skinny: orbit branch may not need heavy fields.
     dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'lazy', false, 'verbose', verbose);
+        isRelVec, isPerVec, periodVec, 'verbose', verbose);
     dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'lazy', false, 'verbose', verbose);
-    s = localCosSimMA(dens_x, dens_y, verbose);
+        isRelVec, isPerVec, periodVec, 'verbose', verbose);
+    s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbose);
     return;
 end
 
@@ -792,18 +793,24 @@ end
 %  localCosSimMA — multi-attribute (MAET) cosine similarity
 % =========================================================================
 
-function s = localCosSimMA(dens_x, dens_y, verbose)
+function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbose)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
 %   kernels (Section 2.7 of the MAET specification); no numerical
-%   integration is required.
+%   integration is required for the pairwise path.
+%
+%   v2.2: now dispatches between the v2.1 pairwise path and a
+%   per-attribute orbit-Mobius path based on method ('auto' /
+%   'pairwise' / 'orbit') and a simple r-based heuristic. Three-layer
+%   guard mirrors the SA dispatcher (cross-cancellation, corruption,
+%   non-finite fallback).
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
 %   isRel, isPer, period. Weights and event/slot counts may differ.
 
-    % --- Structural compatibility ---
+    % --- Structural compatibility (cheap fields only) ---
     if dens_x.nAttrs ~= dens_y.nAttrs
         error('cosSimExpTens:nAttrsMismatch', ...
             'Both MaetDensities must have the same nAttrs.');
@@ -843,29 +850,58 @@ function s = localCosSimMA(dens_x, dens_y, verbose)
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
-    Ux_perm  = dens_x.U_perm;
-    wx_perm  = dens_x.wJ;
-    nJx      = dens_x.nJ;
-    Vx_comb  = dens_x.V_comb;
-    wvx_comb = dens_x.wv_comb;
-    nKx      = dens_x.nK;
+    % --- v2.2 method dispatch ---
+    chosen = localSelectMAInnerProductMethod( ...
+        rVec, isRelG, sigmaG, isPerG, periodG, method, verbose);
 
-    Uy_perm  = dens_y.U_perm;
-    wy_perm  = dens_y.wJ;
-    nJy      = dens_y.nJ;
-    Vy_comb  = dens_y.V_comb;
-    wvy_comb = dens_y.wv_comb;
-    nKy      = dens_y.nK;
+    ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
+    ranOrbit = false;
 
-    % --- Three inner products ---
-    totalPairs = double(nJx)*double(nKy) + double(nJx)*double(nKx) ...
-               + double(nJy)*double(nKy);
-    maxR = max(rVec);
-    estimateCompTime(totalPairs, maxR, 'cosSimExpTens (MAET)', verbose);
+    if strcmp(chosen, 'orbit')
+        [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y);
 
-    ip_xy = ipCoreMA(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
-    ip_xx = ipCoreMA(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
-    ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+        % Three-layer fallback guard (mirrors SA path).
+        denomGeo = sqrt(max(ip_xx * ip_yy, 0));
+        crossCancel = denomGeo > 0 ...
+                    && abs(ip_xy) < cancellationThreshold * denomGeo;
+        corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+
+        if crossCancel || corrupted
+            chosen = 'pairwise';
+        else
+            ranOrbit = true;
+        end
+    end
+
+    if ~ranOrbit
+        % Pairwise branch. Heavy fields needed.
+        dens_x = ensureExpTensExpensive(dens_x);
+        dens_y = ensureExpTensExpensive(dens_y);
+
+        Ux_perm  = dens_x.U_perm;
+        wx_perm  = dens_x.wJ;
+        nJx      = dens_x.nJ;
+        Vx_comb  = dens_x.V_comb;
+        wvx_comb = dens_x.wv_comb;
+        nKx      = dens_x.nK;
+
+        Uy_perm  = dens_y.U_perm;
+        wy_perm  = dens_y.wJ;
+        nJy      = dens_y.nJ;
+        Vy_comb  = dens_y.V_comb;
+        wvy_comb = dens_y.wv_comb;
+        nKy      = dens_y.nK;
+
+        % --- Three inner products ---
+        totalPairs = double(nJx)*double(nKy) + double(nJx)*double(nKx) ...
+                   + double(nJy)*double(nKy);
+        maxR = max(rVec);
+        estimateCompTime(totalPairs, maxR, 'cosSimExpTens (MAET)', verbose);
+
+        ip_xy = ipCoreMA(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
+        ip_xx = ipCoreMA(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
+        ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+    end
 
     denom = sqrt(ip_xx * ip_yy);
     if denom == 0
@@ -968,6 +1004,234 @@ function s = localCosSimMA(dens_x, dens_y, verbose)
         end
     end
 
+end
+
+
+% =========================================================================
+%  v2.2 MA orbit dispatch helpers (method='auto'|'pairwise'|'orbit')
+% =========================================================================
+
+function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
+                                                    isPerG, periodG, ...
+                                                    userMethod, verbose)
+%LOCALSELECTMAINNERPRODUCTMETHOD  Choose the IP path for MA cosSimExpTens.
+%
+%   Simple v2.2 heuristic (no cost model; benchmark-driven recalibration
+%   pending at Commit 7):
+%     1. userMethod ~= 'auto' overrides everything.
+%     2. r_max <= 1 -> pairwise (orbit machinery undefined).
+%     3. r_max > 6 -> pairwise (no shipped orbit table).
+%     4. Periodic-relative beyond sigma/period > 0.03 anywhere -> warn,
+%        pairwise. Same convention guard as the SA dispatcher.
+%     5. Any rel group at all -> pairwise. Orbit-rel for MA is
+%        un-vectorised in v2.2 (per-event-pair loop); pairwise dominates
+%        in typical regimes. Users wanting orbit-rel opt in explicitly.
+%     6. r_max < 3 -> pairwise (orbit at r=2 carries |Omega_2|=4 overhead
+%        with the same K^2 asymptotic as pairwise).
+%     7. Otherwise -> orbit.
+%
+%   has_nan is NOT a fallback: the MA orbit wrapper handles ragged K_{a,n}
+%   natively via zero-weight padding (see localMAPerAttrInnerMatrix).
+
+    if ~strcmp(userMethod, 'auto')
+        chosen = userMethod;
+        return;
+    end
+
+    r_max = max(rVec);
+    if r_max <= 1
+        chosen = 'pairwise';
+        return;
+    end
+    if r_max > 6   % _ORBIT_R_MAX_SHIPPED
+        chosen = 'pairwise';
+        return;
+    end
+
+    % sigma/period guard (rel + per groups only).
+    sigmaOverP_max = 0;
+    for g = 1:numel(sigmaG)
+        if isRelG(g) && isPerG(g) && periodG(g) > 0
+            ratio = sigmaG(g) / periodG(g);
+            if ratio > sigmaOverP_max
+                sigmaOverP_max = ratio;
+            end
+        end
+    end
+    if sigmaOverP_max > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+        if verbose
+            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
+                    ['Maximum sigma/period = %.3f across periodic-relative ' ...
+                     'groups exceeds the orbit-path threshold (0.03); ' ...
+                     'falling back to the pairwise-wrap form. Pass ' ...
+                     '''method'', ''pairwise'' explicitly to silence this ' ...
+                     'warning.'], sigmaOverP_max);
+        end
+        chosen = 'pairwise';
+        return;
+    end
+
+    % Any rel group -> pairwise (orbit-rel un-vectorised in v2.2).
+    if any(isRelG)
+        chosen = 'pairwise';
+        return;
+    end
+
+    if r_max < 3
+        chosen = 'pairwise';
+        return;
+    end
+
+    chosen = 'orbit';
+end
+
+
+function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
+%LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute orbit.
+%
+%   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
+%   product matrix I_xy^{(a)}[n_x, n_y] = <T_X^{(a)}_{n_x}, T_Y^{(a)}_{n_y}>
+%   (similarly for I_xx, I_yy). The full IP factors as
+%       <T_X, T_Y> = sum_{n_x, n_y} prod_a I_xy^{(a)}[n_x, n_y]
+%   so we element-wise multiply per-attribute matrices across attributes
+%   then sum. NaN-padded events are handled via zero-weight padding in
+%   localMAPerAttrInnerMatrix.
+
+    A = dens_x.nAttrs;
+    N_x = dens_x.N;
+    N_y = dens_y.N;
+
+    P_xy = ones(N_x, N_y);
+    P_xx = ones(N_x, N_x);
+    P_yy = ones(N_y, N_y);
+
+    for a = 1:A
+        g       = dens_x.groupOfAttr(a);
+        r_a     = dens_x.r(a);
+        sigma_g = dens_x.sigma(g);
+        isRel_g = dens_x.isRel(g);
+        isPer_g = dens_x.isPer(g);
+        period_g = dens_x.period(g);
+
+        Px = dens_x.pAttr{a};   Wx = dens_x.w{a};
+        Py = dens_y.pAttr{a};   Wy = dens_y.w{a};
+
+        I_xy = localMAPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
+            sigma_g, r_a, isRel_g, isPer_g, period_g);
+        I_xx = localMAPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
+            sigma_g, r_a, isRel_g, isPer_g, period_g);
+        I_yy = localMAPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
+            sigma_g, r_a, isRel_g, isPer_g, period_g);
+
+        P_xy = P_xy .* I_xy;
+        P_xx = P_xx .* I_xx;
+        P_yy = P_yy .* I_yy;
+    end
+
+    ip_xy = sum(P_xy(:));
+    ip_xx = sum(P_xx(:));
+    ip_yy = sum(P_yy(:));
+end
+
+
+function I = localMAPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
+                                         sigma, r, isRel, isPer, period)
+%LOCALMAPERATTRINNERMATRIX  Per-attribute (event_X, event_Y) IP matrix.
+%
+%   Px, Wx are (K_x, N_x); Py, Wy are (K_y, N_y). Returns I of shape
+%   (N_x, N_y) where entry (n_X, n_Y) is the per-attribute inner product
+%   over the K slot values of event n_X (X-side) against those of n_Y.
+%
+%   Ragged K_{a,n} (NaN-padded events) is handled via zero-weight
+%   padding: NaN entries in Px or Wx are replaced with arbitrary p (0)
+%   and zero weight, which kills any orbit term involving the padded
+%   slot and yields the mathematically correct event IP.
+%
+%   v2.2 limitation: the rel branch loops over event pairs without
+%   vectorisation (deferred). Auto dispatch routes rel cases to
+%   pairwise; orbit-rel runs only on explicit method='orbit' opt-in.
+
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
+
+    % Zero-pad: replace NaN entries (in P or W) with 0.
+    nanX = isnan(Px) | isnan(Wx);
+    if any(nanX(:))
+        Px(nanX) = 0;
+        Wx(nanX) = 0;
+    end
+    nanY = isnan(Py) | isnan(Wy);
+    if any(nanY(:))
+        Py(nanY) = 0;
+        Wy(nanY) = 0;
+    end
+
+    if r == 1
+        % Direct sum (no orbit machinery needed at r=1):
+        %   I[n_x, n_y] = (sigma*sqrt(pi))^r
+        %                * sum_{i,j} Wx[i,n_x] * Wy[j,n_y] * K[i,n_x;j,n_y]
+        % Build K_tens of shape (Kx, Nx, Ky, Ny) via implicit expansion.
+        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_tens = exp(-(diffs.^2) / (4 * sigma^2));
+        I = zeros(Nx, Ny);
+        for n_x = 1:Nx
+            % squeeze(K_tens(:, n_x, :, :)) is (Kx, Ky, Ny). Multiply
+            % by Wx(:, n_x) along Kx axis, then dot with Wy(:, n_y).
+            slab = squeeze(K_tens(:, n_x, :, :));     % (Kx, Ky, Ny)
+            % Wx(:, n_x).' * slab(:, :, n_y) gives (1, Ky); then dot Wy.
+            % Vectorise over n_y:
+            % Step 1: (Wx(:, n_x).' * slab) along axis 1 of slab.
+            %   reshape slab to (Kx, Ky*Ny), matmul, reshape back.
+            tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
+            % tmp is (Ky, Ny). Element-wise multiply by Wy and sum axis 1.
+            I(n_x, :) = sum(tmp .* Wy, 1);
+        end
+        I = I * (sigma * sqrt(pi))^r;
+        return;
+    end
+
+    % r >= 2 absolute: vectorised across event pairs via per-batch weights.
+    if ~isRel
+        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_tens = exp(-(diffs.^2) / (4 * sigma^2));   % (Kx, Nx, Ky, Ny)
+
+        % Reshape to (Nx*Ny, Kx, Ky):
+        K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (Nx, Ny, Kx, Ky)
+        K_pairs = reshape(K_perm, Nx*Ny, Kx, Ky);
+
+        % Per-batch A-side weights: (Nx, Ny, Kx) reshaped to (Nx*Ny, Kx).
+        % Wx is (Kx, Nx); broadcast across Ny.
+        Wx_t = Wx.';                                  % (Nx, Kx)
+        Wx_pairs = reshape(repmat(reshape(Wx_t, Nx, 1, Kx), 1, Ny, 1), ...
+                            Nx*Ny, Kx);
+        % Per-batch B-side weights: (Nx, Ny, Ky) reshaped to (Nx*Ny, Ky).
+        Wy_t = Wy.';                                  % (Ny, Ky)
+        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny, Ky), Nx, 1, 1), ...
+                            Nx*Ny, Ky);
+
+        flat = mobius.innerProductOrbitPwBatched( ...
+            K_pairs, Wx_pairs, Wy_pairs, r, ...
+            'prefactor', (sigma * sqrt(pi))^r);
+        I = reshape(flat, Nx, Ny);
+        return;
+    end
+
+    % r >= 2 relative: per-pair loop (un-vectorised in v2.2).
+    I = zeros(Nx, Ny);
+    for n_x = 1:Nx
+        for n_y = 1:Ny
+            % localOrbitInnerRelSA wraps mobius.innerProductOrbitGrid.
+            I(n_x, n_y) = localOrbitInnerRelSA( ...
+                Px(:, n_x), Wx(:, n_x), Py(:, n_y), Wy(:, n_y), ...
+                sigma, r, isPer, period);
+        end
+    end
 end
 
 

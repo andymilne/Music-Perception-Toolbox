@@ -214,6 +214,11 @@ function dens = localBuildSA(posArgs, verbose, lazy)
     dens.dim    = dim;
 
     if lazy
+        if verbose
+            fprintf(['buildExpTens: skinny density (%d values, r = %d); ' ...
+                     'per-tuple fields populated lazily on first consumer use.\n'], ...
+                    numel(p), r);
+        end
         return
     end
 
@@ -385,6 +390,24 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     end
     dim = sum(dimPerAttr);
 
+    % --- Eager input validation: each event must have enough non-NaN
+    % slots in every attribute. We check here (cheap) so that bad inputs
+    % fail at buildExpTens time even when lazy=true. The full per-event
+    % enumeration in localFillMAExpensive recomputes the valid index
+    % vectors anyway, so this is just a guard.
+    for n = 1:N
+        for a = 1:A
+            valCol = pAttr{a}(:, n);
+            K_na = sum(~isnan(valCol));
+            r_a = rVec(a);
+            if K_na < r_a
+                error('buildExpTens:insufficientSlots', ...
+                      ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                       'but r_a = %d.'], n, a, K_na, r_a);
+            end
+        end
+    end
+
     % --- Pack skinny struct ---
 
     dens = struct();
@@ -406,6 +429,11 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     dens.dimPerAttr   = dimPerAttr;
 
     if lazy
+        if verbose
+            fprintf(['buildExpTens (MAET): skinny density (%d attributes, ' ...
+                     '%d groups, %d events); per-tuple fields populated ' ...
+                     'lazily on first consumer use.\n'], A, G, N);
+        end
         return
     end
 

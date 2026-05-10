@@ -31,6 +31,7 @@ Toolbox v2.
 Requires: matplotlib (pip install matplotlib)
 """
 
+import math
 import time
 
 import numpy as np
@@ -155,10 +156,10 @@ ref_cents = mpt.convert_pitch(f0, 'hz', 'cents')
 
 if do_tensor:
     dup = dup_tens if dup_tens > 0 else 3
-    print(f"Precomputing tensor harmonicity template (r=3, dup={dup})...")
+    print(f"Tensor harmonicity template setup (r=3, dup={dup})...")
     tp, tw = mpt.add_spectra(np.zeros(dup), np.ones(dup), *spec_tens)
-    T = mpt.build_exp_tens(tp, tw, sigma_tens, 3, True, False, 1200, verbose=False)
-    print(f"  Done ({T.n_j} ordered triples).")
+    nJ_template = math.factorial(3) * math.comb(len(tp), 3)
+    print(f"  Template: {len(tp)} partials, {nJ_template} ordered triples.")
 
 # ===================================================================
 #  Compute features
@@ -203,14 +204,17 @@ print(f"Computing features for {n_upper} unique triads "
 t0_total = time.time()
 
 # --- Tensor harmonicity ---
-# One eval_exp_tens call: the precomputed harmonic-template tensor T is
+# One eval_exp_tens call: the harmonic-template arrays (tp, tw) are
 # queried at all upper-triangle interval pairs in a single
-# (2, n_upper) query matrix. eval_exp_tens prints its own time estimate
-# via estimate_comp_time when called with verbose=True.
+# (2, n_upper) query matrix. eval_exp_tens builds the template tensor
+# internally and prints its own time estimate via estimate_comp_time
+# when called with verbose=True.
 if do_tensor:
     int_mat = np.vstack([int1_lin, int2_lin])    # (2, n_upper)
     t0 = time.time()
-    tens_lin = mpt.eval_exp_tens(T, int_mat, verbose=True)
+    tens_lin = mpt.eval_exp_tens(
+        tp, tw, sigma_tens, 3, True, False, 1200, int_mat, verbose=True,
+    )
     print(f"  Tensor harmonicity:   {time.time() - t0:.2f} s actual "
           f"({n_upper} triads, batched)")
     tens_harm[j_lin, i_lin] = tens_lin

@@ -12,7 +12,7 @@
 %                  entropy of the normalized cross-correlation. Plotted
 %                  as -hEntropy so that peaks = consonance.
 %
-%    'tensor'    — Tensor harmonicity (Milne 2013 / Smit et al. 2019):
+%    'tensor'    — Tensor harmonicity (Smit et al. 2019):
 %                  density of the relative triad expectation tensor of
 %                  a harmonic series, evaluated at the chord's interval
 %                  vector.
@@ -31,7 +31,7 @@
 %  intervals gives the same chord).
 %
 %  Uses: templateHarmonicity, tensorHarmonicity, spectralEntropy,
-%        roughness, addSpectra, buildExpTens, evalExpTens, convertPitch
+%        roughness, addSpectra, evalExpTens, convertPitch
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -120,7 +120,7 @@ if doTensor
         dup_tens = 3;
     end
 
-    fprintf('Precomputing tensor harmonicity template (r=3, dup=%d, spectrum: %s)...\n', ...
+    fprintf('Tensor harmonicity template setup (r=3, dup=%d, spectrum: %s)...\n', ...
         dup_tens, ...
         strjoin(cellfun(@num2str, spec_tens, 'UniformOutput', false), ', '));
     if dup_tens > 3
@@ -129,9 +129,8 @@ if doTensor
                 dup_tens);
     end
     [tp, tw] = addSpectra(zeros(dup_tens, 1), ones(dup_tens, 1), spec_tens{:});
-    T = buildExpTens(tp, tw, sigma_tens, 3, true, false, 1200, ...
-        'lazy', false, 'verbose', false);
-    fprintf('  Done (%d ordered triples).\n', T.nJ);
+    nJ_template = factorial(3) * nchoosek(numel(tp), 3);
+    fprintf('  Template: %d partials, %d ordered triples.\n', numel(tp), nJ_template);
 end
 
 %% === Compute features ===
@@ -184,14 +183,16 @@ fprintf('Computing features for %d unique triads (step = %d cents)...\n', ...
 t0_total = tic;
 
 % --- Tensor harmonicity ---
-% One evalExpTens call: the precomputed harmonic-template tensor T is
+% One evalExpTens call: the harmonic-template arrays (tp, tw) are
 % queried at all upper-triangle interval pairs in a single 2 x nUpper
-% query matrix. evalExpTens prints its own time estimate via
-% estimateCompTime when called with 'verbose', true.
+% query matrix. evalExpTens builds the template tensor internally and
+% prints its own time estimate via estimateCompTime when called with
+% 'verbose', true.
 if doTensor
     intMat  = [int1Lin'; int2Lin'];   % 2 x nUpper
     t0 = tic;
-    tensLin = evalExpTens(T, intMat, 'verbose', true);
+    tensLin = evalExpTens(tp, tw, sigma_tens, 3, true, false, 1200, ...
+        intMat, 'verbose', true);
     fprintf('  Tensor harmonicity:   %.2f s actual (%d triads, batched)\n', ...
         toc(t0), nUpper);
     tensHarm(linIdxUpper) = tensLin;

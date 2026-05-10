@@ -1,6 +1,17 @@
 function profile = windowedSimilarity(densQuery, densContext, windowSpec, offsets, varargin)
 %WINDOWEDSIMILARITY  Sliding-window similarity profile (cross-correlation).
 %
+%   TODO (post-v2.2, API consistency): add a raw-array overload that
+%   mirrors the pattern already in cosSimExpTens, evalExpTens,
+%   entropyExpTens, tensorHarmonicity, templateHarmonicity, virtualPitches,
+%   and spectralEntropy (raw arrays as the first arguments instead of
+%   pre-built density structs from buildExpTens). Currently
+%   windowedSimilarity is the only similarity-and-evaluation function
+%   without this overload. Adding it would let demo_helixBlend,
+%   demo_maetWindowing, and demo_windowingReference drop their
+%   buildExpTens calls in line with the v2.x principle of treating
+%   buildExpTens as a less user-facing entity.
+%
 %   profile = windowedSimilarity(densQuery, densContext, windowSpec, offsets)
 %   returns a 1 x M profile of windowed similarities. For each offset
 %   column, the context density is windowed with windowSpec at the

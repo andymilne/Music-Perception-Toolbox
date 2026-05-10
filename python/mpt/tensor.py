@@ -6056,6 +6056,22 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
                         verbose: bool = True):
     """Sliding-window similarity profile (cross-correlation).
 
+    .. todo::
+
+       Post-v2.2, API consistency: add a raw-array overload mirroring
+       the pattern already in :func:`cos_sim_exp_tens`,
+       :func:`eval_exp_tens`, :func:`entropy_exp_tens`,
+       :func:`tensor_harmonicity`, :func:`template_harmonicity`,
+       :func:`virtual_pitches`, and :func:`spectral_entropy` (raw
+       arrays as the first arguments instead of pre-built density
+       objects from :func:`build_exp_tens`). Currently
+       ``windowed_similarity`` is the only similarity-and-evaluation
+       function without this overload. Adding it would let
+       ``demo_helix_blend``, ``demo_maet_windowing``, and
+       ``demo_windowing_reference`` drop their ``build_exp_tens``
+       calls in line with the v2.x principle of treating
+       ``build_exp_tens`` as a less user-facing entity.
+
     For each offset column, *dens_context* is windowed with
     *window_spec* at the corresponding centre, and its similarity
     against *dens_query* (unwindowed) is computed. The normaliser

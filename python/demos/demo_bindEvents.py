@@ -20,7 +20,6 @@ import numpy as np
 from mpt import (
     n_tuple_entropy,
     entropy_exp_tens,
-    build_exp_tens,
     difference_events,
     bind_events,
     cos_sim_exp_tens,
@@ -44,7 +43,7 @@ def n_tuple_entropy_via_bind(p, period, n, sigma=1e-6):
     """
     diffs = cyclic_steps(p, period).astype(float).reshape(1, -1)
     p_bound, w_bound = bind_events(diffs, None, n, circular=True)
-    T = build_exp_tens(
+    return entropy_exp_tens(
         p_bound, w_bound,
         [sigma],          # one sigma for the single group
         [1] * n,          # r = 1 per attribute
@@ -52,10 +51,8 @@ def n_tuple_entropy_via_bind(p, period, n, sigma=1e-6):
         [False],          # not relative
         [True],           # periodic
         [period],
-        verbose=False,
+        normalize=False, base=2, n_points_per_dim=period,
     )
-    return entropy_exp_tens(T, normalize=False, base=2,
-                             n_points_per_dim=period)
 
 
 # ===================================================================
@@ -122,11 +119,14 @@ for name, s in scales.items():
 print()
 
 
-def make_T(p, period, n, sigma):
+def bind_pw(p, period, n):
+    """Bind the cyclic steps of p into n-attribute super-events.
+
+    Returns (p_bound, w_bound) suitable for passing as raw arrays to
+    cos_sim_exp_tens / entropy_exp_tens.
+    """
     diffs = cyclic_steps(p, period).astype(float).reshape(1, -1)
-    pB, wB = bind_events(diffs, None, n, circular=True)
-    return build_exp_tens(pB, wB, [sigma], [1] * n, [0] * n,
-                           [False], [True], [period], verbose=False)
+    return bind_events(diffs, None, n, circular=True)
 
 
 sigma = 0.6
@@ -141,9 +141,13 @@ for i, ni in enumerate(names):
     for nj in names[i+1:]:
         row = f"    sim({ni:6s} | {nj:18s})"
         for n in [2, 3]:
-            Ti = make_T(scales[ni], P, n, sigma)
-            Tj = make_T(scales[nj], P, n, sigma)
-            s = cos_sim_exp_tens(Ti, Tj, verbose=False)
+            pBi, wBi = bind_pw(scales[ni], P, n)
+            pBj, wBj = bind_pw(scales[nj], P, n)
+            s = cos_sim_exp_tens(
+                pBi, wBi, pBj, wBj,
+                [sigma], [1] * n, [0] * n,
+                [False], [True], [P], verbose=False,
+            )
             row += f"  {s:.4f}     "
         print(row)
 

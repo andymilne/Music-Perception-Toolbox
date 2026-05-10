@@ -19,11 +19,11 @@ function vals = v22_directEvalAbs(p, w, sigma, r, x, is_per, period)
 
     p = p(:); w = w(:);
     n_q = size(x, 2);
-    perms = v22_orderedTuples(numel(p), r);
+    tuples = v22_orderedTuples(numel(p), r);
     vals = zeros(n_q, 1);
     inv2s2 = 1 / (2 * sigma^2);
-    for ip = 1:size(perms, 1)
-        tup = perms(ip, :);
+    for ip = 1:size(tuples, 1)
+        tup = tuples(ip, :);
         wp = prod(w(tup));
         cp = p(tup);  % (r, 1)
         % Differences (r, n_q): cp_repeated minus x.

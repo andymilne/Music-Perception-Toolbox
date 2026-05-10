@@ -205,10 +205,10 @@ for r = 1:4
     w = 0.5 + rand(n, 1);
     sigma = 25.0;
 
-    perms = v22_orderedTuples(n, r);
+    tuples = v22_orderedTuples(n, r);
     directZ = 0.0;
-    for ip = 1:size(perms, 1)
-        directZ = directZ + prod(w(perms(ip, :)));
+    for ip = 1:size(tuples, 1)
+        directZ = directZ + prod(w(tuples(ip, :)));
     end
     directZ = directZ * (sigma * sqrt(2 * pi))^r;
 

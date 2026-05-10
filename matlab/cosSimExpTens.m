@@ -110,12 +110,16 @@ function s = cosSimExpTens(varargin)
 % === Parse arguments ===
 
 % Extract optional name-value pairs that may follow the positional
-% args. 'verbose' applies to all dispatch arms; 'spectrum', 'precision',
-% and 'dedup' are valid only for the batched-raw path and are forwarded
-% to batchCosSimExpTens. Each is captured (with its index range) and
+% args. 'verbose' applies to all dispatch arms; 'method' and
+% 'cancellationThreshold' apply to SA and MA struct/raw-args paths
+% (v2.2 orbit dispatch); 'spectrum', 'precision', and 'dedup' are
+% valid only for the batched-raw path and are forwarded to
+% batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
 verbose = true;
+method = 'auto';                % v2.2: 'auto' | 'pairwise' | 'orbit'
+cancellationThreshold = 1e-12;  % v2.2: cross-cancellation guard
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
 precisionOpt = [];    % []  ⇒ no precision kwarg passed downstream
 dedupOpt = [];        % []  ⇒ no dedup kwarg passed downstream
@@ -131,6 +135,27 @@ while i <= numel(varargin)
         switch key
             case 'verbose'
                 verbose = logical(varargin{i + 1});
+                keepMask(i)     = false;
+                keepMask(i + 1) = false;
+                i = i + 2;
+                continue;
+            case 'method'
+                method = lower(char(varargin{i + 1}));
+                if ~ismember(method, {'auto', 'pairwise', 'orbit'})
+                    error('cosSimExpTens:badMethod', ...
+                          ['''method'' must be ''auto'', ''pairwise'', ' ...
+                           'or ''orbit''; got ''%s''.'], method);
+                end
+                keepMask(i)     = false;
+                keepMask(i + 1) = false;
+                i = i + 2;
+                continue;
+            case 'cancellationthreshold'
+                cancellationThreshold = double(varargin{i + 1});
+                if ~isscalar(cancellationThreshold) || cancellationThreshold <= 0
+                    error('cosSimExpTens:badCancellationThreshold', ...
+                          '''cancellationThreshold'' must be a positive scalar.');
+                end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
                 i = i + 2;
@@ -313,9 +338,10 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity') ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'ExpTensDensity')
-    % --- Precomputed structs ---
-    dens_x = ensureExpTensExpensive(varargin{1});
-    dens_y = ensureExpTensExpensive(varargin{2});
+    % --- Precomputed structs (kept skinny for now: orbit path doesn't
+    % need per-tuple fields; pairwise branch ensures them on demand) ---
+    dens_x = varargin{1};
+    dens_y = varargin{2};
 
     % Validate that both structs share compatible parameters
     if dens_x.r ~= dens_y.r
@@ -334,28 +360,8 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         error('Both density structs must have the same sigma.');
     end
 
-    r     = dens_x.r;
-    sigma = dens_x.sigma;
-    isRel = dens_x.isRel;
-    isPer = dens_x.isPer;
-    J     = dens_x.period;
-
-    Ux_perm  = dens_x.U_perm;
-    wx_perm  = dens_x.w_perm;
-    nJx      = dens_x.nJ_perm;
-    Vx_comb  = dens_x.V_comb;
-    wvx_comb = dens_x.wv_comb;
-    nKx      = dens_x.nK;
-
-    Uy_perm  = dens_y.U_perm;
-    wy_perm  = dens_y.w_perm;
-    nJy      = dens_y.nJ_perm;
-    Vy_comb  = dens_y.V_comb;
-    wvy_comb = dens_y.wv_comb;
-    nKy      = dens_y.nK;
-
 elseif nArgs == 9
-    % --- Raw arguments (SA) ---
+    % --- Raw arguments (SA): build skinny; pairwise branch ensures later ---
     if iscell(varargin{1}) || iscell(varargin{3})
         error(['cosSimExpTens: cell-form p1/p2 (multi-attribute) requires ' ...
             '10 positional arguments: pAttr1, w1, pAttr2, w2, sigmaVec, ' ...
@@ -365,31 +371,16 @@ elseif nArgs == 9
     w1     = varargin{2};
     p2     = varargin{3};
     w2     = varargin{4};
-    sigma  = varargin{5};
-    r      = varargin{6};
-    isRel  = varargin{7};
-    isPer  = varargin{8};
-    J      = varargin{9};
+    sigma_arg  = varargin{5};
+    r_arg      = varargin{6};
+    isRel_arg  = varargin{7};
+    isPer_arg  = varargin{8};
+    J_arg      = varargin{9};
 
-    % Build density structs on the fly (eager — we use heavy fields below).
-    dens_x = buildExpTens(p1, w1, sigma, r, isRel, isPer, J, ...
-                          'lazy', false, 'verbose', verbose);
-    dens_y = buildExpTens(p2, w2, sigma, r, isRel, isPer, J, ...
-                          'lazy', false, 'verbose', verbose);
-
-    Ux_perm  = dens_x.U_perm;
-    wx_perm  = dens_x.w_perm;
-    nJx      = dens_x.nJ_perm;
-    Vx_comb  = dens_x.V_comb;
-    wvx_comb = dens_x.wv_comb;
-    nKx      = dens_x.nK;
-
-    Uy_perm  = dens_y.U_perm;
-    wy_perm  = dens_y.w_perm;
-    nJy      = dens_y.nJ_perm;
-    Vy_comb  = dens_y.V_comb;
-    wvy_comb = dens_y.wv_comb;
-    nKy      = dens_y.nK;
+    dens_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
+                          'verbose', verbose);
+    dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
+                          'verbose', verbose);
 
 else
     error(['Usage:\n' ...
@@ -402,23 +393,89 @@ else
         '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).']);
 end
 
+% --- Common SA cheap-field setup (used by orbit and pairwise branches) ---
+r     = dens_x.r;
+sigma = dens_x.sigma;
+isRel = dens_x.isRel;
+isPer = dens_x.isPer;
+J     = dens_x.period;
+
 % === Early return for degenerate case ===
 if r > min(numel(dens_x.p), numel(dens_y.p))
     s = NaN;
     return;
 end
 
-% === Cosine similarity from three inner products ===
+% === v2.2 method dispatch (auto / pairwise / orbit) ===
+n_x = numel(dens_x.p);
+n_y = numel(dens_y.p);
+if isPer && J > 0
+    sigmaOverP = sigma / J;
+else
+    sigmaOverP = 0;
+end
+chosen = localSelectSAMethod( ...
+    r, max(n_x, n_y), isRel, isPer, sigmaOverP, method, ...
+    min(n_x, n_y), verbose);
 
-% Estimated computation time for all three inner products:
-% Total pairs = nJx*nKy + nJx*nKx + nJy*nKy
-totalPairs = double(nJx)*double(nKy) + double(nJx)*double(nKx) ...
-           + double(nJy)*double(nKy);
-estimateCompTime(totalPairs, r, 'cosSimExpTens', verbose);
+ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
+ranOrbit = false;
 
-ip_xy = ipCore(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
-ip_xx = ipCore(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
-ip_yy = ipCore(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+if strcmp(chosen, 'orbit')
+    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y);
+
+    % Three-layer fallback guard.
+    %  1. Cross-cancellation: |<X,Y>| small relative to sqrt(<X,X><Y,Y>).
+    %     The orbit estimate may be dominated by cancellation between
+    %     partition-orbit terms.
+    denomGeo = sqrt(max(ip_xx * ip_yy, 0));
+    crossCancel = denomGeo > 0 && abs(ip_xy) < cancellationThreshold * denomGeo;
+    %  2. Post-hoc sanity: non-finite, negative auto-IP (unambiguous Gram
+    %     diagonal sign flip), or |cosine| > 1.
+    corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+    %  3. Runtime cancellation diagnostic (worst |sum|/max(|term|) across
+    %     the three IPs): below 1e-10 means ~6 surviving decimal digits or
+    %     fewer — borderline acceptable for cosine but past this point fall
+    %     back to pairwise. See V22_DEV_LOG for the empirical regime.
+    cancelTooSevere = worstRatio < 1e-10;
+
+    if crossCancel || corrupted || cancelTooSevere
+        chosen = 'pairwise';   % fall through to the pairwise branch below
+    else
+        ranOrbit = true;
+    end
+end
+
+if ~ranOrbit
+    % Pairwise branch (also entered when 'method', 'pairwise' was set,
+    % and when an orbit-then-fallback occurred). Heavy fields needed.
+    dens_x = ensureExpTensExpensive(dens_x);
+    dens_y = ensureExpTensExpensive(dens_y);
+
+    Ux_perm  = dens_x.U_perm;
+    wx_perm  = dens_x.w_perm;
+    nJx      = dens_x.nJ_perm;
+    Vx_comb  = dens_x.V_comb;
+    wvx_comb = dens_x.wv_comb;
+    nKx      = dens_x.nK;
+
+    Uy_perm  = dens_y.U_perm;
+    wy_perm  = dens_y.w_perm;
+    nJy      = dens_y.nJ_perm;
+    Vy_comb  = dens_y.V_comb;
+    wvy_comb = dens_y.wv_comb;
+    nKy      = dens_y.nK;
+
+    % Estimated computation time for all three inner products:
+    % Total pairs = nJx*nKy + nJx*nKx + nJy*nKy
+    totalPairs = double(nJx)*double(nKy) + double(nJx)*double(nKx) ...
+               + double(nJy)*double(nKy);
+    estimateCompTime(totalPairs, r, 'cosSimExpTens', verbose);
+
+    ip_xy = ipCore(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
+    ip_xx = ipCore(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
+    ip_yy = ipCore(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+end
 
 s = ip_xy / sqrt(ip_xx * ip_yy);
 
@@ -548,11 +605,187 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
 end
 
 % =========================================================================
-%  localCosSimMA — multi-attribute (MAET) cosine similarity
+%  v2.2 SA orbit dispatch helpers (method='auto'|'pairwise'|'orbit')
 % =========================================================================
 
+function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
+                                       sigmaOverP, userMethod, n_min, ...
+                                       verbose)
+%LOCALSELECTSAMETHOD  Choose the inner-product path for SA cosSimExpTens.
+%
+%   Routing rules (in order):
+%     1. userMethod ~= 'auto' overrides everything.
+%     2. r <= 1: orbit machinery is undefined for r < 2; pairwise is
+%        trivially fast.
+%     3. r == 2 and n_max <= 8: pairwise dominates because the orbit
+%        overhead (4 orbits, contraction dispatch) exceeds the kernel
+%        matvec cost.
+%     4. r > 6: shipped orbit tables stop at r=6.
+%     5. K-vs-r precision guard: orbit's Mobius alternating sum can
+%        suffer catastrophic cancellation when n_min is too close to r.
+%        Margin is 2 (i.e., n_min - r >= 2 required).
+%     6. Periodic-relative beyond sigma/period > 0.03: orbit computes
+%        the JMM Eq. 3.4 integral form; pairwise computes the
+%        single-nearest-image-wrap form. They diverge in this regime.
+%        For backward compatibility with v2.1 the toolbox treats
+%        pairwise-wrap as canonical; warn and fall back unless the user
+%        explicitly asked for 'orbit'.
 
-function s = localCosSimMA(dens_x, dens_y, verbose)
+    if ~strcmp(userMethod, 'auto')
+        chosen = userMethod;
+        return;
+    end
+    if r <= 1
+        chosen = 'pairwise';
+        return;
+    end
+    if r == 2 && n_max <= 8
+        chosen = 'pairwise';
+        return;
+    end
+    if r > 6   % _ORBIT_R_MAX_SHIPPED
+        chosen = 'pairwise';
+        return;
+    end
+    if n_min - r < 2   % _ORBIT_K_MINUS_R_MIN
+        chosen = 'pairwise';
+        return;
+    end
+    if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+        if verbose
+            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
+                    ['sigma/period = %.3f exceeds the orbit-path threshold ' ...
+                     '(0.03) for periodic-relative mode; falling back to ' ...
+                     'the pairwise-wrap form. Pass ''method'', ''pairwise'' ' ...
+                     'explicitly to silence this warning.'], sigmaOverP);
+        end
+        chosen = 'pairwise';
+        return;
+    end
+    chosen = 'orbit';
+end
+
+
+function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y)
+%LOCALCOSSIMSAORBIT  Three SA inner products via Mobius/orbit machinery.
+%
+%   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
+%   and worstRatio = the minimum cancellation ratio across the three
+%   alternating sums. A worstRatio near 1 indicates negligible
+%   cancellation; values << 1 indicate digits of precision lost.
+
+    sigma  = dens_x.sigma;
+    r      = dens_x.r;
+    isRel  = dens_x.isRel;
+    isPer  = dens_x.isPer;
+    period = dens_x.period;
+    p_x = dens_x.p; w_x = dens_x.w;
+    p_y = dens_y.p; w_y = dens_y.w;
+
+    if isRel
+        [ip_xy, r_xy] = localOrbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
+        [ip_xx, r_xx] = localOrbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
+        [ip_yy, r_yy] = localOrbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+    else
+        [ip_xy, r_xy] = localOrbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
+        [ip_xx, r_xx] = localOrbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
+        [ip_yy, r_yy] = localOrbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+    end
+    worstRatio = min([r_xy, r_xx, r_yy]);
+end
+
+
+function [val, ratio] = localOrbitInnerAbsSA(p_a, w_a, p_b, w_b, ...
+                                              sigma, r, isPer, period)
+%LOCALORBITINNERABSSA  <T_A, T_B>_abs via mobius.innerProductOrbit.
+    p_a = p_a(:); p_b = p_b(:);
+    diffs = p_a - p_b.';                              % n_a x n_b
+    if isPer
+        diffs = diffs - period * floor(diffs / period + 0.5);
+    end
+    K = exp(-(diffs.^2) / (4 * sigma^2));
+    [val, ratio] = mobius.innerProductOrbit(K, w_a(:), w_b(:), r, ...
+        'prefactor', (sigma * sqrt(pi))^r, ...
+        'returnCancellationRatio', true);
+end
+
+
+function [val, ratio] = localOrbitInnerRelSA(p_a, w_a, p_b, w_b, ...
+                                              sigma, r, isPer, period)
+%LOCALORBITINNERRELSA  <T_A, T_B>_rel via translation-grid integration.
+%
+%   Marginalises a translation u over [0, period) (periodic) or a
+%   Gaussian-supported window around the alignment of A and B
+%   (non-periodic), and integrates the orbit-evaluated kernel against u.
+%   Grid density is samplesPerSigma points per sigma; the truncation in
+%   the non-periodic case extends 8*sigma beyond the natural overlap.
+
+    samplesPerSigma = 10;
+    p_a = p_a(:); p_b = p_b(:);
+    n_a = numel(p_a); n_b = numel(p_b);
+
+    if isPer
+        N_u = max(64, ceil(period / sigma * samplesPerSigma));
+        u_grid = (0:N_u-1)' * (period / N_u);
+        du = period / N_u;
+    else
+        u_min = min(p_b) - max(p_a) - 8 * sigma;
+        u_max = max(p_b) - min(p_a) + 8 * sigma;
+        N_u = max(64, ceil(max(u_max - u_min, 1.0) / sigma * samplesPerSigma));
+        u_grid = linspace(u_min, u_max, N_u)';
+    end
+
+    % Build N_u x n_a x n_b stack of differences and Gaussian kernels.
+    diffs = reshape(u_grid, N_u, 1, 1) ...
+          + reshape(p_a, 1, n_a, 1) ...
+          - reshape(p_b, 1, 1, n_b);
+    if isPer
+        diffs = diffs - period * floor(diffs / period + 0.5);
+    end
+    K_u = exp(-(diffs.^2) / (4 * sigma^2));
+
+    [F, ratios] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
+        'returnCancellationRatio', true);
+
+    if isPer
+        integral = sum(F) * du;
+    else
+        integral = trapz(u_grid, F);
+    end
+    c = sigma * sqrt(2 * pi / r);
+    val = (sigma * sqrt(pi))^r * integral / c^2;
+    ratio = min(ratios);
+end
+
+
+function corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
+%LOCALORBITIPSCORRUPTED  Cheap post-hoc sanity check on orbit IPs.
+%
+%   Triggers on:
+%     - non-finite IP (NaN or Inf in any of the three),
+%     - negative auto-IP (Gram diagonal must be >= 0; sign flip is
+%       unambiguous corruption),
+%     - cosine magnitude > 1 + 1e-6 (impossible for a genuine cosine).
+%
+%   Catches the catastrophic-overflow regime (sigma -> 0 with low K).
+%   Does NOT catch the quieter sharp-Gaussian regime where IPs are
+%   finite-looking but ~1e-4 to 1e-2 wrong; the cancellation-ratio
+%   guard handles that.
+
+    corrupted = false;
+    if ~all(isfinite([ip_xy, ip_xx, ip_yy]))
+        corrupted = true;
+        return;
+    end
+    if ip_xx < 0 || ip_yy < 0
+        corrupted = true;
+        return;
+    end
+    denom = sqrt(ip_xx * ip_yy);
+    if denom > 0 && abs(ip_xy) > 1.000001 * denom
+        corrupted = true;
+    end
+end
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute

@@ -684,78 +684,15 @@ function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y)
     p_y = dens_y.p; w_y = dens_y.w;
 
     if isRel
-        [ip_xy, r_xy] = localOrbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
-        [ip_xx, r_xx] = localOrbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
-        [ip_yy, r_yy] = localOrbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+        [ip_xy, r_xy] = mobius.orbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
+        [ip_xx, r_xx] = mobius.orbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
+        [ip_yy, r_yy] = mobius.orbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
     else
-        [ip_xy, r_xy] = localOrbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
-        [ip_xx, r_xx] = localOrbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
-        [ip_yy, r_yy] = localOrbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+        [ip_xy, r_xy] = mobius.orbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
+        [ip_xx, r_xx] = mobius.orbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
+        [ip_yy, r_yy] = mobius.orbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
     end
     worstRatio = min([r_xy, r_xx, r_yy]);
-end
-
-
-function [val, ratio] = localOrbitInnerAbsSA(p_a, w_a, p_b, w_b, ...
-                                              sigma, r, isPer, period)
-%LOCALORBITINNERABSSA  <T_A, T_B>_abs via mobius.innerProductOrbit.
-    p_a = p_a(:); p_b = p_b(:);
-    diffs = p_a - p_b.';                              % n_a x n_b
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
-    end
-    K = exp(-(diffs.^2) / (4 * sigma^2));
-    [val, ratio] = mobius.innerProductOrbit(K, w_a(:), w_b(:), r, ...
-        'prefactor', (sigma * sqrt(pi))^r, ...
-        'returnCancellationRatio', true);
-end
-
-
-function [val, ratio] = localOrbitInnerRelSA(p_a, w_a, p_b, w_b, ...
-                                              sigma, r, isPer, period)
-%LOCALORBITINNERRELSA  <T_A, T_B>_rel via translation-grid integration.
-%
-%   Marginalises a translation u over [0, period) (periodic) or a
-%   Gaussian-supported window around the alignment of A and B
-%   (non-periodic), and integrates the orbit-evaluated kernel against u.
-%   Grid density is samplesPerSigma points per sigma; the truncation in
-%   the non-periodic case extends 8*sigma beyond the natural overlap.
-
-    samplesPerSigma = 10;
-    p_a = p_a(:); p_b = p_b(:);
-    n_a = numel(p_a); n_b = numel(p_b);
-
-    if isPer
-        N_u = max(64, ceil(period / sigma * samplesPerSigma));
-        u_grid = (0:N_u-1)' * (period / N_u);
-        du = period / N_u;
-    else
-        u_min = min(p_b) - max(p_a) - 8 * sigma;
-        u_max = max(p_b) - min(p_a) + 8 * sigma;
-        N_u = max(64, ceil(max(u_max - u_min, 1.0) / sigma * samplesPerSigma));
-        u_grid = linspace(u_min, u_max, N_u)';
-    end
-
-    % Build N_u x n_a x n_b stack of differences and Gaussian kernels.
-    diffs = reshape(u_grid, N_u, 1, 1) ...
-          + reshape(p_a, 1, n_a, 1) ...
-          - reshape(p_b, 1, 1, n_b);
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
-    end
-    K_u = exp(-(diffs.^2) / (4 * sigma^2));
-
-    [F, ratios] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
-        'returnCancellationRatio', true);
-
-    if isPer
-        integral = sum(F) * du;
-    else
-        integral = trapz(u_grid, F);
-    end
-    c = sigma * sqrt(2 * pi / r);
-    val = (sigma * sqrt(pi))^r * integral / c^2;
-    ratio = min(ratios);
 end
 
 
@@ -1031,7 +968,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 %     7. Otherwise -> orbit.
 %
 %   has_nan is NOT a fallback: the MA orbit wrapper handles ragged K_{a,n}
-%   natively via zero-weight padding (see localMAPerAttrInnerMatrix).
+%   natively via zero-weight padding (see mobius.maPerAttrInnerMatrix).
 
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
@@ -1095,7 +1032,7 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
 %       <T_X, T_Y> = sum_{n_x, n_y} prod_a I_xy^{(a)}[n_x, n_y]
 %   so we element-wise multiply per-attribute matrices across attributes
 %   then sum. NaN-padded events are handled via zero-weight padding in
-%   localMAPerAttrInnerMatrix.
+%   mobius.maPerAttrInnerMatrix.
 
     A = dens_x.nAttrs;
     N_x = dens_x.N;
@@ -1116,11 +1053,11 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
         Px = dens_x.pAttr{a};   Wx = dens_x.w{a};
         Py = dens_y.pAttr{a};   Wy = dens_y.w{a};
 
-        I_xy = localMAPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
+        I_xy = mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
             sigma_g, r_a, isRel_g, isPer_g, period_g);
-        I_xx = localMAPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
+        I_xx = mobius.maPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
             sigma_g, r_a, isRel_g, isPer_g, period_g);
-        I_yy = localMAPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
+        I_yy = mobius.maPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
             sigma_g, r_a, isRel_g, isPer_g, period_g);
 
         P_xy = P_xy .* I_xy;
@@ -1131,107 +1068,6 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
     ip_xy = sum(P_xy(:));
     ip_xx = sum(P_xx(:));
     ip_yy = sum(P_yy(:));
-end
-
-
-function I = localMAPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
-                                         sigma, r, isRel, isPer, period)
-%LOCALMAPERATTRINNERMATRIX  Per-attribute (event_X, event_Y) IP matrix.
-%
-%   Px, Wx are (K_x, N_x); Py, Wy are (K_y, N_y). Returns I of shape
-%   (N_x, N_y) where entry (n_X, n_Y) is the per-attribute inner product
-%   over the K slot values of event n_X (X-side) against those of n_Y.
-%
-%   Ragged K_{a,n} (NaN-padded events) is handled via zero-weight
-%   padding: NaN entries in Px or Wx are replaced with arbitrary p (0)
-%   and zero weight, which kills any orbit term involving the padded
-%   slot and yields the mathematically correct event IP.
-%
-%   v2.2 limitation: the rel branch loops over event pairs without
-%   vectorisation (deferred). Auto dispatch routes rel cases to
-%   pairwise; orbit-rel runs only on explicit method='orbit' opt-in.
-
-    [Kx, Nx] = size(Px);
-    [Ky, Ny] = size(Py);
-
-    % Zero-pad: replace NaN entries (in P or W) with 0.
-    nanX = isnan(Px) | isnan(Wx);
-    if any(nanX(:))
-        Px(nanX) = 0;
-        Wx(nanX) = 0;
-    end
-    nanY = isnan(Py) | isnan(Wy);
-    if any(nanY(:))
-        Py(nanY) = 0;
-        Wy(nanY) = 0;
-    end
-
-    if r == 1
-        % Direct sum (no orbit machinery needed at r=1):
-        %   I[n_x, n_y] = (sigma*sqrt(pi))^r
-        %                * sum_{i,j} Wx[i,n_x] * Wy[j,n_y] * K[i,n_x;j,n_y]
-        % Build K_tens of shape (Kx, Nx, Ky, Ny) via implicit expansion.
-        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
-        end
-        K_tens = exp(-(diffs.^2) / (4 * sigma^2));
-        I = zeros(Nx, Ny);
-        for n_x = 1:Nx
-            % squeeze(K_tens(:, n_x, :, :)) is (Kx, Ky, Ny). Multiply
-            % by Wx(:, n_x) along Kx axis, then dot with Wy(:, n_y).
-            slab = squeeze(K_tens(:, n_x, :, :));     % (Kx, Ky, Ny)
-            % Wx(:, n_x).' * slab(:, :, n_y) gives (1, Ky); then dot Wy.
-            % Vectorise over n_y:
-            % Step 1: (Wx(:, n_x).' * slab) along axis 1 of slab.
-            %   reshape slab to (Kx, Ky*Ny), matmul, reshape back.
-            tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
-            % tmp is (Ky, Ny). Element-wise multiply by Wy and sum axis 1.
-            I(n_x, :) = sum(tmp .* Wy, 1);
-        end
-        I = I * (sigma * sqrt(pi))^r;
-        return;
-    end
-
-    % r >= 2 absolute: vectorised across event pairs via per-batch weights.
-    if ~isRel
-        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
-        end
-        K_tens = exp(-(diffs.^2) / (4 * sigma^2));   % (Kx, Nx, Ky, Ny)
-
-        % Reshape to (Nx*Ny, Kx, Ky):
-        K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (Nx, Ny, Kx, Ky)
-        K_pairs = reshape(K_perm, Nx*Ny, Kx, Ky);
-
-        % Per-batch A-side weights: (Nx, Ny, Kx) reshaped to (Nx*Ny, Kx).
-        % Wx is (Kx, Nx); broadcast across Ny.
-        Wx_t = Wx.';                                  % (Nx, Kx)
-        Wx_pairs = reshape(repmat(reshape(Wx_t, Nx, 1, Kx), 1, Ny, 1), ...
-                            Nx*Ny, Kx);
-        % Per-batch B-side weights: (Nx, Ny, Ky) reshaped to (Nx*Ny, Ky).
-        Wy_t = Wy.';                                  % (Ny, Ky)
-        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny, Ky), Nx, 1, 1), ...
-                            Nx*Ny, Ky);
-
-        flat = mobius.innerProductOrbitPwBatched( ...
-            K_pairs, Wx_pairs, Wy_pairs, r, ...
-            'prefactor', (sigma * sqrt(pi))^r);
-        I = reshape(flat, Nx, Ny);
-        return;
-    end
-
-    % r >= 2 relative: per-pair loop (un-vectorised in v2.2).
-    I = zeros(Nx, Ny);
-    for n_x = 1:Nx
-        for n_y = 1:Ny
-            % localOrbitInnerRelSA wraps mobius.innerProductOrbitGrid.
-            I(n_x, n_y) = localOrbitInnerRelSA( ...
-                Px(:, n_x), Wx(:, n_x), Py(:, n_y), Wy(:, n_y), ...
-                sigma, r, isPer, period);
-        end
-    end
 end
 
 

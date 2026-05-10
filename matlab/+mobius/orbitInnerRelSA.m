@@ -1,0 +1,66 @@
+function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
+                                          isPer, period)
+%MOBIUS.ORBITINNERRELSA  <T_A, T_B>_rel via translation-grid integration.
+%
+%   [VAL, RATIO] = MOBIUS.ORBITINNERRELSA(P_A, W_A, P_B, W_B, SIGMA, R,
+%                                          IS_PER, PERIOD)
+%   computes the relative-mode SA inner product by marginalising a
+%   translation u over [0, period) (periodic) or a Gaussian-supported
+%   window around the alignment of A and B (non-periodic), and
+%   integrating the orbit-evaluated kernel against u via
+%   MOBIUS.INNERPRODUCTORBITGRID.
+%
+%   Grid density is samplesPerSigma = 10 points per sigma; the
+%   truncation in the non-periodic case extends 8*sigma beyond the
+%   natural overlap.
+%
+%   Inputs:
+%     P_A, W_A   (n_a, 1) source positions and weights for density A.
+%     P_B, W_B   (n_b, 1) source positions and weights for density B.
+%     SIGMA      positive scalar; Gaussian smoothing in pitch space.
+%     R          integer >= 2.
+%     IS_PER     logical.
+%     PERIOD     positive scalar; periodic mode only.
+%
+%   Outputs:
+%     VAL        scalar inner product.
+%     RATIO      worst per-u-slice cancellation ratio in (0, 1].
+%
+%   See also MOBIUS.INNERPRODUCTORBITGRID, MOBIUS.ORBITINNERABSSA.
+
+    samplesPerSigma = 10;
+    p_a = p_a(:); p_b = p_b(:);
+    n_a = numel(p_a); n_b = numel(p_b);
+
+    if isPer
+        N_u = max(64, ceil(period / sigma * samplesPerSigma));
+        u_grid = (0:N_u-1)' * (period / N_u);
+        du = period / N_u;
+    else
+        u_min = min(p_b) - max(p_a) - 8 * sigma;
+        u_max = max(p_b) - min(p_a) + 8 * sigma;
+        N_u = max(64, ceil(max(u_max - u_min, 1.0) / sigma * samplesPerSigma));
+        u_grid = linspace(u_min, u_max, N_u)';
+    end
+
+    % Build N_u x n_a x n_b stack of differences and Gaussian kernels.
+    diffs = reshape(u_grid, N_u, 1, 1) ...
+          + reshape(p_a, 1, n_a, 1) ...
+          - reshape(p_b, 1, 1, n_b);
+    if isPer
+        diffs = diffs - period * floor(diffs / period + 0.5);
+    end
+    K_u = exp(-(diffs.^2) / (4 * sigma^2));
+
+    [F, ratios] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
+        'returnCancellationRatio', true);
+
+    if isPer
+        integral = sum(F) * du;
+    else
+        integral = trapz(u_grid, F);
+    end
+    c = sigma * sqrt(2 * pi / r);
+    val = (sigma * sqrt(pi))^r * integral / c^2;
+    ratio = min(ratios);
+end

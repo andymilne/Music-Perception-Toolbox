@@ -28,6 +28,10 @@ v2.2.0 is fully additive: existing v2.1 calling conventions are preserved at the
 
 - **`tensorHarmonicity` rewrite.** The function now bypasses `buildExpTens` entirely and routes through the orbit-rel evaluator with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the orbit path handles arbitrary K-template without the centres-array memory footprint.
 
+- **`tensorHarmonicity` batched mode rewritten to dedup-and-batch.** The previous per-row loop has been replaced with a two-pass implementation that groups rows by `(nP, dup)`, deduplicates canonical chord intervals within each group, and issues a single batched call to the orbit-rel evaluator per group. Same FP path as scalar mode (batched values now match scalar values to machine precision by construction rather than only by result cache). Verbose mode prints a one-line groups summary only for batches with ≥ 100 valid rows, matching the `min_print_sec=10` "silent for fast" semantics used by the other batched functions.
+
+- **`mobius.evalOrbitRel` u-grid vectorisation.** The sequential `for j = 1:N_u` loop in the relative-mode orbit evaluator has been replaced by a single chunked, batched call to `mobius.evalOrbitAbs`. `mobius.evalOrbitAbs` now accepts query arrays of shape `(r, ...)` with arbitrary trailing dimensions; previously it required `(r, n_q)` exactly. Existing `(r, n_q)` callers see no change. The vectorisation eliminates the per-u-point MATLAB/Python function-call boundary; the effect is largest for small-`n_q` calls (where dispatch dominated). Output is bit-identical to the previous sequential implementation.
+
 ### Numerical equivalence
 
 - v2.1 default routing chose `method='pairwise'` implicitly. v2.2 default routing chooses `method='auto'`, which selects pairwise for the regimes where it dominates and orbit elsewhere. In regimes where both paths are valid, they agree to floating-point precision; the user-visible cosine / entropy / eval values are unchanged across the v2.1 → v2.2 boundary at default settings.

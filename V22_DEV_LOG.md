@@ -532,3 +532,56 @@ Test count at Phase 1 close: **683 MATLAB / 340 Python v22**.
 - r ∈ {7, 8} orbit tables. Cost-model crossover currently unfavourable beyond r=6 in standard regimes; deferred until a use case requires it.
 - Tightening the K-vs-r precision guard (`_ORBIT_K_MINUS_R_MIN = 2`) — the empirical-calibration constant. Could be replaced with a dynamic per-call cancellation prediction once enough audit data accumulates.
 - Test redundancy audit on the v22 corpus (~130 tests). Lazy-density tests and Möbius-vs-toolbox cross-validation tests are the prime candidates. Roughly 1–2 hours of focused work; defer until v2.3 stabilises.
+
+---
+
+## Session 2026-05-11 — `tensorHarmonicity` batched bug fix + `evalOrbitRel` u-grid vectorisation
+
+Andrew profiled the v2.2.0 `tensorHarmonicity` batched path on a 180,901-row triad sweep (4-cent step over 2400 cents) and reported the function projected ~13.3 hours of work. Direct `evalExpTens` of the same chord set on the same machine completed in 138 seconds via the centres path. Two entry points, dramatically different speeds — clearly a structural bug, not an algorithmic limit.
+
+**Diagnosis.** `localBatchedTensorHarmonicity` looped one row at a time, calling `mobius.evalOrbitRel` per chord with `x_query` shaped `(r-1, 1)`. Inside, `evalOrbitRel`'s `for j = 1:N_u` loop iterated ~1000 u-grid points sequentially, each calling `evalOrbitAbs` with a single (r, 1) query. For ~90,000 unique canonical chords × ~1000 u-grid iterations × per-call dispatch overhead the work compounded into hours of MATLAB function-call boundary cost with seconds of actual numerical work.
+
+**Fix.** Two structural changes, packaged as one cross-language commit.
+
+1. **`mobius.evalOrbitAbs` generalised to `(r, …)` trailing-dim queries.** The previous `(r, n_q)` shape constraint becomes `(r, …)` with arbitrary trailing dimensions; output shape preserves the trailing dims. The 2-D path is unchanged at the FP level (still returns a `(n_q, 1)` column vector in MATLAB / a `(n_q,)` 1-D array in Python for 2-D input). Backward-compatible; the higher-dimensional form is the entry point `evalOrbitRel` uses internally to batch its u-grid loop.
+
+2. **`mobius.evalOrbitRel` u-grid loop vectorised + chunked.** The Python `for j, u in enumerate(u_grid)` / MATLAB `for j = 1:N_u` loop is replaced by a single call to `evalOrbitAbs` with `x` reshaped to `(r, N_u, n_q_chunk)`. The query axis is chunked at a ~1 GB memory budget (`per_chunk_bytes_per_query = 8 · r · N_u · N · fudge`). Output is bit-identical to the pre-v2.2.x sequential implementation (verified in `tests/v22/test_orbit_vectorisation.{m,py}`: `max abs diff = 0.0` for randomised r=2/3 × periodic/non-periodic cases).
+
+3. **`localBatchedTensorHarmonicity` rewritten as dedup-and-batch.** Two-pass:
+   - Pass 1: per-row metadata (`nP`, `dup`, canonical chord key, intervals).
+   - Pass 2: group valid rows by `(nP, dup)`; within each group dedup canonical chords via a key-to-index map; build the `(r-1, n_unique)` query matrix; one batched call to `localTensorHarmonicityOrbit` (which wraps `mobius.evalOrbitRel`); distribute values back to rows via the index map.
+
+   This is the structural fix: scalar and batched modes now share the same FP path (`mobius.evalOrbitRel` directly), so batched values match scalar values to machine precision by construction. The previous warm-up + 10-row calibration estimate is retired; verbose mode prints a one-line "valid rows / groups" summary only when at least 100 valid rows are present, matching the `min_print_sec = 10` "silent for fast" semantics used by the other batched functions.
+
+**Dispatcher unchanged.** I considered relaxing `localSelectSAEvalMethod`'s `isRel → 'centres'` rule (so the demo's direct `evalExpTens` call would also benefit), but the cost model doesn't support it: orbit-rel does `B_r · r · K · N_u` work per query vs centres' `K^r`, and for the demo regime (`K = 72, r = 3, N_u ≈ 5000`) this is ~6× more work, not less. The dispatcher correctly stays on centres for rel-mode in standard regimes; users wanting orbit-rel (e.g. `K` too large for the centres array) opt in explicitly via `method='orbit'`.
+
+**What changed for users.**
+- `tensorHarmonicity(P, ...)` in batched mode: the per-row dispatch overhead is gone. Speedup depends on the batch composition (dedup ratio, per-chord work).
+- `mobius.evalOrbitRel(...)` (direct calls and via `evalExpTens(..., method='orbit')`): the u-grid loop overhead is gone; effect most pronounced for small `n_q`.
+- `evalExpTens(p, w, sigma, r, true, false, period, X, ...)` with `method='auto'`: unchanged. The dispatcher still picks centres for rel-mode at standard `(r, K, σ/P)`.
+- Demo `demo_triadConsonance` direct-`evalExpTens` call: unchanged at 138 s for 4-cent step. Fine-grid (1-2 cent step) performance is bottlenecked in `evalFull`'s broadcast-subtract + exp on the (dim, nJ, nQc) intermediate, addressable in a future commit (symmetric-centres collapse, MEX, or GPU).
+
+**Tests.** Added `tests/v22/test_orbit_vectorisation.{m,py}`: 16 Python cases / 13 MATLAB cases covering the `(r, …)` API, chunked-vs-sequential FP parity, batched-vs-scalar parity, mixed-cardinality grouping, normalisation consistency, and dedup correctness. Full Python test sweep: 1043 passed, 0 failed.
+
+**Files changed.**
+- `matlab/+mobius/evalOrbitAbs.m`: rewritten to accept `(r, …)`; 2-D path unchanged.
+- `matlab/+mobius/evalOrbitRel.m`: u-grid loop replaced with chunked batched call.
+- `matlab/tensorHarmonicity.m`: `localBatchedTensorHarmonicity` rewritten; orphaned `localPackTensorNV` helper removed.
+- `python/mpt/_mobius.py`: `eval_orbit_abs` accepts `(r, …)`; `eval_orbit_rel` u-grid loop chunked.
+- `python/mpt/harmony.py`: `_tensor_harmonicity_batched` rewritten as dedup-and-batch.
+- `matlab/tests/v22/test_orbit_vectorisation.m`: new.
+- `python/tests/v22/test_orbit_vectorisation.py`: new.
+- `matlab/tests/test_mpt.m`: registers `test_orbit_vectorisation.m`.
+- `CHANGELOG.md`, `MIGRATION.md`: notes added.
+
+Test count after this commit: **MATLAB pending verification (target ≥ 699 + 13 new = 712); Python 1043 passed**.
+
+### Audit findings — not addressed in this commit
+
+Several other batched user-facing functions share the same per-row dispatch antipattern that `tensorHarmonicity` had. Each loops over rows and calls its scalar form per row.
+
+- `templateHarmonicity` — line 388 of `templateHarmonicity.m`; `_template_harmonicity_batched` in `harmony.py`.
+- `virtualPitches` — line 363 of `virtualPitches.m`; `_virtual_pitches_batched` in `harmony.py`.
+- `spectralEntropy` — line 298 of `spectralEntropy.m`; `_spectral_entropy_batched` in `entropy.py`.
+
+These would benefit from the same dedup-and-batch refactor used here. Each is structurally more complex than `tensorHarmonicity` because the chord enters into the *density* (not just the query), so per-row densities differ and the batched call would need to either build a stacked density or batch across density-construction. Not blockers — the per-row pattern works correctly, just leaves performance on the table. Defer to a follow-up commit dedicated to the audit fix.

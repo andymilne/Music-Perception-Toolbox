@@ -101,26 +101,54 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
         u_grid = linspace(u_min, u_max, N_u);
     end
 
-    % Evaluate T_abs at each u-grid point and accumulate.
+    % Evaluate T_abs at each u-grid point and accumulate, batching the
+    % u-grid loop into a single vectorised call to MOBIUS.EVALORBITABS
+    % via its (r, ...) trailing-dim API. The intermediate
+    % (m, N, N_u, n_q) array can be very large for fine grids; we chunk
+    % along the query axis to bound peak memory.
+    %
+    % Memory budget: heuristic ~1 GB. Per-block intermediate is
+    % O(m * N * N_u * n_q_chunk * 8) bytes, dominated by the largest
+    % block size m_max <= r. The chunk size is solved for given r, N,
+    % N_u with a fudge factor for transient allocations during the
+    % per-partition arithmetic.
+    BUDGET_BYTES = 1024^3;
+    perChunkBytesPerQuery = 8 * r * N_u * numel(p) * 4;   % m_max <= r, fudge x4
+    chunkSize = max(1, floor(BUDGET_BYTES / max(perChunkBytesPerQuery, 1)));
+    chunkSize = min(chunkSize, n_q);
+
     F = zeros(N_u, n_q);
     if opts.returnCancellationRatio
         R = ones(N_u, n_q);
     end
-    for j = 1:N_u
-        u = u_grid(j);
-        x_full = zeros(r, n_q);
-        x_full(1, :) = u;
-        x_full(2:end, :) = u + x_rel;
+    for c0 = 1:chunkSize:n_q
+        c1 = min(c0 + chunkSize - 1, n_q);
+        idx = c0:c1;
+        nQc = numel(idx);
+
+        % Build (r, N_u, nQc) query stack: row 1 is u (shared across queries),
+        % rows 2..r are u + x_rel.
+        x_full = zeros(r, N_u, nQc);
+        u_re = reshape(u_grid, 1, N_u, 1);
+        x_full(1, :, :) = repmat(u_re, 1, 1, nQc);
+        if r >= 2
+            % x_rel(:, idx) is (r-1, nQc); add u_grid (broadcast over query)
+            x_rel_chunk = reshape(x_rel(:, idx), r - 1, 1, nQc);
+            x_full(2:end, :, :) = x_rel_chunk + u_re;
+        end
+
         if opts.returnCancellationRatio
-            [vals_j, ratios_j] = mobius.evalOrbitAbs(p, w, sigma, r, x_full, ...
+            [vals_chunk, ratios_chunk] = mobius.evalOrbitAbs( ...
+                p, w, sigma, r, x_full, ...
                 'is_per', opts.is_per, 'period', opts.period, ...
                 'returnCancellationRatio', true);
-            F(j, :) = vals_j(:)';
-            R(j, :) = ratios_j(:)';
+            F(:, idx) = reshape(vals_chunk, N_u, nQc);
+            R(:, idx) = reshape(ratios_chunk, N_u, nQc);
         else
-            vals_j = mobius.evalOrbitAbs(p, w, sigma, r, x_full, ...
+            vals_chunk = mobius.evalOrbitAbs( ...
+                p, w, sigma, r, x_full, ...
                 'is_per', opts.is_per, 'period', opts.period);
-            F(j, :) = vals_j(:)';
+            F(:, idx) = reshape(vals_chunk, N_u, nQc);
         end
     end
 

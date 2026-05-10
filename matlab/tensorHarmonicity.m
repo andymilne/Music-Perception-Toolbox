@@ -272,10 +272,16 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
 %   (NaN entries dropped per row); rows with fewer than 2 valid
 %   pitches yield NaN.
 %
-%   v2.2: per-row chord-canonical caching of the orbit-evaluated value
-%   (rows whose canonical (sorted, translation-removed) pitch sequences
-%   coincide share a single computation), plus per-dup template caching
-%   (chords of equal cardinality reuse one harmonic-template build).
+%   v2.2+: groups rows by (effective nP, dup), deduplicates canonical
+%   chord intervals within each group, and issues a single batched
+%   call to LOCALTENSORHARMONICITYORBIT (which wraps
+%   MOBIUS.EVALORBITREL) per group. This replaces the previous
+%   per-row loop, which paid MATLAB function-call overhead once per
+%   row regardless of how trivial each per-row computation was. With
+%   v2.2's u-grid vectorisation in MOBIUS.EVALORBITREL, the batched
+%   call processes all unique chord queries simultaneously. For
+%   uniform-cardinality batches the loop collapses to a single orbit
+%   call.
 
     nRows = size(P, 1);
     h = nan(nRows, 1);
@@ -283,7 +289,8 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
     haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
     if ~isempty(W) && ~haveRowWeights
         if isvector(W) && numel(W) == size(P, 2)
-            W_broadcast = W(:).';
+            % broadcastable; not yet used (chord weights don't enter
+            % the orbit eval, since the chord is the query side).
         else
             error('tensorHarmonicity:weightShape', ...
                 ['In batched mode, w must be empty, a matrix the same size as p, ' ...
@@ -291,148 +298,129 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
         end
     end
 
-    % Force inner scalar calls (warmup phase) to be silent regardless of
-    % nvArgs.verbose; we print one batched estimate at the top, not per-row.
-    nvArgsInner = nvArgs;
-    nvArgsInner.verbose = false;
-    nvPairs = localPackTensorNV(nvArgsInner);
     specArgs = nvArgs.spectrum;
     normalize = char(nvArgs.normalize);
     duplicateOpt = nvArgs.duplicate;
 
-    % Up-front time estimate (printed once). Empirical calibration via
-    % a uniformly-sampled subset of K rows, with one warm-up call to
-    % absorb first-call overhead. See templateHarmonicity for rationale.
-    % Calibration runs scalar (no cache), so the estimate is an upper
-    % bound when the result cache absorbs repeated canonical chords.
-    if nvArgs.verbose && nRows > 1
-        nCal = min(10, nRows);
-        sampleIdx = unique(round(linspace(1, nRows, nCal)));
-
-        % Warm-up: run the first valid sample once, untimed.
-        warmupDone = false;
-        for s = 1:numel(sampleIdx)
-            sIdx = sampleIdx(s);
-            pRowS = P(sIdx, :);
-            validS = ~isnan(pRowS);
-            pValidS = pRowS(validS);
-            if numel(pValidS) < 2
-                continue;
-            end
-            if haveRowWeights
-                wValidS = W(sIdx, validS);
-            elseif ~isempty(W)
-                wValidS = W_broadcast(validS);
-            else
-                wValidS = [];
-            end
-            tensorHarmonicity(pValidS(:), wValidS(:), sigma, nvPairs{:});
-            warmupDone = true;
-            break;
-        end
-
-        if warmupDone
-            tCalStart = tic;
-            nValidCal = 0;
-            for s = 1:numel(sampleIdx)
-                sIdx = sampleIdx(s);
-                pRowS = P(sIdx, :);
-                validS = ~isnan(pRowS);
-                pValidS = pRowS(validS);
-                if numel(pValidS) < 2
-                    continue;
-                end
-                if haveRowWeights
-                    wValidS = W(sIdx, validS);
-                elseif ~isempty(W)
-                    wValidS = W_broadcast(validS);
-                else
-                    wValidS = [];
-                end
-                tensorHarmonicity(pValidS(:), wValidS(:), sigma, nvPairs{:});
-                nValidCal = nValidCal + 1;
-            end
-            if nValidCal > 0
-                tCalTotal = toc(tCalStart);
-                tPerRow   = tCalTotal / nValidCal;
-                estTotal  = tCalTotal + tPerRow * nRows;
-                printBatchedEstimate('tensorHarmonicity', nRows, estTotal);
-            end
-        end
-    end
-
-    % --- Per-row main loop with caching ---
-    %   resultCache: canonical-key -> harmonicity value
-    %   templateCache: dup -> {tmpl_p, tmpl_w}
-    % The orbit point evaluator depends only on (tmpl_p, tmpl_w, sigma,
-    % r) and the chord's interval vector; the chord enters as the query
-    % and not into the template, so the template is keyed by dup alone.
-    resultCache   = containers.Map('KeyType', 'char', 'ValueType', 'double');
-    templateCache = containers.Map('KeyType', 'int32', 'ValueType', 'any');
-
+    % Pass 1: per-row metadata. Rows with fewer than 2 valid pitches
+    % keep h(k) = NaN and are excluded from grouping below.
+    rowNP = zeros(nRows, 1);
+    rowDup = zeros(nRows, 1);
+    rowKey = cell(nRows, 1);
+    rowIntervals = cell(nRows, 1);
+    largeDupWarned = false;
     for k = 1:nRows
         pRow = P(k, :);
         validMask = ~isnan(pRow);
         pK = pRow(validMask);
         if numel(pK) < 2
-            h(k) = NaN;
             continue;
         end
-
         nP = numel(pK);
         if duplicateOpt == 0
             dup = nP;
         else
             dup = duplicateOpt;
-            if dup > 3
-                warning('tensorHarmonicity:largeDuplicate', ...
-                    ['duplicate = %d: computation time grows rapidly ' ...
-                     'with duplication. Consider reducing to 3 or fewer.'], ...
-                    dup);
+        end
+        if dup > 3 && ~largeDupWarned
+            warning('tensorHarmonicity:largeDuplicate', ...
+                ['duplicate = %d: computation time grows rapidly ' ...
+                 'with duplication. Consider reducing to 3 or fewer.'], ...
+                dup);
+            largeDupWarned = true;
+        end
+        pSorted = sort(pK(:));
+        pCanon = pSorted - pSorted(1);
+        intervals = pCanon(2:end);
+
+        rowNP(k) = nP;
+        rowDup(k) = dup;
+        rowIntervals{k} = intervals;
+        rowKey{k} = sprintf('p=%s|s=%.12g|d=%d|n=%s', ...
+            mat2str(pCanon, 12), sigma, dup, normalize);
+    end
+
+    % Pass 2: group by (nP, dup); within each group dedup canonical
+    % chords; one batched orbit call per group; distribute back.
+    validRows = find(rowNP > 0);
+    if isempty(validRows)
+        return;
+    end
+
+    groupTags = arrayfun( ...
+        @(k) sprintf('%d_%d', rowNP(k), rowDup(k)), ...
+        validRows, 'UniformOutput', false);
+    [uniqueGroups, ~, groupIdx] = unique(groupTags);
+
+    if nvArgs.verbose
+        % Gate the groups print on a row-count threshold matching the
+        % 'silent for fast' semantics used by the other batched
+        % functions (printBatchedEstimate's min-print threshold). The
+        % threshold is deliberately rough: at >~100 rows the batched
+        % orbit call is likely to exceed the 10s estimate-print
+        % threshold; tiny batches stay silent.
+        nValid = numel(validRows);
+        if nValid >= 100
+            nGroups = numel(uniqueGroups);
+            if nGroups == 1
+                fprintf(['tensorHarmonicity: %d valid rows in 1 ' ...
+                         '(nP, dup) group.\n'], nValid);
+            else
+                fprintf(['tensorHarmonicity: %d valid rows across %d ' ...
+                         '(nP, dup) groups.\n'], nValid, nGroups);
+            end
+        end
+    end
+
+    for g = 1:numel(uniqueGroups)
+        rowsInGroup = validRows(groupIdx == g);
+        nP = rowNP(rowsInGroup(1));
+        dup = rowDup(rowsInGroup(1));
+        r = nP;
+
+        % Dedup canonical chords within the group.
+        keyToIdx = containers.Map('KeyType', 'char', 'ValueType', 'int32');
+        nUnique = 0;
+        groupRowKey = rowKey(rowsInGroup);
+        groupRowIntervals = rowIntervals(rowsInGroup);
+        rowToUniqueIdx = zeros(numel(rowsInGroup), 1);
+        for ii = 1:numel(rowsInGroup)
+            ck = groupRowKey{ii};
+            if isKey(keyToIdx, ck)
+                rowToUniqueIdx(ii) = keyToIdx(ck);
+            else
+                nUnique = nUnique + 1;
+                keyToIdx(ck) = int32(nUnique);
+                rowToUniqueIdx(ii) = nUnique;
             end
         end
 
-        % Canonical chord key (rel mode, non-periodic): sort, subtract
-        % min. Weights are not used by the orbit eval (chord enters as
-        % a query, not into the template), so they are not part of the
-        % key — same canonical pitch sequence -> same result regardless
-        % of any chord-side w.
-        pSorted = sort(pK(:));
-        pCanon = pSorted - pSorted(1);
-        intervals = pCanon(2:end);   % (nP-1) x 1
-
-        key = sprintf('p=%s|s=%.12g|r=%d|d=%d|n=%s', ...
-            mat2str(pCanon, 12), sigma, nP, dup, normalize);
-
-        if isKey(resultCache, key)
-            h(k) = resultCache(key);
-            continue;
+        % Build (r-1, nUnique) query matrix from unique intervals.
+        queryMat = zeros(r - 1, nUnique);
+        seen = false(nUnique, 1);
+        for ii = 1:numel(rowsInGroup)
+            uIdx = rowToUniqueIdx(ii);
+            if ~seen(uIdx)
+                queryMat(:, uIdx) = groupRowIntervals{ii};
+                seen(uIdx) = true;
+            end
         end
 
-        % Build / fetch the harmonic-series template.
-        dupKey = int32(dup);
-        if isKey(templateCache, dupKey)
-            tmplPair = templateCache(dupKey);
-            tmpl_p = tmplPair{1};
-            tmpl_w = tmplPair{2};
-        else
-            [tmpl_p, tmpl_w] = addSpectra(zeros(dup, 1), ones(dup, 1), ...
-                                            specArgs{:});
-            templateCache(dupKey) = {tmpl_p, tmpl_w};
-        end
+        % Build harmonic template once per group, then ONE batched call
+        % to localTensorHarmonicityOrbit (which wraps mobius.evalOrbitRel
+        % and applies normalisation). Same FP path as scalar mode, so
+        % batched values match scalar values to machine precision.
+        [tmpl_p, tmpl_w] = addSpectra(zeros(dup, 1), ones(dup, 1), ...
+                                       specArgs{:});
+        vals = localTensorHarmonicityOrbit( ...
+            tmpl_p, tmpl_w, sigma, r, queryMat, normalize);
+        vals = vals(:);
 
-        h_vec = localTensorHarmonicityOrbit( ...
-            tmpl_p, tmpl_w, sigma, nP, intervals, normalize);
-        h(k) = h_vec(1);
-        resultCache(key) = h(k);
+        % Distribute back to rows.
+        for ii = 1:numel(rowsInGroup)
+            h(rowsInGroup(ii)) = vals(rowToUniqueIdx(ii));
+        end
     end
 end
 
 
-function nvPairs = localPackTensorNV(nvArgs)
-    nvPairs = {};
-    fns = fieldnames(nvArgs);
-    for i = 1:numel(fns)
-        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
-    end
-end

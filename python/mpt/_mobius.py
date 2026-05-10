@@ -939,11 +939,21 @@ def eval_orbit_abs(
     inner sum factorises across blocks because each block's factor
     depends only on its own block-index ``i``.
 
-    Memory: ``O(B_r · m_max · N · n_q)`` per partition (transient,
-    freed before next partition). Compare to the centre-array path's
-    ``O(N!/(N-r)! · n_q)`` peak. For r=4 with N=20 events and
-    n_q=1000 query points, the centre-array path needs ~3.7 GB; this
-    path needs ~5 MB.
+    *x* may be a 2-D array of shape ``(r, n_q)`` or a higher-
+    dimensional array of shape ``(r, ...)`` where ``...`` is any
+    product of trailing dimensions. The output has the same trailing
+    shape (a 1-D array of length ``n_q`` when ``...`` is ``(n_q,)``).
+    The higher-dimensional form is the entry point used by
+    :func:`eval_orbit_rel` when it batches its u-grid loop into a
+    single vectorised call.
+
+    Memory: ``O(B_r · m_max · N · n_q_total)`` per partition
+    (transient, freed before next partition), where ``n_q_total`` is
+    the product of trailing dimensions. Compare to the centre-array
+    path's ``O(N!/(N-r)! · n_q_total)`` peak. Callers responsible for
+    sizing the trailing dims to fit in available memory;
+    :func:`eval_orbit_rel` chunks the query axis when it batches its
+    u-grid loop.
 
     Parameters
     ----------
@@ -955,8 +965,9 @@ def eval_orbit_abs(
         Gaussian width.
     r : int
         Tensor order. Must be ≥ 1.
-    x : (r, n_q) ndarray
-        Query points; one column per point.
+    x : (r, ...) ndarray
+        Query points; the first dimension must equal ``r``, the
+        remaining dimensions are query indices.
     is_per : bool
         Periodic mode flag. When True, all differences are wrapped to
         ``[-period/2, period/2)`` before squaring.
@@ -964,15 +975,16 @@ def eval_orbit_abs(
         Period (only consulted when ``is_per`` is True).
     return_cancellation_ratio : bool, default False
         If True, additionally return the per-query-point cancellation
-        ratios from the set-partition alternating sum, shape
-        ``(n_q,)``. Same interpretation as in the IP orbit machinery.
+        ratios from the set-partition alternating sum, with the same
+        trailing shape as the values. Same interpretation as in the
+        IP orbit machinery.
 
     Returns
     -------
-    ndarray, shape (n_q,)
-        Tensor values at the query points. With
-        ``return_cancellation_ratio=True``, returns a 2-tuple of
-        ``(values, ratios)``.
+    ndarray
+        Tensor values with shape matching the trailing dims of *x*.
+        With ``return_cancellation_ratio=True``, returns a 2-tuple
+        of ``(values, ratios)``.
 
     Notes
     -----
@@ -982,33 +994,44 @@ def eval_orbit_abs(
     """
     if r < 1:
         raise ValueError(f"r must be >= 1; got r={r}.")
-    if x.ndim != 2 or x.shape[0] != r:
+    if x.ndim < 1 or x.shape[0] != r:
         raise ValueError(
-            f"x must have shape (r, n_q) with r={r}; got {x.shape}."
+            f"x must have shape (r, ...) with r={r}; got {x.shape}."
         )
 
-    n_q = x.shape[1]
+    # Collapse trailing dimensions to a single query axis. Restore
+    # shape on output. This lets the inner loop stay 2-D while the
+    # API accepts any (r, ...) shape.
+    out_shape = x.shape[1:]
+    n_q_total = int(np.prod(out_shape)) if out_shape else 1
+    if n_q_total == 0:
+        empty = np.zeros(out_shape, dtype=np.float64)
+        if return_cancellation_ratio:
+            return empty, np.ones(out_shape, dtype=np.float64)
+        return empty
+    x_flat = x.reshape(r, n_q_total)
+
     N = p.shape[0]
     inv_2s2 = 1.0 / (2.0 * sigma * sigma)
 
     partitions = get_set_partitions_with_mobius(r)
-    total = np.zeros(n_q, dtype=np.float64)
-    max_abs_term = np.zeros(n_q, dtype=np.float64)
+    total = np.zeros(n_q_total, dtype=np.float64)
+    max_abs_term = np.zeros(n_q_total, dtype=np.float64)
 
     for blocks, mu in partitions:
         # Per-partition factor: ∏_l (per-block scalar at each query)
-        block_factor = np.ones(n_q, dtype=np.float64)
+        block_factor = np.ones(n_q_total, dtype=np.float64)
         for B in blocks:
             m = len(B)
-            # x_B has shape (m, n_q); p has shape (N,)
-            # We need Σ_{k∈B}(x_k(q) - p_i)² for each (i, q): shape (N, n_q)
-            x_B = x[list(B), :]  # (m, n_q)
-            # (m, N, n_q) — broadcasted differences
+            # x_B has shape (m, n_q_total); p has shape (N,)
+            # We need Σ_{k∈B}(x_k(q) - p_i)² for each (i, q): shape (N, n_q_total)
+            x_B = x_flat[list(B), :]  # (m, n_q_total)
+            # (m, N, n_q_total) — broadcasted differences
             diffs = x_B[:, None, :] - p[None, :, None]
             if is_per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
-            sq_sum = np.sum(diffs * diffs, axis=0)  # (N, n_q)
-            kernel = np.exp(-sq_sum * inv_2s2)  # (N, n_q)
+            sq_sum = np.sum(diffs * diffs, axis=0)  # (N, n_q_total)
+            kernel = np.exp(-sq_sum * inv_2s2)  # (N, n_q_total)
             # Multiply by w_i^m and sum over i
             wm = w ** m if m > 1 else w
             block_factor *= np.einsum('i,iq->q', wm, kernel, optimize=True)
@@ -1016,15 +1039,25 @@ def eval_orbit_abs(
         total += term
         np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
 
+    # Restore output shape.
+    if out_shape:
+        values = total.reshape(out_shape)
+    else:
+        values = total.reshape(())  # 0-D scalar array
+
     if return_cancellation_ratio:
         with np.errstate(divide='ignore', invalid='ignore'):
-            ratios = np.where(
+            ratios_flat = np.where(
                 max_abs_term > 0,
                 np.abs(total) / max_abs_term,
                 1.0,
             )
-        return total, ratios
-    return total
+        if out_shape:
+            ratios = ratios_flat.reshape(out_shape)
+        else:
+            ratios = ratios_flat.reshape(())
+        return values, ratios
+    return values
 
 
 # ---------------------------------------------------------------------
@@ -1125,33 +1158,52 @@ def eval_orbit_rel(
         )
         u_grid = np.linspace(u_min, u_max, N_u)
 
-    # For each u, build the full r-D query (u, u + x_rel) and evaluate
-    # eval_orbit_abs. Accumulate trapezoidally over u.
-    # Memory: keeping (N_u, n_q) of intermediate values.
+    # Evaluate T_abs at each u-grid point and accumulate, batching the
+    # u-grid loop into a single vectorised call to eval_orbit_abs via
+    # its (r, ...) trailing-dim API. The intermediate
+    # (m, N, N_u, n_q) array can be very large for fine grids; we chunk
+    # along the query axis to bound peak memory.
+    #
+    # Memory budget: heuristic ~1 GB. Per-block intermediate is
+    # O(m · N · N_u · n_q_chunk · 8) bytes, dominated by the largest
+    # block size m_max ≤ r. The chunk size is solved for given r, N,
+    # N_u with a fudge factor for transient allocations during the
+    # per-partition arithmetic.
+    BUDGET_BYTES = 1024 ** 3
+    per_chunk_bytes_per_query = 8 * r * N_u * p.shape[0] * 4  # m_max ≤ r, fudge ×4
+    chunk_size = max(1, BUDGET_BYTES // max(per_chunk_bytes_per_query, 1))
+    chunk_size = min(chunk_size, n_q)
+
     F = np.empty((N_u, n_q), dtype=np.float64)
     R = np.ones((N_u, n_q), dtype=np.float64) if return_cancellation_ratio else None
 
-    # x_full_q[k, q] for k=0..r-1: row 0 is u (added later), rows 1..r-1 are x_rel.
-    # We assemble per-u to keep memory bounded (broadcasting x_rel across u_grid
-    # would be N_u × r × n_q, fine for small grids but we do the per-u loop
-    # for clarity here).
-    for j, u in enumerate(u_grid):
-        x_full = np.empty((r, n_q), dtype=np.float64)
-        x_full[0, :] = u
-        x_full[1:, :] = u + x_rel
+    for c0 in range(0, n_q, chunk_size):
+        c1 = min(c0 + chunk_size, n_q)
+        n_q_chunk = c1 - c0
+
+        # Build (r, N_u, n_q_chunk) query stack: row 0 is u
+        # (broadcast across queries), rows 1..r-1 are u + x_rel.
+        x_full = np.empty((r, N_u, n_q_chunk), dtype=np.float64)
+        # Row 0: u_grid broadcast across query axis.
+        x_full[0, :, :] = u_grid[:, None]
+        if r >= 2:
+            # x_rel[:, c0:c1] has shape (r-1, n_q_chunk); broadcast u_grid.
+            x_full[1:, :, :] = u_grid[None, :, None] + x_rel[:, None, c0:c1]
+
         if return_cancellation_ratio:
-            vals, ratios = eval_orbit_abs(
+            vals_chunk, ratios_chunk = eval_orbit_abs(
                 p, w, sigma, r, x_full,
                 is_per=is_per, period=period,
                 return_cancellation_ratio=True,
             )
-            F[j, :] = vals
-            R[j, :] = ratios
+            F[:, c0:c1] = vals_chunk
+            R[:, c0:c1] = ratios_chunk
         else:
-            F[j, :] = eval_orbit_abs(
+            vals_chunk = eval_orbit_abs(
                 p, w, sigma, r, x_full,
                 is_per=is_per, period=period,
             )
+            F[:, c0:c1] = vals_chunk
 
     if is_per:
         integral = F.sum(axis=0) * du

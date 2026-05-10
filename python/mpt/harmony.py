@@ -758,10 +758,16 @@ def _tensor_harmonicity_orbit(
 def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
-    Per-row chord-level dedup of harmonicity computation: rows with
-    structurally-identical canonical chords share a single computed
-    value. Template tensor is also cached by ``dup``-value so chords
-    of equal cardinality share one template.
+    v2.2+: groups rows by (effective n_p, dup), deduplicates canonical
+    chord intervals within each group, and issues a single batched
+    call to :func:`_tensor_harmonicity_orbit` (which wraps
+    :func:`mpt._mobius.eval_orbit_rel`) per group. This replaces the
+    previous per-row loop, which paid a Python function-call boundary
+    once per row regardless of how trivial each per-row computation
+    was. With v2.2's u-grid vectorisation in ``eval_orbit_rel``, the
+    batched call processes all unique chord queries simultaneously.
+    For uniform-cardinality batches the loop collapses to a single
+    orbit call.
     """
     M, K = P.shape
     use_w = W is not None
@@ -771,59 +777,14 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, ver
             raise ValueError("W must be the same shape as P.")
 
     out = np.full(M, np.nan)
-    template_cache: dict = {}
-    result_cache: dict = {}
 
-    # Up-front time estimate (printed once for the whole batch). Empirical
-    # calibration via a uniformly-sampled subset of K rows, with one
-    # warm-up call to absorb first-call overhead. See
-    # _template_harmonicity_batched for rationale. The estimate is an
-    # upper bound when result_cache dedup collapses repeated canonical
-    # chords in the main loop (calibration runs scalar, no cache).
-    if verbose and M > 1:
-        n_cal = min(10, M)
-        sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
-
-        warmup_done = False
-        for s_idx in sample_idx:
-            p_row_s = P[s_idx]
-            mask_s = ~np.isnan(p_row_s)
-            p_valid_s = p_row_s[mask_s]
-            if len(p_valid_s) < 2:
-                continue
-            w_valid_s = W[s_idx, mask_s] if use_w else None
-            _tensor_harmonicity_scalar(
-                p_valid_s, w_valid_s, sigma, spectrum, duplicate, normalize,
-                verbose=False,
-            )
-            warmup_done = True
-            break
-
-        if warmup_done:
-            t_cal_start = time.perf_counter()
-            n_valid_cal = 0
-            for s_idx in sample_idx:
-                p_row_s = P[s_idx]
-                mask_s = ~np.isnan(p_row_s)
-                p_valid_s = p_row_s[mask_s]
-                if len(p_valid_s) < 2:
-                    continue
-                w_valid_s = W[s_idx, mask_s] if use_w else None
-                _tensor_harmonicity_scalar(
-                    p_valid_s, w_valid_s, sigma, spectrum, duplicate, normalize,
-                    verbose=False,
-                )
-                n_valid_cal += 1
-            if n_valid_cal > 0:
-                t_cal_total = time.perf_counter() - t_cal_start
-                t_per_row = t_cal_total / n_valid_cal
-                est_total = t_cal_total + t_per_row * M
-                maybe_print_batched_estimate(
-
-                    "tensor_harmonicity", M, est_total,
-
-                )
-
+    # Pass 1: per-row metadata. Rows with fewer than 2 valid pitches
+    # keep out[i] = NaN and are excluded from grouping below.
+    row_n_p = np.zeros(M, dtype=np.int64)
+    row_dup = np.zeros(M, dtype=np.int64)
+    row_keys: list = [None] * M
+    row_intervals: list = [None] * M
+    large_dup_warned = False
     for i in range(M):
         p_row = P[i]
         mask = ~np.isnan(p_row)
@@ -831,43 +792,96 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, ver
         n_p = len(p_valid)
         if n_p < 2:
             continue
-        w_valid = W[i, mask] if use_w else None
+        dup = duplicate if duplicate > 0 else n_p
+        if dup > 3 and not large_dup_warned:
+            warnings.warn(
+                f"duplicate = {dup}: computation time grows rapidly "
+                f"with duplication. Consider reducing to 3 or fewer.",
+                stacklevel=2,
+            )
+            large_dup_warned = True
 
-        # Canonical key for this chord (relative, non-periodic; matches
-        # the structural parameters used by the underlying density).
-        key, p_canon, w_canon = _chord_canonical_key(
-            p_valid, w_valid,
+        # Canonical key for this chord (relative, non-periodic).
+        key, p_canon, _ = _chord_canonical_key(
+            p_valid,
+            W[i, mask] if use_w else None,
             sigma=sigma, r=n_p, is_rel=True, is_per=False, period=1200.0,
         )
-        # Compose cache key with duplicate setting; auto (=0) uses chord
-        # cardinality, which is implicit in the canonical key.
-        dup = duplicate if duplicate > 0 else n_p
-        full_key = (key, dup)
 
-        if full_key in result_cache:
-            out[i] = result_cache[full_key]
-            continue
+        row_n_p[i] = n_p
+        row_dup[i] = dup
+        row_keys[i] = (key, dup, normalize)
+        row_intervals[i] = p_canon[1:] - p_canon[0]
 
-        # Build / fetch the harmonic-series template (p, w). The orbit
-        # point evaluator depends only on (tmpl_p, tmpl_w, sigma, r) and
-        # the chord's interval vector; we therefore key the template
-        # cache by ``dup`` alone (the chord cardinality enters the
-        # evaluator as ``r`` rather than into the cached arrays).
-        T_key = dup
-        if T_key not in template_cache:
-            tmpl_p_dup, tmpl_w_dup = add_spectra(
-                np.zeros(dup), np.ones(dup), *spectrum,
-            )
-            template_cache[T_key] = (tmpl_p_dup, tmpl_w_dup)
-        tmpl_p, tmpl_w = template_cache[T_key]
+    # Pass 2: group by (n_p, dup); within each group dedup canonical
+    # chords; one batched orbit call per group; distribute back.
+    valid_rows = np.flatnonzero(row_n_p > 0)
+    if valid_rows.size == 0:
+        return out
 
-        intervals = p_canon[1:] - p_canon[0]
-        h = _tensor_harmonicity_orbit(
-            tmpl_p, tmpl_w, sigma, n_p,
-            intervals.reshape(-1, 1), normalize,
+    group_tags = [(int(row_n_p[i]), int(row_dup[i])) for i in valid_rows]
+    unique_groups = sorted(set(group_tags))
+
+    if verbose:
+        # Gate the groups print on a row-count threshold matching the
+        # `maybe_print_batched_estimate` "silent for fast" semantics
+        # used by the other batched functions. The threshold is
+        # deliberately rough: at >~100 rows the batched orbit call is
+        # likely to exceed the 10s estimate-print threshold; tiny
+        # batches stay silent.
+        n_valid = int(valid_rows.size)
+        if n_valid >= 100:
+            n_groups = len(unique_groups)
+            if n_groups == 1:
+                print(
+                    f"tensor_harmonicity: {n_valid} valid rows in 1 "
+                    f"(n_p, dup) group."
+                )
+            else:
+                print(
+                    f"tensor_harmonicity: {n_valid} valid rows across "
+                    f"{n_groups} (n_p, dup) groups."
+                )
+
+    for n_p, dup in unique_groups:
+        rows_in_group = [int(i) for i in valid_rows
+                         if row_n_p[i] == n_p and row_dup[i] == dup]
+        r = n_p
+
+        # Dedup canonical chords within the group.
+        key_to_idx: dict = {}
+        unique_intervals: list = []
+        row_to_unique_idx = []
+        for i in rows_in_group:
+            ck = row_keys[i]
+            if ck in key_to_idx:
+                row_to_unique_idx.append(key_to_idx[ck])
+            else:
+                idx = len(unique_intervals)
+                key_to_idx[ck] = idx
+                unique_intervals.append(row_intervals[i])
+                row_to_unique_idx.append(idx)
+
+        n_unique = len(unique_intervals)
+        # Stack into (r-1, n_unique) query matrix.
+        query_mat = np.empty((r - 1, n_unique), dtype=np.float64)
+        for u_idx, ivs in enumerate(unique_intervals):
+            query_mat[:, u_idx] = ivs
+
+        # Build harmonic template once per group, then ONE batched
+        # call to _tensor_harmonicity_orbit (which wraps eval_orbit_rel
+        # and applies normalisation). Same FP path as scalar mode, so
+        # batched values match scalar values to machine precision.
+        tmpl_p, tmpl_w = add_spectra(
+            np.zeros(dup), np.ones(dup), *spectrum,
         )
-        result_cache[full_key] = float(h[0])
-        out[i] = result_cache[full_key]
+        vals = _tensor_harmonicity_orbit(
+            tmpl_p, tmpl_w, sigma, r, query_mat, normalize,
+        )
+
+        # Distribute back to rows.
+        for ii, i in enumerate(rows_in_group):
+            out[i] = float(vals[row_to_unique_idx[ii]])
 
     return out
 

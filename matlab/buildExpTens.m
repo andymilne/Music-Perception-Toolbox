@@ -87,9 +87,9 @@ function dens = buildExpTens(varargin)
 %   See also evalExpTens, cosSimExpTens.
 
     % ------------------------------------------------------------------
-    % Parse optional 'verbose' name-value pair and split positional args
+    % Parse optional name-value pairs and split positional args
     % ------------------------------------------------------------------
-    [posArgs, verbose] = localExtractVerbose(varargin);
+    [posArgs, verbose, lazy] = localExtractKwargs(varargin);
 
     if isempty(posArgs)
         error('buildExpTens:missingInputs', ...
@@ -100,10 +100,10 @@ function dens = buildExpTens(varargin)
 
     if iscell(first)
         % Multi-attribute path
-        dens = localBuildMA(posArgs, verbose);
+        dens = localBuildMA(posArgs, verbose, lazy);
     elseif isnumeric(first)
         % Single-attribute legacy path
-        dens = localBuildSA(posArgs, verbose);
+        dens = localBuildSA(posArgs, verbose, lazy);
     else
         error('buildExpTens:badFirstArg', ...
               ['First argument must be a numeric vector (single-attribute) ' ...
@@ -113,19 +113,31 @@ end
 
 
 % ======================================================================
-%  Helpers: verbose parsing
+%  Helpers: kwarg parsing
 % ======================================================================
 
-function [posArgs, verbose] = localExtractVerbose(args)
+function [posArgs, verbose, lazy] = localExtractKwargs(args)
     verbose = true;
+    lazy = true;  % v2.2: default to skinny dens; eager via 'lazy', false
     posArgs = args;
-    for i = 1:numel(args)
-        if (ischar(args{i}) || isstring(args{i})) && strcmpi(args{i}, 'verbose')
-            if i + 1 <= numel(args)
-                verbose = logical(args{i + 1});
+    i = 1;
+    while i <= numel(posArgs)
+        if (ischar(posArgs{i}) || isstring(posArgs{i})) ...
+                && any(strcmpi(posArgs{i}, {'verbose', 'lazy'}))
+            key = lower(char(posArgs{i}));
+            if i + 1 > numel(posArgs)
+                error('buildExpTens:kwargMissingValue', ...
+                      'Missing value for ''%s''.', key);
             end
-            posArgs = args(1:i - 1);
-            return;
+            switch key
+                case 'verbose'
+                    verbose = logical(posArgs{i + 1});
+                case 'lazy'
+                    lazy = logical(posArgs{i + 1});
+            end
+            posArgs(i:i + 1) = [];
+        else
+            i = i + 1;
         end
     end
 end
@@ -135,7 +147,7 @@ end
 %  Single-attribute (legacy v2.0.0) path
 % ======================================================================
 
-function dens = localBuildSA(posArgs, verbose)
+function dens = localBuildSA(posArgs, verbose, lazy)
 
     if numel(posArgs) ~= 7
         error('buildExpTens:saArgCount', ...
@@ -189,6 +201,35 @@ function dens = localBuildSA(posArgs, verbose)
 
     dim = r - isRel;
 
+    % --- Pack skinny struct (cheap fields only) ---
+    dens = struct();
+    dens.tag    = 'ExpTensDensity';
+    dens.p      = p;
+    dens.w      = w;
+    dens.sigma  = sigma;
+    dens.r      = r;
+    dens.isRel  = isRel;
+    dens.isPer  = isPer;
+    dens.period = period;
+    dens.dim    = dim;
+
+    if lazy
+        return
+    end
+
+    % --- Populate expensive fields (eager mode) ---
+    dens = localFillSAExpensive(dens, verbose);
+end
+
+
+function dens = localFillSAExpensive(dens, verbose)
+%LOCALFILLSAEXPENSIVE  Populate per-tuple SA fields on a skinny dens.
+
+    p     = dens.p;
+    w     = dens.w;
+    r     = dens.r;
+    isRel = dens.isRel;
+
     n      = numel(p);
     nPerms = factorial(r);
     nCombs = nchoosek(n, r);
@@ -223,16 +264,6 @@ function dens = localBuildSA(posArgs, verbose)
         Centres = U_perm;
     end
 
-    dens.tag     = 'ExpTensDensity';
-    dens.p       = p;
-    dens.w       = w;
-    dens.sigma   = sigma;
-    dens.r       = r;
-    dens.isRel   = isRel;
-    dens.isPer   = isPer;
-    dens.period  = period;
-    dens.dim     = dim;
-
     dens.Centres = Centres;
     dens.wJ      = w_perm;
     dens.nJ      = nJ;
@@ -250,7 +281,7 @@ end
 %  Multi-attribute (MAET) path
 % ======================================================================
 
-function dens = localBuildMA(posArgs, verbose)
+function dens = localBuildMA(posArgs, verbose, lazy)
 
     if numel(posArgs) ~= 8
         error('buildExpTens:maArgCount', ...
@@ -336,6 +367,65 @@ function dens = localBuildMA(posArgs, verbose)
     % Weights: normalise to 1 x A cell of K_a x N matrices
     wCell = localNormaliseWeights(wIn, A, Ka, N);
 
+    % --- Per-attribute dim profile (cheap; doesn't need tuple enumeration) ---
+
+    dimPerAttr = zeros(1, A);
+    for a = 1:A
+        g = groupOfAttr(a);
+        r_a = rVec(a);
+        if isRelVec(g)
+            if r_a >= 2
+                dimPerAttr(a) = r_a - 1;
+            else
+                dimPerAttr(a) = 0;  % degenerate (warned above)
+            end
+        else
+            dimPerAttr(a) = r_a;
+        end
+    end
+    dim = sum(dimPerAttr);
+
+    % --- Pack skinny struct ---
+
+    dens = struct();
+    dens.tag          = 'MaetDensity';
+    dens.nAttrs       = A;
+    dens.nGroups      = G;
+    dens.N            = N;
+    dens.groupOfAttr  = groupOfAttr;
+    dens.attrsOfGroup = attrsOfGroup;
+    dens.r            = rVec;
+    dens.K            = Ka;
+    dens.pAttr        = pAttr;
+    dens.w            = wCell;
+    dens.sigma        = sigmaVec;
+    dens.isRel        = isRelVec;
+    dens.isPer        = isPerVec;
+    dens.period       = periodVec;
+    dens.dim          = dim;
+    dens.dimPerAttr   = dimPerAttr;
+
+    if lazy
+        return
+    end
+
+    % --- Populate expensive fields (eager mode) ---
+    dens = localFillMAExpensive(dens, verbose);
+end
+
+
+function dens = localFillMAExpensive(dens, verbose)
+%LOCALFILLMAEXPENSIVE  Populate per-tuple MA fields on a skinny dens.
+
+    A           = dens.nAttrs;
+    G           = dens.nGroups;
+    N           = dens.N;
+    groupOfAttr = dens.groupOfAttr;
+    rVec        = dens.r;
+    isRelVec    = dens.isRel;
+    pAttr       = dens.pAttr;
+    wCell       = dens.w;
+
     % --- Per-event, per-attribute r-ad enumeration ---
 
     permIdx = cell(N, A);     % slot indices, perm side: r_a x P_{n,a}
@@ -356,19 +446,8 @@ function dens = localBuildMA(posArgs, verbose)
             end
 
             % For attributes with r_a = 1, equal-valued slots within the
-            % same event are exchangeable and can be collapsed. The
-            % density at r = 1 depends on the multiset only through its
-            % measure on the value axis: events with the same value
-            % contribute additively to the same Gaussian kernel. We
-            % implement the collapse by reducing 'valid' to the first
-            % occurrence of each unique value and modifying a *local
-            % copy* of wCol so that those first-occurrence positions
-            % carry the sum of the original weights of the
-            % equal-valued slots. Downstream lookups
-            % (valCol(permMat), wColLocal(permMat)) then read the
-            % correct values and (summed) weights without further
-            % changes. Not applied for r_a >= 2: source multiplicity
-            % carries information about within-tuple structure there.
+            % same event are exchangeable and can be collapsed (see SA
+            % path comment for full rationale).
             collapsed = false;
             wColOrig = wCell{a}(:, n);
             if r_a == 1 && K_na > 1
@@ -412,13 +491,9 @@ function dens = localBuildMA(posArgs, verbose)
             permIdx{n, a} = permMat;
             combIdx{n, a} = combMat;
 
-            % Slot-weight products (per-tuple). wColLocal is wCol with
-            % collapsed-slot summed weights when applicable.
+            % Slot-weight products (per-tuple).
             wCol = wColLocal;
             if r_a == 1
-                % permMat and combMat are 1 x P; indexing a column
-                % vector with a row-shaped index preserves the row
-                % shape, giving a 1 x P weight vector directly.
                 permW{n, a} = reshape(wCol(permMat), 1, []);
                 combW{n, a} = reshape(wCol(combMat), 1, []);
             else
@@ -467,8 +542,8 @@ function dens = localBuildMA(posArgs, verbose)
         szP = cellfun(@(M) size(M, 2), permIdx(n, :));
         szC = cellfun(@(M) size(M, 2), combIdx(n, :));
 
-        idxPerm = localCartesianIndices(szP);   % 1 x A cell of 1 x nJh
-        idxComb = localCartesianIndices(szC);   % 1 x A cell of 1 x nKh
+        idxPerm = localCartesianIndices(szP);
+        idxComb = localCartesianIndices(szC);
 
         wJh = ones(1, nJh);
         wKh = ones(1, nKh);
@@ -477,13 +552,11 @@ function dens = localBuildMA(posArgs, verbose)
             r_a = rVec(a);
             valCol = pAttr{a}(:, n);
 
-            % Perm side
-            slotPerm = permIdx{n, a}(:, idxPerm{a});           % r_a x nJh
+            slotPerm = permIdx{n, a}(:, idxPerm{a});
             U_perm{a}(:, offJ + 1 : offJ + nJh) = reshape(valCol(slotPerm), r_a, nJh);
             wJh = wJh .* permW{n, a}(idxPerm{a});
 
-            % Comb side
-            slotComb = combIdx{n, a}(:, idxComb{a});           % r_a x nKh
+            slotComb = combIdx{n, a}(:, idxComb{a});
             V_comb{a}(:, offK + 1 : offK + nKh) = reshape(valCol(slotComb), r_a, nKh);
             wKh = wKh .* combW{n, a}(idxComb{a});
         end
@@ -499,56 +572,32 @@ function dens = localBuildMA(posArgs, verbose)
 
     % --- Centres (per-attribute isRel reduction) ---
 
-    Centres    = cell(1, A);
-    dimPerAttr = zeros(1, A);
+    Centres = cell(1, A);
     for a = 1:A
         g = groupOfAttr(a);
         r_a = rVec(a);
         if isRelVec(g)
             if r_a >= 2
                 Centres{a} = U_perm{a}(2:r_a, :) - U_perm{a}(1, :);
-                dimPerAttr(a) = r_a - 1;
             else
-                % Degenerate case already warned above; emit an empty
-                % (0 x nJ) matrix so downstream code can detect it.
                 Centres{a} = zeros(0, nJ);
-                dimPerAttr(a) = 0;
             end
         else
             Centres{a} = U_perm{a};
-            dimPerAttr(a) = r_a;
         end
     end
-    dim = sum(dimPerAttr);
 
-    % --- Pack struct ---
+    % --- Append heavy fields ---
 
-    dens = struct();
-    dens.tag          = 'MaetDensity';
-    dens.nAttrs       = A;
-    dens.nGroups      = G;
-    dens.N            = N;
-    dens.groupOfAttr  = groupOfAttr;
-    dens.attrsOfGroup = attrsOfGroup;
-    dens.r            = rVec;
-    dens.K            = Ka;
-    dens.pAttr        = pAttr;
-    dens.w            = wCell;
-    dens.sigma        = sigmaVec;
-    dens.isRel        = isRelVec;
-    dens.isPer        = isPerVec;
-    dens.period       = periodVec;
-    dens.dim          = dim;
-    dens.dimPerAttr   = dimPerAttr;
-    dens.nJ           = nJ;
-    dens.nK           = nK;
-    dens.Centres      = Centres;
-    dens.U_perm       = U_perm;
-    dens.V_comb       = V_comb;
-    dens.wJ           = wJ;
-    dens.wv_comb      = wv_comb;
-    dens.eventOfJ     = eventOfJ;
-    dens.eventOfK     = eventOfK;
+    dens.nJ       = nJ;
+    dens.nK       = nK;
+    dens.Centres  = Centres;
+    dens.U_perm   = U_perm;
+    dens.V_comb   = V_comb;
+    dens.wJ       = wJ;
+    dens.wv_comb  = wv_comb;
+    dens.eventOfJ = eventOfJ;
+    dens.eventOfK = eventOfK;
 end
 
 

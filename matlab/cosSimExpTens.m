@@ -211,7 +211,10 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && strcmp(varargin{1}.tag, 'MaetDensity') ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'MaetDensity')
-    s = localCosSimMA(varargin{1}, varargin{2}, verbose);
+    s = localCosSimMA( ...
+        ensureExpTensExpensive(varargin{1}), ...
+        ensureExpTensExpensive(varargin{2}), ...
+        verbose);
     return;
 end
 
@@ -233,9 +236,9 @@ if nArgs == 10 && iscell(varargin{1})
     isPerVec  = varargin{9};
     periodVec = varargin{10};
     dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'verbose', verbose);
+        isRelVec, isPerVec, periodVec, 'lazy', false, 'verbose', verbose);
     dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'verbose', verbose);
+        isRelVec, isPerVec, periodVec, 'lazy', false, 'verbose', verbose);
     s = localCosSimMA(dens_x, dens_y, verbose);
     return;
 end
@@ -311,8 +314,8 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'ExpTensDensity')
     % --- Precomputed structs ---
-    dens_x = varargin{1};
-    dens_y = varargin{2};
+    dens_x = ensureExpTensExpensive(varargin{1});
+    dens_y = ensureExpTensExpensive(varargin{2});
 
     % Validate that both structs share compatible parameters
     if dens_x.r ~= dens_y.r
@@ -368,9 +371,11 @@ elseif nArgs == 9
     isPer  = varargin{8};
     J      = varargin{9};
 
-    % Build density structs on the fly
-    dens_x = buildExpTens(p1, w1, sigma, r, isRel, isPer, J, 'verbose', verbose);
-    dens_y = buildExpTens(p2, w2, sigma, r, isRel, isPer, J, 'verbose', verbose);
+    % Build density structs on the fly (eager — we use heavy fields below).
+    dens_x = buildExpTens(p1, w1, sigma, r, isRel, isPer, J, ...
+                          'lazy', false, 'verbose', verbose);
+    dens_y = buildExpTens(p2, w2, sigma, r, isRel, isPer, J, ...
+                          'lazy', false, 'verbose', verbose);
 
     Ux_perm  = dens_x.U_perm;
     wx_perm  = dens_x.w_perm;
@@ -765,6 +770,12 @@ function s = localCosSimWindowed(a, b, verbose)
         error('cosSimExpTens:windowedBadOperand', ...
               'Windowed density can only be compared with a MaetDensity.');
     end
+
+    % Ensure both operands have per-tuple fields populated (cheap if
+    % they came from buildExpTens with 'lazy', false; otherwise this
+    % is the one-line lazy expansion).
+    dens_q = ensureExpTensExpensive(dens_q);
+    dens_c = ensureExpTensExpensive(dens_c);
 
     % Structural compatibility checks.
     localCheckMACompat(dens_q, dens_c);

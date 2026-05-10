@@ -129,7 +129,8 @@ if doTensor
                 dup_tens);
     end
     [tp, tw] = addSpectra(zeros(dup_tens, 1), ones(dup_tens, 1), spec_tens{:});
-    T = buildExpTens(tp, tw, sigma_tens, 3, true, false, 1200, 'verbose', false);
+    T = buildExpTens(tp, tw, sigma_tens, 3, true, false, 1200, ...
+        'lazy', false, 'verbose', false);
     fprintf('  Done (%d ordered triples).\n', T.nJ);
 end
 

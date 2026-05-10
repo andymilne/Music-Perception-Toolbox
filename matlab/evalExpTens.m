@@ -149,7 +149,7 @@ if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         error(['Usage for a WindowedMaetDensity: evalExpTens(wmd, X).']);
     end
     X = varargin{2};
-    underlying = localEvalMA(wmd.dens, X, normalize, verbose);
+    underlying = localEvalMA(ensureExpTensExpensive(wmd.dens), X, normalize, verbose);
     % Evaluate the window function on the query points and multiply.
     W_vals = localEvaluateWindowOnQuery(wmd, X);
     vals = underlying .* W_vals;
@@ -159,7 +159,7 @@ end
 % --- MA path: MaetDensity struct ---
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'MaetDensity')
-    dens = varargin{1};
+    dens = ensureExpTensExpensive(varargin{1});
     if nArgs ~= 2
         error(['Usage for a MaetDensity: evalExpTens(dens, X [, normalize]).\n' ...
             'X is either a cell {X_1, ..., X_A} of per-attribute query matrices, ' ...
@@ -204,7 +204,7 @@ end
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity')
     % --- Precomputed struct: evalExpTens(dens, X [, normalize]) ---
-    dens = varargin{1};
+    dens = ensureExpTensExpensive(varargin{1});
     if nArgs ~= 2
         error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
             'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...
@@ -223,7 +223,8 @@ elseif nArgs == 8
     J_arg     = varargin{7};
     X         = varargin{8};
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
-                        isPer_arg, J_arg, 'verbose', verbose);
+                        isPer_arg, J_arg, ...
+                        'lazy', false, 'verbose', verbose);
 else
     error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
         'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...

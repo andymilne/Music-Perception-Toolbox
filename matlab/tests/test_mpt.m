@@ -1901,11 +1901,71 @@ p_sa = [0; 400; 700];
 w_sa = [1; 0.7; 0.5];
 sigma = 10; r_ = 2; isPer_ = true; period_ = 1200;
 
+% --- Lazy/eager parity (v2.2) ---
+%
+% buildExpTens defaults to skinny (lazy=true); ensureExpTensExpensive
+% populates the per-tuple fields on demand. The eager and ensured-lazy
+% paths must produce structurally identical structs.
+
+dens_eager_sa  = buildExpTens(p_sa, w_sa, sigma, r_, false, isPer_, period_, ...
+    'lazy', false, 'verbose', false);
+dens_skinny_sa = buildExpTens(p_sa, w_sa, sigma, r_, false, isPer_, period_, ...
+    'verbose', false);
+results{end+1,1} = 'lazy: SA skinny default has only cheap fields';
+results{end,2}   = ~isfield(dens_skinny_sa, 'Centres') ...
+                && ~isfield(dens_skinny_sa, 'U_perm') ...
+                && ~isfield(dens_skinny_sa, 'nJ');
+results{end+1,1} = 'lazy: SA skinny exposes dim';
+results{end,2}   = isfield(dens_skinny_sa, 'dim') ...
+                && dens_skinny_sa.dim == dens_eager_sa.dim;
+dens_filled_sa = ensureExpTensExpensive(dens_skinny_sa);
+results{end+1,1} = 'lazy: SA ensure -> matches eager Centres';
+results{end,2}   = isequal(dens_filled_sa.Centres, dens_eager_sa.Centres);
+results{end+1,1} = 'lazy: SA ensure -> matches eager wJ';
+results{end,2}   = isequal(dens_filled_sa.wJ, dens_eager_sa.wJ);
+results{end+1,1} = 'lazy: SA ensure -> matches eager U_perm';
+results{end,2}   = isequal(dens_filled_sa.U_perm, dens_eager_sa.U_perm);
+results{end+1,1} = 'lazy: SA ensure idempotent';
+dens_twice_sa = ensureExpTensExpensive(dens_filled_sa);
+results{end,2}   = isequal(dens_twice_sa, dens_filled_sa);
+
+dens_eager_ma  = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], false, isPer_, period_, ...
+    'lazy', false, 'verbose', false);
+dens_skinny_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], false, isPer_, period_, ...
+    'verbose', false);
+results{end+1,1} = 'lazy: MA skinny default has only cheap fields';
+results{end,2}   = ~isfield(dens_skinny_ma, 'Centres') ...
+                && ~isfield(dens_skinny_ma, 'U_perm') ...
+                && ~isfield(dens_skinny_ma, 'nJ');
+results{end+1,1} = 'lazy: MA skinny exposes dim and dimPerAttr';
+results{end,2}   = isfield(dens_skinny_ma, 'dim') ...
+                && isfield(dens_skinny_ma, 'dimPerAttr') ...
+                && isequal(dens_skinny_ma.dim, dens_eager_ma.dim) ...
+                && isequal(dens_skinny_ma.dimPerAttr, dens_eager_ma.dimPerAttr);
+dens_filled_ma = ensureExpTensExpensive(dens_skinny_ma);
+results{end+1,1} = 'lazy: MA ensure -> matches eager Centres';
+results{end,2}   = isequal(dens_filled_ma.Centres, dens_eager_ma.Centres);
+results{end+1,1} = 'lazy: MA ensure -> matches eager wJ and wv_comb';
+results{end,2}   = isequal(dens_filled_ma.wJ, dens_eager_ma.wJ) ...
+                && isequal(dens_filled_ma.wv_comb, dens_eager_ma.wv_comb);
+results{end+1,1} = 'lazy: MA ensure idempotent';
+dens_twice_ma = ensureExpTensExpensive(dens_filled_ma);
+results{end,2}   = isequal(dens_twice_ma, dens_filled_ma);
+
+% Consumers transparently handle skinny input (cosSimExpTens, evalExpTens).
+results{end+1,1} = 'lazy: cosSimExpTens accepts skinny dens (SA self-similarity = 1)';
+s_self = cosSimExpTens(dens_skinny_sa, dens_skinny_sa, 'verbose', false);
+results{end,2}   = abs(s_self - 1) < 1e-12;
+results{end+1,1} = 'lazy: evalExpTens accepts skinny dens';
+v_skinny = evalExpTens(dens_skinny_sa, [0 100 350], 'verbose', false);
+v_eager  = evalExpTens(dens_eager_sa,  [0 100 350], 'verbose', false);
+results{end,2}   = max(abs(v_skinny - v_eager)) < 1e-12;
+
 for isRel_ = [false, true]
     dens_sa = buildExpTens(p_sa, w_sa, sigma, r_, isRel_, isPer_, period_, ...
-        'verbose', false);
+        'lazy', false, 'verbose', false);
     dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], isRel_, isPer_, period_, ...
-        'verbose', false);
+        'lazy', false, 'verbose', false);
 
     relTag = sprintf(' (isRel=%d)', isRel_);
     results{end+1,1} = ['MAET: SA-equivalence tag' relTag];
@@ -1932,7 +1992,8 @@ end
 
 % Dimensionality reduction under isRel=true
 results{end+1,1} = 'MAET: Centres dim reduction (isRel=true, r=2)';
-dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, [], true, true, 1200, 'verbose', false);
+dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, [], true, true, 1200, ...
+    'lazy', false, 'verbose', false);
 results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
 
 % -- Struct basics for pitch + time --
@@ -1966,7 +2027,7 @@ pitchMat = [0 12 5; 4 15 9; 7 19 12];   % 3 x 3
 timeMat  = [0 1 2];                      % 1 x 3
 dens = buildExpTens({pitchMat, timeMat}, [], ...
     [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
-    'verbose', false);
+    'lazy', false, 'verbose', false);
 
 results{end+1,1} = 'MAET: nJ = sum of per-event Cartesian products';
 results{end,2}   = dens.nJ == 18;   % 3 events * P(3,3)=6 perms * 1 time = 18
@@ -2049,7 +2110,7 @@ pitchMat = [0 0; 4 4; 7 NaN];
 timeMat  = [0 1];
 dens = buildExpTens({pitchMat, timeMat}, [], ...
     [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
-    'verbose', false);
+    'lazy', false, 'verbose', false);
 % Event 1: P(3,2)=6 perms, C(3,2)=3 combs. Event 2: P(2,2)=2, C(2,2)=1.
 results{end+1,1} = 'MAET: NaN-padded nJ';
 results{end,2}   = dens.nJ == 8;
@@ -2064,7 +2125,7 @@ wPitch = [2.0; 3.0];
 wTime  = 5.0;
 dens = buildExpTens({pitch1, time1}, {wPitch, wTime}, ...
     [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
-    'verbose', false);
+    'lazy', false, 'verbose', false);
 % 2 pitch perms, each with weight 2 * 3 * 5 = 30
 results{end+1,1} = 'MAET: per-tuple weight factorisation (wJ)';
 results{end,2}   = all(abs(dens.wJ - 30) < 1e-12);
@@ -2574,7 +2635,7 @@ time_w  = [0  1  2  3];
 dens_w = buildExpTens({pitch_w, time_w}, [], ...
     [10 0.1], [1 1], [], ...
     [false false], [true false], [1200 0], ...
-    'verbose', false);
+    'lazy', false, 'verbose', false);
 
 spec_w = struct();
 spec_w.size = [Inf, 1];

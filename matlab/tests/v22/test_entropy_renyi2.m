@@ -76,8 +76,13 @@ results{end,2}   = abs(H_renyi - H_ref) < 1e-10;
 
 %% ---- SA r=1 rel: degenerate, returns 0 ----
 
+% Suppress the buildExpTens:isRelDegenerate warning for this test —
+% the warning is informational, not a failure. The renyi2 path is
+% specifically built to return 0 by convention in this regime.
+ws = warning('off', 'buildExpTens:isRelDegenerate');
 H_deg = entropyExpTens(p1, w1, sigma, 1, true, false, 0, ...
     'method', 'renyi2', 'normalize', false, 'verbose', false);
+warning(ws);
 results{end+1,1} = 'entropy.renyi2 SA r=1 rel: degenerate, returns 0';
 results{end,2}   = isequal(H_deg, 0);
 

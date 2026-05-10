@@ -967,8 +967,12 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 %        with the same K^2 asymptotic as pairwise).
 %     7. Otherwise -> orbit.
 %
-%   has_nan is NOT a fallback: the MA orbit wrapper handles ragged K_{a,n}
-%   natively via zero-weight padding (see mobius.maPerAttrInnerMatrix).
+%   has_nan is NOT a fallback: the MA orbit wrapper handles ragged
+%   K_{a,n} natively. Per-event-pair classification: events with
+%   K_eff - r >= 2 (the orbit precision margin) flow through the
+%   vectorised batched orbit; pairs involving any K_eff - r < 2 event
+%   flow through direct r-tuple enumeration (no Möbius alternating
+%   sum, hence no cancellation). See mobius.maPerAttrInnerMatrix.
 
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;

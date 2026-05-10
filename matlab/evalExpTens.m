@@ -112,21 +112,39 @@ function vals = evalExpTens(varargin)
 % remaining arguments.
 
 verbose = true;  % default
+method = 'auto';  % v2.2: 'auto' | 'centres' (alias 'direct') | 'orbit'
 
-% Strip 'verbose' name-value pair from varargin
-verboseIdx = [];
-for i = 1:numel(varargin)
-    if (ischar(varargin{i}) || isstring(varargin{i})) && strcmpi(varargin{i}, 'verbose')
-        if i + 1 <= numel(varargin)
-            verbose = logical(varargin{i + 1});
+% Strip 'verbose' and 'method' name-value pairs from varargin.
+% Accept them anywhere in the trailing kwargs; preserve positional order
+% of the remaining args.
+removeIdx = false(1, numel(varargin));
+i = 1;
+while i <= numel(varargin)
+    if (ischar(varargin{i}) || isstring(varargin{i})) && i + 1 <= numel(varargin)
+        key = lower(char(varargin{i}));
+        switch key
+            case 'verbose'
+                verbose = logical(varargin{i + 1});
+                removeIdx(i)     = true;
+                removeIdx(i + 1) = true;
+                i = i + 2;
+                continue;
+            case 'method'
+                method = lower(char(varargin{i + 1}));
+                if ~ismember(method, {'auto', 'centres', 'direct', 'orbit'})
+                    error('evalExpTens:badMethod', ...
+                          ['''method'' must be ''auto'', ''centres'', ' ...
+                           '''direct'', or ''orbit''; got ''%s''.'], method);
+                end
+                removeIdx(i)     = true;
+                removeIdx(i + 1) = true;
+                i = i + 2;
+                continue;
         end
-        verboseIdx = [i, i + 1]; %#ok<AGROW>
-        break;
     end
+    i = i + 1;
 end
-if ~isempty(verboseIdx)
-    varargin(verboseIdx) = [];
-end
+varargin = varargin(~removeIdx);
 
 % Strip trailing normalize string
 normalize = 'none';  % default
@@ -204,7 +222,9 @@ end
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity')
     % --- Precomputed struct: evalExpTens(dens, X [, normalize]) ---
-    dens = ensureExpTensExpensive(varargin{1});
+    %   Kept skinny here: orbit branch reads only cheap fields; centres
+    %   branch ensures heavy fields on demand.
+    dens = varargin{1};
     if nArgs ~= 2
         error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
             'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...
@@ -222,44 +242,61 @@ elseif nArgs == 8
     isPer_arg = varargin{6};
     J_arg     = varargin{7};
     X         = varargin{8};
+    % Build skinny: orbit branch may not need heavy fields.
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
-                        isPer_arg, J_arg, ...
-                        'lazy', false, 'verbose', verbose);
+                        isPer_arg, J_arg, 'verbose', verbose);
 else
     error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
         'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...
         'normalize must be ''none'', ''gaussian'', or ''pdf''.']);
 end
 
-% === Unpack parameters ===
+% === Validate query points (cheap fields only) ===
 
-Centres = dens.Centres;
-wJ      = dens.wJ;
-nJ      = dens.nJ;
-sigma   = dens.sigma;
-r       = dens.r;
-dim     = dens.dim;
-isRel   = dens.isRel;
-isPer   = dens.isPer;
-J       = dens.period;
-
-% === Validate query points ===
-
-if size(X, 1) ~= dim
+if size(X, 1) ~= dens.dim
     error(['X must have %d rows (each column is a %d-dimensional ' ...
         'query point). For isRel = true, dim = r - 1 = %d.'], ...
-        dim, dim, dim);
+        dens.dim, dens.dim, dens.dim);
 end
 
 nQ = size(X, 2);
 
-% === Estimated computation time ===
-nPairs = double(nJ) * double(nQ);
-estimateCompTime(nPairs, dim, 'evalExpTens', verbose);
+% === v2.2 method dispatch (auto / centres / orbit) ===
+K_src = numel(dens.p);
+if dens.isPer && dens.period > 0
+    sigmaOverP = dens.sigma / dens.period;
+else
+    sigmaOverP = 0;
+end
+chosen = localSelectSAEvalMethod( ...
+    dens.r, K_src, nQ, dens.isRel, dens.isPer, sigmaOverP, method);
 
-% === Evaluate the density ===
+vals = [];
+ranOrbit = false;
+if strcmp(chosen, 'orbit')
+    vals = localEvalSAOrbit(dens, X, verbose);
+    % Post-hoc finiteness fallback. Mirrors the cosine-path safety net:
+    % if the orbit alternating sum produces non-finite output (extreme
+    % sigma -> 0 regime), fall back to centres rather than propagating
+    % NaN/Inf into the user's result.
+    if ~all(isfinite(vals(:)))
+        if verbose
+            warning('evalExpTens:orbitNonFiniteFallback', ...
+                    ['evalExpTens orbit path produced non-finite ' ...
+                     'values; falling back to centres path.']);
+        end
+        chosen = 'centres';
+    else
+        ranOrbit = true;
+    end
+end
 
-vals = evalCore(Centres, wJ, nJ, X, nQ);
+if ~ranOrbit
+    % Centres branch (also entered for explicit 'centres'/'direct'
+    % method, and for orbit-then-fallback). Heavy fields needed.
+    dens = ensureExpTensExpensive(dens);
+    vals = localEvalSACentres(dens, X, nQ, verbose);
+end
 
 % === Apply normalization ===
 %
@@ -287,6 +324,11 @@ vals = evalCore(Centres, wJ, nJ, X, nQ);
 % Their computational cost is negligible.
 
 if ~strcmp(normalize, 'none')
+    sigma = dens.sigma;
+    r     = dens.r;
+    dim   = dens.dim;
+    isRel = dens.isRel;
+
     % --- Gaussian normalization ---
     % Determinant of the quadratic form matrix in the reduced space
     if isRel
@@ -301,8 +343,13 @@ if ~strcmp(normalize, 'none')
     if strcmp(normalize, 'pdf')
         % --- Mixture weight normalization ---
         % Divide by the sum of all tuple weight products so that
-        % the density integrates to 1 over the domain.
-        sumW = sum(wJ);
+        % the density integrates to 1 over the domain. Needs wJ from
+        % heavy fields; ensure if not already populated (orbit branch
+        % skipped the ensure).
+        if ~isfield(dens, 'wJ')
+            dens = ensureExpTensExpensive(dens);
+        end
+        sumW = sum(dens.wJ);
         if sumW > 0
             vals = vals / sumW;
         else
@@ -312,18 +359,123 @@ if ~strcmp(normalize, 'none')
 end
 
 
-% =====================================================================
-%  NESTED HELPER FUNCTIONS
-%  (r, dim, sigma, J, isPer, isRel are in scope from the parent.)
-% =====================================================================
+end
 
-    % -----------------------------------------------------------------
-    %  evalCore
-    %  Evaluate the density with automatic memory-aware chunking.
-    % -----------------------------------------------------------------
-    function vals = evalCore(Centres, wJ, nJ, X, nQ)
-        bytesNeeded = (dim + 1) * double(nJ) * double(nQ) * 8;
+% =========================================================================
+%  v2.2 SA evaluation dispatch helpers (method='auto'|'centres'|'orbit')
+% =========================================================================
 
+function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
+                                            sigmaOverP, userMethod) %#ok<INUSD>
+%LOCALSELECTSAEVALMETHOD  Choose the evaluation path for SA evalExpTens.
+%
+%   nQ and sigmaOverP are accepted for signature parity with future cost
+%   models; current logic does not use them.
+%
+%   Routing rules (in order):
+%     1. userMethod 'centres'/'direct'/'orbit' overrides everything.
+%     2. r <= 1: orbit reduces to the direct sum; centres is simpler.
+%     3. isRel: orbit-rel u-grid integration is much more expensive
+%        than centres at typical sigma/period (auto stays on centres;
+%        users wanting the JMM Eq. 3.4 integral form opt in explicitly
+%        with method='orbit').
+%     4. r == 2 and K <= 8: centres is competitive; avoids partition-
+%        table dispatch overhead.
+%     5. r > 6: shipped orbit tables stop at r=6.
+%     6. K-vs-r precision guard: orbit's Mobius alternating sum can
+%        suffer catastrophic cancellation when K is too close to r.
+
+    if strcmp(userMethod, 'centres') || strcmp(userMethod, 'direct')
+        chosen = 'centres';
+        return;
+    end
+    if strcmp(userMethod, 'orbit')
+        chosen = 'orbit';
+        return;
+    end
+    if ~strcmp(userMethod, 'auto')
+        error('evalExpTens:badMethod', ...
+              ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
+               'or ''orbit''; got ''%s''.'], userMethod);
+    end
+    if r <= 1
+        chosen = 'centres';
+        return;
+    end
+    if isRel
+        chosen = 'centres';
+        return;
+    end
+    if r == 2 && K <= 8
+        chosen = 'centres';
+        return;
+    end
+    if r > 6   % _ORBIT_R_MAX_SHIPPED
+        chosen = 'centres';
+        return;
+    end
+    if K - r < 2   % _ORBIT_K_MINUS_R_MIN
+        chosen = 'centres';
+        return;
+    end
+    chosen = 'orbit';
+end
+
+
+function vals = localEvalSAOrbit(dens, X, verbose) %#ok<INUSD>
+%LOCALEVALSAORBIT  Orbit-Mobius point evaluator for SA densities.
+%
+%   Routes to mobius.evalOrbitAbs (absolute mode) or mobius.evalOrbitRel
+%   (relative mode). Returns a 1-by-nQ row vector, matching the centres
+%   path's output shape.
+
+    p      = dens.p;
+    w      = dens.w;
+    sigma  = dens.sigma;
+    r      = dens.r;
+    isRel  = dens.isRel;
+    isPer  = dens.isPer;
+    period = dens.period;
+    nQ     = size(X, 2);
+
+    if isRel
+        % evalOrbitRel expects X_rel as (r-1, nQ).
+        vals = mobius.evalOrbitRel(p(:), w(:), sigma, r, X, ...
+            'is_per', isPer, 'period', period);
+    else
+        % evalOrbitAbs expects X as (r, nQ).
+        vals = mobius.evalOrbitAbs(p(:), w(:), sigma, r, X, ...
+            'is_per', isPer, 'period', period);
+    end
+
+    vals = reshape(vals, 1, nQ);
+end
+
+
+function vals = localEvalSACentres(dens, X, nQ, verbose)
+%LOCALEVALSACENTRES  Centres-array path for SA evaluation (v2.0 body).
+
+    Centres = dens.Centres;
+    wJ      = dens.wJ;
+    nJ      = dens.nJ;
+    sigma   = dens.sigma;
+    r       = dens.r;
+    dim     = dens.dim;
+    isRel   = dens.isRel;
+    isPer   = dens.isPer;
+    J       = dens.period;
+
+    % Estimated computation time.
+    nPairs = double(nJ) * double(nQ);
+    estimateCompTime(nPairs, dim, 'evalExpTens', verbose);
+
+    vals = evalCore(Centres, wJ, nJ, X, nQ);
+
+    % --- Nested helpers (use sigma, r, dim, isRel, isPer, J from
+    %     localEvalSACentres' workspace) ---
+
+    function vOut = evalCore(C, wJlocal, nJlocal, Xall, nQall)
+        bytesNeeded = (dim + 1) * double(nJlocal) * double(nQall) * 8;
         try
             memInfo  = memory;
             memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
@@ -332,27 +484,23 @@ end
         end
 
         if bytesNeeded <= memLimit
-            vals = evalFull(Centres, wJ, nJ, X, nQ);
+            vOut = evalFull(C, wJlocal, nJlocal, Xall, nQall);
         else
             chunkSize = max(1, ...
-                floor(memLimit / ((dim + 1) * double(nJ) * 8)));
-
-            vals = zeros(1, nQ);
-            for c = 1:chunkSize:nQ
-                cEnd = min(c + chunkSize - 1, nQ);
+                floor(memLimit / ((dim + 1) * double(nJlocal) * 8)));
+            vOut = zeros(1, nQall);
+            for c = 1:chunkSize:nQall
+                cEnd = min(c + chunkSize - 1, nQall);
                 idx  = c:cEnd;
-                vals(idx) = evalFull(Centres, wJ, nJ, X(:, idx), numel(idx));
+                vOut(idx) = evalFull(C, wJlocal, nJlocal, ...
+                                      Xall(:, idx), numel(idx));
             end
         end
     end
 
-    % -----------------------------------------------------------------
-    %  evalFull
-    %  Fully vectorized density evaluation (no chunking).
-    % -----------------------------------------------------------------
-    function v = evalFull(Centres, wJ, nJ, Xq, nQc)
-        % Difference vectors: (dim x nJ x 1) - (dim x 1 x nQc)
-        D = reshape(Centres, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
+    function v = evalFull(C, wJlocal, nJlocal, Xq, nQc)
+        % Difference vectors: (dim x nJlocal x 1) - (dim x 1 x nQc)
+        D = reshape(C, dim, nJlocal, 1) - reshape(Xq, dim, 1, nQc);
 
         if isPer
             D = mod(D + J/2, J) - J/2;
@@ -365,14 +513,14 @@ end
             Qvec = sum(D.^2, 1);
         end
 
-        % Gaussian kernel: flatten then reshape to nJ x nQc
-        E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQc);
+        % Gaussian kernel: flatten then reshape to nJlocal x nQc
+        E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJlocal, nQc);
 
-        % Weighted sum: (1 x nJ) * (nJ x nQc) -> (1 x nQc)
-        v = wJ(:)' * E;
+        % Weighted sum: (1 x nJlocal) * (nJlocal x nQc) -> (1 x nQc)
+        v = wJlocal(:)' * E;
     end
-
 end
+
 
 % =========================================================================
 %  localEvalMA — multi-attribute (MAET) evaluation

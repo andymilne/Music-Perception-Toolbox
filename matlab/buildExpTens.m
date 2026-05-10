@@ -177,9 +177,16 @@ function dens = localBuildSA(posArgs, verbose, lazy)
         error('w must have the same number of entries as p.');
     end
 
-    if isRel && r < 2
-        error('For relative densities, ''r'' must be at least 2.');
-    end
+    % Note: r = 1 with isRel = true was historically rejected here
+    % (v2.0/v2.1) because the v2.0 evaluators could not handle a
+    % 0-dimensional relative space. v2.2 has a well-defined treatment:
+    % the relative density is constant on a 0-D space, the closed-form
+    % total mass is sum(w), and entropyExpTens returns 0 by convention
+    % for Rényi-2 in this regime. The build itself is well-defined and
+    % cheap (Centres is the empty 0-by-n array; wJ is the weight
+    % vector). Downstream consumers that genuinely cannot handle
+    % dim = 0 (e.g. evalExpTens with a query in a 0-D space) raise
+    % their own clearer errors.
 
     % For r = 1, the density depends on the source multiset only through
     % its measure on the pitch line: elements with equal pitch/position

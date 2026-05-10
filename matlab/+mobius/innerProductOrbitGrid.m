@@ -38,41 +38,37 @@ function [vals, ratios] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
 
     % Reserve a label for the u-axis distinct from any A/B label.
     % A labels run 1..qA, B labels run qA+1..qA+qB; use a high value.
-    U_LABEL = 1000;
+    % U_LABEL = 1000 is the consumer-side convention; baked into
+    % orb.recipeGrid at table-build time (see buildOrbitRecipes in
+    % buildOrbitTable.m).
 
     for k = 1:numel(table)
         orb = table(k);
         nE = size(orb.edges, 1);
         operands = cell(1, orb.qA + orb.qB + nE);
-        opAxes = cell(1, orb.qA + orb.qB + nE);
         idx = 1;
 
         % Weight vectors: 1-D, shared across u.
         for alpha = 1:orb.qA
             operands{idx} = w_A .^ orb.m_A(alpha);
-            opAxes{idx} = alpha;
             idx = idx + 1;
         end
         for beta = 1:orb.qB
             operands{idx} = w_B .^ orb.m_B(beta);
-            opAxes{idx} = orb.qA + beta;
             idx = idx + 1;
         end
         % Kernel powers carry the u-axis as their first dimension.
         for e = 1:nE
-            alpha = orb.edges(e, 1);
-            beta = orb.edges(e, 2);
             m = orb.edges(e, 3);
             if m == 1
                 operands{idx} = K_u;
             else
                 operands{idx} = K_u .^ m;
             end
-            opAxes{idx} = [U_LABEL, alpha, orb.qA + beta];
             idx = idx + 1;
         end
 
-        contribution = mobius.contract(operands, opAxes, U_LABEL);
+        contribution = mobius.executeRecipe(operands, orb.recipeGrid);
         % contribution is a length-N_u vector.
         contribution = contribution(:);
         term = orb.weight * orb.mu * contribution;

@@ -43,40 +43,36 @@ function [vals, ratios] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g, r, opts)
     total = zeros(N, 1);
     maxAbsTerm = zeros(N, 1);
 
-    U_LABEL = 1000;
+    % U_LABEL = 1000 is the consumer-side convention; baked into
+    % orb.recipeBatched at table-build time (see buildOrbitRecipes in
+    % buildOrbitTable.m).
 
     for k = 1:numel(table)
         orb = table(k);
         nE = size(orb.edges, 1);
         operands = cell(1, orb.qA + orb.qB + nE);
-        opAxes = cell(1, orb.qA + orb.qB + nE);
         idx = 1;
 
         % Per-A-block weight vectors carry the batch axis (shared u).
         for alpha = 1:orb.qA
             operands{idx} = w_A_g .^ orb.m_A(alpha);
-            opAxes{idx} = [U_LABEL, alpha];
             idx = idx + 1;
         end
         for beta = 1:orb.qB
             operands{idx} = w_B_g .^ orb.m_B(beta);
-            opAxes{idx} = [U_LABEL, orb.qA + beta];
             idx = idx + 1;
         end
         for e = 1:nE
-            alpha = orb.edges(e, 1);
-            beta = orb.edges(e, 2);
             m = orb.edges(e, 3);
             if m == 1
                 operands{idx} = K_g;
             else
                 operands{idx} = K_g .^ m;
             end
-            opAxes{idx} = [U_LABEL, alpha, orb.qA + beta];
             idx = idx + 1;
         end
 
-        contribution = mobius.contract(operands, opAxes, U_LABEL);
+        contribution = mobius.executeRecipe(operands, orb.recipeBatched);
         contribution = contribution(:);
         term = orb.weight * orb.mu * contribution;
         total = total + term;

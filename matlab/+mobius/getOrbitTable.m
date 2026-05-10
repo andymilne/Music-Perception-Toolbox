@@ -54,8 +54,8 @@ function table = getOrbitTable(r)
     prebuilt = fullfile(here, '_orbit_tables', sprintf('orbit_r%d.mat', r));
     if isfile(prebuilt)
         S = load(prebuilt, 'orbit_table');
-        inMem(key) = S.orbit_table;
-        table = S.orbit_table;
+        table = ensureRecipes(S.orbit_table);
+        inMem(key) = table;
         return
     end
 
@@ -75,12 +75,12 @@ function table = getOrbitTable(r)
     userFile = fullfile(userDir, sprintf('orbit_r%d.mat', r));
     if isfile(userFile)
         S = load(userFile, 'orbit_table');
-        inMem(key) = S.orbit_table;
-        table = S.orbit_table;
+        table = ensureRecipes(S.orbit_table);
+        inMem(key) = table;
         return
     end
 
-    % Tier 4: build from scratch.
+    % Tier 4: build from scratch (buildOrbitTable embeds recipes).
     table = mobius.buildOrbitTable(r);
     inMem(key) = table;
 
@@ -95,5 +95,39 @@ function table = getOrbitTable(r)
         catch
             % Disk caching is best effort; in-memory cache is still hot.
         end
+    end
+end
+
+
+% =========================================================================
+%  Backward-compat augmentation: old pre-built tables (shipped before
+%  the recipe fields existed) get their recipes computed and attached
+%  on first load. Recipe building is fast (abstract enumeration only,
+%  no actual numeric work), so the cost is bounded and paid once per
+%  session; subsequent loads use the in-memory cache directly. Tables
+%  freshly built by mobius.buildOrbitTable already have recipes
+%  embedded and pass through unchanged.
+% =========================================================================
+
+function table = ensureRecipes(table)
+    if isempty(table)
+        return
+    end
+    needsAugment = ~isfield(table, 'recipeIP') ...
+                || ~isfield(table, 'recipeGrid') ...
+                || ~isfield(table, 'recipeBatched');
+    if ~needsAugment
+        % Field is present; check the first orbit's recipe is non-empty
+        % (so we don't silently re-augment a freshly-built table).
+        first = table(1);
+        if isfield(first.recipeIP, 'steps')
+            return
+        end
+    end
+    for k = 1:numel(table)
+        [rIP, rGrid, rBatched] = mobius.buildOrbitRecipes(table(k));
+        table(k).recipeIP = rIP;
+        table(k).recipeGrid = rGrid;
+        table(k).recipeBatched = rBatched;
     end
 end

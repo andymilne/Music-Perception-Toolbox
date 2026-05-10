@@ -46,36 +46,30 @@ function [val, ratio] = innerProductOrbit(K, w_A, w_B, r, opts)
         orb = table(k);
         nE = size(orb.edges, 1);
         operands = cell(1, orb.qA + orb.qB + nE);
-        opAxes = cell(1, orb.qA + orb.qB + nE);
         idx = 1;
 
         % Per-A-block weight vectors (axis label = alpha, 1..qA).
         for alpha = 1:orb.qA
             operands{idx} = w_A .^ orb.m_A(alpha);
-            opAxes{idx} = alpha;
             idx = idx + 1;
         end
         % Per-B-block weight vectors (axis label = qA + beta, beta in 1..qB).
         for beta = 1:orb.qB
             operands{idx} = w_B .^ orb.m_B(beta);
-            opAxes{idx} = orb.qA + beta;
             idx = idx + 1;
         end
         % Per-edge kernel powers (axes = [alpha, qA + beta]).
         for e = 1:nE
-            alpha = orb.edges(e, 1);
-            beta = orb.edges(e, 2);
             m = orb.edges(e, 3);
             if m == 1
                 operands{idx} = K;
             else
                 operands{idx} = K .^ m;
             end
-            opAxes{idx} = [alpha, orb.qA + beta];
             idx = idx + 1;
         end
 
-        contribution = mobius.contract(operands, opAxes, []);
+        contribution = mobius.executeRecipe(operands, orb.recipeIP);
         term = orb.weight * orb.mu * contribution;
         total = total + term;
         absTerm = abs(term);

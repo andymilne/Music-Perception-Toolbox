@@ -1,0 +1,130 @@
+%% test_cross_language_golden.m — v2.2-dev cross-language equivalence
+%
+%  Hardcodes outputs of representative v2.2 computations on
+%  deterministic inputs (no RNG). The companion Python file
+%  python/tests/v22/test_cross_language_golden.py hardcodes the same
+%  values; running both pins down cross-language numerical agreement
+%  to 1e-8 relative on the v2.2 surface (orbit cosine similarity SA
+%  + MA including the safe/unsafe hybrid, Rényi-2 entropy SA + MA,
+%  orbit-path tensorHarmonicity, and orbit-path evalExpTens).
+%
+%  Inputs use 'method', 'orbit' on the cosine cases so the orbit
+%  Möbius machinery is genuinely exercised rather than the
+%  dispatcher's cost-model fallback to pairwise. Sigmas are chosen
+%  to keep values well-conditioned (away from FP underflow); a 1e-8
+%  relative tolerance is the standard used elsewhere in the v22 suite.
+%
+%  When regenerating the golden table after a deliberate algorithm
+%  change, update the values in BOTH this file and the Python mirror
+%  to the same number of digits.
+%
+%  Standalone-runnable; appends to `results` when called from test_mpt.m.
+
+if ~exist('results', 'var')
+    results = {};
+    standalone = true;
+else
+    standalone = false;
+end
+
+RTOL = 1e-8;
+ATOL = 1e-12;
+
+%% ---- Case A: SA cosSim, abs r=3, orbit ----
+
+p1 = [0; 400; 700];
+p2 = [0; 300; 700];
+w  = [1; 1; 1];
+sA = cosSimExpTens(p1, w, p2, w, 80, 3, false, false, 0, ...
+    'method', 'orbit', 'verbose', false);
+GOLDEN_A = 0.67614851033133;
+results{end+1, 1} = 'cross-language golden A: SA cosSim abs r=3 orbit';
+results{end, 2}   = abs(sA - GOLDEN_A) < RTOL * abs(GOLDEN_A) + ATOL;
+
+%% ---- Case B: SA cosSim, rel r=3 per, orbit ----
+
+sB = cosSimExpTens(p1, w, p2, w, 80, 3, true, true, 1200, ...
+    'method', 'orbit', 'verbose', false);
+GOLDEN_B = 0.98878587374986;
+results{end+1, 1} = 'cross-language golden B: SA cosSim rel r=3 per orbit';
+results{end, 2}   = abs(sB - GOLDEN_B) < RTOL * abs(GOLDEN_B) + ATOL;
+
+%% ---- Case C: MA cosSim ragged-K hybrid ----
+
+P_x = [ 50  100  200  300  400  500;
+       150  250  350  450  550  650;
+       350  450  550  650  750  850;
+       550  650  750  850  950 1050;
+       NaN  850  950  NaN 1150 1250;
+       NaN 1050 1150  NaN 1350 1450;
+       NaN 1250 1350  NaN 1550 1650;
+       NaN 1450 1550  NaN 1750 1850];   % (8, 6)
+W_x = ones(size(P_x));
+W_x(isnan(P_x)) = NaN;
+P_y = P_x + 50;
+W_y = W_x;
+dx = buildExpTens({P_x}, {W_x}, 25, 3, 1, false, false, 0, ...
+    'verbose', false);
+dy = buildExpTens({P_y}, {W_y}, 25, 3, 1, false, false, 0, ...
+    'verbose', false);
+sC = cosSimExpTens(dx, dy, 'method', 'orbit', 'verbose', false);
+GOLDEN_C = 0.12066345091832;
+results{end+1, 1} = 'cross-language golden C: MA cosSim ragged-K hybrid';
+results{end, 2}   = abs(sC - GOLDEN_C) < RTOL * abs(GOLDEN_C) + ATOL;
+
+%% ---- Case D: SA entropy Rényi-2, abs r=2 ----
+
+HD = entropyExpTens(p1, w, 20, 2, false, false, 0, ...
+    'method', 'renyi2', 'normalize', false, 'base', 2);
+GOLDEN_D = 14.88031481996820;
+results{end+1, 1} = 'cross-language golden D: SA entropy Rényi-2 abs r=2';
+results{end, 2}   = abs(HD - GOLDEN_D) < RTOL * abs(GOLDEN_D) + ATOL;
+
+%% ---- Case E: MA entropy Rényi-2 ----
+
+pitch = [   0   200   400   600;
+          400   600   700   900;
+          700   900  1000  1100;
+         1000  1200  1300  1400;
+         1100  1300  1500  1700];   % (5, 4)
+time = [0 0.5 1.0 1.5];              % (1, 4)
+HE = entropyExpTens({pitch, time}, [], ...
+    [12, 0.05], [3, 1], [1, 2], ...
+    [false, false], [true, false], [1200, 0], ...
+    'method', 'renyi2', 'normalize', false, 'base', 2);
+GOLDEN_E = 21.64284222436801;
+results{end+1, 1} = 'cross-language golden E: MA entropy Rényi-2';
+results{end, 2}   = abs(HE - GOLDEN_E) < RTOL * abs(GOLDEN_E) + ATOL;
+
+%% ---- Case F: tensorHarmonicity orbit path ----
+
+hF = tensorHarmonicity([0; 400; 700], [], 12, 'verbose', false);
+GOLDEN_F = 0.17358467740231;
+results{end+1, 1} = 'cross-language golden F: tensorHarmonicity orbit';
+results{end, 2}   = abs(hF - GOLDEN_F) < RTOL * abs(GOLDEN_F) + ATOL;
+
+%% ---- Case G: evalExpTens at single query, rel orbit ----
+
+tp = [0; 1200; 1902; 2400];
+tw = [1; 0.5; 0.333; 0.25];
+X  = [400; 700];   % 2 x 1 (r=3 rel -> dim=2)
+v = evalExpTens(tp, tw, 80, 3, true, false, 1200, X, 'verbose', false);
+GOLDEN_G = 2.07507623760499e-06;
+results{end+1, 1} = 'cross-language golden G: evalExpTens rel orbit';
+results{end, 2}   = abs(v - GOLDEN_G) < RTOL * abs(GOLDEN_G) + ATOL;
+
+%% ---- Standalone summary ----
+
+if standalone
+    nPass = sum(cellfun(@(x) isequal(x, true), results(:, 2)));
+    nFail = numel(results(:, 1)) - nPass;
+    fprintf('\n=== test_cross_language_golden: %d passed, %d failed (of %d) ===\n', ...
+        nPass, nFail, numel(results(:, 1)));
+    if nFail > 0
+        for ii = 1:size(results, 1)
+            if ~isequal(results{ii, 2}, true)
+                fprintf('  FAIL  %s\n', results{ii, 1});
+            end
+        end
+    end
+end

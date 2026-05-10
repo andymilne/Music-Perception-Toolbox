@@ -2,8 +2,41 @@
 
 This guide documents migration paths between major versions of the Music Perception Toolbox.
 
+- [v2.1 → v2.2](#v21--v22) — Möbius–orbit decomposition, Rényi-2 entropy, ragged-K hybrid
 - [v2.0 → v2.1](#v20--v21) — soft (`sigma > 0`) structural measures, Argand-DFT Monte Carlo
 - [v1 → v2](#v1--v2) — major rewrite (analytical methods, Python port, restructured core)
+
+---
+
+## v2.1 → v2.2
+
+v2.2.0 is fully additive: existing v2.1 calling conventions are preserved at the floating-point level for the default routing in standard regimes, so no v2.1 code requires changes.
+
+### What's new at the surface
+
+- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between the v2.1 pairwise path and a new orbit-Möbius decomposition. Explicit values: `'pairwise'` (v2.1 path), `'orbit'` (Möbius), `'centres'` (eval only), `'direct'` (small problems). The orbit and pairwise paths agree to floating-point precision in the regimes where both are valid; the dispatcher chooses based on speed without changing answers.
+
+- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the orbit IP and analytical total mass. Default remains `method='shannon'` (v2.1 numerical-grid behaviour). `normalize=True` with `method='renyi2'` raises `NotImplementedError` for now (the natural normaliser yields a $(-\infty, 1]$ range that doesn't compose with Shannon's $[0, 1]$); divide externally if needed.
+
+- **`cancellationThreshold`** keyword on `cosSimExpTens` (default `1e-12`). Guards the Möbius alternating sum against catastrophic cancellation; if the orbit path's cancellation ratio drops below the threshold, the dispatcher falls back to pairwise. Most callers will not need to touch it.
+
+### What's new under the hood
+
+- **Lazy density-struct.** `buildExpTens` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `cosSimExpTens` / `evalExpTens` / `entropyExpTens` is unaffected. If you have v2.1-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
+
+- **Ragged-K hybrid for MA orbit.** The MA per-attribute IP wrapper now handles NaN-padded events natively via a per-event safe/unsafe partition. The dispatcher no longer routes on the presence of NaN entries. No user-visible change unless you previously relied on the `has_nan` → pairwise fallback for some side-effect reason.
+
+- **`tensorHarmonicity` rewrite.** The function now bypasses `buildExpTens` entirely and routes through the orbit-rel evaluator with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the orbit path handles arbitrary K-template without the centres-array memory footprint.
+
+### Numerical equivalence
+
+- v2.1 default routing chose `method='pairwise'` implicitly. v2.2 default routing chooses `method='auto'`, which selects pairwise for the regimes where it dominates and orbit elsewhere. In regimes where both paths are valid, they agree to floating-point precision; the user-visible cosine / entropy / eval values are unchanged across the v2.1 → v2.2 boundary at default settings.
+
+- A previously-rejected configuration was relaxed: `buildExpTens` with `r=1, isRel=true` now emits a warning (id `buildExpTens:isRelDegenerate`) instead of raising. The configuration is well-defined under v2.2's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
+
+### Demo migrations
+
+- Five demos (`demo_triadConsonance`, `demo_bindEvents` in both languages, plus the Python `demo_bindEvents` helper functions) were migrated from the v2.1 `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v2.x principle of treating `buildExpTens` as a less user-facing entity. Three further demos (`demo_helixBlend`, `demo_maetWindowing`, `demo_windowingReference`) keep the explicit `buildExpTens` until `windowedSimilarity` gains a raw-array overload (deferred; tracked as a TODO comment in the `windowedSimilarity` source).
 
 ---
 

@@ -397,6 +397,26 @@ Python's v2.0 design was different: `cos_sim_exp_tens` and `eval_exp_tens` accep
 
 Name-value arguments are uniformly available across both forms where they are meaningful. `'spectrum'` (applies `addSpectra` partials internally before density construction) is accepted in raw scalar and raw batched calls of `cosSimExpTens`, `entropyExpTens`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`, and `tensorHarmonicity`; it is rejected in struct calls (where the spectrum is already baked into the precomputed density). `'precision'` (decimal-place rounding for FP-noise-tolerant deduplication) and `'dedup'` (toggle internal deduplication) apply to batched-raw modes. `'verbose'` is universal.
 
+### Inner-product method selection (v2.2+)
+
+Three inner-product paths are available, exposed via the `'method'` keyword on `cosSimExpTens`, `evalExpTens`, and `entropyExpTens`:
+
+| Method | Description |
+|:---|:---|
+| `'auto'` (default) | Per-call cost-model dispatcher. Picks pairwise or orbit based on $r$, $K$, $N$, and $\sigma/\text{period}$. Always agrees with explicit-pairwise to floating-point precision in the regimes where both are valid. |
+| `'pairwise'` | The v2.1 path. Direct enumeration of ordered $r$-tuples with kernel matmul. Exact and stable for any input. |
+| `'orbit'` | The v2.2 Möbius–orbit decomposition. Closed-form analytical, distinct from pairwise. Fastest when $r$ is small and $K$ is moderate. Subject to a precision guard ($K - r \ge 2$); the `'auto'` setting falls back to pairwise outside this regime. |
+| `'centres'` (eval only) | Explicit centres-array evaluation. Same machinery as the v2.1 eval. |
+| `'direct'` | Direct enumeration without orbit's Möbius alternating sum. Used internally by the MA orbit path's safe/unsafe hybrid for events with $K_\text{eff} - r < 2$. |
+
+Most callers should leave `method` at the default `'auto'`. Override only when measuring orbit-vs-pairwise agreement, debugging cancellation issues, or forcing a specific path for benchmarking.
+
+The companion `'cancellationThreshold'` keyword on `cosSimExpTens` (default `1e-12`) guards the Möbius alternating sum against catastrophic cancellation: if the worst-case ratio drops below the threshold, the dispatcher falls back to pairwise. Lowering the threshold relaxes the guard; raising it tightens it (forcing pairwise more aggressively).
+
+### Rényi-2 differential entropy (v2.2+)
+
+`entropyExpTens` accepts a `'method'` keyword: `'shannon'` (default; the v2.1 numerical-grid behaviour) and `'renyi2'` (closed-form analytical Rényi-2 differential entropy). The Rényi-2 path computes $H_2 = -\log_b(\langle T, T\rangle / Z^2)$ via the orbit inner product for $\langle T, T\rangle$ and the analytical total mass for $Z$. It is exact (no grid integration), faster than Shannon for $r \ge 2$, and agrees cross-language to $10^{-8}$ relative on the test corpus. `normalize=true` with `method='renyi2'` is currently unsupported (the natural normaliser yields a $(-\infty, 1]$ range that doesn't compose with Shannon's $[0, 1]$); divide externally if normalisation is needed.
+
 ### Consumer-level batching: rows as multisets
 
 Most consumer-facing functions accept a 2-D pitch matrix in addition to the original 1-D form. The convention throughout the toolbox is:

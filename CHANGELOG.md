@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.2.0] — Unreleased
+
+### Overview
+
+Version 2.2.0 adds an analytical **Möbius–orbit decomposition** of the (multi-)expectation-tensor inner product, an analytical **Rényi-2 differential entropy** via the same machinery, and a per-event safe/unsafe partition (the **"ragged-K hybrid"**) that handles NaN-padded events natively without the precision degradation of the previous zero-pad-everything fallback. The Möbius decomposition gives a closed-form route for all four core operations — cosine similarity, point evaluation, total mass, and Rényi-2 entropy — that is exact, mathematically distinct from the v2.1.0 pairwise path, and complementary to it. A cost-model dispatcher routes between orbit and pairwise per-call based on $(r, K, N, \sigma/\text{period})$ without user intervention.
+
+The release is additive: existing v2.1.0 calling conventions are preserved at the floating-point level for the default routing in standard regimes. The orbit machinery and Rényi-2 entropy are exposed via new keyword arguments (`method` on `cosSimExpTens`, `evalExpTens`, `entropyExpTens`; `method='renyi2'` on `entropyExpTens`) defaulting to `'auto'` / `'shannon'`. Internal lazy-density-struct refactoring eliminates the eager construction of expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) that v2.0.0 callers of `buildExpTens` always triggered; consumers that need those fields call `ensureExpTensExpensive` (idempotent) before reading. `tensorHarmonicity` is rewritten to bypass `buildExpTens` entirely, routing through the orbit-rel evaluator directly with per-template caching across batched calls.
+
+### Added — Möbius–orbit decomposition
+
+- **`method` keyword on `cosSimExpTens`, `evalExpTens`, `entropyExpTens`.** Accepts `'auto'` (default), `'pairwise'` (the v2.1 path), `'orbit'` (Möbius–orbit decomposition), `'centres'` (eval only, the explicit centres-array path), and `'direct'` (small problems where direct enumeration beats both). The `'auto'` setting routes via a per-call cost model that considers $r$, per-attribute $K_a$, event counts, $\sigma/\text{period}$ for periodic-relative groups, and (for MA) the per-attribute safe/unsafe partition. Backward compatibility: at default settings on standard inputs the dispatcher chooses pairwise, so v2.1.0 numerical behaviour is preserved.
+
+- **Pre-built orbit tables.** Möbius coefficients, partition catalogues, and contraction edge lists for $r \in \{2, 3, 4, 5, 6\}$ are pre-built and shipped (Python `.pkl`, MATLAB `.mat`). At runtime the orbit path looks up the table for the given $r$ and contracts; no enumeration cost is paid per call. Tables for $r \in \{7, 8\}$ are deferred (the orbit term count grows as the Bell number, and the cost-model crossover is unfavourable beyond $r = 6$ in current use).
+
+- **`cancellationThreshold` keyword on `cosSimExpTens`.** Default `1e-12`. Guards the Möbius alternating sum against catastrophic cancellation: if the worst-case cancellation ratio across orbit terms drops below the threshold, the dispatcher falls back to pairwise. The same threshold gates the `'orbit'` path's three-layer guard for SA cosine similarity (cross-cancellation, corruption, severe ratio).
+
+- **`+mobius` package (MATLAB) / `_mobius.py` module (Python).** Houses `innerProductOrbit`, `innerProductOrbitPwBatched`, `innerProductOrbitGrid`, `evalOrbitAbs`, `evalOrbitRel`, `totalMassAbs`, `totalMassRel`, `getOrbitTable`, `buildOrbitTable`, `canonicalForm`, `contract`, and supporting partition / set-partition / contingency-table enumerators. All public-facing operations on densities continue to dispatch through the high-level wrappers (`cosSimExpTens`, `evalExpTens`, etc.); the orbit module is internal but documented for users wanting to understand or extend the machinery.
+
+### Added — Rényi-2 differential entropy
+
+- **`method='renyi2'` on `entropyExpTens` / `entropy_exp_tens`.** Computes $H_2 = -\log_b(\langle T, T\rangle / Z^2)$ in closed form via the orbit inner product for $\langle T, T\rangle$ and the analytical total mass for $Z$. SA paths use `mobius.orbitInnerAbsSA` / `mobius.orbitInnerRelSA` and `mobius.totalMassAbs` / `mobius.totalMassRel`. MA paths factorise $\langle T, T\rangle = \sum_n \prod_a I_a^{(n,n)}$ via the per-attribute IP matrix and likewise use a per-event total-mass product for $Z$. The default remains `method='shannon'` (numerical Shannon entropy on a discretised grid), so existing callers see no behavioural change. `r=1` rel returns 0 by convention (0-D relative space; constant density), matching the spec; `r=1` abs uses a direct kernel-sum branch since the orbit table is undefined at $r=1$. `normalize=True` with `method='renyi2'` raises `NotImplementedError` — the natural normaliser $\log_b(V)$ yields a $(-\infty, 1]$ range rather than Shannon's $[0, 1]$, so a uniform normaliser would be misleading; resolving the normaliser API is left for a follow-up release.
+
+### Added — Ragged-K hybrid for MA orbit path
+
+- **Per-event safe/unsafe partition in the MA per-attribute IP matrix.** Replaces the previous zero-pad-everything fallback for ragged $K_{a, n}$ (NaN-padded events). Each event is classified as "safe" on attribute $a$ iff its non-NaN slot count $K_{\text{eff}}$ satisfies $K_{\text{eff}} - r_a \ge 2$ (the orbit precision margin used elsewhere in the dispatcher). Safe-vs-safe pairs flow through the vectorised batched orbit evaluator with within-safe-group zero-padding (waste factor $K_{\max}/\overline{K}$ minimised by restriction to the more uniform safe group). Pairs involving any unsafe event flow through `mobius.innerProductDirectAbsSA` (Python `_inner_product_direct_abs_sa`), which enumerates ordered $r$-tuples directly and contracts without a Möbius alternating sum — exact for any $K \ge r$, no cancellation possible. The four submatrices stitch into the full $(N_x, N_y)$ IP matrix without double coverage. The MA dispatcher no longer routes on the presence of NaN entries, since the orbit wrapper handles them natively.
+
+### Added — Ragged $K_{a, n}$ in `bindEvents`
+
+- **`bindEvents` accepts `K_{a, n} > 1` input.** The output's $n$ attributes each preserve the input $K_{a, n}$. The weight return changed from a rolling-product row to a 1-by-$n$ cell array parallel to `pBound` (numerically equivalent for $K_{a, n} = 1$ via lazy multiplication), so consumers can apply per-attribute weight semantics. Unblocks polyphonic-binding analyses where the input is itself a multi-attribute MAET.
+
+### Changed — `tensorHarmonicity` orbit rewrite
+
+- **`tensorHarmonicity` now bypasses `buildExpTens` entirely.** Routes through `mobius.evalOrbitRel` for the harmonic-template tensor, with per-chord and per-template caching in batched mode (via `containers.Map` in MATLAB / `dict` in Python). No `buildExpTens` density object is constructed, no centres array is materialised. Output is unchanged at the floating-point level. Removes the previous "consider K_template > 3" warning since the orbit path handles arbitrary K-template without the centres-array memory footprint.
+
+### Changed — Lazy density-struct in `buildExpTens`
+
+- **`buildExpTens` defaults to lazy density construction.** The `lazy` keyword (default `true`) controls whether the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are materialised at build time. v2.1 and earlier always materialised them; v2.2 builds a "skinny" density struct and defers the expensive fields until a consumer needs them. Most consumers (orbit-path cosine, eval, entropy) do not need the fields and benefit from the deferral. Consumers that do need the fields (the pairwise path, the centres-array eval) call `ensureExpTensExpensive(dens)` (idempotent) before reading; this is wired internally throughout the toolbox. End-user behaviour is unchanged at the API level. A single existing test that asserted `r=1, isRel=true` errored at build time was relaxed to a warning (id `buildExpTens:isRelDegenerate`) since v2.2's well-defined treatment (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0) makes the configuration valid rather than ill-formed.
+
+### Internal
+
+- **Cross-language equivalence tests.** Hardcoded golden values pin down numerical agreement between the MATLAB and Python implementations to $10^{-8}$ relative across the v2.2 surface (orbit cosine SA + MA including the safe/unsafe hybrid, Rényi-2 entropy SA + MA, orbit-path `tensorHarmonicity`, and orbit-path `evalExpTens`). See `tests/v22/test_cross_language_golden.{m,py}`.
+
+- **Speed comparison.** Targeted spot-checks at $(r, K) \in \{(2, 8), (3, 8), (3, 12), (4, 8), (5, 6)\}$ time the MATLAB orbit IP/eval evaluators against their Python NumPy-einsum equivalents at matched inputs. The verdict gates whether to invest in precomputed contraction paths or a sharper greedy heuristic in `mobius.contract`. See `tests/v22/bench_orbit_xlang.{m,py}`.
+
+---
+
+
+
 ## [2.1.0] — 2026-05-08
 
 ### Overview

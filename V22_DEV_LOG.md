@@ -503,3 +503,26 @@ are added by registering one new function — the same battery of
   `_cos_sim_exp_tens_*_orbit` / `_pairwise`.
 - `python/tests/v22/` — pytest unit tests.
 - `python/tests/v22/precision_audit/` — exploratory sweeps and reference outputs.
+
+---
+
+## Phase 1 complete (2026-05-10)
+
+Commits 1–7 closed. Cross-language parity established across the v2.2 surface:
+
+- **Commits 1–5.** Foundation: `+mobius` package (MATLAB) and `_mobius` module (Python) with orbit table builder, partition / set-partition / contingency-table enumerators, contraction helper, pre-built tables for r ∈ {2..6}, lazy density-struct refactor in `buildExpTens` + `ensureExpTensExpensive` helper.
+
+- **Commit 6.** Single-attribute (a–b) and multi-attribute (c) cosine similarity and point-evaluation dispatchers with the orbit method. Three-layer guard for SA (cross-cancellation, corruption, severe ratio); simpler heuristic for MA. Renyi-2 entropy (e) for SA and MA via orbit IP and analytical total mass. `tensorHarmonicity` rewrite (d) bypassing `buildExpTens` entirely, routing through `mobius.evalOrbitRel` with per-template caching.
+
+- **Ragged-K hybrid.** Per-event safe/unsafe partition in MA per-attribute IP wrapper. Safe×safe pairs flow through vectorised batched orbit; pairs involving any unsafe event flow through direct enumeration (no Möbius alternating sum, no cancellation). Cross-language parity: same threshold (`_ORBIT_K_MINUS_R_MIN = 2`), same partition logic, same dispatch. Replaces the earlier zero-pad-everything fallback.
+
+- **Commit 7.** Cross-language equivalence tests (hardcoded golden values; 7 cases covering SA / MA cosine, Rényi-2, tensorHarmonicity, evalExpTens). Speed-comparison spot-checks (`bench_orbit_xlang.{m,py}`) at five (r, K) configurations to gate the precomputed-paths investment in `mobius.contract`. Documentation updates across CHANGELOG, MIGRATION, USER_GUIDE.
+
+Test count at Phase 1 close: **683 MATLAB / 340 Python v22**.
+
+### Deferred to v2.3+
+
+- Adding raw-array overload to `windowedSimilarity` (the only similarity-and-evaluation function still requiring a pre-built density). Would unblock `demo_helixBlend`, `demo_maetWindowing`, `demo_windowingReference` from their explicit `buildExpTens` calls. TODO note co-located in source.
+- r ∈ {7, 8} orbit tables. Cost-model crossover currently unfavourable beyond r=6 in standard regimes; deferred until a use case requires it.
+- Tightening the K-vs-r precision guard (`_ORBIT_K_MINUS_R_MIN = 2`) — the empirical-calibration constant. Could be replaced with a dynamic per-call cancellation prediction once enough audit data accumulates.
+- Test redundancy audit on the v22 corpus (~130 tests). Lazy-density tests and Möbius-vs-toolbox cross-validation tests are the prime candidates. Roughly 1–2 hours of focused work; defer until v2.3 stabilises.

@@ -3484,6 +3484,21 @@ results{end,2}   = throwsError(@() simplexVertices(3, -1));
 results{end+1,1} = 'simplexVertices: zero edge length errors';
 results{end,2}   = throwsError(@() simplexVertices(3, 0));
 
+%% ---- v2.2 tests (matlab/tests/v22/) ----
+% v2.2-dev tests live in tests/v22/ and follow the same `results = {...}`
+% accumulation idiom. Each script appends to the existing `results` cell
+% when invoked from here; when run alone, each prints its own summary.
+
+v22Dir = fullfile(fileparts(mfilename('fullpath')), 'v22');
+v22Files = { ...
+    'test_mobius_combinatorics.m', ...
+    'test_mobius_orbit_table.m', ...
+    'test_mobius_ip.m', ...
+};
+for ki = 1:numel(v22Files)
+    run(fullfile(v22Dir, v22Files{ki}));
+end
+
 %% ---- Print results ----
 
 nPass = sum([results{:,2}]);

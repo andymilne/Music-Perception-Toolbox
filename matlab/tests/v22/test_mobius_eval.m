@@ -79,7 +79,7 @@ ok = true; allFinite = true;
 seedBase = 1234;
 for r = 2:3
     for n = [5, 7]
-        rand('state', seedBase + r * 100 + n); %#ok<RAND>
+        rng(seedBase + r * 100 + n, 'twister');
         p = sort(2000 * rand(n, 1));
         w = 0.5 + rand(n, 1);
         sigma = 100.0;
@@ -113,7 +113,7 @@ results{end, 2}   = ok && allFinite;
 %% ---- evalOrbitAbs r=1: reduces to direct sum ----
 
 % T_abs(x) = sum_i w_i * exp(-(x - p_i)^2 / (2 sigma^2)) for r=1.
-rand('state', 99); %#ok<RAND>
+rng(99, 'twister');
 n = 6;
 p = sort(1000 * rand(n, 1));
 w = 0.5 + rand(n, 1);
@@ -133,7 +133,7 @@ results{end, 2}   = max(abs(valOrbit - expected)) < 1e-12;
 % At periodic period P, two queries that differ by integer multiples
 % of P should give the same result.
 P = 1200;
-rand('state', 77); %#ok<RAND>
+rng(77, 'twister');
 n = 5;
 p = sort(P * rand(n, 1));
 w = 0.5 + rand(n, 1);
@@ -153,7 +153,7 @@ results{end, 2}   = max(abs(val1 - val2)) < 1e-12;
 
 %% ---- evalOrbitAbs returns finite cancellation ratio ----
 
-rand('state', 5); %#ok<RAND>
+rng(5, 'twister');
 n = 8;
 p = sort(2000 * rand(n, 1));
 w = 0.5 + rand(n, 1);
@@ -168,7 +168,7 @@ results{end, 2}   = all(isfinite(vals)) && all(isfinite(ratios)) && ...
 
 %% ---- evalOrbitRel: degenerate r=1 returns sum(w) ----
 
-rand('state', 1); %#ok<RAND>
+rng(1, 'twister');
 n = 4;
 p = sort(1000 * rand(n, 1));
 w = 0.5 + rand(n, 1);
@@ -183,7 +183,7 @@ results{end, 2}   = numel(vals) == 5 && all(abs(vals - sum(w)) < 1e-14);
 
 % T_rel(Δ) = (1/Z_t) * ∫ T_abs(u, u+Δ_1, ..., u+Δ_{r-1}) du.
 % Compare evalOrbitRel against a manual quadrature using evalOrbitAbs.
-rand('state', 2); %#ok<RAND>
+rng(2, 'twister');
 n = 6;
 p = sort(2000 * rand(n, 1));
 w = 0.5 + rand(n, 1);
@@ -218,7 +218,7 @@ results{end, 2}   = max(abs(valsAuto - valsManual)) < 1e-10 * max(abs(valsManual
 %% ---- evalOrbitRel periodic: integral over [0, P) is period-invariant ----
 
 P = 1200;
-rand('state', 3); %#ok<RAND>
+rng(3, 'twister');
 n = 5;
 p = sort(P * rand(n, 1));
 w = 0.5 + rand(n, 1);

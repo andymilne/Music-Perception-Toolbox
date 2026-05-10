@@ -60,7 +60,7 @@ ok = true; allFinite = true;
 seedBase = 42;
 for r = 2:3
     for n = [6, 7]
-        rand('state', seedBase + r * 100 + n);
+        rng(seedBase + r * 100 + n, 'twister');
         p_A = sort(3000 * rand(n, 1));
         w_A = 0.5 + rand(n, 1);
         p_B = sort(3000 * rand(n, 1));
@@ -105,7 +105,7 @@ results{end, 2}   = ok && allFinite;
 
 ok = true;
 for r = 2:4
-    rand('state', 7 + r);
+    rng(7 + r, 'twister');
     n = 12;
     p = sort(5000 * rand(n, 1));
     w = 0.5 + rand(n, 1);
@@ -122,7 +122,7 @@ results{end, 2}   = ok;
 
 %% ---- innerProductOrbitGrid: zero-shift matches static ----
 
-rand('state', 99);
+rng(99, 'twister');
 n = 8;
 p_A = sort(1500 * rand(n, 1)); w_A = 0.5 + rand(n, 1);
 p_B = sort(1500 * rand(n, 1)); w_B = 0.5 + rand(n, 1);
@@ -170,7 +170,7 @@ results{end, 2}   = max(abs(valPw - valGridMulti(1:N))) < 1e-10;
 %% ---- innerProductOrbitPwBatched: independent batches give independent results ----
 
 N = 3;
-rand('state', 123);
+rng(123, 'twister');
 K_g = zeros(N, n, n);
 w_A_g = zeros(N, n);
 w_B_g = zeros(N, n);
@@ -199,7 +199,7 @@ results{end, 2}   = ok;
 
 ok = true;
 for r = 1:4
-    rand('state', 11);
+    rng(11, 'twister');
     n = 6;
     p = sort(1000 * rand(n, 1));
     w = 0.5 + rand(n, 1);
@@ -225,7 +225,7 @@ results{end, 2}   = ok;
 %% ---- totalMassRel: scaling factor relation ----
 
 r = 3; sigma = 25.0;
-rand('state', 7);
+rng(7, 'twister');
 w = 0.5 + rand(5, 1);
 Zabs = mobius.totalMassAbs([], w, sigma, r);
 Zrel = mobius.totalMassRel([], w, sigma, r);
@@ -236,7 +236,7 @@ results{end, 2}   = abs(Zrel / Zabs - expectedRatio) < 1e-14;
 
 %% ---- Cancellation ratio is reported when requested ----
 
-rand('state', 4);
+rng(4, 'twister');
 n = 8; p = sort(1500 * rand(n, 1)); w = 0.5 + rand(n, 1); sigma = 30.0;
 K = exp(-((p - p').^2) / (4 * sigma^2));
 [val, ratio] = mobius.innerProductOrbit(K, w, w, 3, ...

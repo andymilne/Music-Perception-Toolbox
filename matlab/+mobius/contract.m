@@ -220,14 +220,14 @@ function [merged, mergedAxes] = mergePair(A, axA, B, axB, otherAxes, freeAxes)
         B_x = reshape(B_re, [pKeep, 1, pBSolo]);
         prod3 = A_x .* B_x;  % (pKeep, pASolo, pBSolo)
     else
-        % Per-page matmul. pagemtimes(A, B) pages along dim 3+, with
-        % matmul on dims 1-2. Permute so:
+        % Per-page matmul. pagemtimes pages along dim 3+, with matmul
+        % on dims 1-2. Permute so:
         %   A : (pASolo, pContract, pKeep)  -- M, K, page
         %   B : (pContract, pBSolo, pKeep)  -- K, N, page
-        %   pagemtimes → (pASolo, pBSolo, pKeep)
+        %   pagemtimes -> (pASolo, pBSolo, pKeep)
         A_M = permute(A_re, [3, 2, 1]);
         B_M = permute(B_re, [2, 3, 1]);
-        prod3pg = localPageMatMul(A_M, B_M);  % (pASolo, pBSolo, pKeep)
+        prod3pg = pagemtimes(A_M, B_M);  % (pASolo, pBSolo, pKeep)
         % Bring keep-axis back to the front.
         prod3 = permute(prod3pg, [3, 1, 2]);  % (pKeep, pASolo, pBSolo)
     end
@@ -277,43 +277,4 @@ function [szKeep, szContract, szSolo] = sliceSize(data, groupSizes, ~, ~)
     szKeep = sz(1:nKeep);
     szContract = sz(nKeep + (1:nContract));
     szSolo = sz(nKeep + nContract + (1:nSolo));
-end
-
-
-% ---------------------------------------------------------------------
-% Page-wise matrix multiplication. Mirrors PAGEMTIMES (R2020b+); falls
-% back to a for-loop on environments that don't ship it (Octave).
-% ---------------------------------------------------------------------
-function C = localPageMatMul(A, B)
-    if exist('pagemtimes', 'builtin') == 5 || exist('pagemtimes', 'file')
-        C = pagemtimes(A, B);
-        return
-    end
-    sA = size(A);
-    sB = size(B);
-    M = sA(1);
-    K = sA(2);
-    N = sB(2);
-    pageDimsA = sA(3:end);
-    pageDimsB = sB(3:end);
-    if isempty(pageDimsA); pageDimsA = 1; end
-    if isempty(pageDimsB); pageDimsB = 1; end
-    pageDims = max([pageDimsA, ones(1, max(0, numel(pageDimsB) - numel(pageDimsA)))], ...
-                   [pageDimsB, ones(1, max(0, numel(pageDimsA) - numel(pageDimsB)))]);
-    nPages = prod(pageDims);
-    A3 = reshape(A, M, K, []);
-    B3 = reshape(B, K, N, []);
-    nA = size(A3, 3);
-    nB = size(B3, 3);
-    C3 = zeros(M, N, nPages);
-    for p = 1:nPages
-        pA = min(p, nA);
-        pB = min(p, nB);
-        C3(:, :, p) = A3(:, :, pA) * B3(:, :, pB);
-    end
-    if numel(pageDims) <= 1
-        C = reshape(C3, [M, N, pageDims]);
-    else
-        C = reshape(C3, [M, N, pageDims]);
-    end
 end

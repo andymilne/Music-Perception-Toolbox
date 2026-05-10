@@ -786,6 +786,13 @@ function corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
         corrupted = true;
     end
 end
+
+
+% =========================================================================
+%  localCosSimMA — multi-attribute (MAET) cosine similarity
+% =========================================================================
+
+function s = localCosSimMA(dens_x, dens_y, verbose)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute

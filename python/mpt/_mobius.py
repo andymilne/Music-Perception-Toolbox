@@ -200,14 +200,35 @@ class OrbitEntry:
     qA, qB : int
         Block counts (equivalently, lengths of m_A and m_B).
     einsum_str : str
-        Pre-built einsum subscript string for this orbit's tensor contraction.
-        Used by both static-K (cosine) and gridded-K (relative-mode integration)
-        evaluators; the latter prepends a 'u' axis to each kernel index.
+        Pre-built einsum subscript string for ``inner_product_orbit``.
+    einsum_str_grid : str
+        Pre-built einsum subscript string for ``inner_product_orbit_grid``
+        (gridded-K, weights without batch axis).
+    einsum_str_pw_batched : str
+        Pre-built einsum subscript string for
+        ``inner_product_orbit_pw_batched`` (gridded-K, weights with batch
+        axis). Computed at table-build time so the runtime path doesn't
+        re-derive it per orbit per call.
+    einsum_path, einsum_path_grid, einsum_path_pw_batched : list
+        Precomputed contraction paths (in the form returned by
+        ``np.einsum_path(..., optimize='greedy')[0]``), each
+        corresponding to the matching ``einsum_str_*`` field. Computed
+        at table-build time using reference shapes and passed to
+        ``np.einsum(..., optimize=path)`` at runtime so NumPy can skip
+        its internal path optimisation step.
     """
 
-    __slots__ = ("weight", "mu", "m_A", "m_B", "edges", "qA", "qB", "einsum_str", "einsum_str_grid")
+    __slots__ = (
+        "weight", "mu", "m_A", "m_B", "edges", "qA", "qB",
+        "einsum_str", "einsum_str_grid", "einsum_str_pw_batched",
+        "einsum_path", "einsum_path_grid", "einsum_path_pw_batched",
+    )
 
-    def __init__(self, weight, mu, m_A, m_B, edges, qA, qB, einsum_str, einsum_str_grid):
+    def __init__(self, weight, mu, m_A, m_B, edges, qA, qB,
+                 einsum_str, einsum_str_grid,
+                 einsum_str_pw_batched=None,
+                 einsum_path=None, einsum_path_grid=None,
+                 einsum_path_pw_batched=None):
         self.weight = weight
         self.mu = mu
         self.m_A = m_A
@@ -217,6 +238,10 @@ class OrbitEntry:
         self.qB = qB
         self.einsum_str = einsum_str
         self.einsum_str_grid = einsum_str_grid
+        self.einsum_str_pw_batched = einsum_str_pw_batched
+        self.einsum_path = einsum_path
+        self.einsum_path_grid = einsum_path_grid
+        self.einsum_path_pw_batched = einsum_path_pw_batched
 
 
 def _build_orbit_table(r: int) -> list[OrbitEntry]:
@@ -280,6 +305,29 @@ def _build_orbit_table(r: int) -> list[OrbitEntry]:
                 )
                 einsum_str_grid = ",".join(subs_grid) + "->u"
 
+                # Pw-batched: same as grid but with 'u' prepended to
+                # each weight subscript too (per-batch weight vectors).
+                # Precomputed here so inner_product_orbit_pw_batched
+                # doesn't have to patch the string per orbit per call.
+                in_part, _, out_part = einsum_str_grid.partition("->")
+                specs = in_part.split(",")
+                new_specs = [
+                    ("u" + s) if i < qA + qB else s
+                    for i, s in enumerate(specs)
+                ]
+                einsum_str_pw_batched = ",".join(new_specs) + "->" + out_part
+
+                # Precompute contraction paths via np.einsum_path with
+                # representative shapes. Path is shape-agnostic enough
+                # that runtime variation in n_A, n_B is handled fine;
+                # the goal is to skip NumPy's per-call path optimisation
+                # step, which dominates for small operands.
+                path_ip = _compute_einsum_path_ip(einsum_str, qA, qB, edges)
+                path_grid = _compute_einsum_path_grid(
+                    einsum_str_grid, qA, qB, edges)
+                path_pw_batched = _compute_einsum_path_pw_batched(
+                    einsum_str_pw_batched, qA, qB, edges)
+
                 table.append(
                     OrbitEntry(
                         weight=weight,
@@ -291,9 +339,66 @@ def _build_orbit_table(r: int) -> list[OrbitEntry]:
                         qB=qB,
                         einsum_str=einsum_str,
                         einsum_str_grid=einsum_str_grid,
+                        einsum_str_pw_batched=einsum_str_pw_batched,
+                        einsum_path=path_ip,
+                        einsum_path_grid=path_grid,
+                        einsum_path_pw_batched=path_pw_batched,
                     )
                 )
     return table
+
+
+# ---------------------------------------------------------------------
+# Path precomputation helpers
+# ---------------------------------------------------------------------
+
+# Reference shapes for path optimisation. The path is largely
+# shape-insensitive within the typical orbit-IP range (n_A, n_B in
+# 4..32; N_grid 1..200); these values give NumPy enough info to pick
+# a sane path, and runtime sizes can vary freely afterwards.
+_REF_N_A = 8
+_REF_N_B = 8
+_REF_N_GRID = 8
+
+
+def _compute_einsum_path_ip(einsum_str, qA, qB, edges):
+    """Path for inner_product_orbit: weights 1-D, kernels 2-D, no grid axis."""
+    operands = []
+    for _ in range(qA):
+        operands.append(np.empty(_REF_N_A))
+    for _ in range(qB):
+        operands.append(np.empty(_REF_N_B))
+    for _ in edges:
+        operands.append(np.empty((_REF_N_A, _REF_N_B)))
+    path_info = np.einsum_path(einsum_str, *operands, optimize='greedy')
+    return path_info[0]
+
+
+def _compute_einsum_path_grid(einsum_str_grid, qA, qB, edges):
+    """Path for inner_product_orbit_grid: weights 1-D, kernels 3-D (u, n_A, n_B)."""
+    operands = []
+    for _ in range(qA):
+        operands.append(np.empty(_REF_N_A))
+    for _ in range(qB):
+        operands.append(np.empty(_REF_N_B))
+    for _ in edges:
+        operands.append(np.empty((_REF_N_GRID, _REF_N_A, _REF_N_B)))
+    path_info = np.einsum_path(einsum_str_grid, *operands, optimize='greedy')
+    return path_info[0]
+
+
+def _compute_einsum_path_pw_batched(einsum_str_pw_batched, qA, qB, edges):
+    """Path for inner_product_orbit_pw_batched: every operand carries u axis."""
+    operands = []
+    for _ in range(qA):
+        operands.append(np.empty((_REF_N_GRID, _REF_N_A)))
+    for _ in range(qB):
+        operands.append(np.empty((_REF_N_GRID, _REF_N_B)))
+    for _ in edges:
+        operands.append(np.empty((_REF_N_GRID, _REF_N_A, _REF_N_B)))
+    path_info = np.einsum_path(
+        einsum_str_pw_batched, *operands, optimize='greedy')
+    return path_info[0]
 
 
 # ---------------------------------------------------------------------
@@ -350,6 +455,7 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
     if prebuilt.is_file():
         with open(prebuilt, "rb") as f:
             table = pickle.load(f)
+        table = _ensure_paths(table)
         _orbit_cache[r] = table
         return table
 
@@ -358,10 +464,11 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
     if user_cached.is_file():
         with open(user_cached, "rb") as f:
             table = pickle.load(f)
+        table = _ensure_paths(table)
         _orbit_cache[r] = table
         return table
 
-    # Build from scratch
+    # Build from scratch (paths embedded by _build_orbit_table)
     table = _build_orbit_table(r)
     _orbit_cache[r] = table
 
@@ -379,8 +486,55 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
 
 
 # ---------------------------------------------------------------------
-# Build script for shipped pre-built tables
+# Backward-compat: old pre-built tables (shipped before path
+# precomputation existed) get their paths computed and attached on
+# first load. Path computation is fast (np.einsum_path on placeholder
+# arrays); the cost is bounded and paid once per session. Tables
+# freshly built by _build_orbit_table already have paths embedded and
+# pass through unchanged.
 # ---------------------------------------------------------------------
+
+
+def _ensure_paths(table):
+    """Augment loaded orbit-table entries with precomputed paths if missing."""
+    if not table:
+        return table
+    first = table[0]
+    needs_augment = (
+        not hasattr(first, "einsum_path")
+        or first.einsum_path is None
+        or not hasattr(first, "einsum_str_pw_batched")
+        or first.einsum_str_pw_batched is None
+    )
+    if not needs_augment:
+        return table
+
+    for orb in table:
+        # Pre-build pw_batched string if missing.
+        if not hasattr(orb, "einsum_str_pw_batched") \
+                or orb.einsum_str_pw_batched is None:
+            in_part, _, out_part = orb.einsum_str_grid.partition("->")
+            specs = in_part.split(",")
+            new_specs = [
+                ("u" + s) if i < orb.qA + orb.qB else s
+                for i, s in enumerate(specs)
+            ]
+            orb.einsum_str_pw_batched = (
+                ",".join(new_specs) + "->" + out_part)
+
+        # Compute the three paths.
+        if not hasattr(orb, "einsum_path") or orb.einsum_path is None:
+            orb.einsum_path = _compute_einsum_path_ip(
+                orb.einsum_str, orb.qA, orb.qB, orb.edges)
+        if not hasattr(orb, "einsum_path_grid") \
+                or orb.einsum_path_grid is None:
+            orb.einsum_path_grid = _compute_einsum_path_grid(
+                orb.einsum_str_grid, orb.qA, orb.qB, orb.edges)
+        if not hasattr(orb, "einsum_path_pw_batched") \
+                or orb.einsum_path_pw_batched is None:
+            orb.einsum_path_pw_batched = _compute_einsum_path_pw_batched(
+                orb.einsum_str_pw_batched, orb.qA, orb.qB, orb.edges)
+    return table
 
 
 def _build_and_save_prebuilt_tables(max_r: int = 8) -> None:
@@ -470,7 +624,8 @@ def inner_product_orbit(
                 operands.append(K)
             else:
                 operands.append(K ** m)
-        contribution = np.einsum(orb.einsum_str, *operands, optimize=True)
+        contribution = np.einsum(
+            orb.einsum_str, *operands, optimize=orb.einsum_path)
         term = orb.weight * orb.mu * contribution
         total += term
         abs_term = abs(term)
@@ -536,7 +691,8 @@ def inner_product_orbit_grid(
                 operands.append(K_u)
             else:
                 operands.append(K_u ** m)
-        contribution = np.einsum(orb.einsum_str_grid, *operands, optimize=True)
+        contribution = np.einsum(
+            orb.einsum_str_grid, *operands, optimize=orb.einsum_path_grid)
         term = orb.weight * orb.mu * contribution
         total += term
         np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
@@ -608,13 +764,6 @@ def inner_product_orbit_pw_batched(
     total = np.zeros(N, dtype=K_g.dtype)
     max_abs_term = np.zeros(N, dtype=K_g.dtype)
     for orb in table:
-        in_part, _, out_part = orb.einsum_str_grid.partition("->")
-        specs = in_part.split(",")
-        new_specs = [
-            ("u" + s) if i < orb.qA + orb.qB else s
-            for i, s in enumerate(specs)
-        ]
-        new_es = ",".join(new_specs) + "->" + out_part
         operands = []
         for alpha in range(orb.qA):
             operands.append(w_A_g ** orb.m_A[alpha])
@@ -625,7 +774,10 @@ def inner_product_orbit_pw_batched(
                 operands.append(K_g)
             else:
                 operands.append(K_g ** m)
-        contribution = np.einsum(new_es, *operands, optimize=True)
+        contribution = np.einsum(
+            orb.einsum_str_pw_batched, *operands,
+            optimize=orb.einsum_path_pw_batched,
+        )
         term = orb.weight * orb.mu * contribution
         total += term
         np.maximum(max_abs_term, np.abs(term), out=max_abs_term)

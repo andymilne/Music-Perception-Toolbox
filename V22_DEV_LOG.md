@@ -516,7 +516,13 @@ Commits 1–7 closed. Cross-language parity established across the v2.2 surface:
 
 - **Ragged-K hybrid.** Per-event safe/unsafe partition in MA per-attribute IP wrapper. Safe×safe pairs flow through vectorised batched orbit; pairs involving any unsafe event flow through direct enumeration (no Möbius alternating sum, no cancellation). Cross-language parity: same threshold (`_ORBIT_K_MINUS_R_MIN = 2`), same partition logic, same dispatch. Replaces the earlier zero-pad-everything fallback.
 
-- **Commit 7.** Cross-language equivalence tests (hardcoded golden values; 7 cases covering SA / MA cosine, Rényi-2, tensorHarmonicity, evalExpTens). Speed-comparison spot-checks (`bench_orbit_xlang.{m,py}`) at five (r, K) configurations to gate the precomputed-paths investment in `mobius.contract`. Documentation updates across CHANGELOG, MIGRATION, USER_GUIDE.
+- **Commit 7.** Cross-language equivalence tests (hardcoded golden values; 7 cases covering SA / MA cosine, Rényi-2, tensorHarmonicity, evalExpTens). Speed-comparison spot-checks (`bench_orbit_xlang.{m,py}`) at five (r, K) configurations.
+
+  *First iteration:* MATLAB 14–32× slower than Python on orbit IP/eval (median 22×). Profile localised the cost: `mobius.contract`'s greedy pair-picker spent ~86% of wall time in `intersect` / `setdiff` / `unique` / `ismember` calls (~700k set-operation calls per single r=5 IP), with `pagemtimes` and arithmetic not even appearing in the top 20.
+
+  *Stage A (orbit contraction-graph precomputation, both languages):* moved the contraction-graph construction from runtime to table-build time. **MATLAB**: each orbit struct gains three precomputed recipes (`recipeIP`, `recipeGrid`, `recipeBatched`); runtime executes precomputed permutations via `mobius.executeRecipe` — zero set operations. **Python**: each `OrbitEntry` gains three precomputed `np.einsum_path` outputs (and one pre-built `einsum_str_pw_batched` replacing per-call string-patching); runtime passes `optimize=path` to `np.einsum`. Backward-compat paths in `mobius.getOrbitTable` (MATLAB) and `_mobius._ensure_paths` (Python) augment old `.mat` / `.pkl` files on first load. Tests: 9 MATLAB cases in `test_recipe_equivalence.m`, 11 Python cases in `test_orbit_path_equivalence.py`. **Result**: MATLAB median speedup 32× (range 12–74×); MATLAB / Python ratio dropped from 22× to 0.53× (MATLAB now generally faster). Python median speedup 2.2× (range 1.6–3.9×) on top of its already-fast baseline. Stage B (`tensorprod` substitution) was prepared but skipped — the gating concern was crushed by Stage A alone.
+
+  Documentation updates across CHANGELOG, MIGRATION, USER_GUIDE.
 
 Test count at Phase 1 close: **683 MATLAB / 340 Python v22**.
 

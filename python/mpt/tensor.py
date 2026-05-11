@@ -2256,6 +2256,8 @@ def cos_sim_exp_tens(*args,
                      precision: int | None = None,
                      method: str = "auto",
                      cancellation_threshold: float = 1e-12,
+                     truncation_sigmas: float | None = None,
+                     kernel_precision: str | None = None,
                      verbose: bool = True):
     """Cosine similarity of two expectation tensor densities.
 
@@ -2399,6 +2401,8 @@ def cos_sim_exp_tens(*args,
             mode=mode, dedup=dedup,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
 
@@ -2605,7 +2609,8 @@ def _all_sa_pairs(pairs):
 
 
 def _compute_pair_results_with_dedup_sa(
-    pairs, *, method: str, cancellation_threshold: float, verbose: bool,
+    pairs, *, method: str, cancellation_threshold: float,
+    truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for SA-density pairs with canonical-form dedup."""
     pair_key_to_idx: dict = {}
@@ -2640,6 +2645,8 @@ def _compute_pair_results_with_dedup_sa(
             a, b,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=False,
         )
         for a, b in unique_pair_list
@@ -2648,7 +2655,8 @@ def _compute_pair_results_with_dedup_sa(
 
 
 def _compute_pair_results_no_dedup(
-    pairs, *, method: str, cancellation_threshold: float, verbose: bool,
+    pairs, *, method: str, cancellation_threshold: float,
+    truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for a list of pairs without dedup."""
     results = []
@@ -2657,6 +2665,8 @@ def _compute_pair_results_no_dedup(
             a, b,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=False,
         ))
     return results
@@ -2666,14 +2676,17 @@ def _cos_sim_pair_core(
     dens_x, dens_y, *,
     method: str = "auto",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool,
 ):
     """Internal: dispatch a single pair to the correct core IP routine.
 
     Routes to :func:`_cos_sim_exp_tens_sa`, :func:`_cos_sim_exp_tens_ma`,
-    or :func:`_cos_sim_exp_tens_windowed`, threading ``method`` and
-    ``cancellation_threshold`` through to the SA and MA paths (the
-    windowed path doesn't yet expose orbit dispatch).
+    or :func:`_cos_sim_exp_tens_windowed`, threading ``method``,
+    ``cancellation_threshold``, ``truncation_sigmas`` and
+    ``kernel_precision`` through to the SA path (the MA and windowed
+    paths await their own helper-routing stages).
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
@@ -2709,6 +2722,8 @@ def _cos_sim_pair_core(
             dens_x, dens_y,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
     raise TypeError(
@@ -2724,6 +2739,8 @@ def _cos_sim_density_path(
     dedup: bool = True,
     method: str = "auto",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Density-input dispatch for :func:`cos_sim_exp_tens`."""
@@ -2736,6 +2753,8 @@ def _cos_sim_density_path(
             list_x[0], list_y[0],
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
 
@@ -2777,6 +2796,8 @@ def _cos_sim_density_path(
             pairs,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
     else:
@@ -2789,6 +2810,8 @@ def _cos_sim_density_path(
             pairs,
             method=method,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
 
@@ -2925,6 +2948,8 @@ def _cos_sim_exp_tens_sa(
     *,
     method: str = "auto",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> float:
     """Single-attribute cosine similarity.
@@ -2998,10 +3023,14 @@ def _cos_sim_exp_tens_sa(
         if cross_cancellation or ips_corrupted or cancellation_too_severe:
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
                 dens_x, dens_y, verbose=verbose,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
     else:  # 'pairwise' or 'direct' — coincide in SA mode
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
             dens_x, dens_y, verbose=verbose,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
 
     denom = np.sqrt(ip_xx * ip_yy)
@@ -3942,8 +3971,25 @@ def _compute_Q(D, r, is_rel, is_per, period):
     return Q
 
 
-def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
-    """Core inner product (perm-side × comb-side)."""
+def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
+             truncation_sigmas=None, kernel_precision=None):
+    """Core inner product (perm-side × comb-side).
+
+    v2.2.x (Stage 2b): for abs and rel-non-periodic modes, routes
+    through :func:`gaussian_kernel_sum` with ``sigma_eff = sigma *
+    sqrt(2)`` so ``truncation_sigmas`` / ``kernel_precision`` are
+    applied uniformly. The rel+periodic pairwise-wrap form is not
+    yet supported by the helper and stays on the existing vectorised
+    / chunked path.
+    """
+    can_use_helper = not (is_rel and is_per)
+    if can_use_helper:
+        return _ip_via_helper(
+            U, wU, V, wV, r, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
+
     bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
     mem_limit = 4_000_000_000
 
@@ -3965,6 +4011,29 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
         acc += Ec @ wV[idx]
 
     return float(wU @ acc)
+
+
+def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
+                   truncation_sigmas=None, kernel_precision=None):
+    """Route the centres-IP through :func:`gaussian_kernel_sum`.
+
+    The helper computes ``g(q) = sum_j wJ(j) * exp(-Q(c_j - x_q) /
+    (2 * sigma_eff^2))`` with ``sigma_eff = sigma * sqrt(2)``, so the
+    kernel exponent matches the centres-IP's ``Q / (4 * sigma^2)``.
+    The IP is then ``wU @ g``.
+
+    Supports abs (per and non-per) and rel-non-periodic. The rel+per
+    pairwise-wrap form is not yet supported by the helper.
+    """
+    kw = dict(is_rel=bool(is_rel), r=int(r),
+              is_per=bool(is_per), period=float(period))
+    if truncation_sigmas is not None:
+        kw["truncation_sigmas"] = float(truncation_sigmas)
+    if kernel_precision is not None:
+        kw["kernel_precision"] = kernel_precision
+    sigma_eff = float(sigma) * np.sqrt(2.0)
+    g = gaussian_kernel_sum(V, wV.ravel(), U, sigma_eff, **kw)
+    return float(np.asarray(g).ravel() @ wU.ravel())
 
 
 def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
@@ -4439,12 +4508,18 @@ def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
     return ip_xy, ip_xx, ip_yy, min(r_xy, r_xx, r_yy)
 
 
-def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True):
+def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True,
+                                  truncation_sigmas=None,
+                                  kernel_precision=None):
     """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the v2.1
     pairwise path (``_ip_core``).
 
     This is the body of the original (v2.1) ``_cos_sim_exp_tens_sa``
     factored out so the new dispatcher can route to it cleanly.
+
+    v2.2.x: forwards ``truncation_sigmas`` / ``kernel_precision`` to
+    ``_ip_core`` so the helper-accelerated path is reached for the
+    abs and rel-non-periodic modes.
     """
     r = dens_x.r
     sigma = dens_x.sigma
@@ -4462,16 +4537,22 @@ def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True):
         dens_x.u_perm, dens_x.w_perm, n_jx,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         r, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
     )
     ip_xx = _ip_core(
         dens_x.u_perm, dens_x.w_perm, n_jx,
         dens_x.v_comb, dens_x.wv_comb, n_kx,
         r, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
     )
     ip_yy = _ip_core(
         dens_y.u_perm, dens_y.w_perm, n_jy,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         r, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
     )
     return ip_xy, ip_xx, ip_yy
 

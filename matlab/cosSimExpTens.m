@@ -120,6 +120,8 @@ function s = cosSimExpTens(varargin)
 verbose = true;
 method = 'auto';                % v2.2: 'auto' | 'pairwise' | 'orbit'
 cancellationThreshold = 1e-12;  % v2.2: cross-cancellation guard
+truncationSigmas = [];          % []: use mptDefaults at the helper level
+kernelPrecision  = [];          % []: use mptDefaults at the helper level
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
 precisionOpt = [];    % []  ⇒ no precision kwarg passed downstream
 dedupOpt = [];        % []  ⇒ no dedup kwarg passed downstream
@@ -156,6 +158,18 @@ while i <= numel(varargin)
                     error('cosSimExpTens:badCancellationThreshold', ...
                           '''cancellationThreshold'' must be a positive scalar.');
                 end
+                keepMask(i)     = false;
+                keepMask(i + 1) = false;
+                i = i + 2;
+                continue;
+            case 'truncationsigmas'
+                truncationSigmas = varargin{i + 1};
+                keepMask(i)     = false;
+                keepMask(i + 1) = false;
+                i = i + 2;
+                continue;
+            case 'kernelprecision'
+                kernelPrecision = varargin{i + 1};
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
                 i = i + 2;
@@ -489,11 +503,24 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     % -----------------------------------------------------------------
     %  ipCore
     %  Core inner product between one perm-side (U, wU) and one
-    %  comb-side (V, wV). Dispatches to the fully vectorized fast path
-    %  if the intermediate 3D array fits in memory; otherwise processes
-    %  in chunks along the comb-side dimension.
+    %  comb-side (V, wV).
+    %
+    %  v2.2.x (Stage 2b): for the abs and rel-non-periodic modes, route
+    %  through internal.gaussianKernelSum so the truncationSigmas and
+    %  kernelPrecision options apply uniformly. The helper's Gaussian
+    %  kernel matches the IP's effective-sigma form via sigma_eff =
+    %  sigma * sqrt(2) (since the IP integrand has variance 2*sigma^2
+    %  rather than sigma^2). For rel+periodic mode the helper does not
+    %  yet support cosSimExpTens's pairwise-wrap quadratic form, so that
+    %  case stays on the existing vectorised ipFull/chunked path.
     % -----------------------------------------------------------------
     function ipval = ipCore(U, wU, nJ, V, wV, nK)
+        canUseHelper = ~(isRel && isPer);
+        if canUseHelper
+            ipval = ipViaHelper(U, wU, V, wV);
+            return;
+        end
+
         bytesNeeded = (r + 2) * double(nJ) * double(nK) * 8;
 
         try
@@ -531,6 +558,40 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
             ipval = wU(:)' * acc;
         end
     end
+
+    % -----------------------------------------------------------------
+    %  ipViaHelper
+    %  Route the centres-IP through internal.gaussianKernelSum. The
+    %  helper computes
+    %     g(q) = sum_j wJ(j) * exp(-Q(c_j - x_q) / (2*sigma_eff^2))
+    %  with sigma_eff = sigma * sqrt(2), so the kernel exponent becomes
+    %  Q / (4*sigma^2) — exactly the centres-IP kernel.
+    %
+    %  The final IP is then sum_q wU(q) * g(q), i.e. a dot product
+    %  with the perm-side weights. truncationSigmas and kernelPrecision
+    %  are applied uniformly by the helper.
+    %
+    %  Supports abs (isPer any) and rel-non-periodic. The rel+periodic
+    %  pairwise-wrap form is not yet supported by the helper and stays
+    %  on the existing ipFull/chunked path.
+    % -----------------------------------------------------------------
+    function ipval = ipViaHelper(U, wU, V, wV)
+        opts = struct( ...
+            'isRel', isRel, ...
+            'r', r, ...
+            'isPer', isPer, ...
+            'period', J);
+        if ~isempty(truncationSigmas)
+            opts.truncationSigmas = truncationSigmas;
+        end
+        if ~isempty(kernelPrecision)
+            opts.kernelPrecision = kernelPrecision;
+        end
+        sigmaEff = sigma * sqrt(2);
+        g = internal.gaussianKernelSum(V, wV(:), U, sigmaEff, opts);
+        ipval = double(g(:).' * wU(:));
+    end
+
 
     % -----------------------------------------------------------------
     %  ipFull

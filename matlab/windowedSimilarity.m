@@ -150,6 +150,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     verbose = true;
     reference = [];
     mode = 'auto';
+    truncationSigmas = [];
+    kernelPrecision = [];
     for i = 1:2:numel(varargin)
         switch lower(varargin{i})
             case 'verbose'
@@ -163,11 +165,32 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
                         ['''mode'' must be ''pairwise'', ''cartesian'', or ' ...
                          '''auto''; got ''%s''.'], mode);
                 end
+            case 'truncationsigmas'
+                truncationSigmas = varargin{i + 1};
+            case 'kernelprecision'
+                kernelPrecision = varargin{i + 1};
             otherwise
                 error('windowedSimilarity:badNVpair', ...
                       'Unknown name-value pair: %s.', varargin{i});
         end
     end
+
+    % Apply per-call truncation/precision kwargs via the global
+    % defaults mechanism for the duration of this call. The internal
+    % MA inner-product machinery (called from cosSimExpTens) picks
+    % them up via the helper. Stop-gap until Stage 3 threads them
+    % directly through the MA centres path. Not thread-safe;
+    % concurrent calls with conflicting kwargs may interfere.
+    prevDefaults = struct();
+    if ~isempty(truncationSigmas)
+        prevDefaults.truncationSigmas = mptDefaults('truncationSigmas');
+        mptDefaults('truncationSigmas', truncationSigmas);
+    end
+    if ~isempty(kernelPrecision)
+        prevDefaults.kernelPrecision = mptDefaults('kernelPrecision');
+        mptDefaults('kernelPrecision', kernelPrecision);
+    end
+    cleanupObj = onCleanup(@() localRestoreDefaults(prevDefaults));
 
     % --- LIST mode (v2.1+) ------------------------------------------
     % Either or both of densQuery, densContext may be a cell array of
@@ -451,5 +474,16 @@ function profile = localWindowedSimilarityList( ...
                 end
             end
         end
+    end
+end
+
+
+function localRestoreDefaults(prevDefaults)
+%LOCALRESTOREDEFAULTS  Restore truncation/precision defaults on cleanup.
+    if isfield(prevDefaults, 'truncationSigmas')
+        mptDefaults('truncationSigmas', prevDefaults.truncationSigmas);
+    end
+    if isfield(prevDefaults, 'kernelPrecision')
+        mptDefaults('kernelPrecision', prevDefaults.kernelPrecision);
     end
 end

@@ -1532,6 +1532,29 @@ results{end,2}   = abs(hMax_b(1) - hMax_oct)  < 1e-12 ...
                    && abs(hMax_b(2) - hMax_maj3) < 1e-12 ...
                    && abs(hEnt_b(2) - hEnt_maj3) < 1e-12;
 
+% --- templateHarmonicity batched: chord-side dedup (v2.2+) ---
+% Two rows that are transpositions of each other must produce
+% identical hMax and hEntropy (template-harmonicity transposes
+% internally so any shift cancels). Same for permutations.
+P_th_trans = [0, 400, 700; 100, 500, 800; 1200, 1600, 1900];
+[hMaxT_th, hEntT_th] = templateHarmonicity(P_th_trans, [], 12, 'verbose', false);
+results{end+1,1} = 'templateHarmonicity batched: transposition dedup (hMax)';
+results{end,2}   = abs(hMaxT_th(1) - hMaxT_th(2)) < 1e-12 ...
+                && abs(hMaxT_th(1) - hMaxT_th(3)) < 1e-12;
+results{end+1,1} = 'templateHarmonicity batched: transposition dedup (hEntropy)';
+results{end,2}   = abs(hEntT_th(1) - hEntT_th(2)) < 1e-12 ...
+                && abs(hEntT_th(1) - hEntT_th(3)) < 1e-12;
+
+P_th_perm = [0, 400, 700; 700, 0, 400; 400, 700, 0];
+[hMaxP_th, hEntP_th] = templateHarmonicity(P_th_perm, [], 12, 'verbose', false);
+results{end+1,1} = 'templateHarmonicity batched: permutation dedup (hMax)';
+results{end,2}   = abs(hMaxP_th(1) - hMaxP_th(2)) < 1e-12 ...
+                && abs(hMaxP_th(1) - hMaxP_th(3)) < 1e-12;
+results{end+1,1} = 'templateHarmonicity batched: permutation dedup (hEntropy)';
+results{end,2}   = abs(hEntP_th(1) - hEntP_th(2)) < 1e-12 ...
+                && abs(hEntP_th(1) - hEntP_th(3)) < 1e-12;
+clear P_th_trans P_th_perm hMaxT_th hEntT_th hMaxP_th hEntP_th
+
 % --- templateHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
 % Note (commit 14+): estimateCompTime default minPrintSec is 10,
 % so verbose=true

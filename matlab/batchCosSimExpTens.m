@@ -295,8 +295,8 @@ for i = 1:nRows
     % normalization for the absolute case.
     if isRel
         % Relative: independent canonicalization
-        [pAc, wAc] = canonicalizeSet(pAv, wAv, isRel, isPer, period);
-        [pBc, wBc] = canonicalizeSet(pBv, wBv, isRel, isPer, period);
+        [pAc, wAc] = internal.canonicalizeSet(pAv, wAv, isRel, isPer, period);
+        [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, isRel, isPer, period);
     else
         % Absolute: joint co-transposition normalization.
         % cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
@@ -315,7 +315,7 @@ for i = 1:nRows
             [pAs, siA2] = sort(pAs);
             if hasWA, wAs = wAs(siA2); end
             % Cyclic canonical form — collapses all rotations
-            [pAc, wAc, shift] = cyclicCanonical(pAs, wAs, hasWA, period);
+            [pAc, wAc, shift] = internal.cyclicCanonical(pAs, wAs, hasWA, period);
         else
             shift = pAs(1);
             pAc = pAs(:)' - shift;
@@ -459,127 +459,11 @@ end
 % =====================================================================
 %  LOCAL HELPER FUNCTIONS
 % =====================================================================
-
-function [pCan, wCan] = canonicalizeSet(p, w, isRel, isPer, period)
-%CANONICALIZESET Canonical form of a pitch/weight set under isPer/isRel.
-%   Sorts pitches (aligning weights), reduces modulo period if isPer,
-%   removes transposition if isRel, and applies the cyclic canonical
-%   form when both flags are true.
 %
-%   The cyclic canonical form is valid because cosSimExpTens wraps
-%   pairwise differences in the isRel quadratic form (when isPer is
-%   true), restoring exact transposition invariance on the circle.
-
-    hasWeights = ~isempty(w);
-
-    % Sort p-values and align weights
-    [p, si] = sort(p);
-    if hasWeights
-        w = w(si);
-    end
-
-    % Reduce modulo period
-    if isPer
-        p = mod(p, period);
-        [p, si] = sort(p);
-        if hasWeights
-            w = w(si);
-        end
-    end
-
-    % Remove transposition
-    if isRel
-        if isPer
-            % Cyclic canonical form: the lexicographically smallest
-            % rotation (subtract each p-value in turn, mod period, re-sort
-            % with weights) captures all transposition-modulo-period
-            % equivalences.
-            [pCan, wCan, ~] = cyclicCanonical(p, w, hasWeights, period);
-        else
-            % Subtract minimum (sort order is preserved)
-            p = p - p(1);
-            pCan = p(:)';
-            if hasWeights
-                wCan = w(:)';
-            else
-                wCan = [];
-            end
-        end
-    else
-        pCan = p(:)';
-        if hasWeights
-            wCan = w(:)';
-        else
-            wCan = [];
-        end
-    end
-end
-
-
-function [pBest, wBest, bestShift] = cyclicCanonical(pSorted, wSorted, hasWeights, period)
-%CYCLICCANONICAL Lexicographically smallest rotation of a periodic set.
-%   For n pitches, tries all n rotations (subtract p(i), mod period,
-%   re-sort with weights) and returns the lexicographically smallest
-%   (pitch, weight) vector plus the shift that produced it.
-%
-%   Pitch values are rounded to 9 decimal places before lex
-%   comparison, to absorb floating-point noise from mod-reduction.
-%   9 decimals is below any musically-meaningful precision (1
-%   attocent / 1 nanosecond) but well above typical FP roundoff.
-%   Without this rounding, two transposition-equivalent multisets
-%   with different FP error patterns can produce different canonical
-%   forms, which breaks consumer-level dedup for non-integer pitch
-%   data. ``bestShift`` is returned at full precision so callers
-%   using it to apply to a paired set get exact arithmetic.
-
-    n = numel(pSorted);
-    ROUND_DIGITS = 9;
-
-    % Rotation 0: subtract the first element
-    pBest = round(pSorted(:)' - pSorted(1), ROUND_DIGITS);
-    if hasWeights
-        wBest = wSorted(:)';
-    else
-        wBest = [];
-    end
-    bestShift = pSorted(1);
-
-    for rot = 2:n
-        shifted = mod(pSorted - pSorted(rot), period);
-        [shifted, si] = sort(shifted);
-        shifted = round(shifted(:)', ROUND_DIGITS);
-
-        % Compare p-values first; break ties with weights
-        cmp = lexCompare(shifted, pBest);
-        if cmp < 0
-            pBest = shifted;
-            bestShift = pSorted(rot);
-            if hasWeights
-                wBest = wSorted(si)';
-            end
-        elseif cmp == 0 && hasWeights
-            wRot = wSorted(si)';
-            if lexCompare(wRot, wBest) < 0
-                wBest = wRot;
-                bestShift = pSorted(rot);
-            end
-        end
-    end
-end
-
-
-function cmp = lexCompare(a, b)
-%LEXCOMPARE Lexicographic comparison of two row vectors.
-%   Returns -1 if a < b, 0 if a == b, +1 if a > b.
-    idx = find(a ~= b, 1);
-    if isempty(idx)
-        cmp = 0;
-    elseif a(idx) < b(idx)
-        cmp = -1;
-    else
-        cmp = 1;
-    end
-end
+% Note (v2.2+): canonicalizeSet, cyclicCanonical, and lexCompare were
+% promoted to +internal/ so the harmony-batched dispatchers can share
+% the same canonical-form code. Only the inline helper for paired-set
+% key extraction remains local.
 
 
 function [p, w] = extractFromKey(key, nMax, hasWeights)

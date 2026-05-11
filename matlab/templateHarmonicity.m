@@ -214,26 +214,11 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         [chord_p, chord_w] = addSpectra(p, w, chordSpecArgs{:});
     end
 
-    % === Build expectation tensors ===
-    % r = 1, isRel = false: these are intrinsic to the harmonicity
-    % definition (1-D absolute density of spectral components).
-
-    r     = 1;
-    isRel = false;
-    isPer = false;
-    period = 1200;  % not used for wrapping; required by buildExpTens
-
-    tmpl_dens  = buildExpTens(tmpl_p, tmpl_w, sigma, r, isRel, ...
-                              isPer, period, 'verbose', false);
-    chord_dens = buildExpTens(chord_p, chord_w, sigma, r, isRel, ...
-                              isPer, period, 'verbose', false);
-
-    % === Evaluate on grids ===
-    % Both grids start at 0 with the same spacing. The margin captures
-    % Gaussian tails beyond the outermost partials.
+    % === Build template tensor and evaluate on grid ===
+    % r = 1, isRel = false: intrinsic to the harmonicity definition
+    % (1-D absolute density of spectral components).
 
     margin = 4 * sigma;
-
     x_tmpl  = 0:step:(max(tmpl_p) + margin);
     x_chord = 0:step:(max(chord_p) + margin);
 
@@ -245,43 +230,75 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
            + double(numel(tmpl_p))  * double(numel(x_tmpl));
     estimateCompTime(nPairs, 1, 'templateHarmonicity', nvArgs.verbose);
 
-    tmpl_vals  = evalExpTens(tmpl_dens, x_tmpl, ...
+    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...
         'kernelPrecision', nvArgs.kernelPrecision, ...
         'verbose', false);
+    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+
+    [hMax, hEntropy] = localTemplateChordOnly( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        nvArgs.normalize, nvArgs.base, ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision, ...
+        nargout);
+
+end
+
+
+% =====================================================================
+%  Local helper: chord-side evaluation given a pre-built template.
+% =====================================================================
+
+function [hMax, hEntropy] = localTemplateChordOnly( ...
+    chord_p, chord_w, sigma, ...
+    tmpl_vals, tmpl_norm_sq, margin, step, ...
+    normalize, base, truncationSigmas, kernelPrecision, ...
+    requestedNargout)
+%LOCALTEMPLATECHORDONLY Chord-side eval, cross-correlation, hMax,
+%hEntropy.
+%
+%   Used by the scalar path (which builds the template first, then
+%   calls this) and by the batched path (which builds the template
+%   once for the entire batch and calls this per unique canonical
+%   chord). Hoisting the template build out of this function is what
+%   lets the batched path avoid M template rebuilds.
+
+    chord_dens = buildExpTens(chord_p, chord_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    x_chord = 0:step:(max(chord_p) + margin);
     chord_vals = evalExpTens(chord_dens, x_chord, ...
-        'truncationSigmas', nvArgs.truncationSigmas, ...
-        'kernelPrecision', nvArgs.kernelPrecision, ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
         'verbose', false);
 
-    % === Cross-correlation ===
-
+    % Cross-correlation.
     xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
 
-    % === Normalize (cosine similarity at each lag) ===
-
-    norm_factor = sqrt(sum(chord_vals.^2) * sum(tmpl_vals.^2));
+    % Normalize (cosine similarity at each lag).
+    norm_factor = sqrt(sum(chord_vals .^ 2) * tmpl_norm_sq);
     xcorr_norm = xcorr_vals / norm_factor;
 
-    % === Milne 2013: maximum normalized cross-correlation ===
-
+    % Milne 2013: maximum normalized cross-correlation.
     hMax = max(xcorr_norm);
 
-    % === Harrison 2020: entropy of normalized cross-correlation ===
-
-    if nargout > 1
+    % Harrison 2020: entropy of normalized cross-correlation.
+    if requestedNargout > 1
         q = xcorr_norm(:);
         N = numel(q);       % total bins (before removing zeros)
         q = q / sum(q);     % normalize to probability distribution
         q(q <= 0) = [];     % apply 0*log(0) = 0 convention
 
-        hEntropy = -sum(q .* (log(q) / log(nvArgs.base)));
+        hEntropy = -sum(q .* (log(q) / log(base)));
 
-        if nvArgs.normalize
-            hEntropy = hEntropy / (log(N) / log(nvArgs.base));
+        if normalize
+            hEntropy = hEntropy / (log(N) / log(base));
         end
+    else
+        hEntropy = [];
     end
-
 end
 
 % =====================================================================
@@ -294,12 +311,25 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
 %   Returns hMax and hEntropy as nRows-by-1 column vectors. NaN-padded
 %   rows are handled (NaN entries dropped per row); rows with fewer
 %   than 1 valid pitch yield NaN.
+%
+%   v2.2+: applies the "build once, evaluate once" principle that
+%   batchCosSimExpTens and tensor_harmonicity_batched already use:
+%     - The harmonic template is built ONCE for the whole batch (it
+%       depends only on (spectrum, sigma, resolution), not on the
+%       chord), saving M template rebuilds compared to the previous
+%       recursive scalar call.
+%     - Structurally-identical chords (under permutation +
+%       transposition) share a single cached result via the canonical
+%       key from internal.chordCacheKey. For batches with repeated
+%       chord shapes (typical of scale and progression sweeps), this
+%       reduces per-row cost to a hash lookup.
 
     nRows = size(P, 1);
     hMax = nan(nRows, 1);
     hEntropy = nan(nRows, 1);
 
     haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    W_broadcast = [];
     if ~isempty(W) && ~haveRowWeights
         if isvector(W) && numel(W) == size(P, 2)
             W_broadcast = W(:).';
@@ -310,32 +340,56 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
         end
     end
 
-    % Up-front time estimate (printed once for the whole batch). The
-    % kernel-only nPairs-based estimate (as used by estimateCompTime in
-    % scalar paths and in evalExpTens) underestimates the actual cost
-    % of templateHarmonicity batched runs by 3-5x because it omits
-    % conv, addSpectra, and per-row loop overheads. So we instead run
+    specArgs      = nvArgs.spectrum;
+    chordSpecArgs = nvArgs.chordSpectrum;
+    step          = nvArgs.resolution;
+    normalize     = nvArgs.normalize;
+    base          = nvArgs.base;
+    truncationSigmas = nvArgs.truncationSigmas;
+    kernelPrecision  = nvArgs.kernelPrecision;
+
+    if ~iscell(specArgs)
+        error('templateHarmonicity:badSpectrum', ...
+              '''spectrum'' value must be a cell array of addSpectra arguments.');
+    end
+    if ~iscell(chordSpecArgs)
+        error('templateHarmonicity:badChordSpectrum', ...
+              '''chordSpectrum'' value must be a cell array of addSpectra arguments.');
+    end
+
+    % --- Build template once for the whole batch -----------------
+    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
+    margin = 4 * sigma;
+    x_tmpl = 0:step:(max(tmpl_p) + margin);
+    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
+        'verbose', false);
+    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+
+    % --- Up-front time estimate ----------------------------------
+    % The kernel-only nPairs-based estimate underestimates the actual
+    % cost of templateHarmonicity batched runs by 3-5x because it
+    % omits conv, addSpectra, and per-row loop overheads. So we run
     % a small empirical calibration: pick K rows spaced uniformly
-    % across the input, time them via the scalar code path (results
-    % discarded), and extrapolate. K is bounded so the calibration
-    % cost stays small relative to a non-trivial batch.
+    % across the input, time them via the same code path the main
+    % loop uses (chord_spectrum + chord-side eval + xcorr + entropy
+    % via localTemplateChordOnly, with the pre-built template),
+    % and extrapolate.
     %
-    % A single warm-up call is run before timing starts so first-call
-    % overheads (MATLAB's arguments-block parsing, JIT compilation,
-    % and the persistent rateCache inside estimateCompTime) don't
-    % bias the K-sample mean upward. The warm-up's wall time is not
-    % part of the printed estimate, but the estimate does add the
-    % K-sample calibration time itself, since the caller pays for it.
+    % Crucially, calibration must match what the main loop pays per
+    % row. The previous version routed through the scalar
+    % templateHarmonicity entry, which rebuilt the template inside
+    % each call — those rebuilds appeared in the calibration timing
+    % but not in the main-loop work, biasing the printed estimate
+    % upward (and contributing M rebuilds to the actual cost).
     if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
 
-        nvArgsCal = nvArgs;
-        nvArgsCal.verbose = false;
-        nvPairsCal = localPackTemplateNV(nvArgsCal);
-
-        % Warm-up: run the first valid sample once, untimed, to absorb
-        % any first-call overhead. Result discarded.
+        % Warm-up.
         warmupDone = false;
         for s = 1:numel(sampleIdx)
             sIdx = sampleIdx(s);
@@ -345,14 +399,12 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             if numel(pValidS) < 1
                 continue;
             end
-            if haveRowWeights
-                wValidS = W(sIdx, validS);
-            elseif ~isempty(W)
-                wValidS = W_broadcast(validS);
-            else
-                wValidS = [];
-            end
-            templateHarmonicity(pValidS(:), wValidS(:), sigma, nvPairsCal{:});
+            wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                haveRowWeights, pValidS);
+            localBatchEvalOneChord(pValidS, wValidS, ...
+                chordSpecArgs, sigma, ...
+                tmpl_vals, tmpl_norm_sq, margin, step, ...
+                normalize, base, truncationSigmas, kernelPrecision);
             warmupDone = true;
             break;
         end
@@ -368,60 +420,91 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
                 if numel(pValidS) < 1
                     continue;
                 end
-                if haveRowWeights
-                    wValidS = W(sIdx, validS);
-                elseif ~isempty(W)
-                    wValidS = W_broadcast(validS);
-                else
-                    wValidS = [];
-                end
-                templateHarmonicity(pValidS(:), wValidS(:), sigma, nvPairsCal{:});
+                wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                    haveRowWeights, pValidS);
+                localBatchEvalOneChord(pValidS, wValidS, ...
+                    chordSpecArgs, sigma, ...
+                    tmpl_vals, tmpl_norm_sq, margin, step, ...
+                    normalize, base, truncationSigmas, kernelPrecision);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
-                % Total estimate covers the calibration we just did (which
-                % the caller is already paying for) plus the nRows-row
-                % main loop.
                 estTotal  = tCalTotal + tPerRow * nRows;
                 printBatchedEstimate('templateHarmonicity', nRows, estTotal);
             end
         end
     end
 
-    % Build the inner-call name-value pairs with verbose forced to false
-    % so each per-row scalar call doesn't print its own estimate.
-    nvArgsInner = nvArgs;
-    nvArgsInner.verbose = false;
-    nvPairs = localPackTemplateNV(nvArgsInner);
+    % --- Main loop with canonical-key cache ----------------------
+    % Template-harmonicity is invariant under joint transposition
+    % (lowest pitch is shifted to 0 internally), so the canonical key
+    % uses (isRel=true, isPer=false). Structurally-identical chords
+    % share one cached (hMax, hEntropy) result.
+    resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows
         pRow = P(k, :);
         validMask = ~isnan(pRow);
         pK = pRow(validMask);
-        if haveRowWeights
-            wK = W(k, validMask);
-        elseif ~isempty(W)
-            wK = W_broadcast(validMask);
-        else
-            wK = [];
-        end
         if numel(pK) < 1
-            hMax(k) = NaN;
-            hEntropy(k) = NaN;
-            continue;
+            continue;  % hMax(k), hEntropy(k) stay NaN
         end
-        [hMax(k), hEntropy(k)] = templateHarmonicity( ...
-            pK(:), wK(:), sigma, nvPairs{:});
+        wK = localRowWeights(W, W_broadcast, k, validMask, ...
+            haveRowWeights, pK);
+
+        key = internal.chordCacheKey(pK(:), wK(:), sigma, ...
+            1, true, false, 1200);
+
+        if isKey(resultCache, key)
+            cached = resultCache(key);
+            hMax(k) = cached(1);
+            hEntropy(k) = cached(2);
+        else
+            [hMaxK, hEntK] = localBatchEvalOneChord( ...
+                pK, wK, chordSpecArgs, sigma, ...
+                tmpl_vals, tmpl_norm_sq, margin, step, ...
+                normalize, base, truncationSigmas, kernelPrecision);
+            hMax(k) = hMaxK;
+            hEntropy(k) = hEntK;
+            resultCache(key) = [hMaxK, hEntK];
+        end
     end
 end
 
 
-function nvPairs = localPackTemplateNV(nvArgs)
-    nvPairs = {};
-    fns = fieldnames(nvArgs);
-    for i = 1:numel(fns)
-        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+function w = localRowWeights(W, W_broadcast, rowIdx, validMask, haveRowWeights, pValid)
+%LOCALROWWEIGHTS Resolve per-row weights from the batched W input.
+    if haveRowWeights
+        w = W(rowIdx, validMask);
+    elseif ~isempty(W_broadcast)
+        w = W_broadcast(validMask);
+    else
+        w = ones(1, numel(pValid));
     end
+end
+
+
+function [hMaxK, hEntK] = localBatchEvalOneChord( ...
+        pValid, wValid, chordSpecArgs, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        normalize, base, truncationSigmas, kernelPrecision)
+%LOCALBATCHEVALONECHORD Apply chord_spectrum and call chord-only.
+%   Used by both the calibration pass and the main loop so the timed
+%   per-row work matches the per-row work the main loop pays.
+
+    pShifted = pValid(:) - min(pValid);
+    if isempty(chordSpecArgs)
+        chord_p = pShifted;
+        chord_w = wValid(:);
+    else
+        [chord_p, chord_w] = addSpectra(pShifted, wValid(:), chordSpecArgs{:});
+    end
+
+    [hMaxK, hEntK] = localTemplateChordOnly( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        normalize, base, truncationSigmas, kernelPrecision, ...
+        2);  % always compute both outputs in batched mode
 end

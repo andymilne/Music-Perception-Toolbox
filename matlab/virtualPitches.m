@@ -214,68 +214,73 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         [chord_p, chord_w] = addSpectra(p, w, chordSpecArgs{:});
     end
 
-    % === Build expectation tensors ===
-    % r = 1, isRel = false: these are intrinsic to the virtual pitch
-    % definition (1-D absolute density of spectral components).
-
-    r     = 1;
-    isRel = false;
-    isPer = false;
-    period = 1200;  % not used for wrapping; required by buildExpTens
-
-    tmpl_dens  = buildExpTens(tmpl_p, tmpl_w, sigma, r, isRel, ...
-                              isPer, period, 'verbose', false);
-    chord_dens = buildExpTens(chord_p, chord_w, sigma, r, isRel, ...
-                              isPer, period, 'verbose', false);
-
-    % === Evaluate on grids ===
-    % Both grids start at 0 with the same spacing. The margin captures
-    % Gaussian tails beyond the outermost partials.
+    % === Build template tensor and evaluate on grid ===
+    % r = 1, isRel = false: intrinsic to the virtual-pitch definition
+    % (1-D absolute density of spectral components).
 
     margin = 4 * sigma;
-
     x_tmpl  = 0:step:(max(tmpl_p) + margin);
     x_chord = 0:step:(max(chord_p) + margin);
 
-    % Time estimate (kernel cost only; conv() and other overheads not
-    % included, so this is a lower bound). Pair count is the sum of
-    % the two evalExpTens workloads. dim = 1 since both densities use
-    % r = 1, isRel = false.
+    % Time estimate (kernel cost only; conv() and other overheads
+    % not included, so this is a lower bound). Pair count is the sum
+    % of the two evalExpTens workloads.
     nPairs = double(numel(chord_p)) * double(numel(x_chord)) ...
            + double(numel(tmpl_p))  * double(numel(x_tmpl));
     estimateCompTime(nPairs, 1, 'virtualPitches', nvArgs.verbose);
 
-    tmpl_vals  = evalExpTens(tmpl_dens, x_tmpl, ...
+    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...
         'kernelPrecision', nvArgs.kernelPrecision, ...
         'verbose', false);
-    chord_vals = evalExpTens(chord_dens, x_chord, ...
-        'truncationSigmas', nvArgs.truncationSigmas, ...
-        'kernelPrecision', nvArgs.kernelPrecision, ...
-        'verbose', false);
+    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    N_tmpl = numel(tmpl_vals);
 
-    % === Cross-correlation ===
+    [vp_w, N_xcorr] = localVPChordOnly( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
 
-    xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
-
-    % === Normalize (cosine similarity at each lag) ===
-
-    norm_factor = sqrt(sum(chord_vals.^2) * sum(tmpl_vals.^2));
-    xcorr_norm = xcorr_vals / norm_factor;
-
-    % === Map lag indices to pitch values ===
-    % The 'full' convolution output has length N_chord + N_tmpl - 1.
-    % At lag index k (0-based), the template's root (pitch 0) aligns
-    % with chord-grid position (k - N_tmpl + 1) * step. Adding back
-    % pOffset converts to the input's absolute pitch coordinate system.
-
-    N_tmpl  = numel(tmpl_vals);
-    N_xcorr = numel(xcorr_norm);
-
+    % Map lag indices to pitch values in the input coordinate system.
     lag_indices = (0:N_xcorr - 1)' - (N_tmpl - 1);
     vp_p = lag_indices * step + pOffset;
-    vp_w = xcorr_norm(:);
 
+end
+
+
+% =====================================================================
+%  Local helper: chord-side evaluation given a pre-built template.
+% =====================================================================
+
+function [vp_w, N_xcorr] = localVPChordOnly( ...
+    chord_p, chord_w, sigma, ...
+    tmpl_vals, tmpl_norm_sq, margin, step, ...
+    truncationSigmas, kernelPrecision)
+%LOCALVPCHORDONLY Chord-side eval and normalized cross-correlation.
+%
+%   Returns the offset-independent half-cosine-similarity profile vp_w
+%   and the cross-correlation length N_xcorr. The caller is
+%   responsible for reconstructing vp_p = (0:N_xcorr-1) - (N_tmpl-1)
+%   in step units plus the per-row pitch offset; that arithmetic is
+%   row-dependent and so is not part of what gets cached when this
+%   helper is called from the batched path.
+
+    chord_dens = buildExpTens(chord_p, chord_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    x_chord = 0:step:(max(chord_p) + margin);
+    chord_vals = evalExpTens(chord_dens, x_chord, ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
+        'verbose', false);
+
+    xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
+    norm_factor = sqrt(sum(chord_vals .^ 2) * tmpl_norm_sq);
+    xcorr_norm = xcorr_vals / norm_factor;
+
+    vp_w = xcorr_norm(:);
+    N_xcorr = numel(vp_w);
 end
 
 % =====================================================================
@@ -291,12 +296,22 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
 %   used rather than NaN-padding to a common length. NaN-padded rows
 %   are accepted; rows with fewer than 1 valid pitch yield empty
 %   cell entries.
+%
+%   v2.2+: applies the "build once, evaluate once" principle:
+%     - The harmonic template is built ONCE for the whole batch
+%       (depends only on (spectrum, sigma, resolution), not on the
+%       chord), saving M template rebuilds.
+%     - Structurally-identical canonical chords (under permutation +
+%       transposition) share a cached cross-correlation profile; only
+%       the per-row pitch offset is row-dependent and is reconstructed
+%       outside the cache.
 
     nRows = size(P, 1);
     vp_p = cell(1, nRows);
     vp_w = cell(1, nRows);
 
     haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    W_broadcast = [];
     if ~isempty(W) && ~haveRowWeights
         if isvector(W) && numel(W) == size(P, 2)
             W_broadcast = W(:).';
@@ -307,19 +322,39 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
         end
     end
 
-    % Force inner scalar calls silent; batched estimate is printed once.
-    nvArgsInner = nvArgs;
-    nvArgsInner.verbose = false;
-    nvPairs = localPackVirtualNV(nvArgsInner);
+    specArgs      = nvArgs.spectrum;
+    chordSpecArgs = nvArgs.chordSpectrum;
+    step          = nvArgs.resolution;
+    truncationSigmas = nvArgs.truncationSigmas;
+    kernelPrecision  = nvArgs.kernelPrecision;
 
-    % Up-front time estimate (printed once). Empirical calibration via
-    % a uniformly-sampled subset of K rows, with one warm-up call to
-    % absorb first-call overhead. See templateHarmonicity for rationale.
+    if ~iscell(specArgs)
+        error('virtualPitches:badSpectrum', ...
+              '''spectrum'' value must be a cell array of addSpectra arguments.');
+    end
+    if ~iscell(chordSpecArgs)
+        error('virtualPitches:badChordSpectrum', ...
+              '''chordSpectrum'' value must be a cell array of addSpectra arguments.');
+    end
+
+    % --- Build template once for the whole batch -----------------
+    [tmpl_p, tmpl_w] = addSpectra(0, 1, specArgs{:});
+    margin = 4 * sigma;
+    x_tmpl = 0:step:(max(tmpl_p) + margin);
+    tmpl_dens = buildExpTens(tmpl_p, tmpl_w, sigma, 1, false, ...
+        false, 1200, 'verbose', false);
+    tmpl_vals = evalExpTens(tmpl_dens, x_tmpl, ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
+        'verbose', false);
+    tmpl_norm_sq = sum(tmpl_vals .^ 2);
+    N_tmpl = numel(tmpl_vals);
+
+    % --- Up-front time estimate (matches main-loop cost) ---------
     if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
 
-        % Warm-up.
         warmupDone = false;
         for s = 1:numel(sampleIdx)
             sIdx = sampleIdx(s);
@@ -329,14 +364,12 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
             if numel(pValidS) < 1
                 continue;
             end
-            if haveRowWeights
-                wValidS = W(sIdx, validS);
-            elseif ~isempty(W)
-                wValidS = W_broadcast(validS);
-            else
-                wValidS = [];
-            end
-            virtualPitches(pValidS(:), wValidS(:), sigma, nvPairs{:});
+            wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                haveRowWeights, pValidS);
+            localBatchEvalOneVP(pValidS, wValidS, ...
+                chordSpecArgs, sigma, ...
+                tmpl_vals, tmpl_norm_sq, margin, step, ...
+                truncationSigmas, kernelPrecision);
             warmupDone = true;
             break;
         end
@@ -352,14 +385,12 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
                 if numel(pValidS) < 1
                     continue;
                 end
-                if haveRowWeights
-                    wValidS = W(sIdx, validS);
-                elseif ~isempty(W)
-                    wValidS = W_broadcast(validS);
-                else
-                    wValidS = [];
-                end
-                virtualPitches(pValidS(:), wValidS(:), sigma, nvPairs{:});
+                wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                    haveRowWeights, pValidS);
+                localBatchEvalOneVP(pValidS, wValidS, ...
+                    chordSpecArgs, sigma, ...
+                    tmpl_vals, tmpl_norm_sq, margin, step, ...
+                    truncationSigmas, kernelPrecision);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
@@ -371,31 +402,78 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
         end
     end
 
+    % --- Main loop with canonical-key cache ----------------------
+    % virtualPitches is invariant under joint transposition up to a
+    % shift of the output vp_p coordinate (rebuilt per row). The
+    % offset-independent profile (vp_w_internal, N_xcorr) is cached;
+    % vp_p reconstruction uses the per-row pOffset.
+    resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
     for k = 1:nRows
         pRow = P(k, :);
         validMask = ~isnan(pRow);
         pK = pRow(validMask);
-        if haveRowWeights
-            wK = W(k, validMask);
-        elseif ~isempty(W)
-            wK = W_broadcast(validMask);
-        else
-            wK = [];
-        end
         if numel(pK) < 1
             vp_p{k} = [];
             vp_w{k} = [];
             continue;
         end
-        [vp_p{k}, vp_w{k}] = virtualPitches(pK(:), wK(:), sigma, nvPairs{:});
+        wK = localRowWeights(W, W_broadcast, k, validMask, ...
+            haveRowWeights, pK);
+
+        pOffset = min(pK);
+        key = internal.chordCacheKey(pK(:), wK(:), sigma, ...
+            1, true, false, 1200);
+
+        if isKey(resultCache, key)
+            cached = resultCache(key);
+            vp_w_k = cached.vp_w;
+            N_xcorr_k = cached.N_xcorr;
+        else
+            [vp_w_k, N_xcorr_k] = localBatchEvalOneVP( ...
+                pK, wK, chordSpecArgs, sigma, ...
+                tmpl_vals, tmpl_norm_sq, margin, step, ...
+                truncationSigmas, kernelPrecision);
+            resultCache(key) = struct('vp_w', vp_w_k, ...
+                'N_xcorr', N_xcorr_k);
+        end
+
+        % Reconstruct vp_p in the input coordinate system.
+        lag_indices = (0:N_xcorr_k - 1)' - (N_tmpl - 1);
+        vp_p{k} = lag_indices * step + pOffset;
+        vp_w{k} = vp_w_k;
     end
 end
 
 
-function nvPairs = localPackVirtualNV(nvArgs)
-    nvPairs = {};
-    fns = fieldnames(nvArgs);
-    for i = 1:numel(fns)
-        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+function w = localRowWeights(W, W_broadcast, rowIdx, validMask, haveRowWeights, pValid)
+%LOCALROWWEIGHTS Resolve per-row weights from the batched W input.
+    if haveRowWeights
+        w = W(rowIdx, validMask);
+    elseif ~isempty(W_broadcast)
+        w = W_broadcast(validMask);
+    else
+        w = ones(1, numel(pValid));
     end
+end
+
+
+function [vp_w, N_xcorr] = localBatchEvalOneVP( ...
+        pValid, wValid, chordSpecArgs, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        truncationSigmas, kernelPrecision)
+%LOCALBATCHEVALONEVP Apply chord_spectrum and call chord-only.
+
+    pShifted = pValid(:) - min(pValid);
+    if isempty(chordSpecArgs)
+        chord_p = pShifted;
+        chord_w = wValid(:);
+    else
+        [chord_p, chord_w] = addSpectra(pShifted, wValid(:), chordSpecArgs{:});
+    end
+
+    [vp_w, N_xcorr] = localVPChordOnly( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        truncationSigmas, kernelPrecision);
 end

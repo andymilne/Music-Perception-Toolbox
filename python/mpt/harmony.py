@@ -377,6 +377,55 @@ def template_harmonicity(
     )
 
 
+def _template_harmonicity_chord_only(
+    chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+    resolution, normalize, base,
+    truncation_sigmas, kernel_precision,
+):
+    """Compute (h_max, h_entropy) for one chord, given pre-built
+    template evaluation and its norm-square.
+
+    Hoisted from :func:`_template_harmonicity_scalar` so the batched
+    dispatch can build the harmonic template once for the whole
+    batch — the template depends only on (spectrum, sigma, resolution),
+    not on the chord. Callers are responsible for applying the
+    ``chord_spectrum`` (if any) to ``chord_p, chord_w`` before
+    invocation; this function performs only the chord-side
+    evaluation, cross-correlation, and entropy computation.
+    """
+    chord_dens = build_exp_tens(
+        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+    )
+    x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
+    chord_vals = eval_exp_tens(
+        chord_dens, x_chord, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+
+    # Cross-correlation
+    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
+
+    # Normalize (cosine similarity at each lag)
+    norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
+    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
+
+    h_max = float(np.max(xcorr_norm))
+
+    # Entropy
+    q = xcorr_norm.copy()
+    N = len(q)
+    total = np.sum(q)
+    if total > 0:
+        q = q / total
+    q = q[q > 0]
+    h_entropy = float(-np.sum(q * np.log(q) / np.log(base)))
+    if normalize:
+        h_entropy /= np.log(N) / np.log(base)
+
+    return h_max, h_entropy
+
+
 def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
                                   normalize, base, resolution,
                                   truncation_sigmas, kernel_precision, verbose):
@@ -394,52 +443,37 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    # Build densities
-    tmpl_dens = build_exp_tens(tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False)
-    chord_dens = build_exp_tens(chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False)
-
     margin = 4 * sigma
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
-    x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
+    x_chord_len = len(np.arange(
+        0, np.max(chord_p) + margin + resolution, resolution,
+    ))
 
-    # Time estimate (kernel cost only; convolve and other overheads not
-    # included, so this is a lower bound). Pair count is the sum of the
-    # two eval_exp_tens workloads. dim = 1 since both densities use
-    # r = 1, is_rel = False.
+    # Time estimate (kernel cost only; convolve and other overheads
+    # not included, so this is a lower bound). Pair count is the sum
+    # of the two eval_exp_tens workloads. dim = 1 since both densities
+    # use r = 1, is_rel = False.
     n_pairs = (
-        int(len(chord_p)) * int(len(x_chord))
+        int(len(chord_p)) * x_chord_len
         + int(len(tmpl_p)) * int(len(x_tmpl))
     )
     estimate_comp_time(n_pairs, 1, "template_harmonicity", verbose)
 
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
-                              truncation_sigmas=truncation_sigmas,
-                              kernel_precision=kernel_precision)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
-                               truncation_sigmas=truncation_sigmas,
-                               kernel_precision=kernel_precision)
+    tmpl_dens = build_exp_tens(
+        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+    )
+    tmpl_vals = eval_exp_tens(
+        tmpl_dens, x_tmpl, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
-    # Cross-correlation
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-
-    # Normalize (cosine similarity at each lag)
-    norm_factor = np.sqrt(np.sum(chord_vals**2) * np.sum(tmpl_vals**2))
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
-    h_max = float(np.max(xcorr_norm))
-
-    # Entropy
-    q = xcorr_norm.copy()
-    N = len(q)
-    total = np.sum(q)
-    if total > 0:
-        q = q / total
-    q = q[q > 0]
-    h_entropy = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        h_entropy /= np.log(N) / np.log(base)
-
-    return h_max, h_entropy
+    return _template_harmonicity_chord_only(
+        chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+        resolution, normalize, base,
+        truncation_sigmas, kernel_precision,
+    )
 
 
 def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
@@ -495,7 +529,11 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
 
         # Warm-up: run the first valid sample once, untimed, to absorb
-        # any first-call overhead. Result discarded.
+        # any first-call overhead. Result discarded. Calibration uses
+        # the same _template_harmonicity_chord_only path the main loop
+        # uses, so the timed work matches what's actually paid per row;
+        # routing through _template_harmonicity_scalar would re-include
+        # a template rebuild that the main loop does not pay.
         warmup_done = False
         for s_idx in sample_idx:
             p_row_s = P[s_idx]
@@ -503,11 +541,19 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
             p_valid_s = p_row_s[mask_s]
             if len(p_valid_s) < 1:
                 continue
-            w_valid_s = W[s_idx, mask_s] if use_w else None
-            _template_harmonicity_scalar(
-                p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                normalize, base, resolution,
-                truncation_sigmas, kernel_precision, verbose=False,
+            w_valid_s = W[s_idx, mask_s] if use_w \
+                else np.ones_like(p_valid_s)
+            p_shifted_s = p_valid_s - np.min(p_valid_s)
+            if chord_spectrum is not None:
+                chord_p_s, chord_w_s = add_spectra(
+                    p_shifted_s, w_valid_s, *chord_spectrum,
+                )
+            else:
+                chord_p_s, chord_w_s = p_shifted_s.copy(), w_valid_s.copy()
+            _template_harmonicity_chord_only(
+                chord_p_s, chord_w_s, sigma, tmpl_vals, tmpl_norm_sq,
+                margin, resolution, normalize, base,
+                truncation_sigmas, kernel_precision,
             )
             warmup_done = True
             break
@@ -521,11 +567,20 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                 p_valid_s = p_row_s[mask_s]
                 if len(p_valid_s) < 1:
                     continue
-                w_valid_s = W[s_idx, mask_s] if use_w else None
-                _template_harmonicity_scalar(
-                    p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                    normalize, base, resolution,
-                    truncation_sigmas, kernel_precision, verbose=False,
+                w_valid_s = W[s_idx, mask_s] if use_w \
+                    else np.ones_like(p_valid_s)
+                p_shifted_s = p_valid_s - np.min(p_valid_s)
+                if chord_spectrum is not None:
+                    chord_p_s, chord_w_s = add_spectra(
+                        p_shifted_s, w_valid_s, *chord_spectrum,
+                    )
+                else:
+                    chord_p_s, chord_w_s = \
+                        p_shifted_s.copy(), w_valid_s.copy()
+                _template_harmonicity_chord_only(
+                    chord_p_s, chord_w_s, sigma, tmpl_vals, tmpl_norm_sq,
+                    margin, resolution, normalize, base,
+                    truncation_sigmas, kernel_precision,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -567,28 +622,11 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
         else:
             chord_p, chord_w = p_shifted.copy(), w_canon.copy()
 
-        chord_dens = build_exp_tens(
-            chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+        h_max, h_ent = _template_harmonicity_chord_only(
+            chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+            resolution, normalize, base,
+            truncation_sigmas, kernel_precision,
         )
-        x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
-        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
-                                   truncation_sigmas=truncation_sigmas,
-                                   kernel_precision=kernel_precision)
-
-        xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-        norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
-        xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
-        h_max = float(np.max(xcorr_norm))
-        q = xcorr_norm.copy()
-        N = len(q)
-        total = np.sum(q)
-        if total > 0:
-            q = q / total
-        q = q[q > 0]
-        h_ent = float(-np.sum(q * np.log(q) / np.log(base)))
-        if normalize:
-            h_ent /= np.log(N) / np.log(base)
 
         result_cache[key] = (h_max, h_ent)
         h_max_out[i], h_ent_out[i] = h_max, h_ent

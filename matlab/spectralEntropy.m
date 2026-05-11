@@ -170,18 +170,6 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         [spec_p, spec_w] = addSpectra(p, w, specArgs{:});
     end
 
-    % === Build 1-D absolute non-periodic expectation tensor ===
-
-    r     = 1;
-    isRel = false;
-    isPer = false;
-    period = 1200;  % not used for wrapping; required by buildExpTens
-
-    T = buildExpTens(spec_p, spec_w, sigma, r, isRel, isPer, period, ...
-                     'verbose', false);
-
-    % === Evaluate on a fine grid ===
-
     margin = 4 * sigma;
     x = 0:step:(max(spec_p) + margin);
 
@@ -190,28 +178,46 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     nPairs = double(numel(spec_p)) * double(numel(x));
     estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
 
+    H = localSpectralEntropyCore( ...
+        spec_p, spec_w, sigma, margin, step, ...
+        nvArgs.normalize, nvArgs.base, ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
+
+end
+
+
+% =====================================================================
+%  Local helper: 1-D density eval and Shannon entropy.
+% =====================================================================
+
+function H = localSpectralEntropyCore( ...
+        spec_p, spec_w, sigma, margin, step, ...
+        normalize, base, truncationSigmas, kernelPrecision)
+%LOCALSPECTRALENTROPYCORE Evaluate the 1-D density and compute entropy.
+%
+%   Called from the scalar path (which applies the spectrum first,
+%   then this) and from the batched path (which applies the spectrum
+%   per unique canonical chord). spectralEntropy has no fixed
+%   template — each row's spec_p depends on the input — so this
+%   helper is the unit of cached work in the batched path.
+
+    T = buildExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+        'verbose', false);
+    x = 0:step:(max(spec_p) + margin);
     t = evalExpTens(T, x, ...
-        'truncationSigmas', nvArgs.truncationSigmas, ...
-        'kernelPrecision', nvArgs.kernelPrecision, ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
         'verbose', false);
 
-    % === Normalise to probability distribution ===
-
     q = t(:) / sum(t(:));
-
     N = numel(q);  % total bins (before removing zeros)
+    q(q == 0) = [];  % apply 0 * log(0) = 0 convention
 
-    % Apply 0 * log(0) = 0 convention
-    q(q == 0) = [];
+    H = -sum(q .* (log(q) / log(base)));
 
-    % === Shannon entropy ===
-
-    H = -sum(q .* (log(q) / log(nvArgs.base)));
-
-    if nvArgs.normalize
-        H = H / (log(N) / log(nvArgs.base));
+    if normalize
+        H = H / (log(N) / log(base));
     end
-
 end
 
 
@@ -225,11 +231,19 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
 %   Returns an nRows-by-1 column vector. NaN-padded rows are handled
 %   (NaN entries dropped per row); rows with fewer than 1 valid pitch
 %   yield NaN.
+%
+%   v2.2+: spectral entropy has no fixed template to lift (each
+%   row's spec_p depends on the input), but structurally-identical
+%   canonical chords (under permutation + transposition) share a
+%   single cached result via the canonical key from
+%   internal.chordCacheKey. For batches with repeated chord shapes
+%   the per-row cost collapses to a hash lookup.
 
     nRows = size(P, 1);
     H = nan(nRows, 1);
 
     haveRowWeights = ~isempty(W) && isequal(size(W), size(P));
+    W_broadcast = [];
     if ~isempty(W) && ~haveRowWeights
         if isvector(W) && numel(W) == size(P, 2)
             W_broadcast = W(:).';
@@ -240,14 +254,21 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
         end
     end
 
-    % Force inner scalar calls silent; one batched estimate at top.
-    nvArgsInner = nvArgs;
-    nvArgsInner.verbose = false;
-    nvPairs = localPackSpectralEntropyNV(nvArgsInner);
+    specArgs  = nvArgs.spectrum;
+    step      = nvArgs.resolution;
+    normalize = nvArgs.normalize;
+    base      = nvArgs.base;
+    truncationSigmas = nvArgs.truncationSigmas;
+    kernelPrecision  = nvArgs.kernelPrecision;
 
-    % Up-front time estimate (printed once). Empirical calibration via
-    % a uniformly-sampled subset of K rows, with one warm-up call to
-    % absorb first-call overhead.
+    if ~iscell(specArgs)
+        error('spectralEntropy:badSpectrum', ...
+              '''spectrum'' value must be a cell array of addSpectra arguments.');
+    end
+
+    margin = 4 * sigma;
+
+    % --- Up-front time estimate (matches main-loop cost) ---------
     if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
@@ -261,14 +282,11 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
             if numel(pValidS) < 1
                 continue;
             end
-            if haveRowWeights
-                wValidS = W(sIdx, validS);
-            elseif ~isempty(W)
-                wValidS = W_broadcast(validS);
-            else
-                wValidS = [];
-            end
-            spectralEntropy(pValidS(:), wValidS(:), sigma, nvPairs{:});
+            wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                haveRowWeights, pValidS);
+            localBatchEvalOneSE(pValidS, wValidS, ...
+                specArgs, sigma, margin, step, ...
+                normalize, base, truncationSigmas, kernelPrecision);
             warmupDone = true;
             break;
         end
@@ -284,14 +302,11 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
                 if numel(pValidS) < 1
                     continue;
                 end
-                if haveRowWeights
-                    wValidS = W(sIdx, validS);
-                elseif ~isempty(W)
-                    wValidS = W_broadcast(validS);
-                else
-                    wValidS = [];
-                end
-                spectralEntropy(pValidS(:), wValidS(:), sigma, nvPairs{:});
+                wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
+                    haveRowWeights, pValidS);
+                localBatchEvalOneSE(pValidS, wValidS, ...
+                    specArgs, sigma, margin, step, ...
+                    normalize, base, truncationSigmas, kernelPrecision);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
@@ -303,30 +318,64 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
         end
     end
 
+    % --- Main loop with canonical-key cache ----------------------
+    % spectralEntropy is invariant under joint transposition
+    % (lowest pitch shifted to 0 internally), so the canonical key
+    % uses (isRel=true, isPer=false).
+    resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+
     for k = 1:nRows
         pRow = P(k, :);
         validMask = ~isnan(pRow);
         pK = pRow(validMask);
-        if haveRowWeights
-            wK = W(k, validMask);
-        elseif ~isempty(W)
-            wK = W_broadcast(validMask);
-        else
-            wK = [];
-        end
         if numel(pK) < 1
-            H(k) = NaN;
-            continue;
+            continue;  % H(k) stays NaN
         end
-        H(k) = spectralEntropy(pK(:), wK(:), sigma, nvPairs{:});
+        wK = localRowWeights(W, W_broadcast, k, validMask, ...
+            haveRowWeights, pK);
+
+        key = internal.chordCacheKey(pK(:), wK(:), sigma, ...
+            1, true, false, 1200);
+
+        if isKey(resultCache, key)
+            H(k) = resultCache(key);
+        else
+            Hk = localBatchEvalOneSE(pK, wK, ...
+                specArgs, sigma, margin, step, ...
+                normalize, base, truncationSigmas, kernelPrecision);
+            H(k) = Hk;
+            resultCache(key) = Hk;
+        end
     end
 end
 
 
-function nvPairs = localPackSpectralEntropyNV(nvArgs)
-    nvPairs = {};
-    fns = fieldnames(nvArgs);
-    for i = 1:numel(fns)
-        nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
+function w = localRowWeights(W, W_broadcast, rowIdx, validMask, haveRowWeights, pValid)
+%LOCALROWWEIGHTS Resolve per-row weights from the batched W input.
+    if haveRowWeights
+        w = W(rowIdx, validMask);
+    elseif ~isempty(W_broadcast)
+        w = W_broadcast(validMask);
+    else
+        w = ones(1, numel(pValid));
     end
+end
+
+
+function H = localBatchEvalOneSE( ...
+        pValid, wValid, specArgs, sigma, margin, step, ...
+        normalize, base, truncationSigmas, kernelPrecision)
+%LOCALBATCHEVALONESE Apply spectrum and call the entropy core.
+
+    pShifted = pValid(:) - min(pValid);
+    if isempty(specArgs)
+        spec_p = pShifted;
+        spec_w = wValid(:);
+    else
+        [spec_p, spec_w] = addSpectra(pShifted, wValid(:), specArgs{:});
+    end
+
+    H = localSpectralEntropyCore( ...
+        spec_p, spec_w, sigma, margin, step, ...
+        normalize, base, truncationSigmas, kernelPrecision);
 end

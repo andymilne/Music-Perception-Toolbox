@@ -135,6 +135,11 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
         nvArgs.duplicate (1,1) {mustBeNonnegative, mustBeInteger} = 0
         nvArgs.normalize (1,1) string ...
             {mustBeMember(nvArgs.normalize, {'none','gaussian','pdf'})} = 'none'
+        nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
+            = mptDefaults('truncationSigmas')
+        nvArgs.kernelPrecision (1,:) char ...
+            {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
+            = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
     end
 
@@ -211,34 +216,53 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 
     if nvArgs.verbose
         K_tmpl = numel(tmpl_p);
-        fprintf(['tensorHarmonicity: orbit-path eval at K = %d, r = %d, ' ...
+        fprintf(['tensorHarmonicity: eval at K = %d, r = %d, ' ...
                  'sigma = %g.\n'], K_tmpl, nPitches, sigma);
     end
 
-    h_vec = localTensorHarmonicityOrbit( ...
-        tmpl_p, tmpl_w, sigma, nPitches, intervals, char(nvArgs.normalize));
+    h_vec = localTensorHarmonicityViaEval( ...
+        tmpl_p, tmpl_w, sigma, nPitches, intervals, char(nvArgs.normalize), ...
+        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
     h = h_vec(1);
 
 end
 
 
 % =====================================================================
-%  v2.2 orbit-Mobius core (shared by scalar and batched paths)
+%  Core: route through evalExpTens (which selects centres/orbit via
+%  its own dispatcher) — shared by scalar and batched paths.
 % =====================================================================
 
-function vals = localTensorHarmonicityOrbit(tmpl_p, tmpl_w, sigma, r, ...
-                                              x_query, normalize)
-%LOCALTENSORHARMONICITYORBIT  Evaluate the relative template tensor at
-%query points via mobius.evalOrbitRel, then apply normalisation.
+function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
+        x_query, normalize, truncationSigmas, kernelPrecision)
+%LOCALTENSORHARMONICITYVIAEVAL  Evaluate the relative template tensor at
+%query points by building the template density and routing through
+%evalExpTens. The internal dispatcher in evalExpTens chooses between
+%the centres-array and orbit-Mobius paths via the v2.2 cost model;
+%this wrapper no longer hard-codes a routing choice.
 %
-%   x_query is (r-1, n_q). Returns a row vector of length n_q. The
-%   normalisation maths is mirrored from evalExpTens so the value is
-%   numerically identical to what the centres path would have produced
-%   at the same query.
+%   x_query is (r-1, n_q). Returns a row vector of length n_q.
+%
+%   Normalisation note: tensorHarmonicity's 'pdf' divides the gaussian-
+%   normalised value by sum(tmpl_w) — the sum of single-partial weights —
+%   to preserve v2.0/v2.1 numerical convention. This differs from
+%   evalExpTens's own 'pdf' (which divides by sum(wJ), the sum of
+%   r-tuple weight products); the difference is a factor of
+%   (K-1)*(K-2)*...*(K-r+1) for an all-ones template. We therefore
+%   evaluate at 'none' below and apply tensorHarmonicity's normalisation
+%   ourselves.
 
-    vals = mobius.evalOrbitRel(tmpl_p(:), tmpl_w(:), sigma, r, x_query, ...
-        'is_per', false, 'period', 0);
-    vals = vals(:).';   % standardise to row vector for downstream use
+    % Build the template density (rel-mode, non-periodic). Lazy
+    % materialisation is fine: evalExpTens populates Centres/wJ on
+    % demand if its dispatcher routes to the centres path.
+    dens = buildExpTens(tmpl_p(:), tmpl_w(:), sigma, r, true, false, 0, ...
+        'lazy', true, 'verbose', false);
+
+    vals = evalExpTens(dens, x_query, 'none', ...
+        'truncationSigmas', truncationSigmas, ...
+        'kernelPrecision', kernelPrecision, ...
+        'verbose', false);
+    vals = vals(:).';
 
     if strcmp(normalize, 'none')
         return;
@@ -407,13 +431,15 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
         end
 
         % Build harmonic template once per group, then ONE batched call
-        % to localTensorHarmonicityOrbit (which wraps mobius.evalOrbitRel
-        % and applies normalisation). Same FP path as scalar mode, so
-        % batched values match scalar values to machine precision.
+        % to localTensorHarmonicityViaEval (which builds the template
+        % density and routes through evalExpTens). Forwards the
+        % truncationSigmas / kernelPrecision options from nvArgs so the
+        % batched path picks up the same speed/accuracy controls as scalar.
         [tmpl_p, tmpl_w] = addSpectra(zeros(dup, 1), ones(dup, 1), ...
                                        specArgs{:});
-        vals = localTensorHarmonicityOrbit( ...
-            tmpl_p, tmpl_w, sigma, r, queryMat, normalize);
+        vals = localTensorHarmonicityViaEval( ...
+            tmpl_p, tmpl_w, sigma, r, queryMat, normalize, ...
+            nvArgs.truncationSigmas, nvArgs.kernelPrecision);
         vals = vals(:);
 
         % Distribute back to rows.

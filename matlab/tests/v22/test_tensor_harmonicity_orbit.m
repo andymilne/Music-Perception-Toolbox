@@ -126,12 +126,15 @@ h_pdf = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
 results{end+1,1} = 'tensorHarmonicity v2.2: pdf = gaussian / sum(tmpl_w) (1e-10 rel)';
 results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 
-%% ---- Verbose flag prints orbit-path message in scalar mode ----
+%% ---- Verbose flag prints an eval message in scalar mode ----
+% Post-Stage-2c, the wrapper no longer hard-codes 'orbit-path' since
+% the centres-vs-orbit choice is made by evalExpTens's dispatcher.
+% The printed message is now 'tensorHarmonicity: eval at K = ...'.
 
 outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', true);']);
-results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=true prints orbit-path message';
-results{end,2}   = ~isempty(strfind(outScalarVerb, 'orbit-path eval'));
+results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=true prints eval message';
+results{end,2}   = ~isempty(strfind(outScalarVerb, 'tensorHarmonicity: eval'));
 
 outScalarSilent = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', false);']);

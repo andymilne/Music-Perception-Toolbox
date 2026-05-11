@@ -372,8 +372,10 @@ class TestTensorHarmonicityVerboseEstimate:
     def test_scalar_verbose_true_prints(self, capsys):
         h = tensor_harmonicity([0, 400, 700], None, 12.0, verbose=True)
         captured = capsys.readouterr()
-        # Scalar forwards to build_exp_tens; the print comes from there.
-        assert "build" in captured.out.lower() or "estimated" in captured.out
+        # Scalar prints a brief eval-time diagnostic.
+        assert ("eval" in captured.out.lower() or
+                "build" in captured.out.lower() or
+                "estimated" in captured.out)
         assert isinstance(h, float)
 
     def test_scalar_verbose_false_silent(self, capsys):

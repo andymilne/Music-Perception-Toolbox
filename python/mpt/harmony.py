@@ -30,6 +30,8 @@ def spectral_entropy(
     normalize: bool = True,
     base: float = 2.0,
     resolution: float = 1.0,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Spectral entropy of a weighted pitch multiset.
@@ -94,11 +96,13 @@ def spectral_entropy(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _spectral_entropy_scalar(
-            p_arr, w, sigma, spectrum, normalize, base, resolution, verbose,
+            p_arr, w, sigma, spectrum, normalize, base, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _spectral_entropy_batched(
-            p_arr, w, sigma, spectrum, normalize, base, resolution, verbose,
+            p_arr, w, sigma, spectrum, normalize, base, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -106,7 +110,8 @@ def spectral_entropy(
     )
 
 
-def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution, verbose):
+def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
+                             truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -127,7 +132,9 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
     n_pairs = int(len(spec_p)) * int(len(x))
     estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
 
-    t = eval_exp_tens(T, x, verbose=False)
+    t = eval_exp_tens(T, x, verbose=False,
+                      truncation_sigmas=truncation_sigmas,
+                      kernel_precision=kernel_precision)
 
     total = np.sum(t)
     if total == 0:
@@ -143,7 +150,8 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
     return H
 
 
-def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution, verbose):
+def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution,
+                              truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Returns ``(M,)``. Per-row chord-level dedup of the full
@@ -198,7 +206,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
                 w_valid_s = None
             _spectral_entropy_scalar(
                 p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
-                resolution, verbose=False,
+                resolution, truncation_sigmas, kernel_precision,
+                verbose=False,
             )
             warmup_done = True
             break
@@ -220,7 +229,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
                     w_valid_s = None
                 _spectral_entropy_scalar(
                     p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
-                    resolution, verbose=False,
+                    resolution, truncation_sigmas, kernel_precision,
+                    verbose=False,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -261,7 +271,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
 
         h = _spectral_entropy_scalar(
             p_valid, w_valid, sigma, spectrum, normalize, base, resolution,
-            verbose=False,
+            truncation_sigmas, kernel_precision, verbose=False,
         )
         result_cache[key] = h
         out[i] = h
@@ -284,6 +294,8 @@ def template_harmonicity(
     normalize: bool = True,
     base: float = 2.0,
     resolution: float = 1.0,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Harmonicity via template cross-correlation.
@@ -350,12 +362,14 @@ def template_harmonicity(
     if p_arr.ndim == 1:
         return _template_harmonicity_scalar(
             p_arr, w, sigma, spectrum, chord_spectrum,
-            normalize, base, resolution, verbose,
+            normalize, base, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _template_harmonicity_batched(
             p_arr, w, sigma, spectrum, chord_spectrum,
-            normalize, base, resolution, verbose,
+            normalize, base, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -364,7 +378,8 @@ def template_harmonicity(
 
 
 def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
-                                  normalize, base, resolution, verbose):
+                                  normalize, base, resolution,
+                                  truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -397,8 +412,12 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
     )
     estimate_comp_time(n_pairs, 1, "template_harmonicity", verbose)
 
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
+    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+                              truncation_sigmas=truncation_sigmas,
+                              kernel_precision=kernel_precision)
+    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
+                               truncation_sigmas=truncation_sigmas,
+                               kernel_precision=kernel_precision)
 
     # Cross-correlation
     xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
@@ -424,7 +443,8 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
 
 
 def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
-                                   normalize, base, resolution, verbose):
+                                   normalize, base, resolution,
+                                   truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     The harmonic template is built once for the whole batch (it's
@@ -449,7 +469,9 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
     )
     margin = 4 * sigma
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
+    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+                              truncation_sigmas=truncation_sigmas,
+                              kernel_precision=kernel_precision)
     tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
     # Up-front time estimate (printed once for the whole batch). The
@@ -484,7 +506,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
             w_valid_s = W[s_idx, mask_s] if use_w else None
             _template_harmonicity_scalar(
                 p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                normalize, base, resolution, verbose=False,
+                normalize, base, resolution,
+                truncation_sigmas, kernel_precision, verbose=False,
             )
             warmup_done = True
             break
@@ -501,7 +524,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                 w_valid_s = W[s_idx, mask_s] if use_w else None
                 _template_harmonicity_scalar(
                     p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                    normalize, base, resolution, verbose=False,
+                    normalize, base, resolution,
+                    truncation_sigmas, kernel_precision, verbose=False,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -547,7 +571,9 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
             chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
         )
         x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
-        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
+        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
+                                   truncation_sigmas=truncation_sigmas,
+                                   kernel_precision=kernel_precision)
 
         xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
         norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
@@ -583,6 +609,8 @@ def tensor_harmonicity(
     spectrum: list | None = None,
     duplicate: int = 0,
     normalize: str = "none",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Harmonicity via expectation tensor lookup.
@@ -647,11 +675,13 @@ def tensor_harmonicity(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _tensor_harmonicity_scalar(
-            p_arr, w, sigma, spectrum, duplicate, normalize, verbose,
+            p_arr, w, sigma, spectrum, duplicate, normalize,
+            truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _tensor_harmonicity_batched(
-            p_arr, w, sigma, spectrum, duplicate, normalize, verbose,
+            p_arr, w, sigma, spectrum, duplicate, normalize,
+            truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -659,16 +689,14 @@ def tensor_harmonicity(
     )
 
 
-def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize, verbose):
-    """Single-chord scalar dispatch (the v2.0 body, v2.2 orbit-fast).
+def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize,
+                               truncation_sigmas, kernel_precision, verbose):
+    """Single-chord scalar dispatch.
 
-    Internally evaluates the relative r-ad expectation tensor of a
-    harmonic series at the chord's interval vector via the
-    orbit-Möbius point evaluator (see ``_tensor_harmonicity_orbit``),
-    avoiding the K!/(K-r)! centres array. Runtime is dominated by
-    the u-grid translation integral and grows as ``B_r · r · K · N_u``
-    per query; this unblocks K > 3 where the centres path was
-    infeasible.
+    v2.2.x: routes through :func:`eval_exp_tens` so the
+    centres-vs-orbit choice is made by the cost-model dispatcher
+    inside ``eval_exp_tens`` rather than hard-coded here. This lets
+    the helper-accelerated centres path apply at typical regimes.
     """
     n_pitches = len(p)
     if n_pitches < 2:
@@ -676,9 +704,7 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize, verb
 
     dup = duplicate if duplicate > 0 else n_pitches
 
-    # Build the harmonic template's (p, w) source. The orbit path
-    # reads only these and the structural parameters; no centres
-    # array is materialised.
+    # Build the harmonic template's (p, w) source.
     tmpl_p, tmpl_w = add_spectra(
         np.zeros(dup), np.ones(dup), *spectrum
     )
@@ -688,51 +714,63 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize, verb
     x_query = intervals.reshape(-1, 1)
 
     if verbose:
-        # Match the v2.0 / v2.1 estimate-time idiom used by build_exp_tens
-        # so callers (and tests) see consistent diagnostic output.
         print(
-            f"tensor_harmonicity: estimated orbit-path cost for "
-            f"K = {dup}, r = {n_pitches}, sigma = {sigma:g}."
+            f"tensor_harmonicity: eval at K = {dup}, r = {n_pitches}, "
+            f"sigma = {sigma:g}."
         )
 
-    h = _tensor_harmonicity_orbit(
+    h = _tensor_harmonicity_via_eval(
         tmpl_p, tmpl_w, sigma, n_pitches, x_query, normalize,
+        truncation_sigmas, kernel_precision,
     )
     return float(h[0])
 
 
-def _tensor_harmonicity_orbit(
+def _tensor_harmonicity_via_eval(
     tmpl_p: np.ndarray,
     tmpl_w: np.ndarray,
     sigma: float,
     r: int,
     x_query: np.ndarray,
     normalize: str,
+    truncation_sigmas: float | None,
+    kernel_precision: str | None,
 ) -> np.ndarray:
-    """Evaluate the rel-mode template tensor at *x_query* via the
-    orbit-Möbius point evaluator, then apply normalisation.
+    """Evaluate the rel-mode template tensor at *x_query* by building
+    the template density and routing through :func:`eval_exp_tens`.
 
-    Centralised here (rather than a one-line call site inside
-    :func:`tensor_harmonicity`) so that the normalisation logic stays
-    co-located with the call and so that the batched dispatch and
-    future virtual-pitch / chord-spectrum consumers can re-use the
-    same path.
+    The centres-vs-orbit choice is made by the cost-model dispatcher
+    inside ``eval_exp_tens``; this wrapper no longer hard-codes a
+    routing choice.
+
+    Normalisation note: ``tensor_harmonicity``'s 'pdf' divides the
+    gaussian-normalised value by ``sum(tmpl_w)`` — sum of single-
+    partial weights — to preserve v2.0/v2.1 numerical convention.
+    This differs from :func:`eval_exp_tens`'s own 'pdf' (which
+    divides by ``sum(wJ)``, the sum of r-tuple weight products);
+    the difference is a factor of ``(K-1)·(K-2)·...·(K-r+1)`` for
+    an all-ones template. We therefore evaluate at 'none' below
+    and apply the normalisation ourselves.
     """
-    # Local import to avoid a circular import at module load.
-    from ._mobius import eval_orbit_rel
+    from .tensor import build_exp_tens, eval_exp_tens
 
-    vals = eval_orbit_rel(
-        tmpl_p, tmpl_w, sigma, r, x_query,
-        is_per=False, period=0.0,
+    dens = build_exp_tens(
+        np.asarray(tmpl_p).ravel(),
+        np.asarray(tmpl_w).ravel(),
+        sigma, r, True, False, 0.0,
+        verbose=False,
+    )
+
+    vals = eval_exp_tens(
+        dens, x_query, 'none',
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=False,
     )
 
     if normalize == "none":
         return vals
 
-    # Mirror the SA centres path's normalisation maths so the return
-    # value is identical to what eval_exp_tens(..., normalize=...)
-    # would have produced. Template tensor is is_rel=True, so
-    # det_M = 1/r and dim = r - 1.
     dim = r - 1
     det_m = 1.0 / r
     gauss_const = (2 * np.pi * sigma ** 2) ** (-dim / 2) * np.sqrt(det_m)
@@ -744,7 +782,7 @@ def _tensor_harmonicity_orbit(
             vals = vals / sum_w
         else:
             warnings.warn(
-                "Sum of weight products is zero; cannot normalize to pdf."
+                "Sum of template weights is zero; cannot normalize to pdf."
             )
     elif normalize != "gaussian":
         raise ValueError(
@@ -755,19 +793,15 @@ def _tensor_harmonicity_orbit(
     return vals
 
 
-def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, verbose):
+def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
+                                truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
-    v2.2+: groups rows by (effective n_p, dup), deduplicates canonical
-    chord intervals within each group, and issues a single batched
-    call to :func:`_tensor_harmonicity_orbit` (which wraps
-    :func:`mpt._mobius.eval_orbit_rel`) per group. This replaces the
-    previous per-row loop, which paid a Python function-call boundary
-    once per row regardless of how trivial each per-row computation
-    was. With v2.2's u-grid vectorisation in ``eval_orbit_rel``, the
-    batched call processes all unique chord queries simultaneously.
-    For uniform-cardinality batches the loop collapses to a single
-    orbit call.
+    Groups rows by (effective n_p, dup), deduplicates canonical chord
+    intervals within each group, and issues a single batched call to
+    :func:`_tensor_harmonicity_via_eval` per group. The cost-model
+    dispatcher inside ``eval_exp_tens`` then chooses centres vs orbit
+    for that batched query matrix.
     """
     M, K = P.shape
     use_w = W is not None
@@ -869,14 +903,16 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize, ver
             query_mat[:, u_idx] = ivs
 
         # Build harmonic template once per group, then ONE batched
-        # call to _tensor_harmonicity_orbit (which wraps eval_orbit_rel
-        # and applies normalisation). Same FP path as scalar mode, so
-        # batched values match scalar values to machine precision.
+        # call to _tensor_harmonicity_via_eval (which routes through
+        # eval_exp_tens; its dispatcher chooses centres vs orbit).
+        # Forwards truncation_sigmas / kernel_precision so the batched
+        # path picks up the same speed/accuracy controls as scalar.
         tmpl_p, tmpl_w = add_spectra(
             np.zeros(dup), np.ones(dup), *spectrum,
         )
-        vals = _tensor_harmonicity_orbit(
+        vals = _tensor_harmonicity_via_eval(
             tmpl_p, tmpl_w, sigma, r, query_mat, normalize,
+            truncation_sigmas, kernel_precision,
         )
 
         # Distribute back to rows.
@@ -899,6 +935,8 @@ def virtual_pitches(
     spectrum: list | None = None,
     chord_spectrum: list | None = None,
     resolution: float = 1.0,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Virtual pitch salience profile via template cross-correlation.
@@ -956,11 +994,13 @@ def virtual_pitches(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _virtual_pitches_scalar(
-            p_arr, w, sigma, spectrum, chord_spectrum, resolution, verbose,
+            p_arr, w, sigma, spectrum, chord_spectrum, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _virtual_pitches_batched(
-            p_arr, w, sigma, spectrum, chord_spectrum, resolution, verbose,
+            p_arr, w, sigma, spectrum, chord_spectrum, resolution,
+            truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
         f"p must be 1-D (single chord) or 2-D (batched, rows are "
@@ -968,7 +1008,8 @@ def virtual_pitches(
     )
 
 
-def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution, verbose):
+def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
+                            truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -1001,8 +1042,12 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution, v
     )
     estimate_comp_time(n_pairs, 1, "virtual_pitches", verbose)
 
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
+    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+                              truncation_sigmas=truncation_sigmas,
+                              kernel_precision=kernel_precision)
+    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
+                               truncation_sigmas=truncation_sigmas,
+                               kernel_precision=kernel_precision)
 
     xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
     norm_factor = np.sqrt(np.sum(chord_vals**2) * np.sum(tmpl_vals**2))
@@ -1017,7 +1062,8 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution, v
     return vp_p, vp_w
 
 
-def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, verbose):
+def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
+                             truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
     Returns ``(vp_p_list, vp_w_list)`` — length-``M`` lists of 1-D
@@ -1050,7 +1096,9 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, 
     margin = 4 * sigma
     step = resolution
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False)
+    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
+                              truncation_sigmas=truncation_sigmas,
+                              kernel_precision=kernel_precision)
     n_tmpl = len(tmpl_vals)
     tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
@@ -1072,7 +1120,8 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, 
             w_valid_s = W[s_idx, mask_s] if use_w else None
             _virtual_pitches_scalar(
                 p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                resolution, verbose=False,
+                resolution, truncation_sigmas, kernel_precision,
+                verbose=False,
             )
             warmup_done = True
             break
@@ -1089,7 +1138,8 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, 
                 w_valid_s = W[s_idx, mask_s] if use_w else None
                 _virtual_pitches_scalar(
                     p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                    resolution, verbose=False,
+                    resolution, truncation_sigmas, kernel_precision,
+                    verbose=False,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -1122,7 +1172,9 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution, 
             chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
         )
         x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
-        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False)
+        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
+                                   truncation_sigmas=truncation_sigmas,
+                                   kernel_precision=kernel_precision)
 
         xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
         norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)

@@ -108,6 +108,11 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         nvArgs.normalize (1,1) logical = true
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.resolution (1,1) {mustBePositive} = 1
+        nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
+            = mptDefaults('truncationSigmas')
+        nvArgs.kernelPrecision (1,:) char ...
+            {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
+            = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
     end
 
@@ -185,7 +190,10 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     nPairs = double(numel(spec_p)) * double(numel(x));
     estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
 
-    t = evalExpTens(T, x, 'verbose', false);
+    t = evalExpTens(T, x, ...
+        'truncationSigmas', nvArgs.truncationSigmas, ...
+        'kernelPrecision', nvArgs.kernelPrecision, ...
+        'verbose', false);
 
     % === Normalise to probability distribution ===
 

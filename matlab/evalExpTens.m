@@ -282,13 +282,19 @@ if dens.isPer && dens.period > 0
 else
     sigmaOverP = 0;
 end
-chosen = localSelectSAEvalMethod( ...
-    dens.r, K_src, nQ, dens.isRel, dens.isPer, sigmaOverP, method);
+[chosen, probed, estSec] = localSelectAndEstimateSA( ...
+    dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose);
+
+if verbose && probed
+    fprintf(['evalExpTens: chose ''%s'' path ' ...
+             '(estimated %s); Ctrl+C to cancel.\n'], ...
+            chosen, localFormatTime(estSec));
+end
 
 vals = [];
 ranOrbit = false;
 if strcmp(chosen, 'orbit')
-    vals = localEvalSAOrbit(dens, X, verbose);
+    vals = localEvalSAOrbit(dens, X, false, truncationSigmas, kernelPrecision);
     % Post-hoc finiteness fallback. Mirrors the cosine-path safety net:
     % if the orbit alternating sum produces non-finite output (extreme
     % sigma -> 0 regime), fall back to centres rather than propagating
@@ -309,7 +315,7 @@ if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'/'direct'
     % method, and for orbit-then-fallback). Heavy fields needed.
     dens = ensureExpTensExpensive(dens);
-    vals = localEvalSACentres(dens, X, nQ, verbose, ...
+    vals = localEvalSACentres(dens, X, nQ, false, ...
         truncationSigmas, kernelPrecision);
 end
 
@@ -441,12 +447,232 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
 end
 
 
-function vals = localEvalSAOrbit(dens, X, verbose) %#ok<INUSD>
+% =========================================================================
+%  Unified path-selection + time-estimate probe (v2.2.x)
+%
+%  The probe-based dispatcher replaces the heuristic rule for the
+%  discretionary cases. Genuinely hard rules (correctness / feasibility)
+%  stay as rules; everything else is decided by timing both paths on a
+%  small probe and picking the faster. The probe time also produces the
+%  user-facing time estimate, so dispatcher and estimator share a single
+%  load-bearing measurement that auto-adapts to any future optimisation.
+% =========================================================================
+
+function s = localFormatTime(t)
+%LOCALFORMATTIME  Short human-readable duration string.
+    if t < 1
+        s = sprintf('%.0f ms', t * 1000);
+    elseif t < 60
+        s = sprintf('%.1f s', t);
+    elseif t < 3600
+        s = sprintf('%.1f min', t / 60);
+    else
+        s = sprintf('%.1f hr', t / 3600);
+    end
+end
+
+
+function nBytes = localEstimateCentresArrayBytes(K, r, isRel)
+%LOCALESTIMATECENTRESARRAYBYTES  Centres-array memory estimate.
+%   Returns K!/(K-r)! * dim * 8, where dim is r-1 for rel mode and
+%   r for abs mode.
+    if K < r
+        nBytes = 0;
+        return;
+    end
+    nJ = 1;
+    for k = (K - r + 1):K
+        nJ = nJ * k;
+    end
+    if isRel
+        dim = max(r - 1, 1);
+    else
+        dim = r;
+    end
+    nBytes = nJ * dim * 8;
+end
+
+
+function t = localProbeEvalPath(dens, xProbe, pathName, ...
+        truncationSigmas, kernelPrecision)
+%LOCALPROBEEVALPATH  Time a small slice of the chosen eval path.
+%   Returns elapsed seconds. The probe uses the actual code path
+%   that will run for the full workload, so future optimisations
+%   are automatically reflected.
+    tStart = tic;
+    if strcmp(pathName, 'centres')
+        densMat = ensureExpTensExpensive(dens);
+        localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
+            truncationSigmas, kernelPrecision);
+    else  % 'orbit'
+        localEvalSAOrbit(dens, xProbe, false, ...
+            truncationSigmas, kernelPrecision);
+    end
+    t = toc(tStart);
+end
+
+
+function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
+        dens, X, nQ, method, truncationSigmas, kernelPrecision, ...
+        verbose) %#ok<INUSD>
+%LOCALSELECTANDESTIMATESA  Unified dispatcher + time estimate for SA eval.
+%
+%   Hard rules decide first (correctness / feasibility), then the
+%   discretionary case is decided by probing both paths and picking
+%   the faster.
+%
+%   Returns:
+%     chosen  — 'centres' or 'orbit'.
+%     probed  — true if a probe ran (verbose dispatch message prints
+%               only then).
+%     estSec  — extrapolated full-workload time in seconds; 0 if no
+%               probe ran.
+
+    % Probing parameters.
+    PROBE_MIN_NQ = 200;
+    PROBE_N = 50;
+    CENTRES_PROBE_MEM_BUDGET = 4 * 1024^3;  % 4 GB
+    % Above this r, orbit becomes infeasible: B_r explodes from 115,975
+    % at r=10 to 5e13 at r=20, and set-partition enumeration becomes
+    % impractical. r > this falls back to centres-only routing.
+    ORBIT_R_MAX_FEASIBLE = 10;
+    % Bell numbers (set-partition counts) for r = 1..10.
+    BELL = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975];
+    % Pre-screen: skip probe when centres wins by more than this margin.
+    % Orbit-rel's u-grid quadrature makes its PROBE prohibitively
+    % expensive for the typical case; a generous margin avoids that.
+    PRESCREEN_CENTRES_DOMINANCE = 10.0;
+
+    r = double(dens.r);
+    K = numel(dens.p);
+    isRel = dens.isRel;
+    estSec = 0.0;
+    probed = false;
+
+    % ---- Rule 1: user override ----
+    if strcmp(method, 'centres') || strcmp(method, 'direct')
+        chosen = 'centres';
+        return;
+    end
+    if strcmp(method, 'orbit')
+        chosen = 'orbit';
+        return;
+    end
+    if ~strcmp(method, 'auto')
+        error('evalExpTens:badMethod', ...
+              ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
+               'or ''orbit''; got ''%s''.'], method);
+    end
+
+    % ---- Rule 2: orbit degenerate at r <= 1 ----
+    if r <= 1
+        chosen = 'centres';
+        return;
+    end
+
+    % ---- Rule 3: orbit cancellation guard ----
+    if K - r < 2   % _ORBIT_K_MINUS_R_MIN
+        chosen = 'centres';
+        return;
+    end
+
+    % ---- Rule 4: centres memory budget ----
+    centresBytes = localEstimateCentresArrayBytes(K, r, isRel);
+    if centresBytes > CENTRES_PROBE_MEM_BUDGET
+        % Centres infeasible. Orbit is the only candidate, but it has
+        % its own r-limit (B_r explodes).
+        if r > ORBIT_R_MAX_FEASIBLE
+            error('evalExpTens:infeasibleR', ...
+                  ['r=%d requires more than %d GB for the centres ' ...
+                   'array (K=%d), and orbit is infeasible at r > %d ' ...
+                   '(B_r explodes). Reduce r or check inputs.'], ...
+                  r, floor(CENTRES_PROBE_MEM_BUDGET / 1024^3), K, ...
+                  ORBIT_R_MAX_FEASIBLE);
+        end
+        chosen = 'orbit';
+        return;
+    end
+
+    % ---- Shortcut: tiny workload, skip probing ----
+    if nQ < PROBE_MIN_NQ
+        chosen = 'centres';
+        return;
+    end
+
+    % ---- Pre-screen: skip probe when centres clearly dominates ----
+    % orbit-rel's u-grid quadrature makes its probe expensive at
+    % typical sigma/period; pre-screen using cost ratio.
+    if isRel && r >= 2
+        sigma = dens.sigma;
+        if dens.isPer
+            N_u_est = max(64, ceil(10 * dens.period / sigma));
+        else
+            p_min = min(dens.p);
+            p_max = max(dens.p);
+            x_min_abs = min(X(:));
+            x_max_abs = max(X(:));
+            if isempty(x_min_abs); x_min_abs = 0; end
+            if isempty(x_max_abs); x_max_abs = 0; end
+            u_min = p_min - max(0, x_max_abs) - 8 * sigma;
+            u_max = p_max - min(0, x_min_abs) + 8 * sigma;
+            N_u_est = max(64, ceil(max(u_max - u_min, 1) / sigma * 10));
+        end
+        if r <= numel(BELL)
+            B_r = BELL(r);
+        else
+            B_r = 1e9;
+        end
+        centresCost = double(K)^(r - 1);
+        orbitCost = double(B_r) * r * N_u_est;
+        if centresCost * PRESCREEN_CENTRES_DOMINANCE < orbitCost
+            chosen = 'centres';
+            return;
+        end
+    end
+
+    % ---- Probe both paths ----
+    if r >= 2 && r <= ORBIT_R_MAX_FEASIBLE
+        mobius.getSetPartitionsWithMobius(r);
+    end
+    if r > ORBIT_R_MAX_FEASIBLE
+        chosen = 'centres';
+        return;
+    end
+
+    nProbe = min(PROBE_N, nQ);
+    sampleIdx = round(linspace(1, nQ, nProbe));
+    xProbe = X(:, sampleIdx);
+
+    tCentres = localProbeEvalPath(dens, xProbe, 'centres', ...
+        truncationSigmas, kernelPrecision);
+    tOrbit = localProbeEvalPath(dens, xProbe, 'orbit', ...
+        truncationSigmas, kernelPrecision);
+
+    if tCentres <= tOrbit
+        chosen = 'centres';
+        tProbe = tCentres;
+    else
+        chosen = 'orbit';
+        tProbe = tOrbit;
+    end
+
+    estSec = tProbe * (double(nQ) / double(nProbe));
+    probed = true;
+end
+
+
+function vals = localEvalSAOrbit(dens, X, verbose, ...
+        truncationSigmas, kernelPrecision) %#ok<INUSD>
 %LOCALEVALSAORBIT  Orbit-Mobius point evaluator for SA densities.
 %
 %   Routes to mobius.evalOrbitAbs (absolute mode) or mobius.evalOrbitRel
 %   (relative mode). Returns a 1-by-nQ row vector, matching the centres
 %   path's output shape.
+%
+%   truncationSigmas and kernelPrecision are forwarded to the orbit
+%   evaluators (Stage 4: the non-periodic per-block kernel sum routes
+%   through internal.gaussianKernelSum with sigma_eff = sigma/sqrt(m),
+%   gaining truncation natively).
 
     p      = dens.p;
     w      = dens.w;
@@ -457,14 +683,23 @@ function vals = localEvalSAOrbit(dens, X, verbose) %#ok<INUSD>
     period = dens.period;
     nQ     = size(X, 2);
 
+    % Build kwarg list — pass through only when explicitly supplied
+    % at the evalExpTens call level; otherwise the orbit evaluators
+    % consult mptDefaults themselves.
+    kw = {'is_per', isPer, 'period', period};
+    if ~isempty(truncationSigmas)
+        kw = [kw, {'truncationSigmas', truncationSigmas}];
+    end
+    if ~isempty(kernelPrecision)
+        kw = [kw, {'kernelPrecision', kernelPrecision}];
+    end
+
     if isRel
         % evalOrbitRel expects X_rel as (r-1, nQ).
-        vals = mobius.evalOrbitRel(p(:), w(:), sigma, r, X, ...
-            'is_per', isPer, 'period', period);
+        vals = mobius.evalOrbitRel(p(:), w(:), sigma, r, X, kw{:});
     else
         % evalOrbitAbs expects X as (r, nQ).
-        vals = mobius.evalOrbitAbs(p(:), w(:), sigma, r, X, ...
-            'is_per', isPer, 'period', period);
+        vals = mobius.evalOrbitAbs(p(:), w(:), sigma, r, X, kw{:});
     end
 
     vals = reshape(vals, 1, nQ);
@@ -490,10 +725,6 @@ function vals = localEvalSACentres(dens, X, nQ, verbose, ...
     isRel   = dens.isRel;
     isPer   = dens.isPer;
     J       = dens.period;
-
-    % Estimated computation time.
-    nPairs = double(nJ) * double(nQ);
-    estimateCompTime(nPairs, dim, 'evalExpTens', verbose);
 
     % Build the keyword list for the helper. Pass-through only when
     % values were supplied at this call's level; otherwise the helper

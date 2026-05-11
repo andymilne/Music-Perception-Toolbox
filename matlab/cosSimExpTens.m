@@ -576,19 +576,21 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     %  on the existing ipFull/chunked path.
     % -----------------------------------------------------------------
     function ipval = ipViaHelper(U, wU, V, wV)
-        opts = struct( ...
-            'isRel', isRel, ...
-            'r', r, ...
-            'isPer', isPer, ...
-            'period', J);
+        kw = {};
+        if isRel
+            kw = [kw, {'isRel', true, 'r', r}];
+        end
+        if isPer
+            kw = [kw, {'isPer', true, 'period', J}];
+        end
         if ~isempty(truncationSigmas)
-            opts.truncationSigmas = truncationSigmas;
+            kw = [kw, {'truncationSigmas', truncationSigmas}];
         end
         if ~isempty(kernelPrecision)
-            opts.kernelPrecision = kernelPrecision;
+            kw = [kw, {'kernelPrecision', kernelPrecision}];
         end
         sigmaEff = sigma * sqrt(2);
-        g = internal.gaussianKernelSum(V, wV(:), U, sigmaEff, opts);
+        g = internal.gaussianKernelSum(V, wV(:), U, sigmaEff, kw{:});
         ipval = double(g(:).' * wU(:));
     end
 

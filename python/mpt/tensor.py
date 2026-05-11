@@ -1829,16 +1829,33 @@ def _eval_exp_tens_sa(
     sigma_over_P = (
         float(dens.sigma) / float(dens.period) if dens.is_per else 0.0
     )
-    chosen = _select_sa_eval_method(
-        r=int(dens.r), K=K, n_q=n_q,
-        is_rel=bool(dens.is_rel),
-        is_per=bool(dens.is_per),
-        sigma_over_P=sigma_over_P,
-        user_method=method,
+    chosen, probed, est_sec = _select_and_estimate_sa(
+        dens, x, n_q,
+        method=method,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=verbose,
     )
 
+    if verbose and probed:
+        # Dispatch-decision message: shows which path was chosen and
+        # the empirical extrapolated estimate. Always prints when a
+        # probe ran (i.e., for any non-trivial workload not decided
+        # by a hard rule). Quiet for tiny workloads or rule-decided
+        # cases. Set verbose=False to silence entirely.
+        print(
+            f"eval_exp_tens: chose '{chosen}' path "
+            f"(estimated {_format_time(est_sec)}); "
+            f"Ctrl-C to cancel."
+        )
+
     if chosen == "orbit":
-        vals = _eval_exp_tens_sa_orbit(dens, x, n_q, verbose=verbose)
+        vals = _eval_exp_tens_sa_orbit(
+            dens, x, n_q,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
         # Post-hoc finiteness check. Mirrors the cosine-path safety
         # net: if the orbit alternating sum produces non-finite output
         # (extreme σ → 0 regime), fall back to centres rather than
@@ -1853,14 +1870,14 @@ def _eval_exp_tens_sa(
                 dens, x, n_q,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
-                verbose=verbose,
+                verbose=False,
             )
     else:  # 'centres'
         vals = _eval_exp_tens_sa_centres(
             dens, x, n_q,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
-            verbose=verbose,
+            verbose=False,
         )
 
     return _eval_exp_tens_sa_normalize(vals, dens, normalize)
@@ -1893,9 +1910,6 @@ def _eval_exp_tens_sa_centres(
     is_per = dens.is_per
     period = dens.period
 
-    n_pairs = int(n_j) * int(n_q)
-    estimate_comp_time(n_pairs, dim, "eval_exp_tens", verbose)
-
     # Forward kwargs to the helper. ``None`` means "consult mpt defaults".
     kw = {}
     if is_rel:
@@ -1917,6 +1931,8 @@ def _eval_exp_tens_sa_orbit(
     x: np.ndarray,
     n_q: int,
     *,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Orbit-Möbius point evaluator for SA evaluation.
@@ -1925,6 +1941,11 @@ def _eval_exp_tens_sa_orbit(
     or :func:`mpt._mobius.eval_orbit_rel` (relative modes). Bypasses
     the ``(dim, n_j, n_q)`` intermediate tensor that would dominate
     memory in the centres path at high r.
+
+    v2.2.x (Stage 4): forwards ``truncation_sigmas`` /
+    ``kernel_precision`` to the orbit evaluators. The non-periodic
+    per-block kernel sum routes through ``gaussian_kernel_sum`` with
+    ``sigma_eff = sigma/sqrt(m)``, gaining truncation natively.
     """
     from ._mobius import eval_orbit_abs, eval_orbit_rel
 
@@ -1936,23 +1957,21 @@ def _eval_exp_tens_sa_orbit(
     is_per = bool(dens.is_per)
     period = float(dens.period)
 
-    # Light cost note. Orbit memory is O(B_r · r · K · n_q), much
-    # smaller than the centres path's O(n_j · n_q); we don't need a
-    # separate progress estimate.
     if verbose:
-        # Surface the path choice in the same channel as the centres
-        # path's estimate_comp_time output so users can confirm
-        # routing if they care.
         pass
 
     if is_rel:
         return eval_orbit_rel(
             p, w, sigma, r, x,
             is_per=is_per, period=period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
     return eval_orbit_abs(
         p, w, sigma, r, x,
         is_per=is_per, period=period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
     )
 
 
@@ -4283,6 +4302,236 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     if not _orbit_safe_for_precision([r], [K]):
         return 'centres'
     return 'orbit'
+
+
+# -----------------------------------------------------------------------
+# Unified path-selection + time-estimate probe (v2.2.x)
+#
+# The probe-based dispatcher replaces the heuristic rule for the
+# discretionary cases. Genuinely hard rules (correctness / feasibility)
+# stay as rules; everything else is decided by timing both paths on a
+# small probe and picking the faster. The probe time also produces the
+# user-facing time estimate, so dispatcher and estimator share a single
+# load-bearing measurement that auto-adapts to any future optimisation.
+# -----------------------------------------------------------------------
+
+
+def _format_time(t_sec: float) -> str:
+    """Human-readable short form of a duration in seconds."""
+    if t_sec < 1:
+        return f"{t_sec * 1000:.0f} ms"
+    if t_sec < 60:
+        return f"{t_sec:.1f} s"
+    if t_sec < 3600:
+        return f"{t_sec / 60:.1f} min"
+    return f"{t_sec / 3600:.1f} hr"
+
+
+# Probing parameters.
+_PROBE_MIN_N_Q = 200    # below this many queries, skip probing entirely
+_PROBE_N = 50           # probe sample size
+# Centres-path memory budget (bytes). The probe refuses to materialise
+# the centres array if it would exceed this; orbit is chosen instead.
+_CENTRES_PROBE_MEM_BUDGET = 4 * 1024**3
+
+# Above this r, orbit becomes infeasible: B_r (Bell numbers) explodes
+# from 115,975 at r=10 to 5x10^13 at r=20, and set-partition enumeration
+# itself blows the Python recursion stack. r > this falls back to
+# centres-only routing.
+_ORBIT_R_MAX_FEASIBLE = 10
+
+# Bell numbers up to r=10 (set partition counts). Used by the rel-mode
+# pre-screen to estimate orbit-rel cost without enumerating partitions.
+_BELL_NUMBERS = {
+    1: 1, 2: 2, 3: 5, 4: 15, 5: 52, 6: 203, 7: 877,
+    8: 4140, 9: 21147, 10: 115975,
+}
+
+# Pre-screen: if centres is favoured by more than this factor, skip
+# probing entirely. Orbit-rel's u-grid quadrature makes its PROBE
+# prohibitively expensive for the typical case (50-query probe at
+# N_u=1000 is ~3 s), so a generous margin here avoids unnecessary
+# probe overhead. Centres still loses cleanly when the margin tightens.
+_PRESCREEN_CENTRES_DOMINANCE = 10.0
+
+
+def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
+    """Estimate the dominant centres-array allocation in bytes.
+
+    Returns ``K!/(K-r)! * dim * 8`` where ``dim`` is the effective
+    centres dimensionality (``r`` for abs, ``r-1`` for rel).
+    """
+    if K < r:
+        return 0
+    n_j = 1
+    for k in range(K - r + 1, K + 1):
+        n_j *= k
+    dim = r - 1 if is_rel else r
+    return n_j * max(dim, 1) * 8
+
+
+def _probe_eval_path(
+    dens: "ExpTensDensity",
+    x_probe: np.ndarray,
+    path: str,
+    *,
+    truncation_sigmas: float | None,
+    kernel_precision: str | None,
+) -> float:
+    """Time a small slice of the real eval path. Returns seconds."""
+    import time as _time
+    t0 = _time.perf_counter()
+    if path == "centres":
+        _eval_exp_tens_sa_centres(
+            dens, x_probe, x_probe.shape[1],
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
+    else:
+        _eval_exp_tens_sa_orbit(
+            dens, x_probe, x_probe.shape[1],
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
+    return _time.perf_counter() - t0
+
+
+def _select_and_estimate_sa(
+    dens: "ExpTensDensity",
+    x: np.ndarray,
+    n_q: int,
+    *,
+    method: str,
+    truncation_sigmas: float | None,
+    kernel_precision: str | None,
+    verbose: bool,
+) -> tuple[str, bool, float]:
+    """Unified path selection + time estimate for SA eval_exp_tens.
+
+    Hard rules decide first:
+      1. user override → honour it.
+      2. r <= 1 → centres (orbit mathematically degenerate).
+      3. K - r < _ORBIT_K_MINUS_R_MIN → centres (orbit cancellation).
+      4. centres-array memory > budget → orbit (centres infeasible).
+
+    Everything else is decided by probing both paths on a small slice
+    of queries and picking the faster. The probe time, extrapolated to
+    the full workload, is the user-facing time estimate.
+
+    Returns (chosen, probed, est_sec).
+    """
+    r = int(dens.r)
+    K = int(dens.p.shape[0])
+    is_rel = bool(dens.is_rel)
+
+    # ---- Rule 1: user override ----
+    if method in ("centres", "direct"):
+        return "centres", False, 0.0
+    if method == "orbit":
+        return "orbit", False, 0.0
+    if method != "auto":
+        raise ValueError(
+            f"method must be 'auto', 'centres', or 'orbit'; got {method!r}."
+        )
+
+    # ---- Rule 2: orbit degenerate at r <= 1 ----
+    if r <= 1:
+        return "centres", False, 0.0
+
+    # ---- Rule 3: orbit cancellation guard ----
+    if not _orbit_safe_for_precision([r], [K]):
+        return "centres", False, 0.0
+
+    # ---- Rule 4: centres memory budget ----
+    centres_bytes = _estimate_centres_array_bytes(K, r, is_rel)
+    if centres_bytes > _CENTRES_PROBE_MEM_BUDGET:
+        # Centres infeasible. Orbit is the only candidate, but it has
+        # its own r-limit (B_r explodes; r > ~10 is impractical).
+        if r > _ORBIT_R_MAX_FEASIBLE:
+            raise ValueError(
+                f"eval_exp_tens: r={r} requires more than "
+                f"{_CENTRES_PROBE_MEM_BUDGET // 1024**3} GB for the "
+                f"centres array (K={K}), and orbit is infeasible at "
+                f"r > {_ORBIT_R_MAX_FEASIBLE} (B_r explodes). Reduce "
+                f"r or check inputs."
+            )
+        return "orbit", False, 0.0
+
+    # ---- Shortcut: tiny workload, skip probing ----
+    if n_q < _PROBE_MIN_N_Q:
+        return "centres", False, 0.0
+
+    # ---- Pre-screen: skip probe when one path clearly dominates ----
+    # The probe is robust but not free. For rel mode in particular,
+    # orbit-rel does u-grid quadrature with N_u ≈ max(64, 10·P/σ)
+    # sub-evals per query — its PROBE cost scales as
+    # B_r · r · K · N_u · n_probe, which is prohibitive when N_u is
+    # large. We pre-screen the cost ratio analytically and skip the
+    # probe if centres clearly wins. The probe still has the final
+    # word in the uncertain region.
+    if is_rel and r >= 2:
+        # Estimate N_u (the orbit-rel u-grid size) using the same
+        # formula eval_orbit_rel uses internally.
+        sigma = float(dens.sigma)
+        if dens.is_per:
+            N_u_est = max(64, int(np.ceil(
+                10.0 * float(dens.period) / sigma
+            )))
+        else:
+            # Non-periodic u-grid: covers [p.min() - x.max() - 8σ,
+            # p.max() - x.min() + 8σ]. Use the actual data extents.
+            p_min = float(np.min(dens.p))
+            p_max = float(np.max(dens.p))
+            x_min_abs = float(np.min(x, initial=0.0))
+            x_max_abs = float(np.max(x, initial=0.0))
+            u_min = p_min - max(0.0, x_max_abs) - 8.0 * sigma
+            u_max = p_max - min(0.0, x_min_abs) + 8.0 * sigma
+            N_u_est = max(
+                64,
+                int(np.ceil(max(u_max - u_min, 1.0) / sigma * 10.0)),
+            )
+        B_r = _BELL_NUMBERS.get(r, 10 ** 9)
+        centres_cost = float(K) ** (r - 1)
+        orbit_cost = float(B_r) * r * N_u_est
+        if centres_cost * _PRESCREEN_CENTRES_DOMINANCE < orbit_cost:
+            return "centres", False, 0.0
+
+    # ---- Probe both paths ----
+    # Warm the set-partition cache so the orbit probe doesn't pay
+    # one-time table-build cost. Skip for high r where orbit is not a
+    # realistic candidate — set-partition enumeration itself becomes
+    # infeasible, and the recursion depth grows linearly in r.
+    if 2 <= r <= _ORBIT_R_MAX_FEASIBLE:
+        from ._mobius import get_set_partitions_with_mobius
+        get_set_partitions_with_mobius(r)
+    if r > _ORBIT_R_MAX_FEASIBLE:
+        # No orbit option at this r; skip the probe and use centres.
+        return "centres", False, 0.0
+
+    n_probe = min(_PROBE_N, n_q)
+    sample_idx = np.linspace(0, n_q - 1, n_probe).astype(int)
+    x_probe = x[:, sample_idx]
+
+    t_centres = _probe_eval_path(
+        dens, x_probe, "centres",
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+    t_orbit = _probe_eval_path(
+        dens, x_probe, "orbit",
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+
+    if t_centres <= t_orbit:
+        chosen, t_probe = "centres", t_centres
+    else:
+        chosen, t_probe = "orbit", t_orbit
+
+    est_sec = t_probe * (n_q / n_probe)
+    return chosen, True, est_sec
 
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,

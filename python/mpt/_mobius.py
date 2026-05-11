@@ -923,6 +923,8 @@ def eval_orbit_abs(
     is_per: bool = False,
     period: float = 0.0,
     return_cancellation_ratio: bool = False,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
 ) -> np.ndarray:
     """Möbius point evaluator for the SA absolute-mode tensor.
 
@@ -1014,6 +1016,18 @@ def eval_orbit_abs(
     N = p.shape[0]
     inv_2s2 = 1.0 / (2.0 * sigma * sigma)
 
+    # Note: truncation_sigmas / kernel_precision are accepted in the
+    # signature so this function can be called uniformly from Stage 4
+    # wrappers, but they are currently NO-OP in the orbit path. The
+    # helper's truncated kernel sum carries per-query Python (or MATLAB)
+    # overhead that exceeds the savings at typical orbit-path N
+    # (~50–300 partials per template). Routing through it would be a
+    # regression for the regimes where the orbit path is selected. A
+    # vectorised 1-D truncated kernel sum (planned follow-up) will
+    # unlock real speedup here; until then, the orbit-path stays on
+    # the exact tensor-broadcast code.
+    _ = truncation_sigmas, kernel_precision  # acknowledged, unused
+
     partitions = get_set_partitions_with_mobius(r)
     total = np.zeros(n_q_total, dtype=np.float64)
     max_abs_term = np.zeros(n_q_total, dtype=np.float64)
@@ -1023,18 +1037,19 @@ def eval_orbit_abs(
         block_factor = np.ones(n_q_total, dtype=np.float64)
         for B in blocks:
             m = len(B)
-            # x_B has shape (m, n_q_total); p has shape (N,)
-            # We need Σ_{k∈B}(x_k(q) - p_i)² for each (i, q): shape (N, n_q_total)
             x_B = x_flat[list(B), :]  # (m, n_q_total)
-            # (m, N, n_q_total) — broadcasted differences
+
+            # Direct (m, N, n_q) broadcast path (unchanged from v2.2).
             diffs = x_B[:, None, :] - p[None, :, None]
             if is_per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
-            sq_sum = np.sum(diffs * diffs, axis=0)  # (N, n_q_total)
-            kernel = np.exp(-sq_sum * inv_2s2)  # (N, n_q_total)
-            # Multiply by w_i^m and sum over i
+            sq_sum = np.sum(diffs * diffs, axis=0)
+            kernel = np.exp(-sq_sum * inv_2s2)
             wm = w ** m if m > 1 else w
-            block_factor *= np.einsum('i,iq->q', wm, kernel, optimize=True)
+            block_factor *= np.einsum(
+                'i,iq->q', wm, kernel, optimize=True
+            )
+
         term = mu * block_factor
         total += term
         np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
@@ -1076,6 +1091,8 @@ def eval_orbit_rel(
     period: float = 0.0,
     samples_per_sigma: int = 10,
     return_cancellation_ratio: bool = False,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
 ) -> np.ndarray:
     """Möbius point evaluator for the SA relative-mode tensor.
 
@@ -1195,6 +1212,8 @@ def eval_orbit_rel(
                 p, w, sigma, r, x_full,
                 is_per=is_per, period=period,
                 return_cancellation_ratio=True,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
             F[:, c0:c1] = vals_chunk
             R[:, c0:c1] = ratios_chunk
@@ -1202,6 +1221,8 @@ def eval_orbit_rel(
             vals_chunk = eval_orbit_abs(
                 p, w, sigma, r, x_full,
                 is_per=is_per, period=period,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
             F[:, c0:c1] = vals_chunk
 

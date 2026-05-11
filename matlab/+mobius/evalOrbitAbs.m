@@ -57,6 +57,10 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
         opts.is_per (1,1) logical = false
         opts.period (1,1) double = 0.0
         opts.returnCancellationRatio (1,1) logical = false
+        opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
+        opts.kernelPrecision (1,:) char ...
+            {mustBeMember(opts.kernelPrecision, {'double','single'})} ...
+            = mptDefaults('kernelPrecision')
     end
 
     sz = size(x);
@@ -89,6 +93,17 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
 
     N = numel(p);
     inv_2s2 = 1.0 / (2 * sigma^2);
+
+    % Note: opts.truncationSigmas / opts.kernelPrecision are accepted
+    % so this function can be called uniformly from Stage 4 wrappers,
+    % but they are currently NO-OP in the orbit path. The helper's
+    % truncated kernel sum carries per-query loop overhead that
+    % exceeds the savings at typical orbit-path N (~50–300 partials
+    % per template). Routing through it would be a regression for the
+    % regimes where the orbit path is selected. A vectorised 1-D
+    % truncated kernel sum (planned follow-up) will unlock real
+    % speedup here; until then, the orbit-path stays on the exact
+    % tensor-broadcast code below.
 
     partitions = mobius.getSetPartitionsWithMobius(r);
     total = zeros(n_q_total, 1);

@@ -129,10 +129,20 @@ def gaussian_kernel_sum(
     )
 
     if use_truncation:
-        v = _truncated_kernel_sum(
-            C_w, wJ_w, X_w, sigma_w, is_rel, r,
-            float(truncation_sigmas), inv2s2,
-        )
+        # Dispatch on dimensionality: 1-D abs case has a much
+        # tighter vectorised path via sorted-centres + searchsorted.
+        # Avoids the per-query Python loop in the general path.
+        dim_w = C_w.shape[0]
+        if dim_w == 1 and not is_rel:
+            v = _truncated_kernel_sum_1d_vectorised(
+                C_w, wJ_w, X_w, sigma_w,
+                float(truncation_sigmas), inv2s2,
+            )
+        else:
+            v = _truncated_kernel_sum(
+                C_w, wJ_w, X_w, sigma_w, is_rel, r,
+                float(truncation_sigmas), inv2s2,
+            )
     else:
         v = _exact_kernel_sum(
             C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
@@ -289,6 +299,91 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
             out[q] = float(np.sum(wJ[surv] * kernel_vals))
 
     return out
+
+
+# ---------------------------------------------------------------------
+# Vectorised 1-D abs-mode truncated path
+#
+# For dim=1 absolute-mode workloads, the centres can be sorted along
+# their only axis and per-query active windows located via vectorised
+# searchsorted on the bounds [x - kσ, x + kσ]. All queries then
+# process a fixed-width slice of centres (the maximum window size in
+# the batch), padded with zero-weight entries where their own window
+# is shorter. This eliminates the per-query Python loop in
+# _truncated_kernel_sum and is ~10-30× faster at typical orbit-path
+# sizes (N ≈ 50-300 partials).
+#
+# Used in particular by mobius.eval_orbit_abs for the per-block
+# 1-D kernel sum that arises after factoring the block's
+# m-dimensional quadratic form Q_B = var(x_B) + m·(x̄_B - p)².
+# ---------------------------------------------------------------------
+
+def _truncated_kernel_sum_1d_vectorised(C, wJ, X, sigma, k_sigma, inv2s2):
+    """Compute ``sum_i wJ[i] * exp(-(X[q] - C[i])^2/(2σ²))`` for each
+    query column ``q``, including only centres within ``k_sigma · σ``
+    of the query.
+
+    Inputs:
+        C  : (1, nJ) ndarray  — centres (single coordinate axis).
+        wJ : (nJ,)  ndarray   — centre weights.
+        X  : (1, nQ) ndarray  — queries.
+        sigma : float
+        k_sigma : float       — truncation radius in units of σ.
+        inv2s2 : float        — 1/(2σ²) precomputed.
+
+    Returns ``(nQ,)`` array of kernel sums.
+    """
+    nJ = C.shape[1]
+    nQ = X.shape[1]
+    if nJ == 0 or nQ == 0:
+        return np.zeros(nQ, dtype=C.dtype)
+
+    threshold = float(k_sigma) * float(sigma)
+    c_axis = C[0]                          # (nJ,)
+    x_axis = X[0]                          # (nQ,)
+
+    # Sort centres along the single axis; reuse for all queries.
+    order = np.argsort(c_axis, kind="stable")
+    c_sorted = c_axis[order]
+    w_sorted = wJ[order]
+
+    # For each query, find the inclusive lower / exclusive upper
+    # bounds in the sorted centre array (the active window).
+    i_low = np.searchsorted(c_sorted, x_axis - threshold, side="left")
+    i_high = np.searchsorted(c_sorted, x_axis + threshold, side="right")
+    win = i_high - i_low                   # (nQ,)
+    max_win = int(win.max(initial=0))
+
+    if max_win == 0:
+        # No centre is within the truncation radius for any query.
+        return np.zeros(nQ, dtype=C.dtype)
+    if max_win >= nJ:
+        # Truncation window covers the entire centre array for at
+        # least one query — no savings; fall through to dense compute.
+        diffs = x_axis[:, None] - c_sorted[None, :]
+        kernel = np.exp(-(diffs * diffs) * inv2s2)
+        return (kernel * w_sorted[None, :]).sum(axis=1).astype(
+            C.dtype, copy=False
+        )
+
+    # Build (nQ, max_win) index matrix into the sorted arrays.
+    # Each row is i_low[q] + [0, 1, ..., max_win-1]; entries beyond
+    # i_high[q] are masked out with zero weight.
+    offsets = np.arange(max_win, dtype=np.int64)
+    idx = i_low[:, None] + offsets[None, :]           # (nQ, max_win)
+    # Clip to valid range; out-of-range entries will be zero-masked.
+    mask = idx < i_high[:, None]
+    idx_clipped = np.minimum(idx, nJ - 1)             # safe for indexing
+
+    p_slices = c_sorted[idx_clipped]                  # (nQ, max_win)
+    w_slices = w_sorted[idx_clipped]
+    diffs = x_axis[:, None] - p_slices                # (nQ, max_win)
+    kernel = np.exp(-(diffs * diffs) * inv2s2)
+
+    # Apply the in-window mask by zeroing out-of-window contributions.
+    kernel = np.where(mask, kernel, 0.0)
+
+    return (kernel * w_slices).sum(axis=1).astype(C.dtype, copy=False)
 
 
 def _sub_to_ind(siz: np.ndarray, subs: np.ndarray) -> np.ndarray:

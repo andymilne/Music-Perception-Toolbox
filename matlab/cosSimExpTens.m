@@ -505,22 +505,46 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     %  Core inner product between one perm-side (U, wU) and one
     %  comb-side (V, wV).
     %
-    %  v2.2.x (Stage 2b): for the abs and rel-non-periodic modes, route
-    %  through internal.gaussianKernelSum so the truncationSigmas and
-    %  kernelPrecision options apply uniformly. The helper's Gaussian
-    %  kernel matches the IP's effective-sigma form via sigma_eff =
-    %  sigma * sqrt(2) (since the IP integrand has variance 2*sigma^2
-    %  rather than sigma^2). For rel+periodic mode the helper does not
-    %  yet support cosSimExpTens's pairwise-wrap quadratic form, so that
-    %  case stays on the existing vectorised ipFull/chunked path.
+    %  Two-axis routing (mirrors localSelectAndEstimateSA + the
+    %  execution-axis check in evalExpTens):
+    %
+    %    Routing axis — abs and rel-non-periodic forms have a helper
+    %      reduction (sigma_eff = sigma*sqrt(2)); rel+periodic does
+    %      not yet and stays on the inline ipFull / chunked path.
+    %    Execution axis — even when the helper is available, route
+    %      through it only when feature kwargs (truncation, single
+    %      precision) are actually requested, after resolving []
+    %      against mptDefaults. Default mode runs ipFull / chunked
+    %      inline, avoiding the helper's arguments-block validation
+    %      and cell-array kwargs construction overhead per call.
+    %
+    %  This preserves the v2.1 cost profile for default-mode callers
+    %  (e.g. cosSimExpTens in per-pair tight loops like windowedSimilarity)
+    %  while enabling the helper's features whenever the user opts in.
     % -----------------------------------------------------------------
     function ipval = ipCore(U, wU, nJ, V, wV, nK)
         canUseHelper = ~(isRel && isPer);
-        if canUseHelper
+
+        % Execution-axis decision: resolve defaults first.
+        if isempty(truncationSigmas)
+            truncResolved = mptDefaults('truncationSigmas');
+        else
+            truncResolved = truncationSigmas;
+        end
+        if isempty(kernelPrecision)
+            precResolved = mptDefaults('kernelPrecision');
+        else
+            precResolved = kernelPrecision;
+        end
+        useDefaultKwargs = ~isfinite(truncResolved) ...
+            && strcmp(precResolved, 'double');
+
+        if canUseHelper && ~useDefaultKwargs
             ipval = ipViaHelper(U, wU, V, wV);
             return;
         end
 
+        % Default-mode (or rel+per) path: v2.1 inline / chunked.
         bytesNeeded = (r + 2) * double(nJ) * double(nK) * 8;
 
         try

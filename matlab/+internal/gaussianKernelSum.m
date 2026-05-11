@@ -118,7 +118,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
             opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-            opts.isRel, opts.r, opts.isPer, period_w, inv2s2);
+            opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w);
     end
 
     if strcmp(opts.kernelPrecision, 'single')

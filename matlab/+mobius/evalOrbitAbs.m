@@ -94,15 +94,16 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
     N = numel(p);
     inv_2s2 = 1.0 / (2 * sigma^2);
 
-    % Per-block factoring (non-periodic):
-    %   Q_B(x_B, p) = var(x_B) + m * (mean(x_B) - p)^2
-    % reduces the m-D block sum to a 1-D Gaussian kernel sum at
-    % effective sigma_eff = sigma/sqrt(m), times a per-query
-    % prefactor exp(-var/2sigma^2). Routing through
-    % internal.gaussianKernelSum then applies truncation via the
-    % vectorised 1-D path. The periodic block does not factor
-    % cleanly and stays on the direct broadcast path below.
-    useHelper = ~opts.is_per && isfinite(opts.truncationSigmas);
+    % Note: opts.truncationSigmas / opts.kernelPrecision are accepted
+    % so this function can be called uniformly from Stage 4 wrappers,
+    % but they are currently NO-OP in the orbit path. The helper's
+    % truncated kernel sum carries per-query loop overhead that
+    % exceeds the savings at typical orbit-path N (~50–300 partials
+    % per template). Routing through it would be a regression for the
+    % regimes where the orbit path is selected. A vectorised 1-D
+    % truncated kernel sum (planned follow-up) will unlock real
+    % speedup here; until then, the orbit-path stays on the exact
+    % tensor-broadcast code below.
 
     partitions = mobius.getSetPartitionsWithMobius(r);
     total = zeros(n_q_total, 1);
@@ -116,47 +117,25 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
         for b = 1:numel(blocks)
             B = blocks{b};
             m = numel(B);
+            % x_B: (m, n_q_total); p: (N, 1).
+            % Build diffs of shape (m, N, n_q_total) via implicit expansion.
             x_B = x(B, :);
-
-            if useHelper
-                % Factored 1-D path.
-                if m == 1
-                    mean_x = x_B;
-                    var_x  = zeros(1, n_q_total);
-                else
-                    mean_x = sum(x_B, 1) / m;
-                    var_x  = sum((x_B - mean_x).^2, 1);
-                end
-                prefactor = exp(-var_x(:) * inv_2s2);
-                if m == 1
-                    wm = w;
-                else
-                    wm = w .^ m;
-                end
-                sigmaEff = sigma / sqrt(m);
-                kw = {'truncationSigmas', opts.truncationSigmas, ...
-                      'kernelPrecision', opts.kernelPrecision};
-                kernelSum = internal.gaussianKernelSum( ...
-                    p(:).', wm(:), mean_x(:).', sigmaEff, kw{:});
-                blockFactor = blockFactor .* (prefactor .* kernelSum(:));
-            else
-                % Direct (m, N, n_q) broadcast path (periodic, or
-                % no truncation requested).
-                x_B_re = reshape(x_B, m, 1, n_q_total);
-                p_re = reshape(p, 1, N, 1);
-                diffs = x_B_re - p_re;
-                if opts.is_per
-                    diffs = diffs - opts.period * floor(diffs / opts.period + 0.5);
-                end
-                sqSum = reshape(sum(diffs .* diffs, 1), N, n_q_total);
-                kernel = exp(-sqSum * inv_2s2);
-                if m == 1
-                    wm = w;
-                else
-                    wm = w .^ m;
-                end
-                blockFactor = blockFactor .* (kernel' * wm);
+            x_B_re = reshape(x_B, m, 1, n_q_total);
+            p_re = reshape(p, 1, N, 1);
+            diffs = x_B_re - p_re;
+            if opts.is_per
+                diffs = diffs - opts.period * floor(diffs / opts.period + 0.5);
             end
+            % Sum-of-squares over the block-slot axis (dim 1).
+            sqSum = reshape(sum(diffs .* diffs, 1), N, n_q_total);
+            kernel = exp(-sqSum * inv_2s2);  % (N, n_q_total)
+            if m == 1
+                wm = w;
+            else
+                wm = w .^ m;
+            end
+            % blockFactor[q] = sum_i w_i^m * kernel[i, q]
+            blockFactor = blockFactor .* (kernel' * wm);
         end
 
         term = mu * blockFactor;

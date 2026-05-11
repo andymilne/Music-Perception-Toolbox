@@ -45,8 +45,6 @@ def entropy_exp_tens(
     x_min=float("nan"),
     x_max=float("nan"),
     grid_limit: int = _DEFAULT_GRID_LIMIT,
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Entropy of an expectation tensor density.
@@ -233,8 +231,6 @@ def entropy_exp_tens(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
         )
 
     # Density list dispatch (list/tuple/object-array of densities)
@@ -344,20 +340,14 @@ def entropy_exp_tens(
 
 def _entropy_exp_tens_scalar(
     dens, *, normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
-    truncation_sigmas=None, kernel_precision=None,
 ):
     """Single-density entropy dispatch (the v2.0 type-dispatch logic)."""
-    eval_kw = dict(
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
     if isinstance(dens, WindowedMaetDensity):
         return _entropy_exp_tens_ma(
             dens,
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
-            **eval_kw,
         )
     if isinstance(dens, MaetDensity):
         return _entropy_exp_tens_ma(
@@ -365,7 +355,6 @@ def _entropy_exp_tens_scalar(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
-            **eval_kw,
         )
     if isinstance(dens, ExpTensDensity):
         return _entropy_exp_tens_sa(
@@ -373,7 +362,6 @@ def _entropy_exp_tens_scalar(
             spectrum=None, normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max,
-            **eval_kw,
         )
     raise TypeError(
         f"dens must be an ExpTensDensity, MaetDensity, or "
@@ -836,7 +824,6 @@ def _entropy_exp_tens_sa(
     *,
     spectrum, normalize, base,
     n_points_per_dim, x_min, x_max,
-    truncation_sigmas=None, kernel_precision=None,
 ) -> float:
     """Single-attribute Shannon entropy (v2.0.0 body)."""
     if isinstance(p_or_dens, ExpTensDensity):
@@ -880,11 +867,7 @@ def _entropy_exp_tens_sa(
         mesh = np.meshgrid(*([ax] * dim), indexing="ij")
         x = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
-    t = eval_exp_tens(
-        T, x, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
+    t = eval_exp_tens(T, x, verbose=False)
 
     total = np.sum(t)
     if total == 0:
@@ -915,7 +898,6 @@ def _entropy_exp_tens_ma(
     n_points_per_dim: int,
     x_min, x_max,
     grid_limit: int,
-    truncation_sigmas=None, kernel_precision=None,
 ) -> float:
     """Multi-attribute Shannon entropy.
 
@@ -1000,11 +982,7 @@ def _entropy_exp_tens_ma(
     X = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
     # --- Evaluate density ---
-    t = eval_exp_tens(
-        dens, X, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
+    t = eval_exp_tens(dens, X, verbose=False)
 
     # --- Shannon entropy ---
     total = float(np.sum(t))

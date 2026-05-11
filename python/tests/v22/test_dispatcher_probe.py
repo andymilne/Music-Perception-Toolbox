@@ -164,93 +164,6 @@ class TestRelPreScreen:
         assert probed is True
 
 
-class TestAbsPreScreen:
-    """Pre-screen catches the typical abs-mode large-K case (orbit
-    dominates) so the dispatcher routes to orbit even at tiny n_q.
-
-    For abs mode, centres cost per query is K^r and orbit cost is
-    B_r * r * K; the ratio is K^(r-1) / (B_r * r). At K=72 r=3 this
-    is ~1000x, so the tiny-workload shortcut would force centres
-    at any n_q<200 without this pre-screen — wasting orders of
-    magnitude of compute on workloads where orbit is clearly faster
-    (e.g. pattern-finding at typical harmonic-template K).
-    """
-
-    def test_large_K_abs_routes_to_orbit_at_any_n_q(self):
-        # K=72 r=3 abs: ratio = 72^2 / (5*3) = 345.6 >> 10 (margin).
-        # Pre-screen should fire for ANY n_q.
-        K = 72
-        p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3, False, False, 0.0)
-        # Try multiple n_q values, including below the tiny-shortcut threshold.
-        for n_q in [50, 100, _PROBE_MIN_N_Q - 1, 5000]:
-            x = np.random.uniform(0, 1200, (3, n_q))
-            chosen, probed, est = _select_and_estimate_sa(
-                dens, x, n_q, method='auto',
-                truncation_sigmas=None, kernel_precision=None,
-                verbose=False,
-            )
-            assert chosen == 'orbit', (
-                f"K={K} r=3 abs n_q={n_q} should pre-screen to orbit "
-                f"(ratio K^(r-1)/(B_r*r) = {K**2/(5*3):.0f}); got {chosen!r}"
-            )
-            assert probed is False, (
-                f"n_q={n_q}: pre-screen should fire before any probe"
-            )
-
-    def test_small_K_abs_does_not_force_orbit(self):
-        # K=4 r=2 abs: K^(r-1) = 4, B_r*r = 4. Ratio = 1, well below
-        # margin 10. Pre-screen should NOT fire; falls through to
-        # tiny-workload shortcut (centres) for small n_q, probe for
-        # large n_q.
-        K = 4
-        p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 2, False, False, 0.0)
-        x = np.random.uniform(0, 1200, (2, 50))  # tiny
-        chosen, probed, est = _select_and_estimate_sa(
-            dens, x, 50, method='auto',
-            truncation_sigmas=None, kernel_precision=None,
-            verbose=False,
-        )
-        # Tiny shortcut should win: chosen='centres', no probe.
-        assert chosen == 'centres'
-        assert probed is False
-
-    def test_borderline_K_abs_falls_through_to_probe(self):
-        # K=10 r=3 abs: ratio = 100/15 = 6.67, below margin 10.
-        # Pre-screen should NOT fire; probe runs for non-tiny n_q.
-        K = 10
-        p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3, False, False, 0.0)
-        x = np.random.uniform(0, 1200, (3, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
-            dens, x, 1000, method='auto',
-            truncation_sigmas=None, kernel_precision=None,
-            verbose=False,
-        )
-        # Probe MUST have fired (pre-screen didn't catch).
-        assert probed is True
-
-    def test_rel_mode_unaffected_by_abs_prescreen(self):
-        # At K=36 r=3 rel non-per sigma=12: centres_cost = 1296,
-        # orbit_cost (rel, N_u_est ~ 2160) = 32400 → rel-mode
-        # pre-screen fires → centres. The abs-mode pre-screen must
-        # NOT spuriously redirect to orbit just because the abs-mode
-        # cost ratio would also favour orbit at this K.
-        K = 36
-        p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
-        x = np.random.uniform(0, 1200, (2, 5000))
-        chosen, probed, est = _select_and_estimate_sa(
-            dens, x, 5000, method='auto',
-            truncation_sigmas=None, kernel_precision=None,
-            verbose=False,
-        )
-        # Rel-mode pre-screen should fire → centres.
-        assert chosen == 'centres'
-        assert probed is False
-
-
 # -----------------------------------------------------------------------
 # Memory budget rule
 # -----------------------------------------------------------------------
@@ -296,12 +209,10 @@ class TestCentresMemoryBudget:
 class TestProbing:
 
     def test_probe_fires_for_non_trivial_workload(self):
-        # K=10 r=3 abs: centres_cost/orbit_cost = 100/15 ≈ 6.7 <
-        # margin 10, so the abs pre-screen does NOT fire and the
-        # probe is reached. (K=20 r=3 abs would now pre-screen to
-        # orbit — ratio ≈ 27 — so it doesn't probe.)
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        # abs mode bypasses the rel pre-screen and forces probing
+        # (when n_q >= _PROBE_MIN_N_Q and K - r >= 2).
+        p = np.linspace(0, 1200, 20, endpoint=False)
+        dens = build_exp_tens(p, np.ones(20), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
         chosen, probed, est = _select_and_estimate_sa(
             dens, x, 500, method='auto',
@@ -313,9 +224,8 @@ class TestProbing:
         assert est > 0
 
     def test_estimate_scales_with_n_q(self):
-        # K=10 r=3 abs falls through the abs pre-screen (ratio 6.7 < margin).
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        p = np.linspace(0, 1200, 20, endpoint=False)
+        dens = build_exp_tens(p, np.ones(20), 12.0, 3, False, False, 0.0)
         rng = np.random.default_rng(42)
         x1 = rng.uniform(0, 1200, (3, 500))
         x2 = rng.uniform(0, 1200, (3, 1000))
@@ -338,9 +248,9 @@ class TestProbing:
 class TestVerboseDispatchMessage:
 
     def test_message_prints_when_probed(self, capsys):
-        # K=10 r=3 abs falls through to probe (see TestProbing notes).
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        # abs mode bypasses the rel pre-screen and forces probing
+        p = np.linspace(0, 1200, 20, endpoint=False)
+        dens = build_exp_tens(p, np.ones(20), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, truncation_sigmas=6.0, verbose=True)

@@ -1535,13 +1535,23 @@ def _eval_exp_tens_scalar(
     """
     if isinstance(dens, WindowedMaetDensity):
         # Evaluate underlying density, multiply elementwise by window.
-        underlying = _eval_exp_tens_ma(dens.dens, x, normalize, verbose=verbose)
+        underlying = _eval_exp_tens_ma(
+            dens.dens, x, normalize,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
         # Reconstruct per-attribute x_list so we can apply the window.
         x_list = _split_query_to_attr_list(dens.dens, x)
         W_vals = _evaluate_window_on_query(dens, x_list)
         return underlying * W_vals
     if isinstance(dens, MaetDensity):
-        return _eval_exp_tens_ma(dens, x, normalize, verbose=verbose)
+        return _eval_exp_tens_ma(
+            dens, x, normalize,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
     if isinstance(dens, ExpTensDensity):
         return _eval_exp_tens_sa(
             dens, x, normalize, method=method,
@@ -1829,13 +1839,41 @@ def _eval_exp_tens_sa(
     sigma_over_P = (
         float(dens.sigma) / float(dens.period) if dens.is_per else 0.0
     )
-    chosen, probed, est_sec = _select_and_estimate_sa(
-        dens, x, n_q,
-        method=method,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        verbose=verbose,
-    )
+
+    # ---- Routing axis ----
+    # Hard rules and explicit overrides decide inline; only the
+    # discretionary 'auto' case with r >= 2 and K - r >= 2 invokes the
+    # dispatcher. Skipping the dispatcher call shaves measurable
+    # per-call overhead in MATLAB; Python is less sensitive but we
+    # apply the principle uniformly for cross-language parity.
+    if method == "centres" or method == "direct":
+        chosen = "centres"
+        probed = False
+        est_sec = 0.0
+    elif method == "orbit":
+        chosen = "orbit"
+        probed = False
+        est_sec = 0.0
+    elif method == "auto":
+        r = int(dens.r)
+        if r <= 1 or (K - r) < 2:
+            # Hard rules force centres without a dispatcher call.
+            chosen = "centres"
+            probed = False
+            est_sec = 0.0
+        else:
+            chosen, probed, est_sec = _select_and_estimate_sa(
+                dens, x, n_q,
+                method=method,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                verbose=verbose,
+            )
+    else:
+        raise ValueError(
+            f"method must be 'auto', 'centres', 'direct', or 'orbit'; "
+            f"got '{method}'."
+        )
 
     if verbose and probed:
         # Dispatch-decision message: shows which path was chosen and
@@ -1848,6 +1886,25 @@ def _eval_exp_tens_sa(
             f"(estimated {_format_time(est_sec)}); "
             f"Ctrl-C to cancel."
         )
+
+    # ---- Execution axis: detect default-kwargs mode ----
+    # Important: ``None`` means "use the global default", not "no
+    # feature". So we must consult the defaults before deciding
+    # whether the fast path applies — a globally-set finite truncation
+    # or 'single' precision must still route through the helper.
+    from ._defaults import get_default
+    trunc_resolved = (
+        truncation_sigmas if truncation_sigmas is not None
+        else get_default("truncation_sigmas")
+    )
+    prec_resolved = (
+        kernel_precision if kernel_precision is not None
+        else get_default("kernel_precision")
+    )
+    use_default_kwargs = (
+        (trunc_resolved is None or not np.isfinite(trunc_resolved))
+        and (prec_resolved == "double")
+    )
 
     if chosen == "orbit":
         vals = _eval_exp_tens_sa_orbit(
@@ -1866,21 +1923,100 @@ def _eval_exp_tens_sa(
                     "eval_exp_tens orbit path produced non-finite "
                     "values; falling back to centres path."
                 )
+            if use_default_kwargs:
+                vals = _eval_exp_tens_sa_centres_fast(dens, x, n_q)
+            else:
+                vals = _eval_exp_tens_sa_centres(
+                    dens, x, n_q,
+                    truncation_sigmas=truncation_sigmas,
+                    kernel_precision=kernel_precision,
+                    verbose=False,
+                )
+    else:  # 'centres'
+        if use_default_kwargs:
+            # v2.1-style inline direct broadcast. FP-identical to
+            # the helper at default settings, but skips the helper's
+            # parameter validation and kwarg construction.
+            vals = _eval_exp_tens_sa_centres_fast(dens, x, n_q)
+        else:
             vals = _eval_exp_tens_sa_centres(
                 dens, x, n_q,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=False,
             )
-    else:  # 'centres'
-        vals = _eval_exp_tens_sa_centres(
-            dens, x, n_q,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=False,
-        )
 
     return _eval_exp_tens_sa_normalize(vals, dens, normalize)
+
+
+def _eval_exp_tens_sa_centres_fast(
+    dens: ExpTensDensity, x: np.ndarray, n_q: int,
+) -> np.ndarray:
+    """v2.1-style inline direct broadcast for the centres path.
+
+    Used by :func:`_eval_exp_tens_sa` when default kwargs apply
+    (no truncation, no precision override). FP-identical to the
+    helper-routed :func:`_eval_exp_tens_sa_centres` at default
+    settings, but skips the helper's per-call validation overhead.
+    Handles all (r, is_rel, is_per) combinations.
+
+    Memory-aware ``n_q`` chunking matches the helper's
+    ``_exact_kernel_sum``: peak per-chunk allocation is
+    ``(dim+1) * n_j * n_qc * 8`` bytes for the difference tensor plus
+    per-block intermediates. Without chunking, large workloads
+    (e.g. K=72 r=3 nQ=29161 → ~155 GB peak) hit MATLAB's array-size
+    cap and Python's memory limits.
+    """
+    centres = dens.centres
+    w_j = dens.w_j
+    n_j = int(dens.n_j)
+    sigma = float(dens.sigma)
+    r = int(dens.r)
+    dim = int(dens.dim)
+    is_rel = bool(dens.is_rel)
+    is_per = bool(dens.is_per)
+    period = float(dens.period)
+
+    if n_j == 0 or n_q == 0:
+        return np.zeros(n_q, dtype=np.float64)
+
+    bytes_per_scalar = 8  # default-mode is always double
+    bytes_needed = (dim + 1) * n_j * n_q * bytes_per_scalar
+    mem_limit = 1 * 1024 ** 3  # 1 GB per-chunk cap, matches helper
+
+    if bytes_needed <= mem_limit:
+        return _eval_centres_fast_chunk(
+            centres, w_j, x, n_q, dim, n_j, sigma, r, is_rel, is_per, period,
+        )
+
+    chunk_size = max(1, mem_limit // ((dim + 1) * n_j * bytes_per_scalar))
+    vals = np.zeros(n_q, dtype=np.float64)
+    for c0 in range(0, n_q, chunk_size):
+        c1 = min(c0 + chunk_size, n_q)
+        vals[c0:c1] = _eval_centres_fast_chunk(
+            centres, w_j, x[:, c0:c1], c1 - c0, dim, n_j,
+            sigma, r, is_rel, is_per, period,
+        )
+    return vals
+
+
+def _eval_centres_fast_chunk(
+    centres, w_j, x, n_qc, dim, n_j, sigma, r, is_rel, is_per, period,
+):
+    """Single-chunk direct broadcast for the SA centres fast path.
+
+    Mirrors :func:`mpt._kernel._eval_chunk` exactly so the default-mode
+    output is FP-bit-identical to v2.0/v2.1.
+    """
+    D = centres[:, :, None] - x[:, None, :]
+    if is_per:
+        D = np.mod(D + period / 2, period) - period / 2
+    if is_rel:
+        Q = np.sum(D ** 2, axis=0) - np.sum(D, axis=0) ** 2 / r
+    else:
+        Q = np.sum(D ** 2, axis=0)
+    E = np.exp(-Q / (2 * sigma ** 2))
+    return w_j @ E
 
 
 def _eval_exp_tens_sa_centres(
@@ -2015,6 +2151,8 @@ def _eval_exp_tens_ma(
     x,
     normalize: str = "none",
     *,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Multi-attribute expectation tensor evaluation."""
@@ -2094,6 +2232,8 @@ def _eval_exp_tens_ma(
             centres, w_j, n_j, x_list, n_q,
             A, dim_per, group_of, r_vec, sigma_g,
             is_rel_g, is_per_g, period_g,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
     else:
         chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
@@ -2106,6 +2246,8 @@ def _eval_exp_tens_ma(
                 centres, w_j, n_j, x_chunk, n_qc,
                 A, dim_per, group_of, r_vec, sigma_g,
                 is_rel_g, is_per_g, period_g,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
 
     # --- Normalisation ---
@@ -2138,40 +2280,107 @@ def _ma_eval_full(
     centres, w_j, n_j, x_list, n_qc,
     A, dim_per, group_of, r_vec, sigma_g,
     is_rel_g, is_per_g, period_g,
+    *,
+    truncation_sigmas=None,
+    kernel_precision=None,
 ):
     """Single-chunk MAET evaluation.
 
     Accumulates the summed-quadratic exponent across attributes, then
     exponentiates once and does the weighted sum against ``w_j``.
+
+    Default-mode bypass: when ``truncation_sigmas`` is None/Inf and
+    ``kernel_precision`` is None/'double', runs the v2.1 accumulation
+    inline with no cast machinery and no post-filter branching. This
+    keeps default-mode calls at v2.1 cost; the v2.2 feature kwargs
+    only impose their cost when explicitly requested.
     """
-    q_total = np.zeros((int(n_j), int(n_qc)), dtype=np.float64)
+    # ---- Resolve precision / truncation from defaults ----
+    # ``None`` means "use the global default", not "no feature". A
+    # globally-set finite truncation or 'single' precision must still
+    # take the feature path, not the default-mode bypass below.
+    if kernel_precision is None:
+        from ._defaults import get_default
+        kernel_precision = get_default("kernel_precision")
+    if truncation_sigmas is None:
+        from ._defaults import get_default
+        truncation_sigmas = get_default("truncation_sigmas")
+
+    # ---- Default-mode bypass ----
+    use_default = (
+        kernel_precision == "double"
+        and (truncation_sigmas is None
+             or not np.isfinite(truncation_sigmas))
+    )
+
+    if use_default:
+        # v2.1 path — direct double accumulation, no casts, no
+        # post-filter branching.
+        q_total = np.zeros((int(n_j), int(n_qc)), dtype=np.float64)
+        for a in range(A):
+            g = int(group_of[a])
+            da = int(dim_per[a])
+            if da == 0:
+                continue
+            c_a = centres[a]
+            x_a = x_list[a]
+            d_a = c_a[:, :, None] - x_a[:, None, :]
+            if is_per_g[g]:
+                pg = float(period_g[g])
+                d_a = np.mod(d_a + pg / 2, pg) - pg / 2
+            if is_rel_g[g]:
+                q_a = (np.sum(d_a ** 2, axis=0)
+                       - np.sum(d_a, axis=0) ** 2 / float(r_vec[a]))
+            else:
+                q_a = np.sum(d_a ** 2, axis=0)
+            q_total = q_total + q_a / (2 * sigma_g[g] ** 2)
+        e = np.exp(-q_total)
+        return w_j @ e
+
+    # ---- v2.2 feature-kwargs path: precision casting and / or
+    # post-filter truncation. ----
+    dtype = np.float32 if kernel_precision == "single" else np.float64
+
+    q_total = np.zeros((int(n_j), int(n_qc)), dtype=dtype)
 
     for a in range(A):
         g = int(group_of[a])
         da = int(dim_per[a])
         if da == 0:
-            # Degenerate attribute (r_a=1, is_rel=true). Constant along
-            # this axis: zero contribution to q_total. Skip.
             continue
 
-        # D_a shape: (da, nJ, nQc)
-        c_a = centres[a]
-        x_a = x_list[a]
+        c_a = centres[a].astype(dtype, copy=False)
+        x_a = x_list[a].astype(dtype, copy=False)
         d_a = c_a[:, :, None] - x_a[:, None, :]
 
         if is_per_g[g]:
-            pg = float(period_g[g])
+            pg = dtype(period_g[g])
             d_a = np.mod(d_a + pg / 2, pg) - pg / 2
 
         if is_rel_g[g]:
-            q_a = np.sum(d_a**2, axis=0) - np.sum(d_a, axis=0) ** 2 / float(r_vec[a])
+            q_a = (np.sum(d_a ** 2, axis=0)
+                   - np.sum(d_a, axis=0) ** 2 / dtype(r_vec[a]))
         else:
-            q_a = np.sum(d_a**2, axis=0)
+            q_a = np.sum(d_a ** 2, axis=0)
 
-        q_total = q_total + q_a / (2 * sigma_g[g] ** 2)
+        q_total = q_total + q_a / (2 * dtype(sigma_g[g]) ** 2)
 
-    e = np.exp(-q_total)           # (nJ, nQc)
-    return w_j @ e                  # (nQc,)
+    use_truncation = (
+        truncation_sigmas is not None
+        and np.isfinite(truncation_sigmas)
+        and truncation_sigmas > 0
+    )
+    if use_truncation:
+        # q_total represents Q/(2sigma^2). The kernel is exp(-q_total).
+        # exp(-q_total) is negligible when q_total > k^2/2.
+        q_threshold = float(truncation_sigmas) ** 2 / 2.0
+        mask = q_total <= q_threshold
+        e = np.where(mask, np.exp(-q_total), dtype(0.0))
+    else:
+        e = np.exp(-q_total)
+
+    result = w_j.astype(dtype, copy=False) @ e
+    return result.astype(np.float64, copy=False)
 
 
 def _eval_core(
@@ -3994,21 +4203,50 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
              truncation_sigmas=None, kernel_precision=None):
     """Core inner product (perm-side × comb-side).
 
-    v2.2.x (Stage 2b): for abs and rel-non-periodic modes, routes
-    through :func:`gaussian_kernel_sum` with ``sigma_eff = sigma *
-    sqrt(2)`` so ``truncation_sigmas`` / ``kernel_precision`` are
-    applied uniformly. The rel+periodic pairwise-wrap form is not
-    yet supported by the helper and stays on the existing vectorised
-    / chunked path.
+    Two-axis routing (mirrors :func:`_eval_exp_tens_sa`):
+
+    - **Routing axis** — abs and rel-non-periodic forms have a helper
+      reduction (``sigma_eff = sigma * sqrt(2)``); rel+periodic does
+      not yet and stays on the inline / chunked path.
+    - **Execution axis** — even when the helper is available, route
+      through it only when feature kwargs are explicitly requested
+      (after resolving ``None`` against the global defaults). Default
+      mode runs the v2.1 ``_ip_full`` / chunked path inline, avoiding
+      the helper's per-call argument validation overhead.
+
+    This preserves the v2.1 cost profile for default-mode callers
+    (e.g. ``cos_sim_exp_tens`` in per-pair tight loops) while
+    enabling the helper's truncation / precision features whenever
+    the user opts in.
     """
+    # ---- Execution-axis decision: resolve defaults first ----
+    # ``None`` means "consult global default", not "no feature".
+    from ._defaults import get_default
+    trunc_resolved = (
+        truncation_sigmas if truncation_sigmas is not None
+        else get_default("truncation_sigmas")
+    )
+    prec_resolved = (
+        kernel_precision if kernel_precision is not None
+        else get_default("kernel_precision")
+    )
+    use_default_kwargs = (
+        (trunc_resolved is None or not np.isfinite(trunc_resolved))
+        and (prec_resolved == "double")
+    )
+
     can_use_helper = not (is_rel and is_per)
-    if can_use_helper:
+
+    # Route through helper only when features are actually requested
+    # AND the helper supports this quadratic form.
+    if can_use_helper and not use_default_kwargs:
         return _ip_via_helper(
             U, wU, V, wV, r, sigma, is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
         )
 
+    # Default-mode (or rel+per) path: v2.1 inline / chunked.
     bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
     mem_limit = 4_000_000_000
 
@@ -4347,12 +4585,25 @@ _BELL_NUMBERS = {
     8: 4140, 9: 21147, 10: 115975,
 }
 
-# Pre-screen: if centres is favoured by more than this factor, skip
-# probing entirely. Orbit-rel's u-grid quadrature makes its PROBE
-# prohibitively expensive for the typical case (50-query probe at
-# N_u=1000 is ~3 s), so a generous margin here avoids unnecessary
-# probe overhead. Centres still loses cleanly when the margin tightens.
+# Pre-screen: if one path is favoured by more than this factor, skip
+# probing entirely. Two pre-screens, one per mode:
+#
+#  - Rel-mode pre-screen: routes TO centres when centres clearly wins.
+#    Orbit-rel does u-grid quadrature with N_u sub-evals per query, so
+#    its PROBE is expensive (a 50-query probe at N_u=1000 is ~3 s);
+#    a generous margin here avoids unnecessary probe overhead.
+#  - Abs-mode pre-screen: routes TO orbit when orbit clearly wins.
+#    For abs mode, centres cost per query is K^r vs orbit cost
+#    B_r * r * K. Orbit wins by a factor K^(r-1) / (B_r * r); for
+#    K=72 r=3 that's ~1000x. The tiny-workload shortcut would
+#    otherwise force centres for n_q<200 even at these large K, so the
+#    pre-screen must run BEFORE the tiny shortcut. Pattern-finding and
+#    other common music-cog tasks legitimately use abs mode at large K.
+#
+# The dominance margins are conservative — probe still has the final
+# word when the cost ratio is in the uncertain region.
 _PRESCREEN_CENTRES_DOMINANCE = 10.0
+_PRESCREEN_ORBIT_DOMINANCE = 10.0
 
 
 def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
@@ -4459,11 +4710,33 @@ def _select_and_estimate_sa(
             )
         return "orbit", False, 0.0
 
+    # ---- Abs-mode pre-screen: route TO orbit when orbit clearly wins ----
+    # For abs mode, centres cost per query is K^r (materialised density
+    # has n_j = K^r tuples), and orbit-abs per-query cost is B_r * r * K
+    # (sum over B_r partitions of K*m per block, summing to K*r per
+    # partition). The ratio is K^(r-1) / (B_r * r); for K=72 r=3 it's
+    # ~1000x, meaning the tiny-workload shortcut below would otherwise
+    # force centres for n_q<200 even when orbit is 1000x faster.
+    #
+    # This pre-screen must run BEFORE the tiny-workload shortcut so
+    # large-K abs-mode workloads (common in pattern-finding and other
+    # music-cog tasks at typical 24-72-partial harmonic templates) get
+    # the cheap routing decision they deserve at any n_q.
+    #
+    # Probe still has the final word in the uncertain region; this only
+    # fires when orbit wins by a comfortable margin.
+    if (not is_rel) and r >= 2 and r <= _ORBIT_R_MAX_FEASIBLE:
+        B_r = _BELL_NUMBERS[r]
+        centres_cost = float(K) ** r
+        orbit_cost = float(B_r) * r * float(K)
+        if orbit_cost * _PRESCREEN_ORBIT_DOMINANCE < centres_cost:
+            return "orbit", False, 0.0
+
     # ---- Shortcut: tiny workload, skip probing ----
     if n_q < _PROBE_MIN_N_Q:
         return "centres", False, 0.0
 
-    # ---- Pre-screen: skip probe when one path clearly dominates ----
+    # ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
     # The probe is robust but not free. For rel mode in particular,
     # orbit-rel does u-grid quadrature with N_u ≈ max(64, 10·P/σ)
     # sub-evals per query — its PROBE cost scales as
@@ -6442,6 +6715,8 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
 
 def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
                         reference=None, mode: str = "auto",
+                        truncation_sigmas: float | None = None,
+                        kernel_precision: str | None = None,
                         verbose: bool = True):
     """Sliding-window similarity profile (cross-correlation).
 
@@ -6542,6 +6817,38 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
         Length-1 lists do NOT collapse to scalars (Option II — strict
         shape preservation).
     """
+    # ------------------------------------------------------------------
+    # Apply per-call truncation_sigmas / kernel_precision via the global
+    # defaults mechanism for the duration of this call. The internal
+    # MA inner-product machinery picks them up via the helper.
+    # Note: this is a stop-gap until Stage 3 threads them directly
+    # through `_cos_sim_numerator_ma`. The temporary-defaults pattern
+    # is not thread-safe; concurrent windowed_similarity calls with
+    # conflicting kwargs may interfere. For single-threaded use it is
+    # correct.
+    # ------------------------------------------------------------------
+    from ._defaults import set_default as _set_default
+    _override = {}
+    if truncation_sigmas is not None:
+        _override["truncation_sigmas"] = truncation_sigmas
+    if kernel_precision is not None:
+        _override["kernel_precision"] = kernel_precision
+    _prev_defaults = _set_default(**_override) if _override else None
+    try:
+        return _windowed_similarity_core(
+            dens_query, dens_context, window_spec, offsets,
+            reference=reference, mode=mode, verbose=verbose,
+        )
+    finally:
+        if _prev_defaults is not None:
+            _set_default(**_prev_defaults)
+
+
+def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
+                              reference=None, mode: str = "auto",
+                              verbose: bool = True):
+    """Body of :func:`windowed_similarity`; the wrapper handles
+    truncation_sigmas / kernel_precision via temporary defaults."""
     # ------------------------------------------------------------------
     # Normalise query and context inputs.
     # ------------------------------------------------------------------

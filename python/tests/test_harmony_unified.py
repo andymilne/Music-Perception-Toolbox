@@ -522,14 +522,18 @@ class TestSpectralEntropyBatchedAndVerbose:
 
     def test_batched_dedup(self):
         # Identical canonical-form chords share a cached entropy.
+        # Note: [0, 400, 700] and [0, 300, 700] are gap-permutation
+        # symmetric (gaps 400+300 vs 300+400), so spectral entropy
+        # is the same to machine precision. Use a chord whose
+        # spectrum differs structurally for the inequality check.
         chords = np.array([
             [0, 400, 700],
             [100, 500, 800],   # transposition of row 0
-            [0, 300, 700],
+            [0, 100, 200],     # tightly-spaced: different spectrum
         ])
         H = spectral_entropy(chords, None, 12.0, verbose=False)
         assert H[0] == H[1]   # transpositions give identical entropy
-        assert H[0] != H[2]
+        assert H[0] != H[2]   # different spacing → different entropy
 
     def test_batched_verbose_true_silent_for_fast(self, capsys):
         chords = np.array([[0, 400, 700], [0, 300, 700]])

@@ -113,10 +113,12 @@ function vals = evalExpTens(varargin)
 
 verbose = true;  % default
 method = 'auto';  % v2.2: 'auto' | 'centres' (alias 'direct') | 'orbit'
+truncationSigmas = [];   % []: use mptDefaults at the helper level
+kernelPrecision  = [];   % []: use mptDefaults at the helper level
 
-% Strip 'verbose' and 'method' name-value pairs from varargin.
-% Accept them anywhere in the trailing kwargs; preserve positional order
-% of the remaining args.
+% Strip 'verbose', 'method', 'truncationSigmas', and 'kernelPrecision'
+% name-value pairs from varargin. Accept them anywhere in the trailing
+% kwargs; preserve positional order of the remaining args.
 removeIdx = false(1, numel(varargin));
 i = 1;
 while i <= numel(varargin)
@@ -136,6 +138,18 @@ while i <= numel(varargin)
                           ['''method'' must be ''auto'', ''centres'', ' ...
                            '''direct'', or ''orbit''; got ''%s''.'], method);
                 end
+                removeIdx(i)     = true;
+                removeIdx(i + 1) = true;
+                i = i + 2;
+                continue;
+            case 'truncationsigmas'
+                truncationSigmas = varargin{i + 1};
+                removeIdx(i)     = true;
+                removeIdx(i + 1) = true;
+                i = i + 2;
+                continue;
+            case 'kernelprecision'
+                kernelPrecision = varargin{i + 1};
                 removeIdx(i)     = true;
                 removeIdx(i + 1) = true;
                 i = i + 2;
@@ -295,7 +309,8 @@ if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'/'direct'
     % method, and for orbit-then-fallback). Heavy fields needed.
     dens = ensureExpTensExpensive(dens);
-    vals = localEvalSACentres(dens, X, nQ, verbose);
+    vals = localEvalSACentres(dens, X, nQ, verbose, ...
+        truncationSigmas, kernelPrecision);
 end
 
 % === Apply normalization ===
@@ -375,10 +390,14 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
 %   Routing rules (in order):
 %     1. userMethod 'centres'/'direct'/'orbit' overrides everything.
 %     2. r <= 1: orbit reduces to the direct sum; centres is simpler.
-%     3. isRel: orbit-rel u-grid integration is much more expensive
-%        than centres at typical sigma/period (auto stays on centres;
-%        users wanting the JMM Eq. 3.4 integral form opt in explicitly
-%        with method='orbit').
+%     3. isRel: orbit-rel evaluates B_r * r * K * N_u work per query
+%        (where N_u ~ 1000 for typical sigma/period), versus
+%        K^r work per query for centres. For typical music-cog regimes
+%        (K up to ~100, r up to 4) centres wins despite the K^r factor
+%        because N_u is large and B_r * r * K * N_u > K^r. Auto stays
+%        on centres; users wanting orbit-rel (e.g. for very large K
+%        where centres memory blows up) opt in explicitly with
+%        method='orbit'.
 %     4. r == 2 and K <= 8: centres is competitive; avoids partition-
 %        table dispatch overhead.
 %     5. r > 6: shipped orbit tables stop at r=6.
@@ -452,8 +471,15 @@ function vals = localEvalSAOrbit(dens, X, verbose) %#ok<INUSD>
 end
 
 
-function vals = localEvalSACentres(dens, X, nQ, verbose)
-%LOCALEVALSACENTRES  Centres-array path for SA evaluation (v2.0 body).
+function vals = localEvalSACentres(dens, X, nQ, verbose, ...
+        truncationSigmas, kernelPrecision)
+%LOCALEVALSACENTRES  Centres-array path for SA evaluation.
+%
+%   v2.2.x: routes through internal.gaussianKernelSum so that the
+%   truncationSigmas and kernelPrecision options apply uniformly across
+%   centres-path consumers. Default settings (truncationSigmas = Inf,
+%   kernelPrecision = 'double') produce FP-bit-identical output to the
+%   v2.0/v2.1 implementation.
 
     Centres = dens.Centres;
     wJ      = dens.wJ;
@@ -469,56 +495,24 @@ function vals = localEvalSACentres(dens, X, nQ, verbose)
     nPairs = double(nJ) * double(nQ);
     estimateCompTime(nPairs, dim, 'evalExpTens', verbose);
 
-    vals = evalCore(Centres, wJ, nJ, X, nQ);
-
-    % --- Nested helpers (use sigma, r, dim, isRel, isPer, J from
-    %     localEvalSACentres' workspace) ---
-
-    function vOut = evalCore(C, wJlocal, nJlocal, Xall, nQall)
-        bytesNeeded = (dim + 1) * double(nJlocal) * double(nQall) * 8;
-        try
-            memInfo  = memory;
-            memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-        catch
-            memLimit = 4e9;
-        end
-
-        if bytesNeeded <= memLimit
-            vOut = evalFull(C, wJlocal, nJlocal, Xall, nQall);
-        else
-            chunkSize = max(1, ...
-                floor(memLimit / ((dim + 1) * double(nJlocal) * 8)));
-            vOut = zeros(1, nQall);
-            for c = 1:chunkSize:nQall
-                cEnd = min(c + chunkSize - 1, nQall);
-                idx  = c:cEnd;
-                vOut(idx) = evalFull(C, wJlocal, nJlocal, ...
-                                      Xall(:, idx), numel(idx));
-            end
-        end
+    % Build the keyword list for the helper. Pass-through only when
+    % values were supplied at this call's level; otherwise the helper
+    % consults mptDefaults.
+    kw = {};
+    if isRel
+        kw = [kw, {'isRel', true, 'r', r}];
+    end
+    if isPer
+        kw = [kw, {'isPer', true, 'period', J}];
+    end
+    if ~isempty(truncationSigmas)
+        kw = [kw, {'truncationSigmas', truncationSigmas}];
+    end
+    if ~isempty(kernelPrecision)
+        kw = [kw, {'kernelPrecision', kernelPrecision}];
     end
 
-    function v = evalFull(C, wJlocal, nJlocal, Xq, nQc)
-        % Difference vectors: (dim x nJlocal x 1) - (dim x 1 x nQc)
-        D = reshape(C, dim, nJlocal, 1) - reshape(Xq, dim, 1, nQc);
-
-        if isPer
-            D = mod(D + J/2, J) - J/2;
-        end
-
-        % Quadratic form
-        if isRel
-            Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;
-        else
-            Qvec = sum(D.^2, 1);
-        end
-
-        % Gaussian kernel: flatten then reshape to nJlocal x nQc
-        E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJlocal, nQc);
-
-        % Weighted sum: (1 x nJlocal) * (nJlocal x nQc) -> (1 x nQc)
-        v = wJlocal(:)' * E;
-    end
+    vals = internal.gaussianKernelSum(Centres, wJ, X, sigma, kw{:});
 end
 
 

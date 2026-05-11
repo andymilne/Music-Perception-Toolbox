@@ -16,6 +16,7 @@ import numpy as np
 from scipy.special import comb as _comb
 
 from ._utils import estimate_comp_time, validate_weights
+from ._kernel import gaussian_kernel_sum
 from .spectra import add_spectra
 
 
@@ -1292,6 +1293,8 @@ def eval_exp_tens(*args,
                   spectrum=None,
                   precision: int | None = None,
                   method: str = "auto",
+                  truncation_sigmas: float | None = None,
+                  kernel_precision: str | None = None,
                   verbose: bool = True) -> np.ndarray:
     """Evaluate an expectation tensor density at query points.
 
@@ -1427,10 +1430,16 @@ def eval_exp_tens(*args,
             )
         if is_density_scalar:
             return _eval_exp_tens_scalar(
-                dens, x, normalize, method=method, verbose=verbose,
+                dens, x, normalize, method=method,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                verbose=verbose,
             )
         return _eval_exp_tens_density_list(
-            dens, x, normalize, dedup=dedup, method=method, verbose=verbose,
+            dens, x, normalize, dedup=dedup, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
         )
 
     # ------------------------------------------------------------------
@@ -1512,12 +1521,17 @@ def eval_exp_tens(*args,
 
 
 def _eval_exp_tens_scalar(
-    dens, x, normalize: str, *, method: str = "auto", verbose: bool,
+    dens, x, normalize: str, *, method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
+    verbose: bool,
 ) -> np.ndarray:
     """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body).
 
     Threads ``method`` through to :func:`_eval_exp_tens_sa` for SA densities;
     MA path ignores ``method`` (an MA orbit path is on the v2.3 roadmap).
+    Threads ``truncation_sigmas`` / ``kernel_precision`` through to the
+    SA centres path; MA centres routing is deferred (Stage 3).
     """
     if isinstance(dens, WindowedMaetDensity):
         # Evaluate underlying density, multiply elementwise by window.
@@ -1530,7 +1544,10 @@ def _eval_exp_tens_scalar(
         return _eval_exp_tens_ma(dens, x, normalize, verbose=verbose)
     if isinstance(dens, ExpTensDensity):
         return _eval_exp_tens_sa(
-            dens, x, normalize, method=method, verbose=verbose,
+            dens, x, normalize, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
         )
     raise TypeError(
         f"dens must be an ExpTensDensity, MaetDensity, or "
@@ -1540,7 +1557,10 @@ def _eval_exp_tens_scalar(
 
 def _eval_exp_tens_density_list(
     dens_list, x, normalize: str,
-    *, dedup: bool, method: str = "auto", verbose: bool,
+    *, dedup: bool, method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
+    verbose: bool,
 ) -> np.ndarray:
     """Evaluate a list of densities at shared query ``x``.
 
@@ -1579,7 +1599,10 @@ def _eval_exp_tens_density_list(
             )
             if key not in result_cache:
                 result_cache[key] = _eval_exp_tens_scalar(
-                    d, x, normalize, method=method, verbose=False,
+                    d, x, normalize, method=method,
+                    truncation_sigmas=truncation_sigmas,
+                    kernel_precision=kernel_precision,
+                    verbose=False,
                 )
             rows.append(result_cache[key])
         if verbose:
@@ -1594,7 +1617,12 @@ def _eval_exp_tens_density_list(
                 "non-SA densities; computing without dedup."
             )
         rows = [
-            _eval_exp_tens_scalar(d, x, normalize, method=method, verbose=False)
+            _eval_exp_tens_scalar(
+                d, x, normalize, method=method,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                verbose=False,
+            )
             for d in dens_tuple
         ]
 
@@ -1775,6 +1803,8 @@ def _eval_exp_tens_sa(
     normalize: str = "none",
     *,
     method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Single-attribute expectation tensor evaluation (dispatcher).
@@ -1819,9 +1849,19 @@ def _eval_exp_tens_sa(
                     "eval_exp_tens orbit path produced non-finite "
                     "values; falling back to centres path."
                 )
-            vals = _eval_exp_tens_sa_centres(dens, x, n_q, verbose=verbose)
+            vals = _eval_exp_tens_sa_centres(
+                dens, x, n_q,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                verbose=verbose,
+            )
     else:  # 'centres'
-        vals = _eval_exp_tens_sa_centres(dens, x, n_q, verbose=verbose)
+        vals = _eval_exp_tens_sa_centres(
+            dens, x, n_q,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
 
     return _eval_exp_tens_sa_normalize(vals, dens, normalize)
 
@@ -1831,9 +1871,18 @@ def _eval_exp_tens_sa_centres(
     x: np.ndarray,
     n_q: int,
     *,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Centres-array path for SA evaluation (v2.0 body)."""
+    """Centres-array path for SA evaluation.
+
+    v2.2.x: routes through :func:`mpt._kernel.gaussian_kernel_sum` so
+    the ``truncation_sigmas`` and ``kernel_precision`` options apply
+    uniformly across centres-path consumers. Default settings
+    (``truncation_sigmas=inf``, ``kernel_precision='double'``) produce
+    FP-bit-identical output to the v2.0/v2.1 implementation.
+    """
     centres = dens.centres
     w_j = dens.w_j
     n_j = dens.n_j
@@ -1847,10 +1896,20 @@ def _eval_exp_tens_sa_centres(
     n_pairs = int(n_j) * int(n_q)
     estimate_comp_time(n_pairs, dim, "eval_exp_tens", verbose)
 
-    return _eval_core(
-        centres, w_j, n_j, x, n_q, dim, sigma, r,
-        is_rel, is_per, period,
-    )
+    # Forward kwargs to the helper. ``None`` means "consult mpt defaults".
+    kw = {}
+    if is_rel:
+        kw["is_rel"] = True
+        kw["r"] = int(r)
+    if is_per:
+        kw["is_per"] = True
+        kw["period"] = float(period)
+    if truncation_sigmas is not None:
+        kw["truncation_sigmas"] = float(truncation_sigmas)
+    if kernel_precision is not None:
+        kw["kernel_precision"] = kernel_precision
+
+    return gaussian_kernel_sum(centres, w_j, x, float(sigma), **kw)
 
 
 def _eval_exp_tens_sa_orbit(

@@ -73,6 +73,14 @@ from .audio import AudioPeaksDetail, audio_peaks
 # --- Serial / sequential analysis ---
 from .serial import continuity, seq_weights
 
+# --- Global defaults ---
+from ._defaults import (
+    get_default,
+    get_defaults,
+    reset_defaults,
+    set_default,
+)
+
 __all__ = [
     # convert
     "convert_pitch",
@@ -123,4 +131,9 @@ __all__ = [
     # serial
     "continuity",
     "seq_weights",
+    # defaults
+    "get_default",
+    "get_defaults",
+    "reset_defaults",
+    "set_default",
 ]

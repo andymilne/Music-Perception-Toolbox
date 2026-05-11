@@ -114,15 +114,8 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
     inv2s2 = 1 / (2 * sigma_w^2);
 
     if useTruncation
-        % 1-D abs case: vectorised path via sorted-centres +
-        % searchsorted, much faster than the general per-query loop.
-        if size(C_w, 1) == 1 && ~opts.isRel
-            v_w = localTruncatedKernelSum1D(C_w, wJ_w, X_w, sigma_w, ...
-                opts.truncationSigmas, inv2s2);
-        else
-            v_w = localTruncatedKernelSum(C_w, wJ_w, X_w, sigma_w, ...
-                opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
-        end
+        v_w = localTruncatedKernelSum(C_w, wJ_w, X_w, sigma_w, ...
+            opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
             opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w);
@@ -338,81 +331,4 @@ function offsets = localNeighbourOffsets(dim)
             idx = floor(idx / 3);
         end
     end
-end
-
-
-% =========================================================================
-%  Vectorised 1-D abs-mode truncated path
-%
-%  For dim=1 absolute-mode workloads, sort the centres along their
-%  single axis and use binary search to find each query's active
-%  window [x - kσ, x + kσ]. All queries then process a fixed-width
-%  slice of centres (the max window in the batch), masked beyond
-%  their per-query window. Avoids the per-query MATLAB for-loop in
-%  localTruncatedKernelSum; ~3-30x faster at typical orbit-path
-%  N (50-300 partials).
-%
-%  Used in particular by mobius.evalOrbitAbs for the per-block 1-D
-%  kernel sum that arises after factoring the block's m-dimensional
-%  quadratic form Q_B = var(x_B) + m*(mean(x_B) - p)^2.
-% =========================================================================
-
-function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
-    nJ = size(C, 2);
-    nQ = size(X, 2);
-    if nJ == 0 || nQ == 0
-        v = zeros(1, nQ, 'like', C);
-        return;
-    end
-
-    threshold = double(kSigma) * double(sigma);
-    cAxis = double(C(1, :));               % (1, nJ)
-    xAxis = double(X(1, :));               % (1, nQ)
-
-    % Sort centres along the single axis.
-    [cSorted, order] = sort(cAxis);
-    wSorted = wJ(order);
-
-    % Per-query window bounds via vectorised binary search.
-    % searchsorted-left for lower bound; searchsorted-right for upper.
-    % MATLAB doesn't have searchsorted; we use sum(cSorted <= x) for
-    % the right boundary count and adjust.
-    % To match the Python: i_low = first i s.t. cSorted[i] >= x - thr;
-    %                     i_high = first i s.t. cSorted[i] > x + thr.
-    % Implementation via histc-style fast lookup:
-    lo = xAxis - threshold;
-    hi = xAxis + threshold;
-    % Number of cSorted entries < lo  → that's i_low (0-indexed) → +1 in MATLAB.
-    iLow0 = sum(cSorted(:) < lo, 1);       % (1, nQ), 0-indexed
-    iHigh0 = sum(cSorted(:) <= hi, 1);     % (1, nQ), 0-indexed (one-past-last)
-    winSize = iHigh0 - iLow0;
-    maxWin = max(winSize);
-
-    if maxWin == 0
-        v = zeros(1, nQ, 'like', C);
-        return;
-    end
-    if maxWin >= nJ
-        % Window covers everything; fall through to dense compute.
-        diffs = xAxis(:) - cSorted(:).';   % (nQ, nJ)
-        kernel = exp(-(diffs .^ 2) * inv2s2);
-        v = (kernel * wSorted(:)).';
-        v = cast(v, 'like', C);
-        return;
-    end
-
-    % Build (nQ, maxWin) index matrix into the sorted arrays.
-    offsets = 0:(maxWin - 1);
-    idx = iLow0(:) + offsets + 1;          % 1-indexed for MATLAB
-    mask = idx <= iHigh0(:);
-    idxClipped = min(idx, nJ);
-
-    pSlices = cSorted(idxClipped);          % (nQ, maxWin)
-    wSlices = wSorted(idxClipped);
-    diffs = xAxis(:) - pSlices;
-    kernel = exp(-(diffs .^ 2) * inv2s2);
-    kernel(~mask) = 0;
-
-    v = sum(kernel .* wSlices, 2).';
-    v = cast(v, 'like', C);
 end

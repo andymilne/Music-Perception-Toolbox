@@ -254,6 +254,40 @@ class TestVirtualPitchesBatched:
         assert len(vp_p_list) == 1
         assert len(vp_w_list) == 1
 
+    def test_transposition_dedup(self):
+        """v2.2+: structurally-identical canonical chords share a
+        cached vp_w. Two rows that are transpositions of each other
+        must produce identical vp_w arrays and vp_p arrays that
+        differ by exactly the transposition amount."""
+        P = np.array([
+            [0.0, 400.0, 700.0],
+            [100.0, 500.0, 800.0],     # row 1 + 100
+            [1200.0, 1600.0, 1900.0],  # row 1 + 1200
+        ])
+        vp_p_list, vp_w_list = virtual_pitches(P)
+
+        # vp_w identical across all three (chord shape is invariant).
+        np.testing.assert_array_equal(vp_w_list[0], vp_w_list[1])
+        np.testing.assert_array_equal(vp_w_list[0], vp_w_list[2])
+
+        # vp_p shifts by exactly the transposition.
+        np.testing.assert_allclose(vp_p_list[1], vp_p_list[0] + 100.0, atol=1e-12)
+        np.testing.assert_allclose(vp_p_list[2], vp_p_list[0] + 1200.0, atol=1e-12)
+
+    def test_permutation_dedup(self):
+        """Rows that are permutations of each other must produce
+        identical (vp_p, vp_w) pairs."""
+        P = np.array([
+            [0.0, 400.0, 700.0],
+            [700.0, 0.0, 400.0],
+            [400.0, 700.0, 0.0],
+        ])
+        vp_p_list, vp_w_list = virtual_pitches(P)
+        np.testing.assert_array_equal(vp_w_list[0], vp_w_list[1])
+        np.testing.assert_array_equal(vp_w_list[0], vp_w_list[2])
+        np.testing.assert_allclose(vp_p_list[0], vp_p_list[1], atol=1e-12)
+        np.testing.assert_allclose(vp_p_list[0], vp_p_list[2], atol=1e-12)
+
 
 # ---------------------------------------------------------------------
 # Errors

@@ -1046,6 +1046,40 @@ def virtual_pitches(
     )
 
 
+def _virtual_pitches_chord_only(
+    chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
+    truncation_sigmas, kernel_precision,
+):
+    """Chord-side evaluation and normalised cross-correlation.
+
+    Returns ``(vp_w, n_xcorr)`` — the offset-independent profile and
+    its length. The caller reconstructs ``vp_p = (np.arange(n_xcorr) -
+    (n_tmpl - 1)) * step + p_offset`` in the input coordinate system;
+    that arithmetic is row-dependent and so is not part of what gets
+    cached when this helper is called from the batched path.
+
+    Hoisted from :func:`_virtual_pitches_scalar` so the batched
+    dispatch can build the template once for the whole batch and
+    cache per-canonical-chord results in the offset-independent
+    representation.
+    """
+    chord_dens = build_exp_tens(
+        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+    )
+    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
+    chord_vals = eval_exp_tens(
+        chord_dens, x_chord, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+
+    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
+    norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
+    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
+
+    return xcorr_norm, len(xcorr_norm)
+
+
 def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
                             truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch (the v2.0 body)."""
@@ -1062,40 +1096,41 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
     else:
         chord_p, chord_w = p.copy(), w.copy()
 
-    tmpl_dens = build_exp_tens(tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False)
-    chord_dens = build_exp_tens(chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False)
-
     margin = 4 * sigma
     step = resolution
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
-    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
+    x_chord_len = len(np.arange(
+        0, np.max(chord_p) + margin + step, step,
+    ))
 
-    # Time estimate (kernel cost only; convolve and other overheads not
-    # included, so this is a lower bound). Pair count is the sum of the
-    # two eval_exp_tens workloads. dim = 1 since both densities use
-    # r = 1, is_rel = False.
+    # Time estimate (kernel cost only; convolve and other overheads
+    # not included, so this is a lower bound). Pair count is the sum
+    # of the two eval_exp_tens workloads. dim = 1 since both densities
+    # use r = 1, is_rel = False.
     n_pairs = (
-        int(len(chord_p)) * int(len(x_chord))
+        int(len(chord_p)) * x_chord_len
         + int(len(tmpl_p)) * int(len(x_tmpl))
     )
     estimate_comp_time(n_pairs, 1, "virtual_pitches", verbose)
 
-    tmpl_vals = eval_exp_tens(tmpl_dens, x_tmpl, verbose=False,
-                              truncation_sigmas=truncation_sigmas,
-                              kernel_precision=kernel_precision)
-    chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
-                               truncation_sigmas=truncation_sigmas,
-                               kernel_precision=kernel_precision)
-
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-    norm_factor = np.sqrt(np.sum(chord_vals**2) * np.sum(tmpl_vals**2))
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
+    tmpl_dens = build_exp_tens(
+        tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
+    )
+    tmpl_vals = eval_exp_tens(
+        tmpl_dens, x_tmpl, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+    tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
     n_tmpl = len(tmpl_vals)
-    n_xcorr = len(xcorr_norm)
+
+    vp_w, n_xcorr = _virtual_pitches_chord_only(
+        chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
+        truncation_sigmas, kernel_precision,
+    )
+
     lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
     vp_p = lag_indices * step + p_offset
-    vp_w = xcorr_norm
 
     return vp_p, vp_w
 
@@ -1110,11 +1145,11 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
     its highest pitch. Empty arrays are returned for rows with no
     valid pitches.
 
-    Note: dedup is skipped here because each row's profile is in
-    that row's absolute pitch frame (``vp_p = lag*step + min(p)``);
-    two rows that share the same canonical chord shape but differ
-    in absolute pitch would produce different ``vp_p`` axes, so
-    they cannot share a cached result.
+    Builds the harmonic template once for the whole batch and
+    deduplicates chord-side work via canonical-key caching: the
+    offset-independent profile ``vp_w`` and length ``n_xcorr`` are
+    cached per canonical chord; per-row ``vp_p`` is reconstructed
+    from the cached length plus the row's ``p_offset``.
     """
     M, K = P.shape
     use_w = W is not None
@@ -1140,10 +1175,12 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
     n_tmpl = len(tmpl_vals)
     tmpl_norm_sq = float(np.sum(tmpl_vals ** 2))
 
+    result_cache: dict = {}
+
     # Up-front time estimate (printed once for the whole batch).
-    # Empirical calibration via a uniformly-sampled subset of K rows,
-    # with one warm-up call to absorb first-call overhead. See
-    # _template_harmonicity_batched for rationale.
+    # Calibration uses the same _virtual_pitches_chord_only path the
+    # main loop uses, so the timed work matches per-row main-loop
+    # cost (template rebuilds are not counted, matching reality).
     if verbose and M > 1:
         n_cal = min(10, M)
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
@@ -1155,11 +1192,19 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
             p_valid_s = p_row_s[mask_s]
             if len(p_valid_s) < 1:
                 continue
-            w_valid_s = W[s_idx, mask_s] if use_w else None
-            _virtual_pitches_scalar(
-                p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                resolution, truncation_sigmas, kernel_precision,
-                verbose=False,
+            w_valid_s = W[s_idx, mask_s] if use_w \
+                else np.ones_like(p_valid_s)
+            p_shifted_s = p_valid_s - np.min(p_valid_s)
+            if chord_spectrum is not None:
+                chord_p_s, chord_w_s = add_spectra(
+                    p_shifted_s, w_valid_s, *chord_spectrum,
+                )
+            else:
+                chord_p_s, chord_w_s = p_shifted_s.copy(), w_valid_s.copy()
+            _virtual_pitches_chord_only(
+                chord_p_s, chord_w_s, sigma,
+                tmpl_vals, tmpl_norm_sq, margin, step,
+                truncation_sigmas, kernel_precision,
             )
             warmup_done = True
             break
@@ -1173,11 +1218,20 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
                 p_valid_s = p_row_s[mask_s]
                 if len(p_valid_s) < 1:
                     continue
-                w_valid_s = W[s_idx, mask_s] if use_w else None
-                _virtual_pitches_scalar(
-                    p_valid_s, w_valid_s, sigma, spectrum, chord_spectrum,
-                    resolution, truncation_sigmas, kernel_precision,
-                    verbose=False,
+                w_valid_s = W[s_idx, mask_s] if use_w \
+                    else np.ones_like(p_valid_s)
+                p_shifted_s = p_valid_s - np.min(p_valid_s)
+                if chord_spectrum is not None:
+                    chord_p_s, chord_w_s = add_spectra(
+                        p_shifted_s, w_valid_s, *chord_spectrum,
+                    )
+                else:
+                    chord_p_s, chord_w_s = \
+                        p_shifted_s.copy(), w_valid_s.copy()
+                _virtual_pitches_chord_only(
+                    chord_p_s, chord_w_s, sigma,
+                    tmpl_vals, tmpl_norm_sq, margin, step,
+                    truncation_sigmas, kernel_precision,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
@@ -1199,29 +1253,38 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
         w_valid = W[i, mask] if use_w else np.ones_like(p_valid)
 
         p_offset = float(np.min(p_valid))
-        p_shifted = p_valid - p_offset
 
-        if chord_spectrum is not None:
-            chord_p, chord_w = add_spectra(p_shifted, w_valid, *chord_spectrum)
-        else:
-            chord_p, chord_w = p_shifted.copy(), w_valid.copy()
-
-        chord_dens = build_exp_tens(
-            chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+        # Canonical key for chord-side dedup. virtualPitches transposes
+        # internally (p -= min), so the canonical form is taken in
+        # rel mode. The vp_w profile depends only on the canonical
+        # chord shape (and chord_spectrum, sigma, etc., which are
+        # constant across the batch); vp_p reconstruction uses the
+        # per-row p_offset.
+        key, _, _ = _chord_canonical_key(
+            p_valid, w_valid,
+            sigma=sigma, r=1, is_rel=True, is_per=False, period=1200.0,
         )
-        x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
-        chord_vals = eval_exp_tens(chord_dens, x_chord, verbose=False,
-                                   truncation_sigmas=truncation_sigmas,
-                                   kernel_precision=kernel_precision)
 
-        xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-        norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
-        xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
+        if key in result_cache:
+            vp_w, n_xcorr = result_cache[key]
+        else:
+            p_shifted = p_valid - p_offset
+            if chord_spectrum is not None:
+                chord_p, chord_w = add_spectra(
+                    p_shifted, w_valid, *chord_spectrum,
+                )
+            else:
+                chord_p, chord_w = p_shifted.copy(), w_valid.copy()
+            vp_w, n_xcorr = _virtual_pitches_chord_only(
+                chord_p, chord_w, sigma,
+                tmpl_vals, tmpl_norm_sq, margin, step,
+                truncation_sigmas, kernel_precision,
+            )
+            result_cache[key] = (vp_w, n_xcorr)
 
-        n_xcorr = len(xcorr_norm)
         lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
         vp_p_list[i] = lag_indices * step + p_offset
-        vp_w_list[i] = xcorr_norm
+        vp_w_list[i] = vp_w
 
     return vp_p_list, vp_w_list
 

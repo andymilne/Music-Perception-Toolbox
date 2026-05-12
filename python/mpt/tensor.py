@@ -6662,12 +6662,19 @@ def _emit_periodic_approx_warnings(dens_context, window_spec):
 
 
 def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
-                               *, ref_per_a, verbose: bool) -> np.ndarray:
+                               *, ref_per_a,
+                               truncation_sigmas: float | None = None,
+                               kernel_precision: str | None = None,
+                               verbose: bool) -> np.ndarray:
     """Per-pair offset sweep for a single (query, context) pair.
 
     ``ref_per_a`` is either ``None`` (auto-centroid) or a list of
     pre-validated per-attribute 1-D arrays (length ``n_attrs``).
     Returns the ``(M,)`` similarity profile.
+
+    ``truncation_sigmas`` and ``kernel_precision`` are forwarded to the
+    per-offset :func:`cos_sim_exp_tens` calls. ``None`` defers to the
+    global default (resolved inside ``cos_sim_exp_tens``).
 
     Emits :class:`WindowedSimilarityPeriodicApproxWarning` once per
     (query, context) pair for any periodic group whose window crosses
@@ -6709,7 +6716,12 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         spec_m = dict(base_spec)
         spec_m["centre"] = centre_list
         wmd = window_tensor(dens_context, spec_m)
-        profile[m] = cos_sim_exp_tens(dens_query, wmd, verbose=verbose)
+        profile[m] = cos_sim_exp_tens(
+            dens_query, wmd,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
     return profile
 
 
@@ -6818,37 +6830,34 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
         shape preservation).
     """
     # ------------------------------------------------------------------
-    # Apply per-call truncation_sigmas / kernel_precision via the global
-    # defaults mechanism for the duration of this call. The internal
-    # MA inner-product machinery picks them up via the helper.
-    # Note: this is a stop-gap until Stage 3 threads them directly
-    # through `_cos_sim_numerator_ma`. The temporary-defaults pattern
-    # is not thread-safe; concurrent windowed_similarity calls with
-    # conflicting kwargs may interfere. For single-threaded use it is
-    # correct.
+    # Direct kwarg forwarding (replaces the temp-defaults stop-gap that
+    # was in v2.2.0). ``truncation_sigmas`` and ``kernel_precision``
+    # flow through ``_windowed_similarity_core`` →
+    # ``_windowed_similarity_pair`` → ``cos_sim_exp_tens``, where they
+    # are consumed. ``None`` defers to the global default (resolved by
+    # ``cos_sim_exp_tens`` itself).
     # ------------------------------------------------------------------
-    from ._defaults import set_default as _set_default
-    _override = {}
-    if truncation_sigmas is not None:
-        _override["truncation_sigmas"] = truncation_sigmas
-    if kernel_precision is not None:
-        _override["kernel_precision"] = kernel_precision
-    _prev_defaults = _set_default(**_override) if _override else None
-    try:
-        return _windowed_similarity_core(
-            dens_query, dens_context, window_spec, offsets,
-            reference=reference, mode=mode, verbose=verbose,
-        )
-    finally:
-        if _prev_defaults is not None:
-            _set_default(**_prev_defaults)
+    return _windowed_similarity_core(
+        dens_query, dens_context, window_spec, offsets,
+        reference=reference, mode=mode,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=verbose,
+    )
 
 
 def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
                               reference=None, mode: str = "auto",
+                              truncation_sigmas: float | None = None,
+                              kernel_precision: str | None = None,
                               verbose: bool = True):
-    """Body of :func:`windowed_similarity`; the wrapper handles
-    truncation_sigmas / kernel_precision via temporary defaults."""
+    """Body of :func:`windowed_similarity`.
+
+    ``truncation_sigmas`` and ``kernel_precision`` are forwarded through
+    to each per-offset :func:`cos_sim_exp_tens` call. ``None`` defers
+    to the global default; explicit values flow directly without the
+    temporary-defaults indirection used in v2.2.0.
+    """
     # ------------------------------------------------------------------
     # Normalise query and context inputs.
     # ------------------------------------------------------------------
@@ -6898,13 +6907,20 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
         reference, q_list,
     )
 
+    # Common kwargs forwarded to every _windowed_similarity_pair call.
+    _pair_kw = {
+        "truncation_sigmas": truncation_sigmas,
+        "kernel_precision": kernel_precision,
+        "verbose": verbose,
+    }
+
     # ------------------------------------------------------------------
     # Scalar-vs-scalar (the v2.0 case).
     # ------------------------------------------------------------------
     if q_scalar and c_scalar:
         return _windowed_similarity_pair(
             q_list[0], c_list[0], window_spec, offsets,
-            ref_per_a=references_per_query[0], verbose=verbose,
+            ref_per_a=references_per_query[0], **_pair_kw,
         )
 
     if q_scalar:
@@ -6912,7 +6928,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
         rows = [
             _windowed_similarity_pair(
                 q_list[0], c, window_spec, offsets,
-                ref_per_a=references_per_query[0], verbose=verbose,
+                ref_per_a=references_per_query[0], **_pair_kw,
             )
             for c in c_list
         ]
@@ -6923,7 +6939,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
         rows = [
             _windowed_similarity_pair(
                 q, c_list[0], window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
+                ref_per_a=ref, **_pair_kw,
             )
             for q, ref in zip(q_list, references_per_query)
         ]
@@ -6935,7 +6951,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
         rows = [
             _windowed_similarity_pair(
                 q, c, window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
+                ref_per_a=ref, **_pair_kw,
             )
             for q, c, ref in zip(q_list, c_list, references_per_query)
         ]
@@ -6944,7 +6960,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     # cartesian
     probe = _windowed_similarity_pair(
         q_list[0], c_list[0], window_spec, offsets,
-        ref_per_a=references_per_query[0], verbose=verbose,
+        ref_per_a=references_per_query[0], **_pair_kw,
     )
     M = probe.shape[0]
     out = np.empty((n_q, n_c, M), dtype=np.float64)
@@ -6952,14 +6968,14 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     for j in range(1, n_c):
         out[0, j, :] = _windowed_similarity_pair(
             q_list[0], c_list[j], window_spec, offsets,
-            ref_per_a=references_per_query[0], verbose=verbose,
+            ref_per_a=references_per_query[0], **_pair_kw,
         )
     for i in range(1, n_q):
         ref = references_per_query[i]
         for j in range(n_c):
             out[i, j, :] = _windowed_similarity_pair(
                 q_list[i], c_list[j], window_spec, offsets,
-                ref_per_a=ref, verbose=verbose,
+                ref_per_a=ref, **_pair_kw,
             )
     return out
 

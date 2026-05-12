@@ -2808,6 +2808,26 @@ prof_lm = windowedSimilarity(dens_w, dens_w, spec_lm, offsets_vec, 'verbose', fa
 results{end+1,1} = 'windowedSimilarity: output is 1 x M';
 results{end,2}   = isequal(size(prof_lm), [1, 7]);
 
+% -- windowedSimilarity: truncationSigmas / kernelPrecision threaded --
+% v2.2.x: replaces the v2.2.0 mptDefaults stop-gap. Explicit Inf
+% truncation + double precision must produce identical results to
+% the default call; tight finite truncation must match the default
+% to numerical precision.
+prof_default_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+    offsets_vec, 'verbose', false);
+prof_inf_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+    offsets_vec, 'truncationSigmas', Inf, ...
+    'kernelPrecision', 'double', 'verbose', false);
+results{end+1,1} = 'windowedSimilarity: explicit Inf/double matches default';
+results{end,2}   = isequal(prof_default_thread, prof_inf_thread);
+
+prof_trunc_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+    offsets_vec, 'truncationSigmas', 6, 'verbose', false);
+results{end+1,1} = 'windowedSimilarity: truncationSigmas=6 matches default to 1e-12';
+results{end,2}   = all(abs(prof_default_thread - prof_trunc_thread) < 1e-12);
+
+clear prof_default_thread prof_inf_thread prof_trunc_thread
+
 % -- windowedSimilarity: reference=[] (default) matches omitted reference --
 %
 % Explicit empty reference must reproduce the default path byte-for-byte.

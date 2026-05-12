@@ -175,22 +175,12 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         end
     end
 
-    % Apply per-call truncation/precision kwargs via the global
-    % defaults mechanism for the duration of this call. The internal
-    % MA inner-product machinery (called from cosSimExpTens) picks
-    % them up via the helper. Stop-gap until Stage 3 threads them
-    % directly through the MA centres path. Not thread-safe;
-    % concurrent calls with conflicting kwargs may interfere.
-    prevDefaults = struct();
-    if ~isempty(truncationSigmas)
-        prevDefaults.truncationSigmas = mptDefaults('truncationSigmas');
-        mptDefaults('truncationSigmas', truncationSigmas);
-    end
-    if ~isempty(kernelPrecision)
-        prevDefaults.kernelPrecision = mptDefaults('kernelPrecision');
-        mptDefaults('kernelPrecision', kernelPrecision);
-    end
-    cleanupObj = onCleanup(@() localRestoreDefaults(prevDefaults));
+    % v2.2.x: truncationSigmas and kernelPrecision are forwarded
+    % directly to the per-offset cosSimExpTens calls below (and, in
+    % list mode, to the recursive windowedSimilarity calls). The v2.2.0
+    % temporary-defaults stop-gap has been replaced with explicit
+    % kwarg threading: empty means "defer to the global default"; an
+    % explicit value flows through without mutating shared state.
 
     % --- LIST mode (v2.1+) ------------------------------------------
     % Either or both of densQuery, densContext may be a cell array of
@@ -207,7 +197,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     if isQueryList || isContextList
         profile = localWindowedSimilarityList( ...
             densQuery, densContext, windowSpec, offsets, ...
-            reference, mode, verbose);
+            reference, mode, truncationSigmas, kernelPrecision, verbose);
         return;
     end
 
@@ -373,19 +363,27 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_m = baseSpec;
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
-        profile(m) = cosSimExpTens(densQuery, wmd, 'verbose', verbose);
+        profile(m) = cosSimExpTens(densQuery, wmd, ...
+            'truncationSigmas', truncationSigmas, ...
+            'kernelPrecision', kernelPrecision, ...
+            'verbose', verbose);
     end
 end
 
 
 function profile = localWindowedSimilarityList( ...
     densQuery, densContext, windowSpec, offsets, ...
-    reference, mode, verbose)
+    reference, mode, truncationSigmas, kernelPrecision, verbose)
 %LOCALWINDOWEDSIMILARITYLIST  Polymorphic list dispatch.
 %
 %   Iterates over query and context lists, calling windowedSimilarity
 %   recursively for each pair. Suppresses the periodic-window warning
 %   inside the loop after the first emission to avoid spam.
+%
+%   ``truncationSigmas`` and ``kernelPrecision`` are forwarded to each
+%   recursive ``windowedSimilarity`` call so per-call kwargs reach the
+%   per-offset ``cosSimExpTens`` consumers without going through
+%   ``mptDefaults`` global state.
 
     % Wrap singletons so the loops below can index uniformly.
     if iscell(densQuery)
@@ -449,7 +447,9 @@ function profile = localWindowedSimilarityList( ...
                 refK = reference;
             end
             profile{k} = windowedSimilarity(Q{k}, C{k}, windowSpec, offsets, ...
-                'verbose', verbose, 'reference', refK);
+                'verbose', verbose, 'reference', refK, ...
+                'truncationSigmas', truncationSigmas, ...
+                'kernelPrecision', kernelPrecision);
             if k == 1
                 warning('off', warnId);
             end
@@ -467,23 +467,14 @@ function profile = localWindowedSimilarityList( ...
                 end
                 profile{i, j} = windowedSimilarity( ...
                     Q{i}, C{j}, windowSpec, offsets, ...
-                    'verbose', verbose, 'reference', refIJ);
+                    'verbose', verbose, 'reference', refIJ, ...
+                    'truncationSigmas', truncationSigmas, ...
+                    'kernelPrecision', kernelPrecision);
                 if first
                     warning('off', warnId);
                     first = false;
                 end
             end
         end
-    end
-end
-
-
-function localRestoreDefaults(prevDefaults)
-%LOCALRESTOREDEFAULTS  Restore truncation/precision defaults on cleanup.
-    if isfield(prevDefaults, 'truncationSigmas')
-        mptDefaults('truncationSigmas', prevDefaults.truncationSigmas);
-    end
-    if isfield(prevDefaults, 'kernelPrecision')
-        mptDefaults('kernelPrecision', prevDefaults.kernelPrecision);
     end
 end

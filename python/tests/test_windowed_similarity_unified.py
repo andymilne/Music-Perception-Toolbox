@@ -94,6 +94,34 @@ class TestScalarScalar:
         assert isinstance(prof, np.ndarray)
         assert prof.shape == (11,)
 
+    def test_truncation_and_precision_kwargs_threaded(
+        self, queries_three, context_dens, offsets_grid, window_spec,
+    ):
+        """v2.2.x: truncation_sigmas and kernel_precision are threaded
+        through to the per-offset cos_sim_exp_tens calls (replacing
+        the v2.2.0 temporary-defaults stop-gap). At
+        truncation_sigmas=inf and kernel_precision='double', the result
+        must be identical to the default-mode call. At a tight
+        truncation (e.g., 6 sigma), the result must match the default
+        to numerical precision."""
+        prof_default = windowed_similarity(
+            queries_three[0], context_dens, window_spec, offsets_grid,
+            verbose=False,
+        )
+        # Explicit "no-op" kwargs.
+        prof_inf = windowed_similarity(
+            queries_three[0], context_dens, window_spec, offsets_grid,
+            truncation_sigmas=float("inf"), kernel_precision="double",
+            verbose=False,
+        )
+        np.testing.assert_array_equal(prof_default, prof_inf)
+        # Tight truncation: still matches default to high precision.
+        prof_trunc = windowed_similarity(
+            queries_three[0], context_dens, window_spec, offsets_grid,
+            truncation_sigmas=6.0, verbose=False,
+        )
+        np.testing.assert_allclose(prof_default, prof_trunc, atol=1e-12)
+
     def test_peak_location_is_meaningful(
         self, context_dens, queries_three, offsets_grid, window_spec,
     ):

@@ -3574,8 +3574,13 @@ def _pw_per_entry_ms(any_per):
 # Orbit (absolute modes, both per and nonper — empirically within ±5 %
 # of each other). Vectorised across event pairs, so cost is roughly
 # constant in N_x · N_y; linear in A at r = 2, 3 and slightly sub-linear
-# at r = 4. Per-r baseline at A = 1.
-_ORBIT_ABS_PER_ATTR_MS = {2: 3.0, 3: 11.2, 4: 45.0, 5: 150.0, 6: 500.0}
+# at r = 4. Per-r baseline at A = 1. Entries for r >= 7 extrapolated
+# from the empirical 3× orbit-count growth per r (anchored to measured
+# r=2..6 values); these are conservative and may be refined later.
+_ORBIT_ABS_PER_ATTR_MS = {
+    2: 3.0, 3: 11.2, 4: 45.0, 5: 150.0, 6: 500.0,
+    7: 1500.0, 8: 4500.0,
+}
 
 # Orbit (relative-periodic): vectorised across event pairs but each
 # pair carries a u-grid integration of N_u ≈ period/σ × samples_per_σ
@@ -3584,6 +3589,7 @@ _ORBIT_ABS_PER_ATTR_MS = {2: 3.0, 3: 11.2, 4: 45.0, 5: 150.0, 6: 500.0}
 _ORBIT_RELPER_BASE_MS = 5.0
 _ORBIT_RELPER_PER_PAIR_K2_MS = {
     2: 0.06, 3: 0.40, 4: 1.0, 5: 5.0, 6: 20.0,
+    7: 60.0, 8: 200.0,
 }
 
 # Orbit (relative-aperiodic): the orbit path here is a per-(n_X, n_Y)
@@ -3596,6 +3602,7 @@ _ORBIT_RELPER_PER_PAIR_K2_MS = {
 _ORBIT_RELNONPER_BASE_MS = 5.0
 _ORBIT_RELNONPER_PER_PAIR_K2_MS = {
     2: 0.25, 3: 1.05, 4: 3.30, 5: 12.0, 6: 50.0,
+    7: 150.0, 8: 500.0,
 }
 
 
@@ -4528,7 +4535,7 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 #    auto-IP cancellation; a runtime cancellation diagnostic on
 #    auto IPs is on the v2.2 roadmap (see V22_DEV_LOG.md Issue 4).
 
-_ORBIT_R_MAX_SHIPPED = 6  # orbit tables r=2..6 ship pre-built; r>6 deferred to Phase 5
+_ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 _ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which periodic-relative orbit deviates
 _ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for orbit (precision guard)
 # Rationale (May 2026 audit): the orbit Möbius reformulation expresses
@@ -4596,10 +4603,13 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
     # numpy.einsum dispatch) exceeds the kernel-matvec cost.
     if r == 2 and n_max <= 8:
         return 'pairwise'
-    # r > _ORBIT_R_MAX_SHIPPED: shipped orbit tables stop here (Phase 5
-    # extends to r=7,8). At r>6 the orbit path still works correctly but
-    # the build cost (~16 s for r=7, ~3 min for r=8) could surprise users
-    # on first use; default to pairwise for now.
+    # r > _ORBIT_R_MAX_SHIPPED: shipped orbit tables stop here. At
+    # higher r the orbit path still works correctly, but on first use
+    # the table must be built from scratch (cost grows with B_r^2);
+    # default to pairwise to avoid surprising users with a slow first
+    # call. Users who explicitly want orbit at higher r can pass
+    # method='orbit'; the cost-preview helper in mobius will print an
+    # estimate before the build begins.
     if r > _ORBIT_R_MAX_SHIPPED:
         return 'pairwise'
     # K-vs-r precision guard. The orbit path's auto-inner-products can
@@ -4710,10 +4720,12 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     # partition-table dispatch overhead.
     if r == 2 and K <= 8:
         return 'centres'
-    # Beyond shipped orbit tables (r > 6): the eval_orbit_* helpers
-    # use set-partition machinery rather than orbit tables, so they
-    # work at any r in principle, but we defer to centres for
-    # consistency with the IP-path policy until r=7,8 phase.
+    # Beyond shipped orbit tables: the eval_orbit_* helpers use
+    # set-partition machinery rather than orbit tables, so they work
+    # at any r in principle, but we defer to centres for consistency
+    # with the IP-path policy. At r > _ORBIT_R_MAX_SHIPPED the orbit
+    # table would build on demand, which the cost-preview helper warns
+    # about; the eval dispatcher prefers the always-fast centres path.
     if r > _ORBIT_R_MAX_SHIPPED:
         return 'centres'
     # K-vs-r precision guard. Without K - r >= 2 the orbit path's

@@ -102,9 +102,9 @@ end
 
 function maybeWarnBuildCost(r)
 %MAYBEWARNBUILDCOST  Print a size + time estimate before building an
-%   orbit table. Fires only for r beyond the shipped range (currently 6;
-%   will become 8 once Phase 5A ships r = 7, 8 .mat files). Suppressed
-%   when the environment variable MPT_NO_BUILD_WARN is set.
+%   orbit table. Fires only for r beyond the shipped range (r=2..8 in
+%   v2.2; bump SHIPPED_MAX below if more files are added later).
+%   Suppressed when the environment variable MPT_NO_BUILD_WARN is set.
 %
 %   Output goes to stderr (fprintf(2, ...)) so it doesn't contaminate
 %   stdout-based pipelines.
@@ -112,7 +112,7 @@ function maybeWarnBuildCost(r)
     if ~isempty(getenv('MPT_NO_BUILD_WARN'))
         return
     end
-    SHIPPED_MAX = 6;   % match Python _ORBIT_R_MAX_SHIPPED
+    SHIPPED_MAX = 8;   % match Python _ORBIT_R_MAX_SHIPPED
     if r <= SHIPPED_MAX
         return
     end

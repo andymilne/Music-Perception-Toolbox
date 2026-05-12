@@ -361,11 +361,13 @@ class TestBuildCostPreview:
         captured = capfd.readouterr()
         assert captured.err == ""
 
-    def test_message_at_r7(self, capfd, monkeypatch):
+    def test_message_above_shipped(self, capfd, monkeypatch):
         monkeypatch.delenv("MPT_NO_BUILD_WARN", raising=False)
-        _maybe_warn_build_cost(7)
+        # r=9 is above the shipped range (r=2..8 in v2.2) and triggers
+        # the build-cost preview.
+        _maybe_warn_build_cost(9)
         captured = capfd.readouterr()
-        assert "r=7" in captured.err
+        assert "r=9" in captured.err
         assert "B_r" in captured.err
         assert "Estimated build time" in captured.err
         assert "MPT_NO_BUILD_WARN" in captured.err

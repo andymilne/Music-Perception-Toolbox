@@ -47,8 +47,8 @@ RTOL = 1e-10
         (3, 4, False, True, 'centres'),
         # r=4 abs: orbit when K-r >= 2.
         (4, 6, False, True, 'orbit'),
-        # r=7 (beyond shipped tables): centres.
-        (7, 10, False, True, 'centres'),
+        # r=9 (beyond shipped tables): centres.
+        (9, 12, False, True, 'centres'),
         # Rel mode at any r: centres (cost rule).
         (3, 6, True, True, 'centres'),
         (4, 7, True, False, 'centres'),

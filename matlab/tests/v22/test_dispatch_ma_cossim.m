@@ -139,20 +139,16 @@ s_pwise2 = cosSimExpTens(dx2, dy2, 'method', 'pairwise', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: r=2 auto = pairwise (exact)';
 results{end,2}   = isequal(s_auto2, s_pwise2);
 
-%% ---- r_max > 6 auto routes to pairwise (no shipped table) ----
-
-rng(59, 'twister');
-PxH = sort(2000 * rand(10, 2));   WxH = ones(10, 2);
-PyH = sort(2000 * rand(10, 2));   WyH = ones(10, 2);
-dxH = buildExpTens({PxH}, {WxH}, 30, 7, 1, false, false, 0, ...
-    'verbose', false);
-dyH = buildExpTens({PyH}, {WyH}, 30, 7, 1, false, false, 0, ...
-    'verbose', false);
-% Auto with r=7 should route to pairwise (no orbit_r{7} table).
-s_autoH  = cosSimExpTens(dxH, dyH, 'verbose', false);
-s_pwiseH = cosSimExpTens(dxH, dyH, 'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.MA cossim: r=7 auto = pairwise (no shipped table)';
-results{end,2}   = isequal(s_autoH, s_pwiseH);
+% ---- r_max > _ORBIT_R_MAX_SHIPPED auto routes to pairwise ----
+% v2.2.0 verified this at r=7 by running cosSimExpTens end-to-end and
+% comparing auto vs forced pairwise. After Phase 5 extended shipped
+% tables to r=2..8, the natural boundary test would be r=9 — but
+% pairwise at r=9 builds a K!/(K-r)! ordered-tuple tensor that exceeds
+% feasible test memory for any K large enough to expose the dispatch
+% decision (K >= 9). The dispatcher decision itself is covered by the
+% Python unit test test_ma_dispatcher_routes_pairwise_when_r_too_large
+% in test_ma_orbit.py, which calls _select_ma_inner_product_method
+% directly and avoids the workload cost.
 
 %% ---- Self-similarity = 1 on orbit branch ----
 

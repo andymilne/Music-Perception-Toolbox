@@ -711,7 +711,7 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
 %     3. r == 2 and n_max <= 8: pairwise dominates because the orbit
 %        overhead (4 orbits, contraction dispatch) exceeds the kernel
 %        matvec cost.
-%     4. r > 6: shipped orbit tables stop at r=6.
+%     4. r > 8: shipped orbit tables stop at r=8 (build cost warned).
 %     5. K-vs-r precision guard: orbit's Mobius alternating sum can
 %        suffer catastrophic cancellation when n_min is too close to r.
 %        Margin is 2 (i.e., n_min - r >= 2 required).
@@ -734,7 +734,7 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
         chosen = 'pairwise';
         return;
     end
-    if r > 6   % _ORBIT_R_MAX_SHIPPED
+    if r > 8   % _ORBIT_R_MAX_SHIPPED
         chosen = 'pairwise';
         return;
     end
@@ -813,7 +813,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         estSec = 0;
         return;
     end
-    if r > 6   % _ORBIT_R_MAX_SHIPPED
+    if r > 8   % _ORBIT_R_MAX_SHIPPED
         chosen = 'pairwise';
         probed = false;
         estSec = 0;
@@ -1283,7 +1283,8 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 %   pending at Commit 7):
 %     1. userMethod ~= 'auto' overrides everything.
 %     2. r_max <= 1 -> pairwise (orbit machinery undefined).
-%     3. r_max > 6 -> pairwise (no shipped orbit table).
+%     3. r_max > 8 (above _ORBIT_R_MAX_SHIPPED) -> pairwise (no shipped
+%        orbit table; user-build cost-preview warning otherwise).
 %     4. Periodic-relative beyond sigma/period > 0.03 anywhere -> warn,
 %        pairwise. Same convention guard as the SA dispatcher.
 %     5. Any rel group at all -> pairwise. Orbit-rel for MA is
@@ -1310,7 +1311,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
         chosen = 'pairwise';
         return;
     end
-    if r_max > 6   % _ORBIT_R_MAX_SHIPPED
+    if r_max > 8   % _ORBIT_R_MAX_SHIPPED
         chosen = 'pairwise';
         return;
     end

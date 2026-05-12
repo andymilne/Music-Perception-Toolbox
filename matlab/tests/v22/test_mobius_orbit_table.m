@@ -18,27 +18,28 @@ end
 
 % Bell numbers B_0..B_6 for the weights-sum-to-B_r^2 cross-check.
 % Computed inline rather than imported, to keep this file self-contained.
-B = [1 1 2 5 15 52 203];
+B = [1 1 2 5 15 52 203 877 4140];
 
 %% ---- Orbit count per r matches expected ----
 
-% r = 2..6: 4, 10, 33, 92, 306. Source: Mobius-Bulger orbit decomposition.
-expectedOrbits = [4 10 33 92 306];
+% r = 2..8: 4, 10, 33, 92, 306, 948, 3210. Source: Möbius-Bulger orbit
+% decomposition; r=7, r=8 counts measured at table-build time in v2.2.
+expectedOrbits = [4 10 33 92 306 948 3210];
 ok = true;
-for r = 2:6
+for r = 2:8
     T = mobius.getOrbitTable(r);
     if numel(T) ~= expectedOrbits(r - 1)
         ok = false;
         break
     end
 end
-results{end+1, 1} = 'mobius.getOrbitTable: orbit count for r=2..6 matches expected';
+results{end+1, 1} = 'mobius.getOrbitTable: orbit count for r=2..8 matches expected';
 results{end, 2}   = ok;
 
 %% ---- Orbit weights sum to B_r^2 ----
 
 ok = true;
-for r = 2:6
+for r = 2:8
     T = mobius.getOrbitTable(r);
     sumW = sum([T.weight]);
     if sumW ~= B(r + 1)^2
@@ -46,14 +47,14 @@ for r = 2:6
         break
     end
 end
-results{end+1, 1} = 'mobius.getOrbitTable: orbit weights sum to B_r^2 for r=2..6';
+results{end+1, 1} = 'mobius.getOrbitTable: orbit weights sum to B_r^2 for r=2..8';
 results{end, 2}   = ok;
 
 %% ---- Per-orbit block-size consistency ----
 
 % For every orbit, the block-size profiles m_A and m_B sum to r.
 ok = true;
-for r = 2:6
+for r = 2:8
     T = mobius.getOrbitTable(r);
     for k = 1:numel(T)
         if sum(T(k).m_A) ~= r || sum(T(k).m_B) ~= r
@@ -71,7 +72,7 @@ results{end, 2}   = ok;
 % For every orbit, the multiplicity matrix reconstructed from edges has
 % row sums equal to m_A and column sums equal to m_B.
 ok = true;
-for r = 2:6
+for r = 2:8
     T = mobius.getOrbitTable(r);
     for k = 1:numel(T)
         E = T(k).edges;
@@ -94,7 +95,7 @@ results{end, 2}   = ok;
 % Each orbit's mu equals mu(m_A) * mu(m_B), since both are functions of
 % block-size profiles only.
 ok = true;
-for r = 2:6
+for r = 2:8
     T = mobius.getOrbitTable(r);
     for k = 1:numel(T)
         expectedMu = mobius.mobiusForBlocksizes(T(k).m_A) ...
@@ -176,13 +177,13 @@ results{end, 2}   = threwHigh;
 shippedDir = fullfile( ...
     fileparts(which('mobius.getOrbitTable')), '_orbit_tables');
 ok = true;
-for r = 2:6
+for r = 2:8
     p = fullfile(shippedDir, sprintf('orbit_r%d.mat', r));
     if ~isfile(p)
         ok = false; break
     end
 end
-results{end+1, 1} = 'mobius._orbit_tables: orbit_r{2..6}.mat present';
+results{end+1, 1} = 'mobius._orbit_tables: orbit_r{2..8}.mat present';
 results{end, 2}   = ok;
 
 %% ---- standalone summary ----

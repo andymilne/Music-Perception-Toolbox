@@ -50,9 +50,9 @@ def test_r2_large_n_routes_orbit(n_max):
     ) == 'orbit'
 
 
-@pytest.mark.parametrize("r", [3, 4, 5, 6])
-def test_r3_to_r6_routes_orbit(r):
-    """At r=3..6 with shipped orbit tables, auto picks orbit."""
+@pytest.mark.parametrize("r", list(range(3, _ORBIT_R_MAX_SHIPPED + 1)))
+def test_shipped_r_routes_orbit(r):
+    """At r=3..r_shipped_max with shipped orbit tables, auto picks orbit."""
     assert _select_sa_inner_product_method(
         r=r, n_max=12, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
@@ -63,8 +63,11 @@ def test_r3_to_r6_routes_orbit(r):
 def test_r_beyond_shipped_routes_pairwise(r):
     """Above the shipped-table cutoff, auto falls back to pairwise.
 
-    Phase 5 will extend shipped tables to r=7, 8; until then, auto avoids
-    the on-demand build cost surprise (~16 s at r=7, ~3 min at r=8).
+    The orbit path still works correctly at higher r — but on first use
+    the table must be built from scratch (cost grows with B_r^2: r=9
+    takes roughly an hour, r=10 prohibitive). Defaulting to pairwise
+    avoids surprising users with a slow first call; an explicit
+    ``method='orbit'`` opts in with a cost-preview warning.
     """
     assert _select_sa_inner_product_method(
         r=r, n_max=12, is_rel=False, is_per=False,

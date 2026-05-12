@@ -525,9 +525,10 @@ def _maybe_warn_build_cost(r: int) -> None:
 
     Fires when ``r`` is beyond the shipped range (the user is about to
     pay a non-trivial build cost that the package would normally have
-    delivered pre-built). Silent for r ≤ 6 (shipped today; will become
-    r ≤ 8 once Phase 5A ships r = 7, 8 pickles). Suppressed entirely by
-    setting ``MPT_NO_BUILD_WARN=1`` for automation contexts.
+    delivered pre-built). Silent for r ≤ 8 in v2.2 (the shipped range);
+    bump ``SHIPPED_MAX`` below if more pickles are added later.
+    Suppressed entirely by setting ``MPT_NO_BUILD_WARN=1`` for
+    automation contexts.
 
     Output goes to stderr so it doesn't contaminate stdout-based
     pipelines.
@@ -538,7 +539,7 @@ def _maybe_warn_build_cost(r: int) -> None:
         return
     # Match _ORBIT_R_MAX_SHIPPED in tensor.py. Hardcoded here to avoid
     # the _mobius -> tensor import direction (tensor imports _mobius).
-    SHIPPED_MAX = 6
+    SHIPPED_MAX = 8
     if r <= SHIPPED_MAX:
         return
     bell_r = _BELL_NUMBERS[r] if r < len(_BELL_NUMBERS) else None

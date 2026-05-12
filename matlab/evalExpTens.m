@@ -467,7 +467,7 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
 %        method='orbit'.
 %     4. r == 2 and K <= 8: centres is competitive; avoids partition-
 %        table dispatch overhead.
-%     5. r > 6: shipped orbit tables stop at r=6.
+%     5. r > 8: shipped orbit tables stop at r=8 (build cost warned).
 %     6. K-vs-r precision guard: orbit's Mobius alternating sum can
 %        suffer catastrophic cancellation when K is too close to r.
 
@@ -496,7 +496,7 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
         chosen = 'centres';
         return;
     end
-    if r > 6   % _ORBIT_R_MAX_SHIPPED
+    if r > 8   % _ORBIT_R_MAX_SHIPPED
         chosen = 'centres';
         return;
     end

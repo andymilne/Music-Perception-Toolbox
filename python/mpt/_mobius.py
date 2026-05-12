@@ -469,6 +469,7 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
         return table
 
     # Build from scratch (paths embedded by _build_orbit_table)
+    _maybe_warn_build_cost(r)
     table = _build_orbit_table(r)
     _orbit_cache[r] = table
 
@@ -483,6 +484,85 @@ def get_orbit_table(r: int) -> list[OrbitEntry]:
             pass
 
     return table
+
+
+# Bell numbers B_r for r = 0..12; B_r is the number of set partitions
+# of an r-element set, and the orbit table at order r has roughly
+# B_r²/symmetry orbits. Tabulated up to the hard cap.
+_BELL_NUMBERS = (
+    1, 1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597,
+)
+
+
+# Rough build-time estimates in seconds, calibrated against existing
+# in-codebase measurements (test_dispatcher.py annotates r=7 at ~16 s
+# and r=8 at ~3 min for Python). Numbers reflect typical desktop
+# hardware; absolute times vary 2-5x across machines. r >= 9 are
+# extrapolated from B_r^2 scaling and meant only to convey order of
+# magnitude.
+_BUILD_TIME_ESTIMATE_S = {
+    2: 0.01, 3: 0.05, 4: 0.3, 5: 1.5, 6: 6.0,
+    7: 16.0, 8: 180.0, 9: 4700.0, 10: 140000.0,
+    11: 5e6, 12: 1.5e8,
+}
+
+
+def _format_duration(seconds: float) -> str:
+    """Render a build-time estimate in a human-friendly unit."""
+    if seconds < 1:
+        return f"{seconds * 1000:.0f} ms"
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f} min"
+    if seconds < 86400:
+        return f"{seconds / 3600:.1f} h"
+    return f"{seconds / 86400:.1f} days"
+
+
+def _maybe_warn_build_cost(r: int) -> None:
+    """Print a size + time estimate before building an orbit table.
+
+    Fires when ``r`` is beyond the shipped range (the user is about to
+    pay a non-trivial build cost that the package would normally have
+    delivered pre-built). Silent for r ≤ 6 (shipped today; will become
+    r ≤ 8 once Phase 5A ships r = 7, 8 pickles). Suppressed entirely by
+    setting ``MPT_NO_BUILD_WARN=1`` for automation contexts.
+
+    Output goes to stderr so it doesn't contaminate stdout-based
+    pipelines.
+    """
+    import os
+    import sys
+    if os.environ.get("MPT_NO_BUILD_WARN"):
+        return
+    # Match _ORBIT_R_MAX_SHIPPED in tensor.py. Hardcoded here to avoid
+    # the _mobius -> tensor import direction (tensor imports _mobius).
+    SHIPPED_MAX = 6
+    if r <= SHIPPED_MAX:
+        return
+    bell_r = _BELL_NUMBERS[r] if r < len(_BELL_NUMBERS) else None
+    time_s = _BUILD_TIME_ESTIMATE_S.get(r)
+    msg_lines = [
+        f"mpt: building orbit table for r={r} (not shipped, not cached).",
+    ]
+    if bell_r is not None:
+        msg_lines.append(
+            f"     B_r = {bell_r:,}; build cost scales with B_r squared."
+        )
+    if time_s is not None:
+        msg_lines.append(
+            f"     Estimated build time: ~{_format_duration(time_s)}"
+            f" (rough; depends on system)."
+        )
+    msg_lines.append(
+        "     Result will be cached on disk; subsequent calls return"
+        " instantly."
+    )
+    msg_lines.append(
+        "     Suppress this message by setting MPT_NO_BUILD_WARN=1."
+    )
+    print("\n".join(msg_lines), file=sys.stderr)
 
 
 # ---------------------------------------------------------------------

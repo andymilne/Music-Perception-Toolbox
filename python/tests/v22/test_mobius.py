@@ -26,6 +26,9 @@ from mpt._mobius import (
     labelled_pairs_realising_M,
     mobius_for_blocksizes,
     total_mass_abs,
+    _maybe_warn_build_cost,
+    _format_duration,
+    _BELL_NUMBERS,
 )
 
 
@@ -337,6 +340,53 @@ def test_grid_evaluator_matches_static_at_zero_shift():
     val_static = inner_product_orbit(K_static, w_A, w_B, r)
     val_grid = inner_product_orbit_grid(K_u, w_A, w_B, r)
     assert abs(val_grid[0] - val_static) < 1e-10 * abs(val_static)
+
+
+# ----------------------------------------------------------------------
+# v2.2: build-cost preview before Tier 4 falls through to building
+# ----------------------------------------------------------------------
+
+
+class TestBuildCostPreview:
+    """When the user requests an r beyond the shipped range and there's
+    no user-cached copy, ``get_orbit_table`` falls through to
+    ``_build_orbit_table``. Before doing so it prints a size + time
+    estimate so the user knows what they're committing to. Suppressed
+    by the MPT_NO_BUILD_WARN environment variable.
+    """
+
+    def test_silent_below_shipped_max(self, capfd, monkeypatch):
+        monkeypatch.delenv("MPT_NO_BUILD_WARN", raising=False)
+        _maybe_warn_build_cost(6)
+        captured = capfd.readouterr()
+        assert captured.err == ""
+
+    def test_message_at_r7(self, capfd, monkeypatch):
+        monkeypatch.delenv("MPT_NO_BUILD_WARN", raising=False)
+        _maybe_warn_build_cost(7)
+        captured = capfd.readouterr()
+        assert "r=7" in captured.err
+        assert "B_r" in captured.err
+        assert "Estimated build time" in captured.err
+        assert "MPT_NO_BUILD_WARN" in captured.err
+
+    def test_env_var_suppresses(self, capfd, monkeypatch):
+        monkeypatch.setenv("MPT_NO_BUILD_WARN", "1")
+        _maybe_warn_build_cost(8)
+        captured = capfd.readouterr()
+        assert captured.err == ""
+
+    def test_format_duration_units(self):
+        assert _format_duration(0.5) == "500 ms"
+        assert _format_duration(45) == "45 s"
+        assert _format_duration(150) == "2.5 min"
+        assert _format_duration(5400) == "1.5 h"
+
+    def test_bell_numbers_cover_hard_cap(self):
+        # B_r table must cover r=0..12 so the preview works up to the
+        # hard cap without an IndexError.
+        assert len(_BELL_NUMBERS) >= 13
+        assert _BELL_NUMBERS[8] == 4140  # spot-check
 
 
 if __name__ == "__main__":

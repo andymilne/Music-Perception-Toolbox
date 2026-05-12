@@ -81,6 +81,7 @@ function table = getOrbitTable(r)
     end
 
     % Tier 4: build from scratch (buildOrbitTable embeds recipes).
+    maybeWarnBuildCost(r);
     table = mobius.buildOrbitTable(r);
     inMem(key) = table;
 
@@ -95,6 +96,94 @@ function table = getOrbitTable(r)
         catch
             % Disk caching is best effort; in-memory cache is still hot.
         end
+    end
+end
+
+
+function maybeWarnBuildCost(r)
+%MAYBEWARNBUILDCOST  Print a size + time estimate before building an
+%   orbit table. Fires only for r beyond the shipped range (currently 6;
+%   will become 8 once Phase 5A ships r = 7, 8 .mat files). Suppressed
+%   when the environment variable MPT_NO_BUILD_WARN is set.
+%
+%   Output goes to stderr (fprintf(2, ...)) so it doesn't contaminate
+%   stdout-based pipelines.
+
+    if ~isempty(getenv('MPT_NO_BUILD_WARN'))
+        return
+    end
+    SHIPPED_MAX = 6;   % match Python _ORBIT_R_MAX_SHIPPED
+    if r <= SHIPPED_MAX
+        return
+    end
+
+    % Bell numbers B_r for r = 0..12. The orbit table at order r has
+    % roughly B_r^2 / symmetry orbits.
+    BELL = [1, 1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, ...
+            678570, 4213597];
+    % Rough build-time estimates in seconds, indexed by r. r <= 8
+    % anchored to measured release-prep runs; r >= 9 extrapolated.
+    TIME_S = containers.Map(...
+        {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, ...
+        {0.02, 0.10, 0.5, 3.0, 12.0, 60.0, 500.0, 6000.0, 9e4, 1.5e6, 2e7});
+
+    if r + 1 <= numel(BELL)
+        bellR = BELL(r + 1);    % MATLAB 1-indexing: BELL(r+1) is B_r
+    else
+        bellR = NaN;
+    end
+    if isKey(TIME_S, r)
+        timeStr = localFormatDuration(TIME_S(r));
+    else
+        timeStr = '(unknown)';
+    end
+
+    fprintf(2, ...
+        ['mpt: building orbit table for r=%d (not shipped, not cached).\n', ...
+         '     B_r = %s; build cost scales with B_r squared.\n', ...
+         '     Estimated build time: ~%s (rough; depends on system).\n', ...
+         '     Result will be cached to disk; subsequent calls return ', ...
+         'instantly.\n', ...
+         '     Suppress this message by setting MPT_NO_BUILD_WARN=1.\n'], ...
+        r, ...
+        localFormatBig(bellR), ...
+        timeStr);
+end
+
+
+function s = localFormatDuration(seconds)
+%LOCALFORMATDURATION  Render a build-time estimate in a friendly unit.
+    if seconds < 1
+        s = sprintf('%.0f ms', seconds * 1000);
+    elseif seconds < 60
+        s = sprintf('%.0f s', seconds);
+    elseif seconds < 3600
+        s = sprintf('%.1f min', seconds / 60);
+    elseif seconds < 86400
+        s = sprintf('%.1f h', seconds / 3600);
+    else
+        s = sprintf('%.1f days', seconds / 86400);
+    end
+end
+
+
+function s = localFormatBig(x)
+%LOCALFORMATBIG  Format a big integer with thousands separators.
+    if isnan(x)
+        s = '?';
+    elseif x < 1e4
+        s = sprintf('%d', round(x));
+    else
+        % MATLAB lacks built-in thousands separators; insert commas.
+        digits = sprintf('%d', round(x));
+        n = length(digits);
+        parts = cell(1, ceil(n / 3));
+        for i = 1:ceil(n / 3)
+            stop = n - (i - 1) * 3;
+            start = max(1, stop - 2);
+            parts{ceil(n / 3) - i + 1} = digits(start:stop);
+        end
+        s = strjoin(parts, ',');
     end
 end
 

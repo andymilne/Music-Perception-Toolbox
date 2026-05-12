@@ -2,8 +2,9 @@ function buildAndSavePrebuiltTables(maxR)
 %MOBIUS.BUILDANDSAVEPREBUILTTABLES  Build and save shipped orbit tables.
 %
 %   MOBIUS.BUILDANDSAVEPREBUILTTABLES() builds orbit tables for r =
-%   2..6 (the default range shipped with the package) and saves them to
-%   matlab/+mobius/_orbit_tables/orbit_r{r}.mat.
+%   2..8 (the default shipped range) and saves them to
+%   matlab/+mobius/_orbit_tables/orbit_r{r}.mat. Build times scale
+%   with B_r^2; expect r = 8 to take a few minutes.
 %
 %   MOBIUS.BUILDANDSAVEPREBUILTTABLES(MAXR) builds for r = 2..MAXR.
 %
@@ -14,7 +15,7 @@ function buildAndSavePrebuiltTables(maxR)
 %   See also MOBIUS.BUILDORBITTABLE, MOBIUS.GETORBITTABLE.
 
     arguments
-        maxR (1,1) {mustBeInteger, mustBePositive} = 6
+        maxR (1,1) {mustBeInteger, mustBePositive} = 8
     end
 
     if maxR < 2

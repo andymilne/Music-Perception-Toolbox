@@ -422,16 +422,19 @@ if r > min(numel(dens_x.p), numel(dens_y.p))
 end
 
 % === v2.2 method dispatch (auto / pairwise / orbit) ===
-n_x = numel(dens_x.p);
-n_y = numel(dens_y.p);
-if isPer && J > 0
-    sigmaOverP = sigma / J;
-else
-    sigmaOverP = 0;
+% v2.2.x: probe-based dispatcher replaces the analytical heuristic.
+% Hard rules + analytical pre-screen still decide most cases without
+% probe overhead; when neither dominates, both paths are timed on a
+% small subset and the faster is picked. The probe's extrapolated
+% timing also drives the verbose dispatch message.
+[chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
+    dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
+
+if verbose && probed
+    fprintf(['cosSimExpTens: chose ''%s'' path ' ...
+             '(estimated %s); Ctrl-C to cancel.\n'], ...
+            chosen, localCosSimFormatTime(estSec));
 end
-chosen = localSelectSAMethod( ...
-    r, max(n_x, n_y), isRel, isPer, sigmaOverP, method, ...
-    min(n_x, n_y), verbose);
 
 ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
@@ -751,6 +754,242 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
         return;
     end
     chosen = 'orbit';
+end
+
+
+% =========================================================================
+%  v2.2.x SA cos-sim probe-based dispatcher
+%
+%  Parallels evalExpTens's localSelectAndEstimateSA. Hard rules decide
+%  first (correctness / feasibility); analytical pre-screen catches
+%  clear-winner cases without paying probe overhead; otherwise time
+%  both paths on a small subset of each density and pick the faster.
+%
+%  Extrapolation. Pairwise IP cost scales as
+%  falling_factorial(K_x, r) * falling_factorial(K_y, r) (ordered
+%  r-tuple enumeration on each side). Orbit IP cost scales as
+%  B_r * K_x * K_y (kernel matrix construction + per-partition
+%  einsum). The probe uses K_probe = min(K_x, K_y, 12) events from
+%  each side and extrapolates by the appropriate factor.
+% =========================================================================
+
+function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
+        dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose)
+%LOCALSELECTANDESTIMATESAIP  Probe-based dispatcher for SA cosSimExpTens.
+%
+%   Returns (chosen, probed, estSec). chosen is 'orbit' or 'pairwise';
+%   probed is true iff both paths were actually timed (a verbose
+%   dispatch message is printed by the caller in that case); estSec is
+%   the empirical extrapolated estimate when probed, 0 otherwise.
+
+    PRESCREEN_IP_DOMINANCE = 10.0;
+    BELL_NUMBERS = struct('r2', 2, 'r3', 5, 'r4', 15, 'r5', 52, ...
+                          'r6', 203, 'r7', 877, 'r8', 4140);
+
+    r       = double(dens_x.r);
+    K_x     = double(numel(dens_x.p));
+    K_y     = double(numel(dens_y.p));
+    n_min   = min(K_x, K_y);
+    isRel   = logical(dens_x.isRel);
+    isPer   = logical(dens_x.isPer);
+    sigma   = double(dens_x.sigma);
+    period  = double(dens_x.period);
+    if isPer && period > 0
+        sigmaOverP = sigma / period;
+    else
+        sigmaOverP = 0;
+    end
+
+    % ---- Hard rules ----
+    if ~strcmp(method, 'auto')
+        chosen = method;
+        probed = false;
+        estSec = 0;
+        return;
+    end
+    if r <= 1
+        chosen = 'pairwise';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+    if r > 6   % _ORBIT_R_MAX_SHIPPED
+        chosen = 'pairwise';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+    if (n_min - r) < 2   % _ORBIT_K_MINUS_R_MIN
+        chosen = 'pairwise';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+    if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+        if verbose
+            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
+                    ['sigma/period = %.3f exceeds the orbit-path threshold ' ...
+                     '(0.03) for periodic-relative mode; falling back to ' ...
+                     'the pairwise-wrap form. Pass ''method'', ''pairwise'' ' ...
+                     'explicitly to silence this warning.'], sigmaOverP);
+        end
+        chosen = 'pairwise';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+
+    % ---- Analytical cost models ----
+    pairwiseFull = localFallingFactorial(K_x, r) ...
+                 * localFallingFactorial(K_y, r);
+    B_r          = BELL_NUMBERS.(sprintf('r%d', r));
+    orbitFull    = B_r * K_x * K_y;
+
+    % ---- Analytical pre-screen ----
+    if orbitFull * PRESCREEN_IP_DOMINANCE < pairwiseFull
+        chosen = 'orbit';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+    if pairwiseFull * PRESCREEN_IP_DOMINANCE < orbitFull
+        chosen = 'pairwise';
+        probed = false;
+        estSec = 0;
+        return;
+    end
+
+    % ---- Probe both paths on a subset ----
+    K_probe = min([K_x, K_y, 12]);
+    % K_probe - r >= 2 is guaranteed by the precision rule above.
+
+    tPairwise = localProbeIPPath(dens_x, dens_y, K_probe, 'pairwise', ...
+                                  truncationSigmas, kernelPrecision);
+    tOrbit    = localProbeIPPath(dens_x, dens_y, K_probe, 'orbit', ...
+                                  truncationSigmas, kernelPrecision);
+
+    % ---- Extrapolate to full workload ----
+    pairwiseProbe = localFallingFactorial(K_probe, r) ^ 2;
+    if pairwiseProbe > 0
+        pairwiseFactor = pairwiseFull / pairwiseProbe;
+    else
+        pairwiseFactor = 1;
+    end
+    orbitProbe = K_probe ^ 2;
+    if orbitProbe > 0
+        orbitFactor = (K_x * K_y) / orbitProbe;
+    else
+        orbitFactor = 1;
+    end
+
+    tPairwiseEst = tPairwise * pairwiseFactor;
+    tOrbitEst    = tOrbit * orbitFactor;
+
+    if tPairwiseEst <= tOrbitEst
+        chosen = 'pairwise';
+        estSec = tPairwiseEst;
+    else
+        chosen = 'orbit';
+        estSec = tOrbitEst;
+    end
+    probed = true;
+end
+
+
+function ff = localFallingFactorial(n, k)
+%LOCALFALLINGFACTORIAL  n * (n-1) * ... * (n-k+1); 0 if any factor <= 0.
+    if n < k
+        ff = 0;
+        return;
+    end
+    ff = 1;
+    for i = 0:(k - 1)
+        ff = ff * (n - i);
+    end
+end
+
+
+function s = localCosSimFormatTime(t)
+%LOCALCOSSIMFORMATTIME  Short human-readable duration string.
+%
+%   Duplicated from evalExpTens.m so cosSimExpTens has no cross-file
+%   dependency. Candidate for promotion to +internal/formatTime.m in
+%   a future cleanup.
+    if t < 1
+        s = sprintf('%.0f ms', t * 1000);
+    elseif t < 60
+        s = sprintf('%.1f s', t);
+    elseif t < 3600
+        s = sprintf('%.1f min', t / 60);
+    else
+        s = sprintf('%.1f hr', t / 3600);
+    end
+end
+
+
+function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
+                               truncationSigmas, kernelPrecision)
+%LOCALPROBEIPPATH  Time one cosSimExpTens IP path on a subset.
+
+    subX = buildExpTens(dens_x.p(1:K_probe), dens_x.w(1:K_probe), ...
+        dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
+        dens_x.period, 'verbose', false);
+    subY = buildExpTens(dens_y.p(1:K_probe), dens_y.w(1:K_probe), ...
+        dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
+        dens_y.period, 'verbose', false);
+
+    if strcmp(path, 'orbit')
+        tStart = tic;
+        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
+        t = toc(tStart);
+    else
+        subX = ensureExpTensExpensive(subX);
+        subY = ensureExpTensExpensive(subY);
+        tStart = tic;
+        localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
+        t = toc(tStart);
+    end
+end
+
+
+function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
+                                       truncationSigmas, kernelPrecision)
+%LOCALPROBEPAIRWISEIP  Minimal pairwise IP cost stand-in for the probe.
+%
+%   Computes <T_x, T_y> via the v2.1 ipFull-equivalent kernel matvec.
+%   The full pairwise path computes three IPs but their per-call costs
+%   scale the same way, so timing one gives a faithful relative
+%   ordering against the orbit probe.
+
+    r       = double(dens_x.r);
+    isPer   = logical(dens_x.isPer);
+    J       = double(dens_x.period);
+    sigma   = double(dens_x.sigma);
+    U       = dens_x.U_perm;
+    wU      = dens_x.w_perm;
+    nJ      = dens_x.nJ_perm;
+    V       = dens_y.V_comb;
+    wV      = dens_y.wv_comb;
+    nK      = dens_y.nK;
+
+    D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
+    if isPer
+        D = mod(D + J/2, J) - J/2;
+    end
+    if dens_x.isRel
+        Q = reshape(sum(D .^ 2, 1), nJ, nK) ...
+          - reshape(sum(D, 1) .^ 2, nJ, nK) / r;
+    else
+        Q = reshape(sum(D .^ 2, 1), nJ, nK);
+    end
+    if ~isempty(truncationSigmas) && isfinite(truncationSigmas)
+        Q(Q > (truncationSigmas * 2 * sigma) ^ 2) = Inf;
+    end
+    E = exp(-Q / (4 * sigma ^ 2));
+    if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
+        E = single(E);
+    end
+    ip_xy = wU(:).' * (E * wV(:));
 end
 
 

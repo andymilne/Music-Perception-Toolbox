@@ -3218,10 +3218,24 @@ def _cos_sim_exp_tens_sa(
     n_max = max(len(dens_x.p), len(dens_y.p))
     n_min = min(len(dens_x.p), len(dens_y.p))
     sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
-    chosen = _select_sa_inner_product_method(
-        r, n_max, is_rel, is_per, sigma_over_P, method,
-        n_min=n_min,
+    chosen, probed, est_sec = _select_and_estimate_sa_ip(
+        dens_x, dens_y,
+        method=method,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=verbose,
     )
+
+    if verbose and probed:
+        # Dispatch-decision message: shows which path was chosen and
+        # the empirical extrapolated estimate. Always prints when a
+        # probe ran (i.e., for any non-trivial workload not decided by
+        # a hard rule or analytical pre-screen). Quiet otherwise.
+        print(
+            f"cos_sim_exp_tens: chose '{chosen}' path "
+            f"(estimated {_format_time(est_sec)}); "
+            f"Ctrl-C to cancel."
+        )
 
     if chosen == "orbit":
         ip_xy, ip_xx, ip_yy, worst_ratio = _cos_sim_exp_tens_sa_orbit(
@@ -4805,6 +4819,205 @@ def _select_and_estimate_sa(
 
     est_sec = t_probe * (n_q / n_probe)
     return chosen, True, est_sec
+
+
+# -----------------------------------------------------------------------
+# Probe-based dispatcher for the SA cos_sim_exp_tens IP path.
+#
+# Parallels :func:`_select_and_estimate_sa` for the inner-product side:
+# hard rules first (correctness / feasibility), then an analytical
+# pre-screen (catches clear-winner cases without paying probe overhead),
+# then actually time both paths on a small subset of each density and
+# pick the faster. The probe time, extrapolated to the full workload,
+# becomes the user-facing time estimate (printed in verbose mode) and
+# auto-adapts to future optimisations of either path.
+#
+# Probe extrapolation. Pairwise IP cost scales as
+# ``falling_factorial(K_x, r) * falling_factorial(K_y, r)`` (ordered
+# r-tuple enumeration on each side). Orbit IP cost scales as
+# ``B_r * K_x * K_y`` (kernel matrix construction + per-partition
+# einsum). The probe uses ``K_probe = min(K_x, K_y, _PROBE_K_IP_TARGET)``
+# events from each side and extrapolates by the appropriate factor.
+# -----------------------------------------------------------------------
+
+# Target subset size for the IP probe. Small enough that probe cost is
+# negligible, large enough that the K_probe-choose-r tuple count is
+# meaningful (e.g., 12-choose-3 = 220) and the orbit-path's precision
+# guard (n_min - r >= 2) is not contended. ``K_probe`` is capped to
+# ``min(K_x, K_y)`` at call time; the hard precision rule
+# (``n_min - r < 2``) fires upstream so K_probe never drops below r+2.
+_PROBE_K_IP_TARGET = 12
+
+# Pre-screen: skip the probe if one path's analytical cost dominates
+# the other by this margin. Mirrors the eval-side pre-screen
+# constants.
+_PRESCREEN_IP_DOMINANCE = 10.0
+
+
+def _falling_factorial(n: int, k: int) -> float:
+    """``n * (n-1) * ... * (n-k+1)``; 0 if any factor is non-positive."""
+    if n < k:
+        return 0.0
+    prod = 1.0
+    for i in range(k):
+        prod *= (n - i)
+    return prod
+
+
+def _probe_ip_path(
+    dens_x: "ExpTensDensity",
+    dens_y: "ExpTensDensity",
+    K_probe: int,
+    path: str,
+    *,
+    truncation_sigmas: float | None,
+    kernel_precision: str | None,
+) -> float:
+    """Time one cos_sim_exp_tens IP path on the first ``K_probe`` events
+    of each density. Returns seconds.
+
+    Builds fresh subset densities outside the timed window so the
+    measurement covers only the IP work itself (kernel-matrix
+    construction + orbit einsums for the orbit path, or ordered-tuple
+    enumeration + dot product for the pairwise path).
+    """
+    import time as _time
+
+    sub_x = build_exp_tens(
+        dens_x.p[:K_probe], dens_x.w[:K_probe],
+        dens_x.sigma, int(dens_x.r),
+        bool(dens_x.is_rel), bool(dens_x.is_per), float(dens_x.period),
+        verbose=False,
+    )
+    sub_y = build_exp_tens(
+        dens_y.p[:K_probe], dens_y.w[:K_probe],
+        dens_y.sigma, int(dens_y.r),
+        bool(dens_y.is_rel), bool(dens_y.is_per), float(dens_y.period),
+        verbose=False,
+    )
+
+    t0 = _time.perf_counter()
+    if path == "orbit":
+        _cos_sim_exp_tens_sa_orbit(sub_x, sub_y)
+    else:
+        _cos_sim_exp_tens_sa_pairwise(
+            sub_x, sub_y, verbose=False,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
+    return _time.perf_counter() - t0
+
+
+def _select_and_estimate_sa_ip(
+    dens_x: "ExpTensDensity",
+    dens_y: "ExpTensDensity",
+    *,
+    method: str,
+    truncation_sigmas: float | None,
+    kernel_precision: str | None,
+    verbose: bool,
+) -> tuple[str, bool, float]:
+    """Probe-based dispatcher for SA cos_sim_exp_tens IP path.
+
+    Hard rules decide first:
+      1. user override → honour it.
+      2. r <= 1 → pairwise (orbit degenerate at r=1).
+      3. r > _ORBIT_R_MAX_SHIPPED → pairwise (build cost).
+      4. n_min - r < _ORBIT_K_MINUS_R_MIN → pairwise (orbit cancellation).
+      5. periodic-relative beyond σ/P threshold → pairwise (convention).
+
+    Then analytical pre-screen catches clear-winner cases without
+    paying probe overhead. Otherwise, both paths are timed on a small
+    subset (``min(K_x, K_y, _PROBE_K_IP_TARGET)``) and extrapolated to
+    the full workload; the faster is picked.
+
+    Returns ``(chosen, probed, est_sec)``.
+    """
+    r = int(dens_x.r)
+    K_x = int(dens_x.p.shape[0])
+    K_y = int(dens_y.p.shape[0])
+    n_min = min(K_x, K_y)
+    is_rel = bool(dens_x.is_rel)
+    is_per = bool(dens_x.is_per)
+    sigma = float(dens_x.sigma)
+    period = float(dens_x.period)
+    sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
+
+    # ---- Hard rules ----
+    if method in ("pairwise", "direct"):
+        return "pairwise", False, 0.0
+    if method == "orbit":
+        return "orbit", False, 0.0
+    if method != "auto":
+        raise ValueError(
+            f"method must be 'auto', 'pairwise', 'direct', or 'orbit'; "
+            f"got {method!r}."
+        )
+    if r <= 1:
+        return "pairwise", False, 0.0
+    if r > _ORBIT_R_MAX_SHIPPED:
+        return "pairwise", False, 0.0
+    if not _orbit_safe_for_precision([r], [n_min]):
+        return "pairwise", False, 0.0
+    if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        warnings.warn(
+            f"σ/P = {sigma_over_P:.3f} exceeds the orbit-path threshold "
+            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
+            f"falling back to the pairwise-wrap form. Pass method='pairwise' "
+            f"explicitly to silence this warning."
+        )
+        return "pairwise", False, 0.0
+    if r > _ORBIT_R_MAX_FEASIBLE:
+        return "pairwise", False, 0.0
+
+    # ---- Analytical cost models ----
+    pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
+    B_r = float(_BELL_NUMBERS[r])
+    orbit_full = B_r * float(K_x) * float(K_y)
+
+    # ---- Analytical pre-screen ----
+    if orbit_full * _PRESCREEN_IP_DOMINANCE < pairwise_full:
+        return "orbit", False, 0.0
+    if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
+        return "pairwise", False, 0.0
+
+    # ---- Probe both paths on a subset ----
+    # Warm the orbit partition table so the orbit probe doesn't pay a
+    # one-time table-build cost.
+    from ._mobius import get_set_partitions_with_mobius
+    get_set_partitions_with_mobius(r)
+
+    K_probe = min(K_x, K_y, _PROBE_K_IP_TARGET)
+    # K_probe - r >= 2 is guaranteed by the precision hard rule above
+    # (n_min - r >= _ORBIT_K_MINUS_R_MIN), so the orbit probe is safe.
+
+    t_pairwise = _probe_ip_path(
+        dens_x, dens_y, K_probe, "pairwise",
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+    t_orbit = _probe_ip_path(
+        dens_x, dens_y, K_probe, "orbit",
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+
+    # ---- Extrapolate to full workload ----
+    pairwise_probe = _falling_factorial(K_probe, r) ** 2
+    pairwise_factor = (
+        pairwise_full / pairwise_probe if pairwise_probe > 0 else 1.0
+    )
+    orbit_probe = float(K_probe) ** 2
+    orbit_factor = (
+        float(K_x) * float(K_y) / orbit_probe if orbit_probe > 0 else 1.0
+    )
+
+    t_pairwise_est = t_pairwise * pairwise_factor
+    t_orbit_est = t_orbit * orbit_factor
+
+    if t_pairwise_est <= t_orbit_est:
+        return "pairwise", True, t_pairwise_est
+    return "orbit", True, t_orbit_est
 
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,

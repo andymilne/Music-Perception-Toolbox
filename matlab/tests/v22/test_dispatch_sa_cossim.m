@@ -104,8 +104,13 @@ results{end,2}   = abs(s_orb - s_pair) < 1e-6;
 
 %% ---- Auto routes to pairwise in expected cases ----
 
-% --- r=2 falls under r==2-and-n<=8 small-n rule -> pairwise ---
-% No public observation of the chosen path, but result must still be correct.
+% --- r=2 small-n: auto matches pairwise to numerical precision ---
+% Under v2.2.0 the analytical heuristic forced r=2 with n_max<=8 to
+% pairwise, so auto and pairwise were bit-identical here. Under v2.2.x
+% the probe-based dispatcher decides empirically; at K=6 r=2 the
+% analytical pre-screen (ratio K^2/2 = 18 > 10) routes auto to orbit.
+% Both paths compute the same IP mathematically; round-off differs at
+% machine epsilon. Result must still match to numerical precision.
 rng(17, 'twister');
 p_x = sort(2000 * rand(6, 1));
 w_x = ones(6, 1);
@@ -116,8 +121,8 @@ s_auto2 = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, false, false, 0, ...
     'verbose', false);
 s_pair2 = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, false, false, 0, ...
     'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: r=2 small-n auto agrees with pairwise (exact)';
-results{end,2}   = s_auto2 == s_pair2;
+results{end+1,1} = 'dispatch.SA: r=2 small-n auto matches pairwise (1e-12)';
+results{end,2}   = abs(s_auto2 - s_pair2) < 1e-12;
 
 % --- K-vs-r margin too small (n_min - r < 2) -> pairwise ---
 % n=4, r=3 -> margin = 1 < 2 -> pairwise.

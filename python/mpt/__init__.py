@@ -1,7 +1,7 @@
 """Music Perception Toolbox (mpt).
 
-A Python package for computational music perception research,
-ported from the MATLAB Music Perception Toolbox v2.0.0.
+A Python package for computational music perception research, with a
+sibling MATLAB implementation maintained in parallel.
 
 Andrew J. Milne, MARCS Institute, Western Sydney University.
 David Bulger credited as co-author of the original ``cos_sim_exp_tens``
@@ -10,7 +10,7 @@ and ``markov_s`` functions.
 
 from __future__ import annotations
 
-__version__ = "2.0.0"
+__version__ = "2.2.0"
 
 # --- Pitch/frequency conversion ---
 from .convert import convert_pitch

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "music-perception-toolbox"
-version = "2.1.0"
+version = "2.2.0"
 description = "Computational music perception: expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures."
 readme = {text = "Music Perception Toolbox: computational music perception in Python — expectation tensors, spectral similarity, psychoacoustics, and music-theoretic measures. See https://github.com/andymilne/Music-Perception-Toolbox for documentation, user guide, and citation.", content-type = "text/plain"}
 license = {text = "MIT"}
@@ -51,3 +51,10 @@ Homepage = "https://github.com/andymilne/Music-Perception-Toolbox"
 
 [tool.setuptools.packages.find]
 include = ["mpt*"]
+
+[tool.setuptools.package-data]
+# Shipped pre-built orbit tables (r = 2..8 in v2.2). Without this
+# section, `pip install` and `setuptools` sdist / wheel builds omit
+# non-.py files, leaving mpt._mobius.get_orbit_table to fall through
+# to a multi-minute on-demand build on first call.
+mpt = ["_orbit_tables/*.pkl"]

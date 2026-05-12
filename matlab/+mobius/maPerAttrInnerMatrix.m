@@ -91,27 +91,27 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
             sigma, r, isPer, period);
     end
 
-    % --- Pairs involving any unsafe event: direct enumeration ---
-    % unsafe_x x all_y: covers the unsafe-x rows.
-    % safe_x x unsafe_y: covers the unsafe-y columns within safe-x rows.
-    % Together these cover all pairs not in (safe_x, safe_y).
-
-    for ii = 1:numel(unsafe_x_idx)
-        n_x = unsafe_x_idx(ii);
-        for n_y = 1:Ny
-            I(n_x, n_y) = mobius.innerProductDirectAbsSA( ...
-                Px(:, n_x), Wx(:, n_x), Py(:, n_y), Wy(:, n_y), ...
-                sigma, r, isPer, period);
-        end
+    % --- Pairs involving any unsafe event: K-grouped batched direct ---
+    % Under v2.2.0 this was a pair-by-pair MATLAB double-loop calling
+    % mobius.innerProductDirectAbsSA per (n_x, n_y); for variable-K_a
+    % workloads with many unsafe events that dominated runtime by
+    % 10-100x over the actual numerical work.
+    %
+    % K_a grouping: partition the unsafe-involved event-index union by
+    % K_eff value per side, then batch direct enumeration per
+    % (K_eff_x, K_eff_y) sub-block. Within a sub-block every event
+    % shares an ordered-r-tuple shape, so the IP matrix is a single
+    % contracted tensor op. Coverage is (unsafe_x, all_y) plus
+    % (safe_x, unsafe_y), the same partition as v2.2.0.
+    if ~isempty(unsafe_x_idx)
+        I = localFillDirectEnumGroups(I, ...
+            Px, Wx, Py, Wy, unsafe_x_idx, 1:Ny, ...
+            K_eff_x, K_eff_y, sigma, r, isPer, period);
     end
-    for jj = 1:numel(unsafe_y_idx)
-        n_y = unsafe_y_idx(jj);
-        for ii = 1:numel(safe_x_idx)
-            n_x = safe_x_idx(ii);
-            I(n_x, n_y) = mobius.innerProductDirectAbsSA( ...
-                Px(:, n_x), Wx(:, n_x), Py(:, n_y), Wy(:, n_y), ...
-                sigma, r, isPer, period);
-        end
+    if ~isempty(unsafe_y_idx) && ~isempty(safe_x_idx)
+        I = localFillDirectEnumGroups(I, ...
+            Px, Wx, Py, Wy, safe_x_idx, unsafe_y_idx, ...
+            K_eff_x, K_eff_y, sigma, r, isPer, period);
     end
 end
 
@@ -224,4 +224,181 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
         K_pairs, Wx_pairs, Wy_pairs, r, ...
         'prefactor', (sigma * sqrt(pi))^r);
     I = reshape(flat, Nx_safe, Ny_safe);
+end
+
+
+function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
+                                         K_eff_x, K_eff_y, sigma, r, ...
+                                         isPer, period)
+%LOCALFILLDIRECTENUMGROUPS  K-grouped batched direct-enum fill.
+%
+%   Partitions x_idx by K_eff_x value and y_idx by K_eff_y value, then
+%   computes each (K_x_val, K_y_val) sub-block via a single vectorised
+%   tensor contraction in localBatchedDirectEnumAbsSA. Replaces the
+%   v2.2.0 per-pair MATLAB double loop.
+
+    if isempty(x_idx) || isempty(y_idx)
+        return;
+    end
+
+    uniqueKx = unique(K_eff_x(x_idx));
+    uniqueKy = unique(K_eff_y(y_idx));
+
+    for Kx_val = uniqueKx
+        xMask = K_eff_x(x_idx) == Kx_val;
+        x_grp = x_idx(xMask);
+        if isempty(x_grp) || Kx_val < r
+            continue;
+        end
+        [Px_grp, Wx_grp] = localPackNanTop(Px(:, x_grp), Wx(:, x_grp));
+        Px_grp = Px_grp(1:double(Kx_val), :);
+        Wx_grp = Wx_grp(1:double(Kx_val), :);
+        for Ky_val = uniqueKy
+            yMask = K_eff_y(y_idx) == Ky_val;
+            y_grp = y_idx(yMask);
+            if isempty(y_grp) || Ky_val < r
+                continue;
+            end
+            [Py_grp, Wy_grp] = localPackNanTop(Py(:, y_grp), Wy(:, y_grp));
+            Py_grp = Py_grp(1:double(Ky_val), :);
+            Wy_grp = Wy_grp(1:double(Ky_val), :);
+            sub_ip = localBatchedDirectEnumAbsSA( ...
+                Px_grp, Wx_grp, Py_grp, Wy_grp, ...
+                sigma, r, isPer, period);
+            I(x_grp, y_grp) = sub_ip;
+        end
+    end
+end
+
+
+function [Pp, Wp] = localPackNanTop(P, W)
+%LOCALPACKNANTOP  Pack non-NaN slots to the top of each column.
+%
+%   Returns P_packed, W_packed where for each column n the first
+%   K_eff(n) rows hold the valid slots (preserving their original
+%   order) and the rest are NaN. The buildExpTens convention already
+%   places NaN at the bottom, in which case this is mathematically a
+%   no-op; per-column packing handles user-constructed densities with
+%   arbitrary NaN positions.
+
+    [K, N] = size(P);
+    Pp = nan(K, N);
+    Wp = nan(K, N);
+    for n = 1:N
+        valid = ~(isnan(P(:, n)) | isnan(W(:, n)));
+        k = sum(valid);
+        if k == 0
+            continue;
+        end
+        Pp(1:k, n) = P(valid, n);
+        Wp(1:k, n) = W(valid, n);
+    end
+end
+
+
+function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
+                                          isPer, period)
+%LOCALBATCHEDDIRECTENUMABSSA  Batched direct r-tuple enumeration IP.
+%
+%   Vectorised replacement for repeated calls to
+%   mobius.innerProductDirectAbsSA when every event in Px has the
+%   same K_x = K_eff_x and every event in Py has the same
+%   K_y = K_eff_y (no NaN within the first K rows of either side).
+%
+%   Inputs:
+%       Px : (K_x, N_x), no NaN
+%       Wx : (K_x, N_x), no NaN
+%       Py : (K_y, N_y), no NaN
+%       Wy : (K_y, N_y), no NaN
+%   Returns:
+%       I  : (N_x, N_y) inner-product matrix
+%
+%   No Möbius alternating sum; exact for any K_x, K_y >= r.
+
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
+
+    if Kx < r || Ky < r
+        I = zeros(Nx, Ny);
+        return;
+    end
+
+    if r == 1
+        % r=1: direct kernel sum without r-tuple enumeration.
+        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_tens = exp(-(diffs.^2) / (4 * sigma^2));
+        I = zeros(Nx, Ny);
+        for n_x = 1:Nx
+            slab = squeeze(K_tens(:, n_x, :, :));   % (Kx, Ky, Ny)
+            tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
+            I(n_x, :) = sum(tmp .* Wy, 1);
+        end
+        I = I * sigma * sqrt(pi);
+        return;
+    end
+
+    % --- r >= 2: enumerate ordered r-tuple indices ---
+    idx_x = perms(1:Kx);
+    % perms returns rows in reverse lex order; keep only the leading r
+    % columns to match Python's permutations(range(K_x), r).
+    idx_x = idx_x(:, 1:r);
+    % perms gives all permutations of K_x elements; we need K_x! / (K_x-r)!
+    % ordered r-tuples. Drop duplicates that arise from permutations
+    % differing only in trailing columns.
+    idx_x = unique(idx_x, 'rows', 'stable');
+    idx_y = perms(1:Ky);
+    idx_y = idx_y(:, 1:r);
+    idx_y = unique(idx_y, 'rows', 'stable');
+
+    nJ_x = size(idx_x, 1);                % K_x! / (K_x - r)!
+    nJ_y = size(idx_y, 1);
+
+    % Gather tuple slot positions per event. Px(idx_x.', :) is
+    % (r, nJ_x, N_x); we want U_x of shape (r, N_x, nJ_x).
+    U_x = permute(Px(idx_x.', :), [1 3 2]);  % (r, N_x, nJ_x)... wait
+    % MATLAB: Px(idx_x.', :) with idx_x.' (r, nJ_x) — fancy index is
+    % (r*nJ_x, N_x). Need to reshape carefully.
+    Pxgath = Px(idx_x.', :);                 % ((r*nJ_x), N_x)
+    Pxgath = reshape(Pxgath, r, nJ_x, Nx);   % (r, nJ_x, N_x)
+    U_x = permute(Pxgath, [1 3 2]);          % (r, N_x, nJ_x)
+
+    Pygath = Py(idx_y.', :);
+    Pygath = reshape(Pygath, r, nJ_y, Ny);
+    U_y = permute(Pygath, [1 3 2]);          % (r, N_y, nJ_y)
+
+    Wxgath = Wx(idx_x.', :);                 % ((r*nJ_x), N_x)
+    Wxgath = reshape(Wxgath, r, nJ_x, Nx);   % (r, nJ_x, N_x)
+    Wj_x = reshape(prod(Wxgath, 1), nJ_x, Nx).';  % (N_x, nJ_x)
+
+    Wygath = Wy(idx_y.', :);
+    Wygath = reshape(Wygath, r, nJ_y, Ny);
+    Wj_y = reshape(prod(Wygath, 1), nJ_y, Ny).';  % (N_y, nJ_y)
+
+    % Differences: (r, N_x, nJ_x, N_y, nJ_y)
+    diffs = reshape(U_x, r, Nx, nJ_x, 1, 1) ...
+          - reshape(U_y, r, 1, 1, Ny, nJ_y);
+    if isPer
+        diffs = diffs - period * floor(diffs / period + 0.5);
+    end
+    Q = reshape(sum(diffs.^2, 1), Nx, nJ_x, Ny, nJ_y);
+    Kmat = exp(-Q / (4 * sigma^2));
+
+    % Contract: ip(n_x, n_y) = sum_{jx, jy}
+    %               Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy) * Wj_y(n_y, jy)
+    % MATLAB lacks named einsum; do it as two reduction steps.
+    %   step 1: T1(n_x, n_y, jy) = sum_jx Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy)
+    %   step 2: I(n_x, n_y)      = sum_jy T1(n_x, n_y, jy) * Wj_y(n_y, jy)
+    % Reshape for compact bsxfun-style products.
+
+    Kperm = permute(Kmat, [1 3 4 2]);        % (N_x, N_y, nJ_y, nJ_x)
+    Wj_x_b = reshape(Wj_x, Nx, 1, 1, nJ_x);  % (N_x, 1, 1, nJ_x)
+    T1 = sum(Kperm .* Wj_x_b, 4);            % (N_x, N_y, nJ_y)
+
+    Wj_y_b = reshape(Wj_y, 1, Ny, nJ_y);     % (1, N_y, nJ_y)
+    I = sum(T1 .* Wj_y_b, 3);                % (N_x, N_y)
+
+    I = I * (sigma * sqrt(pi))^r;
 end

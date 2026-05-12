@@ -118,8 +118,46 @@ for nx = 1:2
             sigma, r, false, 0);
     end
 end
-results{end+1,1} = 'maPerAttrInnerMatrix all-unsafe: hybrid matches direct-enum (exact)';
-results{end,2}   = isequal(I_hybrid_unsafe, I_ref_unsafe);
+% v2.2.0 used a per-pair MATLAB double-loop; v2.2.x replaces it with
+% a single vectorised tensor contraction per (K_eff_x, K_eff_y)
+% sub-block (K-grouped batched direct enum). The two produce
+% mathematically identical results but accumulate Q sums in a
+% different order, so individual entries can differ by ~1 ULP.
+results{end+1,1} = 'maPerAttrInnerMatrix all-unsafe: hybrid matches direct-enum (1e-13 rtol)';
+results{end,2}   = all(abs(I_hybrid_unsafe(:) - I_ref_unsafe(:)) <= ...
+                        1e-13 * abs(I_ref_unsafe(:)) + 1e-12);
+
+% --- v2.2.x: K-grouped batched direct-enum primitive correctness ---
+% The localBatchedDirectEnumAbsSA local function (not exported) is
+% exercised via the all-unsafe and mixed-K paths above. Here we test
+% the variable-K_eff orbit-vs-pairwise equivalence explicitly: a
+% density with events at multiple K_eff values must produce the same
+% cosine under orbit method as under pairwise.
+rng(7, 'twister');
+N_kg = 12;
+K_max_kg = 6;
+r_kg = 3;
+sigma_kg = 30.0;
+P_kg = nan(K_max_kg, N_kg);
+W_kg = nan(K_max_kg, N_kg);
+K_dist = [3 3 3 3 4 4 4 4 6 6 6 6];  % 4 events each at K_eff 3, 4, 6
+for n = 1:N_kg
+    K_eff_n = K_dist(n);
+    P_kg(1:K_eff_n, n) = 1200 * rand(K_eff_n, 1);
+    W_kg(1:K_eff_n, n) = 1;
+end
+dens_kg = buildExpTens({P_kg}, {W_kg}, sigma_kg, r_kg, 1, ...
+    false, false, 0, 'verbose', false);
+s_orbit_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'orbit', ...
+    'verbose', false);
+s_pw_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'pairwise', ...
+    'verbose', false);
+results{end+1,1} = 'maPerAttrInnerMatrix v2.2.x: K-grouped orbit matches pairwise (1e-12)';
+results{end,2}   = abs(s_orbit_kg - s_pw_kg) < 1e-12;
+
+clear P_unsafe W_unsafe I_hybrid_unsafe I_ref_unsafe ...
+      N_kg K_max_kg r_kg sigma_kg P_kg W_kg K_dist K_eff_n n dens_kg ...
+      s_orbit_kg s_pw_kg
 
 %% ---- Mixed safe/unsafe: cosSim orbit equals pairwise ----
 

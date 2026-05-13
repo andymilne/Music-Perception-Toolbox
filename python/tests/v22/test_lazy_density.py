@@ -4,7 +4,7 @@ Pre-v2.2, ``build_exp_tens`` constructed the per-tuple permutation
 arrays (``centres``, ``u_perm``, ``w_perm``, ``v_comb``, ``wv_comb``)
 eagerly inside its body. At high K and high r, ``n_j = K!/(K-r)!``
 makes those arrays prohibitive: K=256, r=4 → ~9·10⁸ four-tuples.
-Consumers that only need the orbit-Möbius path (``eval_exp_tens
+Consumers that only need the Möbius path (``eval_exp_tens
 method='mobius'``, ``cos_sim_exp_tens method='mobius'``,
 ``entropy_exp_tens method='renyi2'``) read just ``p``, ``w``, ``sigma``,
 ``r``, etc. — the per-tuple arrays were unused yet still allocated.
@@ -193,7 +193,7 @@ def test_high_K_high_r_orbit_eval_does_not_oom():
     """K=256, r=4 yields n_j ≈ 9·10⁸ four-tuples — pre-v2.2 the
     eager build allocated arrays totalling >25 GB and OOM'd. Lazy
     materialisation skips the allocation entirely when only the
-    orbit path is exercised. Build time should be sub-millisecond
+    Möbius method is exercised. Build time should be sub-millisecond
     and the orbit eval at a small query batch should complete in
     a sane time budget."""
     rng = np.random.default_rng(0)

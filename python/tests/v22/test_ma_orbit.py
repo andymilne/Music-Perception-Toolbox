@@ -278,7 +278,7 @@ def test_orbit_ma_matches_pairwise_rel_nonper(r_a, K_a, N):
     pairwise compounds multiplicatively across attributes whereas orbit
     adds linearly, so for A ≥ 2 with moderate K orbit becomes the only
     feasible path). This test confirms numerical agreement to FP
-    precision when the orbit path is taken — a regression here would
+    precision when the Möbius method is taken — a regression here would
     indicate a bug in the per-pair Python loop in
     `inner_product_orbit_pw_batched`.
     """
@@ -331,7 +331,7 @@ def test_orbit_ma_self_cosine_is_one():
 
 def test_orbit_ma_handles_r1_attribute():
     """The pitch + time test already exercises r_time = 1, but check
-    explicitly that the orbit path works when ALL attributes have r_a = 1.
+    explicitly that the Möbius method works when ALL attributes have r_a = 1.
 
     With r_max = 1 the dispatcher routes to pairwise, but if the user
     forces orbit explicitly the einsum branch must still produce the
@@ -408,7 +408,7 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
 
     This is the killer test for the hybrid: it picks K=8, r=3 so the
     slab-level K-vs-r guard passes, then injects NaN entries to make
-    individual events unsafe (K_eff - r < 2). The orbit path then
+    individual events unsafe (K_eff - r < 2). The Möbius method then
     routes those events to direct enumeration while keeping safe
     events on the vectorised orbit; both submatrices stitch into a
     correct full IP matrix.

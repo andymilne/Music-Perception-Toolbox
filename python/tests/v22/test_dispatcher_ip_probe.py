@@ -1,7 +1,7 @@
 """Tests for the v2.2.x probe-based dispatcher for SA cos_sim_exp_tens.
 
 The dispatcher (``_select_and_estimate_sa_ip``) decides between the
-orbit path and the pairwise path. Hard rules (correctness /
+Möbius method and Bulger's method. Hard rules (correctness /
 feasibility) decide first; then an analytical pre-screen catches
 clear-winner cases without paying probe overhead; otherwise both
 paths are timed on a small subset and the faster is picked.

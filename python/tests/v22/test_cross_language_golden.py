@@ -8,7 +8,7 @@ values; running both pins down cross-language numerical agreement to
 including the safe/unsafe hybrid, Rényi-2 entropy SA + MA, orbit-path
 :func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
 
-Inputs use ``method='mobius'`` on the cosine cases so the orbit Möbius
+Inputs use ``method='mobius'`` on the cosine cases so the Möbius method's
 machinery is genuinely exercised rather than the dispatcher's
 cost-model fallback to pairwise. Sigmas are chosen to keep values
 well-conditioned (away from FP underflow); a 1e-8 relative tolerance
@@ -36,7 +36,7 @@ ATOL = 1e-12
 
 
 # ----------------------------------------------------------------------
-# Case A: SA cosSim, abs r=3, orbit path
+# Case A: SA cosSim, abs r=3, Möbius method
 # ----------------------------------------------------------------------
 
 def test_golden_sa_cossim_abs_r3():
@@ -53,7 +53,7 @@ def test_golden_sa_cossim_abs_r3():
 
 
 # ----------------------------------------------------------------------
-# Case B: SA cosSim, rel r=3 periodic, orbit path
+# Case B: SA cosSim, rel r=3 periodic, Möbius method
 # ----------------------------------------------------------------------
 
 def test_golden_sa_cossim_rel_r3_per():
@@ -121,7 +121,7 @@ def test_golden_sa_renyi2_abs_r2():
 
 
 # ----------------------------------------------------------------------
-# Case E: MA entropy Rényi-2 (orbit path)
+# Case E: MA entropy Rényi-2 (Möbius method)
 # ----------------------------------------------------------------------
 
 def test_golden_ma_renyi2():

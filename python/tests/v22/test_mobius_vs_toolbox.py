@@ -28,7 +28,7 @@ def wrap(d, P):
 
 
 def cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, is_per, P):
-    """Cosine similarity in absolute mode using the orbit Möbius approach."""
+    """Cosine similarity in absolute mode using the Möbius method's approach."""
     diffs = p_A[:, None] - p_B[None, :]
     if is_per:
         diffs = wrap(diffs, P)
@@ -155,7 +155,7 @@ def test_cos_sim_orbit_at_r4(r):
 
 
 # ----------------------------------------------------------------------
-# Performance: orbit path completes in reasonable time at full n=64
+# Performance: Möbius method completes in reasonable time at full n=64
 # ----------------------------------------------------------------------
 
 
@@ -179,7 +179,7 @@ def test_cos_sim_orbit_performance_n64(r):
     # Generous threshold: r=4 should be well under 1 sec; r=3 well under 100ms
     threshold = {2: 0.1, 3: 0.3, 4: 1.0}
     assert elapsed < threshold[r], (
-        f"r={r}, n={n}: orbit path took {elapsed*1000:.1f} ms, "
+        f"r={r}, n={n}: Möbius method took {elapsed*1000:.1f} ms, "
         f"expected < {threshold[r]*1000:.0f} ms"
     )
 

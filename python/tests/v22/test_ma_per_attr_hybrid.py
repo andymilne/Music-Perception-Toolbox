@@ -286,8 +286,8 @@ class TestKGroupedDispatch:
     """Variable-K_eff workloads — the optimization target."""
 
     def test_mixed_K_eff_matches_v21_pairwise_at_machine_precision(self):
-        """Hybrid orbit path with K-grouped direct enum must match the
-        v2.1 pairwise path (which has no NaN issues at any K_eff) to
+        """Hybrid Möbius method with K-grouped direct enum must match the
+        v2.1 Bulger's method (which has no NaN issues at any K_eff) to
         numerical precision."""
         rng = np.random.default_rng(7)
         N = 12

@@ -8,10 +8,10 @@ Verifies ``eval_orbit_abs`` and ``eval_orbit_rel`` against:
    formulation, not a bug.
 
 Precision notes:
-- For abs modes, the orbit path expresses T(x) as an alternating sum
+- For abs modes, the Möbius method expresses T(x) as an alternating sum
   over set partitions of {0,..,r-1}. At pathological queries (very low
   T(x) values where partial sums are large and partly cancel), the
-  orbit path can lose digits. The cancellation ratio diagnostic
+  Möbius method can lose digits. The cancellation ratio diagnostic
   exposed via ``return_cancellation_ratio=True`` flags such cases.
   Tests compare against centre-array on the "clean" subset.
 - For rel modes, the u-grid integration averages over many abs-mode

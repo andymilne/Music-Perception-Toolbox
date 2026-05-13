@@ -1,8 +1,8 @@
-"""Tests for the v2.2 cancellation guard on the orbit path.
+"""Tests for the v2.2 cancellation guard on the Möbius method.
 
 The guard fires when ``|<A,B>_orbit| < cancellation_threshold *
 sqrt(<A,A>_orbit * <B,B>_orbit)`` and reroutes the calculation
-through the pairwise path. With the default threshold (1e-12) it
+through Bulger's method. With the default threshold (1e-12) it
 never fires on healthy inputs; pushing the threshold up to 1.0
 forces it to fire so we can verify the wiring.
 """
@@ -49,10 +49,10 @@ def test_default_threshold_does_not_perturb_result(seed):
 
 def test_high_threshold_forces_fallback():
     """With cancellation_threshold=1.0 the guard always trips and routes
-    through the pairwise path; the result must equal method='bulger'.
+    through Bulger's method; the result must equal method='bulger'.
 
     This verifies the wiring: when the guard fires, it really does
-    recompute via the pairwise path rather than returning the orbit
+    recompute via Bulger's method rather than returning the orbit
     estimate.
     """
     rng = np.random.default_rng(seed=20260505)
@@ -79,10 +79,10 @@ def test_high_threshold_forces_fallback():
     #     must have run, not the orbit branch), and
     # (b) cos_forced does not depend on the orbit estimate at all.
     assert cos_forced == cos_pw, (
-        f"Guard fallback did not reach pairwise path: "
+        f"Guard fallback did not reach Bulger's method: "
         f"forced={cos_forced!r}, pairwise={cos_pw!r}"
     )
-    # And in healthy regime the orbit path is also correct, so
+    # And in healthy regime the Möbius method is also correct, so
     # cos_orbit and cos_forced should still agree to FP.
     assert abs(cos_orbit - cos_forced) < 1e-12
 
@@ -117,7 +117,7 @@ def test_threshold_zero_disables_guard():
 
 
 def test_self_cosine_is_one_under_orbit_path():
-    """<A,A>/sqrt(<A,A><A,A>) = 1 must hold exactly under the orbit path."""
+    """<A,A>/sqrt(<A,A><A,A>) = 1 must hold exactly under the Möbius method."""
     rng = np.random.default_rng(seed=11)
     n = 12
     p_a = np.sort(rng.uniform(0, 5000, n))
@@ -138,8 +138,8 @@ def test_orbit_and_pairwise_triples_give_same_cosine():
     floating point.
 
     Note: the two paths use different normalisation conventions for the
-    bare inner product. The orbit path applies the ``(σ√π)^r`` prefactor
-    and sums over ordered tuples on both sides; the pairwise path
+    bare inner product. The Möbius method applies the ``(σ√π)^r`` prefactor
+    and sums over ordered tuples on both sides; Bulger's method
     omits the prefactor and uses (ordered × unordered), differing by
     ``(σ√π)^r · r!``. Both cancel in the cosine ratio, so agreement at
     the cosine level — but not at the bare-value level — is the meaningful

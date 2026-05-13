@@ -5,7 +5,7 @@ numerical quantity must pass every regime in
 ``tests/v22/standard_regimes.standard_regimes()``.
 
 When a new quantity is added (e.g., windowed similarity, Möbius-based
-``eval_exp_tens``, harmonicity orbit path), add it here as another
+``eval_exp_tens``, harmonicity Möbius method), add it here as another
 quantity entry.
 """
 import math

@@ -1,7 +1,7 @@
 """Tests for the v2.2 single-attribute inner-product dispatcher.
 
 The dispatcher (``_select_sa_inner_product_method``) decides between the
-orbit path and the pairwise path based on (r, n, mode, σ/P) when the
+Möbius method and Bulger's method based on (r, n, mode, σ/P) when the
 user passes ``method='auto'``. These tests verify that each branch of
 the decision tree fires as documented.
 """
@@ -43,7 +43,7 @@ def test_r2_small_n_routes_pairwise(n_max):
 
 @pytest.mark.parametrize("n_max", [9, 12, 32, 64])
 def test_r2_large_n_routes_orbit(n_max):
-    """r=2 with n>8: orbit path is selected."""
+    """r=2 with n>8: Möbius method is selected."""
     assert _select_sa_inner_product_method(
         r=2, n_max=n_max, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
@@ -63,7 +63,7 @@ def test_shipped_r_routes_orbit(r):
 def test_r_beyond_shipped_routes_pairwise(r):
     """Above the shipped-table cutoff, auto falls back to pairwise.
 
-    The orbit path still works correctly at higher r — but on first use
+    The Möbius method still works correctly at higher r — but on first use
     the table must be built from scratch (cost grows with B_r^2: r=9
     takes roughly an hour, r=10 prohibitive). Defaulting to pairwise
     avoids surprising users with a slow first call; an explicit

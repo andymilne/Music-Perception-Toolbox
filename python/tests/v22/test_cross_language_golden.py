@@ -8,7 +8,7 @@ values; running both pins down cross-language numerical agreement to
 including the safe/unsafe hybrid, Rényi-2 entropy SA + MA, orbit-path
 :func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
 
-Inputs use ``method='orbit'`` on the cosine cases so the orbit Möbius
+Inputs use ``method='mobius'`` on the cosine cases so the orbit Möbius
 machinery is genuinely exercised rather than the dispatcher's
 cost-model fallback to pairwise. Sigmas are chosen to keep values
 well-conditioned (away from FP underflow); a 1e-8 relative tolerance
@@ -46,7 +46,7 @@ def test_golden_sa_cossim_abs_r3():
     w = np.array([1.0, 1.0, 1.0])
     s = cos_sim_exp_tens(
         p1, w, p2, w, 80.0, 3, False, False, 0.0,
-        method='orbit', verbose=False,
+        method='mobius', verbose=False,
     )
     GOLDEN = 0.67614851033133
     assert abs(s - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
@@ -63,7 +63,7 @@ def test_golden_sa_cossim_rel_r3_per():
     w = np.array([1.0, 1.0, 1.0])
     s = cos_sim_exp_tens(
         p1, w, p2, w, 80.0, 3, True, True, 1200.0,
-        method='orbit', verbose=False,
+        method='mobius', verbose=False,
     )
     GOLDEN = 0.98878587374986
     assert abs(s - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
@@ -99,7 +99,7 @@ def test_golden_ma_cossim_ragged_k_hybrid():
                         [False], [False], [0.0], verbose=False)
     dy = build_exp_tens([P_y], [W_y], [25.0], [3], None,
                         [False], [False], [0.0], verbose=False)
-    s = cos_sim_exp_tens(dx, dy, method='orbit', verbose=False)
+    s = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
     GOLDEN = 0.12066345091832
     assert abs(s - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
 

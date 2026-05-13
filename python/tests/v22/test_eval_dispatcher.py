@@ -38,15 +38,15 @@ RTOL = 1e-10
         (2, 4, False, True, 'centres'),
         (2, 8, False, True, 'centres'),
         # r=2 with K>=9: orbit.
-        (2, 9, False, True, 'orbit'),
-        (2, 20, False, True, 'orbit'),
+        (2, 9, False, True, 'mobius'),
+        (2, 20, False, True, 'mobius'),
         # r=3 abs: orbit when K-r >= 2.
-        (3, 5, False, True, 'orbit'),
-        (3, 5, False, False, 'orbit'),
+        (3, 5, False, True, 'mobius'),
+        (3, 5, False, False, 'mobius'),
         # r=3 abs with K-r=1: centres (precision guard).
         (3, 4, False, True, 'centres'),
         # r=4 abs: orbit when K-r >= 2.
-        (4, 6, False, True, 'orbit'),
+        (4, 6, False, True, 'mobius'),
         # r=9 (beyond shipped tables): centres.
         (9, 12, False, True, 'centres'),
         # Rel mode at any r: centres (cost rule).
@@ -67,8 +67,8 @@ def test_select_sa_eval_method_user_override():
     # Force orbit even at r=2 K=5 (would auto to centres).
     assert _select_sa_eval_method(
         r=2, K=5, n_q=10, is_rel=False, is_per=True,
-        sigma_over_P=0.025, user_method='orbit',
-    ) == 'orbit'
+        sigma_over_P=0.025, user_method='mobius',
+    ) == 'mobius'
     # Force centres at r=4 K=10 (would auto to orbit).
     assert _select_sa_eval_method(
         r=4, K=10, n_q=10, is_rel=False, is_per=True,
@@ -102,7 +102,7 @@ def test_select_sa_eval_method_rejects_unknown():
         (3, 8, False, True),
         (3, 8, False, False),
         (4, 10, False, True),
-        # Rel mode: still tests that explicit method='orbit' produces
+        # Rel mode: still tests that explicit method='mobius' produces
         # a value consistent with centres at moderate σ/P.
         (3, 8, True, True),
         (3, 8, True, False),
@@ -129,7 +129,7 @@ def test_eval_methods_agree(r, K, is_rel, is_per):
 
     v_auto = eval_exp_tens(T, x, method='auto', verbose=False)
     v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
-    v_orbit = eval_exp_tens(T, x, method='orbit', verbose=False)
+    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
 
     assert np.allclose(v_auto, v_centres, atol=ATOL, rtol=RTOL)
     assert np.allclose(v_centres, v_orbit, atol=ATOL, rtol=RTOL)
@@ -141,7 +141,7 @@ def test_eval_methods_agree(r, K, is_rel, is_per):
 
 
 def test_eval_orbit_at_K_minus_r_below_guard_via_explicit():
-    """User-forced method='orbit' at K-r < 2 still runs (no guard
+    """User-forced method='mobius' at K-r < 2 still runs (no guard
     on explicit override). Auto would have picked centres."""
     rng = np.random.default_rng(0)
     K, r = 4, 3  # K - r = 1, below guard
@@ -154,7 +154,7 @@ def test_eval_orbit_at_K_minus_r_below_guard_via_explicit():
     v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
     assert np.allclose(v_auto, v_centres, atol=ATOL, rtol=RTOL)
     # Explicit orbit runs without error (precision may be reduced).
-    v_orbit = eval_exp_tens(T, x, method='orbit', verbose=False)
+    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
     assert np.all(np.isfinite(v_orbit))
 
 
@@ -174,6 +174,6 @@ def test_eval_orbit_memory_efficient_at_high_r():
     T = build_exp_tens(p, w, 50.0, r, False, True, P, verbose=False)
     x = rng.uniform(0, P, (r, 5))
     v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
-    v_orbit = eval_exp_tens(T, x, method='orbit', verbose=False)
+    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
     # At low cancellation, orbit should match centres at FP.
     assert np.allclose(v_centres, v_orbit, atol=ATOL, rtol=1e-9)

@@ -119,8 +119,8 @@ def main():
             t_orbit, t_pw, pred_orbit, pred_pw = measure_cell(
                 is_rel, is_per, r, K, sigma,
             )
-            measured_choice = "orbit" if t_orbit < t_pw else "pairwise"
-            predicted_choice = "orbit" if pred_orbit < pred_pw else "pairwise"
+            measured_choice = "mobius" if t_orbit < t_pw else "bulger"
+            predicted_choice = "mobius" if pred_orbit < pred_pw else "bulger"
             agree = "" if measured_choice == predicted_choice else "DISAGREE"
             print(
                 f"{mode_name:<11} {r:>2} {K:>2} {sp:>5.3f} | "

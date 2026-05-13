@@ -74,11 +74,11 @@ class TestHardRules:
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 1000))
         chosen, probed, est = _select_and_estimate_sa(
-            dens, x, 1000, method='orbit',
+            dens, x, 1000, method='mobius',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
         )
-        assert chosen == 'orbit'
+        assert chosen == 'mobius'
         assert probed is False
 
     def test_user_invalid_method_raises(self):
@@ -190,7 +190,7 @@ class TestAbsPreScreen:
                 truncation_sigmas=None, kernel_precision=None,
                 verbose=False,
             )
-            assert chosen == 'orbit', (
+            assert chosen == 'mobius', (
                 f"K={K} r=3 abs n_q={n_q} should pre-screen to orbit "
                 f"(ratio K^(r-1)/(B_r*r) = {K**2/(5*3):.0f}); got {chosen!r}"
             )
@@ -284,7 +284,7 @@ class TestCentresMemoryBudget:
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
         )
-        assert chosen == 'orbit'
+        assert chosen == 'mobius'
         assert probed is False
 
 
@@ -309,7 +309,7 @@ class TestProbing:
             verbose=False,
         )
         assert probed is True
-        assert chosen in ('centres', 'orbit')
+        assert chosen in ('centres', 'mobius')
         assert est > 0
 
     def test_estimate_scales_with_n_q(self):

@@ -55,10 +55,10 @@ class TestCosSimSACentresRouting:
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=is_rel, is_per=is_per)
         s_exact = cos_sim_exp_tens(
-            dens_x, dens_y, method='pairwise', verbose=False,
+            dens_x, dens_y, method='bulger', verbose=False,
         )
         s_trunc = cos_sim_exp_tens(
-            dens_x, dens_y, method='pairwise',
+            dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
         # 6-sigma truncation: kernel discard bound exp(-18) ~ 1.5e-8;
@@ -76,10 +76,10 @@ class TestCosSimSACentresRouting:
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=True, is_per=True)
         s_default = cos_sim_exp_tens(
-            dens_x, dens_y, method='pairwise', verbose=False,
+            dens_x, dens_y, method='bulger', verbose=False,
         )
         s_with_kwarg = cos_sim_exp_tens(
-            dens_x, dens_y, method='pairwise',
+            dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
         # Bit-exact: helper not used for rel+per.
@@ -101,13 +101,13 @@ class TestCosSimSACentresRouting:
         reset_defaults()
         t0 = time.perf_counter()
         s_exact = cos_sim_exp_tens(
-            dens_a, dens_b, method='pairwise', verbose=False,
+            dens_a, dens_b, method='bulger', verbose=False,
         )
         t_exact = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         s_trunc = cos_sim_exp_tens(
-            dens_a, dens_b, method='pairwise',
+            dens_a, dens_b, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
         t_trunc = time.perf_counter() - t0
@@ -129,14 +129,14 @@ class TestCosSimSACentresRouting:
         dens_x, dens_y = _build_density_pair(is_rel=True, is_per=False)
 
         s_explicit = cos_sim_exp_tens(
-            dens_x, dens_y, method='pairwise',
+            dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
 
         set_default(truncation_sigmas=6.0)
         try:
             s_global = cos_sim_exp_tens(
-                dens_x, dens_y, method='pairwise', verbose=False,
+                dens_x, dens_y, method='bulger', verbose=False,
             )
         finally:
             reset_defaults()
@@ -169,11 +169,11 @@ class TestCosSimListPath:
         ] * 3
 
         s_exact = cos_sim_exp_tens(
-            densities_x, densities_y, method='pairwise',
+            densities_x, densities_y, method='bulger',
             mode='pairwise', verbose=False,
         )
         s_trunc = cos_sim_exp_tens(
-            densities_x, densities_y, method='pairwise', mode='pairwise',
+            densities_x, densities_y, method='bulger', mode='pairwise',
             truncation_sigmas=6.0, verbose=False,
         )
         np.testing.assert_allclose(s_exact, s_trunc, rtol=0, atol=1e-7)

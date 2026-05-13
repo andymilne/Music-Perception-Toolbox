@@ -47,11 +47,11 @@ class ExpTensDensity:
     ``n_j = K!/(K-r)!`` makes the per-tuple arrays prohibitively
     expensive (e.g., K=256, r=4 → ~9·10⁸ tuples). Consumers that need
     only ``p``, ``w``, and the scalar parameters — for example,
-    ``eval_exp_tens(method='orbit')``, ``cos_sim_exp_tens(method='orbit')``
-    via the orbit-Möbius IP path, or ``entropy_exp_tens(method='renyi2')``
+    ``eval_exp_tens(method='mobius')``, ``cos_sim_exp_tens(method='mobius')``
+    via the Möbius method's IP path, or ``entropy_exp_tens(method='renyi2')``
     — read just the eagerly-stored inputs and never trigger the build.
-    Consumers that do need them (the v2.0 centres path, the pairwise
-    cosine path, or any direct field access) trigger the build on
+    Consumers that do need them (the v2.0 centres path, Bulger's
+    method, or any direct field access) trigger the build on
     first read; subsequent reads return the cached result. The
     materialisation is one-shot — once built, the arrays persist on
     the object and are not rebuilt.
@@ -262,8 +262,8 @@ class MaetDensity:
     ``v_comb``, ``w_j``, ``wv_comb``, ``event_of_j``, ``event_of_k``)
     are constructed lazily on first access and cached. This keeps
     ``build_exp_tens`` cheap and avoids OOM at high cardinality when
-    only the orbit-Möbius path is exercised (MA cosine
-    ``method='orbit'``, MA Rényi-2 entropy). Use :attr:`materialised`
+    only the Möbius method is exercised (MA cosine
+    ``method='mobius'``, MA Rényi-2 entropy). Use :attr:`materialised`
     to check the cache state without triggering a build.
 
     Conventions
@@ -1344,15 +1344,16 @@ def eval_exp_tens(*args,
     precision : int, optional
         FP-noise tolerance for canonical-form dedup. Raw SA batched
         only.
-    method : {'auto', 'centres', 'orbit'}, default 'auto'
+    method : {'auto', 'centres', 'mobius'}, default 'auto'
         SA-path evaluation strategy. ``'auto'`` lets the dispatcher
         choose between the centres-array path (v2.0 behaviour, fast
-        at low r) and the orbit-Möbius point evaluator (much faster
-        at r >= 3 since it bypasses the ``(dim, n_j)`` centres tensor
-        whose memory and runtime scale as ``K!/(K-r)!``). ``'centres'``
-        forces the v2.0 path; ``'orbit'`` forces the orbit path.
-        Currently a no-op on the MA path (MA always uses centres in
-        v2.2; an MA orbit path is on the roadmap).
+        at low r) and the Möbius point evaluator (new in v2.2; much
+        faster at r >= 3 since it bypasses the ``(dim, n_j)`` centres
+        tensor whose memory and runtime scale as ``K!/(K-r)!``).
+        ``'centres'`` forces the v2.0 path; ``'mobius'`` forces the
+        Möbius method (previously called ``'orbit'``). Currently a no-op
+        on the MA path (MA always uses centres in v2.2; an MA Möbius
+        path is on the roadmap).
     verbose : bool, default True
         Print progress.
 
@@ -1364,13 +1365,13 @@ def eval_exp_tens(*args,
 
     Notes
     -----
-    Numerical precision envelope for ``method='orbit'``.
+    Numerical precision envelope for ``method='mobius'``.
 
-    The orbit-Möbius point evaluator is exact to floating-point
-    precision when ``K >= r + 2`` and σ is not catastrophically small
-    relative to P. The dispatcher enforces these conditions
-    structurally — it falls back to the centres path when ``K < r + 2``,
-    when ``σ/P > 0.03`` in periodic-relative mode, or when the orbit
+    The Möbius point evaluator is exact to floating-point precision
+    when ``K >= r + 2`` and σ is not catastrophically small relative
+    to P. The dispatcher enforces these conditions structurally — it
+    falls back to the centres path when ``K < r + 2``, when
+    ``σ/P > 0.03`` in periodic-relative mode, or when the Möbius
     output contains non-finite values (post-hoc safety net).
 
     What is *not* currently caught: a finite, but slightly inaccurate
@@ -1529,7 +1530,7 @@ def _eval_exp_tens_scalar(
     """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body).
 
     Threads ``method`` through to :func:`_eval_exp_tens_sa` for SA densities;
-    MA path ignores ``method`` (an MA orbit path is on the v2.3 roadmap).
+    MA path ignores ``method`` (an MA Möbius method is on the v2.3 roadmap).
     Threads ``truncation_sigmas`` / ``kernel_precision`` through to the
     SA centres path; MA centres routing is deferred (Stage 3).
     """
@@ -1819,8 +1820,8 @@ def _eval_exp_tens_sa(
 ) -> np.ndarray:
     """Single-attribute expectation tensor evaluation (dispatcher).
 
-    Routes between the v2.0 centres-array path and the v2.2 orbit-
-    Möbius point evaluator according to ``method`` and the cost model
+    Routes between the v2.0 centres-array path and the v2.2 Möbius
+    point evaluator according to ``method`` and the cost model
     in :func:`_select_sa_eval_method`.
     """
     x = np.asarray(x, dtype=np.float64)
@@ -1850,8 +1851,8 @@ def _eval_exp_tens_sa(
         chosen = "centres"
         probed = False
         est_sec = 0.0
-    elif method == "orbit":
-        chosen = "orbit"
+    elif method == "mobius":
+        chosen = "mobius"
         probed = False
         est_sec = 0.0
     elif method == "auto":
@@ -1871,7 +1872,7 @@ def _eval_exp_tens_sa(
             )
     else:
         raise ValueError(
-            f"method must be 'auto', 'centres', 'direct', or 'orbit'; "
+            f"method must be 'auto', 'centres', 'direct', or 'mobius'; "
             f"got '{method}'."
         )
 
@@ -1906,7 +1907,7 @@ def _eval_exp_tens_sa(
         and (prec_resolved == "double")
     )
 
-    if chosen == "orbit":
+    if chosen == "mobius":
         vals = _eval_exp_tens_sa_orbit(
             dens, x, n_q,
             truncation_sigmas=truncation_sigmas,
@@ -1914,13 +1915,13 @@ def _eval_exp_tens_sa(
             verbose=False,
         )
         # Post-hoc finiteness check. Mirrors the cosine-path safety
-        # net: if the orbit alternating sum produces non-finite output
+        # net: if the Möbius alternating partition sum produces non-finite output
         # (extreme σ → 0 regime), fall back to centres rather than
         # propagating NaN/Inf into the user's result.
         if not np.all(np.isfinite(vals)):
             if verbose:
                 warnings.warn(
-                    "eval_exp_tens orbit path produced non-finite "
+                    "eval_exp_tens Möbius method produced non-finite "
                     "values; falling back to centres path."
                 )
             if use_default_kwargs:
@@ -2079,7 +2080,7 @@ def _eval_exp_tens_sa_orbit(
     memory in the centres path at high r.
 
     v2.2.x (Stage 4): forwards ``truncation_sigmas`` /
-    ``kernel_precision`` to the orbit evaluators. The non-periodic
+    ``kernel_precision`` to the Möbius evaluators. The non-periodic
     per-block kernel sum routes through ``gaussian_kernel_sum`` with
     ``sigma_eff = sigma/sqrt(m)``, gaining truncation natively.
     """
@@ -2544,16 +2545,20 @@ def cos_sim_exp_tens(*args,
         Round canonical pitch and weight values to this many decimal
         places, to absorb FP noise when deduplicating. Only valid in
         raw SA batched mode.
-    method : {'auto', 'pairwise', 'direct'}, default 'auto'
-        Inner-product evaluation path; threaded through to the per-pair
-        SA/MA core. ``'auto'`` lets the v2.2 dispatcher pick between the
-        orbit-Möbius path (fast at r >= 3) and the v2.1 pairwise-wrap
-        path; ``'pairwise'`` forces the v2.1 path; ``'direct'`` forces
-        direct enumeration.
+    method : {'auto', 'bulger', 'mobius', 'direct'}, default 'auto'
+        Inner-product method; threaded through to the per-pair SA/MA
+        core. ``'auto'`` lets the v2.2 dispatcher pick between Bulger's
+        method (the v1 / v2.1 decomposition; small r and small K) and
+        the Möbius method (new in v2.2; large r or large K).
+        ``'bulger'`` forces Bulger's method (previously called
+        ``'pairwise'``); ``'mobius'`` forces the Möbius method
+        (previously called ``'orbit'``); ``'direct'`` forces direct
+        ordered-tuple enumeration.
     cancellation_threshold : float, default 1e-12
-        When the orbit path is selected and ``|<A,B>|`` falls below
-        this fraction of ``sqrt(<A,A><B,B>)``, fall back to the
-        pairwise path to avoid catastrophic Möbius cancellation.
+        When the Möbius method is selected and ``|<A,B>|`` falls below
+        this fraction of ``sqrt(<A,A><B,B>)``, fall back to Bulger's
+        method to avoid catastrophic Möbius alternating-sum
+        cancellation.
     verbose : bool, default True
         Print progress.
 
@@ -2565,13 +2570,14 @@ def cos_sim_exp_tens(*args,
 
     Notes
     -----
-    The orbit-Möbius path (v2.2) is exact to floating-point precision
-    when every per-attribute ``K_a`` satisfies ``K_a >= r_a + 2`` and
-    σ is not catastrophically small relative to P. The dispatcher
-    enforces these conditions structurally — it refuses orbit and
-    routes to pairwise when ``K_a < r_a + 2``, when ``σ/P > 0.03`` in
-    periodic-relative mode, or when the σ → 0 fallback triggers.
-    Pass ``method='pairwise'`` to bypass the orbit path entirely.
+    The Möbius method (new in v2.2) is exact to floating-point
+    precision when every per-attribute ``K_a`` satisfies
+    ``K_a >= r_a + 2`` and σ is not catastrophically small relative to
+    the period P. The dispatcher enforces these conditions structurally
+    — it refuses the Möbius method and routes to Bulger's method when
+    ``K_a < r_a + 2``, when ``σ/P > 0.03`` in periodic-relative mode,
+    or when the σ → 0 fallback triggers. Pass ``method='bulger'`` to
+    bypass the Möbius method entirely.
 
     See Also
     --------
@@ -2584,7 +2590,7 @@ def cos_sim_exp_tens(*args,
     ----------
     Originally by David Bulger, Macquarie University (2016).
     Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
-    Möbius–Bulger orbit reformulation added in v2.2 (2026).
+    Möbius method added in v2.2 (2026).
     """
     if len(args) < 2:
         raise TypeError(
@@ -3118,21 +3124,22 @@ def _cos_sim_raw_ma_scalar(
 
 
 _ORBIT_CANCELLATION_RATIO_MIN = 1e-10
-"""Minimum acceptable cancellation ratio in the orbit Möbius alternating sum.
+"""Minimum acceptable cancellation ratio in the Möbius method's alternating partition sum.
 
 When ``|sum| / max(|term|)`` drops below this threshold the result has
 lost roughly 10 of its 16 significant decimal digits, leaving ~6
 surviving — borderline acceptable for cosine accuracy at downstream
 1e-6 user tolerance, but past this point the dispatcher falls back to
-pairwise. See V22_DEV_LOG.md for the empirical regime where this
+Bulger's method. See V22_DEV_LOG.md for the empirical regime where this
 fires (sharp Gaussians + low K-r margin in absolute modes)."""
 
 
 def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
-    """Cheap post-hoc sanity check on orbit-computed inner products.
+    """Cheap post-hoc sanity check on Möbius-method-computed inner products.
 
-    The orbit path's Möbius alternating sum can break down catastrophically
-    in two regimes documented during the May 2026 audit:
+    The Möbius method's alternating partition sum can break down
+    catastrophically in two regimes documented during the May 2026
+    audit:
 
     * σ → 0 with low K and r ≥ 3 (music-theoretical exact-match regime):
       auto-IP terms cancel to a value with magnitude near
@@ -3152,13 +3159,13 @@ def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
     Parameters
     ----------
     ip_xy, ip_xx, ip_yy : float
-        Cross and auto inner products from the orbit path.
+        Cross and auto inner products from the Möbius method.
 
     Returns
     -------
     bool
         True if the IPs are unsuitable for use and the caller should
-        fall back to pairwise.
+        fall back to Bulger's method.
     """
     if not (np.isfinite(ip_xy) and np.isfinite(ip_xx) and np.isfinite(ip_yy)):
         return True
@@ -3182,11 +3189,12 @@ def _cos_sim_exp_tens_sa(
 ) -> float:
     """Single-attribute cosine similarity.
 
-    v2.2 adds a ``method`` keyword that routes between the v2.1
-    pairwise-wrap path (``_ip_core``) and the orbit-Möbius path
-    introduced in v2.2. With the default ``method='auto'`` and
-    perceptually typical parameters, the orbit path is selected and
-    the result agrees with v2.1 to floating-point precision.
+    v2.2 adds a ``method`` keyword that routes between Bulger's method
+    — the v1 / v2.1 decomposition with periodic pairwise-wrap form
+    (``_ip_core``) — and the Möbius method introduced in v2.2. With
+    the default ``method='auto'`` and perceptually typical parameters,
+    the Möbius method is selected and the result agrees with v2.1 to
+    floating-point precision.
     """
     if dens_x.r != dens_y.r:
         raise ValueError("Both densities must have the same r.")
@@ -3199,9 +3207,9 @@ def _cos_sim_exp_tens_sa(
     if dens_x.sigma != dens_y.sigma:
         raise ValueError("Both densities must have the same sigma.")
 
-    if method not in ("auto", "pairwise", "direct", "orbit"):
+    if method not in ("auto", "bulger", "direct", "mobius"):
         raise ValueError(
-            f"method must be one of 'auto', 'pairwise', 'direct'; "
+            f"method must be one of 'auto', 'bulger', 'direct'; "
             f"got {method!r}."
         )
 
@@ -3237,14 +3245,14 @@ def _cos_sim_exp_tens_sa(
             f"Ctrl-C to cancel."
         )
 
-    if chosen == "orbit":
+    if chosen == "mobius":
         ip_xy, ip_xx, ip_yy, worst_ratio = _cos_sim_exp_tens_sa_orbit(
             dens_x, dens_y,
         )
-        # Three layers of orbit-result validation, fall back on any:
+        # Three layers of Möbius-method result validation, fall back on any:
         # 1. Cross-cancellation guard: <A,B> small relative to
-        #    sqrt(<A,A><B,B>) — the orbit estimate may be dominated by
-        #    cancellation between partition-orbit terms.
+        #    sqrt(<A,A><B,B>) — the Möbius estimate may be dominated by
+        #    cancellation between partition terms.
         denom_geo = np.sqrt(max(ip_xx * ip_yy, 0.0))
         cross_cancellation = (
             denom_geo > 0
@@ -3268,7 +3276,7 @@ def _cos_sim_exp_tens_sa(
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
             )
-    else:  # 'pairwise' or 'direct' — coincide in SA mode
+    else:  # 'bulger' or 'direct' — coincide in SA mode
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
@@ -3296,14 +3304,14 @@ def _cos_sim_exp_tens_ma(
 ) -> float:
     """Multi-attribute cosine similarity.
 
-    v2.2 adds a ``method`` keyword that routes between the v2.1
-    pairwise-wrap path (``_ip_core_ma``) and the orbit-Möbius path
-    introduced in v2.2. With the default ``method='auto'`` and
-    perceptually typical parameters (no NaN-padded ``p_attr``,
-    r_a ≤ ``_ORBIT_R_MAX_SHIPPED``, σ/P ≤
-    ``_ORBIT_SIGMA_OVER_P_THRESHOLD`` for periodic-relative groups),
-    the orbit path is selected and the result agrees with v2.1 to
-    floating-point precision.
+    v2.2 adds a ``method`` keyword that routes between Bulger's method
+    — the v1 / v2.1 decomposition with periodic pairwise-wrap form
+    (``_ip_core_ma``) — and the Möbius method introduced in v2.2.
+    With the default ``method='auto'`` and perceptually typical
+    parameters (no NaN-padded ``p_attr``, r_a ≤
+    ``_ORBIT_R_MAX_SHIPPED``, σ/P ≤ ``_ORBIT_SIGMA_OVER_P_THRESHOLD``
+    for periodic-relative groups), the Möbius method is selected and
+    the result agrees with v2.1 to floating-point precision.
 
     Both densities must share the full parameter structure: number of
     attributes, group assignment, per-attribute ``r``, and per-group
@@ -3334,9 +3342,9 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic groups."
         )
 
-    if method not in ("auto", "pairwise", "direct", "orbit"):
+    if method not in ("auto", "bulger", "direct", "mobius"):
         raise ValueError(
-            f"method must be one of 'auto', 'pairwise', 'direct'; "
+            f"method must be one of 'auto', 'bulger', 'direct'; "
             f"got {method!r}."
         )
 
@@ -3370,7 +3378,7 @@ def _cos_sim_exp_tens_ma(
 
     # Per-attribute slab dimension K_a (the kernel slab size; events
     # within an attribute may have lower K_eff via NaN padding, which
-    # the orbit wrapper handles via per-event safe/unsafe partition).
+    # the Möbius-method wrapper handles via per-event safe/unsafe partition).
     k_vec = np.array(
         [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
     ) if A > 0 else np.zeros(0, dtype=np.intp)
@@ -3385,19 +3393,19 @@ def _cos_sim_exp_tens_ma(
         user_method=method,
     )
 
-    if chosen == "orbit":
+    if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y,
         )
-        # Two layers of orbit-result validation, fall back on either.
+        # Two layers of Möbius-method result validation, fall back on either.
         # The per-entry worst_ratio diagnostic that previously gated
         # this fallback (analogous to the SA case) was found to fire
         # spuriously for self-IP matrices: it reports per-(n,m) entry
-        # cancellation in the per-attribute orbit Möbius sums, but
+        # cancellation in the per-attribute Möbius alternating partition sums, but
         # the cosine consumes only Σ_{n,m} P[n,m], where individual
         # entries with bad ratios contribute negligibly. Empirically,
         # at typical musical sigmas the diagnostic flagged ~100% of
-        # MA self-IPs while the values themselves matched pairwise
+        # MA self-IPs while the values themselves matched Bulger's method
         # to FP precision. The cross-cancellation guard plus the
         # post-hoc IP corruption check below catch the residual real
         # failure modes (small/sign-flipped cosines and non-finite
@@ -3412,7 +3420,7 @@ def _cos_sim_exp_tens_ma(
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
             )
-    else:  # 'pairwise' or 'direct' (coincide in MA mode)
+    else:  # 'bulger' or 'direct' (coincide in MA mode)
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
         )
@@ -3502,7 +3510,7 @@ def _ma_log_kernel(
 
 
 # -------------------------------------------------------------------
-#  v2.2 — Möbius–Bulger orbit dispatcher (multi-attribute path)
+#  v2.2 — Möbius method dispatcher (multi-attribute path)
 # -------------------------------------------------------------------
 #
 #  Per the MAET inner-product factorisation (JMM Eq. 3.4 with the
@@ -3512,24 +3520,24 @@ def _ma_log_kernel(
 #
 #      <T_X, T_Y>_MA = Σ_{n_X, n_Y} Π_a I_a(n_X, n_Y)
 #
-#  where I_a(n_X, n_Y) is an SA-shaped orbit-Möbius inner product over
+#  where I_a(n_X, n_Y) is an SA-shaped Möbius inner product over
 #  the K_a slot values of event n_X (X-side) against those of n_Y
-#  (Y-side), with the group's mode parameters. v2.1 collapses this
-#  into a flat (n_J × n_K) bilinear form that scales as
-#  N² · Π_a [r_a! · C(K_a, r_a)]² ; the orbit form scales as
+#  (Y-side), with the group's mode parameters. Bulger's method
+#  collapses this into a flat (n_J × n_K) bilinear form that scales
+#  as N² · Π_a [r_a! · C(K_a, r_a)]²; the Möbius form scales as
 #  N² · A · |Ω_{r_a}| · K_a², a substantial saving when K_a is
 #  non-trivial.
 #
-#  Limitations of the v2.2 orbit path:
+#  Limitations of the v2.2 Möbius method:
 #  - NaN-padded ``p_attr`` (variable K_a per event) is not yet
-#    supported by the per-event orbit loop; dispatcher detects and
-#    falls back to pairwise.
+#    supported by the per-event Möbius loop; dispatcher detects and
+#    falls back to Bulger's method.
 #  - Per-attribute r_a > _ORBIT_R_MAX_SHIPPED falls back (no orbit
 #    table shipped at that order).
 #
-#  Per-attribute orbit calls apply the SA convention's
-#  (σ_a √π)^{r_a} prefactor, so the orbit-MA bare triple
-#  (ip_xy, ip_xx, ip_yy) differs from the pairwise-MA triple by
+#  Per-attribute Möbius calls apply the SA convention's
+#  (σ_a √π)^{r_a} prefactor, so the Möbius-method MA bare triple
+#  (ip_xy, ip_xx, ip_yy) differs from Bulger's MA triple by
 #  Π_a (σ_a √π)^{r_a} · r_a! — which cancels in the cosine.
 
 
@@ -3538,7 +3546,7 @@ def _ma_has_nan(dens):
     return any(np.isnan(M).any() for M in dens.p_attr)
 
 
-# Per-r K thresholds for the orbit-vs-pairwise crossover, established
+# Per-r K thresholds for the Möbius-vs-Bulger crossover, established
 # empirically on representative MAET workloads (N = 8-12, σ = 12,
 # P = 1200, samples_per_sigma = 5). Retained for reference but
 # superseded by the cost-model dispatcher below, which also accounts
@@ -3553,12 +3561,13 @@ _K_THRESHOLD_REL_PER = {2: float("inf"), 3: 10, 4: 8, 5: 7, 6: 6}
 # benchmark covering all four modes (abs/rel × per/nonper) at A ∈ {1, 2},
 # r ∈ {2, 3, 4}, N ∈ {2, 4, 8, 16}, K spanning each mode's feasible
 # range. r ∈ {5, 6} extrapolated from |Ω_r| growth (4, 10, 33, 92, 306,
-# 948). Predicts pairwise and orbit wall times in milliseconds and picks
+# 948). Predicts Bulger and Möbius wall times in milliseconds and picks
 # the smaller. Validated against 277 measured cells: 94 % within 5 % of
-# optimal, 0 mis-routes to pairwise (no OOM-zone violations), 7 close-call
-# mis-routes to orbit (max 3.9 × slowdown, all at < 100 ms absolute).
+# optimal, 0 mis-routes to Bulger's method (no OOM-zone violations), 7
+# close-call mis-routes to the Möbius method (max 3.9 × slowdown, all at
+# < 100 ms absolute).
 
-# Pairwise: per-entry cost of the (n_J × n_K) kernel matrix in ms. The
+# Bulger: per-entry cost of the (n_J × n_K) kernel matrix in ms. The
 # periodic branches build a wrapped-difference tensor, which empirically
 # costs ~2.0–2.3 × the non-periodic branch (modular arithmetic plus
 # index-array growth). Verified across both abs and rel modes.
@@ -3567,22 +3576,22 @@ _PW_PER_ENTRY_MS_PER = 7.0e-4   # p75 of measured per-entry cost (per bucket)
 
 
 def _pw_per_entry_ms(any_per):
-    """Pick the pairwise-per-entry cost based on whether any group wraps."""
+    """Pick the per-entry cost for Bulger's method based on whether any group wraps."""
     return _PW_PER_ENTRY_MS_PER if any_per else _PW_PER_ENTRY_MS_NONPER
 
 
-# Orbit (absolute modes, both per and nonper — empirically within ±5 %
-# of each other). Vectorised across event pairs, so cost is roughly
-# constant in N_x · N_y; linear in A at r = 2, 3 and slightly sub-linear
-# at r = 4. Per-r baseline at A = 1. Entries for r >= 7 extrapolated
-# from the empirical 3× orbit-count growth per r (anchored to measured
-# r=2..6 values); these are conservative and may be refined later.
+# Möbius method (absolute modes, both per and nonper — empirically
+# within ±5 % of each other). Vectorised across event pairs, so cost
+# is roughly constant in N_x · N_y; linear in A at r = 2, 3 and slightly
+# sub-linear at r = 4. Per-r baseline at A = 1. Entries for r >= 7
+# extrapolated from the empirical 3× orbit-class count growth per r (anchored
+# to measured r=2..6 values); these are conservative and may be refined later.
 _ORBIT_ABS_PER_ATTR_MS = {
     2: 3.0, 3: 11.2, 4: 45.0, 5: 150.0, 6: 500.0,
     7: 1500.0, 8: 4500.0,
 }
 
-# Orbit (relative-periodic): vectorised across event pairs but each
+# Möbius method (relative-periodic): vectorised across event pairs but each
 # pair carries a u-grid integration of N_u ≈ period/σ × samples_per_σ
 # samples, plus a fixed per-call setup cost (~5 ms). Cost grows with
 # A · N_x · N_y · K_max² · |Ω_r|.
@@ -3592,13 +3601,13 @@ _ORBIT_RELPER_PER_PAIR_K2_MS = {
     7: 60.0, 8: 200.0,
 }
 
-# Orbit (relative-aperiodic): the orbit path here is a per-(n_X, n_Y)
-# Python loop (not batched across event pairs), so the per-pair-K²
-# constant is roughly 4 × the rel-periodic constant. At A = 1 this
-# orbit branch is almost always slower than pairwise; at A ≥ 2 it
-# wins comfortably once K is moderate, because pairwise grows as
-# ∏_a C(K_a, r_a)² which compounds across attributes whereas orbit
-# adds linearly.
+# Möbius method (relative-aperiodic): the implementation here is a
+# per-(n_X, n_Y) Python loop (not batched across event pairs), so the
+# per-pair-K² constant is roughly 4 × the rel-periodic constant. At
+# A = 1 this Möbius branch is almost always slower than Bulger's method;
+# at A ≥ 2 it wins comfortably once K is moderate, because Bulger's
+# method grows as ∏_a C(K_a, r_a)² which compounds across attributes
+# whereas the Möbius method adds linearly.
 _ORBIT_RELNONPER_BASE_MS = 5.0
 _ORBIT_RELNONPER_PER_PAIR_K2_MS = {
     2: 0.25, 3: 1.05, 4: 3.30, 5: 12.0, 6: 50.0,
@@ -3607,7 +3616,7 @@ _ORBIT_RELNONPER_PER_PAIR_K2_MS = {
 
 
 def _orbit_beats_pairwise_per_attr(r, K, is_rel, is_per):
-    """Per-attribute K-threshold heuristic (legacy; superseded).
+    """Per-attribute K-threshold heuristic for Möbius-vs-Bulger crossover (legacy; superseded).
 
     Retained for callers that haven't migrated; the cost-model
     dispatcher in ``_select_ma_inner_product_method`` is preferred.
@@ -3624,7 +3633,7 @@ def _orbit_beats_pairwise_per_attr(r, K, is_rel, is_per):
 
 
 def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y):
-    """Predicted n_J · n_K for the pairwise MA path.
+    """Predicted n_J · n_K for the MA path under Bulger's method.
 
     n_J^X = N_x · ∏_a r_a! · C(K_a, r_a)
     n_K^Y = N_y · ∏_a C(K_a, r_a)
@@ -3646,7 +3655,7 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y):
 def _predict_orbit_cost_ms(
     r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
 ):
-    """Predicted orbit-MA wall time in milliseconds.
+    """Predicted Möbius-method MA wall time in milliseconds.
 
     Routes to the appropriate per-r constant based on the group mode:
     rel-aperiodic uses the per-pair Python-loop constants (largest);
@@ -3654,8 +3663,8 @@ def _predict_orbit_cost_ms(
     the vectorised batch constants. A scaling is linear (verified at
     r = 2, 3 to within ~5 %; slightly sub-linear at r = 4 but linear-A
     over-predicts conservatively, biasing the dispatcher toward
-    pairwise in close calls at r = 4 — and at r = 4 the pairwise side
-    explodes so quickly that this never matters in the OOM zone).
+    Bulger's method in close calls at r = 4 — and at r = 4 Bulger's
+    side explodes so quickly that this never matters in the OOM zone).
     """
     K_max = int(np.max(k_vec)) if A > 0 else 1
     if any_rel_nonper:
@@ -3676,27 +3685,27 @@ def _select_ma_inner_product_method(
     any_per, any_rel_nonper, any_rel_per,
     sigma_over_P_max, user_method,
 ):
-    """Pick the inner-product path for the MA case using a cost model.
+    """Pick the inner-product method for the MA case using a cost model.
 
     Routing rules, in order:
 
     1. ``user_method`` keyword override (anything other than 'auto').
-    2. Hard fallbacks where orbit cannot or should not run:
+    2. Hard fallbacks where the Möbius method cannot or should not run:
        - r_max ≤ 1: no within-tuple structure to exploit.
        - r_max > _ORBIT_R_MAX_SHIPPED: no orbit table available.
     3. Soft fallback: rel + per with σ/P beyond the integration-exact
-       regime warns and routes pairwise.
+       regime warns and routes to Bulger's method.
     4. Otherwise predict both wall times (in ms) and pick the smaller;
-       ties favour pairwise (no orbit-table fetch, no Möbius
+       ties favour Bulger's method (no orbit-table fetch, no Möbius
        cancellation risk).
 
     Ragged K_{a,n} (NaN-padded events) is handled inside
     :func:`_ma_per_attr_inner_matrix` via a per-event safe/unsafe
-    partition: events with K_eff - r >= 2 (the orbit precision margin)
-    flow through the vectorised batched orbit; pairs involving any
-    K_eff - r < 2 event flow through direct r-tuple enumeration (no
-    Möbius alternating sum, hence no cancellation). The dispatcher
-    therefore does not route on the presence of NaN entries.
+    partition: events with K_eff - r >= 2 (the Möbius-method precision margin)
+    flow through the vectorised batched Möbius evaluator; pairs
+    involving any K_eff - r < 2 event flow through direct r-tuple
+    enumeration (no Möbius alternating sum, hence no cancellation).
+    The dispatcher therefore does not route on the presence of NaN entries.
 
     The four modes (abs+nonper, abs+per, rel+nonper, rel+per) are
     routed as follows:
@@ -3704,17 +3713,17 @@ def _select_ma_inner_product_method(
     - abs + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
       `_ORBIT_ABS_PER_ATTR_MS`.
     - abs + per: cost model with `_PW_PER_ENTRY_MS_PER` (wrap on δ
-      tensor adds ~2 × pairwise overhead) and same orbit constants
-      (orbit cost is mode-independent in benchmark, ±5 %).
+      tensor adds ~2 × Bulger overhead) and same Möbius constants
+      (Möbius cost is mode-independent in benchmark, ±5 %).
     - rel + per: cost model with `_PW_PER_ENTRY_MS_PER` and
-      `_ORBIT_RELPER_PER_PAIR_K2_MS` (orbit u-grid integration
+      `_ORBIT_RELPER_PER_PAIR_K2_MS` (Möbius u-grid integration
       scales with N_x · N_y · K_max² · |Ω_r|).
     - rel + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
-      `_ORBIT_RELNONPER_PER_PAIR_K2_MS` (orbit per-pair Python loop;
+      `_ORBIT_RELNONPER_PER_PAIR_K2_MS` (Möbius per-pair Python loop;
       ~4 × the rel-per per-K² constant). At A = 1 the cost model
-      reliably routes to pairwise; at A ≥ 2 it routes to orbit once
-      pairwise's ∏_a C(K_a, r_a)² compounding overtakes orbit's
-      additive A · K_max² growth.
+      reliably routes to Bulger's method; at A ≥ 2 it routes to the
+      Möbius method once Bulger's ∏_a C(K_a, r_a)² compounding
+      overtakes the Möbius method's additive A · K_max² growth.
 
     Parameters
     ----------
@@ -3723,52 +3732,52 @@ def _select_ma_inner_product_method(
     k_vec : (A,) intp
         Per-attribute slab dimension K_a (the kernel slab size; events
         within an attribute may have lower K_eff via NaN padding,
-        which the orbit wrapper handles via per-event safe/unsafe
-        partition).
+        which the Möbius-method wrapper handles via per-event
+        safe/unsafe partition).
     A : int
         Number of attributes.
     N_x, N_y : int
         Event counts of the two densities.
     any_per : bool
-        True if any group has is_per=True (drives pairwise wrap cost).
+        True if any group has is_per=True (drives Bulger wrap cost).
     any_rel_nonper : bool
     any_rel_per : bool
     sigma_over_P_max : float
         Maximum σ/P across periodic-relative groups.
-    user_method : {'auto', 'pairwise', 'orbit', 'direct'}
+    user_method : {'auto', 'bulger', 'mobius', 'direct'}
     """
     if user_method != 'auto':
         return user_method
     r_max = int(np.max(r_vec)) if A > 0 else 1
     if r_max <= 1:
-        return 'pairwise'
+        return 'bulger'
     if r_max > _ORBIT_R_MAX_SHIPPED:
-        return 'pairwise'
-    # K-vs-r precision guard. The orbit path's auto-inner-products can
+        return 'bulger'
+    # K-vs-r precision guard. The Möbius method's auto-inner-products can
     # suffer catastrophic Möbius cancellation when any K_a is too close
     # to its r_a (see _ORBIT_K_MINUS_R_MIN block). The cross
     # cancellation guard at the call site does NOT catch this, since it
     # inspects only |<T_X,T_Y>|; corrupted <T_X,T_X> propagates silently
     # into the cosine denominator.
     if A > 0 and not _orbit_safe_for_precision(r_vec, k_vec):
-        return 'pairwise'
-    # Periodic-relative beyond σ/P threshold: in this regime the orbit
-    # path computes the JMM Eq. 3.4 integral form, while the pairwise
-    # path computes the v2.1-toolbox single-nearest-image-wrap form.
+        return 'bulger'
+    # Periodic-relative beyond σ/P threshold: in this regime the Möbius
+    # method computes the JMM Eq. 3.4 integral form, while Bulger's
+    # method computes the v2.1-toolbox single-nearest-image-wrap form.
     # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility with v2.1 the toolbox treats the
-    # pairwise-wrap form as canonical; orbit is therefore disabled
-    # above the threshold. Users who want the JMM-exact integral
-    # explicitly may pass method='orbit'.
+    # backward compatibility with v2.1 the toolbox treats Bulger's
+    # pairwise-wrap form as canonical; the Möbius method is therefore
+    # disabled above the threshold. Users who want the JMM-exact integral
+    # explicitly may pass method='mobius'.
     if any_rel_per and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
         warnings.warn(
             f"Maximum σ/P = {sigma_over_P_max:.3f} across periodic-relative "
-            f"groups exceeds the orbit-path threshold "
-            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}); falling back to the "
-            f"pairwise-wrap form. Pass method='pairwise' explicitly to "
-            f"silence this warning."
+            f"groups exceeds the Möbius-method threshold "
+            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}); falling back to Bulger's "
+            f"method (the pairwise-wrap form). Pass method='bulger' "
+            f"explicitly to silence this warning."
         )
-        return 'pairwise'
+        return 'bulger'
 
     pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
     pw_cost_ms = pw_size * _pw_per_entry_ms(any_per)
@@ -3776,8 +3785,8 @@ def _select_ma_inner_product_method(
         r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
     )
     if pw_cost_ms <= orbit_cost_ms:
-        return 'pairwise'
-    return 'orbit'
+        return 'bulger'
+    return 'mobius'
 
 
 def _ma_per_attr_inner_matrix(
@@ -3785,7 +3794,7 @@ def _ma_per_attr_inner_matrix(
     *, return_cancellation_ratio=False,
 ):
     """Per-attribute (event_X, event_Y) inner product matrix for the
-    orbit MA path.
+    MA path under the Möbius method.
 
     ``Px`` is (K, N_x), ``Wx`` is (K, N_x); same shape for Y. Returns
     an (N_x, N_y) matrix where entry (n_X, n_Y) is the per-attribute
@@ -3795,30 +3804,30 @@ def _ma_per_attr_inner_matrix(
     Strategy (in parity with MATLAB ``mobius.maPerAttrInnerMatrix``):
 
     - r = 1: direct kernel sum with NaN -> zero-weight padding (no
-      orbit, cancellation impossible).
+      Möbius decomposition, cancellation impossible).
 
     - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
       this attribute iff its non-NaN slot count K_eff satisfies
       ``K_eff - r >= _ORBIT_K_MINUS_R_MIN`` (= 2; the precision margin
-      used elsewhere in the orbit machinery). Safe-vs-safe pairs flow
-      through the vectorised batched orbit path with within-safe-group
+      used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
+      through the vectorised batched Möbius method with within-safe-group
       zero-padding. Pairs involving any unsafe event flow through
       :func:`_inner_product_direct_abs_sa`, which is exact for any
       K >= r (no Möbius alternating sum, so no cancellation).
 
     - r >= 2 rel: per-event-pair loop with zero-pad. Auto dispatch
-      routes any rel group globally to pairwise; this path runs only
-      on explicit ``method='orbit'`` opt-in. Events with K_eff - r
+      routes any rel group globally to Bulger's method; this path runs
+      only on explicit ``method='mobius'`` opt-in. Events with K_eff - r
       below the precision margin in this niche regime may lose
-      precision in the orbit-rel u-grid integration; users wanting
-      exact rel + ragged orbit-mode behaviour should either filter
-      events to K_eff >= r + 2 or use ``method='auto'`` (which routes
-      to pairwise).
+      precision in the Möbius relative-mode u-grid integration; users
+      wanting exact rel + ragged Möbius-method behaviour should either
+      filter events to K_eff >= r + 2 or use ``method='auto'`` (which
+      routes to Bulger's method).
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case (minimum) cancellation ratio across the (N_x, N_y)
     entries — a scalar in (0, 1]. Direct-enum entries always have
-    ratio 1.0; the worst ratio comes from the safe-orbit submatrix.
+    ratio 1.0; the worst ratio comes from the safe-Möbius submatrix.
     If no safe pairs exist, the worst ratio is 1.0.
     """
     from ._mobius import inner_product_orbit_pw_batched
@@ -3889,7 +3898,7 @@ def _ma_per_attr_inner_matrix(
     out = np.zeros((N_x, N_y), dtype=np.float64)
     worst_ratio = 1.0
 
-    # --- Safe x Safe submatrix: vectorised batched orbit ---
+    # --- Safe x Safe submatrix: vectorised batched Möbius method ---
     if safe_x_idx.size > 0 and safe_y_idx.size > 0:
         Px_s = Px[:, safe_x_idx]
         Wx_s = Wx[:, safe_x_idx]
@@ -4121,8 +4130,8 @@ def _batched_direct_enum_abs_sa(
 def _zero_pad_nan(Px, Wx, Py, Wy):
     """Replace NaN entries in P / W with 0 (zero-weight padding).
 
-    Returns new arrays (does not mutate inputs). The orbit's weighted
-    contractions read ``w_i^m``, so a zero-weight slot kills any orbit
+    Returns new arrays (does not mutate inputs). The Möbius method's weighted
+    contractions read ``w_i^m``, so a zero-weight slot kills any Möbius
     term involving that slot regardless of the corresponding p value
     — mathematically equivalent to per-event truncation.
     """
@@ -4144,7 +4153,7 @@ def _ma_per_attr_inner_matrix_rel_per(
     """Vectorised relative-periodic case of ``_ma_per_attr_inner_matrix``.
 
     Builds an (N_pairs · N_u, K, K) kernel tensor and runs a single
-    batched orbit call across both axes; the trapezoidal weights are
+    batched Möbius-method call across both axes; the trapezoidal weights are
     applied after reshaping back to (N_pairs, N_u). Memory peak is
     ``N_pairs · N_u · K^2 · 8`` bytes plus a similar-sized intermediate
     diffs tensor; chunked along u to stay under a 1 GB ceiling.
@@ -4158,7 +4167,7 @@ def _ma_per_attr_inner_matrix_rel_per(
     so halving the grid roughly halves wall-clock cost.
 
     With ``return_cancellation_ratio=True``, additionally returns the
-    worst-case ratio across the (N_pairs · N_u) batched orbit cells.
+    worst-case ratio across the (N_pairs · N_u) batched Möbius-method cells.
     """
     from ._mobius import inner_product_orbit_pw_batched
 
@@ -4231,7 +4240,7 @@ def _ma_per_attr_inner_matrix_rel_per(
 
 def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
-    orbit Möbius (JMM Eq. 3.4 plus Rem. 3.1).
+    Möbius method (JMM Eq. 3.4 plus Rem. 3.1).
 
     Caller is responsible for ensuring no NaN in ``p_attr`` and for
     structural compatibility of the two densities.
@@ -4240,7 +4249,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
     per-entry cancellation ratios across the (N_x × N_y) inner-product
     matrices. That diagnostic was found to over-conservatively flag
     correct results — the per-entry ratio reflects cancellation in
-    individual orbit-Möbius cells, but the cosine consumes only the
+    individual Möbius cells, but the cosine consumes only the
     sums Σ_{n,m} P[n,m], where individual entries with bad ratios
     contribute negligibly when their absolute value is small. Removed
     in v2.2.0 in favour of relying on the cross-cancellation guard
@@ -4284,7 +4293,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the v2.1
-    pairwise path (``_ip_core_ma``).
+    Bulger's method (``_ip_core_ma``).
 
     This is the body of the original (v2.1) ``_cos_sim_exp_tens_ma``
     factored out so the new dispatcher can route to it cleanly.
@@ -4495,51 +4504,54 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 
 
 # -------------------------------------------------------------------
-#  v2.2 — Möbius–Bulger orbit dispatcher (single-attribute path)
+#  v2.2 — Möbius method dispatcher (single-attribute path)
 # -------------------------------------------------------------------
 #
-#  v2.2 layers an orbit-collapsed Möbius reformulation of the
-#  distinct-index inner product on top of the v2.1 ``_ip_core`` path.
-#  See ``v22_specification.md`` and ``mpt/_mobius.py`` for the
-#  combinatorial details.
+#  v2.2 layers the Möbius method — a partition-decomposition with
+#  orbit collapse — on top of Bulger's existing ``_ip_core`` path
+#  (the v1 / v2.1 decomposition). See ``v22_specification.md`` and
+#  ``mpt/_mobius.py`` for the combinatorial details.
 #
 #  The user-facing ``cos_sim_exp_tens`` gains two keywords:
 #
-#    method='auto'  : dispatcher chooses orbit or pairwise based on
-#                     (r, n, mode, sigma/period).
-#    method='pairwise' : forces the v2.1 pairwise-wrap form (``_ip_core``);
-#                     this is the closed form of JMM Eq. 3.4 — the v2.1
-#                     toolbox's defined value of the rel_per inner
-#                     product, by definition. At sigma/P > 0.03 it
-#                     differs from the alternative integration form
-#                     computed by 'orbit' by an amount that grows as the
-#                     periodic Theta-tail terms become non-negligible
-#                     (see V22_DEV_LOG.md Issue 3 for details). Slower
-#                     than orbit at high r and large K, but correct
+#    method='auto'   : dispatcher chooses the Möbius method or Bulger's
+#                     method based on (r, n, mode, sigma/period).
+#    method='bulger' : forces Bulger's method (the v1 / v2.1
+#                     decomposition with periodic pairwise-wrap form;
+#                     ``_ip_core``); this is the closed form of JMM
+#                     Eq. 3.4 — the v2.1 toolbox's defined value of
+#                     the rel_per inner product, by definition. At
+#                     sigma/P > 0.03 it differs from the alternative
+#                     integration form computed by 'mobius' by an
+#                     amount that grows as the periodic Theta-tail
+#                     terms become non-negligible (see V22_DEV_LOG.md
+#                     Issue 3 for details). Slower than the Möbius
+#                     method at high r and large K, but correct
 #                     across the full sigma/P range.
-#    method='direct'   : forces direct enumeration (no Möbius cancellation;
+#    method='direct' : forces direct enumeration (no Möbius cancellation;
 #                     useful for diagnosing near-zero cosines).
 #                     In the single-attribute path, 'direct' coincides
-#                     with 'pairwise' (both route through ``_ip_core``);
+#                     with 'bulger' (both route through ``_ip_core``);
 #                     the distinction surfaces in later windowed paths.
 #
-#  cancellation_threshold = 1e-12 : when the orbit path's cross-inner
-#    product falls below this fraction of sqrt(<A,A><B,B>), the orbit
-#    result may suffer from catastrophic Möbius cancellation; in that
-#    case fall back to ``_ip_core``. In typical use the guard never
-#    triggers; the cost is at most one extra pairwise pass. Note: this
-#    guard inspects the cross product only — corruption in the auto
-#    inner products (<A,A>, <B,B>) propagates through the cosine
-#    denominator silently. The K_a >= r_a + 2 margin in
-#    `_orbit_safe_for_precision` is the primary protection against
-#    auto-IP cancellation; a runtime cancellation diagnostic on
-#    auto IPs is on the v2.2 roadmap (see V22_DEV_LOG.md Issue 4).
+#  cancellation_threshold = 1e-12 : when the Möbius method's cross
+#    inner product falls below this fraction of sqrt(<A,A><B,B>), the
+#    Möbius result may suffer from catastrophic alternating-sum
+#    cancellation; in that case fall back to ``_ip_core`` (Bulger's
+#    method). In typical use the guard never triggers; the cost is at
+#    most one extra Bulger pass. Note: this guard inspects the cross
+#    product only — corruption in the auto inner products (<A,A>,
+#    <B,B>) propagates through the cosine denominator silently. The
+#    K_a >= r_a + 2 margin in `_orbit_safe_for_precision` is the
+#    primary protection against auto-IP cancellation; a runtime
+#    cancellation diagnostic on auto IPs is on the v2.2 roadmap
+#    (see V22_DEV_LOG.md Issue 4).
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
-_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which periodic-relative orbit deviates
-_ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for orbit (precision guard)
-# Rationale (May 2026 audit): the orbit Möbius reformulation expresses
-# the distinct-r-tuple sum as a signed sum over set-partition orbits.
+_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which the periodic-relative Möbius method deviates
+_ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for the Möbius method (precision guard)
+# Rationale (May 2026 audit): the Möbius method expresses the
+# distinct-r-tuple sum as a signed sum over set-partition orbits.
 # When K_a is close to r_a, the expansion has very few orbit classes
 # and the Möbius alternation can produce catastrophic cancellation in
 # the auto-inner-products <T_X, T_X> and <T_Y, T_Y> (which are not
@@ -4555,7 +4567,7 @@ _ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for orbit (precisi
 def _orbit_safe_for_precision(r_vec, k_vec):
     """Return True if every attribute satisfies K_a >= r_a + margin.
 
-    Used by both the SA and MA dispatchers to refuse the orbit path
+    Used by both the SA and MA dispatchers to refuse the Möbius method
     when its Möbius cancellation could swamp the answer. See the
     `_ORBIT_K_MINUS_R_MIN` rationale block above.
     """
@@ -4581,8 +4593,8 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
     sigma_over_P : float
         σ / period; ignored if not periodic.
     user_method : str
-        One of 'auto', 'pairwise', 'direct'. (Internal callers may also
-        pass 'orbit' to force the orbit path.)
+        One of 'auto', 'bulger', 'direct'. (Internal callers may also
+        pass 'mobius' to force the Möbius method.)
     n_min : int, optional
         min(n_x, n_y); the smaller of the two source sizes. Used for
         the K-vs-r precision guard. Defaults to ``n_max`` (i.e., the
@@ -4591,28 +4603,29 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
     Returns
     -------
     str
-        One of 'orbit', 'pairwise', 'direct'.
+        One of 'mobius', 'bulger', 'direct'.
     """
     if user_method != 'auto':
         return user_method
-    # r=1: the orbit machinery is undefined for r<2 (single block, no
-    # distinct-index structure); pairwise is trivially fast anyway.
+    # r=1: the Möbius machinery is undefined for r<2 (single block, no
+    # distinct-index structure); Bulger's method is trivially fast anyway.
     if r <= 1:
-        return 'pairwise'
-    # r=2 with small n: pairwise dominates because orbit overhead (4 orbits,
-    # numpy.einsum dispatch) exceeds the kernel-matvec cost.
+        return 'bulger'
+    # r=2 with small n: Bulger's method dominates because the Möbius
+    # method's overhead (4 orbit classes, numpy.einsum dispatch) exceeds the
+    # kernel-matvec cost.
     if r == 2 and n_max <= 8:
-        return 'pairwise'
+        return 'bulger'
     # r > _ORBIT_R_MAX_SHIPPED: shipped orbit tables stop here. At
-    # higher r the orbit path still works correctly, but on first use
+    # higher r the Möbius method still works correctly, but on first use
     # the table must be built from scratch (cost grows with B_r^2);
-    # default to pairwise to avoid surprising users with a slow first
-    # call. Users who explicitly want orbit at higher r can pass
-    # method='orbit'; the cost-preview helper in mobius will print an
-    # estimate before the build begins.
+    # default to Bulger's method to avoid surprising users with a slow
+    # first call. Users who explicitly want the Möbius method at higher r
+    # can pass method='mobius'; the cost-preview helper in mobius will
+    # print an estimate before the build begins.
     if r > _ORBIT_R_MAX_SHIPPED:
-        return 'pairwise'
-    # K-vs-r precision guard. The orbit path's auto-inner-products can
+        return 'bulger'
+    # K-vs-r precision guard. The Möbius method's auto-inner-products can
     # suffer catastrophic Möbius cancellation when the multiset size is
     # too close to r (see _ORBIT_K_MINUS_R_MIN block). The cross
     # cancellation guard at the call site does NOT catch this, since it
@@ -4620,50 +4633,50 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
     # into the cosine denominator.
     n_for_guard = n_min if n_min is not None else n_max
     if not _orbit_safe_for_precision([r], [n_for_guard]):
-        return 'pairwise'
-    # Periodic-relative beyond σ/P threshold: in this regime the orbit
-    # path computes the JMM Eq. 3.4 integral form, while the pairwise
-    # path computes the v2.1-toolbox single-nearest-image-wrap form.
+        return 'bulger'
+    # Periodic-relative beyond σ/P threshold: in this regime the Möbius
+    # method computes the JMM Eq. 3.4 integral form, while Bulger's
+    # method computes the v2.1-toolbox single-nearest-image-wrap form.
     # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility with v2.1 the toolbox treats the
-    # pairwise-wrap form as canonical; orbit is therefore disabled
-    # above the threshold. Users who want the JMM-exact integral
-    # explicitly may pass method='orbit'.
+    # backward compatibility with v2.1 the toolbox treats Bulger's
+    # pairwise-wrap form as canonical; the Möbius method is therefore
+    # disabled above the threshold. Users who want the JMM-exact integral
+    # explicitly may pass method='mobius'.
     if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
         warnings.warn(
-            f"σ/P = {sigma_over_P:.3f} exceeds the orbit-path threshold "
+            f"σ/P = {sigma_over_P:.3f} exceeds the Möbius-method threshold "
             f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
-            f"falling back to the pairwise-wrap form. Pass method='pairwise' "
-            f"explicitly to silence this warning."
+            f"falling back to Bulger's method (the pairwise-wrap form). "
+            f"Pass method='bulger' explicitly to silence this warning."
         )
-        return 'pairwise'
-    return 'orbit'
+        return 'bulger'
+    return 'mobius'
 
 
 def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
                            user_method):
-    """Pick the evaluation path for ``eval_exp_tens`` (SA case).
+    """Pick the evaluation method for ``eval_exp_tens`` (SA case).
 
     The choice is between the centres-array path (the v2.0 body — build
     a ``(dim, n_j)`` centres tensor at ``build_exp_tens`` time, then
     evaluate as a vectorised Gaussian product against the queries) and
-    the orbit-Möbius point evaluator (Möbius-decomposed sum over set
+    the Möbius point evaluator (Möbius-decomposed sum over set
     partitions; ``O(B_r · r · K · n_q)`` per query independent of
     ``n_j``).
 
     Cost rule of thumb. The centres path scales as
     ``O(r · n_j · n_q)`` with ``n_j = K!/(K-r)!``, so it explodes at
-    high r. Orbit replaces ``n_j`` with ``B_r · r · K``, where ``B_r``
-    is the Bell number of ``r`` (5 at r=3, 15 at r=4, 52 at r=5, 203
-    at r=6). Crossover analysis (5 partitions × N work per partition
-    vs N!/(N-r)!) shows orbit is ~22× faster at r=3 N=20, ~100× at
-    r=4. At r=2 the costs are comparable; centres is simpler and
-    avoids partition-table dispatch overhead, so default to centres
-    there.
+    high r. The Möbius method replaces ``n_j`` with ``B_r · r · K``,
+    where ``B_r`` is the Bell number of ``r`` (5 at r=3, 15 at r=4,
+    52 at r=5, 203 at r=6). Crossover analysis (5 partitions × N work
+    per partition vs N!/(N-r)!) shows the Möbius method is ~22× faster
+    at r=3 N=20, ~100× at r=4. At r=2 the costs are comparable; the
+    centres path is simpler and avoids partition-table dispatch
+    overhead, so default to centres there.
 
-    Precision guard. Orbit suffers catastrophic Möbius cancellation
-    when ``K - r < 2`` (same regime as the IP path); fall back to
-    centres.
+    Precision guard. The Möbius method suffers catastrophic Möbius
+    cancellation when ``K - r < 2`` (same regime as the IP path); fall
+    back to centres.
 
     Convention guard. In periodic-relative mode at ``σ/P > 0.03``,
     ``eval_orbit_rel`` integrates the JMM Eq. 3.4 form while the
@@ -4684,24 +4697,24 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     sigma_over_P : float
         ``σ / period``; ignored if not periodic.
     user_method : str
-        One of ``'auto'``, ``'centres'``, ``'orbit'``. Internal callers
+        One of ``'auto'``, ``'centres'``, ``'mobius'``. Internal callers
         may also pass ``'direct'`` as a synonym for ``'centres'``.
 
     Returns
     -------
     str
-        ``'orbit'`` or ``'centres'``.
+        ``'mobius'`` or ``'centres'``.
     """
     if user_method in ('centres', 'direct'):
         return 'centres'
-    if user_method == 'orbit':
-        return 'orbit'
+    if user_method == 'mobius':
+        return 'mobius'
     if user_method != 'auto':
         raise ValueError(
-            f"method must be 'auto', 'centres', or 'orbit'; got "
+            f"method must be 'auto', 'centres', or 'mobius'; got "
             f"{user_method!r}."
         )
-    # r=1: the orbit machinery reduces to the direct Σ_i w_i K_i sum
+    # r=1: the Möbius machinery reduces to the direct Σ_i w_i K_i sum
     # (one partition with μ=1). Centres path coincides; pick centres
     # for code simplicity.
     if r <= 1:
@@ -4710,10 +4723,10 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     # N_u ~ max(64, P/σ * 10) per query. The per-query cost is
     # O(B_r · r · K · N_u), much larger than the centres path's
     # O(n_j) per query at typical σ/P (~0.025 → N_u ≈ 360, vs n_j
-    # of 100s to 1000s for r in {3, 4}). Orbit-rel is only ever
-    # cheaper at very high r combined with very large K and large σ
-    # — a corner case that's safer to route via explicit
-    # method='orbit'. Default to centres for rel mode.
+    # of 100s to 1000s for r in {3, 4}). The Möbius relative-mode
+    # evaluator is only ever cheaper at very high r combined with very
+    # large K and large σ — a corner case that's safer to route via
+    # explicit method='mobius'. Default to centres for rel mode.
     if is_rel:
         return 'centres'
     # r=2 with small K: centres is competitive and avoids the
@@ -4728,19 +4741,19 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     # about; the eval dispatcher prefers the always-fast centres path.
     if r > _ORBIT_R_MAX_SHIPPED:
         return 'centres'
-    # K-vs-r precision guard. Without K - r >= 2 the orbit path's
+    # K-vs-r precision guard. Without K - r >= 2 the Möbius method's
     # alternating sum can lose all significant digits.
     if not _orbit_safe_for_precision([r], [K]):
         return 'centres'
-    return 'orbit'
+    return 'mobius'
 
 
 # -----------------------------------------------------------------------
-# Unified path-selection + time-estimate probe (v2.2.x)
+# Unified method-selection + time-estimate probe (v2.2.x)
 #
 # The probe-based dispatcher replaces the heuristic rule for the
 # discretionary cases. Genuinely hard rules (correctness / feasibility)
-# stay as rules; everything else is decided by timing both paths on a
+# stay as rules; everything else is decided by timing both methods on a
 # small probe and picking the faster. The probe time also produces the
 # user-facing time estimate, so dispatcher and estimator share a single
 # load-bearing measurement that auto-adapts to any future optimisation.
@@ -4762,33 +4775,35 @@ def _format_time(t_sec: float) -> str:
 _PROBE_MIN_N_Q = 200    # below this many queries, skip probing entirely
 _PROBE_N = 50           # probe sample size
 # Centres-path memory budget (bytes). The probe refuses to materialise
-# the centres array if it would exceed this; orbit is chosen instead.
+# the centres array if it would exceed this; the Möbius method is chosen instead.
 _CENTRES_PROBE_MEM_BUDGET = 4 * 1024**3
 
-# Above this r, orbit becomes infeasible: B_r (Bell numbers) explodes
-# from 115,975 at r=10 to 5x10^13 at r=20, and set-partition enumeration
-# itself blows the Python recursion stack. r > this falls back to
-# centres-only routing.
+# Above this r, the Möbius method becomes infeasible: B_r (Bell numbers)
+# explodes from 115,975 at r=10 to 5x10^13 at r=20, and set-partition
+# enumeration itself blows the Python recursion stack. r > this falls back
+# to centres-only routing.
 _ORBIT_R_MAX_FEASIBLE = 10
 
 # Bell numbers up to r=10 (set partition counts). Used by the rel-mode
-# pre-screen to estimate orbit-rel cost without enumerating partitions.
+# pre-screen to estimate the Möbius relative-mode cost without enumerating
+# partitions.
 _BELL_NUMBERS = {
     1: 1, 2: 2, 3: 5, 4: 15, 5: 52, 6: 203, 7: 877,
     8: 4140, 9: 21147, 10: 115975,
 }
 
-# Pre-screen: if one path is favoured by more than this factor, skip
+# Pre-screen: if one method is favoured by more than this factor, skip
 # probing entirely. Two pre-screens, one per mode:
 #
 #  - Rel-mode pre-screen: routes TO centres when centres clearly wins.
-#    Orbit-rel does u-grid quadrature with N_u sub-evals per query, so
-#    its PROBE is expensive (a 50-query probe at N_u=1000 is ~3 s);
-#    a generous margin here avoids unnecessary probe overhead.
-#  - Abs-mode pre-screen: routes TO orbit when orbit clearly wins.
-#    For abs mode, centres cost per query is K^r vs orbit cost
-#    B_r * r * K. Orbit wins by a factor K^(r-1) / (B_r * r); for
-#    K=72 r=3 that's ~1000x. The tiny-workload shortcut would
+#    The Möbius relative-mode evaluator does u-grid quadrature with N_u
+#    sub-evals per query, so its PROBE is expensive (a 50-query probe at
+#    N_u=1000 is ~3 s); a generous margin here avoids unnecessary probe
+#    overhead.
+#  - Abs-mode pre-screen: routes TO the Möbius method when it clearly wins.
+#    For abs mode, centres cost per query is K^r vs Möbius cost
+#    B_r * r * K. The Möbius method wins by a factor K^(r-1) / (B_r * r);
+#    for K=72 r=3 that's ~1000x. The tiny-workload shortcut would
 #    otherwise force centres for n_q<200 even at these large K, so the
 #    pre-screen must run BEFORE the tiny shortcut. Pattern-finding and
 #    other common music-cog tasks legitimately use abs mode at large K.
@@ -4856,9 +4871,9 @@ def _select_and_estimate_sa(
 
     Hard rules decide first:
       1. user override → honour it.
-      2. r <= 1 → centres (orbit mathematically degenerate).
+      2. r <= 1 → centres (Möbius method mathematically degenerate).
       3. K - r < _ORBIT_K_MINUS_R_MIN → centres (orbit cancellation).
-      4. centres-array memory > budget → orbit (centres infeasible).
+      4. centres-array memory > budget → Möbius method (centres infeasible).
 
     Everything else is decided by probing both paths on a small slice
     of queries and picking the faster. The probe time, extrapolated to
@@ -4873,18 +4888,18 @@ def _select_and_estimate_sa(
     # ---- Rule 1: user override ----
     if method in ("centres", "direct"):
         return "centres", False, 0.0
-    if method == "orbit":
-        return "orbit", False, 0.0
+    if method == "mobius":
+        return "mobius", False, 0.0
     if method != "auto":
         raise ValueError(
-            f"method must be 'auto', 'centres', or 'orbit'; got {method!r}."
+            f"method must be 'auto', 'centres', or 'mobius'; got {method!r}."
         )
 
-    # ---- Rule 2: orbit degenerate at r <= 1 ----
+    # ---- Rule 2: Möbius method degenerate at r <= 1 ----
     if r <= 1:
         return "centres", False, 0.0
 
-    # ---- Rule 3: orbit cancellation guard ----
+    # ---- Rule 3: Möbius cancellation guard ----
     if not _orbit_safe_for_precision([r], [K]):
         return "centres", False, 0.0
 
@@ -4897,19 +4912,19 @@ def _select_and_estimate_sa(
             raise ValueError(
                 f"eval_exp_tens: r={r} requires more than "
                 f"{_CENTRES_PROBE_MEM_BUDGET // 1024**3} GB for the "
-                f"centres array (K={K}), and orbit is infeasible at "
+                f"centres array (K={K}), and the Möbius method is infeasible at "
                 f"r > {_ORBIT_R_MAX_FEASIBLE} (B_r explodes). Reduce "
                 f"r or check inputs."
             )
-        return "orbit", False, 0.0
+        return "mobius", False, 0.0
 
-    # ---- Abs-mode pre-screen: route TO orbit when orbit clearly wins ----
+    # ---- Abs-mode pre-screen: route TO the Möbius method when it clearly wins ----
     # For abs mode, centres cost per query is K^r (materialised density
-    # has n_j = K^r tuples), and orbit-abs per-query cost is B_r * r * K
+    # has n_j = K^r tuples), and Möbius absolute-mode per-query cost is B_r * r * K
     # (sum over B_r partitions of K*m per block, summing to K*r per
     # partition). The ratio is K^(r-1) / (B_r * r); for K=72 r=3 it's
     # ~1000x, meaning the tiny-workload shortcut below would otherwise
-    # force centres for n_q<200 even when orbit is 1000x faster.
+    # force centres for n_q<200 even when the Möbius method is 1000x faster.
     #
     # This pre-screen must run BEFORE the tiny-workload shortcut so
     # large-K abs-mode workloads (common in pattern-finding and other
@@ -4917,13 +4932,13 @@ def _select_and_estimate_sa(
     # the cheap routing decision they deserve at any n_q.
     #
     # Probe still has the final word in the uncertain region; this only
-    # fires when orbit wins by a comfortable margin.
+    # fires when the Möbius method wins by a comfortable margin.
     if (not is_rel) and r >= 2 and r <= _ORBIT_R_MAX_FEASIBLE:
         B_r = _BELL_NUMBERS[r]
         centres_cost = float(K) ** r
         orbit_cost = float(B_r) * r * float(K)
         if orbit_cost * _PRESCREEN_ORBIT_DOMINANCE < centres_cost:
-            return "orbit", False, 0.0
+            return "mobius", False, 0.0
 
     # ---- Shortcut: tiny workload, skip probing ----
     if n_q < _PROBE_MIN_N_Q:
@@ -4931,14 +4946,14 @@ def _select_and_estimate_sa(
 
     # ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
     # The probe is robust but not free. For rel mode in particular,
-    # orbit-rel does u-grid quadrature with N_u ≈ max(64, 10·P/σ)
+    # the Möbius relative-mode evaluator does u-grid quadrature with N_u ≈ max(64, 10·P/σ)
     # sub-evals per query — its PROBE cost scales as
     # B_r · r · K · N_u · n_probe, which is prohibitive when N_u is
     # large. We pre-screen the cost ratio analytically and skip the
     # probe if centres clearly wins. The probe still has the final
     # word in the uncertain region.
     if is_rel and r >= 2:
-        # Estimate N_u (the orbit-rel u-grid size) using the same
+        # Estimate N_u (the Möbius relative-mode u-grid size) using the same
         # formula eval_orbit_rel uses internally.
         sigma = float(dens.sigma)
         if dens.is_per:
@@ -4965,15 +4980,15 @@ def _select_and_estimate_sa(
             return "centres", False, 0.0
 
     # ---- Probe both paths ----
-    # Warm the set-partition cache so the orbit probe doesn't pay
-    # one-time table-build cost. Skip for high r where orbit is not a
+    # Warm the set-partition cache so the Möbius probe doesn't pay
+    # one-time table-build cost. Skip for high r where the Möbius method is not a
     # realistic candidate — set-partition enumeration itself becomes
     # infeasible, and the recursion depth grows linearly in r.
     if 2 <= r <= _ORBIT_R_MAX_FEASIBLE:
         from ._mobius import get_set_partitions_with_mobius
         get_set_partitions_with_mobius(r)
     if r > _ORBIT_R_MAX_FEASIBLE:
-        # No orbit option at this r; skip the probe and use centres.
+        # No Möbius option at this r; skip the probe and use centres.
         return "centres", False, 0.0
 
     n_probe = min(_PROBE_N, n_q)
@@ -4986,7 +5001,7 @@ def _select_and_estimate_sa(
         kernel_precision=kernel_precision,
     )
     t_orbit = _probe_eval_path(
-        dens, x_probe, "orbit",
+        dens, x_probe, "mobius",
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
@@ -4994,7 +5009,7 @@ def _select_and_estimate_sa(
     if t_centres <= t_orbit:
         chosen, t_probe = "centres", t_centres
     else:
-        chosen, t_probe = "orbit", t_orbit
+        chosen, t_probe = "mobius", t_orbit
 
     est_sec = t_probe * (n_q / n_probe)
     return chosen, True, est_sec
@@ -5021,7 +5036,7 @@ def _select_and_estimate_sa(
 
 # Target subset size for the IP probe. Small enough that probe cost is
 # negligible, large enough that the K_probe-choose-r tuple count is
-# meaningful (e.g., 12-choose-3 = 220) and the orbit-path's precision
+# meaningful (e.g., 12-choose-3 = 220) and the Möbius method's precision
 # guard (n_min - r >= 2) is not contended. ``K_probe`` is capped to
 # ``min(K_x, K_y)`` at call time; the hard precision rule
 # (``n_min - r < 2``) fires upstream so K_probe never drops below r+2.
@@ -5057,8 +5072,8 @@ def _probe_ip_path(
 
     Builds fresh subset densities outside the timed window so the
     measurement covers only the IP work itself (kernel-matrix
-    construction + orbit einsums for the orbit path, or ordered-tuple
-    enumeration + dot product for the pairwise path).
+    construction + einsums for the Möbius method, or ordered-tuple
+    enumeration + dot product for Bulger's method).
     """
     import time as _time
 
@@ -5076,7 +5091,7 @@ def _probe_ip_path(
     )
 
     t0 = _time.perf_counter()
-    if path == "orbit":
+    if path == "mobius":
         _cos_sim_exp_tens_sa_orbit(sub_x, sub_y)
     else:
         _cos_sim_exp_tens_sa_pairwise(
@@ -5100,10 +5115,10 @@ def _select_and_estimate_sa_ip(
 
     Hard rules decide first:
       1. user override → honour it.
-      2. r <= 1 → pairwise (orbit degenerate at r=1).
+      2. r <= 1 → Bulger (Möbius method degenerate at r=1).
       3. r > _ORBIT_R_MAX_SHIPPED → pairwise (build cost).
       4. n_min - r < _ORBIT_K_MINUS_R_MIN → pairwise (orbit cancellation).
-      5. periodic-relative beyond σ/P threshold → pairwise (convention).
+      5. periodic-relative beyond σ/P threshold → Bulger (convention).
 
     Then analytical pre-screen catches clear-winner cases without
     paying probe overhead. Otherwise, both paths are timed on a small
@@ -5123,31 +5138,31 @@ def _select_and_estimate_sa_ip(
     sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
 
     # ---- Hard rules ----
-    if method in ("pairwise", "direct"):
-        return "pairwise", False, 0.0
-    if method == "orbit":
-        return "orbit", False, 0.0
+    if method in ("bulger", "direct"):
+        return "bulger", False, 0.0
+    if method == "mobius":
+        return "mobius", False, 0.0
     if method != "auto":
         raise ValueError(
-            f"method must be 'auto', 'pairwise', 'direct', or 'orbit'; "
+            f"method must be 'auto', 'bulger', 'direct', or 'mobius'; "
             f"got {method!r}."
         )
     if r <= 1:
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
     if r > _ORBIT_R_MAX_SHIPPED:
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
     if not _orbit_safe_for_precision([r], [n_min]):
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
     if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
         warnings.warn(
-            f"σ/P = {sigma_over_P:.3f} exceeds the orbit-path threshold "
+            f"σ/P = {sigma_over_P:.3f} exceeds the Möbius-method threshold "
             f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
-            f"falling back to the pairwise-wrap form. Pass method='pairwise' "
+            f"falling back to Bulger's method (the pairwise-wrap form). Pass method='bulger' "
             f"explicitly to silence this warning."
         )
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
     if r > _ORBIT_R_MAX_FEASIBLE:
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
 
     # ---- Analytical cost models ----
     pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
@@ -5156,12 +5171,12 @@ def _select_and_estimate_sa_ip(
 
     # ---- Analytical pre-screen ----
     if orbit_full * _PRESCREEN_IP_DOMINANCE < pairwise_full:
-        return "orbit", False, 0.0
+        return "mobius", False, 0.0
     if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
-        return "pairwise", False, 0.0
+        return "bulger", False, 0.0
 
     # ---- Probe both paths on a subset ----
-    # Warm the orbit partition table so the orbit probe doesn't pay a
+    # Warm the orbit partition table so the Möbius probe doesn't pay a
     # one-time table-build cost.
     from ._mobius import get_set_partitions_with_mobius
     get_set_partitions_with_mobius(r)
@@ -5171,12 +5186,12 @@ def _select_and_estimate_sa_ip(
     # (n_min - r >= _ORBIT_K_MINUS_R_MIN), so the orbit probe is safe.
 
     t_pairwise = _probe_ip_path(
-        dens_x, dens_y, K_probe, "pairwise",
+        dens_x, dens_y, K_probe, "bulger",
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
     t_orbit = _probe_ip_path(
-        dens_x, dens_y, K_probe, "orbit",
+        dens_x, dens_y, K_probe, "mobius",
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
@@ -5195,17 +5210,17 @@ def _select_and_estimate_sa_ip(
     t_orbit_est = t_orbit * orbit_factor
 
     if t_pairwise_est <= t_orbit_est:
-        return "pairwise", True, t_pairwise_est
-    return "orbit", True, t_orbit_est
+        return "bulger", True, t_pairwise_est
+    return "mobius", True, t_orbit_est
 
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      *, return_cancellation_ratio=False):
-    """<T_A, T_B> in absolute mode via Möbius–orbit machinery.
+    """<T_A, T_B> in absolute mode via the Möbius method.
 
     With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
-    where ratio is ``|sum| / max(|term|)`` from the orbit alternating
-    sum (1.0 means no cancellation; <<1 means digits lost). See
+    where ratio is ``|sum| / max(|term|)`` from the Möbius alternating
+    partition sum (1.0 means no cancellation; <<1 means digits lost). See
     :func:`mpt._mobius.inner_product_orbit` for full semantics.
     """
     from ._mobius import inner_product_orbit
@@ -5233,8 +5248,8 @@ def _inner_product_direct_abs_sa(p_x, w_x, p_y, w_y, sigma, r,
     alternating sum is involved, so the result is exact (no
     catastrophic cancellation) for any K_x, K_y >= r. This is the
     "unsafe" path of the MA per-attribute IP matrix, used for event
-    pairs where at least one event has K_eff - r below the orbit
-    precision margin (`_ORBIT_K_MINUS_R_MIN` = 2).
+    pairs where at least one event has K_eff - r below the
+    Möbius-method precision margin (`_ORBIT_K_MINUS_R_MIN` = 2).
 
     NaN tolerance: NaN entries in ``p_x`` / ``w_x`` / ``p_y`` / ``w_y``
     are dropped per side before enumeration. If the dropped count
@@ -5317,15 +5332,15 @@ def _build_ordered_r_tuples(p, w, r):
 def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      samples_per_sigma=10, *,
                      return_cancellation_ratio=False):
-    """<T_A, T_B> in relative mode via orbit machinery + translation grid.
+    """<T_A, T_B> in relative mode via Möbius machinery + translation grid.
 
     Marginalises a translation u over either ``[0, P)`` (periodic) or a
     Gaussian-supported window around the alignment of A and B
-    (non-periodic), and integrates the orbit-evaluated kernel against u.
+    (non-periodic), and integrates the Möbius-evaluated kernel against u.
     The grid density is ``samples_per_sigma`` points per σ; the
     truncation in the non-periodic case extends 8σ beyond the natural
     overlap window. (The 4σ default of v2.1 truncated tails of the
-    orbit-Möbius integrand at ~5e-10 — small per kernel value, but
+    Möbius integrand at ~5e-10 — small per kernel value, but
     enough to corrupt the auto-inner products at ~1e-6 relative
     precision once Möbius cancellation amplified them. 8σ pushes the
     truncation tail to FP noise; 12σ is empirically no improvement.)
@@ -5378,12 +5393,12 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
 
 def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
     """Compute (ip_xy, ip_xx, ip_yy, worst_ratio) for the SA case via
-    orbit Möbius.
+    Möbius method.
 
     ``worst_ratio`` is the minimum cancellation ratio across the three
     inner-product computations. Values below ~1e-10 indicate the
     Möbius alternating sum has lost most of its significant digits and
-    the dispatcher should fall back to pairwise.
+    the dispatcher should fall back to Bulger's method.
     """
     sigma = dens_x.sigma
     r = dens_x.r
@@ -5426,7 +5441,7 @@ def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True,
                                   truncation_sigmas=None,
                                   kernel_precision=None):
     """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the v2.1
-    pairwise path (``_ip_core``).
+    Bulger's method (``_ip_core``).
 
     This is the body of the original (v2.1) ``_cos_sim_exp_tens_sa``
     factored out so the new dispatcher can route to it cleanly.
@@ -5810,7 +5825,7 @@ def _cos_sim_raw_sa_batch(
     delegates pair-level dedup to the polymorphic
     :func:`cos_sim_exp_tens` (in pairwise list-vs-list mode), which
     in turn threads ``method`` and ``cancellation_threshold`` through
-    to v2.2's per-pair orbit/pairwise dispatcher.
+    to v2.2's per-pair Möbius-vs-Bulger dispatcher.
 
     Parameters
     ----------
@@ -5827,7 +5842,7 @@ def _cos_sim_raw_sa_batch(
         places, to absorb FP noise when deduplicating.
     dedup : bool, default True
         Apply pair-level canonical-form dedup at Phase 3.
-    method : {'auto', 'pairwise', 'direct'}, default 'auto'
+    method : {'auto', 'bulger', 'direct'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
         SA core via the inner ``cos_sim_exp_tens`` call.
     cancellation_threshold : float, default 1e-12

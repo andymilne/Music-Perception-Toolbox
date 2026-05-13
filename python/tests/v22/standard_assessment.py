@@ -102,7 +102,7 @@ def cos_cross_pairwise(cell):
         return float('nan')
     d_x = _build_dens(cell)
     d_y = _build_y_dens(cell)
-    return cos_sim_exp_tens(d_x, d_y, method='pairwise', verbose=False)
+    return cos_sim_exp_tens(d_x, d_y, method='bulger', verbose=False)
 
 
 # -----------------------------------------------------------------

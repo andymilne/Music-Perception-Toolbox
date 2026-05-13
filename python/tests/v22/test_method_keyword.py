@@ -2,7 +2,7 @@
 
 Each documented value of ``method`` must produce the documented
 behaviour. With perceptually typical parameters all three values
-(``'auto'``, ``'pairwise'``, ``'direct'``) must agree to floating-point
+(``'auto'``, ``'bulger'``, ``'direct'``) must agree to floating-point
 precision; the keyword exists as an escape hatch, not as a knob.
 """
 from __future__ import annotations
@@ -55,7 +55,7 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
     T_b = build_exp_tens(p_b, w_b, sigma, r, is_rel, is_per, P, verbose=False)
 
     cos_auto = cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
     cos_dir = cos_sim_exp_tens(T_a, T_b, method='direct', verbose=False)
 
     # Pairwise and direct route through _ip_core in SA mode and so are
@@ -112,7 +112,7 @@ def test_invalid_method_raises(bad):
 
 
 def test_forced_pairwise_silences_perrel_warning():
-    """method='pairwise' must not emit the σ/P fallback warning."""
+    """method='bulger' must not emit the σ/P fallback warning."""
     rng = np.random.default_rng(seed=42)
     n = 12
     P = 1200.0
@@ -123,7 +123,7 @@ def test_forced_pairwise_silences_perrel_warning():
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        cos_sim_exp_tens(T_a, T_b, method='pairwise', verbose=False)
+        cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
 
 
 def test_auto_warns_in_perrel_high_sigma_over_P():
@@ -156,7 +156,7 @@ def test_raw_function_forwards_method():
     )
     cos_pw = cos_sim_exp_tens_raw(
         p_a, w_a, p_b, w_b, sigma, 3, False, False, 1200.0,
-        method='pairwise', verbose=False,
+        method='bulger', verbose=False,
     )
     abs_err = abs(cos_auto - cos_pw)
     assert abs_err < 1e-12, (

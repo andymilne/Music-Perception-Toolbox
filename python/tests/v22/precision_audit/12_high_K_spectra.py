@@ -2,7 +2,7 @@
 
 Composite spectra from chords routinely have K in the tens to hundreds.
 Pairwise OOMs above K~50 even at r=2, so orbit is the only feasible
-method in this regime — there is no `method='pairwise'` fallback. This
+method in this regime — there is no `method='bulger'` fallback. This
 sweep verifies orbit is correct and finite where pairwise can still run,
 and that orbit returns sensible values at high K where pairwise cannot.
 

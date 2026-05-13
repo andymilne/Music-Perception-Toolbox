@@ -62,7 +62,7 @@ def test_sigma_to_zero_auto_matches_pairwise(is_per, sigma_over_P):
     sigma = sigma_over_P * P
     d1, d2 = _make_pair(r=4, K=6, sigma=sigma, is_per=is_per)
     c_auto = cos_sim_exp_tens(d1, d2, method="auto", verbose=False)
-    c_pw = cos_sim_exp_tens(d1, d2, method="pairwise", verbose=False)
+    c_pw = cos_sim_exp_tens(d1, d2, method="bulger", verbose=False)
     assert np.isfinite(c_auto)
     assert np.isfinite(c_pw)
     assert abs(c_auto - c_pw) <= 1e-12 + 1e-12 * abs(c_pw)
@@ -104,7 +104,7 @@ def test_sa_sigma_to_zero_auto_matches_pairwise():
         p2, w2, sigma, r, False, True, P, verbose=False,
     )
     c_auto = cos_sim_exp_tens(d1, d2, method="auto", verbose=False)
-    c_pw = cos_sim_exp_tens(d1, d2, method="pairwise", verbose=False)
+    c_pw = cos_sim_exp_tens(d1, d2, method="bulger", verbose=False)
     assert np.isfinite(c_auto)
     assert np.isfinite(c_pw)
     assert abs(c_auto - c_pw) <= 1e-12 + 1e-12 * abs(c_pw)
@@ -134,8 +134,8 @@ def test_quiet_corruption_regime_orbit_actually_clean(is_per, seed):
     sigma = 0.01 * P
     d1, d2 = _make_pair(r=4, K=6, sigma=sigma, is_per=is_per,
                         share_half=False, seed=seed)
-    c_orbit = cos_sim_exp_tens(d1, d2, method="orbit", verbose=False)
-    c_pw = cos_sim_exp_tens(d1, d2, method="pairwise", verbose=False)
+    c_orbit = cos_sim_exp_tens(d1, d2, method="mobius", verbose=False)
+    c_pw = cos_sim_exp_tens(d1, d2, method="bulger", verbose=False)
     assert abs(c_orbit - c_pw) <= 1e-12 + 1e-12 * abs(c_pw), (
         f"seed={seed}: orbit {c_orbit:.6e} vs pairwise {c_pw:.6e}"
     )
@@ -162,6 +162,6 @@ def test_orbit_clean_regime_agrees_with_pairwise():
     pairwise paths must agree to FP precision."""
     sigma = 50.0
     d1, d2 = _make_pair(r=2, K=8, sigma=sigma, is_per=True)
-    c_orbit = cos_sim_exp_tens(d1, d2, method="orbit", verbose=False)
-    c_pw = cos_sim_exp_tens(d1, d2, method="pairwise", verbose=False)
+    c_orbit = cos_sim_exp_tens(d1, d2, method="mobius", verbose=False)
+    c_pw = cos_sim_exp_tens(d1, d2, method="bulger", verbose=False)
     assert abs(c_orbit - c_pw) <= 1e-13 + 1e-13 * abs(c_pw)

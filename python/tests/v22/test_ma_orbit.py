@@ -73,14 +73,14 @@ def test_ma_dispatcher_routes_orbit_for_ragged_k():
     # r_max=3, K=8, N=8, A=1 — auto picks orbit.
     assert _select_ma_inner_product_method(
         **_disp_kwargs(),
-    ) == 'orbit'
+    ) == 'mobius'
 
 
 def test_ma_dispatcher_routes_pairwise_at_r1():
     """r_max=1: no within-tuple distinct-index structure to exploit."""
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=1, K=2),
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 @pytest.mark.parametrize("r_max", [2, 3, 4, _ORBIT_R_MAX_SHIPPED])
@@ -90,14 +90,14 @@ def test_ma_dispatcher_routes_orbit_when_clean(r_max):
     K = max(12, r_max + 6)
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=r_max, K=K, N_x=12, N_y=12),
-    ) == 'orbit'
+    ) == 'mobius'
 
 
 def test_ma_dispatcher_routes_pairwise_when_r_too_large():
     """r_max above the shipped-table cutoff: fall back."""
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1, K=12),
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 def test_ma_dispatcher_routes_pairwise_for_rel_nonper_at_A1():
@@ -108,7 +108,7 @@ def test_ma_dispatcher_routes_pairwise_for_rel_nonper_at_A1():
     # 5189 ms; pw_pred ≈ N²·factorial(2)·C(12,2)²·1e-4 ≈ 1.2 ms.
     assert _select_ma_inner_product_method(
         **_disp_kwargs(K=12, N_x=12, N_y=12, A=1, any_rel_nonper=True),
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A2_heavy_K():
@@ -122,7 +122,7 @@ def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A2_heavy_K():
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=3, K=8, N_x=4, N_y=4, A=2,
                        any_rel_nonper=True),
-    ) == 'orbit'
+    ) == 'mobius'
 
 
 def test_ma_dispatcher_warns_above_perrel_threshold():
@@ -131,7 +131,7 @@ def test_ma_dispatcher_warns_above_perrel_threshold():
         chosen = _select_ma_inner_product_method(
             **_disp_kwargs(any_rel_per=True, sigma_over_P_max=0.05),
         )
-    assert chosen == 'pairwise'
+    assert chosen == 'bulger'
 
 
 def test_ma_dispatcher_routes_pairwise_at_small_problem():
@@ -139,18 +139,18 @@ def test_ma_dispatcher_routes_pairwise_at_small_problem():
     # N=2, K=4, r=2, A=1, abs: pw_size = 4·2·6² = 144. Tiny — pairwise.
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=2, K=4, N_x=2, N_y=2),
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 @pytest.mark.parametrize("mode_flags,A,K,N,expected", [
     # (any_per, any_rel_nonper, any_rel_per), A, K, N → expected route.
     # Each mode is tested at a point where the dispatcher decision is
     # informative (well above or below the cost-model crossover).
-    ((False, False, False), 1, 12, 12, 'orbit'),     # abs + nonper, A=1 large
-    ((True,  False, False), 1, 12, 12, 'orbit'),     # abs + per, A=1 large
-    ((False, True,  False), 1, 12, 12, 'pairwise'),  # rel + nonper, A=1: orbit is catastrophic
-    ((False, True,  False), 2,  8,  4, 'orbit'),     # rel + nonper, A=2 K=8: pw OOMs first
-    ((True,  False, True),  1, 12, 12, 'orbit'),     # rel + per, A=1 large
+    ((False, False, False), 1, 12, 12, 'mobius'),     # abs + nonper, A=1 large
+    ((True,  False, False), 1, 12, 12, 'mobius'),     # abs + per, A=1 large
+    ((False, True,  False), 1, 12, 12, 'bulger'),  # rel + nonper, A=1: orbit is catastrophic
+    ((False, True,  False), 2,  8,  4, 'mobius'),     # rel + nonper, A=2 K=8: pw OOMs first
+    ((True,  False, True),  1, 12, 12, 'mobius'),     # rel + per, A=1 large
 ])
 def test_ma_dispatcher_routes_correctly_in_each_mode(
         mode_flags, A, K, N, expected):
@@ -169,7 +169,7 @@ def test_ma_dispatcher_routes_correctly_in_each_mode(
     assert chosen == expected
 
 
-@pytest.mark.parametrize("forced", ['pairwise', 'direct', 'orbit'])
+@pytest.mark.parametrize("forced", ['bulger', 'direct', 'mobius'])
 def test_ma_dispatcher_user_overrides_bypass_logic(forced):
     """Explicit method bypasses everything (e.g. the σ/P guard)."""
     chosen = _select_ma_inner_product_method(
@@ -225,7 +225,7 @@ def test_orbit_ma_matches_pairwise_pitch_time(r_pitch, K_pitch, pitch_rel):
     )
 
     cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     abs_err = abs(cos_orbit - cos_pw)
     rel_err = abs_err / max(abs(cos_orbit), abs(cos_pw), 1e-300)
     assert rel_err < 1e-9 or abs_err < 1e-12, (
@@ -260,7 +260,7 @@ def test_orbit_ma_matches_pairwise_single_attr():
         verbose=False,
     )
     cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='auto', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-10
 
 
@@ -301,10 +301,10 @@ def test_orbit_ma_matches_pairwise_rel_nonper(r_a, K_a, N):
         verbose=False,
     )
     cos_orbit = cos_sim_exp_tens(
-        dens_x, dens_y, method='orbit', verbose=False,
+        dens_x, dens_y, method='mobius', verbose=False,
     )
     cos_pw = cos_sim_exp_tens(
-        dens_x, dens_y, method='pairwise', verbose=False,
+        dens_x, dens_y, method='bulger', verbose=False,
     )
     abs_err = abs(cos_orbit - cos_pw)
     rel_err = abs_err / max(abs(cos_orbit), abs(cos_pw), 1e-300)
@@ -358,7 +358,7 @@ def test_orbit_ma_handles_r1_attribute():
     # Force orbit: dispatcher would route to pairwise at r_max=1 by default.
     ip_xy_o, ip_xx_o, ip_yy_o = _cos_sim_exp_tens_ma_orbit(dens_x, dens_y)
     cos_orbit = ip_xy_o / np.sqrt(ip_xx_o * ip_yy_o)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-10
 
 
@@ -397,7 +397,7 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
     # Sanity: at least one density carries NaN in p_attr.
     assert _ma_has_nan(dens_x)
     cos_default = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert cos_default == cos_pw
 
 
@@ -439,8 +439,8 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
         verbose=False,
     )
     assert _ma_has_nan(dens_x) and _ma_has_nan(dens_y)
-    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='orbit', verbose=False)
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-8
 
 
@@ -451,7 +451,7 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
 
 def test_high_threshold_forces_ma_fallback():
     """With cancellation_threshold=1.0, the guard always trips and
-    routes through pairwise; the result must equal method='pairwise'.
+    routes through pairwise; the result must equal method='bulger'.
     """
     rng = np.random.default_rng(seed=20260505)
     dens_x = _build_ma_pitch_time(rng, N=6, K_pitch=4, r_pitch=2)
@@ -459,7 +459,7 @@ def test_high_threshold_forces_ma_fallback():
     cos_forced = cos_sim_exp_tens(
         dens_x, dens_y, cancellation_threshold=1.0, verbose=False,
     )
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert cos_forced == cos_pw
 
 

@@ -29,7 +29,7 @@ def test_r1_routes_pairwise():
     assert _select_sa_inner_product_method(
         r=1, n_max=20, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 @pytest.mark.parametrize("n_max", [2, 4, 6, 8])
@@ -38,7 +38,7 @@ def test_r2_small_n_routes_pairwise(n_max):
     assert _select_sa_inner_product_method(
         r=2, n_max=n_max, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 @pytest.mark.parametrize("n_max", [9, 12, 32, 64])
@@ -47,7 +47,7 @@ def test_r2_large_n_routes_orbit(n_max):
     assert _select_sa_inner_product_method(
         r=2, n_max=n_max, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
-    ) == 'orbit'
+    ) == 'mobius'
 
 
 @pytest.mark.parametrize("r", list(range(3, _ORBIT_R_MAX_SHIPPED + 1)))
@@ -56,7 +56,7 @@ def test_shipped_r_routes_orbit(r):
     assert _select_sa_inner_product_method(
         r=r, n_max=12, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
-    ) == 'orbit'
+    ) == 'mobius'
 
 
 @pytest.mark.parametrize("r", [_ORBIT_R_MAX_SHIPPED + 1, _ORBIT_R_MAX_SHIPPED + 2])
@@ -67,12 +67,12 @@ def test_r_beyond_shipped_routes_pairwise(r):
     the table must be built from scratch (cost grows with B_r^2: r=9
     takes roughly an hour, r=10 prohibitive). Defaulting to pairwise
     avoids surprising users with a slow first call; an explicit
-    ``method='orbit'`` opts in with a cost-preview warning.
+    ``method='mobius'`` opts in with a cost-preview warning.
     """
     assert _select_sa_inner_product_method(
         r=r, n_max=12, is_rel=False, is_per=False,
         sigma_over_P=0.0, user_method='auto',
-    ) == 'pairwise'
+    ) == 'bulger'
 
 
 # ----------------------------------------------------------------------
@@ -89,18 +89,18 @@ def test_perrel_below_threshold_routes_orbit(sop):
             r=3, n_max=12, is_rel=True, is_per=True,
             sigma_over_P=sop, user_method='auto',
         )
-    assert chosen == 'orbit'
+    assert chosen == 'mobius'
 
 
 @pytest.mark.parametrize("sop", [0.031, 0.05, 0.1, 0.2])
 def test_perrel_above_threshold_routes_pairwise_with_warning(sop):
     """Periodic-relative beyond σ/P threshold falls back to pairwise + warns."""
-    with pytest.warns(UserWarning, match=r"σ/P = .* exceeds the orbit-path threshold"):
+    with pytest.warns(UserWarning, match=r"σ/P = .* exceeds the Möbius-method threshold"):
         chosen = _select_sa_inner_product_method(
             r=3, n_max=12, is_rel=True, is_per=True,
             sigma_over_P=sop, user_method='auto',
         )
-    assert chosen == 'pairwise'
+    assert chosen == 'bulger'
 
 
 def test_perrel_threshold_warning_only_when_relevant():
@@ -112,7 +112,7 @@ def test_perrel_threshold_warning_only_when_relevant():
             r=3, n_max=12, is_rel=False, is_per=True,
             sigma_over_P=0.5, user_method='auto',
         )
-    assert chosen == 'orbit'
+    assert chosen == 'mobius'
 
 
 # ----------------------------------------------------------------------
@@ -120,7 +120,7 @@ def test_perrel_threshold_warning_only_when_relevant():
 # ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("forced", ['pairwise', 'direct', 'orbit'])
+@pytest.mark.parametrize("forced", ['bulger', 'direct', 'mobius'])
 def test_user_method_bypasses_dispatcher(forced):
     """When the user passes an explicit method, the dispatcher returns it
     unchanged (irrespective of r, n, mode, or σ/P).
@@ -133,11 +133,11 @@ def test_user_method_bypasses_dispatcher(forced):
 
 
 def test_user_method_pairwise_avoids_perrel_warning():
-    """Passing method='pairwise' explicitly silences the σ/P warning."""
+    """Passing method='bulger' explicitly silences the σ/P warning."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         chosen = _select_sa_inner_product_method(
             r=3, n_max=12, is_rel=True, is_per=True,
-            sigma_over_P=0.5, user_method='pairwise',
+            sigma_over_P=0.5, user_method='bulger',
         )
-    assert chosen == 'pairwise'
+    assert chosen == 'bulger'

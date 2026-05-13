@@ -10,7 +10,7 @@ Parallel to ``test_lazy_density.py`` for the SA path. Verifies:
 3. Reading any of the lazy fields (``n_j``, ``n_k``, ``centres``,
    ``u_perm``, ``v_comb``, ``w_j``, ``wv_comb``, ``event_of_j``,
    ``event_of_k``) materialises and caches.
-4. MA orbit-only consumers (cosine ``method='orbit'``, Rényi-2)
+4. MA orbit-only consumers (cosine ``method='mobius'``, Rényi-2)
    do not materialise.
 5. MA centres-path / pairwise consumers do materialise.
 6. Lazy build produces numerically identical output to the eager
@@ -101,7 +101,7 @@ def test_ma_lazy_arrays_cache_across_reads():
 def test_ma_cos_sim_orbit_does_not_materialise():
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="orbit", verbose=False)
+    cos_sim_exp_tens(T_x, T_y, method="mobius", verbose=False)
     assert T_x.materialised is False
     assert T_y.materialised is False
 
@@ -133,7 +133,7 @@ def test_ma_eval_materialises():
 def test_ma_cos_sim_pairwise_materialises():
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    cos_sim_exp_tens(T_x, T_y, method="pairwise", verbose=False)
+    cos_sim_exp_tens(T_x, T_y, method="bulger", verbose=False)
     assert T_x.materialised is True
     assert T_y.materialised is True
 
@@ -145,7 +145,7 @@ def test_ma_cos_sim_pairwise_materialises():
 
 def test_ma_self_similarity_equals_one():
     T = _make_ma()
-    c = cos_sim_exp_tens(T, T, method="pairwise", verbose=False)
+    c = cos_sim_exp_tens(T, T, method="bulger", verbose=False)
     assert np.isclose(c, 1.0, atol=1e-12, rtol=1e-12)
 
 
@@ -155,12 +155,12 @@ def test_ma_orbit_vs_pairwise_agree():
     materialises. Both paths must see the same density mathematically."""
     T_x = _make_ma(seed=0)
     T_y = _make_ma(seed=1)
-    c_orbit = cos_sim_exp_tens(T_x, T_y, method="orbit", verbose=False)
+    c_orbit = cos_sim_exp_tens(T_x, T_y, method="mobius", verbose=False)
     # Use distinct density objects so the orbit call's "no
     # materialisation" assertion stays meaningful.
     T_x2 = _make_ma(seed=0)
     T_y2 = _make_ma(seed=1)
-    c_pw = cos_sim_exp_tens(T_x2, T_y2, method="pairwise", verbose=False)
+    c_pw = cos_sim_exp_tens(T_x2, T_y2, method="bulger", verbose=False)
     assert np.isclose(c_orbit, c_pw, atol=1e-12, rtol=1e-10)
 
 

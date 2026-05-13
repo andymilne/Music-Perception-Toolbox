@@ -36,7 +36,7 @@ def test_default_threshold_does_not_perturb_result(seed):
     T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
     cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
     abs_err = abs(cos_default - cos_pw)
     rel_err = abs_err / max(abs(cos_default), abs(cos_pw), 1e-300)
     assert rel_err < 1e-10 or abs_err < 1e-12
@@ -49,7 +49,7 @@ def test_default_threshold_does_not_perturb_result(seed):
 
 def test_high_threshold_forces_fallback():
     """With cancellation_threshold=1.0 the guard always trips and routes
-    through the pairwise path; the result must equal method='pairwise'.
+    through the pairwise path; the result must equal method='bulger'.
 
     This verifies the wiring: when the guard fires, it really does
     recompute via the pairwise path rather than returning the orbit
@@ -71,7 +71,7 @@ def test_high_threshold_forces_fallback():
     cos_forced = cos_sim_exp_tens(
         T_a, T_b, cancellation_threshold=1.0, verbose=False,
     )
-    cos_pw = cos_sim_exp_tens(T_a, T_b, method='pairwise', verbose=False)
+    cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
 
     # The orbit estimate at this n, r already matches pairwise to FP, so
     # the test of "guard fired and rerouted" hinges on:

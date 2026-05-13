@@ -165,8 +165,8 @@ def test_all_unsafe_matches_direct_enum():
 
 
 def test_mixed_safe_unsafe_cossim_orbit_matches_pairwise():
-    """Mixed safe/unsafe: cos_sim_exp_tens with method='orbit' agrees
-    with method='pairwise' on a deliberately mixed case (K_eff = 3,
+    """Mixed safe/unsafe: cos_sim_exp_tens with method='mobius' agrees
+    with method='bulger' on a deliberately mixed case (K_eff = 3,
     6, 4 across three events; r = 3).
     """
     P = np.array([[10.0, 100.0, 500.0],
@@ -183,8 +183,8 @@ def test_mixed_safe_unsafe_cossim_orbit_matches_pairwise():
                         [False], [False], [0.0], verbose=False)
     dy = build_exp_tens([P], [W], [sigma], [r], None,
                         [False], [False], [0.0], verbose=False)
-    s_orbit = cos_sim_exp_tens(dx, dy, method='orbit', verbose=False)
-    s_pw = cos_sim_exp_tens(dx, dy, method='pairwise', verbose=False)
+    s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
+    s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
     assert abs(s_orbit - s_pw) < 1e-8
 
 
@@ -200,8 +200,8 @@ def test_r1_ragged_orbit_matches_pairwise():
                         [False], [False], [0.0], verbose=False)
     dy = build_exp_tens([P], [W], [sigma], [1], None,
                         [False], [False], [0.0], verbose=False)
-    s_orbit = cos_sim_exp_tens(dx, dy, method='orbit', verbose=False)
-    s_pw = cos_sim_exp_tens(dx, dy, method='pairwise', verbose=False)
+    s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
+    s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
     assert abs(s_orbit - s_pw) < 1e-10
 
 
@@ -305,9 +305,9 @@ class TestKGroupedDispatch:
         sigma = 30.0
         dens = build_exp_tens([Px], [Wx], [sigma], [r], None,
                               [False], [False], [0.0], verbose=False)
-        s_orbit = cos_sim_exp_tens(dens, dens, method='orbit',
+        s_orbit = cos_sim_exp_tens(dens, dens, method='mobius',
                                     verbose=False)
-        s_pw = cos_sim_exp_tens(dens, dens, method='pairwise',
+        s_pw = cos_sim_exp_tens(dens, dens, method='bulger',
                                  verbose=False)
         assert abs(s_orbit - s_pw) < 1e-12
 

@@ -42,19 +42,19 @@ class TestHardRules:
     def test_user_method_pairwise(self):
         dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
         chosen, probed, est = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="pairwise",
+            dens_x, dens_y, method="bulger",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "pairwise"
+        assert chosen == "bulger"
         assert probed is False
 
     def test_user_method_orbit(self):
         dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
         chosen, probed, est = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="orbit",
+            dens_x, dens_y, method="mobius",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "orbit"
+        assert chosen == "mobius"
         assert probed is False
 
     def test_r1_routes_pairwise_no_probe(self):
@@ -63,7 +63,7 @@ class TestHardRules:
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "pairwise"
+        assert chosen == "bulger"
         assert probed is False
 
     def test_n_min_too_small_routes_pairwise_no_probe(self):
@@ -73,7 +73,7 @@ class TestHardRules:
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "pairwise"
+        assert chosen == "bulger"
         assert probed is False
 
 
@@ -92,7 +92,7 @@ class TestPreScreen:
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "orbit"
+        assert chosen == "mobius"
         assert probed is False
 
     def test_small_K_at_r_routes_pairwise_via_prescreen_or_probe(self):
@@ -105,7 +105,7 @@ class TestPreScreen:
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen in ("orbit", "pairwise")
+        assert chosen in ("mobius", "bulger")
         # Probe fires because pre-screen ratio is < 10x dominance.
         assert probed is True
 
@@ -141,10 +141,10 @@ class TestSemanticEquivalence:
     def test_explicit_orbit_matches_explicit_pairwise(self):
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
         sim_orbit = cos_sim_exp_tens(
-            dens_x, dens_y, method="orbit", verbose=False,
+            dens_x, dens_y, method="mobius", verbose=False,
         )
         sim_pair = cos_sim_exp_tens(
-            dens_x, dens_y, method="pairwise", verbose=False,
+            dens_x, dens_y, method="bulger", verbose=False,
         )
         # Orbit and pairwise should agree to numerical precision.
         np.testing.assert_allclose(sim_orbit, sim_pair, atol=1e-10)
@@ -153,7 +153,7 @@ class TestSemanticEquivalence:
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
         sim_auto = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
         sim_orbit = cos_sim_exp_tens(
-            dens_x, dens_y, method="orbit", verbose=False,
+            dens_x, dens_y, method="mobius", verbose=False,
         )
         np.testing.assert_allclose(sim_auto, sim_orbit, atol=1e-10)
 
@@ -190,7 +190,7 @@ class TestVerboseDispatchMessage:
         buf = io.StringIO()
         with redirect_stdout(buf):
             cos_sim_exp_tens(
-                dens_x, dens_y, method="pairwise", verbose=True,
+                dens_x, dens_y, method="bulger", verbose=True,
             )
         out = buf.getvalue()
         assert "cos_sim_exp_tens" not in out

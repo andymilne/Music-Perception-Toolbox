@@ -115,7 +115,7 @@ def bench_cossim_orbit_sa(r, K, P_unused):
     return _timed(
         lambda: cos_sim_exp_tens(
             p1, w, p2, w, 30.0, r, False, False, 0.0,
-            method='orbit', verbose=False,
+            method='mobius', verbose=False,
         ),
     )
 

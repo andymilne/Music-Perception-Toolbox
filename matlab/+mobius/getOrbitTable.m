@@ -121,11 +121,14 @@ function maybeWarnBuildCost(r)
     % roughly B_r^2 / symmetry orbits.
     BELL = [1, 1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, ...
             678570, 4213597];
-    % Rough build-time estimates in seconds, indexed by r. r <= 8
-    % anchored to measured release-prep runs; r >= 9 extrapolated.
+    % Rough build-time estimates in seconds, indexed by r. r = 2..8
+    % anchored to measured release-prep runs (2024-era laptop, MATLAB
+    % R2024a, single-threaded). r >= 9 extrapolated by the empirical
+    % ~5x per-r growth observed across the shipped range.
     TIME_S = containers.Map(...
         {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, ...
-        {0.02, 0.10, 0.5, 3.0, 12.0, 60.0, 500.0, 6000.0, 9e4, 1.5e6, 2e7});
+        {0.21, 0.29, 0.49, 1.04, 4.59, 18.32, 93.64, ...
+         500.0, 2500.0, 1.5e4, 1e5});
 
     if r + 1 <= numel(BELL)
         bellR = BELL(r + 1);    % MATLAB 1-indexing: BELL(r+1) is B_r

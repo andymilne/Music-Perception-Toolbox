@@ -112,7 +112,7 @@ function vals = evalExpTens(varargin)
 % remaining arguments.
 
 verbose = true;  % default
-method = 'auto';  % v2.2: 'auto' | 'centres' (alias 'direct') | 'orbit'
+method = 'auto';  % v2.2: 'auto' | 'centres' (alias 'direct') | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
 kernelPrecision  = [];   % []: use mptDefaults at the helper level
 
@@ -133,10 +133,10 @@ while i <= numel(varargin)
                 continue;
             case 'method'
                 method = lower(char(varargin{i + 1}));
-                if ~ismember(method, {'auto', 'centres', 'direct', 'orbit'})
+                if ~ismember(method, {'auto', 'centres', 'direct', 'mobius'})
                     error('evalExpTens:badMethod', ...
                           ['''method'' must be ''auto'', ''centres'', ' ...
-                           '''direct'', or ''orbit''; got ''%s''.'], method);
+                           '''direct'', or ''mobius''; got ''%s''.'], method);
                 end
                 removeIdx(i)     = true;
                 removeIdx(i + 1) = true;
@@ -238,7 +238,7 @@ end
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity')
     % --- Precomputed struct: evalExpTens(dens, X [, normalize]) ---
-    %   Kept skinny here: orbit branch reads only cheap fields; centres
+    %   Kept skinny here: Möbius branch reads only cheap fields; centres
     %   branch ensures heavy fields on demand.
     dens = varargin{1};
     if nArgs ~= 2
@@ -258,7 +258,7 @@ elseif nArgs == 8
     isPer_arg = varargin{6};
     J_arg     = varargin{7};
     X         = varargin{8};
-    % Build skinny: orbit branch may not need heavy fields.
+    % Build skinny: Möbius branch may not need heavy fields.
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
                         isPer_arg, J_arg, 'verbose', verbose);
 else
@@ -302,8 +302,8 @@ nQ = size(X, 2);
 if strcmp(method, 'centres') || strcmp(method, 'direct')
     chosen = 'centres';
     probed = false;
-elseif strcmp(method, 'orbit')
-    chosen = 'orbit';
+elseif strcmp(method, 'mobius')
+    chosen = 'mobius';
     probed = false;
 elseif strcmp(method, 'auto')
     K_src = numel(dens.p);
@@ -324,7 +324,7 @@ elseif strcmp(method, 'auto')
 else
     error('evalExpTens:badMethod', ...
           ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
-           'or ''orbit''; got ''%s''.'], method);
+           'or ''mobius''; got ''%s''.'], method);
 end
 
 % ---- Execution axis: detect default-kwargs mode ----
@@ -346,16 +346,16 @@ useDefaultKwargs = ~isfinite(truncResolved) && strcmp(precResolved, 'double');
 
 vals = [];
 ranOrbit = false;
-if strcmp(chosen, 'orbit')
+if strcmp(chosen, 'mobius')
     vals = localEvalSAOrbit(dens, X, false, truncationSigmas, kernelPrecision);
     % Post-hoc finiteness fallback. Mirrors the cosine-path safety net:
-    % if the orbit alternating sum produces non-finite output (extreme
+    % if the Möbius alternating partition sum produces non-finite output (extreme
     % sigma -> 0 regime), fall back to centres rather than propagating
     % NaN/Inf into the user's result.
     if ~all(isfinite(vals(:)))
         if verbose
-            warning('evalExpTens:orbitNonFiniteFallback', ...
-                    ['evalExpTens orbit path produced non-finite ' ...
+            warning('evalExpTens:mobiusNonFiniteFallback', ...
+                    ['evalExpTens Möbius method produced non-finite ' ...
                      'values; falling back to centres path.']);
         end
         chosen = 'centres';
@@ -366,7 +366,7 @@ end
 
 if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'/'direct'
-    % method, and for orbit-then-fallback).
+    % method, and for Möbius-then-fallback).
     dens = ensureExpTensExpensive(dens);
     if useDefaultKwargs
         % v2.1-style inline direct broadcast. FP-identical to the
@@ -426,7 +426,7 @@ if ~strcmp(normalize, 'none')
         % --- Mixture weight normalization ---
         % Divide by the sum of all tuple weight products so that
         % the density integrates to 1 over the domain. Needs wJ from
-        % heavy fields; ensure if not already populated (orbit branch
+        % heavy fields; ensure if not already populated (Möbius branch
         % skipped the ensure).
         if ~isfield(dens, 'wJ')
             dens = ensureExpTensExpensive(dens);
@@ -444,7 +444,7 @@ end
 end
 
 % =========================================================================
-%  v2.2 SA evaluation dispatch helpers (method='auto'|'centres'|'orbit')
+%  v2.2 SA evaluation dispatch helpers (method='auto'|'centres'|'mobius')
 % =========================================================================
 
 function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
@@ -455,34 +455,34 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
 %   models; current logic does not use them.
 %
 %   Routing rules (in order):
-%     1. userMethod 'centres'/'direct'/'orbit' overrides everything.
-%     2. r <= 1: orbit reduces to the direct sum; centres is simpler.
-%     3. isRel: orbit-rel evaluates B_r * r * K * N_u work per query
+%     1. userMethod 'centres'/'direct'/'mobius' overrides everything.
+%     2. r <= 1: the Möbius method reduces to the direct sum; centres is simpler.
+%     3. isRel: the Möbius relative-mode evaluator does B_r * r * K * N_u work per query
 %        (where N_u ~ 1000 for typical sigma/period), versus
 %        K^r work per query for centres. For typical music-cog regimes
 %        (K up to ~100, r up to 4) centres wins despite the K^r factor
 %        because N_u is large and B_r * r * K * N_u > K^r. Auto stays
-%        on centres; users wanting orbit-rel (e.g. for very large K
+%        on centres; users wanting the Möbius relative-mode evaluator (e.g. for very large K
 %        where centres memory blows up) opt in explicitly with
-%        method='orbit'.
+%        method='mobius'.
 %     4. r == 2 and K <= 8: centres is competitive; avoids partition-
 %        table dispatch overhead.
 %     5. r > 8: shipped orbit tables stop at r=8 (build cost warned).
-%     6. K-vs-r precision guard: orbit's Mobius alternating sum can
+%     6. K-vs-r precision guard: orbit's Möbius alternating partition sum can
 %        suffer catastrophic cancellation when K is too close to r.
 
     if strcmp(userMethod, 'centres') || strcmp(userMethod, 'direct')
         chosen = 'centres';
         return;
     end
-    if strcmp(userMethod, 'orbit')
-        chosen = 'orbit';
+    if strcmp(userMethod, 'mobius')
+        chosen = 'mobius';
         return;
     end
     if ~strcmp(userMethod, 'auto')
         error('evalExpTens:badMethod', ...
               ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
-               'or ''orbit''; got ''%s''.'], userMethod);
+               'or ''mobius''; got ''%s''.'], userMethod);
     end
     if r <= 1
         chosen = 'centres';
@@ -504,7 +504,7 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
         chosen = 'centres';
         return;
     end
-    chosen = 'orbit';
+    chosen = 'mobius';
 end
 
 
@@ -565,7 +565,7 @@ function t = localProbeEvalPath(dens, xProbe, pathName, ...
         densMat = ensureExpTensExpensive(dens);
         localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
             truncationSigmas, kernelPrecision);
-    else  % 'orbit'
+    else  % 'mobius'
         localEvalSAOrbit(dens, xProbe, false, ...
             truncationSigmas, kernelPrecision);
     end
@@ -583,7 +583,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
 %   the faster.
 %
 %   Returns:
-%     chosen  — 'centres' or 'orbit'.
+%     chosen  — 'centres' or 'mobius'.
 %     probed  — true if a probe ran (verbose dispatch message prints
 %               only then).
 %     estSec  — extrapolated full-workload time in seconds; 0 if no
@@ -593,7 +593,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     PROBE_MIN_NQ = 200;
     PROBE_N = 50;
     CENTRES_PROBE_MEM_BUDGET = 4 * 1024^3;  % 4 GB
-    % Above this r, orbit becomes infeasible: B_r explodes from 115,975
+    % Above this r, the Möbius method becomes infeasible: B_r explodes from 115,975
     % at r=10 to 5e13 at r=20, and set-partition enumeration becomes
     % impractical. r > this falls back to centres-only routing.
     ORBIT_R_MAX_FEASIBLE = 10;
@@ -603,8 +603,8 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     %  - CENTRES_DOMINANCE (rel mode): route TO centres. Orbit-rel
     %    does u-grid quadrature with N_u sub-evals per query, so its
     %    PROBE is prohibitively expensive for the typical case.
-    %  - ORBIT_DOMINANCE (abs mode): route TO orbit. For abs mode,
-    %    centres cost per query is K^r and orbit cost is B_r*r*K;
+    %  - ORBIT_DOMINANCE (abs mode): route TO the Möbius method. For abs mode,
+    %    centres cost per query is K^r and the Möbius cost is B_r*r*K;
     %    ratio K^(r-1)/(B_r*r) is ~1000x at K=72 r=3. Must fire
     %    BEFORE the tiny-workload shortcut so large-K abs workloads
     %    (pattern-finding and other music-cog tasks at typical
@@ -624,23 +624,23 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
         chosen = 'centres';
         return;
     end
-    if strcmp(method, 'orbit')
-        chosen = 'orbit';
+    if strcmp(method, 'mobius')
+        chosen = 'mobius';
         return;
     end
     if ~strcmp(method, 'auto')
         error('evalExpTens:badMethod', ...
               ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
-               'or ''orbit''; got ''%s''.'], method);
+               'or ''mobius''; got ''%s''.'], method);
     end
 
-    % ---- Rule 2: orbit degenerate at r <= 1 ----
+    % ---- Rule 2: Möbius method degenerate at r <= 1 ----
     if r <= 1
         chosen = 'centres';
         return;
     end
 
-    % ---- Rule 3: orbit cancellation guard ----
+    % ---- Rule 3: Möbius cancellation guard ----
     if K - r < 2   % _ORBIT_K_MINUS_R_MIN
         chosen = 'centres';
         return;
@@ -654,21 +654,21 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
         if r > ORBIT_R_MAX_FEASIBLE
             error('evalExpTens:infeasibleR', ...
                   ['r=%d requires more than %d GB for the centres ' ...
-                   'array (K=%d), and orbit is infeasible at r > %d ' ...
+                   'array (K=%d), and the Möbius method is infeasible at r > %d ' ...
                    '(B_r explodes). Reduce r or check inputs.'], ...
                   r, floor(CENTRES_PROBE_MEM_BUDGET / 1024^3), K, ...
                   ORBIT_R_MAX_FEASIBLE);
         end
-        chosen = 'orbit';
+        chosen = 'mobius';
         return;
     end
 
-    % ---- Abs-mode pre-screen: route TO orbit when orbit clearly wins ----
+    % ---- Abs-mode pre-screen: route TO the Möbius method when it clearly wins ----
     % For abs mode, centres cost per query is K^r (materialised
-    % density has n_j = K^r tuples), and orbit-abs per-query cost is
+    % density has n_j = K^r tuples), and the Möbius absolute-mode per-query cost is
     % B_r * r * K. The ratio is K^(r-1) / (B_r * r); for K=72 r=3
     % it's ~1000x, meaning the tiny-workload shortcut below would
-    % otherwise force centres for n_q<200 even when orbit is 1000x
+    % otherwise force centres for n_q<200 even when the Möbius method is 1000x
     % faster. Must run BEFORE the tiny-workload shortcut so that
     % large-K abs workloads (pattern-finding and other music-cog
     % tasks at typical 24-72-partial harmonic templates) get the
@@ -682,7 +682,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
         centresCostAbs = double(K)^r;
         orbitCostAbs = double(B_r_abs) * r * double(K);
         if orbitCostAbs * PRESCREEN_ORBIT_DOMINANCE < centresCostAbs
-            chosen = 'orbit';
+            chosen = 'mobius';
             return;
         end
     end
@@ -694,7 +694,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     end
 
     % ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
-    % orbit-rel's u-grid quadrature makes its probe expensive at
+    % the Möbius relative-mode evaluator's u-grid quadrature makes its probe expensive at
     % typical sigma/period; pre-screen using cost ratio.
     if isRel && r >= 2
         sigma = dens.sigma;
@@ -739,14 +739,14 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
 
     tCentres = localProbeEvalPath(dens, xProbe, 'centres', ...
         truncationSigmas, kernelPrecision);
-    tOrbit = localProbeEvalPath(dens, xProbe, 'orbit', ...
+    tOrbit = localProbeEvalPath(dens, xProbe, 'mobius', ...
         truncationSigmas, kernelPrecision);
 
     if tCentres <= tOrbit
         chosen = 'centres';
         tProbe = tCentres;
     else
-        chosen = 'orbit';
+        chosen = 'mobius';
         tProbe = tOrbit;
     end
 
@@ -763,7 +763,7 @@ function vals = localEvalSAOrbit(dens, X, verbose, ...
 %   (relative mode). Returns a 1-by-nQ row vector, matching the centres
 %   path's output shape.
 %
-%   truncationSigmas and kernelPrecision are forwarded to the orbit
+%   truncationSigmas and kernelPrecision are forwarded to the Möbius
 %   evaluators (Stage 4: the non-periodic per-block kernel sum routes
 %   through internal.gaussianKernelSum with sigma_eff = sigma/sqrt(m),
 %   gaining truncation natively).
@@ -778,7 +778,7 @@ function vals = localEvalSAOrbit(dens, X, verbose, ...
     nQ     = size(X, 2);
 
     % Build kwarg list — pass through only when explicitly supplied
-    % at the evalExpTens call level; otherwise the orbit evaluators
+    % at the evalExpTens call level; otherwise the Möbius evaluators
     % consult mptDefaults themselves.
     kw = {'is_per', isPer, 'period', period};
     if ~isempty(truncationSigmas)

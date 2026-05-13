@@ -1,12 +1,12 @@
-%% test_dispatch_sa_cossim.m — v2.2 SA orbit dispatch in cosSimExpTens
+%% test_dispatch_sa_cossim.m — v2.2 SA method dispatch in cosSimExpTens
 %
 %  Tests for the new method/cancellationThreshold keywords introduced in
 %  v2.2 (Commit 6a). Covers:
-%    - Orbit and pairwise paths agree to numerical tolerance on healthy
+%    - Möbius and Bulger methods agree to numerical tolerance on healthy
 %      regimes (r in {3, 4}, abs and rel modes, periodic and non-periodic).
 %    - Auto dispatch picks the expected path given r, n, mode.
 %    - The three-layer fallback (cross-cancellation, corruption, severe
-%      cancellation ratio) catches degenerate cases and routes to pairwise.
+%      cancellation ratio) catches degenerate cases and routes to Bulger.
 %    - Bad keyword values raise informative errors.
 %
 %  Standalone-runnable. When invoked from test_mpt.m the existing
@@ -47,12 +47,12 @@ results{end,2}   = ok_badCT;
 %% ---- Auto routing decisions (verify path used) ----
 %
 % We can't easily intercept the dispatcher's choice without re-architecting,
-% so we verify routing indirectly: orbit-only fields like the cancellation
-% ratio aren't observable from outside, but agreement with method='pairwise'
+% so we verify routing indirectly: Möbius-method-only fields like the cancellation
+% ratio aren't observable from outside, but agreement with method='bulger'
 % within tolerance is a strong consistency signal. The structural coverage
 % below ensures no path fails silently.
 
-% --- r=3 abs nonperiodic: auto picks orbit; agrees with pairwise ---
+% --- r=3 abs nonperiodic: auto picks the Möbius method; agrees with Bulger ---
 rng(7, 'twister');
 p_x = sort(2000 * rand(8, 1));
 w_x = 0.5 + rand(8, 1);
@@ -63,15 +63,15 @@ sigma = 30; r = 3; isRel = false; isPer = false; period = 0;
 s_auto = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
     'verbose', false);
 s_pair = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'pairwise', 'verbose', false);
+    'method', 'bulger', 'verbose', false);
 s_orb  = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'orbit', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: r=3 abs nonper auto matches pairwise (within 1e-10)';
+    'method', 'mobius', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: r=3 abs nonper auto matches Bulger (within 1e-10)';
 results{end,2}   = abs(s_auto - s_pair) < 1e-10;
-results{end+1,1} = 'dispatch.SA: r=3 abs nonper orbit matches pairwise (within 1e-8)';
+results{end+1,1} = 'dispatch.SA: r=3 abs nonper Möbius matches Bulger (within 1e-8)';
 results{end,2}   = abs(s_orb - s_pair) < 1e-8;
 
-% --- r=4 abs periodic: auto picks orbit; agrees with pairwise ---
+% --- r=4 abs periodic: auto picks the Möbius method; agrees with Bulger ---
 rng(11, 'twister');
 p_x = sort(1200 * rand(8, 1));
 w_x = ones(8, 1);
@@ -80,13 +80,13 @@ w_y = ones(8, 1);
 sigma = 30; r = 4; isRel = false; isPer = true; period = 1200;
 
 s_pair = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'pairwise', 'verbose', false);
+    'method', 'bulger', 'verbose', false);
 s_orb  = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'orbit', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: r=4 abs per orbit matches pairwise (within 1e-8)';
+    'method', 'mobius', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: r=4 abs per Möbius matches Bulger (within 1e-8)';
 results{end,2}   = abs(s_orb - s_pair) < 1e-8;
 
-% --- r=3 rel periodic, sigma/period within threshold: orbit agrees ---
+% --- r=3 rel periodic, sigma/period within threshold: Möbius agrees ---
 rng(13, 'twister');
 p_x = sort(1200 * rand(8, 1));
 w_x = ones(8, 1);
@@ -96,19 +96,19 @@ sigma = 12;  r = 3; isRel = true; isPer = true; period = 1200;
 % sigma/period = 0.01 < 0.03 threshold
 
 s_pair = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'pairwise', 'verbose', false);
+    'method', 'bulger', 'verbose', false);
 s_orb  = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, isRel, isPer, period, ...
-    'method', 'orbit', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: r=3 rel per (sig/P=0.01) orbit matches pairwise (1e-6)';
+    'method', 'mobius', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: r=3 rel per (sig/P=0.01) Möbius matches Bulger (1e-6)';
 results{end,2}   = abs(s_orb - s_pair) < 1e-6;
 
-%% ---- Auto routes to pairwise in expected cases ----
+%% ---- Auto routes to Bulger in expected cases ----
 
-% --- r=2 small-n: auto matches pairwise to numerical precision ---
+% --- r=2 small-n: auto matches Bulger to numerical precision ---
 % Under v2.2.0 the analytical heuristic forced r=2 with n_max<=8 to
-% pairwise, so auto and pairwise were bit-identical here. Under v2.2.x
+% Bulger, so auto and Bulger were bit-identical here. Under v2.2.x
 % the probe-based dispatcher decides empirically; at K=6 r=2 the
-% analytical pre-screen (ratio K^2/2 = 18 > 10) routes auto to orbit.
+% analytical pre-screen (ratio K^2/2 = 18 > 10) routes auto to the Möbius method.
 % Both paths compute the same IP mathematically; round-off differs at
 % machine epsilon. Result must still match to numerical precision.
 rng(17, 'twister');
@@ -120,12 +120,12 @@ sigma = 50; r = 2;
 s_auto2 = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, false, false, 0, ...
     'verbose', false);
 s_pair2 = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, false, false, 0, ...
-    'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: r=2 small-n auto matches pairwise (1e-12)';
+    'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: r=2 small-n auto matches Bulger (1e-12)';
 results{end,2}   = abs(s_auto2 - s_pair2) < 1e-12;
 
-% --- K-vs-r margin too small (n_min - r < 2) -> pairwise ---
-% n=4, r=3 -> margin = 1 < 2 -> pairwise.
+% --- K-vs-r margin too small (n_min - r < 2) -> Bulger ---
+% n=4, r=3 -> margin = 1 < 2 -> Bulger.
 p_x = [0; 100; 400; 700];
 w_x = ones(4, 1);
 p_y = p_x;
@@ -133,8 +133,8 @@ w_y = w_x;
 s_auto3 = cosSimExpTens(p_x, w_x, p_y, w_y, 50, 3, false, false, 0, ...
     'verbose', false);
 s_pair3 = cosSimExpTens(p_x, w_x, p_y, w_y, 50, 3, false, false, 0, ...
-    'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: K-r margin <2 auto agrees with pairwise (exact)';
+    'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: K-r margin <2 auto agrees with Bulger (exact)';
 results{end,2}   = abs(s_auto3 - s_pair3) < 1e-12;
 
 % --- Self-similarity is 1 in both modes ---
@@ -142,12 +142,12 @@ rng(19, 'twister');
 p = sort(2000 * rand(7, 1));
 w = 0.5 + rand(7, 1);
 s_self_pair = cosSimExpTens(p, w, p, w, 30, 3, false, false, 0, ...
-    'method', 'pairwise', 'verbose', false);
+    'method', 'bulger', 'verbose', false);
 s_self_orb  = cosSimExpTens(p, w, p, w, 30, 3, false, false, 0, ...
-    'method', 'orbit', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: self-similarity = 1 (pairwise)';
+    'method', 'mobius', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: self-similarity = 1 (Bulger)';
 results{end,2}   = abs(s_self_pair - 1) < 1e-12;
-results{end+1,1} = 'dispatch.SA: self-similarity = 1 (orbit, within 1e-8)';
+results{end+1,1} = 'dispatch.SA: self-similarity = 1 (Möbius, within 1e-8)';
 results{end,2}   = abs(s_self_orb - 1) < 1e-8;
 
 %% ---- sigma/period threshold warning in rel+per ----
@@ -159,25 +159,25 @@ w_x = ones(6, 1);
 p_y = (0:5)' * 200 + 50;
 w_y = ones(6, 1);
 % sigma/period = 60/1200 = 0.05 > 0.03 threshold
-warnState = warning('on', 'cosSimExpTens:orbitSigmaOverPFallback');
+warnState = warning('on', 'cosSimExpTens:mobiusSigmaOverPFallback');
 lastwarn('');
 s_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
     'verbose', true);
 [wmsg, wid] = lastwarn;
 warning(warnState);
 results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 fires fallback warning';
-results{end,2}   = strcmp(wid, 'cosSimExpTens:orbitSigmaOverPFallback');
-% Result must still be correct (matches explicit pairwise).
+results{end,2}   = strcmp(wid, 'cosSimExpTens:mobiusSigmaOverPFallback');
+% Result must still be correct (matches explicit Bulger).
 s_pair_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
-    'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 result matches pairwise';
+    'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 result matches Bulger';
 results{end,2}   = abs(s_warn - s_pair_warn) < 1e-12;
 
 %% ---- Cross-cancellation guard fires fallback ----
 
 % With a cancellationThreshold set absurdly high (e.g., 0.99), almost any
 % real cosine value will be deemed "cancellation-suspect" and force fallback
-% to pairwise. The orbit-vs-pairwise agreement on healthy data means both
+% to pairwise. The Möbius-vs-Bulger agreement on healthy data means both
 % paths return the same value — verifying no wrong-answer path leaks out.
 rng(23, 'twister');
 p_x = sort(2000 * rand(8, 1));
@@ -185,17 +185,17 @@ w_x = ones(8, 1);
 p_y = sort(2000 * rand(8, 1));
 w_y = ones(8, 1);
 s_pair_g = cosSimExpTens(p_x, w_x, p_y, w_y, 30, 3, false, false, 0, ...
-    'method', 'pairwise', 'verbose', false);
-% Force orbit path, but with threshold 0.99 trigger fallback.
+    'method', 'bulger', 'verbose', false);
+% Force Möbius method, but with threshold 0.99 trigger fallback.
 s_high_ct = cosSimExpTens(p_x, w_x, p_y, w_y, 30, 3, false, false, 0, ...
-    'method', 'orbit', 'cancellationThreshold', 0.99, 'verbose', false);
-results{end+1,1} = 'dispatch.SA: high cancellationThreshold falls back to pairwise';
+    'method', 'mobius', 'cancellationThreshold', 0.99, 'verbose', false);
+results{end+1,1} = 'dispatch.SA: high cancellationThreshold falls back to Bulger';
 results{end,2}   = abs(s_high_ct - s_pair_g) < 1e-12;
 
 %% ---- Skinny dens flows through dispatch transparently ----
 
 % From Commit 5: dens default is skinny. The dispatcher should accept it
-% and route correctly without forcing eager build for the orbit path.
+% and route correctly without forcing eager build for the Möbius method.
 p_x = [0; 4; 7; 11; 14];
 w_x = ones(5, 1);
 p_y = [0; 5; 7; 12; 14];
@@ -205,10 +205,10 @@ dens_y_skinny = buildExpTens(p_y, w_y, 30, 3, false, false, 0, 'verbose', false)
 results{end+1,1} = 'dispatch.SA: skinny dens has no Centres before dispatch';
 results{end,2}   = ~isfield(dens_x_skinny, 'Centres');
 s_skinny_orb = cosSimExpTens(dens_x_skinny, dens_y_skinny, ...
-    'method', 'orbit', 'verbose', false);
+    'method', 'mobius', 'verbose', false);
 s_pair_check = cosSimExpTens(p_x, w_x, p_y, w_y, 30, 3, false, false, 0, ...
-    'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: orbit on skinny dens matches raw-args pairwise';
+    'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: Möbius on skinny dens matches raw-args Bulger';
 results{end,2}   = abs(s_skinny_orb - s_pair_check) < 1e-8;
 
 %% ---- Standalone summary ----

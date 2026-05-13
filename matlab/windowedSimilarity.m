@@ -25,7 +25,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %   List mode (v2.1+). Either or both density inputs may be a cell
 %   array of MaetDensity structs. Returns a cell array of 1-by-M
 %   profiles. Modes (controlled via the 'mode' name-value option):
-%     'pairwise'  — n_q == n_c required; pair element-by-element.
+%     'bulger'  — n_q == n_c required; pair element-by-element.
 %                   Returns a 1-by-n cell.
 %     'cartesian' — Cross every query with every context.
 %                   Returns an n_q-by-n_c cell.
@@ -137,7 +137,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %                     iff its length equals n_q AND its first entry is
 %                     itself a cell. Otherwise it is broadcast as a
 %                     shared reference across all queries.
-%       'mode'      - List-mode pairing (v2.1+). 'pairwise', 'cartesian',
+%       'mode'      - List-mode pairing (v2.1+). 'bulger', 'cartesian',
 %                     or 'auto' (default). Ignored when both inputs are
 %                     scalar densities.
 %       'verbose'   - Default true.
@@ -160,9 +160,9 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
                 reference = varargin{i + 1};
             case 'mode'
                 mode = lower(char(varargin{i + 1}));
-                if ~any(strcmp(mode, {'pairwise', 'cartesian', 'auto'}))
+                if ~any(strcmp(mode, {'bulger', 'cartesian', 'auto'}))
                     error('windowedSimilarity:badMode', ...
-                        ['''mode'' must be ''pairwise'', ''cartesian'', or ' ...
+                        ['''mode'' must be ''bulger'', ''cartesian'', or ' ...
                          '''auto''; got ''%s''.'], mode);
                 end
             case 'truncationsigmas'
@@ -186,7 +186,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     % Either or both of densQuery, densContext may be a cell array of
     % MaetDensity structs, in which case the function returns a cell
     % array of profiles. Modes:
-    %   'pairwise'  — n_q == n_c required; pair element-by-element.
+    %   'bulger'  — n_q == n_c required; pair element-by-element.
     %                 Returns a 1-by-n cell of 1-by-M profiles.
     %   'cartesian' — Cross every query with every context.
     %                 Returns an n_q-by-n_c cell of 1-by-M profiles.
@@ -402,14 +402,14 @@ function profile = localWindowedSimilarityList( ...
     % Resolve mode.
     if strcmp(mode, 'auto')
         if nQ == nC
-            modeR = 'pairwise';
+            modeR = 'bulger';
         else
             modeR = 'cartesian';
         end
     else
         modeR = mode;
     end
-    if strcmp(modeR, 'pairwise') && nQ ~= nC
+    if strcmp(modeR, 'bulger') && nQ ~= nC
         error('windowedSimilarity:listLengthMismatch', ...
               ['windowedSimilarity (list mode, pairwise): query and context ' ...
                'must have the same length, got %d and %d.'], nQ, nC);
@@ -438,7 +438,7 @@ function profile = localWindowedSimilarityList( ...
 
     cleanupObj = onCleanup(@() warning(prevState));   %#ok<NASGU>
 
-    if strcmp(modeR, 'pairwise')
+    if strcmp(modeR, 'bulger')
         profile = cell(1, nQ);
         for k = 1:nQ
             if perQueryRef

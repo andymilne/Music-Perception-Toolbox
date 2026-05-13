@@ -4,13 +4,13 @@
 %  deterministic inputs (no RNG). The companion Python file
 %  python/tests/v22/test_cross_language_golden.py hardcodes the same
 %  values; running both pins down cross-language numerical agreement
-%  to 1e-8 relative on the v2.2 surface (orbit cosine similarity SA
+%  to 1e-8 relative on the v2.2 surface (Möbius cosine similarity SA
 %  + MA including the safe/unsafe hybrid, Rényi-2 entropy SA + MA,
-%  orbit-path tensorHarmonicity, and orbit-path evalExpTens).
+%  Möbius-method tensorHarmonicity, and Möbius-method evalExpTens).
 %
-%  Inputs use 'method', 'orbit' on the cosine cases so the orbit
+%  Inputs use 'method', 'mobius' on the cosine cases so the Möbius method
 %  Möbius machinery is genuinely exercised rather than the
-%  dispatcher's cost-model fallback to pairwise. Sigmas are chosen
+%  dispatcher's cost-model fallback to Bulger. Sigmas are chosen
 %  to keep values well-conditioned (away from FP underflow); a 1e-8
 %  relative tolerance is the standard used elsewhere in the v22 suite.
 %
@@ -30,23 +30,23 @@ end
 RTOL = 1e-8;
 ATOL = 1e-12;
 
-%% ---- Case A: SA cosSim, abs r=3, orbit ----
+%% ---- Case A: SA cosSim, abs r=3, Möbius ----
 
 p1 = [0; 400; 700];
 p2 = [0; 300; 700];
 w  = [1; 1; 1];
 sA = cosSimExpTens(p1, w, p2, w, 80, 3, false, false, 0, ...
-    'method', 'orbit', 'verbose', false);
+    'method', 'mobius', 'verbose', false);
 GOLDEN_A = 0.67614851033133;
-results{end+1, 1} = 'cross-language golden A: SA cosSim abs r=3 orbit';
+results{end+1, 1} = 'cross-language golden A: SA cosSim abs r=3 Möbius';
 results{end, 2}   = abs(sA - GOLDEN_A) < RTOL * abs(GOLDEN_A) + ATOL;
 
-%% ---- Case B: SA cosSim, rel r=3 per, orbit ----
+%% ---- Case B: SA cosSim, rel r=3 per, Möbius ----
 
 sB = cosSimExpTens(p1, w, p2, w, 80, 3, true, true, 1200, ...
-    'method', 'orbit', 'verbose', false);
+    'method', 'mobius', 'verbose', false);
 GOLDEN_B = 0.98878587374986;
-results{end+1, 1} = 'cross-language golden B: SA cosSim rel r=3 per orbit';
+results{end+1, 1} = 'cross-language golden B: SA cosSim rel r=3 per Möbius';
 results{end, 2}   = abs(sB - GOLDEN_B) < RTOL * abs(GOLDEN_B) + ATOL;
 
 %% ---- Case C: MA cosSim ragged-K hybrid ----
@@ -67,7 +67,7 @@ dx = buildExpTens({P_x}, {W_x}, 25, 3, 1, false, false, 0, ...
     'verbose', false);
 dy = buildExpTens({P_y}, {W_y}, 25, 3, 1, false, false, 0, ...
     'verbose', false);
-sC = cosSimExpTens(dx, dy, 'method', 'orbit', 'verbose', false);
+sC = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
 GOLDEN_C = 0.12066345091832;
 results{end+1, 1} = 'cross-language golden C: MA cosSim ragged-K hybrid';
 results{end, 2}   = abs(sC - GOLDEN_C) < RTOL * abs(GOLDEN_C) + ATOL;
@@ -96,14 +96,14 @@ GOLDEN_E = 21.64284222436801;
 results{end+1, 1} = 'cross-language golden E: MA entropy Rényi-2';
 results{end, 2}   = abs(HE - GOLDEN_E) < RTOL * abs(GOLDEN_E) + ATOL;
 
-%% ---- Case F: tensorHarmonicity orbit path ----
+%% ---- Case F: tensorHarmonicity Möbius method ----
 
 hF = tensorHarmonicity([0; 400; 700], [], 12, 'verbose', false);
 GOLDEN_F = 0.17358467740231;
-results{end+1, 1} = 'cross-language golden F: tensorHarmonicity orbit';
+results{end+1, 1} = 'cross-language golden F: tensorHarmonicity Möbius';
 results{end, 2}   = abs(hF - GOLDEN_F) < RTOL * abs(GOLDEN_F) + ATOL;
 
-%% ---- Case G: evalExpTens at single query, rel orbit ----
+%% ---- Case G: evalExpTens at single query, rel Möbius ----
 
 tp = [0; 1200; 1902; 2400];
 tw = [1; 0.5; 0.333; 0.25];

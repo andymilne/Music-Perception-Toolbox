@@ -5,7 +5,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   I = MOBIUS.MAPERATTRINNERMATRIX(PX, WX, PY, WY, SIGMA, R, IS_REL,
 %                                    IS_PER, PERIOD)
 %   computes the (N_X, N_Y) per-attribute inner product matrix used by
-%   the multi-attribute orbit-Möbius factorisation
+%   the multi-attribute Möbius factorisation
 %       <T_X, T_Y> = sum_{n_x, n_y} prod_a I_a[n_x, n_y]
 %   on a single attribute.
 %
@@ -27,26 +27,26 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %
 %   Strategy:
 %
-%   - r = 1: direct kernel sum (no orbit; cancellation impossible).
+%   - r = 1: direct kernel sum (no Möbius decomposition; cancellation impossible).
 %     Zero-pad NaN entries (zero weight kills any contribution).
 %
 %   - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
 %     this attribute iff its non-NaN slot count K_eff satisfies
 %     K_eff - R >= _ORBIT_K_MINUS_R_MIN = 2 (the precision margin
-%     used elsewhere in the orbit machinery). Safe-vs-safe pairs flow
-%     through the vectorised batched orbit path with within-safe-group
+%     used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
+%     through the vectorised batched Möbius method with within-safe-group
 %     zero-padding. Pairs involving any unsafe event flow through the
 %     direct-enumeration helper MOBIUS.INNERPRODUCTDIRECTABSSA, which
 %     is exact for any K >= R (no Möbius alternating sum).
 %
 %   - r >= 2 rel: per-event-pair loop with zero-pad, calling
 %     MOBIUS.ORBITINNERRELSA. Auto dispatch routes any rel group to
-%     pairwise globally; this path runs only on explicit
-%     method='orbit' opt-in. Events with K_eff - R below the precision
-%     margin in this niche regime may lose precision in the orbit
+%     Bulger globally; this path runs only on explicit
+%     method='mobius' opt-in. Events with K_eff - R below the precision
+%     margin in this niche regime may lose precision in the Möbius
 %     alternating sum; users who care about exact rel + ragged
-%     orbit-mode behaviour should either filter events to K_eff >=
-%     R + 2 or use method='auto' (which routes to pairwise).
+%     Möbius-mode behaviour should either filter events to K_eff >=
+%     R + 2 or use method='auto' (which routes to Bulger's method).
 %
 %   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.INNERPRODUCTDIRECTABSSA,
 %            MOBIUS.ORBITINNERRELSA.
@@ -83,7 +83,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 
     I = zeros(Nx, Ny);
 
-    % --- Safe x Safe submatrix: vectorised batched orbit ---
+    % --- Safe x Safe submatrix: vectorised batched Möbius method ---
     if ~isempty(safe_x_idx) && ~isempty(safe_y_idx)
         I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
             Px(:, safe_x_idx), Wx(:, safe_x_idx), ...
@@ -182,7 +182,7 @@ end
 
 function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
                                   sigma, r, isPer, period)
-%LOCALSAFESAFEORBIT  Vectorised orbit IP on the safe submatrix.
+%LOCALSAFESAFEORBIT  Vectorised Möbius-method IP on the safe submatrix.
 %
 %   Within the safe group K still varies per event; zero-pad to the
 %   slab Kx / Ky dimensions. The waste factor K_max/mean(K) is smaller

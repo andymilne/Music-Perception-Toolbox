@@ -112,13 +112,13 @@ function s = cosSimExpTens(varargin)
 % Extract optional name-value pairs that may follow the positional
 % args. 'verbose' applies to all dispatch arms; 'method' and
 % 'cancellationThreshold' apply to SA and MA struct/raw-args paths
-% (v2.2 orbit dispatch); 'spectrum', 'precision', and 'dedup' are
+% (v2.2 Möbius dispatch); 'spectrum', 'precision', and 'dedup' are
 % valid only for the batched-raw path and are forwarded to
 % batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
 verbose = true;
-method = 'auto';                % v2.2: 'auto' | 'pairwise' | 'orbit'
+method = 'auto';                % v2.2: 'auto' | 'bulger' | 'mobius'
 cancellationThreshold = 1e-12;  % v2.2: cross-cancellation guard
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
@@ -143,10 +143,10 @@ while i <= numel(varargin)
                 continue;
             case 'method'
                 method = lower(char(varargin{i + 1}));
-                if ~ismember(method, {'auto', 'pairwise', 'orbit'})
+                if ~ismember(method, {'auto', 'bulger', 'mobius'})
                     error('cosSimExpTens:badMethod', ...
-                          ['''method'' must be ''auto'', ''pairwise'', ' ...
-                           'or ''orbit''; got ''%s''.'], method);
+                          ['''method'' must be ''auto'', ''bulger'', ' ...
+                           'or ''mobius''; got ''%s''.'], method);
                 end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
@@ -250,7 +250,7 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && strcmp(varargin{1}.tag, 'MaetDensity') ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'MaetDensity')
-    % Kept skinny here: orbit branch reads only cheap fields; pairwise
+    % Kept skinny here: Möbius branch reads only cheap fields; Bulger
     % branch ensures heavy fields on demand inside localCosSimMA.
     s = localCosSimMA(varargin{1}, varargin{2}, ...
                        method, cancellationThreshold, verbose);
@@ -274,7 +274,7 @@ if nArgs == 10 && iscell(varargin{1})
     isRelVec  = varargin{8};
     isPerVec  = varargin{9};
     periodVec = varargin{10};
-    % Build skinny: orbit branch may not need heavy fields.
+    % Build skinny: Möbius branch may not need heavy fields.
     dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
         isRelVec, isPerVec, periodVec, 'verbose', verbose);
     dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
@@ -353,8 +353,8 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && strcmp(varargin{1}.tag, 'ExpTensDensity') ...
         && isfield(varargin{2}, 'tag') ...
         && strcmp(varargin{2}.tag, 'ExpTensDensity')
-    % --- Precomputed structs (kept skinny for now: orbit path doesn't
-    % need per-tuple fields; pairwise branch ensures them on demand) ---
+    % --- Precomputed structs (kept skinny for now: Möbius method doesn't
+    % need per-tuple fields; Bulger branch ensures them on demand) ---
     dens_x = varargin{1};
     dens_y = varargin{2};
 
@@ -376,7 +376,7 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
     end
 
 elseif nArgs == 9
-    % --- Raw arguments (SA): build skinny; pairwise branch ensures later ---
+    % --- Raw arguments (SA): build skinny; Bulger branch ensures later ---
     if iscell(varargin{1}) || iscell(varargin{3})
         error(['cosSimExpTens: cell-form p1/p2 (multi-attribute) requires ' ...
             '10 positional arguments: pAttr1, w1, pAttr2, w2, sigmaVec, ' ...
@@ -408,7 +408,7 @@ else
         '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).']);
 end
 
-% --- Common SA cheap-field setup (used by orbit and pairwise branches) ---
+% --- Common SA cheap-field setup (used by Möbius and Bulger branches) ---
 r     = dens_x.r;
 sigma = dens_x.sigma;
 isRel = dens_x.isRel;
@@ -421,7 +421,7 @@ if r > min(numel(dens_x.p), numel(dens_y.p))
     return;
 end
 
-% === v2.2 method dispatch (auto / pairwise / orbit) ===
+% === v2.2 method dispatch (auto / bulger / mobius) ===
 % v2.2.x: probe-based dispatcher replaces the analytical heuristic.
 % Hard rules + analytical pre-screen still decide most cases without
 % probe overhead; when neither dominates, both paths are timed on a
@@ -439,13 +439,13 @@ end
 ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
 
-if strcmp(chosen, 'orbit')
+if strcmp(chosen, 'mobius')
     [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y);
 
     % Three-layer fallback guard.
     %  1. Cross-cancellation: |<X,Y>| small relative to sqrt(<X,X><Y,Y>).
-    %     The orbit estimate may be dominated by cancellation between
-    %     partition-orbit terms.
+    %     The Möbius estimate may be dominated by cancellation between
+    %     partition terms.
     denomGeo = sqrt(max(ip_xx * ip_yy, 0));
     crossCancel = denomGeo > 0 && abs(ip_xy) < cancellationThreshold * denomGeo;
     %  2. Post-hoc sanity: non-finite, negative auto-IP (unambiguous Gram
@@ -454,19 +454,19 @@ if strcmp(chosen, 'orbit')
     %  3. Runtime cancellation diagnostic (worst |sum|/max(|term|) across
     %     the three IPs): below 1e-10 means ~6 surviving decimal digits or
     %     fewer — borderline acceptable for cosine but past this point fall
-    %     back to pairwise. See V22_DEV_LOG for the empirical regime.
+    %     back to Bulger's method. See V22_DEV_LOG for the empirical regime.
     cancelTooSevere = worstRatio < 1e-10;
 
     if crossCancel || corrupted || cancelTooSevere
-        chosen = 'pairwise';   % fall through to the pairwise branch below
+        chosen = 'bulger';   % fall through to the Bulger branch below
     else
         ranOrbit = true;
     end
 end
 
 if ~ranOrbit
-    % Pairwise branch (also entered when 'method', 'pairwise' was set,
-    % and when an orbit-then-fallback occurred). Heavy fields needed.
+    % Pairwise branch (also entered when 'method', 'bulger' was set,
+    % and when an Möbius-then-fallback occurred). Heavy fields needed.
     dens_x = ensureExpTensExpensive(dens_x);
     dens_y = ensureExpTensExpensive(dens_y);
 
@@ -696,64 +696,65 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
 end
 
 % =========================================================================
-%  v2.2 SA orbit dispatch helpers (method='auto'|'pairwise'|'orbit')
+%  v2.2 SA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
 function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
                                        sigmaOverP, userMethod, n_min, ...
                                        verbose)
-%LOCALSELECTSAMETHOD  Choose the inner-product path for SA cosSimExpTens.
+%LOCALSELECTSAMETHOD  Choose the inner-product method for SA cosSimExpTens.
 %
 %   Routing rules (in order):
 %     1. userMethod ~= 'auto' overrides everything.
-%     2. r <= 1: orbit machinery is undefined for r < 2; pairwise is
-%        trivially fast.
-%     3. r == 2 and n_max <= 8: pairwise dominates because the orbit
-%        overhead (4 orbits, contraction dispatch) exceeds the kernel
-%        matvec cost.
+%     2. r <= 1: the Möbius method is undefined for r < 2; Bulger's
+%        method is trivially fast.
+%     3. r == 2 and n_max <= 8: Bulger's method dominates because the
+%        Möbius method's overhead (4 orbit classes, contraction dispatch)
+%        exceeds the kernel matvec cost.
 %     4. r > 8: shipped orbit tables stop at r=8 (build cost warned).
-%     5. K-vs-r precision guard: orbit's Mobius alternating sum can
-%        suffer catastrophic cancellation when n_min is too close to r.
-%        Margin is 2 (i.e., n_min - r >= 2 required).
-%     6. Periodic-relative beyond sigma/period > 0.03: orbit computes
-%        the JMM Eq. 3.4 integral form; pairwise computes the
-%        single-nearest-image-wrap form. They diverge in this regime.
-%        For backward compatibility with v2.1 the toolbox treats
-%        pairwise-wrap as canonical; warn and fall back unless the user
-%        explicitly asked for 'orbit'.
+%     5. K-vs-r precision guard: the Möbius method's alternating partition
+%        sum can suffer catastrophic cancellation when n_min is too close
+%        to r. Margin is 2 (i.e., n_min - r >= 2 required).
+%     6. Periodic-relative beyond sigma/period > 0.03: the Möbius method
+%        computes the JMM Eq. 3.4 integral form; Bulger's method computes
+%        the single-nearest-image-wrap form. They diverge in this regime.
+%        For backward compatibility with v2.1 the toolbox treats Bulger's
+%        pairwise-wrap form as canonical; warn and fall back unless the
+%        user explicitly asked for 'mobius'.
 
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
         return;
     end
     if r <= 1
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
     if r == 2 && n_max <= 8
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
     if r > 8   % _ORBIT_R_MAX_SHIPPED
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
     if n_min - r < 2   % _ORBIT_K_MINUS_R_MIN
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
     if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
         if verbose
-            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
-                    ['sigma/period = %.3f exceeds the orbit-path threshold ' ...
-                     '(0.03) for periodic-relative mode; falling back to ' ...
-                     'the pairwise-wrap form. Pass ''method'', ''pairwise'' ' ...
-                     'explicitly to silence this warning.'], sigmaOverP);
+            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
+                    ['sigma/period = %.3f exceeds the Möbius-method ' ...
+                     'threshold (0.03) for periodic-relative mode; ' ...
+                     'falling back to Bulger''s method (the pairwise-' ...
+                     'wrap form). Pass ''method'', ''bulger'' explicitly ' ...
+                     'to silence this warning.'], sigmaOverP);
         end
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
-    chosen = 'orbit';
+    chosen = 'mobius';
 end
 
 
@@ -777,7 +778,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose)
 %LOCALSELECTANDESTIMATESAIP  Probe-based dispatcher for SA cosSimExpTens.
 %
-%   Returns (chosen, probed, estSec). chosen is 'orbit' or 'pairwise';
+%   Returns (chosen, probed, estSec). chosen is 'mobius' or 'bulger';
 %   probed is true iff both paths were actually timed (a verbose
 %   dispatch message is printed by the caller in that case); estSec is
 %   the empirical extrapolated estimate when probed, 0 otherwise.
@@ -808,32 +809,33 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         return;
     end
     if r <= 1
-        chosen = 'pairwise';
+        chosen = 'bulger';
         probed = false;
         estSec = 0;
         return;
     end
     if r > 8   % _ORBIT_R_MAX_SHIPPED
-        chosen = 'pairwise';
+        chosen = 'bulger';
         probed = false;
         estSec = 0;
         return;
     end
     if (n_min - r) < 2   % _ORBIT_K_MINUS_R_MIN
-        chosen = 'pairwise';
+        chosen = 'bulger';
         probed = false;
         estSec = 0;
         return;
     end
     if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
         if verbose
-            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
-                    ['sigma/period = %.3f exceeds the orbit-path threshold ' ...
-                     '(0.03) for periodic-relative mode; falling back to ' ...
-                     'the pairwise-wrap form. Pass ''method'', ''pairwise'' ' ...
-                     'explicitly to silence this warning.'], sigmaOverP);
+            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
+                    ['sigma/period = %.3f exceeds the Möbius-method ' ...
+                     'threshold (0.03) for periodic-relative mode; ' ...
+                     'falling back to Bulger''s method (the pairwise-' ...
+                     'wrap form). Pass ''method'', ''bulger'' explicitly ' ...
+                     'to silence this warning.'], sigmaOverP);
         end
-        chosen = 'pairwise';
+        chosen = 'bulger';
         probed = false;
         estSec = 0;
         return;
@@ -847,13 +849,13 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
 
     % ---- Analytical pre-screen ----
     if orbitFull * PRESCREEN_IP_DOMINANCE < pairwiseFull
-        chosen = 'orbit';
+        chosen = 'mobius';
         probed = false;
         estSec = 0;
         return;
     end
     if pairwiseFull * PRESCREEN_IP_DOMINANCE < orbitFull
-        chosen = 'pairwise';
+        chosen = 'bulger';
         probed = false;
         estSec = 0;
         return;
@@ -863,9 +865,9 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
     K_probe = min([K_x, K_y, 12]);
     % K_probe - r >= 2 is guaranteed by the precision rule above.
 
-    tPairwise = localProbeIPPath(dens_x, dens_y, K_probe, 'pairwise', ...
+    tPairwise = localProbeIPPath(dens_x, dens_y, K_probe, 'bulger', ...
                                   truncationSigmas, kernelPrecision);
-    tOrbit    = localProbeIPPath(dens_x, dens_y, K_probe, 'orbit', ...
+    tOrbit    = localProbeIPPath(dens_x, dens_y, K_probe, 'mobius', ...
                                   truncationSigmas, kernelPrecision);
 
     % ---- Extrapolate to full workload ----
@@ -886,10 +888,10 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
     tOrbitEst    = tOrbit * orbitFactor;
 
     if tPairwiseEst <= tOrbitEst
-        chosen = 'pairwise';
+        chosen = 'bulger';
         estSec = tPairwiseEst;
     else
-        chosen = 'orbit';
+        chosen = 'mobius';
         estSec = tOrbitEst;
     end
     probed = true;
@@ -938,7 +940,7 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
         dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
         dens_y.period, 'verbose', false);
 
-    if strcmp(path, 'orbit')
+    if strcmp(path, 'mobius')
         tStart = tic;
         [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
         t = toc(tStart);
@@ -954,12 +956,12 @@ end
 
 function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
                                        truncationSigmas, kernelPrecision)
-%LOCALPROBEPAIRWISEIP  Minimal pairwise IP cost stand-in for the probe.
+%LOCALPROBEPAIRWISEIP  Minimal IP cost stand-in for Bulger's method (probe).
 %
 %   Computes <T_x, T_y> via the v2.1 ipFull-equivalent kernel matvec.
-%   The full pairwise path computes three IPs but their per-call costs
+%   The full Bulger's method computes three IPs but their per-call costs
 %   scale the same way, so timing one gives a faithful relative
-%   ordering against the orbit probe.
+%   ordering against the Möbius probe.
 
     r       = double(dens_x.r);
     isPer   = logical(dens_x.isPer);
@@ -994,7 +996,7 @@ end
 
 
 function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y)
-%LOCALCOSSIMSAORBIT  Three SA inner products via Mobius/orbit machinery.
+%LOCALCOSSIMSAORBIT  Three SA inner products via the Möbius method.
 %
 %   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
 %   and worstRatio = the minimum cancellation ratio across the three
@@ -1023,7 +1025,7 @@ end
 
 
 function corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
-%LOCALORBITIPSCORRUPTED  Cheap post-hoc sanity check on orbit IPs.
+%LOCALORBITIPSCORRUPTED  Cheap post-hoc sanity check on Möbius-method IPs.
 %
 %   Triggers on:
 %     - non-finite IP (NaN or Inf in any of the three),
@@ -1061,11 +1063,11 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
 %
 %   The inner product factors as an elementwise product of per-attribute
 %   kernels (Section 2.7 of the MAET specification); no numerical
-%   integration is required for the pairwise path.
+%   integration is required for Bulger's method.
 %
-%   v2.2: now dispatches between the v2.1 pairwise path and a
-%   per-attribute orbit-Mobius path based on method ('auto' /
-%   'pairwise' / 'orbit') and a simple r-based heuristic. Three-layer
+%   v2.2: now dispatches between the v2.1 Bulger's method and a
+%   per-attribute the Möbius method based on method ('auto' /
+%   'bulger' / 'mobius') and a simple r-based heuristic. Three-layer
 %   guard mirrors the SA dispatcher (cross-cancellation, corruption,
 %   non-finite fallback).
 %
@@ -1120,7 +1122,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
     ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
     ranOrbit = false;
 
-    if strcmp(chosen, 'orbit')
+    if strcmp(chosen, 'mobius')
         [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y);
 
         % Three-layer fallback guard (mirrors SA path).
@@ -1130,7 +1132,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
         corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
 
         if crossCancel || corrupted
-            chosen = 'pairwise';
+            chosen = 'bulger';
         else
             ranOrbit = true;
         end
@@ -1271,35 +1273,37 @@ end
 
 
 % =========================================================================
-%  v2.2 MA orbit dispatch helpers (method='auto'|'pairwise'|'orbit')
+%  v2.2 MA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
 function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
                                                     isPerG, periodG, ...
                                                     userMethod, verbose)
-%LOCALSELECTMAINNERPRODUCTMETHOD  Choose the IP path for MA cosSimExpTens.
+%LOCALSELECTMAINNERPRODUCTMETHOD  Choose the IP method for MA cosSimExpTens.
 %
 %   Simple v2.2 heuristic (no cost model; benchmark-driven recalibration
 %   pending at Commit 7):
 %     1. userMethod ~= 'auto' overrides everything.
-%     2. r_max <= 1 -> pairwise (orbit machinery undefined).
-%     3. r_max > 8 (above _ORBIT_R_MAX_SHIPPED) -> pairwise (no shipped
+%     2. r_max <= 1 -> Bulger (Möbius method undefined).
+%     3. r_max > 8 (above _ORBIT_R_MAX_SHIPPED) -> Bulger (no shipped
 %        orbit table; user-build cost-preview warning otherwise).
 %     4. Periodic-relative beyond sigma/period > 0.03 anywhere -> warn,
-%        pairwise. Same convention guard as the SA dispatcher.
-%     5. Any rel group at all -> pairwise. Orbit-rel for MA is
-%        un-vectorised in v2.2 (per-event-pair loop); pairwise dominates
-%        in typical regimes. Users wanting orbit-rel opt in explicitly.
-%     6. r_max < 3 -> pairwise (orbit at r=2 carries |Omega_2|=4 overhead
-%        with the same K^2 asymptotic as pairwise).
-%     7. Otherwise -> orbit.
+%        Bulger. Same convention guard as the SA dispatcher.
+%     5. Any rel group at all -> Bulger's method. The Möbius relative-mode
+%        evaluator for MA is un-vectorised in v2.2 (per-event-pair loop);
+%        Bulger dominates in typical regimes. Users wanting the Möbius
+%        relative-mode evaluator opt in explicitly.
+%     6. r_max < 3 -> Bulger (the Möbius method at r=2 carries
+%        |Omega_2|=4 overhead with the same K^2 asymptotic as Bulger).
+%     7. Otherwise -> mobius.
 %
-%   has_nan is NOT a fallback: the MA orbit wrapper handles ragged
-%   K_{a,n} natively. Per-event-pair classification: events with
-%   K_eff - r >= 2 (the orbit precision margin) flow through the
-%   vectorised batched orbit; pairs involving any K_eff - r < 2 event
-%   flow through direct r-tuple enumeration (no Möbius alternating
-%   sum, hence no cancellation). See mobius.maPerAttrInnerMatrix.
+%   has_nan is NOT a fallback: the MA Möbius-method wrapper handles
+%   ragged K_{a,n} natively. Per-event-pair classification: events
+%   with K_eff - r >= 2 (the Möbius-method precision margin) flow
+%   through the vectorised batched Möbius evaluator; pairs involving
+%   any K_eff - r < 2 event flow through direct r-tuple enumeration
+%   (no Möbius alternating sum, hence no cancellation). See
+%   mobius.maPerAttrInnerMatrix.
 
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
@@ -1308,11 +1312,11 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 
     r_max = max(rVec);
     if r_max <= 1
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
     if r_max > 8   % _ORBIT_R_MAX_SHIPPED
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
 
@@ -1328,34 +1332,35 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
     end
     if sigmaOverP_max > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
         if verbose
-            warning('cosSimExpTens:orbitSigmaOverPFallback', ...
+            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
                     ['Maximum sigma/period = %.3f across periodic-relative ' ...
-                     'groups exceeds the orbit-path threshold (0.03); ' ...
-                     'falling back to the pairwise-wrap form. Pass ' ...
-                     '''method'', ''pairwise'' explicitly to silence this ' ...
-                     'warning.'], sigmaOverP_max);
+                     'groups exceeds the Möbius-method threshold (0.03); ' ...
+                     'falling back to Bulger''s method (the pairwise-wrap ' ...
+                     'form). Pass ''method'', ''bulger'' explicitly to ' ...
+                     'silence this warning.'], sigmaOverP_max);
         end
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
 
-    % Any rel group -> pairwise (orbit-rel un-vectorised in v2.2).
+    % Any rel group -> Bulger's method (the Möbius relative-mode
+    % evaluator is not vectorised in v2.2).
     if any(isRelG)
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
 
     if r_max < 3
-        chosen = 'pairwise';
+        chosen = 'bulger';
         return;
     end
 
-    chosen = 'orbit';
+    chosen = 'mobius';
 end
 
 
 function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
-%LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute orbit.
+%LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute Möbius method.
 %
 %   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
 %   product matrix I_xy^{(a)}[n_x, n_y] = <T_X^{(a)}_{n_x}, T_Y^{(a)}_{n_y}>

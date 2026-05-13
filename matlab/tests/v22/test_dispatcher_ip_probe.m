@@ -2,7 +2,7 @@
 %
 %  Mirrors python/tests/v22/test_dispatcher_ip_probe.py. The
 %  dispatcher (localSelectAndEstimateSAIP inside cosSimExpTens) decides
-%  between the orbit path and the pairwise path. Hard rules decide
+%  between the Möbius method and the Bulger's method. Hard rules decide
 %  first (correctness / feasibility); then an analytical pre-screen
 %  catches clear-winner cases without probe overhead; otherwise both
 %  paths are timed on a small subset and the faster is picked.
@@ -13,7 +13,7 @@ if ~exist('results', 'var')
     results = {};
 end
 
-% --- Semantic equivalence: explicit orbit matches explicit pairwise --
+% --- Semantic equivalence: explicit orbit matches explicit Bulger --
 rng(0, 'twister');
 ipprobe_px = sort(rand(20, 1) * 100);
 rng(1, 'twister');
@@ -23,10 +23,10 @@ ipprobe_dx = buildExpTens(ipprobe_px, ones(20, 1), 1, 3, false, false, 1200, ...
 ipprobe_dy = buildExpTens(ipprobe_py, ones(20, 1), 1, 3, false, false, 1200, ...
     'verbose', false);
 ipprobe_simOrbit = cosSimExpTens(ipprobe_dx, ipprobe_dy, ...
-    'method', 'orbit', 'verbose', false);
+    'method', 'mobius', 'verbose', false);
 ipprobe_simPair  = cosSimExpTens(ipprobe_dx, ipprobe_dy, ...
-    'method', 'pairwise', 'verbose', false);
-results{end+1, 1} = 'ip_probe: explicit orbit matches explicit pairwise';
+    'method', 'bulger', 'verbose', false);
+results{end+1, 1} = 'ip_probe: explicit orbit matches explicit Bulger';
 results{end, 2}   = abs(ipprobe_simOrbit - ipprobe_simPair) < 1e-10;
 
 % --- Auto matches explicit paths --------------------------------------
@@ -77,7 +77,7 @@ results{end, 2}   = ~contains(ipprobe_evalStrR1, 'cosSimExpTens: chose');
 
 % --- Verbose dispatch message: absent when user method set -----------
 ipprobe_evalStrUser = evalc( ...
-    ['cosSimExpTens(ipprobe_dx, ipprobe_dy, ''method'', ''pairwise'', ' ...
+    ['cosSimExpTens(ipprobe_dx, ipprobe_dy, ''method'', ''bulger'', ' ...
      '''verbose'', true);']);
 results{end+1, 1} = 'ip_probe: verbose message absent when method set';
 results{end, 2}   = ~contains(ipprobe_evalStrUser, 'cosSimExpTens: chose');

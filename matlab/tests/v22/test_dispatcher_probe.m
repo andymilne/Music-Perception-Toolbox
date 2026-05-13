@@ -27,8 +27,8 @@ end
 function test_user_override_orbit(testCase)
     dens = makeDens(12, 3, true);
     x = rand(2, 1000) * 1200;
-    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'orbit');
-    verifyEqual(testCase, chosen, 'orbit');
+    [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'mobius');
+    verifyEqual(testCase, chosen, 'mobius');
     verifyFalse(testCase, probed);
 end
 
@@ -75,7 +75,7 @@ function test_huge_centres_array_forces_orbit(testCase)
                        'verbose', false);
     x = rand(5, 1000) * 1200;
     [chosen, probed, ~] = evalExpTens_dispatch(dens, x, 1000, 'auto');
-    verifyEqual(testCase, chosen, 'orbit');
+    verifyEqual(testCase, chosen, 'mobius');
     verifyFalse(testCase, probed);
 end
 
@@ -90,7 +90,7 @@ function test_probe_fires_for_non_trivial_workload(testCase)
     [chosen, probed, est] = evalExpTens_dispatch(dens, x, 500, 'auto', ...
         'truncationSigmas', 6.0);
     verifyTrue(testCase, probed);
-    verifyTrue(testCase, ismember(chosen, {'centres', 'orbit'}));
+    verifyTrue(testCase, ismember(chosen, {'centres', 'mobius'}));
     verifyGreaterThan(testCase, est, 0);
 end
 
@@ -146,7 +146,7 @@ function [chosen, probed, est] = evalExpTens_dispatch(dens, x, nQ, ...
     % Simpler: the test framework uses evalExpTens and asserts on
     % the printed output rather than capturing the internal triple.
     % For these tests we use a heuristic: hard-rule cases route to
-    % 'centres' or 'orbit' deterministically; we infer 'probed' from
+    % 'centres' or 'mobius' deterministically; we infer 'probed' from
     % whether the dispatch-decision message printed.
     truncationSigmas = [];
     for i = 1:2:numel(varargin)
@@ -167,16 +167,16 @@ function [chosen, probed, est] = evalExpTens_dispatch(dens, x, nQ, ...
     if contains(out, 'chose ''centres''')
         chosen = 'centres';
         probed = true;
-    elseif contains(out, 'chose ''orbit''')
-        chosen = 'orbit';
+    elseif contains(out, 'chose ''mobius''')
+        chosen = 'mobius';
         probed = true;
     else
         % No dispatch message → hard rule or shortcut fired. Re-run
         % with explicit centres and orbit to find which actually got
         % executed by comparing outputs. Simpler: explicit overrides
         % return immediately so we just trust the method param logic.
-        if strcmp(method, 'orbit')
-            chosen = 'orbit';
+        if strcmp(method, 'mobius')
+            chosen = 'mobius';
         else
             chosen = 'centres';  % default for 'auto' under hard rules
         end

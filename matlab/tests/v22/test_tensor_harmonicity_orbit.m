@@ -7,7 +7,7 @@
 %      (the rewrite must not introduce extra factors).
 %    - Cardinality > 3 (4-pitch chord with auto duplicate=4): the
 %      v2.0/v2.1 centres path could not handle this without millions of
-%      r-tuples; the orbit path makes it routine.
+%      r-tuples; the Möbius method makes it routine.
 %    - Batched dedup: rows whose canonical (sorted, translation-removed)
 %      pitch sequences coincide return the same harmonicity.
 %    - Normalize='gaussian' and 'pdf' apply the same constants the
@@ -26,7 +26,7 @@ else
     standalone = false;
 end
 
-%% ---- Numerical equivalence to direct orbit call ----
+%% ---- Numerical equivalence to direct Möbius call ----
 
 p = [0, 400, 700];
 sigma = 12;
@@ -34,7 +34,7 @@ spec = {'harmonic', 12, 'powerlaw', 1};
 
 h_th = tensorHarmonicity(p, [], sigma, 'spectrum', spec, 'verbose', false);
 
-% Hand-rolled equivalent: same template, same query, raw orbit call.
+% Hand-rolled equivalent: same template, same query, raw Möbius-method call.
 dup = numel(p);
 [tmpl_p, tmpl_w] = addSpectra(zeros(dup, 1), ones(dup, 1), spec{:});
 p_sorted = sort(p);
@@ -51,7 +51,7 @@ results{end,2}   = abs(h_th - h_orbit) < 1e-12;
 % 4-pitch chord with auto duplicate=4. With a 12-partial harmonic template
 % this gives 48 source positions and r=4, so K!/(K-r)! = 48*47*46*45 = 4.7M
 % ordered tuples; the centres path materialises an array of size
-% (3, 4.7M) ~= 110 MB just for the centres. The orbit path skips this.
+% (3, 4.7M) ~= 110 MB just for the centres. The Möbius method skips this.
 p4 = [0, 400, 700, 1200];   % major triad with octave on top
 h4 = tensorHarmonicity(p4, [], sigma, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'tensorHarmonicity v2.2: 4-pitch chord (K=4) returns finite scalar';
@@ -127,8 +127,8 @@ results{end+1,1} = 'tensorHarmonicity v2.2: pdf = gaussian / sum(tmpl_w) (1e-10 
 results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 
 %% ---- Verbose flag prints an eval message in scalar mode ----
-% Post-Stage-2c, the wrapper no longer hard-codes 'orbit-path' since
-% the centres-vs-orbit choice is made by evalExpTens's dispatcher.
+% Post-Stage-2c, the wrapper no longer hard-codes 'mobius' since
+% the centres-vs-Möbius choice is made by evalExpTens's dispatcher.
 % The printed message is now 'tensorHarmonicity: eval at K = ...'.
 
 outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...

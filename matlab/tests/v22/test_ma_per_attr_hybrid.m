@@ -5,7 +5,7 @@
 %  ragged-K parity gap). Strategy:
 %    - Each event gets classified as "safe" if K_eff - r >= 2, "unsafe"
 %      otherwise (matches _ORBIT_K_MINUS_R_MIN).
-%    - Safe-vs-safe pairs flow through the vectorised batched orbit
+%    - Safe-vs-safe pairs flow through the vectorised batched Möbius method
 %      with zero-pad within the safe group.
 %    - Pairs involving any unsafe event flow through
 %      mobius.innerProductDirectAbsSA (direct r-tuple enumeration; no
@@ -18,10 +18,10 @@
 %      zero-pad-everything approach (since safe group covers all events).
 %    - All-unsafe (every event has K_eff = r): hybrid equals an
 %      explicit per-pair direct-enum reference.
-%    - Mixed safe/unsafe: cosSimExpTens with method='orbit' agrees with
-%      method='pairwise' to high precision (the hybrid's correctness
+%    - Mixed safe/unsafe: cosSimExpTens with method='mobius' agrees with
+%      method='bulger' to high precision (the hybrid's correctness
 %      claim).
-%    - r=1 ragged: zero-pad path unchanged, still matches pairwise.
+%    - r=1 ragged: zero-pad path unchanged, still matches Bulger.
 %    - Edge: K_eff = r exactly (single ordered tuple per event,
 %      direct-enum trivially exact).
 %
@@ -76,7 +76,7 @@ ip_zero = mobius.innerProductDirectAbsSA([0; 1], [1; 1], [0; 1], [1; 1], ...
 results{end+1,1} = 'mobius.innerProductDirectAbsSA: K_eff < r returns 0';
 results{end,2}   = ip_zero == 0;
 
-%% ---- All-safe ragged: hybrid equals safe-only orbit ----
+%% ---- All-safe ragged: hybrid equals safe-only Möbius ----
 
 % Two events, both with K_eff = 6 (well above r+2 = 5); the hybrid
 % should not invoke the unsafe branch at all.
@@ -130,9 +130,9 @@ results{end,2}   = all(abs(I_hybrid_unsafe(:) - I_ref_unsafe(:)) <= ...
 % --- v2.2.x: K-grouped batched direct-enum primitive correctness ---
 % The localBatchedDirectEnumAbsSA local function (not exported) is
 % exercised via the all-unsafe and mixed-K paths above. Here we test
-% the variable-K_eff orbit-vs-pairwise equivalence explicitly: a
+% the variable-K_eff Möbius-vs-Bulger equivalence explicitly: a
 % density with events at multiple K_eff values must produce the same
-% cosine under orbit method as under pairwise.
+% cosine under the Möbius method as under Bulger.
 rng(7, 'twister');
 N_kg = 12;
 K_max_kg = 6;
@@ -148,11 +148,11 @@ for n = 1:N_kg
 end
 dens_kg = buildExpTens({P_kg}, {W_kg}, sigma_kg, r_kg, 1, ...
     false, false, 0, 'verbose', false);
-s_orbit_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'orbit', ...
+s_orbit_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'mobius', ...
     'verbose', false);
-s_pw_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'pairwise', ...
+s_pw_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'bulger', ...
     'verbose', false);
-results{end+1,1} = 'maPerAttrInnerMatrix v2.2.x: K-grouped orbit matches pairwise (1e-12)';
+results{end+1,1} = 'maPerAttrInnerMatrix v2.2.x: K-grouped Möbius matches Bulger (1e-12)';
 results{end,2}   = abs(s_orbit_kg - s_pw_kg) < 1e-12;
 
 clear P_unsafe W_unsafe I_hybrid_unsafe I_ref_unsafe ...
@@ -184,10 +184,10 @@ dx = buildExpTens({P_mix}, {W_mix}, 30, 3, 1, ...
     false, false, 0, 'verbose', false);
 dy = buildExpTens({P_mix}, {W_mix}, 30, 3, 1, ...
     false, false, 0, 'verbose', false);
-s_orbit = cosSimExpTens(dx, dy, 'method', 'orbit', 'verbose', false);
-s_pwise = cosSimExpTens(dx, dy, 'method', 'pairwise', 'verbose', false);
+s_orbit = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
+s_pwise = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
 
-results{end+1,1} = 'cosSimExpTens mixed safe/unsafe MA orbit matches pairwise (1e-8)';
+results{end+1,1} = 'cosSimExpTens mixed safe/unsafe MA Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_orbit - s_pwise) < 1e-8;
 
 %% ---- r=1 ragged still matches pairwise ----
@@ -200,9 +200,9 @@ dx_r1 = buildExpTens({P_r1}, {W_r1}, 30, 1, 1, ...
     false, false, 0, 'verbose', false);
 dy_r1 = buildExpTens({P_r1}, {W_r1}, 30, 1, 1, ...
     false, false, 0, 'verbose', false);
-s_r1_orbit = cosSimExpTens(dx_r1, dy_r1, 'method', 'orbit', 'verbose', false);
-s_r1_pw    = cosSimExpTens(dx_r1, dy_r1, 'method', 'pairwise', 'verbose', false);
-results{end+1,1} = 'cosSimExpTens r=1 ragged: orbit matches pairwise (1e-10)';
+s_r1_orbit = cosSimExpTens(dx_r1, dy_r1, 'method', 'mobius', 'verbose', false);
+s_r1_pw    = cosSimExpTens(dx_r1, dy_r1, 'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'cosSimExpTens r=1 ragged: Möbius matches Bulger (1e-10)';
 results{end,2}   = abs(s_r1_orbit - s_r1_pw) < 1e-10;
 
 %% ---- Standalone summary ----

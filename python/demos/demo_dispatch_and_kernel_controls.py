@@ -58,9 +58,29 @@ dens_x = mpt.build_exp_tens(p_x, w_x, SIGMA, R, False, False, 1200.0, verbose=Fa
 dens_y = mpt.build_exp_tens(p_y, w_y, SIGMA, R, False, False, 1200.0, verbose=False)
 
 
+# A larger source set for the centres-path sections (2-4). MATLAB's
+# BLAS is so fast at modest scales that the kernel matmul is in the
+# tens of ms range, where the fixed-cost overhead of truncation's
+# spatial index and the float32 cast can be comparable to the
+# variable-cost savings they buy. N=50 (with 1000 query points
+# below) pushes the kernel matmul into the hundreds-of-ms range, so
+# the savings dominate and the features show clearly. Section 1
+# stays at N=20 because that's already enough to make Bulger's
+# method look pathological against the Möbius method.
+N_BIG = 50
+p_big = np.sort(rng.uniform(0, 1200, N_BIG))
+w_big = rng.uniform(0.5, 1.5, N_BIG)
+dens_big = mpt.build_exp_tens(p_big, w_big, SIGMA, R, False, False, 1200.0, verbose=False)
+
+
 # ===================================================================
 #  1. Method dispatch — Bulger's method vs the Möbius method
 # ===================================================================
+
+# Warm-up: flush first-call costs (orbit-table .pkl load, np.einsum_path
+# cache priming, function resolution) out of the timed section.
+mpt.cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False)
+mpt.cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
 
 print(f"=== 1. Method dispatch (N={N_EVENTS}, r={R}, sigma={SIGMA}, abs nonper) ===\n")
 
@@ -90,9 +110,9 @@ print(f"  (bulger and mobius agree to {abs(c_bulger - c_mobius):.2e})")
 # analytically without a centres matrix, so the truncation control
 # does not apply to it.
 
-print(f"\n=== 2. Kernel truncation (eval at 200 query points) ===\n")
+print(f"\n=== 2. Kernel truncation (N={N_BIG}, eval at 1000 query points) ===\n")
 
-queries = np.sort(rng.uniform(0, 1200, (R, 200)), axis=0)
+queries = np.sort(rng.uniform(0, 1200, (R, 1000)), axis=0)
 
 
 def max_abs_err(v, ref):
@@ -104,15 +124,15 @@ def max_abs_err(v, ref):
     return float(np.max(np.abs(v - ref))) / scale
 
 t_no_trunc, v_no_trunc = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               truncation_sigmas=float('inf'), verbose=False),
 )
 t_k6, v_k6 = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               truncation_sigmas=6, verbose=False),
 )
 t_k4, v_k4 = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               truncation_sigmas=4, verbose=False),
 )
 
@@ -133,11 +153,11 @@ print(f"   k=6 ~ exp(-18) ~ 1.5e-8; k=4 ~ exp(-8) ~ 3e-4.)")
 print(f"\n=== 3. kernel_precision ===\n")
 
 t_double, v_double = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               kernel_precision='double', verbose=False),
 )
 t_single, v_single = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               kernel_precision='single', verbose=False),
 )
 
@@ -145,7 +165,10 @@ rel_err_single = max_abs_err(v_single, v_double)
 
 print(f"  kernel_precision='double' : {t_double*1000:6.1f} ms  (reference)")
 print(f"  kernel_precision='single' : {t_single*1000:6.1f} ms  peak-normalised err = {rel_err_single:.2e}")
-print(f"  (~2x speedup at scale; precision ~7 sig figs vs ~15.)")
+print(f"  (Speedup is workload- and platform-dependent: on memory-bandwidth-")
+print(f"   bound problems the gain is small even at scale. Python typically")
+print(f"   sees ~2x at this size; MATLAB with MKL sees less. Precision")
+print(f"   retained: ~7 sig figs vs ~15.)")
 
 
 # ===================================================================
@@ -160,13 +183,13 @@ prev = mpt.set_default(truncation_sigmas=6, kernel_precision='single')
 print(f"  New defaults:     {mpt.get_defaults()}")
 
 t_global, _ = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres', verbose=False),
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres', verbose=False),
 )
 print(f"  eval with global defaults active : {t_global*1000:6.1f} ms")
 
 # Per-call kwargs always override the global defaults:
 t_override, _ = time_call(
-    lambda: mpt.eval_exp_tens(dens_x, queries, method='centres',
+    lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               truncation_sigmas=float('inf'),
                               kernel_precision='double', verbose=False),
 )

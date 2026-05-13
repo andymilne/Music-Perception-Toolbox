@@ -14,6 +14,18 @@ The toolbox implements several original theoretical frameworks grounded in proba
 
 **Utility.** Pitch scale conversion between seven scales (Hz, MIDI, cents, mel, Bark, ERB-rate, Greenwood) and spectral peak extraction from audio files.
 
+## What's new in v2.2
+
+A **performance release**. The headline gains come from two strands:
+
+- **Mathematical: the Möbius method.** A new analytical decomposition for the three core quantities — inner product, point evaluation, and total mass — that complements the existing Bulger's method for the inner product. Bulger's method (v1, exposed as `method='bulger'`) is inner-product-only, has essentially no per-call overhead, and tends to win at small tensor order $r$ and small slot count $K$. The Möbius method (new in v2.2, exposed as `method='mobius'`) applies uniformly to all three quantities and tends to win at large $r$ or large $K$, where the slot-tuple loop in Bulger's method blows up. A per-call cost-model dispatcher picks the cheaper of the two for each call. The inclusion-exclusion technique at the core of the Möbius method was first published in Milne et al. 2011 and has been used in MPT since v1 for numerical computation of discrete tensors; v2.2 applies it as a closed-form analytical decomposition, combined with orbit collapse for the inner product.
+
+- **Computational: dispatching, kernel precision, kernel truncation, and batching refinements.** Two new kernel-evaluation controls — `truncation_sigmas` (skip Gaussian contributions beyond $k$ standard deviations from a centre) and `kernel_precision` (`'single'` instead of `'double'` for ~2× speedup at ~7 significant figures of precision) — affect the centres-path consumers (eval, cos-sim, entropy) at user request. Several batching refinements replace v2.1 sequential per-item loops with grouped contractions: K-grouped direct enumeration for unsafe-event pairs in the MA inner product, a dedup-and-batch rewrite of `tensorHarmonicity`'s batched mode, and vectorised u-grid handling in the Möbius relative-mode evaluator. A new toolbox-wide defaults API (`mpt.set_default` in Python, `mptDefaults` in MATLAB) lets the kernel-evaluation controls be set per call or globally.
+
+Other user-facing additions: closed-form **Rényi-2 differential entropy** (`method='renyi2'` on `entropyExpTens`; Shannon differential entropy continues to be evaluated on a numerical grid, since it has no closed form in any version); a **ragged-K hybrid** that lets the multi-attribute Möbius inner-product path handle variable-cardinality inputs natively; **`bindEvents`** now accepts $K_{a,n} > 1$ input, unblocking polyphonic-binding analyses with multi-slot attributes at the source.
+
+The release is additive: existing v2.1 calling conventions are preserved at the floating-point level for the default routing in standard regimes. See [CHANGELOG.md](CHANGELOG.md) for the full list of changes and [MIGRATION.md](MIGRATION.md#v21--v22) for the v2.1 → v2.2 migration notes.
+
 ## What's new in v2.1
 
 - **Multi-attribute expectation tensors (MAET).** `buildExpTens`, `evalExpTens`, `cosSimExpTens`, and `entropyExpTens` now accept a multi-attribute density specification alongside the v2.0 single-attribute form. Each attribute carries its own tuple order $r_a$ and per-event slot count $K_a$; groups share $\sigma$, periodicity, and relativity. The cosine-similarity inner product factorises analytically across attribute groups in the same way as the single-attribute case.

@@ -691,7 +691,7 @@ def tensor_harmonicity(
 
     Notes
     -----
-    Internal computation routes through the orbit-Möbius point
+    Internal computation routes through the Möbius point
     evaluator, which evaluates the relative tensor at the chord's
     interval vector without materialising the
     ``(r-1, K!/(K-r)!)`` centres array. For a 4-pitch chord with the
@@ -732,7 +732,7 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize,
     """Single-chord scalar dispatch.
 
     v2.2.x: routes through :func:`eval_exp_tens` so the
-    centres-vs-orbit choice is made by the cost-model dispatcher
+    centres-vs-Möbius choice is made by the cost-model dispatcher
     inside ``eval_exp_tens`` rather than hard-coded here. This lets
     the helper-accelerated centres path apply at typical regimes.
     """
@@ -777,7 +777,7 @@ def _tensor_harmonicity_via_eval(
     """Evaluate the rel-mode template tensor at *x_query* by building
     the template density and routing through :func:`eval_exp_tens`.
 
-    The centres-vs-orbit choice is made by the cost-model dispatcher
+    The centres-vs-Möbius choice is made by the cost-model dispatcher
     inside ``eval_exp_tens``; this wrapper no longer hard-codes a
     routing choice.
 
@@ -838,7 +838,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
     Groups rows by (effective n_p, dup), deduplicates canonical chord
     intervals within each group, and issues a single batched call to
     :func:`_tensor_harmonicity_via_eval` per group. The cost-model
-    dispatcher inside ``eval_exp_tens`` then chooses centres vs orbit
+    dispatcher inside ``eval_exp_tens`` then chooses centres vs the Möbius method
     for that batched query matrix.
     """
     M, K = P.shape
@@ -886,7 +886,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
         row_intervals[i] = p_canon[1:] - p_canon[0]
 
     # Pass 2: group by (n_p, dup); within each group dedup canonical
-    # chords; one batched orbit call per group; distribute back.
+    # chords; one batched Möbius-method call per group; distribute back.
     valid_rows = np.flatnonzero(row_n_p > 0)
     if valid_rows.size == 0:
         return out
@@ -898,7 +898,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
         # Gate the groups print on a row-count threshold matching the
         # `maybe_print_batched_estimate` "silent for fast" semantics
         # used by the other batched functions. The threshold is
-        # deliberately rough: at >~100 rows the batched orbit call is
+        # deliberately rough: at >~100 rows the batched Möbius-method call is
         # likely to exceed the 10s estimate-print threshold; tiny
         # batches stay silent.
         n_valid = int(valid_rows.size)
@@ -942,7 +942,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
 
         # Build harmonic template once per group, then ONE batched
         # call to _tensor_harmonicity_via_eval (which routes through
-        # eval_exp_tens; its dispatcher chooses centres vs orbit).
+        # eval_exp_tens; its dispatcher chooses centres vs the Möbius method).
         # Forwards truncation_sigmas / kernel_precision so the batched
         # path picks up the same speed/accuracy controls as scalar.
         tmpl_p, tmpl_w = add_spectra(

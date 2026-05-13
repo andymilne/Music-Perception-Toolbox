@@ -62,7 +62,7 @@ def entropy_exp_tens(
       list of densities, raw scalar/batched SA, raw MA).
 
     - ``method='renyi2'``: analytical Rényi-2 (collision) entropy via
-      the orbit-Möbius inner product and the closed-form total mass.
+      the Möbius inner product and the closed-form total mass.
       Returns ``H_2 = -log_b(<T,T> / Z²)``, the continuous Rényi-2
       entropy of the normalised density ``q = T/Z``. Computed in
       closed form with no grid; works at arbitrary tensor order ``r``
@@ -134,18 +134,18 @@ def entropy_exp_tens(
     -----
     Numerical precision envelope for ``method='renyi2'``.
 
-    The orbit-Möbius path is exact to floating-point precision when
+    The the Möbius method is exact to floating-point precision when
     every per-attribute ``K_a`` satisfies ``K_a >= r_a + 2`` and σ is
     not catastrophically small relative to P. The dispatcher enforces
-    these conditions structurally — it routes to the pairwise path
+    these conditions structurally — it routes to Bulger's method
     when ``K_a < r_a + 2``, when ``σ/P > 0.03`` in periodic-relative
     mode, or when the σ → 0 fallback heuristic triggers. A post-hoc
-    check on the orbit self-IP raises ``FloatingPointError`` if the
+    check on the Möbius-method self-IP raises ``FloatingPointError`` if the
     result is non-finite, non-positive, or sign-flipped.
 
     What is *not* currently caught: a finite, positive, but slightly
     inaccurate self-IP from sub-catastrophic Möbius cancellation in
-    the orbit alternating sum. No instance of this was observed
+    the Möbius alternating partition sum. No instance of this was observed
     across the v2.2 standard test regime (1475 cells covering
     ``r ∈ {2..6}``, K up to 100, σ down to ``10⁻⁵`` cents, all four
     mode combinations, multi-attribute self-IPs, adversarial pitch
@@ -155,7 +155,7 @@ def entropy_exp_tens(
     would close this residual gap is on the v2.3 roadmap.
 
     For ``method='shannon'``, accuracy is set by the grid resolution
-    ``n_points_per_dim`` and is independent of the orbit path.
+    ``n_points_per_dim`` and is independent of the Möbius method.
     """
     # ---- Validate method early ----
     if method not in ("shannon", "renyi2"):
@@ -631,7 +631,7 @@ def _resolve_density(p_or_dens, args, spectrum):
 
 
 # -------------------------------------------------------------------
-#  Rényi-2 entropy helpers (analytical, orbit-Möbius)
+#  Rényi-2 entropy helpers (analytical, Möbius)
 # -------------------------------------------------------------------
 
 
@@ -639,7 +639,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     """Analytical Rényi-2 entropy of a SA expectation tensor.
 
     Computes ``H_2 = -log_b(<T,T> / Z²)`` where ``<T,T>`` is evaluated
-    via the orbit-Möbius inner product machinery (or a direct
+    via the Möbius inner-product machinery (or a direct
     pairwise formula at ``r = 1`` where the orbit table is undefined)
     and ``Z = ∫T(x)dx`` via the closed-form total-mass formulae in
     :mod:`mpt._mobius`.
@@ -677,16 +677,17 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
             )
         return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
 
-    # r >= 2: orbit machinery. Empirical sweeps across all 7 regimes
-    # (precision_audit/ + sweep_self_ip.py) show the orbit self-IP is
+    # r >= 2: Möbius machinery. Empirical sweeps across all 7 regimes
+    # (precision_audit/ + sweep_self_ip.py) show the Möbius-method self-IP is
     # robust at every tested musical sigma; the per-orbit-class
     # cancellation ratio in abs mode dips to ~0.13 in the worst tested
     # case, well above the 1e-10 corruption threshold. We therefore
     # rely on a post-hoc finite/positive check rather than a ratio-
-    # based fallback. The pairwise fallback explored earlier was
-    # abandoned: orbit and pairwise use different normalisation
-    # conventions in rel mode, so the fallback gave a different (also
-    # wrong) answer rather than recovering the correct value.
+    # based fallback. The Bulger fallback explored earlier was
+    # abandoned: the Möbius method and Bulger's method use different
+    # normalisation conventions in rel mode, so the fallback gave a
+    # different (also wrong) answer rather than recovering the correct
+    # value.
     if is_rel:
         ip_xx = _orbit_inner_rel(
             p, w, p, w, sigma, r, is_per, period,
@@ -698,7 +699,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
 
     if not np.isfinite(ip_xx) or ip_xx <= 0:
         raise FloatingPointError(
-            f"Computed <T,T>={ip_xx} via the orbit-Möbius path is "
+            f"Computed <T,T>={ip_xx} via the Möbius method is "
             "non-positive or non-finite. The input density may be "
             "degenerate (all weights zero), or the parameters may lie "
             "in a regime where the alternating Möbius sum has lost all "
@@ -722,7 +723,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
 def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     """Analytical Rényi-2 entropy of an MA expectation tensor.
 
-    Uses the per-attribute orbit IP factorisation
+    Uses the per-attribute Möbius IP factorisation
     ``<T,T> = Σ_{n,m} Π_a I_a[n,m]``, with the per-attribute matrix
     coming from the same machinery the cosine path uses, and
     ``Z = Σ_n Π_a Z_a^(n)`` where each ``Z_a^(n)`` is the closed-form
@@ -746,14 +747,14 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     if A == 0 or N == 0:
         return 0.0
 
-    # ---- <T, T> via per-attribute orbit IP ----
+    # ---- <T, T> via per-attribute Möbius IP ----
     # The per-(n, m) cancellation ratio aggregated across attributes
     # was empirically shown to fire spuriously in 100% of typical
     # musical regimes for self-IPs (sweep_self_ip.py): off-diagonal
     # entries can have low ratios while the diagonal entries (which
     # dominate the sum) are clean, so the sum Σ P_xx[n,m] is correct
     # even when some entries are noisy. We therefore rely solely on
-    # a post-hoc finite/positive check. The pairwise fallback was
+    # a post-hoc finite/positive check. The Bulger fallback was
     # abandoned for the same convention-mismatch reason as in the
     # SA path.
     P_xx = np.ones((N, N), dtype=np.float64)
@@ -774,7 +775,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
 
     if not np.isfinite(ip_xx) or ip_xx <= 0:
         raise FloatingPointError(
-            f"Computed <T,T>={ip_xx} via the orbit-Möbius path is "
+            f"Computed <T,T>={ip_xx} via the Möbius method is "
             "non-positive or non-finite. The input density may be "
             "degenerate, or the parameters may lie in a regime where "
             "the per-attribute alternating sum has lost all significant "

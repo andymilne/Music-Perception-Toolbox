@@ -311,14 +311,28 @@ elseif strcmp(method, 'auto')
         % Hard rules force centres without a dispatcher call.
         chosen = 'centres';
         probed = false;
+        if verbose
+            if dens.r <= 1
+                hardRuleReason = sprintf('r = %d', dens.r);
+            else
+                hardRuleReason = sprintf('K - r = %d < 2', K_src - dens.r);
+            end
+            fprintf('evalExpTens: chose ''centres'' path (%s).\n', ...
+                    hardRuleReason);
+        end
     else
         % Discretionary case — dispatcher decides via prescreen / probe.
-        [chosen, probed, estSec] = localSelectAndEstimateSA( ...
+        [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
             dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose);
-        if verbose && probed
-            fprintf(['evalExpTens: chose ''%s'' path ' ...
-                     '(estimated %s); Ctrl+C to cancel.\n'], ...
-                    chosen, localFormatTime(estSec));
+        if verbose
+            if probed
+                fprintf(['evalExpTens: chose ''%s'' path ' ...
+                         '(estimated %s); Ctrl+C to cancel.\n'], ...
+                        chosen, localFormatTime(estSec));
+            else
+                fprintf('evalExpTens: chose ''%s'' path (%s).\n', ...
+                        chosen, routingReason);
+            end
         end
     end
 else
@@ -581,7 +595,7 @@ function t = localProbeEvalPath(dens, xProbe, pathName, ...
 end
 
 
-function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
+function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
         dens, X, nQ, method, truncationSigmas, kernelPrecision, ...
         verbose) %#ok<INUSD>
 %LOCALSELECTANDESTIMATESA  Unified dispatcher + time estimate for SA eval.
@@ -591,11 +605,15 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
 %   the faster.
 %
 %   Returns:
-%     chosen  — 'centres' or 'mobius'.
-%     probed  — true if a probe ran (verbose dispatch message prints
-%               only then).
-%     estSec  — extrapolated full-workload time in seconds; 0 if no
-%               probe ran.
+%     chosen        — 'centres' or 'mobius'.
+%     probed        — true if a probe ran (verbose message includes a
+%                     time estimate only then).
+%     estSec        — extrapolated full-workload time in seconds; 0 if
+%                     no probe ran.
+%     routingReason — short string describing why this path was
+%                     chosen (e.g. 'r <= 1', 'rel-mode pre-screen',
+%                     'estimated 4.5 s'). Used by the caller to emit
+%                     a verbose dispatch message.
 
     % Probing parameters.
     PROBE_MIN_NQ = 200;
@@ -626,14 +644,17 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     isRel = dens.isRel;
     estSec = 0.0;
     probed = false;
+    routingReason = '';
 
     % ---- Rule 1: user override ----
     if strcmp(method, 'centres') || strcmp(method, 'direct')
         chosen = 'centres';
+        routingReason = 'user override';
         return;
     end
     if strcmp(method, 'mobius')
         chosen = 'mobius';
+        routingReason = 'user override';
         return;
     end
     if ~strcmp(method, 'auto')
@@ -645,12 +666,14 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     % ---- Rule 2: Möbius method degenerate at r <= 1 ----
     if r <= 1
         chosen = 'centres';
+        routingReason = sprintf('r = %d', r);
         return;
     end
 
     % ---- Rule 3: Möbius cancellation guard ----
     if K - r < 2   % _ORBIT_K_MINUS_R_MIN
         chosen = 'centres';
+        routingReason = sprintf('K - r = %d < 2', K - r);
         return;
     end
 
@@ -668,6 +691,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
                   ORBIT_R_MAX_FEASIBLE);
         end
         chosen = 'mobius';
+        routingReason = 'centres memory budget exceeded';
         return;
     end
 
@@ -691,6 +715,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
         orbitCostAbs = double(B_r_abs) * r * double(K);
         if orbitCostAbs * PRESCREEN_ORBIT_DOMINANCE < centresCostAbs
             chosen = 'mobius';
+            routingReason = 'abs-mode pre-screen';
             return;
         end
     end
@@ -698,6 +723,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     % ---- Shortcut: tiny workload, skip probing ----
     if nQ < PROBE_MIN_NQ
         chosen = 'centres';
+        routingReason = sprintf('nQ = %d < %d', nQ, PROBE_MIN_NQ);
         return;
     end
 
@@ -728,6 +754,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
         orbitCost = double(B_r) * r * N_u_est;
         if centresCost * PRESCREEN_CENTRES_DOMINANCE < orbitCost
             chosen = 'centres';
+            routingReason = 'rel-mode pre-screen';
             return;
         end
     end
@@ -738,6 +765,8 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
     end
     if r > ORBIT_R_MAX_FEASIBLE
         chosen = 'centres';
+        routingReason = sprintf('r = %d > %d (Möbius infeasible)', ...
+                                r, ORBIT_R_MAX_FEASIBLE);
         return;
     end
 
@@ -760,6 +789,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSA( ...
 
     estSec = tProbe * (double(nQ) / double(nProbe));
     probed = true;
+    routingReason = 'probe';   % caller formats as 'estimated X s'
 end
 
 

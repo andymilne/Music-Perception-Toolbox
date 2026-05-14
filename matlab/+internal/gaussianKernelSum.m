@@ -358,6 +358,38 @@ end
 % =========================================================================
 
 function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
+%LOCALTRUNCATEDKERNELSUM1D  1-D abs vectorised truncated kernel sum.
+%
+%   v(q) = sum_{j: |C(j) - X(q)| <= kSigma*sigma} wJ(j) ...
+%             * exp(-0.5 * ((X(q) - C(j))/sigma)^2)
+%
+%   Inputs:
+%     C       (1, nJ) double - single-axis centres
+%     wJ      (nJ, 1) double - centre weights
+%     X       (1, nQ) double - query coordinates along the single axis
+%     sigma   (1, 1) double, positive
+%     kSigma  (1, 1) double, positive (truncation radius in sigmas)
+%     inv2s2  (1, 1) double = 1/(2*sigma^2)
+%
+%   Output:
+%     v       (1, nQ) row vector matching the dtype family of C.
+%
+%   Implementation note (subtle MATLAB indexing rule):
+%     cSorted is a row vector (1, nJ). After sorting, we explicitly
+%     reshape it to a column. This is *required* for correctness, not
+%     defensive: when maxWin == 1, the sparse-path index matrix
+%     idxClipped collapses to a (nQ, 1) column vector. Then
+%     cSorted(idxClipped) follows MATLAB's "vector source, vector
+%     index" rule and returns a result matching the *source*'s
+%     orientation. If cSorted were left as a row, pSlices would come
+%     out as (1, nQ) and the subsequent `xAxis(:) - pSlices` would
+%     outer-broadcast (column - row) to (nQ, nQ), which OOMs at
+%     large nQ. Forcing cSorted to a column makes the sparse path
+%     return (nQ, 1) at maxWin == 1, matching xAxis(:). For
+%     maxWin >= 2, idxClipped is a (nQ, maxWin) non-vector matrix,
+%     and the "matrix index" rule returns (nQ, maxWin) regardless
+%     of cSorted's orientation — so the fix is a no-op there.
+
     nJ = size(C, 2);
     nQ = size(X, 2);
     if nJ == 0 || nQ == 0
@@ -369,22 +401,15 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
     cAxis = double(C(1, :));               % (1, nJ)
     xAxis = double(X(1, :));               % (1, nQ)
 
-    % Sort centres along the single axis.
     [cSorted, order] = sort(cAxis);
+    cSorted = cSorted(:);                   % force COLUMN — see header note
     wSorted = wJ(order);
+    wSorted = wSorted(:);                   % match cSorted's orientation
 
-    % Per-query window bounds via vectorised binary search.
-    % searchsorted-left for lower bound; searchsorted-right for upper.
-    % MATLAB doesn't have searchsorted; we use sum(cSorted <= x) for
-    % the right boundary count and adjust.
-    % To match the Python: i_low = first i s.t. cSorted[i] >= x - thr;
-    %                     i_high = first i s.t. cSorted[i] > x + thr.
-    % Implementation via histc-style fast lookup:
     lo = xAxis - threshold;
     hi = xAxis + threshold;
-    % Number of cSorted entries < lo  → that's i_low (0-indexed) → +1 in MATLAB.
-    iLow0 = sum(cSorted(:) < lo, 1);       % (1, nQ), 0-indexed
-    iHigh0 = sum(cSorted(:) <= hi, 1);     % (1, nQ), 0-indexed (one-past-last)
+    iLow0 = sum(cSorted < lo, 1);          % (1, nQ), 0-indexed
+    iHigh0 = sum(cSorted <= hi, 1);        % (1, nQ), 0-indexed (one-past-last)
     winSize = iHigh0 - iLow0;
     maxWin = max(winSize);
 
@@ -393,10 +418,10 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
         return;
     end
     if maxWin >= nJ
-        % Window covers everything; fall through to dense compute.
-        diffs = xAxis(:) - cSorted(:).';   % (nQ, nJ)
+        % Window covers everything; dense compute.
+        diffs = xAxis(:) - cSorted.';      % (nQ, nJ)
         kernel = exp(-(diffs .^ 2) * inv2s2);
-        v = (kernel * wSorted(:)).';
+        v = (kernel * wSorted).';
         v = cast(v, 'like', C);
         return;
     end
@@ -407,9 +432,13 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
     mask = idx <= iHigh0(:);
     idxClipped = min(idx, nJ);
 
-    pSlices = cSorted(idxClipped);          % (nQ, maxWin)
+    % cSorted (and wSorted) are columns (forced above), so the
+    % "vector source + vector index" case (maxWin == 1) returns a
+    % column matching idxClipped, and the "vector source + matrix
+    % index" case (maxWin >= 2) returns a matrix matching idxClipped.
+    pSlices = cSorted(idxClipped);          % (nQ, maxWin) for all maxWin
     wSlices = wSorted(idxClipped);
-    diffs = xAxis(:) - pSlices;
+    diffs = xAxis(:) - pSlices;             % (nQ, maxWin)
     kernel = exp(-(diffs .^ 2) * inv2s2);
     kernel(~mask) = 0;
 

@@ -344,6 +344,14 @@ else
 end
 useDefaultKwargs = ~isfinite(truncResolved) && strcmp(precResolved, 'double');
 
+% Fire the kernel-evaluation hint once per session when the centres
+% path is about to run with v2.1-default kwargs. Catches the bypass
+% case (which skips internal.gaussianKernelSum and would otherwise
+% miss the hint).
+if strcmp(chosen, 'centres') && useDefaultKwargs
+    internal.maybeShowKernelEvalHint();
+end
+
 vals = [];
 ranOrbit = false;
 if strcmp(chosen, 'mobius')

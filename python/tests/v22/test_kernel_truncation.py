@@ -194,6 +194,53 @@ def test_query_outside_centres_bbox():
     assert v[0] < 1e-30
 
 
+# ---------------------------------------------------------------------
+# Regression: maxWin == 1 edge case in 1-D truncated path.
+#
+# A bug existed in the equivalent MATLAB function where, at
+# maxWin == 1, the (nQ, 1) index matrix triggered MATLAB's "vector
+# source + vector index → match source orientation" rule and
+# returned the wrong shape, causing a (nQ, nQ) outer-broadcast OOM.
+# NumPy's indexing rule is uniform (always matches the index shape),
+# so Python was never affected. These tests pin that down so a
+# future refactor can't introduce the same bug.
+# ---------------------------------------------------------------------
+
+def test_truncated_1d_maxwin_one():
+    """sigma chosen so each window contains at most one centre."""
+    C = np.array([[0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0]])
+    wJ = np.ones(7)
+    sigma = 10.0  # threshold = 6*sigma = 60 < min source gap (100)
+    nQ = 120000
+    X = np.linspace(0, 1200, nQ).reshape(1, -1)
+    v = gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=6)
+    ref = _ref_kernel_sum(C, wJ, X, sigma)
+    assert v.shape == (nQ,)
+    assert np.max(np.abs(v - ref)) < 200 * np.exp(-18) * max(np.max(np.abs(ref)), 1e-30)
+
+
+def test_truncated_1d_demo_expTensorPlots_config_3():
+    """Exact inputs from the MATLAB demo's failing config 3 call.
+
+    sigma_eff = 10/sqrt(2) (m=2 partition block), query points are
+    means of pairs from the upper triangle of a 481×481 grid. This
+    is the precise scenario that hit the MATLAB OOM.
+    """
+    C = np.array([[0.0, 200.0, 400.0, 500.0, 700.0, 900.0, 1100.0]])
+    wJ = np.ones(7)
+    sigma_eff = 10.0 / np.sqrt(2)
+    res = 481
+    x_1d = np.linspace(0, 1200, res)
+    Ga, Gb = np.meshgrid(x_1d, x_1d)
+    mask = np.triu(np.ones((res, res), dtype=bool))
+    Xu = np.stack([Ga[mask], Gb[mask]], axis=0)
+    mean_x = Xu.sum(axis=0).reshape(1, -1) / 2   # (1, 115921)
+    v = gaussian_kernel_sum(C, wJ, mean_x, sigma_eff, truncation_sigmas=6)
+    ref = _ref_kernel_sum(C, wJ, mean_x, sigma_eff)
+    assert v.shape == (mean_x.shape[1],)
+    assert np.max(np.abs(v - ref)) < 200 * np.exp(-18) * max(np.max(np.abs(ref)), 1e-30)
+
+
 def test_bad_inputs_raise():
     C = np.array([[0.0, 1.0]])
     wJ = np.array([1.0, 1.0])
@@ -238,6 +285,7 @@ def test_reset_defaults():
     assert mpt.get_defaults() == {
         "truncation_sigmas": math.inf,
         "kernel_precision": "double",
+        "show_hints": True,
     }
 
 
@@ -283,3 +331,82 @@ def test_per_call_overrides_default(small_problem):
     v = gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=math.inf)
     ref = _ref_kernel_sum(C, wJ, X, sigma)
     assert np.max(np.abs(v - ref)) < 1e-12 * np.max(np.abs(ref))
+
+
+# ---------------------------------------------------------------------
+# Informational hint (one-shot per session)
+# ---------------------------------------------------------------------
+
+def _fresh_hint_state():
+    """Reset both factory defaults and the session-local hint flag."""
+    from mpt import _defaults as _d
+    mpt.reset_defaults()
+    _d._HINT_FIRED_KERNEL_EVAL = False
+
+
+def test_hint_fires_on_first_call_at_defaults(small_problem, capsys):
+    _fresh_hint_state()
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    out = capsys.readouterr().out
+    assert "mpt tip" in out
+    assert "truncation_sigmas=6" in out
+    assert "kernel_precision='single'" in out
+
+
+def test_hint_fires_only_once(small_problem, capsys):
+    _fresh_hint_state()
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    capsys.readouterr()    # discard first output
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    out = capsys.readouterr().out
+    assert "mpt tip" not in out
+
+
+def test_hint_suppressed_by_per_call_override(small_problem, capsys):
+    _fresh_hint_state()
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=6)
+    out = capsys.readouterr().out
+    assert "mpt tip" not in out
+
+
+def test_hint_suppressed_by_show_hints_false(small_problem, capsys):
+    _fresh_hint_state()
+    mpt.set_default(show_hints=False)
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    out = capsys.readouterr().out
+    assert "mpt tip" not in out
+
+
+def test_hint_suppressed_when_global_default_changed(small_problem, capsys):
+    _fresh_hint_state()
+    mpt.set_default(truncation_sigmas=6)
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    out = capsys.readouterr().out
+    assert "mpt tip" not in out
+
+
+def test_show_hints_factory_default_is_true():
+    mpt.reset_defaults()
+    assert mpt.get_default("show_hints") is True
+
+
+def test_show_hints_validation():
+    with pytest.raises(ValueError, match="show_hints"):
+        mpt.set_default(show_hints="yes")
+
+
+def test_reset_defaults_clears_hint_flag(small_problem, capsys):
+    """reset_defaults() should re-arm the hint."""
+    _fresh_hint_state()
+    C, wJ, X, sigma = small_problem
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    capsys.readouterr()    # discard
+    mpt.reset_defaults()
+    gaussian_kernel_sum(C, wJ, X, sigma)
+    out = capsys.readouterr().out
+    assert "mpt tip" in out

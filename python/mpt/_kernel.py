@@ -83,6 +83,16 @@ def gaussian_kernel_sum(
         truncation_sigmas = get_default("truncation_sigmas")
     if kernel_precision is None:
         kernel_precision = get_default("kernel_precision")
+    # Fire the kernel-evaluation hint once per session if the effective
+    # call settings match the v2.1 defaults (truncation off, double
+    # precision). Suppresses silently if the user has already opted in
+    # (per call or globally), opted out via show_hints=False, or seen
+    # the hint earlier this session.
+    from ._defaults import _maybe_show_kernel_eval_hint
+    _maybe_show_kernel_eval_hint(
+        effective_truncation_sigmas=truncation_sigmas,
+        effective_kernel_precision=kernel_precision,
+    )
     kernel_precision = kernel_precision.lower()
     if kernel_precision not in ("double", "single"):
         raise ValueError(

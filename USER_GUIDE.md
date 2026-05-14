@@ -425,6 +425,46 @@ The companion `'cancellationThreshold'` keyword on `cosSimExpTens` (default `1e-
 
 `entropyExpTens` accepts a `'method'` keyword: `'shannon'` (default; numerical-grid integration, unchanged from v2.1 — Shannon differential entropy has no closed form in any version) and `'renyi2'` (new user-facing option in v2.2; closed-form analytical Rényi-2 differential entropy). The Rényi-2 path computes $H_2 = -\log_b(\langle T, T\rangle / Z^2)$ via the Möbius method's inner product for $\langle T, T\rangle$ and the Möbius method's total mass for $Z$. The analytical route was conceptually available in v2.0 / v2.1 (the inputs are both already analytical), but v2.2 wires it up as a user-facing option and gains efficiency at high $r$ / $K$ via the Möbius method. The result is exact (no grid integration), faster than Shannon for $r \ge 2$, and agrees cross-language to $10^{-8}$ relative on the test corpus. `normalize=true` with `method='renyi2'` is currently unsupported (the natural normaliser yields a $(-\infty, 1]$ range that doesn't compose with Shannon's $[0, 1]$); divide externally if normalisation is needed.
 
+### Kernel-evaluation controls (v2.2+)
+
+Two user-controllable options govern how the dense Gaussian kernel matrix is constructed for functions that build one. These apply to the centres path (`evalExpTens`, `entropyExpTens` with `method='shannon'`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) and to Bulger's method on `cosSimExpTens`; they do not affect Möbius-method calls (which bypass kernel-matrix construction entirely).
+
+- **`truncation_sigmas` (Python) / `truncationSigmas` (MATLAB)** — type `float`, default `math.inf` / `Inf` (no truncation, exact v2.1 behaviour). When set to a finite positive value $k$, Gaussian kernel contributions are skipped when the centre-to-query distance exceeds $k\sigma$, equivalently when the kernel value drops below $\exp(-k^2/2)$. $k = 6$ retains ~8 significant figures (kernel-floor $\approx 1.5 \times 10^{-8}$); $k = 4$ retains ~4 significant figures (kernel-floor $\approx 3 \times 10^{-4}$). Implemented as a grid-bucket spatial index that avoids forming the dense kernel matrix for the discarded entries.
+
+- **`kernel_precision` (Python) / `kernelPrecision` (MATLAB)** — accepts `'double'` (default) or `'single'`. With `'single'`, the kernel-matrix arithmetic casts to `float32` for a workload-dependent speedup (typically ~2× on compute-bound problems, less on memory-bandwidth-bound problems) at the cost of approximately 7 significant figures of precision (vs approximately 15 for double). The cast applies only to the kernel matrix; density coordinates and the final accumulation are preserved at full double.
+
+Both controls can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API:
+
+```python
+# Python
+import mpt
+mpt.set_default(truncation_sigmas=6, kernel_precision='single')   # set
+mpt.get_defaults()                                                # inspect
+prev = mpt.set_default(truncation_sigmas=4)                       # save & restore
+# ... do work ...
+mpt.set_default(**prev)
+mpt.reset_defaults()                                              # back to factory
+```
+
+```matlab
+% MATLAB
+mptDefaults('truncationSigmas', 6, 'kernelPrecision', 'single')   % set
+mptDefaults                                                       % inspect
+prev = mptDefaults('truncationSigmas', 4);                        % save & restore
+% ... do work ...
+mptDefaults(prev);
+mptDefaults('reset')                                              % back to factory
+```
+
+Per-call kwargs always override defaults. Defaults persist within a single Python process / MATLAB session (not across `clear all`). The factory defaults (`truncationSigmas = Inf`, `kernelPrecision = 'double'`) reproduce v2.1 behaviour to floating-point precision, so existing code needs no changes — opting in is purely additive.
+
+**One-time hint on first kernel-matrix construction.** The first time a session runs a calculation that builds a kernel matrix with both controls at factory defaults, a short tip is printed pointing to the opt-in. It fires once per session and self-suppresses if either control has been changed (per call or globally), if `show_hints` / `showHints` has been set to `false`, or if it has already fired. The factory default for the hint is `true`. To permanently disable:
+
+```python
+mpt.set_default(show_hints=False)        # Python
+mptDefaults('showHints', false)          % MATLAB
+```
+
 ### Consumer-level batching: rows as multisets
 
 Most consumer-facing functions accept a 2-D pitch matrix in addition to the original 1-D form. The convention throughout the toolbox is:
@@ -1384,6 +1424,7 @@ MATLAB demo scripts are in `matlab/demos/`. To run a demo, open it in the MATLAB
 | `demo_bindEvents` | Sliding-window binding into n-attribute super-events: n-tuple entropy via the `differenceEvents` $\to$ `bindEvents` pipeline (matches `nTupleEntropy` at $\sigma \to 0$ and extends to non-zero σ), cosine similarity between scales' n-tuple distributions, and binding raw pitch values to obtain melodic n-grams in absolute register | — |
 | `demo_sigmaSpace` | Soft (`sigma > 0`) `sameness`, `coherence`, and `nTupleEntropy` on the diatonic scale, comparing `sigmaSpace = 'position'` against `'interval'` across a range of σ; also demonstrates the diatonic-tritone tie under positional jitter and the `n = 1` exactness relationship for `nTupleEntropy` | — |
 | `demo_dftCircularSimulate` | Argand-DFT under positional jitter: balance / evenness sweeps with `sigma > 0`, the Rayleigh bias on a perfectly balanced multiset, full per-coefficient distributions via `dftCircularSimulate`, and the analytical α₁ damping for `projCentroid` | — |
+| `demo_dispatchAndKernelControls` | Tour of v2.2's performance features: per-call method dispatch (Bulger's method vs the Möbius method), kernel truncation (`truncationSigmas`), single-precision kernel arithmetic (`kernelPrecision`), the toolbox-wide defaults API (`mptDefaults`), and `method='renyi2'` for closed-form entropy | — |
 
 ### Python demos
 
@@ -1406,6 +1447,7 @@ Python equivalents of all demos are in `python/demos/`. They follow the same str
 | `demo_bindEvents.py` | `demo_bindEvents` | Sliding-window event binding for n-tuple analyses |
 | `demo_sigma_space.py` | `demo_sigmaSpace` | Soft sigma in `sameness`, `coherence`, `n_tuple_entropy` (position vs interval flag) |
 | `demo_dft_circular_simulate.py` | `demo_dftCircularSimulate` | Argand-DFT Monte Carlo: balance / evenness with σ, full per-coefficient distributions, projCentroid α₁ damping |
+| `demo_dispatch_and_kernel_controls.py` | `demo_dispatchAndKernelControls` | v2.2 performance features: method dispatch, kernel truncation, single-precision kernel, defaults API, Rényi-2 entropy |
 
 ---
 

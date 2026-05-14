@@ -1907,6 +1907,17 @@ def _eval_exp_tens_sa(
         and (prec_resolved == "double")
     )
 
+    # Fire the kernel-evaluation hint once per session when the centres
+    # path is about to run with v2.1-default kwargs. Catches the bypass
+    # case too (which skips gaussian_kernel_sum and would otherwise
+    # miss the hint).
+    if chosen == "centres" and use_default_kwargs:
+        from ._defaults import _maybe_show_kernel_eval_hint
+        _maybe_show_kernel_eval_hint(
+            effective_truncation_sigmas=float("inf"),
+            effective_kernel_precision="double",
+        )
+
     if chosen == "mobius":
         vals = _eval_exp_tens_sa_orbit(
             dens, x, n_q,
@@ -4433,6 +4444,17 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
     )
 
     can_use_helper = not (is_rel and is_per)
+
+    # Fire the kernel-evaluation hint once per session when Bulger's IP
+    # path is about to run with v2.1-default kwargs. Bulger's path
+    # forms a kernel-matrix-of-r-tuple-pairs that benefits from the
+    # same truncation / single-precision controls as the centres path.
+    if use_default_kwargs:
+        from ._defaults import _maybe_show_kernel_eval_hint
+        _maybe_show_kernel_eval_hint(
+            effective_truncation_sigmas=float("inf"),
+            effective_kernel_precision="double",
+        )
 
     # Route through helper only when features are actually requested
     # AND the helper supports this quadratic form.

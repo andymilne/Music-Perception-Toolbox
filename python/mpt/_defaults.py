@@ -32,9 +32,14 @@ from typing import Any
 _FACTORY_DEFAULTS: dict[str, Any] = {
     "truncation_sigmas": math.inf,
     "kernel_precision": "double",
+    "show_hints": True,
 }
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
+
+# Session-scoped flag: True after the kernel-evaluation hint has fired
+# once in this Python process. Reset by reset_defaults().
+_HINT_FIRED_KERNEL_EVAL: bool = False
 
 
 def _validate_one(name: str, value: Any) -> Any:
@@ -64,6 +69,12 @@ def _validate_one(name: str, value: Any) -> Any:
                 f"'kernel_precision' must be 'double' or 'single' (got {value!r})"
             )
         return v
+    if name == "show_hints":
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"'show_hints' must be True or False (got {value!r})"
+            )
+        return value
     raise ValueError(
         f"Unknown default {name!r}. "
         f"Valid names: {', '.join(_FACTORY_DEFAULTS)}"
@@ -131,8 +142,77 @@ def set_default(**kwargs: Any) -> dict[str, Any]:
 
 
 def reset_defaults() -> dict[str, Any]:
-    """Reset all defaults to their factory values; return the previous values."""
+    """Reset all defaults to their factory values; return the previous values.
+
+    Also clears the session-scoped flag that suppresses repeat firings of
+    informational hints, so the next eligible call will see the hint
+    again.
+    """
+    global _HINT_FIRED_KERNEL_EVAL
     old = dict(_DEFAULTS)
     _DEFAULTS.clear()
     _DEFAULTS.update(_FACTORY_DEFAULTS)
+    _HINT_FIRED_KERNEL_EVAL = False
     return old
+
+
+# ---------------------------------------------------------------
+# Informational hints (one-shot per Python process)
+# ---------------------------------------------------------------
+_KERNEL_EVAL_HINT_MESSAGE = (
+    "mpt tip: kernel-matrix construction is running with default settings\n"
+    "(truncation off, double precision). For typical perceptual-modelling\n"
+    "workloads at scale, opting in to k=6 truncation and single-precision\n"
+    "kernel arithmetic typically gives ~3-10x speedup with ~7 significant\n"
+    "figures preserved:\n"
+    "\n"
+    "    mpt.set_default(truncation_sigmas=6, kernel_precision='single')\n"
+    "\n"
+    "Affects functions that build a kernel matrix: eval_exp_tens,\n"
+    "entropy_exp_tens (Shannon), spectral_entropy, template_harmonicity,\n"
+    "virtual_pitches, and cos_sim_exp_tens when routed to Bulger's method.\n"
+    "Does not affect Mobius-method paths (cos_sim_exp_tens at default\n"
+    "workloads, tensor_harmonicity, entropy_exp_tens with 'renyi2').\n"
+    "\n"
+    "To silence: mpt.set_default(show_hints=False).\n"
+)
+
+
+def _maybe_show_kernel_eval_hint(
+    *,
+    effective_truncation_sigmas: float | None = None,
+    effective_kernel_precision: str | None = None,
+) -> None:
+    """Print the kernel-evaluation hint at most once per session.
+
+    Parameters
+    ----------
+    effective_truncation_sigmas, effective_kernel_precision : optional
+        The effective values used for the call (after defaults
+        resolution and per-call kwargs). If supplied, the hint fires
+        only when *both* effective values match the v2.1 factory
+        defaults — i.e., the user hasn't opted in via either route.
+        If not supplied, the global defaults are inspected instead.
+
+    Silently no-ops if any of:
+      - ``show_hints`` is False
+      - the effective values differ from the v2.1 defaults (the user
+        has already opted in to the faster regime, so the hint is
+        redundant)
+      - the hint has already fired this session
+    """
+    global _HINT_FIRED_KERNEL_EVAL
+    if _HINT_FIRED_KERNEL_EVAL:
+        return
+    if not _DEFAULTS.get("show_hints", True):
+        return
+    trunc = (effective_truncation_sigmas if effective_truncation_sigmas is not None
+             else _DEFAULTS["truncation_sigmas"])
+    prec = (effective_kernel_precision if effective_kernel_precision is not None
+            else _DEFAULTS["kernel_precision"])
+    if trunc != math.inf:
+        return
+    if str(prec).lower() != "double":
+        return
+    print(_KERNEL_EVAL_HINT_MESSAGE)
+    _HINT_FIRED_KERNEL_EVAL = True

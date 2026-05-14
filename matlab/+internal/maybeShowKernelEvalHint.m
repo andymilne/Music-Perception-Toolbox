@@ -1,0 +1,59 @@
+function maybeShowKernelEvalHint()
+%INTERNAL.MAYBESHOWKERNELEVALHINT  Print the kernel-evaluation hint once.
+%
+%   internal.maybeShowKernelEvalHint() prints a one-time-per-session
+%   informational tip about the v2.2 kernel-evaluation controls
+%   (truncationSigmas, kernelPrecision) for users who have not yet
+%   opted in.
+%
+%   Silently no-ops if any of:
+%     - mptDefaults('showHints') is false
+%     - either kernel-evaluation default has been changed from its
+%       factory value (the user has already opted in to the faster
+%       regime, so the hint is redundant)
+%     - the hint has already fired this session
+%
+%   Called by evalExpTens (centres path) and cosSimExpTens (Bulger
+%   path) at the chokepoint just before the v2.1-bit-identical bypass.
+%
+%   See also: MPTDEFAULTS.
+
+    persistent hintFired
+    if isempty(hintFired)
+        hintFired = false;
+    end
+    if hintFired
+        return;
+    end
+
+    S = mptDefaults();
+    if isfield(S, 'showHints') && ~S.showHints
+        return;
+    end
+    if ~isinf(S.truncationSigmas)
+        return;
+    end
+    if ~strcmp(S.kernelPrecision, 'double')
+        return;
+    end
+
+    fprintf([ ...
+        'mpt tip: kernel-matrix construction is running with default settings\n' ...
+        '(truncation off, double precision). For typical perceptual-modelling\n' ...
+        'workloads at scale, opting in to k=6 truncation and single-precision\n' ...
+        'kernel arithmetic typically gives ~3-10x speedup with ~7 significant\n' ...
+        'figures preserved:\n' ...
+        '\n' ...
+        '    mptDefaults(''truncationSigmas'', 6, ''kernelPrecision'', ''single'')\n' ...
+        '\n' ...
+        'Affects functions that build a kernel matrix: evalExpTens,\n' ...
+        'entropyExpTens (Shannon), spectralEntropy, templateHarmonicity,\n' ...
+        'virtualPitches, and cosSimExpTens when routed to Bulger''s method.\n' ...
+        'Does not affect Möbius-method paths (cosSimExpTens at default\n' ...
+        'workloads, tensorHarmonicity, entropyExpTens with ''renyi2'').\n' ...
+        '\n' ...
+        'To silence: mptDefaults(''showHints'', false).\n' ...
+        '\n']);
+
+    hintFired = true;
+end

@@ -18,6 +18,14 @@ if ~exist('results', 'var')
     cleanupDefaults_dip = mptTestIsolateDefaults(); %#ok<NASGU>
 end
 
+% This file's tests assert that the dispatch-announce message appears
+% in the captured output of cosSimExpTens calls (via evalc). The
+% announce is gated by mptDefaults('showHints'), which test_mpt.m
+% silences at suite level. Explicitly enable it here and restore the
+% previous state on script exit.
+prevSH_dip = mptDefaults('showHints', true);
+cleanupSH_dip = onCleanup(@() mptDefaults(prevSH_dip)); %#ok<NASGU>
+
 % --- Semantic equivalence: explicit orbit matches explicit Bulger --
 rng(0, 'twister');
 ipprobe_px = sort(rand(20, 1) * 100);
@@ -74,18 +82,26 @@ results{end+1, 1} = 'ip_probe: verbose message printed when probe fires';
 results{end, 2}   = contains(ipprobe_evalStr, 'cosSimExpTens') ...
                  && contains(ipprobe_evalStr, 'chose');
 
-% --- Verbose dispatch message: absent when hard rule decides ---------
+% --- Verbose dispatch message at r=1 (hard rule) ---------------------
+% Under the showHints + dispatchScope policy the announce fires for
+% both probe-firing AND hard-rule decisions; the only suppressor is
+% the once-per-top-level-call throttle and the master showHints
+% switch. Verify it announces.
 ipprobe_evalStrR1 = evalc( ...
     'cosSimExpTens(ipprobe_dx1, ipprobe_dy1, ''verbose'', true);');
-results{end+1, 1} = 'ip_probe: verbose message absent at r=1 (hard rule)';
-results{end, 2}   = ~contains(ipprobe_evalStrR1, 'cosSimExpTens: chose');
+results{end+1, 1} = 'ip_probe: verbose message present at r=1 (hard rule)';
+results{end, 2}   = contains(ipprobe_evalStrR1, 'cosSimExpTens') ...
+                 && contains(ipprobe_evalStrR1, 'chose');
 
-% --- Verbose dispatch message: absent when user method set -----------
+% --- Verbose dispatch message when user method set -------------------
+% Same logic: even when method=bulger is set explicitly, the
+% dispatcher still announces the chosen path.
 ipprobe_evalStrUser = evalc( ...
     ['cosSimExpTens(ipprobe_dx, ipprobe_dy, ''method'', ''bulger'', ' ...
      '''verbose'', true);']);
-results{end+1, 1} = 'ip_probe: verbose message absent when method set';
-results{end, 2}   = ~contains(ipprobe_evalStrUser, 'cosSimExpTens: chose');
+results{end+1, 1} = 'ip_probe: verbose message present when method set';
+results{end, 2}   = contains(ipprobe_evalStrUser, 'cosSimExpTens') ...
+                 && contains(ipprobe_evalStrUser, 'chose');
 
 clear ipprobe_px ipprobe_py ipprobe_dx ipprobe_dy ipprobe_simOrbit ...
       ipprobe_simPair ipprobe_simAuto ipprobe_dx1 ipprobe_dy1 ipprobe_simR1 ...

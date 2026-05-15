@@ -111,6 +111,12 @@ function vals = evalExpTens(varargin)
 % the first argument. Then extract X, normalize, and verbose from the
 % remaining arguments.
 
+% Top-level call guard: resets the dispatch-message throttle on entry
+% from outside the toolbox so that each user call announces afresh,
+% while keeping inner sub-calls within the same top-level call
+% throttled. See internal.dispatchScope.
+guard = internal.dispatchScope(); %#ok<NASGU>  cleared by onCleanup
+
 verbose = true;  % default
 method = 'auto';  % 'auto' | 'centres' (alias 'direct') | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
@@ -318,7 +324,8 @@ elseif strcmp(method, 'auto')
         end
         % Dispatch messages bypass per-call verbose; they're gated by
         % the toolbox-wide showHints flag and throttled to once per
-        % session per unique (funcName, chosen, reason) triple.
+        % top-level user call per unique (funcName, chosen, reason)
+        % triple (via +internal/dispatchScope).
         internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
             hardRuleReason, 0, false);
     else

@@ -75,9 +75,11 @@ end
 
 fprintf('Computing SPCS of %d-tone generator-chains (gen = 0 to %.1f, step %.2f) against %s...\n', ...
     nTones, period - genStep, genStep, refName);
+% verbose=true surfaces the dispatch announce and the batched cost
+% estimate; both are useful here because the sweep is slow.
 s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
-    'verbose', false);
+    'verbose', true);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display (avoids floating-point artifacts

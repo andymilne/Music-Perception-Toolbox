@@ -28,6 +28,9 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %
 %   See also: cosSimExpTens.
 
+% Top-level call guard: see internal.dispatchScope.
+guard = internal.dispatchScope(); %#ok<NASGU>
+
 % --- Parse kwargs ---
 weightsA = [];
 weightsB = [];

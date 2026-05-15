@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 
 from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
+from ._defaults import _with_dispatch_scope
 from .entropy import entropy_exp_tens
 from .spectra import add_spectra
 from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
@@ -82,6 +83,7 @@ def _template_xcorr_chord_side(
 # ===================================================================
 
 
+@_with_dispatch_scope
 def spectral_entropy(
     p,
     w=None,
@@ -313,6 +315,9 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
     out = np.full(M, np.nan)
     result_cache: dict = {}
 
+    # Adaptive progress-print state. Defaults: silent.
+    prog_stride = 1
+    show_progress = False
     # Up-front time estimate (Shannon path only; renyi2 is analytical).
     if method == "shannon" and verbose and M > 1:
         n_cal = min(10, M)
@@ -361,12 +366,15 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
+                from ._utils import progress_stride
                 t_cal_total = time.perf_counter() - t_cal_start
                 t_per_row = t_cal_total / n_valid_cal
                 est_total = t_cal_total + t_per_row * M
                 maybe_print_batched_estimate(
                     "spectral_entropy", M, est_total,
                 )
+                prog_stride = progress_stride(t_per_row)
+                show_progress = est_total >= 5
 
     for i in range(M):
         p_row = P[i]
@@ -392,14 +400,17 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
 
         if key in result_cache:
             out[i] = result_cache[key]
-            continue
+        else:
+            h = _spectral_entropy_scalar(
+                p_valid, w_valid, sigma, spectrum, method, normalize, base,
+                truncation_sigmas, kernel_precision, verbose=False,
+            )
+            result_cache[key] = h
+            out[i] = h
 
-        h = _spectral_entropy_scalar(
-            p_valid, w_valid, sigma, spectrum, method, normalize, base,
-            truncation_sigmas, kernel_precision, verbose=False,
-        )
-        result_cache[key] = h
-        out[i] = h
+        if verbose and show_progress \
+                and ((i + 1) % prog_stride == 0 or i == M - 1):
+            print(f"  {i + 1} / {M} rows computed.")
 
     return out
 
@@ -409,6 +420,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
 # ===================================================================
 
 
+@_with_dispatch_scope
 def template_harmonicity(
     p,
     w=None,
@@ -645,6 +657,9 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
     # time is not part of the printed estimate, but the estimate does
     # add the K-sample calibration time itself, since the caller pays
     # for it.
+    # Adaptive progress-print state. Defaults: silent.
+    prog_stride = 1
+    show_progress = False
     if verbose and M > 1:
         n_cal = min(10, M)
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
@@ -705,6 +720,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
+                from ._utils import progress_stride
                 t_cal_total = time.perf_counter() - t_cal_start
                 t_per_row = t_cal_total / n_valid_cal
                 # Total estimate covers the calibration we just did (which the
@@ -715,6 +731,8 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
                     "template_harmonicity", M, est_total,
 
                 )
+                prog_stride = progress_stride(t_per_row)
+                show_progress = est_total >= 5
 
     result_cache: dict = {}
     for i in range(M):
@@ -734,23 +752,26 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
         )
         if key in result_cache:
             h_max_out[i], h_ent_out[i] = result_cache[key]
-            continue
-
-        # Compute (h_max, h_entropy) for this canonical chord.
-        p_shifted = p_canon - np.min(p_canon)
-        if chord_spectrum is not None:
-            chord_p, chord_w = add_spectra(p_shifted, w_canon, *chord_spectrum)
         else:
-            chord_p, chord_w = p_shifted.copy(), w_canon.copy()
+            # Compute (h_max, h_entropy) for this canonical chord.
+            p_shifted = p_canon - np.min(p_canon)
+            if chord_spectrum is not None:
+                chord_p, chord_w = add_spectra(p_shifted, w_canon, *chord_spectrum)
+            else:
+                chord_p, chord_w = p_shifted.copy(), w_canon.copy()
 
-        h_max, h_ent = _template_harmonicity_chord_only(
-            chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
-            resolution, normalize, base,
-            truncation_sigmas, kernel_precision,
-        )
+            h_max, h_ent = _template_harmonicity_chord_only(
+                chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+                resolution, normalize, base,
+                truncation_sigmas, kernel_precision,
+            )
 
-        result_cache[key] = (h_max, h_ent)
-        h_max_out[i], h_ent_out[i] = h_max, h_ent
+            result_cache[key] = (h_max, h_ent)
+            h_max_out[i], h_ent_out[i] = h_max, h_ent
+
+        if verbose and show_progress \
+                and ((i + 1) % prog_stride == 0 or i == M - 1):
+            print(f"  {i + 1} / {M} rows computed.")
 
     return h_max_out, h_ent_out
 
@@ -760,6 +781,7 @@ def _template_harmonicity_batched(P, W, sigma, spectrum, chord_spectrum,
 # ===================================================================
 
 
+@_with_dispatch_scope
 def tensor_harmonicity(
     p,
     w=None,
@@ -1086,6 +1108,7 @@ def _tensor_harmonicity_batched(P, W, sigma, spectrum, duplicate, normalize,
 # ===================================================================
 
 
+@_with_dispatch_scope
 def virtual_pitches(
     p,
     w=None,
@@ -1294,6 +1317,9 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
 
     result_cache: dict = {}
 
+    # Adaptive progress-print state. Defaults: silent.
+    prog_stride = 1
+    show_progress = False
     # Up-front time estimate (printed once for the whole batch).
     # Calibration uses the same _virtual_pitches_chord_only path the
     # main loop uses, so the timed work matches per-row main-loop
@@ -1352,6 +1378,7 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
                 )
                 n_valid_cal += 1
             if n_valid_cal > 0:
+                from ._utils import progress_stride
                 t_cal_total = time.perf_counter() - t_cal_start
                 t_per_row = t_cal_total / n_valid_cal
                 est_total = t_cal_total + t_per_row * M
@@ -1360,6 +1387,8 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
                     "virtual_pitches", M, est_total,
 
                 )
+                prog_stride = progress_stride(t_per_row)
+                show_progress = est_total >= 5
 
     for i in range(M):
         p_row = P[i]
@@ -1402,6 +1431,10 @@ def _virtual_pitches_batched(P, W, sigma, spectrum, chord_spectrum, resolution,
         lag_indices = np.arange(n_xcorr) - (n_tmpl - 1)
         vp_p_list[i] = lag_indices * step + p_offset
         vp_w_list[i] = vp_w
+
+        if verbose and show_progress \
+                and ((i + 1) % prog_stride == 0 or i == M - 1):
+            print(f"  {i + 1} / {M} rows computed.")
 
     return vp_p_list, vp_w_list
 

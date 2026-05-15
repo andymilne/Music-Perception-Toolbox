@@ -144,6 +144,9 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
+    % Top-level call guard: see internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return per-row vp_p and vp_w as 1-by-nRows cell
@@ -347,6 +350,9 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
     N_tmpl = numel(tmpl_vals);
 
     % --- Up-front time estimate (matches main-loop cost) ---------
+    % Adaptive progress-print state. Defaults: silent.
+    progStride = 1;
+    showProgress = false;
     if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
@@ -393,7 +399,9 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
                 estTotal  = tCalTotal + tPerRow * nRows;
-                printBatchedEstimate('virtualPitches', nRows, estTotal);
+                internal.printBatchedEstimate('virtualPitches', nRows, estTotal);
+                progStride = internal.progressStride(tPerRow);
+                showProgress = estTotal >= 5;
             end
         end
     end
@@ -438,6 +446,11 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
         lag_indices = (0:N_xcorr_k - 1)' - (N_tmpl - 1);
         vp_p{k} = lag_indices * step + pOffset;
         vp_w{k} = vp_w_k;
+
+        if nvArgs.verbose && showProgress ...
+                && (mod(k, progStride) == 0 || k == nRows)
+            fprintf('  %d / %d rows computed.\n', k, nRows);
+        end
     end
 end
 

@@ -150,6 +150,9 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
+    % Top-level call guard: see internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return per-row hMax and hEntropy as column
@@ -383,6 +386,10 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
     % each call — those rebuilds appeared in the calibration timing
     % but not in the main-loop work, biasing the printed estimate
     % upward (and contributing M rebuilds to the actual cost).
+    % Adaptive progress-print state. Defaults: silent. Overridden in
+    % the calibration block when estTotal is known.
+    progStride = 1;
+    showProgress = false;
     if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
@@ -430,7 +437,9 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
                 estTotal  = tCalTotal + tPerRow * nRows;
-                printBatchedEstimate('templateHarmonicity', nRows, estTotal);
+                internal.printBatchedEstimate('templateHarmonicity', nRows, estTotal);
+                progStride = internal.progressStride(tPerRow);
+                showProgress = estTotal >= 5;
             end
         end
     end
@@ -467,6 +476,11 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
             hMax(k) = hMaxK;
             hEntropy(k) = hEntK;
             resultCache(key) = [hMaxK, hEntK];
+        end
+
+        if nvArgs.verbose && showProgress ...
+                && (mod(k, progStride) == 0 || k == nRows)
+            fprintf('  %d / %d rows computed.\n', k, nRows);
         end
     end
 end

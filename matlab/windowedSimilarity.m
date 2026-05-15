@@ -147,6 +147,9 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %
 %   See also windowTensor, cosSimExpTens.
 
+    % Top-level call guard: see internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     verbose = true;
     reference = [];
     mode = 'auto';

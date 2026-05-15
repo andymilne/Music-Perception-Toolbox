@@ -88,7 +88,9 @@ print(f"Computing SPCS of {n_tones}-tone generator-chains "
 s = mpt.cos_sim_exp_tens(
     ref_pitches, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
-    verbose=False,
+    # verbose=True surfaces the dispatch announce and the batched
+    # cost estimate; both are useful here because the sweep is slow.
+    verbose=True,
 )
 s = np.round(s, 3)
 print("Done.")

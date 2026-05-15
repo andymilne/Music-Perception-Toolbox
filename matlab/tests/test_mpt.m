@@ -41,6 +41,17 @@ clear cleanupDefaults
 addpath(fileparts(mfilename('fullpath')));
 cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 
+% Silence informational hints and dispatch-decision announces for the
+% suite. Matches the Python conftest.py autouse fixture
+% (set_default(show_hints=False)). Tests that verify announce content
+% explicitly opt back in via mptDefaults('showHints', true) with their
+% own onCleanup token, mirroring the pattern in test_dispatch_scope.m
+% and test_dispatch_msg_throttle.m. Function-based tests
+% (TEST_DISPATCHER_PROBE, etc.) reset to factory in their per-test
+% setup, which restores showHints=true within those tests
+% automatically.
+mptDefaults('showHints', false);
+
 fprintf('\n=== Music Perception Toolbox — Test Suite ===\n\n');
 
 testsDir = fileparts(mfilename('fullpath'));
@@ -98,7 +109,8 @@ v22 = {'test_mobius_combinatorics.m', 'test_mobius_orbit_table.m', ...
        'test_orbit_vectorisation.m', 'test_kernel_truncation.m', ...
        'test_eval_routing.m', 'test_wrapper_routing.m', ...
        'test_cossim_centres_routing.m', 'test_dispatcher_probe.m', ...
-       'test_dispatcher_ip_probe.m', 'test_centres_chunking.m'};
+       'test_dispatcher_ip_probe.m', 'test_centres_chunking.m', ...
+       'test_dispatch_scope.m'};
 
 testFiles = [core, batched, expTens, harmony, cost, serial, maet, geom, v22];
 for ki = 1:numel(testFiles)

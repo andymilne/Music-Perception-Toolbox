@@ -143,6 +143,9 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
+    % Top-level call guard: see internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % paired multisets and return a column vector of harmonicities.
@@ -214,11 +217,12 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
     % and grows as B_r * r * K * N_u per query. This unblocks
     % nPitches > 3 where the centres path was infeasible.
 
-    if nvArgs.verbose
-        K_tmpl = numel(tmpl_p);
-        fprintf(['tensorHarmonicity: eval at K = %d, r = %d, ' ...
-                 'sigma = %g.\n'], K_tmpl, nPitches, sigma);
-    end
+    % The inner evalExpTens (called via localTensorHarmonicityViaEval)
+    % announces its own dispatched method through the standard throttle;
+    % a separate tensorHarmonicity-level announce would just double-print
+    % the same decision, so we let the inner one speak. The dispatchScope
+    % guard at the top of this function ensures the inner announce fires
+    % on each top-level call.
 
     h_vec = localTensorHarmonicityViaEval( ...
         tmpl_p, tmpl_w, sigma, nPitches, intervals, char(nvArgs.normalize), ...
@@ -376,7 +380,7 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
     if nvArgs.verbose
         % Gate the groups print on a row-count threshold matching the
         % 'silent for fast' semantics used by the other batched
-        % functions (printBatchedEstimate's min-print threshold). The
+        % functions (internal.printBatchedEstimate's min-print threshold). The
         % threshold is deliberately rough: at >~100 rows the batched
         % orbit call is likely to exceed the 10s estimate-print
         % threshold; tiny batches stay silent.

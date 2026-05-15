@@ -83,8 +83,10 @@ function varargout = mptDefaults(varargin)
         if strcmpi(name, 'reset')
             old = S;
             S = factoryDefaults();
-            % Clear the once-per-session dispatch-message throttle so
-            % the next call sees its routing decision again.
+            % Clear the dispatch-message throttle (which is normally
+            % per-top-level-call via internal.dispatchScope) so the
+            % next call sees its routing decision again, regardless
+            % of where in a call tree the reset is issued from.
             internal.maybeShowDispatchMsg('reset');
             if nargout > 0
                 varargout{1} = old;

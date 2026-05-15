@@ -15,8 +15,9 @@ from math import comb as _math_comb, factorial
 import numpy as np
 from scipy.special import comb as _comb
 
-from ._utils import estimate_comp_time, validate_weights
+from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
 from ._kernel import gaussian_kernel_sum
+from ._defaults import _with_dispatch_scope
 from .spectra import add_spectra
 
 
@@ -1286,6 +1287,7 @@ def _build_exp_tens_sa(
 # -------------------------------------------------------------------
 
 
+@_with_dispatch_scope
 def eval_exp_tens(*args,
                   normalize: str = "none",
                   dedup: bool = True,
@@ -2491,6 +2493,7 @@ def eval_exp_tens_raw(
 # -------------------------------------------------------------------
 
 
+@_with_dispatch_scope
 def cos_sim_exp_tens(*args,
                      mode: str = "auto",
                      dedup: bool = True,
@@ -2887,17 +2890,68 @@ def _compute_pair_results_with_dedup_sa(
             f"after canonical-form dedup."
         )
 
-    unique_results = [
+    # Empirical-calibration time estimate. Warm-up plus a timed sample
+    # of K ≤ 5 representative unique pairs, extrapolated over n_unique.
+    # Gated on verbose; 10 s silence threshold via
+    # maybe_print_batched_estimate. Parallels MATLAB localCosSimBatchedRaw
+    # Phase 3.5 (cosSimExpTens.m).
+    # Adaptive progress-print state. Defaults: silent. Overridden in
+    # the calibration block when est_total is known.
+    prog_stride = 1
+    show_progress = False
+    if verbose and n_unique >= 2:
+        import time as _time
+        from ._utils import progress_stride
+        n_cal = min(5, n_unique)
+        sample_idx = sorted(set(
+            int(round(v)) for v in np.linspace(0, n_unique - 1, n_cal)
+        ))
+        # Warm-up call (absorbs one-time setup).
+        a_w, b_w = unique_pair_list[sample_idx[0]]
         _cos_sim_exp_tens_sa(
-            a, b,
+            a_w, b_w,
             method=method,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=False,
         )
-        for a, b in unique_pair_list
-    ]
+        t_cal_start = _time.perf_counter()
+        for ci in sample_idx:
+            a_s, b_s = unique_pair_list[ci]
+            _cos_sim_exp_tens_sa(
+                a_s, b_s,
+                method=method,
+                cancellation_threshold=cancellation_threshold,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                verbose=False,
+            )
+        t_cal_total = _time.perf_counter() - t_cal_start
+        t_per_pair = t_cal_total / len(sample_idx)
+        est_total = t_cal_total + t_per_pair * n_unique
+        maybe_print_batched_estimate(
+            "cos_sim_exp_tens", n_unique, est_total,
+        )
+        prog_stride = progress_stride(t_per_pair)
+        show_progress = est_total >= 5
+
+    # Main loop over unique pairs (converted from list comprehension
+    # so we can emit progress, matching MATLAB Phase 4).
+    unique_results = []
+    for up, (a, b) in enumerate(unique_pair_list):
+        unique_results.append(_cos_sim_exp_tens_sa(
+            a, b,
+            method=method,
+            cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        ))
+        if verbose and show_progress \
+                and ((up + 1) % prog_stride == 0 or up == n_unique - 1):
+            print(f"  {up + 1} / {n_unique} unique pairs computed.")
+
     return [unique_results[idx] for idx in pair_canon_idx]
 
 
@@ -2905,7 +2959,14 @@ def _compute_pair_results_no_dedup(
     pairs, *, method: str, cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
-    """Compute cos_sim for a list of pairs without dedup."""
+    """Compute cos_sim for a list of pairs without dedup.
+
+    No empirical calibration is run on this path because the input
+    may include heterogeneous MA densities whose per-pair cost varies
+    too widely for a stable extrapolation. Consequently no progress
+    prints are emitted; users wanting feedback on long runs should
+    enable canonical-form dedup (the default).
+    """
     results = []
     for a, b in pairs:
         results.append(_cos_sim_pair_core(
@@ -6032,6 +6093,7 @@ def _cos_sim_raw_sa_batch(
 # -------------------------------------------------------------------
 
 
+@_with_dispatch_scope
 def batch_cos_sim_exp_tens(
     p_mat_a: np.ndarray,
     p_mat_b: np.ndarray,
@@ -7162,6 +7224,7 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
     return profile
 
 
+@_with_dispatch_scope
 def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
                         reference=None, mode: str = "auto",
                         truncation_sigmas: float | None = None,

@@ -131,20 +131,32 @@ h_pdf = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
 results{end+1,1} = 'tensorHarmonicity v2.2: pdf = gaussian / sum(tmpl_w) (1e-10 rel)';
 results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 
-%% ---- Verbose flag prints an eval message in scalar mode ----
-% Post-Stage-2c, the wrapper no longer hard-codes 'mobius' since
-% the centres-vs-Möbius choice is made by evalExpTens's dispatcher.
-% The printed message is now 'tensorHarmonicity: eval at K = ...'.
-
+%% ---- Verbose flag emits the dispatch announce ----
+% Stage 2c+: the wrapper does not announce itself; the inner evalExpTens
+% emits the standard dispatch message ("evalExpTens: chose 'mobius' path.")
+% via internal.maybeShowDispatchMsg, which is gated by mptDefaults.showHints
+% and resets once per top-level user call via internal.dispatchScope. We
+% test the announce here by looking for any 'chose' substring (which both
+% the unprobed format and the probed format share).
+%
+% test_mpt.m silences showHints at suite level for cleaner default output;
+% enable it explicitly here so the announce fires for this assertion.
+prevSH_thv2on = mptDefaults('showHints', true);
 outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', true);']);
 results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=true prints eval message';
-results{end,2}   = ~isempty(strfind(outScalarVerb, 'tensorHarmonicity: eval'));
+results{end,2}   = contains(outScalarVerb, 'chose');
+mptDefaults(prevSH_thv2on);  % restore
 
+% verbose=false does NOT silence the dispatch announce (announces are
+% gated by showHints, not verbose). Silence those tests by suppressing
+% showHints.
+prevSH_thv2 = mptDefaults('showHints', false);
 outScalarSilent = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', false);']);
 results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=false silent';
 results{end,2}   = isempty(strtrim(outScalarSilent));
+mptDefaults(prevSH_thv2);  % restore
 
 %% ---- Standalone summary ----
 

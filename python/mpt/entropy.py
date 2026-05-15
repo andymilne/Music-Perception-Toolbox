@@ -7,6 +7,7 @@ import warnings
 import numpy as np
 
 from ._utils import maybe_print_batched_estimate
+from ._defaults import _with_dispatch_scope
 from .spectra import add_spectra
 from .tensor import (
     ExpTensDensity,
@@ -32,6 +33,7 @@ _DEFAULT_GRID_LIMIT = int(1e8)
 # ===================================================================
 
 
+@_with_dispatch_scope
 def entropy_exp_tens(
     p_or_dens,
     *args,
@@ -408,6 +410,15 @@ def _entropy_exp_tens_renyi2_dispatch(
             "method='shannon'."
         )
     dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+    # Announce dispatch for the Rényi-2 path. Analytical Möbius is the
+    # only method for Rényi-2 (no probe, no method choice), so the
+    # message is the unprobed form: ``entropy_exp_tens: chose 'mobius'
+    # path.`` Parity with MATLAB ``localEntropyRenyi2Dispatch``.
+    from ._defaults import _maybe_show_dispatch_msg
+    _maybe_show_dispatch_msg(
+        "entropy_exp_tens", "mobius", "renyi2",
+        est_sec=0.0, is_probed=False,
+    )
     if is_sa:
         return _renyi2_exp_tens_sa(dens, base=base)
     return _renyi2_exp_tens_ma(dens, base=base)
@@ -536,6 +547,9 @@ def _entropy_exp_tens_raw_sa_batch(
     # Up-front time estimate (printed once for the whole batch).
     # Empirical calibration with warm-up; see
     # _template_harmonicity_batched for rationale.
+    # Adaptive progress-print state. Defaults: silent.
+    prog_stride = 1
+    show_progress = False
     if verbose and M > 1:
         n_cal = min(10, M)
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
@@ -580,6 +594,7 @@ def _entropy_exp_tens_raw_sa_batch(
                 if _run_one(s_idx):
                     n_valid_cal += 1
             if n_valid_cal > 0:
+                from ._utils import progress_stride
                 t_cal_total = time.perf_counter() - t_cal_start
                 t_per_row = t_cal_total / n_valid_cal
                 est_total = t_cal_total + t_per_row * M
@@ -588,6 +603,8 @@ def _entropy_exp_tens_raw_sa_batch(
                     "entropy_exp_tens", M, est_total,
 
                 )
+                prog_stride = progress_stride(t_per_row)
+                show_progress = est_total >= 5
 
     out = np.full(M, np.nan)
 
@@ -625,6 +642,10 @@ def _entropy_exp_tens_raw_sa_batch(
                 x_min=x_min, x_max=x_max, grid_limit=grid_limit,
             )
         row_to_key[i] = key
+
+        if verbose and show_progress \
+                and ((i + 1) % prog_stride == 0 or i == M - 1):
+            print(f"  {i + 1} / {M} rows computed.")
 
     for i, key in enumerate(row_to_key):
         if key is not None:

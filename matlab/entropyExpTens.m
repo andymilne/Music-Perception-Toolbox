@@ -147,6 +147,9 @@ function H = entropyExpTens(varargin)
 %
 %   See also BUILDEXPTENS, EVALEXPTENS, COSSIMEXPTENS.
 
+% Top-level call guard: see internal.dispatchScope.
+guard = internal.dispatchScope(); %#ok<NASGU>
+
 nvDefaults = struct( ...
     'spectrum',          {{}}, ...
     'method',            'shannon', ...
@@ -630,6 +633,9 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
     % Up-front time estimate (printed once). Empirical calibration via
     % a uniformly-sampled subset of K rows, with one warm-up call to
     % absorb first-call overhead.
+    % Adaptive progress-print state. Defaults: silent.
+    progStride = 1;
+    showProgress = false;
     if isfield(nvArgs, 'verbose') && nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
@@ -681,7 +687,9 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
                 estTotal  = tCalTotal + tPerRow * nRows;
-                printBatchedEstimate('entropyExpTens', nRows, estTotal);
+                internal.printBatchedEstimate('entropyExpTens', nRows, estTotal);
+                progStride = internal.progressStride(tPerRow);
+                showProgress = estTotal >= 5;
             end
         end
     end
@@ -703,6 +711,12 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
         end
         H(k) = entropyExpTens(pK, wK, sigma, r, isRel, isPer, period, ...
             nvPairs{:});
+
+        if isfield(nvArgs, 'verbose') && nvArgs.verbose ...
+                && showProgress ...
+                && (mod(k, progStride) == 0 || k == nRows)
+            fprintf('  %d / %d rows computed.\n', k, nRows);
+        end
     end
 end
 
@@ -848,6 +862,8 @@ function H = localRenyi2SA(dens, base)
         % Direct r=1 abs path: T = sum_i w_i G_sigma(x - p_i), so
         %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j exp(-(p_i-p_j)^2/(4 sigma^2))
         % (with wrapped differences in periodic mode).
+        internal.maybeShowDispatchMsg('entropyExpTens', 'pairwise', ...
+            sprintf('renyi2, r=1 abs (direct pairwise sum)'), 0, false);
         p = p(:); w = w(:);
         diffs = p - p.';
         if isPer
@@ -867,6 +883,8 @@ function H = localRenyi2SA(dens, base)
         % pairwise use different normalisation conventions in rel mode,
         % so the fallback gave a different (also wrong) answer rather
         % than recovering the correct value.
+        internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
+            sprintf('renyi2, r=%d (orbit-Möbius IP)', r), 0, false);
         if isRel
             ip_xx = mobius.orbitInnerRelSA(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassRel(p, w, sigma, r);
@@ -919,6 +937,9 @@ function H = localRenyi2MA(dens, base)
         H = 0;
         return;
     end
+
+    internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
+        sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A), 0, false);
 
     % --- <T, T> via per-attribute orbit IP ---
     % Per-(n,m) cancellation ratios were shown empirically to fire

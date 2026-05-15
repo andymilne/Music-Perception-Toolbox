@@ -68,7 +68,7 @@ print(f"Computing SPCS of {n_edos} EDOs against {ref_name}...")
 s = mpt.cos_sim_exp_tens(
     ref_pitches, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
-    verbose=False,
+    verbose=True,
 )
 s = np.round(s, 3)
 print("Done.")

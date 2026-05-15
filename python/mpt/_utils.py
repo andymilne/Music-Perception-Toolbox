@@ -184,6 +184,56 @@ def maybe_print_batched_estimate(
 
 
 # ---------------------------------------------------------------------------
+#  Adaptive progress-print stride
+# ---------------------------------------------------------------------------
+
+
+def progress_stride(t_per_row: float, target_sec: float = 5.0) -> int:
+    """Compute progress-print stride for batched loops.
+
+    Returns the smallest "nice" stride from the set
+    ``{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000}``
+    such that each print interval takes at least ``target_sec`` seconds
+    at the given per-row cost ``t_per_row`` (seconds per row, from an
+    empirical calibration). If ``t_per_row`` is so small that even a
+    stride of 10000 rows finishes in less than the target, the function
+    returns 10000 (the largest available option); progress prints will
+    then be more frequent than the target, which is the best achievable
+    without wider stride options.
+
+    Used by the batched helpers (``cos_sim_exp_tens``, ``template_harmonicity``,
+    ``spectral_entropy``, ``virtual_pitches``, ``entropy_exp_tens``) to
+    set the cadence of their "X / Y rows computed" progress prints.
+    Callers also gate the prints on ``est_total >= target_sec`` (i.e.
+    only show progress at all when the loop is expected to take long
+    enough to warrant it); the stride determines cadence within that,
+    and adapts down to 1 when individual rows are themselves slow
+    enough that per-row prints don't exceed the target interval.
+
+    Parameters
+    ----------
+    t_per_row : float
+        Per-row cost in seconds. Non-positive or non-finite values
+        fall back to a stride of 1.
+    target_sec : float
+        Target print interval in seconds. Defaults to 5.
+
+    Returns
+    -------
+    int
+        A positive integer from the option set.
+    """
+    options = (1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
+    if not (t_per_row > 0) or not np.isfinite(t_per_row):
+        return options[0]
+    desired = target_sec / t_per_row
+    for opt in options:
+        if opt >= desired:
+            return opt
+    return options[-1]
+
+
+# ---------------------------------------------------------------------------
 #  Position-aware variance
 # ---------------------------------------------------------------------------
 

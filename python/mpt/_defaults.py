@@ -25,7 +25,9 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import math
+import threading
 from typing import Any
 
 # Module-level mutable state. Hidden behind the accessor functions.
@@ -41,12 +43,70 @@ _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
 # once in this Python process. Reset by reset_defaults().
 _HINT_FIRED_KERNEL_EVAL: bool = False
 
-# Session-scoped set of (func_name, chosen, routing_reason) triples
-# already printed by _maybe_show_dispatch_msg in this Python process.
-# Reset by reset_defaults(). See _maybe_show_dispatch_msg for the
-# rationale (once-per-unique-decision throttling, parallel to the
-# MATLAB internal.maybeShowDispatchMsg helper).
+# Set of (func_name, chosen, routing_reason) triples already printed by
+# _maybe_show_dispatch_msg in the current top-level toolbox call. Cleared
+# at the start of every top-level call by :func:`_dispatch_scope`, so each
+# top-level user call sees each unique dispatch decision once. Also cleared
+# by :func:`reset_defaults`. See :func:`_maybe_show_dispatch_msg` for the
+# rationale (per-top-level-call throttling, parallel to the MATLAB
+# ``internal.maybeShowDispatchMsg`` + ``internal.dispatchScope`` pair).
 _DISPATCH_MSG_SEEN: set[tuple[str, str, str]] = set()
+
+# Thread-local depth counter for the dispatch-scope context manager.
+# Depth 0 outside any toolbox call; depth 1 on the outermost entry to a
+# public toolbox function; depth >1 for nested toolbox calls within that
+# top-level call. The seen-set is cleared only on the 0→1 transition.
+_dispatch_scope_state = threading.local()
+
+
+def _get_dispatch_depth() -> int:
+    """Return the current dispatch-scope depth (0 if outside any scope)."""
+    return getattr(_dispatch_scope_state, "depth", 0)
+
+
+@contextlib.contextmanager
+def _dispatch_scope():
+    """Mark a top-level toolbox entry; reset the dispatch seen-set on entry.
+
+    Depth-counted re-entrant context manager. The seen-set is cleared
+    only on the outermost entry (depth 0 → 1), so nested toolbox calls
+    within one top-level user call share the same seen-set and won't
+    re-announce decisions already announced earlier in that call.
+
+    Each top-level user call (REPL invocation, script-level call) sees
+    each unique (func, chosen, reason) dispatch decision exactly once.
+    Repeat calls re-announce.
+
+    Parallels MATLAB ``internal.dispatchScope`` (``acquire`` / ``release``
+    with a depth-tracked persistent state).
+    """
+    depth = getattr(_dispatch_scope_state, "depth", 0)
+    if depth == 0:
+        _DISPATCH_MSG_SEEN.clear()
+    _dispatch_scope_state.depth = depth + 1
+    try:
+        yield
+    finally:
+        cur = getattr(_dispatch_scope_state, "depth", 1)
+        _dispatch_scope_state.depth = max(0, cur - 1)
+
+
+def _with_dispatch_scope(fn):
+    """Decorator: wrap ``fn``'s body in :func:`_dispatch_scope`.
+
+    Applied to every public toolbox entry point whose dispatch decisions
+    (or whose inner calls' dispatch decisions) should be announced
+    per-top-level-call. Uses :func:`functools.wraps` so the decorated
+    function preserves ``__doc__``, ``__name__``, ``__module__``, etc.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _dispatch_scope():
+            return fn(*args, **kwargs)
+
+    return wrapper
 
 
 def _validate_one(name: str, value: Any) -> Any:
@@ -191,13 +251,15 @@ def set_default(**kwargs: Any) -> dict[str, Any]:
 def reset_defaults() -> dict[str, Any]:
     """Reset all defaults to their factory values; return the previous values.
 
-    Also clears two session-scoped flags:
+    Also clears two session-scoped state objects:
       - the flag that suppresses repeat firings of informational hints
         (so the next eligible call will see the hint again);
-      - the set of (function, chosen, routing_reason) triples that have
-        already produced a one-time dispatch-decision message (so each
-        previously-seen routing decision will print again on its next
-        occurrence).
+      - the set of (function, chosen, routing_reason) triples seen by
+        :func:`_maybe_show_dispatch_msg` in the current top-level call
+        (so each previously-seen routing decision will print again on
+        its next occurrence). Note: under normal use this set is also
+        cleared automatically at the start of each top-level toolbox
+        call by :func:`_dispatch_scope`.
     """
     global _HINT_FIRED_KERNEL_EVAL
     old = dict(_DEFAULTS)
@@ -288,11 +350,13 @@ def _maybe_show_dispatch_msg(
     est_sec: float,
     is_probed: bool,
 ) -> None:
-    """Print a dispatch-decision message at most once per session.
+    """Print a dispatch-decision message at most once per top-level call.
 
     Prints if and only if the (func_name, chosen, routing_reason)
-    triple has not been printed before in this Python process. The
-    seen-set is cleared by :func:`reset_defaults`.
+    triple has not been printed before in the current top-level
+    toolbox call. The seen-set is cleared on every top-level entry
+    by :func:`_dispatch_scope`, and also explicitly by
+    :func:`reset_defaults`.
 
     When ``is_probed`` is True, the message includes the empirical
     extrapolated time estimate:
@@ -300,10 +364,15 @@ def _maybe_show_dispatch_msg(
         ``<func_name>: chose '<chosen>' path (estimated X s);
          Ctrl+C to cancel.``
 
-    When ``is_probed`` is False, the message reports the routing
-    reason (e.g. a hard rule or analytical pre-screen):
+    When ``is_probed`` is False, the message reports only the path:
 
-        ``<func_name>: chose '<chosen>' path (<routing_reason>).``
+        ``<func_name>: chose '<chosen>' path.``
+
+    The routing reason (e.g. ``"r1_hard_rule"``, ``"user_method"``) is
+    retained in the seen-set key so that different reasons for the same
+    chosen path each get one announce, but is not printed in the message
+    text itself --- the user-facing distinction that matters is which
+    path ran, not why.
 
     Gating: dispatch messages are NOT gated by per-call
     ``verbose``. They are gated by the toolbox-wide ``show_hints``
@@ -311,7 +380,7 @@ def _maybe_show_dispatch_msg(
     kernel-evaluation hint's gating model. Rationale: internal
     toolbox callers (e.g. batched-raw paths, entropy evaluations)
     routinely pass ``verbose=False`` to inner calls to prevent
-    flooding. With the once-per-session throttle in place, flooding
+    flooding. With the per-top-level-call throttle in place, flooding
     is no longer a concern, and users benefit from seeing the routing
     decision even when internal callers pass ``verbose=False``. To
     fully silence dispatch messages:
@@ -335,4 +404,4 @@ def _maybe_show_dispatch_msg(
             f"Ctrl+C to cancel."
         )
     else:
-        print(f"{func_name}: chose '{chosen}' path ({routing_reason}).")
+        print(f"{func_name}: chose '{chosen}' path.")

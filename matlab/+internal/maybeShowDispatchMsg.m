@@ -1,48 +1,44 @@
 function maybeShowDispatchMsg(varargin)
-%INTERNAL.MAYBESHOWDISPATCHMSG  Print a dispatch message at most once per session.
+%INTERNAL.MAYBESHOWDISPATCHMSG  Print a dispatch message at most once per top-level call.
 %
 %   internal.maybeShowDispatchMsg(funcName, chosen, routingReason, ...
 %                                 estSec, isProbed)
 %       Print a dispatch-decision message for the (funcName, chosen,
 %       routingReason) triple, but only if that exact triple has not
-%       been printed before in this MATLAB session.
+%       already been printed in the current top-level user call.
 %
 %       When isProbed is true, the message includes the empirical
 %       extrapolated estimate from the probe:
 %           "<funcName>: chose '<chosen>' path (estimated X s);
 %            Ctrl+C to cancel."
 %
-%       When isProbed is false, the message reports the routing
-%       reason (e.g., a hard rule or analytical pre-screen):
-%           "<funcName>: chose '<chosen>' path (<routingReason>)."
+%       When isProbed is false, the message is just the path:
+%           "<funcName>: chose '<chosen>' path."
+%       The routingReason is used internally as part of the throttle
+%       key so that two different decisions in the same function don't
+%       collapse to one print, but it is not shown to the user (they
+%       already know the inputs that led to it).
 %
 %   internal.maybeShowDispatchMsg('reset')
 %       Clear the seen-set so that all dispatch messages will fire
-%       again on their next call. Called by mptDefaults('reset').
+%       again on their next call. Called automatically by
+%       INTERNAL.DISPATCHSCOPE on every top-level user call, and by
+%       mptDefaults('reset').
 %
-%   The seen-set persists within the MATLAB session and is also
-%   cleared by `clear all` or `clear internal.maybeShowDispatchMsg`.
+%   The seen-set persists within a top-level call (so a LIST-mode
+%   loop or batched-raw iteration produces one announce per unique
+%   dispatch, not one per item), and is reset on the next top-level
+%   call so that the user sees the announce again. The reset is
+%   driven by INTERNAL.DISPATCHSCOPE's depth counter.
 %
-%   Gating (v2.2.x): dispatch messages are NOT gated by per-call
-%   verbose. They are gated by the toolbox-wide showHints flag
+%   Gating: dispatch messages are NOT gated by per-call verbose.
+%   They are gated by the toolbox-wide showHints flag
 %   (mptDefaults('showHints')), matching the kernel-evaluation
-%   hint's gating model. Rationale: internal toolbox callers (e.g.,
-%   the batched-raw path inside cosSimExpTens, entropyExpTens's
-%   evaluation step) routinely pass verbose=false to inner calls to
-%   prevent flooding. With the once-per-session throttle in place,
-%   flooding is no longer a concern, and users benefit from seeing
-%   the routing decision even when internal callers pass verbose=false.
-%   To fully silence dispatch messages: mptDefaults('showHints', false).
+%   hint's gating model. To fully silence dispatch messages:
+%   mptDefaults('showHints', false).
 %
-%   Design rationale: dispatch decisions are interesting the first
-%   time they happen but redundant when the same call is repeated in
-%   a loop (e.g., demo_edoApprox computes SPCS 101 times, all hitting
-%   the same hard-rule branch). The once-per-session throttle gives
-%   the user one informative message per unique decision and stays
-%   quiet thereafter. Parallels the existing INTERNAL.MAYBESHOWKERNELEVALHINT
-%   throttle, and mptDefaults('reset') clears both.
-%
-%   See also: MPTDEFAULTS, INTERNAL.MAYBESHOWKERNELEVALHINT.
+%   See also: MPTDEFAULTS, INTERNAL.DISPATCHSCOPE,
+%             INTERNAL.MAYBESHOWKERNELEVALHINT.
 
     persistent seen
     if isempty(seen)
@@ -85,8 +81,7 @@ function maybeShowDispatchMsg(varargin)
         fprintf('%s: chose ''%s'' path (estimated %s); Ctrl+C to cancel.\n', ...
                 funcName, chosen, localFormatTime(estSec));
     else
-        fprintf('%s: chose ''%s'' path (%s).\n', ...
-                funcName, chosen, routingReason);
+        fprintf('%s: chose ''%s'' path.\n', funcName, chosen);
     end
 end
 

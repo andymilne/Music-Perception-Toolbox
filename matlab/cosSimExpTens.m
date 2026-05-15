@@ -117,6 +117,10 @@ function s = cosSimExpTens(varargin)
 % batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
+
+% Top-level call guard: see internal.dispatchScope.
+guard = internal.dispatchScope(); %#ok<NASGU>
+
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
 cancellationThreshold = 1e-12;  % cross-cancellation guard
@@ -430,8 +434,9 @@ end
     dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
 
 % Dispatch messages bypass per-call verbose; they're gated by the
-% toolbox-wide showHints flag and throttled to once per session per
-% unique (funcName, chosen, reason) triple.
+% toolbox-wide showHints flag and throttled to once per top-level user
+% call per unique (funcName, chosen, reason) triple (via
+% +internal/dispatchScope).
 internal.maybeShowDispatchMsg('cosSimExpTens', chosen, ...
     routingReason, estSec, probed);
 
@@ -2329,6 +2334,52 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
             nUniqueA + nUniqueB, nUniqueA, nUniqueB);
     end
 
+    % === Phase 3.5: Up-front time estimate ===
+    % Calibrate empirically (warm-up + timed sample) and extrapolate
+    % to the full unique-pair count, matching the pattern used by the
+    % other batched helpers (spectralEntropy, entropyExpTens,
+    % templateHarmonicity, virtualPitches, tensorHarmonicity).
+    % Threshold 10 s via internal.printBatchedEstimate; gated on
+    % verbose for consistency with the rest of the toolbox.
+    %
+    % Extrapolation is over nUniquePairs (post-dedup), not nRows:
+    % that's what the main loop iterates over. Demos that dedup
+    % heavily (e.g. transposition sweeps) see a small estimate;
+    % demos that don't (e.g. demo_genChainSpcs, every generator-step
+    % producing a distinct canonical chord) see one closer to nRows.
+    % Adaptive progress-print state. Defaults: silent (showProgress
+    % false) and stride 1 (unused while silent). Both are overridden
+    % inside the calibration block from the empirical per-pair cost
+    % and the estimated total time: progress prints fire only when
+    % the loop is expected to take >= 5 s, with cadence set so that
+    % each print interval is also >= 5 s.
+    progStride = 1;
+    showProgress = false;
+    if verbose && nUniquePairs >= 2
+        nCal = min(5, nUniquePairs);
+        sampleIdx = unique(round(linspace(1, nUniquePairs, nCal)));
+
+        % Warm-up call to absorb one-time setup (cache populate, the
+        % inner call's first-time dispatch announce, etc.).
+        dA_w = densA{uniquePairs(sampleIdx(1), 1)};
+        dB_w = densB{uniquePairs(sampleIdx(1), 2)};
+        cosSimExpTens(dA_w, dB_w, 'verbose', false);
+
+        % Timed calibration over the sample.
+        tCalStart = tic;
+        for cs = 1:numel(sampleIdx)
+            dA_s = densA{uniquePairs(sampleIdx(cs), 1)};
+            dB_s = densB{uniquePairs(sampleIdx(cs), 2)};
+            cosSimExpTens(dA_s, dB_s, 'verbose', false);
+        end
+        tCalTotal = toc(tCalStart);
+        tPerPair  = tCalTotal / numel(sampleIdx);
+        estTotal  = tCalTotal + tPerPair * nUniquePairs;
+        internal.printBatchedEstimate('cosSimExpTens', nUniquePairs, estTotal);
+        progStride = internal.progressStride(tPerPair);
+        showProgress = estTotal >= 5;
+    end
+
     % === Phase 4: Compute similarity for each unique pair ===
     uniqueS = NaN(nUniquePairs, 1);
     for up = 1:nUniquePairs
@@ -2336,7 +2387,8 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         dB = densB{uniquePairs(up, 2)};
         uniqueS(up) = cosSimExpTens(dA, dB, 'verbose', false);
 
-        if verbose && (mod(up, 100) == 0 || up == nUniquePairs)
+        if verbose && showProgress ...
+                && (mod(up, progStride) == 0 || up == nUniquePairs)
             fprintf('  %d / %d unique pairs computed.\n', up, nUniquePairs);
         end
     end

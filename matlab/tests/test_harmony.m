@@ -63,10 +63,15 @@ results{end+1,1} = 'spectralEntropy batched: all-NaN row returns NaN';
 results{end,2}   = ~isnan(H_se_allnan(1)) && isnan(H_se_allnan(2));
 
 % Verbose printing tests
-% Note (commit 14+): estimateCompTime default minPrintSec is 10,
-% so verbose=true
-% for typical fast inputs is silent. The print path itself is exercised
-% via the batched-mode tests below and via direct estimateCompTime tests.
+% Note (commit 14+): estimateCompTime default minPrintSec is 10, so
+% verbose=true for typical fast inputs is silent for the cost-estimate.
+% The dispatch announce (controlled by showHints, not verbose) IS
+% normally on for the first call inside a top-level scope and would
+% fire here -- so we temporarily silence it for tests that demand
+% silence-of-everything. The cost-estimate print path itself is
+% exercised by the dedicated tests in test_estimate_comp_time.m.
+prevSH_harmony1 = mptDefaults('showHints', false);
+
 outSEScalar = evalc('spectralEntropy([0, 400, 700], [], 12, ''spectrum'', spec, ''verbose'', true);');
 results{end+1,1} = 'spectralEntropy scalar: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outSEScalar));
@@ -90,6 +95,8 @@ outEEBatchSilent = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, '
     '''xMin'', 0, ''xMax'', 600, ''verbose'', false);']);
 results{end+1,1} = 'entropyExpTens batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outEEBatchSilent));
+
+mptDefaults(prevSH_harmony1);  % restore showHints
 
 % Numerical results unchanged by verbose flag
 H_ee_v = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
@@ -187,11 +194,21 @@ results{end+1,1} = 'tensorHarmonicity batched: insufficient pitches return NaN';
 results{end,2}   = ~isnan(h_th_short(1)) && isnan(h_th_short(2)) && isnan(h_th_short(3));
 
 % --- tensorHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
-% Scalar verbose=true forwards to buildExpTens, which prints its own estimate.
+% Scalar verbose=true forwards to buildExpTens, which prints its own estimate
+% (and the inner evalExpTens emits the dispatch announce). The announce is
+% gated by mptDefaults('showHints'), which test_mpt.m silences at suite
+% level; enable it explicitly here so the assertion sees the announce.
+prevSH_thVerb = mptDefaults('showHints', true);
 outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', true);']);
 results{end+1,1} = 'tensorHarmonicity scalar: verbose=true prints something';
 results{end,2}   = ~isempty(strtrim(outScalarVerb));
+mptDefaults(prevSH_thVerb);  % restore
+
+% Silent tests: suppress the dispatch announce so we test what these names
+% imply (the cost-estimate is silent for fast calls and silent under
+% verbose=false). The announce is gated by showHints, not verbose.
+prevSH_th = mptDefaults('showHints', false);
 
 outScalarSilent = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', false);']);
@@ -207,6 +224,8 @@ outBatchSilent = evalc(['tensorHarmonicity(P_th, [], 12, ''spectrum'', spec_th, 
     '''verbose'', false);']);
 results{end+1,1} = 'tensorHarmonicity batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outBatchSilent));
+
+mptDefaults(prevSH_th);  % restore showHints
 
 [hA] = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', true);
 [hB] = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', false);
@@ -253,9 +272,11 @@ results{end,2}   = abs(hEntP_th(1) - hEntP_th(2)) < 1e-12 ...
 clear P_th_trans P_th_perm hMaxT_th hEntT_th hMaxP_th hEntP_th
 
 % --- templateHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
-% Note (commit 14+): estimateCompTime default minPrintSec is 10,
-% so verbose=true
-% for fast inputs is silent.
+% Note (commit 14+): estimateCompTime default minPrintSec is 10, so
+% verbose=true for fast inputs is silent for the cost-estimate. The
+% dispatch announce (gated by showHints, not verbose) would fire under
+% default settings, so we silence it for these silent-tests.
+prevSH_tmplH = mptDefaults('showHints', false);
 
 % Scalar verbose=true is silent for typical fast inputs (sub-half-sec)
 outScalarVerb = evalc('templateHarmonicity([0, 400, 700], [], 12, ''verbose'', true);');
@@ -281,6 +302,8 @@ results{end,2}   = isempty(strtrim(outBatchVerb));
 outBatchSilent = evalc('templateHarmonicity([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', false);');
 results{end+1,1} = 'templateHarmonicity batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outBatchSilent));
+
+mptDefaults(prevSH_tmplH);  % restore showHints
 
 % Numerical results unaffected by verbose flag
 [hMaxA, hEntA] = templateHarmonicity([0, 400, 700], [], 12, 'verbose', true);
@@ -328,9 +351,12 @@ results{end+1,1} = 'tensorHarmonicity scalar: row vector still works (backward c
 results{end,2}   = isscalar(h_scalar_check) && abs(h_scalar_check - h_maj3) < 1e-14;
 
 % --- virtualPitches verbose / estimateCompTime integration (v2.1.1+) ---
-% Note (commit 14+): estimateCompTime default minPrintSec is 10,
-% so verbose=true
-% for fast inputs is silent.
+% Note (commit 14+): estimateCompTime default minPrintSec is 10, so
+% verbose=true for fast inputs is silent for the cost-estimate. The
+% dispatch announce (gated by showHints, not verbose) is suppressed
+% here so silent-tests test what their names imply.
+prevSH_vp = mptDefaults('showHints', false);
+
 outVPScalarVerb = evalc('virtualPitches([0, 400, 700], [], 12, ''verbose'', true);');
 results{end+1,1} = 'virtualPitches scalar: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outVPScalarVerb));
@@ -350,6 +376,8 @@ results{end,2}   = isempty(strtrim(outVPBatchVerb));
 outVPBatchSilent = evalc('virtualPitches([0, 400, 700; 0, 300, 700], [], 12, ''verbose'', false);');
 results{end+1,1} = 'virtualPitches batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outVPBatchSilent));
+
+mptDefaults(prevSH_vp);  % restore showHints
 
 [vp_pA, vp_wA] = virtualPitches([0, 400, 700], [], 12, 'verbose', true);
 [vp_pB, vp_wB] = virtualPitches([0, 400, 700], [], 12, 'verbose', false);

@@ -178,19 +178,23 @@ class TestVerboseDispatchMessage:
 
     def test_message_appears_when_hard_rule_decides(self):
         """r=1 → hard rule → no probe, but a dispatch message still
-        fires (with the rule as the reason)."""
+        fires. Under the current contract, the unprobed message names
+        only the path (the routing reason is retained in the
+        seen-key but not printed)."""
         dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
         mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
-        assert "cos_sim_exp_tens: chose 'bulger' path" in out
-        assert "r = 1" in out
+        assert "cos_sim_exp_tens: chose 'bulger' path." in out
+        # Unprobed format: no parenthetical, no time estimate.
         assert "estimated" not in out
 
     def test_message_appears_for_user_override(self):
-        """Explicit method → user override message."""
+        """Explicit method → unprobed message fires; format names only
+        the path (the user-override routing reason is retained in the
+        seen-key but not printed)."""
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
         mpt.reset_defaults()
         buf = io.StringIO()
@@ -199,11 +203,49 @@ class TestVerboseDispatchMessage:
                 dens_x, dens_y, method="bulger", verbose=True,
             )
         out = buf.getvalue()
-        assert "cos_sim_exp_tens: chose 'bulger' path" in out
-        assert "user override" in out
+        assert "cos_sim_exp_tens: chose 'bulger' path." in out
+        assert "estimated" not in out
 
-    def test_message_throttled_after_first(self):
-        """Repeated identical calls in a session print once."""
+    def test_message_throttled_within_a_top_level_call(self):
+        """Throttling contract: dispatch messages are emitted at most
+        once per (func, chosen, routing_reason) triple within a single
+        top-level toolbox call. Repeated top-level calls each
+        re-announce; nested calls within one top-level scope do not.
+
+        Verified here via the batched form, where a single top-level
+        ``cos_sim_exp_tens`` call internally evaluates many SA-SA
+        pairs sharing the same dispatch decision: exactly one
+        ``"chose"`` line should appear regardless of how many
+        internal pairs are evaluated.
+        """
+        import numpy as np
+        rng = np.random.default_rng(0)
+        # Batched input: many rows, all routing to the same hard-rule
+        # decision (r=1 → bulger).
+        n_rows = 20
+        K = 8
+        p_mat_a = rng.uniform(0, 1200, size=(n_rows, K))
+        p_mat_b = rng.uniform(0, 1200, size=(n_rows, K))
+        mpt.reset_defaults()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cos_sim_exp_tens(
+                p_mat_a, None, p_mat_b, None,
+                12, 1, False, True, 1200,
+                verbose=True,
+            )
+        out = buf.getvalue()
+        # Exactly one "chose" line, despite the many internal pair
+        # evaluations that share the same routing decision.
+        assert out.count("chose") == 1
+
+    def test_message_re_announces_across_top_level_calls(self):
+        """Each top-level user call resets the dispatch seen-set, so
+        repeated identical top-level calls each emit a fresh dispatch
+        message. (This differs from the older once-per-session
+        throttle: per-call gives the user direct evidence of the
+        decision on every interactive invocation.)
+        """
         dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
         mpt.reset_defaults()
         buf = io.StringIO()
@@ -212,5 +254,5 @@ class TestVerboseDispatchMessage:
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
-        # Exactly one "chose" line, not three.
-        assert out.count("chose") == 1
+        # Three top-level calls → three "chose" lines.
+        assert out.count("chose") == 3

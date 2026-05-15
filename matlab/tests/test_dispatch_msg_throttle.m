@@ -1,34 +1,45 @@
 function test_dispatch_msg_throttle()
-%TEST_DISPATCH_MSG_THROTTLE  Once-per-session throttling for dispatch msgs.
+%TEST_DISPATCH_MSG_THROTTLE  Throttling and print-format for dispatch msgs.
 %
 %   Verifies that internal.maybeShowDispatchMsg:
 %     1. Prints the first occurrence of a (funcName, chosen, reason).
 %     2. Suppresses subsequent identical occurrences.
-%     3. Prints a new occurrence with a different reason.
+%     3. Prints a new occurrence with a different reason (the reason
+%        contributes to the throttle key even though it is no longer
+%        shown to the user).
 %     4. Prints all occurrences afresh after a 'reset' call.
+%     5. Uses the documented print format: "<func>: chose '<chosen>'
+%        path." for unprobed messages and adds "(estimated X s); Ctrl+C
+%        to cancel." for probed messages.
 %
 %   The throttle is the basis for the user-facing behaviour where a
-%   tight loop (e.g., demo_edoApprox with 101 cosSimExpTens calls)
-%   produces one informational message instead of 101.
+%   tight loop produces one informational message per unique dispatch
+%   instead of one per iteration.
 
     results = cell(0, 2);
 
-    % Ensure a clean throttle state to start.
+    % Ensure a clean throttle state to start. Explicitly enable
+    % showHints in case an earlier test in the runner left it off.
     internal.maybeShowDispatchMsg('reset');
+    prevSH = mptDefaults('showHints', true);
+    cleanupSH = onCleanup(@() mptDefaults(prevSH)); %#ok<NASGU>
 
     % --- Test 1: first call fires, second identical call is silent.
+    %     New print format: "foo: chose 'bulger' path." (no reason).
     out1 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
     out2 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
-    results{end+1, 1} = 'first call fires';
-    results{end, 2} = ~isempty(strtrim(out1)) && contains(out1, 'foo') ...
-                    && contains(out1, 'bulger') && contains(out1, 'r = 1');
+    results{end+1, 1} = 'first call fires with documented format';
+    results{end, 2} = ~isempty(strtrim(out1)) ...
+                    && contains(out1, 'foo') && contains(out1, 'bulger') ...
+                    && contains(out1, 'path') ...
+                    && ~contains(out1, 'r = 1');  % reason not user-visible
     results{end+1, 1} = 'repeated identical call is silent';
     results{end, 2} = isempty(strtrim(out2));
 
-    % --- Test 2: differing reason fires fresh.
+    % --- Test 2: differing reason fires fresh (reason is in throttle key).
     out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'K - r < 2', 0, false);");
-    results{end+1, 1} = 'differing reason fires fresh';
-    results{end, 2} = ~isempty(strtrim(out3)) && contains(out3, 'K - r < 2');
+    results{end+1, 1} = 'differing reason fires fresh (silently distinct key)';
+    results{end, 2} = ~isempty(strtrim(out3)) && ~contains(out3, 'K - r < 2');
 
     % --- Test 3: differing function name fires fresh.
     out4 = evalc("internal.maybeShowDispatchMsg('bar', 'bulger', 'r = 1', 0, false);");
@@ -43,7 +54,7 @@ function test_dispatch_msg_throttle()
     % --- Test 5: probed-form message includes time estimate.
     internal.maybeShowDispatchMsg('reset');
     out6 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'probe', 4.5, true);");
-    results{end+1, 1} = 'probed form includes time estimate';
+    results{end+1, 1} = 'probed form includes time estimate and Ctrl+C hint';
     results{end, 2} = contains(out6, 'estimated') && contains(out6, 'Ctrl');
 
     % --- Test 6: after reset, the previously-seen tuple fires again.

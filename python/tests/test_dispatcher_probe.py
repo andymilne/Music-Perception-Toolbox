@@ -352,27 +352,46 @@ class TestVerboseDispatchMessage:
 
     def test_message_appears_when_tiny(self, capsys):
         """Tiny workload skips probing but the dispatch message still
-        fires (with a no-probe reason), throttled once per session."""
+        fires (unprobed format: path only, no time estimate)."""
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, verbose=True)
         captured = capsys.readouterr()
-        # Tiny workload prints "n_q = 50 < 200" (no probe → no time estimate).
-        assert "eval_exp_tens: chose 'centres' path" in captured.out
-        assert "n_q = 50" in captured.out
+        # Unprobed format: "eval_exp_tens: chose 'centres' path." (no
+        # parenthetical, no time estimate).
+        assert "eval_exp_tens: chose 'centres' path." in captured.out
         assert "estimated" not in captured.out
 
-    def test_message_throttled_after_first(self, capsys):
-        """Repeating the same call inside one session prints once."""
+    def test_message_throttled_within_a_top_level_call(self, capsys):
+        """Within one top-level call, repeated internal dispatch decisions
+        emit at most one message per (func, chosen, routing_reason) triple.
+        Across top-level calls, each call re-announces (see
+        :meth:`test_message_re_announces_across_top_level_calls`).
+        """
+        dens = _make_dens(K=12, r=3, is_rel=True)
+        # Many internal eval_exp_tens decisions inside one top-level
+        # call via a 2-D query in a single invocation. (Repeated
+        # top-level calls would each re-announce; here we exercise
+        # the within-call throttle.)
+        x = np.random.uniform(0, 1200, (2, 500))
+        mpt.reset_defaults()
+        eval_exp_tens(dens, x, verbose=True)
+        captured = capsys.readouterr()
+        # One "chose" line for this single top-level call.
+        assert captured.out.count("chose") == 1
+
+    def test_message_re_announces_across_top_level_calls(self, capsys):
+        """Each top-level user call resets the dispatch seen-set, so
+        repeated identical top-level calls each emit a fresh message.
+        """
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
-        eval_exp_tens(dens, x, verbose=True)  # first: prints
-        capsys.readouterr()                    # drain
-        eval_exp_tens(dens, x, verbose=True)  # second: throttled
+        eval_exp_tens(dens, x, verbose=True)
+        eval_exp_tens(dens, x, verbose=True)
         captured = capsys.readouterr()
-        assert "chose" not in captured.out
+        assert captured.out.count("chose") == 2
 
     def test_message_reappears_after_reset(self, capsys):
         """mpt.reset_defaults() clears the throttle."""

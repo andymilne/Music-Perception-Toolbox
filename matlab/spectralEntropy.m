@@ -117,6 +117,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
+    % Top-level call guard: see internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     % renyi2 + normalize=true is not implementable (no natural [0,1]
     % reference for the analytical form). Mirror entropyExpTens's
     % constraint upfront with a spectralEntropy-specific identifier
@@ -281,6 +284,9 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
     end
 
     % --- Up-front time estimate (shannon path only; renyi2 is analytical) ---
+    % Adaptive progress-print state. Defaults: silent.
+    progStride = 1;
+    showProgress = false;
     if strcmp(nvArgs.method, 'shannon') && nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
@@ -321,7 +327,9 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
                 tCalTotal = toc(tCalStart);
                 tPerRow   = tCalTotal / nValidCal;
                 estTotal  = tCalTotal + tPerRow * nRows;
-                printBatchedEstimate('spectralEntropy', nRows, estTotal);
+                internal.printBatchedEstimate('spectralEntropy', nRows, estTotal);
+                progStride = internal.progressStride(tPerRow);
+                showProgress = estTotal >= 5;
             end
         end
     end
@@ -351,6 +359,11 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
             Hk = localBatchEvalOneSE(pK, wK, sigma, nvArgs);
             H(k) = Hk;
             resultCache(key) = Hk;
+        end
+
+        if nvArgs.verbose && showProgress ...
+                && (mod(k, progStride) == 0 || k == nRows)
+            fprintf('  %d / %d rows computed.\n', k, nRows);
         end
     end
 end

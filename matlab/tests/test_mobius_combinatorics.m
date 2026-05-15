@@ -5,7 +5,7 @@
 %    integerPartitions, autSize, mobiusForBlocksizes,
 %    labelledPairsRealisingM, enumerateContingencyTables, canonicalForm.
 %
-%  Mirrors python/tests/v22/test_mobius.py (combinatorial section).
+%  Mirrors python/tests/test_mobius.py (combinatorial section).
 %
 %  Standalone-runnable. When invoked from test_mpt.m the existing
 %  `results` cell is appended to; when run alone, results print on the
@@ -14,6 +14,11 @@
 if ~exist('results', 'var')
     results = {};
     standalone = true;
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults
+    cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 else
     standalone = false;
 end
@@ -220,6 +225,10 @@ if standalone
     end
     fprintf('\n=== Results: %d passed, %d failed (of %d) ===\n\n', ...
         nPass, nFail, nPass + nFail);
+    % Restore caller's pre-test defaults eagerly
+    % (fires the helper's onCleanup destructor before
+    % the conditional error below halts execution).
+    clear cleanupDefaults
     if nFail > 0
         error('test_mobius_combinatorics:failed', '%d test(s) failed.', nFail);
     end

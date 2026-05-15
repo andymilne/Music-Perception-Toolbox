@@ -8,6 +8,35 @@
 
 results = {};  % accumulate {'name', true/false}
 
+% --- Defaults isolation -------------------------------------------------
+% Several sections of the suite compare numerical outputs at 1e-10 /
+% 1e-12 tolerance, against either analytical goldens, the un-truncated
+% direct enumeration, or different internal arithmetic orderings of the
+% same computation. Those tolerances assume the factory defaults
+% (un-truncated kernels at double precision); under non-default
+% mptDefaults state they fail by construction. mptTestIsolateDefaults
+% saves the caller's defaults, resets to factory, and returns an
+% onCleanup token that restores the saved struct when this script
+% exits (normally, on error, or via Ctrl-C). Adding this folder to
+% the path ensures sub-runs via `run(fullfile(...))` can find the
+% helper too.
+%
+% IMPORTANT: clear any stale `cleanupDefaults` from a previous
+% test_mpt run BEFORE calling the helper. If we let the natural
+% reassignment below release the old binding, the stale token's
+% destructor would fire AFTER the helper has captured prev and
+% reset to factory — meaning the stale destructor's restoration
+% (captured at some prior moment) would corrupt the state the
+% suite sees. Symptom: tests that depend on kernel precision /
+% truncation fail on the first run after a session in which those
+% knobs were set, but pass on the second run (because by then the
+% chain has drained itself). Clearing first means the stale
+% destructor fires BEFORE prev is captured — its effect is harmless
+% and we end up at factory defaults regardless.
+clear cleanupDefaults
+addpath(fileparts(mfilename('fullpath')));
+cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
+
 fprintf('\n=== Music Perception Toolbox — Test Suite ===\n\n');
 
 %% ---- convertPitch ----
@@ -3597,12 +3626,15 @@ results{end,2}   = throwsError(@() simplexVertices(3, -1));
 results{end+1,1} = 'simplexVertices: zero edge length errors';
 results{end,2}   = throwsError(@() simplexVertices(3, 0));
 
-%% ---- v2.2 tests (matlab/tests/v22/) ----
-% v2.2-dev tests live in tests/v22/ and follow the same `results = {...}`
-% accumulation idiom. Each script appends to the existing `results` cell
-% when invoked from here; when run alone, each prints its own summary.
+%% ---- v2.2 tests ----
+% These files exercise v2.2-era features (Möbius dispatch, orbit
+% evaluators, MA per-attribute hybrid, kernel truncation,
+% cross-language goldens, etc.). They live alongside this script in
+% matlab/tests/ and use the same `results = {...}` accumulation
+% idiom — appending to the existing `results` cell when invoked from
+% here, and printing their own summary when run alone.
 
-v22Dir = fullfile(fileparts(mfilename('fullpath')), 'v22');
+testsDir = fileparts(mfilename('fullpath'));
 v22Files = { ...
     'test_mobius_combinatorics.m', ...
     'test_mobius_orbit_table.m', ...
@@ -3626,7 +3658,7 @@ v22Files = { ...
     'test_centres_chunking.m', ...
 };
 for ki = 1:numel(v22Files)
-    run(fullfile(v22Dir, v22Files{ki}));
+    run(fullfile(testsDir, v22Files{ki}));
 end
 
 %% ---- Print results ----
@@ -3644,6 +3676,16 @@ end
 
 fprintf('\n=== Results: %d passed, %d failed (of %d) ===\n\n', ...
     nPass, nFail, nPass + nFail);
+
+% Restore the caller's pre-test defaults eagerly. Clearing the
+% onCleanup token fires its destructor immediately, so the user
+% sees their original mptDefaults state restored on script exit
+% rather than the factory state we ran the suite at. (Without this,
+% the token sits in base workspace until the user clears it or the
+% session ends.) Done before the conditional error below so the
+% restoration also fires when some tests failed.
+clear cleanupDefaults
+
 if nFail > 0
     error('test_mpt:failed', '%d test(s) failed.', nFail);
 end

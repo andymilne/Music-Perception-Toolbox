@@ -1,6 +1,6 @@
 %% test_kernel_truncation.m — v2.2 internal.gaussianKernelSum and mptDefaults
 %
-%  Mirrors python/tests/v22/test_kernel_truncation.py.
+%  Mirrors python/tests/test_kernel_truncation.py.
 %
 %  Covers:
 %    - Exact path (truncationSigmas=Inf) is bit-identical to a direct
@@ -19,6 +19,11 @@
 if ~exist('results', 'var')
     results = {};
     standalone_kt = true;
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults_kt
+    cleanupDefaults_kt = mptTestIsolateDefaults(); %#ok<NASGU>
 else
     standalone_kt = false;
 end
@@ -304,4 +309,13 @@ function v = local_ref_kernel_sum(C, wJ, X, sigma, isRel, r, isPer, period)
     end
     E = reshape(exp(-Q(:) / (2 * sigma^2)), nJ, nQ);
     v = wJ' * E;
+end
+
+% Restore caller's pre-test defaults eagerly when run
+% standalone (fires the helper's onCleanup destructor on
+% script exit; guarded so we don't clear a like-named
+% variable when this file was run from test_mpt.m, where
+% the standalone branch was skipped).
+if exist('cleanupDefaults_kt', 'var')
+    clear cleanupDefaults_kt
 end

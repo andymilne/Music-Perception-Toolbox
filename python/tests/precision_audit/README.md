@@ -57,7 +57,7 @@ unrelated to the pairwise closed form.
 From the repo's `python/` directory:
 
 ```
-python tests/v22/precision_audit/01_precision_sweep_4modes.py
+python tests/precision_audit/01_precision_sweep_4modes.py
 ```
 
 Each script prints results directly to stdout. Total runtime for all five

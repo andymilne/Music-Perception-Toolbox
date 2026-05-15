@@ -12,6 +12,23 @@ end
 
 
 % =========================================================================
+%  Suite-level setup/teardown — defaults isolation
+% =========================================================================
+
+function setupOnce(testCase)
+    % Save user's session defaults; restore at suite end. Within the
+    % suite, the per-test `setup` resets to factory so tests are
+    % independent of each other and of caller session state.
+    prev = mptDefaults();
+    testCase.addTeardown(@() mptDefaults(prev));
+end
+
+function setup(~)
+    mptDefaults('reset');
+end
+
+
+% =========================================================================
 %  Hard rules — no probe
 % =========================================================================
 

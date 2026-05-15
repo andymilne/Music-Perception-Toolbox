@@ -3,7 +3,7 @@ function bench_orbit_xlang
 %
 %   Targeted spot-checks (not a sweep) at the same (r, K, P)
 %   configurations as the Python companion
-%   ``python/tests/v22/bench_orbit_xlang.py``. Prints CSV-format lines
+%   ``python/tests/bench_orbit_xlang.py``. Prints CSV-format lines
 %   matching the Python output so the two can be concatenated and
 %   read into a comparison table.
 %

@@ -236,14 +236,20 @@ class TestEdgeCases:
         assert result[0] == pytest.approx(result[2])
 
     def test_verbose_output_does_not_crash(self, chord_corpus, capsys):
-        """verbose=True must produce sensible output without crashing."""
+        """verbose=True must produce sensible output without crashing.
+
+        Note: as of the v2.2 refactor the batched-raw implementation
+        lives inside cos_sim_exp_tens (batch_cos_sim_exp_tens is a
+        thin shim that forwards), so console output is labelled
+        'cos_sim_exp_tens:' rather than 'batch_cos_sim_exp_tens:'.
+        """
         A, B = chord_corpus
         result = batch_cos_sim_exp_tens(
             A, B, 15.0, 2, False, True, 1200.0, verbose=True,
         )
         captured = capsys.readouterr()
         # Some informative output should appear.
-        assert "batch_cos_sim_exp_tens" in captured.out
+        assert "cos_sim_exp_tens" in captured.out
         assert "unique" in captured.out
         # Result is still computed correctly.
         assert result.shape == (6,)

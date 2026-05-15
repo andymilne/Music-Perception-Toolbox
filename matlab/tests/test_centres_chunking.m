@@ -28,9 +28,12 @@
 
 if ~exist('results', 'var')
     results = {};
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults_cc
+    cleanupDefaults_cc = mptTestIsolateDefaults(); %#ok<NASGU>
 end
-
-mptDefaults('reset');
 
 % --- Density: matches demo_triadConsonance ---
 %   nJ = 72 * 71 * 70 = 357,840
@@ -94,3 +97,12 @@ results{end, 2}     = all(abs(cc_vAuto - cc_vFull) <= ...
 
 clear cc_K cc_p cc_w cc_dens cc_X cc_vFull cc_n cc_mid cc_v1 cc_v2 ...
       cc_vManual cc_vAuto
+
+% Restore caller's pre-test defaults eagerly when run
+% standalone (fires the helper's onCleanup destructor on
+% script exit; guarded so we don't clear a like-named
+% variable when this file was run from test_mpt.m, where
+% the standalone branch was skipped).
+if exist('cleanupDefaults_cc', 'var')
+    clear cleanupDefaults_cc
+end

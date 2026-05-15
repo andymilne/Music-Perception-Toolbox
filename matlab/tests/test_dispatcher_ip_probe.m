@@ -1,6 +1,6 @@
 %% test_dispatcher_ip_probe.m — v2.2.x probe-based SA IP dispatcher
 %
-%  Mirrors python/tests/v22/test_dispatcher_ip_probe.py. The
+%  Mirrors python/tests/test_dispatcher_ip_probe.py. The
 %  dispatcher (localSelectAndEstimateSAIP inside cosSimExpTens) decides
 %  between the Möbius method and the Bulger's method. Hard rules decide
 %  first (correctness / feasibility); then an analytical pre-screen
@@ -11,6 +11,11 @@
 
 if ~exist('results', 'var')
     results = {};
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults_dip
+    cleanupDefaults_dip = mptTestIsolateDefaults(); %#ok<NASGU>
 end
 
 % --- Semantic equivalence: explicit orbit matches explicit Bulger --
@@ -87,3 +92,12 @@ clear ipprobe_px ipprobe_py ipprobe_dx ipprobe_dy ipprobe_simOrbit ...
       ipprobe_pyS ipprobe_dyS ipprobe_simSafety ipprobe_pxP ipprobe_pyP ...
       ipprobe_dxP ipprobe_dyP ipprobe_evalStr ipprobe_evalStrR1 ...
       ipprobe_evalStrUser
+
+% Restore caller's pre-test defaults eagerly when run
+% standalone (fires the helper's onCleanup destructor on
+% script exit; guarded so we don't clear a like-named
+% variable when this file was run from test_mpt.m, where
+% the standalone branch was skipped).
+if exist('cleanupDefaults_dip', 'var')
+    clear cleanupDefaults_dip
+end

@@ -13,7 +13,7 @@ is twofold:
   coverage.
 
 The regimes consolidate (a) the earlier audit scripts in
-``tests/v22/precision_audit/`` and (b) the seven-regime self-IP
+``tests/precision_audit/`` and (b) the seven-regime self-IP
 investigation that motivated the v2.2 MA-diagnostic simplification.
 
 Usage

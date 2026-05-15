@@ -1,6 +1,6 @@
 %% test_eval_routing.m — v2.2 evalExpTens centres-path routing parity
 %
-%  Mirrors python/tests/v22/test_eval_routing.py. Verifies that the
+%  Mirrors python/tests/test_eval_routing.py. Verifies that the
 %  v2.2.x refactor of localEvalSACentres (routing through
 %  internal.gaussianKernelSum) is:
 %
@@ -15,6 +15,11 @@
 if ~exist('results', 'var')
     results = {};
     standalone_er = true;
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults_er
+    cleanupDefaults_er = mptTestIsolateDefaults(); %#ok<NASGU>
 else
     standalone_er = false;
 end
@@ -183,4 +188,13 @@ function v = local_ref_eval(dens, X)
     end
     E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQ);
     v = wJ(:)' * E;
+end
+
+% Restore caller's pre-test defaults eagerly when run
+% standalone (fires the helper's onCleanup destructor on
+% script exit; guarded so we don't clear a like-named
+% variable when this file was run from test_mpt.m, where
+% the standalone branch was skipped).
+if exist('cleanupDefaults_er', 'var')
+    clear cleanupDefaults_er
 end

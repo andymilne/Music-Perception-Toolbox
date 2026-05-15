@@ -1,6 +1,6 @@
 """Tests for the safe/unsafe hybrid in ``_ma_per_attr_inner_matrix``.
 
-Mirror of MATLAB ``tests/v22/test_ma_per_attr_hybrid.m``. Strategy:
+Mirror of MATLAB ``tests/test_ma_per_attr_hybrid.m``. Strategy:
 
 - Each event is classified as "safe" if ``K_eff - r >= 2`` (matches
   ``_ORBIT_K_MINUS_R_MIN``), "unsafe" otherwise.

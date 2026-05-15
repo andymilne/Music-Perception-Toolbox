@@ -2,7 +2,7 @@
 
 Hardcodes outputs of representative v2.2 computations on deterministic
 inputs (no RNG). The companion MATLAB file
-``matlab/tests/v22/test_cross_language_golden.m`` hardcodes the same
+``matlab/tests/test_cross_language_golden.m`` hardcodes the same
 values; running both pins down cross-language numerical agreement to
 1e-8 relative on the v2.2 surface (orbit cosine similarity SA + MA
 including the safe/unsafe hybrid, Rényi-2 entropy SA + MA, orbit-path
@@ -16,7 +16,7 @@ is the standard used elsewhere in the v22 suite.
 
 To regenerate the golden values (e.g. after a deliberate algorithm
 change), run this file as a script: ``python -m
-tests.v22.test_cross_language_golden`` prints the freshly computed
+tests.test_cross_language_golden`` prints the freshly computed
 values for both languages to mirror.
 """
 

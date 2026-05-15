@@ -18,6 +18,11 @@
 if ~exist('results', 'var')
     results = {};
     standalone = true;
+    % Defaults isolation when run standalone (when invoked from
+    % test_mpt.m the outer wrapper has already isolated defaults).
+    addpath(fileparts(mfilename('fullpath')));
+    clear cleanupDefaults
+    cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 else
     standalone = false;
 end
@@ -184,6 +189,10 @@ if standalone
     nFail = numel(results(:, 1)) - nPass;
     fprintf('\n=== test_recipe_equivalence: %d passed, %d failed (of %d) ===\n', ...
         nPass, nFail, numel(results(:, 1)));
+    % Restore caller's pre-test defaults eagerly
+    % (fires the helper's onCleanup destructor before
+    % the conditional error below halts execution).
+    clear cleanupDefaults
     if nFail > 0
         for ii = 1:size(results, 1)
             if ~isequal(results{ii, 2}, true)

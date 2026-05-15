@@ -28,7 +28,7 @@ function table = buildOrbitTable(r)
 %        (tables_in_orbit * labelled_pairs(M)) / (aut(m_A) * aut(m_B)).
 %
 %   Orbit weights sum to B_R^2 by construction; this is checked in
-%   matlab/tests/v22/test_mobius_orbit_table.m.
+%   matlab/tests/test_mobius_orbit_table.m.
 %
 %   For r in 2..6 use MOBIUS.GETORBITTABLE instead, which loads the
 %   shipped pre-built tables and caches in memory across calls.

@@ -2,7 +2,7 @@
 
 This is the canonical "release-blocking" assessment: every shipping
 numerical quantity must pass every regime in
-``tests/v22/standard_regimes.standard_regimes()``.
+``tests/standard_regimes.standard_regimes()``.
 
 When a new quantity is added (e.g., windowed similarity, Möbius-based
 ``eval_exp_tens``, harmonicity Möbius method), add it here as another
@@ -17,7 +17,7 @@ sys.path.insert(0, '.')
 
 from mpt.tensor import build_exp_tens, cos_sim_exp_tens, eval_exp_tens
 from mpt.entropy import entropy_exp_tens
-from tests.v22.standard_regimes import (
+from tests.standard_regimes import (
     standard_regimes,
     materialise_cell,
     run_regime_assessment,

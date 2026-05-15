@@ -1201,10 +1201,11 @@ def n_tuple_entropy(
 
       - Each step ``d_k`` is treated as ``N(d_k, sigma**2)``
         independently.
-      - This is exactly the v2.0 behavior of this function.
-      - Use this if you want the v2 numerical results, or if your
-        psychological model treats per-step uncertainty as the
-        primitive (rather than positional uncertainty).
+      - This is the legacy "step-size" interpretation: each step is
+        the primitive, with its own independent uncertainty.
+      - Use this if your psychological model treats per-step
+        uncertainty as the primitive (rather than positional
+        uncertainty).
 
     At ``sigma == 0`` the two flags coincide (no smoothing).
 
@@ -1297,7 +1298,7 @@ def n_tuple_entropy(
 
     # --- Resolve sigma per the sigma_space flag ---
     #
-    # 'interval': sigma is per-step uncertainty (v2.0 semantics);
+    # 'interval': sigma is per-step uncertainty (legacy step-size mode);
     #             slots are independent with variance sigma**2 each.
     #
     # 'position': sigma is positional uncertainty; each step inherits

@@ -14,13 +14,13 @@ function s = cosSimExpTens(varargin)
 %   internally via buildExpTens).
 %
 %   sCell = cosSimExpTens({d_x_1, ..., d_x_n}, {d_y_1, ..., d_y_n}):
-%   List mode (v2.1+). Iterates over paired entries of two cell arrays of
+%   List mode. Iterates over paired entries of two cell arrays of
 %   density structs, returning a 1-by-n cell array of similarity values.
 %   Each pair is dispatched to the appropriate scalar form based on its
 %   tag (SA, MA, or Windowed). Option II shape rule: a length-1 input
 %   returns a length-1 cell (no collapse to scalar).
 %
-%   Scalar-vs-list broadcasting (v2.1.1+). Either operand may be a single
+%   Scalar-vs-list broadcasting. Either operand may be a single
 %   density struct paired with a cell array of density structs; the
 %   single struct is broadcast against every entry of the cell, and a
 %   1-by-n cell is returned. Useful for "compare one reference density
@@ -28,12 +28,12 @@ function s = cosSimExpTens(varargin)
 %   call site.
 %
 %   s = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period):
-%   Batched-raw mode (v2.1+). At least one of P1, P2 is an M-by-K
+%   Batched-raw mode. At least one of P1, P2 is an M-by-K
 %   matrix (both dimensions > 1); the function returns an M-by-1
 %   vector of similarities. Pass [] for W1 or W2 to use uniform
 %   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
 %
-%   Broadcasting (v2.1.1+). If one operand is a vector of length K
+%   Broadcasting. If one operand is a vector of length K
 %   (1-by-K, K-by-1, or 1-D) and the other is M-by-K with M > 1, the
 %   vector is broadcast across the matrix's M rows, in NumPy / MATLAB
 %   implicit-expansion style. The corresponding weight argument
@@ -112,14 +112,14 @@ function s = cosSimExpTens(varargin)
 % Extract optional name-value pairs that may follow the positional
 % args. 'verbose' applies to all dispatch arms; 'method' and
 % 'cancellationThreshold' apply to SA and MA struct/raw-args paths
-% (v2.2 Möbius dispatch); 'spectrum', 'precision', and 'dedup' are
+% (Möbius dispatch); 'spectrum', 'precision', and 'dedup' are
 % valid only for the batched-raw path and are forwarded to
 % batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
 verbose = true;
-method = 'auto';                % v2.2: 'auto' | 'bulger' | 'mobius'
-cancellationThreshold = 1e-12;  % v2.2: cross-cancellation guard
+method = 'auto';                % 'auto' | 'bulger' | 'mobius'
+cancellationThreshold = 1e-12;  % cross-cancellation guard
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
@@ -421,12 +421,11 @@ if r > min(numel(dens_x.p), numel(dens_y.p))
     return;
 end
 
-% === v2.2 method dispatch (auto / bulger / mobius) ===
-% v2.2.x: probe-based dispatcher replaces the analytical heuristic.
-% Hard rules + analytical pre-screen still decide most cases without
-% probe overhead; when neither dominates, both paths are timed on a
-% small subset and the faster is picked. The probe's extrapolated
-% timing also drives the verbose dispatch message.
+% === Method dispatch (auto / bulger / mobius) ===
+% Probe-based dispatcher: hard rules + analytical pre-screen decide
+% most cases without probe overhead; when neither dominates, both
+% paths are timed on a small subset and the faster is picked. The
+% probe's extrapolated timing also drives the verbose dispatch message.
 [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
     dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
 
@@ -521,7 +520,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     %      inline, avoiding the helper's arguments-block validation
     %      and cell-array kwargs construction overhead per call.
     %
-    %  This preserves the v2.1 cost profile for default-mode callers
+    %  This preserves the cost profile of the inline / chunked path for default-mode callers
     %  (e.g. cosSimExpTens in per-pair tight loops like windowedSimilarity)
     %  while enabling the helper's features whenever the user opts in.
     % -----------------------------------------------------------------
@@ -543,7 +542,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
             && strcmp(precResolved, 'double');
 
         % Fire the kernel-evaluation hint once per session when Bulger's
-        % IP path is about to run with v2.1-default kwargs. Bulger's path
+        % IP path is about to run with default kwargs. Bulger's path
         % forms a kernel-matrix-of-r-tuple-pairs that benefits from the
         % same truncation / single-precision controls as the centres
         % path.
@@ -556,7 +555,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
             return;
         end
 
-        % Default-mode (or rel+per) path: v2.1 inline / chunked.
+        % Default-mode (or rel+per) path: inline / chunked.
         bytesNeeded = (r + 2) * double(nJ) * double(nK) * 8;
 
         try
@@ -705,7 +704,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
 end
 
 % =========================================================================
-%  v2.2 SA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
+%  SA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
 function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
@@ -727,7 +726,7 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
 %     6. Periodic-relative beyond sigma/period > 0.03: the Möbius method
 %        computes the JMM Eq. 3.4 integral form; Bulger's method computes
 %        the single-nearest-image-wrap form. They diverge in this regime.
-%        For backward compatibility with v2.1 the toolbox treats Bulger's
+%        For backward compatibility the toolbox treats Bulger's
 %        pairwise-wrap form as canonical; warn and fall back unless the
 %        user explicitly asked for 'mobius'.
 
@@ -768,7 +767,7 @@ end
 
 
 % =========================================================================
-%  v2.2.x SA cos-sim probe-based dispatcher
+%  SA cos-sim probe-based dispatcher
 %
 %  Parallels evalExpTens's localSelectAndEstimateSA. Hard rules decide
 %  first (correctness / feasibility); analytical pre-screen catches
@@ -978,7 +977,7 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
                                        truncationSigmas, kernelPrecision)
 %LOCALPROBEPAIRWISEIP  Minimal IP cost stand-in for Bulger's method (probe).
 %
-%   Computes <T_x, T_y> via the v2.1 ipFull-equivalent kernel matvec.
+%   Computes <T_x, T_y> via the ipFull-equivalent kernel matvec.
 %   The full Bulger's method computes three IPs but their per-call costs
 %   scale the same way, so timing one gives a faithful relative
 %   ordering against the Möbius probe.
@@ -1085,11 +1084,10 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
 %   kernels (Section 2.7 of the MAET specification); no numerical
 %   integration is required for Bulger's method.
 %
-%   v2.2: now dispatches between the v2.1 Bulger's method and a
-%   per-attribute the Möbius method based on method ('auto' /
-%   'bulger' / 'mobius') and a simple r-based heuristic. Three-layer
-%   guard mirrors the SA dispatcher (cross-cancellation, corruption,
-%   non-finite fallback).
+%   Dispatches between Bulger's method and a per-attribute Möbius
+%   method based on method ('auto' / 'bulger' / 'mobius') and a
+%   simple r-based heuristic. Three-layer guard mirrors the SA
+%   dispatcher (cross-cancellation, corruption, non-finite fallback).
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
@@ -1135,7 +1133,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
-    % --- v2.2 method dispatch ---
+    % --- Method dispatch ---
     chosen = localSelectMAInnerProductMethod( ...
         rVec, isRelG, sigmaG, isPerG, periodG, method, verbose);
 
@@ -1293,7 +1291,7 @@ end
 
 
 % =========================================================================
-%  v2.2 MA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
+%  MA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
 function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
@@ -1301,7 +1299,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
                                                     userMethod, verbose)
 %LOCALSELECTMAINNERPRODUCTMETHOD  Choose the IP method for MA cosSimExpTens.
 %
-%   Simple v2.2 heuristic (no cost model; benchmark-driven recalibration
+%   Simple heuristic (no cost model; benchmark-driven recalibration
 %   pending at Commit 7):
 %     1. userMethod ~= 'auto' overrides everything.
 %     2. r_max <= 1 -> Bulger (Möbius method undefined).
@@ -1310,7 +1308,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 %     4. Periodic-relative beyond sigma/period > 0.03 anywhere -> warn,
 %        Bulger. Same convention guard as the SA dispatcher.
 %     5. Any rel group at all -> Bulger's method. The Möbius relative-mode
-%        evaluator for MA is un-vectorised in v2.2 (per-event-pair loop);
+%        evaluator for MA is un-vectorised (per-event-pair loop);
 %        Bulger dominates in typical regimes. Users wanting the Möbius
 %        relative-mode evaluator opt in explicitly.
 %     6. r_max < 3 -> Bulger (the Möbius method at r=2 carries
@@ -1364,7 +1362,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
     end
 
     % Any rel group -> Bulger's method (the Möbius relative-mode
-    % evaluator is not vectorised in v2.2).
+    % evaluator is not vectorised).
     if any(isRelG)
         chosen = 'bulger';
         return;
@@ -2000,13 +1998,13 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helpers: density-list and batched-raw modes.
+%  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
 function sCell = localCosSimDensityList(a, b, verbose)
 %LOCALCOSSIMDENSITYLIST List-mode density-struct cosine similarities.
 %
-%   Three accepted shapes (v2.1.1+):
+%   Three accepted shapes:
 %     (cell, cell)   — pairwise; lengths must match. Returns 1-by-n.
 %     (cell, struct) — broadcast struct against the cell. Returns 1-by-n.
 %     (struct, cell) — broadcast struct against the cell. Returns 1-by-n.

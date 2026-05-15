@@ -34,7 +34,7 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma)
 %   positive bias from the Rayleigh-style geometry — call
 %   balanceCircular(..., sigma) and read off 1 - b.)
 %
-%   At sigma = 0 the v2.0 deterministic value is recovered exactly.
+%   At sigma = 0 the deterministic value is recovered exactly.
 %
 %   [y, centMag, centPhase] = projCentroid(...) also returns the
 %   centroid magnitude and its phase angle (in the units of p, not
@@ -69,14 +69,14 @@ function [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma)
 %
 %   See also meanOffset, edges, dftCircular, balanceCircular.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [yCell, centMagCell, centPhaseCell] = projCentroid(P, W, period,
 %   x, sigma) with P an nRows-by-K matrix returns 1-by-nRows cell
 %   arrays of per-row results. NaN-padded rows are accepted; rows
 %   with no valid pitches give empty cell entries. Per-row dedup
 %   over permutation + period symmetries (not transposition).
 
-% --- Batched dispatch (v2.1+) ---
+% --- Batched dispatch ---
 % If p is a 2-D matrix with both dimensions > 1, treat rows as
 % multisets and return cell arrays of per-row results.
 if size(p, 1) > 1 && size(p, 2) > 1
@@ -127,7 +127,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [yCell, centMagCell, centPhaseCell] = ...

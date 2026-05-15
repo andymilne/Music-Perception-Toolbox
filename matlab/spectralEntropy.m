@@ -130,7 +130,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
              'this method.']);
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % chords and return an nRows-by-1 column vector. NaN-padded rows
     % are accepted; rows with no valid pitches yield NaN.
@@ -242,7 +242,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
@@ -252,7 +252,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
 %   (NaN entries dropped per row); rows with fewer than 1 valid pitch
 %   yield NaN.
 %
-%   v2.2+: spectral entropy has no fixed template to lift (each row's
+%   Spectral entropy has no fixed template to lift (each row's
 %   spec_p depends on the input), but structurally-identical canonical
 %   chords (under permutation + transposition) share a single cached
 %   result via the canonical key from internal.chordCacheKey. For

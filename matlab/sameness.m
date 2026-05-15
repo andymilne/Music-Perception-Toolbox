@@ -107,7 +107,7 @@ function [sq, nDiff] = sameness(p, period, sigma, nvArgs)
 %
 %   See also coherence, nTupleEntropy.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [sqVec, nDiffVec] = sameness(P, period, sigma) with P an
 %   nRows-by-K matrix returns nRows-by-1 column vectors of per-row
 %   results. NaN-padded rows are accepted; rows with no valid
@@ -126,7 +126,7 @@ function [sq, nDiff] = sameness(p, period, sigma, nvArgs)
             = 'position'
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     if size(p, 1) > 1 && size(p, 2) > 1
         [sq, nDiff] = localBatchedSameness(p, period, sigma, nvArgs);
         return;
@@ -238,7 +238,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [sqVec, nDiffVec] = localBatchedSameness(P, period, sigma, nvArgs)

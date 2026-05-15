@@ -5,7 +5,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma)
 %   [hMax, hEntropy] = templateHarmonicity(p, w, sigma, Name, Value)
 %
-%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   For batched processing , p may also be a 2-D nRows-by-K
 %   matrix with both dimensions > 1; rows are then treated as separate
 %   multisets and the function returns hMax and hEntropy each as an
 %   nRows-by-1 column vector. NaN-padded rows are accepted; rows with
@@ -150,7 +150,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return per-row hMax and hEntropy as column
     % vectors. NaN-padded rows are accepted; rows with fewer than 1
@@ -300,7 +300,7 @@ function [hMax, hEntropy] = localTemplateChordOnly( ...
 end
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
@@ -310,12 +310,12 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
 %   rows are handled (NaN entries dropped per row); rows with fewer
 %   than 1 valid pitch yield NaN.
 %
-%   v2.2+: applies the "build once, evaluate once" principle that
-%   batchCosSimExpTens and tensor_harmonicity_batched already use:
+%   Applies the "build once, evaluate once" principle that
+%   batchCosSimExpTens and tensor_harmonicity_batched also use:
 %     - The harmonic template is built ONCE for the whole batch (it
 %       depends only on (spectrum, sigma, resolution), not on the
-%       chord), saving M template rebuilds compared to the previous
-%       recursive scalar call.
+%       chord), saving M template rebuilds compared to a recursive
+%       scalar call.
 %     - Structurally-identical chords (under permutation +
 %       transposition) share a single cached result via the canonical
 %       key from internal.chordCacheKey. For batches with repeated

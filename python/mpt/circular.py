@@ -29,7 +29,7 @@ def dft_circular(
     Accepts two input forms, dispatched on ``p``'s shape:
 
     - 1-D ``p``: single multiset, returns ``(F, mag)`` (length-K
-      arrays each). The v2.0 case.
+      arrays each).
     - 2-D ``P`` (shape ``(M, K)``): batched, returns
       ``(F_list, mag_list)`` — length-``M`` lists of 1-D arrays
       (lengths can differ across rows after NaN-padded entries are
@@ -297,7 +297,7 @@ def balance(
     With ``sigma > 0``, returns the *expected* balance under
     independent Gaussian positional jitter on each event, estimated
     by Monte Carlo via :func:`dft_circular_simulate`. For ``sigma = 0``
-    the deterministic v2.0 value is recovered exactly.
+    the deterministic value is recovered exactly.
 
     Parameters
     ----------
@@ -404,7 +404,7 @@ def evenness(
     positions are sorted before computing the DFT, capturing the
     perceptual reordering that occurs when noise is comparable to
     the smallest event-to-event gap. For ``sigma = 0`` the
-    deterministic v2.0 value is recovered exactly.
+    deterministic value is recovered exactly.
 
     Parameters
     ----------
@@ -1116,8 +1116,7 @@ def edges(
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
-    - 1-D ``p``: single multiset, returns ``(e, e_signed)``. The v2.0
-      case.
+    - 1-D ``p``: single multiset, returns ``(e, e_signed)``.
     - 2-D ``P`` (shape ``(M, K)``): batched, returns
       ``(e_list, e_signed_list)`` — length-``M`` lists of arrays.
       Per-row dedup over permutation + period symmetries.
@@ -1283,7 +1282,7 @@ def proj_centroid(
     up positive bias from the Rayleigh-style geometry — call
     :func:`balance` with ``sigma > 0`` and read off ``1 - b``.)
 
-    At ``sigma = 0`` the v2.0 deterministic value is recovered exactly.
+    At ``sigma = 0`` the deterministic value is recovered exactly.
 
     Parameters
     ----------
@@ -1418,7 +1417,7 @@ def mean_offset(
     Accepts two input forms, dispatched on ``p``'s shape:
 
     - 1-D ``p``: single multiset, returns a length-``len(x)`` array
-      (or length-``period`` if ``x`` is None). The v2.0 case.
+      (or length-``period`` if ``x`` is None).
     - 2-D ``P`` (shape ``(M, K)``): batched, returns a length-``M``
       list of arrays. Per-row canonical-form dedup over permutation
       + period symmetries (not transposition).

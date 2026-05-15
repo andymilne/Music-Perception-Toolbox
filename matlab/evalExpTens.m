@@ -13,14 +13,14 @@ function vals = evalExpTens(varargin)
 %
 %   valsCell = evalExpTens({d_1, ..., d_n}, X [, normalize]):
 %   valsCell = evalExpTens({d_1, ..., d_n}, {X_1, ..., X_n} [, normalize]):
-%   List mode (v2.1+). Iterates over a cell array of density structs,
+%   List mode. Iterates over a cell array of density structs,
 %   returning a 1-by-n cell array of value vectors. The X argument is
 %   broadcast to all densities, or a length-n cell of per-density query
 %   matrices may be passed for per-density evaluation. Option II shape
 %   rule: a length-1 list returns a length-1 cell.
 %
 %   vals = evalExpTens(P, W, sigma, r, isRel, isPer, period, X [, normalize]):
-%   Batched-raw mode (v2.1+). P is an nRows-by-K matrix of pitches (rows
+%   Batched-raw mode. P is an nRows-by-K matrix of pitches (rows
 %   = multisets); X is shared across all rows. Returns an nRows-by-nQ
 %   matrix of values. Detection is by P having both dimensions > 1.
 %   Row vectors and column vectors fall through to the existing scalar
@@ -112,7 +112,7 @@ function vals = evalExpTens(varargin)
 % remaining arguments.
 
 verbose = true;  % default
-method = 'auto';  % v2.2: 'auto' | 'centres' (alias 'direct') | 'mobius'
+method = 'auto';  % 'auto' | 'centres' (alias 'direct') | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
 kernelPrecision  = [];   % []: use mptDefaults at the helper level
 
@@ -277,7 +277,7 @@ end
 
 nQ = size(X, 2);
 
-% === v2.2 SA dispatch — two orthogonal axes ===
+% === SA dispatch — two orthogonal axes ===
 %
 % Routing axis (forced vs discretionary):
 %   - Explicit method override or hard rules (r <= 1, K - r < 2) force
@@ -287,7 +287,7 @@ nQ = size(X, 2);
 %
 % Execution axis (default kwargs vs feature kwargs):
 %   - When truncationSigmas is empty or Inf AND kernelPrecision is
-%     empty or 'double', the v2.1 inline direct-broadcast path is used.
+%     empty or 'double', the inline direct-broadcast path is used.
 %     This is FP-identical to the helper at these settings but avoids
 %     the helper's arguments-block validation and cell-array kwargs
 %     construction (~hundreds of microseconds per call in MATLAB).
@@ -352,7 +352,7 @@ end
 useDefaultKwargs = ~isfinite(truncResolved) && strcmp(precResolved, 'double');
 
 % Fire the kernel-evaluation hint once per session when the centres
-% path is about to run with v2.1-default kwargs. Catches the bypass
+% path is about to run with default kwargs. Catches the bypass
 % case (which skips internal.gaussianKernelSum and would otherwise
 % miss the hint).
 if strcmp(chosen, 'centres') && useDefaultKwargs
@@ -384,7 +384,7 @@ if ~ranOrbit
     % method, and for Möbius-then-fallback).
     dens = ensureExpTensExpensive(dens);
     if useDefaultKwargs
-        % v2.1-style inline direct broadcast. FP-identical to the
+        % Inline direct broadcast. FP-identical to the
         % helper at default settings, but skips the helper's
         % arguments-block validation and cell-array kwargs.
         vals = localEvalSACentresFast(dens, X, nQ);
@@ -459,7 +459,7 @@ end
 end
 
 % =========================================================================
-%  v2.2 SA evaluation dispatch helpers (method='auto'|'centres'|'mobius')
+%  SA evaluation dispatch helpers (method='auto'|'centres'|'mobius')
 % =========================================================================
 
 function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
@@ -524,7 +524,7 @@ end
 
 
 % =========================================================================
-%  Unified path-selection + time-estimate probe (v2.2.x)
+%  Unified path-selection + time-estimate probe
 %
 %  The probe-based dispatcher replaces the heuristic rule for the
 %  discretionary cases. Genuinely hard rules (correctness / feasibility)
@@ -835,11 +835,11 @@ function vals = localEvalSACentres(dens, X, nQ, verbose, ...
         truncationSigmas, kernelPrecision)
 %LOCALEVALSACENTRES  Centres-array path for SA evaluation.
 %
-%   v2.2.x: routes through internal.gaussianKernelSum so that the
+%   Routes through internal.gaussianKernelSum so that the
 %   truncationSigmas and kernelPrecision options apply uniformly across
 %   centres-path consumers. Default settings (truncationSigmas = Inf,
 %   kernelPrecision = 'double') produce FP-bit-identical output to the
-%   v2.0/v2.1 implementation.
+%   pre-truncation centres-path implementation.
 
     Centres = dens.Centres;
     wJ      = dens.wJ;
@@ -873,12 +873,12 @@ end
 
 
 % =========================================================================
-%  localEvalSACentresFast — inline v2.1-style direct path for tiny workloads
+%  localEvalSACentresFast — inline direct path for tiny workloads
 %
 %  Skips the internal.gaussianKernelSum helper entirely. Used by the
 %  fast-path bypass at the top of evalExpTens when r <= 1, no
 %  truncation, no precision override, and verbose=false. This restores
-%  the v2.1 per-call cost profile for per-row scalar consumers like
+%  the per-call cost profile for per-row scalar consumers like
 %  templateHarmonicity_scalar and spectralEntropy_scalar, where the
 %  helper's per-call overhead (arguments block + validation + cell-array
 %  kwargs building) dominates over the tiny actual compute.
@@ -890,11 +890,12 @@ end
 % =========================================================================
 
 function vals = localEvalSACentresFast(dens, X, nQ)
-%LOCALEVALSACENTRESFAST  v2.1-style inline direct broadcast.
+%LOCALEVALSACENTRESFAST  Inline direct broadcast for the centres path.
 %
 %   Skips the internal.gaussianKernelSum helper entirely. Used by the
-%   v2.2 dispatch when default kwargs apply (no truncation, no
-%   precision override). FP-identical to the helper at these settings.
+%   centres-path dispatcher when default kwargs apply (no truncation,
+%   no precision override). FP-identical to the helper at these
+%   settings.
 %
 %   Handles all (r, isRel, isPer) combinations:
 %     - abs: Q(D) = sum(D .^ 2)
@@ -992,12 +993,11 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 %   stacked in attribute order. A 1-D input is coerced to 1 x nQ and is
 %   valid only when the total dim equals 1.
 %
-%   v2.2.x (Stage 3, partial): truncationSigmas and kernelPrecision
-%   kwargs control numerical mode of the inner Q-accumulator. Single
-%   precision casts intermediates to float32; truncationSigmas drops
-%   partials whose accumulated q_total exceeds the threshold (post-
-%   filter; saves the final exp + matmul but not the per-attribute Q
-%   computation).
+%   The truncationSigmas and kernelPrecision kwargs control numerical
+%   mode of the inner Q-accumulator. Single precision casts
+%   intermediates to float32; truncationSigmas drops partials whose
+%   accumulated q_total exceeds the threshold (post-filter; saves the
+%   final exp + matmul but not the per-attribute Q computation).
 
     if nargin < 5
         truncationSigmas = [];
@@ -1145,7 +1145,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     function v = maetEvalFull(Xchunk, nQc)
         % Default-mode bypass: when no precision override and no
         % truncation are requested (after resolving against the global
-        % mptDefaults), run the v2.1 inline accumulator with no cast
+        % mptDefaults), run the inline accumulator with no cast
         % machinery. FP-identical at these settings, but avoids
         % per-attribute cast() calls and the truncation branching that
         % would otherwise impose MATLAB function-call overhead per
@@ -1165,7 +1165,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         useDefault = strcmp(precResolved, 'double') && ~isfinite(truncResolved);
 
         if useDefault
-            % v2.1 path — direct double accumulation.
+            % Direct double accumulation path.
             Q_total = zeros(N_J, nQc);
             for a = 1:A
                 g = groupOf(a);
@@ -1193,7 +1193,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             return;
         end
 
-        % v2.2 feature-kwargs path — precision casting and / or
+        % Feature-kwargs path — precision casting and / or
         % post-filter truncation.
         if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
             qDtype = 'single';
@@ -1340,7 +1340,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helpers: density-list and batched-raw modes.
+%  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
 function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)

@@ -7,7 +7,7 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %   This file is now a thin shim. The batched-raw implementation lives
 %   in cosSimExpTens.m (in the localCosSimBatchedRaw local function);
 %   calls to batchCosSimExpTens are translated to the new positional
-%   form and forwarded to cosSimExpTens. Existing v2.0 calling
+%   form and forwarded to cosSimExpTens. Existing calling
 %   conventions continue to work and produce identical results, but
 %   emit an MPT:DeprecatedAPI warning on each invocation.
 %
@@ -28,7 +28,7 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %
 %   See also: cosSimExpTens.
 
-% --- Parse v2.0 kwargs ---
+% --- Parse kwargs ---
 weightsA = [];
 weightsB = [];
 specArgs = {};
@@ -71,8 +71,8 @@ while i <= numel(varargin)
     end
 end
 
-% --- Deprecation notice (always; the v2.1 → v2.2 contract is that this
-%     function emits a warning per invocation). ---
+% --- Deprecation notice (always emitted; deprecation contract is that
+%     this shim warns per invocation until removal). ---
 warning('MPT:DeprecatedAPI', ...
     ['batchCosSimExpTens is deprecated as of v2.1 and will be removed in a future release. ' ...
      'Use cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) for the same ' ...

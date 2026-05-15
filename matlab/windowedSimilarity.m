@@ -22,7 +22,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %   profile = windowedSimilarity({d_q_1, ..., d_q_n}, densContext, ...)
 %   profile = windowedSimilarity(densQuery, {d_c_1, ..., d_c_m}, ...)
 %   profile = windowedSimilarity({d_q_1, ...}, {d_c_1, ...}, ...)
-%   List mode (v2.1+). Either or both density inputs may be a cell
+%   List mode. Either or both density inputs may be a cell
 %   array of MaetDensity structs. Returns a cell array of 1-by-M
 %   profiles. Modes (controlled via the 'mode' name-value option):
 %     'bulger'  — n_q == n_c required; pair element-by-element.
@@ -129,7 +129,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %                     unweighted-centroid reference. Default: [] (use
 %                     unweighted centroid).
 %
-%                     In list mode (v2.1+), 'reference' may also be a
+%                     In list mode, 'reference' may also be a
 %                     length-n_q cell-of-cells, with each entry itself
 %                     a 1 x A cell of per-attribute vectors specifying
 %                     the reference for the corresponding query.
@@ -137,7 +137,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %                     iff its length equals n_q AND its first entry is
 %                     itself a cell. Otherwise it is broadcast as a
 %                     shared reference across all queries.
-%       'mode'      - List-mode pairing (v2.1+). 'bulger', 'cartesian',
+%       'mode'      - List-mode pairing. 'bulger', 'cartesian',
 %                     or 'auto' (default). Ignored when both inputs are
 %                     scalar densities.
 %       'verbose'   - Default true.
@@ -175,14 +175,13 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         end
     end
 
-    % v2.2.x: truncationSigmas and kernelPrecision are forwarded
-    % directly to the per-offset cosSimExpTens calls below (and, in
-    % list mode, to the recursive windowedSimilarity calls). The v2.2.0
-    % temporary-defaults stop-gap has been replaced with explicit
-    % kwarg threading: empty means "defer to the global default"; an
-    % explicit value flows through without mutating shared state.
+    % truncationSigmas and kernelPrecision are forwarded directly to
+    % the per-offset cosSimExpTens calls below (and, in list mode, to
+    % the recursive windowedSimilarity calls). Empty means "defer to
+    % the global default"; an explicit value flows through without
+    % mutating shared state.
 
-    % --- LIST mode (v2.1+) ------------------------------------------
+    % --- LIST mode ------------------------------------------
     % Either or both of densQuery, densContext may be a cell array of
     % MaetDensity structs, in which case the function returns a cell
     % array of profiles. Modes:
@@ -205,7 +204,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         % 'mode' was explicitly set, but neither operand is a list.
         % Honour the request only by ignoring it (scalar inputs have no
         % combinatoric structure). No need to error; this preserves the
-        % v2.0 single-pair contract.
+        % scalar single-pair contract.
     end
 
     if ~isstruct(densQuery) || ~isfield(densQuery, 'tag') || ...

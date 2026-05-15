@@ -31,7 +31,7 @@ function [b, b_std] = balanceCircular(p, w, period, sigma, nvArgs)
 %   The perturbed positions are sorted (resort) before computing the
 %   DFT — though for balance specifically, F(0) is permutation-invariant
 %   so the sort step has no effect on this coefficient. At sigma = 0 the
-%   v2.0 deterministic value is recovered exactly.
+%   deterministic value is recovered exactly.
 %
 %   [b, b_std] = balanceCircular(...) also returns the standard
 %   deviation of (1 - |F(0)|) under the jitter model. b_std = 0 at
@@ -71,7 +71,7 @@ function [b, b_std] = balanceCircular(p, w, period, sigma, nvArgs)
 %
 %   See also evennessCircular, dftCircular, dftCircularSimulate.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   bVec = balanceCircular(P, W, period, sigma, ...) with P an
 %   nRows-by-K matrix returns an nRows-by-1 vector of balance
 %   values; with two output arguments it also returns an
@@ -102,7 +102,7 @@ function [b, b_std] = balanceCircular(p, w, period, sigma, nvArgs)
             = 'canonical'
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     if size(p, 1) > 1 && size(p, 2) > 1
         if nargout > 1
             [b, b_std] = localBatchedBalance(p, w, period, sigma, nvArgs);
@@ -132,7 +132,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [bVec, bStdVec] = localBatchedBalance(P, W, period, sigma, nvArgs)

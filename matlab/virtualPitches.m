@@ -4,7 +4,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %   [vp_p, vp_w] = virtualPitches(p, w, sigma)
 %   [vp_p, vp_w] = virtualPitches(p, w, sigma, Name, Value)
 %
-%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   For batched processing , p may also be a 2-D nRows-by-K
 %   matrix with both dimensions > 1; rows are then treated as separate
 %   multisets and the function returns vp_p and vp_w each as a
 %   1-by-nRows cell array of column vectors. Profile lengths vary per
@@ -144,7 +144,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return per-row vp_p and vp_w as 1-by-nRows cell
     % arrays of column vectors. Cell-of-arrays output is used because
@@ -280,7 +280,7 @@ function [vp_w, N_xcorr] = localVPChordOnly( ...
 end
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
@@ -293,7 +293,7 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
 %   are accepted; rows with fewer than 1 valid pitch yield empty
 %   cell entries.
 %
-%   v2.2+: applies the "build once, evaluate once" principle:
+%   Applies the "build once, evaluate once" principle:
 %     - The harmonic template is built ONCE for the whole batch
 %       (depends only on (spectrum, sigma, resolution), not on the
 %       chord), saving M template rebuilds.

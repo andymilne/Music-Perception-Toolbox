@@ -61,7 +61,7 @@ function [F, mag] = dftCircular(p, w, period)
 %          0, 200, 300, 500, 700, 800, 1000];      % natural minor
 %     [Fcell, magCell] = dftCircular(P, [], 1200);
 %
-%   Batched (v2.1+):
+%   Batched:
 %   When p is a 2-D nRows-by-K matrix, each row is treated as a
 %   separate multiset and the function returns 1-by-nRows cell
 %   arrays. NaN-padded rows are accepted (NaN entries dropped per
@@ -76,7 +76,7 @@ function [F, mag] = dftCircular(p, w, period)
 %
 %   See also balanceCircular, evennessCircular.
 
-% --- Batched dispatch (v2.1+) ---
+% --- Batched dispatch ---
 % If p is a 2-D matrix with both dimensions > 1, treat rows as
 % multisets and return cell arrays of per-row results.
 if size(p, 1) > 1 && size(p, 2) > 1
@@ -120,7 +120,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [Fcell, magCell] = localBatchedDftCircular(P, W, period)

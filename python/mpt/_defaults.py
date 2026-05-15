@@ -242,13 +242,13 @@ def _maybe_show_kernel_eval_hint(
     effective_truncation_sigmas, effective_kernel_precision : optional
         The effective values used for the call (after defaults
         resolution and per-call kwargs). If supplied, the hint fires
-        only when *both* effective values match the v2.1 factory
+        only when *both* effective values match the factory
         defaults — i.e., the user hasn't opted in via either route.
         If not supplied, the global defaults are inspected instead.
 
     Silently no-ops if any of:
       - ``show_hints`` is False
-      - the effective values differ from the v2.1 defaults (the user
+      - the effective values differ from the factory defaults (the user
         has already opted in to the faster regime, so the hint is
         redundant)
       - the hint has already fired this session
@@ -305,7 +305,7 @@ def _maybe_show_dispatch_msg(
 
         ``<func_name>: chose '<chosen>' path (<routing_reason>).``
 
-    Gating (v2.2.x): dispatch messages are NOT gated by per-call
+    Gating: dispatch messages are NOT gated by per-call
     ``verbose``. They are gated by the toolbox-wide ``show_hints``
     flag (``mpt.set_default(show_hints=...)``), matching the
     kernel-evaluation hint's gating model. Rationale: internal

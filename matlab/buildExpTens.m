@@ -12,7 +12,7 @@ function dens = buildExpTens(varargin)
 %
 %   The function dispatches on the type of the first argument:
 %     - numeric vector  -> single-attribute path, returns struct with
-%                          tag = 'ExpTensDensity' (v2.0.0 behaviour, unchanged)
+%                          tag = 'ExpTensDensity'
 %     - cell array      -> multi-attribute path, returns struct with
 %                          tag = 'MaetDensity'
 %
@@ -118,7 +118,7 @@ end
 
 function [posArgs, verbose, lazy] = localExtractKwargs(args)
     verbose = true;
-    lazy = true;  % v2.2: default to skinny dens; eager via 'lazy', false
+    lazy = true;  % default to skinny dens; eager via 'lazy', false
     posArgs = args;
     i = 1;
     while i <= numel(posArgs)
@@ -144,7 +144,7 @@ end
 
 
 % ======================================================================
-%  Single-attribute (legacy v2.0.0) path
+%  Single-attribute (legacy) path
 % ======================================================================
 
 function dens = localBuildSA(posArgs, verbose, lazy)
@@ -178,11 +178,9 @@ function dens = localBuildSA(posArgs, verbose, lazy)
     end
 
     % r = 1 with isRel = true is a degenerate case: the relative
-    % density is constant on a 0-dimensional space. This was a hard
-    % error in v2.0 / v2.1 (the centres-path evaluators couldn't handle
-    % dim = 0). v2.2 has a well-defined treatment — the closed-form
+    % density is constant on a 0-dimensional space. The closed-form
     % total mass is sum(w), and entropyExpTens returns 0 by convention
-    % for Rényi-2 in this regime — so we relax to a warning that
+    % for Rényi-2 in this regime, so we relax to a warning that
     % parallels the MA path's degenerate notice. Downstream consumers
     % that genuinely cannot handle dim = 0 (e.g. evalExpTens with a
     % query in a 0-D space) raise their own clearer errors.

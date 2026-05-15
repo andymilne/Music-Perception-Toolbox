@@ -129,7 +129,7 @@ def spectral_entropy(
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
-    - 1-D ``p``: single chord, returns a Python float (the v2.0 case).
+    - 1-D ``p``: single chord, returns a Python float.
     - 2-D ``P`` (shape ``(M, K)``): batched chords, returns ``(M,)``
       ndarray. NaN-padded rows are accepted; rows with no valid
       pitches return ``np.nan``. Per-row dedup via canonical-form
@@ -436,7 +436,7 @@ def template_harmonicity(
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
-    - 1-D ``p``: single chord, returns ``(h_max, h_entropy)`` (the v2.0 case).
+    - 1-D ``p``: single chord, returns ``(h_max, h_entropy)``.
     - 2-D ``P`` (shape ``(M, K)``): batched chords, returns
       ``(h_max_arr, h_entropy_arr)`` with each of shape ``(M,)``.
       Rows may use NaN-padding; rows with no valid pitches return
@@ -550,7 +550,7 @@ def _template_harmonicity_chord_only(
 def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
                                   normalize, base, resolution,
                                   truncation_sigmas, kernel_precision, verbose):
-    """Single-chord scalar dispatch (the v2.0 body)."""
+    """Single-chord scalar dispatch."""
     p = p.ravel()
     w = validate_weights(w, len(p))
     p = p - np.min(p)
@@ -782,7 +782,7 @@ def tensor_harmonicity(
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
-    - 1-D ``p`` (length K ≥ 2): single chord, returns scalar (the v2.0 case).
+    - 1-D ``p`` (length K ≥ 2): single chord, returns scalar.
     - 2-D ``P`` (shape ``(M, K)``): batched chords, returns ``(M,)``.
       Rows may use NaN-padding for variable cardinality. Rows with
       fewer than 2 valid pitches return ``NaN``.
@@ -852,10 +852,10 @@ def _tensor_harmonicity_scalar(p, w, sigma, spectrum, duplicate, normalize,
                                truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch.
 
-    v2.2.x: routes through :func:`eval_exp_tens` so the
-    centres-vs-Möbius choice is made by the cost-model dispatcher
-    inside ``eval_exp_tens`` rather than hard-coded here. This lets
-    the helper-accelerated centres path apply at typical regimes.
+    Routes through :func:`eval_exp_tens` so the centres-vs-Möbius
+    choice is made by the cost-model dispatcher inside
+    ``eval_exp_tens`` rather than hard-coded here. This lets the
+    helper-accelerated centres path apply at typical regimes.
     """
     n_pitches = len(p)
     if n_pitches < 2:
@@ -1108,7 +1108,7 @@ def virtual_pitches(
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
-    - 1-D ``p``: single chord, returns ``(vp_p, vp_w)`` (the v2.0 case).
+    - 1-D ``p``: single chord, returns ``(vp_p, vp_w)``.
     - 2-D ``P`` (shape ``(M, K)``): batched chords, returns
       ``(vp_p_list, vp_w_list)`` where each is a length-``M`` list of
       1-D arrays. Profile lengths can differ between rows because the
@@ -1199,7 +1199,7 @@ def _virtual_pitches_chord_only(
 
 def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
                             truncation_sigmas, kernel_precision, verbose):
-    """Single-chord scalar dispatch (the v2.0 body)."""
+    """Single-chord scalar dispatch."""
     p = p.ravel()
     w = validate_weights(w, len(p))
 

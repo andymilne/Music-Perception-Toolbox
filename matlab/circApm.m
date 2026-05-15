@@ -91,7 +91,7 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
 %
 %   See also edges, markovS, meanOffset, projCentroid.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [Rcell, rPhaseCell, rLagCell] = circApm(P, W, period) with P an
 %   nRows-by-K matrix returns 1-by-nRows cell arrays of per-row
 %   results. NaN-padded rows are accepted; rows with no valid
@@ -109,7 +109,7 @@ function [R, rPhase, rLag] = circApm(p, w, period, nvArgs)
         nvArgs.decay (1,1) {mustBeNonnegative} = 0
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return cell arrays of per-row results.
     if size(p, 1) > 1 && size(p, 2) > 1
@@ -199,7 +199,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [Rcell, rPhaseCell, rLagCell] = localBatchedCircApm(P, W, period, decay)

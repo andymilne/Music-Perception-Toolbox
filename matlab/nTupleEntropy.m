@@ -68,10 +68,11 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %
 %       For sigmaSpace = 'interval':
 %         - Each step d_k is treated as N(d_k, sigma^2) independently.
-%         - This is exactly the v2.0 behavior of this function.
-%         - Use this if you want the v2 numerical results, or if your
-%           psychological model treats per-step uncertainty as the
-%           primitive (rather than positional uncertainty).
+%         - This is the legacy "step-size" interpretation: each step
+%           is the primitive, with its own independent uncertainty.
+%         - Use this if your psychological model treats per-step
+%           uncertainty as the primitive (rather than positional
+%           uncertainty).
 %
 %       At sigma = 0 the two flags coincide (no smoothing).
 %
@@ -108,7 +109,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %   See also BINDEVENTS, BUILDEXPTENS, ENTROPYEXPTENS,
 %   DIFFERENCEEVENTS, SAMENESS, COHERENCE.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [HVec, tuplesCell] = nTupleEntropy(P, period, n) with P an
 %   nRows-by-K matrix returns an nRows-by-1 vector of entropies and
 %   a 1-by-nRows cell of per-row tuple matrices. NaN-padded rows
@@ -132,7 +133,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         nvArgs.nPointsPerDim (1,1) {mustBeNonnegative, mustBeInteger} = 0
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     if size(p, 1) > 1 && size(p, 2) > 1
         [H, tuples] = localBatchedNTupleEntropy(p, period, n, nvArgs);
         return;
@@ -194,7 +195,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 
     % --- Resolve sigma per the sigmaSpace flag ---
     %
-    % 'interval': sigma is per-step uncertainty (v2.0 semantics);
+    % 'interval': sigma is per-step uncertainty (legacy step-size mode);
     %             slots are independent with variance sigma^2 each.
     %
     % 'position': sigma is positional uncertainty; each step inherits
@@ -250,7 +251,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [HVec, tuplesCell] = localBatchedNTupleEntropy(P, period, n, nvArgs)

@@ -525,7 +525,7 @@ def _maybe_warn_build_cost(r: int) -> None:
 
     Fires when ``r`` is beyond the shipped range (the user is about to
     pay a non-trivial build cost that the package would normally have
-    delivered pre-built). Silent for r ≤ 8 in v2.2 (the shipped range);
+    delivered pre-built). Silent for r ≤ 8 (the shipped range);
     bump ``SHIPPED_MAX`` below if more pickles are added later.
     Suppressed entirely by setting ``MPT_NO_BUILD_WARN=1`` for
     automation contexts.
@@ -800,7 +800,7 @@ def inner_product_orbit_pw_batched(
 ) -> np.ndarray:
     """Per-grid-point weights variant of :func:`inner_product_orbit_grid`.
 
-    Used by the v2.2 multi-attribute path where each grid point
+    Used by the multi-attribute path where each grid point
     represents one (event_X, event_Y) pair and the source weights for
     a given attribute differ per event. The standard
     ``inner_product_orbit_grid`` requires shared ``w_A`` and ``w_B``
@@ -1118,7 +1118,7 @@ def eval_orbit_abs(
     # block does not factor cleanly and stays on the direct broadcast
     # path below. Only invoke the helper when truncation is actually
     # requested — in default mode the inline direct broadcast is the
-    # v2.1 cost profile.
+    # inline-direct cost profile.
     use_helper = (not is_per) and (
         trunc_resolved is not None and np.isfinite(trunc_resolved)
     )
@@ -1159,7 +1159,7 @@ def eval_orbit_abs(
                 )
                 block_factor *= prefactor * np.asarray(kernel_sum).ravel()
             else:
-                # Direct (m, N, n_q) broadcast path (unchanged from v2.2).
+                # Direct (m, N, n_q) broadcast path (unchanged from the default path).
                 diffs = x_B[:, None, :] - p[None, :, None]
                 if is_per:
                     diffs = diffs - period * np.floor(diffs / period + 0.5)

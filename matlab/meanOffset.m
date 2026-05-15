@@ -40,7 +40,7 @@ function h = meanOffset(p, w, period, x)
 %   the query points specified in the vector x (in the same units as p
 %   and period) instead of at integer positions 0:period-1.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   hCell = meanOffset(P, W, period) with P an nRows-by-K matrix
 %   returns a 1-by-nRows cell array of per-row results. NaN-padded
 %   rows are accepted (NaN entries dropped per row); rows with no
@@ -105,7 +105,7 @@ function h = meanOffset(p, w, period, x)
 %
 %   See also projCentroid, edges, dftCircular.
 
-% --- Batched dispatch (v2.1+) ---
+% --- Batched dispatch ---
 % If p is a 2-D matrix with both dimensions > 1, treat rows as
 % multisets and return a cell of per-row results.
 if size(p, 1) > 1 && size(p, 2) > 1
@@ -167,7 +167,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function hCell = localBatchedMeanOffset(P, W, period, x)

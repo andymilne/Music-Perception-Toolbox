@@ -84,7 +84,7 @@ def gaussian_kernel_sum(
     if kernel_precision is None:
         kernel_precision = get_default("kernel_precision")
     # Fire the kernel-evaluation hint once per session if the effective
-    # call settings match the v2.1 defaults (truncation off, double
+    # call settings match the factory defaults (truncation off, double
     # precision). Suppresses silently if the user has already opted in
     # (per call or globally), opted out via show_hints=False, or seen
     # the hint earlier this session.

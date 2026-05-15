@@ -50,7 +50,7 @@ class ExpTensDensity:
     ``eval_exp_tens(method='mobius')``, ``cos_sim_exp_tens(method='mobius')``
     via the Möbius method's IP path, or ``entropy_exp_tens(method='renyi2')``
     — read just the eagerly-stored inputs and never trigger the build.
-    Consumers that do need them (the v2.0 centres path, Bulger's
+    Consumers that do need them (the centres path, Bulger's
     method, or any direct field access) trigger the build on
     first read; subsequent reads return the cached result. The
     materialisation is one-shot — once built, the arrays persist on
@@ -720,8 +720,7 @@ def build_exp_tens(p, w, *args, verbose: bool = True):
     Dispatches on the type of the first argument:
 
       - numeric 1-D array, or a flat list/tuple of numbers -> single-
-        attribute path, returns :class:`ExpTensDensity` (v2.0.0
-        behaviour, unchanged).
+        attribute path, returns :class:`ExpTensDensity`.
       - list/tuple of attribute matrices (each element itself an
         array-like with ``len(...)`` > 0 or a 2-D ndarray) -> multi-
         attribute path, returns :class:`MaetDensity`.
@@ -830,7 +829,7 @@ def _looks_like_multi_attr(p) -> bool:
     MA triggers require a list/tuple whose first element is itself an
     array-like (a list, tuple, or ndarray of length >= 1, or a 2-D
     ndarray). A flat list of scalars like ``[0, 4, 7]`` or a 1-D ndarray
-    is routed to the single-attribute path — matching the v2.0.0
+    is routed to the single-attribute path — matching the original
     semantics where such inputs denote a single pitch multiset.
     """
     if isinstance(p, np.ndarray):
@@ -1015,13 +1014,13 @@ def _ma_build_perm_arrays(
 ):
     """Heavy per-event / per-attribute r-ad enumeration and assembly.
 
-    Extracted from the v2.1 ``_build_exp_tens_ma`` body so it can be
+    Extracted from the the eager-build ``_build_exp_tens_ma`` body so it can be
     invoked lazily on first access of a per-tuple field. Returns a
     dict of the nine lazy-target fields:
     ``n_j, n_k, centres, u_perm, v_comb, w_j, wv_comb,
     event_of_j, event_of_k``.
 
-    Logic is unchanged from the v2.1 eager build; only when it runs
+    Logic is unchanged from the eager build; only when it runs
     has changed.
     """
     from itertools import combinations as _combinations
@@ -1170,7 +1169,7 @@ def _ma_build_perm_arrays(
 
 
 # -------------------------------------------------------------------
-#  _build_exp_tens_sa  (single-attribute legacy path; v2.0.0 verbatim)
+#  _build_exp_tens_sa  (single-attribute legacy path)
 # -------------------------------------------------------------------
 
 
@@ -1301,9 +1300,9 @@ def eval_exp_tens(*args,
     Unified entry point. Accepts five input forms, dispatched on the
     type of the first argument:
 
-    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
+    **Pre-built density input** (plus polymorphic lists):
 
-    - ``eval_exp_tens(dens, X)`` — scalar density (the v2.0 case).
+    - ``eval_exp_tens(dens, X)`` — scalar density.
       Returns ``(nQ,)``.
     - ``eval_exp_tens(dens, X, normalize)`` — same with positional
       ``normalize``.
@@ -1335,7 +1334,7 @@ def eval_exp_tens(*args,
         Positional arguments depending on input form.
     normalize : {'none', 'gaussian', 'pdf'}, default 'none'
         Density normalisation. Accepted as the trailing positional arg
-        in v2.0-compatible call patterns, or as a keyword.
+        in original call patterns, or as a keyword.
     dedup : bool, default True
         Deduplicate structurally-identical chords (canonical-form,
         SA-only). For list/batch input only.
@@ -1346,13 +1345,13 @@ def eval_exp_tens(*args,
         only.
     method : {'auto', 'centres', 'mobius'}, default 'auto'
         SA-path evaluation strategy. ``'auto'`` lets the dispatcher
-        choose between the centres-array path (v2.0 behaviour, fast
-        at low r) and the Möbius point evaluator (new in v2.2; much
+        choose between the centres-array path (fast
+        at low r) and the Möbius point evaluator (much
         faster at r >= 3 since it bypasses the ``(dim, n_j)`` centres
         tensor whose memory and runtime scale as ``K!/(K-r)!``).
-        ``'centres'`` forces the v2.0 path; ``'mobius'`` forces the
+        ``'centres'`` forces the centres path; ``'mobius'`` forces the
         Möbius method (previously called ``'orbit'``). Currently a no-op
-        on the MA path (MA always uses centres in v2.2; an MA Möbius
+        on the MA path (MA always uses centres; an MA Möbius
         path is on the roadmap).
     verbose : bool, default True
         Print progress.
@@ -1527,7 +1526,7 @@ def _eval_exp_tens_scalar(
     kernel_precision: str | None = None,
     verbose: bool,
 ) -> np.ndarray:
-    """Density-scalar dispatch for :func:`eval_exp_tens` (the v2.0 body).
+    """Density-scalar dispatch for :func:`eval_exp_tens`.
 
     Threads ``method`` through to :func:`_eval_exp_tens_sa` for SA densities;
     MA path ignores ``method`` (an MA Möbius method is on the v2.3 roadmap).
@@ -1820,7 +1819,7 @@ def _eval_exp_tens_sa(
 ) -> np.ndarray:
     """Single-attribute expectation tensor evaluation (dispatcher).
 
-    Routes between the v2.0 centres-array path and the v2.2 Möbius
+    Routes between the centres-array path and the Möbius
     point evaluator according to ``method`` and the cost model
     in :func:`_select_sa_eval_method`.
     """
@@ -1911,7 +1910,7 @@ def _eval_exp_tens_sa(
     )
 
     # Fire the kernel-evaluation hint once per session when the centres
-    # path is about to run with v2.1-default kwargs. Catches the bypass
+    # path is about to run with default kwargs. Catches the bypass
     # case too (which skips gaussian_kernel_sum and would otherwise
     # miss the hint).
     if chosen == "centres" and use_default_kwargs:
@@ -1949,7 +1948,7 @@ def _eval_exp_tens_sa(
                 )
     else:  # 'centres'
         if use_default_kwargs:
-            # v2.1-style inline direct broadcast. FP-identical to
+            # inline direct broadcast. FP-identical to
             # the helper at default settings, but skips the helper's
             # parameter validation and kwarg construction.
             vals = _eval_exp_tens_sa_centres_fast(dens, x, n_q)
@@ -1967,7 +1966,7 @@ def _eval_exp_tens_sa(
 def _eval_exp_tens_sa_centres_fast(
     dens: ExpTensDensity, x: np.ndarray, n_q: int,
 ) -> np.ndarray:
-    """v2.1-style inline direct broadcast for the centres path.
+    """inline direct broadcast for the centres path.
 
     Used by :func:`_eval_exp_tens_sa` when default kwargs apply
     (no truncation, no precision override). FP-identical to the
@@ -2045,7 +2044,7 @@ def _eval_exp_tens_sa_centres(
 ) -> np.ndarray:
     """Centres-array path for SA evaluation.
 
-    v2.2.x: routes through :func:`mpt._kernel.gaussian_kernel_sum` so
+    Routes through :func:`mpt._kernel.gaussian_kernel_sum` so
     the ``truncation_sigmas`` and ``kernel_precision`` options apply
     uniformly across centres-path consumers. Default settings
     (``truncation_sigmas=inf``, ``kernel_precision='double'``) produce
@@ -2093,7 +2092,7 @@ def _eval_exp_tens_sa_orbit(
     the ``(dim, n_j, n_q)`` intermediate tensor that would dominate
     memory in the centres path at high r.
 
-    v2.2.x (Stage 4): forwards ``truncation_sigmas`` /
+    Forwards ``truncation_sigmas`` /
     ``kernel_precision`` to the Möbius evaluators. The non-periodic
     per-block kernel sum routes through ``gaussian_kernel_sum`` with
     ``sigma_eff = sigma/sqrt(m)``, gaining truncation natively.
@@ -2305,9 +2304,9 @@ def _ma_eval_full(
     exponentiates once and does the weighted sum against ``w_j``.
 
     Default-mode bypass: when ``truncation_sigmas`` is None/Inf and
-    ``kernel_precision`` is None/'double', runs the v2.1 accumulation
+    ``kernel_precision`` is None/'double', runs the inline accumulation
     inline with no cast machinery and no post-filter branching. This
-    keeps default-mode calls at v2.1 cost; the v2.2 feature kwargs
+    keeps default-mode calls at inline cost; the feature kwargs
     only impose their cost when explicitly requested.
     """
     # ---- Resolve precision / truncation from defaults ----
@@ -2329,7 +2328,7 @@ def _ma_eval_full(
     )
 
     if use_default:
-        # v2.1 path — direct double accumulation, no casts, no
+        # Direct double accumulation, no casts, no
         # post-filter branching.
         q_total = np.zeros((int(n_j), int(n_qc)), dtype=np.float64)
         for a in range(A):
@@ -2352,7 +2351,7 @@ def _ma_eval_full(
         e = np.exp(-q_total)
         return w_j @ e
 
-    # ---- v2.2 feature-kwargs path: precision casting and / or
+    # ---- Feature-kwargs path: precision casting and / or
     # post-filter truncation. ----
     dtype = np.float32 if kernel_precision == "single" else np.float64
 
@@ -2507,9 +2506,9 @@ def cos_sim_exp_tens(*args,
     Unified entry point. Accepts four input forms, dispatched on the
     type of the first argument:
 
-    **Pre-built density input** (the v2.0 case, plus polymorphic lists):
+    **Pre-built density input** (plus polymorphic lists):
 
-    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar (the v2.0 case).
+    - ``cos_sim_exp_tens(dens_x, dens_y)`` — scalar.
     - ``cos_sim_exp_tens(dens_x, [d1, d2, …])`` — broadcast, returns
       ``(N,)``.
     - ``cos_sim_exp_tens([a1, a2, …], [b1, b2, …])`` — list-vs-list
@@ -2517,7 +2516,7 @@ def cos_sim_exp_tens(*args,
       pairwise for equal lengths) returning ``(M,)``, or
       ``mode='cartesian'`` returning ``(M, N)``.
 
-    **Raw single-attribute scalar input** (the v2.0 case for one-shot calls):
+    **Raw single-attribute scalar input**:
 
     - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
       where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
@@ -2534,7 +2533,7 @@ def cos_sim_exp_tens(*args,
       length ``K``, the vector is broadcast across the matrix's ``M``
       rows.
 
-    **Raw multi-attribute scalar input** (the v2.0 MA case):
+    **Raw multi-attribute scalar input**:
 
     - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups,
       is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
@@ -2561,9 +2560,9 @@ def cos_sim_exp_tens(*args,
         raw SA batched mode.
     method : {'auto', 'bulger', 'mobius', 'direct'}, default 'auto'
         Inner-product method; threaded through to the per-pair SA/MA
-        core. ``'auto'`` lets the v2.2 dispatcher pick between Bulger's
+        core. ``'auto'`` lets the dispatcher pick between Bulger's
         method (the v1 / v2.1 decomposition; small r and small K) and
-        the Möbius method (new in v2.2; large r or large K).
+        the Möbius method (large r or large K).
         ``'bulger'`` forces Bulger's method (previously called
         ``'pairwise'``); ``'mobius'`` forces the Möbius method
         (previously called ``'orbit'``); ``'direct'`` forces direct
@@ -2584,7 +2583,7 @@ def cos_sim_exp_tens(*args,
 
     Notes
     -----
-    The Möbius method (new in v2.2) is exact to floating-point
+    The Möbius method  is exact to floating-point
     precision when every per-attribute ``K_a`` satisfies
     ``K_a >= r_a + 2`` and σ is not catastrophically small relative to
     the period P. The dispatcher enforces these conditions structurally
@@ -2604,7 +2603,7 @@ def cos_sim_exp_tens(*args,
     ----------
     Originally by David Bulger, Macquarie University (2016).
     Adapted for the Music Perception Toolbox v2 by Andrew J. Milne.
-    Möbius method added in v2.2 (2026).
+
     """
     if len(args) < 2:
         raise TypeError(
@@ -3203,9 +3202,9 @@ def _cos_sim_exp_tens_sa(
 ) -> float:
     """Single-attribute cosine similarity.
 
-    v2.2 adds a ``method`` keyword that routes between Bulger's method
+    A ``method`` keyword routes between Bulger's method
     — the v1 / v2.1 decomposition with periodic pairwise-wrap form
-    (``_ip_core``) — and the Möbius method introduced in v2.2. With
+    (``_ip_core``) — and the Möbius method. With
     the default ``method='auto'`` and perceptually typical parameters,
     the Möbius method is selected and the result agrees with v2.1 to
     floating-point precision.
@@ -3317,9 +3316,9 @@ def _cos_sim_exp_tens_ma(
 ) -> float:
     """Multi-attribute cosine similarity.
 
-    v2.2 adds a ``method`` keyword that routes between Bulger's method
+    A ``method`` keyword routes between Bulger's method
     — the v1 / v2.1 decomposition with periodic pairwise-wrap form
-    (``_ip_core_ma``) — and the Möbius method introduced in v2.2.
+    (``_ip_core_ma``) — and the Möbius method.
     With the default ``method='auto'`` and perceptually typical
     parameters (no NaN-padded ``p_attr``, r_a ≤
     ``_ORBIT_R_MAX_SHIPPED``, σ/P ≤ ``_ORBIT_SIGMA_OVER_P_THRESHOLD``
@@ -3523,7 +3522,7 @@ def _ma_log_kernel(
 
 
 # -------------------------------------------------------------------
-#  v2.2 — Möbius method dispatcher (multi-attribute path)
+#  Möbius method dispatcher (multi-attribute path)
 # -------------------------------------------------------------------
 #
 #  Per the MAET inner-product factorisation (JMM Eq. 3.4 with the
@@ -3541,7 +3540,7 @@ def _ma_log_kernel(
 #  N² · A · |Ω_{r_a}| · K_a², a substantial saving when K_a is
 #  non-trivial.
 #
-#  Limitations of the v2.2 Möbius method:
+#  Limitations of the Möbius method:
 #  - NaN-padded ``p_attr`` (variable K_a per event) is not yet
 #    supported by the per-event Möbius loop; dispatcher detects and
 #    falls back to Bulger's method.
@@ -3776,9 +3775,9 @@ def _select_ma_inner_product_method(
         return 'bulger'
     # Periodic-relative beyond σ/P threshold: in this regime the Möbius
     # method computes the JMM Eq. 3.4 integral form, while Bulger's
-    # method computes the v2.1-toolbox single-nearest-image-wrap form.
+    # method computes the single-nearest-image-wrap form.
     # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility with v2.1 the toolbox treats Bulger's
+    # backward compatibility the toolbox treats Bulger's
     # pairwise-wrap form as canonical; the Möbius method is therefore
     # disabled above the threshold. Users who want the JMM-exact integral
     # explicitly may pass method='mobius'.
@@ -3953,7 +3952,7 @@ def _ma_per_attr_inner_matrix(
 
     # --- Pairs involving any unsafe event: K-grouped batched direct ---
     # All pairs not in (safe_x, safe_y) flow through ordered-r-tuple
-    # direct enumeration. Under v2.2.0 this was a Python double-loop
+    # direct enumeration. Was previously a Python double-loop
     # (one ``_inner_product_direct_abs_sa`` call per pair); for
     # variable-K_a workloads with many unsafe events this dominated
     # the runtime by 10–100× over the actual computation.
@@ -3970,8 +3969,8 @@ def _ma_per_attr_inner_matrix(
     needed_x_idx = np.concatenate([unsafe_x_idx, safe_x_idx]) \
         if unsafe_x_idx.size > 0 else np.array([], dtype=np.intp)
     needed_y_idx_full = np.arange(N_y)
-    # Split needed pairs into two coverage zones to mirror the v2.1
-    # structure exactly, preserving fill ordering.
+    # Split needed pairs into two coverage zones to mirror the
+    # inline-method structure exactly, preserving fill ordering.
     _ma_fill_direct_enum_groups(
         out, Px, Wx, Py, Wy,
         unsafe_x_idx, np.arange(N_y),
@@ -4265,7 +4264,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
     individual Möbius cells, but the cosine consumes only the
     sums Σ_{n,m} P[n,m], where individual entries with bad ratios
     contribute negligibly when their absolute value is small. Removed
-    in v2.2.0 in favour of relying on the cross-cancellation guard
+    in favour of relying on the cross-cancellation guard
     and the post-hoc IP corruption check (see
     ``_orbit_ips_look_corrupted``) at the dispatcher level.
     """
@@ -4305,10 +4304,10 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
 
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
-    """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the v2.1
+    """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the
     Bulger's method (``_ip_core_ma``).
 
-    This is the body of the original (v2.1) ``_cos_sim_exp_tens_ma``
+    This is the body of the original ``_cos_sim_exp_tens_ma``
     factored out so the new dispatcher can route to it cleanly.
     """
     A = dens_x.n_attrs
@@ -4421,10 +4420,10 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
     - **Execution axis** — even when the helper is available, route
       through it only when feature kwargs are explicitly requested
       (after resolving ``None`` against the global defaults). Default
-      mode runs the v2.1 ``_ip_full`` / chunked path inline, avoiding
+      mode runs the ``_ip_full`` / chunked path inline, avoiding
       the helper's per-call argument validation overhead.
 
-    This preserves the v2.1 cost profile for default-mode callers
+    This preserves the inline-direct cost profile for default-mode callers
     (e.g. ``cos_sim_exp_tens`` in per-pair tight loops) while
     enabling the helper's truncation / precision features whenever
     the user opts in.
@@ -4448,7 +4447,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
     can_use_helper = not (is_rel and is_per)
 
     # Fire the kernel-evaluation hint once per session when Bulger's IP
-    # path is about to run with v2.1-default kwargs. Bulger's path
+    # path is about to run with default kwargs. Bulger's path
     # forms a kernel-matrix-of-r-tuple-pairs that benefits from the
     # same truncation / single-precision controls as the centres path.
     if use_default_kwargs:
@@ -4467,7 +4466,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
             kernel_precision=kernel_precision,
         )
 
-    # Default-mode (or rel+per) path: v2.1 inline / chunked.
+    # Default-mode (or rel+per) path: inline / chunked.
     bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
     mem_limit = 4_000_000_000
 
@@ -4528,10 +4527,10 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 
 
 # -------------------------------------------------------------------
-#  v2.2 — Möbius method dispatcher (single-attribute path)
+#  Möbius method dispatcher (single-attribute path)
 # -------------------------------------------------------------------
 #
-#  v2.2 layers the Möbius method — a partition-decomposition with
+#  The Möbius method is layered — a partition-decomposition with
 #  orbit collapse — on top of Bulger's existing ``_ip_core`` path
 #  (the v1 / v2.1 decomposition). See ``v22_specification.md`` and
 #  ``mpt/_mobius.py`` for the combinatorial details.
@@ -4543,7 +4542,7 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 #    method='bulger' : forces Bulger's method (the v1 / v2.1
 #                     decomposition with periodic pairwise-wrap form;
 #                     ``_ip_core``); this is the closed form of JMM
-#                     Eq. 3.4 — the v2.1 toolbox's defined value of
+#                     Eq. 3.4 — the toolbox's defined value of
 #                     the rel_per inner product, by definition. At
 #                     sigma/P > 0.03 it differs from the alternative
 #                     integration form computed by 'mobius' by an
@@ -4568,7 +4567,7 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 #    <B,B>) propagates through the cosine denominator silently. The
 #    K_a >= r_a + 2 margin in `_orbit_safe_for_precision` is the
 #    primary protection against auto-IP cancellation; a runtime
-#    cancellation diagnostic on auto IPs is on the v2.2 roadmap
+#    cancellation diagnostic on auto IPs is on the roadmap
 #    (see V22_DEV_LOG.md Issue 4).
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
@@ -4660,9 +4659,9 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
         return 'bulger'
     # Periodic-relative beyond σ/P threshold: in this regime the Möbius
     # method computes the JMM Eq. 3.4 integral form, while Bulger's
-    # method computes the v2.1-toolbox single-nearest-image-wrap form.
+    # method computes the single-nearest-image-wrap form.
     # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility with v2.1 the toolbox treats Bulger's
+    # backward compatibility the toolbox treats Bulger's
     # pairwise-wrap form as canonical; the Möbius method is therefore
     # disabled above the threshold. Users who want the JMM-exact integral
     # explicitly may pass method='mobius'.
@@ -4681,7 +4680,7 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
                            user_method):
     """Pick the evaluation method for ``eval_exp_tens`` (SA case).
 
-    The choice is between the centres-array path (the v2.0 body — build
+    The choice is between the centres-array path (build
     a ``(dim, n_j)`` centres tensor at ``build_exp_tens`` time, then
     evaluate as a vectorised Gaussian product against the queries) and
     the Möbius point evaluator (Möbius-decomposed sum over set
@@ -4704,7 +4703,7 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
 
     Convention guard. In periodic-relative mode at ``σ/P > 0.03``,
     ``eval_orbit_rel`` integrates the JMM Eq. 3.4 form while the
-    centres path computes the v2.0 single-nearest-image-wrap form.
+    centres path computes the single-nearest-image-wrap form.
     The two diverge at this regime; centres remains the canonical
     output for backward compatibility.
 
@@ -4773,7 +4772,7 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
 
 
 # -----------------------------------------------------------------------
-# Unified method-selection + time-estimate probe (v2.2.x)
+# Unified method-selection + time-estimate probe
 #
 # The probe-based dispatcher replaces the heuristic rule for the
 # discretionary cases. Genuinely hard rules (correctness / feasibility)
@@ -5370,7 +5369,7 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     (non-periodic), and integrates the Möbius-evaluated kernel against u.
     The grid density is ``samples_per_sigma`` points per σ; the
     truncation in the non-periodic case extends 8σ beyond the natural
-    overlap window. (The 4σ default of v2.1 truncated tails of the
+    overlap window. (The earlier 4σ default truncated tails of the
     Möbius integrand at ~5e-10 — small per kernel value, but
     enough to corrupt the auto-inner products at ~1e-6 relative
     precision once Möbius cancellation amplified them. 8σ pushes the
@@ -5471,13 +5470,13 @@ def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
 def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True,
                                   truncation_sigmas=None,
                                   kernel_precision=None):
-    """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the v2.1
+    """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the
     Bulger's method (``_ip_core``).
 
-    This is the body of the original (v2.1) ``_cos_sim_exp_tens_sa``
+    This is the body of the original ``_cos_sim_exp_tens_sa``
     factored out so the new dispatcher can route to it cleanly.
 
-    v2.2.x: forwards ``truncation_sigmas`` / ``kernel_precision`` to
+    Forwards ``truncation_sigmas`` / ``kernel_precision`` to
     ``_ip_core`` so the helper-accelerated path is reached for the
     abs and rel-non-periodic modes.
     """
@@ -5856,7 +5855,7 @@ def _cos_sim_raw_sa_batch(
     delegates pair-level dedup to the polymorphic
     :func:`cos_sim_exp_tens` (in pairwise list-vs-list mode), which
     in turn threads ``method`` and ``cancellation_threshold`` through
-    to v2.2's per-pair Möbius-vs-Bulger dispatcher.
+    to the per-pair Möbius-vs-Bulger dispatcher.
 
     Parameters
     ----------
@@ -6618,7 +6617,7 @@ def bind_events(p, w=None, n=2, *, circular=False):
                     w_mat = w_arr.reshape(-1, 1)         # (K_a, 1)
                 elif Ka == N:
                     # Ambiguous: prefer the row interpretation, matching
-                    # the v2.1-and-earlier convention for length-N input.
+                    # the convention for length-N input.
                     w_mat = w_arr.reshape(1, -1)
                 else:
                     raise ValueError(
@@ -7128,7 +7127,7 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         )
     M = offsets.shape[1]
 
-    # Periodic-window approximation warnings (v2.2). Emitted once per
+    # Periodic-window approximation warnings . Emitted once per
     # (query, context) pair, before the offset loop.
     _emit_periodic_approx_warnings(dens_context, window_spec)
 
@@ -7221,7 +7220,7 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     ----------
     dens_query : MaetDensity, or list/tuple of MaetDensity
         The query density (not windowed). A single density gives the
-        v2.0 scalar behaviour; a list/tuple is broadcast or paired
+        scalar behaviour; a list/tuple is broadcast or paired
         against the context (see Returns).
     dens_context : MaetDensity, or list/tuple of MaetDensity
         The context density to be windowed. As above, scalar or list.
@@ -7257,7 +7256,7 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     Returns
     -------
     np.ndarray
-        - scalar query, scalar context → ``(M,)`` (the v2.0 case).
+        - scalar query, scalar context → ``(M,)``.
         - scalar query, list of n_c contexts → ``(n_c, M)``.
         - list of n_q queries, scalar context → ``(n_q, M)``.
         - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
@@ -7269,7 +7268,7 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     """
     # ------------------------------------------------------------------
     # Direct kwarg forwarding (replaces the temp-defaults stop-gap that
-    # was in v2.2.0). ``truncation_sigmas`` and ``kernel_precision``
+    # was used historically). ``truncation_sigmas`` and ``kernel_precision``
     # flow through ``_windowed_similarity_core`` →
     # ``_windowed_similarity_pair`` → ``cos_sim_exp_tens``, where they
     # are consumed. ``None`` defers to the global default (resolved by
@@ -7294,7 +7293,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     ``truncation_sigmas`` and ``kernel_precision`` are forwarded through
     to each per-offset :func:`cos_sim_exp_tens` call. ``None`` defers
     to the global default; explicit values flow directly without the
-    temporary-defaults indirection used in v2.2.0.
+    temporary-defaults indirection used historically.
     """
     # ------------------------------------------------------------------
     # Normalise query and context inputs.
@@ -7353,7 +7352,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     }
 
     # ------------------------------------------------------------------
-    # Scalar-vs-scalar (the v2.0 case).
+    # Scalar-vs-scalar.
     # ------------------------------------------------------------------
     if q_scalar and c_scalar:
         return _windowed_similarity_pair(

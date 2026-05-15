@@ -114,7 +114,7 @@ function [c, nc] = coherence(p, period, sigma, nvArgs)
 %
 %   See also sameness.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [cVec, ncVec] = coherence(P, period, sigma) with P an
 %   nRows-by-K matrix returns nRows-by-1 column vectors of per-row
 %   results. NaN-padded rows are accepted; rows with no valid
@@ -134,7 +134,7 @@ function [c, nc] = coherence(p, period, sigma, nvArgs)
             = 'position'
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return nRows-by-1 column vectors.
     if size(p, 1) > 1 && size(p, 2) > 1
@@ -236,7 +236,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [cVec, ncVec] = localBatchedCoherence(P, period, sigma, nvArgs)

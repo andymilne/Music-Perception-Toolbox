@@ -86,7 +86,7 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
 %       (Introduced this predictor — adapting standard edge-detection
 %       techniques for images to circular rhythmic patterns.)
 %
-%   Batched (v2.1+):
+%   Batched:
 %   [eCell, eSignedCell] = edges(P, W, period, x) with P an
 %   nRows-by-K matrix returns 1-by-nRows cell arrays of per-row
 %   results. NaN-padded rows are accepted; rows with no valid
@@ -103,7 +103,7 @@ function [e, eSigned] = edges(p, w, period, x, nvArgs)
         nvArgs.kappa (1,1) {mustBePositive} = 6.7
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % multisets and return cell arrays of per-row results.
     if size(p, 1) > 1 && size(p, 2) > 1
@@ -164,7 +164,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [eCell, eSignedCell] = localBatchedEdges(P, W, period, x, kappa)

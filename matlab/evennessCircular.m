@@ -43,7 +43,7 @@ function [e, e_std] = evennessCircular(p, period, sigma, nvArgs)
 %   The perturbed positions are sorted (resort) before computing the
 %   DFT, capturing the perceptual reordering that occurs when noise
 %   is comparable to the smallest event-to-event gap. At sigma = 0
-%   the v2.0 deterministic value is recovered exactly.
+%   the deterministic value is recovered exactly.
 %
 %   [e, e_std] = evennessCircular(...) also returns the standard
 %   deviation of |F(1)| under the jitter model. e_std = 0 at
@@ -83,7 +83,7 @@ function [e, e_std] = evennessCircular(p, period, sigma, nvArgs)
 %
 %   See also balanceCircular, dftCircular, dftCircularSimulate.
 %
-%   Batched (v2.1+):
+%   Batched:
 %   eVec = evennessCircular(P, period, sigma, ...) with P an
 %   nRows-by-K matrix returns an nRows-by-1 vector of evenness
 %   values; with two output arguments it also returns an
@@ -101,7 +101,7 @@ function [e, e_std] = evennessCircular(p, period, sigma, nvArgs)
             = 'canonical'
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     if size(p, 1) > 1 && size(p, 2) > 1
         if nargout > 1
             [e, e_std] = localBatchedEvenness(p, period, sigma, nvArgs);
@@ -131,7 +131,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helper: batched-raw mode.
+%  Unified dispatch helper: batched-raw mode.
 % =====================================================================
 
 function [eVec, eStdVec] = localBatchedEvenness(P, period, sigma, nvArgs)

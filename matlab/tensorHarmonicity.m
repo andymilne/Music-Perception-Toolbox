@@ -4,7 +4,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %   h = tensorHarmonicity(p, w, sigma)
 %   h = tensorHarmonicity(p, w, sigma, Name, Value)
 %
-%   For batched processing (v2.1+), p may also be a 2-D nRows-by-K
+%   For batched processing , p may also be a 2-D nRows-by-K
 %   matrix with both dimensions > 1; rows are then treated as separate
 %   multisets and the function returns an nRows-by-1 column vector of
 %   harmonicities. NaN-padded rows are accepted; rows with fewer than
@@ -38,15 +38,15 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %
 %   The expectation tensor is evaluated at exact query points (not on a
 %   grid), so no resolution parameter is needed: the density is computed
-%   analytically at the precise interval values. v2.2 routes this query
+%   analytically at the precise interval values. The query is routed
 %   through the orbit-Mobius point evaluator (mobius.evalOrbitRel),
 %   which evaluates the relative tensor without materialising the
 %   (r-1, K!/(K-r)!) centres array. For dup = 4 with the default
 %   64-partial template this avoids a centres array of order 10^9
 %   floats; runtime is dominated by the u-grid translation integral and
 %   grows as B_r * r * K * N_u per query. This unblocks chord
-%   cardinalities greater than 3, which the v2.0/v2.1 centres path
-%   could not feasibly handle.
+%   cardinalities greater than 3, which the centres-array path could
+%   not feasibly handle.
 %
 %   For batch processing (many chords), pass a 2-D nRows-by-K matrix as
 %   p; the batched dispatch path memoises both the harmonic template
@@ -143,7 +143,7 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
-    % --- Batched dispatch (v2.1+) ---
+    % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as
     % paired multisets and return a column vector of harmonicities.
     % NaN-padded rows are accepted; rows with fewer than 2 valid
@@ -206,9 +206,9 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 
     % === Evaluate the relative template tensor at the chord's intervals ===
     %
-    % v2.2 rewrite: the orbit-Mobius point evaluator (mobius.evalOrbitRel)
-    % bypasses buildExpTens and evalExpTens entirely, never materialising
-    % the (r-1, K!/(K-r)!) centres array. For dup = 4 with the default
+    % The orbit-Mobius point evaluator (mobius.evalOrbitRel) bypasses
+    % buildExpTens and evalExpTens entirely, never materialising the
+    % (r-1, K!/(K-r)!) centres array. For dup = 4 with the default
     % 64-partial template this avoids a centres array of order 10^9
     % floats; runtime is dominated by the u-grid translation integral
     % and grows as B_r * r * K * N_u per query. This unblocks
@@ -238,14 +238,14 @@ function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
 %LOCALTENSORHARMONICITYVIAEVAL  Evaluate the relative template tensor at
 %query points by building the template density and routing through
 %evalExpTens. The internal dispatcher in evalExpTens chooses between
-%the centres-array and orbit-Mobius paths via the v2.2 cost model;
-%this wrapper no longer hard-codes a routing choice.
+%the centres-array and orbit-Mobius paths via its cost model; this
+%wrapper does not hard-code a routing choice.
 %
 %   x_query is (r-1, n_q). Returns a row vector of length n_q.
 %
 %   Normalisation note: tensorHarmonicity's 'pdf' divides the gaussian-
 %   normalised value by sum(tmpl_w) — the sum of single-partial weights —
-%   to preserve v2.0/v2.1 numerical convention. This differs from
+%   to preserve the established numerical convention. This differs from
 %   evalExpTens's own 'pdf' (which divides by sum(wJ), the sum of
 %   r-tuple weight products); the difference is a factor of
 %   (K-1)*(K-2)*...*(K-r+1) for an all-ones template. We therefore
@@ -286,7 +286,7 @@ function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
 end
 
 % =====================================================================
-%  Batched dispatch (v2.2: per-chord and per-template caching)
+%  Batched dispatch (per-chord and per-template caching)
 % =====================================================================
 
 function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
@@ -296,16 +296,13 @@ function h = localBatchedTensorHarmonicity(P, W, sigma, nvArgs)
 %   (NaN entries dropped per row); rows with fewer than 2 valid
 %   pitches yield NaN.
 %
-%   v2.2+: groups rows by (effective nP, dup), deduplicates canonical
+%   Groups rows by (effective nP, dup), deduplicates canonical
 %   chord intervals within each group, and issues a single batched
 %   call to LOCALTENSORHARMONICITYORBIT (which wraps
-%   MOBIUS.EVALORBITREL) per group. This replaces the previous
-%   per-row loop, which paid MATLAB function-call overhead once per
-%   row regardless of how trivial each per-row computation was. With
-%   v2.2's u-grid vectorisation in MOBIUS.EVALORBITREL, the batched
-%   call processes all unique chord queries simultaneously. For
-%   uniform-cardinality batches the loop collapses to a single orbit
-%   call.
+%   MOBIUS.EVALORBITREL) per group. MOBIUS.EVALORBITREL's u-grid
+%   vectorisation processes all unique chord queries simultaneously.
+%   For uniform-cardinality batches the loop collapses to a single
+%   orbit call.
 
     nRows = size(P, 1);
     h = nan(nRows, 1);

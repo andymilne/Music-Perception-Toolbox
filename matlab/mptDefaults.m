@@ -83,6 +83,9 @@ function varargout = mptDefaults(varargin)
         if strcmpi(name, 'reset')
             old = S;
             S = factoryDefaults();
+            % Clear the once-per-session dispatch-message throttle so
+            % the next call sees its routing decision again.
+            internal.maybeShowDispatchMsg('reset');
             if nargout > 0
                 varargout{1} = old;
             end
@@ -149,9 +152,10 @@ function printSummary(S)
     fprintf('  kernelPrecision : %-12s  Kernel-matrix arithmetic precision.\n', ...
             sprintf('''%s''', S.kernelPrecision));
     fprintf('                                  ''double'' (default) or ''single''.\n');
-    fprintf('  showHints       : %-12s  One-time performance tips on first\n', ...
+    fprintf('  showHints       : %-12s  Informational console messages from\n', ...
             hintsStr);
-    fprintf('                                  kernel-matrix call. true or false.\n');
+    fprintf('                                  the toolbox: kernel-eval tip and\n');
+    fprintf('                                  dispatch decisions. true or false.\n');
     fprintf('\n');
     fprintf('Usage:\n');
     fprintf('  mptDefaults(''name'', value)      set\n');

@@ -61,7 +61,7 @@ class TestHardRules:
     def test_user_override_centres(self):
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 1000, method='centres',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -73,7 +73,7 @@ class TestHardRules:
     def test_user_override_orbit(self):
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 1000, method='mobius',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -95,7 +95,7 @@ class TestHardRules:
         dens = build_exp_tens(np.array([0., 400., 700.]), np.ones(3),
                               12.0, 1, False, False, 0.0)
         x = np.array([[100., 200., 300.]])
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 3, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -109,7 +109,7 @@ class TestHardRules:
         dens = build_exp_tens(np.array([0., 400., 700.]), np.ones(3),
                               12.0, 3, True, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 1000, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -120,7 +120,7 @@ class TestHardRules:
     def test_tiny_workload_skips_probe(self):
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, _PROBE_MIN_N_Q - 1))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, _PROBE_MIN_N_Q - 1, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -139,7 +139,7 @@ class TestRelPreScreen:
         # by ~50× on this workload; pre-screen should fire.
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 5000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 5000, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
@@ -154,7 +154,7 @@ class TestRelPreScreen:
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 500))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 500, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
@@ -185,7 +185,7 @@ class TestAbsPreScreen:
         # Try multiple n_q values, including below the tiny-shortcut threshold.
         for n_q in [50, 100, _PROBE_MIN_N_Q - 1, 5000]:
             x = np.random.uniform(0, 1200, (3, n_q))
-            chosen, probed, est = _select_and_estimate_sa(
+            chosen, probed, est, _ = _select_and_estimate_sa(
                 dens, x, n_q, method='auto',
                 truncation_sigmas=None, kernel_precision=None,
                 verbose=False,
@@ -207,7 +207,7 @@ class TestAbsPreScreen:
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 2, False, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 50))  # tiny
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 50, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -223,7 +223,7 @@ class TestAbsPreScreen:
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 1000, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -241,7 +241,7 @@ class TestAbsPreScreen:
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 5000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 5000, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -279,7 +279,7 @@ class TestCentresMemoryBudget:
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 5, False, False, 0.0)
         x = np.random.uniform(0, 1200, (5, 1000))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 1000, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
@@ -303,7 +303,7 @@ class TestProbing:
         p = np.linspace(0, 1200, 10, endpoint=False)
         dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
-        chosen, probed, est = _select_and_estimate_sa(
+        chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 500, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
@@ -319,12 +319,12 @@ class TestProbing:
         rng = np.random.default_rng(42)
         x1 = rng.uniform(0, 1200, (3, 500))
         x2 = rng.uniform(0, 1200, (3, 1000))
-        _, _, est1 = _select_and_estimate_sa(
+        _, _, est1, _ = _select_and_estimate_sa(
             dens, x1, 500, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
         )
-        _, _, est2 = _select_and_estimate_sa(
+        _, _, est2, _ = _select_and_estimate_sa(
             dens, x2, 1000, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
@@ -348,24 +348,66 @@ class TestVerboseDispatchMessage:
         assert "chose" in captured.out
         assert "path" in captured.out
         assert "estimated" in captured.out
-        assert "Ctrl-C to cancel" in captured.out
+        assert "Ctrl+C to cancel" in captured.out
 
-    def test_silent_when_tiny(self, capsys):
+    def test_message_appears_when_tiny(self, capsys):
+        """Tiny workload skips probing but the dispatch message still
+        fires (with a no-probe reason), throttled once per session."""
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, verbose=True)
         captured = capsys.readouterr()
-        # Tiny workload skips probing → no dispatch message
+        # Tiny workload prints "n_q = 50 < 200" (no probe → no time estimate).
+        assert "eval_exp_tens: chose 'centres' path" in captured.out
+        assert "n_q = 50" in captured.out
+        assert "estimated" not in captured.out
+
+    def test_message_throttled_after_first(self, capsys):
+        """Repeating the same call inside one session prints once."""
+        dens = _make_dens(K=12, r=3, is_rel=True)
+        x = np.random.uniform(0, 1200, (2, 50))
+        mpt.reset_defaults()
+        eval_exp_tens(dens, x, verbose=True)  # first: prints
+        capsys.readouterr()                    # drain
+        eval_exp_tens(dens, x, verbose=True)  # second: throttled
+        captured = capsys.readouterr()
         assert "chose" not in captured.out
 
-    def test_silent_when_verbose_false(self, capsys):
+    def test_message_reappears_after_reset(self, capsys):
+        """mpt.reset_defaults() clears the throttle."""
+        dens = _make_dens(K=12, r=3, is_rel=True)
+        x = np.random.uniform(0, 1200, (2, 50))
+        mpt.reset_defaults()
+        eval_exp_tens(dens, x, verbose=True)
+        capsys.readouterr()                    # drain
+        mpt.reset_defaults()
+        eval_exp_tens(dens, x, verbose=True)  # fresh: prints again
+        captured = capsys.readouterr()
+        assert "eval_exp_tens: chose 'centres' path" in captured.out
+
+    def test_message_fires_even_when_verbose_false(self, capsys):
+        """v2.2.x: dispatch messages bypass per-call verbose; they're
+        gated by mpt.get_default('show_hints'), not by verbose. This
+        ensures users see the routing decision even when called from
+        internal code paths that defensively pass verbose=False."""
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 500))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, truncation_sigmas=6.0, verbose=False)
         captured = capsys.readouterr()
+        assert "eval_exp_tens: chose" in captured.out
+
+    def test_silenced_by_show_hints_false(self, capsys):
+        """Dispatch messages are silenced by show_hints=False."""
+        dens = _make_dens(K=12, r=3, is_rel=True)
+        x = np.random.uniform(0, 1200, (2, 500))
+        mpt.reset_defaults()
+        mpt.set_default(show_hints=False)
+        eval_exp_tens(dens, x, truncation_sigmas=6.0, verbose=True)
+        captured = capsys.readouterr()
         assert "chose" not in captured.out
+        mpt.reset_defaults()
 
 
 # -----------------------------------------------------------------------

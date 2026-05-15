@@ -311,29 +311,22 @@ elseif strcmp(method, 'auto')
         % Hard rules force centres without a dispatcher call.
         chosen = 'centres';
         probed = false;
-        if verbose
-            if dens.r <= 1
-                hardRuleReason = sprintf('r = %d', dens.r);
-            else
-                hardRuleReason = sprintf('K - r = %d < 2', K_src - dens.r);
-            end
-            fprintf('evalExpTens: chose ''centres'' path (%s).\n', ...
-                    hardRuleReason);
+        if dens.r <= 1
+            hardRuleReason = sprintf('r = %d', dens.r);
+        else
+            hardRuleReason = sprintf('K - r = %d < 2', K_src - dens.r);
         end
+        % Dispatch messages bypass per-call verbose; they're gated by
+        % the toolbox-wide showHints flag and throttled to once per
+        % session per unique (funcName, chosen, reason) triple.
+        internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
+            hardRuleReason, 0, false);
     else
         % Discretionary case — dispatcher decides via prescreen / probe.
         [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
             dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose);
-        if verbose
-            if probed
-                fprintf(['evalExpTens: chose ''%s'' path ' ...
-                         '(estimated %s); Ctrl+C to cancel.\n'], ...
-                        chosen, localFormatTime(estSec));
-            else
-                fprintf('evalExpTens: chose ''%s'' path (%s).\n', ...
-                        chosen, routingReason);
-            end
-        end
+        internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
+            routingReason, estSec, probed);
     end
 else
     error('evalExpTens:badMethod', ...

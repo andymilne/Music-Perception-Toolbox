@@ -427,14 +427,14 @@ end
 % probe overhead; when neither dominates, both paths are timed on a
 % small subset and the faster is picked. The probe's extrapolated
 % timing also drives the verbose dispatch message.
-[chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
+[chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
     dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
 
-if verbose && probed
-    fprintf(['cosSimExpTens: chose ''%s'' path ' ...
-             '(estimated %s); Ctrl-C to cancel.\n'], ...
-            chosen, localCosSimFormatTime(estSec));
-end
+% Dispatch messages bypass per-call verbose; they're gated by the
+% toolbox-wide showHints flag and throttled to once per session per
+% unique (funcName, chosen, reason) triple.
+internal.maybeShowDispatchMsg('cosSimExpTens', chosen, ...
+    routingReason, estSec, probed);
 
 ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
@@ -783,14 +783,16 @@ end
 %  each side and extrapolates by the appropriate factor.
 % =========================================================================
 
-function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
+function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
         dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose)
 %LOCALSELECTANDESTIMATESAIP  Probe-based dispatcher for SA cosSimExpTens.
 %
-%   Returns (chosen, probed, estSec). chosen is 'mobius' or 'bulger';
-%   probed is true iff both paths were actually timed (a verbose
-%   dispatch message is printed by the caller in that case); estSec is
-%   the empirical extrapolated estimate when probed, 0 otherwise.
+%   Returns (chosen, probed, estSec, routingReason). chosen is 'mobius'
+%   or 'bulger'; probed is true iff both paths were actually timed; estSec
+%   is the empirical extrapolated estimate when probed, 0 otherwise.
+%   routingReason is a short string the caller uses to print a verbose
+%   dispatch message in the no-probe cases (and is set to 'probe' when
+%   probed is true).
 
     PRESCREEN_IP_DOMINANCE = 10.0;
     BELL_NUMBERS = struct('r2', 2, 'r3', 5, 'r4', 15, 'r5', 52, ...
@@ -809,30 +811,35 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
     else
         sigmaOverP = 0;
     end
+    routingReason = '';
 
     % ---- Hard rules ----
     if ~strcmp(method, 'auto')
         chosen = method;
         probed = false;
         estSec = 0;
+        routingReason = 'user override';
         return;
     end
     if r <= 1
         chosen = 'bulger';
         probed = false;
         estSec = 0;
+        routingReason = sprintf('r = %d', r);
         return;
     end
     if r > 8   % _ORBIT_R_MAX_SHIPPED
         chosen = 'bulger';
         probed = false;
         estSec = 0;
+        routingReason = sprintf('r = %d > 8 (Möbius infeasible)', r);
         return;
     end
     if (n_min - r) < 2   % _ORBIT_K_MINUS_R_MIN
         chosen = 'bulger';
         probed = false;
         estSec = 0;
+        routingReason = sprintf('min(K_x, K_y) - r = %d < 2', n_min - r);
         return;
     end
     if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
@@ -847,6 +854,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         chosen = 'bulger';
         probed = false;
         estSec = 0;
+        routingReason = 'sigma/period > 0.03 (rel-per Möbius fallback)';
         return;
     end
 
@@ -861,12 +869,14 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         chosen = 'mobius';
         probed = false;
         estSec = 0;
+        routingReason = 'cost pre-screen';
         return;
     end
     if pairwiseFull * PRESCREEN_IP_DOMINANCE < orbitFull
         chosen = 'bulger';
         probed = false;
         estSec = 0;
+        routingReason = 'cost pre-screen';
         return;
     end
 
@@ -904,6 +914,7 @@ function [chosen, probed, estSec] = localSelectAndEstimateSAIP( ...
         estSec = tOrbitEst;
     end
     probed = true;
+    routingReason = 'probe';   % caller formats as 'estimated X s'
 end
 
 
@@ -2071,41 +2082,286 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
 %   P1 and P2 are nRows-by-K_? matrices. Returns a length-nRows vector.
-%   Delegates to batchCosSimExpTens with internal flag set to suppress
-%   its v2.1 deprecation warning. Forwards 'spectrum', 'precision',
-%   and 'dedup' (when supplied) for spectral enrichment, dedup
-%   precision tolerance, and dedup on/off respectively.
+%   The implementation lives here (it was previously hosted in the
+%   deprecated batchCosSimExpTens.m, which is now a thin shim that
+%   forwards to this code path via the public cosSimExpTens API).
+%
+%   Pipeline:
+%     1. Optional precision rounding.
+%     2. Canonicalise each row's A-set and B-set under isPer/isRel so
+%        that equivalent multisets map to the same key.
+%     3. Deduplicate individual A- and B-sets; deduplicate (A, B) pairs.
+%     4. Build one density struct per unique individual set.
+%     5. Call cosSimExpTens once per unique (A, B) pair, mapping results
+%        back to all matching rows.
+
     if size(P1, 1) ~= size(P2, 1)
         error('MPT:CosSimBatched:RowMismatch', ...
             ['cosSimExpTens (batched mode): P1 and P2 must have the same ' ...
              'number of rows, got %d and %d.'], size(P1, 1), size(P2, 1));
     end
 
-    args = {P1, P2, sigma, r, isRel, isPer, period};
-    if ~isempty(W1)
-        args = [args, {'weightsA', W1}]; %#ok<AGROW>
-    end
-    if ~isempty(W2)
-        args = [args, {'weightsB', W2}]; %#ok<AGROW>
-    end
+    pMatA    = P1;
+    pMatB    = P2;
+    weightsA = W1;
+    weightsB = W2;
     if spectrumGiven
-        args = [args, {'spectrum', spectrumOpt}]; %#ok<AGROW>
+        specArgs = spectrumOpt;
+        if ~iscell(specArgs)
+            error('''spectrum'' value must be a cell array of addSpectra arguments.');
+        end
+    else
+        specArgs = {};
     end
     if precisionGiven
-        args = [args, {'precision', precisionOpt}]; %#ok<AGROW>
+        nDec = precisionOpt;
+    else
+        nDec = [];
     end
-    if dedupGiven
-        % batchCosSimExpTens has no 'dedup' option (it always dedups).
-        % Honour 'dedup', false by warning the user that the underlying
-        % implementation always dedups; 'dedup', true is a no-op.
-        if ~dedupOpt
-            warning('cosSimExpTens:dedupNoop', ...
-                ['''dedup'', false has no effect: the batched-raw ' ...
-                 'implementation always deduplicates internally for ' ...
-                 'speed. Numerical results are unchanged.']);
+    if dedupGiven && ~dedupOpt
+        % The batched-raw implementation always deduplicates internally
+        % (the loop below operates on unique (A, B) pairs only). Honour
+        % the request with a warning; the resulting numerical output is
+        % identical either way.
+        warning('cosSimExpTens:dedupNoop', ...
+            ['''dedup'', false has no effect: the batched-raw ' ...
+             'implementation always deduplicates internally for ' ...
+             'speed. Numerical results are unchanged.']);
+    end
+
+    % === Input validation ===
+    nRows = size(pMatA, 1);
+    if ~isempty(weightsA) && ~isequal(size(weightsA), size(pMatA))
+        error('weightsA must be the same size as pMatA.');
+    end
+    if ~isempty(weightsB) && ~isequal(size(weightsB), size(pMatB))
+        error('weightsB must be the same size as pMatB.');
+    end
+
+    useSpectra  = ~isempty(specArgs);
+    useWeightsA = ~isempty(weightsA);
+    useWeightsB = ~isempty(weightsB);
+
+    % === Apply precision rounding ===
+    if ~isempty(nDec)
+        pMatA = round(pMatA, nDec);
+        pMatB = round(pMatB, nDec);
+        if useWeightsA
+            weightsA = round(weightsA, nDec);
+        end
+        if useWeightsB
+            weightsB = round(weightsB, nDec);
         end
     end
-    args = [args, {'verbose', verbose, '__internalCall', true}];
 
-    s = batchCosSimExpTens(args{:});
+    % === Phase 1: Canonicalize and build individual-set keys ===
+    % Each set is independently canonicalized under isPer/isRel so that
+    % equivalent pitch sets (differing only by octave displacement or
+    % transposition) map to the same key. Keys for A-sets and B-sets are
+    % built separately to enable individual-set density struct caching.
+    nA = size(pMatA, 2);
+    nB = size(pMatB, 2);
+
+    keyWidthA = nA * (1 + useWeightsA);
+    keyWidthB = nB * (1 + useWeightsB);
+
+    keysA = NaN(nRows, keyWidthA);
+    keysB = NaN(nRows, keyWidthB);
+    valid = false(nRows, 1);
+    s     = NaN(nRows, 1);
+
+    for i = 1:nRows
+        pA = pMatA(i, :);
+        pB = pMatB(i, :);
+
+        maskA = ~isnan(pA);
+        maskB = ~isnan(pB);
+        pAv   = pA(maskA);
+        pBv   = pB(maskB);
+
+        % Check minimum p-value count
+        if numel(pAv) < r || numel(pBv) < r
+            continue;
+        end
+
+        % Get weights (or empty for all ones)
+        if useWeightsA
+            wAv = weightsA(i, maskA);
+        else
+            wAv = [];
+        end
+        if useWeightsB
+            wBv = weightsB(i, maskB);
+        else
+            wBv = [];
+        end
+
+        % Canonicalize each set and apply joint co-transposition
+        % normalization for the absolute case.
+        if isRel
+            % Relative: independent canonicalization
+            [pAc, wAc] = internal.canonicalizeSet(pAv, wAv, isRel, isPer, period);
+            [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, isRel, isPer, period);
+        else
+            % Absolute: joint co-transposition normalization.
+            % cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
+            % raw tuple differences cancel. Find A's canonical form and
+            % apply the same shift to B.
+
+            hasWA = ~isempty(wAv);
+            hasWB = ~isempty(wBv);
+
+            % Canonicalize A
+            [pAs, siA] = sort(pAv);
+            if hasWA, wAs = wAv(siA); else, wAs = []; end
+
+            if isPer
+                pAs = mod(pAs, period);
+                [pAs, siA2] = sort(pAs);
+                if hasWA, wAs = wAs(siA2); end
+                % Cyclic canonical form — collapses all rotations
+                [pAc, wAc, shift] = internal.cyclicCanonical(pAs, wAs, hasWA, period);
+            else
+                shift = pAs(1);
+                pAc = pAs(:)' - shift;
+                if hasWA, wAc = wAs(:)'; else, wAc = []; end
+            end
+
+            % Apply the same shift to B
+            [pBs, siB] = sort(pBv);
+            if hasWB, wBs = wBv(siB); else, wBs = []; end
+
+            if isPer
+                pBshifted = mod(pBs - shift, period);
+                [pBshifted, siB2] = sort(pBshifted);
+                pBc = pBshifted(:)';
+                if hasWB, wBc = wBs(siB2)'; else, wBc = []; end
+            else
+                pBc = pBs(:)' - shift;
+                if hasWB, wBc = wBs(:)'; else, wBc = []; end
+            end
+        end
+
+        % Re-round after canonicalization to collapse floating-point
+        % noise introduced by mod-reduction and subtraction.
+        if ~isempty(nDec)
+            pAc = round(pAc, nDec);
+            pBc = round(pBc, nDec);
+            if ~isempty(wAc), wAc = round(wAc, nDec); end
+            if ~isempty(wBc), wBc = round(wBc, nDec); end
+        end
+
+        % Build NaN-padded keys
+        keyA = NaN(1, keyWidthA);
+        keyA(1:numel(pAc)) = pAc;
+        if useWeightsA
+            keyA(nA + 1 : nA + numel(wAc)) = wAc;
+        end
+
+        keyB = NaN(1, keyWidthB);
+        keyB(1:numel(pBc)) = pBc;
+        if useWeightsB
+            keyB(nB + 1 : nB + numel(wBc)) = wBc;
+        end
+
+        keysA(i, :) = keyA;
+        keysB(i, :) = keyB;
+        valid(i)    = true;
+    end
+
+    % === Phase 2: Deduplicate individual sets, then pairs ===
+    validIdx = find(valid);
+    [uniqueKeysA, ~, mapA] = unique(keysA(validIdx, :), 'rows');
+    [uniqueKeysB, ~, mapB] = unique(keysB(validIdx, :), 'rows');
+    nUniqueA = size(uniqueKeysA, 1);
+    nUniqueB = size(uniqueKeysB, 1);
+
+    pairKeys = [mapA, mapB];
+    [uniquePairs, ~, pairMap] = unique(pairKeys, 'rows');
+    nUniquePairs = size(uniquePairs, 1);
+
+    if verbose
+        fprintf(['cosSimExpTens: %d rows, %d valid, ' ...
+                 '%d unique A-sets, %d unique B-sets, ' ...
+                 '%d unique pairs.\n'], ...
+            nRows, numel(validIdx), nUniqueA, nUniqueB, nUniquePairs);
+        if isRel
+            if isPer
+                fprintf(['  Canonicalization: A-sets and B-sets independently ' ...
+                         'normalized for transposition and octave equivalence.\n']);
+            else
+                fprintf(['  Canonicalization: A-sets and B-sets independently ' ...
+                         'normalized for transposition.\n']);
+            end
+        else
+            if isPer
+                fprintf(['  Canonicalization: joint co-transposition with ' ...
+                         'octave equivalence; B-set counts reflect position ' ...
+                         'relative to A.\n']);
+            else
+                fprintf(['  Canonicalization: joint co-transposition; ' ...
+                         'B-set counts reflect position relative to A.\n']);
+            end
+        end
+    end
+
+    % === Phase 3: Build density structs for unique individual sets ===
+    densA = cell(nUniqueA, 1);
+    for ua = 1:nUniqueA
+        [pA_u, wA_u] = localExtractFromKey(uniqueKeysA(ua, :), nA, useWeightsA);
+        if useSpectra
+            [pA_u, wA_u] = addSpectra(pA_u, wA_u, specArgs{:});
+        end
+        densA{ua} = buildExpTens(pA_u, wA_u, sigma, r, isRel, isPer, period, ...
+                                 'verbose', false);
+    end
+
+    densB = cell(nUniqueB, 1);
+    for ub = 1:nUniqueB
+        [pB_u, wB_u] = localExtractFromKey(uniqueKeysB(ub, :), nB, useWeightsB);
+        if useSpectra
+            [pB_u, wB_u] = addSpectra(pB_u, wB_u, specArgs{:});
+        end
+        densB{ub} = buildExpTens(pB_u, wB_u, sigma, r, isRel, isPer, period, ...
+                                 'verbose', false);
+    end
+
+    if verbose
+        fprintf('cosSimExpTens: built %d density structs (%d A + %d B).\n', ...
+            nUniqueA + nUniqueB, nUniqueA, nUniqueB);
+    end
+
+    % === Phase 4: Compute similarity for each unique pair ===
+    uniqueS = NaN(nUniquePairs, 1);
+    for up = 1:nUniquePairs
+        dA = densA{uniquePairs(up, 1)};
+        dB = densB{uniquePairs(up, 2)};
+        uniqueS(up) = cosSimExpTens(dA, dB, 'verbose', false);
+
+        if verbose && (mod(up, 100) == 0 || up == nUniquePairs)
+            fprintf('  %d / %d unique pairs computed.\n', up, nUniquePairs);
+        end
+    end
+
+    % === Phase 5: Map results back to all valid rows ===
+    s(validIdx) = uniqueS(pairMap);
+
+    if verbose
+        fprintf('cosSimExpTens: done.\n');
+    end
+end
+
+
+function [p, w] = localExtractFromKey(key, nMax, hasWeights)
+%LOCALEXTRACTFROMKEY  Extract pitch and weight vectors from a NaN-padded key.
+    pPart = key(1:nMax);
+    p = pPart(~isnan(pPart));
+    p = p(:);
+    if hasWeights
+        wPart = key(nMax + 1 : end);
+        w = wPart(~isnan(wPart));
+        w = w(:);
+    else
+        w = [];
+    end
 end

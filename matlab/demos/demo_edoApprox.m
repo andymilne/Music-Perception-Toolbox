@@ -63,7 +63,7 @@ end
 fprintf('Computing SPCS of %d EDOs against %s...\n', nEDOs, refName);
 s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
-    'verbose', false);
+    'verbose', true);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display

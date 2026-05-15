@@ -41,6 +41,13 @@ _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
 # once in this Python process. Reset by reset_defaults().
 _HINT_FIRED_KERNEL_EVAL: bool = False
 
+# Session-scoped set of (func_name, chosen, routing_reason) triples
+# already printed by _maybe_show_dispatch_msg in this Python process.
+# Reset by reset_defaults(). See _maybe_show_dispatch_msg for the
+# rationale (once-per-unique-decision throttling, parallel to the
+# MATLAB internal.maybeShowDispatchMsg helper).
+_DISPATCH_MSG_SEEN: set[tuple[str, str, str]] = set()
+
 
 def _validate_one(name: str, value: Any) -> Any:
     """Validate a single (name, value) pair; return normalised value."""
@@ -111,8 +118,9 @@ def show_defaults() -> None:
         "                                   ~8 sig figs and is faster.",
         f"  kernel_precision : {prec_str:<12}  Kernel-matrix arithmetic precision.",
         "                                   'double' (default) or 'single'.",
-        f"  show_hints       : {hints_str:<12}  One-time performance tips on first",
-        "                                   kernel-matrix call. True or False.",
+        f"  show_hints       : {hints_str:<12}  Informational console messages from",
+        "                                   the toolbox: kernel-eval tip and",
+        "                                   dispatch decisions. True or False.",
         "",
         "Usage:",
         "  mpt.set_default(name=value)     set",
@@ -183,15 +191,20 @@ def set_default(**kwargs: Any) -> dict[str, Any]:
 def reset_defaults() -> dict[str, Any]:
     """Reset all defaults to their factory values; return the previous values.
 
-    Also clears the session-scoped flag that suppresses repeat firings of
-    informational hints, so the next eligible call will see the hint
-    again.
+    Also clears two session-scoped flags:
+      - the flag that suppresses repeat firings of informational hints
+        (so the next eligible call will see the hint again);
+      - the set of (function, chosen, routing_reason) triples that have
+        already produced a one-time dispatch-decision message (so each
+        previously-seen routing decision will print again on its next
+        occurrence).
     """
     global _HINT_FIRED_KERNEL_EVAL
     old = dict(_DEFAULTS)
     _DEFAULTS.clear()
     _DEFAULTS.update(_FACTORY_DEFAULTS)
     _HINT_FIRED_KERNEL_EVAL = False
+    _DISPATCH_MSG_SEEN.clear()
     return old
 
 
@@ -255,3 +268,71 @@ def _maybe_show_kernel_eval_hint(
         return
     print(_KERNEL_EVAL_HINT_MESSAGE)
     _HINT_FIRED_KERNEL_EVAL = True
+
+
+def _format_dispatch_time(t: float) -> str:
+    """Short human-readable duration for dispatch messages."""
+    if t < 1.0:
+        return f"{t * 1000:.0f} ms"
+    if t < 60.0:
+        return f"{t:.1f} s"
+    if t < 3600.0:
+        return f"{t / 60:.1f} min"
+    return f"{t / 3600:.1f} hr"
+
+
+def _maybe_show_dispatch_msg(
+    func_name: str,
+    chosen: str,
+    routing_reason: str,
+    est_sec: float,
+    is_probed: bool,
+) -> None:
+    """Print a dispatch-decision message at most once per session.
+
+    Prints if and only if the (func_name, chosen, routing_reason)
+    triple has not been printed before in this Python process. The
+    seen-set is cleared by :func:`reset_defaults`.
+
+    When ``is_probed`` is True, the message includes the empirical
+    extrapolated time estimate:
+
+        ``<func_name>: chose '<chosen>' path (estimated X s);
+         Ctrl+C to cancel.``
+
+    When ``is_probed`` is False, the message reports the routing
+    reason (e.g. a hard rule or analytical pre-screen):
+
+        ``<func_name>: chose '<chosen>' path (<routing_reason>).``
+
+    Gating (v2.2.x): dispatch messages are NOT gated by per-call
+    ``verbose``. They are gated by the toolbox-wide ``show_hints``
+    flag (``mpt.set_default(show_hints=...)``), matching the
+    kernel-evaluation hint's gating model. Rationale: internal
+    toolbox callers (e.g. batched-raw paths, entropy evaluations)
+    routinely pass ``verbose=False`` to inner calls to prevent
+    flooding. With the once-per-session throttle in place, flooding
+    is no longer a concern, and users benefit from seeing the routing
+    decision even when internal callers pass ``verbose=False``. To
+    fully silence dispatch messages:
+    ``mpt.set_default(show_hints=False)``.
+
+    Parallels MATLAB ``internal.maybeShowDispatchMsg``; the design
+    rationale and the user-visible behaviour are identical.
+    """
+    # Master switch: show_hints False → silent for all dispatch messages.
+    if not _DEFAULTS.get("show_hints", True):
+        return
+
+    key = (func_name, chosen, routing_reason)
+    if key in _DISPATCH_MSG_SEEN:
+        return
+    _DISPATCH_MSG_SEEN.add(key)
+    if is_probed:
+        print(
+            f"{func_name}: chose '{chosen}' path "
+            f"(estimated {_format_dispatch_time(est_sec)}); "
+            f"Ctrl+C to cancel."
+        )
+    else:
+        print(f"{func_name}: chose '{chosen}' path ({routing_reason}).")

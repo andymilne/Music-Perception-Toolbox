@@ -481,7 +481,12 @@ This is safer than `'reset'` after a block of work, because `'reset'` overwrites
 
 Defaults persist within a single Python process / MATLAB session (not across `clear all` or `import`-reload cycles).
 
-**One-time hint on first kernel-matrix construction.** The first time a session runs a calculation that builds a kernel matrix with both controls at factory defaults, a short tip is printed pointing to the opt-in. It fires once per session and self-suppresses if either control has been changed (per call or globally), if `show_hints` / `showHints` has been set to `false`, or if it has already fired. The factory default for the hint is `true`. To permanently disable:
+**Informational messages: the `showHints` flag.** The toolbox prints two kinds of informational message that are not gated by per-call `verbose`:
+
+- A **one-time kernel-evaluation hint** on first kernel-matrix construction at factory defaults, pointing to the `truncationSigmas` / `kernelPrecision` opt-in.
+- **Dispatch decisions** from `evalExpTens` and `cosSimExpTens`: short messages like `cosSimExpTens: chose 'bulger' path (r = 1).` Both are throttled to once per session per unique decision (the same `(function, chosen, reason)` triple won't fire twice). The throttle is cleared by `mptDefaults('reset')` / `mpt.reset_defaults()`.
+
+Both kinds of message are gated by the `showHints` flag (factory default `true`). Set to `false` for fully silent operation:
 
 ```python
 mpt.set_default(show_hints=False)        # Python
@@ -490,6 +495,8 @@ mpt.set_default(show_hints=False)        # Python
 ```matlab
 mptDefaults('showHints', false)          % MATLAB
 ```
+
+Note: dispatch messages are deliberately *not* gated by per-call `verbose`, because internal toolbox callers (e.g. the batched-raw path inside `cosSimExpTens`, the per-pair calls inside `entropyExpTens`) pass `verbose=False` to inner calls to prevent flooding. With the once-per-session throttle in place this is no longer a concern, and users benefit from seeing the routing decision regardless of any internal `verbose=False`.
 
 ### Consumer-level batching: rows as multisets
 

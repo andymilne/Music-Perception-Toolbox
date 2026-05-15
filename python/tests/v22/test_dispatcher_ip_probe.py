@@ -41,7 +41,7 @@ def _dens(K: int, r: int, sigma: float = 1.0,
 class TestHardRules:
     def test_user_method_pairwise(self):
         dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="bulger",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -50,7 +50,7 @@ class TestHardRules:
 
     def test_user_method_orbit(self):
         dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="mobius",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -59,7 +59,7 @@ class TestHardRules:
 
     def test_r1_routes_pairwise_no_probe(self):
         dens_x, dens_y = _dens(20, 1), _dens(20, 1, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -69,7 +69,7 @@ class TestHardRules:
     def test_n_min_too_small_routes_pairwise_no_probe(self):
         # K_y = 4, r = 3 -> n_min - r = 1 < 2: orbit precision guard.
         dens_x, dens_y = _dens(20, 3), _dens(4, 3, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -88,7 +88,7 @@ class TestPreScreen:
         orbit cost (B_r * K^2). Pre-screen routes to orbit without
         probing."""
         dens_x, dens_y = _dens(40, 3), _dens(40, 3, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -101,7 +101,7 @@ class TestPreScreen:
         threshold, so probe fires. Either decision is acceptable;
         verify probed is True."""
         dens_x, dens_y = _dens(5, 2), _dens(5, 2, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -119,7 +119,7 @@ class TestProbe:
     def test_probe_returns_positive_estimate(self):
         """When probe fires, est_sec > 0."""
         dens_x, dens_y = _dens(8, 3), _dens(8, 3, seed=1)
-        chosen, probed, est = _select_and_estimate_sa_ip(
+        chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
@@ -168,6 +168,7 @@ class TestVerboseDispatchMessage:
         """Probe-firing region (r=2 K=5, ratio just under dominance) →
         message printed."""
         dens_x, dens_y = _dens(5, 2, seed=0), _dens(5, 2, seed=1)
+        mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
@@ -175,22 +176,41 @@ class TestVerboseDispatchMessage:
         # Probe should fire here, giving the dispatch message.
         assert "cos_sim_exp_tens" in out and "chose" in out
 
-    def test_message_absent_when_hard_rule_decides(self):
-        """r=1 → hard rule → no probe → no message."""
+    def test_message_appears_when_hard_rule_decides(self):
+        """r=1 → hard rule → no probe, but a dispatch message still
+        fires (with the rule as the reason)."""
         dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
+        mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
-        assert "cos_sim_exp_tens" not in out
+        assert "cos_sim_exp_tens: chose 'bulger' path" in out
+        assert "r = 1" in out
+        assert "estimated" not in out
 
-    def test_message_absent_when_user_method_set(self):
-        """Explicit method → hard rule → no probe → no message."""
+    def test_message_appears_for_user_override(self):
+        """Explicit method → user override message."""
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
+        mpt.reset_defaults()
         buf = io.StringIO()
         with redirect_stdout(buf):
             cos_sim_exp_tens(
                 dens_x, dens_y, method="bulger", verbose=True,
             )
         out = buf.getvalue()
-        assert "cos_sim_exp_tens" not in out
+        assert "cos_sim_exp_tens: chose 'bulger' path" in out
+        assert "user override" in out
+
+    def test_message_throttled_after_first(self):
+        """Repeated identical calls in a session print once."""
+        dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
+        mpt.reset_defaults()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+            cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
+        out = buf.getvalue()
+        # Exactly one "chose" line, not three.
+        assert out.count("chose") == 1

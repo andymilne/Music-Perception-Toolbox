@@ -1847,6 +1847,7 @@ def _eval_exp_tens_sa(
     # dispatcher. Skipping the dispatcher call shaves measurable
     # per-call overhead in MATLAB; Python is less sensitive but we
     # apply the principle uniformly for cross-language parity.
+    routing_reason = "user override"
     if method == "centres" or method == "direct":
         chosen = "centres"
         probed = False
@@ -1862,8 +1863,12 @@ def _eval_exp_tens_sa(
             chosen = "centres"
             probed = False
             est_sec = 0.0
+            if r <= 1:
+                routing_reason = f"r = {r}"
+            else:
+                routing_reason = f"K - r = {K - r} < 2"
         else:
-            chosen, probed, est_sec = _select_and_estimate_sa(
+            chosen, probed, est_sec, routing_reason = _select_and_estimate_sa(
                 dens, x, n_q,
                 method=method,
                 truncation_sigmas=truncation_sigmas,
@@ -1876,17 +1881,15 @@ def _eval_exp_tens_sa(
             f"got '{method}'."
         )
 
-    if verbose and probed:
-        # Dispatch-decision message: shows which path was chosen and
-        # the empirical extrapolated estimate. Always prints when a
-        # probe ran (i.e., for any non-trivial workload not decided
-        # by a hard rule). Quiet for tiny workloads or rule-decided
-        # cases. Set verbose=False to silence entirely.
-        print(
-            f"eval_exp_tens: chose '{chosen}' path "
-            f"(estimated {_format_time(est_sec)}); "
-            f"Ctrl-C to cancel."
-        )
+    # Dispatch-decision message: bypasses per-call verbose, gated by
+    # the toolbox-wide show_hints flag and throttled once per
+    # (function, chosen, routing_reason) per Python process. The
+    # throttle is cleared by mpt.reset_defaults(). To fully silence:
+    # mpt.set_default(show_hints=False).
+    from ._defaults import _maybe_show_dispatch_msg
+    _maybe_show_dispatch_msg(
+        "eval_exp_tens", chosen, routing_reason, est_sec, probed,
+    )
 
     # ---- Execution axis: detect default-kwargs mode ----
     # Important: ``None`` means "use the global default", not "no
@@ -3237,7 +3240,7 @@ def _cos_sim_exp_tens_sa(
     n_max = max(len(dens_x.p), len(dens_y.p))
     n_min = min(len(dens_x.p), len(dens_y.p))
     sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
-    chosen, probed, est_sec = _select_and_estimate_sa_ip(
+    chosen, probed, est_sec, routing_reason = _select_and_estimate_sa_ip(
         dens_x, dens_y,
         method=method,
         truncation_sigmas=truncation_sigmas,
@@ -3245,16 +3248,15 @@ def _cos_sim_exp_tens_sa(
         verbose=verbose,
     )
 
-    if verbose and probed:
-        # Dispatch-decision message: shows which path was chosen and
-        # the empirical extrapolated estimate. Always prints when a
-        # probe ran (i.e., for any non-trivial workload not decided by
-        # a hard rule or analytical pre-screen). Quiet otherwise.
-        print(
-            f"cos_sim_exp_tens: chose '{chosen}' path "
-            f"(estimated {_format_time(est_sec)}); "
-            f"Ctrl-C to cancel."
-        )
+    # Dispatch-decision message: bypasses per-call verbose, gated by
+    # the toolbox-wide show_hints flag and throttled once per
+    # (function, chosen, routing_reason) per Python process. The
+    # throttle is cleared by mpt.reset_defaults(). To fully silence:
+    # mpt.set_default(show_hints=False).
+    from ._defaults import _maybe_show_dispatch_msg
+    _maybe_show_dispatch_msg(
+        "cos_sim_exp_tens", chosen, routing_reason, est_sec, probed,
+    )
 
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy, worst_ratio = _cos_sim_exp_tens_sa_orbit(
@@ -4888,7 +4890,7 @@ def _select_and_estimate_sa(
     truncation_sigmas: float | None,
     kernel_precision: str | None,
     verbose: bool,
-) -> tuple[str, bool, float]:
+) -> tuple[str, bool, float, str]:
     """Unified path selection + time estimate for SA eval_exp_tens.
 
     Hard rules decide first:
@@ -4901,7 +4903,10 @@ def _select_and_estimate_sa(
     of queries and picking the faster. The probe time, extrapolated to
     the full workload, is the user-facing time estimate.
 
-    Returns (chosen, probed, est_sec).
+    Returns (chosen, probed, est_sec, routing_reason). routing_reason
+    is a short string describing why the path was chosen (e.g.
+    'r = 1', 'rel-mode pre-screen', 'probe'); the caller uses it to
+    emit a dispatch message via :func:`_maybe_show_dispatch_msg`.
     """
     r = int(dens.r)
     K = int(dens.p.shape[0])
@@ -4909,9 +4914,9 @@ def _select_and_estimate_sa(
 
     # ---- Rule 1: user override ----
     if method in ("centres", "direct"):
-        return "centres", False, 0.0
+        return "centres", False, 0.0, "user override"
     if method == "mobius":
-        return "mobius", False, 0.0
+        return "mobius", False, 0.0, "user override"
     if method != "auto":
         raise ValueError(
             f"method must be 'auto', 'centres', or 'mobius'; got {method!r}."
@@ -4919,11 +4924,11 @@ def _select_and_estimate_sa(
 
     # ---- Rule 2: Möbius method degenerate at r <= 1 ----
     if r <= 1:
-        return "centres", False, 0.0
+        return "centres", False, 0.0, f"r = {r}"
 
     # ---- Rule 3: Möbius cancellation guard ----
     if not _orbit_safe_for_precision([r], [K]):
-        return "centres", False, 0.0
+        return "centres", False, 0.0, f"K - r = {K - r} < 2"
 
     # ---- Rule 4: centres memory budget ----
     centres_bytes = _estimate_centres_array_bytes(K, r, is_rel)
@@ -4938,7 +4943,7 @@ def _select_and_estimate_sa(
                 f"r > {_ORBIT_R_MAX_FEASIBLE} (B_r explodes). Reduce "
                 f"r or check inputs."
             )
-        return "mobius", False, 0.0
+        return "mobius", False, 0.0, "centres memory budget exceeded"
 
     # ---- Abs-mode pre-screen: route TO the Möbius method when it clearly wins ----
     # For abs mode, centres cost per query is K^r (materialised density
@@ -4960,11 +4965,11 @@ def _select_and_estimate_sa(
         centres_cost = float(K) ** r
         orbit_cost = float(B_r) * r * float(K)
         if orbit_cost * _PRESCREEN_ORBIT_DOMINANCE < centres_cost:
-            return "mobius", False, 0.0
+            return "mobius", False, 0.0, "abs-mode pre-screen"
 
     # ---- Shortcut: tiny workload, skip probing ----
     if n_q < _PROBE_MIN_N_Q:
-        return "centres", False, 0.0
+        return "centres", False, 0.0, f"n_q = {n_q} < {_PROBE_MIN_N_Q}"
 
     # ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
     # The probe is robust but not free. For rel mode in particular,
@@ -4999,7 +5004,7 @@ def _select_and_estimate_sa(
         centres_cost = float(K) ** (r - 1)
         orbit_cost = float(B_r) * r * N_u_est
         if centres_cost * _PRESCREEN_CENTRES_DOMINANCE < orbit_cost:
-            return "centres", False, 0.0
+            return "centres", False, 0.0, "rel-mode pre-screen"
 
     # ---- Probe both paths ----
     # Warm the set-partition cache so the Möbius probe doesn't pay
@@ -5011,7 +5016,8 @@ def _select_and_estimate_sa(
         get_set_partitions_with_mobius(r)
     if r > _ORBIT_R_MAX_FEASIBLE:
         # No Möbius option at this r; skip the probe and use centres.
-        return "centres", False, 0.0
+        return ("centres", False, 0.0,
+                f"r = {r} > {_ORBIT_R_MAX_FEASIBLE} (Möbius infeasible)")
 
     n_probe = min(_PROBE_N, n_q)
     sample_idx = np.linspace(0, n_q - 1, n_probe).astype(int)
@@ -5034,7 +5040,7 @@ def _select_and_estimate_sa(
         chosen, t_probe = "mobius", t_orbit
 
     est_sec = t_probe * (n_q / n_probe)
-    return chosen, True, est_sec
+    return chosen, True, est_sec, "probe"
 
 
 # -----------------------------------------------------------------------
@@ -5132,7 +5138,7 @@ def _select_and_estimate_sa_ip(
     truncation_sigmas: float | None,
     kernel_precision: str | None,
     verbose: bool,
-) -> tuple[str, bool, float]:
+) -> tuple[str, bool, float, str]:
     """Probe-based dispatcher for SA cos_sim_exp_tens IP path.
 
     Hard rules decide first:
@@ -5147,7 +5153,10 @@ def _select_and_estimate_sa_ip(
     subset (``min(K_x, K_y, _PROBE_K_IP_TARGET)``) and extrapolated to
     the full workload; the faster is picked.
 
-    Returns ``(chosen, probed, est_sec)``.
+    Returns ``(chosen, probed, est_sec, routing_reason)``. routing_reason
+    is a short string describing why the path was chosen; the caller
+    uses it to emit a dispatch message via
+    :func:`_maybe_show_dispatch_msg`.
     """
     r = int(dens_x.r)
     K_x = int(dens_x.p.shape[0])
@@ -5161,20 +5170,20 @@ def _select_and_estimate_sa_ip(
 
     # ---- Hard rules ----
     if method in ("bulger", "direct"):
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, "user override"
     if method == "mobius":
-        return "mobius", False, 0.0
+        return "mobius", False, 0.0, "user override"
     if method != "auto":
         raise ValueError(
             f"method must be 'auto', 'bulger', 'direct', or 'mobius'; "
             f"got {method!r}."
         )
     if r <= 1:
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, f"r = {r}"
     if r > _ORBIT_R_MAX_SHIPPED:
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, f"r = {r} > {_ORBIT_R_MAX_SHIPPED} (Möbius infeasible)"
     if not _orbit_safe_for_precision([r], [n_min]):
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, f"min(K_x, K_y) - r = {n_min - r} < 2"
     if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
         warnings.warn(
             f"σ/P = {sigma_over_P:.3f} exceeds the Möbius-method threshold "
@@ -5182,9 +5191,9 @@ def _select_and_estimate_sa_ip(
             f"falling back to Bulger's method (the pairwise-wrap form). Pass method='bulger' "
             f"explicitly to silence this warning."
         )
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, "sigma/period > 0.03 (rel-per Möbius fallback)"
     if r > _ORBIT_R_MAX_FEASIBLE:
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, f"r = {r} > {_ORBIT_R_MAX_FEASIBLE} (Möbius infeasible)"
 
     # ---- Analytical cost models ----
     pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
@@ -5193,9 +5202,9 @@ def _select_and_estimate_sa_ip(
 
     # ---- Analytical pre-screen ----
     if orbit_full * _PRESCREEN_IP_DOMINANCE < pairwise_full:
-        return "mobius", False, 0.0
+        return "mobius", False, 0.0, "cost pre-screen"
     if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
-        return "bulger", False, 0.0
+        return "bulger", False, 0.0, "cost pre-screen"
 
     # ---- Probe both paths on a subset ----
     # Warm the orbit partition table so the Möbius probe doesn't pay a
@@ -5232,8 +5241,8 @@ def _select_and_estimate_sa_ip(
     t_orbit_est = t_orbit * orbit_factor
 
     if t_pairwise_est <= t_orbit_est:
-        return "bulger", True, t_pairwise_est
-    return "mobius", True, t_orbit_est
+        return "bulger", True, t_pairwise_est, "probe"
+    return "mobius", True, t_orbit_est, "probe"
 
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
@@ -5971,7 +5980,7 @@ def _cos_sim_raw_sa_batch(
 
     if verbose:
         print(
-            f"batch_cos_sim_exp_tens: {n_rows} rows, {n_valid} valid, "
+            f"cos_sim_exp_tens: {n_rows} rows, {n_valid} valid, "
             f"{n_unique_a} unique A-sets, {n_unique_b} unique B-sets."
         )
         if is_rel:
@@ -5987,14 +5996,14 @@ def _cos_sim_raw_sa_batch(
                 + "; B-set counts reflect position relative to A."
             )
         print(
-            f"batch_cos_sim_exp_tens: built {n_unique_a + n_unique_b} "
+            f"cos_sim_exp_tens: built {n_unique_a + n_unique_b} "
             f"density structs ({n_unique_a} A + {n_unique_b} B)."
         )
 
     # ── Phase 3: Compute via polymorphic cos_sim_exp_tens ────────────
     if n_valid == 0:
         if verbose:
-            print("batch_cos_sim_exp_tens: done.")
+            print("cos_sim_exp_tens: done.")
         return s
 
     valid_indices = [i for i in range(n_rows) if valid[i]]
@@ -6014,7 +6023,7 @@ def _cos_sim_raw_sa_batch(
         s[idx] = cos_results[k]
 
     if verbose:
-        print("batch_cos_sim_exp_tens: done.")
+        print("cos_sim_exp_tens: done.")
 
     return s
 

@@ -86,6 +86,45 @@ def get_defaults() -> dict[str, Any]:
     return dict(_DEFAULTS)
 
 
+def show_defaults() -> None:
+    """Print the current defaults with brief descriptions.
+
+    Designed for interactive use at the REPL. Programmatic callers
+    should use :func:`get_defaults` (which returns a dict) instead.
+
+    Mirrors MATLAB's ``mptDefaults`` (called with no arguments and
+    no requested output).
+    """
+    hints = _DEFAULTS["show_hints"]
+    hints_str = "True" if hints is True else ("False" if hints is False else str(hints))
+    trunc = _DEFAULTS["truncation_sigmas"]
+    trunc_str = "inf" if trunc == math.inf else repr(trunc)
+    prec = _DEFAULTS["kernel_precision"]
+    prec_str = f"'{prec}'"
+
+    lines = [
+        "",
+        "Current MPT defaults:",
+        "",
+        f"  truncation_sigmas: {trunc_str:<12}  Gaussian kernel truncation in sigmas.",
+        "                                   inf = exact (default); 6 keeps",
+        "                                   ~8 sig figs and is faster.",
+        f"  kernel_precision : {prec_str:<12}  Kernel-matrix arithmetic precision.",
+        "                                   'double' (default) or 'single'.",
+        f"  show_hints       : {hints_str:<12}  One-time performance tips on first",
+        "                                   kernel-matrix call. True or False.",
+        "",
+        "Usage:",
+        "  mpt.set_default(name=value)     set",
+        "  prev = mpt.set_default(...)     save previous values",
+        "  mpt.set_default(**prev)         restore",
+        "  mpt.reset_defaults()            factory defaults",
+        "  help(mpt.set_default)           full help",
+        "",
+    ]
+    print("\n".join(lines))
+
+
 def get_default(name: str) -> Any:
     """Return the current value of a single default.
 

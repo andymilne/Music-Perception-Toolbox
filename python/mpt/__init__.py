@@ -79,6 +79,7 @@ from ._defaults import (
     get_defaults,
     reset_defaults,
     set_default,
+    show_defaults,
 )
 
 __all__ = [
@@ -136,4 +137,5 @@ __all__ = [
     "get_defaults",
     "reset_defaults",
     "set_default",
+    "show_defaults",
 ]

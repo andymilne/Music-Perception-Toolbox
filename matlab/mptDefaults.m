@@ -1,29 +1,34 @@
 function varargout = mptDefaults(varargin)
 %MPTDEFAULTS  Get / set / reset toolbox-wide default options.
 %
-%   This function centralises the few user-tunable toolbox defaults
-%   (currently: truncationSigmas, kernelPrecision). The defaults are
-%   consulted by INTERNAL.GAUSSIANKERNELSUM and (via that helper) by
-%   every centres-path consumer in the toolbox. Per-call name-value
-%   arguments always override the defaults set here.
+%   Centralises the user-tunable toolbox defaults (currently:
+%   truncationSigmas, kernelPrecision, showHints). The first two
+%   are consulted by INTERNAL.GAUSSIANKERNELSUM and (via that helper)
+%   by every centres-path consumer in the toolbox. showHints gates
+%   one-time informational tips. Per-call name-value arguments
+%   always override the defaults set here.
 %
-%   Usage:
+%   Call forms:
 %
-%     S = mptDefaults
-%         Returns a struct of all current defaults.
+%     mptDefaults                       Print current values + a brief
+%                                       summary of what each field means.
+%     S = mptDefaults                   Return the current values as a
+%                                       struct (no printing).
+%     val = mptDefaults('name')         Return one value.
+%     mptDefaults('name', val, ...)     Set one or more values.
+%     prev = mptDefaults('name', val)   Set and capture the previous
+%                                       values, for save-and-restore.
+%     mptDefaults(prevStruct)           Restore from a previously-
+%                                       returned struct. Inverse of the
+%                                       setter form.
+%     mptDefaults('reset')              Reset all to factory defaults.
 %
-%     val = mptDefaults('name')
-%         Returns the current value of a single default.
+%   Save-and-restore idiom (temporarily change defaults, then restore):
 %
-%     mptDefaults('name', value, ...)
-%         Sets one or more defaults. Multiple name-value pairs may be
-%         given in a single call. Returns the previous values (as a
-%         struct) so callers can restore them.
-%
-%     mptDefaults('reset')
-%         Resets all defaults to their factory values:
-%             truncationSigmas = Inf      (exact, backward-compatible)
-%             kernelPrecision  = 'double' (backward-compatible)
+%     prev = mptDefaults('truncationSigmas', 6, ...
+%                        'kernelPrecision', 'single');
+%     %  ... do work with the new defaults ...
+%     mptDefaults(prev);     % restore exactly what was active before
 %
 %   Defaults persist within the MATLAB session but not across sessions.
 %   `clear all` resets them.
@@ -33,10 +38,11 @@ function varargout = mptDefaults(varargin)
 %     mptDefaults                                   % see current values
 %     mptDefaults('truncationSigmas', 6)            % enable truncation
 %     mptDefaults('truncationSigmas', 6, ...
-%                 'kernelPrecision', 'single')             % both at once
-%     prev = mptDefaults('kernelPrecision', 'single');     % save & restore idiom
+%                 'kernelPrecision', 'single')      % both at once
+%     prev = mptDefaults('kernelPrecision', 'single');
 %     ...
-%     mptDefaults(prev)                              % restore
+%     mptDefaults(prev)                             % restore
+%     mptDefaults('reset')                          % back to factory
 %
 %   See also: INTERNAL.GAUSSIANKERNELSUM.
 
@@ -49,7 +55,7 @@ function varargout = mptDefaults(varargin)
         if nargout > 0
             varargout{1} = S;
         else
-            disp(S);
+            printSummary(S);
         end
         return;
     end
@@ -117,6 +123,43 @@ function S = factoryDefaults()
         'kernelPrecision', 'double', ...
         'showHints', true ...
     );
+end
+
+
+function printSummary(S)
+%PRINTSUMMARY  Pretty-print current defaults with brief descriptions.
+%   Called when mptDefaults is invoked at the prompt with no
+%   arguments and no requested output. Programmatic callers
+%   (S = mptDefaults) bypass this — they get the struct back
+%   silently.
+
+    if islogical(S.showHints) && S.showHints
+        hintsStr = 'true';
+    elseif islogical(S.showHints)
+        hintsStr = 'false';
+    else
+        hintsStr = num2str(S.showHints);
+    end
+
+    fprintf('\nCurrent MPT defaults:\n\n');
+    fprintf('  truncationSigmas: %-12s  Gaussian kernel truncation in sigmas.\n', ...
+            num2str(S.truncationSigmas));
+    fprintf('                                  Inf = exact (default); 6 keeps\n');
+    fprintf('                                  ~8 sig figs and is faster.\n');
+    fprintf('  kernelPrecision : %-12s  Kernel-matrix arithmetic precision.\n', ...
+            sprintf('''%s''', S.kernelPrecision));
+    fprintf('                                  ''double'' (default) or ''single''.\n');
+    fprintf('  showHints       : %-12s  One-time performance tips on first\n', ...
+            hintsStr);
+    fprintf('                                  kernel-matrix call. true or false.\n');
+    fprintf('\n');
+    fprintf('Usage:\n');
+    fprintf('  mptDefaults(''name'', value)      set\n');
+    fprintf('  prev = mptDefaults(...)         save previous values\n');
+    fprintf('  mptDefaults(prev)               restore\n');
+    fprintf('  mptDefaults(''reset'')            factory defaults\n');
+    fprintf('  help mptDefaults                full help\n');
+    fprintf('\n');
 end
 
 

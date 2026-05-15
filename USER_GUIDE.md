@@ -433,35 +433,61 @@ Two user-controllable options govern how the dense Gaussian kernel matrix is con
 
 - **`kernel_precision` (Python) / `kernelPrecision` (MATLAB)** — accepts `'double'` (default) or `'single'`. With `'single'`, the kernel-matrix arithmetic casts to `float32` for a workload-dependent speedup (typically ~2× on compute-bound problems, less on memory-bandwidth-bound problems) at the cost of approximately 7 significant figures of precision (vs approximately 15 for double). The cast applies only to the kernel matrix; density coordinates and the final accumulation are preserved at full double.
 
-Both controls can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API:
+Both controls can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API described in the next section. Per-call kwargs always override globals; globals always override factory defaults. The factory defaults (`truncationSigmas = Inf`, `kernelPrecision = 'double'`) reproduce v2.1 behaviour to floating-point precision, so existing code needs no changes — opting in is purely additive.
 
-```python
-# Python
-import mpt
-mpt.set_default(truncation_sigmas=6, kernel_precision='single')   # set
-mpt.get_defaults()                                                # inspect
-prev = mpt.set_default(truncation_sigmas=4)                       # save & restore
-# ... do work ...
-mpt.set_default(**prev)
-mpt.reset_defaults()                                              # back to factory
-```
+### Toolbox defaults API (`mptDefaults` / `mpt.set_default`)
+
+`mptDefaults` (MATLAB) and `mpt.set_default` / `mpt.get_defaults` / `mpt.reset_defaults` / `mpt.show_defaults` (Python) provide the canonical entry points for inspecting and changing toolbox-wide settings. The settings currently controlled are `truncationSigmas`, `kernelPrecision`, and `showHints` (a boolean that gates the one-time performance hint described below).
+
+**Call forms (MATLAB):**
+
+| Form                                  | Effect                                                                            |
+| :------------------------------------ | :-------------------------------------------------------------------------------- |
+| `mptDefaults`                         | Print current values plus a brief summary of each field.                          |
+| `S = mptDefaults`                     | Return the current values as a struct, silently.                                  |
+| `val = mptDefaults('name')`           | Return one value.                                                                 |
+| `mptDefaults('name', val, ...)`       | Set one or more values. Returns the previous values as a struct.                  |
+| `mptDefaults(prevStruct)`             | Restore from a previously-returned struct. Inverse of the setter form.            |
+| `mptDefaults('reset')`                | Reset all to factory defaults.                                                    |
+
+**Python equivalents:**
+
+| Form                                  | Effect                                                                            |
+| :------------------------------------ | :-------------------------------------------------------------------------------- |
+| `mpt.show_defaults()`                 | Print current values plus a brief summary of each field.                          |
+| `mpt.get_defaults()`                  | Return the current values as a dict.                                              |
+| `mpt.get_default('name')`             | Return one value.                                                                 |
+| `mpt.set_default(name=val, ...)`      | Set one or more values. Returns the previous values as a dict.                    |
+| `mpt.set_default(**prev)`             | Restore from a previously-returned dict.                                          |
+| `mpt.reset_defaults()`                | Reset all to factory defaults.                                                    |
+
+The setter form returns the previous values precisely so they can be passed back in to restore the prior state. The idiomatic pattern is "save, change, work, restore":
 
 ```matlab
 % MATLAB
-mptDefaults('truncationSigmas', 6, 'kernelPrecision', 'single')   % set
-mptDefaults                                                       % inspect
-prev = mptDefaults('truncationSigmas', 4);                        % save & restore
-% ... do work ...
-mptDefaults(prev);
-mptDefaults('reset')                                              % back to factory
+prev = mptDefaults('truncationSigmas', 6, 'kernelPrecision', 'single');
+% ... do work with the new defaults ...
+mptDefaults(prev);                                 % restore
 ```
 
-Per-call kwargs always override defaults. Defaults persist within a single Python process / MATLAB session (not across `clear all`). The factory defaults (`truncationSigmas = Inf`, `kernelPrecision = 'double'`) reproduce v2.1 behaviour to floating-point precision, so existing code needs no changes — opting in is purely additive.
+```python
+# Python
+prev = mpt.set_default(truncation_sigmas=6, kernel_precision='single')
+# ... do work with the new defaults ...
+mpt.set_default(**prev)                            # restore
+```
+
+This is safer than `'reset'` after a block of work, because `'reset'` overwrites any *other* defaults the caller might have set deliberately before the block. The save-and-restore pattern preserves anything the caller didn't explicitly change.
+
+Defaults persist within a single Python process / MATLAB session (not across `clear all` or `import`-reload cycles).
 
 **One-time hint on first kernel-matrix construction.** The first time a session runs a calculation that builds a kernel matrix with both controls at factory defaults, a short tip is printed pointing to the opt-in. It fires once per session and self-suppresses if either control has been changed (per call or globally), if `show_hints` / `showHints` has been set to `false`, or if it has already fired. The factory default for the hint is `true`. To permanently disable:
 
 ```python
 mpt.set_default(show_hints=False)        # Python
+```
+
+```matlab
 mptDefaults('showHints', false)          % MATLAB
 ```
 

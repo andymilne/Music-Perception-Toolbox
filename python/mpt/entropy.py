@@ -77,22 +77,24 @@ def entropy_exp_tens(
       Shannon's [0, 1], and resolving the discrepancy is a separate
       question. Pass ``normalize=False`` to use this method.
 
-    Unified entry point. For ``method='shannon'``, accepts five input
-    forms, dispatched on the type of the first argument:
+    Input forms (Shannon supports all; Rényi-2 supports only the
+    scalar forms — scalar pre-built density, raw SA scalar, raw MA
+    scalar — and raises ``NotImplementedError`` on list / batched
+    forms):
 
     **Pre-built density input**:
 
-    - ``entropy_exp_tens(dens)`` — scalar density (the v2.0 case).
+    - ``entropy_exp_tens(dens)`` — scalar density.
       Returns a Python float.
-    - ``entropy_exp_tens([d1, d2, …])`` — list of densities. Returns
-      ``(M,)`` ndarray.
+    - ``entropy_exp_tens([d1, d2, …])`` — list of densities
+      (Shannon only). Returns ``(M,)`` ndarray.
 
     **Raw single-attribute scalar input**:
 
     - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
       Returns a Python float. Optional ``spectrum``.
 
-    **Raw single-attribute batched input**:
+    **Raw single-attribute batched input** (Shannon only):
 
     - ``entropy_exp_tens(P, W, sigma, r, is_rel, is_per, period)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
@@ -114,14 +116,26 @@ def entropy_exp_tens(
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`. Raw SA only.
     method : {'shannon', 'renyi2'}, default 'shannon'
-        Entropy estimator. See the introduction above.
+        Entropy variant. See the introduction above.
     precision : int, optional
         Round canonical values to this many decimal places, to absorb
-        FP noise when deduplicating. Raw SA batched only.
+        FP noise when deduplicating. Raw SA batched only (Shannon).
     dedup : bool, default True
-        Deduplicate structurally-identical chords. List/batch only.
-    normalize, base, n_points_per_dim, x_min, x_max, grid_limit
-        Per-density entropy parameters; see v2.0 docstring.
+        Deduplicate structurally-identical chords. List/batch only
+        (Shannon).
+    normalize : bool, default True
+        Shannon only: divide by ``log_b(N)`` to give ``[0, 1]``.
+        ``method='renyi2'`` with ``normalize=True`` raises.
+    base : float, default 2.0
+        Logarithm base. For Shannon with ``normalize=True`` the base
+        cancels.
+    n_points_per_dim : int, default 1200
+        Shannon only: grid resolution per effective dimension.
+    x_min, x_max
+        Shannon, non-periodic only: grid bounds. SA scalar; MA scalar
+        (broadcast) or length-G vector.
+    grid_limit : int
+        Shannon only: ceiling on total grid size before allocation.
 
     Returns
     -------
@@ -134,7 +148,7 @@ def entropy_exp_tens(
     -----
     Numerical precision envelope for ``method='renyi2'``.
 
-    The the Möbius method is exact to floating-point precision when
+    The Möbius method is exact to floating-point precision when
     every per-attribute ``K_a`` satisfies ``K_a >= r_a + 2`` and σ is
     not catastrophically small relative to P. The dispatcher enforces
     these conditions structurally — it routes to Bulger's method
@@ -157,7 +171,9 @@ def entropy_exp_tens(
     For ``method='shannon'``, accuracy is set by the grid resolution
     ``n_points_per_dim`` and is independent of the Möbius method.
     """
-    # ---- Validate method early ----
+    # Validate the method kwarg and reject the unimplementable combination
+    # renyi2 + normalize=True (the analytical Rényi-2 form has no natural
+    # [0, 1] reference).
     if method not in ("shannon", "renyi2"):
         raise ValueError(
             f"method must be 'shannon' or 'renyi2'; got {method!r}."
@@ -171,52 +187,48 @@ def entropy_exp_tens(
             "normalize=False to use this method."
         )
 
-    # ---- method='renyi2' short-circuit ----
-    # Restricted to single-density input (scalar density or raw scalar
-    # SA/MA). List and batched input not yet supported under renyi2.
-    if method == "renyi2":
-        # Reject list inputs explicitly with a helpful message.
-        if isinstance(p_or_dens, (list, tuple)):
-            if len(p_or_dens) > 0 and isinstance(
-                p_or_dens[0],
-                (ExpTensDensity, MaetDensity, WindowedMaetDensity),
-            ):
-                raise NotImplementedError(
-                    "method='renyi2' does not yet support list input. "
-                    "Apply it to each density individually."
-                )
-        elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
-            raise NotImplementedError(
-                "method='renyi2' does not yet support list input. "
-                "Apply it to each density individually."
-            )
-        # Reject 2-D raw SA input (batched) explicitly.
-        if (not isinstance(
-                p_or_dens,
-                (ExpTensDensity, MaetDensity, WindowedMaetDensity),
-            )
-            and not _looks_like_ma_p(p_or_dens)):
-            try:
-                p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
-                if p_arr_check.ndim == 2:
-                    raise NotImplementedError(
-                        "method='renyi2' does not yet support raw SA "
-                        "batched (2-D) input. Pass each chord row "
-                        "individually, or pre-build densities."
-                    )
-            except (TypeError, ValueError):
-                pass  # let _resolve_density produce a clearer error
-        if precision is not None or dedup is not True:
-            raise TypeError(
-                "'precision' and 'dedup' kwargs are only valid for "
-                "method='shannon'."
-            )
-        dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
-        if is_sa:
-            return _renyi2_exp_tens_sa(dens, base=base)
-        return _renyi2_exp_tens_ma(dens, base=base)
+    # Dispatch on method. Both methods do parallel per-input-form
+    # resolution; see ``_entropy_exp_tens_shannon_dispatch`` and
+    # ``_entropy_exp_tens_renyi2_dispatch`` for the per-form branching.
+    # Shannon supports the full input surface (single density, list of
+    # densities, raw scalar SA/MA, raw batched SA, windowed MA). Renyi-2
+    # is restricted to single-density input — list, batched, and
+    # windowed forms are not yet implemented and produce informative
+    # errors.
+    if method == "shannon":
+        return _entropy_exp_tens_shannon_dispatch(
+            p_or_dens, args,
+            spectrum=spectrum, precision=precision, dedup=dedup,
+            normalize=normalize, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
+    return _entropy_exp_tens_renyi2_dispatch(
+        p_or_dens, args,
+        spectrum=spectrum, precision=precision, dedup=dedup, base=base,
+    )
 
-    # ---- method='shannon' (default): polymorphic dispatch ----
+
+# =========================================================================
+#  _entropy_exp_tens_shannon_dispatch — input-form resolution for Shannon
+# =========================================================================
+
+
+def _entropy_exp_tens_shannon_dispatch(
+    p_or_dens, args, *,
+    spectrum, precision, dedup,
+    normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
+    truncation_sigmas, kernel_precision, verbose,
+):
+    """Resolve input form and route to SA / MA helper, Shannon path.
+
+    Shannon entropy of the density evaluated on a Cartesian-product
+    grid; supports the full input surface (precomputed density object,
+    list of densities, MA raw args, SA raw args, SA batched 2-D matrix).
+    """
     # --- Density inputs first (scalar or list) ---
     if isinstance(p_or_dens, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
         if len(args) > 0:
@@ -342,11 +354,70 @@ def entropy_exp_tens(
     )
 
 
+# =========================================================================
+#  _entropy_exp_tens_renyi2_dispatch — input-form resolution for Rényi-2
+# =========================================================================
+
+
+def _entropy_exp_tens_renyi2_dispatch(
+    p_or_dens, args, *,
+    spectrum, precision, dedup, base,
+):
+    """Resolve input form and route to SA / MA helper, Rényi-2 path.
+
+    Analytical Rényi-2 (collision) entropy via the orbit-Möbius
+    inner-product machinery. Restricted to single-density input
+    (scalar density object, raw scalar SA, or raw scalar MA). List
+    and batched input forms raise ``NotImplementedError``. Windowed
+    MA is also not yet supported.
+    """
+    # Reject list inputs explicitly with a helpful message.
+    if isinstance(p_or_dens, (list, tuple)):
+        if len(p_or_dens) > 0 and isinstance(
+            p_or_dens[0],
+            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+        ):
+            raise NotImplementedError(
+                "method='renyi2' does not yet support list input. "
+                "Apply it to each density individually."
+            )
+    elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
+        raise NotImplementedError(
+            "method='renyi2' does not yet support list input. "
+            "Apply it to each density individually."
+        )
+    # Reject 2-D raw SA input (batched) explicitly.
+    if (not isinstance(
+            p_or_dens,
+            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+        )
+        and not _looks_like_ma_p(p_or_dens)):
+        try:
+            p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
+            if p_arr_check.ndim == 2:
+                raise NotImplementedError(
+                    "method='renyi2' does not yet support raw SA "
+                    "batched (2-D) input. Pass each chord row "
+                    "individually, or pre-build densities."
+                )
+        except (TypeError, ValueError):
+            pass  # let _resolve_density produce a clearer error
+    if precision is not None or dedup is not True:
+        raise TypeError(
+            "'precision' and 'dedup' kwargs are only valid for "
+            "method='shannon'."
+        )
+    dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+    if is_sa:
+        return _renyi2_exp_tens_sa(dens, base=base)
+    return _renyi2_exp_tens_ma(dens, base=base)
+
+
 def _entropy_exp_tens_scalar(
     dens, *, normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
     truncation_sigmas=None, kernel_precision=None,
 ):
-    """Single-density entropy dispatch (the v2.0 type-dispatch logic)."""
+    """Single-density entropy dispatch."""
     eval_kw = dict(
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -839,7 +910,7 @@ def _entropy_exp_tens_sa(
     n_points_per_dim, x_min, x_max,
     truncation_sigmas=None, kernel_precision=None,
 ) -> float:
-    """Single-attribute Shannon entropy (v2.0.0 body)."""
+    """Single-attribute Shannon entropy."""
     if isinstance(p_or_dens, ExpTensDensity):
         T = p_or_dens
         is_per = T.is_per
@@ -861,8 +932,7 @@ def _entropy_exp_tens_sa(
 
     # Construct query points. For dim == 1 the grid is a single 1-D
     # linspace; for dim > 1 it is a Cartesian product, mirroring the
-    # MA path. (The v2.0 release only supported dim == 1 here, raising
-    # in higher dims; v2.1 lifts that limitation.)
+    # MA path.
     dim = int(T.dim)
     if is_per:
         ax = np.linspace(0, period, n_points_per_dim + 1)[:-1]

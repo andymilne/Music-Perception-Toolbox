@@ -257,34 +257,32 @@ function [hMax, hEntropy] = localTemplateChordOnly( ...
     tmpl_vals, tmpl_norm_sq, margin, step, ...
     normalize, base, truncationSigmas, kernelPrecision, ...
     requestedNargout)
-%LOCALTEMPLATECHORDONLY Chord-side eval, cross-correlation, hMax,
-%hEntropy.
+%LOCALTEMPLATECHORDONLY Chord-side: cross-correlation, hMax, hEntropy.
 %
 %   Used by the scalar path (which builds the template first, then
 %   calls this) and by the batched path (which builds the template
 %   once for the entire batch and calls this per unique canonical
 %   chord). Hoisting the template build out of this function is what
 %   lets the batched path avoid M template rebuilds.
+%
+%   The build-eval-conv-normalise core is shared with virtualPitches
+%   via internal.templateXcorrChordSide; this wrapper adds
+%   templateHarmonicity-specific postprocessing (max, optional
+%   Harrison-2020 entropy of the profile).
 
-    chord_dens = buildExpTens(chord_p, chord_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    x_chord = 0:step:(max(chord_p) + margin);
-    chord_vals = evalExpTens(chord_dens, x_chord, ...
-        'truncationSigmas', truncationSigmas, ...
-        'kernelPrecision', kernelPrecision, ...
-        'verbose', false);
-
-    % Cross-correlation.
-    xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
-
-    % Normalize (cosine similarity at each lag).
-    norm_factor = sqrt(sum(chord_vals .^ 2) * tmpl_norm_sq);
-    xcorr_norm = xcorr_vals / norm_factor;
+    xcorr_norm = internal.templateXcorrChordSide( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        truncationSigmas, kernelPrecision);
 
     % Milne 2013: maximum normalized cross-correlation.
     hMax = max(xcorr_norm);
 
-    % Harrison 2020: entropy of normalized cross-correlation.
+    % Harrison 2020: entropy of normalized cross-correlation. (The
+    % profile is treated as a probability distribution; this is a
+    % discrete-Shannon computation on a vector, not on an
+    % expectation-tensor density, so it does not delegate to
+    % entropyExpTens.)
     if requestedNargout > 1
         q = xcorr_norm(:);
         N = numel(q);       % total bins (before removing zeros)

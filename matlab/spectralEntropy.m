@@ -4,40 +4,36 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   H = spectralEntropy(p, w, sigma)
 %   H = spectralEntropy(p, w, sigma, Name, Value)
 %
-%   Computes the Shannon entropy of the smoothed composite spectrum of
-%   a weighted pitch multiset. The spectrum is constructed by adding
-%   harmonics to each pitch via addSpectra, evaluating the resulting
-%   1-D absolute non-periodic expectation tensor on a fine grid,
-%   normalising to a probability distribution, and computing the entropy.
+%   Returns the entropy of the smoothed composite spectrum of a
+%   weighted pitch multiset, used as a consonance measure: the greater
+%   the overlap of partials (after Gaussian smoothing for perceptual
+%   uncertainty), the lower the entropy. Lower entropy therefore
+%   indicates greater consonance.
 %
-%   Spectral entropy aggregates the spectral pitch similarities of all
-%   pairs of sounds in the multiset: the greater the overlap of
-%   partials (after Gaussian smoothing for perceptual uncertainty),
-%   the lower the entropy. Lower entropy therefore indicates greater
-%   consonance.
+%   spectralEntropy is a thin wrapper around entropyExpTens with
+%   r = 1, isRel = false, isPer = false (1-D absolute non-periodic
+%   density). It applies addSpectra to enrich the pitches with
+%   partials (if a 'spectrum' argument is supplied), shifts the
+%   lowest pitch to 0, computes appropriate grid bounds, and
+%   delegates the entropy computation. Two methods are supported:
 %
-%   The procedure is:
-%     1. (Optional) Add harmonics to each pitch via addSpectra, if a
-%        'spectrum' argument is provided. If omitted, the pitches and
-%        weights are used as-is — suitable for empirical spectral
-%        peaks (e.g., from audioPeaks).
-%     2. Build a 1-D absolute expectation tensor (r = 1, isRel = false,
-%        isPer = false) from the (enriched) spectrum.
-%     3. Evaluate the tensor on a fine grid spanning the full range of
-%        partials.
-%     4. Normalise to a probability distribution and compute Shannon
-%        entropy.
+%     method='shannon' (default) computes the discrete Shannon
+%       entropy of the density evaluated on a regular grid, normalised
+%       to [0, 1] by log_base(N) when normalize=true (the default).
 %
-%   By default, the entropy is normalised to [0, 1] by dividing by
-%   log_base(N), where N is the number of grid points. This removes
-%   the dependence on the arbitrary grid resolution.
+%     method='renyi2' computes the analytical (grid-independent)
+%       Rényi-2 / collision entropy via the inner-product / Möbius
+%       machinery used by entropyExpTens. normalize=true is not
+%       supported under renyi2 (the analytical form has no natural
+%       [0, 1] reference); pass normalize=false.
 %
 %   Inputs:
-%     p     — Pitch values in cents (vector). These are absolute
-%             pitches (e.g., MIDI 60 = 6000 cents via convertPitch),
-%             not pitch classes. The function transposes internally
-%             so the lowest pitch is 0.
-%     w     — Weights (vector same length as p, or empty for all ones).
+%     p     — Pitch values in cents (vector for one chord; nRows-by-K
+%             matrix for a batch of nRows chords). Absolute pitches
+%             (e.g., MIDI 60 = 6000 cents via convertPitch). The
+%             function transposes internally so the lowest pitch is 0.
+%     w     — Weights (same shape as p; vector matching K for a
+%             column-broadcast batch input; or empty for all ones).
 %     sigma — Gaussian smoothing width in cents. Models perceptual
 %             uncertainty. Values of 6-15 are typical; 12 is a good
 %             default.
@@ -52,28 +48,36 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    peaks (e.g., from audioPeaks).
 %                    Examples:
 %                      'spectrum', {'harmonic', 24, 'powerlaw', 1}
-%                      'spectrum', {'harmonic', 64, 'powerlaw', 1}
 %                      'spectrum', {'harmonic', 12, 'geometric', 0.9}
-%     'normalize'  — Logical (default: true). If true, divides the
-%                    entropy by log_base(N) to give a value in [0, 1]
-%                    that is independent of grid resolution.
+%     'method'     — 'shannon' (default) or 'renyi2'. See above.
+%     'normalize'  — Logical (default: true). Shannon only: divides
+%                    the entropy by log_base(N) to give a value in
+%                    [0, 1] that is independent of grid resolution.
+%                    Requesting 'renyi2' with normalize=true errors.
 %     'base'       — Logarithm base for entropy (default: 2, giving
 %                    bits). When 'normalize' is true, the base cancels
 %                    and has no effect on the result.
-%     'resolution' — Grid spacing in cents (default: 1). Finer
-%                    resolution improves accuracy but increases
-%                    computation time.
+%
+%   Grid resolution (Shannon path) is the entropyExpTens default
+%   (nPointsPerDim = 1200 over [0, max(spec_p) + 4*sigma]). Users
+%   needing finer control should call entropyExpTens directly with a
+%   pre-built density and their own nPointsPerDim / gridLimit.
 %
 %   Output:
-%     H     — Spectral entropy (scalar, non-negative). When
-%             'normalize' is true (default), H is in [0, 1]. Lower
-%             values indicate greater consonance (more spectral
-%             overlap).
+%     H     — Spectral entropy. Scalar for a single chord, nRows-by-1
+%             vector for a batched input. When method='shannon' and
+%             normalize=true (defaults), H is in [0, 1] with lower
+%             values indicating greater consonance.
 %
 %   Examples:
-%     % Spectral entropy of a JI major triad (with harmonic spectra)
+%     % Shannon entropy of a JI major triad (with harmonic spectra)
 %     H = spectralEntropy([0, 386.31, 701.96], [], 12, ...
 %                         'spectrum', {'harmonic', 24, 'powerlaw', 1})
+%
+%     % Rényi-2 of the same chord (must pass normalize=false)
+%     H = spectralEntropy([0, 386.31, 701.96], [], 12, ...
+%                         'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
+%                         'method', 'renyi2', 'normalize', false)
 %
 %     % Compare JI vs 12-EDO
 %     spec = {'harmonic', 24, 'powerlaw', 1};
@@ -84,10 +88,6 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
 %     p = convertPitch(f, 'hz', 'cents');
 %     H = spectralEntropy(p, w, 12)
-%
-%     % Unnormalised entropy in bits
-%     H = spectralEntropy([0, 400, 700], [], 12, 'normalize', false, ...
-%                         'spectrum', {'harmonic', 24, 'powerlaw', 1})
 %
 %   References:
 %     Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
@@ -105,15 +105,29 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         w {mustBeNumeric} = []
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {}
+        nvArgs.method (1,:) char ...
+            {mustBeMember(nvArgs.method, {'shannon','renyi2'})} = 'shannon'
         nvArgs.normalize (1,1) logical = true
         nvArgs.base (1,1) {mustBePositive} = 2
-        nvArgs.resolution (1,1) {mustBePositive} = 1
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
             = mptDefaults('truncationSigmas')
         nvArgs.kernelPrecision (1,:) char ...
             {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
             = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
+    end
+
+    % renyi2 + normalize=true is not implementable (no natural [0,1]
+    % reference for the analytical form). Mirror entropyExpTens's
+    % constraint upfront with a spectralEntropy-specific identifier
+    % so the user sees the API surface they invoked.
+    if strcmp(nvArgs.method, 'renyi2') && nvArgs.normalize
+        error('spectralEntropy:renyi2NormalizeNotSupported', ...
+            ['method=''renyi2'' with normalize=true is not implemented. ' ...
+             'The analytical Rényi-2 entropy has no natural [0, 1] ' ...
+             'reference (unlike Shannon, which normalises by ' ...
+             'log_b(N) on the grid). Pass normalize=false to use ' ...
+             'this method.']);
     end
 
     % --- Batched dispatch (v2.1+) ---
@@ -132,15 +146,12 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     end
 
     specArgs = nvArgs.spectrum;
-    step     = nvArgs.resolution;
-
     if ~iscell(specArgs)
         error('spectralEntropy:badSpectrum', ...
               '''spectrum'' value must be a cell array of addSpectra arguments.');
     end
 
     % === Weight defaults ===
-
     if isempty(w)
         w = ones(numel(p), 1);
     end
@@ -150,19 +161,18 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         end
         w = w * ones(numel(p), 1);
     end
-
     if numel(w) ~= numel(p)
         error('w must have the same number of entries as p (or be empty).');
     end
 
     % === Transpose so lowest pitch = 0 ===
-
     p = p - min(p);
 
-    % === Build composite spectrum ===
-    % If a 'spectrum' argument was provided, enrich pitches via
-    % addSpectra; otherwise use the pitches and weights as given.
-
+    % === Apply addSpectra if requested ===
+    % We apply it here (rather than via entropyExpTens's own 'spectrum'
+    % kwarg) so we can compute the grid bounds from spec_p, which only
+    % exists after addSpectra. Passing 'spectrum' to entropyExpTens
+    % would require us to know xMax up front, which we don't.
     if isempty(specArgs)
         spec_p = p;
         spec_w = w;
@@ -170,54 +180,64 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         [spec_p, spec_w] = addSpectra(p, w, specArgs{:});
     end
 
-    margin = 4 * sigma;
-    x = 0:step:(max(spec_p) + margin);
+    % Up-front time estimate: dominated by the kernel-pair work in
+    % evalExpTens (Shannon path) — numel(spec_p) * numel(grid).
+    % renyi2 is analytical (no grid), so the estimate is irrelevant
+    % there; emit only for the shannon path. Use the entropyExpTens
+    % default grid size (1200 points per dim) for the estimate.
+    if strcmp(nvArgs.method, 'shannon')
+        nGrid = 1200;  % matches entropyExpTens default nPointsPerDim
+        nPairs = double(numel(spec_p)) * double(nGrid);
+        estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
+    end
 
-    % Time estimate (kernel cost only; eval_exp_tens kernel pair count
-    % is the dominant work for spectral entropy at typical scales).
-    nPairs = double(numel(spec_p)) * double(numel(x));
-    estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
-
-    H = localSpectralEntropyCore( ...
-        spec_p, spec_w, sigma, margin, step, ...
-        nvArgs.normalize, nvArgs.base, ...
-        nvArgs.truncationSigmas, nvArgs.kernelPrecision);
-
+    H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs);
 end
 
 
 % =====================================================================
-%  Local helper: 1-D density eval and Shannon entropy.
+%  Local helper: delegate the entropy computation to entropyExpTens.
 % =====================================================================
 
-function H = localSpectralEntropyCore( ...
-        spec_p, spec_w, sigma, margin, step, ...
-        normalize, base, truncationSigmas, kernelPrecision)
-%LOCALSPECTRALENTROPYCORE Evaluate the 1-D density and compute entropy.
+function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
+%LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyExpTens.
 %
-%   Called from the scalar path (which applies the spectrum first,
-%   then this) and from the batched path (which applies the spectrum
-%   per unique canonical chord). spectralEntropy has no fixed
-%   template — each row's spec_p depends on the input — so this
-%   helper is the unit of cached work in the batched path.
+%   Used by both the scalar path (called directly after spec_p, spec_w
+%   are prepared) and by the batched per-row path (called once per
+%   unique canonical chord via the row loop).
+%
+%   For method='shannon', passes only the non-periodic grid bounds
+%   (xMin = 0, xMax = max(spec_p) + 4*sigma) and lets entropyExpTens
+%   use its default nPointsPerDim. Users who want finer or coarser
+%   grid control should call entropyExpTens directly with a pre-built
+%   density.
+%
+%   For method='renyi2', entropyExpTens uses the analytical inner-
+%   product form — no grid involved.
 
-    T = buildExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
-        'verbose', false);
-    x = 0:step:(max(spec_p) + margin);
-    t = evalExpTens(T, x, ...
-        'truncationSigmas', truncationSigmas, ...
-        'kernelPrecision', kernelPrecision, ...
-        'verbose', false);
-
-    q = t(:) / sum(t(:));
-    N = numel(q);  % total bins (before removing zeros)
-    q(q == 0) = [];  % apply 0 * log(0) = 0 convention
-
-    H = -sum(q .* (log(q) / log(base)));
-
-    if normalize
-        H = H / (log(N) / log(base));
+    if strcmp(nvArgs.method, 'renyi2')
+        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+            'method', 'renyi2', ...
+            'normalize', nvArgs.normalize, ...
+            'base', nvArgs.base, ...
+            'truncationSigmas', nvArgs.truncationSigmas, ...
+            'kernelPrecision', nvArgs.kernelPrecision, ...
+            'verbose', false);
+        return;
     end
+
+    margin = 4 * sigma;
+    xMax = max(spec_p) + margin;
+
+    H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+        'method', 'shannon', ...
+        'normalize', nvArgs.normalize, ...
+        'base', nvArgs.base, ...
+        'xMin', 0, ...
+        'xMax', xMax, ...
+        'truncationSigmas', nvArgs.truncationSigmas, ...
+        'kernelPrecision', nvArgs.kernelPrecision, ...
+        'verbose', false);
 end
 
 
@@ -232,12 +252,12 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
 %   (NaN entries dropped per row); rows with fewer than 1 valid pitch
 %   yield NaN.
 %
-%   v2.2+: spectral entropy has no fixed template to lift (each
-%   row's spec_p depends on the input), but structurally-identical
-%   canonical chords (under permutation + transposition) share a
-%   single cached result via the canonical key from
-%   internal.chordCacheKey. For batches with repeated chord shapes
-%   the per-row cost collapses to a hash lookup.
+%   v2.2+: spectral entropy has no fixed template to lift (each row's
+%   spec_p depends on the input), but structurally-identical canonical
+%   chords (under permutation + transposition) share a single cached
+%   result via the canonical key from internal.chordCacheKey. For
+%   batches with repeated chord shapes the per-row cost collapses to
+%   a hash lookup.
 
     nRows = size(P, 1);
     H = nan(nRows, 1);
@@ -254,22 +274,14 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
         end
     end
 
-    specArgs  = nvArgs.spectrum;
-    step      = nvArgs.resolution;
-    normalize = nvArgs.normalize;
-    base      = nvArgs.base;
-    truncationSigmas = nvArgs.truncationSigmas;
-    kernelPrecision  = nvArgs.kernelPrecision;
-
+    specArgs = nvArgs.spectrum;
     if ~iscell(specArgs)
         error('spectralEntropy:badSpectrum', ...
               '''spectrum'' value must be a cell array of addSpectra arguments.');
     end
 
-    margin = 4 * sigma;
-
-    % --- Up-front time estimate (matches main-loop cost) ---------
-    if nvArgs.verbose && nRows > 1
+    % --- Up-front time estimate (shannon path only; renyi2 is analytical) ---
+    if strcmp(nvArgs.method, 'shannon') && nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
 
@@ -284,9 +296,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
             end
             wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
                 haveRowWeights, pValidS);
-            localBatchEvalOneSE(pValidS, wValidS, ...
-                specArgs, sigma, margin, step, ...
-                normalize, base, truncationSigmas, kernelPrecision);
+            localBatchEvalOneSE(pValidS, wValidS, sigma, nvArgs);
             warmupDone = true;
             break;
         end
@@ -304,9 +314,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
                 end
                 wValidS = localRowWeights(W, W_broadcast, sIdx, validS, ...
                     haveRowWeights, pValidS);
-                localBatchEvalOneSE(pValidS, wValidS, ...
-                    specArgs, sigma, margin, step, ...
-                    normalize, base, truncationSigmas, kernelPrecision);
+                localBatchEvalOneSE(pValidS, wValidS, sigma, nvArgs);
                 nValidCal = nValidCal + 1;
             end
             if nValidCal > 0
@@ -319,9 +327,9 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
     end
 
     % --- Main loop with canonical-key cache ----------------------
-    % spectralEntropy is invariant under joint transposition
-    % (lowest pitch shifted to 0 internally), so the canonical key
-    % uses (isRel=true, isPer=false).
+    % spectralEntropy is invariant under joint transposition (lowest
+    % pitch shifted to 0 internally), so the canonical key uses
+    % (isRel=true, isPer=false).
     resultCache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
     for k = 1:nRows
@@ -340,9 +348,7 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
         if isKey(resultCache, key)
             H(k) = resultCache(key);
         else
-            Hk = localBatchEvalOneSE(pK, wK, ...
-                specArgs, sigma, margin, step, ...
-                normalize, base, truncationSigmas, kernelPrecision);
+            Hk = localBatchEvalOneSE(pK, wK, sigma, nvArgs);
             H(k) = Hk;
             resultCache(key) = Hk;
         end
@@ -362,12 +368,11 @@ function w = localRowWeights(W, W_broadcast, rowIdx, validMask, haveRowWeights, 
 end
 
 
-function H = localBatchEvalOneSE( ...
-        pValid, wValid, specArgs, sigma, margin, step, ...
-        normalize, base, truncationSigmas, kernelPrecision)
-%LOCALBATCHEVALONESE Apply spectrum and call the entropy core.
+function H = localBatchEvalOneSE(pValid, wValid, sigma, nvArgs)
+%LOCALBATCHEVALONESE Apply transposition + spectrum and delegate.
 
     pShifted = pValid(:) - min(pValid);
+    specArgs = nvArgs.spectrum;
     if isempty(specArgs)
         spec_p = pShifted;
         spec_w = wValid(:);
@@ -375,7 +380,5 @@ function H = localBatchEvalOneSE( ...
         [spec_p, spec_w] = addSpectra(pShifted, wValid(:), specArgs{:});
     end
 
-    H = localSpectralEntropyCore( ...
-        spec_p, spec_w, sigma, margin, step, ...
-        normalize, base, truncationSigmas, kernelPrecision);
+    H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs);
 end

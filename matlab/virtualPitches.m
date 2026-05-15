@@ -258,7 +258,7 @@ function [vp_w, N_xcorr] = localVPChordOnly( ...
     chord_p, chord_w, sigma, ...
     tmpl_vals, tmpl_norm_sq, margin, step, ...
     truncationSigmas, kernelPrecision)
-%LOCALVPCHORDONLY Chord-side eval and normalized cross-correlation.
+%LOCALVPCHORDONLY Chord-side normalized cross-correlation.
 %
 %   Returns the offset-independent half-cosine-similarity profile vp_w
 %   and the cross-correlation length N_xcorr. The caller is
@@ -266,20 +266,16 @@ function [vp_w, N_xcorr] = localVPChordOnly( ...
 %   in step units plus the per-row pitch offset; that arithmetic is
 %   row-dependent and so is not part of what gets cached when this
 %   helper is called from the batched path.
+%
+%   The build-eval-conv-normalise core is shared with
+%   templateHarmonicity via internal.templateXcorrChordSide; this
+%   wrapper exists only to extract N_xcorr alongside vp_w (the caller
+%   needs the length to reconstruct vp_p).
 
-    chord_dens = buildExpTens(chord_p, chord_w, sigma, 1, false, ...
-        false, 1200, 'verbose', false);
-    x_chord = 0:step:(max(chord_p) + margin);
-    chord_vals = evalExpTens(chord_dens, x_chord, ...
-        'truncationSigmas', truncationSigmas, ...
-        'kernelPrecision', kernelPrecision, ...
-        'verbose', false);
-
-    xcorr_vals = conv(chord_vals, fliplr(tmpl_vals), 'full');
-    norm_factor = sqrt(sum(chord_vals .^ 2) * tmpl_norm_sq);
-    xcorr_norm = xcorr_vals / norm_factor;
-
-    vp_w = xcorr_norm(:);
+    vp_w = internal.templateXcorrChordSide( ...
+        chord_p, chord_w, sigma, ...
+        tmpl_vals, tmpl_norm_sq, margin, step, ...
+        truncationSigmas, kernelPrecision);
     N_xcorr = numel(vp_w);
 end
 

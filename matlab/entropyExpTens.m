@@ -1,56 +1,79 @@
 function H = entropyExpTens(varargin)
-%ENTROPYEXPTENS Shannon entropy of an expectation tensor density.
+%ENTROPYEXPTENS Entropy of an expectation tensor density.
 %
-%   H = ENTROPYEXPTENS(p, w, sigma, r, isRel, isPer, period) returns the
-%   Shannon entropy of the single-attribute expectation tensor defined
-%   by the weighted multiset (p, w), where p represents pitches or
-%   positions. The tensor is built, evaluated on a regular grid, and
-%   the Shannon entropy of the resulting probability mass function
-%   returned. By default the result is normalized to [0, 1] by
-%   dividing by log_base(N), where N is the total number of grid
-%   points.
+%   H = ENTROPYEXPTENS(...) returns the entropy of a single- or
+%   multi-attribute expectation tensor density. Two variants are
+%   supported via the 'method' name-value argument:
 %
-%   H = ENTROPYEXPTENS(pAttr, w, sigmaVec, rVec, groups, isRelVec, ...
-%                      isPerVec, periodVec) returns the Shannon
-%   entropy of the multi-attribute expectation tensor (MAET) defined
-%   by the per-attribute matrices pAttr and the per-group parameters.
-%   The density is evaluated on the Cartesian product of one 1-D grid
-%   per effective dimension (one per non-isRel tuple slot for each
-%   attribute), using each attribute's group-domain.
+%     'shannon' (default) --- discretized Shannon entropy of the
+%       density on a Cartesian-product grid (one 1-D linspace per
+%       effective dimension, on each group's domain). The differential
+%       entropy of a Gaussian mixture has no closed-form analytic
+%       solution, so the density is evaluated on the grid, normalized
+%       to a probability mass function, and -sum(q*log_b(q)) returned.
+%       With 'normalize', true (default), the result is divided by
+%       log_b(N), where N is the total number of grid points; this
+%       gives a value in [0, 1] independent of grid resolution.
+%       Accuracy depends on the ratio of sigma to the grid spacing.
+%       The convention 0 * log(0) = 0 is applied.
 %
-%   H = ENTROPYEXPTENS(T) returns the Shannon entropy of a pre-built
-%   density struct T (as returned by buildExpTens). Dispatches on the
-%   tag field: 'ExpTensDensity' -> SA path, 'MaetDensity' -> MA path.
-%   When a struct is passed, no further positional arguments are
-%   required.
+%     'renyi2' --- analytical Rényi-2 (collision) entropy
+%       H_2 = -log_b(<T,T> / Z^2), computed in closed form via the
+%       orbit-Möbius inner product (<T,T>) and the closed-form total
+%       mass (Z). Grid-free; works at arbitrary tensor order r where
+%       the Shannon-path Cartesian grid would exhaust memory.
+%       Currently restricted to single-density input (scalar density
+%       struct or raw scalar SA/MA); list, batched, and windowed
+%       input forms are not yet implemented and produce informative
+%       errors. 'normalize', true is not supported with 'renyi2' ---
+%       the continuous Rényi-2 entropy ranges over (-Inf, log_b V]
+%       rather than Shannon's [0, log_b N], so a uniform normaliser
+%       does not yield a [0, 1] value; pass 'normalize', false to use
+%       this method.
 %
-%   HCell = ENTROPYEXPTENS({T_1, ..., T_n}) returns a 1-by-n cell of
-%   entropy values, one per density struct. List mode (v2.1+); Option
-%   II shape rule applies (length-1 input returns length-1 cell). No
-%   further positional arguments may be passed.
+%   Both methods accept the input forms below. Forms marked
+%   "Shannon-only" raise an informative error under method='renyi2'.
 %
-%   H = ENTROPYEXPTENS(P, W, sigma, r, isRel, isPer, period) where P
-%   is an nRows-by-K matrix (rows = multisets) returns an nRows-by-1
-%   vector of entropy values (batched-raw mode, v2.1+). Detection is
-%   by P having both dimensions > 1; rows with fewer than r valid
-%   pitches return NaN.
+%   Input forms (both methods):
+%
+%     H = ENTROPYEXPTENS(p, w, sigma, r, isRel, isPer, period)
+%       Single-attribute raw form. Builds the density from the
+%       weighted multiset (p, w), where p represents pitches or
+%       positions.
+%
+%     H = ENTROPYEXPTENS(pAttr, w, sigmaVec, rVec, groups, ...
+%                        isRelVec, isPerVec, periodVec)
+%       Multi-attribute raw form. pAttr is a cell of per-attribute
+%       matrices; per-group parameters as in buildExpTens.
+%
+%     H = ENTROPYEXPTENS(T)
+%       Pre-built density form. T is a struct as returned by
+%       buildExpTens. Dispatches on its tag: 'ExpTensDensity' -> SA,
+%       'MaetDensity' -> MA, 'WindowedMaetDensity' -> MA (Shannon
+%       only). When a struct is passed, no further positional
+%       arguments are required.
+%
+%   Input forms (Shannon-only):
+%
+%     HCell = ENTROPYEXPTENS({T_1, ..., T_n})
+%       List form. Cell of density structs; returns a 1-by-n cell of
+%       per-density entropy values. Option II shape rule applies
+%       (length-1 input returns length-1 cell).
+%
+%     H = ENTROPYEXPTENS(P, W, sigma, r, isRel, isPer, period)
+%       Batched-raw form. P is an nRows-by-K matrix (rows = multisets);
+%       returns an nRows-by-1 column vector. Detection is by P having
+%       both dimensions > 1; rows with fewer than r valid pitches
+%       return NaN.
 %
 %   H = ENTROPYEXPTENS(..., Name, Value) specifies additional options
 %   using one or more name-value arguments.
 %
-%   The differential entropy of a Gaussian mixture has no closed-form
-%   analytic solution. This function therefore discretizes the tensor
-%   over a fine grid and computes the Shannon entropy of the resulting
-%   probability mass function. Accuracy depends on the ratio of sigma
-%   to the grid spacing.
-%
-%   For periodic groups (isPer = true), the domain is [0, period).
-%   For non-periodic groups, the user must specify bounds via xMin
-%   and xMax. These should be wide enough to capture the full support
-%   of the distribution (e.g., at least 3*sigma beyond the outermost
-%   values).
-%
-%   The convention 0 * log(0) = 0 is applied.
+%   For periodic groups (isPer = true), the Shannon grid spans
+%   [0, period). For non-periodic groups, bounds must be specified
+%   via xMin and xMax, wide enough to capture the full support of the
+%   distribution (e.g., at least 3*sigma beyond the outermost values).
+%   Rényi-2 is grid-free and ignores xMin, xMax, and nPointsPerDim.
 %
 %   Inputs (SA path)
 %       p       - Pitch or position values (vector); or a struct as
@@ -75,36 +98,46 @@ function H = entropyExpTens(varargin)
 %       periodVec - 1 x G per-group periods.
 %
 %   Name-Value Arguments
+%       'method'        - 'shannon' (default) or 'renyi2'. See above.
 %       'spectrum'      - (SA only.) Cell array of arguments passed to
 %                         addSpectra. If provided, partials are added
 %                         to the multiset before building the tensor.
 %                         For MA, apply addSpectra to the pitch
 %                         attribute before calling.
-%       'normalize'     - Logical (default: true). Divide by log_base(N)
-%                         to give a value in [0, 1].
-%       'base'          - Logarithm base (default: 2). When normalize
-%                         is true, the base cancels and has no effect.
-%       'nPointsPerDim' - Grid resolution per effective dimension
-%                         (default: 1200).
-%       'xMin'          - SA: scalar. MA: scalar (broadcast to all
-%                         non-periodic groups) or length-G vector (one
-%                         entry per group; periodic-group entries are
-%                         ignored). Default: NaN.
+%       'normalize'     - Logical (default: true). Shannon only:
+%                         divide by log_b(N) to give a value in
+%                         [0, 1]. method='renyi2' with normalize=true
+%                         errors.
+%       'base'          - Logarithm base (default: 2). For Shannon
+%                         with normalize=true, the base cancels and
+%                         has no effect on the result.
+%       'nPointsPerDim' - Shannon only: grid resolution per effective
+%                         dimension (default: 1200).
+%       'xMin'          - Shannon, non-periodic only. SA: scalar.
+%                         MA: scalar (broadcast to all non-periodic
+%                         groups) or length-G vector (one entry per
+%                         group; periodic-group entries are ignored).
+%                         Default: NaN.
 %       'xMax'          - As xMin. Default: NaN.
-%       'gridLimit'     - Hard ceiling on total grid size
-%                         (nPointsPerDim ^ dim) before allocation.
+%       'gridLimit'     - Shannon only: hard ceiling on total grid
+%                         size (nPointsPerDim ^ dim) before allocation.
 %                         Applies to MA always, and to SA whenever the
 %                         density's effective dimension dim > 1 (e.g.
 %                         r = 2 with isRel = false). Default: 1e8.
 %                         Errors with a suggested reduction if exceeded.
 %
 %   Examples
+%       % Shannon entropy of a 12-EDO chromatic scale (periodic, SA)
 %       H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12);
 %
+%       % Same chord via pre-built density (Shannon)
 %       T = buildExpTens([0 4 7], ones(1,3), 10, 1, false, true, 12);
 %       H = entropyExpTens(T);
 %
-%       % MA: pitch + time
+%       % Rényi-2 of the same chord --- closed-form, no grid
+%       H = entropyExpTens(T, 'method', 'renyi2', 'normalize', false);
+%
+%       % MA: pitch + time, Shannon
 %       pitch = [0 12; 4 15; 7 19];  time = [0 1];
 %       H = entropyExpTens({pitch, time}, [], ...
 %                          [20, 0.1], [2, 1], [], ...
@@ -135,7 +168,9 @@ if nPos < 1
           'At least one positional argument is required.');
 end
 
-% --- v2.2 method kwarg validation ---
+% Validate the method kwarg and reject the unimplementable combination
+% renyi2 + normalize=true (the analytical Rényi-2 form has no natural
+% [0, 1] reference).
 if ~ismember(nvArgs.method, {'shannon', 'renyi2'})
     error('entropyExpTens:badMethod', ...
           '''method'' must be ''shannon'' or ''renyi2''; got ''%s''.', ...
@@ -150,117 +185,136 @@ if strcmp(nvArgs.method, 'renyi2') && nvArgs.normalize
            'normalize=false to use this method.']);
 end
 
-% --- v2.2 method=''renyi2'' short-circuit ---
-% Restricted to single-density input (scalar density or raw scalar SA/MA).
-% List and batched input forms are not yet supported under renyi2.
-if strcmp(nvArgs.method, 'renyi2')
+% Dispatch on method. Both methods do parallel per-input-form
+% resolution; see localEntropyShannonDispatch and
+% localEntropyRenyi2Dispatch for the per-form branching. Shannon
+% supports the full input surface (single density, list of densities,
+% raw scalar SA/MA, raw batched SA, windowed MA). Renyi-2 is
+% restricted to single-density input — list, batched, and windowed
+% forms are not yet implemented and produce informative errors.
+if strcmp(nvArgs.method, 'shannon')
+    H = localEntropyShannonDispatch(posArgs, nvArgs);
+else
     H = localEntropyRenyi2Dispatch(posArgs, nvArgs);
-    return;
 end
-
-firstArg = posArgs{1};
-
-% --- Dispatch ---
-
-% 0. LIST mode (v2.1+): first arg is a cell of density structs.
-%    Returns a 1-by-n cell of per-density entropy values (Option II
-%    shape rule). Does NOT match the MA-raw cell-of-arrays form below
-%    (disambiguated by element type: structs vs numeric arrays).
-if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
-    if nPos > 1
-        error('entropyExpTens:listExtraArgs', ...
-              ['When a cell of density structs is passed, no further ' ...
-               'positional arguments may be provided.']);
-    end
-    H = localEntropyDensityList(firstArg, nvArgs);
-    return;
-end
-
-% 0b. BATCHED-RAW mode (v2.1+): first arg is a 2-D numeric matrix
-%     (rows = multisets) and total positional count is 7.
-%     Returns an nRows-by-1 vector of entropy values.
-if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1 ...
-        && nPos == 7
-    H = localEntropyBatchedRaw(posArgs, nvArgs);
-    return;
-end
-
-% 1. Precomputed struct (tag-based).
-if isstruct(firstArg) && isfield(firstArg, 'tag')
-    if nPos > 1
-        error('entropyExpTens:extraArgs', ...
-              ['When a precomputed density struct is passed, no ' ...
-               'further positional arguments may be provided.']);
-    end
-    switch firstArg.tag
-        case 'ExpTensDensity'
-            H = localEntropySA(firstArg, nvArgs);
-            return;
-        case 'MaetDensity'
-            H = localEntropyMA(firstArg, nvArgs);
-            return;
-        case 'WindowedMaetDensity'
-            H = localEntropyMA(firstArg, nvArgs);
-            return;
-        otherwise
-            error('entropyExpTens:unknownTag', ...
-                  'Unknown density struct tag: %s.', firstArg.tag);
-    end
-end
-
-% 2. MA raw args (first arg is a cell).
-if iscell(firstArg)
-    if nPos ~= 8
-        error('entropyExpTens:wrongArgCountMA', ...
-              ['Multi-attribute raw call expects 8 positional arguments ' ...
-               '(pAttr, w, sigmaVec, rVec, groups, isRelVec, isPerVec, ' ...
-               'periodVec); got %d.'], nPos);
-    end
-    pAttr     = posArgs{1};
-    w         = posArgs{2};
-    sigmaVec  = posArgs{3};
-    rVec      = posArgs{4};
-    groups    = posArgs{5};
-    isRelVec  = posArgs{6};
-    isPerVec  = posArgs{7};
-    periodVec = posArgs{8};
-    dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
-                        isRelVec, isPerVec, periodVec, 'verbose', false);
-    H = localEntropyMA(dens, nvArgs);
-    return;
-end
-
-% 3. SA raw args.
-if nPos ~= 7
-    error('entropyExpTens:wrongArgCountSA', ...
-          ['Single-attribute raw call expects 7 positional arguments ' ...
-           '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
-end
-p      = posArgs{1};
-w      = posArgs{2};
-sigma  = posArgs{3};
-r      = posArgs{4};
-isRel  = posArgs{5};
-isPer  = posArgs{6};
-period = posArgs{7};
-
-% Apply spectral enrichment if requested.
-if ~isempty(nvArgs.spectrum)
-    if ~iscell(nvArgs.spectrum)
-        error('entropyExpTens:badSpectrum', ...
-              '''spectrum'' value must be a cell array of addSpectra arguments.');
-    end
-    [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
-end
-
-T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
-H = localEntropySA(T, nvArgs);
 
 end
 
 
 % =========================================================================
-%  localEntropySA — single-attribute Shannon entropy (v2.0.0 body)
+%  localEntropyShannonDispatch — input-form resolution for Shannon entropy
+% =========================================================================
+
+function H = localEntropyShannonDispatch(posArgs, nvArgs)
+%LOCALENTROPYSHANNONDISPATCH  Resolve input form and route to SA / MA helper.
+%
+%   Shannon entropy of the density evaluated on a Cartesian-product
+%   grid; supports the full input surface (precomputed density struct,
+%   list of densities, MA raw args, SA raw args, SA batched 2-D
+%   matrix).
+
+    nPos = numel(posArgs);
+    firstArg = posArgs{1};
+
+    % 0. LIST mode: first arg is a cell of density structs.
+    %    Returns a 1-by-n cell of per-density entropy values (Option II
+    %    shape rule). Does NOT match the MA-raw cell-of-arrays form
+    %    below (disambiguated by element type: structs vs numeric arrays).
+    if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
+        if nPos > 1
+            error('entropyExpTens:listExtraArgs', ...
+                  ['When a cell of density structs is passed, no further ' ...
+                   'positional arguments may be provided.']);
+        end
+        H = localEntropyDensityList(firstArg, nvArgs);
+        return;
+    end
+
+    % 0b. BATCHED-RAW mode: first arg is a 2-D numeric matrix
+    %     (rows = multisets) and total positional count is 7.
+    %     Returns an nRows-by-1 vector of entropy values.
+    if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1 ...
+            && nPos == 7
+        H = localEntropyBatchedRaw(posArgs, nvArgs);
+        return;
+    end
+
+    % 1. Precomputed struct (tag-based).
+    if isstruct(firstArg) && isfield(firstArg, 'tag')
+        if nPos > 1
+            error('entropyExpTens:extraArgs', ...
+                  ['When a precomputed density struct is passed, no ' ...
+                   'further positional arguments may be provided.']);
+        end
+        switch firstArg.tag
+            case 'ExpTensDensity'
+                H = localEntropySA(firstArg, nvArgs);
+                return;
+            case 'MaetDensity'
+                H = localEntropyMA(firstArg, nvArgs);
+                return;
+            case 'WindowedMaetDensity'
+                H = localEntropyMA(firstArg, nvArgs);
+                return;
+            otherwise
+                error('entropyExpTens:unknownTag', ...
+                      'Unknown density struct tag: %s.', firstArg.tag);
+        end
+    end
+
+    % 2. MA raw args (first arg is a cell).
+    if iscell(firstArg)
+        if nPos ~= 8
+            error('entropyExpTens:wrongArgCountMA', ...
+                  ['Multi-attribute raw call expects 8 positional arguments ' ...
+                   '(pAttr, w, sigmaVec, rVec, groups, isRelVec, isPerVec, ' ...
+                   'periodVec); got %d.'], nPos);
+        end
+        pAttr     = posArgs{1};
+        w         = posArgs{2};
+        sigmaVec  = posArgs{3};
+        rVec      = posArgs{4};
+        groups    = posArgs{5};
+        isRelVec  = posArgs{6};
+        isPerVec  = posArgs{7};
+        periodVec = posArgs{8};
+        dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
+                            isRelVec, isPerVec, periodVec, 'verbose', false);
+        H = localEntropyMA(dens, nvArgs);
+        return;
+    end
+
+    % 3. SA raw args.
+    if nPos ~= 7
+        error('entropyExpTens:wrongArgCountSA', ...
+              ['Single-attribute raw call expects 7 positional arguments ' ...
+               '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
+    end
+    p      = posArgs{1};
+    w      = posArgs{2};
+    sigma  = posArgs{3};
+    r      = posArgs{4};
+    isRel  = posArgs{5};
+    isPer  = posArgs{6};
+    period = posArgs{7};
+
+    % Apply spectral enrichment if requested.
+    if ~isempty(nvArgs.spectrum)
+        if ~iscell(nvArgs.spectrum)
+            error('entropyExpTens:badSpectrum', ...
+                  '''spectrum'' value must be a cell array of addSpectra arguments.');
+        end
+        [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
+    end
+
+    T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+    H = localEntropySA(T, nvArgs);
+
+end
+
+
+% =========================================================================
+%  localEntropySA — single-attribute Shannon entropy
 % =========================================================================
 
 function H = localEntropySA(T, nvArgs)
@@ -511,7 +565,7 @@ end
 
 
 % =====================================================================
-%  v2.1 unified dispatch helpers: density-list and batched-raw modes.
+%  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
 function HCell = localEntropyDensityList(densCell, nvArgs)
@@ -668,16 +722,17 @@ end
 
 
 % =========================================================================
-%  v2.2 Rényi-2 (collision) entropy via orbit-Möbius IP
+%  Rényi-2 (collision) entropy via orbit-Möbius IP
 % =========================================================================
 
 function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 %LOCALENTROPYRENYI2DISPATCH  Resolve input form and route to SA / MA helper.
 %
-%   v2.2 Rényi-2 path. Restricted to single-density input (scalar
-%   density struct, raw scalar SA, or raw scalar MA). List and batched
-%   input forms raise NotImplementedError-style errors. Windowed MA is
-%   also not yet supported.
+%   Analytical Rényi-2 (collision) entropy via the orbit-Möbius
+%   inner-product machinery. Restricted to single-density input
+%   (scalar density struct, raw scalar SA, or raw scalar MA). List
+%   and batched input forms raise NotImplementedError-style errors.
+%   Windowed MA is also not yet supported.
 
     nPos = numel(posArgs);
     firstArg = posArgs{1};

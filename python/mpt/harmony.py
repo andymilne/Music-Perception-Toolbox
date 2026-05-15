@@ -12,8 +12,69 @@ import warnings
 import numpy as np
 
 from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
+from .entropy import entropy_exp_tens
 from .spectra import add_spectra
 from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
+
+
+# ===================================================================
+#  Internal: shared template cross-correlation chord-side compute
+# ===================================================================
+
+
+def _template_xcorr_chord_side(
+    chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
+    truncation_sigmas, kernel_precision,
+):
+    """Build the chord density, evaluate it on the chord grid, and
+    return the normalised cross-correlation against the pre-evaluated
+    template.
+
+    Shared by :func:`template_harmonicity` (which returns ``max`` of the
+    profile plus optional Harrison-2020 entropy) and
+    :func:`virtual_pitches` (which returns the profile re-packaged as
+    ``(vp_p, vp_w)``). Hoisting this into a single helper means the
+    build-eval-conv-normalise sequence lives in exactly one place;
+    each caller adds only its function-specific postprocessing.
+
+    Parameters
+    ----------
+    chord_p, chord_w : ndarray
+        Chord pitches and weights (already shifted / spectrum-enriched
+        by the caller).
+    sigma : float
+        Gaussian smoothing width (cents).
+    tmpl_vals : ndarray
+        Pre-evaluated template values on its own grid.
+    tmpl_norm_sq : float
+        ``sum(tmpl_vals ** 2)`` (caller pre-computes once per batch).
+    margin : float
+        Grid margin in cents (typically ``4 * sigma``).
+    step : float
+        Grid spacing in cents (typically 1).
+    truncation_sigmas, kernel_precision : forwarded to ``eval_exp_tens``.
+
+    Returns
+    -------
+    ndarray
+        Normalised cross-correlation profile, length
+        ``len(chord_vals) + len(tmpl_vals) - 1``.
+    """
+    chord_dens = build_exp_tens(
+        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+    )
+    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
+    chord_vals = eval_exp_tens(
+        chord_dens, x_chord, verbose=False,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+    )
+
+    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
+    norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
+    if norm_factor > 0:
+        return xcorr / norm_factor
+    return xcorr
 
 
 # ===================================================================
@@ -27,26 +88,44 @@ def spectral_entropy(
     sigma: float = 12.0,
     *,
     spectrum: list | None = None,
+    method: str = "shannon",
     normalize: bool = True,
     base: float = 2.0,
-    resolution: float = 1.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
 ):
     """Spectral entropy of a weighted pitch multiset.
 
-    Computes the Shannon entropy of the smoothed composite spectrum
-    of a weighted pitch multiset. The spectrum is constructed by
-    adding harmonics to each pitch via :func:`~mpt.spectra.add_spectra`,
-    evaluating the resulting 1-D absolute non-periodic expectation
-    tensor on a fine grid, normalising to a probability distribution,
-    and computing the entropy.
+    Returns the entropy of the smoothed composite spectrum of a
+    weighted pitch multiset, used as a consonance measure: the greater
+    the overlap of partials (after Gaussian smoothing for perceptual
+    uncertainty), the lower the entropy. Lower entropy therefore
+    indicates greater consonance.
 
-    Spectral entropy aggregates the spectral pitch similarities of
-    all pairs of sounds in the multiset: the greater the overlap
-    of partials (after Gaussian smoothing), the lower the entropy.
-    Lower entropy therefore indicates greater consonance.
+    ``spectral_entropy`` is a thin wrapper around
+    :func:`~mpt.entropy_exp_tens` with ``r=1``, ``is_rel=False``,
+    ``is_per=False`` (1-D absolute non-periodic density). It applies
+    :func:`~mpt.spectra.add_spectra` to enrich the pitches with
+    partials (if a ``spectrum`` argument is supplied), shifts the
+    lowest pitch to 0, computes appropriate grid bounds, and
+    delegates the entropy computation. Two methods are supported:
+
+    - ``method='shannon'`` (default) computes the discrete Shannon
+      entropy of the density evaluated on a regular grid, normalised
+      to ``[0, 1]`` by ``log_base(N)`` when ``normalize=True`` (the
+      default).
+    - ``method='renyi2'`` computes the analytical (grid-independent)
+      Rényi-2 / collision entropy via the inner-product / Möbius
+      machinery used by :func:`~mpt.entropy_exp_tens`. ``normalize=True``
+      is not supported under renyi2 (the analytical form has no
+      natural ``[0, 1]`` reference); pass ``normalize=False``.
+
+    Grid resolution (Shannon path) is the :func:`entropy_exp_tens`
+    default (``n_points_per_dim=1200`` over ``[0, max(spec_p) + 4*sigma]``).
+    Users needing finer control should call :func:`entropy_exp_tens`
+    directly with a pre-built density and their own ``n_points_per_dim``
+    or ``grid_limit``.
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
@@ -66,15 +145,17 @@ def spectral_entropy(
         ``None``, the same shape as ``P``, or a length-``K`` vector
         broadcast across rows.
     sigma : float
-        Gaussian smoothing width in cents (typical: 6–15).
+        Gaussian smoothing width in cents (typical: 6-15).
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`.
+    method : {'shannon', 'renyi2'}
+        Entropy variant. See above.
     normalize : bool
-        If True (default), divide by log_base(N) to give [0, 1].
+        Shannon only: if True (default), divide by ``log_base(N)`` to
+        give ``[0, 1]``. ``method='renyi2'`` with ``normalize=True``
+        raises.
     base : float
         Logarithm base (default 2 = bits).
-    resolution : float
-        Grid spacing in cents (default 1).
     verbose : bool
         If True (default), print an upfront time estimate. Scalar mode
         prints a kernel-only ``estimate_comp_time`` estimate; batched
@@ -91,17 +172,29 @@ def spectral_entropy(
     ----------
     Milne, A. J., Bulger, D., & Herff, S. A. (2017). Exploring the
     space of perfectly balanced rhythms and scales. *Journal of
-    Mathematics and Music*, 11(2–3), 101–133.
+    Mathematics and Music*, 11(2-3), 101-133.
     """
+    if method not in ("shannon", "renyi2"):
+        raise ValueError(
+            f"method must be 'shannon' or 'renyi2'; got {method!r}."
+        )
+    if method == "renyi2" and normalize:
+        raise ValueError(
+            "method='renyi2' with normalize=True is not implemented. "
+            "The analytical Rényi-2 entropy has no natural [0, 1] "
+            "reference (unlike Shannon, which normalises by log_b(N) "
+            "on the grid). Pass normalize=False to use this method."
+        )
+
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _spectral_entropy_scalar(
-            p_arr, w, sigma, spectrum, normalize, base, resolution,
+            p_arr, w, sigma, spectrum, method, normalize, base,
             truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _spectral_entropy_batched(
-            p_arr, w, sigma, spectrum, normalize, base, resolution,
+            p_arr, w, sigma, spectrum, method, normalize, base,
             truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
@@ -110,9 +203,18 @@ def spectral_entropy(
     )
 
 
-def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
+def _spectral_entropy_scalar(p, w, sigma, spectrum, method, normalize, base,
                              truncation_sigmas, kernel_precision, verbose):
-    """Single-chord scalar dispatch (the v2.0 body)."""
+    """Single-chord scalar dispatch.
+
+    Prepares ``(spec_p, spec_w)`` (transposition shift + optional
+    add_spectra) and delegates to :func:`entropy_exp_tens`. For
+    ``method='shannon'`` the wrapper passes only the non-periodic grid
+    bounds ``x_min=0``, ``x_max=max(spec_p) + 4*sigma`` and lets
+    ``entropy_exp_tens`` use its default ``n_points_per_dim``. For
+    ``method='renyi2'`` the analytical inner-product form is used and
+    no grid bounds are needed.
+    """
     p = p.ravel()
     w = validate_weights(w, len(p))
     p = p - np.min(p)
@@ -122,35 +224,62 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
     else:
         spec_p, spec_w = p.copy(), w.copy()
 
-    T = build_exp_tens(spec_p, spec_w, sigma, 1, False, False, 1200, verbose=False)
+    # Up-front time estimate (Shannon path only; renyi2 is analytical).
+    # Use the entropy_exp_tens default n_points_per_dim for the estimate.
+    if method == "shannon":
+        n_grid = 1200  # matches entropy_exp_tens default
+        n_pairs = int(len(spec_p)) * n_grid
+        estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
+
+    return _spectral_entropy_delegate(
+        spec_p, spec_w, sigma, method, normalize, base,
+        truncation_sigmas, kernel_precision,
+    )
+
+
+def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, normalize, base,
+                               truncation_sigmas, kernel_precision):
+    """Delegate the entropy computation to entropy_exp_tens.
+
+    Used by both the scalar path and the batched per-row path.
+
+    For ``method='shannon'``, passes only the non-periodic grid bounds
+    (``x_min=0``, ``x_max=max(spec_p) + 4*sigma``) and lets
+    ``entropy_exp_tens`` use its default ``n_points_per_dim``. Users
+    needing finer or coarser grid control should call
+    ``entropy_exp_tens`` directly with a pre-built density.
+
+    For ``method='renyi2'``, the analytical inner-product / Möbius
+    form is used; no grid is constructed.
+    """
+    if method == "renyi2":
+        return entropy_exp_tens(
+            spec_p, spec_w, sigma, 1, False, False, 1200,
+            method="renyi2",
+            normalize=normalize,
+            base=base,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
 
     margin = 4 * sigma
-    x = np.arange(0, np.max(spec_p) + margin + resolution, resolution)
+    x_max = float(np.max(spec_p)) + margin
 
-    # Time estimate (kernel cost only; eval_exp_tens kernel pair count
-    # is the dominant work for spectral entropy at typical scales).
-    n_pairs = int(len(spec_p)) * int(len(x))
-    estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
-
-    t = eval_exp_tens(T, x, verbose=False,
-                      truncation_sigmas=truncation_sigmas,
-                      kernel_precision=kernel_precision)
-
-    total = np.sum(t)
-    if total == 0:
-        return 0.0
-
-    q = t / total
-    N = len(q)
-    q = q[q > 0]
-
-    H = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        H /= np.log(N) / np.log(base)
-    return H
+    return entropy_exp_tens(
+        spec_p, spec_w, sigma, 1, False, False, 1200,
+        method="shannon",
+        normalize=normalize,
+        base=base,
+        x_min=0.0,
+        x_max=x_max,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=False,
+    )
 
 
-def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution,
+def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
                               truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
@@ -184,10 +313,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
     out = np.full(M, np.nan)
     result_cache: dict = {}
 
-    # Up-front time estimate (printed once for the whole batch).
-    # Empirical calibration with warm-up; see _template_harmonicity_batched
-    # for rationale.
-    if verbose and M > 1:
+    # Up-front time estimate (Shannon path only; renyi2 is analytical).
+    if method == "shannon" and verbose and M > 1:
         n_cal = min(10, M)
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
 
@@ -205,8 +332,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
             else:
                 w_valid_s = None
             _spectral_entropy_scalar(
-                p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
-                resolution, truncation_sigmas, kernel_precision,
+                p_valid_s, w_valid_s, sigma, spectrum, method, normalize, base,
+                truncation_sigmas, kernel_precision,
                 verbose=False,
             )
             warmup_done = True
@@ -228,8 +355,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
                 else:
                     w_valid_s = None
                 _spectral_entropy_scalar(
-                    p_valid_s, w_valid_s, sigma, spectrum, normalize, base,
-                    resolution, truncation_sigmas, kernel_precision,
+                    p_valid_s, w_valid_s, sigma, spectrum, method, normalize,
+                    base, truncation_sigmas, kernel_precision,
                     verbose=False,
                 )
                 n_valid_cal += 1
@@ -238,9 +365,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
                 t_per_row = t_cal_total / n_valid_cal
                 est_total = t_cal_total + t_per_row * M
                 maybe_print_batched_estimate(
-
                     "spectral_entropy", M, est_total,
-
                 )
 
     for i in range(M):
@@ -270,7 +395,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution
             continue
 
         h = _spectral_entropy_scalar(
-            p_valid, w_valid, sigma, spectrum, normalize, base, resolution,
+            p_valid, w_valid, sigma, spectrum, method, normalize, base,
             truncation_sigmas, kernel_precision, verbose=False,
         )
         result_cache[key] = h
@@ -392,27 +517,23 @@ def _template_harmonicity_chord_only(
     ``chord_spectrum`` (if any) to ``chord_p, chord_w`` before
     invocation; this function performs only the chord-side
     evaluation, cross-correlation, and entropy computation.
+
+    The build-eval-conv-normalise core is shared with
+    :func:`virtual_pitches` via :func:`_template_xcorr_chord_side`;
+    this wrapper adds template-harmonicity-specific postprocessing
+    (max plus optional Harrison-2020 entropy of the profile).
     """
-    chord_dens = build_exp_tens(
-        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+    xcorr_norm = _template_xcorr_chord_side(
+        chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+        resolution, truncation_sigmas, kernel_precision,
     )
-    x_chord = np.arange(0, np.max(chord_p) + margin + resolution, resolution)
-    chord_vals = eval_exp_tens(
-        chord_dens, x_chord, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-
-    # Cross-correlation
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-
-    # Normalize (cosine similarity at each lag)
-    norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
 
     h_max = float(np.max(xcorr_norm))
 
-    # Entropy
+    # Harrison-2020 entropy of the profile. (Treated as a probability
+    # distribution; this is a discrete-Shannon computation on a vector,
+    # not on an expectation-tensor density, so it does not delegate to
+    # entropy_exp_tens.)
     q = xcorr_norm.copy()
     N = len(q)
     total = np.sum(q)
@@ -1050,7 +1171,8 @@ def _virtual_pitches_chord_only(
     chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin, step,
     truncation_sigmas, kernel_precision,
 ):
-    """Chord-side evaluation and normalised cross-correlation.
+    """Chord-side normalised cross-correlation, returning the profile
+    and its length.
 
     Returns ``(vp_w, n_xcorr)`` — the offset-independent profile and
     its length. The caller reconstructs ``vp_p = (np.arange(n_xcorr) -
@@ -1062,22 +1184,17 @@ def _virtual_pitches_chord_only(
     dispatch can build the template once for the whole batch and
     cache per-canonical-chord results in the offset-independent
     representation.
+
+    The build-eval-conv-normalise core is shared with
+    :func:`template_harmonicity` via :func:`_template_xcorr_chord_side`;
+    this wrapper exists only to extract ``n_xcorr`` alongside the
+    profile (the caller needs the length to reconstruct ``vp_p``).
     """
-    chord_dens = build_exp_tens(
-        chord_p, chord_w, sigma, 1, False, False, 1200, verbose=False,
+    vp_w = _template_xcorr_chord_side(
+        chord_p, chord_w, sigma, tmpl_vals, tmpl_norm_sq, margin,
+        step, truncation_sigmas, kernel_precision,
     )
-    x_chord = np.arange(0, np.max(chord_p) + margin + step, step)
-    chord_vals = eval_exp_tens(
-        chord_dens, x_chord, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
-    norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
-    xcorr_norm = xcorr / norm_factor if norm_factor > 0 else xcorr
-
-    return xcorr_norm, len(xcorr_norm)
+    return vp_w, len(vp_w)
 
 
 def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,

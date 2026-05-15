@@ -248,6 +248,14 @@ if do_tmpl:
 
 # --- Spectral entropy ---
 # One spectral_entropy call on a stacked chord matrix (v2.1+).
+#
+# Method choice: we use the default method='shannon'. spectral_entropy
+# also supports method='renyi2' (analytical Rényi-2 / collision entropy
+# via the inner-product / Möbius form used by entropy_exp_tens; requires
+# normalize=False). For consonance ordering both methods give the same
+# monotonic ranking of chords, but Shannon is the established choice in
+# the consonance literature (e.g. Smit et al. 2019, Milne et al. 2017)
+# and is used for this triad comparison.
 if do_spec_ent:
     chord_mat_se = np.column_stack([
         np.zeros(n_upper), int1_lin, int2_lin

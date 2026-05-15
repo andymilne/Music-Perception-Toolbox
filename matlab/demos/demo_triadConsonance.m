@@ -225,6 +225,14 @@ end
 
 % --- Spectral entropy ---
 % One spectralEntropy call on a stacked chord matrix (v2.1+).
+%
+% Method choice: we use the default method='shannon'. spectralEntropy
+% also supports method='renyi2' (analytical Rényi-2 / collision entropy
+% via the inner-product / Möbius form used by entropyExpTens; requires
+% 'normalize', false). For consonance ordering both methods give the
+% same monotonic ranking of chords, but Shannon is the established
+% choice in the consonance literature (e.g. Smit et al. 2019, Milne
+% et al. 2017) and is used for this triad comparison.
 if doSpecEnt
     chordMatSE = [zeros(nUpper, 1), int1Lin, int2Lin];
     t0 = tic;

@@ -365,9 +365,11 @@ class TestVerboseDispatchMessage:
 
     def test_message_throttled_within_a_top_level_call(self, capsys):
         """Within one top-level call, repeated internal dispatch decisions
-        emit at most one message per (func, chosen, routing_reason) triple.
-        Across top-level calls, each call re-announces (see
-        :meth:`test_message_re_announces_across_top_level_calls`).
+        emit at most one message per (func, chosen) pair. Two different
+        routing reasons leading to the same chosen path collapse to a
+        single announce — the visible distinction that matters is which
+        path ran, not why. Across top-level calls, each call re-announces
+        (see :meth:`test_message_re_announces_across_top_level_calls`).
         """
         dens = _make_dens(K=12, r=3, is_rel=True)
         # Many internal eval_exp_tens decisions inside one top-level

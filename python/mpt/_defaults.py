@@ -43,14 +43,14 @@ _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
 # once in this Python process. Reset by reset_defaults().
 _HINT_FIRED_KERNEL_EVAL: bool = False
 
-# Set of (func_name, chosen, routing_reason) triples already printed by
+# Set of (func_name, chosen) pairs already printed by
 # _maybe_show_dispatch_msg in the current top-level toolbox call. Cleared
 # at the start of every top-level call by :func:`_dispatch_scope`, so each
-# top-level user call sees each unique dispatch decision once. Also cleared
+# top-level user call sees each unique (func, chosen) decision once. Also cleared
 # by :func:`reset_defaults`. See :func:`_maybe_show_dispatch_msg` for the
 # rationale (per-top-level-call throttling, parallel to the MATLAB
 # ``internal.maybeShowDispatchMsg`` + ``internal.dispatchScope`` pair).
-_DISPATCH_MSG_SEEN: set[tuple[str, str, str]] = set()
+_DISPATCH_MSG_SEEN: set[tuple[str, str]] = set()
 
 # Thread-local depth counter for the dispatch-scope context manager.
 # Depth 0 outside any toolbox call; depth 1 on the outermost entry to a
@@ -74,8 +74,11 @@ def _dispatch_scope():
     re-announce decisions already announced earlier in that call.
 
     Each top-level user call (REPL invocation, script-level call) sees
-    each unique (func, chosen, reason) dispatch decision exactly once.
-    Repeat calls re-announce.
+    each unique (func, chosen) dispatch decision exactly once. Two
+    different routing reasons that lead to the same chosen path within
+    one top-level call collapse to a single announce — the visible
+    distinction that matters is which path ran, not why. Repeat
+    top-level calls re-announce.
 
     Parallels MATLAB ``internal.dispatchScope`` (``acquire`` / ``release``
     with a depth-tracked persistent state).
@@ -393,7 +396,7 @@ def _maybe_show_dispatch_msg(
     if not _DEFAULTS.get("show_hints", True):
         return
 
-    key = (func_name, chosen, routing_reason)
+    key = (func_name, chosen)
     if key in _DISPATCH_MSG_SEEN:
         return
     _DISPATCH_MSG_SEEN.add(key)

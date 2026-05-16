@@ -179,8 +179,8 @@ class TestVerboseDispatchMessage:
     def test_message_appears_when_hard_rule_decides(self):
         """r=1 → hard rule → no probe, but a dispatch message still
         fires. Under the current contract, the unprobed message names
-        only the path (the routing reason is retained in the
-        seen-key but not printed)."""
+        only the path (the routing reason is no longer part of the
+        throttle key — see the throttling contract test below)."""
         dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
         mpt.reset_defaults()
         buf = io.StringIO()
@@ -193,8 +193,8 @@ class TestVerboseDispatchMessage:
 
     def test_message_appears_for_user_override(self):
         """Explicit method → unprobed message fires; format names only
-        the path (the user-override routing reason is retained in the
-        seen-key but not printed)."""
+        the path (the routing reason for the user override is no
+        longer part of the throttle key)."""
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)
         mpt.reset_defaults()
         buf = io.StringIO()
@@ -208,9 +208,12 @@ class TestVerboseDispatchMessage:
 
     def test_message_throttled_within_a_top_level_call(self):
         """Throttling contract: dispatch messages are emitted at most
-        once per (func, chosen, routing_reason) triple within a single
-        top-level toolbox call. Repeated top-level calls each
-        re-announce; nested calls within one top-level scope do not.
+        once per (func, chosen) pair within a single top-level toolbox
+        call. Two different routing reasons leading to the same chosen
+        path collapse to a single announce — the visible distinction
+        that matters is which path ran, not why. Repeated top-level
+        calls each re-announce; nested calls within one top-level
+        scope do not.
 
         Verified here via the batched form, where a single top-level
         ``cos_sim_exp_tens`` call internally evaluates many SA-SA

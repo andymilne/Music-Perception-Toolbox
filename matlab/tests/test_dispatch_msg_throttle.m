@@ -2,13 +2,13 @@ function test_dispatch_msg_throttle()
 %TEST_DISPATCH_MSG_THROTTLE  Throttling and print-format for dispatch msgs.
 %
 %   Verifies that internal.maybeShowDispatchMsg:
-%     1. Prints the first occurrence of a (funcName, chosen, reason).
-%     2. Suppresses subsequent identical occurrences.
-%     3. Prints a new occurrence with a different reason (the reason
-%        contributes to the throttle key even though it is no longer
-%        shown to the user).
-%     4. Prints all occurrences afresh after a 'reset' call.
-%     5. Uses the documented print format: "<func>: chose '<chosen>'
+%     1. Prints the first occurrence of a (funcName, chosen) pair.
+%     2. Suppresses subsequent occurrences with the same (funcName,
+%        chosen), regardless of the routingReason argument (the reason
+%        is no longer part of the throttle key — two different reasons
+%        leading to the same chosen path collapse to a single announce).
+%     3. Prints all occurrences afresh after a 'reset' call.
+%     4. Uses the documented print format: "<func>: chose '<chosen>'
 %        path." for unprobed messages and adds "(estimated X s); Ctrl+C
 %        to cancel." for probed messages.
 %
@@ -36,10 +36,11 @@ function test_dispatch_msg_throttle()
     results{end+1, 1} = 'repeated identical call is silent';
     results{end, 2} = isempty(strtrim(out2));
 
-    % --- Test 2: differing reason fires fresh (reason is in throttle key).
+    % --- Test 2: differing reason is silent (same (funcName, chosen)
+    %     already in seen-set; reason is NOT part of the throttle key).
     out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'K - r < 2', 0, false);");
-    results{end+1, 1} = 'differing reason fires fresh (silently distinct key)';
-    results{end, 2} = ~isempty(strtrim(out3)) && ~contains(out3, 'K - r < 2');
+    results{end+1, 1} = 'differing reason collapses to same throttle key';
+    results{end, 2} = isempty(strtrim(out3));
 
     % --- Test 3: differing function name fires fresh.
     out4 = evalc("internal.maybeShowDispatchMsg('bar', 'bulger', 'r = 1', 0, false);");

@@ -3,9 +3,9 @@ function maybeShowDispatchMsg(varargin)
 %
 %   internal.maybeShowDispatchMsg(funcName, chosen, routingReason, ...
 %                                 estSec, isProbed)
-%       Print a dispatch-decision message for the (funcName, chosen,
-%       routingReason) triple, but only if that exact triple has not
-%       already been printed in the current top-level user call.
+%       Print a dispatch-decision message for the (funcName, chosen)
+%       pair, but only if that exact pair has not already been printed
+%       in the current top-level user call.
 %
 %       When isProbed is true, the message includes the empirical
 %       extrapolated estimate from the probe:
@@ -14,10 +14,14 @@ function maybeShowDispatchMsg(varargin)
 %
 %       When isProbed is false, the message is just the path:
 %           "<funcName>: chose '<chosen>' path."
-%       The routingReason is used internally as part of the throttle
-%       key so that two different decisions in the same function don't
-%       collapse to one print, but it is not shown to the user (they
-%       already know the inputs that led to it).
+%       The routingReason argument is still accepted (callers continue
+%       to pass it, since it remains useful for downstream debugging
+%       and for the probed-form estimate string), but is not part of
+%       the throttle key — within a single top-level call, two
+%       different routing reasons that lead to the same chosen path
+%       collapse to one announce. The visible distinction that matters
+%       is which path ran, not why; throttling on what the user sees
+%       avoids apparent duplicates.
 %
 %   internal.maybeShowDispatchMsg('reset')
 %       Clear the seen-set so that all dispatch messages will fire
@@ -71,7 +75,7 @@ function maybeShowDispatchMsg(varargin)
     estSec        = double(varargin{4});
     isProbed      = logical(varargin{5});
 
-    key = sprintf('%s|%s|%s', funcName, chosen, routingReason);
+    key = sprintf('%s|%s', funcName, chosen);
     if isKey(seen, key)
         return;
     end

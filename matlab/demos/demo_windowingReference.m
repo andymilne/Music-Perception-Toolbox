@@ -137,16 +137,34 @@ n_scn = size(scenarios, 1);
 fig1 = figure('Name', 'Figure 1: scenarios', 'Position', [100 100 1100 800], ...
               'Color', 'w');
 set(fig1, 'DefaultAxesXColor', 'k', 'DefaultAxesYColor', 'k');
-y_max = 0;
-profs = cell(n_scn, 3);  % {label, mu, p_D, p_F}
+
+% List-mode windowedSimilarity: pass a cell array of queries (one per
+% scenario) and a single context. Each call returns an n_scn-by-1
+% cell of 1-by-numel(OFFSET_GRID) profiles, one per query. The
+% offsets matrix is shared across queries: row 1 is the pitch
+% offset to sweep, row 2 is the constant time offset (M4_TIME).
+% Two calls, one per reference choice.
+dq_list_scn = cell(1, n_scn);
+mu_list_scn = zeros(n_scn, 1);
 for i = 1:n_scn
     kw = scenarios{i, 2};
-    dq = build_query(q_p, q_t, kw.n_partials, kw.rolloff, kw.beta, ...
+    dq_list_scn{i} = build_query(q_p, q_t, kw.n_partials, kw.rolloff, kw.beta, ...
         PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
-    mu = mean(dq.Centres{1});
-    p_D = profile_at(dq, dens_c, spec, OFFSET_GRID, M4_TIME, []);
-    p_F = profile_at(dq, dens_c, spec, OFFSET_GRID, M4_TIME, REF_HARM);
-    profs(i, :) = { mu, p_D, p_F };
+    mu_list_scn(i) = mean(dq_list_scn{i}.Centres{1});
+end
+
+offsets_off = [OFFSET_GRID; M4_TIME * ones(1, numel(OFFSET_GRID))];
+p_D_cells = windowedSimilarity(dq_list_scn, dens_c, spec, offsets_off, ...
+    'verbose', false);
+p_F_cells = windowedSimilarity(dq_list_scn, dens_c, spec, offsets_off, ...
+    'reference', REF_HARM, 'verbose', false);
+
+profs = cell(n_scn, 3);  % {mu, p_D, p_F}
+y_max = 0;
+for i = 1:n_scn
+    p_D = p_D_cells{i};
+    p_F = p_F_cells{i};
+    profs(i, :) = { mu_list_scn(i), p_D, p_F };
     y_max = max([y_max max(p_D) max(p_F)]);
 end
 
@@ -203,26 +221,67 @@ sweeps = { ...
     'Inh: slot weights rho',  make_kw_list_R(RHO_SWEEP, HARMONIC_N_PARTIALS, INHARMONIC_BETA), arrayfun(@(r) sprintf('%.1f', r), RHO_SWEEP, 'UniformOutput', false), 'rho'; ...
 };
 
-sweep_data = cell(size(sweeps, 1), 1);
+% Each sweep is processed independently: build that sweep's query
+% list, make three list-mode windowedSimilarity calls (one per
+% reference choice), and extract the peaks. The offsets matrices
+% and ref_abs are set up once and reused across all sweeps.
+%
+% offsets_off and offsets_abs are 2-by-M matrices: row 1 is the
+% pitch offset to sweep, row 2 is a constant time offset (M4_TIME).
+% OFFSET_GRID is a relative-offset grid measured from a reference;
+% abs_grid is an absolute-pitch grid used with ref_abs = {0, T_REF}
+% to score windows positioned directly at abs_grid(k) on the pitch
+% axis. T_REF is the natural time-centroid of each query, which is
+% the same for every query in this demo since all queries share
+% q_t. Reference entries are accepted as numeric vectors with
+% length matching each attribute's effective-space dimension; here
+% r = [1, 1] so scalar entries are correct.
+T_REF = mean(q_t);
 abs_grid = 4000:50:13000;
-for s = 1:size(sweeps, 1)
+offsets_off = [OFFSET_GRID; M4_TIME * ones(1, numel(OFFSET_GRID))];
+offsets_abs = [abs_grid;    M4_TIME * ones(1, numel(abs_grid))];
+ref_abs = { 0, T_REF };
+
+% Per sweep:
+%   - build a cell array of query densities (one per sweep step);
+%   - three list-mode windowedSimilarity calls return nS-by-1 cell
+%     arrays of profiles, one entry per query;
+%     * default reference (per-query auto-centroid)  -> P_D
+%     * REF_HARM (shared, length-2 cell)             -> P_F
+%     * ref_abs  (shared, length-2 cell)             -> p_abs
+%   - stack cells into nS-by-M numeric arrays and pull peaks.
+nSweeps = size(sweeps, 1);
+sweep_data = cell(nSweeps, 1);
+for s = 1:nSweeps
     kw_list = sweeps{s, 2};
     nS = numel(kw_list);
-    P_D = zeros(nS, numel(OFFSET_GRID));
-    P_F = zeros(nS, numel(OFFSET_GRID));
-    pk_D = zeros(nS, 1);  pk_F = zeros(nS, 1);
-    pk_abs = zeros(nS, 1);  mus = zeros(nS, 1);
+
+    dq_list = cell(1, nS);
+    mus = zeros(nS, 1);
     for i = 1:nS
         kw = kw_list{i};
-        dq = build_query(q_p, q_t, kw.n_partials, kw.rolloff, kw.beta, ...
-            PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
-        mus(i) = mean(dq.Centres{1});
-        P_D(i, :) = profile_at(dq, dens_c, spec, OFFSET_GRID, M4_TIME, []);
-        P_F(i, :) = profile_at(dq, dens_c, spec, OFFSET_GRID, M4_TIME, REF_HARM);
-        p_abs = profile_at(dq, dens_c, spec, abs_grid - mus(i), M4_TIME, []);
-        [~, ia] = max(p_abs);  pk_abs(i) = abs_grid(ia);
-        [~, iD] = max(P_D(i, :));  pk_D(i) = OFFSET_GRID(iD);
-        [~, iF] = max(P_F(i, :));  pk_F(i) = OFFSET_GRID(iF);
+        dq_list{i} = build_query(q_p, q_t, kw.n_partials, kw.rolloff, ...
+            kw.beta, PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
+        mus(i) = mean(dq_list{i}.Centres{1});
+    end
+
+    P_D_cells   = windowedSimilarity(dq_list, dens_c, spec, offsets_off, ...
+        'verbose', false);
+    P_F_cells   = windowedSimilarity(dq_list, dens_c, spec, offsets_off, ...
+        'reference', REF_HARM, 'verbose', false);
+    p_abs_cells = windowedSimilarity(dq_list, dens_c, spec, offsets_abs, ...
+        'reference', ref_abs, 'verbose', false);
+
+    P_D = cell2mat(P_D_cells);
+    P_F = cell2mat(P_F_cells);
+
+    pk_D = zeros(nS, 1);  pk_F = zeros(nS, 1);
+    pk_abs = zeros(nS, 1);
+    for i = 1:nS
+        p_abs = p_abs_cells{i};
+        [~, ia] = max(p_abs);      pk_abs(i) = abs_grid(ia);
+        [~, iD] = max(P_D(i, :));  pk_D(i)   = OFFSET_GRID(iD);
+        [~, iF] = max(P_F(i, :));  pk_F(i)   = OFFSET_GRID(iF);
     end
     sweep_data{s} = struct('P_D', P_D, 'P_F', P_F, ...
         'pk_D', pk_D, 'pk_F', pk_F, 'pk_abs', pk_abs, 'mus', mus);
@@ -323,14 +382,20 @@ sgtitle(sprintf(['Figure 3. Peak absolute pitch P* and query centroid mu_q ' ...
 fprintf('Figure 4: stretched sweep under harmonic-calibrated F ...\n');
 BETA_FIG4 = 0.95:0.01:1.15;
 nB = numel(BETA_FIG4);
-P_cal = zeros(nB, numel(OFFSET_GRID));
+
+% Build the full beta-sweep query list, then a single batched call.
+dq_list_fig4 = cell(1, nB);
+for i = 1:nB
+    dq_list_fig4{i} = build_query(q_p, q_t, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF, ...
+        BETA_FIG4(i), PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
+end
+p_cells = windowedSimilarity(dq_list_fig4, dens_c, spec, offsets_off, ...
+    'reference', REF_HARM, 'verbose', false);
+P_cal = cell2mat(p_cells);
+
 pk_off = zeros(nB, 1);  pk_val = zeros(nB, 1);
 for i = 1:nB
-    dq = build_query(q_p, q_t, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF, BETA_FIG4(i), ...
-        PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
-    p = profile_at(dq, dens_c, spec, OFFSET_GRID, M4_TIME, REF_HARM);
-    P_cal(i, :) = p;
-    [pk_val(i), idx] = max(p);
+    [pk_val(i), idx] = max(P_cal(i, :));
     pk_off(i) = OFFSET_GRID(idx);
 end
 
@@ -416,15 +481,4 @@ function dens = build_query(p_fund, t_fund, N, rolloff, beta, ps, ts)
         [ps, ts], [1, 1], [], ...
         [false, false], [false, false], [0, 0], ...
         'lazy', false, 'verbose', false);
-end
-
-function prof = profile_at(dens_q, dens_c, spec, off_1d, t_fixed, reference)
-    M = numel(off_1d);
-    offs = [off_1d(:).'; t_fixed * ones(1, M)];
-    if isempty(reference)
-        prof = windowedSimilarity(dens_q, dens_c, spec, offs, 'verbose', false);
-    else
-        prof = windowedSimilarity(dens_q, dens_c, spec, offs, ...
-            'reference', reference, 'verbose', false);
-    end
 end

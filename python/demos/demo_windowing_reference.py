@@ -169,14 +169,6 @@ def build_query(*, rolloff=HARMONIC_ROLLOFF, beta=1.0,
         [False, False], [False, False], [0., 0.], verbose=False)
 
 
-def profile(dens_q, dens_c, spec, offsets_1d, reference=None):
-    """Return cos-sim profile as a function of offset on the pitch
-    attribute, with time fixed at M4_TIME."""
-    offs = np.vstack([offsets_1d, np.full_like(offsets_1d, M4_TIME)])
-    return mpt.windowed_similarity(dens_q, dens_c, spec, offs,
-                                 reference=reference, verbose=False)
-
-
 def mu_q_pitch(dens_q):
     return float(dens_q.centres[0].mean())
 
@@ -194,6 +186,11 @@ dens_q_inh  = build_query(beta=INHARMONIC_BETA)
 # baseline, see that section)
 REF_HARM = [dens_q_harm.centres[0].mean(axis=1),
             dens_q_harm.centres[1].mean(axis=1)]
+
+# All queries share the same q_t (only spectral content varies), so
+# the time component of each query's auto-centroid is the same
+# constant; needed for the absolute-pitch list-mode call below.
+T_REF = float(q_t.mean())
 
 print(f'Context: {len(EVENTS)} events over {ctx_t[-1]} s, all {HARMONIC_N_PARTIALS}-partial harmonic.')
 print(f'Query fundamentals: D-E-F (events 1-3 of context).')
@@ -226,11 +223,24 @@ fig, axes = plt.subplots(len(scenarios), 2, figsize=(12, 9),
 
 y_max = 0.0
 all_profs = []
-for label, kw in scenarios:
-    dq = build_query(**kw)
-    mu = mu_q_pitch(dq)
-    p_D = profile(dq, dens_c, spec, OFFSET_GRID)
-    p_F = profile(dq, dens_c, spec, OFFSET_GRID, reference=REF_HARM)
+
+# List-mode windowed_similarity: pass a list of queries (one per
+# scenario) and a single context. Each call returns a length-n_scn
+# list of length-len(OFFSET_GRID) arrays, one per query. The
+# offsets matrix is shared across queries: row 0 is the pitch
+# offset to sweep, row 1 is the constant time offset (M4_TIME).
+# Two calls, one per reference choice.
+dq_list_scn = [build_query(**kw) for _, kw in scenarios]
+mu_list_scn = [mu_q_pitch(dq) for dq in dq_list_scn]
+
+offsets_off = np.vstack([OFFSET_GRID,
+                          np.full_like(OFFSET_GRID, M4_TIME, dtype=float)])
+p_D_list = mpt.windowed_similarity(dq_list_scn, dens_c, spec, offsets_off,
+                                    verbose=False)
+p_F_list = mpt.windowed_similarity(dq_list_scn, dens_c, spec, offsets_off,
+                                    reference=REF_HARM, verbose=False)
+
+for (label, _), mu, p_D, p_F in zip(scenarios, mu_list_scn, p_D_list, p_F_list):
     all_profs.append((label, mu, p_D, p_F))
     y_max = max(y_max, p_D.max(), p_F.max())
 
@@ -285,24 +295,48 @@ def collect_sweep(kw_list, ref_F, labels):
       - peaks under F      shape (same)
       - peaks in P*        (absolute pitch)  shape (same)
       - mu_q                shape (same)
+
+    Built from three batched windowed_similarity calls, one per
+    (offsets, reference) combination:
+      offsets_off, default reference (per-query auto-centroid) -> D
+      offsets_off, ref_F (shared, length-2 list)               -> F
+      offsets_abs, ref_abs (shared, length-2 list)             -> p_abs
+
+    offsets_off and offsets_abs each have row 0 = pitch offset to
+    sweep, row 1 = constant time offset (M4_TIME). ref_abs sets a
+    zero pitch reference (so offset = absolute pitch directly) and
+    a time reference equal to the query's natural time-centroid
+    T_REF, which is shared across queries since all queries share
+    q_t. Each call returns a length-nS list of length-M arrays, one
+    per query, stacked into nS-by-M numpy arrays for plotting.
     """
     nS = len(kw_list)
-    profs_D = np.zeros((nS, len(OFFSET_GRID)))
-    profs_F = np.zeros((nS, len(OFFSET_GRID)))
     pk_D = np.zeros(nS); pk_F = np.zeros(nS)
     pk_abs = np.zeros(nS); mus = np.zeros(nS)
-    # Coarser abs grid to locate absolute peak position
+
     abs_grid = np.arange(4000, 13001, 50.0)
-    for i, kw in enumerate(kw_list):
-        dq = build_query(**kw)
-        mus[i] = mu_q_pitch(dq)
-        profs_D[i, :] = profile(dq, dens_c, spec, OFFSET_GRID)
-        profs_F[i, :] = profile(dq, dens_c, spec, OFFSET_GRID,
-                                 reference=ref_F)
-        p_abs = profile(dq, dens_c, spec, abs_grid - mus[i])
+    offsets_off = np.vstack([OFFSET_GRID,
+                              np.full_like(OFFSET_GRID, M4_TIME, dtype=float)])
+    offsets_abs = np.vstack([abs_grid,
+                              np.full_like(abs_grid, M4_TIME, dtype=float)])
+    ref_abs = [np.zeros(1), np.array([T_REF])]
+
+    dq_list = [build_query(**kw) for kw in kw_list]
+    mus[:] = [mu_q_pitch(dq) for dq in dq_list]
+
+    P_D_list   = mpt.windowed_similarity(dq_list, dens_c, spec, offsets_off,
+                                          verbose=False)
+    P_F_list   = mpt.windowed_similarity(dq_list, dens_c, spec, offsets_off,
+                                          reference=ref_F, verbose=False)
+    p_abs_list = mpt.windowed_similarity(dq_list, dens_c, spec, offsets_abs,
+                                          reference=ref_abs, verbose=False)
+
+    profs_D = np.vstack(P_D_list)
+    profs_F = np.vstack(P_F_list)
+    for i, p_abs in enumerate(p_abs_list):
         pk_abs[i] = abs_grid[int(np.argmax(p_abs))]
-        pk_D[i] = OFFSET_GRID[int(np.argmax(profs_D[i, :]))]
-        pk_F[i] = OFFSET_GRID[int(np.argmax(profs_F[i, :]))]
+        pk_D[i]   = OFFSET_GRID[int(np.argmax(profs_D[i, :]))]
+        pk_F[i]   = OFFSET_GRID[int(np.argmax(profs_F[i, :]))]
     return profs_D, profs_F, pk_D, pk_F, pk_abs, mus
 
 # --- Sweep definitions -------
@@ -450,16 +484,20 @@ plt.close(fig)
 print('Rendering Figure 4: stretched sweep under harmonic-calibrated F')
 
 BETA_FIG4 = np.arange(0.95, 1.1501, 0.01)
-profs_F_cal = np.zeros((len(BETA_FIG4), len(OFFSET_GRID)))
 pk_F_cal = np.zeros(len(BETA_FIG4))
 pkval_F_cal = np.zeros(len(BETA_FIG4))
-for i, b in enumerate(BETA_FIG4):
-    dq = build_query(beta=b)
-    p = profile(dq, dens_c, spec, OFFSET_GRID, reference=REF_HARM)
-    profs_F_cal[i, :] = p
-    j = int(np.argmax(p))
+
+# Single batched call over the whole beta sweep.
+dq_list_fig4 = [build_query(beta=b) for b in BETA_FIG4]
+offsets_off = np.vstack([OFFSET_GRID,
+                          np.full_like(OFFSET_GRID, M4_TIME, dtype=float)])
+p_list = mpt.windowed_similarity(dq_list_fig4, dens_c, spec, offsets_off,
+                                  reference=REF_HARM, verbose=False)
+profs_F_cal = np.vstack(p_list)
+for i in range(len(BETA_FIG4)):
+    j = int(np.argmax(profs_F_cal[i, :]))
     pk_F_cal[i] = OFFSET_GRID[j]
-    pkval_F_cal[i] = p[j]
+    pkval_F_cal[i] = profs_F_cal[i, j]
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 ax = axes[0]

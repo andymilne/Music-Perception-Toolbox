@@ -141,8 +141,6 @@ Several user-facing console-output behaviours unified across the five batched-in
 
 - **MATLAB H1 docstring audit.** Added 25 missing kwarg-block entries across 9 user-facing MATLAB functions for the v2.2 kwargs `'truncationSigmas'`, `'kernelPrecision'`, `'verbose'`, `'method'`, `'cancellationThreshold'`, and `'lazy'` (in their respective consumers — `evalExpTens`, `cosSimExpTens`, `entropyExpTens`, `tensorHarmonicity`, `virtualPitches`, and others). Cleaned up one stale `See also` reference (`audioPeaks.m` removed a deprecated `BATCHCOSSIMEXPTENS` cross-reference; `cosSimExpTens.m` reworded its cross-reference to flag `batchCosSimExpTens` as deprecated). No API or behaviour change; documentation completeness for the v2.2 surface.
 
-- **`USER_GUIDE.md` §6 condensed.** §6 ("Function reference") was ~250 lines of per-function prose that largely duplicated each function's docstring. The rewrite keeps the per-section summary tables, the conceptual scope statements, the multi-function comparisons (notably the `templateHarmonicity` vs `tensorHarmonicity` distinction), and cross-references to §3 (Conceptual overview), and defers per-function parameter detail to the function docstrings (`help functionName` in MATLAB; `help(mpt.function_name)` in Python). Net: 250 → ~150 lines, with all multi-function content preserved.
-
 - **`python/tests/README.md` added.** Documents test layout, memory-aware chunking on constrained environments, the single OOM-prone benchmark test (`test_truncation_speedup_at_larger_k` in `test_cossim_centres_routing.py`), and current pass / skip counts (1,235 pass, 13 skip at v2.2.0).
 
 ---

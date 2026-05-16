@@ -140,7 +140,16 @@ mpt/
 │   │                      and all inner-product cores
 │   └── windowing.py       window_tensor, windowed_similarity, and the
 │                          windowed inner-product machinery
-├── circular.py †          DFT, coherence/sameness, pulse-level measures
+├── circular.py            Re-export shim over _circular/
+├── _circular/
+│   ├── __init__.py        Re-exports the three sub-modules' names
+│   ├── dft.py             DFT engine + DFT-based measures: dft_circular,
+│   │                      dft_circular_simulate, balance, evenness,
+│   │                      proj_centroid
+│   ├── scale.py           Integer-position scale-theoretic measures
+│   │                      (non-Fourier): coherence, sameness
+│   └── pulse.py           Per-position pulse-level measures (non-Fourier):
+│                          edges, mean_offset, circ_apm, markov_s
 ├── entropy.py             entropy_exp_tens, n_tuple_entropy
 ├── harmony.py             spectral_entropy, template_harmonicity,
 │                          tensor_harmonicity, roughness, virtual_pitches
@@ -155,8 +164,6 @@ mpt/
 ├── _utils.py              Small helpers (estimate_comp_time, validation)
 └── _orbit_tables/         Shipped orbit tables (pickle, r = 2..8)
 ```
-
-† `circular.py` is currently a ~1,800-line module. A `_circular/` sub-package split (with `dft.py`, `scale.py`, `pulse.py`) is planned as a smaller follow-up to the `_tensor/` refactor.
 
 ### MATLAB layout
 

@@ -9,7 +9,7 @@ Andrew J. Milne, Western Sydney University
 1. [Introduction](#1-introduction)
 2. [Installation](#2-installation)
 3. [Conceptual overview](#3-conceptual-overview)
-4. [API conventions: MATLAB vs Python](#4-api-conventions-matlab-vs-python)
+4. [API conventions](#4-api-conventions)
 5. [Quick start](#5-quick-start)
 6. [Function reference](#6-function-reference)
 7. [Worked examples](#7-worked-examples)
@@ -88,7 +88,7 @@ import mpt
 s = mpt.cos_sim_exp_tens(...)
 ```
 
-The Python implementation uses snake_case naming and a few other syntactic differences from the MATLAB version; see [Section 4](#4-api-conventions-matlab-vs-python) for the full mapping.
+The Python implementation uses snake_case naming and a few other syntactic differences from the MATLAB version; see [Section 4](#4-api-conventions) for the full mapping.
 
 ---
 
@@ -330,9 +330,9 @@ Direction continuity is defined only on linearly ordered domains — those where
 
 ---
 
-## 4. API conventions: MATLAB vs Python
+## 4. API conventions
 
-The MATLAB and Python implementations are functionally identical: the same inputs produce the same outputs (to floating-point precision). The differences are syntactic, following the conventions of each language. This section is the primary reference for Python users. The Quick Start (Section 5) shows both languages side by side; the Function Reference (Section 6) and Worked Examples (Section 7) use MATLAB syntax, from which Python equivalents can be derived using the rules below.
+The MATLAB and Python implementations are functionally identical: the same inputs produce the same outputs (to floating-point precision). This section is the cross-cutting reference for API usage. It covers both the syntactic translation between the two languages and the shared call-form, dispatch, defaults, batching, and deduplication conventions that apply equally in both. The Quick Start (Section 5) shows both languages side by side; the Function Reference (Section 6) and Worked Examples (Section 7) use MATLAB syntax, from which Python equivalents can be derived using the rules below.
 
 ### Naming
 
@@ -823,7 +823,7 @@ The query E G, with mean time 0.5, is translated at each sweep centre $c$ to lie
 
 ## 6. Function reference
 
-Functions are grouped by category. For full details, use `help functionName` in MATLAB or `help(mpt.function_name)` in Python. Code examples in this section use MATLAB syntax; see [Section 4](#4-api-conventions-matlab-vs-python) for the systematic Python equivalents.
+Functions are grouped by category. For full details, use `help functionName` in MATLAB or `help(mpt.function_name)` in Python. Code examples in this section use MATLAB syntax; see [Section 4](#4-api-conventions) for the systematic Python equivalents.
 
 ### 6.1 Expectation tensor core and MAET preprocessing
 

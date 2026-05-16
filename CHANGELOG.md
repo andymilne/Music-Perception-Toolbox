@@ -143,6 +143,8 @@ Several user-facing console-output behaviours unified across the five batched-in
 
 - **`python/tests/README.md` added.** Documents test layout, memory-aware chunking on constrained environments, the single OOM-prone benchmark test (`test_truncation_speedup_at_larger_k` in `test_cossim_centres_routing.py`), and current pass / skip counts (1,235 pass, 13 skip at v2.2.0).
 
+- **`USER_GUIDE.md` §4 retitled.** "API conventions: MATLAB vs Python" → "API conventions", reflecting the section's actual scope: cross-language translation rules plus the dispatch, defaults, batching, and deduplication conventions that apply equally in both languages. Opening prose, TOC entry, and internal cross-references updated.
+
 ---
 
 

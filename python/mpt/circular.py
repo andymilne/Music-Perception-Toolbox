@@ -23,7 +23,7 @@ def dft_circular(
     p,
     w=None,
     period: float = 1200.0,
-):
+) -> tuple[np.ndarray | list[np.ndarray], np.ndarray | list[np.ndarray]]:
     """DFT of a set of points on a circle.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -275,7 +275,7 @@ def balance(
     n_draws: int = 10000,
     rng_seed: int | None = None,
     rng_scope: str = "canonical",
-):
+) -> float | np.ndarray | tuple[float | np.ndarray, float | np.ndarray]:
     """Balance of a weighted circular multiset.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -379,7 +379,7 @@ def evenness(
     n_draws: int = 10000,
     rng_seed: int | None = None,
     rng_scope: str = "canonical",
-):
+) -> float | np.ndarray | tuple[float | np.ndarray, float | np.ndarray]:
     """Evenness of a circular multiset.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -656,7 +656,7 @@ def coherence(
     *,
     strict: bool = True,
     sigma_space: str = "position",
-):
+) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Coherence quotient of a circular set, optionally smoothed.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -915,7 +915,7 @@ def sameness(
     sigma: float = 0.0,
     *,
     sigma_space: str = "position",
-):
+) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Sameness quotient of a circular set, optionally smoothed.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -1111,7 +1111,7 @@ def edges(
     x=None,
     *,
     kappa: float = 6.7,
-):
+) -> tuple[np.ndarray | list[np.ndarray], np.ndarray | list[np.ndarray]]:
     """Edge detection on a weighted circular multiset.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -1251,7 +1251,7 @@ def proj_centroid(
     period: float = 1200.0,
     x=None,
     sigma: float = 0.0,
-):
+) -> tuple[np.ndarray | list[np.ndarray], float | list[float], float | list[float]]:
     """Projected centroid of a weighted circular multiset.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -1411,7 +1411,7 @@ def mean_offset(
     w=None,
     period: float = 1200.0,
     x=None,
-):
+) -> np.ndarray | list[np.ndarray]:
     """Mean offset (net upward arc) of a weighted circular multiset.
 
     Accepts two input forms, dispatched on ``p``'s shape:
@@ -1541,7 +1541,7 @@ def circ_apm(
     period: int = 12,
     *,
     decay: float = 0.0,
-):
+) -> tuple[np.ndarray | list[np.ndarray], np.ndarray | list[np.ndarray], np.ndarray | list[np.ndarray]]:
     """Circular autocorrelation phase matrix.
 
     Accepts two input forms, dispatched on ``p``'s shape:

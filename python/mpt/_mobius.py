@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import pickle
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from math import factorial
 from pathlib import Path
 
@@ -41,7 +42,7 @@ import numpy as np
 # ---------------------------------------------------------------------
 
 
-def integer_partitions(r: int, max_part: int | None = None):
+def integer_partitions(r: int, max_part: int | None = None) -> Iterator[tuple[int, ...]]:
     """Yield all integer partitions of r as decreasing tuples.
 
     Examples
@@ -101,7 +102,7 @@ def mobius_for_blocksizes(m_tuple: tuple[int, ...]) -> int:
     return out
 
 
-def enumerate_contingency_tables(row_sums, col_sums):
+def enumerate_contingency_tables(row_sums, col_sums) -> Iterator[list[list[int]]]:
     """Yield all non-negative integer matrices with given margins.
 
     Parameters
@@ -146,7 +147,7 @@ def enumerate_contingency_tables(row_sums, col_sums):
     yield from helper(M, 0, 0, list(row_sums), list(col_sums))
 
 
-def canonical_form(M, row_sums, col_sums):
+def canonical_form(M, row_sums, col_sums) -> tuple[tuple[int, ...], tuple[int, ...], tuple[tuple[int, ...], ...]]:
     """Canonicalise a contingency table under row/column permutations
     within size groups.
 
@@ -923,7 +924,7 @@ def total_mass_abs(p_unused, w: np.ndarray, sigma: float, r: int) -> float:
     return sigma_factor * moebius_sum
 
 
-def total_mass_rel(p, w, sigma, r):
+def total_mass_rel(p, w, sigma, r) -> float:
     """Total mass ∫T_rel(Δ)dΔ via the relation Z_rel = Z_abs / (σ√(2π/r))."""
     Z_abs = total_mass_abs(p, w, sigma, r)
     return Z_abs / (sigma * np.sqrt(2 * np.pi / r))
@@ -982,7 +983,7 @@ def _set_partitions_with_mobius(r: int):
 _SET_PARTITION_CACHE: dict[int, list] = {}
 
 
-def get_set_partitions_with_mobius(r: int):
+def get_set_partitions_with_mobius(r: int) -> list[tuple[tuple[tuple[int, ...], ...], int]]:
     """Cached accessor for ``_set_partitions_with_mobius``."""
     if r not in _SET_PARTITION_CACHE:
         _SET_PARTITION_CACHE[r] = _set_partitions_with_mobius(r)

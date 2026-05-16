@@ -715,7 +715,7 @@ def _cartesian_indices(sizes) -> list:
 # -------------------------------------------------------------------
 
 
-def build_exp_tens(p, w, *args, verbose: bool = True):
+def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
     Dispatches on the type of the first argument:
@@ -2503,7 +2503,7 @@ def cos_sim_exp_tens(*args,
                      cancellation_threshold: float = 1e-12,
                      truncation_sigmas: float | None = None,
                      kernel_precision: str | None = None,
-                     verbose: bool = True):
+                     verbose: bool = True) -> float | np.ndarray:
     """Cosine similarity of two expectation tensor densities.
 
     Unified entry point. Accepts four input forms, dispatched on the
@@ -6152,7 +6152,7 @@ def batch_cos_sim_exp_tens(
 # ===================================================================
 
 
-def difference_events(p_attr, w, groups, diff_orders, periods):
+def difference_events(p_attr, w, groups, diff_orders, periods) -> tuple[list[np.ndarray], None | float | list[float] | list[np.ndarray]]:
     """Replace selected groups' event sequences with inter-event differences.
 
     Cross-event preprocessing for multi-attribute tensor input. Takes
@@ -6472,7 +6472,7 @@ def _weight_has_event_dependence(wa, N, attr_idx=None):
 # ===================================================================
 
 
-def bind_events(p, w=None, n=2, *, circular=False):
+def bind_events(p, w=None, n=2, *, circular=False) -> tuple[list[np.ndarray], None | float | list[np.ndarray]]:
     """Bind n consecutive events into n-attribute super-events.
 
     Cross-event preprocessing helper for multi-attribute tensor input.
@@ -6720,7 +6720,7 @@ def bind_events(p, w=None, n=2, *, circular=False):
 # ===================================================================
 
 
-def window_tensor(dens, window_spec):
+def window_tensor(dens, window_spec) -> WindowedMaetDensity:
     """Wrap a MaetDensity with a post-tensor window specification.
 
     Returns a :class:`WindowedMaetDensity` that bundles the underlying
@@ -7229,7 +7229,7 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
                         reference=None, mode: str = "auto",
                         truncation_sigmas: float | None = None,
                         kernel_precision: str | None = None,
-                        verbose: bool = True):
+                        verbose: bool = True) -> np.ndarray:
     """Sliding-window similarity profile (cross-correlation).
 
     .. todo::

@@ -96,7 +96,7 @@ def spectral_entropy(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
-):
+) -> float | np.ndarray:
     """Spectral entropy of a weighted pitch multiset.
 
     Returns the entropy of the smoothed composite spectrum of a
@@ -434,7 +434,7 @@ def template_harmonicity(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
-):
+) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Harmonicity via template cross-correlation.
 
     Measures the harmonicity of a weighted pitch multiset by
@@ -793,7 +793,7 @@ def tensor_harmonicity(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
-):
+) -> float | np.ndarray:
     """Harmonicity via expectation tensor lookup.
 
     Measures the harmonicity of a weighted pitch multiset by
@@ -1120,7 +1120,7 @@ def virtual_pitches(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
-):
+) -> tuple[np.ndarray | list[np.ndarray], np.ndarray | list[np.ndarray]]:
     """Virtual pitch salience profile via template cross-correlation.
 
     Computes the virtual pitch (fundamental) salience profile for a

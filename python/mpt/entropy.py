@@ -50,7 +50,7 @@ def entropy_exp_tens(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
-):
+) -> float | np.ndarray:
     """Entropy of an expectation tensor density.
 
     Two methods are supported:
@@ -1146,7 +1146,7 @@ def n_tuple_entropy(
     normalize: bool = True,
     base: float = 2.0,
     n_points_per_dim: int | None = None,
-):
+) -> tuple[float, np.ndarray]:
     """Entropy of n-tuples of consecutive step sizes.
 
     Accepts two input forms, dispatched on ``p``'s shape:

@@ -45,7 +45,7 @@ def continuity(
     w=None,
     mode: str = "strict",
     theta: float | None = None,
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Expected length and signed magnitude of the backward
     same-direction run leading up to each query, under Gaussian pitch
     uncertainty, with optional per-event salience weights.

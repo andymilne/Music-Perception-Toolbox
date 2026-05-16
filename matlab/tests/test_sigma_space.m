@@ -21,21 +21,21 @@ end
 %  coherence, and nTupleEntropy (v2.1.0). Insert after the existing
 %  Circular measures and Entropy sections.
 
-% --- positionVariance helper: signed-coefficient cases --------------
+% --- internal.positionVariance helper: signed-coefficient cases --------------
 
-V = positionVariance([1, 2, 3, 4], [+1, -1, -1, +1], 1.0);
+V = internal.positionVariance([1, 2, 3, 4], [+1, -1, -1, +1], 1.0);
 results{end+1,1} = 'positionVariance: disjoint endpoints -> 4 sigma^2';
 results{end,2}   = abs(V - 4) < 1e-12;
 
-V = positionVariance([1, 2, 1, 3], [+1, -1, -1, +1], 1.0);
+V = internal.positionVariance([1, 2, 1, 3], [+1, -1, -1, +1], 1.0);
 results{end+1,1} = 'positionVariance: shared cancelling -> 2 sigma^2';
 results{end,2}   = abs(V - 2) < 1e-12;
 
-V = positionVariance([2, 1, 1, 2], [+1, -1, -1, +1], 1.0);
+V = internal.positionVariance([2, 1, 1, 2], [+1, -1, -1, +1], 1.0);
 results{end+1,1} = 'positionVariance: shared reinforcing -> 8 sigma^2';
 results{end,2}   = abs(V - 8) < 1e-12;
 
-V = positionVariance([1, 2], [+1, -1], 0.5);
+V = internal.positionVariance([1, 2], [+1, -1], 0.5);
 results{end+1,1} = 'positionVariance: scales with sigma^2';
 results{end,2}   = abs(V - 0.5) < 1e-12;
 

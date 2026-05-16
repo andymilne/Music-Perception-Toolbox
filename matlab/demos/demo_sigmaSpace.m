@@ -85,7 +85,7 @@ fprintf('  the shared positions contribute with reinforcing signs).\n\n');
 fprintf('  Both intervals have specific size = 6, so D2 - D1 has\n');
 fprintf('  mean 0. P(D2 <= D1) = Phi(0) = 0.5, regardless of sigma.\n\n');
 
-V = positionVariance([3+1, 6+1, 6+1, 3+1], [+1, -1, -1, +1], 1);
+V = internal.positionVariance([3+1, 6+1, 6+1, 3+1], [+1, -1, -1, +1], 1);
 fprintf('  positionVariance for the tritone pair (sigma=1): V = %g\n', V);
 fprintf('  (matches expected 8 for the shared-reinforcing case)\n');
 

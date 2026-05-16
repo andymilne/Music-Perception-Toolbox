@@ -2,7 +2,7 @@
 
 A developer-facing map of what's in the toolbox, how the pieces relate, and the design rationale for the bits that aren't obvious from a casual reading of the source. For *user-facing* documentation --- what the functions do and how to call them --- see [USER_GUIDE.md](USER_GUIDE.md). This document assumes the reader has either read USER_GUIDE §3 or is comfortable with the expectation-tensor framework from the source papers (Milne et al. 2011, 2015, 2016, 2020).
 
-This document describes the toolbox as it currently exists. Significant restructuring of the Python `tensor.py` module into a `_tensor/` sub-package is planned but not yet applied; the corresponding section flags the current and target states.
+This document describes the toolbox as it currently exists. The first two phases of the Python `tensor.py` → `_tensor/` sub-package refactor (density, preprocessing, and windowing) have landed; the third phase (build, eval, cosine, dispatch, canonical) is still ahead, and `tensor.py` currently hosts the remaining ~5,500 lines until that phase is complete.
 
 ## Contents
 
@@ -121,9 +121,17 @@ The consumer layer is where measure-specific documentation belongs (see USER_GUI
 ```
 mpt/
 ├── __init__.py            Public API surface (re-exports + __all__)
-├── tensor.py *            Density classes, build, eval, cos-sim, IP cores,
-│                          dispatchers, canonical-form dedup, windowing,
-│                          preprocessing, simplex_vertices
+├── tensor.py *            Build, eval, cos-sim, IP cores, dispatchers,
+│                          canonical-form dedup; re-exports the density,
+│                          preprocessing, and windowing names from _tensor/
+├── _tensor/ *
+│   ├── __init__.py        Re-exports the density, preprocessing,
+│   │                      and windowing names
+│   ├── density.py         ExpTensDensity, MaetDensity, WindowedMaetDensity,
+│   │                      and the MA-input preprocessing helpers
+│   ├── preprocessing.py   difference_events, bind_events, simplex_vertices
+│   └── windowing.py       window_tensor, windowed_similarity, and the
+│                          windowed inner-product machinery
 ├── circular.py †          DFT, coherence/sameness, pulse-level measures
 ├── entropy.py             entropy_exp_tens, n_tuple_entropy
 ├── harmony.py             spectral_entropy, template_harmonicity,
@@ -140,7 +148,11 @@ mpt/
 └── _orbit_tables/         Shipped orbit tables (pickle, r = 2..8)
 ```
 
-\* `tensor.py` is currently a ~8,000-line single module. A refactor into a `_tensor/` sub-package (with `density.py`, `build.py`, `eval.py`, `cosine.py`, `preprocessing.py`, `windowing.py`, `dispatch.py`, `canonical.py`) is planned. Public API surface remains unchanged after the refactor.
+\* The build, eval, cosine, and dispatch machinery still lives in the
+top-level `tensor.py` (~5,500 lines after phases 1+2 of the refactor).
+Phase 3 will split it into `_tensor/build.py`, `_tensor/eval.py`,
+`_tensor/cosine.py`, `_tensor/dispatch.py`, and `_tensor/canonical.py`,
+at which point `tensor.py` becomes a thin re-export shim.
 
 † `circular.py` is currently a ~1,800-line module. A `_circular/` sub-package split (with `dft.py`, `scale.py`, `pulse.py`) is planned as a smaller follow-up after `_tensor/`.
 

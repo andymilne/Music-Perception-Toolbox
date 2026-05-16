@@ -1,0 +1,688 @@
+"""Cross-event preprocessing and categorical-encoding utilities.
+
+This module hosts the small preprocessing layer that sits *before*
+``build_exp_tens`` in the MAET pipeline:
+
+* :func:`difference_events` --- replace event sequences with their
+  k-th finite differences along the event axis.
+* :func:`bind_events` --- slide a length-n window across an event
+  sequence, emitting each window as an n-attribute super-event.
+
+It also exposes :func:`simplex_vertices`, the categorical-encoding
+helper for level-symmetric MAET inputs.
+
+See USER_GUIDE §3.1 ("Cross-event preprocessing") for the conceptual
+introduction and :doc:`/ARCHITECTURE` §2 for the layering.
+"""
+from __future__ import annotations
+
+import warnings
+
+import numpy as np
+
+from .._utils import validate_weights
+from .density import _canonicalise_groups
+
+
+
+# ===================================================================
+#  difference_events
+# ===================================================================
+
+
+def difference_events(p_attr, w, groups, diff_orders, periods) -> tuple[list[np.ndarray], None | float | list[float] | list[np.ndarray]]:
+    """Replace selected groups' event sequences with inter-event differences.
+
+    Cross-event preprocessing for multi-attribute tensor input. Takes
+    the ``(p_attr, w)`` pair that one would otherwise feed to
+    :func:`build_exp_tens` and returns a transformed
+    ``(p_attr_diff, w_diff)`` pair with the same shape conventions, in
+    which the event columns of each selected group have been replaced
+    by *k*-fold inter-event differences. The output feeds directly into
+    :func:`build_exp_tens` without any further massaging.
+
+    See the MAET specification §7 for the full semantics. In brief:
+
+    - **Values.** For a group with ``diff_orders[g] = k``, the value
+      matrix of each attribute in that group is replaced by its *k*-th
+      finite difference along the event axis, reducing the event count
+      by *k*. Order 0 leaves a group unchanged. If ``periods[g] > 0``,
+      each raw difference is wrapped to ``[-P/2, P/2)`` (shortest-arc
+      convention, matching :func:`cos_sim_exp_tens`).
+
+    - **Weights.** Weight inputs follow the toolbox's standard
+      broadcast convention: ``None`` broadcasts 1, a scalar
+      broadcasts uniformly, event-dependent inputs (``(1, N)`` row,
+      ``(K_a, N)`` matrix) supply per-event values, and a
+      ``(K_a, 1)`` column (or 1-D length ``K_a``) broadcasts per
+      slot. The weight of a difference event is the *product* of
+      the weights of its ``k + 1`` constituent input events — a
+      rolling product of width ``k + 1`` along the event axis —
+      interpretable as the probability that all constituents are
+      perceived under the standard weights-as-salience reading.
+
+    - **Event-count alignment.** The output event count is
+      ``N' = N - max_g k_g``. Groups with ``k_g < max_g k_g`` have
+      their leading ``max_g k_g - k_g`` events dropped to keep columns
+      aligned across groups. Weights are dropped to match.
+
+    Parameters
+    ----------
+    p_attr : list/tuple of array-like
+        Length-A list of ``K_a x N`` per-attribute value matrices, with
+        ``K_a = 1`` for every attribute. Same convention as
+        :func:`build_exp_tens` but restricted to the single-slot case:
+        within-event slot exchangeability does not license the cross-
+        event slot correspondence that column-wise differencing
+        imposes, so attributes with ``K_a != 1`` raise
+        :class:`ValueError`. For voice-leading or step-size analyses,
+        encode each voice as its own ``K_a = 1`` attribute in a shared
+        group, difference that, then (optionally) stack the
+        differenced attributes into a single multi-slot attribute
+        before :func:`build_exp_tens`.
+    w : None, scalar, or list/tuple
+        Weights. ``None``, a scalar, or a length-A list of per-attribute
+        weight inputs (each ``None``, scalar, 1-D, or 2-D). Same
+        convention as :func:`build_exp_tens`.
+    groups : array-like or list-of-lists or None
+        Group assignment. ``None`` treats each attribute as its own
+        singleton group; a length-A index vector, or a cell/list of
+        attribute-index lists, gives explicit groupings. Matches
+        :func:`build_exp_tens`.
+    diff_orders : array-like of int
+        Length-G vector of per-group differencing orders (non-negative
+        integers). Order 0 leaves the group unchanged.
+    periods : array-like of float
+        Length-G vector of periods for shortest-arc wrapping of
+        differences. An entry of 0 (or negative) means the group is
+        treated as non-periodic and differences are left unwrapped.
+
+    Returns
+    -------
+    p_attr_diff : list of ndarray
+        Length-A list of transformed per-attribute matrices, each
+        ``K_a x N'``.
+    w_diff : same general form as *w*
+        Transformed weights under the rule described above. Shape
+        mirrors *w*: ``None`` stays ``None``; a scalar stays a scalar
+        when all groups share the same order, expanding to a length-A
+        list of per-attribute scalars when orders vary; a length-A
+        list stays a length-A list, with per-attribute event-dependent
+        entries becoming ``(K_a, N')`` matrices and non-event-
+        dependent entries keeping their input shape.
+
+    See Also
+    --------
+    build_exp_tens
+    """
+    # --- Normalize p_attr to list of 2-D float arrays ---
+    if not isinstance(p_attr, (list, tuple)):
+        raise TypeError("p_attr must be a list/tuple of per-attribute matrices.")
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    for a, M in enumerate(p_attr):
+        if M.ndim != 2:
+            raise ValueError(
+                f"Attribute {a} value matrix must be 2-D; got ndim={M.ndim}."
+            )
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+
+    # --- Enforce K_a = 1 per attribute ---
+    # Event differencing requires every attribute to have exactly one
+    # slot per event. Column-wise subtraction across adjacent events
+    # imposes a cross-event slot correspondence (slot i at event n-1
+    # paired with slot i at event n) that within-event slot
+    # exchangeability does not license; for multi-slot attributes the
+    # output would silently depend on an arbitrary slot-listing
+    # choice. K_a = 0 (empty attribute) is also rejected. The
+    # principled route for voice-leading or step-size analyses is to
+    # encode each voice as its own K_a = 1 attribute in a shared
+    # group, difference that, then (optionally) stack the differenced
+    # attributes into a single multi-slot attribute before
+    # build_exp_tens. See USER_GUIDE Section 3 (Event differencing).
+    for a, M in enumerate(p_attr):
+        K_a = M.shape[0]
+        if K_a != 1:
+            raise ValueError(
+                f"Attribute {a} has K_a = {K_a}; event differencing "
+                f"requires every attribute to have K_a = 1. Column-wise "
+                f"differencing imposes a cross-event slot alignment that "
+                f"within-event slot exchangeability does not license, so "
+                f"multi-slot attributes are rejected; empty attributes "
+                f"(K_a = 0) are rejected likewise. For voice-leading or "
+                f"step-size analyses, encode each voice as a separate "
+                f"K_a = 1 attribute in a shared group, call "
+                f"difference_events on that, then (optionally) stack "
+                f"the differenced attributes into a single multi-slot "
+                f"attribute before build_exp_tens. See USER_GUIDE "
+                f"Section 3 (Event differencing)."
+            )
+
+    n_events = p_attr[0].shape[1]
+    for a, M in enumerate(p_attr):
+        if M.shape[1] != n_events:
+            raise ValueError(
+                f"All attributes must share the same event count N. "
+                f"Attribute 0 has N={n_events}; attribute {a} has N={M.shape[1]}."
+            )
+
+    # --- Canonicalize groups ---
+    group_of_attr, _attrs_of_group, G = _canonicalise_groups(groups, A)
+
+    # --- Validate diff_orders and periods ---
+    diff_orders = np.asarray(diff_orders, dtype=np.intp).ravel()
+    if diff_orders.size != G:
+        raise ValueError(
+            f"diff_orders must have length G = {G} (number of groups); "
+            f"got length {diff_orders.size}."
+        )
+    if np.any(diff_orders < 0):
+        raise ValueError("All entries of diff_orders must be non-negative.")
+
+    periods = np.asarray(periods, dtype=np.float64).ravel()
+    if periods.size != G:
+        raise ValueError(
+            f"periods must have length G = {G}; got length {periods.size}."
+        )
+
+    max_order = int(diff_orders.max()) if diff_orders.size > 0 else 0
+    n_prime = n_events - max_order
+    if n_prime < 1:
+        raise ValueError(
+            f"Differencing orders are too high for the input event count: "
+            f"max(diff_orders) = {max_order} but N = {n_events}."
+        )
+
+    # --- Difference each attribute's value matrix ---
+    p_attr_diff = []
+    for a, M in enumerate(p_attr):
+        g = int(group_of_attr[a])
+        k = int(diff_orders[g])
+        P = float(periods[g])
+        # Apply k-fold differencing along axis 1, with optional wrapping
+        # after each first-order difference.
+        M_diff = M
+        for _ in range(k):
+            M_diff = M_diff[:, 1:] - M_diff[:, :-1]
+            if P > 0:
+                M_diff = np.mod(M_diff + P / 2, P) - P / 2
+        # Drop leading events to align with N'.
+        extra_drop = max_order - k
+        if extra_drop > 0:
+            M_diff = M_diff[:, extra_drop:]
+        assert M_diff.shape[1] == n_prime
+        p_attr_diff.append(M_diff)
+
+    # --- Transform weights ---
+    w_diff = _difference_weights(w, A, group_of_attr, diff_orders,
+                                  n_events, n_prime)
+
+    return p_attr_diff, w_diff
+
+
+def _difference_weights(w, A, group_of_attr, diff_orders,
+                        n_events, n_prime):
+    """Transform weights under the difference-events convention.
+
+    The weight of each difference event is the product of the weights
+    of the ``k + 1`` input events on which the difference depends —
+    a rolling product of width ``k + 1`` along the event axis,
+    applied semantically under the toolbox's broadcast convention.
+    Under the ``K_a = 1`` restriction on :func:`difference_events`
+    inputs, valid per-attribute weight inputs are ``None``, scalar,
+    or ``(1, N)`` / 1-D of length ``N``.
+    """
+    if w is None:
+        return None
+
+    # --- Top-level scalar ---
+    if np.isscalar(w):
+        c = float(w)
+        orders_per_attr = np.array(
+            [int(diff_orders[int(group_of_attr[a])]) for a in range(A)],
+            dtype=np.int64,
+        )
+        if np.all(orders_per_attr == orders_per_attr[0]):
+            # Uniform orders — shape preserved as a scalar.
+            return c ** int(orders_per_attr[0] + 1)
+        # Varying orders — emit a per-attribute list.
+        return [c ** int(k + 1) for k in orders_per_attr]
+
+    if not isinstance(w, (list, tuple)):
+        raise TypeError(
+            "w must be None, a scalar, or a list/tuple of per-attribute "
+            "weight inputs."
+        )
+    if len(w) != A:
+        raise ValueError(
+            f"Weight list must have length A = {A}; got length {len(w)}."
+        )
+
+    max_order = int(np.max(diff_orders)) if A > 0 else 0
+    w_diff = []
+    for a, wa in enumerate(w):
+        g = int(group_of_attr[a])
+        k = int(diff_orders[g])
+        if not _weight_has_event_dependence(wa, n_events, a):
+            # No event dependence — rolling product of a constant
+            # reduces to raising each entry to power k + 1. None
+            # stays None; a scalar stays a scalar.
+            w_diff.append(_raise_no_event_dep(wa, k + 1))
+            continue
+        # Event-dependent: coerce to (1, N) then take a rolling
+        # product of width k + 1 along the event axis.
+        W = np.asarray(wa, dtype=np.float64).reshape(1, n_events)
+        if k > 0:
+            W = _rolling_product(W, k + 1)
+        extra_drop = max_order - k
+        if extra_drop > 0:
+            W = W[:, extra_drop:]
+        assert W.shape[1] == n_prime
+        w_diff.append(W)
+    return w_diff
+
+
+def _raise_no_event_dep(wa, p: int):
+    """Raise a non-event-dependent weight input to power *p*.
+
+    Under the ``K_a = 1`` restriction on :func:`difference_events`
+    inputs, the non-event-dependent inputs that reach this helper
+    are limited to ``None``, Python scalars, 0-D arrays, and size-1
+    1-D arrays.
+    """
+    if wa is None:
+        return None
+    if p == 1:
+        return wa  # fast path: order 0 groups
+    if np.isscalar(wa):
+        return float(wa) ** int(p)
+    # 0-D or size-1 1-D array: coerce to Python scalar for consistency
+    # with the scalar branch.
+    return float(np.asarray(wa).item()) ** int(p)
+
+
+def _rolling_product(W, width):
+    """Rolling product of width *width* along the last axis.
+
+    Output shape: (K, N - width + 1). Output column *i* is
+    ``prod(W[:, i : i + width], axis=1)``.
+    """
+    K, N = W.shape
+    n_out = N - width + 1
+    if n_out < 1:
+        raise ValueError(
+            f"Rolling-product width {width} exceeds event count {N}."
+        )
+    out = np.empty((K, n_out), dtype=np.float64)
+    for i in range(n_out):
+        out[:, i] = np.prod(W[:, i:i + width], axis=1)
+    return out
+
+
+def _weight_has_event_dependence(wa, N, attr_idx=None):
+    """True iff *wa*'s shape carries the N axis.
+
+    Under the ``K_a = 1`` restriction on :func:`difference_events`
+    inputs, valid per-attribute weight shapes are ``None``, scalar,
+    or ``(1, N)`` / 1-D of length ``N``.
+    """
+    if wa is None:
+        return False
+    arr = np.asarray(wa)
+    if arr.size == 1:
+        return False
+    if arr.ndim == 1 and arr.size == N:
+        return True
+    if arr.ndim == 2 and arr.shape == (1, N):
+        return True
+    where = (
+        f"Attribute {attr_idx} weight" if attr_idx is not None else "Weight"
+    )
+    raise ValueError(
+        f"{where} has shape {arr.shape}; under the K_a = 1 restriction, "
+        f"expected None, scalar, or (1, {N})."
+    )
+
+
+# ===================================================================
+#  bind_events: sliding-window binding into n-attribute super-events
+# ===================================================================
+
+
+
+# ===================================================================
+#  bind_events
+# ===================================================================
+
+
+def bind_events(p, w=None, n=2, *, circular=False) -> tuple[list[np.ndarray], None | float | list[np.ndarray]]:
+    """Bind n consecutive events into n-attribute super-events.
+
+    Cross-event preprocessing helper for multi-attribute tensor input.
+    Slides a window of width *n* across an event sequence and emits
+    each window as an *n*-attribute super-event whose *j*-th
+    attribute holds the value(s) at lag ``j-1`` (``j = 1, ..., n``).
+    The output is a length-*n* list of ``(K_a, N')`` arrays, suitable
+    for direct use as the ``p_attr`` argument of
+    :func:`build_exp_tens` with all *n* attributes assigned to a
+    single group.
+
+    This complements :func:`difference_events`: differencing
+    aggregates *across* event boundaries (collapsing ``k+1``
+    consecutive events into a single value), while binding
+    aggregates *within* a window (gathering *n* consecutive values
+    into a single super-event with *n* separate slot attributes). The
+    two operations compose naturally: differencing then binding gives
+    *n*-tuples of consecutive step sizes, recovering the *n*-tuple
+    entropy of Milne & Dean (2016) as a special case (``sigma -> 0``,
+    integer-step grid, uniform weights, periodic domain) while
+    extending it to non-zero ``sigma``, continuous-valued steps,
+    non-periodic domains, and per-event weights propagated through
+    both stages. The bound MAET is itself a density that can be fed
+    into the rest of the toolbox: pairs of bound MAETs can be
+    compared via :func:`cos_sim_exp_tens`, queried via
+    :func:`windowed_similarity`, and so on.
+
+    Lag slots are emitted as separate (``K_a``-valued) attributes,
+    one per lag, rather than packed into a single attribute, because
+    lag identity is not exchangeable: the value at lag *j* and the
+    value at lag *j+1* carry distinct positional meanings within the
+    bound super-event. By contrast, ``K_a > 1`` inputs (multi-value
+    attributes whose slots are deliberately exchangeable) are
+    permitted: each output attribute then carries the ``K_a`` slot
+    values of one underlying event, and the within-attribute
+    exchangeability is preserved per output attribute. Cross-event
+    slot alignment is never imposed, because the cross-event
+    structure is between output attributes, not within.
+
+    ``N' = N - n + 1`` (default) or ``N`` (when *circular* is True).
+
+    Parameters
+    ----------
+    p : array-like
+        Event values: a ``(K_a, N)`` 2-D array, a ``(1, N)`` row, a
+        length-*N* 1-D array (interpreted as ``K_a = 1``), or a
+        length-1 list/tuple wrapping one of those (the wrapped form
+        is accepted for symmetry with the output of
+        :func:`difference_events`). ``K_a >= 1``.
+    w : None, scalar, or array-like
+        Weights. ``None``, scalar, length-*N* 1-D, ``(1, N)`` row,
+        ``(K_a, 1)`` column, or ``(K_a, N)`` matrix. May also be a
+        length-1 list/tuple wrapping any of those (matching the *p*
+        form).
+    n : int
+        Window size (positive integer; default 2).
+    circular : bool, keyword-only
+        When True, the window wraps around the end of the sequence;
+        ``N' = N``. When False (default), ``N' = N - n + 1``.
+
+        The *circular* flag describes the *event sequence* (whether
+        the last event connects back to the first), and is
+        independent of the *positional periodicity* set in
+        :func:`build_exp_tens` via its ``is_per`` / ``period``
+        arguments. Both combinations are meaningful: a non-circular
+        sequence on a periodic domain (a non-cyclic motif living in
+        pitch-class space), and a circular sequence on a linear
+        domain (a cyclic rhythm represented in linear time, e.g.,
+        for windowed analysis). The two flags are orthogonal.
+
+    Returns
+    -------
+    p_bound : list of ndarray
+        Length-*n* list of ``(K_a, N')`` arrays. ``p_bound[j]``
+        contains the value(s) at lag *j* for each window. For
+        ``K_a = 1`` input each entry is ``(1, N')``.
+    w_bound : None, scalar, or list of ndarray
+        Per-attribute weight propagation, in the form that
+        :func:`build_exp_tens` accepts directly:
+
+        - ``None`` stays ``None``.
+        - A scalar ``c`` stays ``c`` (broadcast in
+          :func:`build_exp_tens`).
+        - A ``(1, N)`` / length-*N* row becomes a length-*n* list of
+          ``(1, N')`` rows.
+        - A ``(K_a, 1)`` column becomes a length-*n* list of
+          ``(K_a, 1)`` columns.
+        - A ``(K_a, N)`` matrix becomes a length-*n* list of
+          ``(K_a, N')`` matrices.
+
+        The end-to-end numerics are equivalent to a rolling product
+        of slot weights: each output attribute inherits the slot
+        weights of the underlying event at its lag, and
+        :func:`build_exp_tens` multiplies across attributes during
+        tuple enumeration.
+
+    Examples
+    --------
+    >>> # 2-tuple entropy of step sizes (diatonic scale, sigma -> 0)
+    >>> import numpy as np
+    >>> from mpt import (difference_events, bind_events, build_exp_tens,
+    ...                   entropy_exp_tens)
+    >>> p = np.array([[0, 2, 4, 5, 7, 9, 11]], dtype=float)
+    >>> d = difference_events([p], None, None, [1], [12])
+    >>> p_bound, w_bound = bind_events(d[0], None, 2, circular=True)
+    >>> T = build_exp_tens(p_bound, w_bound, [1e-6], [1, 1], [1, 1],
+    ...                     [False], [True], [12], verbose=False)
+    >>> H = entropy_exp_tens(T, normalize=False)
+
+    See Also
+    --------
+    difference_events
+    build_exp_tens
+    entropy_exp_tens
+    cos_sim_exp_tens
+    n_tuple_entropy
+    """
+    if not isinstance(n, (int, np.integer)) or n < 1:
+        raise ValueError(f"n must be a positive integer; got {n!r}.")
+    n = int(n)
+
+    # --- Unwrap length-1 list/tuple (symmetry with difference_events) ---
+    input_was_list_p = isinstance(p, (list, tuple))
+    if input_was_list_p:
+        if len(p) != 1:
+            raise ValueError(
+                f"p as a list/tuple must contain exactly one attribute; "
+                f"got {len(p)}. To bind multiple attributes, call "
+                f"bind_events on each separately."
+            )
+        p = p[0]
+
+    input_was_list_w = isinstance(w, (list, tuple))
+    if input_was_list_w:
+        if len(w) != 1:
+            raise ValueError(
+                f"w as a list/tuple must contain exactly one entry; "
+                f"got {len(w)}."
+            )
+        w = w[0]
+
+    # --- Validate p shape (allow any K_a >= 1) ---
+    arr = np.asarray(p, dtype=np.float64)
+    if arr.ndim == 1:
+        p_mat = arr.reshape(1, -1)            # length-N -> (1, N)
+    elif arr.ndim == 2:
+        p_mat = arr
+    else:
+        raise ValueError(
+            f"p has shape {arr.shape}; bind_events requires p to be a "
+            f"length-N 1-D array or a (K_a, N) 2-D array."
+        )
+    Ka = p_mat.shape[0]
+    N = p_mat.shape[1]
+
+    # --- Determine window indices ---
+    if circular:
+        if n > N:
+            raise ValueError(
+                f"Circular window size n = {n} exceeds event count "
+                f"N = {N}."
+            )
+        n_prime = N
+        idx = (np.arange(n_prime)[:, None] + np.arange(n)[None, :]) % N
+    else:
+        n_prime = N - n + 1
+        if n_prime < 1:
+            raise ValueError(
+                f"Window size n = {n} exceeds event count N = {N} "
+                f"(non-circular mode)."
+            )
+        idx = np.arange(n_prime)[:, None] + np.arange(n)[None, :]
+
+    # --- Build the n lag matrices, preserving K_a ---
+    p_bound = [p_mat[:, idx[:, j]].copy() for j in range(n)]
+
+    # --- Weights: per-attribute propagation ---
+    #
+    # Each output attribute inherits the slot weights of the
+    # underlying event at its lag. build_exp_tens multiplies across
+    # attributes during tuple enumeration, so the end-to-end weight
+    # of a bound super-event equals the product of the n constituent
+    # events' weights (the same numerical contribution as the prior
+    # eager rolling product, for K_a = 1; the natural generalisation
+    # for K_a > 1).
+
+    if w is None:
+        w_bound = None
+    elif np.isscalar(w):
+        # Scalar weight broadcasts in build_exp_tens; pass through.
+        w_bound = float(w)
+    else:
+        w_arr = np.asarray(w, dtype=np.float64)
+
+        # Scalar packed in a 0-D or single-element array
+        if w_arr.size == 1:
+            w_bound = float(w_arr.item())
+        else:
+            # Coerce to a 2-D matrix consistent with the p-shape.
+            if w_arr.ndim == 1:
+                if w_arr.size == N:
+                    w_mat = w_arr.reshape(1, -1)         # (1, N)
+                elif w_arr.size == Ka and Ka != N:
+                    w_mat = w_arr.reshape(-1, 1)         # (K_a, 1)
+                elif Ka == N:
+                    # Ambiguous: prefer the row interpretation, matching
+                    # the convention for length-N input.
+                    w_mat = w_arr.reshape(1, -1)
+                else:
+                    raise ValueError(
+                        f"w as a 1-D array must have length N = {N} or "
+                        f"K_a = {Ka} (got length {w_arr.size})."
+                    )
+            elif w_arr.ndim == 2:
+                w_mat = w_arr
+            else:
+                raise ValueError(
+                    f"w has shape {w_arr.shape}; expected None, scalar, "
+                    f"1-D, or 2-D."
+                )
+
+            r, c = w_mat.shape
+            if r == 1 and c == N:
+                w_bound = [w_mat[:, idx[:, j]].copy() for j in range(n)]
+            elif r == Ka and c == 1:
+                w_bound = [w_mat.copy() for _ in range(n)]
+            elif r == Ka and c == N:
+                w_bound = [w_mat[:, idx[:, j]].copy() for j in range(n)]
+            else:
+                raise ValueError(
+                    f"w has shape {w_mat.shape}; expected None, scalar, "
+                    f"length-{N} 1-D, ({1}, {N}) row, "
+                    f"({Ka}, 1) column, or ({Ka}, {N}) matrix."
+                )
+
+    # --- Re-wrap weight in a length-1 list if input was list ---
+    if input_was_list_w:
+        w_bound = [w_bound]
+
+    return p_bound, w_bound
+
+
+# ===================================================================
+#  Windowing: window_tensor, windowed_similarity, and supporting math
+# ===================================================================
+
+
+
+# ===================================================================
+#  simplex_vertices
+# ===================================================================
+
+
+def simplex_vertices(N: int, edge_length: float = 1.0) -> np.ndarray:
+    """Vertices of a regular (N-1)-simplex centred at the origin.
+
+    Returns an N-by-(N-1) array whose rows are the vertices of a regular
+    (N-1)-simplex in R^{N-1}, centred at the origin, with all pairwise
+    vertex distances equal to ``edge_length`` (default 1).
+
+    This is the natural numerical encoding of an N-level categorical
+    attribute (voice identity, instrument, articulation, etc.) for the
+    multi-attribute expectation tensor (MAET) framework. Each level is
+    represented by an (N-1)-dimensional coordinate vector --- a row of
+    the returned array --- and the categorical attribute group then
+    carries N-1 coordinate sub-attributes sharing a single sigma.
+    Because all vertices are pairwise equidistant, no level is
+    privileged over any other, in contrast to dummy or treatment coding.
+
+    Construction: take the N standard basis vectors of R^N (which lie
+    on the hyperplane sum(x) = 1 and are pairwise equidistant), centre
+    them at the origin, and project onto an orthonormal basis of the
+    (N-1)-dimensional subspace orthogonal to the all-ones vector. The
+    result is independent of the choice of basis up to a rotation,
+    which is irrelevant for downstream MAET computations.
+
+    Parameters
+    ----------
+    N : int
+        Number of categorical levels. Must be at least 2.
+    edge_length : float, optional
+        Pairwise distance between vertices. Default 1.0. Must be
+        positive.
+
+    Returns
+    -------
+    np.ndarray
+        N-by-(N-1) array; row k is the coordinate vector for level k.
+
+    Examples
+    --------
+    >>> simplex_vertices(2).shape
+    (2, 1)
+    >>> simplex_vertices(3).shape
+    (3, 2)
+    >>> simplex_vertices(4).shape
+    (4, 3)
+
+    SATB voice encoding with edge length matched to a chosen sigma:
+
+    >>> V = simplex_vertices(4, edge_length=4)
+    >>> V.shape
+    (4, 3)
+
+    See Also
+    --------
+    build_exp_tens
+    """
+    if not isinstance(N, (int, np.integer)) or N < 2:
+        raise ValueError(f"N must be an integer >= 2, got {N!r}.")
+    if edge_length <= 0:
+        raise ValueError(
+            f"edge_length must be positive, got {edge_length!r}."
+        )
+
+    # Centred standard basis: rows are unit vectors minus the centroid.
+    # Pairwise distance between rows is sqrt(2).
+    Vc = np.eye(N) - 1.0 / N
+
+    # Orthonormal basis of the column space of Vc, which is 1^perp
+    # (the (N-1)-dimensional subspace orthogonal to the all-ones vector).
+    # Use SVD: the first N-1 left singular vectors span the column space.
+    U, _, _ = np.linalg.svd(Vc, full_matrices=False)
+    Q = U[:, : N - 1]
+
+    # Express each row of Vc in this basis. The result has N rows and
+    # N-1 columns, with pairwise row distance sqrt(2). Rescale to the
+    # requested edge length.
+    return (Vc @ Q) * (edge_length / np.sqrt(2))

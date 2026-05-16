@@ -1,5 +1,5 @@
 %% demo_edoApprox.m
-%  Spectral pitch class similarity (SPCS) of equal divisions of the octave
+%  Pitch class similarity (PCS) of equal divisions of the octave
 %  (n-EDOs) to a just intonation reference chord, using relative dyad
 %  expectation tensors (r = 2, isRel = 1, dim = 1).
 %
@@ -49,7 +49,7 @@ nEDOs    = numel(edoRange);
 maxN     = nMax;  % maximum number of pitches in any EDO
 
 % Reference: a single row vector — broadcast against all EDO rows of
-% pMatB by cosSimExpTens (v2.1.1+).
+% pMatB by cosSimExpTens.
 % EDO multisets: NaN-padded to maxN columns
 pMatB = NaN(nEDOs, maxN);
 for i = 1:nEDOs
@@ -60,10 +60,10 @@ end
 
 %% === Compute similarities ===
 
-fprintf('Computing SPCS of %d EDOs against %s...\n', nEDOs, refName);
+fprintf('Computing PCS of %d EDOs against %s...\n', nEDOs, refName);
 s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
-    'verbose', false);
+    'verbose', true);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display
@@ -78,8 +78,8 @@ figure('Name', 'EDO approximation quality', ...
 stem(edoRange, s, 'filled', 'MarkerSize', 4, 'LineWidth', 0.8, ...
     'Color', [0.2 0.2 0.6]);
 xlabel('n-EDO');
-ylabel('Spectral pitch class similarity');
-title(sprintf(['SPCS of n-EDOs with %s\n' ...
+ylabel('Pitch class similarity');
+title(sprintf(['PCS of n-EDOs with %s\n' ...
     '(r = %d, isRel = %d, \\sigma = %d cents)'], ...
     refName, r, isRel, sigma));
 xlim([nMin - 1, nMax + 1]);
@@ -100,8 +100,8 @@ hold off;
 
 %% === Console output: top EDOs ===
 
-fprintf('\nTop %d EDOs by SPCS with %s:\n', nLabels, refName);
-fprintf('%-8s  %s\n', 'n-EDO', 'SPCS');
+fprintf('\nTop %d EDOs by PCS with %s:\n', nLabels, refName);
+fprintf('%-8s  %s\n', 'n-EDO', 'PCS');
 fprintf('%s\n', repmat('-', 1, 20));
 for li = 1:min(nLabels, nEDOs)
     idx = sortIdx(li);

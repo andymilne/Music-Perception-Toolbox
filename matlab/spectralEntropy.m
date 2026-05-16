@@ -57,6 +57,22 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %     'base'       — Logarithm base for entropy (default: 2, giving
 %                    bits). When 'normalize' is true, the base cancels
 %                    and has no effect on the result.
+%     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
+%                    wide mptDefaults('truncationSigmas') setting for
+%                    this call. Passes through to the entropyExpTens
+%                    Shannon-path kernel evaluator; skips Gaussian
+%                    contributions whose centre-to-query distance
+%                    exceeds k*sigma. [] (default) means use the
+%                    global default (factory: Inf).
+%     'kernelPrecision' — 'double', 'single', or [] for the global
+%                    default. Override the toolbox-wide
+%                    kernelPrecision setting for this call. Passes
+%                    through to the Shannon-path kernel evaluator;
+%                    'single' casts the kernel matrix to float32 for
+%                    a ~2x speedup at ~7 sig fig precision.
+%     'verbose'    — Logical (default: true). If false, suppresses
+%                    console output (time estimates, progress
+%                    messages).
 %
 %   Grid resolution (Shannon path) is the entropyExpTens default
 %   (nPointsPerDim = 1200 over [0, max(spec_p) + 4*sigma]). Users

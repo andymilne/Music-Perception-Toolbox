@@ -103,6 +103,26 @@ function vals = evalExpTens(varargin)
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
+%     'method'  — 'auto' (default), 'centres', 'mobius', or 'direct'
+%                 (synonym for 'centres'). Point-evaluation strategy:
+%                 'auto' selects via a per-call cost model; 'centres'
+%                 forces the centres-array path (fast at low r);
+%                 'mobius' forces the Möbius point evaluator (faster
+%                 at r >= 3 since it bypasses the (dim, n_j) centres
+%                 tensor whose memory and runtime scale as K!/(K-r)!).
+%                 No-op on the MA path (MA always uses centres). See
+%                 User Guide §4 ("Method selection").
+%     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
+%                 wide mptDefaults('truncationSigmas') setting for this
+%                 call. Centres path only; skips Gaussian contributions
+%                 whose centre-to-query distance exceeds k*sigma
+%                 (kernel floor exp(-k^2/2)). [] (default) means use
+%                 the global default (factory: Inf).
+%     'kernelPrecision' — 'double', 'single', or [] for the global
+%                 default. Override the toolbox-wide kernelPrecision
+%                 setting for this call. Centres path only; 'single'
+%                 casts the kernel matrix to float32 for a ~2x speedup
+%                 at ~7 sig fig precision.
 %
 %   See also buildExpTens, cosSimExpTens.
 

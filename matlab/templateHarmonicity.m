@@ -91,6 +91,21 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %     'resolution'    — Grid spacing in cents (default: 1). Finer
 %                       resolution improves accuracy but increases
 %                       computation time.
+%     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
+%                       wide mptDefaults('truncationSigmas') setting
+%                       for this call. Passes through to the kernel
+%                       evaluator on the centres path; skips Gaussian
+%                       contributions whose centre-to-query distance
+%                       exceeds k*sigma. [] (default) means use the
+%                       global default (factory: Inf).
+%     'kernelPrecision' — 'double', 'single', or [] for the global
+%                       default. Override the toolbox-wide
+%                       kernelPrecision setting for this call. 'single'
+%                       casts the kernel matrix to float32 for a ~2x
+%                       speedup at ~7 sig fig precision.
+%     'verbose'       — Logical (default: true). If false, suppresses
+%                       console output (time estimates, progress
+%                       messages).
 %
 %   Outputs:
 %     hMax     — Maximum normalized cross-correlation (Milne 2013).

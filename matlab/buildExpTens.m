@@ -84,6 +84,20 @@ function dens = buildExpTens(varargin)
 %   same global perm-side tuple. Similarly for column k across V_comb{a},
 %   wv_comb, and eventOfK.
 %
+%   Optional name-value pairs (all calling conventions):
+%     'verbose' — Logical (default: true). If false, suppresses console
+%                 output (time estimates, progress messages).
+%     'lazy'    — Logical (default: true). When true, the expensive
+%                 density fields (U_perm, wJ, V_comb, wv_comb) are
+%                 deferred until a consumer requests them. The Möbius
+%                 method's centres-array footprint at high r would
+%                 dominate memory if eagerly built; deferring lets
+%                 calls that route via Möbius skip the centres array
+%                 entirely. Pass 'lazy', false to materialise the
+%                 expensive fields up front --- required by external
+%                 code that reads U_perm / wJ directly without going
+%                 through evalExpTens / cosSimExpTens / entropyExpTens.
+%
 %   See also evalExpTens, cosSimExpTens.
 
     % ------------------------------------------------------------------

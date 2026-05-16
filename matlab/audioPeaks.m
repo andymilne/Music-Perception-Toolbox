@@ -152,7 +152,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
 %     r = roughness(f, w);
 %
-%   See also COSSIMEXPTENS, BATCHCOSSIMEXPTENS, ADDSPECTRA,
+%   See also COSSIMEXPTENS, ADDSPECTRA,
 %            SPECTRALENTROPY, TEMPLATEHARMONICITY, ROUGHNESS,
 %            CONVERTPITCH.
 

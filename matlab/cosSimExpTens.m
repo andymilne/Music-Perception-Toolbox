@@ -91,6 +91,37 @@ function s = cosSimExpTens(varargin)
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
+%     'method'  — 'auto' (default), 'bulger', 'mobius', or 'direct'.
+%                 Inner-product decomposition. 'auto' selects via a
+%                 per-call cost model (with a timing-probe fallback for
+%                 indeterminate SA cases) between Bulger's method
+%                 (small r and small K) and the Möbius method (large r
+%                 or large K). 'bulger' / 'mobius' force the named
+%                 method; 'direct' enumerates every ordered r-tuple on
+%                 each side (expensive, immune to cancellation,
+%                 primarily for benchmarking). See User Guide §4
+%                 ("Method selection").
+%     'cancellationThreshold' — Positive scalar (default: 1e-12).
+%                 Guards the Möbius alternating-sum against
+%                 catastrophic cancellation: when the cancellation
+%                 ratio |IP| / sqrt(<A,A>*<B,B>) drops below this
+%                 fraction, the dispatcher falls back to Bulger's
+%                 method. Lower to relax the guard; raise to force
+%                 Bulger's method more aggressively.
+%     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
+%                 wide mptDefaults('truncationSigmas') setting for this
+%                 call. Applies on the centres path (Bulger's method
+%                 on the SA inner product); skips Gaussian
+%                 contributions whose centre-to-query distance exceeds
+%                 k*sigma (kernel floor exp(-k^2/2)). [] (default)
+%                 means use the global default (factory: Inf). No
+%                 effect on Möbius-method calls.
+%     'kernelPrecision' — 'double', 'single', or [] for the global
+%                 default. Override the toolbox-wide kernelPrecision
+%                 setting for this call. Centres path only; 'single'
+%                 casts the kernel matrix to float32 for a ~2x speedup
+%                 at ~7 sig fig precision. No effect on Möbius-method
+%                 calls.
 %
 %   Output:
 %     s      — Cosine similarity (scalar in [0, 1] for non-negative
@@ -105,7 +136,9 @@ function s = cosSimExpTens(varargin)
 %   three inner product calls, automatic chunking for large arrays, and
 %   optional precomputed density structs via buildExpTens.
 %
-%   See also buildExpTens, evalExpTens, batchCosSimExpTens.
+%   See also buildExpTens, evalExpTens.
+%   See also batchCosSimExpTens (deprecated; folded into the batched-raw
+%   mode of cosSimExpTens above).
 
 % === Parse arguments ===
 

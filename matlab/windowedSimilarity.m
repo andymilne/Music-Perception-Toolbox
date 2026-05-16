@@ -130,6 +130,18 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %                     or 'auto' (default). Ignored when both inputs are
 %                     scalar densities.
 %       'verbose'   - Default true.
+%       'truncationSigmas' - Numeric scalar or []. Override the
+%                     toolbox-wide mptDefaults('truncationSigmas')
+%                     setting for this call. Passes through to the
+%                     kernel evaluator on the centres path; skips
+%                     Gaussian contributions whose centre-to-query
+%                     distance exceeds k*sigma. [] (default) means
+%                     use the global default (factory: Inf).
+%       'kernelPrecision' - 'double', 'single', or [] for the global
+%                     default. Override the toolbox-wide
+%                     kernelPrecision setting for this call. 'single'
+%                     casts the kernel matrix to float32 for a ~2x
+%                     speedup at ~7 sig fig precision.
 %
 %   Output
 %       profile     - 1 x M vector of windowed similarities.

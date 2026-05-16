@@ -125,6 +125,24 @@ function H = entropyExpTens(varargin)
 %                         density's effective dimension dim > 1 (e.g.
 %                         r = 2 with isRel = false). Default: 1e8.
 %                         Errors with a suggested reduction if exceeded.
+%       'truncationSigmas' - Numeric scalar or []. Override the
+%                         toolbox-wide mptDefaults('truncationSigmas')
+%                         setting for this call. Passes through to the
+%                         kernel evaluator on the centres path (Shannon
+%                         only); skips Gaussian contributions whose
+%                         centre-to-query distance exceeds k*sigma
+%                         (kernel floor exp(-k^2/2)). [] (default)
+%                         means use the global default (factory: Inf).
+%       'kernelPrecision' - 'double' (default via mptDefaults), 'single',
+%                         or [] for the global default. Override the
+%                         toolbox-wide kernelPrecision setting for this
+%                         call. Passes through to the kernel evaluator
+%                         on the centres path (Shannon only); 'single'
+%                         casts the kernel matrix to float32 for a ~2x
+%                         speedup at ~7 sig fig precision.
+%       'verbose'       - Logical (default: true). If false, suppresses
+%                         console output (time estimates, progress
+%                         messages).
 %
 %   Examples
 %       % Shannon entropy of a 12-EDO chromatic scale (periodic, SA)

@@ -2551,8 +2551,10 @@ def cos_sim_exp_tens(*args,
         For density list-vs-list. Ignored in scalar and broadcast cases.
     dedup : bool, default True
         Apply canonical-form deduplication. Currently supported for
-        single-attribute pairs only; pairs involving ``MaetDensity`` /
-        ``WindowedMaetDensity`` bypass dedup transparently.
+        single-attribute pairs only; pairs involving ``MaetDensity``
+        bypass dedup transparently. (``WindowedMaetDensity`` operands
+        are rejected at the top of the function — use
+        :func:`windowed_similarity` instead.)
     spectrum : list/tuple, optional
         Per-row spectral augmentation parameters passed to
         :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
@@ -2990,24 +2992,22 @@ def _cos_sim_pair_core(
 ):
     """Internal: dispatch a single pair to the correct core IP routine.
 
-    Routes to :func:`_cos_sim_exp_tens_sa`, :func:`_cos_sim_exp_tens_ma`,
-    or :func:`_cos_sim_exp_tens_windowed`, threading ``method``,
-    ``cancellation_threshold``, ``truncation_sigmas`` and
-    ``kernel_precision`` through to the SA path (the MA and windowed
-    paths await their own helper-routing stages).
+    Routes to :func:`_cos_sim_exp_tens_sa` or :func:`_cos_sim_exp_tens_ma`,
+    threading ``method``, ``cancellation_threshold``, ``truncation_sigmas``
+    and ``kernel_precision`` through to the SA path (the MA path awaits
+    its own helper-routing stage). ``WindowedMaetDensity`` operands are
+    rejected here; user code reaches the windowed inner product via
+    :func:`windowed_similarity`.
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
-        if isinstance(dens_x, WindowedMaetDensity):
-            other = dens_y
-        else:
-            other = dens_x
-        if not isinstance(other, (MaetDensity, WindowedMaetDensity)):
-            raise TypeError(
-                "Windowed density can only be compared with another "
-                "MaetDensity or WindowedMaetDensity."
-            )
-        return _cos_sim_exp_tens_windowed(dens_x, dens_y, verbose=verbose)
+        raise TypeError(
+            "cos_sim_exp_tens does not accept WindowedMaetDensity "
+            "operands. Use windowed_similarity(dens_query, dens_context, "
+            "window_spec, offsets) — pass a single-column offsets array "
+            "for the scalar single-offset case, or a (dim, M) array for "
+            "the M-offset sweep."
+        )
     if isinstance(dens_x, MaetDensity):
         if not isinstance(dens_y, MaetDensity):
             raise TypeError(
@@ -7172,8 +7172,8 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
     Returns the ``(M,)`` similarity profile.
 
     ``truncation_sigmas`` and ``kernel_precision`` are forwarded to the
-    per-offset :func:`cos_sim_exp_tens` calls. ``None`` defers to the
-    global default (resolved inside ``cos_sim_exp_tens``).
+    per-offset :func:`_windowed_inner_product` calls. ``None`` defers to
+    the global default (resolved inside the helper).
 
     Emits :class:`WindowedSimilarityPeriodicApproxWarning` once per
     (query, context) pair for any periodic group whose window crosses
@@ -7203,6 +7203,66 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
     # Strip any user-supplied 'centre' field; offsets replace it.
     base_spec = {k: v for k, v in window_spec.items() if k != "centre"}
 
+    # --- Dispatch announce ---
+    # windowed_similarity uses a single algorithmic path: the closed-form
+    # windowed inner product (no Bulger / Möbius / centres choice to
+    # make). The announce reads 'chose direct path' to surface the
+    # method to the user; throttled to once per top-level call.
+    from ._defaults import _maybe_show_dispatch_msg
+    _maybe_show_dispatch_msg(
+        "windowed_similarity", "direct",
+        "closed-form windowed inner product (single algorithmic path)",
+        0.0, False,
+    )
+
+    # --- Up-front time estimate + adaptive progress stride ---
+    # Calibrate empirically (warm-up + timed sample) and extrapolate to
+    # the full M-point sweep, matching the pattern used by the other
+    # batched helpers (cos_sim_exp_tens batched-raw, entropy_exp_tens,
+    # etc.). Threshold 10 s via maybe_print_batched_estimate; gated on
+    # verbose. For M = 1 the calibration is skipped entirely.
+    import time
+    from ._utils import progress_stride
+
+    prog_stride = 1
+    show_progress = False
+    if verbose and M >= 2:
+        n_cal = min(5, M)
+        sample_idx = np.unique(np.round(
+            np.linspace(0, M - 1, n_cal)
+        ).astype(int))
+
+        def _build_wmd_for_idx(idx):
+            off_col = offsets[:, idx]
+            centre_list = []
+            off_ptr = 0
+            for a in range(A):
+                da = dim_per_a[a]
+                centre_list.append(ref_per_a[a] + off_col[off_ptr:off_ptr + da])
+                off_ptr += da
+            spec = dict(base_spec)
+            spec["centre"] = centre_list
+            return window_tensor(dens_context, spec)
+
+        # Warm-up: one iteration of the loop body to absorb one-time
+        # setup (cache populate, etc.) before the timed sample.
+        wmd_w = _build_wmd_for_idx(sample_idx[0])
+        _windowed_inner_product(dens_query, wmd_w, verbose=False)
+
+        # Timed calibration sample.
+        t_cal_start = time.perf_counter()
+        for cs in sample_idx:
+            wmd_s = _build_wmd_for_idx(cs)
+            _windowed_inner_product(dens_query, wmd_s, verbose=False)
+        t_cal_total = time.perf_counter() - t_cal_start
+        t_per_point = t_cal_total / len(sample_idx)
+        est_total = t_cal_total + t_per_point * M
+        maybe_print_batched_estimate(
+            "windowed_similarity", M, est_total,
+        )
+        prog_stride = progress_stride(t_per_point)
+        show_progress = est_total >= 5
+
     profile = np.empty(M, dtype=np.float64)
     for m in range(M):
         off_col = offsets[:, m]
@@ -7215,12 +7275,16 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         spec_m = dict(base_spec)
         spec_m["centre"] = centre_list
         wmd = window_tensor(dens_context, spec_m)
-        profile[m] = cos_sim_exp_tens(
-            dens_query, wmd,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=verbose,
-        )
+        profile[m] = _windowed_inner_product(dens_query, wmd, verbose=False)
+
+        if verbose and show_progress and (
+            (m + 1) % prog_stride == 0 or (m + 1) == M
+        ):
+            print(f"  {m + 1} / {M} points computed.")
+
+    if verbose:
+        print("windowed_similarity: done.")
+
     return profile
 
 
@@ -7354,9 +7418,9 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     """Body of :func:`windowed_similarity`.
 
     ``truncation_sigmas`` and ``kernel_precision`` are forwarded through
-    to each per-offset :func:`cos_sim_exp_tens` call. ``None`` defers
-    to the global default; explicit values flow directly without the
-    temporary-defaults indirection used historically.
+    to each per-offset :func:`_windowed_inner_product` call. ``None``
+    defers to the global default; explicit values flow directly without
+    the temporary-defaults indirection used historically.
     """
     # ------------------------------------------------------------------
     # Normalise query and context inputs.
@@ -7485,7 +7549,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
 # -------------------------------------------------------------------
 
 
-def _cos_sim_exp_tens_windowed(dens_a, dens_b, *, verbose: bool):
+def _windowed_inner_product(dens_a, dens_b, *, verbose: bool):
     """Cosine similarity with one or both operands windowed.
 
     Normaliser uses unwindowed L2 norms for both operands (Option Z).

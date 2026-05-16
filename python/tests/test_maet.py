@@ -8,6 +8,7 @@ import warnings
 
 import mpt
 from mpt._utils import position_variance
+from mpt.tensor import _windowed_inner_product
 
 
 class TestMAET:
@@ -1113,7 +1114,7 @@ class TestMAET:
         spec = {"size": [np.inf, 1e6], "mix": [0.0, 0.0],
                 "centre": [np.zeros(1), np.array([t_mean])]}
         wmd = mpt.window_tensor(dens, spec)
-        s_wide = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s_wide = _windowed_inner_product(dens, wmd, verbose=False)
         np.testing.assert_allclose(s_wide, s_self, rtol=1e-3, atol=1e-3)
 
     def test_window_no_groups_spec_means_identity(self):
@@ -1121,7 +1122,7 @@ class TestMAET:
         dens = self._make_time_pitch_dens([(60, 0), (62, 1)])
         spec = {"size": [np.inf, np.inf], "mix": [0.0, 0.0]}
         wmd = mpt.window_tensor(dens, spec)
-        s = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s = _windowed_inner_product(dens, wmd, verbose=False)
         # Should equal self-similarity (no windowing means identity).
         np.testing.assert_allclose(s, 1.0, atol=1e-6)
 
@@ -1133,7 +1134,7 @@ class TestMAET:
         spec = {"size": [np.inf, 0.2], "mix": [0.0, 0.0],
                 "centre": [np.zeros(1), np.array([0.0])]}
         wmd = mpt.window_tensor(dens, spec)
-        s = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s = _windowed_inner_product(dens, wmd, verbose=False)
         # Should be small — only ~1 event in window out of 4.
         assert s < 0.5
 
@@ -1144,7 +1145,7 @@ class TestMAET:
                 "centre": [np.zeros(1), np.array([1.0])]}
         wmd = mpt.window_tensor(dens, spec)
         # Should run without error and give a finite value.
-        s = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s = _windowed_inner_product(dens, wmd, verbose=False)
         assert np.isfinite(s)
         assert 0 < s < 1
 
@@ -1154,7 +1155,7 @@ class TestMAET:
         spec = {"size": [np.inf, 0.5], "mix": [0.0, 0.5],
                 "centre": [np.zeros(1), np.array([1.0])]}
         wmd = mpt.window_tensor(dens, spec)
-        s = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s = _windowed_inner_product(dens, wmd, verbose=False)
         assert np.isfinite(s)
         assert 0 < s < 1
 
@@ -1170,7 +1171,7 @@ class TestMAET:
         spec = {"size": [1.0], "mix": [0.0],
                 "centre": [np.array([50.0, 100.0])]}
         wmd = mpt.window_tensor(dens, spec)
-        s = mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+        s = _windowed_inner_product(dens, wmd, verbose=False)
         assert np.isfinite(s)
         assert 0 <= s <= 1
 
@@ -1188,7 +1189,7 @@ class TestMAET:
                 "centre": [np.array([50.0, 100.0])]}
         wmd = mpt.window_tensor(dens, spec)
         with pytest.raises(NotImplementedError, match="Multi-D relative"):
-            mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+            _windowed_inner_product(dens, wmd, verbose=False)
 
     def test_window_multi_d_rel_raised_rect_raises(self):
         """Multi-D relative with raised-rect also raises."""
@@ -1203,7 +1204,7 @@ class TestMAET:
                 "centre": [np.array([50.0, 100.0])]}
         wmd = mpt.window_tensor(dens, spec)
         with pytest.raises(NotImplementedError, match="Multi-D relative"):
-            mpt.cos_sim_exp_tens(dens, wmd, verbose=False)
+            _windowed_inner_product(dens, wmd, verbose=False)
 
     def test_window_entropy_works_on_rect(self):
         """entropy_exp_tens works on a rectangular-windowed density,

@@ -178,11 +178,12 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         end
     end
 
-    % truncationSigmas and kernelPrecision are forwarded directly to
-    % the per-offset cosSimExpTens calls below (and, in list mode, to
-    % the recursive windowedSimilarity calls). Empty means "defer to
-    % the global default"; an explicit value flows through without
-    % mutating shared state.
+    % truncationSigmas and kernelPrecision are accepted for API
+    % compatibility but currently unused: the closed-form windowed
+    % inner product (internal.windowedInnerProduct) does not yet
+    % expose kernel-precision or truncation controls. In list mode
+    % they continue to be forwarded to recursive windowedSimilarity
+    % calls so the API contract on the recursive form is unchanged.
 
     % --- LIST mode ------------------------------------------
     % Either or both of densQuery, densContext may be a cell array of
@@ -351,6 +352,67 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         baseSpec = rmfield(baseSpec, 'centre');
     end
 
+    % --- Dispatch announce ---
+    % windowedSimilarity uses a single algorithmic path: the closed-form
+    % windowed inner product (no Bulger / Möbius / centres choice to
+    % make). The announce reads 'chose direct path' to surface the
+    % method to the user; throttled to once per top-level call.
+    internal.maybeShowDispatchMsg('windowedSimilarity', 'direct', ...
+        'closed-form windowed inner product (single algorithmic path)', ...
+        0, false);
+
+    % --- Up-front time estimate + adaptive progress stride ---
+    % Calibrate empirically (warm-up + timed sample) and extrapolate to
+    % the full M-point sweep, matching the pattern used by the other
+    % batched helpers (cosSimExpTens batched-raw, entropyExpTens, etc.).
+    % Threshold 10 s via internal.printBatchedEstimate; gated on
+    % verbose. For M = 1 the calibration is skipped entirely (nothing
+    % to estimate or count down).
+    progStride = 1;
+    showProgress = false;
+    if verbose && M >= 2
+        nCal = min(5, M);
+        sampleIdx = unique(round(linspace(1, M, nCal)));
+
+        % Warm-up: one iteration of the loop body to absorb one-time
+        % setup (cache populate, etc.) before the timed sample.
+        centre_cell_w = cell(1, A);
+        off_ptr = 0;
+        for a = 1:A
+            da = dimPerAttr_q(a);
+            centre_cell_w{a} = refPerA{a} + ...
+                offsets(off_ptr + 1 : off_ptr + da, sampleIdx(1));
+            off_ptr = off_ptr + da;
+        end
+        spec_w = baseSpec;
+        spec_w.centre = centre_cell_w;
+        wmd_w = windowTensor(densContext, spec_w);
+        internal.windowedInnerProduct(densQuery, wmd_w, false);
+
+        % Timed calibration sample over the same indices.
+        tCalStart = tic;
+        for cs = 1:numel(sampleIdx)
+            centre_cell_s = cell(1, A);
+            off_ptr = 0;
+            for a = 1:A
+                da = dimPerAttr_q(a);
+                centre_cell_s{a} = refPerA{a} + ...
+                    offsets(off_ptr + 1 : off_ptr + da, sampleIdx(cs));
+                off_ptr = off_ptr + da;
+            end
+            spec_s = baseSpec;
+            spec_s.centre = centre_cell_s;
+            wmd_s = windowTensor(densContext, spec_s);
+            internal.windowedInnerProduct(densQuery, wmd_s, false);
+        end
+        tCalTotal  = toc(tCalStart);
+        tPerPoint  = tCalTotal / numel(sampleIdx);
+        estTotal   = tCalTotal + tPerPoint * M;
+        internal.printBatchedEstimate('windowedSimilarity', M, estTotal);
+        progStride = internal.progressStride(tPerPoint);
+        showProgress = estTotal >= 5;
+    end
+
     profile = zeros(1, M);
     for m = 1:M
         % Per-attribute absolute centre = reference + per-attribute slice
@@ -365,10 +427,15 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_m = baseSpec;
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
-        profile(m) = cosSimExpTens(densQuery, wmd, ...
-            'truncationSigmas', truncationSigmas, ...
-            'kernelPrecision', kernelPrecision, ...
-            'verbose', verbose);
+        profile(m) = internal.windowedInnerProduct(densQuery, wmd, false);
+
+        if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
+            fprintf('  %d / %d points computed.\n', m, M);
+        end
+    end
+
+    if verbose
+        fprintf('windowedSimilarity: done.\n');
     end
 end
 
@@ -384,8 +451,8 @@ function profile = localWindowedSimilarityList( ...
 %
 %   ``truncationSigmas`` and ``kernelPrecision`` are forwarded to each
 %   recursive ``windowedSimilarity`` call so per-call kwargs reach the
-%   per-offset ``cosSimExpTens`` consumers without going through
-%   ``mptDefaults`` global state.
+%   per-offset ``internal.windowedInnerProduct`` consumers without going
+%   through ``mptDefaults`` global state.
 
     % Wrap singletons so the loops below can index uniformly.
     if iscell(densQuery)

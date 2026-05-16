@@ -14,7 +14,7 @@ distinct values per attribute pass the explicit list-of-arrays form.
 import numpy as np
 import pytest
 
-from mpt.tensor import build_exp_tens, cos_sim_exp_tens, window_tensor
+from mpt.tensor import build_exp_tens, cos_sim_exp_tens, window_tensor, _windowed_inner_product
 
 
 def _build(seed, A, K, N, r, sigma=20.0, is_rel=0):
@@ -53,7 +53,7 @@ def test_global_scalar_broadcast_sa(scalar_form):
     ref_centre = [np.full(d_a, 5.0)]
     wmd_ref = window_tensor(dens_c, dict(size=1.5, mix=0.5,
                                           centre=ref_centre))
-    cos_ref = cos_sim_exp_tens(dens_q, wmd_ref, verbose=False)
+    cos_ref = _windowed_inner_product(dens_q, wmd_ref, verbose=False)
 
     wmd = window_tensor(dens_c, dict(size=1.5, mix=0.5,
                                       centre=scalar_form))
@@ -61,7 +61,7 @@ def test_global_scalar_broadcast_sa(scalar_form):
     assert len(wmd.centre) == len(wmd_ref.centre)
     np.testing.assert_array_equal(wmd.centre[0], wmd_ref.centre[0])
 
-    cos = cos_sim_exp_tens(dens_q, wmd, verbose=False)
+    cos = _windowed_inner_product(dens_q, wmd, verbose=False)
     assert cos == cos_ref
 
 
@@ -125,14 +125,14 @@ def test_global_scalar_broadcast_ma_two_groups():
     ref_centre = [np.full(2, 7.0), np.full(3, 7.0)]
     wmd_ref = window_tensor(dens_c, dict(size=[2.0, 2.0], mix=[0.5, 0.5],
                                           centre=ref_centre))
-    cos_ref = cos_sim_exp_tens(dens_q, wmd_ref, verbose=False)
+    cos_ref = _windowed_inner_product(dens_q, wmd_ref, verbose=False)
 
     # Scalar broadcast.
     wmd = window_tensor(dens_c, dict(size=[2.0, 2.0], mix=[0.5, 0.5],
                                       centre=7.0))
     np.testing.assert_array_equal(wmd.centre[0], np.full(2, 7.0))
     np.testing.assert_array_equal(wmd.centre[1], np.full(3, 7.0))
-    cos = cos_sim_exp_tens(dens_q, wmd, verbose=False)
+    cos = _windowed_inner_product(dens_q, wmd, verbose=False)
     assert cos == cos_ref
 
 

@@ -47,10 +47,10 @@ from scipy.special import erf
 try:
     from mpt.tensor import (
         build_exp_tens,
-        cos_sim_exp_tens,
         window_tensor,
         _orbit_inner_abs,
         _window_width_params,
+        _windowed_inner_product,
     )
 except ImportError as _exc:
     pytest.skip(
@@ -145,7 +145,7 @@ def _direct_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
 
 def _toolbox_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
                                   offset_vec, size, mix):
-    """Toolbox windowed cosine via cos_sim_exp_tens + window_tensor.
+    """Toolbox windowed inner product via _windowed_inner_product + window_tensor.
     The user-supplied centre vector is the offset interpretation
     used by ``windowed_similarity``: each entry of length-r is one
     axis's offset from the unweighted query centroid mu_q."""
@@ -159,7 +159,7 @@ def _toolbox_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
         size=size, mix=mix,
         centre=[np.asarray(offset_vec, dtype=np.float64)],
     ))
-    return cos_sim_exp_tens(dens_q, wmd, verbose=False)
+    return _windowed_inner_product(dens_q, wmd, verbose=False)
 
 
 # -------------------------------------------------------------------
@@ -360,14 +360,14 @@ def test_multi_attribute_within_attribute_symmetrisation():
     centre_attr0_rev = centre_attr0[::-1]
     centre_attr1_same = centre_attr1.copy()
 
-    cos_orig = cos_sim_exp_tens(
+    cos_orig = _windowed_inner_product(
         dens_x,
         window_tensor(dens_y, dict(
             size=5.0, mix=0.0, centre=[centre_attr0, centre_attr1],
         )),
         verbose=False,
     )
-    cos_attr0_rev = cos_sim_exp_tens(
+    cos_attr0_rev = _windowed_inner_product(
         dens_x,
         window_tensor(dens_y, dict(
             size=5.0, mix=0.0,
@@ -384,7 +384,7 @@ def test_multi_attribute_within_attribute_symmetrisation():
         )
 
     # Reorder within attr 1 only
-    cos_attr1_rev = cos_sim_exp_tens(
+    cos_attr1_rev = _windowed_inner_product(
         dens_x,
         window_tensor(dens_y, dict(
             size=5.0, mix=0.0,

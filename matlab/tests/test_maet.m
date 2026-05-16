@@ -783,7 +783,7 @@ t_mean_w = mean(time_w);
 spec_wide = struct('size', [Inf, 1e6], 'mix', [0, 0], ...
                    'centre', {{zeros(1, 1), t_mean_w}});
 wmd_wide = windowTensor(dens_w, spec_wide);
-s_wide = cosSimExpTens(dens_w, wmd_wide, 'verbose', false);
+s_wide = internal.windowedInnerProduct(dens_w, wmd_wide, false);
 s_self = cosSimExpTens(dens_w, dens_w, 'verbose', false);
 results{end+1,1} = 'windowTensor: wide centred window == unwindowed self-sim';
 results{end,2}   = abs(s_wide - s_self) < 1e-3;
@@ -792,7 +792,7 @@ results{end,2}   = abs(s_wide - s_self) < 1e-3;
 
 spec_inf = struct('size', [Inf, Inf], 'mix', [0, 0]);
 wmd_inf = windowTensor(dens_w, spec_inf);
-s_inf = cosSimExpTens(dens_w, wmd_inf, 'verbose', false);
+s_inf = internal.windowedInnerProduct(dens_w, wmd_inf, false);
 results{end+1,1} = 'windowTensor: all-Inf size == identity (s ~= 1)';
 results{end,2}   = abs(s_inf - 1) < 1e-6;
 
@@ -801,7 +801,7 @@ results{end,2}   = abs(s_inf - 1) < 1e-6;
 spec_narrow = struct('size', [Inf, 0.2], 'mix', [0, 0], ...
                      'centre', {{zeros(1, 1), 0}});
 wmd_narrow = windowTensor(dens_w, spec_narrow);
-s_narrow = cosSimExpTens(dens_w, wmd_narrow, 'verbose', false);
+s_narrow = internal.windowedInnerProduct(dens_w, wmd_narrow, false);
 results{end+1,1} = 'windowTensor: narrow window reduces cos_sim';
 results{end,2}   = s_narrow < 0.5;
 
@@ -810,7 +810,7 @@ results{end,2}   = s_narrow < 0.5;
 spec_rect = struct('size', [Inf, 0.5], 'mix', [0, 1], ...
                    'centre', {{zeros(1, 1), 1.0}});
 wmd_rect = windowTensor(dens_w, spec_rect);
-s_rect = cosSimExpTens(dens_w, wmd_rect, 'verbose', false);
+s_rect = internal.windowedInnerProduct(dens_w, wmd_rect, false);
 results{end+1,1} = 'windowTensor: rectangular 1-D time works (finite, 0<s<1)';
 results{end,2}   = isfinite(s_rect) && s_rect > 0 && s_rect < 1;
 
@@ -819,7 +819,7 @@ results{end,2}   = isfinite(s_rect) && s_rect > 0 && s_rect < 1;
 spec_raised = struct('size', [Inf, 0.5], 'mix', [0, 0.5], ...
                      'centre', {{zeros(1, 1), 1.0}});
 wmd_raised = windowTensor(dens_w, spec_raised);
-s_raised = cosSimExpTens(dens_w, wmd_raised, 'verbose', false);
+s_raised = internal.windowedInnerProduct(dens_w, wmd_raised, false);
 results{end+1,1} = 'windowTensor: raised-rectangular 1-D time works';
 results{end,2}   = isfinite(s_raised) && s_raised > 0 && s_raised < 1;
 
@@ -831,7 +831,7 @@ dens_mr = buildExpTens({pitchMR}, [], 10, 3, [], ...
 spec_mr_gauss = struct('size', 1, 'mix', 0, ...
                        'centre', {{[50; 100]}});
 wmd_mr = windowTensor(dens_mr, spec_mr_gauss);
-s_mr = cosSimExpTens(dens_mr, wmd_mr, 'verbose', false);
+s_mr = internal.windowedInnerProduct(dens_mr, wmd_mr, false);
 results{end+1,1} = 'windowTensor: multi-D rel Gaussian window works';
 results{end,2}   = isfinite(s_mr) && s_mr >= 0 && s_mr <= 1;
 
@@ -840,14 +840,14 @@ results{end,2}   = isfinite(s_mr) && s_mr >= 0 && s_mr <= 1;
 spec_mr_rect = struct('size', 1, 'mix', 1, 'centre', {{[50; 100]}});
 wmd_mr_rect = windowTensor(dens_mr, spec_mr_rect);
 results{end+1,1} = 'windowTensor: multi-D rel rectangular errors';
-results{end,2}   = throwsError(@() cosSimExpTens(dens_mr, wmd_mr_rect, 'verbose', false));
+results{end,2}   = throwsError(@() internal.windowedInnerProduct(dens_mr, wmd_mr_rect, false));
 
 % -- windowTensor: multi-D relative raised-rect raises --
 
 spec_mr_rr = struct('size', 1, 'mix', 0.5, 'centre', {{[50; 100]}});
 wmd_mr_rr = windowTensor(dens_mr, spec_mr_rr);
 results{end+1,1} = 'windowTensor: multi-D rel raised-rect errors';
-results{end,2}   = throwsError(@() cosSimExpTens(dens_mr, wmd_mr_rr, 'verbose', false));
+results{end,2}   = throwsError(@() internal.windowedInnerProduct(dens_mr, wmd_mr_rr, false));
 
 % -- windowTensor: entropy on rect-windowed multi-D rel works --
 
@@ -1108,19 +1108,19 @@ results{end,2}   = throwsError(@() windowTensor(dens_w, bad_spec));
 ref_centre_cell = {3.0, 3.0};   % equivalent uniform centre per attribute
 spec_ref = struct('size', [1, 0.5], 'mix', [0, 0], 'centre', {ref_centre_cell});
 wmd_ref = windowTensor(dens_w, spec_ref);
-cos_ref = cosSimExpTens(dens_w, wmd_ref, 'verbose', false);
+cos_ref = internal.windowedInnerProduct(dens_w, wmd_ref, false);
 
 % Numeric scalar.
 spec_scalar = struct('size', [1, 0.5], 'mix', [0, 0], 'centre', 3.0);
 wmd_s = windowTensor(dens_w, spec_scalar);
-cos_s  = cosSimExpTens(dens_w, wmd_s, 'verbose', false);
+cos_s  = internal.windowedInnerProduct(dens_w, wmd_s, false);
 results{end+1,1} = 'windowTensor: numeric scalar centre broadcasts';
 results{end,2}   = isequal(wmd_s.centre, wmd_ref.centre) && cos_s == cos_ref;
 
 % 1x1 array.
 spec_1x1 = struct('size', [1, 0.5], 'mix', [0, 0], 'centre', [3.0]);
 wmd_1x1 = windowTensor(dens_w, spec_1x1);
-cos_1x1 = cosSimExpTens(dens_w, wmd_1x1, 'verbose', false);
+cos_1x1 = internal.windowedInnerProduct(dens_w, wmd_1x1, false);
 results{end+1,1} = 'windowTensor: 1x1 array centre broadcasts';
 results{end,2}   = isequal(wmd_1x1.centre, wmd_ref.centre) && cos_1x1 == cos_ref;
 
@@ -1158,8 +1158,8 @@ spec_ref3 = struct('size', 1.5, 'mix', 0.5, 'centre', {{[5.0; 5.0; 5.0]}});
 wmd_ref3 = windowTensor(dens_ma3, spec_ref3);
 results{end+1,1} = 'windowTensor: scalar broadcast == explicit uniform cell';
 results{end,2}   = isequal(wmd_sc3.centre, wmd_ref3.centre) && ...
-    cosSimExpTens(dens_ma3, wmd_sc3, 'verbose', false) == ...
-    cosSimExpTens(dens_ma3, wmd_ref3, 'verbose', false);
+    internal.windowedInnerProduct(dens_ma3, wmd_sc3, false) == ...
+    internal.windowedInnerProduct(dens_ma3, wmd_ref3, false);
 
 % Per-attribute scalar list NOT broadcast. With A=2 and dim_total=2, the
 % length-2 numeric vector [5; 10] is a valid flat-form input — and is
@@ -1347,12 +1347,12 @@ spec_a0_rev_4 = struct('size', 5.0, 'mix', 0.0, ...
     'centre', {{centre_a0(end:-1:1), centre_a1}});
 spec_a1_rev_4 = struct('size', 5.0, 'mix', 0.0, ...
     'centre', {{centre_a0, centre_a1(end:-1:1)}});
-cos_orig_4 = cosSimExpTens(dens_x_4, ...
-    windowTensor(dens_y_4, spec_orig_4), 'verbose', false);
-cos_a0_rev = cosSimExpTens(dens_x_4, ...
-    windowTensor(dens_y_4, spec_a0_rev_4), 'verbose', false);
-cos_a1_rev = cosSimExpTens(dens_x_4, ...
-    windowTensor(dens_y_4, spec_a1_rev_4), 'verbose', false);
+cos_orig_4 = internal.windowedInnerProduct(dens_x_4, ...
+    windowTensor(dens_y_4, spec_orig_4), false);
+cos_a0_rev = internal.windowedInnerProduct(dens_x_4, ...
+    windowTensor(dens_y_4, spec_a0_rev_4), false);
+cos_a1_rev = internal.windowedInnerProduct(dens_x_4, ...
+    windowTensor(dens_y_4, spec_a1_rev_4), false);
 if abs(cos_orig_4) < ORTH_FLOOR_SYM
     ok_a0 = abs(cos_a0_rev) < ORTH_FLOOR_SYM;
     ok_a1 = abs(cos_a1_rev) < ORTH_FLOOR_SYM;
@@ -1525,6 +1525,6 @@ function c = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
     spec = struct('size', size_v, 'mix', mix_v, ...
         'centre', {{offset_vec(:)}});
     wmd = windowTensor(dens_c, spec);
-    c = cosSimExpTens(dens_q, wmd, 'verbose', false);
+    c = internal.windowedInnerProduct(dens_q, wmd, false);
 end
 

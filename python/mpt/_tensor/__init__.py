@@ -1,21 +1,20 @@
-"""Internal sub-package of mpt.tensor.
+"""Internal sub-package implementing expectation tensor primitives.
 
-This sub-package is the in-progress refactor target for the
-expectation-tensor primitives that currently live in
-``mpt.tensor``. Public toolbox names continue to be exposed at
-``mpt.X`` (re-exported by ``mpt/__init__.py`` from ``mpt.tensor``).
-``mpt.tensor`` itself imports from this sub-package for the
-already-migrated subsystems.
+Public toolbox names continue to be exposed at ``mpt.X`` (re-exported
+by ``mpt/__init__.py`` from ``mpt.tensor``, which is now itself a
+re-export shim over this sub-package).
 
-Migration status (post-Tranche-2-phase-1+2):
-  density.py        Migrated.
-  preprocessing.py  Migrated.
-  windowing.py      Migrated.
+Module layout:
+  density.py        Density classes + MA-input helpers.
+  build.py          build_exp_tens (SA + MA paths).
+  preprocessing.py  difference_events, bind_events, simplex_vertices.
+  windowing.py      window_tensor, windowed_similarity, windowed IP.
+  canonical.py      Canonical-form key helpers for batched dedup.
+  dispatch.py       Path-selection cost model + shared helpers.
+  eval.py           eval_exp_tens (SA centres / orbit / fast, MA).
+  cosine.py         cos_sim_exp_tens + batch_cos_sim_exp_tens.
 
-Still in mpt.tensor (will move in Tranche 2 phase 3):
-  build / eval / cosine / dispatch / canonical machinery.
-
-See ARCHITECTURE.md §3 ("Code layering") for the target structure.
+See ARCHITECTURE.md §3 ("Code layering") for the layered design.
 """
 from .density import (
     ExpTensDensity,
@@ -31,6 +30,11 @@ from .density import (
     _normalise_weights_ma,
 )
 
+from .build import (
+    build_exp_tens,
+    _looks_like_multi_attr,
+)
+
 from .preprocessing import (
     bind_events,
     difference_events,
@@ -41,13 +45,47 @@ from .windowing import (
     WindowedSimilarityPeriodicApproxWarning,
     window_tensor,
     windowed_similarity,
+    _evaluate_window_on_query,
+    _windowed_inner_product,
 )
 
+from .canonical import (
+    _chord_canonical_key,
+    _pair_canonical_key,
+)
+
+from .dispatch import (
+    _compute_Q,
+    _normalize_density_input,
+    _resolve_list_list_mode,
+)
+
+from .eval import (
+    eval_exp_tens,
+    eval_exp_tens_raw,
+)
+
+from .cosine import (
+    batch_cos_sim_exp_tens,
+    cos_sim_exp_tens,
+    cos_sim_exp_tens_raw,
+    _cos_sim_exp_tens_sa_orbit,
+    _cos_sim_exp_tens_sa_pairwise,
+)
+
+
 __all__ = [
-    # Density classes (public)
+    # Density (public)
     "ExpTensDensity",
     "MaetDensity",
     "WindowedMaetDensity",
+    # Build / eval / cosine (public)
+    "build_exp_tens",
+    "eval_exp_tens",
+    "eval_exp_tens_raw",
+    "cos_sim_exp_tens",
+    "cos_sim_exp_tens_raw",
+    "batch_cos_sim_exp_tens",
     # Preprocessing (public)
     "bind_events",
     "difference_events",

@@ -23,14 +23,13 @@ non-windowed cosine path).
 See USER_GUIDE §3.1 ("Post-tensor windowing") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.
 
-Cross-module dependencies: this module reaches into the not-yet-migrated
-parts of :mod:`mpt.tensor` for a small number of dispatch helpers
+Cross-module dependencies: this module reaches into
+:mod:`._tensor.dispatch` for a small number of dispatch helpers
 (``_normalize_density_input``, ``_resolve_list_list_mode``,
 ``_compute_Q``). Those imports are deferred to call time to avoid
-import-cycle issues during package load. After Tranche-2 phase 3
-of the refactor, the helpers will live in a sibling
-``_tensor.dispatch`` module and these lazy imports can become
-top-level.
+import-cycle issues during package load (dispatch is imported by
+cosine and eval, which load before this module reaches the dispatch
+call sites).
 """
 from __future__ import annotations
 
@@ -733,9 +732,10 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     defers to the global default; explicit values flow directly without
     the temporary-defaults indirection used historically.
     """
-    # Lazy import to avoid import cycles with the not-yet-migrated
-    # parts of mpt.tensor (build / eval / cosine / dispatch).
-    from ..tensor import _normalize_density_input, _resolve_list_list_mode
+    # Lazy import to avoid import cycles: dispatch is imported by
+    # cosine and eval, which in turn import from windowing's
+    # parent package at load time.
+    from .dispatch import _normalize_density_input, _resolve_list_list_mode
 
     # ------------------------------------------------------------------
     # Normalise query and context inputs.
@@ -957,9 +957,10 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
     guard — set to ``True`` in the inner self-calls that consume one
     specific permuted centre, to prevent infinite re-entry.
     """
-    # Lazy import to avoid import cycles with the not-yet-migrated
-    # parts of mpt.tensor (build / eval / cosine / dispatch).
-    from ..tensor import _compute_Q
+    # Lazy import to avoid import cycles with .dispatch (dispatch
+    # is imported by cosine, which is imported via the parent
+    # package init).
+    from .dispatch import _compute_Q
 
     # ----- IP-level within-attribute centre symmetrisation -----
     # Detect non-uniform within-attribute centre vectors. If any are

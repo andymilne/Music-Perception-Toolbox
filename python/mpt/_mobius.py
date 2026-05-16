@@ -3,6 +3,9 @@
 This module implements the orbit-collapsed Möbius reformulation of the
 distinct-index inner product underlying ``cos_sim_exp_tens``,
 ``entropy_exp_tens`` (Rényi-2 mode), and the windowed inner product.
+It also implements the (layer-1-only) Möbius point evaluator and
+total-mass calculation used by ``eval_exp_tens`` and the Rényi-2
+denominator.
 
 The reformulation has two layers:
 
@@ -18,13 +21,38 @@ The reformulation has two layers:
    is a non-negative integer matrix with row sums m_A and column sums
    m_B, considered up to within-size-group row and column permutations.
 
-Combined cost: |Ω_r| tensor contractions per inner product, with
+Layer 1 alone is enough for point evaluation and total mass (which
+have only one side). Layer 2 is the inner-product-specific further
+reduction. The two layers compose multiplicatively in the inner-product
+case to give |Ω_r| tensor contractions per inner product, with
 |Ω_r| = 4, 10, 33, 92, 306, 948, 3210 for r = 2, ..., 8 (compared to
 B_r² = 4, 25, 225, 2704, 41209, 769129, 17139600 unsymmetrised).
 
 The orbit table for each r is built once and cached. Pre-built tables
 for r = 2, ..., 8 ship with the package; tables for higher r are built
 on demand and cached to disk.
+
+Public-in-the-module entry points (called from ``mpt.tensor`` and
+consumer wrappers, never directly by user code):
+
+  Layer 1 + 2 (inner product):
+    inner_product_orbit         single-pair distinct-index IP
+    inner_product_orbit_grid    grid evaluation for windowed contributions
+    inner_product_orbit_pw_batched  batched IP over MA per-attr variations
+  Layer 1 only (point eval and total mass):
+    eval_orbit_abs              point evaluation in absolute mode
+    eval_orbit_rel              point evaluation in relative mode
+                                (with u-grid vectorisation)
+    total_mass_abs              total-mass scalar in absolute mode
+    total_mass_rel              total-mass scalar in relative mode
+  Orbit-table access:
+    get_orbit_table             load (or build and cache) the orbit
+                                table for tensor order r
+
+See :doc:`/ARCHITECTURE` (specifically the "orbit-table system" section)
+for the design rationale, the cost-model story underlying the dispatcher
+that routes between this module and Bulger's method, and the
+twin-language ``matlab/+mobius`` package map.
 """
 from __future__ import annotations
 

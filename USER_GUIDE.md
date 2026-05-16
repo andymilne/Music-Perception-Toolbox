@@ -1447,9 +1447,9 @@ MATLAB demo scripts are in `matlab/demos/`. To run a demo, open it in the MATLAB
 | `demo_overview` | Quick tour of all major function families: pitch conversion, spectral enrichment, SPCS, harmonicity, roughness, balance, evenness, coherence, sameness, entropy, mean offset, edges, and Markov | — |
 | `demo_audioAnalysis` | Two-pass peak extraction (unsmoothed then smoothed) from audio files, with spectral similarity, harmonicity, roughness, and virtual pitch analysis | — |
 | `demo_batchProcessing` | Batch feature computation with deduplication: paired SPCS via batched-raw `cosSimExpTens`, and single-set measures (spectral entropy, harmonicity, roughness) via a hybrid of batched calls (where supported) and the unique/map pattern | — |
-| `demo_edoApprox` | SPCS of n-EDOs against a JI chord | Milne et al. (2011), Ex. 6.3 / Fig. 4 |
+| `demo_edoApprox` | PCS of n-EDOs against a JI chord | Milne et al. (2011), Ex. 6.3 / Fig. 4 |
 | `demo_expTensorPlots` | Interactive visualisation of expectation tensors in 1–4 dimensions, with power sliders and projection toggles | — |
-| `demo_genChainSpcs` | SPCS of generator-chain tunings as the generator is swept (linear and circular plots) | Milne et al. (2011), Ex. 6.4–6.5 / Figs. 5–7 |
+| `demo_genChainPcs` | PCS of generator-chain tunings as the generator is swept (linear and circular plots) | Milne et al. (2011), Ex. 6.4–6.5 / Figs. 5–7 |
 | `demo_triadConsonance` | Five consonance measures over a grid of triad intervals | — |
 | `demo_triadSpcsGrid` | SPCS heatmap of 12-EDO triads with a fifth | Milne et al. (2011), Fig. 3 |
 | `demo_virtualPitches` | Virtual pitch salience profiles for example chords | — |
@@ -1470,9 +1470,9 @@ Python equivalents of all demos are in `python/demos/`. They follow the same str
 | `demo_overview.py` | `demo_overview` | Quick tour of all major function families |
 | `demo_audio_analysis.py` | `demo_audioAnalysis` | Two-pass audio peak extraction and perceptual features |
 | `demo_batch_processing.py` | `demo_batchProcessing` | Batch feature computation with deduplication |
-| `demo_edo_approx.py` | `demo_edoApprox` | SPCS of n-EDOs against a JI chord |
+| `demo_edo_approx.py` | `demo_edoApprox` | PCS of n-EDOs against a JI chord |
 | `demo_exp_tensor_plots.py` | `demo_expTensorPlots` | Expectation tensor density visualisation (1–4D) |
-| `demo_gen_chain_spcs.py` | `demo_genChainSpcs` | Generator-chain SPCS (linear and circular plots) |
+| `demo_gen_chain_pcs.py` | `demo_genChainPcs` | Generator-chain PCS (linear and circular plots) |
 | `demo_triad_consonance.py` | `demo_triadConsonance` | Five consonance measures over a triad grid |
 | `demo_triad_spcs_grid.py` | `demo_triadSpcsGrid` | SPCS heatmap of triads with a fifth |
 | `demo_virtual_pitches.py` | `demo_virtualPitches` | Virtual pitch salience profiles |

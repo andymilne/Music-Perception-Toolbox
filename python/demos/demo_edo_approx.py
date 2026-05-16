@@ -1,6 +1,6 @@
 """demo_edo_approx.py
 
-Spectral pitch class similarity (SPCS) of equal divisions of the octave
+Pitch class similarity (PCS) of equal divisions of the octave
 (n-EDOs) to a just intonation reference chord, using relative dyad
 expectation tensors (r = 2, is_rel = True, dim = 1).
 
@@ -64,7 +64,7 @@ for i, n in enumerate(edo_range):
 #  Compute similarities
 # ===================================================================
 
-print(f"Computing SPCS of {n_edos} EDOs against {ref_name}...")
+print(f"Computing PCS of {n_edos} EDOs against {ref_name}...")
 s = mpt.cos_sim_exp_tens(
     ref_pitches, None, p_mat_b, None,
     sigma, r, is_rel, is_per, period,
@@ -87,8 +87,8 @@ plt.setp(stemlines, linewidth=0.8, color=(0.2, 0.2, 0.6))
 plt.setp(markerline, markersize=4, color=(0.2, 0.2, 0.6))
 
 ax.set_xlabel('n-EDO')
-ax.set_ylabel('Spectral pitch class similarity')
-ax.set_title(f'SPCS of n-EDOs with {ref_name}\n'
+ax.set_ylabel('Pitch class similarity')
+ax.set_title(f'PCS of n-EDOs with {ref_name}\n'
              f'(r = {r}, is_rel = {is_rel}, σ = {sigma} cents)')
 ax.set_xlim(n_min - 1, n_max + 1)
 ax.grid(True, alpha=0.3)
@@ -109,8 +109,8 @@ plt.tight_layout()
 #  Console output: top EDOs
 # ===================================================================
 
-print(f"\nTop {n_labels} EDOs by SPCS with {ref_name}:")
-print(f"{'n-EDO':<8s}  {'SPCS'}")
+print(f"\nTop {n_labels} EDOs by PCS with {ref_name}:")
+print(f"{'n-EDO':<8s}  {'PCS'}")
 print('-' * 20)
 for li in range(min(n_labels, n_edos)):
     idx = sort_idx[li]

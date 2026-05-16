@@ -388,7 +388,7 @@ function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
 
     % Contract: ip(n_x, n_y) = sum_{jx, jy}
     %               Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy) * Wj_y(n_y, jy)
-    % MATLAB lacks named einsum; do it as two reduction steps.
+    % MATLAB has no named tensor-contraction primitive; do it as two reduction steps.
     %   step 1: T1(n_x, n_y, jy) = sum_jx Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy)
     %   step 2: I(n_x, n_y)      = sum_jy T1(n_x, n_y, jy) * Wj_y(n_y, jy)
     % Reshape for compact bsxfun-style products.

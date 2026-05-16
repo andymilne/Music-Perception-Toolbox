@@ -783,7 +783,7 @@ end
 %  falling_factorial(K_x, r) * falling_factorial(K_y, r) (ordered
 %  r-tuple enumeration on each side). Orbit IP cost scales as
 %  B_r * K_x * K_y (kernel matrix construction + per-partition
-%  einsum). The probe uses K_probe = min(K_x, K_y, 12) events from
+%  tensor contraction). The probe uses K_probe = min(K_x, K_y, 12) events from
 %  each side and extrapolates by the appropriate factor.
 % =========================================================================
 

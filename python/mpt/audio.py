@@ -85,21 +85,21 @@ def audio_peaks(
 
     Spectral pitch similarity of two audio files::
 
-        fA, wA, _ = mpt.audio_peaks('audio/Piano_Emin.wav')
-        fB, wB, _ = mpt.audio_peaks('audio/Piano_G7_3rd_inversion.wav')
+        fA, wA, _ = mpt.audio_peaks('audio/piano_Emin.wav')
+        fB, wB, _ = mpt.audio_peaks('audio/piano_G7_3rd_inversion.wav')
         pA = mpt.convert_pitch(fA, 'hz', 'cents')
         pB = mpt.convert_pitch(fB, 'hz', 'cents')
         s = mpt.cos_sim_exp_tens_raw(pA, wA, pB, wB, 12, 2, True, True, 1200)
 
     Spectral entropy (no add_spectra needed)::
 
-        f, w, _ = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
+        f, w, _ = mpt.audio_peaks('audio/piano_Cmin_open.wav')
         p = mpt.convert_pitch(f, 'hz', 'cents')
         H = mpt.spectral_entropy(p, w, 12)
 
     Roughness (Hz input — no conversion needed)::
 
-        f, w, _ = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
+        f, w, _ = mpt.audio_peaks('audio/piano_Cmin_open.wav')
         r = mpt.roughness(f, w)
     """
     import soundfile as sf

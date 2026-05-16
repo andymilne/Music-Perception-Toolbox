@@ -698,7 +698,7 @@ print(f'Balance = {b:.3f}, Evenness = {e:.3f}')
 
 **MATLAB:**
 ```matlab
-[f, w] = audioPeaks('audio/Piano_Cmin_open.wav');
+[f, w] = audioPeaks('audio/piano_Cmin_open.wav');
 p = convertPitch(f, 'hz', 'cents');
 H = spectralEntropy(p, w, 12);
 fprintf('Spectral entropy = %.3f\n', H);
@@ -706,7 +706,7 @@ fprintf('Spectral entropy = %.3f\n', H);
 
 **Python:**
 ```python
-f, w, detail = mpt.audio_peaks('audio/Piano_Cmin_open.wav')
+f, w, detail = mpt.audio_peaks('audio/piano_Cmin_open.wav')
 p = mpt.convert_pitch(f, 'hz', 'cents')
 H = mpt.spectral_entropy(p, w, 12)
 print(f'Spectral entropy = {H:.3f}')

@@ -45,9 +45,9 @@ audio_files = [
     ('piano_C4.wav',                  'Piano C4'),
     ('violin_A4.wav',                 'Violin A4'),
     ('oboe_A4.wav',                   'Oboe A4'),
-    ('Piano_Emin.wav',                'Piano E minor'),
-    ('Piano_G7_3rd_inversion.wav',    'Piano G7 (3rd inv.)'),
-    ('Piano_Cmin_open.wav',           'Piano C minor (open)'),
+    ('piano_Emin.wav',                'Piano E minor'),
+    ('piano_G7_3rd_inversion.wav',    'Piano G7 (3rd inv.)'),
+    ('piano_Cmin_open.wav',           'Piano C minor (open)'),
     ('music_sample.wav',              'Music sample'),
 ]
 

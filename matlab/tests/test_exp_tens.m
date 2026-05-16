@@ -79,13 +79,13 @@ results{end,2}   = iscell(sCell1) && numel(sCell1) == 1 ...
 results{end+1,1} = 'cosSimExpTens list: length mismatch errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens({d1, d2}, {d3}, 'verbose', false), ...
-    'MPT:CosSimList:LengthMismatch');
+    'cosSimExpTens:listLengthMismatch');
 
 % List mode: non-struct entry errors
 results{end+1,1} = 'cosSimExpTens list: non-struct entry errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens({d1, [1, 2, 3]}, {d3, d3}, 'verbose', false), ...
-    'MPT:CosSimList:NonStruct');
+    'cosSimExpTens:listNonStruct');
 
 % Batched-raw mode: 2-D matrix dispatch returns vector
 A2 = [0, 200, 400, 500, 700, 900, 1100;
@@ -99,7 +99,7 @@ results{end,2}   = isnumeric(sBatched) && numel(sBatched) == 2;
 
 % Batched-raw mode: numerically equivalent to batchCosSimExpTens
 % (suppress the v2.1 deprecation warning while we make the comparison)
-warnState = warning('off', 'MPT:DeprecatedAPI');
+warnState = warning('off', 'batchCosSimExpTens:deprecated');
 sBatchOld = batchCosSimExpTens(A2, B2, 10, 1, false, true, 1200, ...
     'verbose', false);
 warning(warnState);
@@ -121,7 +121,7 @@ results{end+1,1} = 'cosSimExpTens batched: row mismatch errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(A3, [], B2, [], 10, 1, false, true, 1200, ...
         'verbose', false), ...
-    'MPT:CosSimBatched:RowMismatch');
+    'cosSimExpTens:batchedRowMismatch');
 
 % Row vector still uses scalar SA raw path (backward compatibility)
 % Despite being a 1-by-3 matrix, [0 4 7] is a vector and dispatches to
@@ -133,30 +133,30 @@ results{end,2}   = isnumeric(sScalarFromRow) && isscalar(sScalarFromRow) ...
                    && abs(sScalarFromRow - 1) < 1e-10;
 
 % Direct batchCosSimExpTens call now emits a deprecation warning
-prevWarnState = warning('on', 'MPT:DeprecatedAPI');
+prevWarnState = warning('on', 'batchCosSimExpTens:deprecated');
 lastwarn('', '');  % reset lastwarn so we capture only this call's warning
 sDummy = batchCosSimExpTens(A2, B2, 10, 1, false, true, 1200, ...
     'verbose', false); %#ok<NASGU>
 [~, lastWarnId] = lastwarn;
 warning(prevWarnState);
-results{end+1,1} = 'batchCosSimExpTens: emits MPT:DeprecatedAPI warning';
-results{end,2}   = strcmp(lastWarnId, 'MPT:DeprecatedAPI');
+results{end+1,1} = 'batchCosSimExpTens: emits batchCosSimExpTens:deprecated warning';
+results{end,2}   = strcmp(lastWarnId, 'batchCosSimExpTens:deprecated');
 
 % cosSimExpTens batched-raw delegation does NOT re-emit the warning
-prevWarnState = warning('on', 'MPT:DeprecatedAPI');
+prevWarnState = warning('on', 'batchCosSimExpTens:deprecated');
 lastwarn('', '');
 sDummy = cosSimExpTens(A2, [], B2, [], 10, 1, false, true, 1200, ...
     'verbose', false); %#ok<NASGU>
 [~, internalWarnId] = lastwarn;
 warning(prevWarnState);
 results{end+1,1} = 'cosSimExpTens batched: internal call suppresses deprecation';
-results{end,2}   = ~strcmp(internalWarnId, 'MPT:DeprecatedAPI');
+results{end,2}   = ~strcmp(internalWarnId, 'batchCosSimExpTens:deprecated');
 
 % spectrum/precision/dedup forwarding (batched-raw only)
 spec_fwd = {'harmonic', 12, 'powerlaw', 1};
 sBatched_spec = cosSimExpTens(A2, [], B2, [], 10, 1, false, true, 1200, ...
     'spectrum', spec_fwd, 'verbose', false);
-warnState = warning('off', 'MPT:DeprecatedAPI');
+warnState = warning('off', 'batchCosSimExpTens:deprecated');
 sBatchOld_spec = batchCosSimExpTens(A2, B2, 10, 1, false, true, 1200, ...
     'spectrum', spec_fwd, 'verbose', false);
 warning(warnState);
@@ -231,7 +231,7 @@ results{end+1,1} = 'cosSimExpTens batched: mismatched row counts errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(rand(4, 3), [], rand(5, 3), [], ...
         10, 1, false, true, 1200, 'verbose', false), ...
-    'MPT:CosSimBatched:RowMismatch');
+    'cosSimExpTens:batchedRowMismatch');
 
 % --- List-mode broadcasting (v2.1.1+) ---
 % Build a small population of density structs.
@@ -268,13 +268,13 @@ results{end,2}   = iscell(simBcastOne) && numel(simBcastOne) == 1 && ...
 results{end+1,1} = 'cosSimExpTens list: cell+cell length mismatch errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens({dRef, dRef}, {dC1, dC2, dC3}, 'verbose', false), ...
-    'MPT:CosSimList:LengthMismatch');
+    'cosSimExpTens:listLengthMismatch');
 
 % (e) Cell + non-struct, non-cell (e.g. numeric) errors with bad-broadcast id
 results{end+1,1} = 'cosSimExpTens list: cell vs non-struct other-arg errors';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens({dC1, dC2}, 42, 'verbose', false), ...
-    'MPT:CosSimList:BadBroadcast');
+    'cosSimExpTens:listBadBroadcast');
 
 % --- v2.1 unified dispatch: evalExpTens list and batched-raw modes ----
 
@@ -309,7 +309,7 @@ results{end,2}   = iscell(valsCell1) && numel(valsCell1) == 1;
 results{end+1,1} = 'evalExpTens list: non-struct entry errors';
 results{end,2}   = throwsErrorWithId( ...
     @() evalExpTens({de1, [1, 2, 3]}, xGrid, 'verbose', false), ...
-    'MPT:EvalList:NonStruct');
+    'evalExpTens:listNonStruct');
 
 % Batched-raw mode: 2-D matrix dispatch returns matrix of values
 P_e = [0, 4, 7; 0, 3, 7];   % 2 x 3 matrix (major and minor triads)

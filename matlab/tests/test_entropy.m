@@ -63,7 +63,7 @@ results{end,2}   = abs(HCellNorm{1} - H1_nat) < 1e-12;
 results{end+1,1} = 'entropyExpTens list: non-struct entry errors';
 results{end,2}   = throwsErrorWithId( ...
     @() entropyExpTens({de1, [1, 2, 3]}, 'verbose', false), ...
-    'MPT:EntropyList:NonStruct');
+    'entropyExpTens:listNonStruct');
 
 % Batched-raw mode: 2-D pitch matrix returns vector of entropies
 P_h = [0, 4, 7; 0, 3, 7];

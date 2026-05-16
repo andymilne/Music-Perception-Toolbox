@@ -9,7 +9,7 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %   calls to batchCosSimExpTens are translated to the new positional
 %   form and forwarded to cosSimExpTens. Existing calling
 %   conventions continue to work and produce identical results, but
-%   emit an MPT:DeprecatedAPI warning on each invocation.
+%   emit a batchCosSimExpTens:deprecated warning on each invocation.
 %
 %   s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period):
 %   Computes the cosine similarity between the r-ad expectation tensors of
@@ -76,7 +76,7 @@ end
 
 % --- Deprecation notice (always emitted; deprecation contract is that
 %     this shim warns per invocation until removal). ---
-warning('MPT:DeprecatedAPI', ...
+warning('batchCosSimExpTens:deprecated', ...
     ['batchCosSimExpTens is deprecated as of v2.1 and will be removed in a future release. ' ...
      'Use cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) for the same ' ...
      'paired-rows batched cosine similarity (rows of P1/P2 = paired multisets; ' ...

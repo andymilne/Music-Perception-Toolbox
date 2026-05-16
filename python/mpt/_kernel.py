@@ -1,9 +1,13 @@
 """Gaussian-kernel sum helper with optional grid-bucket truncation.
 
-The single centres-path numerical kernel used by ``eval_exp_tens``,
-``cos_sim_exp_tens``, ``entropy_exp_tens``, and (eventually) every
-centres-path consumer in the toolbox. Routes through here so the
-``truncation_sigmas`` and ``kernel_precision`` options are applied uniformly.
+The single centres-path numerical kernel used directly by the SA
+centres evaluator and the SA centres-IP path in :mod:`mpt.tensor`, and
+by the relative-mode orbit evaluator in :mod:`mpt._mobius`. All other
+centres-path consumers (``entropy_exp_tens``, the harmony measures,
+etc.) reach it indirectly through those entry points. Routing every
+centres-path computation through this single helper is what lets the
+``truncation_sigmas`` and ``kernel_precision`` options be applied
+uniformly across the toolbox.
 
 See :mod:`mpt._defaults` for the global-defaults machinery.
 """

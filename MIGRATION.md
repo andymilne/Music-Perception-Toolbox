@@ -44,7 +44,7 @@ v2.2.0 is fully additive: existing v2.1 calling conventions are preserved at the
 
 ### Demo migrations
 
-- Five demos (`demo_triadConsonance`, `demo_bindEvents` in both languages, plus the Python `demo_bindEvents` helper functions) were migrated from the v2.1 `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v2.x principle of treating `buildExpTens` as a less user-facing entity. Three further demos (`demo_helixBlend`, `demo_maetWindowing`, `demo_windowingReference`) keep the explicit `buildExpTens` until `windowedSimilarity` gains a raw-array overload (deferred; tracked as a TODO comment in the `windowedSimilarity` source).
+- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the v2.1 `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v2.x principle of treating `buildExpTens` as a less user-facing entity. Three further demos (`demo_helixBlend`, `demo_maetWindowing`, `demo_windowingReference`) keep the explicit `buildExpTens` until `windowedSimilarity` gains a raw-array overload (deferred; tracked as a TODO comment in the `windowedSimilarity` source).
 
 ---
 

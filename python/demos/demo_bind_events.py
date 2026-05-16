@@ -1,4 +1,4 @@
-"""demo_bindEvents.py
+"""demo_bind_events.py
 
 Demonstrate ``bind_events``: sliding-window binding into n-attribute
 super-events. Combined with ``difference_events``, this generalises

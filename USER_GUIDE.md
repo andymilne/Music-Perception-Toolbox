@@ -1477,7 +1477,7 @@ Python equivalents of all demos are in `python/demos/`. They follow the same str
 | `demo_helix_blend.py` | `demo_helixBlend` | Helix blend: pitch-class and register continuum |
 | `demo_maet_windowing.py` | `demo_maetWindowing` | Time-windowed motif-recurrence similarity sweep |
 | `demo_windowing_reference.py` | `demo_windowingReference` | Reference-point option for windowed similarity |
-| `demo_bindEvents.py` | `demo_bindEvents` | Sliding-window event binding for n-tuple analyses |
+| `demo_bind_events.py` | `demo_bindEvents` | Sliding-window event binding for n-tuple analyses |
 | `demo_sigma_space.py` | `demo_sigmaSpace` | Soft sigma in `sameness`, `coherence`, `n_tuple_entropy` (position vs interval flag) |
 | `demo_dft_circular_simulate.py` | `demo_dftCircularSimulate` | Argand-DFT Monte Carlo: balance / evenness with σ, full per-coefficient distributions, projCentroid α₁ damping |
 | `demo_dispatch_and_kernel_controls.py` | `demo_dispatchAndKernelControls` | v2.2 performance features: method dispatch, kernel truncation, single-precision kernel, defaults API, Rényi-2 entropy |

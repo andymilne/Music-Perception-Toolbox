@@ -75,8 +75,8 @@ end
 
 fprintf('Computing PCS of %d-tone generator-chains (gen = 0 to %.1f, step %.2f) against %s...\n', ...
     nTones, period - genStep, genStep, refName);
-% verbose=true surfaces the dispatch announce and the batched cost
-% estimate; both are useful here because the sweep is slow.
+% verbose=true prints which method was chosen and an estimated
+% completion time; useful here because the sweep is slow.
 s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
     'verbose', true);

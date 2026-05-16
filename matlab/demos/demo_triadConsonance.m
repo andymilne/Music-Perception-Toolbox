@@ -202,7 +202,7 @@ end
 % --- Template harmonicity ---
 % One templateHarmonicity call: stack chords as rows of an nUpper x 3
 % matrix; the function returns hMax and hEntropy as nUpper-element
-% column vectors (v2.1+). templateHarmonicity prints its own time
+% column vectors. templateHarmonicity prints its own time
 % estimate via estimateCompTime when called with 'verbose', true.
 if doTmpl
     chordMat = [zeros(nUpper, 1), int1Lin, int2Lin];
@@ -224,7 +224,7 @@ if doTmpl
 end
 
 % --- Spectral entropy ---
-% One spectralEntropy call on a stacked chord matrix (v2.1+).
+% One spectralEntropy call on a stacked chord matrix.
 %
 % Method choice: we use the default method='shannon'. spectralEntropy
 % also supports method='renyi2' (analytical Rényi-2 / collision entropy

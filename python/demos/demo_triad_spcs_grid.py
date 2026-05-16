@@ -68,7 +68,7 @@ p_mat_b = np.column_stack([
 ])
 
 # Single batch call. The reference triad (a 1-D vector) is broadcast
-# against all rows of p_mat_b by cos_sim_exp_tens (v2.1.1+).
+# against all rows of p_mat_b by cos_sim_exp_tens.
 print(f"Computing SPCS for {ref_name} reference "
       f"(N={n_harm}, rho={rho})...")
 

@@ -1,9 +1,9 @@
 %% demo_dftCircularSimulate.m
 %
-%  Demonstration of the v2.1.0 sigma + Monte Carlo additions to the
-%  Argand-DFT family.
+%  Soft (sigma > 0) and Monte Carlo extensions of the Argand-DFT
+%  measures of rhythm structure (balance, evenness, projCentroid).
 %
-%  New in v2.1:
+%  Features demonstrated:
 %    * dftCircularSimulate — Monte Carlo estimation of |F(k)|
 %      distribution under independent positional jitter.
 %    * balanceCircular, evennessCircular — accept an optional sigma
@@ -30,7 +30,7 @@ for s = [0, 10, 50, 100, 200]
     fprintf('%6g %10.4f %10.4f %10.4f %10.4f\n', s, b, bs, e, es);
 end
 fprintf('  Both balance and evenness shrink as sigma grows; the standard\n');
-fprintf('  deviations grow correspondingly. At sigma = 0 the v2.0\n');
+fprintf('  deviations grow correspondingly. At sigma = 0 the\n');
 fprintf('  deterministic values are recovered exactly and SD = 0.\n');
 
 

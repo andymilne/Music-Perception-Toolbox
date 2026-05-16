@@ -223,7 +223,7 @@ if do_tensor:
 # --- Template harmonicity ---
 # One template_harmonicity call: stack chords as rows of an
 # (n_upper, 3) matrix; the function returns h_max and h_entropy as
-# 1-D arrays of length n_upper (v2.1+). template_harmonicity prints
+# 1-D arrays of length n_upper. template_harmonicity prints
 # its own time estimate via estimate_comp_time when called with
 # verbose=True.
 if do_tmpl:
@@ -247,7 +247,7 @@ if do_tmpl:
         tmpl_harm_ent[i_lin, j_lin] = h_ent_lin
 
 # --- Spectral entropy ---
-# One spectral_entropy call on a stacked chord matrix (v2.1+).
+# One spectral_entropy call on a stacked chord matrix.
 #
 # Method choice: we use the default method='shannon'. spectral_entropy
 # also supports method='renyi2' (analytical Rényi-2 / collision entropy

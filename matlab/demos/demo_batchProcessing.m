@@ -145,7 +145,7 @@ nUnique = size(uniqueChords, 1);
 fprintf('\n  %d trials → %d unique chord multisets.\n\n', ...
     nPairs, nUnique);
 
-% --- Step 2a: Batched calls (v2.1+) for batch-capable functions ---
+% --- Step 2a: Batched calls for batch-capable functions ---
 % spectralEntropy, templateHarmonicity, and tensorHarmonicity all
 % accept a 2-D pitch matrix directly, with NaN-padded rows handled
 % the same way as cosSimExpTens batched-raw mode. Each function
@@ -159,8 +159,7 @@ uTensHarm = tensorHarmonicity(uniqueChords, [], sigma, 'spectrum', spec);
 
 % --- Step 2b: Manual loop for functions without batched mode ---
 % roughness does not yet accept 2-D matrix input; we loop over unique
-% rows, the same pattern that worked pre-v2.1 for all single-set
-% measures.
+% rows.
 uRough = NaN(nUnique, 1);
 
 refCents = convertPitch(f0, 'hz', 'cents');

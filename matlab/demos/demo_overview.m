@@ -37,7 +37,7 @@ chord_mat = [0, 400, 700;     % Major
 chordNames = {'Major', 'Minor', 'Dim'};
 
 % Batched call: the scale (a single row vector) is broadcast against
-% every row of chord_mat (v2.1.1+). The 'spectrum' kwarg enriches both
+% every row of chord_mat. The 'spectrum' kwarg enriches both
 % sides identically.
 s = cosSimExpTens(scale_cents, [], chord_mat, [], ...
                   10, 1, false, true, 1200, ...

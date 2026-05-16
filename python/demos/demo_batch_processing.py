@@ -151,7 +151,7 @@ n_unique = len(unique_chords)
 
 print(f"\n  {n_pairs} trials → {n_unique} unique chord multisets.\n")
 
-# --- Step 2a: Batched calls (v2.1+) for batch-capable functions ---
+# --- Step 2a: Batched calls for batch-capable functions ---
 # spectral_entropy, template_harmonicity, and tensor_harmonicity all
 # accept a 2-D pitch matrix directly, with NaN-padded rows handled
 # the same way as cos_sim_exp_tens batched-raw mode. Each function
@@ -166,8 +166,7 @@ u_tens_harm = mpt.tensor_harmonicity(
 
 # --- Step 2b: Manual loop for functions without batched mode ---
 # roughness does not yet accept 2-D matrix input; we loop over unique
-# rows, the same pattern that worked pre-v2.1 for all single-set
-# measures.
+# rows.
 u_rough = np.full(n_unique, np.nan)
 
 ref_cents = mpt.convert_pitch(f0, 'hz', 'cents')

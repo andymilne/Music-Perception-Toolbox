@@ -1,10 +1,10 @@
 %% demo_sigmaSpace.m
-%  Demonstration of the v2.1.0 sigma + sigmaSpace additions to
-%  sameness, coherence, and nTupleEntropy.
+%  Soft (sigma > 0) modes of sameness, coherence, and nTupleEntropy,
+%  with the choice of how to interpret sigma.
 %
-%  These three functions previously had no soft (sigma > 0) versions
-%  in v2.0; v2.1 introduces a Gaussian-kernel-based soft path with a
-%  flag controlling how sigma is interpreted:
+%  All three functions have a hard (sigma = 0) mode and a soft
+%  (sigma > 0) mode. The soft mode uses a Gaussian-kernel softening
+%  controlled by a flag that says what sigma represents:
 %
 %    sigmaSpace = 'position' (default)
 %       sigma is positional uncertainty on each input value p_k.
@@ -29,7 +29,7 @@ SIGMAS = [0, 0.1, 0.25, 0.5, 1.0, 2.0];
 %% ===== 1. Sameness =====
 
 fprintf('\n=== Sameness on the diatonic scale [0,2,4,5,7,9,11] in 12-EDO ===\n\n');
-fprintf('  At sigma = 0 the v2.0 hard count is recovered exactly:\n');
+fprintf('  At sigma = 0 the hard count is recovered exactly:\n');
 fprintf('    one ambiguity (the tritone, size 6 as both 4th and 5th).\n\n');
 
 fprintf('  %-10s %-15s %-15s\n', 'sigma', 'sq (position)', 'sq (interval)');
@@ -52,7 +52,7 @@ fprintf('  so the soft-match kernel is broader.\n');
 %% ===== 2. Coherence =====
 
 fprintf('\n=== Coherence on the diatonic scale ===\n\n');
-fprintf('  v2.0 strict coherence: 1 failure (the tritone), c = 1 - 1/140.\n');
+fprintf('  Hard (sigma = 0) coherence: 1 failure (the tritone), c = 1 - 1/140.\n');
 fprintf('  Soft sigma -> 0+ limit:   tritone counts as 0.5 of a failure\n');
 fprintf('  (the means D2 = D1 give P(D2 <= D1) = 0.5 exactly under any\n');
 fprintf('  sigma > 0), so c -> 1 - 0.5/140 = %.4f.\n\n', 1 - 0.5/140);
@@ -70,7 +70,7 @@ for s = SIGMAS
     fprintf('  %-10g %-15.4f %-15.4f\n', s, cP, cI);
 end
 fprintf('\n  The discontinuity at sigma = 0 (0.9929 to 0.9964 between\n');
-fprintf('  the v2.0 hard count and the soft path''s sigma -> 0+ limit)\n');
+fprintf('  the hard count and the soft path''s sigma -> 0+ limit)\n');
 fprintf('  is intentional: the strict flag splits ties as you choose at\n');
 fprintf('  sigma exactly zero, while the soft path averages over them.\n');
 

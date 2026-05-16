@@ -1,9 +1,9 @@
 """demo_dft_circular_simulate.py
 
-Demonstration of the v2.1.0 sigma + Monte Carlo additions to the
-Argand-DFT family.
+Soft (sigma > 0) and Monte Carlo extensions of the Argand-DFT
+measures of rhythm structure (balance, evenness, proj_centroid).
 
-New in v2.1:
+Features demonstrated:
   * dft_circular_simulate — Monte Carlo estimation of |F(k)|
     distribution under independent positional jitter.
   * balance, evenness — accept an optional `sigma` argument; with
@@ -38,7 +38,7 @@ for s in [0, 10, 50, 100, 200]:
     e, es = evenness(diat, period, sigma=s, return_std=True, rng_seed=42)
     print(f"{s:>6} {b:>10.4f} {bs:>10.4f} {e:>10.4f} {es:>10.4f}")
 print("  Both balance and evenness shrink as sigma grows; the standard")
-print("  deviations grow correspondingly. At sigma = 0 the v2.0 deterministic")
+print("  deviations grow correspondingly. At sigma = 0 the deterministic")
 print("  values are recovered exactly and SD = 0.")
 
 

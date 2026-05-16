@@ -1,11 +1,11 @@
 """demo_sigma_space.py
 
-Demonstration of the v2.1.0 sigma + sigma_space additions to
-sameness, coherence, and n_tuple_entropy.
+Soft (sigma > 0) modes of sameness, coherence, and n_tuple_entropy,
+with the choice of how to interpret sigma.
 
-These three functions previously had no soft (sigma > 0) versions
-in v2.0; v2.1 introduces a Gaussian-kernel-based soft path with a
-flag controlling how sigma is interpreted:
+All three functions have a hard (sigma = 0) mode and a soft
+(sigma > 0) mode. The soft mode uses a Gaussian-kernel softening
+controlled by a flag that says what sigma represents:
 
   sigma_space = 'position' (default)
      sigma is positional uncertainty on each input value p_k.
@@ -37,7 +37,7 @@ SIGMAS = [0, 0.1, 0.25, 0.5, 1.0, 2.0]
 # ===== 1. Sameness =====
 
 print("\n=== Sameness on the diatonic scale [0,2,4,5,7,9,11] in 12-EDO ===\n")
-print("  At sigma = 0 the v2.0 hard count is recovered exactly:")
+print("  At sigma = 0 the hard count is recovered exactly:")
 print("    one ambiguity (the tritone, size 6 as both 4th and 5th).\n")
 
 print(f"  {'sigma':<10} {'sq (position)':<15} {'sq (interval)':<15}")
@@ -61,7 +61,7 @@ print("  so the soft-match kernel is broader.")
 # ===== 2. Coherence =====
 
 print("\n=== Coherence on the diatonic scale ===\n")
-print("  v2.0 strict coherence: 1 failure (the tritone), c = 1 - 1/140.")
+print("  Hard (sigma = 0) coherence: 1 failure (the tritone), c = 1 - 1/140.")
 print("  Soft sigma -> 0+ limit:   tritone counts as 0.5 of a failure")
 print("  (the means D2 = D1 give P(D2 <= D1) = 0.5 exactly under any")
 print(f"  sigma > 0), so c -> 1 - 0.5/140 = {1 - 0.5/140:.4f}.\n")
@@ -79,7 +79,7 @@ for s in SIGMAS:
 
 print()
 print("  The discontinuity at sigma = 0 (0.9929 to 0.9964 between")
-print("  the v2.0 hard count and the soft path's sigma -> 0+ limit)")
+print("  the hard count and the soft path's sigma -> 0+ limit)")
 print("  is intentional: the strict flag splits ties as you choose at")
 print("  sigma exactly zero, while the soft path averages over them.")
 

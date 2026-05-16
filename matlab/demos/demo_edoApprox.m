@@ -49,7 +49,7 @@ nEDOs    = numel(edoRange);
 maxN     = nMax;  % maximum number of pitches in any EDO
 
 % Reference: a single row vector — broadcast against all EDO rows of
-% pMatB by cosSimExpTens (v2.1.1+).
+% pMatB by cosSimExpTens.
 % EDO multisets: NaN-padded to maxN columns
 pMatB = NaN(nEDOs, maxN);
 for i = 1:nEDOs

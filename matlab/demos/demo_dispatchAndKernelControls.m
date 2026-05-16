@@ -1,6 +1,6 @@
 %% demo_dispatchAndKernelControls.m
 %
-%  A tour of v2.2's performance features:
+%  A tour of the toolbox's performance controls:
 %
 %    1. Per-call method dispatch -- Bulger's method vs the Möbius
 %       method are picked automatically by the cost-model dispatcher.
@@ -17,8 +17,8 @@
 %    5. Renyi-2 entropy -- 'method','renyi2' on entropyExpTens for a
 %       closed-form alternative to the numerical Shannon path.
 %
-%  All controls default to v2.1-equivalent behaviour. Opting into
-%  them is purely additive.
+%  All controls default to the toolbox's safe, exact behaviour.
+%  Opting into them is purely additive.
 
 %% User-adjustable parameters
 N_EVENTS = 20;          % source events per density

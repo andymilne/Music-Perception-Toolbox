@@ -52,7 +52,7 @@ n_edos = len(edo_range)
 max_n = n_max
 
 # Reference: a single 1-D vector — broadcast across all EDO rows of
-# p_mat_b by cos_sim_exp_tens (v2.1.1+).
+# p_mat_b by cos_sim_exp_tens.
 
 # EDO multisets: NaN-padded
 p_mat_b = np.full((n_edos, max_n), np.nan)

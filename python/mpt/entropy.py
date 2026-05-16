@@ -161,8 +161,8 @@ def entropy_exp_tens(
 
     What is *not* currently caught: a finite, positive, but slightly
     inaccurate self-IP from sub-catastrophic Möbius cancellation in
-    the Möbius alternating partition sum. No instance of this was observed
-    across the v2.2 standard test regime (1475 cells covering
+    the Möbius alternating partition sum. No instance of this has been
+    observed in extensive testing (1475 cells covering
     ``r ∈ {2..6}``, K up to 100, σ down to ``10⁻⁵`` cents, all four
     mode combinations, multi-attribute self-IPs, adversarial pitch
     configurations, and harmonic spectra up to K=64). Within typical

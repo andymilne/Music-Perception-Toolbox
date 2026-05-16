@@ -28,15 +28,20 @@
 sigma      = 12;    % Gaussian smoothing width for perceptual measures
 sigmaPeaks = 12;    % Gaussian smoothing width for peak extraction
 
-% Audio files to analyse (relative to the toolbox root)
+% Audio files to analyse. Paths are resolved relative to this script's
+% location (via mfilename), so the demo runs correctly regardless of
+% MATLAB's current working directory.
+demoDir  = fileparts(mfilename('fullpath'));
+audioDir = fullfile(demoDir, '..', 'audio');
+
 audioFiles = {
-    '../audio/piano_C4.wav',                'Piano C4'
-    '../audio/violin_A4.wav',               'Violin A4'
-    '../audio/oboe_A4.wav',                 'Oboe A4'
-    '../audio/Piano_Emin.wav',              'Piano E minor'
-    '../audio/Piano_G7_3rd_inversion.wav',  'Piano G7 (3rd inv.)'
-    '../audio/Piano_Cmin_open.wav',         'Piano C minor (open)'
-    '../audio/music_sample.wav',            'Music sample'
+    fullfile(audioDir, 'piano_C4.wav'),                'Piano C4'
+    fullfile(audioDir, 'violin_A4.wav'),               'Violin A4'
+    fullfile(audioDir, 'oboe_A4.wav'),                 'Oboe A4'
+    fullfile(audioDir, 'piano_Emin.wav'),              'Piano E minor'
+    fullfile(audioDir, 'piano_G7_3rd_inversion.wav'),  'Piano G7 (3rd inv.)'
+    fullfile(audioDir, 'piano_Cmin_open.wav'),         'Piano C minor (open)'
+    fullfile(audioDir, 'music_sample.wav'),            'Music sample'
 };
 
 nFiles = size(audioFiles, 1);

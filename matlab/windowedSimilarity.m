@@ -223,8 +223,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 
     % Ensure both densities have per-tuple fields populated. Cheap
     % no-op if they came from buildExpTens with 'lazy', false.
-    densQuery   = ensureExpTensExpensive(densQuery);
-    densContext = ensureExpTensExpensive(densContext);
+    densQuery   = internal.ensureExpTensExpensive(densQuery);
+    densContext = internal.ensureExpTensExpensive(densContext);
 
     dim_c = densContext.dim;
     offsets = double(offsets);

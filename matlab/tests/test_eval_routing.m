@@ -55,9 +55,9 @@ for ic = 1:size(er_cases, 1)
     dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, ...
         'verbose', false);
     % Populate heavy fields (Centres, wJ) so the test body can read
-    % them. Production code calls ensureExpTensExpensive inside the
+    % them. Production code calls internal.ensureExpTensExpensive inside the
     % evalExpTens centres-branch before invoking localEvalSACentres.
-    dens = ensureExpTensExpensive(dens);
+    dens = internal.ensureExpTensExpensive(dens);
     if isRel
         dim = r - 1;
     else
@@ -122,7 +122,7 @@ p = sort(1000 * rand(6, 1));
 w = 0.5 + rand(6, 1);
 sigma = 12;
 dens = buildExpTens(p, w, sigma, 3, true, false, 0, 'verbose', false);
-dens = ensureExpTensExpensive(dens);
+dens = internal.ensureExpTensExpensive(dens);
 X = 1000 * rand(2, 20);
 ref = local_ref_eval(dens, X);
 
@@ -165,7 +165,7 @@ end
 function v = local_ref_eval(dens, X)
 %LOCAL_REF_EVAL  Frozen v2.0/v2.1 evalFull body for parity reference.
 %   Assumes `dens` already has its heavy fields materialised (caller
-%   has invoked ensureExpTensExpensive).
+%   has invoked internal.ensureExpTensExpensive).
     Centres = dens.Centres;
     wJ      = dens.wJ;
     sigma   = dens.sigma;

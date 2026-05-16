@@ -187,7 +187,7 @@ if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         error(['Usage for a WindowedMaetDensity: evalExpTens(wmd, X).']);
     end
     X = varargin{2};
-    underlying = localEvalMA(ensureExpTensExpensive(wmd.dens), X, ...
+    underlying = localEvalMA(internal.ensureExpTensExpensive(wmd.dens), X, ...
         normalize, verbose, truncationSigmas, kernelPrecision);
     % Evaluate the window function on the query points and multiply.
     W_vals = localEvaluateWindowOnQuery(wmd, X);
@@ -198,7 +198,7 @@ end
 % --- MA path: MaetDensity struct ---
 if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
         && strcmp(varargin{1}.tag, 'MaetDensity')
-    dens = ensureExpTensExpensive(varargin{1});
+    dens = internal.ensureExpTensExpensive(varargin{1});
     if nArgs ~= 2
         error(['Usage for a MaetDensity: evalExpTens(dens, X [, normalize]).\n' ...
             'X is either a cell {X_1, ..., X_A} of per-attribute query matrices, ' ...
@@ -389,7 +389,7 @@ end
 if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'/'direct'
     % method, and for Möbius-then-fallback).
-    dens = ensureExpTensExpensive(dens);
+    dens = internal.ensureExpTensExpensive(dens);
     if useDefaultKwargs
         % Inline direct broadcast. FP-identical to the
         % helper at default settings, but skips the helper's
@@ -451,7 +451,7 @@ if ~strcmp(normalize, 'none')
         % heavy fields; ensure if not already populated (Möbius branch
         % skipped the ensure).
         if ~isfield(dens, 'wJ')
-            dens = ensureExpTensExpensive(dens);
+            dens = internal.ensureExpTensExpensive(dens);
         end
         sumW = sum(dens.wJ);
         if sumW > 0
@@ -584,7 +584,7 @@ function t = localProbeEvalPath(dens, xProbe, pathName, ...
 %   are automatically reflected.
     tStart = tic;
     if strcmp(pathName, 'centres')
-        densMat = ensureExpTensExpensive(dens);
+        densMat = internal.ensureExpTensExpensive(dens);
         localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
             truncationSigmas, kernelPrecision);
     else  % 'mobius'

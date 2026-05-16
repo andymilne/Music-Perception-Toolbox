@@ -471,8 +471,8 @@ end
 if ~ranOrbit
     % Pairwise branch (also entered when 'method', 'bulger' was set,
     % and when an Möbius-then-fallback occurred). Heavy fields needed.
-    dens_x = ensureExpTensExpensive(dens_x);
-    dens_y = ensureExpTensExpensive(dens_y);
+    dens_x = internal.ensureExpTensExpensive(dens_x);
+    dens_y = internal.ensureExpTensExpensive(dens_y);
 
     Ux_perm  = dens_x.U_perm;
     wx_perm  = dens_x.w_perm;
@@ -969,8 +969,8 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
         [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
         t = toc(tStart);
     else
-        subX = ensureExpTensExpensive(subX);
-        subY = ensureExpTensExpensive(subY);
+        subX = internal.ensureExpTensExpensive(subX);
+        subY = internal.ensureExpTensExpensive(subY);
         tStart = tic;
         localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
         t = toc(tStart);
@@ -1163,8 +1163,8 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
 
     if ~ranOrbit
         % Pairwise branch. Heavy fields needed.
-        dens_x = ensureExpTensExpensive(dens_x);
-        dens_y = ensureExpTensExpensive(dens_y);
+        dens_x = internal.ensureExpTensExpensive(dens_x);
+        dens_y = internal.ensureExpTensExpensive(dens_y);
 
         Ux_perm  = dens_x.U_perm;
         wx_perm  = dens_x.wJ;
@@ -1473,8 +1473,8 @@ function s = localCosSimWindowed(a, b, verbose)
     % Ensure both operands have per-tuple fields populated (cheap if
     % they came from buildExpTens with 'lazy', false; otherwise this
     % is the one-line lazy expansion).
-    dens_q = ensureExpTensExpensive(dens_q);
-    dens_c = ensureExpTensExpensive(dens_c);
+    dens_q = internal.ensureExpTensExpensive(dens_q);
+    dens_c = internal.ensureExpTensExpensive(dens_c);
 
     % Structural compatibility checks.
     localCheckMACompat(dens_q, dens_c);

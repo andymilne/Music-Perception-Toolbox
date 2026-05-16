@@ -30,7 +30,7 @@ sigma = 10; r_ = 2; isPer_ = true; period_ = 1200;
 
 % --- Lazy/eager parity (v2.2) ---
 %
-% buildExpTens defaults to skinny (lazy=true); ensureExpTensExpensive
+% buildExpTens defaults to skinny (lazy=true); internal.ensureExpTensExpensive
 % populates the per-tuple fields on demand. The eager and ensured-lazy
 % paths must produce structurally identical structs.
 
@@ -45,7 +45,7 @@ results{end,2}   = ~isfield(dens_skinny_sa, 'Centres') ...
 results{end+1,1} = 'lazy: SA skinny exposes dim';
 results{end,2}   = isfield(dens_skinny_sa, 'dim') ...
                 && dens_skinny_sa.dim == dens_eager_sa.dim;
-dens_filled_sa = ensureExpTensExpensive(dens_skinny_sa);
+dens_filled_sa = internal.ensureExpTensExpensive(dens_skinny_sa);
 results{end+1,1} = 'lazy: SA ensure -> matches eager Centres';
 results{end,2}   = isequal(dens_filled_sa.Centres, dens_eager_sa.Centres);
 results{end+1,1} = 'lazy: SA ensure -> matches eager wJ';
@@ -53,7 +53,7 @@ results{end,2}   = isequal(dens_filled_sa.wJ, dens_eager_sa.wJ);
 results{end+1,1} = 'lazy: SA ensure -> matches eager U_perm';
 results{end,2}   = isequal(dens_filled_sa.U_perm, dens_eager_sa.U_perm);
 results{end+1,1} = 'lazy: SA ensure idempotent';
-dens_twice_sa = ensureExpTensExpensive(dens_filled_sa);
+dens_twice_sa = internal.ensureExpTensExpensive(dens_filled_sa);
 results{end,2}   = isequal(dens_twice_sa, dens_filled_sa);
 
 dens_eager_ma  = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], true, isPer_, period_, ...
@@ -69,14 +69,14 @@ results{end,2}   = isfield(dens_skinny_ma, 'dim') ...
                 && isfield(dens_skinny_ma, 'dimPerAttr') ...
                 && isequal(dens_skinny_ma.dim, dens_eager_ma.dim) ...
                 && isequal(dens_skinny_ma.dimPerAttr, dens_eager_ma.dimPerAttr);
-dens_filled_ma = ensureExpTensExpensive(dens_skinny_ma);
+dens_filled_ma = internal.ensureExpTensExpensive(dens_skinny_ma);
 results{end+1,1} = 'lazy: MA ensure -> matches eager Centres';
 results{end,2}   = isequal(dens_filled_ma.Centres, dens_eager_ma.Centres);
 results{end+1,1} = 'lazy: MA ensure -> matches eager wJ and wv_comb';
 results{end,2}   = isequal(dens_filled_ma.wJ, dens_eager_ma.wJ) ...
                 && isequal(dens_filled_ma.wv_comb, dens_eager_ma.wv_comb);
 results{end+1,1} = 'lazy: MA ensure idempotent';
-dens_twice_ma = ensureExpTensExpensive(dens_filled_ma);
+dens_twice_ma = internal.ensureExpTensExpensive(dens_filled_ma);
 results{end,2}   = isequal(dens_twice_ma, dens_filled_ma);
 
 % Consumers transparently handle skinny input (cosSimExpTens, evalExpTens).

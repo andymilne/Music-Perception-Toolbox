@@ -89,7 +89,7 @@ Figure 4: Stretch sweep under F calibrated to the canonical harmonic
          transposition interval (+700) across the sweep, while peak
          amplitude reflects the degree of harmonicity mismatch.
 
-Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedCosSim,
+Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedSimilarity,
       addSpectra, convertPitch.
 """
 

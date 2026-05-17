@@ -628,20 +628,17 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     uses the unwindowed L2 norms of both operands (Option Z in the
     spec).
 
-    Note on naming
-    --------------
-    This function was named ``windowed_cos_sim`` in earlier drafts.
+    Why "similarity" rather than "cosine similarity"
+    ------------------------------------------------
     The output is a magnitude-aware *windowed similarity*: because
     the denominator uses unwindowed L2 norms (rather than the
     windowed norm of the context), the profile is not bounded in
     [-1, 1] across sweep positions and does not correspond to an
     inner product on a single Hilbert space. This is the intended
     behaviour for sliding-motif analysis -- a dense local match
-    should outscore a sparse one -- but it means "cosine similarity"
-    is not the right name for the object. The strict shape-only
-    cosine similarity (with windowed denominator) is reserved as a
-    separate notion in the manuscript and is not currently
-    implemented in the toolbox. See manuscript §5.4.
+    should outscore a sparse one. The strict shape-only cosine
+    similarity (with windowed denominator) is a separate notion
+    not currently implemented in the toolbox.
 
     Periodic groups
     ---------------
@@ -879,8 +876,8 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool):
     b_win = isinstance(dens_b, WindowedMaetDensity)
     if a_win and b_win:
         raise NotImplementedError(
-            "Two-sided windowing (both operands windowed) is not supported "
-            "in v2.1.0. Use windowed_similarity for profile sweeps."
+            "Two-sided windowing (both operands windowed) is not "
+            "supported. Use windowed_similarity for profile sweeps."
         )
 
     if a_win:
@@ -1289,7 +1286,7 @@ def _windowed_group_contribution(cx_g, cy_g, centre_g,
         raise NotImplementedError(
             f"Multi-D relative groups (d_g = {d_g}, r_a = {r_a}) do not "
             f"support rectangular or raised-rectangular windows (mix = "
-            f"{rho}) in v2.1.0. Use mix = 0 (pure Gaussian window), or "
+            f"{rho}). Use mix = 0 (pure Gaussian window), or "
             f"wait for a future release with Gaussian-mixture-window "
             f"approximation."
         )

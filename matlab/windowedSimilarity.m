@@ -22,20 +22,17 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %                   (default).
 %   Option II shape rule: a length-1 list returns a length-1 cell.
 %
-%   Note on naming
-%   --------------
-%   This function was named windowedCosSim in earlier drafts. The
-%   output is a magnitude-aware *windowed similarity*: because the
+%   Why "similarity" rather than "cosine similarity"
+%   ------------------------------------------------
+%   The output is a magnitude-aware *windowed similarity*: because the
 %   denominator uses unwindowed L2 norms (rather than the windowed
 %   norm of the context), the profile is not bounded in [-1, 1] across
 %   sweep positions and does not correspond to an inner product on a
 %   single Hilbert space. This is the intended behaviour for sliding-
-%   motif analysis -- a dense local match should outscore a sparse one
-%   -- but it means "cosine similarity" is not the right name for the
-%   object. The strict shape-only cosine similarity (with windowed
-%   denominator) is reserved as a separate notion in the manuscript
-%   and is not currently implemented in the toolbox. See manuscript
-%   §5.4.
+%   motif analysis -- a dense local match should outscore a sparse
+%   one. The strict shape-only cosine similarity (with windowed
+%   denominator) is a separate notion not currently implemented in the
+%   toolbox.
 %
 %   Reference-point semantics
 %   -------------------------

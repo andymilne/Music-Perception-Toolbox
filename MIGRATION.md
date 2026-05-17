@@ -226,10 +226,6 @@ NaN-padded rows are accepted for variable-cardinality inputs. Per-row dedup uses
 
 `templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyExpTens` (SA batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
 
-### `windowedCosSim` → `windowedSimilarity`
-
-The original draft name `windowedCosSim` (MATLAB) / `windowed_cos_sim` (Python) is renamed to `windowedSimilarity` / `windowed_similarity` in v2.1.0. The output is a magnitude-aware *windowed similarity*, not a cosine similarity in the strict sense — the unwindowed denominator means it is not bounded in $[-1, 1]$ across sweep positions. The strict shape-only cosine form is reserved as a separate notion in the manuscript and is not currently implemented in the toolbox. Affects only callers of dev-branch builds prior to v2.1.0 release; v2.0.0 was unaffected (the function did not exist there).
-
 ### Summary of breaking changes
 
 - `nTupleEntropy` at `sigma > 0`: default semantics changed from interval-space to position-space. Pass `sigmaSpace = 'interval'` for v2.0 numerical equivalence.

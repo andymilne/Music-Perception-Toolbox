@@ -202,7 +202,7 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     nJ  = size(C, 2);
     nQ  = size(X, 2);
 
-    if nJ == 0
+    if nJ == 0 || nQ == 0
         v = zeros(1, nQ, 'like', C);
         return;
     end
@@ -244,14 +244,13 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
 
     % Group centres by linear bucket index.
     linIdxC = localSubToInd(nBuckets, buckIdxC);
-    [sortedLin, perm] = sort(linIdxC);
-    % Run-length boundaries:
+    [sortedLin, permIdx] = sort(linIdxC);
     if isempty(sortedLin)
-        boundaries = [];
-    else
-        diffs = [true; diff(sortedLin) ~= 0];
-        boundaries = find(diffs);
+        v = zeros(1, nQ, 'like', C);
+        return;
     end
+    diffs = [true; diff(sortedLin) ~= 0];
+    boundaries = find(diffs);
     runStarts = boundaries;
     runEnds   = [boundaries(2:end) - 1; numel(sortedLin)];
     runLinIdx = sortedLin(boundaries);
@@ -269,44 +268,101 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     buckIdxX = floor(double(Xt - cMin) / double(bucketSize)) + 1;
     buckIdxX = max(1, min(nBuckets, buckIdxX));
 
+    % ----- Vectorised per-chunk processing -----
+    % For each query chunk:
+    %   1. Expand each query's bucket to its 3^dim neighbour buckets.
+    %   2. Mask in-bounds neighbours; look up non-empty runs in bucketMap.
+    %   3. Flatten each (query, run) pair into per-centre pairs via a
+    %      cumsum-based ragged expansion (no AGROW, no inner loop).
+    %   4. Compute Q for all (query, centre) pairs in one vector op,
+    %      apply the Q-ball threshold, and accumulate kernel sums back
+    %      onto queries via accumarray.
+    % Chunking bounds peak (dim, totalPairs) workspace memory; the
+    % budget matches the exact path's heuristic so memory behaviour is
+    % consistent across paths.
+    bytesPerScalar = 4 * isa(C, 'single') + 8 * isa(C, 'double');
+    try
+        memInfo  = memory;
+        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
+    catch
+        memLimit = 4e9;
+    end
+    chunkSize = max(1, floor(memLimit / ...
+        ((dim + 1) * double(nJ) * bytesPerScalar)));
+
     v = zeros(1, nQ, 'like', C);
+    for c0 = 1:chunkSize:nQ
+        c1 = min(c0 + chunkSize - 1, nQ);
+        qIdx = c0:c1;                          % row 1 × nQc
+        nQc  = numel(qIdx);
 
-    for q = 1:nQ
-        qBucket = buckIdxX(:, q);
+        % 1. Neighbour bucket coords for every query in the chunk.
+        %    Shape (dim, nOff, nQc), flattened to (dim, nOff*nQc).
+        buckQc = buckIdxX(:, qIdx);                                 % dim × nQc
+        nbAll  = reshape(buckQc, dim, 1, nQc) + ...
+                 reshape(offsetGrid, dim, nOff, 1);
+        nbAll  = reshape(nbAll, dim, nOff * nQc);
 
-        % Collect candidate centres from neighbouring buckets.
-        candidates = zeros(0, 1);
-        for off = 1:nOff
-            nbBucket = qBucket + offsetGrid(:, off);
-            if any(nbBucket < 1) || any(nbBucket > nBuckets)
-                continue;
-            end
-            nbLin = localSubToInd(nBuckets, nbBucket);
-            runIdx = bucketMap(nbLin);
-            if runIdx > 0
-                idxs = perm(runStarts(runIdx):runEnds(runIdx));
-                candidates = [candidates; idxs(:)]; %#ok<AGROW>
-            end
+        % Local query index (within chunk) for each neighbour column.
+        queryOfNb = reshape(repmat(1:nQc, nOff, 1), [], 1);          % column
+
+        % 2. In-bounds mask, then bucket-run lookup.
+        inBounds = all(nbAll >= 1 & nbAll <= nBuckets, 1);
+        if ~any(inBounds)
+            continue;
         end
+        nbAll     = nbAll(:, inBounds);
+        queryOfNb = queryOfNb(inBounds);
 
-        if isempty(candidates)
+        nbLin   = localSubToInd(nBuckets, nbAll);
+        runIdx  = bucketMap(nbLin);
+        hasRun  = runIdx > 0;
+        if ~any(hasRun)
+            continue;
+        end
+        runIdx     = runIdx(hasRun);
+        queryValid = queryOfNb(hasRun);
+
+        % 3. Ragged-expand each (query, run) pair into per-centre pairs.
+        runLens    = runEnds(runIdx) - runStarts(runIdx) + 1;
+        totalPairs = sum(runLens);
+        if totalPairs == 0
             continue;
         end
 
-        % Compute Q for candidates; keep those inside the Q-ball.
-        Dq = C(:, candidates) - X(:, q);
+        queryAll = repelem(queryValid, runLens);                     % column
+
+        % Build positional indices into `permIdx` via cumsum:
+        % runMembership(k) is the (queryValid, runIdx) pair-index for
+        % the k-th output element; localOffsets(k) is its offset within
+        % that run.
+        endPos        = cumsum(runLens);
+        startPos      = endPos - runLens + 1;
+        startMark     = zeros(totalPairs, 1);
+        startMark(startPos) = 1;
+        runMembership = cumsum(startMark);
+        localOffsets  = (1:totalPairs)' - startPos(runMembership) + 1;
+        permPos       = runStarts(runIdx(runMembership)) + localOffsets - 1;
+        centreAll     = permIdx(permPos);                            % column
+
+        % 4. Distance, threshold, accumulate.
+        Dq = C(:, centreAll) - X(:, qIdx(queryAll));
         if isRel
             Q = sum(Dq .* Dq, 1) - sum(Dq, 1).^2 / r;
         else
             Q = sum(Dq .* Dq, 1);
         end
         keep = Q(:) <= threshold2;
-        if any(keep)
-            survivors = candidates(keep);
-            Qkept = Q(keep);
-            kernelVals = exp(-Qkept(:) * inv2s2);
-            v(q) = sum(wJ(survivors) .* kernelVals);
+        if ~any(keep)
+            continue;
         end
+        centreKept = centreAll(keep);
+        queryKept  = queryAll(keep);
+        Qkept      = Q(keep);
+        kernelVals = wJ(centreKept) .* exp(-Qkept(:) * inv2s2);
+
+        vChunk = accumarray(queryKept, kernelVals, [nQc, 1]);
+        v(qIdx) = v(qIdx) + cast(vChunk, 'like', C).';
     end
 end
 

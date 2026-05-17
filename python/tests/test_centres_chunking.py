@@ -82,15 +82,19 @@ class TestCentresChunking:
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
 
+        # Pin kernel_chunk_bytes to a fixed value so both routing
+        # paths compute their chunk sizes against the same byte budget
+        # and the kernel-sum accumulator runs the same reduction order
+        # on both. With the factory 'auto' default, the budget is
+        # re-resolved per call from current available memory, which can
+        # shift by a few bytes between calls and so make the two paths
+        # pick slightly different chunk sizes — producing reduction-
+        # order differences at the ~1e-13 relative level. The function-
+        # scoped defaults-reset fixture in conftest.py restores the
+        # factory state on teardown.
+        mpt.set_default(kernel_chunk_bytes=4_000_000_000)
+
         v_auto = eval_exp_tens(dens, x, verbose=False)
         v_centres = eval_exp_tens(dens, x, method='centres', verbose=False)
 
-        # Auto routing and forced centres take chunker paths whose
-        # chunk sizes are independently computed against the resolved
-        # kernel_chunk_bytes budget. With 'auto' (the factory default),
-        # the budget tracks available physical memory and so can vary
-        # by a few bytes between calls, which produces 1-ulp-class
-        # reduction-order differences for large summations. Bit
-        # identity is not part of the contract here; numerical
-        # agreement to ~1e-13 relative is.
-        np.testing.assert_allclose(v_auto, v_centres, rtol=1e-13, atol=0)
+        np.testing.assert_array_equal(v_auto, v_centres)

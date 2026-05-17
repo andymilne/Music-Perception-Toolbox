@@ -137,6 +137,12 @@ function vals = evalExpTens(varargin)
 % throttled. See internal.dispatchScope.
 guard = internal.dispatchScope(); %#ok<NASGU>  cleared by onCleanup
 
+% Pin the resolved kernelChunkBytes budget for the lifetime of this
+% call so recursive / nested inner calls (e.g. via entropyExpTens
+% or templateHarmonicity dispatching back into evalExpTens) share
+% one OS query rather than spawning a vm_stat subprocess per call.
+chunkPin = internal.kernelChunkBytesResolved('pinForCall'); %#ok<NASGU>
+
 verbose = true;  % default
 method = 'auto';  % 'auto' | 'centres' (alias 'direct') | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
@@ -1010,7 +1016,7 @@ function v = evalChunk(Centres, wJ, X, nQc, dim, nJ, sigma, r, isRel, isPer, J)
 
     D = reshape(Centres, dim, nJ, 1) - reshape(X, dim, 1, nQc);
     if isPer
-        D = mod(D + J / 2, J) - J / 2;
+        D = D - J .* floor(D / J + 0.5);
     end
     if isRel
         Qvec = sum(D .^ 2, 1) - sum(D, 1) .^ 2 / r;
@@ -1219,7 +1225,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
                 if isPerG(g)
                     Pg = periodG(g);
-                    D_a = mod(D_a + Pg/2, Pg) - Pg/2;
+                    D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
                 end
                 if isRelG(g)
                     Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
@@ -1254,7 +1260,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
             if isPerG(g)
                 Pg = cast(periodG(g), qDtype);
-                D_a = mod(D_a + Pg/2, Pg) - Pg/2;
+                D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
             end
             if isRelG(g)
                 Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...

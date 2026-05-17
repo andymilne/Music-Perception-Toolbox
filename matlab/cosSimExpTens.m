@@ -154,6 +154,12 @@ function s = cosSimExpTens(varargin)
 % Top-level call guard: see internal.dispatchScope.
 guard = internal.dispatchScope(); %#ok<NASGU>
 
+% Pin the resolved kernelChunkBytes budget for the lifetime of this
+% call so recursive inner calls — including the batched-raw mode's
+% per-unique-pair recursion below — share one OS query rather than
+% spawning a vm_stat subprocess per call.
+chunkPin = internal.kernelChunkBytesResolved('pinForCall'); %#ok<NASGU>
+
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
 cancellationThreshold = 1e-12;  % cross-cancellation guard
@@ -623,7 +629,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
                    - reshape(V(:, idx), r, 1, nKc);
 
                 if isPer
-                    Dc = mod(Dc + J/2, J) - J/2;
+                    Dc = Dc - J .* floor(Dc / J + 0.5);
                 end
 
                 Qc = computeQ(Dc);
@@ -702,7 +708,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
         D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
 
         if isPer
-            D = mod(D + J/2, J) - J/2;
+            D = D - J .* floor(D / J + 0.5);
         end
 
         Qvec = computeQ(D);
@@ -730,7 +736,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
                 for i = 1:r
                     for j = i+1:r
                         delta = D(i,:,:) - D(j,:,:);
-                        delta = mod(delta + J/2, J) - J/2;
+                        delta = delta - J .* floor(delta / J + 0.5);
                         Qvec = Qvec + delta.^2;
                     end
                 end
@@ -1048,7 +1054,7 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
 
     D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
     if isPer
-        D = mod(D + J/2, J) - J/2;
+        D = D - J .* floor(D / J + 0.5);
     end
     if dens_x.isRel
         Q = reshape(sum(D .^ 2, 1), nJ, nK) ...
@@ -1298,7 +1304,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
 
             if isPerG(g)
                 P_g = periodG(g);
-                D = mod(D + P_g/2, P_g) - P_g/2;
+                D = D - P_g .* floor(D / P_g + 0.5);
             end
 
             Qa = computeQaMA(D, g, r_a);
@@ -1322,7 +1328,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
                 for i = 1:r_a
                     for j = i+1:r_a
                         delta = D(i, :, :) - D(j, :, :);
-                        delta = mod(delta + P_g/2, P_g) - P_g/2;
+                        delta = delta - P_g .* floor(delta / P_g + 0.5);
                         Qa = Qa + delta.^2;
                     end
                 end

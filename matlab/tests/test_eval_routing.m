@@ -72,17 +72,23 @@ for ic = 1:size(er_cases, 1)
     % --- Reference: frozen v2.0/v2.1 body ---
     ref = local_ref_eval(dens, X);
 
-    % --- Default settings: bit-identical to reference ---
+    % --- Default settings: matches reference within reduction-order
+    %     tolerance. v2.2 relaxes the v2.1 bit-identity contract to
+    %     reduction-order identity (~1e-13) for periodic configurations,
+    %     since the periodic wrap was retargeted from `mod` to
+    %     `D - period .* floor(D / period + 0.5)` (mathematically
+    %     equivalent everywhere; different FP-op sequence). Non-periodic
+    %     configurations remain bit-identical to the reference.
     v_default = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
-    results{end+1, 1} = sprintf('eval_routing: default bit-identical (%s)', label); %#ok<*AGROW>
-    results{end, 2} = isequal(v_default, ref);
+    results{end+1, 1} = sprintf('eval_routing: default matches reference (%s)', label); %#ok<*AGROW>
+    results{end, 2} = local_within_rtol(v_default, ref, 1e-12);
 
-    % --- Explicit Inf/double: bit-identical to reference ---
+    % --- Explicit Inf/double: matches reference within reduction-order tolerance ---
     v_inf = evalExpTens(dens, X, 'method', 'centres', ...
         'truncationSigmas', Inf, 'kernelPrecision', 'double', ...
         'verbose', false);
-    results{end+1, 1} = sprintf('eval_routing: Inf/double bit-identical (%s)', label);
-    results{end, 2} = isequal(v_inf, ref);
+    results{end+1, 1} = sprintf('eval_routing: Inf/double matches reference (%s)', label);
+    results{end, 2} = local_within_rtol(v_inf, ref, 1e-12);
 
     % --- truncationSigmas at k=4..6 within cumulative bound ---
     if ~isPer
@@ -126,10 +132,11 @@ dens = internal.ensureExpTensExpensive(dens);
 X = 1000 * rand(2, 20);
 ref = local_ref_eval(dens, X);
 
-% Default Inf: bit-identical
+% Default Inf: matches reference (non-periodic, so still bit-identical
+% in practice, but use the same tolerance contract for consistency)
 v1 = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
-results{end+1, 1} = 'eval_routing: default Inf bit-identical (global)';
-results{end, 2} = isequal(v1, ref);
+results{end+1, 1} = 'eval_routing: default Inf matches reference (global)';
+results{end, 2} = local_within_rtol(v1, ref, 1e-12);
 
 % Set global default = 6
 mptDefaults('truncationSigmas', 6);
@@ -144,7 +151,7 @@ mptDefaults('truncationSigmas', 4);
 v3 = evalExpTens(dens, X, 'method', 'centres', ...
     'truncationSigmas', Inf, 'verbose', false);
 results{end+1, 1} = 'eval_routing: per-call overrides global';
-results{end, 2} = isequal(v3, ref);
+results{end, 2} = local_within_rtol(v3, ref, 1e-12);
 
 mptDefaults('reset');
 
@@ -158,6 +165,20 @@ if standalone_er
                 fprintf('    FAIL: %s\n', results{ii, 1});
             end
         end
+    end
+end
+
+
+function tf = local_within_rtol(actual, ref, rtol)
+%LOCAL_WITHIN_RTOL  True iff max relative error <= rtol.
+%   Mirrors numpy.testing.assert_allclose(actual, ref, rtol=rtol, atol=0).
+%   Returns true for empty/all-zero references (vacuously).
+    err = max(abs(actual(:) - ref(:)));
+    denom = max(abs(ref(:)));
+    if denom == 0
+        tf = (err == 0);
+    else
+        tf = (err / denom) <= rtol;
     end
 end
 

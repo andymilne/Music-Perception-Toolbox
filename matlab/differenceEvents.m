@@ -183,7 +183,7 @@ for a = 1:A
     for step = 1:k
         Md = Md(:, 2:end) - Md(:, 1:end-1);
         if P > 0
-            Md = mod(Md + P/2, P) - P/2;
+            Md = Md - P .* floor(Md / P + 0.5);
         end
     end
     extraDrop = double(maxOrder) - k;

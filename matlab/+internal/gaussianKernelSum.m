@@ -176,7 +176,7 @@ end
 function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, inv2s2, sigma) %#ok<INUSL>
     D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
     if isPer
-        D = mod(D + period / 2, period) - period / 2;
+        D = D - period .* floor(D / period + 0.5);
     end
     if isRel
         Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;

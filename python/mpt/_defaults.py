@@ -293,6 +293,10 @@ def reset_defaults() -> dict[str, Any]:
     _DEFAULTS.update(_FACTORY_DEFAULTS)
     _HINT_FIRED_KERNEL_EVAL = False
     _DISPATCH_MSG_SEEN.clear()
+    # Flush the kernel_chunk_bytes 'auto' resolution cache so a
+    # subsequent call re-queries the OS.
+    from ._utils import flush_kernel_chunk_bytes_cache
+    flush_kernel_chunk_bytes_cache()
     return old
 
 

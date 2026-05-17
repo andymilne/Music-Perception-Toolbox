@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import warnings
+from contextlib import contextmanager
 from functools import lru_cache
 
 import numpy as np
@@ -381,14 +383,36 @@ def available_memory_bytes() -> int:
     return val
 
 
+# Per-call pin + cross-call TTL fallback for the 'auto' resolution.
+# The pin is thread-local so concurrent threads don't share state; the
+# TTL cache is module-global behind a lock (the underlying OS query is
+# cheap and idempotent, so accepting some cross-thread reuse is fine).
+_chunk_bytes_state = threading.local()  # .pin: int | None; .pin_raw: str | None
+_chunk_bytes_ttl_lock = threading.Lock()
+_chunk_bytes_ttl_cache: int | None = None
+_chunk_bytes_ttl_raw: str | None = None
+_chunk_bytes_ttl_time: float = 0.0
+_CHUNK_BYTES_TTL_SECONDS = 10.0
+
+
 def kernel_chunk_bytes_resolved() -> int:
     """Return the resolved per-chunk byte budget for kernel-matrix work.
 
-    Reads the ``kernel_chunk_bytes`` toolbox default. The factory
-    value ``'auto'`` resolves to half of currently available physical
-    memory (see :func:`available_memory_bytes`); any positive integer
-    is returned as-is. Resolution happens at call time, so the budget
-    tracks memory pressure across a session.
+    Reads the ``kernel_chunk_bytes`` toolbox default. Positive integers
+    are returned as-is. The factory value ``'auto'`` resolves to half
+    of currently available physical memory (see
+    :func:`available_memory_bytes`).
+
+    To avoid per-call OS queries when a top-level function recurses
+    (e.g. :func:`cosine_sim_exp_tens` batched-raw mode dispatching
+    inner per-pair calls), top-level entry points wrap their body in
+    :func:`pin_kernel_chunk_bytes`. While pinned, this function
+    returns the same cached value rather than re-querying the OS.
+
+    Outside any per-call pin, ``'auto'`` resolutions are cached for
+    up to 10 s as a fallback for back-to-back small calls in script
+    loops. Changing ``kernel_chunk_bytes`` via ``set_default`` flushes
+    the cache naturally (cache lookup is keyed on the raw value).
 
     The peak transient allocation in a single kernel-matrix chunk
     runs roughly ``(2 * dim + 2) × n_j × n_q × bytes_per_scalar`` —
@@ -399,7 +423,116 @@ def kernel_chunk_bytes_resolved() -> int:
     against the per-query allocation under-estimate.
     """
     from ._defaults import get_default
+    global _chunk_bytes_ttl_cache, _chunk_bytes_ttl_raw, _chunk_bytes_ttl_time
     val = get_default("kernel_chunk_bytes")
-    if isinstance(val, str) and val == "auto":
-        return max(1, available_memory_bytes() // 2)
-    return int(val)
+    if not (isinstance(val, str) and val == "auto"):
+        return int(val)
+
+    # Per-call pin (thread-local).
+    pin = getattr(_chunk_bytes_state, "pin", None)
+    pin_raw = getattr(_chunk_bytes_state, "pin_raw", None)
+    if pin is not None and pin_raw == val:
+        return pin
+
+    # TTL fallback (10 s, shared across threads).
+    with _chunk_bytes_ttl_lock:
+        if (
+            _chunk_bytes_ttl_cache is not None
+            and _chunk_bytes_ttl_raw == val
+            and (time.monotonic() - _chunk_bytes_ttl_time)
+                <= _CHUNK_BYTES_TTL_SECONDS
+        ):
+            return _chunk_bytes_ttl_cache
+        fresh = max(1, available_memory_bytes() // 2)
+        _chunk_bytes_ttl_cache = fresh
+        _chunk_bytes_ttl_raw = val
+        _chunk_bytes_ttl_time = time.monotonic()
+        return fresh
+
+
+@contextmanager
+def pin_kernel_chunk_bytes():
+    """Pin the resolved kernel_chunk_bytes budget for the duration of the
+    ``with`` block.
+
+    Used at top-level entry points (e.g. ``cosine_sim_exp_tens``,
+    ``eval_exp_tens``) so that recursive or nested inner calls share
+    one OS query rather than re-resolving ``'auto'`` per call. Nested
+    pins are no-ops; only the outermost ``with`` block actually
+    resolves and pins. Thread-local: each thread has its own pin.
+
+    For numeric ``kernel_chunk_bytes`` defaults the pin is a no-op
+    (no OS query to amortise).
+
+    Sibling calls — e.g. a ``template_harmonicity`` loop invoking
+    ``eval_exp_tens`` repeatedly — each get their own pin instance.
+    To avoid one OS query per sibling, ``pin_kernel_chunk_bytes``
+    consults the module-level TTL cache before resolving fresh; if
+    the cache is warm (set within the last
+    ``_CHUNK_BYTES_TTL_SECONDS``), the cached value is pinned and no
+    new OS query fires.
+    """
+    global _chunk_bytes_ttl_cache, _chunk_bytes_ttl_raw, _chunk_bytes_ttl_time
+    if getattr(_chunk_bytes_state, "pin", None) is not None:
+        # Already pinned by an outer call; nested no-op.
+        yield
+        return
+    from ._defaults import get_default
+    raw = get_default("kernel_chunk_bytes")
+    if not (isinstance(raw, str) and raw == "auto"):
+        # Numeric value: nothing to pin.
+        yield
+        return
+    # Use TTL cache if valid; otherwise resolve fresh and update TTL.
+    with _chunk_bytes_ttl_lock:
+        if (
+            _chunk_bytes_ttl_cache is not None
+            and _chunk_bytes_ttl_raw == raw
+            and (time.monotonic() - _chunk_bytes_ttl_time)
+                <= _CHUNK_BYTES_TTL_SECONDS
+        ):
+            _chunk_bytes_state.pin = _chunk_bytes_ttl_cache
+        else:
+            fresh = max(1, available_memory_bytes() // 2)
+            _chunk_bytes_state.pin = fresh
+            _chunk_bytes_ttl_cache = fresh
+            _chunk_bytes_ttl_raw = raw
+            _chunk_bytes_ttl_time = time.monotonic()
+    _chunk_bytes_state.pin_raw = raw
+    try:
+        yield
+    finally:
+        _chunk_bytes_state.pin = None
+        _chunk_bytes_state.pin_raw = None
+
+
+def flush_kernel_chunk_bytes_cache() -> None:
+    """Clear all kernel_chunk_bytes resolution caches (pin + TTL).
+
+    Called by ``reset_defaults`` so the next resolution re-queries
+    the OS.
+    """
+    global _chunk_bytes_ttl_cache, _chunk_bytes_ttl_raw, _chunk_bytes_ttl_time
+    _chunk_bytes_state.pin = None
+    _chunk_bytes_state.pin_raw = None
+    with _chunk_bytes_ttl_lock:
+        _chunk_bytes_ttl_cache = None
+        _chunk_bytes_ttl_raw = None
+        _chunk_bytes_ttl_time = 0.0
+
+
+def with_kernel_chunk_bytes_pin(func):
+    """Decorator: enter :func:`pin_kernel_chunk_bytes` for the call.
+
+    Applied to top-level user-facing functions whose internal control
+    flow may recurse or invoke other top-level toolbox functions —
+    e.g. :func:`cosine_sim_exp_tens` in batched-raw mode.
+    """
+    import functools
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with pin_kernel_chunk_bytes():
+            return func(*args, **kwargs)
+
+    return wrapper

@@ -88,6 +88,9 @@ function varargout = mptDefaults(varargin)
             % next call sees its routing decision again, regardless
             % of where in a call tree the reset is issued from.
             internal.maybeShowDispatchMsg('reset');
+            % Flush the kernelChunkBytes 'auto' resolution cache so
+            % a subsequent call re-queries the OS.
+            internal.kernelChunkBytesResolved('flushCache');
             if nargout > 0
                 varargout{1} = old;
             end

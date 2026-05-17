@@ -38,6 +38,7 @@ from .._utils import (
     kernel_chunk_bytes_resolved,
     maybe_print_batched_estimate,
     progress_stride,
+    with_kernel_chunk_bytes_pin,
 )
 from ..spectra import add_spectra
 
@@ -71,6 +72,7 @@ from .dispatch import (
 
 
 @_with_dispatch_scope
+@with_kernel_chunk_bytes_pin
 def cos_sim_exp_tens(*args,
                      mode: str = "auto",
                      dedup: bool = True,
@@ -1055,7 +1057,7 @@ def _ma_log_kernel(
 
         if is_per_g[g]:
             p_g = float(period_g[g])
-            D = np.mod(D + p_g / 2, p_g) - p_g / 2
+            D = D - p_g * np.floor(D / p_g + 0.5)
 
         Q_a = _compute_Q(D, r_a, bool(is_rel_g[g]), bool(is_per_g[g]),
                          float(period_g[g]))
@@ -1766,7 +1768,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
 
         Dc = U[:, :, None] - V[:, idx][:, None, :]
         if is_per:
-            Dc = np.mod(Dc + period / 2, period) - period / 2
+            Dc = Dc - period * np.floor(Dc / period + 0.5)
         Qc = _compute_Q(Dc, r, is_rel, is_per, period)
         Ec = np.exp(-Qc / (4 * sigma**2))
         acc += Ec @ wV[idx]
@@ -1804,7 +1806,7 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
     D = U[:, :, None] - V[:, None, :]  # (r, nJ, nK)
 
     if is_per:
-        D = np.mod(D + period / 2, period) - period / 2
+        D = D - period * np.floor(D / period + 0.5)
 
     Q = _compute_Q(D, r, is_rel, is_per, period)
 

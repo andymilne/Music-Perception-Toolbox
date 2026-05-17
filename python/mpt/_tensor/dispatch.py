@@ -416,7 +416,7 @@ def _compute_Q(D, r, is_rel, is_per, period):
             for i in range(r):
                 for j in range(i + 1, r):
                     delta = D[i] - D[j]
-                    delta = np.mod(delta + period / 2, period) - period / 2
+                    delta = delta - period * np.floor(delta / period + 0.5)
                     Q += delta**2
             Q = Q / r
         else:

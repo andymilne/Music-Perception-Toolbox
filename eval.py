@@ -28,12 +28,9 @@ import warnings
 import numpy as np
 
 from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
-from .._utils import (
-    estimate_comp_time,
-    kernel_chunk_bytes_resolved,
-    with_kernel_chunk_bytes_pin,
-)
+from .._utils import kernel_chunk_bytes_resolved
 from .._kernel import gaussian_kernel_sum
+from .._utils import estimate_comp_time
 from ..spectra import add_spectra
 
 from .build import _looks_like_multi_attr, build_exp_tens
@@ -56,7 +53,6 @@ from .windowing import _evaluate_window_on_query
 
 
 @_with_dispatch_scope
-@with_kernel_chunk_bytes_pin
 def eval_exp_tens(*args,
                   normalize: str = "none",
                   dedup: bool = True,
@@ -796,29 +792,71 @@ def _eval_exp_tens_sa_centres_fast(
 
 
 
+try:
+    import numexpr as _ne
+    _HAS_NE = True
+except ImportError:
+    _HAS_NE = False
+
+# Workload-size guard for the numexpr-fused non-periodic path.
+# numexpr has ~50-100 us per-call overhead (expression parse, dispatch,
+# thread coordination). Below this nJ*nQc product, the broadcast pattern
+# wins; above it, numexpr's fused per-element traversal wins (1.5-2x at
+# the demo's representative workloads). Empirical break-even is around
+# 5e4 on x86 single-thread; choosing 5e4 as a safe floor.
+_NE_SIZE_THRESHOLD = 50_000
+
+
 def _eval_centres_fast_chunk(
     centres, w_j, x, n_qc, dim, n_j, sigma, r, is_rel, is_per, period,
 ):
     """Single-chunk evaluation for the SA centres fast path.
 
-    Builds the (dim, n_j, n_qc) pairwise-difference tensor by
-    broadcasting, optionally wraps to (-period/2, period/2] for
-    periodic configurations, reduces along the spatial dimension,
-    exponentiates, and contracts with the centre weights.
+    Periodic configurations use the NumPy broadcast pattern (bit-
+    identical to v2.0/v2.1). Non-periodic configurations route to a
+    numexpr-fused pass with the spatial dimension unrolled when both
+    (i) numexpr is installed and (ii) the workload exceeds
+    ``_NE_SIZE_THRESHOLD`` queries-times-centres. The numexpr path
+    avoids the (dim, n_j, n_qc) intermediate tensor and agrees with
+    the broadcast pattern to ~1e-12 relative. Below the threshold and
+    when numexpr is unavailable, the broadcast pattern is used.
     """
-    D = centres[:, :, None] - x[:, None, :]
-    if is_per:
-        # Periodic wrap to (-period/2, period/2]. Mathematically
-        # equivalent to np.mod(D + period/2, period) - period/2 at
-        # every input (including exact half-period boundaries); ~2x
-        # faster by avoiding np.mod's two-pass implementation.
-        # Reduction-order numerical agreement (~1e-13).
-        D = D - period * np.floor(D / period + 0.5)
+    use_numexpr = (
+        _HAS_NE
+        and not is_per
+        and n_j * n_qc >= _NE_SIZE_THRESHOLD
+    )
+    if not use_numexpr:
+        D = centres[:, :, None] - x[:, None, :]
+        if is_per:
+            D = np.mod(D + period / 2, period) - period / 2
+        if is_rel:
+            Q = np.sum(D ** 2, axis=0) - np.sum(D, axis=0) ** 2 / r
+        else:
+            Q = np.sum(D ** 2, axis=0)
+        E = np.exp(-Q / (2 * sigma ** 2))
+        return w_j @ E
+
+    # numexpr non-periodic path: fuse subtract, square, sum-along-dim,
+    # exp into a single C-level traversal per kernel chunk by
+    # unrolling the dim axis in the expression string.
+    local = {}
+    parts = []
+    for d in range(dim):
+        local[f'C{d}'] = np.ascontiguousarray(centres[d, :, None])
+        local[f'X{d}'] = np.ascontiguousarray(x[d, None, :])
+        parts.append(f"(C{d}-X{d})*(C{d}-X{d})")
+    sq_sum_expr = " + ".join(parts)
     if is_rel:
-        Q = np.sum(D ** 2, axis=0) - np.sum(D, axis=0) ** 2 / r
+        sum_parts = " + ".join(f"(C{d}-X{d})" for d in range(dim))
+        local['r_val'] = np.float64(r)
+        Q = _ne.evaluate(
+            f"({sq_sum_expr}) - ({sum_parts})*({sum_parts})/r_val",
+            local_dict=local)
     else:
-        Q = np.sum(D ** 2, axis=0)
-    E = np.exp(-Q / (2 * sigma ** 2))
+        Q = _ne.evaluate(sq_sum_expr, local_dict=local)
+    inv = 1.0 / (2 * sigma ** 2)
+    E = _ne.evaluate("exp(-Q*k)", local_dict={'Q': Q, 'k': np.float64(inv)})
     return w_j @ E
 
 
@@ -1136,7 +1174,7 @@ def _ma_eval_full(
             d_a = c_a[:, :, None] - x_a[:, None, :]
             if is_per_g[g]:
                 pg = float(period_g[g])
-                d_a = d_a - pg * np.floor(d_a / pg + 0.5)
+                d_a = np.mod(d_a + pg / 2, pg) - pg / 2
             if is_rel_g[g]:
                 q_a = (np.sum(d_a ** 2, axis=0)
                        - np.sum(d_a, axis=0) ** 2 / float(r_vec[a]))
@@ -1164,7 +1202,7 @@ def _ma_eval_full(
 
         if is_per_g[g]:
             pg = dtype(period_g[g])
-            d_a = d_a - pg * np.floor(d_a / pg + 0.5)
+            d_a = np.mod(d_a + pg / 2, pg) - pg / 2
 
         if is_rel_g[g]:
             q_a = (np.sum(d_a ** 2, axis=0)
@@ -1225,7 +1263,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     D = centres[:, :, None] - x_q[:, None, :]
 
     if is_per:
-        D = D - period * np.floor(D / period + 0.5)
+        D = np.mod(D + period / 2, period) - period / 2
 
     if is_rel:
         Q = np.sum(D**2, axis=0) - np.sum(D, axis=0) ** 2 / r

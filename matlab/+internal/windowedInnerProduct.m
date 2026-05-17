@@ -328,7 +328,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 
         if isPerG(g)
             P_g = periodG(g);
-            D = mod(D + P_g/2, P_g) - P_g/2;
+            D = D - P_g .* floor(D / P_g + 0.5);
         end
 
         Qa = localComputeQ(D, g, r_a, isRelG, isPerG, periodG);
@@ -400,7 +400,7 @@ function Qa = localComputeQ(D, g, r_a, isRelG, isPerG, periodG)
             for i = 1:r_a
                 for j = i+1:r_a
                     delta = D(i, :, :) - D(j, :, :);
-                    delta = mod(delta + P_g/2, P_g) - P_g/2;
+                    delta = delta - P_g .* floor(delta / P_g + 0.5);
                     Qa = Qa + delta.^2;
                 end
             end

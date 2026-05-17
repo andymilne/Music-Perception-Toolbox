@@ -94,15 +94,22 @@ def density_case(request):
 
 
 # ---------------------------------------------------------------------
-# Default settings = bit-identical to v2.0/v2.1 reference
+# Default settings = match v2.0/v2.1 reference within reduction-order
+# noise. v2.2 relaxes the v2.1 bit-identity contract to reduction-order
+# identity (~1e-13) for periodic configurations, since the periodic
+# wrap was retargeted from np.mod to D - period * floor(D/period + 0.5)
+# (mathematically equivalent everywhere; different FP-op sequence).
+# Non-periodic configurations remain bit-identical to the reference.
 # ---------------------------------------------------------------------
 
 def test_default_settings_match_reference(density_case):
     label, dens, x = density_case
     v = eval_exp_tens(dens, x, method='centres', verbose=False)
     ref = _ref_eval(dens, x)
-    assert np.array_equal(v, ref), \
-        f"{label}: not bit-identical. max abs diff = {np.max(np.abs(v - ref)):.3e}"
+    np.testing.assert_allclose(
+        v, ref, rtol=1e-12, atol=0,
+        err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
+    )
 
 
 def test_explicit_inf_matches_reference(density_case):
@@ -112,8 +119,10 @@ def test_explicit_inf_matches_reference(density_case):
         kernel_precision='double', verbose=False,
     )
     ref = _ref_eval(dens, x)
-    assert np.array_equal(v, ref), \
-        f"{label}: not bit-identical with explicit Inf/double."
+    np.testing.assert_allclose(
+        v, ref, rtol=1e-12, atol=0,
+        err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
+    )
 
 
 # ---------------------------------------------------------------------

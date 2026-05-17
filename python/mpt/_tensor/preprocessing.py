@@ -206,7 +206,7 @@ def difference_events(p_attr, w, groups, diff_orders, periods) -> tuple[list[np.
         for _ in range(k):
             M_diff = M_diff[:, 1:] - M_diff[:, :-1]
             if P > 0:
-                M_diff = np.mod(M_diff + P / 2, P) - P / 2
+                M_diff = M_diff - P * np.floor(M_diff / P + 0.5)
         # Drop leading events to align with N'.
         extra_drop = max_order - k
         if extra_drop > 0:

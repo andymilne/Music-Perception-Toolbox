@@ -1141,7 +1141,7 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
 
         if is_per_g[g]:
             p_g = float(period_g[g])
-            D = np.mod(D + p_g / 2, p_g) - p_g / 2
+            D = D - p_g * np.floor(D / p_g + 0.5)
 
         Q_a = _compute_Q(D, r_a, bool(is_rel_g[g]), bool(is_per_g[g]),
                          float(period_g[g]))

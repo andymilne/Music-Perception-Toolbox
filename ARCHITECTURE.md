@@ -161,7 +161,8 @@ mpt/
 │                          numerical primitive for the toolbox)
 ├── _mobius.py             Möbius-Bulger inner product machinery
 ├── _defaults.py           Toolbox-wide defaults API + dispatch-scope guard
-├── _utils.py              Small helpers (estimate_comp_time, validation)
+├── _utils.py              Small helpers (estimate_comp_time, validation,
+│                          memory-aware chunk-budget resolution)
 └── _orbit_tables/         Shipped orbit tables (pickle, r = 2..8)
 ```
 
@@ -425,13 +426,15 @@ The MATLAB twin `+mobius` package has matching entry points (`mobius.getOrbitTab
 
 The toolbox's numerical commitments fall into three categories.
 
-### FP-bit-identical between releases (default settings)
+### Numerical stability between releases (default settings)
 
-User code that calls the toolbox with default kwargs in v2.1 should produce floating-point-identical output when run against v2.2 (and so on for future v2.x releases). The mechanism is conservative:
+User code that calls the toolbox with default kwargs in v2.1 should produce output that matches v2.2 to floating-point reduction order — agreement to ~14 significant decimal digits, the same level the cross-language goldens enforce. The mechanism is conservative:
 
 - Default routing is unchanged across releases for the regimes where the v2.x release introduced new methods. v2.2's `method='auto'` dispatcher selects Bulger's method in the regimes where v2.1 used Bulger's method, and the Möbius method only where v2.1 had no Möbius option. The two methods agree to floating-point precision in the regimes where both are valid, so the user-visible value is preserved.
 
 - New default-on behaviour requires deliberate justification. The bar is "the previous behaviour was a bug, and the fix would have been ported back as a v2.x.y patch."
+
+- One v2.2 default-on change relaxes *bit-identity* to *reduction-order identity*: the `kernelChunkBytes` factory `'auto'` resolves to half of currently available physical memory rather than v2.1's fixed budget, which alters chunk sizes and hence the order in which kernel contributions accumulate. For workloads large enough to trigger chunking, this introduces relative differences below $\sim 10^{-13}$ versus v2.1. The golden corpus is small enough that chunking does not fire on it, so the goldens still match across the v2.1/v2.2 boundary; the claim above downgrades from bit-identity to reduction-order identity only for workloads that exceed a single allocation. Pin `kernelChunkBytes` to a fixed integer for bit-identical reproducibility across machines or sessions.
 
 The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hold a corpus of standard-regime calls and their expected floating-point outputs to ~14 significant decimal digits. They run in CI for both languages and fail any release that drifts.
 
@@ -621,7 +624,7 @@ The CHANGELOG follows Keep-a-Changelog conventions:
 - Deprecation paths for renamed or replaced functions.
 - One-paragraph migration example for each non-trivial change.
 
-The default routing FP-bit-identical commitment (see [§6](#6-numerical-guarantees)) means most MIGRATION entries are about *new opt-in features* rather than mandatory migration.
+The default-routing numerical-stability commitment (see [§6](#6-numerical-guarantees)) means most MIGRATION entries are about *new opt-in features* rather than mandatory migration.
 
 ### Deprecation policy
 

@@ -602,16 +602,34 @@ function t = localProbeEvalPath(dens, xProbe, pathName, ...
 %   Returns elapsed seconds. The probe uses the actual code path
 %   that will run for the full workload, so future optimisations
 %   are automatically reflected.
-    tStart = tic;
+%
+%   Runs the path twice on xProbe: a warmup pass (discarded) to
+%   stabilise CPU caches and one-shot table loads, then a timed
+%   pass. Without the warmup, whichever path ran most recently on
+%   the full workload comes into the probe with hot caches and
+%   gets unfairly favoured; the dispatcher would then deterministically
+%   flip back to the other path on subsequent calls with identical
+%   inputs.
     if strcmp(pathName, 'centres')
         densMat = internal.ensureExpTensExpensive(dens);
+        % Warmup pass (discarded).
         localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
             truncationSigmas, kernelPrecision);
+        % Timed pass.
+        tStart = tic;
+        localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
+            truncationSigmas, kernelPrecision);
+        t = toc(tStart);
     else  % 'mobius'
+        % Warmup pass (discarded).
         localEvalSAOrbit(dens, xProbe, false, ...
             truncationSigmas, kernelPrecision);
+        % Timed pass.
+        tStart = tic;
+        localEvalSAOrbit(dens, xProbe, false, ...
+            truncationSigmas, kernelPrecision);
+        t = toc(tStart);
     end
-    t = toc(tStart);
 end
 
 
@@ -656,8 +674,8 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
     %    (pattern-finding and other music-cog tasks at typical
     %    24-72-partial harmonic templates) get cheap routing at
     %    any n_q.
-    PRESCREEN_CENTRES_DOMINANCE = 10.0;
-    PRESCREEN_ORBIT_DOMINANCE   = 10.0;
+    PRESCREEN_CENTRES_DOMINANCE = 3.0;
+    PRESCREEN_ORBIT_DOMINANCE   = 3.0;
 
     r = double(dens.r);
     K = numel(dens.p);

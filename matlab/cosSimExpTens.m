@@ -840,7 +840,7 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
 %   dispatch message in the no-probe cases (and is set to 'probe' when
 %   probed is true).
 
-    PRESCREEN_IP_DOMINANCE = 10.0;
+    PRESCREEN_IP_DOMINANCE = 3.0;
     BELL_NUMBERS = struct('r2', 2, 'r3', 5, 'r4', 15, 'r5', 52, ...
                           'r6', 203, 'r7', 877, 'r8', 4140);
 
@@ -998,6 +998,11 @@ end
 function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
                                truncationSigmas, kernelPrecision)
 %LOCALPROBEIPPATH  Time one cosSimExpTens IP path on a subset.
+%
+%   Runs the work twice: a warmup pass (discarded) to stabilise CPU
+%   caches and one-shot table loads, then a timed pass. Without the
+%   warmup, the path that ran most recently on the full workload
+%   comes into the probe with hot caches and gets unfairly favoured.
 
     subX = buildExpTens(dens_x.p(1:K_probe), dens_x.w(1:K_probe), ...
         dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
@@ -1007,12 +1012,18 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
         dens_y.period, 'verbose', false);
 
     if strcmp(path, 'mobius')
+        % Warmup pass (discarded).
+        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
+        % Timed pass.
         tStart = tic;
         [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
         t = toc(tStart);
     else
         subX = internal.ensureExpTensExpensive(subX);
         subY = internal.ensureExpTensExpensive(subY);
+        % Warmup pass (discarded).
+        localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
+        % Timed pass.
         tStart = tic;
         localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
         t = toc(tStart);

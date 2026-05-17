@@ -746,9 +746,9 @@ _BELL_NUMBERS = {
 #
 # The dominance margins are conservative — probe still has the final
 # word when the cost ratio is in the uncertain region.
-_PRESCREEN_CENTRES_DOMINANCE = 10.0
+_PRESCREEN_CENTRES_DOMINANCE = 3.0
 
-_PRESCREEN_ORBIT_DOMINANCE = 10.0
+_PRESCREEN_ORBIT_DOMINANCE = 3.0
 
 
 
@@ -776,28 +776,42 @@ def _probe_eval_path(
     truncation_sigmas: float | None,
     kernel_precision: str | None,
 ) -> float:
-    """Time a small slice of the real eval path. Returns seconds."""
+    """Time a small slice of the real eval path. Returns seconds.
+
+    Runs the path twice on ``x_probe``: a warmup pass (discarded) to
+    stabilise CPU caches, NumPy JIT state, and one-shot table loads,
+    then a timed pass. Without the warmup, whichever path ran most
+    recently on the full workload comes into the probe with hot caches
+    and gets unfairly favoured; the dispatcher would then deterministically
+    flip back to the other path on subsequent calls with identical inputs.
+    """
     # Lazy import to break the dispatch <-> eval cycle: dispatch is
     # imported by eval at module-load time; eval cannot reciprocate
     # without circularity.
     from .eval import _eval_exp_tens_sa_centres, _eval_exp_tens_sa_orbit
 
     import time as _time
-    t0 = _time.perf_counter()
     if path == "centres":
-        _eval_exp_tens_sa_centres(
-            dens, x_probe, x_probe.shape[1],
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=False,
-        )
+        fn = _eval_exp_tens_sa_centres
     else:
-        _eval_exp_tens_sa_orbit(
-            dens, x_probe, x_probe.shape[1],
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=False,
-        )
+        fn = _eval_exp_tens_sa_orbit
+
+    # Warmup pass (discarded).
+    fn(
+        dens, x_probe, x_probe.shape[1],
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=False,
+    )
+
+    # Timed pass.
+    t0 = _time.perf_counter()
+    fn(
+        dens, x_probe, x_probe.shape[1],
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=False,
+    )
     return _time.perf_counter() - t0
 
 
@@ -996,7 +1010,7 @@ _PROBE_K_IP_TARGET = 12
 # Pre-screen: skip the probe if one path's analytical cost dominates
 # the other by this margin. Mirrors the eval-side pre-screen
 # constants.
-_PRESCREEN_IP_DOMINANCE = 10.0
+_PRESCREEN_IP_DOMINANCE = 3.0
 
 
 
@@ -1027,6 +1041,11 @@ def _probe_ip_path(
     measurement covers only the IP work itself (kernel-matrix
     construction + einsums for the Möbius method, or ordered-tuple
     enumeration + dot product for Bulger's method).
+
+    Runs the work twice: a warmup pass (discarded) to stabilise CPU
+    caches and one-shot table loads, then a timed pass. Without the
+    warmup, the path that ran most recently on the full workload comes
+    into the probe with hot caches and gets unfairly favoured.
     """
     # Lazy imports to break the dispatch <-> cosine and
     # dispatch <-> build cycles (dispatch is imported by both).
@@ -1048,15 +1067,22 @@ def _probe_ip_path(
         verbose=False,
     )
 
+    def _run() -> None:
+        if path == "mobius":
+            _cos_sim_exp_tens_sa_orbit(sub_x, sub_y)
+        else:
+            _cos_sim_exp_tens_sa_pairwise(
+                sub_x, sub_y, verbose=False,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+            )
+
+    # Warmup pass (discarded).
+    _run()
+
+    # Timed pass.
     t0 = _time.perf_counter()
-    if path == "mobius":
-        _cos_sim_exp_tens_sa_orbit(sub_x, sub_y)
-    else:
-        _cos_sim_exp_tens_sa_pairwise(
-            sub_x, sub_y, verbose=False,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
+    _run()
     return _time.perf_counter() - t0
 
 

@@ -28,6 +28,7 @@ import warnings
 import numpy as np
 
 from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
+from .._utils import kernel_chunk_bytes_resolved
 from .._kernel import gaussian_kernel_sum
 from .._utils import estimate_comp_time
 from ..spectra import add_spectra
@@ -768,15 +769,18 @@ def _eval_exp_tens_sa_centres_fast(
         return np.zeros(n_q, dtype=np.float64)
 
     bytes_per_scalar = 8  # default-mode is always double
-    bytes_needed = (dim + 1) * n_j * n_q * bytes_per_scalar
-    mem_limit = 1 * 1024 ** 3  # 1 GB per-chunk cap, matches helper
+    # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × bytes_per_scalar:
+    # broadcast difference tensor, its square, and the summed/exponentiated
+    # intermediate are briefly co-resident.
+    bytes_needed = (2 * dim + 2) * n_j * n_q * bytes_per_scalar
+    mem_limit = kernel_chunk_bytes_resolved()
 
     if bytes_needed <= mem_limit:
         return _eval_centres_fast_chunk(
             centres, w_j, x, n_q, dim, n_j, sigma, r, is_rel, is_per, period,
         )
 
-    chunk_size = max(1, mem_limit // ((dim + 1) * n_j * bytes_per_scalar))
+    chunk_size = max(1, mem_limit // ((2 * dim + 2) * n_j * bytes_per_scalar))
     vals = np.zeros(n_q, dtype=np.float64)
     for c0 in range(0, n_q, chunk_size):
         c1 = min(c0 + chunk_size, n_q)
@@ -1013,10 +1017,11 @@ def _eval_exp_tens_ma(
 
     # --- Core evaluation with memory-aware chunking ---
     # Peak per-chunk memory is dominated by the largest per-attribute
-    # (dim_a, nJ, nQc) difference tensor plus the (nJ, nQc) accumulator.
+    # (dim_a, nJ, nQc) difference tensor, its square, and the
+    # summed/exponentiated intermediate co-resident during chunk eval.
     max_dim_a = int(max(dim_per)) if A > 0 else 1
-    bytes_per_col = (max_dim_a + 1) * int(n_j) * 8
-    mem_limit = 4_000_000_000  # 4 GB default
+    bytes_per_col = (2 * max_dim_a + 2) * int(n_j) * 8
+    mem_limit = kernel_chunk_bytes_resolved()
 
     bytes_needed = bytes_per_col * int(n_q)
     if bytes_needed <= mem_limit:
@@ -1181,13 +1186,16 @@ def _eval_core(
     centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period
 ):
     """Evaluate with automatic memory-aware chunking (SA path)."""
-    bytes_needed = (dim + 1) * int(n_j) * int(n_q) * 8
-    mem_limit = 4_000_000_000  # 4 GB default
+    # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × 8 (broadcast
+    # difference, its square, and the summed/exponentiated intermediate
+    # are briefly co-resident).
+    bytes_needed = (2 * dim + 2) * int(n_j) * int(n_q) * 8
+    mem_limit = kernel_chunk_bytes_resolved()
 
     if bytes_needed <= mem_limit:
         return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period)
 
-    chunk_size = max(1, int(mem_limit / ((dim + 1) * int(n_j) * 8)))
+    chunk_size = max(1, int(mem_limit / ((2 * dim + 2) * int(n_j) * 8)))
     vals = np.zeros(n_q)
     for c_start in range(0, n_q, chunk_size):
         c_end = min(c_start + chunk_size, n_q)

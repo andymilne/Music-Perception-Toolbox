@@ -279,3 +279,127 @@ def position_variance(
     net = np.zeros(u_idx.size, dtype=np.float64)
     np.add.at(net, grp, signs)
     return float(sigma**2 * np.sum(net**2))
+
+
+# ---------------------------------------------------------------
+# Memory-aware chunk-size resolution for kernel-matrix workloads
+# ---------------------------------------------------------------
+
+def _available_memory_bytes_linux() -> int | None:
+    """Return ``MemAvailable`` from ``/proc/meminfo`` in bytes, or None."""
+    try:
+        with open("/proc/meminfo", "r") as f:
+            text = f.read()
+    except OSError:
+        return None
+    import re
+    m = re.search(r"^MemAvailable:\s+(\d+)\s+kB", text, flags=re.MULTILINE)
+    if m is None:
+        return None
+    return int(m.group(1)) * 1024
+
+
+def _available_memory_bytes_macos() -> int | None:
+    """Return available memory on macOS via ``vm_stat``, or None.
+
+    Uses ``free + inactive + speculative`` pages, matching the
+    approximation used by Activity Monitor and standard third-party
+    memory tools.
+    """
+    import re
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["vm_stat"], stderr=subprocess.DEVNULL, text=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    page_match = re.search(r"page size of (\d+) bytes", out)
+    if page_match is None:
+        return None
+    page_size = int(page_match.group(1))
+
+    def _pages(label: str) -> int | None:
+        m = re.search(rf"Pages {label}:\s+(\d+)", out)
+        return int(m.group(1)) if m else None
+
+    free = _pages("free")
+    inactive = _pages("inactive")
+    spec = _pages("speculative")
+    if free is None or inactive is None or spec is None:
+        return None
+    return (free + inactive + spec) * page_size
+
+
+def _available_memory_bytes_windows() -> int | None:
+    """Return available physical memory on Windows via GlobalMemoryStatusEx."""
+    import ctypes
+    try:
+        class _MemStatus(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        ms = _MemStatus()
+        ms.dwLength = ctypes.sizeof(_MemStatus)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            return None
+        return int(ms.ullAvailPhys)
+    except (OSError, AttributeError, OSError):
+        return None
+
+
+_AVAILABLE_MEMORY_FALLBACK_BYTES: int = 4 * 1024 ** 3  # 4 GiB
+
+
+def available_memory_bytes() -> int:
+    """Return currently available physical memory in bytes.
+
+    Linux uses ``/proc/meminfo``'s ``MemAvailable`` (the kernel's
+    estimate of memory available without swapping). macOS uses
+    ``vm_stat`` with the ``free + inactive + speculative`` page-count
+    approximation. Windows uses ``GlobalMemoryStatusEx``. If all
+    platform queries fail, a 4 GiB fallback is returned.
+    """
+    import sys
+    val: int | None = None
+    if sys.platform.startswith("linux"):
+        val = _available_memory_bytes_linux()
+    elif sys.platform == "darwin":
+        val = _available_memory_bytes_macos()
+    elif sys.platform.startswith("win"):
+        val = _available_memory_bytes_windows()
+    if val is None:
+        return _AVAILABLE_MEMORY_FALLBACK_BYTES
+    return val
+
+
+def kernel_chunk_bytes_resolved() -> int:
+    """Return the resolved per-chunk byte budget for kernel-matrix work.
+
+    Reads the ``kernel_chunk_bytes`` toolbox default. The factory
+    value ``'auto'`` resolves to half of currently available physical
+    memory (see :func:`available_memory_bytes`); any positive integer
+    is returned as-is. Resolution happens at call time, so the budget
+    tracks memory pressure across a session.
+
+    The peak transient allocation in a single kernel-matrix chunk
+    runs roughly ``(2 * dim + 2) × n_j × n_q × bytes_per_scalar`` —
+    NumPy briefly holds the broadcast difference tensor, its square,
+    and the summed-then-exponentiated intermediate simultaneously.
+    The factor of two between the ``'auto'`` budget (half of
+    available memory) and the actual peak gives a safety margin
+    against the per-query allocation under-estimate.
+    """
+    from ._defaults import get_default
+    val = get_default("kernel_chunk_bytes")
+    if isinstance(val, str) and val == "auto":
+        return max(1, available_memory_bytes() // 2)
+    return int(val)

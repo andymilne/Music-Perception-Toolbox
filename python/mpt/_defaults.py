@@ -35,6 +35,7 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
     "truncation_sigmas": math.inf,
     "kernel_precision": "double",
     "show_hints": True,
+    "kernel_chunk_bytes": "auto",
 }
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
@@ -145,6 +146,28 @@ def _validate_one(name: str, value: Any) -> Any:
                 f"'show_hints' must be True or False (got {value!r})"
             )
         return value
+    if name == "kernel_chunk_bytes":
+        if isinstance(value, str):
+            v = value.lower()
+            if v != "auto":
+                raise ValueError(
+                    f"'kernel_chunk_bytes' string value must be 'auto' "
+                    f"(got {value!r})"
+                )
+            return v
+        try:
+            iv = int(value)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"'kernel_chunk_bytes' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            )
+        if iv <= 0:
+            raise ValueError(
+                f"'kernel_chunk_bytes' must be 'auto' or a positive integer "
+                f"(got {value!r})"
+            )
+        return iv
     raise ValueError(
         f"Unknown default {name!r}. "
         f"Valid names: {', '.join(_FACTORY_DEFAULTS)}"

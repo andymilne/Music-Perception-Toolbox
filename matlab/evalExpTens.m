@@ -979,20 +979,18 @@ function vals = localEvalSACentresFast(dens, X, nQ)
     % plus per-block intermediates. Without chunking, large workloads
     % (e.g. K=72 r=3 nQ=29161 → 155 GB) hit MATLAB's array-size cap.
 
+    % Peak per-chunk transient ~ (2*dim + 2) * nJ * nQc * 8 (broadcast
+    % difference, its square, and the summed/exponentiated intermediate
+    % are briefly co-resident).
     bytesPerScalar = 8;  % default-mode is always double
-    bytesNeeded = (dim + 1) * double(nJ) * double(nQ) * bytesPerScalar;
-    try
-        memInfo  = memory;
-        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-    catch
-        memLimit = 4e9;
-    end
+    bytesNeeded = (2 * dim + 2) * double(nJ) * double(nQ) * bytesPerScalar;
+    memLimit = internal.kernelChunkBytesResolved();
 
     if bytesNeeded <= memLimit
         vals = evalChunk(Centres, wJ, X, nQ, dim, nJ, sigma, r, isRel, isPer, J);
     else
         chunkSize = max(1, floor(memLimit / ...
-            ((dim + 1) * double(nJ) * bytesPerScalar)));
+            ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
         vals = zeros(1, nQ);
         for c0 = 1:chunkSize:nQ
             c1 = min(c0 + chunkSize - 1, nQ);
@@ -1130,13 +1128,11 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     % accumulator. Use (maxDim + 1) * nJ * 8 bytes as the per-column
     % cost to size the chunk.
 
-    bytesPerCol = (max(dimPerAttr) + 1) * double(N_J) * 8;
-    try
-        memInfo  = memory;
-        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-    catch
-        memLimit = 4e9;
-    end
+    % Peak per-chunk memory is dominated by the largest per-attribute
+    % (dim_a, N_J, nQc) difference tensor, its square, and the
+    % summed/exponentiated intermediate co-resident during chunk eval.
+    bytesPerCol = (2 * max(dimPerAttr) + 2) * double(N_J) * 8;
+    memLimit = internal.kernelChunkBytesResolved();
     bytesNeeded = bytesPerCol * double(nQ);
 
     if bytesNeeded <= memLimit

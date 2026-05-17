@@ -116,7 +116,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
     % block size m_max <= r. The chunk size is solved for given r, N,
     % N_u with a fudge factor for transient allocations during the
     % per-partition arithmetic.
-    BUDGET_BYTES = 1024^3;
+    BUDGET_BYTES = internal.kernelChunkBytesResolved();
     perChunkBytesPerQuery = 8 * r * N_u * numel(p) * 4;   % m_max <= r, fudge x4
     chunkSize = max(1, floor(BUDGET_BYTES / max(perChunkBytesPerQuery, 1)));
     chunkSize = min(chunkSize, n_q);

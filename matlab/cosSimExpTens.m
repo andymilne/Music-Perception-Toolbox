@@ -605,12 +605,7 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
         % Default-mode (or rel+per) path: inline / chunked.
         bytesNeeded = (r + 2) * double(nJ) * double(nK) * 8;
 
-        try
-            memInfo  = memory;
-            memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-        catch
-            memLimit = 4e9;
-        end
+        memLimit = internal.kernelChunkBytesResolved();
 
         if bytesNeeded <= memLimit
             ipval = ipFull(U, wU, nJ, V, wV, nK);
@@ -1261,12 +1256,7 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
         maxRa = double(max(rVec));
         bytesNeeded = (maxRa + 2) * double(nJ) * double(nK) * 8;
 
-        try
-            memInfo  = memory;
-            memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-        catch
-            memLimit = 4e9;
-        end
+        memLimit = internal.kernelChunkBytesResolved();
 
         if bytesNeeded <= memLimit
             ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK);

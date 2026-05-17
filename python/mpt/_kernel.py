@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from ._defaults import get_default
+from ._utils import kernel_chunk_bytes_resolved
 
 
 def gaussian_kernel_sum(
@@ -176,14 +177,16 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma):
     if nJ == 0 or nQ == 0:
         return np.zeros(nQ, dtype=C.dtype)
 
-    # Memory-budget chunking on nQ.
+    # Memory-budget chunking on nQ. Peak per-chunk transient ~
+    # (2*dim + 2) × nJ × nQ × bytes_per_scalar (broadcast difference,
+    # its square, and the summed/exponentiated intermediate co-resident).
     bytes_per_scalar = C.dtype.itemsize
-    bytes_needed = (dim + 1) * nJ * nQ * bytes_per_scalar
-    BUDGET = 1 * 1024 ** 3
+    bytes_needed = (2 * dim + 2) * nJ * nQ * bytes_per_scalar
+    BUDGET = kernel_chunk_bytes_resolved()
     if bytes_needed <= BUDGET:
         return _eval_chunk(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma)
 
-    chunk = max(1, BUDGET // ((dim + 1) * nJ * bytes_per_scalar))
+    chunk = max(1, BUDGET // ((2 * dim + 2) * nJ * bytes_per_scalar))
     out = np.zeros(nQ, dtype=C.dtype)
     for c0 in range(0, nQ, chunk):
         c1 = min(c0 + chunk, nQ)

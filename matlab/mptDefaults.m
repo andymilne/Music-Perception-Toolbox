@@ -126,7 +126,8 @@ function S = factoryDefaults()
     S = struct( ...
         'truncationSigmas', Inf, ...
         'kernelPrecision', 'double', ...
-        'showHints', true ...
+        'showHints', true, ...
+        'kernelChunkBytes', 'auto' ...
     );
 end
 
@@ -158,6 +159,15 @@ function printSummary(S)
             hintsStr);
     fprintf('                                  the toolbox: kernel-eval tip and\n');
     fprintf('                                  dispatch decisions. true or false.\n');
+    if ischar(S.kernelChunkBytes)
+        chunkStr = sprintf('''%s''', S.kernelChunkBytes);
+    else
+        chunkStr = sprintf('%g', S.kernelChunkBytes);
+    end
+    fprintf('  kernelChunkBytes: %-12s  Per-chunk byte budget for kernel-matrix\n', ...
+            chunkStr);
+    fprintf('                                  workloads. ''auto'' = 0.5 * available\n');
+    fprintf('                                  physical memory; or a positive int.\n');
     fprintf('\n');
     fprintf('Usage:\n');
     fprintf('  mptDefaults(''name'', value)      set\n');
@@ -194,6 +204,22 @@ function S = setOne(S, name, value)
                     '''showHints'' must be true or false.');
             end
             S.showHints = value;
+        case 'kernelchunkbytes'
+            if ischar(value) || isstring(value)
+                v = lower(char(value));
+                if ~strcmp(v, 'auto')
+                    error('mptDefaults:badValue', ...
+                        '''kernelChunkBytes'' string value must be ''auto''.');
+                end
+                S.kernelChunkBytes = v;
+            elseif isnumeric(value) && isscalar(value) && value > 0 && ...
+                    isfinite(value) && value == floor(value)
+                S.kernelChunkBytes = double(value);
+            else
+                error('mptDefaults:badValue', ...
+                    ['''kernelChunkBytes'' must be ''auto'' or a positive ' ...
+                     'integer scalar (bytes).']);
+            end
         otherwise
             error('mptDefaults:unknownDefault', ...
                 'Unknown default ''%s''. Valid names: %s.', ...

@@ -35,6 +35,7 @@ from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
 from .._kernel import gaussian_kernel_sum
 from .._utils import (
     estimate_comp_time,
+    kernel_chunk_bytes_resolved,
     maybe_print_batched_estimate,
     progress_stride,
 )
@@ -995,7 +996,7 @@ def _ip_core_ma(
     """
     max_r = int(np.max(r_vec)) if A > 0 else 1
     bytes_per_col = (max_r + 2) * int(n_j) * 8
-    mem_limit = 4_000_000_000  # 4 GB default
+    mem_limit = kernel_chunk_bytes_resolved()
     bytes_needed = bytes_per_col * int(n_k)
 
     if bytes_needed <= mem_limit:
@@ -1510,7 +1511,7 @@ def _ma_per_attr_inner_matrix_rel_per(
 
     # Chunk along u to bound memory.
     bytes_per_u = N_pairs * K * K * 8 * 2  # kernel + diffs
-    mem_limit = 1_000_000_000
+    mem_limit = kernel_chunk_bytes_resolved()
     chunk_u = max(1, min(N_u, mem_limit // max(bytes_per_u, 1)))
 
     F = np.zeros((N_pairs, N_u), dtype=np.float64)
@@ -1751,7 +1752,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
 
     # Default-mode (or rel+per) path: inline / chunked.
     bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
-    mem_limit = 4_000_000_000
+    mem_limit = kernel_chunk_bytes_resolved()
 
     if bytes_needed <= mem_limit:
         return _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period)

@@ -150,14 +150,12 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, inv2s2, sigm
         return;
     end
 
+    % Peak per-chunk transient ~ (2*dim + 2) * nJ * nQ * bytesPerScalar:
+    % MATLAB briefly holds the broadcast difference tensor, its square,
+    % and the summed-then-exponentiated intermediate co-resident.
     bytesPerScalar = 4 * isa(C, 'single') + 8 * isa(C, 'double');
-    bytesNeeded = (dim + 1) * double(nJ) * double(nQ) * bytesPerScalar;
-    try
-        memInfo  = memory;
-        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-    catch
-        memLimit = 4e9;
-    end
+    bytesNeeded = (2 * dim + 2) * double(nJ) * double(nQ) * bytesPerScalar;
+    memLimit = internal.kernelChunkBytesResolved();
 
     v = zeros(1, nQ, 'like', C);
     if bytesNeeded <= memLimit
@@ -165,7 +163,7 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, inv2s2, sigm
             inv2s2, sigma);
     else
         chunkSize = max(1, floor(memLimit / ...
-            ((dim + 1) * double(nJ) * bytesPerScalar)));
+            ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
         for c0 = 1:chunkSize:nQ
             c1 = min(c0 + chunkSize - 1, nQ);
             idx = c0:c1;
@@ -281,14 +279,9 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     % budget matches the exact path's heuristic so memory behaviour is
     % consistent across paths.
     bytesPerScalar = 4 * isa(C, 'single') + 8 * isa(C, 'double');
-    try
-        memInfo  = memory;
-        memLimit = memInfo.MaxPossibleArrayBytes * 0.5;
-    catch
-        memLimit = 4e9;
-    end
+    memLimit = internal.kernelChunkBytesResolved();
     chunkSize = max(1, floor(memLimit / ...
-        ((dim + 1) * double(nJ) * bytesPerScalar)));
+        ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
 
     v = zeros(1, nQ, 'like', C);
     for c0 = 1:chunkSize:nQ

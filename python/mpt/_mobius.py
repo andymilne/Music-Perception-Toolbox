@@ -65,6 +65,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ._utils import kernel_chunk_bytes_resolved
+
 # ---------------------------------------------------------------------
 # Combinatorial primitives
 # ---------------------------------------------------------------------
@@ -1335,7 +1337,7 @@ def eval_orbit_rel(
     # block size m_max ≤ r. The chunk size is solved for given r, N,
     # N_u with a fudge factor for transient allocations during the
     # per-partition arithmetic.
-    BUDGET_BYTES = 1024 ** 3
+    BUDGET_BYTES = kernel_chunk_bytes_resolved()
     per_chunk_bytes_per_query = 8 * r * N_u * p.shape[0] * 4  # m_max ≤ r, fudge ×4
     chunk_size = max(1, BUDGET_BYTES // max(per_chunk_bytes_per_query, 1))
     chunk_size = min(chunk_size, n_q)

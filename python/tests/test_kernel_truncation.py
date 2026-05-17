@@ -286,6 +286,7 @@ def test_reset_defaults():
         "truncation_sigmas": math.inf,
         "kernel_precision": "double",
         "show_hints": True,
+        "kernel_chunk_bytes": "auto",
     }
 
 

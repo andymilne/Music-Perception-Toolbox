@@ -85,4 +85,12 @@ class TestCentresChunking:
         v_auto = eval_exp_tens(dens, x, verbose=False)
         v_centres = eval_exp_tens(dens, x, method='centres', verbose=False)
 
-        np.testing.assert_array_equal(v_auto, v_centres)
+        # Auto routing and forced centres take chunker paths whose
+        # chunk sizes are independently computed against the resolved
+        # kernel_chunk_bytes budget. With 'auto' (the factory default),
+        # the budget tracks available physical memory and so can vary
+        # by a few bytes between calls, which produces 1-ulp-class
+        # reduction-order differences for large summations. Bit
+        # identity is not part of the contract here; numerical
+        # agreement to ~1e-13 relative is.
+        np.testing.assert_allclose(v_auto, v_centres, rtol=1e-13, atol=0)

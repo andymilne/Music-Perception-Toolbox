@@ -12,6 +12,7 @@ import warnings
 import numpy as np
 
 from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
+from .entropy import entropy_exp_tens
 from .spectra import add_spectra
 from .tensor import _chord_canonical_key, build_exp_tens, eval_exp_tens
 
@@ -107,7 +108,15 @@ def spectral_entropy(
 
 
 def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution, verbose):
-    """Single-chord scalar dispatch (the v2.0 body)."""
+    """Single-chord scalar dispatch.
+
+    Prepares ``(spec_p, spec_w)`` (transposition shift + optional
+    add_spectra) and delegates to :func:`entropy_exp_tens`. Computes
+    grid bounds and a matching ``n_points_per_dim`` from ``resolution``
+    so the discretisation matches v2.1's
+    ``np.arange(0, max(spec_p) + 4*sigma + resolution, resolution)``
+    behaviour.
+    """
     p = p.ravel()
     w = validate_weights(w, len(p))
     p = p - np.min(p)
@@ -117,30 +126,41 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, normalize, base, resolution,
     else:
         spec_p, spec_w = p.copy(), w.copy()
 
-    T = build_exp_tens(spec_p, spec_w, sigma, 1, False, False, 1200, verbose=False)
-
+    # Up-front time estimate (kernel cost in eval_exp_tens dominates).
     margin = 4 * sigma
-    x = np.arange(0, np.max(spec_p) + margin + resolution, resolution)
-
-    # Time estimate (kernel cost only; eval_exp_tens kernel pair count
-    # is the dominant work for spectral entropy at typical scales).
-    n_pairs = int(len(spec_p)) * int(len(x))
+    x_grid = np.arange(0, float(np.max(spec_p)) + margin + resolution, resolution)
+    n_pairs = int(len(spec_p)) * int(len(x_grid))
     estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
 
-    t = eval_exp_tens(T, x, verbose=False)
+    return _spectral_entropy_delegate(
+        spec_p, spec_w, sigma, normalize, base, x_grid,
+    )
 
-    total = np.sum(t)
-    if total == 0:
-        return 0.0
 
-    q = t / total
-    N = len(q)
-    q = q[q > 0]
+def _spectral_entropy_delegate(spec_p, spec_w, sigma, normalize, base, x_grid):
+    """Delegate the entropy computation to entropy_exp_tens.
 
-    H = float(-np.sum(q * np.log(q) / np.log(base)))
-    if normalize:
-        H /= np.log(N) / np.log(base)
-    return H
+    Used by both the scalar path and the batched per-row loop. Builds
+    no tensor itself — entropy_exp_tens handles build_exp_tens /
+    eval_exp_tens / Shannon-entropy internally. We just compute the
+    grid bounds and the matching n_points_per_dim from ``resolution``,
+    so the discretisation matches v2.1's
+    ``np.arange(0, max(spec_p) + 4*sigma + resolution, resolution)``
+    grid: x_min = 0, x_max = x_grid[-1] (the actual last grid point),
+    n_points_per_dim = len(x_grid).
+    """
+    x_max_actual = float(x_grid[-1])
+    n_points = int(len(x_grid))
+
+    return entropy_exp_tens(
+        spec_p, spec_w, sigma, 1, False, False, 1200,
+        normalize=normalize,
+        base=base,
+        x_min=0.0,
+        x_max=x_max_actual,
+        n_points_per_dim=n_points,
+        verbose=False,
+    )
 
 
 def _spectral_entropy_batched(P, W, sigma, spectrum, normalize, base, resolution, verbose):

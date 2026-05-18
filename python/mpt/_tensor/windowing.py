@@ -552,6 +552,16 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
 
     prog_stride = 1
     show_progress = False
+    # --- Pre-compute the unwindowed L2 norms (denominator).
+    # Both ip_qq and ip_cc depend only on the densities, NOT on the
+    # window offset. Computing them once here lets every per-offset
+    # call to _windowed_inner_product skip the redundant per-call
+    # work (originally ~2/3 of inner-loop time on this path).
+    norms_cache = (
+        _cos_sim_numerator_ma(dens_query, dens_query, windowed_c=None),
+        _cos_sim_numerator_ma(dens_context, dens_context, windowed_c=None),
+    )
+
     if verbose and M >= 2:
         n_cal = min(5, M)
         sample_idx = np.unique(np.round(
@@ -573,13 +583,15 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         # Warm-up: one iteration of the loop body to absorb one-time
         # setup (cache populate, etc.) before the timed sample.
         wmd_w = _build_wmd_for_idx(sample_idx[0])
-        _windowed_inner_product(dens_query, wmd_w, verbose=False)
+        _windowed_inner_product(dens_query, wmd_w, verbose=False,
+                                _cached_norms=norms_cache)
 
         # Timed calibration sample.
         t_cal_start = time.perf_counter()
         for cs in sample_idx:
             wmd_s = _build_wmd_for_idx(cs)
-            _windowed_inner_product(dens_query, wmd_s, verbose=False)
+            _windowed_inner_product(dens_query, wmd_s, verbose=False,
+                                    _cached_norms=norms_cache)
         t_cal_total = time.perf_counter() - t_cal_start
         t_per_point = t_cal_total / len(sample_idx)
         est_total = t_cal_total + t_per_point * M
@@ -601,7 +613,8 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         spec_m = dict(base_spec)
         spec_m["centre"] = centre_list
         wmd = window_tensor(dens_context, spec_m)
-        profile[m] = _windowed_inner_product(dens_query, wmd, verbose=False)
+        profile[m] = _windowed_inner_product(dens_query, wmd, verbose=False,
+                                             _cached_norms=norms_cache)
 
         if verbose and show_progress and (
             (m + 1) % prog_stride == 0 or (m + 1) == M
@@ -861,7 +874,8 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
 # -------------------------------------------------------------------
 
 
-def _windowed_inner_product(dens_a, dens_b, *, verbose: bool):
+def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
+                            _cached_norms=None):
     """Cosine similarity with one or both operands windowed.
 
     Normaliser uses unwindowed L2 norms for both operands (Option Z).
@@ -871,6 +885,13 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool):
     Currently supports one-sided windowing (exactly one of dens_a,
     dens_b is a WindowedMaetDensity). Two-sided is not needed for the
     windowed_similarity use case.
+
+    Internal optimisation: when called repeatedly with the same
+    (dens_q, dens_c) pair (as windowed_similarity does for each
+    offset in its sweep), the unwindowed L2 norms ip_qq and ip_cc
+    do not depend on the window offset and can be computed once
+    outside the loop. Callers may pass these as ``_cached_norms =
+    (ip_qq, ip_cc)`` to skip the redundant per-call computation.
     """
     a_win = isinstance(dens_a, WindowedMaetDensity)
     b_win = isinstance(dens_b, WindowedMaetDensity)
@@ -892,8 +913,11 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool):
     _check_ma_compatibility(dens_q, dens_c)
 
     # --- Unwindowed norms (denominator) ---
-    ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None)
-    ip_cc = _cos_sim_numerator_ma(dens_c, dens_c, windowed_c=None)
+    if _cached_norms is not None:
+        ip_qq, ip_cc = _cached_norms
+    else:
+        ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None)
+        ip_cc = _cos_sim_numerator_ma(dens_c, dens_c, windowed_c=None)
 
     # --- Windowed numerator ---
     ip_qc = _cos_sim_numerator_ma(dens_q, dens_c, windowed_c=wmd)
@@ -1139,7 +1163,10 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
         if a in shift_per_attr:
             D = D + shift_per_attr[a][:, None, None]
 
-        if is_per_g[g]:
+        # See note in cosine._ma_log_kernel: outer wrap is only needed
+        # when _compute_Q does not re-wrap the pairwise component
+        # differences (i.e., for is_per and not is_rel).
+        if is_per_g[g] and not is_rel_g[g]:
             p_g = float(period_g[g])
             D = D - p_g * np.floor(D / p_g + 0.5)
 

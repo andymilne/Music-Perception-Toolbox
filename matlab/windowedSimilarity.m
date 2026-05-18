@@ -359,6 +359,15 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         'closed-form windowed inner product (single algorithmic path)', ...
         0, false);
 
+    % --- Pre-compute the unwindowed L2 norms (denominator).
+    % Both ip_qq = <Q, Q>_unwindowed and ip_cc = <C, C>_unwindowed
+    % depend only on the densities, NOT on the window offset.
+    % Computing them ONCE here lets every per-offset call to
+    % internal.windowedInnerProduct skip the redundant per-call work
+    % (originally ~2/3 of inner-loop time on this path).
+    ipQQcache = internal.windowedInnerProduct(densQuery, [], false);
+    ipCCcache = internal.windowedInnerProduct(densContext, [], false);
+
     % --- Up-front time estimate + adaptive progress stride ---
     % Calibrate empirically (warm-up + timed sample) and extrapolate to
     % the full M-point sweep, matching the pattern used by the other
@@ -385,7 +394,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_w = baseSpec;
         spec_w.centre = centre_cell_w;
         wmd_w = windowTensor(densContext, spec_w);
-        internal.windowedInnerProduct(densQuery, wmd_w, false);
+        internal.windowedInnerProduct(densQuery, wmd_w, false, ...
+            ipQQcache, ipCCcache);
 
         % Timed calibration sample over the same indices.
         tCalStart = tic;
@@ -401,7 +411,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
             spec_s = baseSpec;
             spec_s.centre = centre_cell_s;
             wmd_s = windowTensor(densContext, spec_s);
-            internal.windowedInnerProduct(densQuery, wmd_s, false);
+            internal.windowedInnerProduct(densQuery, wmd_s, false, ...
+                ipQQcache, ipCCcache);
         end
         tCalTotal  = toc(tCalStart);
         tPerPoint  = tCalTotal / numel(sampleIdx);
@@ -425,7 +436,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_m = baseSpec;
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
-        profile(m) = internal.windowedInnerProduct(densQuery, wmd, false);
+        profile(m) = internal.windowedInnerProduct(densQuery, wmd, false, ...
+            ipQQcache, ipCCcache);
 
         if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
             fprintf('  %d / %d points computed.\n', m, M);

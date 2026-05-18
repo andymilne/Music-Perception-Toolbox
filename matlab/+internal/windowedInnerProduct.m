@@ -2,7 +2,7 @@
 %  windowedInnerProduct — closed-form windowed inner product (internal)
 % =========================================================================
 
-function s = windowedInnerProduct(a, b, verbose)
+function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, cachedIpCC)
 %WINDOWEDINNERPRODUCT  Closed-form windowed inner product (internal helper).
 %
 %   s = internal.windowedInnerProduct(densQ, wmd, verbose)
@@ -32,7 +32,30 @@ function s = windowedInnerProduct(a, b, verbose)
 %   which handles both the scalar (single-offset) and sweep
 %   (multi-offset) cases uniformly.
 %
+%   Norm-only convenience mode (internal optimisation)
+%   --------------------------------------------------
+%   When called as ``internal.windowedInnerProduct(dens, [], false)``
+%   (second argument empty), returns the unwindowed L2 norm squared
+%   of ``dens``: <dens, dens>_unwindowed. Used by windowedSimilarity
+%   to compute the two denominator norms ONCE per sweep rather than
+%   redundantly inside each per-offset call.
+%
+%   Cached-norm mode (internal optimisation)
+%   ----------------------------------------
+%   When called as ``internal.windowedInnerProduct(densQ, wmd,
+%   verbose, cachedIpQQ, cachedIpCC)``, uses the supplied
+%   pre-computed unwindowed norms instead of recomputing them. Used
+%   by windowedSimilarity's per-offset loop together with the
+%   norm-only mode above.
+%
 %   See also windowedSimilarity, windowTensor.
+
+    % Norm-only mode: return <a, a>_unwindowed.
+    if nargin >= 2 && isempty(b)
+        a = internal.ensureExpTensExpensive(a);
+        s = localCosSimNumeratorMA(a, a, [], false);
+        return;
+    end
 
     a_win = strcmp(a.tag, 'WindowedMaetDensity');
     b_win = strcmp(b.tag, 'WindowedMaetDensity');
@@ -67,8 +90,16 @@ function s = windowedInnerProduct(a, b, verbose)
     localCheckMACompat(dens_q, dens_c);
 
     % --- Unwindowed norms (denominator) ---
-    ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose);
-    ip_cc = localCosSimNumeratorMA(dens_c, dens_c, [], verbose);
+    if nargin >= 4 && ~isempty(cachedIpQQ)
+        ip_qq = cachedIpQQ;
+    else
+        ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose);
+    end
+    if nargin >= 5 && ~isempty(cachedIpCC)
+        ip_cc = cachedIpCC;
+    else
+        ip_cc = localCosSimNumeratorMA(dens_c, dens_c, [], verbose);
+    end
 
     % --- Windowed numerator ---
     ip_qc = localCosSimNumeratorMA(dens_q, dens_c, wmd, verbose);
@@ -326,7 +357,10 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
             D = D + shiftPerAttr{a};   % broadcasts over (nJ, nK)
         end
 
-        if isPerG(g)
+        % See note in cosSimExpTens maLogKernel: outer wrap is only
+        % needed when localComputeQ does not re-wrap pairwise
+        % component differences (i.e., for isPer and not isRel).
+        if isPerG(g) && ~isRelG(g)
             P_g = periodG(g);
             D = D - P_g .* floor(D / P_g + 0.5);
         end

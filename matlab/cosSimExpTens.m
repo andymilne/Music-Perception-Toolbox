@@ -628,7 +628,10 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
                 Dc = reshape(U, r, nJ, 1) ...
                    - reshape(V(:, idx), r, 1, nKc);
 
-                if isPer
+                % See note in ipFull: outer wrap is only needed when
+                % computeQ does not re-wrap pairwise component
+                % differences.
+                if isPer && ~isRel
                     Dc = Dc - J .* floor(Dc / J + 0.5);
                 end
 
@@ -707,7 +710,15 @@ s = ip_xy / sqrt(ip_xx * ip_yy);
     function ipval = ipFull(U, wU, nJ, V, wV, nK)
         D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
 
-        if isPer
+        % The outer wrap is needed only when computeQ does not re-wrap
+        % the pairwise component differences (i.e., for isPer and not
+        % isRel: Q = sum(D.^2), which requires wrapped D components).
+        % For isRel+isPer, computeQ wraps each (D(i)-D(j)) inside
+        % (the pairwise-wrap form of Eq 6); that inner wrap is
+        % invariant under integer-period shifts of the operands, so
+        % wrapping D first is redundant. Skipping it saves ~30-45% of
+        % ipFull time across K.
+        if isPer && ~isRel
             D = D - J .* floor(D / J + 0.5);
         end
 
@@ -1302,7 +1313,14 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
             D = reshape(U_cell{a}, r_a, nJ, 1) ...
               - reshape(V_cell{a}, r_a, 1, nK);
 
-            if isPerG(g)
+            % The outer wrap is only needed when computeQaMA does not
+            % re-wrap the pairwise component differences (i.e., for
+            % isPer and not isRel: Qa = sum(D.^2), which requires
+            % wrapped D components). For rel+per, computeQaMA wraps
+            % each pairwise (D(i)-D(j)) inside (Eq 6 form); that
+            % inner wrap is invariant under integer-period shifts, so
+            % wrapping D first is redundant.
+            if isPerG(g) && ~isRelG(g)
                 P_g = periodG(g);
                 D = D - P_g .* floor(D / P_g + 0.5);
             end

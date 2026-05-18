@@ -175,17 +175,37 @@ end
 
 function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, inv2s2, sigma) %#ok<INUSL>
     D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
-    if isPer
+    % Outer wrap only needed for abs+per. For rel+per the pairwise
+    % wrap below subsumes it (Eq 6 of the preprint).
+    if isPer && ~isRel
         D = D - period .* floor(D / period + 0.5);
     end
     if isRel
-        Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;
+        if isPer
+            % Pairwise-wrap form on the reduced centres
+            % representation (slot 0 = 0 implicit). Slot-0 pairs
+            % vectorised in a single pass; within-reduced pairs
+            % looped.
+            slot0_wrapped = D - period .* floor(D / period + 0.5);
+            Qvec = sum(slot0_wrapped .^ 2, 1);
+            for i = 1:dim
+                for j = i+1:dim
+                    delta = D(i, :, :) - D(j, :, :);
+                    delta = delta - period .* floor(delta / period + 0.5);
+                    Qvec = Qvec + delta.^2;
+                end
+            end
+            Qvec = Qvec / r;
+        else
+            Qvec = sum(D.^2, 1) - sum(D, 1).^2 / r;
+        end
     else
         Qvec = sum(D.^2, 1);
     end
     % Use direct Q / (2*sigma^2) division (not the precomputed inv2s2
     % shortcut) so the default-path output is FP-bit-identical to the
-    % v2.0/v2.1 evalFull implementation.
+    % v2.0/v2.1 evalFull implementation (in all modes except
+    % periodic+relative, where v2.X uses the pairwise-wrap form).
     E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQc);
     v = wJ(:)' * E;
 end

@@ -39,7 +39,7 @@ from ..spectra import add_spectra
 from .build import _looks_like_multi_attr, build_exp_tens
 from .canonical import _chord_canonical_key
 from .density import ExpTensDensity, MaetDensity, WindowedMaetDensity
-from .dispatch import _normalize_density_input, _select_and_estimate_sa
+from .dispatch import _compute_Q, _normalize_density_input, _select_and_estimate_sa
 from .windowing import _evaluate_window_on_query
 
 
@@ -802,22 +802,19 @@ def _eval_centres_fast_chunk(
     """Single-chunk evaluation for the SA centres fast path.
 
     Builds the (dim, n_j, n_qc) pairwise-difference tensor by
-    broadcasting, optionally wraps to (-period/2, period/2] for
-    periodic configurations, reduces along the spatial dimension,
-    exponentiates, and contracts with the centre weights.
+    broadcasting, applies the periodic wrap where needed, reduces
+    along the spatial dimension via the Q quadratic form,
+    exponentiates, and contracts with the centre weights. For
+    periodic+relative the pairwise-wrap form (Eq 6 of the preprint)
+    is used in line with cosSimExpTens.
     """
     D = centres[:, :, None] - x[:, None, :]
-    if is_per:
-        # Periodic wrap to (-period/2, period/2]. Mathematically
-        # equivalent to np.mod(D + period/2, period) - period/2 at
-        # every input (including exact half-period boundaries); ~2x
-        # faster by avoiding np.mod's two-pass implementation.
-        # Reduction-order numerical agreement (~1e-13).
+    # Outer wrap is only needed for abs+per. For rel+per, _compute_Q
+    # applies the pairwise wrap inside (Eq 6) to restore exact
+    # transposition invariance on the circle.
+    if is_per and not is_rel:
         D = D - period * np.floor(D / period + 0.5)
-    if is_rel:
-        Q = np.sum(D ** 2, axis=0) - np.sum(D, axis=0) ** 2 / r
-    else:
-        Q = np.sum(D ** 2, axis=0)
+    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
     E = np.exp(-Q / (2 * sigma ** 2))
     return w_j @ E
 
@@ -838,7 +835,12 @@ def _eval_exp_tens_sa_centres(
     the ``truncation_sigmas`` and ``kernel_precision`` options apply
     uniformly across centres-path consumers. Default settings
     (``truncation_sigmas=inf``, ``kernel_precision='double'``) produce
-    FP-bit-identical output to the v2.0/v2.1 implementation.
+    FP-bit-identical output to the v2.0/v2.1 implementation in all
+    modes except periodic+relative, where the path now uses the
+    pairwise-wrap form (Eq 6 of the preprint), matching
+    ``cos_sim_exp_tens`` Bulger. The v2.0/v2.1 algebraic-with-outer-
+    wrap form is an inherited v1 approximation in the rel+per case
+    and is no longer used.
     """
     centres = dens.centres
     w_j = dens.w_j
@@ -1134,14 +1136,14 @@ def _ma_eval_full(
             c_a = centres[a]
             x_a = x_list[a]
             d_a = c_a[:, :, None] - x_a[:, None, :]
-            if is_per_g[g]:
+            # Outer wrap only needed for abs+per. For rel+per, _compute_Q
+            # applies the pairwise wrap inside (Eq 6 of the preprint).
+            if is_per_g[g] and not is_rel_g[g]:
                 pg = float(period_g[g])
                 d_a = d_a - pg * np.floor(d_a / pg + 0.5)
-            if is_rel_g[g]:
-                q_a = (np.sum(d_a ** 2, axis=0)
-                       - np.sum(d_a, axis=0) ** 2 / float(r_vec[a]))
-            else:
-                q_a = np.sum(d_a ** 2, axis=0)
+            q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel_g[g]),
+                             bool(is_per_g[g]), float(period_g[g]),
+                             reduced=bool(is_rel_g[g]))
             q_total = q_total + q_a / (2 * sigma_g[g] ** 2)
         e = np.exp(-q_total)
         return w_j @ e
@@ -1162,15 +1164,17 @@ def _ma_eval_full(
         x_a = x_list[a].astype(dtype, copy=False)
         d_a = c_a[:, :, None] - x_a[:, None, :]
 
-        if is_per_g[g]:
+        # Outer wrap only needed for abs+per. For rel+per, _compute_Q
+        # applies the pairwise wrap inside (Eq 6).
+        if is_per_g[g] and not is_rel_g[g]:
             pg = dtype(period_g[g])
             d_a = d_a - pg * np.floor(d_a / pg + 0.5)
 
-        if is_rel_g[g]:
-            q_a = (np.sum(d_a ** 2, axis=0)
-                   - np.sum(d_a, axis=0) ** 2 / dtype(r_vec[a]))
-        else:
-            q_a = np.sum(d_a ** 2, axis=0)
+        # _compute_Q matches d_a.dtype, preserving the single-precision
+        # accumulator when kernel_precision='single'.
+        q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel_g[g]),
+                         bool(is_per_g[g]), float(period_g[g]),
+                         reduced=bool(is_rel_g[g]))
 
         q_total = q_total + q_a / (2 * dtype(sigma_g[g]) ** 2)
 
@@ -1220,17 +1224,21 @@ def _eval_core(
 
 
 def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period):
-    """Fully vectorized SA density evaluation."""
+    """Fully vectorized SA density evaluation.
+
+    Uses the pairwise-wrap form (Eq 6 of the preprint) for
+    periodic+relative, matching cosSimExpTens. The algebraic form
+    used by v2.0 / v2.1 in this mode silently differed from the
+    inner-product convention; v2.X corrects it.
+    """
     # D shape: (dim, nJ, nQc)
     D = centres[:, :, None] - x_q[:, None, :]
 
-    if is_per:
+    # Outer wrap only needed for abs+per (see _compute_Q docstring).
+    if is_per and not is_rel:
         D = D - period * np.floor(D / period + 0.5)
 
-    if is_rel:
-        Q = np.sum(D**2, axis=0) - np.sum(D, axis=0) ** 2 / r
-    else:
-        Q = np.sum(D**2, axis=0)
+    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
 
     # E shape: (nJ, nQc)
     E = np.exp(-Q / (2 * sigma**2))

@@ -399,28 +399,82 @@ def _select_ma_inner_product_method(
 
 
 
-def _compute_Q(D, r, is_rel, is_per, period):
-    """Compute the quadratic form from (already-wrapped) differences D.
+def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
+    """Compute the quadratic form from differences D.
 
-    When *is_rel* and *is_per* are both True, pairwise differences
-    between components of D are wrapped to ``[-period/2, period/2)``
-    before squaring. This restores exact transposition invariance on
-    the circle, which is otherwise broken by component-wise wrapping.
+    Two input conventions, controlled by ``reduced``:
 
-    The two formulas are algebraically identical in the non-periodic
-    case: ``sum_{i<j} (d_i - d_j)^2 == r * (sum(d^2) - sum(d)^2/r)``.
+    - ``reduced=False`` (default): ``D`` has *r* components representing
+      a full r-tuple ``d = (d_0, …, d_{r-1})``. This is what the
+      inner-product (cosine-similarity) path uses, where centres are
+      stored as full r-tuples.
+    - ``reduced=True``: ``D`` has *r-1* components representing the
+      "slot 0 anchored" reduction ``D[k] = d_{k+1} − d_0`` of an
+      r-tuple. This is what the SA centres-array evaluation path uses,
+      where ``centres = u_perm[1:] − u_perm[0]`` are stored in
+      effective coordinates. Only meaningful when ``is_rel=True``;
+      ignored for absolute mode (which has dim = r and is unaffected).
+
+    Four cases of (is_rel, is_per):
+
+    - **abs (is_rel=False):** ``Q = sum(D**2, axis=0)``. The caller
+      must pre-wrap D into the principal period interval when
+      ``is_per``. ``reduced`` is ignored here.
+    - **rel non-periodic:** ``Q = sum(D**2) - sum(D)**2 / r``. The
+      same formula serves both conventions, because the algebraic
+      identity that produces it doesn't depend on whether the
+      first-slot zero is materialised.
+    - **rel periodic (Eq 6 of the preprint):** the pairwise-wrap
+      form, ``Q = sum_{i<j over r slots} wrap(d_i - d_j)**2 / r``.
+      Pairwise wrapping (not component-wise outer wrap) is what
+      preserves exact transposition invariance on the circle. In
+      reduced form the implicit slot 0 contributes pairs
+      ``(0, k+1) -> -D[k]`` together with the within-reduced-block
+      pairs ``(i+1, j+1) -> D[i] - D[j]``; both sets are wrapped and
+      accumulated.
+
+    The result dtype matches ``D.dtype`` (relevant for callers that
+    pass single-precision tensors via ``kernel_precision='single'``).
     """
     if is_rel:
         if is_per:
-            Q = np.zeros(D.shape[1:])
-            for i in range(r):
-                for j in range(i + 1, r):
-                    delta = D[i] - D[j]
-                    delta = delta - period * np.floor(delta / period + 0.5)
-                    Q += delta**2
-            Q = Q / r
+            dt = D.dtype
+            p_g = dt.type(period)
+            half = dt.type(0.5)
+            if reduced:
+                # Slot-0 pairs (0, k+1) for k = 0..r-2: each contributes
+                # wrap(D[k])^2 (since wrap(-x)^2 = wrap(x)^2). Vectorise
+                # the wrap-and-sum across all slot-0 pairs in one numpy
+                # pass on D as a whole.
+                slot0_wrapped = D - p_g * np.floor(D / p_g + half)
+                Q = np.sum(slot0_wrapped ** 2, axis=0)
+                inner_range = range(r - 1)
+            else:
+                # Full r-tuple representation: all (r choose 2) pairs.
+                Q = np.zeros(D.shape[1:], dtype=dt)
+                inner_range = range(r)
+            # Inner pairs (i+1, j+1) for 0 <= i < j <= len(inner_range)-1.
+            # Pre-allocate a workspace and use in-place ops to avoid
+            # per-iteration array allocation. At high r this dominates
+            # over the underlying arithmetic.
+            inner_pair_count = (r - 1) * (r - 2) // 2 if reduced else r * (r - 1) // 2
+            if inner_pair_count > 0:
+                delta = np.empty(D.shape[1:], dtype=dt)
+                tmp = np.empty(D.shape[1:], dtype=dt)
+                for i in inner_range:
+                    for j in range(i + 1, inner_range.stop):
+                        np.subtract(D[i], D[j], out=delta)
+                        np.divide(delta, p_g, out=tmp)
+                        np.add(tmp, half, out=tmp)
+                        np.floor(tmp, out=tmp)
+                        np.multiply(tmp, p_g, out=tmp)
+                        np.subtract(delta, tmp, out=delta)
+                        np.multiply(delta, delta, out=delta)
+                        np.add(Q, delta, out=Q)
+            Q = Q / dt.type(r)
         else:
-            Q = np.sum(D**2, axis=0) - np.sum(D, axis=0) ** 2 / r
+            Q = (np.sum(D**2, axis=0)
+                 - np.sum(D, axis=0) ** 2 / D.dtype.type(r))
     else:
         Q = np.sum(D**2, axis=0)
     return Q
@@ -607,11 +661,15 @@ def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
     cancellation when ``K - r < 2`` (same regime as the IP path); fall
     back to centres.
 
-    Convention guard. In periodic-relative mode at ``σ/P > 0.03``,
-    ``eval_orbit_rel`` integrates the JMM Eq. 3.4 form while the
-    centres path computes the single-nearest-image-wrap form.
-    The two diverge at this regime; centres remains the canonical
-    output for backward compatibility.
+    Convention. In periodic-relative mode, the centres path computes
+    the pairwise-wrap form (Eq 6 of the preprint), matching
+    ``cosSimExpTens`` Bulger; ``eval_orbit_rel`` integrates the
+    JMM Eq. 3.4 form. The two agree to floating-point precision at
+    typical perceptual σ/P and diverge by O((σ/P)^∞) above σ/P ≈ 0.03
+    (the same regime as the ``cosSimExpTens`` Bulger / Möbius split).
+    The dispatcher always routes rel mode to centres regardless of
+    σ/P because ``eval_orbit_rel`` is much slower at typical r/K, not
+    because of a convention preference.
 
     Parameters
     ----------

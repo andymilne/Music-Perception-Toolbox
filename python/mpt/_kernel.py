@@ -21,6 +21,7 @@ import numpy as np
 
 from ._defaults import get_default
 from ._utils import kernel_chunk_bytes_resolved
+from ._tensor.dispatch import _compute_Q
 
 
 def gaussian_kernel_sum(
@@ -199,19 +200,21 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma):
 def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma):
     # D: (dim, nJ, nQc)
     D = C[:, :, None] - Xq[:, None, :]
-    if is_per:
-        # Periodic wrap to (-period/2, period/2]. Mathematically
-        # equivalent to np.mod(D + period/2, period) - period/2 at
-        # every input (including exact half-period boundaries); ~2x
-        # faster by avoiding np.mod's two-pass implementation.
-        # Reduction-order numerical agreement (~1e-13).
+    # Outer wrap is only needed for abs+per. For rel+per, _compute_Q
+    # applies the pairwise wrap inside (Eq 6 of the preprint) to
+    # restore exact transposition invariance on the circle; the
+    # outer wrap would be redundant there. Mathematically equivalent
+    # to np.mod(D + period/2, period) - period/2 at every input
+    # (including exact half-period boundaries); ~2x faster by
+    # avoiding np.mod's two-pass implementation. Reduction-order
+    # numerical agreement (~1e-13).
+    if is_per and not is_rel:
         D = D - period * np.floor(D / period + 0.5)
-    if is_rel:
-        Q = np.sum(D ** 2, axis=0) - np.sum(D, axis=0) ** 2 / r
-    else:
-        Q = np.sum(D ** 2, axis=0)
+    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
-    # to match v2.0/v2.1 ULP-for-ULP at default settings.
+    # to match v2.0/v2.1 ULP-for-ULP at default settings (in all modes
+    # except rel+per, where v2.X corrects an inherited v1 single-axis-
+    # wrap form to the pairwise-wrap form, in line with cosSimExpTens).
     E = np.exp(-Q / (2 * sigma ** 2))      # (nJ, nQc)
     return wJ @ E                          # (nQc,)
 

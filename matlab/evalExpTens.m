@@ -1011,15 +1011,38 @@ end
 function v = evalChunk(Centres, wJ, X, nQc, dim, nJ, sigma, r, isRel, isPer, J)
 %EVALCHUNK  Single-chunk direct broadcast for localEvalSACentresFast.
 %
-%   Mirrors evalChunk in internal.gaussianKernelSum exactly so the
-%   default-mode output is FP-bit-identical to v2.0/v2.1.
+%   Mirrors evalChunk in internal.gaussianKernelSum exactly. For
+%   periodic+relative uses the pairwise-wrap form (Eq 6 of the
+%   preprint) in line with cosSimExpTens; in all other modes
+%   output is FP-bit-identical to v2.0/v2.1.
 
     D = reshape(Centres, dim, nJ, 1) - reshape(X, dim, 1, nQc);
-    if isPer
+    % Outer wrap only needed for abs+per. For rel+per, the pairwise
+    % wrap below subsumes it; component-wise wrapping there would
+    % break exact transposition invariance on the circle.
+    if isPer && ~isRel
         D = D - J .* floor(D / J + 0.5);
     end
     if isRel
-        Qvec = sum(D .^ 2, 1) - sum(D, 1) .^ 2 / r;
+        if isPer
+            % Pairwise-wrap form (Eq 6) on the reduced centres
+            % representation. The implicit slot 0 = 0 contributes
+            % pairs (0, k+1) yielding wrap(D[k])^2 — vectorised in a
+            % single pass over D as a whole — and within-reduced-block
+            % pairs (i+1, j+1) yield wrap(D[i] - D[j])^2.
+            slot0_wrapped = D - J .* floor(D / J + 0.5);
+            Qvec = sum(slot0_wrapped .^ 2, 1);
+            for i = 1:dim
+                for j = i+1:dim
+                    delta = D(i, :, :) - D(j, :, :);
+                    delta = delta - J .* floor(delta / J + 0.5);
+                    Qvec = Qvec + delta.^2;
+                end
+            end
+            Qvec = Qvec / r;
+        else
+            Qvec = sum(D .^ 2, 1) - sum(D, 1) .^ 2 / r;
+        end
     else
         Qvec = sum(D .^ 2, 1);
     end
@@ -1223,13 +1246,30 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 Ca = Centres{a};
                 Xa = Xchunk{a};
                 D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
-                if isPerG(g)
-                    Pg = periodG(g);
+                Pg = periodG(g);
+                % Outer wrap only needed for abs+per. For rel+per the
+                % pairwise wrap below subsumes it (Eq 6).
+                if isPerG(g) && ~isRelG(g)
                     D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
                 end
                 if isRelG(g)
-                    Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
-                        - reshape(sum(D_a, 1).^2, N_J, nQc) / r_(a);
+                    if isPerG(g)
+                        % Pairwise-wrap form on reduced centres
+                        % (slot 0 = 0 implicit). Slot-0 vectorised.
+                        slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
+                        Q_a = reshape(sum(slot0_wrapped .^ 2, 1), N_J, nQc);
+                        for i = 1:da
+                            for j = i+1:da
+                                delta = reshape(D_a(i, :, :) - D_a(j, :, :), N_J, nQc);
+                                delta = delta - Pg .* floor(delta / Pg + 0.5);
+                                Q_a = Q_a + delta.^2;
+                            end
+                        end
+                        Q_a = Q_a / r_(a);
+                    else
+                        Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
+                            - reshape(sum(D_a, 1).^2, N_J, nQc) / r_(a);
+                    end
                 else
                     Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
                 end
@@ -1258,13 +1298,29 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             Ca = cast(Centres{a}, qDtype);
             Xa = cast(Xchunk{a}, qDtype);
             D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
-            if isPerG(g)
-                Pg = cast(periodG(g), qDtype);
+            Pg = cast(periodG(g), qDtype);
+            % Outer wrap only needed for abs+per. For rel+per the
+            % pairwise wrap below subsumes it (Eq 6).
+            if isPerG(g) && ~isRelG(g)
                 D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
             end
             if isRelG(g)
-                Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
-                    - reshape(sum(D_a, 1).^2, N_J, nQc) / cast(r_(a), qDtype);
+                if isPerG(g)
+                    % Slot-0 pairs vectorised; inner pairs looped.
+                    slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
+                    Q_a = reshape(sum(slot0_wrapped .^ 2, 1), N_J, nQc);
+                    for i = 1:da
+                        for j = i+1:da
+                            delta = reshape(D_a(i, :, :) - D_a(j, :, :), N_J, nQc);
+                            delta = delta - Pg .* floor(delta / Pg + 0.5);
+                            Q_a = Q_a + delta.^2;
+                        end
+                    end
+                    Q_a = Q_a / cast(r_(a), qDtype);
+                else
+                    Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
+                        - reshape(sum(D_a, 1).^2, N_J, nQc) / cast(r_(a), qDtype);
+                end
             else
                 Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
             end

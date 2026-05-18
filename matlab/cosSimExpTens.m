@@ -1064,12 +1064,28 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
     nK      = dens_y.nK;
 
     D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
-    if isPer
+    % Outer wrap only needed for abs+per. For rel+per the pairwise
+    % wrap below subsumes it (Eq 6); this matches the form
+    % ipFull / cos-sim Bulger actually use, so probe timings remain
+    % representative of the dispatched method's cost.
+    if isPer && ~dens_x.isRel
         D = D - J .* floor(D / J + 0.5);
     end
     if dens_x.isRel
-        Q = reshape(sum(D .^ 2, 1), nJ, nK) ...
-          - reshape(sum(D, 1) .^ 2, nJ, nK) / r;
+        if isPer
+            Q = zeros(nJ, nK);
+            for i = 1:r
+                for j = i+1:r
+                    delta = reshape(D(i, :, :) - D(j, :, :), nJ, nK);
+                    delta = delta - J .* floor(delta / J + 0.5);
+                    Q = Q + delta.^2;
+                end
+            end
+            Q = Q / r;
+        else
+            Q = reshape(sum(D .^ 2, 1), nJ, nK) ...
+              - reshape(sum(D, 1) .^ 2, nJ, nK) / r;
+        end
     else
         Q = reshape(sum(D .^ 2, 1), nJ, nK);
     end

@@ -54,8 +54,8 @@ plot_measures = [
     'rough',        # -Roughness (Sethares 1993)
 ]
 
-step = 20
-max_int = 1200
+step = 10
+max_int = 2400
 
 f0 = 261.63
 

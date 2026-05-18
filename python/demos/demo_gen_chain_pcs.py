@@ -46,7 +46,7 @@ ref_name = '4:5:6 JI major triad'
 
 # Generator-chain parameters
 n_tones = 19
-gen_step = 0.5   # step size for generator sweep (cents)
+gen_step = 0.1   # step size for generator sweep (cents)
 
 # Expectation tensor parameters
 sigma = 10

@@ -10,6 +10,7 @@ import time
 import warnings
 
 import numpy as np
+from scipy.signal import correlate as _sp_correlate
 
 from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
 from ._defaults import _with_dispatch_scope
@@ -71,7 +72,7 @@ def _template_xcorr_chord_side(
         kernel_precision=kernel_precision,
     )
 
-    xcorr = np.convolve(chord_vals, tmpl_vals[::-1], mode="full")
+    xcorr = _sp_correlate(chord_vals, tmpl_vals, mode="full", method="auto")
     norm_factor = np.sqrt(float(np.sum(chord_vals ** 2)) * tmpl_norm_sq)
     if norm_factor > 0:
         return xcorr / norm_factor

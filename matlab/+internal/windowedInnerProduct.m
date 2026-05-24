@@ -2,7 +2,7 @@
 %  windowedInnerProduct — closed-form windowed inner product (internal)
 % =========================================================================
 
-function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, cachedIpCC)
+function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, varargin)
 %WINDOWEDINNERPRODUCT  Closed-form windowed inner product (internal helper).
 %
 %   s = internal.windowedInnerProduct(densQ, wmd, verbose)
@@ -13,15 +13,17 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, cachedIpCC)
 %   and the only place the closed-form windowed inner product is
 %   implemented.
 %
-%   Magnitude-aware normalisation: numerator is the windowed inner
-%   product <f_q, W f_c>, denominator is the product of the
-%   UNWINDOWED L2 norms of the two operands. The result is therefore a
-%   magnitude-aware *windowed similarity*, not a strict cosine
-%   similarity: silent regions of the context produce values near
-%   zero, and matching content near the window centre produces values
-%   proportional to how much matching mass is there. See User Guide
-%   §3.1 "Magnitude-aware normalisation, not strict cosine
-%   similarity".
+%   Magnitude-aware normalisation. The numerator is the windowed inner
+%   product <h * f_X, f_Y>; the denominator is the UNWINDOWED L2 self
+%   inner product of the query, <f_Y, f_Y> (normaliser (i)). The
+%   result is therefore a magnitude-aware *windowed similarity*, not
+%   a strict cosine similarity: silent regions of the context produce
+%   values near zero, and matching content near the window centre
+%   produces values proportional to how much matching mass is there.
+%   Self-similarity at full coverage equals 1; cross-similarity may
+%   exceed 1 when the windowed context has more mass in the window
+%   region than the query does in total. See User Guide §3.1
+%   "Magnitude-aware normalisation".
 %
 %   One-sided windowing only: exactly one of a, b must be a
 %   WindowedMaetDensity. Two-sided windowing is not supported.
@@ -37,18 +39,28 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, cachedIpCC)
 %   When called as ``internal.windowedInnerProduct(dens, [], false)``
 %   (second argument empty), returns the unwindowed L2 norm squared
 %   of ``dens``: <dens, dens>_unwindowed. Used by windowedSimilarity
-%   to compute the two denominator norms ONCE per sweep rather than
-%   redundantly inside each per-offset call.
+%   to compute the query's self inner product ONCE per sweep rather
+%   than redundantly inside each per-offset call.
 %
 %   Cached-norm mode (internal optimisation)
 %   ----------------------------------------
 %   When called as ``internal.windowedInnerProduct(densQ, wmd,
-%   verbose, cachedIpQQ, cachedIpCC)``, uses the supplied
-%   pre-computed unwindowed norms instead of recomputing them. Used
-%   by windowedSimilarity's per-offset loop together with the
-%   norm-only mode above.
+%   verbose, cachedIpQQ)``, uses the supplied pre-computed unwindowed
+%   query self inner product instead of recomputing it. Used by
+%   windowedSimilarity's per-offset loop together with the norm-only
+%   mode above. A trailing argument is accepted but ignored, for
+%   backward compatibility with callers that previously passed
+%   (cachedIpQQ, cachedIpCC).
 %
 %   See also windowedSimilarity, windowTensor.
+
+    % Trailing cachedIpCC argument (legacy 5-arg call) is accepted and
+    % ignored: under normaliser (i), the context's unwindowed self
+    % inner product no longer appears in the denominator.
+    %#ok<INUSD,VUNUS>
+    if ~isempty(varargin)
+        % kept for backward compatibility; intentionally unused
+    end
 
     % Norm-only mode: return <a, a>_unwindowed.
     if nargin >= 2 && isempty(b)
@@ -89,26 +101,20 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, cachedIpCC)
     % Structural compatibility checks.
     localCheckMACompat(dens_q, dens_c);
 
-    % --- Unwindowed norms (denominator) ---
+    % --- Query self inner product (denominator under normaliser (i)) ---
     if nargin >= 4 && ~isempty(cachedIpQQ)
         ip_qq = cachedIpQQ;
     else
         ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose);
     end
-    if nargin >= 5 && ~isempty(cachedIpCC)
-        ip_cc = cachedIpCC;
-    else
-        ip_cc = localCosSimNumeratorMA(dens_c, dens_c, [], verbose);
-    end
 
     % --- Windowed numerator ---
     ip_qc = localCosSimNumeratorMA(dens_q, dens_c, wmd, verbose);
 
-    denom = sqrt(ip_qq * ip_cc);
-    if denom == 0
+    if ip_qq == 0
         s = NaN;
     else
-        s = ip_qc / denom;
+        s = ip_qc / ip_qq;
     end
 end
 
@@ -408,9 +414,22 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
             is_rel = isRelG(g);
             r_a = rVec(attrs_g(1));
 
-            log_F = localWindowedContribution( ...
-                cx_sub, cy_sub, centre_sub, ...
-                s_g, mix_g, sigma_g, is_rel, r_a, d_g);
+            if isPerG(g)
+                % Periodic group: sum line-case contributions over
+                % periodic images of the window centre. The wrapped
+                % Gaussian window equals the sum of line-case Gaussians
+                % at all integer-multiples of the period; the windowed
+                % inner product inherits this linearity. See User Guide
+                % §3.1.
+                log_F = localPeriodicImageSumContribution( ...
+                    cx_sub, cy_sub, centre_sub, ...
+                    s_g, mix_g, sigma_g, is_rel, r_a, d_g, ...
+                    double(periodG(g)), 1e-12);
+            else
+                log_F = localWindowedContribution( ...
+                    cx_sub, cy_sub, centre_sub, ...
+                    s_g, mix_g, sigma_g, is_rel, r_a, d_g);
+            end
             log_kernel = log_kernel + log_F;
         end
     end
@@ -482,6 +501,120 @@ end
 
 function tf = localIsWindowedGroupG(size_g, mix_g)
     tf = isfinite(size_g) && size_g > 0;
+end
+
+
+function log_F = localPeriodicImageSumContribution(cx_sub, cy_sub, ...
+        centre_sub, s_g, mix_g, sigma_g, is_rel, r_a, d_g, period_g, ...
+        image_tol)
+%LOCALPERIODICIMAGESUMCONTRIBUTION  Wrapped-Gaussian per-pair contribution
+%for a periodic windowed group.
+%
+%   The wrapped Gaussian window is the sum of line-case Gaussians at
+%   all periodic images of the window centre; the windowed inner
+%   product inherits this linearity. For groups where the per-pair F
+%   factor factorises across axes (1-D and multi-D absolute), the
+%   total image sum factorises into per-axis image sums:
+%
+%       F_total = prod_i ( sum_n_i F_axis_i(n_i * P) )
+%
+%   so we can sum each axis independently in O(n_max) calls per axis
+%   instead of O(n_max^d_g) over the Cartesian product. For multi-D
+%   relative groups the F factor does not factorise across axes and a
+%   Cartesian-product sum would be needed; that path is deferred to a
+%   future release. For now, multi-D relative periodic groups fall
+%   through to the existing line-case formula (the pre-v2.2 behaviour).
+
+    % Multi-D relative groups: defer to the existing line-case formula.
+    if is_rel && d_g > 1
+        log_F = localWindowedContribution(cx_sub, cy_sub, centre_sub, ...
+            s_g, mix_g, sigma_g, is_rel, r_a, d_g);
+        return;
+    end
+
+    % 1-D groups (any kind) and multi-D absolute groups: F factorises
+    % per axis, so the image sum factorises into per-axis sums.
+    a_rect = s_g * sigma_g * sqrt(3 * mix_g);
+    b_conv = s_g * sigma_g * sqrt(1 - mix_g);
+
+    if is_rel
+        sigma_pair_sq = r_a * sigma_g^2 / 2;     % 1-D relative
+    else
+        sigma_pair_sq = sigma_g^2 / 2;            % absolute
+    end
+    sigma_t_sq = sigma_pair_sq + b_conv^2;
+    sigma_t    = sqrt(sigma_t_sq);
+
+    % Per-pair midpoint minus window centre, per axis. Shape (d_g, nJ, nK).
+    nJ = size(cx_sub, 2);
+    nK = size(cy_sub, 2);
+    m_arr    = 0.5 * (reshape(cx_sub, d_g, nJ, 1) + reshape(cy_sub, d_g, 1, nK));
+    mu_shift = m_arr - reshape(centre_sub, d_g, 1, 1);
+
+    n_max_cap = 100;
+    per_axis_wrapped = zeros(d_g, nJ, nK);
+    for i = 1:d_g
+        mu_i = squeeze(mu_shift(i, :, :));
+        if isvector(mu_i)
+            % nJ or nK is 1; reshape to keep 2-D for consistent indexing.
+            mu_i = reshape(mu_i, nJ, nK);
+        end
+        acc = localAxisFactor(mu_i, a_rect, b_conv, sigma_t, sigma_t_sq);
+        running_max = max(abs(acc(:)));
+        converged = false;
+        for n = 1:n_max_cap
+            shift_pos = mu_i + n * period_g;
+            shift_neg = mu_i - n * period_g;
+            F_pos = localAxisFactor(shift_pos, a_rect, b_conv, sigma_t, sigma_t_sq);
+            F_neg = localAxisFactor(shift_neg, a_rect, b_conv, sigma_t, sigma_t_sq);
+            acc = acc + F_pos + F_neg;
+            new_max = max(max(abs(F_pos(:))), max(abs(F_neg(:))));
+            running_max = max(running_max, max(abs(acc(:))));
+            if running_max == 0
+                converged = true; break;
+            end
+            if new_max / running_max < image_tol
+                converged = true; break;
+            end
+        end
+        if ~converged
+            warning('windowedInnerProduct:imageSumCap', ...
+                ['Periodic image sum on axis %d hit the safety cap of ' ...
+                 '%d image pairs without converging to relative ' ...
+                 'tolerance %g. This usually indicates sigma_w >> P; ' ...
+                 'use cosSimExpTens directly instead.'], ...
+                 i, n_max_cap, image_tol);
+        end
+        per_axis_wrapped(i, :, :) = reshape(acc, 1, nJ, nK);
+    end
+
+    per_axis_wrapped = max(per_axis_wrapped, 1e-300);
+    log_F = squeeze(sum(log(per_axis_wrapped), 1));     % (nJ, nK)
+    if isvector(log_F)
+        if size(log_F, 1) ~= nJ
+            log_F = log_F.';
+        end
+        log_F = reshape(log_F, nJ, nK);
+    end
+end
+
+
+function F = localAxisFactor(mu_arr, a_rect, b_conv, sigma_t, sigma_t_sq)
+%LOCALAXISFACTOR  Per-axis F factor F(mu; a, b, sigma_t).
+%
+%   Matches the inner formula of localWindowedFactorisable.
+    if a_rect == 0 && b_conv > 0
+        F = (b_conv / sigma_t) * exp(-mu_arr.^2 / (2 * sigma_t_sq));
+    elseif b_conv == 0 && a_rect > 0
+        denom = sigma_t * sqrt(2);
+        F = 0.5 * (erf((mu_arr + a_rect) / denom) - ...
+                   erf((mu_arr - a_rect) / denom));
+    else
+        denom = sigma_t * sqrt(2);
+        norm_denom = 2 * erf(a_rect / (b_conv * sqrt(2)));
+        F = (erf((mu_arr + a_rect) / denom) - ...
+             erf((mu_arr - a_rect) / denom)) / norm_denom;
+    end
 end
 
 

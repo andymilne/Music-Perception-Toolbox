@@ -121,21 +121,27 @@ def _direct_windowed_cross_corr_perm_perm(p_a, w_a, p_b, w_b, sigma, r,
 
 def _direct_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
                                  offset_vec, size, mix):
-    """Framework-correct windowed cosine via direct (perm-perm)
-    enumeration of the cross-correlation form. For uniform offset
-    this matches the toolbox's perm-comb output up to the cancelled
-    r! prefactor; for non-uniform offset the perm-perm form is the
-    framework-correct value, while the toolbox's perm-comb form
-    requires within-attribute symmetrisation to match (the v2.1 fix).
+    """Framework-correct windowed similarity via direct (perm-perm)
+    enumeration of the cross-correlation form, under normaliser (i):
+    divide by <f_a, f_a> (the query's unwindowed self inner product),
+    not by sqrt(<f_a, f_a> * <f_b, f_b>).
+
+    For uniform offset this matches the toolbox's perm-comb output up
+    to the cancelled r! prefactor; for non-uniform offset the perm-perm
+    form is the framework-correct value, while the toolbox's perm-comb
+    form requires within-attribute symmetrisation to match (the v2.1
+    fix).
     """
     a_rect, b_conv = _window_width_params(size, mix, sigma)
     mu_q = float(p_a.mean())
     ip_xy = _direct_windowed_cross_corr_perm_perm(
         p_a, w_a, p_b, w_b, sigma, r, offset_vec, mu_q, a_rect, b_conv,
     )
-    ip_xx = _orbit_inner_abs(p_a, w_a, p_a, w_a, sigma, r, False, 0.0)
-    ip_yy = _orbit_inner_abs(p_b, w_b, p_b, w_b, sigma, r, False, 0.0)
-    return ip_xy / np.sqrt(ip_xx * ip_yy)
+    # Normaliser (i): divide by the query's own unwindowed self inner
+    # product. f_a is the unwindowed query here (the toolbox passes
+    # dens_q = dens_a).
+    ip_qq = _orbit_inner_abs(p_a, w_a, p_a, w_a, sigma, r, False, 0.0)
+    return ip_xy / ip_qq
 
 
 # -------------------------------------------------------------------

@@ -73,28 +73,17 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %
 %   Periodic groups
 %   ---------------
-%   The closed-form windowed inner product implemented here is the
-%   line-case formula at wrapped differences -- exact for non-periodic
-%   groups, and an approximation for periodic groups that retains
-%   only the leading periodic image of the window. The exact periodic
-%   expression is an absolutely convergent series over kernel pairs
-%   and periodic images; efficient evaluation of the full series in
-%   the regime lambda*sigma > P/(2*sqrt(3)) (in the Gaussian and
-%   mixed-shape cases) is left to future work.
-%
-%   A warning with identifier
-%   windowedSimilarity:periodicWindowApprox is emitted on every call
-%   involving a windowed periodic group. Within the recommended
-%   bound lambda*sigma <= P/(2*sqrt(3)) the warning takes a brief
-%   informational form noting that the line-case approximation is
-%   in use; past the bound it switches to a stronger form that
-%   reports SD/P and phi (rect half-width) against their respective
-%   bounds and describes the qualitative behaviour past the bound
-%   (at mix = 1 the rect window is no longer localized on the
-%   circle; at mix = 0 the approximation degrades smoothly;
-%   intermediate mix falls between). The warning is suppressible
-%   via the standard MATLAB warning('off', '<id>') mechanism. See
-%   User Guide §3.1 "Post-tensor windowing" for the analysis.
+%   For periodic groups, the window is the wrapped Gaussian (or
+%   wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
+%   window functions at all periodic images of the centre. The
+%   toolbox sums these contributions adaptively, truncating when the
+%   latest image-pair's contribution falls below the floating-point
+%   threshold (1e-12 for double, 1e-7 for kernelPrecision='single').
+%   For multi-D absolute periodic groups, the image sum factorises
+%   per axis (linear in dimension). For multi-D relative periodic
+%   groups, image summation is deferred to a future release and the
+%   existing line-case formula is used (matching the pre-2.2
+%   behaviour). See User Guide §3.1 "Post-tensor windowing".
 %
 %   Inputs
 %       densQuery   - MaetDensity (not windowed).
@@ -237,87 +226,6 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     end
     M = size(offsets, 2);
 
-    % --- Periodic-window warning -----------------------------------
-    % A windowedSimilarity:periodicWindowApprox warning is emitted
-    % per periodic windowed group on every call. The message has
-    % two forms:
-    %   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
-    %     a brief informational notice that the line-case
-    %     approximation is in use, with the current SD/P against the
-    %     bound. The approximation is sub-percent across the window
-    %     shape family within this bound.
-    %   - Past the bound (lambda*sigma > P/(2*sqrt(3))): a stronger
-    %     notice reporting SD/P and phi (rect half-width) against
-    %     their bounds, and describing the qualitative behaviour by
-    %     mix (at mix=1 the rect window is no longer localized on
-    %     the circle; at mix=0 the approximation degrades smoothly).
-    % See User Guide §3.1 "Post-tensor windowing".
-    SD_OVER_P_BOUND = 1 / (2 * sqrt(3));  % ~= 0.2887
-    G = densContext.nGroups;
-    sizeVec = double(windowSpec.size(:).');
-    if isscalar(sizeVec)
-        sizeVec = repmat(sizeVec, 1, G);
-    end
-    mixVec = double(windowSpec.mix(:).');
-    if isscalar(mixVec)
-        mixVec = repmat(mixVec, 1, G);
-    end
-    for g = 1:G
-        if ~densContext.isPer(g),  continue; end
-        lambda = sizeVec(g);
-        if ~isfinite(lambda) || lambda <= 0,  continue; end
-        P = densContext.period(g);
-        if P <= 0,  continue; end
-        effSigma = lambda * densContext.sigma(g);
-        sdOverP = effSigma / P;
-        gammaG = mixVec(g);
-
-        if sdOverP <= SD_OVER_P_BOUND
-            % Within-bound: brief informational form.
-            warning('windowedSimilarity:periodicWindowApprox', ...
-                ['Periodic windowed inner product on group %d ' ...
-                 'applies the line-case formula at wrapped ' ...
-                 'differences -- an approximation that retains ' ...
-                 'only the leading periodic image of the window. ' ...
-                 'Within the recommended bound, the approximation ' ...
-                 'is sub-percent across the window shape family.\n' ...
-                 '  Window SD (lambda*sigma) = %g\n' ...
-                 '  Period P                 = %g\n' ...
-                 '  SD/P                     = %.4f\n' ...
-                 '  Recommended bound (SD/P) = %.4f ' ...
-                 '(= 1/(2*sqrt(3)))\n' ...
-                 'See User Guide §3.1 "Post-tensor windowing". ' ...
-                 'Suppress with warning(''off'', ' ...
-                 '''windowedSimilarity:periodicWindowApprox'').'], ...
-                g, effSigma, P, sdOverP, SD_OVER_P_BOUND);
-        else
-            % Past-bound: stronger form, with phi and per-mix
-            % behaviour.
-            phiG = effSigma * sqrt(3 * max(gammaG, 0));
-            warning('windowedSimilarity:periodicWindowApprox', ...
-                ['Window SD exceeds the recommended bound for ' ...
-                 'periodic group %d; the line-case approximation ' ...
-                 'is no longer reliable.\n' ...
-                 '  Window SD (lambda*sigma) = %g\n' ...
-                 '  Period P                 = %g\n' ...
-                 '  SD/P                     = %.4f  (bound: %.4f)\n' ...
-                 '  phi (rect half-width)    = %g  ' ...
-                 '(bound: %g = P/2)\n' ...
-                 '  mix (gamma)              = %g\n' ...
-                 'Beyond the bound, behaviour depends on mix:\n' ...
-                 '  mix = 1 (pure rect):     window is no longer ' ...
-                 'localized on the circle (pointless as a window).\n' ...
-                 '  mix = 0 (pure Gaussian): line-case approximation ' ...
-                 'degrades smoothly; error grows with SD/P.\n' ...
-                 '  intermediate mix:        between these two cases.\n' ...
-                 'Reduce size or sigma so that lambda*sigma <= ' ...
-                 'P/(2*sqrt(3)). See User Guide §3.1 "Post-tensor ' ...
-                 'windowing".'], ...
-                g, effSigma, P, sdOverP, SD_OVER_P_BOUND, ...
-                phiG, P/2, gammaG);
-        end
-    end
-
     % --- Reference point, per attribute -----------------------------
     A = densQuery.nAttrs;
     dimPerAttr_q = densQuery.dimPerAttr;
@@ -359,14 +267,14 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         'closed-form windowed inner product (single algorithmic path)', ...
         0, false);
 
-    % --- Pre-compute the unwindowed L2 norms (denominator).
-    % Both ip_qq = <Q, Q>_unwindowed and ip_cc = <C, C>_unwindowed
-    % depend only on the densities, NOT on the window offset.
-    % Computing them ONCE here lets every per-offset call to
-    % internal.windowedInnerProduct skip the redundant per-call work
-    % (originally ~2/3 of inner-loop time on this path).
+    % --- Pre-compute the unwindowed L2 norm (denominator).
+    % Under normaliser (i), the denominator is the query's unwindowed
+    % self inner product ip_qq = <Q, Q>_unwindowed. It depends only on
+    % the densities, NOT on the window offset. Computing it ONCE here
+    % lets every per-offset call to internal.windowedInnerProduct skip
+    % the redundant per-call work. The context's ip_cc no longer
+    % appears in the denominator and is not cached.
     ipQQcache = internal.windowedInnerProduct(densQuery, [], false);
-    ipCCcache = internal.windowedInnerProduct(densContext, [], false);
 
     % --- Up-front time estimate + adaptive progress stride ---
     % Calibrate empirically (warm-up + timed sample) and extrapolate to
@@ -395,7 +303,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_w.centre = centre_cell_w;
         wmd_w = windowTensor(densContext, spec_w);
         internal.windowedInnerProduct(densQuery, wmd_w, false, ...
-            ipQQcache, ipCCcache);
+            ipQQcache);
 
         % Timed calibration sample over the same indices.
         tCalStart = tic;
@@ -412,7 +320,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
             spec_s.centre = centre_cell_s;
             wmd_s = windowTensor(densContext, spec_s);
             internal.windowedInnerProduct(densQuery, wmd_s, false, ...
-                ipQQcache, ipCCcache);
+                ipQQcache);
         end
         tCalTotal  = toc(tCalStart);
         tPerPoint  = tCalTotal / numel(sampleIdx);
@@ -437,7 +345,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
         profile(m) = internal.windowedInnerProduct(densQuery, wmd, false, ...
-            ipQQcache, ipCCcache);
+            ipQQcache);
 
         if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
             fprintf('  %d / %d points computed.\n', m, M);
@@ -509,14 +417,6 @@ function profile = localWindowedSimilarityList( ...
         end
     end
 
-    % Suppress repeat periodic-window warnings inside the loop. We
-    % allow the first inner call to emit normally; afterwards we toggle
-    % the warning off and restore the user's previous state at the end.
-    warnId = 'windowedSimilarity:periodicWindowApprox';
-    prevState = warning('query', warnId);
-
-    cleanupObj = onCleanup(@() warning(prevState));   %#ok<NASGU>
-
     if strcmp(modeR, 'bulger')
         profile = cell(1, nQ);
         for k = 1:nQ
@@ -529,14 +429,10 @@ function profile = localWindowedSimilarityList( ...
                 'verbose', verbose, 'reference', refK, ...
                 'truncationSigmas', truncationSigmas, ...
                 'kernelPrecision', kernelPrecision);
-            if k == 1
-                warning('off', warnId);
-            end
         end
     else
         % cartesian
         profile = cell(nQ, nC);
-        first = true;
         for i = 1:nQ
             for j = 1:nC
                 if perQueryRef
@@ -549,10 +445,6 @@ function profile = localWindowedSimilarityList( ...
                     'verbose', verbose, 'reference', refIJ, ...
                     'truncationSigmas', truncationSigmas, ...
                     'kernelPrecision', kernelPrecision);
-                if first
-                    warning('off', warnId);
-                    first = false;
-                end
             end
         end
     end

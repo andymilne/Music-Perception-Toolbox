@@ -1353,6 +1353,12 @@ end
 function W_vals = localEvaluateWindowOnQuery(wmd, X)
 %LOCALEVALUATEWINDOWONQUERY  Evaluate the window function W(x) on query
 %points, returning a 1 x nQ vector of window values.
+%
+%   For periodic groups, the window is the wrapped Gaussian (or
+%   wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
+%   window functions at all periodic images of the centre. The sum
+%   is truncated adaptively when successive image-pair contributions
+%   fall below 1e-12 of the running maximum.
 
     dens       = wmd.dens;
     A          = dens.nAttrs;
@@ -1360,6 +1366,8 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
     dim        = dens.dim;
     groupOf    = dens.groupOfAttr;
     sigmaG     = dens.sigma;
+    isPerG     = logical(dens.isPer);
+    periodG    = dens.period;
 
     % --- Normalise X to per-attribute cell form (mirrors localEvalMA) ---
     if iscell(X)
@@ -1392,6 +1400,8 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
     nQ = size(Xc{1}, 2);
     W_vals = ones(1, nQ);
 
+    IMAGE_SUM_TOL = 1e-12;   % FP-precision tolerance (matches Python)
+
     for a = 1:A
         g = groupOf(a);
         if ~localIsWindowedGroup(wmd.size(g), wmd.mix(g))
@@ -1402,9 +1412,21 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
         centre_a = wmd.centre{a};    % (da, 1)
         centre_a = centre_a(:);
         Xa = Xc{a};                   % (da, nQ)
+        per = isPerG(g);
+        if per
+            P_g = double(periodG(g));
+        else
+            P_g = 0;
+        end
         for i = 1:da
             u = Xa(i, :) - centre_a(i);
-            W_vals = W_vals .* localWindowFactor1D(u, a_, b_);
+            if per
+                w_axis = localWrappedWindowFactor1D(u, a_, b_, P_g, ...
+                    IMAGE_SUM_TOL);
+            else
+                w_axis = localWindowFactor1D(u, a_, b_);
+            end
+            W_vals = W_vals .* w_axis;
         end
     end
 end
@@ -1439,6 +1461,43 @@ function W = localWindowFactor1D(u, a_rect, b_conv)
         peak = erf(a_rect / (b_conv * sqrt(2)));
         W = numer / peak;
     end
+end
+
+
+function W = localWrappedWindowFactor1D(u, a_rect, b_conv, period, image_tol)
+%LOCALWRAPPEDWINDOWFACTOR1D  Sum of line-case window factors at all
+%periodic images of u.
+%
+%   Equivalent to evaluating a wrapped Gaussian (or wrapped rect-conv-
+%   Gaussian for mix > 0) at u. Truncates adaptively when the latest
+%   image-pair's largest contribution falls below image_tol times the
+%   running max.
+
+    n_max_cap = 100;
+    acc = localWindowFactor1D(u, a_rect, b_conv);
+    running_max = max(abs(acc(:)));
+    for n = 1:n_max_cap
+        shift = n * period;
+        f_pos = localWindowFactor1D(u + shift, a_rect, b_conv);
+        f_neg = localWindowFactor1D(u - shift, a_rect, b_conv);
+        acc = acc + f_pos + f_neg;
+        new_max = max(max(abs(f_pos(:))), max(abs(f_neg(:))));
+        running_max = max(running_max, max(abs(acc(:))));
+        if running_max == 0
+            W = acc;
+            return;
+        end
+        if new_max / running_max < image_tol
+            W = acc;
+            return;
+        end
+    end
+    warning('evalExpTens:wrappedWindowCap', ...
+        ['Wrapped window evaluation hit the safety cap of %d image ' ...
+         'pairs without converging to relative tolerance %g. This ' ...
+         'usually indicates sigma_w >> P; consider evaluating ' ...
+         'without a window.'], n_max_cap, image_tol);
+    W = acc;
 end
 
 

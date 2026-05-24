@@ -42,7 +42,6 @@ from .preprocessing import (
 )
 
 from .windowing import (
-    WindowedSimilarityPeriodicApproxWarning,
     window_tensor,
     windowed_similarity,
     _evaluate_window_on_query,
@@ -91,7 +90,6 @@ __all__ = [
     "difference_events",
     "simplex_vertices",
     # Windowing (public)
-    "WindowedSimilarityPeriodicApproxWarning",
     "window_tensor",
     "windowed_similarity",
 ]

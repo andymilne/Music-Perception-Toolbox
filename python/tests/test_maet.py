@@ -1360,141 +1360,84 @@ class TestMAET:
                                              np.array([0.0])],
                                   verbose=False)
 
-    # ---- Periodic-window warning ------------------------------------
+    # ---- Periodic windowing: wrapped-Gaussian image summation -------
     #
-    # The line-case closed form used downstream is exact for non-periodic
-    # groups and only approximate for periodic groups (it retains only
-    # the leading periodic image of the window). A single warning,
-    # WindowedSimilarityPeriodicApproxWarning, is emitted on every call
-    # involving a windowed periodic group, with two message forms:
-    #
-    #   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
-    #     a brief informational form.
-    #   - Past the bound: a stronger form with phi reported and
-    #     per-mix behaviour described.
-    #
-    # The pitch group of _make_time_pitch_dens has sigma = 10 cents and
-    # period = 1200 cents, so the bound lambda*sigma > P/(2*sqrt(3)) ~=
-    # 346.4 cents corresponds to size > 34.64. See manuscript §5.2
-    # Remark 5.2 and User Guide §3.1 "Post-tensor windowing".
+    # For periodic groups, the window is the wrapped Gaussian (or
+    # wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
+    # window functions at all periodic images of the centre. The
+    # toolbox sums these adaptively until the latest image-pair's
+    # contribution falls below 1e-12 of the running maximum. The
+    # WindowedSimilarityPeriodicApproxWarning of pre-v2.2 has been
+    # removed because there is no longer an approximation to warn
+    # about. See User Guide §3.1 "Post-tensor windowing".
 
-    def test_windowed_similarity_periodic_warning_always_fires(self):
-        """The warning fires on every call involving a windowed
-        periodic group, regardless of window size. Tested with a tiny
-        window (size = 5) well within the bound."""
+    def test_windowed_similarity_periodic_emits_no_warning(self):
+        """A periodic windowed group must not emit any UserWarning
+        relating to the line-case approximation. The pre-v2.2
+        WindowedSimilarityPeriodicApproxWarning is gone."""
         q   = self._make_time_pitch_dens([(60, 0)])
         ctx = self._make_time_pitch_dens([(60, 0), (62, 1)])
         offsets = np.zeros((2, 3))
         offsets[1, :] = np.linspace(0, 1, 3)
-        spec_small = {"size": [5.0, 0.3], "mix": [0.0, 0.0]}
-        with pytest.warns(mpt.WindowedSimilarityPeriodicApproxWarning,
-                          match="periodic"):
-            _ = mpt.windowed_similarity(q, ctx, spec_small, offsets,
-                                        verbose=False)
-
-    def test_windowed_similarity_periodic_warning_within_bound_message(
-            self):
-        """Within the bound, the message takes the brief informational
-        form. Detected by absence of the past-bound marker phrase."""
-        q   = self._make_time_pitch_dens([(60, 0)])
-        ctx = self._make_time_pitch_dens([(60, 0), (62, 1)])
-        offsets = np.zeros((2, 3))
-        offsets[1, :] = np.linspace(0, 1, 3)
-        spec_small = {"size": [5.0, 0.3], "mix": [0.0, 0.0]}
+        spec = {"size": [40.0, 0.3], "mix": [0.0, 0.0]}
         with warnings.catch_warnings(record=True) as caught:
-            warnings.filterwarnings(
-                "always",
-                category=mpt.WindowedSimilarityPeriodicApproxWarning,
-            )
-            _ = mpt.windowed_similarity(q, ctx, spec_small, offsets,
-                                        verbose=False)
-        msgs = [str(w.message) for w in caught
-                if issubclass(
-                    w.category,
-                    mpt.WindowedSimilarityPeriodicApproxWarning)]
-        assert len(msgs) == 1, f"Expected 1 warning, got {len(msgs)}."
-        assert "exceeds the recommended bound" not in msgs[0]
-        assert "approximation is sub-percent" in msgs[0]
-
-    def test_windowed_similarity_periodic_warning_past_bound_message(
-            self):
-        """Past the bound, the message takes the stronger form with
-        phi and per-mix behaviour. Detected by the past-bound marker
-        phrase. With sigma = 10 and P = 1200, the bound is at
-        size ~= 34.64; size = 40 is past it."""
-        q   = self._make_time_pitch_dens([(60, 0)])
-        ctx = self._make_time_pitch_dens([(60, 0), (62, 1)])
-        offsets = np.zeros((2, 3))
-        offsets[1, :] = np.linspace(0, 1, 3)
-        spec_offending = {"size": [40.0, 0.3], "mix": [0.0, 0.0]}
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.filterwarnings(
-                "always",
-                category=mpt.WindowedSimilarityPeriodicApproxWarning,
-            )
-            _ = mpt.windowed_similarity(q, ctx, spec_offending, offsets,
-                                        verbose=False)
-        msgs = [str(w.message) for w in caught
-                if issubclass(
-                    w.category,
-                    mpt.WindowedSimilarityPeriodicApproxWarning)]
-        assert len(msgs) == 1, f"Expected 1 warning, got {len(msgs)}."
-        assert "exceeds the recommended bound" in msgs[0]
-        assert "phi (rect half-width)" in msgs[0]
-
-    def test_windowed_similarity_periodic_warning_silent_for_aperiodic_group(
-            self):
-        """A non-periodic group never triggers the warning, even when
-        the windowed group's lambda*sigma is huge.
-
-        The time group has is_per=False, so applying a very wide
-        time-only window must not trigger the periodic warning.
-        (The pitch group is left unwindowed, size=inf.)
-        """
-        q   = self._make_time_pitch_dens([(60, 0)])
-        ctx = self._make_time_pitch_dens([(60, 0), (62, 1)])
-        offsets = np.zeros((2, 3))
-        offsets[1, :] = np.linspace(0, 1, 3)
-        spec = {"size": [np.inf, 1e6], "mix": [0.0, 0.0]}
-        with warnings.catch_warnings():
-            warnings.simplefilter(
-                "error",
-                category=mpt.WindowedSimilarityPeriodicApproxWarning,
-            )
+            warnings.simplefilter("always")
             _ = mpt.windowed_similarity(q, ctx, spec, offsets,
                                         verbose=False)
-
-    def test_windowed_similarity_periodic_warning_fires_every_call(self):
-        """The warning is registered with an 'always' filter so it
-        fires on every call, not just the first.
-
-        Matches the MATLAB warning(id, ...) per-call behaviour.
-        """
-        q   = self._make_time_pitch_dens([(60, 0)])
-        ctx = self._make_time_pitch_dens([(60, 0), (62, 1)])
-        offsets = np.zeros((2, 3))
-        offsets[1, :] = np.linspace(0, 1, 3)
-        spec_offending = {"size": [40.0, 0.3], "mix": [0.0, 0.0]}
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.filterwarnings(
-                "always",
-                category=mpt.WindowedSimilarityPeriodicApproxWarning,
-            )
-            _ = mpt.windowed_similarity(q, ctx, spec_offending, offsets,
-                                        verbose=False)
-            _ = mpt.windowed_similarity(q, ctx, spec_offending, offsets,
-                                        verbose=False)
-            n_warns = sum(
-                1 for w in caught
-                if issubclass(
-                    w.category,
-                    mpt.WindowedSimilarityPeriodicApproxWarning,
-                )
-            )
-        assert n_warns >= 2, (
-            f"Expected >= 2 periodic warnings across two calls; "
-            f"got {n_warns}."
+        # No "approximation" or "line-case" themed warnings.
+        bad = [w for w in caught
+               if "approximat" in str(w.message).lower()
+               or "line-case" in str(w.message).lower()
+               or "periodic" in str(w.category.__name__).lower()]
+        assert len(bad) == 0, (
+            f"Expected no approximation-themed warnings; got: "
+            f"{[str(w.message) for w in bad]}"
         )
+
+    def test_windowed_similarity_periodic_warning_class_removed(self):
+        """The WindowedSimilarityPeriodicApproxWarning class is no
+        longer importable from mpt (removed in v2.2)."""
+        assert not hasattr(mpt, "WindowedSimilarityPeriodicApproxWarning")
+
+    def test_eval_exp_tens_periodic_representative_equivalence(self):
+        """eval_exp_tens on a windowed periodic density must return
+        identical values at periodic-equivalent query points (X, X+P,
+        X-P, ...). Under the pre-v2.2 line-case window this was
+        broken: the window did not wrap, so different representatives
+        of the same point gave different answers."""
+        P = 12.0
+        sigma = 1.0
+        pitches = np.array([[3.0, 7.0]])
+        dens = mpt.build_exp_tens(
+            [pitches], None,
+            [sigma], [1], [0],
+            [False], [True], [P],
+            verbose=False,
+        )
+        mu = 2.0
+        sigma_w = 3.0
+        win_size = sigma_w / sigma
+        wmd = mpt.window_tensor(
+            dens, {"size": win_size, "mix": 0.0,
+                   "centre": [np.array([mu])]},
+        )
+        # Three representatives of the same periodic point X = 0.5.
+        v0 = float(np.asarray(mpt.eval_exp_tens(
+            wmd, np.array([[0.5]]), verbose=False
+        )).flatten()[0])
+        v_plus = float(np.asarray(mpt.eval_exp_tens(
+            wmd, np.array([[0.5 + P]]), verbose=False
+        )).flatten()[0])
+        v_minus = float(np.asarray(mpt.eval_exp_tens(
+            wmd, np.array([[0.5 - P]]), verbose=False
+        )).flatten()[0])
+        assert np.isclose(v0, v_plus, atol=0, rtol=1e-12), (
+            f"X=0.5 gave {v0:.12g}, X=0.5+P gave {v_plus:.12g}"
+        )
+        assert np.isclose(v0, v_minus, atol=0, rtol=1e-12), (
+            f"X=0.5 gave {v0:.12g}, X=0.5-P gave {v_minus:.12g}"
+        )
+
 
     def test_window_tensor_validates_shapes(self):
         """window_tensor rejects invalid size / mix / centre shapes."""

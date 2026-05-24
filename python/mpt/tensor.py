@@ -30,7 +30,6 @@ from ._tensor.preprocessing import (
     simplex_vertices,
 )
 from ._tensor.windowing import (
-    WindowedSimilarityPeriodicApproxWarning,
     window_tensor,
     windowed_similarity,
 )

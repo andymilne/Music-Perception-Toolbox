@@ -978,109 +978,51 @@ results{end+1,1} = 'windowedSimilarity: reference wrong length errors';
 results{end,2}   = throwsError(@() windowedSimilarity(q_ref, ctx_ref, ...
     spec_ref, offs_ref, 'reference', {muA_pitch, [0; 0]}, 'verbose', false));
 
-% -- windowedSimilarity: periodic-window warning --
+% -- windowedSimilarity: periodic windowing (wrapped-Gaussian) --
 %
-% The line-case closed form used downstream is exact for non-periodic
-% groups and only approximate for periodic groups (it retains only
-% the leading periodic image of the window). A single warning,
-% windowedSimilarity:periodicWindowApprox, is emitted on every call
-% involving a windowed periodic group, with two message forms:
-%
-%   - Within the recommended bound (lambda*sigma <= P/(2*sqrt(3))):
-%     a brief informational form.
-%   - Past the bound: a stronger form with phi reported and per-mix
-%     behaviour described.
-%
-% dens_w has pitch sigma = 10 cents and period = 1200 cents on a
-% periodic group, so the bound lambda*sigma > P/(2*sqrt(3)) ~=
-% 346.4 cents corresponds to size > 34.64. See manuscript §5.2
-% Remark 5.2 and User Guide §3.1 "Post-tensor windowing".
+% For periodic groups, the window is the wrapped Gaussian (or wrapped
+% rect-conv-Gaussian for mix > 0): the sum of line-case window
+% functions at all periodic images of the centre. The toolbox sums
+% these adaptively until the latest image-pair's contribution falls
+% below 1e-12 of the running maximum. The
+% windowedSimilarity:periodicWindowApprox warning of pre-v2.2 has
+% been removed because there is no longer an approximation to warn
+% about. See User Guide §3.1 "Post-tensor windowing".
 
 offs_off = [zeros(1, 5); linspace(0, 1, 5)];
 
-% (a) The warning fires on every call involving a windowed periodic
-% group, regardless of window size. Tested with a tiny window
-% (size = 5) well within the bound.
+% (a) A periodic windowed group must not emit
+% windowedSimilarity:periodicWindowApprox (the warning class has
+% been removed).
 spec_small = struct('size', [5, 0.3], 'mix', [0, 0]);
 W = warning('error', 'windowedSimilarity:periodicWindowApprox');
-fired_small = false;
+no_warn_periodic = true;
 try
     windowedSimilarity(dens_w, dens_w, spec_small, offs_off, 'verbose', false);
 catch ME
-    fired_small = strcmp(ME.identifier, ...
+    no_warn_periodic = ~strcmp(ME.identifier, ...
         'windowedSimilarity:periodicWindowApprox');
 end
 warning(W);
-results{end+1,1} = 'windowedSimilarity: periodic warning fires on every call';
-results{end,2}   = fired_small;
+results{end+1,1} = 'windowedSimilarity: no periodic-approx warning (v2.2)';
+results{end,2}   = no_warn_periodic;
 
-% (b) Within the bound, the message takes the brief informational
-% form. Detected by absence of the past-bound marker phrase.
-spec_small = struct('size', [5, 0.3], 'mix', [0, 0]);
-W = warning('off', 'windowedSimilarity:periodicWindowApprox');
-% lastwarn does not capture warnings that have been turned off, so
-% set to 'on' for capture but route through evalc to suppress the
-% on-screen print.
-warning('on', 'windowedSimilarity:periodicWindowApprox');
-lastwarn('');
-evalc(['windowedSimilarity(dens_w, dens_w, spec_small, offs_off, ' ...
-       '''verbose'', false);']);
-[msg_within, id_within] = lastwarn;
-warning(W);
-results{end+1,1} = 'windowedSimilarity: within-bound message is the informational form';
-results{end,2}   = strcmp(id_within, ...
-    'windowedSimilarity:periodicWindowApprox') && ...
-    isempty(strfind(msg_within, 'exceeds the recommended bound')) && ...
-    ~isempty(strfind(msg_within, 'approximation is sub-percent'));
-
-% (c) Past the bound, the message takes the stronger form with phi
-% and per-mix behaviour. size = 40 -> lambda*sigma = 400 > 346.4.
-spec_off = struct('size', [40, 0.3], 'mix', [0, 0]);
-W = warning('on', 'windowedSimilarity:periodicWindowApprox');
-lastwarn('');
-evalc(['windowedSimilarity(dens_w, dens_w, spec_off, offs_off, ' ...
-       '''verbose'', false);']);
-[msg_past, id_past] = lastwarn;
-warning(W);
-results{end+1,1} = 'windowedSimilarity: past-bound message is the stronger form';
-results{end,2}   = strcmp(id_past, ...
-    'windowedSimilarity:periodicWindowApprox') && ...
-    ~isempty(strfind(msg_past, 'exceeds the recommended bound')) && ...
-    ~isempty(strfind(msg_past, 'phi (rect half-width)'));
-
-% (d) Aperiodic case: a non-periodic group never triggers the
-% warning, even under a very wide window. The time group has
-% isPer=false in dens_w, so windowing only the time group with
-% size = 1e6 must not warn.
-spec_time_only = struct('size', [Inf, 1e6], 'mix', [0, 0]);
-W = warning('error', 'windowedSimilarity:periodicWindowApprox');
-silent_aper = true;
-try
-    windowedSimilarity(dens_w, dens_w, spec_time_only, offs_off, 'verbose', false);
-catch ME
-    silent_aper = ~strcmp(ME.identifier, ...
-        'windowedSimilarity:periodicWindowApprox');
-end
-warning(W);
-results{end+1,1} = 'windowedSimilarity: periodic warning silent on aperiodic group';
-results{end,2}   = silent_aper;
-
-% (e) The warning fires on every offending call (matching MATLAB's
-% default warning behaviour, which we rely on here).
-W = warning('error', 'windowedSimilarity:periodicWindowApprox');
-n_fired = 0;
-for k_call = 1:2
-    try
-        windowedSimilarity(dens_w, dens_w, spec_off, offs_off, 'verbose', false);
-    catch ME
-        if strcmp(ME.identifier, 'windowedSimilarity:periodicWindowApprox')
-            n_fired = n_fired + 1;
-        end
-    end
-end
-warning(W);
-results{end+1,1} = 'windowedSimilarity: periodic warning fires every call';
-results{end,2}   = (n_fired >= 2);
+% (b) eval_exp_tens on a windowed periodic density returns identical
+% values at periodic-equivalent query points (X, X+P, X-P): under the
+% pre-v2.2 line-case window this was broken; the wrapped Gaussian
+% restores periodic-equivalence to FP precision.
+P_test = 12;
+sigma_test = 1;
+pitches_test = [3, 7];
+dens_per = buildExpTens({pitches_test}, [], sigma_test, 1, [], false, true, P_test, 'verbose', false);
+spec_eval = struct('size', 3, 'mix', 0, 'centre', {{2}});
+wmd_eval = windowTensor(dens_per, spec_eval);
+v0      = evalExpTens(wmd_eval, 0.5);
+v_plus  = evalExpTens(wmd_eval, 0.5 + P_test);
+v_minus = evalExpTens(wmd_eval, 0.5 - P_test);
+tol_eval = 1e-10 * max(abs([v0, v_plus, v_minus]));
+results{end+1,1} = 'evalExpTens: periodic representative equivalence';
+results{end,2}   = abs(v0 - v_plus) <= tol_eval && abs(v0 - v_minus) <= tol_eval;
 
 % -- windowTensor: shape-validation errors --
 
@@ -1499,17 +1441,20 @@ end
 
 function c = directWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, size_v, mix_v)
-%DIRECTWINDOWEDCOSINESA  Framework-correct windowed cosine for the SA
-%case, via direct perm-perm enumeration of cross-correlation IP and
-%unwindowed self-norms.
+%DIRECTWINDOWEDCOSINESA  Framework-correct windowed similarity for the SA
+%case, via direct perm-perm enumeration of the cross-correlation IP,
+%under normaliser (i): divide by <f_a, f_a> (the query's unwindowed
+%self inner product), not by sqrt(<f_a, f_a> * <f_b, f_b>).
     a_rect = size_v * sigma * sqrt(3 * mix_v);
     b_conv = size_v * sigma * sqrt(1 - mix_v);
     mu_q = mean(p_a);
     ip_xy = directWindowedCrossCorr(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, mu_q, a_rect, b_conv);
-    ip_xx = directUnwindowedAbs(p_a, w_a, sigma, r);
-    ip_yy = directUnwindowedAbs(p_b, w_b, sigma, r);
-    c = ip_xy / sqrt(ip_xx * ip_yy);
+    % Normaliser (i): divide by the query's own unwindowed self inner
+    % product. f_a is the unwindowed query here (the toolbox passes
+    % dens_q = built from p_a).
+    ip_qq = directUnwindowedAbs(p_a, w_a, sigma, r);
+    c = ip_xy / ip_qq;
 end
 
 function c = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...

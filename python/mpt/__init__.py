@@ -23,7 +23,6 @@ from .tensor import (
     ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
-    WindowedSimilarityPeriodicApproxWarning,
     batch_cos_sim_exp_tens,
     build_exp_tens,
     cos_sim_exp_tens,
@@ -102,7 +101,6 @@ __all__ = [
     "window_tensor",
     "windowed_similarity",
     "WindowedMaetDensity",
-    "WindowedSimilarityPeriodicApproxWarning",
     # circular
     "dft_circular",
     "dft_circular_simulate",

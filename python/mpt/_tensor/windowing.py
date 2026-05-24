@@ -10,15 +10,18 @@ This module hosts the windowing layer of the MAET pipeline:
   across a context density via offset positions, returning a 1xM
   windowed-similarity profile (or list of profiles for list-mode
   input).
-* :class:`WindowedSimilarityPeriodicApproxWarning` --- the warning
-  raised when a windowed-similarity computation applies the line-case
-  closed-form expression to a periodic group; see USER_GUIDE §3.1
-  ("Periodic groups: line-case approximation").
 
 The closed-form windowed inner product (:func:`_windowed_inner_product`)
 is also exposed at module level for internal use by the cosine-similarity
 machinery in :mod:`mpt.tensor` (which currently still hosts the
 non-windowed cosine path).
+
+Periodic groups are handled exactly (to floating-point precision) by
+summing line-case window contributions over periodic images of the
+window centre. The image sum is truncated adaptively when the latest
+image-pair's contribution falls below
+:data:`_IMAGE_SUM_TOL_DOUBLE` of the running maximum. See User Guide
+§3.1 ("Post-tensor windowing").
 
 See USER_GUIDE §3.1 ("Post-tensor windowing") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.
@@ -44,6 +47,15 @@ from .density import (
     MaetDensity,
     WindowedMaetDensity,
 )
+
+
+# Convergence tolerance for the periodic-image sum used inside the
+# windowed numerator and windowed evaluator. Matches the existing
+# Möbius cancellation-guard convention (1e-12) for double precision
+# and the kernel_precision='single' floor (1e-7) for single. Both are
+# documented in USER_GUIDE §3.1.
+_IMAGE_SUM_TOL_DOUBLE = 1e-12
+_IMAGE_SUM_TOL_SINGLE = 1e-7
 
 
 def window_tensor(dens, window_spec) -> WindowedMaetDensity:
@@ -231,6 +243,15 @@ def _window_factor_1d(u, a, b):
 def _evaluate_window_on_query(wmd: "WindowedMaetDensity", x_list):
     """Evaluate the window W(x) at query points.
 
+    For periodic groups, the window is the wrapped Gaussian (or the
+    wrapped rect-conv-Gaussian for ``mix > 0``): the sum of line-case
+    window values at all periodic images of the window centre. The sum
+    is truncated adaptively when successive image-pair contributions
+    fall below :data:`_IMAGE_SUM_TOL_DOUBLE` of the running maximum.
+
+    For non-periodic groups, the window is evaluated directly as a
+    single line-case factor (no summation).
+
     Parameters
     ----------
     wmd : WindowedMaetDensity
@@ -248,6 +269,8 @@ def _evaluate_window_on_query(wmd: "WindowedMaetDensity", x_list):
     group_of = dens.group_of_attr
     dim_per = dens.dim_per_attr
     sigma_g = dens.sigma
+    is_per_g = dens.is_per
+    period_g = dens.period
 
     n_q = x_list[0].shape[1] if A > 0 else 0
     result = np.ones(n_q, dtype=np.float64)
@@ -257,53 +280,65 @@ def _evaluate_window_on_query(wmd: "WindowedMaetDensity", x_list):
             continue
         a_, b_ = _window_width_params(wmd.size[g], wmd.mix[g], sigma_g[g])
         da = int(dim_per[a])
-        # Per-axis factor, multiplied across axes within the attribute.
         centre_a = wmd.centre[a]  # shape (da,)
         x_a = x_list[a]           # shape (da, nQ)
         u = x_a - centre_a[:, None]  # (da, nQ)
+        per = bool(is_per_g[g])
+        P_g = float(period_g[g]) if per else 0.0
         for i in range(da):
-            result = result * _window_factor_1d(u[i], a_, b_)
+            if per:
+                # Wrapped window: sum line-case window at u + n*P for
+                # n = 0, +/-1, +/-2, ..., truncated when the latest
+                # image-pair's largest contribution falls below
+                # _IMAGE_SUM_TOL_DOUBLE * running max.
+                w_axis = _wrapped_window_factor_1d(
+                    u[i], a_, b_, P_g, _IMAGE_SUM_TOL_DOUBLE,
+                )
+            else:
+                w_axis = _window_factor_1d(u[i], a_, b_)
+            result = result * w_axis
     return result
+
+
+def _wrapped_window_factor_1d(u, a, b, period, image_tol,
+                              n_max_cap: int = 100):
+    """Sum of line-case window factors at all periodic images of u.
+
+    Equivalent to evaluating a wrapped Gaussian (or wrapped rect-conv-
+    Gaussian for mix > 0) at u. Truncates adaptively when the latest
+    image-pair's largest contribution falls below ``image_tol`` times
+    the running max.
+    """
+    u = np.asarray(u, dtype=np.float64)
+    acc = _window_factor_1d(u, a, b)
+    running_max = float(np.max(np.abs(acc)))
+    for n in range(1, n_max_cap + 1):
+        shift = n * period
+        f_pos = _window_factor_1d(u + shift, a, b)
+        f_neg = _window_factor_1d(u - shift, a, b)
+        acc = acc + f_pos + f_neg
+        new_max = float(max(np.max(np.abs(f_pos)),
+                            np.max(np.abs(f_neg))))
+        running_max = max(running_max, float(np.max(np.abs(acc))))
+        if running_max == 0.0:
+            break
+        if new_max / running_max < image_tol:
+            break
+    else:
+        import warnings as _warnings
+        _warnings.warn(
+            f"Wrapped window evaluation hit the safety cap of "
+            f"{n_max_cap} image pairs without converging to relative "
+            f"tolerance {image_tol:g}. This usually indicates "
+            f"sigma_w >> P; consider evaluating without a window.",
+            RuntimeWarning, stacklevel=4,
+        )
+    return acc
 
 
 # -------------------------------------------------------------------
 #  windowed_similarity and closed-form pair-factor evaluator
 # -------------------------------------------------------------------
-
-
-class WindowedSimilarityPeriodicApproxWarning(UserWarning):
-    """Issued when :func:`windowed_similarity` applies the line-case
-    closed-form windowed inner product to a periodic group whose
-    window standard deviation lambda*sigma is at least one quarter of
-    the period P. The closed form in use is the small-window
-    approximation; it degrades as window support approaches one
-    period. For windows larger than a period the windowed inner
-    product collapses to the unwindowed form, which can be obtained
-    directly from :func:`cos_sim_exp_tens`. See User Guide §3.1
-    "Post-tensor windowing" for the three-regime analysis.
-
-    A module-level filter registers this warning with the ``"always"``
-    action so that it fires on every offending call (rather than once
-    per location, which is the default for :class:`UserWarning`),
-    matching the MATLAB ``warning(id, ...)`` behaviour. Suppress it,
-    if you have determined the approximation is acceptable for your
-    use case, with::
-
-        import warnings
-        from mpt import WindowedSimilarityPeriodicApproxWarning
-        warnings.filterwarnings(
-            "ignore",
-            category=WindowedSimilarityPeriodicApproxWarning,
-        )
-    """
-
-
-# Ensure this warning is always shown, not only on the first
-# occurrence at a given (module, lineno). Matches the per-call
-# warning behaviour of the MATLAB implementation.
-warnings.filterwarnings(
-    "always", category=WindowedSimilarityPeriodicApproxWarning
-)
 
 
 def _resolve_windowed_similarity_reference(reference, q_list):
@@ -400,92 +435,6 @@ def _resolve_windowed_similarity_reference(reference, q_list):
     return [shared] * n_q
 
 
-def _emit_periodic_approx_warnings(dens_context, window_spec):
-    """Emit a ``WindowedSimilarityPeriodicApproxWarning`` for each
-    periodic group whose window crosses the recommended SD/P bound.
-
-    Two regimes are distinguished:
-      * Within bound: brief informational notice that the line-case
-        formula is in use; the approximation is sub-percent across
-        the window shape family.
-      * Past bound: stronger notice describing per-mix behaviour.
-
-    See User Guide §3.1 "Post-tensor windowing".
-    """
-    SD_OVER_P_BOUND = 1.0 / (2.0 * np.sqrt(3.0))   # ~= 0.2887
-    G = int(dens_context.n_groups)
-    size_arr = np.atleast_1d(
-        np.asarray(window_spec["size"], dtype=np.float64)
-    ).ravel()
-    if size_arr.size == 1:
-        size_arr = np.repeat(size_arr, G)
-    mix_arr = np.atleast_1d(
-        np.asarray(window_spec["mix"], dtype=np.float64)
-    ).ravel()
-    if mix_arr.size == 1:
-        mix_arr = np.repeat(mix_arr, G)
-    for g in range(G):
-        if not bool(dens_context.is_per[g]):
-            continue
-        lam = float(size_arr[g])
-        if not np.isfinite(lam) or lam <= 0:
-            continue
-        period_g = float(dens_context.period[g])
-        if period_g <= 0:
-            continue
-        eff_sigma = lam * float(dens_context.sigma[g])
-        sd_over_p = eff_sigma / period_g
-        gamma_g = float(mix_arr[g])
-
-        if sd_over_p <= SD_OVER_P_BOUND:
-            msg = (
-                f"Periodic windowed inner product on group {g} "
-                f"applies the line-case formula at wrapped "
-                f"differences -- an approximation that retains "
-                f"only the leading periodic image of the window. "
-                f"Within the recommended bound, the approximation "
-                f"is sub-percent across the window shape family.\n"
-                f"  Window SD (lambda*sigma) = {eff_sigma:g}\n"
-                f"  Period P                 = {period_g:g}\n"
-                f"  SD/P                     = {sd_over_p:.4f}\n"
-                f"  Recommended bound (SD/P) = {SD_OVER_P_BOUND:.4f} "
-                f"(= 1/(2*sqrt(3)))\n"
-                f"See User Guide \u00a73.1 \"Post-tensor windowing\". "
-                f"Suppress with warnings.filterwarnings('ignore', "
-                f"category=mpt."
-                f"WindowedSimilarityPeriodicApproxWarning)."
-            )
-        else:
-            phi_g = eff_sigma * np.sqrt(3.0 * max(gamma_g, 0.0))
-            msg = (
-                f"Window SD exceeds the recommended bound for "
-                f"periodic group {g}; the line-case approximation "
-                f"is no longer reliable.\n"
-                f"  Window SD (lambda*sigma) = {eff_sigma:g}\n"
-                f"  Period P                 = {period_g:g}\n"
-                f"  SD/P                     = {sd_over_p:.4f}  "
-                f"(bound: {SD_OVER_P_BOUND:.4f})\n"
-                f"  phi (rect half-width)    = {phi_g:g}  "
-                f"(bound: {period_g / 2:g} = P/2)\n"
-                f"  mix (gamma)              = {gamma_g:g}\n"
-                f"Beyond the bound, behaviour depends on mix:\n"
-                f"  mix = 1 (pure rect):     window is no longer "
-                f"localized on the circle (pointless as a window).\n"
-                f"  mix = 0 (pure Gaussian): line-case approximation "
-                f"degrades smoothly; error grows with SD/P.\n"
-                f"  intermediate mix:        between these two cases.\n"
-                f"Reduce size or sigma so that lambda*sigma <= "
-                f"P/(2*sqrt(3)). See User Guide \u00a73.1 "
-                f"\"Post-tensor windowing\"."
-            )
-
-        warnings.warn(
-            msg,
-            WindowedSimilarityPeriodicApproxWarning,
-            stacklevel=3,
-        )
-
-
 def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
                                *, ref_per_a,
                                truncation_sigmas: float | None = None,
@@ -500,10 +449,6 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
     ``truncation_sigmas`` and ``kernel_precision`` are forwarded to the
     per-offset :func:`_windowed_inner_product` calls. ``None`` defers to
     the global default (resolved inside the helper).
-
-    Emits :class:`WindowedSimilarityPeriodicApproxWarning` once per
-    (query, context) pair for any periodic group whose window crosses
-    the recommended SD/P bound.
     """
     offsets = np.asarray(offsets, dtype=np.float64)
     if offsets.ndim == 1:
@@ -514,10 +459,6 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
             f"dens_context); got shape {offsets.shape}."
         )
     M = offsets.shape[1]
-
-    # Periodic-window approximation warnings . Emitted once per
-    # (query, context) pair, before the offset loop.
-    _emit_periodic_approx_warnings(dens_context, window_spec)
 
     A = int(dens_query.n_attrs)
     dim_per_a = [int(d) for d in dens_query.dim_per_attr]
@@ -552,15 +493,15 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
 
     prog_stride = 1
     show_progress = False
-    # --- Pre-compute the unwindowed L2 norms (denominator).
-    # Both ip_qq and ip_cc depend only on the densities, NOT on the
-    # window offset. Computing them once here lets every per-offset
-    # call to _windowed_inner_product skip the redundant per-call
-    # work (originally ~2/3 of inner-loop time on this path).
-    norms_cache = (
-        _cos_sim_numerator_ma(dens_query, dens_query, windowed_c=None),
-        _cos_sim_numerator_ma(dens_context, dens_context, windowed_c=None),
-    )
+    # --- Pre-compute the unwindowed L2 norm (denominator).
+    # Under normaliser (i), only ip_qq (the query's self inner product)
+    # appears in the denominator. It does not depend on the window
+    # offset and can be hoisted out of the per-offset loop. The
+    # context's ip_cc no longer appears in the denominator and is not
+    # computed here. (Prior versions of this code cached the pair
+    # (ip_qq, ip_cc); the inner-product helper still accepts that
+    # form for backward compatibility but ignores ip_cc.)
+    norms_cache = _cos_sim_numerator_ma(dens_query, dens_query, windowed_c=None)
 
     if verbose and M >= 2:
         n_cal = min(5, M)
@@ -638,30 +579,33 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     For each offset column, *dens_context* is windowed with
     *window_spec* at the corresponding centre, and its similarity
     against *dens_query* (unwindowed) is computed. The normaliser
-    uses the unwindowed L2 norms of both operands (Option Z in the
-    spec).
+    divides by the query's unwindowed self inner product:
 
-    Why "similarity" rather than "cosine similarity"
-    ------------------------------------------------
-    The output is a magnitude-aware *windowed similarity*: because
-    the denominator uses unwindowed L2 norms (rather than the
-    windowed norm of the context), the profile is not bounded in
-    [-1, 1] across sweep positions and does not correspond to an
-    inner product on a single Hilbert space. This is the intended
-    behaviour for sliding-motif analysis -- a dense local match
-    should outscore a sparse one. The strict shape-only cosine
-    similarity (with windowed denominator) is a separate notion
-    not currently implemented in the toolbox.
+        s = <h * f_X, f_Y> / <f_Y, f_Y>
+
+    where f_Y is the (unwindowed) query and f_X (windowed) is the
+    context. Self-similarity (f_X = f_Y) at the best window position
+    equals 1 when the window covers all of the query's mass and is
+    less than 1 otherwise. Cross-similarity can exceed 1 when the
+    windowed context has more mass in the window region than the
+    query does in total; this is the intended (magnitude-aware)
+    behaviour for sliding-motif analysis.
 
     Periodic groups
     ---------------
-    The closed-form windowed inner product implemented here is the
-    line-case formula -- exact for non-periodic groups, but only an
-    approximation when applied to a periodic group whose window
-    support is comparable to one period. When this function is
-    called on a windowed periodic group, a
-    :class:`WindowedSimilarityPeriodicApproxWarning` is emitted on
-    every call. See User Guide §3.1 "Post-tensor windowing".
+    For periodic groups, the window is the wrapped Gaussian (or
+    wrapped rect-conv-Gaussian for ``mix > 0``): the sum of line-case
+    window functions at all periodic images of the centre. The
+    toolbox sums these contributions adaptively, truncating when the
+    latest image-pair's contribution falls below the floating-point
+    threshold (1e-12 for double, 1e-7 for ``kernel_precision='single'``).
+    For multi-D absolute periodic groups, the image sum factorises per
+    axis (linear in dimension, not exponential). For multi-D relative
+    periodic groups, image summation is deferred to a future release and
+    the existing line-case formula is used (this is the pre-2.2
+    behaviour).
+
+    See User Guide §3.1 "Post-tensor windowing".
 
     Parameters
     ----------
@@ -876,11 +820,20 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
 
 def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
                             _cached_norms=None):
-    """Cosine similarity with one or both operands windowed.
+    """Windowed similarity with one operand windowed.
 
-    Normaliser uses unwindowed L2 norms for both operands (Option Z).
-    Numerator uses the windowed per-group pair factor V_g (replacing
-    U_g) for windowed groups.
+    Returns the windowed inner product divided by the *query's*
+    unwindowed self inner product:
+
+        s = <h * f_X, f_Y> / <f_Y, f_Y>
+
+    where f_Y is the unwindowed query and f_X (windowed) is the
+    context. With this normalisation, self-similarity (f_X = f_Y) at
+    the best window position equals 1 when the window covers all the
+    query's mass and decreases as the window narrows. Cross-similarity
+    can exceed 1 when the windowed context has more mass than the
+    query in the window region; this is the intended (magnitude-aware)
+    behaviour for sliding-motif analysis.
 
     Currently supports one-sided windowing (exactly one of dens_a,
     dens_b is a WindowedMaetDensity). Two-sided is not needed for the
@@ -888,10 +841,13 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
 
     Internal optimisation: when called repeatedly with the same
     (dens_q, dens_c) pair (as windowed_similarity does for each
-    offset in its sweep), the unwindowed L2 norms ip_qq and ip_cc
-    do not depend on the window offset and can be computed once
-    outside the loop. Callers may pass these as ``_cached_norms =
-    (ip_qq, ip_cc)`` to skip the redundant per-call computation.
+    offset in its sweep), the unwindowed L2 self inner product
+    ip_qq does not depend on the window offset and can be computed
+    once outside the loop. Callers may pass it as
+    ``_cached_norms = ip_qq`` to skip the redundant per-call
+    computation. (Historic callers passed a 2-tuple ``(ip_qq,
+    ip_cc)``; this is still accepted, but only the first element is
+    used.)
     """
     a_win = isinstance(dens_a, WindowedMaetDensity)
     b_win = isinstance(dens_b, WindowedMaetDensity)
@@ -912,20 +868,23 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
     # --- Structural compatibility checks (delegate to underlying _ma) ---
     _check_ma_compatibility(dens_q, dens_c)
 
-    # --- Unwindowed norms (denominator) ---
+    # --- Query's unwindowed self inner product (denominator) ---
     if _cached_norms is not None:
-        ip_qq, ip_cc = _cached_norms
+        # Accept either a scalar (new) or a 2-tuple (legacy) -- caller
+        # sweeps that pass (ip_qq, ip_cc) keep working.
+        if isinstance(_cached_norms, tuple):
+            ip_qq = _cached_norms[0]
+        else:
+            ip_qq = _cached_norms
     else:
         ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None)
-        ip_cc = _cos_sim_numerator_ma(dens_c, dens_c, windowed_c=None)
 
     # --- Windowed numerator ---
     ip_qc = _cos_sim_numerator_ma(dens_q, dens_c, windowed_c=wmd)
 
-    denom = np.sqrt(ip_qq * ip_cc)
-    if denom == 0:
+    if ip_qq == 0:
         return float("nan")
-    return float(ip_qc / denom)
+    return float(ip_qc / ip_qq)
 
 
 def _check_ma_compatibility(dens_x: MaetDensity, dens_y: MaetDensity):
@@ -1207,11 +1166,26 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             is_rel = bool(is_rel_g[g])
             d_g = cx_sub.shape[0]
 
-            contrib, log_D = _windowed_group_contribution(
-                cx_sub, cy_sub, centre_sub,
-                s_g, mix_g, sigma_gv, is_rel,
-                int(r_vec[int(attrs_g[0])]), d_g,
-            )
+            if bool(is_per_g[g]):
+                # Periodic group: sum line-case contributions over
+                # periodic images of the window centre. The wrapped
+                # Gaussian window equals the sum of line-case Gaussians
+                # at all integer-multiples of the period; the windowed
+                # inner product inherits this linearity. See User Guide
+                # §3.1.
+                contrib, log_D = _periodic_image_sum_contribution(
+                    cx_sub, cy_sub, centre_sub,
+                    s_g, mix_g, sigma_gv, is_rel,
+                    int(r_vec[int(attrs_g[0])]), d_g,
+                    float(period_g[g]),
+                    _IMAGE_SUM_TOL_DOUBLE,    # FP-precision relative tolerance
+                )
+            else:
+                contrib, log_D = _windowed_group_contribution(
+                    cx_sub, cy_sub, centre_sub,
+                    s_g, mix_g, sigma_gv, is_rel,
+                    int(r_vec[int(attrs_g[0])]), d_g,
+                )
             log_kernel = log_kernel + contrib
             log_prefactor = log_prefactor + log_D
 
@@ -1277,6 +1251,140 @@ def _effective_centres_from_V(dens: "MaetDensity", side: str):
         else:
             out.append(np.empty((0, n_k), dtype=np.float64))
     return out
+
+
+def _periodic_image_sum_contribution(
+    cx_sub, cy_sub, centre_sub,
+    s_g, mix_g, sigma_g, is_rel, r_a, d_g,
+    period_g, image_tol,
+):
+    """Wrapped-Gaussian per-pair contribution for a periodic windowed group.
+
+    The wrapped Gaussian window is the sum of line-case Gaussians at all
+    periodic images of the window centre; the windowed inner product
+    inherits this linearity (see User Guide §3.1). For groups where the
+    per-pair F factor factorises across axes (1-D and multi-D absolute),
+    the total image sum factorises into per-axis image sums:
+
+        F_total = prod_i (sum_n_i F_axis_i(n_i * P))
+
+    so we can sum each axis independently in O(n_max) calls per axis
+    instead of O(n_max^d_g) over the Cartesian product. For multi-D
+    relative groups the F factor does not factorise across axes and a
+    Cartesian-product sum would be needed; that path is deferred to a
+    future release. For now, multi-D relative periodic groups fall
+    through to the existing line-case formula (the pre-v2.2 behaviour).
+
+    Returns the same ``(log_F, log_D)`` signature as
+    :func:`_windowed_group_contribution`.
+
+    Parameters
+    ----------
+    cx_sub, cy_sub, centre_sub :
+        As in :func:`_windowed_group_contribution`, in the post-
+        cross-correlation-substituted frame.
+    period_g : float
+        Period of group g, > 0.
+    image_tol : float
+        Per-axis relative convergence tolerance for the image sum.
+
+    Returns
+    -------
+    log_F : (nJ_x, nK_y) float64
+    log_D : float
+    """
+    # Multi-D relative groups: defer to the existing line-case formula.
+    # Image summation for the non-factorisable multi-D relative geometry
+    # is future scope.
+    if is_rel and d_g > 1:
+        return _windowed_group_contribution(
+            cx_sub, cy_sub, centre_sub,
+            s_g, mix_g, sigma_g, is_rel, r_a, d_g,
+        )
+
+    # 1-D groups (any kind) and multi-D absolute groups: F factorises
+    # per axis, so the image sum factorises into per-axis sums.
+    a_rect, b_conv = _window_width_params(s_g, mix_g, sigma_g)
+
+    # Effective variance of the (j, k) product Gaussian, per axis.
+    # Absolute group:         sigma_pair^2 = sigma_g^2 / 2.
+    # 1-D relative (r_a = 2): sigma_pair^2 = r_a * sigma_g^2 / 2.
+    if is_rel:
+        sigma_pair_sq = r_a * sigma_g**2 / 2.0
+    else:
+        sigma_pair_sq = sigma_g**2 / 2.0
+    sigma_t_sq = sigma_pair_sq + b_conv**2
+    sigma_t = np.sqrt(sigma_t_sq)
+
+    # Per-pair midpoint m minus window centre c, per axis. Shape:
+    # (d_g, nJ_x, nK_y).
+    m = 0.5 * (cx_sub[:, :, None] + cy_sub[:, None, :])
+    mu_shift = m - centre_sub[:, None, None]
+
+    # Build a closure to evaluate the per-axis F at a given mu value
+    # (matching the inner formula of _windowed_contribution_factorisable).
+    if a_rect == 0.0 and b_conv > 0.0:
+        # Pure Gaussian window.
+        prefactor = b_conv / sigma_t
+        def axis_F(mu_arr):
+            return prefactor * np.exp(-mu_arr**2 / (2 * sigma_t_sq))
+    elif b_conv == 0.0 and a_rect > 0.0:
+        # Pure rectangular window.
+        from scipy.special import erf
+        denom = sigma_t * np.sqrt(2.0)
+        def axis_F(mu_arr):
+            arg_plus = (mu_arr + a_rect) / denom
+            arg_minus = (mu_arr - a_rect) / denom
+            return 0.5 * (erf(arg_plus) - erf(arg_minus))
+    else:
+        # General rectangular-convolved-with-Gaussian window.
+        from scipy.special import erf
+        denom = sigma_t * np.sqrt(2.0)
+        norm_denom = 2.0 * erf(a_rect / (b_conv * np.sqrt(2.0)))
+        def axis_F(mu_arr):
+            arg_plus = (mu_arr + a_rect) / denom
+            arg_minus = (mu_arr - a_rect) / denom
+            return (erf(arg_plus) - erf(arg_minus)) / norm_denom
+
+    # Per-axis image sum: for each axis i, F_axis_i_wrapped(j, k) =
+    # sum_n F_axis_i(mu_shift_i + n*P). Stop when the latest |n|-pair's
+    # max contribution falls below image_tol * running max.
+    n_max_cap = 100
+    per_axis_wrapped = np.empty_like(mu_shift)
+    for i in range(d_g):
+        mu_i = mu_shift[i]
+        acc = axis_F(mu_i)
+        running_max = float(np.max(np.abs(acc)))
+        for n in range(1, n_max_cap + 1):
+            shift_arg_pos = mu_i + n * period_g
+            shift_arg_neg = mu_i - n * period_g
+            F_pos = axis_F(shift_arg_pos)
+            F_neg = axis_F(shift_arg_neg)
+            acc = acc + F_pos + F_neg
+            new_max = float(max(np.max(np.abs(F_pos)),
+                                np.max(np.abs(F_neg))))
+            running_max = max(running_max, float(np.max(np.abs(acc))))
+            if running_max == 0.0:
+                break
+            if new_max / running_max < image_tol:
+                break
+        else:
+            import warnings as _warnings
+            _warnings.warn(
+                f"Periodic image sum on axis {i} hit the safety cap "
+                f"of {n_max_cap} image pairs without converging to "
+                f"relative tolerance {image_tol:g}. This usually "
+                f"indicates sigma_w >> P, in which case the windowed "
+                f"inner product approaches the unwindowed one; call "
+                f"cos_sim_exp_tens directly instead.",
+                RuntimeWarning, stacklevel=4,
+            )
+        per_axis_wrapped[i] = acc
+
+    # Guard against tiny-or-negative values before taking log.
+    per_axis_wrapped = np.clip(per_axis_wrapped, 1e-300, None)
+    log_F = np.sum(np.log(per_axis_wrapped), axis=0)
+    return log_F, 0.0
 
 
 def _windowed_group_contribution(cx_g, cy_g, centre_g,

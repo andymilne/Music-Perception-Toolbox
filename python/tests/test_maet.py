@@ -1360,12 +1360,301 @@ class TestMAET:
             )
 
     def test_translate_non_dict_offsets_raises(self):
-        """Non-dict offsets argument raises ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="dict"):
+        """An offsets argument that is neither a dict nor a recognised
+        array shape (length-G vector or (G, M) matrix) raises
+        ValueError. Bare scalars are valid only when G == 1; with
+        G > 1, a scalar is malformed."""
+        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
+        # G = 2 here, scalar 5.0 is neither length-G vector nor a (G, M) array.
+        with pytest.raises(ValueError, match="scalar"):
             mpt.translate_events(
-                p, [0], [5.0], [False], [False], [0.0],
+                p, [0, 1], 5.0,
+                [False, False], [False, False], [0.0, 0.0],
             )
+        # 3-D array offsets is not a valid shape regardless of G.
+        with pytest.raises(ValueError, match="ndim"):
+            mpt.translate_events(
+                p, [0, 1], np.zeros((2, 3, 1)),
+                [False, False], [False, False], [0.0, 0.0],
+            )
+        # 1-D array of wrong length (with G > 1).
+        with pytest.raises(ValueError, match="1-D"):
+            mpt.translate_events(
+                p, [0, 1], np.array([1.0, 2.0, 3.0]),
+                [False, False], [False, False], [0.0, 0.0],
+            )
+        # 2-D array with wrong row count.
+        with pytest.raises(ValueError, match="rows"):
+            mpt.translate_events(
+                p, [0, 1], np.zeros((3, 5)),
+                [False, False], [False, False], [0.0, 0.0],
+            )
+
+    # --- translate_events matrix form (sweep) ----------------------------
+
+    def test_translate_matrix_returns_list_of_lists(self):
+        """Matrix offsets of shape (G, M) return a length-M list of
+        length-A lists. M = 1 still keeps the outer wrapper."""
+        p = [np.array([[60.0, 64.0, 67.0]])]
+        groups, is_rel, is_per, periods = [0], [False], [False], [0.0]
+        offs = np.array([[0.0, 100.0, 200.0]])  # (G=1, M=3)
+        out = mpt.translate_events(p, groups, offs, is_rel, is_per, periods)
+        assert isinstance(out, list) and len(out) == 3
+        for col in out:
+            assert isinstance(col, list) and len(col) == 1
+            assert col[0].shape == (1, 3)
+        # M = 1 case: outer wrapper retained.
+        offs_one = np.array([[50.0]])
+        out_one = mpt.translate_events(p, groups, offs_one, is_rel, is_per, periods)
+        assert isinstance(out_one, list) and len(out_one) == 1
+        assert isinstance(out_one[0], list) and len(out_one[0]) == 1
+
+    def test_translate_matrix_per_column_equivalence(self):
+        """Each column of the matrix form equals the vector-form result
+        for that column."""
+        p = [np.array([[60.0, 64., 67.]]), np.array([[0., 1., 2.]])]
+        groups, is_rel, is_per = [0, 1], [False, False], [True, False]
+        periods = [1200.0, 0.0]
+        offs_mat = np.array([
+            [0.0,   100.0, 200.0,   -50.0],
+            [0.0,   0.5,   1.0,     -0.25],
+        ])
+        sweep = mpt.translate_events(
+            p, groups, offs_mat, is_rel, is_per, periods,
+        )
+        for m in range(offs_mat.shape[1]):
+            one = mpt.translate_events(
+                p, groups, offs_mat[:, m], is_rel, is_per, periods,
+            )
+            for a in range(2):
+                np.testing.assert_allclose(sweep[m][a], one[a])
+
+    def test_translate_matrix_nan_per_column(self):
+        """NaN entries in matrix offsets skip translation on that
+        column's group, even when other columns translate the same
+        group."""
+        p = [np.array([[60.0, 64.0]]), np.array([[0.0, 1.0]])]
+        groups, is_rel, is_per = [0, 1], [False, False], [False, False]
+        periods = [0.0, 0.0]
+        offs_mat = np.array([
+            [10.0, np.nan, 30.0],
+            [np.nan, 5.0,  np.nan],
+        ])
+        out = mpt.translate_events(p, groups, offs_mat,
+                                   is_rel, is_per, periods)
+        # col 0: group 0 by +10, group 1 untouched
+        np.testing.assert_allclose(out[0][0], np.array([[70.0, 74.0]]))
+        np.testing.assert_allclose(out[0][1], np.array([[0.0, 1.0]]))
+        # col 1: group 0 untouched, group 1 by +5
+        np.testing.assert_allclose(out[1][0], np.array([[60.0, 64.0]]))
+        np.testing.assert_allclose(out[1][1], np.array([[5.0, 6.0]]))
+        # col 2: group 0 by +30, group 1 untouched
+        np.testing.assert_allclose(out[2][0], np.array([[90.0, 94.0]]))
+        np.testing.assert_allclose(out[2][1], np.array([[0.0, 1.0]]))
+
+    def test_translate_matrix_periodic_wraps_per_column(self):
+        """Periodic wrap applies per column with the per-group period."""
+        p = [np.array([[10.0, 1190.0]])]
+        groups, is_rel, is_per = [0], [False], [True]
+        periods = [1200.0]
+        offs_mat = np.array([[100.0, 1100.0]])
+        out = mpt.translate_events(p, groups, offs_mat,
+                                   is_rel, is_per, periods)
+        # col 0: 10 + 100 = 110; 1190 + 100 = 1290 -> 90
+        np.testing.assert_allclose(out[0][0], np.array([[110.0, 90.0]]))
+        # col 1: 10 + 1100 = 1110; 1190 + 1100 = 2290 -> 1090
+        np.testing.assert_allclose(out[1][0], np.array([[1110.0, 1090.0]]))
+
+    def test_translate_matrix_relative_warns_once(self):
+        """A relative group with any finite offset across columns
+        triggers exactly one warning, not one per column."""
+        p = [np.array([[60.0, 64.0, 67.0]]),
+             np.array([[0.0, 1.0, 2.0]])]
+        groups = [0, 1]
+        is_rel = [True, False]
+        is_per = [False, False]
+        periods = [0.0, 0.0]
+        offs_mat = np.array([
+            [10.0, 20.0, 30.0],   # relative group: every column finite
+            [0.0,  0.5,  1.0],
+        ])
+        with warnings.catch_warnings(record=True) as w_list:
+            warnings.simplefilter("always")
+            out = mpt.translate_events(
+                p, groups, offs_mat, is_rel, is_per, periods,
+            )
+        rel_warnings = [w for w in w_list
+                        if "is_rel=True" in str(w.message)]
+        assert len(rel_warnings) == 1
+        # Relative group passes through unchanged on every column.
+        for col in out:
+            np.testing.assert_allclose(col[0], p[0])
+        # Absolute group is translated normally per column.
+        for m, mu in enumerate([0.0, 0.5, 1.0]):
+            np.testing.assert_allclose(out[m][1], p[1] + mu)
+
+    def test_translate_matrix_dict_and_array_vector_parity(self):
+        """The three vector-form inputs (dict, 1-D ndarray, single
+        column of a 2-D ndarray) give identical results."""
+        p = [np.array([[60.0, 64.0, 67.0]])]
+        groups, is_rel, is_per, periods = [0], [False], [False], [0.0]
+        r_dict = mpt.translate_events(p, groups, {0: 100.0},
+                                      is_rel, is_per, periods)
+        r_vec  = mpt.translate_events(p, groups, np.array([100.0]),
+                                      is_rel, is_per, periods)
+        r_mat  = mpt.translate_events(p, groups, np.array([[100.0]]),
+                                      is_rel, is_per, periods)
+        np.testing.assert_allclose(r_dict[0], r_vec[0])
+        np.testing.assert_allclose(r_mat[0][0], r_vec[0])
+
+    # --- cos_sim_exp_tens raw-MA list mode --------------------------------
+
+    def _ma_inputs(self):
+        """Common 2-attribute (pitch, time) inputs used by raw-MA tests."""
+        ref_pAttr = [
+            np.array([[60., 62., 64., 65., 67., 69., 71.]]) * 100.0,
+            np.array([[0., 1., 2., 3., 4., 5., 6.]]),
+        ]
+        qry_pAttr = [
+            np.array([[60., 64., 67.]]) * 100.0,
+            np.array([[0., 1., 2.]]),
+        ]
+        params = dict(
+            sigma=[50., 0.3], r=[1, 1], groups=[0, 1],
+            is_rel=[False, False], is_per=[True, False],
+            periods=[1200., 0.],
+        )
+        return ref_pAttr, qry_pAttr, params
+
+    def test_raw_ma_list_scalar_dispatch_unchanged(self):
+        """A single MA p_attr on each side still scalar-dispatches."""
+        ref_pAttr, qry_pAttr, p = self._ma_inputs()
+        s = mpt.cos_sim_exp_tens(
+            ref_pAttr, None, qry_pAttr, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        assert np.isscalar(s) or (isinstance(s, np.ndarray) and s.ndim == 0)
+
+    def test_raw_ma_list_broadcast_returns_ndarray(self):
+        """Scalar-vs-list raw-MA returns a length-M ndarray."""
+        ref_pAttr, qry_pAttr, p = self._ma_inputs()
+        offs = np.array([[0., 100., 200., -50.],
+                         [0., 1., 2., 3.]])
+        qry_swept = mpt.translate_events(
+            qry_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        S = mpt.cos_sim_exp_tens(
+            ref_pAttr, None, qry_swept, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        assert isinstance(S, np.ndarray)
+        assert S.shape == (4,)
+        assert np.all(np.isfinite(S))
+
+    def test_raw_ma_list_parity_with_manual_build_loop(self):
+        """Internalised build matches the explicit per-entry loop."""
+        ref_pAttr, qry_pAttr, p = self._ma_inputs()
+        offs = np.array([[-100., 0., 100., 200., 700.],
+                         [0., 1., 2., 1., 3.]])
+        qry_swept = mpt.translate_events(
+            qry_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        S = mpt.cos_sim_exp_tens(
+            ref_pAttr, None, qry_swept, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        dens_ref = mpt.build_exp_tens(
+            ref_pAttr, None, p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'], verbose=False,
+        )
+        S_manual = np.array([
+            mpt.cos_sim_exp_tens(
+                dens_ref,
+                mpt.build_exp_tens(
+                    pa, None, p['sigma'], p['r'], p['groups'],
+                    p['is_rel'], p['is_per'], p['periods'],
+                    verbose=False,
+                ),
+                verbose=False,
+            )
+            for pa in qry_swept
+        ])
+        np.testing.assert_allclose(S, S_manual, atol=1e-12)
+
+    def test_raw_ma_list_symmetric_in_operand_order(self):
+        """Cosine is symmetric; passing the list as first or second
+        operand gives the same profile."""
+        ref_pAttr, qry_pAttr, p = self._ma_inputs()
+        offs = np.array([[0., 100., 200.],
+                         [0., 0., 0.]])
+        qry_swept = mpt.translate_events(
+            qry_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        S_ref_first = mpt.cos_sim_exp_tens(
+            ref_pAttr, None, qry_swept, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        S_list_first = mpt.cos_sim_exp_tens(
+            qry_swept, None, ref_pAttr, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        np.testing.assert_allclose(S_ref_first, S_list_first, atol=1e-12)
+
+    def test_raw_ma_list_vs_list_rejected(self):
+        """List-vs-list raw-MA is rejected with a clear message."""
+        ref_pAttr, qry_pAttr, p = self._ma_inputs()
+        offs = np.array([[0., 100.],
+                         [0., 0.]])
+        list1 = mpt.translate_events(
+            ref_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        list2 = mpt.translate_events(
+            qry_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        with pytest.raises(TypeError, match="list-vs-list"):
+            mpt.cos_sim_exp_tens(
+                list1, None, list2, None,
+                p['sigma'], p['r'], p['groups'],
+                p['is_rel'], p['is_per'], p['periods'],
+                verbose=False,
+            )
+
+    def test_raw_ma_list_consumes_translate_events_output(self):
+        """End-to-end: translate_events → cos_sim_exp_tens raw-MA list
+        finds the self-match peak at offset 0."""
+        ref_pAttr, _, p = self._ma_inputs()
+        # Sweep the reference against itself: peak should be at mu = 0
+        # for both pitch and time.
+        pitch_offs = np.array([-200., -100., 0., 100., 200.])
+        time_offs  = np.zeros_like(pitch_offs)
+        offs = np.vstack([pitch_offs, time_offs])
+        ref_swept = mpt.translate_events(
+            ref_pAttr, p['groups'], offs,
+            p['is_rel'], p['is_per'], p['periods'],
+        )
+        S = mpt.cos_sim_exp_tens(
+            ref_pAttr, None, ref_swept, None,
+            p['sigma'], p['r'], p['groups'],
+            p['is_rel'], p['is_per'], p['periods'],
+            verbose=False,
+        )
+        assert int(np.argmax(S)) == 2  # offset 0 is the third entry
+        assert S[2] == pytest.approx(1.0, abs=1e-9)
 
     # --- windowTensor / windowedSimilarity ------------------------------
 

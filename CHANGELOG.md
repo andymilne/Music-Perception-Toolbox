@@ -82,27 +82,49 @@ These controls govern how the dense Gaussian-kernel matrix is computed in the "c
 
 - **Multi-slot attributes ($K_{a, n} > 1$) handled without ambiguity.** Every value in the per-event multiset is shifted by the same offset, so unlike post-tensor windowing — where a per-event scalar weight would have to summarise multiple values' distances from a localising centre — translation has no analogous obstruction at $K_{a, n} > 1$. The relative-group no-op and multi-slot uniformity together exhaust the geometry-dependent cases.
 
-- **Multi-group simultaneous translation.** A single call can translate any subset of groups by independent per-group offsets (e.g. pitch by 5 semitones and time by 0.5 beats together). Groups not selected pass through unchanged.
+- **Multi-group simultaneous translation.** A single call can translate any subset of groups by independent per-group offsets (e.g.\\ pitch by 5 semitones and time by 0.5 beats together). Groups not selected pass through unchanged.
 
-- **API signatures.** Python uses a sparse dict for the per-group offsets:
+- **Vector and matrix offset shapes.** `offsets` accepts two shapes. The **vector form** is a length-$G$ specification (a sparse `{group_index: mu}` dict in Python or a length-$G$ vector with `NaN` as the no-op sentinel in either language) and performs one translation, returning a single `pAttrTranslated` list. The **matrix form** is a $G$-by-$M$ array and performs an $M$-column sweep in one call, returning a length-$M$ list of `pAttrTranslated` blocks. NaN entries in either shape mean "do not translate this group" on that column. The matrix form is the natural feed into the raw-MA scalar-vs-list mode of `cosSimExpTens` for a one-call sliding-comparison sweep. When the matrix form has multiple columns with finite entries on a relative-group row, the `translateEvents:noOpRelative` warning is emitted at most once per call rather than once per column.
+
+- **API signatures.** Python's vector form accepts either a sparse dict or a length-$G$ ndarray; the matrix form is a $(G, M)$ ndarray:
 
   ```python
+  # vector form — single translation
   p_translated = translate_events(
-      p_attr, groups, offsets, is_rel, is_per, periods,
+      p_attr, groups, {0: 6.0}, is_rel, is_per, periods,
   )
-  # offsets = {0: 6.0}  -- shift group 0 by 6, leave others alone
+
+  # matrix form — M-column sweep
+  offsets_mat = np.vstack([pitch_grid, time_grid])   # (G, M)
+  p_swept = translate_events(
+      p_attr, groups, offsets_mat, is_rel, is_per, periods,
+  )                                                  # list of length M
   ```
 
-  MATLAB uses a length-$G$ numeric vector with `NaN` as the no-op sentinel:
+  MATLAB uses a 1-by-$G$ numeric row vector (with `NaN` as the no-op sentinel) for the vector form and a $G$-by-$M$ matrix for the sweep:
 
   ```matlab
-  pTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer, periods);
-  % offsets = [6, NaN, NaN]  -- shift group 1 (1-indexed) by 6, leave others alone
+  % vector form  (1-by-G row; scalar when G = 1)
+  pTranslated = translateEvents(pAttr, groups, [6, NaN, NaN], ...
+                                isRel, isPer, periods);
+
+  % matrix form  (G-by-M; G-by-1 column for M = 1)
+  offsetsMat = [pitchGrid; timeGrid];     % G-by-M
+  pSwept     = translateEvents(pAttr, groups, offsetsMat, ...
+                                isRel, isPer, periods);   % 1-by-M cell
   ```
 
-  The two are the same operation, expressed in each language's idiomatic sparse-mapping form. The `isRel` / `is_rel`, `isPer` / `is_per`, and `periods` arguments use the same per-group conventions as `buildExpTens`. The MATLAB warning identifier is `translateEvents:noOpRelative`; the Python warning class is `TranslateEventsNoOpWarning` (re-exported as `mpt.TranslateEventsNoOpWarning`).
+  A length-$G$ column vector (e.g.\\ `[5; 7]` for $G = 2$) is read as a $G$-by-$1$ matrix and so dispatches to matrix form with $M = 1$, not to vector form. This is the only way to specify $M = 1$ in MATLAB without an extra flag, since the language does not distinguish a length-$G$ column vector from a $G$-by-$1$ 2-D array. Python is shape-driven and has no analogous ambiguity: `np.array([5.0, 7.0])` is 1-D (vector form), `np.array([[5.0], [7.0]])` is 2-D shape $(G, 1)$ (matrix form $M = 1$).
+
+  The MATLAB warning identifier is `translateEvents:noOpRelative`; the Python warning class is `TranslateEventsNoOpWarning` (re-exported as `mpt.TranslateEventsNoOpWarning`).
 
 - **Manuscript context.** Translation is presented in the JMM manuscript's "Sliding comparisons" section as one of two parallel routes (the other being post-tensor windowing) for asking how a similarity profile varies along an attribute axis. The translation primitive is used in §6.1.3 (cadence-progression similarity under transposition) to demonstrate the pre-tensor route, with `windowedSimilarity` used in §6.1.4 for the post-tensor route. The two examples expose the operational differences (bounded vs magnitude-aware, symmetric vs asymmetric, locality coupled to query vs locality independent) in concrete musical settings.
+
+### Added — `cosSimExpTens` / `cos_sim_exp_tens` raw-MA scalar-vs-list mode
+
+- **One-call sweep from the matrix form of `translateEvents`.** The raw multi-attribute calling form of `cosSimExpTens` accepts a list of `pAttr` blocks (cell-of-cells in MATLAB; list-of-lists in Python) as exactly one of its two `pAttr` operands. The scalar operand is built once internally and reused against each list entry; the list operand is built once per entry. Weights for the list side are shared across every entry — a single `w` value, not a per-entry list. Returns a 1-by-$M$ cell (MATLAB) or 1-D ndarray (Python). Detection examines the first element of the cell / list: a numeric matrix indicates a single `pAttr` (scalar-vs-scalar dispatch); a nested cell or list indicates a list of `pAttr` blocks (scalar-vs-list dispatch). List-vs-list calls are rejected with a directive to use the explicit density-struct list mode instead — list-vs-list is already served by the struct path, and supporting it in the raw form would double the dispatch surface for a use case that path covers cleanly.
+
+- **Eliminates the per-offset `buildExpTens` loop.** A pre-tensor sliding-comparison sweep over $M$ offsets is now expressed in two calls: `translateEvents` with a $G$-by-$M$ matrix produces the swept list; `cosSimExpTens` in scalar-vs-list mode consumes it and returns the similarity profile. Floating-point parity with an explicit per-offset build loop is exact (max $|S_\text{raw} - S_\text{manual}| = 0$ to machine precision on the demo and tests).
 
 ### Fixed
 

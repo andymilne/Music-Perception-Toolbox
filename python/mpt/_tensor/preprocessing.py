@@ -627,7 +627,7 @@ def translate_events(
     is_rel,
     is_per,
     periods,
-) -> list[np.ndarray]:
+) -> list[np.ndarray] | list[list[np.ndarray]]:
     """Translate selected groups' event values by a per-group offset.
 
     Cross-event preprocessing for multi-attribute tensor input. Takes
@@ -646,7 +646,26 @@ def translate_events(
     answer related "slide along an axis" questions but with different
     operational properties; see the USER_GUIDE §3.1 discussion.
 
-    Semantics by group geometry:
+    Three offset-input shapes are accepted:
+
+    - **Sparse dict (vector form).** ``offsets`` is a
+      ``{group_index: mu}`` mapping (0-indexed). Groups not in the dict
+      are left unchanged. One translation is performed and the return
+      is a length-A list of ``K_a × N`` ndarrays.
+    - **1-D ndarray (vector form).** ``offsets`` is a length-G array.
+      NaN entries mean "do not translate this group"; finite entries
+      are the translation amount. One translation; same length-A list
+      return.
+    - **2-D ndarray (matrix form, sweep).** ``offsets`` has shape
+      ``(G, M)``. M is the number of sweep positions. Translation is
+      applied column by column. The return is a length-M list of
+      length-A lists. M = 1 still yields a length-1 outer wrapper,
+      never collapses to the vector-form return. Pass the result
+      directly into the raw-MA list mode of :func:`cos_sim_exp_tens`
+      (with one operand a list of ``p_attr`` blocks) to score the
+      sweep in one call.
+
+    Semantics by group geometry (apply per offset column in matrix form):
 
     - **Absolute non-periodic** (``is_per[g] = False``): every value of
       every attribute in group ``g`` is replaced by ``value + mu``.
@@ -661,7 +680,9 @@ def translate_events(
     - **Relative** (``is_rel[g] = True``): a uniform shift of every
       value cancels in every within-tuple difference, so translation
       on a relative group is a structural no-op. The group is left
-      unchanged and a :class:`TranslateEventsNoOpWarning` is emitted.
+      unchanged. A :class:`TranslateEventsNoOpWarning` is emitted at
+      most once per call, even when the matrix form has many columns
+      with finite entries on the relative-group row.
 
     Weights are unaffected by translation and are not part of this
     function's signature; the caller passes the same ``w`` to
@@ -678,17 +699,16 @@ def translate_events(
         Group assignment, same convention as :func:`build_exp_tens` and
         :func:`difference_events`. ``None`` treats each attribute as its
         own singleton group.
-    offsets : dict
-        Sparse mapping ``{group_index: mu}`` (0-indexed) giving the
-        translation offset for selected groups. Groups not in the dict
-        are left unchanged. An empty dict makes the function a copy.
-        ``mu`` is a scalar (one shared offset for every attribute and
-        every value-slot in the group).
+    offsets : dict[int, float] | array-like
+        Either a ``{group_index: mu}`` dict (sparse vector form), a
+        length-G array (vector form with NaN-skip), or a
+        ``(G, M)``-shaped 2-D array (matrix form / sweep).
     is_rel : array-like of bool
         Length-G vector of relative-mode flags, same convention as
         :func:`build_exp_tens`. Groups with ``is_rel[g] = True`` that
-        appear in ``offsets`` emit a :class:`TranslateEventsNoOpWarning`
-        and are skipped.
+        have at least one finite offset entry emit a single
+        :class:`TranslateEventsNoOpWarning` and pass through unchanged
+        on every column.
     is_per : array-like of bool
         Length-G vector of periodic-mode flags, same convention as
         :func:`build_exp_tens`. Wrapping after translation is applied
@@ -703,22 +723,26 @@ def translate_events(
 
     Returns
     -------
-    list of np.ndarray
-        Length-A list of ``K_a x N`` matrices, same shapes as the input,
-        with translation applied to the selected groups. The input
-        ``p_attr`` is not mutated.
+    list of np.ndarray, or list of list of np.ndarray
+        For vector-form offsets: a length-A list of ``K_a × N``
+        ndarrays. For matrix-form offsets: a length-M list of such
+        lists, one per offset column. The input ``p_attr`` is not
+        mutated.
 
     Raises
     ------
     ValueError
-        If ``offsets`` contains a group index outside ``[0, G)``, or if
-        ``is_rel``, ``is_per``, or ``periods`` has the wrong length, or
-        if any ``offsets[g]`` is not a finite scalar.
+        If ``offsets`` has the wrong shape (not a length-G vector or
+        ``(G, M)`` matrix, and not a dict), if ``is_rel``, ``is_per``,
+        or ``periods`` has the wrong length, or if any offset entry is
+        ``±inf``.
 
     Warns
     -----
     TranslateEventsNoOpWarning
-        When ``offsets`` contains a key ``g`` with ``is_rel[g] = True``.
+        When the offsets specify a finite translation on a group with
+        ``is_rel[g] = True``. At most one warning is emitted per call,
+        regardless of how many columns or relative groups are involved.
 
     See Also
     --------
@@ -726,6 +750,8 @@ def translate_events(
     bind_events : Slide a length-n window over events to form n-attribute
         super-events.
     build_exp_tens : Consumes the output of this function.
+    cos_sim_exp_tens : Raw-MA list mode consumes the matrix-form output
+        directly.
     windowed_similarity : Post-tensor counterpart for sliding comparisons.
 
     Examples
@@ -756,6 +782,15 @@ def translate_events(
         ...     )
         ...     best = max(best, cos_sim_exp_tens(M_q, M_c_mu, verbose=False))
         >>> bool(best > 0.99)
+        True
+
+    Sweep all transpositions in a single call using the matrix form::
+
+        >>> mu_grid = np.arange(-12., 12.01, 0.25).reshape(1, -1)  # (G, M)
+        >>> p_c_sweep = translate_events(
+        ...     p_c, groups, mu_grid, is_rel, is_per, periods,
+        ... )  # list of length M, each entry a length-A list
+        >>> len(p_c_sweep) == mu_grid.shape[1]
         True
     """
     # ---- normalise / validate p_attr ----
@@ -809,58 +844,127 @@ def translate_events(
             f"{periods_arr.size}."
         )
 
-    # ---- validate offsets ----
-    if not isinstance(offsets, dict):
+    # ---- normalise offsets to (G, M) matrix, recording whether the ----
+    # ---- input was vector-shaped (single translation) or matrix-shaped ----
+    # ---- (sweep). dict and length-G 1-D arrays are vector-shaped; ----
+    # ---- 2-D arrays are matrix-shaped; M = 1 in matrix form keeps the ----
+    # ---- list wrapper. ----
+    matrix_mode, offset_cols = _normalise_offsets(offsets, G)
+
+    # finite/NaN check
+    finite_mask = np.isfinite(offset_cols)
+    if np.any(np.isinf(offset_cols)):
         raise ValueError(
-            f"offsets must be a dict mapping group_index -> mu; got "
-            f"{type(offsets).__name__}."
+            "offsets entries must be finite (or NaN to skip a group)."
         )
-    valid_groups = set()
-    for gkey, mu in offsets.items():
-        try:
-            gi = int(gkey)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"offsets keys must be integer group indices; got "
-                f"{gkey!r}."
-            )
-        if gi < 0 or gi >= G:
-            raise ValueError(
-                f"offsets contains group index {gi}, which is out of "
-                f"range for G = {G} groups."
-            )
-        if not np.isscalar(mu) or not np.isfinite(mu):
-            raise ValueError(
-                f"offsets[{gi}] must be a finite scalar; got {mu!r}."
-            )
-        if is_rel_arr[gi]:
-            warnings.warn(
-                f"Group {gi} has is_rel=True; translation is a "
-                f"structural no-op on relative groups (a uniform shift "
-                f"of all values cancels in every within-tuple "
-                f"difference). The group is left unchanged.",
-                TranslateEventsNoOpWarning,
-                stacklevel=2,
-            )
-            continue
-        valid_groups.add(gi)
 
-    # ---- apply translation ----
-    p_translated = []
-    for a, M in enumerate(p_attr_arrays):
-        g = int(group_of_attr[a])
-        if g not in valid_groups:
-            # Either not selected for translation, or a relative-group
-            # no-op. Copy so the caller can safely modify the result.
-            p_translated.append(M.copy())
+    # ---- Identify groups to translate. Emit at most one relative-group ----
+    # ---- no-op warning per call, regardless of how many columns or ----
+    # ---- relative groups are involved. ----
+    any_finite_by_group = np.any(finite_mask, axis=1)   # length-G
+    group_touchable = np.zeros(G, dtype=bool)
+    warned_relative = False
+    for g in range(G):
+        if not any_finite_by_group[g]:
             continue
-        mu = float(offsets[g])
-        M_shifted = M + mu
-        if is_per_arr[g] and periods_arr[g] > 0:
-            M_shifted = M_shifted % float(periods_arr[g])
-        p_translated.append(M_shifted)
+        if is_rel_arr[g]:
+            if not warned_relative:
+                warnings.warn(
+                    f"Group {g} has is_rel=True; translation is a "
+                    f"structural no-op on relative groups (a uniform shift "
+                    f"of all values cancels in every within-tuple "
+                    f"difference). The group is left unchanged on every "
+                    f"offset column.",
+                    TranslateEventsNoOpWarning,
+                    stacklevel=2,
+                )
+                warned_relative = True
+            continue
+        group_touchable[g] = True
 
-    return p_translated
+    # ---- apply translation, column by column ----
+    M_cols = offset_cols.shape[1]
+    cols_out: list[list[np.ndarray]] = []
+    for m in range(M_cols):
+        col_translated: list[np.ndarray] = []
+        for a, Marr in enumerate(p_attr_arrays):
+            g = int(group_of_attr[a])
+            mu = offset_cols[g, m]
+            if (not group_touchable[g]) or np.isnan(mu):
+                col_translated.append(Marr.copy())
+                continue
+            M_shifted = Marr + float(mu)
+            if is_per_arr[g] and periods_arr[g] > 0:
+                M_shifted = M_shifted % float(periods_arr[g])
+            col_translated.append(M_shifted)
+        cols_out.append(col_translated)
+
+    if matrix_mode:
+        return cols_out         # length-M list of length-A lists
+    return cols_out[0]          # length-A list (single translation)
+
+
+def _normalise_offsets(offsets, G: int) -> tuple[bool, np.ndarray]:
+    """Coerce the public offsets input to a ``(G, M)`` ndarray.
+
+    Returns ``(matrix_mode, offset_cols)``. ``matrix_mode`` is True
+    when the user passed a 2-D ndarray (or a 1-D ndarray with G == 1
+    and length > 1, which is unambiguously a 1×M sweep); False when
+    the user passed a dict or a length-G 1-D ndarray (single
+    translation).
+    """
+    if isinstance(offsets, dict):
+        cols = np.full((G, 1), np.nan, dtype=np.float64)
+        for gkey, mu in offsets.items():
+            try:
+                gi = int(gkey)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"offsets keys must be integer group indices; got "
+                    f"{gkey!r}."
+                ) from None
+            if gi < 0 or gi >= G:
+                raise ValueError(
+                    f"offsets contains group index {gi}, which is out "
+                    f"of range for G = {G} groups."
+                )
+            if not np.isscalar(mu) or not np.isfinite(mu):
+                raise ValueError(
+                    f"offsets[{gi}] must be a finite scalar; got {mu!r}."
+                )
+            cols[gi, 0] = float(mu)
+        return False, cols
+
+    arr = np.asarray(offsets, dtype=np.float64)
+    if arr.ndim == 0:
+        # bare scalar: only meaningful when G == 1
+        if G != 1:
+            raise ValueError(
+                f"offsets is a scalar; only valid when G = 1 (got G = {G})."
+            )
+        return False, arr.reshape(1, 1)
+    if arr.ndim == 1:
+        if arr.size == G:
+            return False, arr.reshape(G, 1)
+        if G == 1 and arr.size > 1:
+            # 1-D length-M sweep for the G == 1 case is unambiguous.
+            return True, arr.reshape(1, -1)
+        raise ValueError(
+            f"offsets is a 1-D array of length {arr.size}; expected "
+            f"length-G = {G} vector (single translation) or G == 1 "
+            f"with length > 1 (sweep)."
+        )
+    if arr.ndim == 2:
+        if arr.shape[0] != G:
+            raise ValueError(
+                f"offsets is a 2-D array with shape {arr.shape}; "
+                f"expected G = {G} rows."
+            )
+        return True, arr
+    raise ValueError(
+        f"offsets must be a dict, a length-G vector, or a (G, M) 2-D "
+        f"array; got an array with ndim = {arr.ndim}."
+    )
 
 
 # ===================================================================

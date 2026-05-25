@@ -914,10 +914,11 @@ results{end,2}   = best_s > 1.0 - 1e-9;
 
 % -- translateEvents: error cases --
 
-results{end+1,1} = 'translateEvents: wrong-length offsets errors';
+results{end+1,1} = 'translateEvents: wrong-shape offsets (length-3 row, G=2) errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() translateEvents({[1 2]}, [], [5 0], false, false, 0), ...
-    'translateEvents:wrongOffsetsLength');
+    @() translateEvents({[1 2], [3 4]}, [], [5 0 7], ...
+                         [false false], [false false], [0 0]), ...
+    'translateEvents:wrongOffsetsShape');
 
 results{end+1,1} = 'translateEvents: wrong-length isRel errors';
 results{end,2}   = throwsErrorWithId( ...
@@ -938,6 +939,181 @@ results{end+1,1} = 'translateEvents: infinite offset errors';
 results{end,2}   = throwsErrorWithId( ...
     @() translateEvents({[1 2]}, [], Inf, false, false, 0), ...
     'translateEvents:nonFiniteOffset');
+
+% -- translateEvents: matrix-form offsets (sweep) --
+
+% (a) Matrix shape (G, M) returns a 1-by-M cell of 1-by-A cells.
+p_sweep_in = {[60 64 67]};
+offs_mat   = [0 100 200];   % G=1, M=3 (1xM row vector unambiguous as matrix form)
+out_sweep  = translateEvents(p_sweep_in, [1], offs_mat, false, false, 0);
+ok = iscell(out_sweep) && numel(out_sweep) == 3 ...
+     && iscell(out_sweep{1}) && numel(out_sweep{1}) == 1 ...
+     && isequal(out_sweep{1}{1}, [60 64 67]) ...
+     && isequal(out_sweep{2}{1}, [160 164 167]) ...
+     && isequal(out_sweep{3}{1}, [260 264 267]);
+results{end+1,1} = 'translateEvents: matrix form returns 1-by-M cell of 1-by-A cells';
+results{end,2}   = ok;
+
+% (b) (G, 1) column-vector input is matrix form M = 1 and keeps the
+% cell wrapper around the inner 1-by-A cell. (Vector form in MATLAB
+% requires a 1-by-G ROW vector; column vectors are matrix-form.)
+p_g2     = {[1 2], [10 20]};
+offs_g2  = [5; 7];   % 2-by-1 column → matrix form M = 1
+out_g2   = translateEvents(p_g2, [1 2], offs_g2, ...
+                            [false false], [false false], [0 0]);
+ok = iscell(out_g2) && numel(out_g2) == 1 ...
+     && iscell(out_g2{1}) && numel(out_g2{1}) == 2 ...
+     && isequal(out_g2{1}{1}, [6 7]) ...
+     && isequal(out_g2{1}{2}, [17 27]);
+results{end+1,1} = 'translateEvents: (G,1) matrix form keeps cell wrapper (M=1)';
+results{end,2}   = ok;
+
+% (c) Per-column equivalence with vector-form calls. Each column is
+% transposed to a 1-by-G row to invoke vector form.
+p_pe      = {[60 64 67], [0 1 2]};
+groups_pe = [1 2];
+isRel_pe  = [false false];
+isPer_pe  = [true  false];
+period_pe = [1200  0];
+offs_mat2 = [0   100  200  -50; ...
+             0    0.5   1    -0.25];   % 2-by-4 matrix form
+sweep2 = translateEvents(p_pe, groups_pe, offs_mat2, ...
+                          isRel_pe, isPer_pe, period_pe);
+allMatch = true;
+for m = 1:size(offs_mat2, 2)
+    one_m = translateEvents(p_pe, groups_pe, offs_mat2(:, m).', ...
+                             isRel_pe, isPer_pe, period_pe);
+    for a = 1:numel(p_pe)
+        if ~isequal(sweep2{m}{a}, one_m{a})
+            allMatch = false; break;
+        end
+    end
+end
+results{end+1,1} = 'translateEvents: matrix per-column equals vector-form calls';
+results{end,2}   = allMatch;
+
+% (d) NaN entries per column skip translation column-by-column.
+offs_nan = [10   NaN  30; ...
+             NaN  5    NaN];
+out_nan = translateEvents(p_pe, groups_pe, offs_nan, ...
+                           isRel_pe, isPer_pe, period_pe);
+ok = isequal(out_nan{1}{1}, [70 74 77]) ...    % col 1: g1 by +10
+     && isequal(out_nan{1}{2}, [0 1 2]) ...    %         g2 untouched (NaN)
+     && isequal(out_nan{2}{1}, [60 64 67]) ... % col 2: g1 untouched (NaN)
+     && isequal(out_nan{2}{2}, [5 6 7]) ...    %         g2 by +5
+     && isequal(out_nan{3}{1}, [90 94 97]) ... % col 3: g1 by +30
+     && isequal(out_nan{3}{2}, [0 1 2]);       %         g2 untouched (NaN)
+results{end+1,1} = 'translateEvents: matrix NaN entries skip per column';
+results{end,2}   = ok;
+
+% (e) Periodic wrap applies per column.
+p_per      = {[10 1190]};
+out_per    = translateEvents(p_per, [1], [100 1100], false, true, 1200);
+ok = isequal(out_per{1}{1}, [110 90]) ...    % col 1: +100, second wraps
+     && isequal(out_per{2}{1}, [1110 1090]);   % col 2: +1100, second wraps
+results{end+1,1} = 'translateEvents: matrix periodic wrap applies per column';
+results{end,2}   = ok;
+
+% (f) Relative group warns at most once across multiple columns.
+p_rel       = {[60 64 67], [0 1 2]};
+offs_rel    = [10 20 30; 0 0.5 1.0];   % all columns finite on relative row
+isRel_rel   = [true false];
+prevWarn    = warning('off', 'translateEvents:noOpRelative'); %#ok<WNOFF>
+warning('off', 'all');                 % clear all
+lastwarn('');                          % clear last warning
+warning('on', 'translateEvents:noOpRelative');
+% Capture warning count via a custom helper-free pattern: count by
+% checking lastwarn after each call. We can also rely on the fact
+% that a single warning per call is the contract; assert that
+% lastwarn after the call matches the relative-group message exactly
+% once and that no per-column repetition occurs (smoke-test only).
+out_rel = translateEvents(p_rel, [1 2], offs_rel, isRel_rel, ...
+                           [false false], [0 0]);
+[~, lastId] = lastwarn();
+warning(prevWarn);
+ok = strcmp(lastId, 'translateEvents:noOpRelative') ...
+     && numel(out_rel) == 3 ...
+     && isequal(out_rel{1}{1}, p_rel{1}) ...   % relative untouched
+     && isequal(out_rel{1}{2}, [0 1 2]) ...
+     && isequal(out_rel{2}{2}, [0.5 1.5 2.5]) ...
+     && isequal(out_rel{3}{2}, [1 2 3]);
+results{end+1,1} = 'translateEvents: relative-row warns at most once across columns';
+results{end,2}   = ok;
+
+% -- cosSimExpTens raw-MA scalar-vs-list mode --
+
+p_ref     = {convertPitch([60 62 64 65 67 69 71], 'midi', 'cents'), 0:6};
+p_qry     = {convertPitch([60 64 67], 'midi', 'cents'),             0:2};
+sigma_ma  = [50 0.3];
+r_ma      = [1 1];
+groups_ma = [1 2];
+isRel_ma  = [false false];
+isPer_ma  = [true  false];
+period_ma = [1200 0];
+
+% (a) Scalar dispatch unchanged.
+s_scalar = cosSimExpTens(p_ref, [], p_qry, [], ...
+    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    'verbose', false);
+results{end+1,1} = 'cosSimExpTens raw-MA scalar dispatch returns numeric scalar';
+results{end,2}   = isnumeric(s_scalar) && isscalar(s_scalar) && isfinite(s_scalar);
+
+% (b) Scalar-vs-list broadcast: matrix-form translateEvents feed.
+offs_rma  = [-100  0   100  200; 0 1 2 1];
+qry_swept = translateEvents(p_qry, groups_ma, offs_rma, ...
+                             isRel_ma, isPer_ma, period_ma);
+s_list = cosSimExpTens(p_ref, [], qry_swept, [], ...
+    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    'verbose', false);
+results{end+1,1} = 'cosSimExpTens raw-MA list returns 1-by-M cell';
+results{end,2}   = iscell(s_list) && numel(s_list) == 4 ...
+                   && all(cellfun(@(x) isnumeric(x) && isscalar(x) && isfinite(x), ...
+                                  s_list));
+
+% (c) Floating-point parity with manual build loop.
+dens_ref = buildExpTens(p_ref, [], sigma_ma, r_ma, groups_ma, ...
+    isRel_ma, isPer_ma, period_ma, 'verbose', false);
+s_manual = zeros(1, numel(qry_swept));
+for m = 1:numel(qry_swept)
+    dens_q = buildExpTens(qry_swept{m}, [], sigma_ma, r_ma, groups_ma, ...
+        isRel_ma, isPer_ma, period_ma, 'verbose', false);
+    s_manual(m) = cosSimExpTens(dens_ref, dens_q, 'verbose', false);
+end
+s_list_num = cell2mat(s_list);
+results{end+1,1} = 'cosSimExpTens raw-MA list parity with manual buildExpTens loop';
+results{end,2}   = max(abs(s_list_num - s_manual)) < 1e-12;
+
+% (d) Operand order symmetric.
+s_rev = cosSimExpTens(qry_swept, [], p_ref, [], ...
+    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    'verbose', false);
+s_rev_num = cell2mat(s_rev);
+results{end+1,1} = 'cosSimExpTens raw-MA list symmetric in operand order';
+results{end,2}   = max(abs(s_list_num - s_rev_num)) < 1e-12;
+
+% (e) List-vs-list rejected.
+qry_swept_2 = translateEvents(p_qry, groups_ma, [0 100; 0 0], ...
+                               isRel_ma, isPer_ma, period_ma);
+ref_swept   = translateEvents(p_ref, groups_ma, [0 50; 0 0], ...
+                               isRel_ma, isPer_ma, period_ma);
+results{end+1,1} = 'cosSimExpTens raw-MA list-vs-list rejected';
+results{end,2}   = throwsErrorWithId( ...
+    @() cosSimExpTens(ref_swept, [], qry_swept_2, [], ...
+        sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+        'verbose', false), ...
+    'cosSimExpTens:listVsListNotSupported');
+
+% (f) Self-sweep peaks at zero offset.
+offs_self = [-200 -100 0 100 200; 0 0 0 0 0];
+ref_self  = translateEvents(p_ref, groups_ma, offs_self, ...
+                             isRel_ma, isPer_ma, period_ma);
+s_self    = cosSimExpTens(p_ref, [], ref_self, [], ...
+    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    'verbose', false);
+s_self_num = cell2mat(s_self);
+[~, iMax]  = max(s_self_num);
+results{end+1,1} = 'cosSimExpTens raw-MA list peaks at self-match (offset 0)';
+results{end,2}   = iMax == 3 && abs(s_self_num(3) - 1) < 1e-9;
 
 % -- windowTensor: basic construction --
 

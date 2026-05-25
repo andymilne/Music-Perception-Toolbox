@@ -18,7 +18,30 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %   along an axis" questions but with different operational properties;
 %   see USER_GUIDE.md §3.1.
 %
-%   Semantics by group geometry:
+%   Two offset-input shapes are accepted:
+%
+%     Vector form. offsets is a 1-by-G numeric row vector (or a 1-by-1
+%     scalar when G = 1). One translation is performed and
+%     pAttrTranslated has the same 1-by-A cell shape as pAttr. NaN
+%     entries mean "do not translate this group".
+%
+%     Matrix form (sweep). offsets is a G-by-M numeric matrix. M is
+%     the number of sweep positions. Translation is applied column by
+%     column: for each m in 1..M, the function builds a translated
+%     copy of pAttr using offsets(:, m). The return is a 1-by-M cell
+%     of 1-by-A cells. M = 1 still yields a 1-by-1 cell wrapper, never
+%     collapses to the vector-form return. Pass the result directly
+%     into the raw-MA list mode of cosSimExpTens (cosSimExpTens with
+%     pAttrCell on either operand) to score the sweep in one call.
+%
+%     Note on column vectors. A length-G column vector (e.g. [5; 7]
+%     for G = 2) is a G-by-1 matrix and so reads as matrix form with
+%     M = 1, NOT as vector form. To pass a vector form in MATLAB use
+%     the 1-by-G row layout. This convention is the only way to make
+%     M = 1 reachable, since MATLAB does not distinguish a length-G
+%     column vector from a G-by-1 2-D array.
+%
+%   Semantics by group geometry (apply per offset column in matrix form):
 %
 %     Absolute non-periodic (isPer(g) = false): every value of every
 %     attribute in group g is replaced by value + mu. periods(g) is
@@ -34,8 +57,9 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %     Relative (isRel(g) = true): a uniform shift of every value
 %     cancels in every within-tuple difference, so translation on a
 %     relative group is a structural no-op. The group is left
-%     unchanged and a warning with identifier
-%     translateEvents:noOpRelative is emitted.
+%     unchanged. The warning translateEvents:noOpRelative is emitted
+%     at most once per call, even when the matrix form has many
+%     columns with finite entries on the relative-group row.
 %
 %   Weights are unaffected by translation and are not part of this
 %   function's signature; the caller passes the same w to buildExpTens
@@ -47,18 +71,23 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %                  taken as a 1 x N row.
 %       groups   - Group assignment, same convention as buildExpTens
 %                  and differenceEvents.
-%       offsets  - 1 x G numeric vector of per-group offsets. Entries
-%                  that are NaN mean "do not translate this group" —
-%                  the corresponding group's values pass through
-%                  unchanged. Finite entries are the translation
-%                  amount for that group. Indexing is 1-based to match
-%                  MATLAB's group-index convention. The Python
-%                  counterpart accepts a sparse dict instead.
+%       offsets  - Either a 1-by-G numeric row vector (single
+%                  translation; 1-by-1 scalar when G = 1) or a
+%                  G-by-M numeric matrix (M-column sweep, including
+%                  G-by-1 columns for M = 1). Entries that are NaN
+%                  mean "do not translate this group" for the
+%                  corresponding column — the attributes in that
+%                  group pass through unchanged on that column.
+%                  Finite entries are the translation amount.
+%                  Indexing is 1-based to match MATLAB's group-index
+%                  convention. The Python counterpart accepts a
+%                  sparse dict (vector form) or a (G, M) ndarray
+%                  (matrix form).
 %       isRel    - 1 x G logical vector of relative-mode flags, same
 %                  convention as buildExpTens. Groups with isRel(g) =
-%                  true that have a finite offset emit a
-%                  translateEvents:noOpRelative warning and pass
-%                  through unchanged.
+%                  true that have at least one finite offset entry
+%                  emit a single translateEvents:noOpRelative warning
+%                  and pass through unchanged on every column.
 %       isPer    - 1 x G logical vector of periodic-mode flags, same
 %                  convention as buildExpTens. Wrapping after
 %                  translation is applied only when isPer(g) = true
@@ -72,12 +101,17 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %                  analysis.
 %
 %   Outputs
-%       pAttrTranslated - 1 x A cell of K_a x N matrices, same shapes
-%                         as the input, with translation applied to
-%                         the selected groups. pAttr is not mutated.
+%       pAttrTranslated - For vector-form offsets: a 1 x A cell of
+%                         K_a x N matrices, same shapes as the input,
+%                         with translation applied to the selected
+%                         groups. For matrix-form offsets: a 1 x M
+%                         cell of such 1 x A cells, one per offset
+%                         column. pAttr is not mutated.
 %
 %   Errors
-%       translateEvents:wrongOffsetsLength - offsets has length ~= G.
+%       translateEvents:wrongOffsetsShape - offsets has the wrong shape
+%                                            (not a length-G vector and
+%                                            not a G-by-M matrix).
 %       translateEvents:wrongIsRelLength   - isRel has length ~= G.
 %       translateEvents:wrongIsPerLength   - isPer has length ~= G.
 %       translateEvents:wrongPeriodsLength - periods has length ~= G.
@@ -86,10 +120,11 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %       translateEvents:nonFiniteOffset    - an offset is +/-Inf.
 %
 %   Warnings
-%       translateEvents:noOpRelative - emitted when a relative group
-%                                       has a finite offset.
+%       translateEvents:noOpRelative - emitted once per call when any
+%                                       relative-group row has any
+%                                       finite offset entry.
 %
-%   See also DIFFERENCEEVENTS, BINDEVENTS, BUILDEXPTENS, WINDOWEDSIMILARITY.
+%   See also DIFFERENCEEVENTS, BINDEVENTS, BUILDEXPTENS, WINDOWEDSIMILARITY, COSSIMEXPTENS.
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
 if isnumeric(pAttr)
@@ -128,7 +163,7 @@ end
 groupOfAttr = localCanonicaliseGroups(groups, A);
 G = max(groupOfAttr);
 
-% --- Validate isRel, isPer, periods, offsets ---
+% --- Validate isRel, isPer, periods ---
 if numel(isRel) ~= G
     error('translateEvents:wrongIsRelLength', ...
           'isRel must have length G = %d (number of groups); got %d.', ...
@@ -142,52 +177,92 @@ if numel(periods) ~= G
     error('translateEvents:wrongPeriodsLength', ...
           'periods must have length G = %d; got %d.', G, numel(periods));
 end
-if numel(offsets) ~= G
-    error('translateEvents:wrongOffsetsLength', ...
-          ['offsets must have length G = %d (one entry per group, ' ...
-           'NaN = no translation); got %d.'], G, numel(offsets));
-end
 isRel   = logical(isRel(:).');
 isPer   = logical(isPer(:).');
 periods = double(periods(:).');
-offsets = double(offsets(:).');
-if any(isinf(offsets(~isnan(offsets))))
+
+% --- Detect offset-input shape: vector (single) or matrix (sweep) ---
+% Disambiguation rules (MATLAB-specific, because a length-G column
+% vector and a G-by-1 matrix share the same shape):
+%   * 1-by-G row vector (or 1-by-1 scalar when G == 1)  → vector form
+%   * G == 1, 1-by-N row vector with N > 1              → matrix form (1×N sweep)
+%   * 2-D matrix with G rows, M columns (M >= 1,
+%     including the G-by-1 column-vector case)         → matrix form (M-column sweep)
+%   * Anything else                                     → error
+% Note: a length-G column vector (e.g. [5; 7] for G = 2) is treated
+% as a G-by-1 matrix → matrix form with M = 1. Vector form in MATLAB
+% requires a 1-by-G ROW vector (or a scalar when G = 1). This is the
+% only way to make M = 1 reachable without an extra flag, since
+% MATLAB does not distinguish a length-G column vector from a G-by-1
+% 2-D array.
+offsets = double(offsets);
+if ndims(offsets) > 2 %#ok<ISMAT>
+    error('translateEvents:wrongOffsetsShape', ...
+          ['offsets must be a 1-by-G row vector (single translation) ' ...
+           'or a G-by-M matrix (M-column sweep); got an array with ' ...
+           'ndims=%d.'], ndims(offsets));
+end
+[nRows, nCols] = size(offsets);
+if nRows == 1 && nCols == G
+    % 1-by-G row vector (includes 1-by-1 scalar when G == 1).
+    matrixMode = false;
+    offsetCols = offsets(:);                     % G x 1 internally
+elseif G == 1 && nRows == 1 && nCols > 1
+    % G == 1, length-N row vector with N > 1: matrix form 1-by-N sweep.
+    matrixMode = true;
+    offsetCols = offsets;                        % 1 x N
+elseif nRows == G
+    % 2-D with G rows (includes the G-by-1 column-vector case, which
+    % is matrix form with M = 1).
+    matrixMode = true;
+    offsetCols = offsets;                        % G x M
+else
+    error('translateEvents:wrongOffsetsShape', ...
+          ['offsets must be a 1-by-G = 1-by-%d row vector (single ' ...
+           'translation) or a G-by-M = %d-by-M matrix (M-column ' ...
+           'sweep); got shape %d-by-%d.'], G, G, nRows, nCols);
+end
+if any(isinf(offsetCols(~isnan(offsetCols))))
     error('translateEvents:nonFiniteOffset', ...
           'offsets entries must be finite (or NaN to skip a group).');
 end
+M = size(offsetCols, 2);
 
-% --- Identify groups to translate, emitting warnings for relative ones ---
-groupsToTranslate = false(1, G);
+% --- Identify groups with at least one finite offset across columns, ---
+% --- and emit at most one relative-group no-op warning per call. ---
+anyFiniteByGroup = any(~isnan(offsetCols), 2).';   % 1 x G logical
+groupTouchable = false(1, G);                       % can a finite mu apply?
+warnedRelative = false;
 for g = 1:G
-    if isnan(offsets(g))
-        continue;   % skip
-    end
-    if isRel(g)
-        warning('translateEvents:noOpRelative', ...
-                ['Group %d has isRel=true; translation is a structural ' ...
-                 'no-op on relative groups (a uniform shift of all values ' ...
-                 'cancels in every within-tuple difference). The group ' ...
-                 'is left unchanged.'], g);
+    if ~anyFiniteByGroup(g)
         continue;
     end
-    groupsToTranslate(g) = true;
+    if isRel(g)
+        if ~warnedRelative
+            warning('translateEvents:noOpRelative', ...
+                    ['Group %d has isRel=true; translation is a structural ' ...
+                     'no-op on relative groups (a uniform shift of all values ' ...
+                     'cancels in every within-tuple difference). The group is ' ...
+                     'left unchanged on every offset column.'], g);
+            warnedRelative = true;
+        end
+        continue;
+    end
+    groupTouchable(g) = true;
 end
 
 % --- Apply translation ---
-pAttrTranslated = cell(1, A);
-for a = 1:A
-    g = groupOfAttr(a);
-    M = pAttr{a};
-    if ~groupsToTranslate(g)
-        pAttrTranslated{a} = M;        % unchanged
-        continue;
+if ~matrixMode
+    pAttrTranslated = localTranslateOne(pAttr, groupOfAttr, ...
+                                         offsetCols(:, 1), groupTouchable, ...
+                                         isPer, periods);
+else
+    pAttrTranslated = cell(1, M);
+    for m = 1:M
+        pAttrTranslated{m} = localTranslateOne(pAttr, groupOfAttr, ...
+                                                offsetCols(:, m), groupTouchable, ...
+                                                isPer, periods);
     end
-    mu = offsets(g);
-    M = M + mu;
-    if isPer(g) && periods(g) > 0
-        M = mod(M, periods(g));
-    end
-    pAttrTranslated{a} = M;
 end
 
 end
@@ -196,6 +271,28 @@ end
 % =========================================================================
 %  Local helpers
 % =========================================================================
+
+function out = localTranslateOne(pAttr, groupOfAttr, offsetsCol, ...
+                                  groupTouchable, isPer, periods)
+%LOCALTRANSLATEONE  Apply one column of offsets to pAttr.
+    A = numel(pAttr);
+    out = cell(1, A);
+    for a = 1:A
+        g = groupOfAttr(a);
+        Marr = pAttr{a};
+        mu = offsetsCol(g);
+        if ~groupTouchable(g) || isnan(mu)
+            out{a} = Marr;
+            continue;
+        end
+        Marr = Marr + mu;
+        if isPer(g) && periods(g) > 0
+            Marr = mod(Marr, periods(g));
+        end
+        out{a} = Marr;
+    end
+end
+
 
 function groupOfAttr = localCanonicaliseGroups(groups, A)
     % Return a 1 x A vector of 1-indexed group labels.

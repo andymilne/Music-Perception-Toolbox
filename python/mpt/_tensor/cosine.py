@@ -186,6 +186,19 @@ def cos_sim_exp_tens(*args,
       is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
       lists of per-attribute matrices. Returns scalar.
 
+    **Raw multi-attribute scalar-vs-list (sweep)**:
+
+    - ``cos_sim_exp_tens(p_attr_ref, w_ref, p_attr_list, w_shared,
+      sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec)``
+      where exactly one of the two ``p_attr`` arguments is a list of
+      ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
+      :func:`translate_events`) and the other is a single ``p_attr``.
+      Build is internalised: the scalar operand is built once, the
+      list operand once per entry. Weights for the list side are
+      shared across every entry — a single ``w`` value, not a list of
+      weights. Returns an ``ndarray`` of length M. The output index
+      matches the order of entries in the list operand.
+
     Parameters
     ----------
     *args
@@ -326,15 +339,10 @@ def cos_sim_exp_tens(*args,
         )
 
     # ------------------------------------------------------------------
-    # Raw multi-attribute dispatch (list of per-attribute arrays)
+    # Raw multi-attribute dispatch (list of per-attribute arrays, or a
+    # list of such lists for the sweep / broadcast use case).
     # ------------------------------------------------------------------
     if _looks_like_multi_attr(a):
-        if len(args) != 10:
-            raise TypeError(
-                f"Raw multi-attribute input expects 10 positional arguments "
-                f"(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, "
-                f"is_rel_vec, is_per_vec, period_vec); got {len(args)}."
-            )
         if spectrum is not None:
             raise TypeError(
                 "'spectrum' kwarg is only supported in raw single-attribute "
@@ -348,8 +356,58 @@ def cos_sim_exp_tens(*args,
             raise TypeError(
                 "'mode' kwarg only applies to density list inputs."
             )
-        return _cos_sim_raw_ma_scalar(
+
+        # Distinguish single MA p_attr (list of ndarrays) from a list
+        # of MA p_attr blocks (list of lists). The detection only
+        # examines the first element: ndarray → single MA;
+        # list/tuple → list of MA. This matches the convention
+        # used elsewhere in the toolbox and is what the matrix-form
+        # output of translate_events produces.
+        a_is_list = isinstance(a[0], (list, tuple))
+        b = args[2] if len(args) >= 3 else None
+        b_is_list = (
+            _looks_like_multi_attr(b)
+            and isinstance(b[0], (list, tuple))
+        )
+
+        if a_is_list and b_is_list:
+            raise TypeError(
+                "Raw multi-attribute list-vs-list is not supported; pass "
+                "explicit density structs via the density list mode "
+                "instead (build each entry with build_exp_tens first)."
+            )
+
+        if not a_is_list and not b_is_list:
+            # Single MA scalar-vs-scalar — existing path.
+            if len(args) != 10:
+                raise TypeError(
+                    f"Raw multi-attribute input expects 10 positional "
+                    f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
+                    f"r_vec, groups, is_rel_vec, is_per_vec, "
+                    f"period_vec); got {len(args)}."
+                )
+            return _cos_sim_raw_ma_scalar(
+                *args,
+                method=method,
+                normalize=normalize,
+                cancellation_threshold=cancellation_threshold,
+                verbose=verbose,
+            )
+
+        # Scalar-vs-list broadcast. Build the scalar side once, then
+        # iterate over the list side. Weights on the list side are
+        # shared across every list entry.
+        if len(args) != 10:
+            raise TypeError(
+                f"Raw multi-attribute scalar-vs-list input expects 10 "
+                f"positional arguments (p_attr1, w1, p_attr2, w2, "
+                f"sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, "
+                f"period_vec); got {len(args)}."
+            )
+        return _cos_sim_raw_ma_broadcast(
             *args,
+            a_is_list=a_is_list,
+            b_is_list=b_is_list,
             method=method,
             normalize=normalize,
             cancellation_threshold=cancellation_threshold,
@@ -820,6 +878,75 @@ def _cos_sim_raw_ma_scalar(
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
+
+
+def _cos_sim_raw_ma_broadcast(
+    p_attr1, w1, p_attr2, w2,
+    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
+    *,
+    a_is_list: bool,
+    b_is_list: bool,
+    method: str = "auto",
+    normalize: str = "cosine",
+    cancellation_threshold: float = 1e-12,
+    verbose: bool = True,
+) -> np.ndarray:
+    """Raw multi-attribute scalar-vs-list broadcast.
+
+    Exactly one of the two operands is a list of per-attribute ``p_attr``
+    blocks (cell-of-cells). The scalar operand is built once and reused
+    against every list entry. Weights for the list operand are shared
+    across all entries (one ``w`` value, not a list of weights).
+
+    Returns a 1-D ``ndarray`` of length M, the list length.
+    """
+    if a_is_list == b_is_list:
+        # Caller (cos_sim_exp_tens) is responsible for ensuring exactly
+        # one operand is a list; this is a sanity guard.
+        raise RuntimeError(
+            "_cos_sim_raw_ma_broadcast called without a clear "
+            "scalar-vs-list configuration."
+        )
+
+    # Identify the list side and build the scalar side once.
+    if b_is_list:
+        scalar_pAttr, scalar_w = p_attr1, w1
+        list_pAttr,  list_w   = p_attr2, w2
+        scalar_first = True   # densX is scalar, densY is per-entry
+    else:
+        scalar_pAttr, scalar_w = p_attr2, w2
+        list_pAttr,  list_w   = p_attr1, w1
+        scalar_first = False  # densX is per-entry, densY is scalar
+
+    dens_scalar = build_exp_tens(
+        scalar_pAttr, scalar_w, sigma_vec, r_vec, groups,
+        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+    )
+
+    M = len(list_pAttr)
+    out = np.empty(M, dtype=np.float64)
+    for m in range(M):
+        dens_m = build_exp_tens(
+            list_pAttr[m], list_w, sigma_vec, r_vec, groups,
+            is_rel_vec, is_per_vec, period_vec, verbose=False,
+        )
+        if scalar_first:
+            out[m] = _cos_sim_pair_core(
+                dens_scalar, dens_m,
+                method=method,
+                normalize=normalize,
+                cancellation_threshold=cancellation_threshold,
+                verbose=False,
+            )
+        else:
+            out[m] = _cos_sim_pair_core(
+                dens_m, dens_scalar,
+                method=method,
+                normalize=normalize,
+                cancellation_threshold=cancellation_threshold,
+                verbose=False,
+            )
+    return out
 
 
 

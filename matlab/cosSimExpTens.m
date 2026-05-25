@@ -33,6 +33,24 @@ function s = cosSimExpTens(varargin)
 %   vector of similarities. Pass [] for W1 or W2 to use uniform
 %   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
 %
+%   s = cosSimExpTens(pAttr1, w1, pAttr2, w2, sigma, r, groups, ...
+%                     isRel, isPer, periods):
+%   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
+%   cell of K_a-by-N value matrices (the same shape one would pass
+%   to buildExpTens). Builds the two MaetDensity structs internally
+%   and returns a scalar.
+%
+%   sCell = cosSimExpTens(refPAttr, refW, {pAttrA, pAttrB, ...}, qryW, ...
+%                          sigma, r, groups, isRel, isPer, periods):
+%   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
+%   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
+%   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
+%   output of translateEvents); the other is a single 1-by-A pAttr
+%   cell. The scalar operand is built once; the list operand is
+%   built once per entry. Weights for the list side are shared
+%   across every entry (a single w value, not a cell of weights).
+%   Returns a 1-by-M cell of similarity scalars.
+%
 %   Broadcasting. If one operand is a vector of length K
 %   (1-by-K, K-by-1, or 1-D) and the other is M-by-K with M > 1, the
 %   vector is broadcast across the matrix's M rows, in NumPy / MATLAB
@@ -348,6 +366,11 @@ if nArgs == 10 && iscell(varargin{1})
             'not. Both must be the same kind: either both cells (MA) ' ...
             'or both numeric vectors (SA).']);
     end
+    % Distinguish single MA pAttr (cell of numeric matrices) from a
+    % list of MA pAttr blocks (cell of cells). The first element of
+    % the cell decides: numeric → single MA, cell → list-of-MA.
+    aIsListOfMA = ~isempty(varargin{1}) && iscell(varargin{1}{1});
+    bIsListOfMA = ~isempty(varargin{3}) && iscell(varargin{3}{1});
     pAttr1    = varargin{1};
     w1        = varargin{2};
     pAttr2    = varargin{3};
@@ -358,13 +381,49 @@ if nArgs == 10 && iscell(varargin{1})
     isRelVec  = varargin{8};
     isPerVec  = varargin{9};
     periodVec = varargin{10};
-    % Build skinny: Möbius branch may not need heavy fields.
-    dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'verbose', verbose);
-    dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
-        isRelVec, isPerVec, periodVec, 'verbose', verbose);
-    s = localCosSimMA(dens_x, dens_y, method, normalize, ...
-                      cancellationThreshold, verbose);
+    if aIsListOfMA && bIsListOfMA
+        error('cosSimExpTens:listVsListNotSupported', ...
+              ['Raw multi-attribute list-vs-list is not supported; pass ' ...
+               'explicit density structs via the density list mode ' ...
+               '(build each entry with buildExpTens first).']);
+    end
+    if ~aIsListOfMA && ~bIsListOfMA
+        % Scalar-vs-scalar raw MA: existing path.
+        dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
+            isRelVec, isPerVec, periodVec, 'verbose', verbose);
+        dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
+            isRelVec, isPerVec, periodVec, 'verbose', verbose);
+        s = localCosSimMA(dens_x, dens_y, method, normalize, ...
+                          cancellationThreshold, verbose);
+        return;
+    end
+    % Scalar-vs-list broadcast. Build the scalar side once, then
+    % iterate over the list. Weights for the list side are shared
+    % across every entry.
+    if bIsListOfMA
+        scalarPAttr = pAttr1;  scalarW = w1;
+        listPAttr   = pAttr2;  listW   = w2;
+        scalarFirst = true;
+    else
+        scalarPAttr = pAttr2;  scalarW = w2;
+        listPAttr   = pAttr1;  listW   = w1;
+        scalarFirst = false;
+    end
+    dens_scalar = buildExpTens(scalarPAttr, scalarW, sigmaVec, rVec, ...
+        groups, isRelVec, isPerVec, periodVec, 'verbose', verbose);
+    M = numel(listPAttr);
+    s = cell(1, M);
+    for m = 1:M
+        dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
+            groups, isRelVec, isPerVec, periodVec, 'verbose', false);
+        if scalarFirst
+            s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
+                                 normalize, cancellationThreshold, false);
+        else
+            s{m} = localCosSimMA(dens_m, dens_scalar, method, ...
+                                 normalize, cancellationThreshold, false);
+        end
+    end
     return;
 end
 

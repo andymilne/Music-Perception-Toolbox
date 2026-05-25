@@ -48,11 +48,11 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %     ignored regardless of its sign.
 %
 %     Absolute periodic (isPer(g) = true with isRel(g) = false and
-%     periods(g) > 0): values are translated and wrapped to [0, P) via
-%     mod(value + mu, P). The wrapped periodic Gaussian kernel of
-%     buildExpTens is invariant under any additive shift by a multiple
-%     of P, so this canonical wrap yields the same MAET as leaving the
-%     values unwrapped — the wrap is for tidiness, not correctness.
+%     periods(g) > 0): every value is replaced by value + mu,
+%     unwrapped. The wrapped periodic Gaussian kernel of buildExpTens
+%     is invariant under any additive shift by a multiple of P, so no
+%     canonical wrap of the translated values is required --- the
+%     kernel handles periodicity downstream.
 %
 %     Relative (isRel(g) = true): a uniform shift of every value
 %     cancels in every within-tuple difference, so translation on a
@@ -285,11 +285,7 @@ function out = localTranslateOne(pAttr, groupOfAttr, offsetsCol, ...
             out{a} = Marr;
             continue;
         end
-        Marr = Marr + mu;
-        if isPer(g) && periods(g) > 0
-            Marr = mod(Marr, periods(g));
-        end
-        out{a} = Marr;
+        out{a} = Marr + mu;
     end
 end
 

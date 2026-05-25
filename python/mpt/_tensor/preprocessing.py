@@ -671,12 +671,12 @@ def translate_events(
       every attribute in group ``g`` is replaced by ``value + mu``.
       ``periods[g]`` is ignored regardless of its sign.
     - **Absolute periodic** (``is_per[g] = True`` with
-      ``is_rel[g] = False`` and ``periods[g] > 0``): values are
-      translated and wrapped to ``[0, P)`` via ``(value + mu) % P``.
-      The wrapped periodic Gaussian kernel of :func:`build_exp_tens` is
-      invariant under any additive shift by a multiple of ``P``, so
-      this canonical wrap yields the same MAET as leaving the values
-      unwrapped --- the wrap is for tidiness, not correctness.
+      ``is_rel[g] = False`` and ``periods[g] > 0``): every value is
+      replaced by ``value + mu``, unwrapped. The wrapped periodic
+      Gaussian kernel of :func:`build_exp_tens` is invariant under any
+      additive shift by a multiple of ``P``, so no canonical wrap of
+      the translated values is required --- the kernel handles
+      periodicity downstream.
     - **Relative** (``is_rel[g] = True``): a uniform shift of every
       value cancels in every within-tuple difference, so translation
       on a relative group is a structural no-op. The group is left
@@ -711,15 +711,15 @@ def translate_events(
         on every column.
     is_per : array-like of bool
         Length-G vector of periodic-mode flags, same convention as
-        :func:`build_exp_tens`. Wrapping after translation is applied
-        only when ``is_per[g] = True`` AND ``periods[g] > 0``.
+        :func:`build_exp_tens`. Accepted for signature parallelism with
+        the rest of the MAET pipeline; not consulted by
+        ``translate_events`` itself, since translation outputs
+        unwrapped values and the periodic kernel in
+        :func:`build_exp_tens` handles wrapping downstream.
     periods : array-like of float
         Length-G vector of periods, same convention as
-        :func:`build_exp_tens`. Consulted only when ``is_per[g] = True``.
-        For non-periodic groups (``is_per[g] = False``) the entry is
-        ignored, so it is safe to declare a group's natural period
-        (e.g.\\ 12 for pitch class) even when operating in non-periodic
-        mode for a particular analysis.
+        :func:`build_exp_tens`. Accepted for signature parallelism;
+        not consulted by ``translate_events`` itself.
 
     Returns
     -------
@@ -893,10 +893,7 @@ def translate_events(
             if (not group_touchable[g]) or np.isnan(mu):
                 col_translated.append(Marr.copy())
                 continue
-            M_shifted = Marr + float(mu)
-            if is_per_arr[g] and periods_arr[g] > 0:
-                M_shifted = M_shifted % float(periods_arr[g])
-            col_translated.append(M_shifted)
+            col_translated.append(Marr + float(mu))
         cols_out.append(col_translated)
 
     if matrix_mode:

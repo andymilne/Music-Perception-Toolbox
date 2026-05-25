@@ -782,17 +782,17 @@ out = translateEvents({[60 62 64]}, [], 5, false, false, 0);
 results{end+1,1} = 'translateEvents: non-periodic adds mu to every value';
 results{end,2}   = isequal(out{1}, [65 67 69]);
 
-% -- translateEvents: periodic wrap to [0, P) --
+% -- translateEvents: periodic shift does not wrap --
 
 out = translateEvents({[10 11 0]}, [], 3, false, true, 12);
-results{end+1,1} = 'translateEvents: periodic shift wraps to [0, P)';
-results{end,2}   = isequal(out{1}, [1 2 3]);
+results{end+1,1} = 'translateEvents: periodic shift leaves values unwrapped';
+results{end,2}   = isequal(out{1}, [13 14 3]);
 
-% -- translateEvents: periodic negative mu wraps into [0, P) --
+% -- translateEvents: periodic negative mu does not wrap --
 
 out = translateEvents({[1 2]}, [], -3, false, true, 12);
-results{end+1,1} = 'translateEvents: negative mu wraps into [0, P)';
-results{end,2}   = isequal(out{1}, [10 11]);
+results{end+1,1} = 'translateEvents: negative mu on periodic group stays unwrapped';
+results{end,2}   = isequal(out{1}, [-2 -1]);
 
 % -- translateEvents: period ignored when isPer is false --
 
@@ -851,9 +851,9 @@ results{end,2}   = isequal(twice{1}, direct{1});
 p_cp = {[10 11]};
 once  = translateEvents(p_cp, [], 7, false, true, 12);
 twice = translateEvents(once, [], 9, false, true, 12);
-% 10 + 16 = 26; mod(26, 12) = 2.  11 + 16 = 27; mod(27, 12) = 3.
-results{end+1,1} = 'translateEvents: composition (periodic) wraps correctly';
-results{end,2}   = isequal(twice{1}, [2 3]);
+% 10 + 7 + 9 = 26;  11 + 7 + 9 = 27.  No wrap (periodic kernel handles it downstream).
+results{end+1,1} = 'translateEvents: composition is additive on periodic groups (no wrap)';
+results{end,2}   = isequal(twice{1}, [26 27]);
 
 % -- translateEvents: self-IP invariant under translation (non-periodic) --
 
@@ -1006,12 +1006,12 @@ ok = isequal(out_nan{1}{1}, [70 74 77]) ...    % col 1: g1 by +10
 results{end+1,1} = 'translateEvents: matrix NaN entries skip per column';
 results{end,2}   = ok;
 
-% (e) Periodic wrap applies per column.
+% (e) Matrix form on periodic group leaves values unwrapped per column.
 p_per      = {[10 1190]};
 out_per    = translateEvents(p_per, [1], [100 1100], false, true, 1200);
-ok = isequal(out_per{1}{1}, [110 90]) ...    % col 1: +100, second wraps
-     && isequal(out_per{2}{1}, [1110 1090]);   % col 2: +1100, second wraps
-results{end+1,1} = 'translateEvents: matrix periodic wrap applies per column';
+ok = isequal(out_per{1}{1}, [110 1290]) ...    % col 1: +100, unwrapped
+     && isequal(out_per{2}{1}, [1110 2290]);   % col 2: +1100, unwrapped
+results{end+1,1} = 'translateEvents: matrix periodic stays unwrapped per column';
 results{end,2}   = ok;
 
 % (f) Relative group warns at most once across multiple columns.

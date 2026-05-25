@@ -1117,22 +1117,24 @@ class TestMAET:
         expected = np.array([[65.0, 67.0, 69.0]])
         np.testing.assert_allclose(out[0], expected)
 
-    def test_translate_periodic_wraps_to_0_P(self):
-        """Periodic shift wraps values to [0, P) after translation."""
+    def test_translate_periodic_does_not_wrap(self):
+        """Translation outputs unwrapped values, even on periodic
+        groups; the periodic kernel in build_exp_tens handles wrapping
+        downstream."""
         p = [np.array([[10.0, 11.0, 0.0]])]
         out = mpt.translate_events(
             p, [0], {0: 3.0}, [False], [True], [12.0],
         )
-        expected = np.array([[1.0, 2.0, 3.0]])
+        expected = np.array([[13.0, 14.0, 3.0]])
         np.testing.assert_allclose(out[0], expected)
 
-    def test_translate_periodic_negative_mu_wraps(self):
-        """Negative offsets in periodic mode wrap into [0, P)."""
+    def test_translate_periodic_negative_mu_does_not_wrap(self):
+        """Negative offsets on periodic groups stay unwrapped."""
         p = [np.array([[1.0, 2.0]])]
         out = mpt.translate_events(
             p, [0], {0: -3.0}, [False], [True], [12.0],
         )
-        expected = np.array([[10.0, 11.0]])
+        expected = np.array([[-2.0, -1.0]])
         np.testing.assert_allclose(out[0], expected)
 
     def test_translate_period_ignored_when_is_per_false(self):
@@ -1223,7 +1225,8 @@ class TestMAET:
         np.testing.assert_allclose(twice[0], direct[0])
 
     def test_translate_composition_periodic(self):
-        """Composition holds modulo P on periodic groups."""
+        """Composition is plain addition on periodic groups; values
+        stay unwrapped (the periodic kernel handles wrap downstream)."""
         p = [np.array([[10.0, 11.0]])]
         once = mpt.translate_events(
             p, [0], {0: 7.0}, [False], [True], [12.0],
@@ -1231,8 +1234,8 @@ class TestMAET:
         twice = mpt.translate_events(
             once, [0], {0: 9.0}, [False], [True], [12.0],
         )
-        # 10 + 7 + 9 = 26; 26 % 12 = 2.  11 + 16 = 27; 27 % 12 = 3.
-        np.testing.assert_allclose(twice[0], [[2.0, 3.0]])
+        # 10 + 7 + 9 = 26;  11 + 7 + 9 = 27.  No wrap.
+        np.testing.assert_allclose(twice[0], [[26.0, 27.0]])
 
     def test_translate_self_ip_invariance(self):
         """<f^mu, f^mu> = <f, f> for non-periodic absolute groups
@@ -1452,18 +1455,19 @@ class TestMAET:
         np.testing.assert_allclose(out[2][0], np.array([[90.0, 94.0]]))
         np.testing.assert_allclose(out[2][1], np.array([[0.0, 1.0]]))
 
-    def test_translate_matrix_periodic_wraps_per_column(self):
-        """Periodic wrap applies per column with the per-group period."""
+    def test_translate_matrix_periodic_does_not_wrap(self):
+        """Matrix form on a periodic group leaves values unwrapped
+        per column; the periodic kernel handles wrap downstream."""
         p = [np.array([[10.0, 1190.0]])]
         groups, is_rel, is_per = [0], [False], [True]
         periods = [1200.0]
         offs_mat = np.array([[100.0, 1100.0]])
         out = mpt.translate_events(p, groups, offs_mat,
                                    is_rel, is_per, periods)
-        # col 0: 10 + 100 = 110; 1190 + 100 = 1290 -> 90
-        np.testing.assert_allclose(out[0][0], np.array([[110.0, 90.0]]))
-        # col 1: 10 + 1100 = 1110; 1190 + 1100 = 2290 -> 1090
-        np.testing.assert_allclose(out[1][0], np.array([[1110.0, 1090.0]]))
+        # col 0: 10 + 100 = 110; 1190 + 100 = 1290 (unwrapped)
+        np.testing.assert_allclose(out[0][0], np.array([[110.0, 1290.0]]))
+        # col 1: 10 + 1100 = 1110; 1190 + 1100 = 2290 (unwrapped)
+        np.testing.assert_allclose(out[1][0], np.array([[1110.0, 2290.0]]))
 
     def test_translate_matrix_relative_warns_once(self):
         """A relative group with any finite offset across columns

@@ -646,24 +646,47 @@ def translate_events(
     answer related "slide along an axis" questions but with different
     operational properties; see the USER_GUIDE §3.1 discussion.
 
-    Three offset-input shapes are accepted:
+    Two offset-input forms are accepted: a single numeric block (for
+    uniform broadcast or fully per-attribute layouts), or a dict
+    keyed by group (for mixed-per-group layouts, e.g. broadcast on
+    one group and per-attribute on another in the same call).
 
-    - **Sparse dict (vector form).** ``offsets`` is a
-      ``{group_index: mu}`` mapping (0-indexed). Groups not in the dict
-      are left unchanged. One translation is performed and the return
-      is a length-A list of ``K_a × N`` ndarrays.
-    - **1-D ndarray (vector form).** ``offsets`` is a length-G array.
-      NaN entries mean "do not translate this group"; finite entries
-      are the translation amount. One translation; same length-A list
-      return.
-    - **2-D ndarray (matrix form, sweep).** ``offsets`` has shape
-      ``(G, M)``. M is the number of sweep positions. Translation is
-      applied column by column. The return is a length-M list of
-      length-A lists. M = 1 still yields a length-1 outer wrapper,
-      never collapses to the vector-form return. Pass the result
-      directly into the raw-MA list mode of :func:`cos_sim_exp_tens`
-      (with one operand a list of ``p_attr`` blocks) to score the
-      sweep in one call.
+    **Numeric form.** ``offsets`` is a scalar or ndarray, with rows
+    indexing attributes and columns indexing sweep positions. Row
+    count must be 1 (broadcast across all attributes) or ``A``
+    (per-attribute). Within-group broadcast is expressed by setting
+    that group's rows equal.
+
+    - 0-D scalar or 1-D length-1: broadcast across all attributes,
+      single translation. Returns a length-``A`` list.
+    - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
+      across all attributes, ``M``-position sweep. Returns a
+      length-``M`` list of length-``A`` lists.
+    - 2-D ``(A, M)``: per-attribute, ``M``-position sweep (``M = 1``
+      acceptable for a single per-attribute translation). Returns a
+      length-``M`` list of length-``A`` lists.
+    - 2-D with rows not in ``{1, A}``: ValueError.
+
+    **Dict form.** ``offsets`` is ``{group_index: value}`` (0-indexed
+    groups). Each value follows the same orientation convention, with
+    ``n_g`` (the number of attributes in group ``g``) playing the role
+    of ``A``:
+
+    - 0-D scalar or 1-D length-1: broadcast within group, no sweep.
+    - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
+      within group, ``M``-position sweep.
+    - 2-D ``(n_g, M)``: per-attribute within group, ``M``-sweep.
+    - 2-D with rows not in ``{1, n_g}``: ValueError.
+
+    Groups omitted from the dict are not translated. All swept
+    entries across the call (top-level columns or dict entries with
+    ``M > 1``) must agree on ``M``; scalar and 1-column entries
+    broadcast across the sweep. When any entry implies a sweep, the
+    output is a length-``M`` list of length-``A`` lists; otherwise a
+    single length-``A`` list.
+
+    NaN entries in any numeric block skip the corresponding
+    ``(attribute, column)`` cell. ``±inf`` is rejected.
 
     Semantics by group geometry (apply per offset column in matrix form):
 
@@ -699,10 +722,10 @@ def translate_events(
         Group assignment, same convention as :func:`build_exp_tens` and
         :func:`difference_events`. ``None`` treats each attribute as its
         own singleton group.
-    offsets : dict[int, float] | array-like
-        Either a ``{group_index: mu}`` dict (sparse vector form), a
-        length-G array (vector form with NaN-skip), or a
-        ``(G, M)``-shaped 2-D array (matrix form / sweep).
+    offsets : scalar, ndarray, or dict[int, scalar or array_like]
+        Numeric form (single block, rows = attributes, columns =
+        sweep) or dict form (keyed by group, polymorphic per-group
+        values). See the "Two offset-input forms" block above.
     is_rel : array-like of bool
         Length-G vector of relative-mode flags, same convention as
         :func:`build_exp_tens`. Groups with ``is_rel[g] = True`` that
@@ -822,7 +845,7 @@ def translate_events(
             )
 
     # ---- canonicalise groups ----
-    group_of_attr, _attrs_of_group, G = _canonicalise_groups(groups, A)
+    group_of_attr, attrs_of_group, G = _canonicalise_groups(groups, A)
 
     # ---- validate is_rel, is_per, periods ----
     is_rel_arr = np.asarray(is_rel, dtype=bool).ravel()
@@ -844,53 +867,47 @@ def translate_events(
             f"{periods_arr.size}."
         )
 
-    # ---- normalise offsets to (G, M) matrix, recording whether the ----
-    # ---- input was vector-shaped (single translation) or matrix-shaped ----
-    # ---- (sweep). dict and length-G 1-D arrays are vector-shaped; ----
-    # ---- 2-D arrays are matrix-shaped; M = 1 in matrix form keeps the ----
-    # ---- list wrapper. ----
-    matrix_mode, offset_cols = _normalise_offsets(offsets, G)
+    # ---- normalise offsets to (A, M) per-attribute array, with NaN ----
+    # ---- meaning "do not translate this attribute on this column". ----
+    # ---- matrix_mode True means a sweep (return list of M lists); ----
+    # ---- False means a single translation (return list of A). ----
+    matrix_mode, offsets_per_attr = _normalise_offsets(
+        offsets, A, G, attrs_of_group,
+    )
 
-    # finite/NaN check
-    finite_mask = np.isfinite(offset_cols)
-    if np.any(np.isinf(offset_cols)):
-        raise ValueError(
-            "offsets entries must be finite (or NaN to skip a group)."
-        )
-
-    # ---- Identify groups to translate. Emit at most one relative-group ----
-    # ---- no-op warning per call, regardless of how many columns or ----
-    # ---- relative groups are involved. ----
-    any_finite_by_group = np.any(finite_mask, axis=1)   # length-G
-    group_touchable = np.zeros(G, dtype=bool)
+    # ---- Identify relative groups carrying any finite per-attribute ----
+    # ---- offset; emit at most one no-op warning per call, and zero ----
+    # ---- out the rows so the hot loop's NaN check handles the skip. ----
+    finite_mask = np.isfinite(offsets_per_attr)
     warned_relative = False
     for g in range(G):
-        if not any_finite_by_group[g]:
+        if not is_rel_arr[g]:
             continue
-        if is_rel_arr[g]:
-            if not warned_relative:
-                warnings.warn(
-                    f"Group {g} has is_rel=True; translation is a "
-                    f"structural no-op on relative groups (a uniform shift "
-                    f"of all values cancels in every within-tuple "
-                    f"difference). The group is left unchanged on every "
-                    f"offset column.",
-                    TranslateEventsNoOpWarning,
-                    stacklevel=2,
-                )
-                warned_relative = True
+        attrs = attrs_of_group[g]
+        if not any(np.any(finite_mask[a]) for a in attrs):
             continue
-        group_touchable[g] = True
+        if not warned_relative:
+            warnings.warn(
+                f"Group {g} has is_rel=True; translation is a "
+                f"structural no-op on relative groups (a uniform shift "
+                f"of all values cancels in every within-tuple "
+                f"difference). The group is left unchanged on every "
+                f"offset column.",
+                TranslateEventsNoOpWarning,
+                stacklevel=2,
+            )
+            warned_relative = True
+        for a in attrs:
+            offsets_per_attr[a, :] = np.nan
 
     # ---- apply translation, column by column ----
-    M_cols = offset_cols.shape[1]
+    M_cols = offsets_per_attr.shape[1]
     cols_out: list[list[np.ndarray]] = []
     for m in range(M_cols):
         col_translated: list[np.ndarray] = []
         for a, Marr in enumerate(p_attr_arrays):
-            g = int(group_of_attr[a])
-            mu = offset_cols[g, m]
-            if (not group_touchable[g]) or np.isnan(mu):
+            mu = offsets_per_attr[a, m]
+            if np.isnan(mu):
                 col_translated.append(Marr.copy())
                 continue
             col_translated.append(Marr + float(mu))
@@ -901,70 +918,219 @@ def translate_events(
     return cols_out[0]          # length-A list (single translation)
 
 
-def _normalise_offsets(offsets, G: int) -> tuple[bool, np.ndarray]:
-    """Coerce the public offsets input to a ``(G, M)`` ndarray.
+def _normalise_offsets(
+    offsets,
+    A: int,
+    G: int,
+    attrs_of_group: list[np.ndarray],
+) -> tuple[bool, np.ndarray]:
+    """Coerce the public offsets input to an ``(A, M)`` per-attribute
+    ndarray with NaN-skip.
 
-    Returns ``(matrix_mode, offset_cols)``. ``matrix_mode`` is True
-    when the user passed a 2-D ndarray (or a 1-D ndarray with G == 1
-    and length > 1, which is unambiguously a 1×M sweep); False when
-    the user passed a dict or a length-G 1-D ndarray (single
-    translation).
+    Returns ``(matrix_mode, offsets_per_attr)``. ``matrix_mode`` is
+    True when the user passed a 2-D numeric shape, a 1-D sweep, or a
+    dict containing any 2-D value (output is wrapped as a length-``M``
+    list of length-``A`` lists). False when the user passed a scalar
+    or a dict of only scalar/1-D-length-1 entries (output is a
+    length-``A`` list).
+
+    Two top-level forms:
+
+    1. **Numeric** (scalar or ndarray). Rows index attributes; columns
+       index sweep positions. Row count must be exactly 1 (broadcast
+       across all attributes) or ``A`` (per-attribute).
+
+       - 0-D scalar or 1-D length-1: broadcast across all attributes,
+         no sweep. Output ``(A, 1)``, ``matrix_mode = False``.
+       - 1-D length-``M`` (``M > 1``): broadcast across all attributes,
+         ``M``-position sweep. Equivalent to a 2-D ``(1, M)`` row.
+       - 2-D ``(1, M)``: broadcast across all attributes, ``M``-position
+         sweep (``matrix_mode = True`` regardless of ``M``).
+       - 2-D ``(A, M)``: per-attribute, ``M``-position sweep
+         (``matrix_mode = True`` regardless of ``M``).
+       - 2-D with rows not in ``{1, A}``: ValueError.
+
+    2. **Dict**, keyed by group index; per-group values follow an
+       analogous orientation convention with ``n_g`` (number of
+       attributes in group ``g``) playing the role of ``A``. Each
+       per-group value is one of:
+
+       - 0-D scalar or 1-D length-1: broadcast within group, no sweep.
+       - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
+         within group, ``M``-position sweep.
+       - 2-D ``(n_g, M)``: per-attribute within group, ``M``-sweep.
+       - 2-D with rows not in ``{1, n_g}``: ValueError.
+
+       Groups omitted from the dict are not translated. All entries
+       (across both top-level and dict cases) carrying ``M > 1`` must
+       agree on ``M``; scalar and 1-column entries broadcast across
+       the sweep.
+
+    NaN entries in any numeric block skip that ``(attribute, column)``
+    cell; ``±inf`` is rejected.
     """
     if isinstance(offsets, dict):
-        cols = np.full((G, 1), np.nan, dtype=np.float64)
-        for gkey, mu in offsets.items():
-            try:
-                gi = int(gkey)
-            except (TypeError, ValueError):
-                raise ValueError(
-                    f"offsets keys must be integer group indices; got "
-                    f"{gkey!r}."
-                ) from None
-            if gi < 0 or gi >= G:
-                raise ValueError(
-                    f"offsets contains group index {gi}, which is out "
-                    f"of range for G = {G} groups."
-                )
-            if not np.isscalar(mu) or not np.isfinite(mu):
-                raise ValueError(
-                    f"offsets[{gi}] must be a finite scalar; got {mu!r}."
-                )
-            cols[gi, 0] = float(mu)
-        return False, cols
+        return _normalise_offsets_dict(offsets, A, G, attrs_of_group)
 
     arr = np.asarray(offsets, dtype=np.float64)
-    if arr.ndim == 0:
-        # bare scalar: only meaningful when G == 1
-        if G != 1:
+
+    # 0-D scalar (or 1-D length 1): broadcast no-sweep
+    if arr.ndim == 0 or (arr.ndim == 1 and arr.size == 1):
+        mu = float(arr.ravel()[0])
+        if not np.isfinite(mu):
             raise ValueError(
-                f"offsets is a scalar; only valid when G = 1 (got G = {G})."
+                f"Scalar offset must be finite; got {mu!r}."
             )
-        return False, arr.reshape(1, 1)
+        result = np.full((A, 1), mu, dtype=np.float64)
+        return False, result
+
+    # 1-D length > 1: broadcast sweep, treated as (1, M)
     if arr.ndim == 1:
-        if arr.size == G:
-            return False, arr.reshape(G, 1)
-        if G == 1 and arr.size > 1:
-            # 1-D length-M sweep for the G == 1 case is unambiguous.
-            return True, arr.reshape(1, -1)
-        raise ValueError(
-            f"offsets is a 1-D array of length {arr.size}; expected "
-            f"length-G = {G} vector (single translation) or G == 1 "
-            f"with length > 1 (sweep)."
-        )
-    if arr.ndim == 2:
-        if arr.shape[0] != G:
+        if np.any(np.isinf(arr)):
             raise ValueError(
-                f"offsets is a 2-D array with shape {arr.shape}; "
-                f"expected G = {G} rows."
+                "offsets entries must be finite (or NaN to skip a cell)."
             )
-        return True, arr
+        M = arr.size
+        result = np.tile(arr.reshape(1, M), (A, 1))
+        return True, result
+
+    # 2-D: row count must be 1 (broadcast) or A (per-attribute)
+    if arr.ndim == 2:
+        if np.any(np.isinf(arr)):
+            raise ValueError(
+                "offsets entries must be finite (or NaN to skip a cell)."
+            )
+        n_rows, M = arr.shape
+        if n_rows == 1:
+            result = np.tile(arr, (A, 1))
+            return True, result
+        if n_rows == A:
+            return True, arr.astype(np.float64, copy=True)
+        raise ValueError(
+            f"offsets is a 2-D array with shape {arr.shape}; row "
+            f"count must be 1 (broadcast across all attributes) or "
+            f"A = {A} (per-attribute). For per-group offsets, use "
+            f"the dict form."
+        )
+
     raise ValueError(
-        f"offsets must be a dict, a length-G vector, or a (G, M) 2-D "
-        f"array; got an array with ndim = {arr.ndim}."
+        f"offsets must be a scalar, a 1-D or 2-D ndarray, or a dict; "
+        f"got an array with ndim = {arr.ndim}."
     )
 
 
-# ===================================================================
+def _normalise_offsets_dict(
+    offsets_dict: dict,
+    A: int,
+    G: int,
+    attrs_of_group: list[np.ndarray],
+) -> tuple[bool, np.ndarray]:
+    """Process the polymorphic dict form into a per-attribute (A, M) array."""
+    # ---- First pass: validate keys, determine sweep dimension M ----
+    M = 1
+    matrix_mode = False
+    parsed: list[tuple[int, np.ndarray]] = []
+    for gkey, val in offsets_dict.items():
+        try:
+            gi = int(gkey)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"offsets keys must be integer group indices; got {gkey!r}."
+            ) from None
+        if gi < 0 or gi >= G:
+            raise ValueError(
+                f"offsets contains group index {gi}, which is out of "
+                f"range for G = {G} groups."
+            )
+        val_arr = np.asarray(val, dtype=np.float64)
+        # Determine whether this entry establishes M and whether it
+        # flips matrix_mode. Any 2-D entry forces matrix_mode = True;
+        # a 1-D length > 1 entry also implies a sweep.
+        if val_arr.ndim == 2:
+            matrix_mode = True
+            this_M = val_arr.shape[1]
+            if this_M > 1:
+                if M == 1:
+                    M = this_M
+                elif this_M != M:
+                    raise ValueError(
+                        f"offsets[{gi}] has shape {val_arr.shape}; "
+                        f"sweep dimension {this_M} does not match "
+                        f"the {M} sweep positions established by "
+                        f"other entries."
+                    )
+        elif val_arr.ndim == 1 and val_arr.size > 1:
+            matrix_mode = True
+            this_M = val_arr.size
+            if M == 1:
+                M = this_M
+            elif this_M != M:
+                raise ValueError(
+                    f"offsets[{gi}] is a 1-D array of length "
+                    f"{this_M}; this does not match the {M} sweep "
+                    f"positions established by other entries."
+                )
+        parsed.append((gi, val_arr))
+
+    # ---- Second pass: distribute values to per-attribute (A, M) ----
+    result = np.full((A, M), np.nan, dtype=np.float64)
+    for gi, val_arr in parsed:
+        attrs = attrs_of_group[gi]
+        n_g = len(attrs)
+
+        # 0-D scalar (or 1-D length 1): broadcast within group, no sweep
+        if val_arr.ndim == 0 or (val_arr.ndim == 1 and val_arr.size == 1):
+            mu = float(val_arr.ravel()[0])
+            if not np.isfinite(mu):
+                raise ValueError(
+                    f"offsets[{gi}]: scalar offset must be finite "
+                    f"(use omission from the dict to skip a group); "
+                    f"got {mu!r}."
+                )
+            for a in attrs:
+                result[a, :] = mu
+            continue
+
+        # 1-D length > 1: broadcast within group, sweep
+        if val_arr.ndim == 1:
+            if np.any(np.isinf(val_arr)):
+                raise ValueError(
+                    f"offsets[{gi}]: entries must be finite (or NaN "
+                    f"to skip a column)."
+                )
+            for a in attrs:
+                result[a, :] = val_arr
+            continue
+
+        # 2-D: row count must be 1 (broadcast within group) or n_g
+        if val_arr.ndim == 2:
+            if np.any(np.isinf(val_arr)):
+                raise ValueError(
+                    f"offsets[{gi}]: entries must be finite (or NaN "
+                    f"to skip an (attribute, column) cell)."
+                )
+            n_rows = val_arr.shape[0]
+            if n_rows == 1:
+                for a in attrs:
+                    result[a, :] = val_arr[0]
+                continue
+            if n_rows == n_g:
+                for i, a in enumerate(attrs):
+                    result[a, :] = val_arr[i]
+                continue
+            raise ValueError(
+                f"offsets[{gi}] is 2-D with shape {val_arr.shape}; "
+                f"row count must be 1 (broadcast within group) or "
+                f"{n_g} (per-attribute, matching the number of "
+                f"attributes in group {gi})."
+            )
+
+        raise ValueError(
+            f"offsets[{gi}] must be a scalar, a 1-D array, or a 2-D "
+            f"array; got an array with ndim = {val_arr.ndim}."
+        )
+
+    return matrix_mode, result# ===================================================================
 #  simplex_vertices
 # ===================================================================
 

@@ -755,17 +755,17 @@ vals_v = evalExpTens(dens_v, x_query);
 results{end+1,1} = 'differenceEvents: voices-as-attrs — evalExpTens returns finite non-negative values';
 results{end,2}   = all(isfinite(vals_v)) && all(vals_v >= 0);
 
-% -- translateEvents: zero shift identity --
+% -- translateEvents: zero shift identity (scalar broadcast) --
 
 p_t = {[60 62 64], [0 1 2]};
-out = translateEvents(p_t, [1 2], [0 0], [false false], [false false], [0 0]);
+out = translateEvents(p_t, [1 2], 0, [false false], [false false], [0 0]);
 results{end+1,1} = 'translateEvents: zero shift returns input values';
 results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
 
-% -- translateEvents: all-NaN offsets identity --
+% -- translateEvents: all-skipped via empty cells is identity --
 
-out = translateEvents(p_t, [1 2], [NaN NaN], [false false], [false false], [0 0]);
-results{end+1,1} = 'translateEvents: all-NaN offsets are identity';
+out = translateEvents(p_t, [1 2], {[], []}, [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: empty cells skip all groups (identity)';
 results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
 
 % -- translateEvents: does not mutate input --
@@ -817,18 +817,25 @@ results{end,2}   = strcmp(warnId, 'translateEvents:noOpRelative');
 results{end+1,1} = 'translateEvents: relative group passes through unchanged';
 results{end,2}   = isequal(out{1}, [60 64 67]);
 
-% -- translateEvents: NaN entries skip groups --
+% -- translateEvents: cell form skips a group via empty entry --
 
 p_tg = {[60 64], [0 1]};
-out = translateEvents(p_tg, [1 2], [5 NaN], [false false], [false false], [0 0]);
-results{end+1,1} = 'translateEvents: NaN skips group, finite shifts other';
+out = translateEvents(p_tg, [1 2], {5, []}, [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: empty cell skips group, scalar shifts other';
 results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0 1]);
 
-% -- translateEvents: multi-group simultaneous --
+% -- translateEvents: multi-group simultaneous via cell form --
 
-out = translateEvents(p_tg, [1 2], [5 0.5], [false false], [false false], [0 0]);
-results{end+1,1} = 'translateEvents: multi-group simultaneous';
+out = translateEvents(p_tg, [1 2], {5, 0.5}, [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: multi-group simultaneous via cell';
 results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0.5 1.5]);
+
+% -- translateEvents: per-attribute single translation via A-by-1 column --
+% Two attributes (singleton groups), distinct offsets per attribute,
+% single translation. A-by-1 column is matrix-mode (length-1 outer cell).
+out = translateEvents(p_tg, [1 2], [5; 0.5], [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: A-by-1 column gives per-attribute single translation';
+results{end,2}   = numel(out) == 1 && isequal(out{1}{1}, [65 69]) && isequal(out{1}{2}, [0.5 1.5]);
 
 % -- translateEvents: multiple attributes sharing one group --
 
@@ -836,6 +843,11 @@ p_share = {[60 64], [67 71]};
 out = translateEvents(p_share, [1 1], 5, false, false, 0);
 results{end+1,1} = 'translateEvents: multi-attribute shared group both shift';
 results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [72 76]);
+
+% -- translateEvents: per-attribute within a single group via cell n_g-by-1 column --
+out = translateEvents(p_share, [1 1], {[5; -3]}, false, false, 0);
+results{end+1,1} = 'translateEvents: cell n_g-by-1 column gives per-attribute within group';
+results{end,2}   = numel(out) == 1 && isequal(out{1}{1}, [65 69]) && isequal(out{1}{2}, [64 68]);
 
 % -- translateEvents: composition (non-periodic) --
 
@@ -914,9 +926,17 @@ results{end,2}   = best_s > 1.0 - 1e-9;
 
 % -- translateEvents: error cases --
 
-results{end+1,1} = 'translateEvents: wrong-shape offsets (length-3 row, G=2) errors';
+% 2-D row count neither 1 nor A is rejected. Here A = 2, row count 3.
+results{end+1,1} = 'translateEvents: 2-D with wrong row count (neither 1 nor A) errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() translateEvents({[1 2], [3 4]}, [], [5 0 7], ...
+    @() translateEvents({[1 2], [3 4]}, [], zeros(3, 5), ...
+                         [false false], [false false], [0 0]), ...
+    'translateEvents:wrongOffsetsShape');
+
+% Cell of wrong length (not 1-by-G) is rejected.
+results{end+1,1} = 'translateEvents: cell of wrong length (not 1-by-G) errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2], [3 4]}, [], {5}, ...
                          [false false], [false false], [0 0]), ...
     'translateEvents:wrongOffsetsShape');
 
@@ -954,42 +974,45 @@ ok = iscell(out_sweep) && numel(out_sweep) == 3 ...
 results{end+1,1} = 'translateEvents: matrix form returns 1-by-M cell of 1-by-A cells';
 results{end,2}   = ok;
 
-% (b) (G, 1) column-vector input is matrix form M = 1 and keeps the
-% cell wrapper around the inner 1-by-A cell. (Vector form in MATLAB
-% requires a 1-by-G ROW vector; column vectors are matrix-form.)
+% (b) A-by-1 column-vector input is per-attribute single translation
+% (matrix-mode, length-1 outer cell wrapper). With A = G = 2 here,
+% rows index attributes; values land directly on each attribute.
 p_g2     = {[1 2], [10 20]};
-offs_g2  = [5; 7];   % 2-by-1 column → matrix form M = 1
+offs_g2  = [5; 7];   % 2-by-1 (A-by-1) column
 out_g2   = translateEvents(p_g2, [1 2], offs_g2, ...
                             [false false], [false false], [0 0]);
 ok = iscell(out_g2) && numel(out_g2) == 1 ...
      && iscell(out_g2{1}) && numel(out_g2{1}) == 2 ...
      && isequal(out_g2{1}{1}, [6 7]) ...
      && isequal(out_g2{1}{2}, [17 27]);
-results{end+1,1} = 'translateEvents: (G,1) matrix form keeps cell wrapper (M=1)';
+results{end+1,1} = 'translateEvents: A-by-1 column gives per-attribute single translation (matrix-mode)';
 results{end,2}   = ok;
 
-% (c) Per-column equivalence with vector-form calls. Each column is
-% transposed to a 1-by-G row to invoke vector form.
+% (c) Per-column equivalence with per-attribute single-translation calls.
+% A = G = 2 here, so the A-by-M matrix form's per-column slice (A-by-1
+% column) is the equivalent per-attribute single translation. Both
+% calls are matrix-mode; compare sweep2{m}{a} against one_m{1}{a}.
 p_pe      = {[60 64 67], [0 1 2]};
 groups_pe = [1 2];
 isRel_pe  = [false false];
 isPer_pe  = [true  false];
 period_pe = [1200  0];
 offs_mat2 = [0   100  200  -50; ...
-             0    0.5   1    -0.25];   % 2-by-4 matrix form
+             0    0.5   1    -0.25];   % 2-by-4 (A-by-M) matrix
 sweep2 = translateEvents(p_pe, groups_pe, offs_mat2, ...
                           isRel_pe, isPer_pe, period_pe);
 allMatch = true;
 for m = 1:size(offs_mat2, 2)
-    one_m = translateEvents(p_pe, groups_pe, offs_mat2(:, m).', ...
+    % A-by-1 column slice → per-attribute single translation (matrix-mode).
+    one_m = translateEvents(p_pe, groups_pe, offs_mat2(:, m), ...
                              isRel_pe, isPer_pe, period_pe);
     for a = 1:numel(p_pe)
-        if ~isequal(sweep2{m}{a}, one_m{a})
+        if ~isequal(sweep2{m}{a}, one_m{1}{a})
             allMatch = false; break;
         end
     end
 end
-results{end+1,1} = 'translateEvents: matrix per-column equals vector-form calls';
+results{end+1,1} = 'translateEvents: per-column equals per-attribute single-translation calls';
 results{end,2}   = allMatch;
 
 % (d) NaN entries per column skip translation column-by-column.

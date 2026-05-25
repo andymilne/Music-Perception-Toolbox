@@ -1324,12 +1324,12 @@ class TestMAET:
     def test_translate_non_finite_offset_raises(self):
         """A non-finite offset (NaN or inf) raises ValueError."""
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="finite scalar"):
+        with pytest.raises(ValueError, match="must be finite"):
             mpt.translate_events(
                 p, [0], {0: float("nan")},
                 [False], [False], [0.0],
             )
-        with pytest.raises(ValueError, match="finite scalar"):
+        with pytest.raises(ValueError, match="must be finite"):
             mpt.translate_events(
                 p, [0], {0: float("inf")},
                 [False], [False], [0.0],
@@ -1363,39 +1363,268 @@ class TestMAET:
             )
 
     def test_translate_non_dict_offsets_raises(self):
-        """An offsets argument that is neither a dict nor a recognised
-        array shape (length-G vector or (G, M) matrix) raises
-        ValueError. Bare scalars are valid only when G == 1; with
-        G > 1, a scalar is malformed."""
+        """Invalid numeric-form offsets shapes raise ValueError. Under
+        the orientation grammar (rows = attributes, columns = sweep),
+        only ndim > 2 and 2-D shapes whose row count is neither 1 nor
+        A are rejected; scalar and 1-D inputs are valid (broadcast)."""
         p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
-        # G = 2 here, scalar 5.0 is neither length-G vector nor a (G, M) array.
-        with pytest.raises(ValueError, match="scalar"):
-            mpt.translate_events(
-                p, [0, 1], 5.0,
-                [False, False], [False, False], [0.0, 0.0],
-            )
-        # 3-D array offsets is not a valid shape regardless of G.
+        # 3-D array is never valid.
         with pytest.raises(ValueError, match="ndim"):
             mpt.translate_events(
                 p, [0, 1], np.zeros((2, 3, 1)),
                 [False, False], [False, False], [0.0, 0.0],
             )
-        # 1-D array of wrong length (with G > 1).
-        with pytest.raises(ValueError, match="1-D"):
-            mpt.translate_events(
-                p, [0, 1], np.array([1.0, 2.0, 3.0]),
-                [False, False], [False, False], [0.0, 0.0],
-            )
-        # 2-D array with wrong row count.
-        with pytest.raises(ValueError, match="rows"):
+        # 2-D array with row count neither 1 nor A.
+        # A = 2 here, row count 3 is invalid.
+        with pytest.raises(ValueError, match="row count"):
             mpt.translate_events(
                 p, [0, 1], np.zeros((3, 5)),
                 [False, False], [False, False], [0.0, 0.0],
             )
 
-    # --- translate_events matrix form (sweep) ----------------------------
+    # --- translate_events polymorphic dict (per-attribute) --------------
 
-    def test_translate_matrix_returns_list_of_lists(self):
+    def test_translate_dict_scalar_broadcasts_within_group(self):
+        """Dict scalar value broadcasts across every attribute in
+        the group (no sweep)."""
+        # Two attributes in one group; one scalar offset applies to both.
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]   # both attributes in group 0
+        is_rel, is_per, periods = [False], [False], [0.0]
+        out = mpt.translate_events(
+            p, groups, {0: 5.0}, is_rel, is_per, periods,
+        )
+        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
+
+    def test_translate_dict_2d_n_gx1_per_attribute(self):
+        """Dict 2-D (n_g, 1) column gives each attribute its own
+        offset within the group (single translation, per-attribute).
+        Returns a matrix-mode output (length-1 outer wrapper) because
+        the 2-D shape was explicit."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]   # both attributes in group 0
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # attr 0 shifts by 5, attr 1 by -3, single translation.
+        out = mpt.translate_events(
+            p, groups, {0: np.array([[5.0], [-3.0]])},
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 1
+        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[0][1], [[64.0, 68.0]])
+
+    def test_translate_dict_2d_per_attr_equivalent_to_scalar_when_uniform(self):
+        """A 2-D (n_g, 1) dict value of all-equal entries gives the
+        same translated values as the matching scalar broadcast."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        out_scalar = mpt.translate_events(
+            p, groups, {0: 5.0}, is_rel, is_per, periods,
+        )
+        out_col = mpt.translate_events(
+            p, groups, {0: np.array([[5.0], [5.0]])},
+            is_rel, is_per, periods,
+        )
+        # scalar form is vector-mode; column form is matrix-mode
+        # (length-1 outer wrapper). Compare the underlying arrays.
+        np.testing.assert_allclose(out_scalar[0], out_col[0][0])
+        np.testing.assert_allclose(out_scalar[1], out_col[0][1])
+
+    def test_translate_dict_1d_length_ng_is_broadcast_sweep(self):
+        """A 1-D length-n_g value is a broadcast sweep with M = n_g
+        positions (not a per-attribute single translation). Under
+        the orientation convention, 1-D is always a row vector."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # 1-D length-2 is broadcast across both attributes, M=2 sweep.
+        out = mpt.translate_events(
+            p, groups, {0: np.array([5.0, -3.0])},
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 2
+        # col 0: both attributes shift by 5.
+        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
+        # col 1: both attributes shift by -3.
+        np.testing.assert_allclose(out[1][0], [[57.0, 61.0]])
+        np.testing.assert_allclose(out[1][1], [[64.0, 68.0]])
+
+    def test_translate_dict_2d_1xM_broadcast_sweep(self):
+        """Dict 2-D (1, M) value: broadcast within group, sweep with
+        M positions."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # M = 3 sweep, broadcast within group: every position shifts both
+        # attributes by the same offset.
+        out = mpt.translate_events(
+            p, groups, {0: np.array([[0.0, 5.0, 10.0]])},
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 3
+        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
+        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
+        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
+        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
+
+    def test_translate_dict_2d_per_attribute_sweep(self):
+        """Dict 2-D (n_g, M) value: per-attribute sweep with M
+        positions; each attribute gets its own sweep grid."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # attr 0 sweeps [0, 5, 10]; attr 1 sweeps [1, 2, 3].
+        offs = np.array([[0.0, 5.0, 10.0],
+                         [1.0, 2.0, 3.0]])
+        out = mpt.translate_events(
+            p, groups, {0: offs}, is_rel, is_per, periods,
+        )
+        assert len(out) == 3
+        # col 0: attr 0 by 0, attr 1 by 1.
+        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
+        np.testing.assert_allclose(out[0][1], [[68.0, 72.0]])
+        # col 2: attr 0 by 10, attr 1 by 3.
+        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
+        np.testing.assert_allclose(out[2][1], [[70.0, 74.0]])
+
+    def test_translate_dict_2d_wrong_rows_raises(self):
+        """2-D dict value with row count != 1 and != n_g raises."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        with pytest.raises(ValueError, match="row count"):
+            mpt.translate_events(
+                p, groups, {0: np.zeros((3, 4))},
+                is_rel, is_per, periods,
+            )
+
+    def test_translate_dict_M_disagreement_raises(self):
+        """Two 2-D dict entries with different M dimensions raise."""
+        p_g0 = np.array([[60.0, 64.0]])
+        p_g1 = np.array([[0.0, 1.0]])
+        groups = [0, 1]
+        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
+        with pytest.raises(ValueError, match="sweep dimension"):
+            mpt.translate_events(
+                [p_g0, p_g1], groups,
+                {0: np.array([[1.0, 2.0, 3.0]]),
+                 1: np.array([[10.0, 20.0]])},
+                is_rel, is_per, periods,
+            )
+
+    def test_translate_dict_mixed_scalar_and_swept(self):
+        """A scalar dict value broadcasts across the sweep when
+        another entry establishes M; the scalar group gets the same
+        offset at every sweep position."""
+        p_g0 = np.array([[60.0, 64.0]])
+        p_g1 = np.array([[0.0, 1.0]])
+        groups = [0, 1]
+        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
+        out = mpt.translate_events(
+            [p_g0, p_g1], groups,
+            {0: 100.0, 1: np.array([[0.0, 0.5, 1.0]])},
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 3   # matrix mode triggered by group 1's 2-D entry
+        for m in range(3):
+            np.testing.assert_allclose(out[m][0], [[160.0, 164.0]])
+        np.testing.assert_allclose(out[0][1], [[0.0, 1.0]])
+        np.testing.assert_allclose(out[1][1], [[0.5, 1.5]])
+        np.testing.assert_allclose(out[2][1], [[1.0, 2.0]])
+
+    def test_translate_dict_per_attribute_nan_skips_attribute(self):
+        """A NaN entry in a 2-D (n_g, 1) per-attribute column skips
+        that attribute."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # attr 0 translated by 5, attr 1 untouched.
+        out = mpt.translate_events(
+            p, groups, {0: np.array([[5.0], [float("nan")]])},
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 1
+        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
+
+    def test_translate_dict_relative_group_per_attribute_warns(self):
+        """Per-attribute offsets on a relative group still trigger
+        the one-per-call no-op warning and pass through unchanged."""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [True], [False], [0.0]
+        with pytest.warns(mpt.TranslateEventsNoOpWarning):
+            out = mpt.translate_events(
+                p, groups, {0: np.array([[5.0], [-3.0]])},
+                is_rel, is_per, periods,
+            )
+        assert len(out) == 1
+        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
+        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
+
+    def test_translate_top_level_AxM_per_attribute_sweep(self):
+        """Top-level (A, M) numeric matrix sweeps each attribute on
+        its own row, independent of group structure. A multi-attribute
+        group's attributes can therefore receive distinct sweep grids
+        without using the dict form."""
+        # Single group with two attributes (n_g = 2 = A).
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # A = 2, M = 3. Row 0 sweeps attr 0; row 1 sweeps attr 1.
+        offs = np.array([[0.0, 5.0, 10.0],
+                         [1.0, 2.0, 3.0]])
+        out = mpt.translate_events(
+            p, groups, offs, is_rel, is_per, periods,
+        )
+        assert len(out) == 3
+        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
+        np.testing.assert_allclose(out[0][1], [[68.0, 72.0]])
+        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
+        np.testing.assert_allclose(out[2][1], [[70.0, 74.0]])
+
+    def test_translate_top_level_1xM_broadcast_sweep(self):
+        """Top-level (1, M) numeric row broadcasts the sweep across
+        every attribute, regardless of group structure."""
+        # Two groups, three attributes total.
+        p = [np.array([[60.0, 64.0]]),
+             np.array([[67.0, 71.0]]),
+             np.array([[0.0, 1.0]])]
+        groups = [[0, 1], [2]]
+        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
+        offs = np.array([[0.0, 5.0, 10.0]])   # (1, 3) row vector
+        out = mpt.translate_events(
+            p, groups, offs, is_rel, is_per, periods,
+        )
+        assert len(out) == 3
+        # col 2: every attribute shifted by 10.
+        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
+        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
+        np.testing.assert_allclose(out[2][2], [[10.0, 11.0]])
+
+    def test_translate_top_level_1D_is_broadcast_sweep(self):
+        """A 1-D length-M array at the top level is interpreted as a
+        (1, M) row vector under the orientation grammar: broadcast
+        across all attributes, M-position sweep. (Per-attribute
+        single translation requires 2-D (A, 1) shape.)"""
+        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
+        groups = [[0, 1]]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        # 1-D length-3: broadcast sweep with M=3.
+        out = mpt.translate_events(
+            p, groups, np.array([0.0, 5.0, 10.0]),
+            is_rel, is_per, periods,
+        )
+        assert len(out) == 3
+        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
+        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
+        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
+        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
+
+    # --- translate_events matrix form (sweep) ----------------------------
         """Matrix offsets of shape (G, M) return a length-M list of
         length-A lists. M = 1 still keeps the outer wrapper."""
         p = [np.array([[60.0, 64.0, 67.0]])]
@@ -1413,9 +1642,12 @@ class TestMAET:
         assert isinstance(out_one[0], list) and len(out_one[0]) == 1
 
     def test_translate_matrix_per_column_equivalence(self):
-        """Each column of the matrix form equals the vector-form result
-        for that column."""
+        """Each column of an (A, M) per-attribute matrix gives the
+        same translated values as a single per-attribute call with
+        the corresponding (A, 1) column."""
         p = [np.array([[60.0, 64., 67.]]), np.array([[0., 1., 2.]])]
+        # A = 2 here (two singleton groups), so (A, M) is the
+        # per-attribute matrix form under the orientation grammar.
         groups, is_rel, is_per = [0, 1], [False, False], [True, False]
         periods = [1200.0, 0.0]
         offs_mat = np.array([
@@ -1426,11 +1658,13 @@ class TestMAET:
             p, groups, offs_mat, is_rel, is_per, periods,
         )
         for m in range(offs_mat.shape[1]):
+            # (A, 1) column → per-attribute single translation
+            # (matrix-mode output, length-1 outer wrapper).
             one = mpt.translate_events(
-                p, groups, offs_mat[:, m], is_rel, is_per, periods,
+                p, groups, offs_mat[:, m:m+1], is_rel, is_per, periods,
             )
             for a in range(2):
-                np.testing.assert_allclose(sweep[m][a], one[a])
+                np.testing.assert_allclose(sweep[m][a], one[0][a])
 
     def test_translate_matrix_nan_per_column(self):
         """NaN entries in matrix offsets skip translation on that

@@ -1,47 +1,65 @@
 function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer, periods)
-%TRANSLATEEVENTS Translate selected groups' event values by a per-group offset.
+%TRANSLATEEVENTS Translate event values by a per-attribute offset.
 %
 %   pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer, periods)
 %   is a cross-event preprocessing helper for multi-attribute tensor
 %   input. It takes the pAttr list one would otherwise feed to
 %   buildExpTens and returns a transformed pAttrTranslated list with the
-%   same shape conventions, in which every value of every attribute
-%   belonging to a selected group has been shifted by the group's
-%   offset. The output feeds directly into buildExpTens without any
-%   further massaging.
+%   same shape conventions, in which selected attributes' values have
+%   been shifted by a chosen offset. The output feeds directly into
+%   buildExpTens without any further massaging.
 %
 %   Sliding-comparison context. translateEvents is the pre-tensor route
-%   to a sliding comparison along one or more attribute-group axes: for
-%   each candidate offset mu on a sweep grid, translate the events and
+%   to a sliding comparison along one or more attribute axes: for each
+%   candidate offset mu on a sweep grid, translate the events and
 %   compute a similarity against an un-shifted reference. The post-
 %   tensor counterpart is windowedSimilarity. Both answer related "slide
 %   along an axis" questions but with different operational properties;
 %   see USER_GUIDE.md §3.1.
 %
-%   Two offset-input shapes are accepted:
+%   Two offset-input forms are accepted: a single numeric block (for
+%   uniform broadcast or fully per-attribute layouts) or a 1-by-G cell
+%   array keyed by group (for mixed-per-group layouts, e.g. broadcast on
+%   one group and per-attribute on another in the same call).
 %
-%     Vector form. offsets is a 1-by-G numeric row vector (or a 1-by-1
-%     scalar when G = 1). One translation is performed and
-%     pAttrTranslated has the same 1-by-A cell shape as pAttr. NaN
-%     entries mean "do not translate this group".
+%     Numeric form. offsets is a numeric matrix with rows indexing
+%     attributes and columns indexing sweep positions. Row count must
+%     be exactly 1 (broadcast across all attributes) or A (per-
+%     attribute). Within-group broadcast is expressed by setting that
+%     group's rows equal.
 %
-%     Matrix form (sweep). offsets is a G-by-M numeric matrix. M is
-%     the number of sweep positions. Translation is applied column by
-%     column: for each m in 1..M, the function builds a translated
-%     copy of pAttr using offsets(:, m). The return is a 1-by-M cell
-%     of 1-by-A cells. M = 1 still yields a 1-by-1 cell wrapper, never
-%     collapses to the vector-form return. Pass the result directly
-%     into the raw-MA list mode of cosSimExpTens (cosSimExpTens with
-%     pAttrCell on either operand) to score the sweep in one call.
+%       1-by-1 scalar:        broadcast no sweep. Single translation.
+%       1-by-M row (M >= 1):  broadcast M-sweep. Returns 1-by-M cell.
+%       A-by-1 column:        per-attribute, single translation.
+%                             Returns 1-by-1 cell (matrix-mode).
+%       A-by-M matrix:        per-attribute, M-sweep. Returns 1-by-M
+%                             cell.
+%       2-D with rows neither 1 nor A: error.
 %
-%     Note on column vectors. A length-G column vector (e.g. [5; 7]
-%     for G = 2) is a G-by-1 matrix and so reads as matrix form with
-%     M = 1, NOT as vector form. To pass a vector form in MATLAB use
-%     the 1-by-G row layout. This convention is the only way to make
-%     M = 1 reachable, since MATLAB does not distinguish a length-G
-%     column vector from a G-by-1 2-D array.
+%     Cell form. offsets is a 1-by-G cell array; each cell offsets{g}
+%     holds the per-group value following an analogous orientation
+%     convention with n_g (the number of attributes in group g)
+%     playing the role of A:
 %
-%   Semantics by group geometry (apply per offset column in matrix form):
+%       empty []:             skip group (no translation).
+%       1-by-1 scalar:        broadcast within group, no sweep.
+%       1-by-M row:           broadcast within group, M-sweep.
+%       n_g-by-1 column:      per-attribute, no sweep.
+%       n_g-by-M matrix:      per-attribute, M-sweep.
+%       2-D with rows neither 1 nor n_g: error.
+%
+%     Groups whose cell is empty (or omitted by passing a shorter
+%     cell — disallowed; the cell must be exactly 1-by-G) are not
+%     translated. All entries (across both numeric columns and cell
+%     entries) implying M > 1 must agree on M; scalar and one-column
+%     entries broadcast across the sweep. When any entry implies a
+%     sweep or any 2-D shape is used, the output is a 1-by-M cell of
+%     1-by-A cells (matrix-mode); otherwise a single 1-by-A cell.
+%
+%   NaN entries in any numeric block skip the corresponding (attribute,
+%   column) cell. +/-Inf is rejected.
+%
+%   Semantics by group geometry (apply per offset column):
 %
 %     Absolute non-periodic (isPer(g) = false): every value of every
 %     attribute in group g is replaced by value + mu. periods(g) is
@@ -58,8 +76,8 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %     cancels in every within-tuple difference, so translation on a
 %     relative group is a structural no-op. The group is left
 %     unchanged. The warning translateEvents:noOpRelative is emitted
-%     at most once per call, even when the matrix form has many
-%     columns with finite entries on the relative-group row.
+%     at most once per call, even when multiple sweep columns carry
+%     finite entries on the relative-group attributes.
 %
 %   Weights are unaffected by translation and are not part of this
 %   function's signature; the caller passes the same w to buildExpTens
@@ -71,57 +89,37 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %                  taken as a 1 x N row.
 %       groups   - Group assignment, same convention as buildExpTens
 %                  and differenceEvents.
-%       offsets  - Either a 1-by-G numeric row vector (single
-%                  translation; 1-by-1 scalar when G = 1) or a
-%                  G-by-M numeric matrix (M-column sweep, including
-%                  G-by-1 columns for M = 1). Entries that are NaN
-%                  mean "do not translate this group" for the
-%                  corresponding column — the attributes in that
-%                  group pass through unchanged on that column.
-%                  Finite entries are the translation amount.
-%                  Indexing is 1-based to match MATLAB's group-index
-%                  convention. The Python counterpart accepts a
-%                  sparse dict (vector form) or a (G, M) ndarray
-%                  (matrix form).
-%       isRel    - 1 x G logical vector of relative-mode flags, same
-%                  convention as buildExpTens. Groups with isRel(g) =
-%                  true that have at least one finite offset entry
-%                  emit a single translateEvents:noOpRelative warning
-%                  and pass through unchanged on every column.
-%       isPer    - 1 x G logical vector of periodic-mode flags, same
-%                  convention as buildExpTens. Wrapping after
-%                  translation is applied only when isPer(g) = true
-%                  AND periods(g) > 0.
-%       periods  - 1 x G numeric vector of periods, same convention as
-%                  buildExpTens. Consulted only when isPer(g) = true.
-%                  For non-periodic groups (isPer(g) = false) the entry
-%                  is ignored, so it is safe to declare a group's
-%                  natural period (e.g. 12 for pitch class) even when
-%                  operating in non-periodic mode for a particular
-%                  analysis.
+%       offsets  - Numeric matrix or 1-by-G cell. See the "Two offset-
+%                  input forms" block above.
+%       isRel    - 1 x G logical vector. Groups with isRel(g) = true
+%                  carrying any finite offset on their attributes emit
+%                  a single translateEvents:noOpRelative warning and
+%                  pass through unchanged on every column.
+%       isPer    - 1 x G logical vector. Accepted for signature
+%                  parallelism with the rest of the MAET pipeline; not
+%                  consulted by translateEvents itself.
+%       periods  - 1 x G numeric vector. Accepted for signature
+%                  parallelism; not consulted by translateEvents
+%                  itself.
 %
-%   Outputs
-%       pAttrTranslated - For vector-form offsets: a 1 x A cell of
-%                         K_a x N matrices, same shapes as the input,
-%                         with translation applied to the selected
-%                         groups. For matrix-form offsets: a 1 x M
-%                         cell of such 1 x A cells, one per offset
-%                         column. pAttr is not mutated.
+%   Output
+%       pAttrTranslated - 1 x A cell of K_a x N per-attribute value
+%                         matrices in vector mode (numeric scalar input
+%                         only); a 1 x M cell of 1 x A cells in matrix
+%                         mode (any other input).
 %
 %   Errors
-%       translateEvents:wrongOffsetsShape - offsets has the wrong shape
-%                                            (not a length-G vector and
-%                                            not a G-by-M matrix).
-%       translateEvents:wrongIsRelLength   - isRel has length ~= G.
-%       translateEvents:wrongIsPerLength   - isPer has length ~= G.
-%       translateEvents:wrongPeriodsLength - periods has length ~= G.
-%       translateEvents:badPAttr           - pAttr is not a cell.
-%       translateEvents:badEventCount      - attributes have differing N.
+%       translateEvents:badPAttr           - pAttr is malformed.
+%       translateEvents:badEventCount      - inconsistent N across attrs.
+%       translateEvents:wrongIsRelLength   - isRel has length != G.
+%       translateEvents:wrongIsPerLength   - isPer has length != G.
+%       translateEvents:wrongPeriodsLength - periods has length != G.
+%       translateEvents:wrongOffsetsShape  - offsets not a valid shape.
 %       translateEvents:nonFiniteOffset    - an offset is +/-Inf.
 %
 %   Warnings
 %       translateEvents:noOpRelative - emitted once per call when any
-%                                       relative-group row has any
+%                                       relative-group attribute has any
 %                                       finite offset entry.
 %
 %   See also DIFFERENCEEVENTS, BINDEVENTS, BUILDEXPTENS, WINDOWEDSIMILARITY, COSSIMEXPTENS.
@@ -136,16 +134,16 @@ if ~iscell(pAttr) || isempty(pAttr)
 end
 A = numel(pAttr);
 for a = 1:A
-    M = pAttr{a};
-    if isvector(M) && (size(M, 1) == 1 || size(M, 2) == 1)
-        M = reshape(double(M), 1, []);   % row form
-    elseif ndims(M) > 2 %#ok<ISMAT>
+    Marr = pAttr{a};
+    if isvector(Marr) && (size(Marr, 1) == 1 || size(Marr, 2) == 1)
+        Marr = reshape(double(Marr), 1, []);   % row form
+    elseif ndims(Marr) > 2 %#ok<ISMAT>
         error('translateEvents:badPAttr', ...
-              'pAttr{%d} must be 1-D or 2-D; got ndims=%d.', a, ndims(M));
+              'pAttr{%d} must be 1-D or 2-D; got ndims=%d.', a, ndims(Marr));
     else
-        M = double(M);
+        Marr = double(Marr);
     end
-    pAttr{a} = M;
+    pAttr{a} = Marr;
 end
 
 % --- Check shared N ---
@@ -163,6 +161,12 @@ end
 groupOfAttr = localCanonicaliseGroups(groups, A);
 G = max(groupOfAttr);
 
+% --- Build attrsOfGroup: 1 x G cell, each entry the attribute indices in that group ---
+attrsOfGroup = cell(1, G);
+for g = 1:G
+    attrsOfGroup{g} = find(groupOfAttr == g);
+end
+
 % --- Validate isRel, isPer, periods ---
 if numel(isRel) ~= G
     error('translateEvents:wrongIsRelLength', ...
@@ -177,91 +181,50 @@ if numel(periods) ~= G
     error('translateEvents:wrongPeriodsLength', ...
           'periods must have length G = %d; got %d.', G, numel(periods));
 end
-isRel   = logical(isRel(:).');
-isPer   = logical(isPer(:).');
-periods = double(periods(:).');
+isRel = logical(isRel(:).');
 
-% --- Detect offset-input shape: vector (single) or matrix (sweep) ---
-% Disambiguation rules (MATLAB-specific, because a length-G column
-% vector and a G-by-1 matrix share the same shape):
-%   * 1-by-G row vector (or 1-by-1 scalar when G == 1)  → vector form
-%   * G == 1, 1-by-N row vector with N > 1              → matrix form (1×N sweep)
-%   * 2-D matrix with G rows, M columns (M >= 1,
-%     including the G-by-1 column-vector case)         → matrix form (M-column sweep)
-%   * Anything else                                     → error
-% Note: a length-G column vector (e.g. [5; 7] for G = 2) is treated
-% as a G-by-1 matrix → matrix form with M = 1. Vector form in MATLAB
-% requires a 1-by-G ROW vector (or a scalar when G = 1). This is the
-% only way to make M = 1 reachable without an extra flag, since
-% MATLAB does not distinguish a length-G column vector from a G-by-1
-% 2-D array.
-offsets = double(offsets);
-if ndims(offsets) > 2 %#ok<ISMAT>
-    error('translateEvents:wrongOffsetsShape', ...
-          ['offsets must be a 1-by-G row vector (single translation) ' ...
-           'or a G-by-M matrix (M-column sweep); got an array with ' ...
-           'ndims=%d.'], ndims(offsets));
-end
-[nRows, nCols] = size(offsets);
-if nRows == 1 && nCols == G
-    % 1-by-G row vector (includes 1-by-1 scalar when G == 1).
-    matrixMode = false;
-    offsetCols = offsets(:);                     % G x 1 internally
-elseif G == 1 && nRows == 1 && nCols > 1
-    % G == 1, length-N row vector with N > 1: matrix form 1-by-N sweep.
-    matrixMode = true;
-    offsetCols = offsets;                        % 1 x N
-elseif nRows == G
-    % 2-D with G rows (includes the G-by-1 column-vector case, which
-    % is matrix form with M = 1).
-    matrixMode = true;
-    offsetCols = offsets;                        % G x M
-else
-    error('translateEvents:wrongOffsetsShape', ...
-          ['offsets must be a 1-by-G = 1-by-%d row vector (single ' ...
-           'translation) or a G-by-M = %d-by-M matrix (M-column ' ...
-           'sweep); got shape %d-by-%d.'], G, G, nRows, nCols);
-end
-if any(isinf(offsetCols(~isnan(offsetCols))))
-    error('translateEvents:nonFiniteOffset', ...
-          'offsets entries must be finite (or NaN to skip a group).');
-end
-M = size(offsetCols, 2);
+% --- Normalise offsets to an A-by-M per-attribute matrix ---
+[matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, attrsOfGroup);
+M = size(offsetsPerAttr, 2);
 
-% --- Identify groups with at least one finite offset across columns, ---
-% --- and emit at most one relative-group no-op warning per call. ---
-anyFiniteByGroup = any(~isnan(offsetCols), 2).';   % 1 x G logical
-groupTouchable = false(1, G);                       % can a finite mu apply?
+% --- Identify relative groups carrying any finite per-attribute offset, ---
+% --- and emit at most one no-op warning per call. Zero out the rows so ---
+% --- the hot-loop NaN check handles the skip. ---
+finiteMask = ~isnan(offsetsPerAttr);
 warnedRelative = false;
 for g = 1:G
-    if ~anyFiniteByGroup(g)
+    if ~isRel(g)
         continue;
     end
-    if isRel(g)
-        if ~warnedRelative
-            warning('translateEvents:noOpRelative', ...
-                    ['Group %d has isRel=true; translation is a structural ' ...
-                     'no-op on relative groups (a uniform shift of all values ' ...
-                     'cancels in every within-tuple difference). The group is ' ...
-                     'left unchanged on every offset column.'], g);
-            warnedRelative = true;
+    attrs = attrsOfGroup{g};
+    anyFinite = false;
+    for ii = 1:numel(attrs)
+        if any(finiteMask(attrs(ii), :))
+            anyFinite = true;
+            break;
         end
+    end
+    if ~anyFinite
         continue;
     end
-    groupTouchable(g) = true;
+    if ~warnedRelative
+        warning('translateEvents:noOpRelative', ...
+                ['Group %d has isRel=true; translation is a structural ' ...
+                 'no-op on relative groups (a uniform shift of all values ' ...
+                 'cancels in every within-tuple difference). The group is ' ...
+                 'left unchanged on every offset column.'], g);
+        warnedRelative = true;
+    end
+    offsetsPerAttr(attrs, :) = NaN;
 end
 
-% --- Apply translation ---
+% --- Apply translation, column by column ---
 if ~matrixMode
-    pAttrTranslated = localTranslateOne(pAttr, groupOfAttr, ...
-                                         offsetCols(:, 1), groupTouchable, ...
-                                         isPer, periods);
+    pAttrTranslated = localTranslateOne(pAttr, offsetsPerAttr(:, 1));
 else
     pAttrTranslated = cell(1, M);
     for m = 1:M
-        pAttrTranslated{m} = localTranslateOne(pAttr, groupOfAttr, ...
-                                                offsetCols(:, m), groupTouchable, ...
-                                                isPer, periods);
+        pAttrTranslated{m} = localTranslateOne(pAttr, offsetsPerAttr(:, m));
     end
 end
 
@@ -272,20 +235,168 @@ end
 %  Local helpers
 % =========================================================================
 
-function out = localTranslateOne(pAttr, groupOfAttr, offsetsCol, ...
-                                  groupTouchable, isPer, periods)
-%LOCALTRANSLATEONE  Apply one column of offsets to pAttr.
+function out = localTranslateOne(pAttr, offsetsCol)
+%LOCALTRANSLATEONE  Apply one column of per-attribute offsets to pAttr.
     A = numel(pAttr);
     out = cell(1, A);
     for a = 1:A
-        g = groupOfAttr(a);
         Marr = pAttr{a};
-        mu = offsetsCol(g);
-        if ~groupTouchable(g) || isnan(mu)
+        mu = offsetsCol(a);
+        if isnan(mu)
             out{a} = Marr;
             continue;
         end
         out{a} = Marr + mu;
+    end
+end
+
+
+function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, attrsOfGroup)
+%LOCALNORMALISEOFFSETS  Coerce public offsets to (A, M) with NaN-skip.
+    if iscell(offsets)
+        [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell( ...
+            offsets, A, G, attrsOfGroup);
+        return;
+    end
+    if ~isnumeric(offsets)
+        error('translateEvents:wrongOffsetsShape', ...
+              ['offsets must be a numeric matrix or a 1-by-G cell array; ' ...
+               'got class %s.'], class(offsets));
+    end
+    if ndims(offsets) > 2 %#ok<ISMAT>
+        error('translateEvents:wrongOffsetsShape', ...
+              ['offsets must be a numeric matrix (scalar, row, column, ' ...
+               'or 2-D) or a 1-by-G cell; got an array with ndims=%d.'], ...
+              ndims(offsets));
+    end
+    offsets = double(offsets);
+    [nRows, nCols] = size(offsets);
+
+    % Reject inf early (NaN is allowed as skip sentinel).
+    if any(isinf(offsets(:)))
+        error('translateEvents:nonFiniteOffset', ...
+              'offsets entries must be finite (or NaN to skip a cell).');
+    end
+
+    if nRows == 1 && nCols == 1
+        % Scalar: broadcast no sweep.
+        matrixMode = false;
+        if isnan(offsets)
+            error('translateEvents:nonFiniteOffset', ...
+                  'Scalar offset must be finite; got NaN.');
+        end
+        offsetsPerAttr = repmat(offsets, A, 1);
+        return;
+    end
+    if nRows == 1
+        % 1-by-M row: broadcast sweep with M positions.
+        matrixMode = true;
+        offsetsPerAttr = repmat(offsets, A, 1);
+        return;
+    end
+    if nRows == A
+        % A-by-M (M >= 1): per-attribute.
+        matrixMode = true;
+        offsetsPerAttr = offsets;
+        return;
+    end
+    error('translateEvents:wrongOffsetsShape', ...
+          ['offsets is a 2-D array with shape %d-by-%d; row count must ' ...
+           'be 1 (broadcast across all attributes) or A = %d (per-' ...
+           'attribute). For per-group offsets, use the 1-by-G cell form.'], ...
+          nRows, nCols, A);
+end
+
+
+function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G, attrsOfGroup)
+%LOCALNORMALISEOFFSETSCELL  Process the polymorphic 1-by-G cell form.
+    sz = size(offsets);
+    if numel(sz) ~= 2 || sz(1) ~= 1 || sz(2) ~= G
+        error('translateEvents:wrongOffsetsShape', ...
+              ['offsets cell array must be 1-by-G = 1-by-%d (one cell ' ...
+               'per group, in group order); got shape %d-by-%d.'], ...
+              G, sz(1), sz(2));
+    end
+
+    % --- First pass: validate and determine sweep dimension M ---
+    M = 1;
+    matrixMode = false;
+    valArrs = cell(1, G);
+    for g = 1:G
+        val = offsets{g};
+        if isempty(val)
+            valArrs{g} = [];
+            continue;
+        end
+        if ~isnumeric(val)
+            error('translateEvents:wrongOffsetsShape', ...
+                  'offsets{%d} must be numeric or empty; got class %s.', ...
+                  g, class(val));
+        end
+        if ndims(val) > 2 %#ok<ISMAT>
+            error('translateEvents:wrongOffsetsShape', ...
+                  'offsets{%d} must be 2-D (scalar, row, column, or matrix); got ndims=%d.', ...
+                  g, ndims(val));
+        end
+        val = double(val);
+        if any(isinf(val(:)))
+            error('translateEvents:nonFiniteOffset', ...
+                  'offsets{%d}: entries must be finite (or NaN to skip a cell).', g);
+        end
+        [nRows, nCols] = size(val);
+        if nCols > 1
+            matrixMode = true;
+            if M == 1
+                M = nCols;
+            elseif nCols ~= M
+                error('translateEvents:wrongOffsetsShape', ...
+                      ['offsets{%d} has shape %d-by-%d; sweep dimension ' ...
+                       '%d does not match the %d sweep positions ' ...
+                       'established by other entries.'], ...
+                      g, nRows, nCols, nCols, M);
+            end
+        elseif nRows > 1
+            % column vector (n_g-by-1) — single-column matrix-mode.
+            matrixMode = true;
+        end
+        valArrs{g} = val;
+    end
+
+    % --- Second pass: distribute into (A, M) ---
+    offsetsPerAttr = NaN(A, M);
+    for g = 1:G
+        val = valArrs{g};
+        if isempty(val)
+            continue;
+        end
+        attrs = attrsOfGroup{g};
+        n_g = numel(attrs);
+        [nRows, nCols] = size(val);
+        if nRows == 1 && nCols == 1
+            % scalar: broadcast within group, no sweep.
+            if isnan(val)
+                error('translateEvents:nonFiniteOffset', ...
+                      ['offsets{%d}: scalar offset must be finite (use ' ...
+                       'empty [] to skip a group); got NaN.'], g);
+            end
+            offsetsPerAttr(attrs, :) = val;
+        elseif nRows == 1
+            % 1-by-M row: broadcast within group, sweep.
+            for ii = 1:n_g
+                offsetsPerAttr(attrs(ii), :) = val;
+            end
+        elseif nRows == n_g
+            % n_g-by-M (M >= 1): per-attribute.
+            for ii = 1:n_g
+                offsetsPerAttr(attrs(ii), :) = val(ii, :);
+            end
+        else
+            error('translateEvents:wrongOffsetsShape', ...
+                  ['offsets{%d} is %d-by-%d; row count must be 1 ' ...
+                   '(broadcast within group) or %d (per-attribute, ' ...
+                   'matching the number of attributes in group %d).'], ...
+                  g, nRows, nCols, n_g, g);
+        end
     end
 end
 
@@ -297,30 +408,30 @@ function groupOfAttr = localCanonicaliseGroups(groups, A)
         return;
     end
     if iscell(groups)
+        % Explicit partition: cell of vectors of attribute indices.
         G = numel(groups);
         groupOfAttr = zeros(1, A);
         for g = 1:G
-            idx = groups{g};
-            if any(idx < 1) || any(idx > A) || any(groupOfAttr(idx) ~= 0)
-                error('translateEvents:badGroups', ...
-                      'Invalid cell-form groups specification.');
-            end
-            groupOfAttr(idx) = g;
+            attrs = groups{g}(:).';
+            groupOfAttr(attrs) = g;
         end
         if any(groupOfAttr == 0)
             error('translateEvents:badGroups', ...
-                  'Every attribute must appear in exactly one group.');
+                  ['Partition does not cover all attributes; some ' ...
+                   'attribute has no group assigned.']);
         end
         return;
     end
-    if isnumeric(groups) && numel(groups) == A
-        groupOfAttr = double(groups(:).');
-        if any(groupOfAttr < 1) || any(groupOfAttr ~= round(groupOfAttr))
-            error('translateEvents:badGroups', ...
-                  'Numeric groups must be positive integers.');
-        end
-        return;
+    groups = groups(:).';
+    if numel(groups) ~= A
+        error('translateEvents:badGroups', ...
+              ['groups vector must have length A = %d (one entry per ' ...
+               'attribute); got length %d.'], A, numel(groups));
     end
-    error('translateEvents:badGroupsShape', ...
-          'groups must be [], a length-A numeric vector, or a cell of index lists.');
+    % Re-index to 1..G contiguous.
+    uniq = unique(groups, 'stable');
+    groupOfAttr = zeros(1, A);
+    for ii = 1:numel(uniq)
+        groupOfAttr(groups == uniq(ii)) = ii;
+    end
 end

@@ -30,7 +30,7 @@ Version 2.2.0 is primarily a **performance release**. The headline gains come fr
 
 v2.2 also exposes **Rényi-2 differential entropy** $H_2 = -\log_b \langle T, T\rangle / Z^2$ as `method='renyi2'` on `entropyExpTens`. The analytical route was conceptually available in v2.0 / v2.1 (it requires only the inner product and total mass, both already analytical); v2.2 wires it up as a user-facing option and gains efficiency at high $r$ / $K$ via the Möbius method. **Shannon differential entropy** has no closed form in any version and is unchanged — `method='shannon'` continues to use a numerical grid.
 
-Additional improvements outside the two strands: **`bindEvents`** accepts $K_{a, n} > 1$ input, unblocking polyphonic-binding analyses with multi-slot attributes at the source. A new pre-tensor preprocessing primitive **`translateEvents` / `translate_events`** translates every value of every attribute in selected groups by a per-group offset (unwrapped on periodic groups, with the periodic kernel handling wrap downstream; structural no-op on relative groups); this is the pre-tensor route to sliding-comparison along an attribute axis, complementary to the post-tensor `windowedSimilarity`, and handles multi-slot attributes ($K_{a, n} > 1$) without ambiguity since every slot translates by the same offset.
+Additional improvements outside the two strands: **`bindEvents`** accepts $K_{a, n} > 1$ input, unblocking polyphonic-binding analyses with multi-slot attributes at the source. A new pre-tensor preprocessing primitive **`translateEvents` / `translate_events`** shifts selected attributes' values by a chosen offset (unwrapped on periodic groups, with the periodic kernel handling wrap downstream; structural no-op on relative groups); this is the pre-tensor route to sliding-comparison along an attribute axis, complementary to the post-tensor `windowedSimilarity`, and handles multi-slot attributes ($K_{a, n} > 1$) without ambiguity since every slot translates by the same offset.
 
 The release is additive: existing v2.1.0 calling conventions are preserved at the floating-point level for the default routing in standard regimes. The new method choice is exposed via a `method` keyword on `cosSimExpTens`, `evalExpTens`, and `entropyExpTens` (accepting `'auto'`, `'bulger'`, `'mobius'`, plus `'centres'` for eval and `'direct'` for small problems); `'auto'` is the default and matches v2.1 numerical behaviour on standard inputs. The kernel-evaluation controls default to no truncation and double precision (i.e., the v2.1 numerical behaviour) and only activate when the user opts in.
 
@@ -74,47 +74,66 @@ These controls govern how the dense Gaussian-kernel matrix is computed in the "c
 
 ### Added — `translateEvents` / `translate_events`
 
-- **New pre-tensor preprocessing helper.** Translates every value of every attribute belonging to selected groups by a per-group offset. Takes the `pAttr` list one would otherwise feed to `buildExpTens` and returns a transformed `pAttrTranslated` list with the same shape conventions; the output feeds directly into `buildExpTens` without further massaging. Sits alongside `differenceEvents` and `bindEvents` in the cross-event preprocessing family.
+- **New pre-tensor preprocessing helper.** Shifts selected attributes' values by a chosen offset. Takes the `pAttr` list one would otherwise feed to `buildExpTens` and returns a transformed `pAttrTranslated` list with the same shape conventions; the output feeds directly into `buildExpTens` without further massaging. Sits alongside `differenceEvents` and `bindEvents` in the cross-event preprocessing family. The primitive is per-attribute; broadcast-within-group (translating a whole group as a unit — the transposition / time-shift case for pitch / time groups respectively) is a common case expressed by setting the affected rows of the offset block equal.
 
-- **Sliding-comparison primitive.** Provides the **pre-tensor** route to a sliding comparison along an attribute axis: for each candidate offset $\mu$ on a sweep grid, translate the events and compute a similarity against an un-shifted reference, then read off the peak. Complements the **post-tensor** `windowedSimilarity` route. The two routes coincide in the limit where the post-tensor window has the same shape as the query density, and differ in general by whether locality is set by the query's intrinsic support (pre-tensor) or by an externally chosen window (post-tensor). The pre-tensor route is bounded by the standard cosine and yields symmetric matrices when followed by `cosSimExpTens`; the post-tensor route is magnitude-aware by default and yields asymmetric matrices. Choice between routes is operational, not fundamental.
+- **Sliding-comparison primitive.** Provides the **pre-tensor** route to a sliding comparison along an attribute axis: for each candidate offset $\mu$ on a sweep grid, translate the events and compute a similarity against an un-shifted reference, then read off the peak. Complements the **post-tensor** `windowedSimilarity` route. The two routes differ in two ways: locality (pre-tensor uses the query's intrinsic support; post-tensor uses an externally chosen window, decoupling the comparison region's scale from the query) and normalisation (pre-tensor preserves the symmetric cosine and bounds values in $[0, 1]$; post-tensor is magnitude-aware by default, with values that can exceed $1$ and asymmetric query/context roles). On periodic groups both routes are well-defined and operationally interchangeable for whole-density alignment; on relative groups only the post-tensor route is available, since pre-tensor translation is a no-op there.
 
 - **Group-geometry semantics.** Absolute non-periodic groups (`is_per[g] = False`): `value + mu`. Absolute periodic groups (`is_per[g] = True` with `periods[g] > 0`): `value + mu`, unwrapped — the wrapped periodic Gaussian kernel of `buildExpTens` is invariant under any additive shift by a multiple of $P$, so no canonical wrap of the translated values is required. **Relative groups**: structural no-op (a uniform shift cancels in every within-tuple difference); the function emits `translateEvents:noOpRelative` (MATLAB) / `TranslateEventsNoOpWarning` (Python) and leaves the group unchanged. The `is_rel`, `is_per`, and `periods` arguments mirror `buildExpTens` in shape, so the caller can pass the same per-group geometry flags they would pass to the downstream `buildExpTens` call without translation; `is_per` and `periods` are accepted for signature parallelism but are not consulted by `translateEvents` itself, since translation outputs unwrapped values regardless of the group's periodicity.
 
-- **Multi-slot attributes ($K_{a, n} > 1$) handled without ambiguity.** Every value in the per-event multiset is shifted by the same offset, so unlike post-tensor windowing — where a per-event scalar weight would have to summarise multiple values' distances from a localising centre — translation has no analogous obstruction at $K_{a, n} > 1$. The relative-group no-op and multi-slot uniformity together exhaust the geometry-dependent cases.
+- **Multi-slot attributes ($K_{a, n} > 1$) handled without ambiguity.** Every value in the per-event multiset is shifted by the same offset, so unlike post-tensor windowing — where a per-event scalar weight would have to summarise multiple values' distances from a localising centre — translation has no analogous obstruction at $K_{a, n} > 1$.
 
-- **Multi-group simultaneous translation.** A single call can translate any subset of groups by independent per-group offsets (e.g.\\ pitch by 5 semitones and time by 0.5 beats together). Groups not selected pass through unchanged.
+- **Orientation-based offset grammar.** `offsets` accepts two forms with a single shared convention: rows index attributes, columns index sweep positions, and row count must be exactly 1 (broadcast across all attributes) or $A$ (per-attribute). The **numeric form** is a single numeric block whose permitted shapes are scalar / $1 \times 1$ (broadcast, no sweep); $1 \times M$ row (broadcast, $M$-sweep); $A \times 1$ column (per-attribute, single translation); and $A \times M$ matrix (per-attribute, $M$-sweep). The **container form** is a `{group_index: value}` dict in Python, or a $1$-by-$G$ cell in MATLAB; each per-group value follows the same orientation convention with $n_g$ (the number of attributes in group $g$) playing the role of $A$ — covering mixed-per-group layouts (broadcast within one group, per-attribute within another) in a single call. Groups omitted (Python: missing key; MATLAB: empty `[]` cell) are not translated. All entries carrying $M > 1$ across the call must agree on $M$; scalar and 1-column entries broadcast across the sweep. NaN entries in any numeric block skip the corresponding `(attribute, column)` cell. When any input implies a sweep or any 2-D shape is used, the output is a length-$M$ list (Python) / $1$-by-$M$ cell (MATLAB) of per-attribute blocks (matrix-mode); otherwise a single per-attribute block. The matrix-mode output is the natural feed into the raw-MA scalar-vs-list mode of `cosSimExpTens` for a one-call sliding-comparison sweep. When multiple sweep columns carry finite entries on a relative-group attribute, the no-op warning is emitted at most once per call rather than once per column.
 
-- **Vector and matrix offset shapes.** `offsets` accepts two shapes. The **vector form** is a length-$G$ specification (a sparse `{group_index: mu}` dict in Python or a length-$G$ vector with `NaN` as the no-op sentinel in either language) and performs one translation, returning a single `pAttrTranslated` list. The **matrix form** is a $G$-by-$M$ array and performs an $M$-column sweep in one call, returning a length-$M$ list of `pAttrTranslated` blocks. NaN entries in either shape mean "do not translate this group" on that column. The matrix form is the natural feed into the raw-MA scalar-vs-list mode of `cosSimExpTens` for a one-call sliding-comparison sweep. When the matrix form has multiple columns with finite entries on a relative-group row, the `translateEvents:noOpRelative` warning is emitted at most once per call rather than once per column.
-
-- **API signatures.** Python's vector form accepts either a sparse dict or a length-$G$ ndarray; the matrix form is a $(G, M)$ ndarray:
+- **API signatures.** Python:
 
   ```python
-  # vector form — single translation
+  # broadcast, single translation
   p_translated = translate_events(
-      p_attr, groups, {0: 6.0}, is_rel, is_per, periods,
+      p_attr, groups, 6.0, is_rel, is_per, periods,
   )
 
-  # matrix form — M-column sweep
-  offsets_mat = np.vstack([pitch_grid, time_grid])   # (G, M)
+  # broadcast sweep — 1 x M row (or 1-D ndarray)
+  p_swept = translate_events(
+      p_attr, groups, np.array([[0.0, 5.0, 10.0]]),
+      is_rel, is_per, periods,
+  )                                                   # list of length M
+
+  # per-attribute sweep — (A, M) matrix
+  offsets_mat = np.vstack([pitch_grid, time_grid])    # (A, M)
   p_swept = translate_events(
       p_attr, groups, offsets_mat, is_rel, is_per, periods,
-  )                                                  # list of length M
+  )
+
+  # mixed per-group layout — dict form
+  p_swept = translate_events(
+      p_attr, groups,
+      {0: 5.0,                              # group 0: broadcast scalar
+       1: np.array([[0.1], [-0.2], [0.0]])},# group 1: per-attribute column
+      is_rel, is_per, periods,
+  )
   ```
 
-  MATLAB uses a 1-by-$G$ numeric row vector (with `NaN` as the no-op sentinel) for the vector form and a $G$-by-$M$ matrix for the sweep:
+  MATLAB:
 
   ```matlab
-  % vector form  (1-by-G row; scalar when G = 1)
-  pTranslated = translateEvents(pAttr, groups, [6, NaN, NaN], ...
+  % broadcast, single translation
+  pTranslated = translateEvents(pAttr, groups, 6, ...
                                 isRel, isPer, periods);
 
-  % matrix form  (G-by-M; G-by-1 column for M = 1)
-  offsetsMat = [pitchGrid; timeGrid];     % G-by-M
-  pSwept     = translateEvents(pAttr, groups, offsetsMat, ...
-                                isRel, isPer, periods);   % 1-by-M cell
-  ```
+  % broadcast sweep  (1-by-M row)
+  pSwept = translateEvents(pAttr, groups, [0 5 10], ...
+                           isRel, isPer, periods);
 
-  A length-$G$ column vector (e.g.\\ `[5; 7]` for $G = 2$) is read as a $G$-by-$1$ matrix and so dispatches to matrix form with $M = 1$, not to vector form. This is the only way to specify $M = 1$ in MATLAB without an extra flag, since the language does not distinguish a length-$G$ column vector from a $G$-by-$1$ 2-D array. Python is shape-driven and has no analogous ambiguity: `np.array([5.0, 7.0])` is 1-D (vector form), `np.array([[5.0], [7.0]])` is 2-D shape $(G, 1)$ (matrix form $M = 1$).
+  % per-attribute sweep  (A-by-M matrix)
+  offsetsMat = [pitchGrid; timeGrid];     % A-by-M
+  pSwept = translateEvents(pAttr, groups, offsetsMat, ...
+                           isRel, isPer, periods);   % 1-by-M cell
+
+  % mixed per-group layout  (1-by-G cell)
+  pSwept = translateEvents(pAttr, groups, ...
+                           {5, [0.1; -0.2; 0.0]}, ...
+                           isRel, isPer, periods);
+  ```
 
   The MATLAB warning identifier is `translateEvents:noOpRelative`; the Python warning class is `TranslateEventsNoOpWarning` (re-exported as `mpt.TranslateEventsNoOpWarning`).
 

@@ -64,6 +64,69 @@ from .dispatch import (
 )
 
 
+# -------------------------------------------------------------------
+#  Normalisation helpers (shared by cos_sim_exp_tens and
+#  windowed_similarity, which expose the same ``normalize`` keyword
+#  with the same set of values).
+# -------------------------------------------------------------------
+
+#: The canonical value set for the ``normalize`` keyword. ``'cosine'`` is
+#: the strict shape-only cosine similarity, with denominator equal to
+#: the geometric mean of the two operands' self inner products.
+#: ``'oneSidedDenom'`` divides only by the *second* operand's self inner
+#: product, yielding a magnitude-aware reading that takes the value 1
+#: on a perfect self-match at full coverage and may exceed 1 when the
+#: first operand carries more matching mass than the second.
+_NORMALIZE_VALUES = ("cosine", "oneSidedDenom")
+
+
+def _canonical_normalize(normalize: str) -> str:
+    """Return the canonical form of a ``normalize`` keyword argument.
+
+    Accepts British (``'normalise'`` flavour) and American
+    (``'normalize'`` flavour) inputs alike, and accepts the value
+    ``'oneSidedDenom'`` in any case. Raises :class:`ValueError` for
+    anything outside the canonical set.
+    """
+    if not isinstance(normalize, str):
+        raise ValueError(
+            f"normalize must be a string, got {type(normalize).__name__}."
+        )
+    s = normalize.strip()
+    if s.lower() == "cosine":
+        return "cosine"
+    if s.lower() == "onesideddenom":
+        return "oneSidedDenom"
+    raise ValueError(
+        f"normalize must be one of {_NORMALIZE_VALUES!r}; got {normalize!r}."
+    )
+
+
+def _finalise_normalisation(
+    ip_xy: float, ip_xx: float, ip_yy: float, normalize: str,
+) -> float:
+    """Combine numerator and self inner products into the final value.
+
+    ``ip_xy`` is :math:`\\langle X, Y \\rangle`; ``ip_xx`` and ``ip_yy``
+    are the two operands' self inner products. With ``normalize`` set
+    to ``'cosine'`` the denominator is :math:`\\sqrt{ip_{xx} \\cdot ip_{yy}}`;
+    with ``'oneSidedDenom'`` the denominator is :math:`ip_{yy}` alone.
+    Either denominator equal to zero returns ``NaN``.
+    """
+    if normalize == "cosine":
+        denom = float(np.sqrt(max(ip_xx * ip_yy, 0.0)))
+    elif normalize == "oneSidedDenom":
+        denom = float(ip_yy)
+    else:
+        # Already canonicalised by callers, but defensive.
+        raise ValueError(
+            f"normalize must be one of {_NORMALIZE_VALUES!r}; got {normalize!r}."
+        )
+    if denom == 0:
+        return float("nan")
+    return float(ip_xy / denom)
+
+
 
 
 # -------------------------------------------------------------------
@@ -79,6 +142,8 @@ def cos_sim_exp_tens(*args,
                      spectrum=None,
                      precision: int | None = None,
                      method: str = "auto",
+                     normalize: str | None = None,
+                     normalise: str | None = None,
                      cancellation_threshold: float = 1e-12,
                      truncation_sigmas: float | None = None,
                      kernel_precision: str | None = None,
@@ -150,6 +215,19 @@ def cos_sim_exp_tens(*args,
         ``'bulger'`` forces Bulger's method; ``'mobius'`` forces the
         Möbius method; ``'direct'`` forces direct ordered-tuple
         enumeration.
+    normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
+        Selects the denominator applied to the inner product
+        :math:`\\langle X, Y \\rangle`. ``'cosine'`` (default) gives the
+        strict shape-only cosine similarity, dividing by the geometric
+        mean :math:`\\sqrt{\\langle X, X \\rangle \\, \\langle Y, Y \\rangle}`;
+        the result is bounded in :math:`[-1, 1]` and is invariant to a
+        positive scalar on either operand. ``'oneSidedDenom'`` divides
+        by the second operand's self inner product
+        :math:`\\langle Y, Y \\rangle` alone, yielding a magnitude-aware
+        reading that takes the value 1 on a self-match (``X == Y``)
+        and is sensitive to scalar reweightings of ``X``. The British
+        spelling ``'normalise'`` is also accepted as an alias for the
+        keyword name, and matching is case-insensitive on the value.
     cancellation_threshold : float, default 1e-12
         When the Möbius method is selected and ``|<A,B>|`` falls below
         this fraction of ``sqrt(<A,A><B,B>)``, fall back to Bulger's
@@ -193,6 +271,16 @@ def cos_sim_exp_tens(*args,
             "cos_sim_exp_tens requires at least 2 positional arguments."
         )
 
+    # Accept ``normalize`` (canonical) or ``normalise`` (British alias).
+    if normalize is not None and normalise is not None:
+        raise TypeError(
+            "Pass either 'normalize' or 'normalise', not both."
+        )
+    normalize = _canonical_normalize(
+        normalize if normalize is not None
+        else (normalise if normalise is not None else "cosine")
+    )
+
     a = args[0]
 
     # ------------------------------------------------------------------
@@ -230,6 +318,7 @@ def cos_sim_exp_tens(*args,
             args[0], args[1],
             mode=mode, dedup=dedup,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -262,6 +351,7 @@ def cos_sim_exp_tens(*args,
         return _cos_sim_raw_ma_scalar(
             *args,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             verbose=verbose,
         )
@@ -344,6 +434,7 @@ def cos_sim_exp_tens(*args,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             verbose=verbose,
         )
@@ -361,6 +452,7 @@ def cos_sim_exp_tens(*args,
     return _cos_sim_raw_sa_scalar(
         *args, spectrum=spectrum,
         method=method,
+        normalize=normalize,
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
@@ -377,7 +469,8 @@ def _all_sa_pairs(pairs):
 
 
 def _compute_pair_results_with_dedup_sa(
-    pairs, *, method: str, cancellation_threshold: float,
+    pairs, *, method: str, normalize: str = "cosine",
+    cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for SA-density pairs with canonical-form dedup."""
@@ -429,6 +522,7 @@ def _compute_pair_results_with_dedup_sa(
         _cos_sim_exp_tens_sa(
             a_w, b_w,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -440,6 +534,7 @@ def _compute_pair_results_with_dedup_sa(
             _cos_sim_exp_tens_sa(
                 a_s, b_s,
                 method=method,
+                normalize=normalize,
                 cancellation_threshold=cancellation_threshold,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
@@ -461,6 +556,7 @@ def _compute_pair_results_with_dedup_sa(
         unique_results.append(_cos_sim_exp_tens_sa(
             a, b,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -475,7 +571,8 @@ def _compute_pair_results_with_dedup_sa(
 
 
 def _compute_pair_results_no_dedup(
-    pairs, *, method: str, cancellation_threshold: float,
+    pairs, *, method: str, normalize: str = "cosine",
+    cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for a list of pairs without dedup.
@@ -491,6 +588,7 @@ def _compute_pair_results_no_dedup(
         results.append(_cos_sim_pair_core(
             a, b,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -503,6 +601,7 @@ def _compute_pair_results_no_dedup(
 def _cos_sim_pair_core(
     dens_x, dens_y, *,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -511,20 +610,20 @@ def _cos_sim_pair_core(
     """Internal: dispatch a single pair to the correct core IP routine.
 
     Routes to :func:`_cos_sim_exp_tens_sa` or :func:`_cos_sim_exp_tens_ma`,
-    threading ``method``, ``cancellation_threshold``, ``truncation_sigmas``
-    and ``kernel_precision`` through to the SA path (the MA path awaits
-    its own helper-routing stage). ``WindowedMaetDensity`` operands are
-    rejected here; user code reaches the windowed inner product via
-    :func:`windowed_similarity`.
+    threading ``method``, ``normalize``, ``cancellation_threshold``,
+    ``truncation_sigmas`` and ``kernel_precision`` through to the SA
+    path (the MA path awaits its own helper-routing stage).
+    ``WindowedMaetDensity`` operands are rejected here; user code
+    reaches the windowed inner product via :func:`windowed_similarity`.
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
         raise TypeError(
             "cos_sim_exp_tens does not accept WindowedMaetDensity "
-            "operands. Use windowed_similarity(dens_query, dens_context, "
-            "window_spec, offsets) — pass a single-column offsets array "
-            "for the scalar single-offset case, or a (dim, M) array for "
-            "the M-offset sweep."
+            "operands. Use windowed_similarity(dens_context, "
+            "dens_query, window_spec, offsets) — pass a single-column "
+            "offsets array for the scalar single-offset case, or a "
+            "(dim, M) array for the M-offset sweep."
         )
     if isinstance(dens_x, MaetDensity):
         if not isinstance(dens_y, MaetDensity):
@@ -535,6 +634,7 @@ def _cos_sim_pair_core(
         return _cos_sim_exp_tens_ma(
             dens_x, dens_y,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             verbose=verbose,
         )
@@ -547,6 +647,7 @@ def _cos_sim_pair_core(
         return _cos_sim_exp_tens_sa(
             dens_x, dens_y,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -565,6 +666,7 @@ def _cos_sim_density_path(
     mode: str = "auto",
     dedup: bool = True,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -579,6 +681,7 @@ def _cos_sim_density_path(
         return _cos_sim_pair_core(
             list_x[0], list_y[0],
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -622,6 +725,7 @@ def _cos_sim_density_path(
         results = _compute_pair_results_with_dedup_sa(
             pairs,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -636,6 +740,7 @@ def _cos_sim_density_path(
         results = _compute_pair_results_no_dedup(
             pairs,
             method=method,
+            normalize=normalize,
             cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
@@ -652,6 +757,7 @@ def _cos_sim_raw_sa_scalar(
     *,
     spectrum=None,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
@@ -682,6 +788,7 @@ def _cos_sim_raw_sa_scalar(
     return _cos_sim_pair_core(
         dx, dy,
         method=method,
+        normalize=normalize,
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
@@ -693,6 +800,7 @@ def _cos_sim_raw_ma_scalar(
     sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
     *,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
@@ -708,6 +816,7 @@ def _cos_sim_raw_ma_scalar(
     return _cos_sim_pair_core(
         dx, dy,
         method=method,
+        normalize=normalize,
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
@@ -736,6 +845,7 @@ def _cos_sim_exp_tens_sa(
     dens_y: ExpTensDensity,
     *,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -836,10 +946,7 @@ def _cos_sim_exp_tens_sa(
             kernel_precision=kernel_precision,
         )
 
-    denom = np.sqrt(ip_xx * ip_yy)
-    if denom == 0:
-        return float("nan")
-    return float(ip_xy / denom)
+    return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
 
 
 
@@ -853,6 +960,7 @@ def _cos_sim_exp_tens_ma(
     dens_y: MaetDensity,
     *,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
@@ -979,10 +1087,7 @@ def _cos_sim_exp_tens_ma(
             dens_x, dens_y, verbose=verbose,
         )
 
-    denom = np.sqrt(ip_xx * ip_yy)
-    if denom == 0:
-        return float("nan")
-    return float(ip_xy / denom)
+    return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
 
 
 
@@ -2129,6 +2234,7 @@ def _cos_sim_raw_sa_batch(
     precision: int | None = None,
     dedup: bool = True,
     method: str = "auto",
+    normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> np.ndarray:
@@ -2301,6 +2407,7 @@ def _cos_sim_raw_sa_batch(
         list_a_dens, list_b_dens,
         mode="pairwise", dedup=dedup,
         method=method,
+        normalize=normalize,
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )

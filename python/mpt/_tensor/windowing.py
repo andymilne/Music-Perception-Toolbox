@@ -435,20 +435,22 @@ def _resolve_windowed_similarity_reference(reference, q_list):
     return [shared] * n_q
 
 
-def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
+def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
                                *, ref_per_a,
+                               normalize: str = "oneSidedDenom",
                                truncation_sigmas: float | None = None,
                                kernel_precision: str | None = None,
                                verbose: bool) -> np.ndarray:
-    """Per-pair offset sweep for a single (query, context) pair.
+    """Per-pair offset sweep for a single (context, query) pair.
 
     ``ref_per_a`` is either ``None`` (auto-centroid) or a list of
     pre-validated per-attribute 1-D arrays (length ``n_attrs``).
     Returns the ``(M,)`` similarity profile.
 
-    ``truncation_sigmas`` and ``kernel_precision`` are forwarded to the
-    per-offset :func:`_windowed_inner_product` calls. ``None`` defers to
-    the global default (resolved inside the helper).
+    ``normalize``, ``truncation_sigmas`` and ``kernel_precision`` are
+    forwarded to the per-offset :func:`_windowed_inner_product`
+    calls. ``None`` on the optional flags defers to the global
+    default (resolved inside the helper).
     """
     offsets = np.asarray(offsets, dtype=np.float64)
     if offsets.ndim == 1:
@@ -493,14 +495,13 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
 
     prog_stride = 1
     show_progress = False
-    # --- Pre-compute the unwindowed L2 norm (denominator).
-    # Under normaliser (i), only ip_qq (the query's self inner product)
-    # appears in the denominator. It does not depend on the window
-    # offset and can be hoisted out of the per-offset loop. The
-    # context's ip_cc no longer appears in the denominator and is not
-    # computed here. (Prior versions of this code cached the pair
-    # (ip_qq, ip_cc); the inner-product helper still accepts that
-    # form for backward compatibility but ignores ip_cc.)
+    # --- Pre-compute the unwindowed L2 norm of the query (denominator) ---
+    # The unwindowed query self inner product <dens_q, dens_q> appears
+    # in the denominator under both 'oneSidedDenom' (where it IS the
+    # denominator) and 'cosine' (where it is one factor of the
+    # geometric mean). It depends only on dens_query, not on the
+    # window offset, so we compute it once and pass it as a cache to
+    # every per-offset _windowed_inner_product call.
     norms_cache = _cos_sim_numerator_ma(dens_query, dens_query, windowed_c=None)
 
     if verbose and M >= 2:
@@ -525,14 +526,16 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         # setup (cache populate, etc.) before the timed sample.
         wmd_w = _build_wmd_for_idx(sample_idx[0])
         _windowed_inner_product(dens_query, wmd_w, verbose=False,
-                                _cached_norms=norms_cache)
+                                _cached_norms=norms_cache,
+                                normalize=normalize)
 
         # Timed calibration sample.
         t_cal_start = time.perf_counter()
         for cs in sample_idx:
             wmd_s = _build_wmd_for_idx(cs)
             _windowed_inner_product(dens_query, wmd_s, verbose=False,
-                                    _cached_norms=norms_cache)
+                                    _cached_norms=norms_cache,
+                                    normalize=normalize)
         t_cal_total = time.perf_counter() - t_cal_start
         t_per_point = t_cal_total / len(sample_idx)
         est_total = t_cal_total + t_per_point * M
@@ -555,7 +558,8 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
         spec_m["centre"] = centre_list
         wmd = window_tensor(dens_context, spec_m)
         profile[m] = _windowed_inner_product(dens_query, wmd, verbose=False,
-                                             _cached_norms=norms_cache)
+                                             _cached_norms=norms_cache,
+                                             normalize=normalize)
 
         if verbose and show_progress and (
             (m + 1) % prog_stride == 0 or (m + 1) == M
@@ -569,27 +573,57 @@ def _windowed_similarity_pair(dens_query, dens_context, window_spec, offsets,
 
 
 @_with_dispatch_scope
-def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
+def windowed_similarity(dens_context, dens_query, window_spec, offsets, *,
                         reference=None, mode: str = "auto",
+                        normalize: str | None = None,
+                        normalise: str | None = None,
                         truncation_sigmas: float | None = None,
                         kernel_precision: str | None = None,
                         verbose: bool = True) -> np.ndarray:
     """Sliding-window similarity profile (cross-correlation).
 
     For each offset column, *dens_context* is windowed with
-    *window_spec* at the corresponding centre, and its similarity
-    against *dens_query* (unwindowed) is computed. The normaliser
-    divides by the query's unwindowed self inner product:
+    *window_spec* at the corresponding centre, and the resulting
+    windowed inner product against the unwindowed *dens_query* is
+    finalised via the ``normalize`` keyword (default
+    ``'oneSidedDenom'``).
 
-        s = <h * f_X, f_Y> / <f_Y, f_Y>
+    The two operands play asymmetric roles:
 
-    where f_Y is the (unwindowed) query and f_X (windowed) is the
-    context. Self-similarity (f_X = f_Y) at the best window position
-    equals 1 when the window covers all of the query's mass and is
-    less than 1 otherwise. Cross-similarity can exceed 1 when the
-    windowed context has more mass in the window region than the
-    query does in total; this is the intended (magnitude-aware)
-    behaviour for sliding-motif analysis.
+      * ``dens_context`` is the operand the window multiplies. As the
+        sweep proceeds, the window shifts to each centre defined by
+        the ``offsets`` matrix, selecting different regions of
+        ``dens_context`` at each step.
+      * ``dens_query`` is the unwindowed operand whose self inner
+        product appears in the denominator. The query supplies the
+        comparison template against which each windowed context
+        region is scored.
+
+    Normalisation: 'oneSidedDenom' versus 'cosine'
+    ---------------------------------------------
+    The numerator at each sweep position is the windowed inner
+    product :math:`\\langle h \\, f_C, f_Q \\rangle`. The denominator
+    depends on the ``normalize`` keyword:
+
+      * ``'oneSidedDenom'`` (default) — divide by the unwindowed
+        query self inner product
+        :math:`\\langle f_Q, f_Q \\rangle`. The result is magnitude-
+        aware: self-similarity at full window coverage equals 1,
+        silent regions of the context score near zero, and a region
+        where the windowed context has more matching mass than the
+        query holds in total may score above 1. This is the intended
+        reading for sliding-motif analysis -- a dense local match
+        should outscore a sparse one.
+
+      * ``'cosine'`` — divide by
+        :math:`\\sqrt{\\langle h \\, f_C, h \\, f_C \\rangle \\,
+        \\langle f_Q, f_Q \\rangle}`. The result is the strict
+        shape-only cosine, bounded in :math:`[-1, 1]` and invariant
+        to a positive scalar on either operand. Closed-form across
+        the ``(size, mix)`` family only for pure-Gaussian
+        (``mix = 0``) and pure-boxcar (``mix = 1``) windows;
+        intermediate ``mix`` raises and directs the user to
+        ``'oneSidedDenom'``.
 
     Periodic groups
     ---------------
@@ -602,19 +636,19 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
     For multi-D absolute periodic groups, the image sum factorises per
     axis (linear in dimension, not exponential). For multi-D relative
     periodic groups, image summation is deferred to a future release and
-    the existing line-case formula is used (this is the pre-2.2
-    behaviour).
+    the existing line-case formula is used.
 
-    See User Guide §3.1 "Post-tensor windowing".
+    See USER_GUIDE §3.1 "Post-tensor windowing".
 
     Parameters
     ----------
-    dens_query : MaetDensity, or list/tuple of MaetDensity
-        The query density (not windowed). A single density gives the
-        scalar behaviour; a list/tuple is broadcast or paired
-        against the context (see Returns).
     dens_context : MaetDensity, or list/tuple of MaetDensity
-        The context density to be windowed. As above, scalar or list.
+        The context density to be windowed (positional arg 1). A
+        single density gives the scalar behaviour; a list/tuple is
+        broadcast or paired against the query (see Returns).
+    dens_query : MaetDensity, or list/tuple of MaetDensity
+        The query density, unwindowed (positional arg 2). As above,
+        scalar or list.
     window_spec : dict
         Window specification (see :func:`window_tensor`). Only the
         ``size`` and ``mix`` fields are read; any ``centre`` field is
@@ -642,49 +676,61 @@ def windowed_similarity(dens_query, dens_context, window_spec, offsets, *,
         elements that are themselves lists/tuples indicate per-query.
     mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
         For list-vs-list. Ignored otherwise.
+    normalize : {'oneSidedDenom', 'cosine'}, default 'oneSidedDenom'
+        Selects the denominator applied to the windowed inner
+        product. See "Normalisation" section above. The British
+        spelling ``normalise`` is accepted as an alias keyword name;
+        matching on the value is case-insensitive.
     verbose : bool
 
     Returns
     -------
     np.ndarray
-        - scalar query, scalar context → ``(M,)``.
-        - scalar query, list of n_c contexts → ``(n_c, M)``.
-        - list of n_q queries, scalar context → ``(n_q, M)``.
-        - list-vs-list, ``mode='pairwise'`` (requires n_q == n_c) →
-          ``(n_q, M)``.
-        - list-vs-list, ``mode='cartesian'`` → ``(n_q, n_c, M)``.
+        - scalar context, scalar query → ``(M,)``.
+        - scalar context, list of n_q queries → ``(n_q, M)``.
+        - list of n_c contexts, scalar query → ``(n_c, M)``.
+        - list-vs-list, ``mode='pairwise'`` (requires n_c == n_q) →
+          ``(n_c, M)``.
+        - list-vs-list, ``mode='cartesian'`` → ``(n_c, n_q, M)``.
 
-        Length-1 lists do NOT collapse to scalars (Option II — strict
-        shape preservation).
+        Length-1 lists do NOT collapse to scalars (strict shape
+        preservation).
     """
-    # ------------------------------------------------------------------
-    # Direct kwarg forwarding (replaces the temp-defaults stop-gap that
-    # was used historically). ``truncation_sigmas`` and ``kernel_precision``
-    # flow through ``_windowed_similarity_core`` →
-    # ``_windowed_similarity_pair`` → ``cos_sim_exp_tens``, where they
-    # are consumed. ``None`` defers to the global default (resolved by
-    # ``cos_sim_exp_tens`` itself).
-    # ------------------------------------------------------------------
+    # Accept ``normalize`` (canonical) or ``normalise`` (British alias).
+    if normalize is not None and normalise is not None:
+        raise TypeError(
+            "Pass either 'normalize' or 'normalise', not both."
+        )
+    if normalize is None and normalise is None:
+        normalize = "oneSidedDenom"
+    elif normalize is None:
+        normalize = normalise
+    # Canonicalise (raises on bad value).
+    from .cosine import _canonical_normalize
+    normalize = _canonical_normalize(normalize)
+
     return _windowed_similarity_core(
-        dens_query, dens_context, window_spec, offsets,
+        dens_context, dens_query, window_spec, offsets,
         reference=reference, mode=mode,
+        normalize=normalize,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,
     )
 
 
-def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
+def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
                               reference=None, mode: str = "auto",
+                              normalize: str = "oneSidedDenom",
                               truncation_sigmas: float | None = None,
                               kernel_precision: str | None = None,
                               verbose: bool = True):
     """Body of :func:`windowed_similarity`.
 
-    ``truncation_sigmas`` and ``kernel_precision`` are forwarded through
-    to each per-offset :func:`_windowed_inner_product` call. ``None``
-    defers to the global default; explicit values flow directly without
-    the temporary-defaults indirection used historically.
+    ``normalize``, ``truncation_sigmas`` and ``kernel_precision`` are
+    forwarded through to each per-offset :func:`_windowed_inner_product`
+    call. ``None`` on the optional flags defers to the global default;
+    explicit values flow through directly.
     """
     # Lazy import to avoid import cycles: dispatch is imported by
     # cosine and eval, which in turn import from windowing's
@@ -692,15 +738,15 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     from .dispatch import _normalize_density_input, _resolve_list_list_mode
 
     # ------------------------------------------------------------------
-    # Normalise query and context inputs.
+    # Normalise context and query inputs.
     # ------------------------------------------------------------------
-    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
     c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
+    q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
 
     # Validate every density is a plain MaetDensity (not Windowed, not SA).
     for label, scalar_flag, densities in (
-        ("dens_query", q_scalar, q_list),
         ("dens_context", c_scalar, c_list),
+        ("dens_query", q_scalar, q_list),
     ):
         for i, d in enumerate(densities):
             if not isinstance(d, MaetDensity):
@@ -711,8 +757,8 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
                     f"{type(d).__name__}."
                 )
 
-    n_q = len(q_list)
     n_c = len(c_list)
+    n_q = len(q_list)
 
     # ------------------------------------------------------------------
     # Validate offsets shape and handle empty-list cases up front.
@@ -722,18 +768,18 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
         if offsets_arr.ndim == 1:
             offsets_arr = offsets_arr.reshape(-1, 1)
         M = offsets_arr.shape[1] if offsets_arr.ndim >= 2 else 0
-        if q_scalar:
-            return np.empty((0, M), dtype=np.float64)
         if c_scalar:
+            return np.empty((0, M), dtype=np.float64)
+        if q_scalar:
             return np.empty((0, M), dtype=np.float64)
         # both lists, at least one empty
         if mode == "auto":
-            mode_resolved = "pairwise" if n_q == n_c else "cartesian"
+            mode_resolved = "pairwise" if n_c == n_q else "cartesian"
         else:
             mode_resolved = mode
         if mode_resolved == "pairwise":
             return np.empty((0, M), dtype=np.float64)
-        return np.empty((n_q, n_c, M), dtype=np.float64)
+        return np.empty((n_c, n_q, M), dtype=np.float64)
 
     # Resolve reference into a per-query list.
     references_per_query = _resolve_windowed_similarity_reference(
@@ -742,6 +788,7 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
 
     # Common kwargs forwarded to every _windowed_similarity_pair call.
     _pair_kw = {
+        "normalize": normalize,
         "truncation_sigmas": truncation_sigmas,
         "kernel_precision": kernel_precision,
         "verbose": verbose,
@@ -750,65 +797,64 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
     # ------------------------------------------------------------------
     # Scalar-vs-scalar.
     # ------------------------------------------------------------------
-    if q_scalar and c_scalar:
+    if c_scalar and q_scalar:
         return _windowed_similarity_pair(
-            q_list[0], c_list[0], window_spec, offsets,
+            c_list[0], q_list[0], window_spec, offsets,
             ref_per_a=references_per_query[0], **_pair_kw,
         )
 
-    if q_scalar:
-        # 1 query × n_c contexts → (n_c, M).
-        rows = [
-            _windowed_similarity_pair(
-                q_list[0], c, window_spec, offsets,
-                ref_per_a=references_per_query[0], **_pair_kw,
-            )
-            for c in c_list
-        ]
-        return np.stack(rows, axis=0)
-
     if c_scalar:
-        # n_q queries × 1 context → (n_q, M).
+        # 1 context × n_q queries → (n_q, M).
         rows = [
             _windowed_similarity_pair(
-                q, c_list[0], window_spec, offsets,
+                c_list[0], q, window_spec, offsets,
                 ref_per_a=ref, **_pair_kw,
             )
             for q, ref in zip(q_list, references_per_query)
         ]
         return np.stack(rows, axis=0)
 
-    # Both lists.
-    resolved = _resolve_list_list_mode(mode, n_q, n_c)
-    if resolved == "pairwise":
+    if q_scalar:
+        # n_c contexts × 1 query → (n_c, M).
         rows = [
             _windowed_similarity_pair(
-                q, c, window_spec, offsets,
-                ref_per_a=ref, **_pair_kw,
+                c, q_list[0], window_spec, offsets,
+                ref_per_a=references_per_query[0], **_pair_kw,
             )
-            for q, c, ref in zip(q_list, c_list, references_per_query)
+            for c in c_list
         ]
         return np.stack(rows, axis=0)
 
-    # cartesian
+    # Both lists.
+    resolved = _resolve_list_list_mode(mode, n_c, n_q)
+    if resolved == "pairwise":
+        rows = [
+            _windowed_similarity_pair(
+                c, q, window_spec, offsets,
+                ref_per_a=ref, **_pair_kw,
+            )
+            for c, q, ref in zip(c_list, q_list, references_per_query)
+        ]
+        return np.stack(rows, axis=0)
+
+    # Cartesian: row i = context i, column j = query j → (n_c, n_q, M).
     probe = _windowed_similarity_pair(
-        q_list[0], c_list[0], window_spec, offsets,
+        c_list[0], q_list[0], window_spec, offsets,
         ref_per_a=references_per_query[0], **_pair_kw,
     )
     M = probe.shape[0]
-    out = np.empty((n_q, n_c, M), dtype=np.float64)
+    out = np.empty((n_c, n_q, M), dtype=np.float64)
     out[0, 0, :] = probe
-    for j in range(1, n_c):
+    for j in range(1, n_q):
         out[0, j, :] = _windowed_similarity_pair(
-            q_list[0], c_list[j], window_spec, offsets,
-            ref_per_a=references_per_query[0], **_pair_kw,
+            c_list[0], q_list[j], window_spec, offsets,
+            ref_per_a=references_per_query[j], **_pair_kw,
         )
-    for i in range(1, n_q):
-        ref = references_per_query[i]
-        for j in range(n_c):
+    for i in range(1, n_c):
+        for j in range(n_q):
             out[i, j, :] = _windowed_similarity_pair(
-                q_list[i], c_list[j], window_spec, offsets,
-                ref_per_a=ref, **_pair_kw,
+                c_list[i], q_list[j], window_spec, offsets,
+                ref_per_a=references_per_query[j], **_pair_kw,
             )
     return out
 
@@ -819,35 +865,41 @@ def _windowed_similarity_core(dens_query, dens_context, window_spec, offsets, *,
 
 
 def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
-                            _cached_norms=None):
-    """Windowed similarity with one operand windowed.
+                            _cached_norms=None,
+                            normalize: str = "oneSidedDenom"):
+    """Closed-form windowed similarity with one operand windowed.
 
-    Returns the windowed inner product divided by the *query's*
-    unwindowed self inner product:
+    The numerator is the windowed inner product
+    :math:`\\langle h \\, f_C, f_Q \\rangle` where ``f_Q`` is the
+    unwindowed query and ``h \\cdot f_C`` is the windowed context. The
+    denominator depends on ``normalize``:
 
-        s = <h * f_X, f_Y> / <f_Y, f_Y>
+      * ``'oneSidedDenom'`` (default): divide by the unwindowed
+        query self inner product, :math:`\\langle f_Q, f_Q \\rangle`.
+        The result is magnitude-aware: self-similarity at full window
+        coverage equals 1, silent regions of the context score near
+        zero, and a region where the windowed context has more
+        matching mass than the query holds in total may score above 1.
 
-    where f_Y is the unwindowed query and f_X (windowed) is the
-    context. With this normalisation, self-similarity (f_X = f_Y) at
-    the best window position equals 1 when the window covers all the
-    query's mass and decreases as the window narrows. Cross-similarity
-    can exceed 1 when the windowed context has more mass than the
-    query in the window region; this is the intended (magnitude-aware)
-    behaviour for sliding-motif analysis.
+      * ``'cosine'``: divide by
+        :math:`\\sqrt{\\langle h \\, f_C, h \\, f_C \\rangle \\,
+        \\langle f_Q, f_Q \\rangle}`. The result is the strict
+        shape-only cosine, bounded in :math:`[-1, 1]`. Closed-form
+        across the ``(size, mix)`` family only for pure-Gaussian
+        (``mix = 0``) and pure-boxcar (``mix = 1``) windows;
+        intermediate ``mix`` raises and directs the user to
+        ``'oneSidedDenom'``.
 
     Currently supports one-sided windowing (exactly one of dens_a,
     dens_b is a WindowedMaetDensity). Two-sided is not needed for the
     windowed_similarity use case.
 
     Internal optimisation: when called repeatedly with the same
-    (dens_q, dens_c) pair (as windowed_similarity does for each
-    offset in its sweep), the unwindowed L2 self inner product
-    ip_qq does not depend on the window offset and can be computed
-    once outside the loop. Callers may pass it as
-    ``_cached_norms = ip_qq`` to skip the redundant per-call
-    computation. (Historic callers passed a 2-tuple ``(ip_qq,
-    ip_cc)``; this is still accepted, but only the first element is
-    used.)
+    (dens_q, dens_c) pair (as :func:`windowed_similarity` does for
+    each offset in its sweep), the unwindowed query self inner
+    product depends only on ``dens_q`` and can be computed once
+    outside the loop. Callers may pass it as
+    ``_cached_norms = ip_qq`` to skip the redundant per-call work.
     """
     a_win = isinstance(dens_a, WindowedMaetDensity)
     b_win = isinstance(dens_b, WindowedMaetDensity)
@@ -868,10 +920,8 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
     # --- Structural compatibility checks (delegate to underlying _ma) ---
     _check_ma_compatibility(dens_q, dens_c)
 
-    # --- Query's unwindowed self inner product (denominator) ---
+    # --- Query's unwindowed self inner product ---
     if _cached_norms is not None:
-        # Accept either a scalar (new) or a 2-tuple (legacy) -- caller
-        # sweeps that pass (ip_qq, ip_cc) keep working.
         if isinstance(_cached_norms, tuple):
             ip_qq = _cached_norms[0]
         else:
@@ -879,12 +929,81 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
     else:
         ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None)
 
-    # --- Windowed numerator ---
+    # --- Windowed cross inner product: <h * dens_c, dens_q> ---
     ip_qc = _cos_sim_numerator_ma(dens_q, dens_c, windowed_c=wmd)
 
-    if ip_qq == 0:
-        return float("nan")
-    return float(ip_qc / ip_qq)
+    if normalize == "oneSidedDenom":
+        if ip_qq == 0:
+            return float("nan")
+        return float(ip_qc / ip_qq)
+    if normalize == "cosine":
+        # Strict shape-only cosine: divide by
+        # sqrt(<h*dens_c, h*dens_c> * <dens_q, dens_q>). Closed-form
+        # for windows whose pointwise square h^2 is itself in the
+        # (size, mix) family: pure Gaussian (mix = 0; h^2 is Gaussian
+        # with size scaled by 1/sqrt(2)) and pure boxcar (mix = 1;
+        # h^2 = h). Intermediate mix raises.
+        wmd_squared = _window_squared(wmd)
+        ip_cc_h = _cos_sim_numerator_ma(dens_c, dens_c, windowed_c=wmd_squared)
+        denom = float(np.sqrt(max(ip_cc_h * ip_qq, 0.0)))
+        if denom == 0:
+            return float("nan")
+        return float(ip_qc / denom)
+    raise ValueError(
+        f"normalize must be 'cosine' or 'oneSidedDenom'; got {normalize!r}."
+    )
+
+
+def _window_squared(wmd: "WindowedMaetDensity") -> "WindowedMaetDensity":
+    """Construct a WindowedMaetDensity carrying the pointwise square
+    :math:`h^2` of the original window :math:`h`.
+
+    For each group ``g`` with ``mix_g == 0`` (pure Gaussian window of
+    width ``size_g * sigma_g``), :math:`h^2` is itself a Gaussian of
+    width :math:`(size_g \\cdot \\sigma_g) / \\sqrt 2`; equivalently
+    ``size_g' = size_g / sqrt(2)`` with ``mix_g' = 0``.
+
+    For each group ``g`` with ``mix_g == 1`` (pure boxcar window),
+    :math:`h(z) \\in \\{0, 1\\}` pointwise so :math:`h^2 = h`;
+    ``size_g`` and ``mix_g`` are unchanged.
+
+    For ``mix_g`` in ``(0, 1)``, :math:`h^2` is the square of a
+    rectangular-convolved-with-Gaussian and is not in the
+    ``(size, mix)`` family; this case raises and directs the user to
+    the ``'oneSidedDenom'`` option.
+    """
+    size_arr = np.array(wmd.size, dtype=np.float64, copy=True)
+    mix_arr = np.array(wmd.mix, dtype=np.float64, copy=True)
+
+    G = len(size_arr)
+    for g in range(G):
+        sz_g = size_arr[g]
+        mix_g = mix_arr[g]
+
+        if not np.isfinite(sz_g) or sz_g == 0:
+            # Group is not windowed (size = inf or NaN); leave alone.
+            continue
+
+        if mix_g == 0:
+            size_arr[g] = sz_g / np.sqrt(2)
+        elif mix_g == 1:
+            # h^2 = h; no change.
+            pass
+        else:
+            raise ValueError(
+                "Strict shape-only cosine (normalize = 'cosine') requires "
+                "every group's window_spec['mix'] to be 0 (pure Gaussian) "
+                f"or 1 (pure boxcar). Group {g} has mix = {mix_g}. Use "
+                "normalize = 'oneSidedDenom' for intermediate mix values, "
+                "or set the mix to 0 or 1."
+            )
+
+    spec = {
+        "size":   size_arr,
+        "mix":    mix_arr,
+        "centre": wmd.centre,
+    }
+    return window_tensor(wmd.dens, spec)
 
 
 def _check_ma_compatibility(dens_x: MaetDensity, dens_y: MaetDensity):

@@ -25,9 +25,11 @@ from ._tensor.cosine import (
     cos_sim_exp_tens_raw,
 )
 from ._tensor.preprocessing import (
+    TranslateEventsNoOpWarning,
     bind_events,
     difference_events,
     simplex_vertices,
+    translate_events,
 )
 from ._tensor.windowing import (
     window_tensor,

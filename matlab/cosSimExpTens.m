@@ -17,8 +17,8 @@ function s = cosSimExpTens(varargin)
 %   List mode. Iterates over paired entries of two cell arrays of
 %   density structs, returning a 1-by-n cell array of similarity values.
 %   Each pair is dispatched to the appropriate scalar form based on its
-%   tag (SA or MA). Option II shape rule: a length-1 input
-%   returns a length-1 cell (no collapse to scalar).
+%   tag (SA or MA). Shape rule: a length-1 input returns a length-1
+%   cell (no collapse to scalar).
 %
 %   Scalar-vs-list broadcasting. Either operand may be a single
 %   density struct paired with a cell array of density structs; the
@@ -122,11 +122,25 @@ function s = cosSimExpTens(varargin)
 %                 casts the kernel matrix to float32 for a ~2x speedup
 %                 at ~7 sig fig precision. No effect on Möbius-method
 %                 calls.
+%     'normalize' / 'normalise' — 'cosine' (default) or 'oneSidedDenom'.
+%                 Selects the denominator applied to the inner product
+%                 <X, Y>. 'cosine' gives the strict shape-only cosine
+%                 similarity, dividing by the geometric mean
+%                 sqrt(<X, X> * <Y, Y>); the result is bounded in
+%                 [-1, 1] and invariant to a positive scalar on either
+%                 operand. 'oneSidedDenom' divides by the second
+%                 operand's self inner product <Y, Y> alone, giving a
+%                 magnitude-aware reading that takes the value 1 on a
+%                 self-match (X == Y) and is sensitive to scalar
+%                 reweightings of X. Either spelling of the keyword is
+%                 accepted; matching on the value is case-insensitive.
 %
 %   Output:
 %     s      — Cosine similarity (scalar in [0, 1] for non-negative
-%              weights). Returns NaN if r exceeds the number of elements
-%              in either multiset.
+%              weights under normalize = 'cosine'; may exceed 1 under
+%              normalize = 'oneSidedDenom' when X has more matching
+%              mass than Y carries in total). Returns NaN if r exceeds
+%              the number of elements in either multiset.
 %
 %   Originally by David Bulger, Macquarie University, Australia (2016).
 %   Adapted for the Music Perception Toolbox v2 by Andrew J. Milne
@@ -162,6 +176,7 @@ chunkPin = internal.kernelChunkBytesResolved('pinForCall'); %#ok<NASGU>
 
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
+normalize = 'cosine';           % 'cosine' | 'oneSidedDenom'
 cancellationThreshold = 1e-12;  % cross-cancellation guard
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
@@ -213,6 +228,23 @@ while i <= numel(varargin)
                 continue;
             case 'kernelprecision'
                 kernelPrecision = varargin{i + 1};
+                keepMask(i)     = false;
+                keepMask(i + 1) = false;
+                i = i + 2;
+                continue;
+            case {'normalize', 'normalise'}
+                % Accept both American and British spellings of the
+                % keyword; case-insensitive matching on the value.
+                val = char(varargin{i + 1});
+                if strcmpi(val, 'cosine')
+                    normalize = 'cosine';
+                elseif strcmpi(val, 'oneSidedDenom')
+                    normalize = 'oneSidedDenom';
+                else
+                    error('cosSimExpTens:badNormalize', ...
+                          ['''normalize'' must be ''cosine'' or ' ...
+                           '''oneSidedDenom''; got ''%s''.'], val);
+                end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
                 i = i + 2;
@@ -305,7 +337,7 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
     % Kept skinny here: Möbius branch reads only cheap fields; Bulger
     % branch ensures heavy fields on demand inside localCosSimMA.
     s = localCosSimMA(varargin{1}, varargin{2}, ...
-                       method, cancellationThreshold, verbose);
+                       method, normalize, cancellationThreshold, verbose);
     return;
 end
 
@@ -331,7 +363,8 @@ if nArgs == 10 && iscell(varargin{1})
         isRelVec, isPerVec, periodVec, 'verbose', verbose);
     dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
         isRelVec, isPerVec, periodVec, 'verbose', verbose);
-    s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbose);
+    s = localCosSimMA(dens_x, dens_y, method, normalize, ...
+                      cancellationThreshold, verbose);
     return;
 end
 
@@ -342,9 +375,10 @@ end
 %     cosSimExpTens(d_a, {d_b_1, ..., d_b_n})
 %     cosSimExpTens({d_a_1, ..., d_a_n}, d_b)
 %       Scalar density broadcast against the list; returns 1-by-n cell.
-%   Option II shape rule: a length-1 cell returns a length-1 cell.
+%   Shape rule: a length-1 cell returns a length-1 cell (never collapses
+%   to a scalar).
 if nArgs == 2 && (iscell(varargin{1}) || iscell(varargin{2}))
-    s = localCosSimDensityList(varargin{1}, varargin{2}, verbose);
+    s = localCosSimDensityList(varargin{1}, varargin{2}, normalize, verbose);
     return;
 end
 
@@ -393,7 +427,7 @@ if willBatch
 
     s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
         varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-        verbose, ...
+        normalize, verbose, ...
         spectrumGiven, spectrumOpt, ...
         precisionGiven, precisionOpt, ...
         dedupGiven, dedupOpt);
@@ -547,7 +581,18 @@ if ~ranOrbit
     ip_yy = ipCore(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
 end
 
-s = ip_xy / sqrt(ip_xx * ip_yy);
+% Final cosine / one-sided-denominator normalisation.
+switch normalize
+    case 'cosine'
+        denom = sqrt(max(ip_xx * ip_yy, 0));
+    case 'oneSidedDenom'
+        denom = ip_yy;
+end
+if denom == 0
+    s = NaN;
+else
+    s = ip_xy / denom;
+end
 
 
 % =====================================================================
@@ -1163,7 +1208,8 @@ end
 %  localCosSimMA — multi-attribute (MAET) cosine similarity
 % =========================================================================
 
-function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbose)
+function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
+                            cancellationThreshold, verbose)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
@@ -1174,6 +1220,11 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
 %   method based on method ('auto' / 'bulger' / 'mobius') and a
 %   simple r-based heuristic. Three-layer guard mirrors the SA
 %   dispatcher (cross-cancellation, corruption, non-finite fallback).
+%
+%   The trailing ``normalize`` argument selects the denominator
+%   applied to the cross inner product: ``'cosine'`` (strict shape-only)
+%   divides by the geometric mean of the operand self inner products;
+%   ``'oneSidedDenom'`` divides by ``ip_yy`` alone.
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
@@ -1272,7 +1323,13 @@ function s = localCosSimMA(dens_x, dens_y, method, cancellationThreshold, verbos
         ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
     end
 
-    denom = sqrt(ip_xx * ip_yy);
+    % Final cosine / one-sided-denominator normalisation.
+    switch normalize
+        case 'cosine'
+            denom = sqrt(max(ip_xx * ip_yy, 0));
+        case 'oneSidedDenom'
+            denom = ip_yy;
+    end
     if denom == 0
         s = NaN;
     else
@@ -1519,7 +1576,7 @@ end
 %  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
-function sCell = localCosSimDensityList(a, b, verbose)
+function sCell = localCosSimDensityList(a, b, normalize, verbose)
 %LOCALCOSSIMDENSITYLIST List-mode density-struct cosine similarities.
 %
 %   Three accepted shapes:
@@ -1532,6 +1589,9 @@ function sCell = localCosSimDensityList(a, b, verbose)
 %   tags. Mixed-kind pairs are not prevented at this level; compatibility
 %   is checked downstream. `WindowedMaetDensity` entries are rejected
 %   at the top of cosSimExpTens (use windowedSimilarity instead).
+%
+%   The ``normalize`` argument is forwarded to each per-pair
+%   cosSimExpTens call so every list entry uses the same denominator.
 
     aIsCell = iscell(a);
     bIsCell = iscell(b);
@@ -1552,7 +1612,9 @@ function sCell = localCosSimDensityList(a, b, verbose)
                      'density structs from buildExpTens; entry %d is not ' ...
                      'a struct.'], i);
             end
-            sCell{i} = cosSimExpTens(a{i}, b{i}, 'verbose', verbose);
+            sCell{i} = cosSimExpTens(a{i}, b{i}, ...
+                                     'normalize', normalize, ...
+                                     'verbose', verbose);
         end
         return;
     end
@@ -1586,15 +1648,20 @@ function sCell = localCosSimDensityList(a, b, verbose)
                  'structs from buildExpTens; entry %d is not a struct.'], i);
         end
         if scalarLeft
-            sCell{i} = cosSimExpTens(scalarArg, cellArg{i}, 'verbose', verbose);
+            sCell{i} = cosSimExpTens(scalarArg, cellArg{i}, ...
+                                     'normalize', normalize, ...
+                                     'verbose', verbose);
         else
-            sCell{i} = cosSimExpTens(cellArg{i}, scalarArg, 'verbose', verbose);
+            sCell{i} = cosSimExpTens(cellArg{i}, scalarArg, ...
+                                     'normalize', normalize, ...
+                                     'verbose', verbose);
         end
     end
 end
 
 
-function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, verbose, ...
+function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
+    normalize, verbose, ...
     spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
@@ -1877,14 +1944,14 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         % inner call's first-time dispatch announce, etc.).
         dA_w = densA{uniquePairs(sampleIdx(1), 1)};
         dB_w = densB{uniquePairs(sampleIdx(1), 2)};
-        cosSimExpTens(dA_w, dB_w, 'verbose', false);
+        cosSimExpTens(dA_w, dB_w, 'normalize', normalize, 'verbose', false);
 
         % Timed calibration over the sample.
         tCalStart = tic;
         for cs = 1:numel(sampleIdx)
             dA_s = densA{uniquePairs(sampleIdx(cs), 1)};
             dB_s = densB{uniquePairs(sampleIdx(cs), 2)};
-            cosSimExpTens(dA_s, dB_s, 'verbose', false);
+            cosSimExpTens(dA_s, dB_s, 'normalize', normalize, 'verbose', false);
         end
         tCalTotal = toc(tCalStart);
         tPerPair  = tCalTotal / numel(sampleIdx);
@@ -1899,7 +1966,9 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     for up = 1:nUniquePairs
         dA = densA{uniquePairs(up, 1)};
         dB = densB{uniquePairs(up, 2)};
-        uniqueS(up) = cosSimExpTens(dA, dB, 'verbose', false);
+        uniqueS(up) = cosSimExpTens(dA, dB, ...
+                                    'normalize', normalize, ...
+                                    'verbose', false);
 
         if verbose && showProgress ...
                 && (mod(up, progStride) == 0 || up == nUniquePairs)

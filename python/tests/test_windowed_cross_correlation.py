@@ -51,7 +51,7 @@ class TestWindowedCrossCorrelation:
             "size": [np.inf, size_time],
             "mix":  [0.0, mix_time],
         }
-        profile = mpt.windowed_similarity(dens_q, dens_c, spec, offsets,
+        profile = mpt.windowed_similarity(dens_c, dens_q, spec, offsets,
                                           verbose=False)
         return offs, np.asarray(profile)
 
@@ -160,8 +160,8 @@ class TestWindowedCrossCorrelation:
             "size": [np.inf, 2.0],
             "mix":  [0.0, 0.0],
         }
-        p1 = mpt.windowed_similarity(q, c1, spec, offsets, verbose=False)
-        p2 = mpt.windowed_similarity(q, c2, spec, offsets, verbose=False)
+        p1 = mpt.windowed_similarity(c1, q, spec, offsets, verbose=False)
+        p2 = mpt.windowed_similarity(c2, q, spec, offsets, verbose=False)
         assert np.argmax(p1) == np.argmax(p2)
         assert abs(offs[np.argmax(p1)] - 5.0) < 0.3
 

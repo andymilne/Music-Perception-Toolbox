@@ -7,6 +7,8 @@ This module hosts the small preprocessing layer that sits *before*
   k-th finite differences along the event axis.
 * :func:`bind_events` --- slide a length-n window across an event
   sequence, emitting each window as an n-attribute super-event.
+* :func:`translate_events` --- shift every value of every attribute
+  in selected groups by a per-group offset (rigid translation).
 
 It also exposes :func:`simplex_vertices`, the categorical-encoding
 helper for level-symmetric MAET inputs.
@@ -22,6 +24,14 @@ import numpy as np
 
 from .._utils import validate_weights
 from .density import _canonicalise_groups
+
+
+class TranslateEventsNoOpWarning(UserWarning):
+    """Emitted when ``translate_events`` is asked to translate a
+    relative-mode group, which is a structural no-op (the relative
+    MAET depends only on within-tuple differences, so a uniform shift
+    of all values cancels in every pairwise difference). The group is
+    left unchanged."""
 
 
 
@@ -603,6 +613,254 @@ def bind_events(p, w=None, n=2, *, circular=False) -> tuple[list[np.ndarray], No
 #  Windowing: window_tensor, windowed_similarity, and supporting math
 # ===================================================================
 
+
+
+# ===================================================================
+#  translate_events
+# ===================================================================
+
+
+def translate_events(
+    p_attr,
+    groups,
+    offsets,
+    is_rel,
+    is_per,
+    periods,
+) -> list[np.ndarray]:
+    """Translate selected groups' event values by a per-group offset.
+
+    Cross-event preprocessing for multi-attribute tensor input. Takes
+    the ``p_attr`` list one would otherwise feed to
+    :func:`build_exp_tens` and returns a transformed ``p_attr_translated``
+    list with the same shape conventions, in which every value of every
+    attribute belonging to a selected group has been shifted by the
+    group's offset. The output feeds directly into
+    :func:`build_exp_tens` without any further massaging.
+
+    Sliding-comparison context. ``translate_events`` is the pre-tensor
+    route to a sliding comparison along one or more attribute-group
+    axes: for each candidate offset ``mu`` on a sweep grid, translate
+    the events and compute a similarity against an un-shifted reference.
+    The post-tensor counterpart is :func:`windowed_similarity`. Both
+    answer related "slide along an axis" questions but with different
+    operational properties; see the USER_GUIDE §3.1 discussion.
+
+    Semantics by group geometry:
+
+    - **Absolute non-periodic** (``is_per[g] = False``): every value of
+      every attribute in group ``g`` is replaced by ``value + mu``.
+      ``periods[g]`` is ignored regardless of its sign.
+    - **Absolute periodic** (``is_per[g] = True`` with
+      ``is_rel[g] = False`` and ``periods[g] > 0``): values are
+      translated and wrapped to ``[0, P)`` via ``(value + mu) % P``.
+      The wrapped periodic Gaussian kernel of :func:`build_exp_tens` is
+      invariant under any additive shift by a multiple of ``P``, so
+      this canonical wrap yields the same MAET as leaving the values
+      unwrapped --- the wrap is for tidiness, not correctness.
+    - **Relative** (``is_rel[g] = True``): a uniform shift of every
+      value cancels in every within-tuple difference, so translation
+      on a relative group is a structural no-op. The group is left
+      unchanged and a :class:`TranslateEventsNoOpWarning` is emitted.
+
+    Weights are unaffected by translation and are not part of this
+    function's signature; the caller passes the same ``w`` to
+    :func:`build_exp_tens` after translation that they would have
+    passed without it.
+
+    Parameters
+    ----------
+    p_attr : list/tuple of array-like
+        Length-A list of ``K_a x N`` per-attribute value matrices. Same
+        convention as :func:`build_exp_tens`. A 1-D input is taken as
+        a ``1 x N`` row.
+    groups : array-like, list-of-lists, or None
+        Group assignment, same convention as :func:`build_exp_tens` and
+        :func:`difference_events`. ``None`` treats each attribute as its
+        own singleton group.
+    offsets : dict
+        Sparse mapping ``{group_index: mu}`` (0-indexed) giving the
+        translation offset for selected groups. Groups not in the dict
+        are left unchanged. An empty dict makes the function a copy.
+        ``mu`` is a scalar (one shared offset for every attribute and
+        every value-slot in the group).
+    is_rel : array-like of bool
+        Length-G vector of relative-mode flags, same convention as
+        :func:`build_exp_tens`. Groups with ``is_rel[g] = True`` that
+        appear in ``offsets`` emit a :class:`TranslateEventsNoOpWarning`
+        and are skipped.
+    is_per : array-like of bool
+        Length-G vector of periodic-mode flags, same convention as
+        :func:`build_exp_tens`. Wrapping after translation is applied
+        only when ``is_per[g] = True`` AND ``periods[g] > 0``.
+    periods : array-like of float
+        Length-G vector of periods, same convention as
+        :func:`build_exp_tens`. Consulted only when ``is_per[g] = True``.
+        For non-periodic groups (``is_per[g] = False``) the entry is
+        ignored, so it is safe to declare a group's natural period
+        (e.g.\\ 12 for pitch class) even when operating in non-periodic
+        mode for a particular analysis.
+
+    Returns
+    -------
+    list of np.ndarray
+        Length-A list of ``K_a x N`` matrices, same shapes as the input,
+        with translation applied to the selected groups. The input
+        ``p_attr`` is not mutated.
+
+    Raises
+    ------
+    ValueError
+        If ``offsets`` contains a group index outside ``[0, G)``, or if
+        ``is_rel``, ``is_per``, or ``periods`` has the wrong length, or
+        if any ``offsets[g]`` is not a finite scalar.
+
+    Warns
+    -----
+    TranslateEventsNoOpWarning
+        When ``offsets`` contains a key ``g`` with ``is_rel[g] = True``.
+
+    See Also
+    --------
+    difference_events : Replace event sequences with k-th differences.
+    bind_events : Slide a length-n window over events to form n-attribute
+        super-events.
+    build_exp_tens : Consumes the output of this function.
+    windowed_similarity : Post-tensor counterpart for sliding comparisons.
+
+    Examples
+    --------
+    Transpose a chord progression by 6 semitones for a sliding-cosine
+    sweep, with a single absolute non-periodic pitch group::
+
+        >>> import numpy as np
+        >>> from mpt import (
+        ...     translate_events, build_exp_tens, cos_sim_exp_tens,
+        ... )
+        >>> p_q = [np.array([[60., 64., 67.], [63., 64., 67.]])]
+        >>> p_c = [np.array([[62., 66., 69.], [65., 66., 69.]])]
+        >>> groups = [0]
+        >>> is_rel, is_per, periods = [False], [False], [0.0]
+        >>> best = -np.inf
+        >>> for mu in np.arange(-12., 12.01, 0.25):
+        ...     p_c_mu = translate_events(
+        ...         p_c, groups, {0: mu}, is_rel, is_per, periods,
+        ...     )
+        ...     M_q = build_exp_tens(
+        ...         p_q, None, [0.15], [1], groups,
+        ...         is_rel, is_per, periods, verbose=False,
+        ...     )
+        ...     M_c_mu = build_exp_tens(
+        ...         p_c_mu, None, [0.15], [1], groups,
+        ...         is_rel, is_per, periods, verbose=False,
+        ...     )
+        ...     best = max(best, cos_sim_exp_tens(M_q, M_c_mu, verbose=False))
+        >>> bool(best > 0.99)
+        True
+    """
+    # ---- normalise / validate p_attr ----
+    if not isinstance(p_attr, (list, tuple)):
+        raise ValueError(
+            "p_attr must be a list/tuple of attribute value matrices."
+        )
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+    p_attr_arrays = []
+    for a, M in enumerate(p_attr):
+        Marr = np.asarray(M, dtype=np.float64)
+        if Marr.ndim == 1:
+            Marr = Marr.reshape(1, -1)
+        elif Marr.ndim != 2:
+            raise ValueError(
+                f"Attribute {a} must be 1-D or 2-D; got ndim={Marr.ndim}."
+            )
+        p_attr_arrays.append(Marr)
+
+    n_events = p_attr_arrays[0].shape[1]
+    for a, M in enumerate(p_attr_arrays):
+        if M.shape[1] != n_events:
+            raise ValueError(
+                f"All attributes must share the same event count N. "
+                f"Attribute 0 has N={n_events}; attribute {a} has "
+                f"N={M.shape[1]}."
+            )
+
+    # ---- canonicalise groups ----
+    group_of_attr, _attrs_of_group, G = _canonicalise_groups(groups, A)
+
+    # ---- validate is_rel, is_per, periods ----
+    is_rel_arr = np.asarray(is_rel, dtype=bool).ravel()
+    if is_rel_arr.size != G:
+        raise ValueError(
+            f"is_rel must have length G = {G} (number of groups); "
+            f"got length {is_rel_arr.size}."
+        )
+    is_per_arr = np.asarray(is_per, dtype=bool).ravel()
+    if is_per_arr.size != G:
+        raise ValueError(
+            f"is_per must have length G = {G}; got length "
+            f"{is_per_arr.size}."
+        )
+    periods_arr = np.asarray(periods, dtype=np.float64).ravel()
+    if periods_arr.size != G:
+        raise ValueError(
+            f"periods must have length G = {G}; got length "
+            f"{periods_arr.size}."
+        )
+
+    # ---- validate offsets ----
+    if not isinstance(offsets, dict):
+        raise ValueError(
+            f"offsets must be a dict mapping group_index -> mu; got "
+            f"{type(offsets).__name__}."
+        )
+    valid_groups = set()
+    for gkey, mu in offsets.items():
+        try:
+            gi = int(gkey)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"offsets keys must be integer group indices; got "
+                f"{gkey!r}."
+            )
+        if gi < 0 or gi >= G:
+            raise ValueError(
+                f"offsets contains group index {gi}, which is out of "
+                f"range for G = {G} groups."
+            )
+        if not np.isscalar(mu) or not np.isfinite(mu):
+            raise ValueError(
+                f"offsets[{gi}] must be a finite scalar; got {mu!r}."
+            )
+        if is_rel_arr[gi]:
+            warnings.warn(
+                f"Group {gi} has is_rel=True; translation is a "
+                f"structural no-op on relative groups (a uniform shift "
+                f"of all values cancels in every within-tuple "
+                f"difference). The group is left unchanged.",
+                TranslateEventsNoOpWarning,
+                stacklevel=2,
+            )
+            continue
+        valid_groups.add(gi)
+
+    # ---- apply translation ----
+    p_translated = []
+    for a, M in enumerate(p_attr_arrays):
+        g = int(group_of_attr[a])
+        if g not in valid_groups:
+            # Either not selected for translation, or a relative-group
+            # no-op. Copy so the caller can safely modify the result.
+            p_translated.append(M.copy())
+            continue
+        mu = float(offsets[g])
+        M_shifted = M + mu
+        if is_per_arr[g] and periods_arr[g] > 0:
+            M_shifted = M_shifted % float(periods_arr[g])
+        p_translated.append(M_shifted)
+
+    return p_translated
 
 
 # ===================================================================

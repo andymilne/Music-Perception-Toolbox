@@ -1076,6 +1076,297 @@ class TestMAET:
         assert np.all(np.isfinite(vals))
         assert np.all(vals >= 0.0)
 
+    # --- translateEvents -----------------------------------------------
+
+    def test_translate_zero_is_identity(self):
+        """Translating by zero returns an unchanged copy of every
+        attribute matrix."""
+        p = [np.array([[60.0, 62.0, 64.0]]),
+             np.array([[0.0, 1.0, 2.0]])]
+        groups = [0, 1]
+        out = mpt.translate_events(
+            p, groups, {0: 0.0, 1: 0.0},
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        for a in range(2):
+            np.testing.assert_array_equal(out[a], p[a])
+
+    def test_translate_empty_offsets_is_identity(self):
+        """Empty offsets dict returns a copy of every attribute matrix."""
+        p = [np.array([[60.0, 62.0, 64.0]])]
+        out = mpt.translate_events(p, [0], {}, [False], [False], [0.0])
+        np.testing.assert_array_equal(out[0], p[0])
+        # Result must be a copy, not the same object.
+        assert out[0] is not p[0]
+
+    def test_translate_does_not_mutate_input(self):
+        """The input attribute matrices are not modified in place."""
+        p_orig = np.array([[60.0, 62.0, 64.0]])
+        p = [p_orig.copy()]
+        _ = mpt.translate_events(
+            p, [0], {0: 5.0}, [False], [False], [0.0],
+        )
+        np.testing.assert_array_equal(p[0], p_orig)
+
+    def test_translate_nonperiodic_absolute(self):
+        """Non-periodic absolute shift adds mu to every value."""
+        p = [np.array([[60.0, 62.0, 64.0]])]
+        out = mpt.translate_events(
+            p, [0], {0: 5.0}, [False], [False], [0.0],
+        )
+        expected = np.array([[65.0, 67.0, 69.0]])
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_translate_periodic_wraps_to_0_P(self):
+        """Periodic shift wraps values to [0, P) after translation."""
+        p = [np.array([[10.0, 11.0, 0.0]])]
+        out = mpt.translate_events(
+            p, [0], {0: 3.0}, [False], [True], [12.0],
+        )
+        expected = np.array([[1.0, 2.0, 3.0]])
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_translate_periodic_negative_mu_wraps(self):
+        """Negative offsets in periodic mode wrap into [0, P)."""
+        p = [np.array([[1.0, 2.0]])]
+        out = mpt.translate_events(
+            p, [0], {0: -3.0}, [False], [True], [12.0],
+        )
+        expected = np.array([[10.0, 11.0]])
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_translate_period_ignored_when_is_per_false(self):
+        """A finite periods entry is ignored when is_per is False —
+        matches build_exp_tens convention, where periods may be
+        declared as the natural period of a group's domain even when
+        the group is being treated non-periodically for a particular
+        analysis."""
+        p = [np.array([[10.0, 11.0]])]
+        out = mpt.translate_events(
+            p, [0], {0: 5.0}, [False], [False], [12.0],
+        )
+        # Non-periodic: no wrap, values become 15, 16.
+        expected = np.array([[15.0, 16.0]])
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_translate_k_a_greater_than_one(self):
+        """Multi-slot attribute (K_a > 1) shifts every slot's every
+        value by the same mu (unlike windowing, where per-event scalar
+        weights are not available when K_a > 1)."""
+        p = [np.array([[60.0, 64.0, 67.0],
+                       [63.0, 67.0, 70.0]])]
+        out = mpt.translate_events(
+            p, [0], {0: 5.0}, [False], [False], [0.0],
+        )
+        expected = np.array([[65.0, 69.0, 72.0],
+                             [68.0, 72.0, 75.0]])
+        np.testing.assert_allclose(out[0], expected)
+
+    def test_translate_relative_emits_warning_and_no_op(self):
+        """Translating a relative group emits TranslateEventsNoOpWarning
+        and leaves the group unchanged."""
+        p = [np.array([[60.0, 64.0, 67.0]])]
+        with pytest.warns(mpt.TranslateEventsNoOpWarning):
+            out = mpt.translate_events(
+                p, [0], {0: 5.0}, [True], [False], [0.0],
+            )
+        np.testing.assert_array_equal(out[0], p[0])
+
+    def test_translate_skips_groups_not_in_offsets(self):
+        """Groups absent from the offsets dict are left unchanged."""
+        p = [np.array([[60.0, 64.0]]),       # group 0 (pitch)
+             np.array([[0.0, 1.0]])]         # group 1 (time)
+        out = mpt.translate_events(
+            p, [0, 1], {0: 5.0},
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
+        np.testing.assert_array_equal(out[1], p[1])
+
+    def test_translate_multi_group_simultaneous(self):
+        """Translating multiple groups at once shifts each
+        independently by its own mu."""
+        p = [np.array([[60.0, 64.0]]),
+             np.array([[0.0, 1.0]])]
+        out = mpt.translate_events(
+            p, [0, 1], {0: 5.0, 1: 0.5},
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[1], [[0.5, 1.5]])
+
+    def test_translate_multi_attribute_shared_group(self):
+        """Multiple attributes sharing one group all shift by the
+        same mu in one call."""
+        p = [np.array([[60.0, 64.0]]),       # voice 1
+             np.array([[67.0, 71.0]])]       # voice 2 -- same group
+        groups = [0, 0]
+        out = mpt.translate_events(
+            p, groups, {0: 5.0}, [False], [False], [0.0],
+        )
+        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
+
+    def test_translate_composition(self):
+        """translate(translate(p, mu), nu) == translate(p, mu + nu)
+        on non-periodic groups."""
+        p = [np.array([[60.0, 62.0, 64.0]])]
+        once = mpt.translate_events(
+            p, [0], {0: 5.0}, [False], [False], [0.0],
+        )
+        twice = mpt.translate_events(
+            once, [0], {0: 3.0}, [False], [False], [0.0],
+        )
+        direct = mpt.translate_events(
+            p, [0], {0: 8.0}, [False], [False], [0.0],
+        )
+        np.testing.assert_allclose(twice[0], direct[0])
+
+    def test_translate_composition_periodic(self):
+        """Composition holds modulo P on periodic groups."""
+        p = [np.array([[10.0, 11.0]])]
+        once = mpt.translate_events(
+            p, [0], {0: 7.0}, [False], [True], [12.0],
+        )
+        twice = mpt.translate_events(
+            once, [0], {0: 9.0}, [False], [True], [12.0],
+        )
+        # 10 + 7 + 9 = 26; 26 % 12 = 2.  11 + 16 = 27; 27 % 12 = 3.
+        np.testing.assert_allclose(twice[0], [[2.0, 3.0]])
+
+    def test_translate_self_ip_invariance(self):
+        """<f^mu, f^mu> = <f, f> for non-periodic absolute groups
+        (translation preserves the un-normalised inner product)."""
+        p = [np.array([[60.0, 64.0, 67.0]])]
+        groups = [0]
+        sigma, r = [0.15], [1]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        M = mpt.build_exp_tens(
+            p, None, sigma, r, groups, is_rel, is_per, periods,
+            verbose=False,
+        )
+        for mu in (-3.0, 1.5, 7.0):
+            p_mu = mpt.translate_events(
+                p, groups, {0: mu}, is_rel, is_per, periods,
+            )
+            M_mu = mpt.build_exp_tens(
+                p_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                verbose=False,
+            )
+            ip_self = mpt.cos_sim_exp_tens(M, M, verbose=False)
+            ip_mu_self = mpt.cos_sim_exp_tens(M_mu, M_mu, verbose=False)
+            np.testing.assert_allclose(ip_mu_self, ip_self, rtol=1e-12)
+
+    def test_translate_self_ip_invariance_periodic(self):
+        """Self-IP is also invariant under translation on periodic
+        groups (periodic kernel commutes with rigid shifts)."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        groups = [0]
+        sigma, r = [0.15], [1]
+        is_rel, is_per, periods = [False], [True], [12.0]
+        M = mpt.build_exp_tens(
+            p, None, sigma, r, groups, is_rel, is_per, periods,
+            verbose=False,
+        )
+        for mu in (-7.0, 1.5, 6.0, 15.0):
+            p_mu = mpt.translate_events(
+                p, groups, {0: mu}, is_rel, is_per, periods,
+            )
+            M_mu = mpt.build_exp_tens(
+                p_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                verbose=False,
+            )
+            np.testing.assert_allclose(
+                mpt.cos_sim_exp_tens(M_mu, M_mu, verbose=False),
+                mpt.cos_sim_exp_tens(M, M, verbose=False),
+                rtol=1e-12,
+            )
+
+    def test_translate_recovers_transposition_peak(self):
+        """The cos-sim sweep over mu peaks at the true transposition
+        offset, with peak value 1 (within numerical tolerance)."""
+        # C major triad as query; D major triad (= +2 st) as context.
+        p_q = [np.array([[60.0, 64.0, 67.0]])]
+        p_c = [np.array([[62.0, 66.0, 69.0]])]
+        groups = [0]
+        sigma, r = [0.15], [1]
+        is_rel, is_per, periods = [False], [False], [0.0]
+        M_q = mpt.build_exp_tens(
+            p_q, None, sigma, r, groups, is_rel, is_per, periods,
+            verbose=False,
+        )
+        best_mu, best_s = None, -np.inf
+        for mu in np.arange(-12.0, 12.01, 0.25):
+            p_c_mu = mpt.translate_events(
+                p_c, groups, {0: mu}, is_rel, is_per, periods,
+            )
+            M_c_mu = mpt.build_exp_tens(
+                p_c_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                verbose=False,
+            )
+            s = mpt.cos_sim_exp_tens(M_q, M_c_mu, verbose=False)
+            if s > best_s:
+                best_s, best_mu = s, mu
+        assert abs(best_mu - (-2.0)) < 0.01
+        assert best_s > 1.0 - 1e-9
+
+    def test_translate_bad_group_index_raises(self):
+        """Group indices outside [0, G) raise ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="group index"):
+            mpt.translate_events(
+                p, [0], {5: 1.0}, [False], [False], [0.0],
+            )
+
+    def test_translate_non_finite_offset_raises(self):
+        """A non-finite offset (NaN or inf) raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="finite scalar"):
+            mpt.translate_events(
+                p, [0], {0: float("nan")},
+                [False], [False], [0.0],
+            )
+        with pytest.raises(ValueError, match="finite scalar"):
+            mpt.translate_events(
+                p, [0], {0: float("inf")},
+                [False], [False], [0.0],
+            )
+
+    def test_translate_wrong_length_is_rel_raises(self):
+        """is_rel of wrong length raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="is_rel"):
+            mpt.translate_events(
+                p, [0], {0: 1.0},
+                [False, False], [False], [0.0],
+            )
+
+    def test_translate_wrong_length_is_per_raises(self):
+        """is_per of wrong length raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="is_per"):
+            mpt.translate_events(
+                p, [0], {0: 1.0},
+                [False], [False, False], [0.0],
+            )
+
+    def test_translate_wrong_length_periods_raises(self):
+        """periods of wrong length raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="periods"):
+            mpt.translate_events(
+                p, [0], {0: 1.0},
+                [False], [False], [0.0, 12.0],
+            )
+
+    def test_translate_non_dict_offsets_raises(self):
+        """Non-dict offsets argument raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="dict"):
+            mpt.translate_events(
+                p, [0], [5.0], [False], [False], [0.0],
+            )
+
     # --- windowTensor / windowedSimilarity ------------------------------
 
     def _make_time_pitch_dens(self, events):
@@ -1266,7 +1557,7 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = offs
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        profile = mpt.windowed_similarity(q, ctx, spec, offsets, verbose=False)
+        profile = mpt.windowed_similarity(ctx, q, spec, offsets, verbose=False)
         peak_idx = np.argmax(profile)
         assert abs(offs[peak_idx] - 1.0) < 0.3
 
@@ -1294,9 +1585,9 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = np.linspace(-0.5, 3.5, M)
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        prof_default  = mpt.windowed_similarity(q, ctx, spec, offsets,
+        prof_default  = mpt.windowed_similarity(ctx, q, spec, offsets,
                                              verbose=False)
-        prof_explicit = mpt.windowed_similarity(q, ctx, spec, offsets,
+        prof_explicit = mpt.windowed_similarity(ctx, q, spec, offsets,
                                              reference=None,
                                              verbose=False)
         assert np.allclose(prof_default, prof_explicit)
@@ -1325,9 +1616,9 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = offs_time
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        prof_default = mpt.windowed_similarity(q, ctx, spec, offsets,
+        prof_default = mpt.windowed_similarity(ctx, q, spec, offsets,
                                             verbose=False)
-        prof_shifted = mpt.windowed_similarity(q, ctx, spec, offsets,
+        prof_shifted = mpt.windowed_similarity(ctx, q, spec, offsets,
                                             reference=ref_shifted,
                                             verbose=False)
         # At sweep column m (offset o), the default places the window
@@ -1350,12 +1641,12 @@ class TestMAET:
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
         # Too few entries (1 instead of 2)
         with pytest.raises(ValueError, match="reference"):
-            mpt.windowed_similarity(q, ctx, spec, offsets,
+            mpt.windowed_similarity(ctx, q, spec, offsets,
                                   reference=[np.array([0.0])],
                                   verbose=False)
         # Correct number of entries but wrong inner length
         with pytest.raises(ValueError, match="reference"):
-            mpt.windowed_similarity(q, ctx, spec, offsets,
+            mpt.windowed_similarity(ctx, q, spec, offsets,
                                   reference=[np.array([0.0, 0.0]),
                                              np.array([0.0])],
                                   verbose=False)
@@ -1382,7 +1673,7 @@ class TestMAET:
         spec = {"size": [40.0, 0.3], "mix": [0.0, 0.0]}
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _ = mpt.windowed_similarity(q, ctx, spec, offsets,
+            _ = mpt.windowed_similarity(ctx, q, spec, offsets,
                                         verbose=False)
         # No "approximation" or "line-case" themed warnings.
         bad = [w for w in caught

@@ -2,8 +2,8 @@
 %  windowedInnerProduct — closed-form windowed inner product (internal)
 % =========================================================================
 
-function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, varargin)
-%WINDOWEDINNERPRODUCT  Closed-form windowed inner product (internal helper).
+function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
+%WINDOWEDINNERPRODUCT  Closed-form windowed similarity (internal helper).
 %
 %   s = internal.windowedInnerProduct(densQ, wmd, verbose)
 %
@@ -13,17 +13,30 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, varargin)
 %   and the only place the closed-form windowed inner product is
 %   implemented.
 %
-%   Magnitude-aware normalisation. The numerator is the windowed inner
-%   product <h * f_X, f_Y>; the denominator is the UNWINDOWED L2 self
-%   inner product of the query, <f_Y, f_Y> (normaliser (i)). The
-%   result is therefore a magnitude-aware *windowed similarity*, not
-%   a strict cosine similarity: silent regions of the context produce
-%   values near zero, and matching content near the window centre
-%   produces values proportional to how much matching mass is there.
-%   Self-similarity at full coverage equals 1; cross-similarity may
-%   exceed 1 when the windowed context has more mass in the window
-%   region than the query does in total. See User Guide §3.1
-%   "Magnitude-aware normalisation".
+%   The numerator is the windowed inner product
+%       ip_qc = <h * dens_c, dens_q>
+%   where dens_c is the underlying density of wmd and h is the
+%   pointwise window function carried by wmd. Two denominator options
+%   are exposed via the trailing ``normalize`` argument:
+%
+%     'oneSidedDenom' (default) — denominator is the unwindowed self
+%         inner product of the query, <dens_q, dens_q>. The result is
+%         magnitude-aware: self-similarity at full window coverage
+%         equals 1, while silent regions of the context score near
+%         zero, and a windowed context with more matching mass than
+%         the query carries in total may exceed 1.
+%
+%     'cosine' — denominator is the geometric mean
+%         sqrt(<h * dens_c, h * dens_c> * <dens_q, dens_q>). The result
+%         is the strict shape-only cosine similarity, bounded in
+%         [-1, 1] and invariant to a positive scalar on either operand.
+%         The required windowed self inner product
+%         <h * dens_c, h * dens_c> is itself closed-form for window
+%         shapes whose pointwise square h^2 remains in the (size, mix)
+%         family: pure Gaussian (mix = 0; h^2 is Gaussian with size
+%         scaled by 1/sqrt(2)) and pure boxcar (mix = 1; h^2 = h).
+%         Intermediate mix values are not supported in the strict
+%         shape-only cosine and raise; use 'oneSidedDenom' there.
 %
 %   One-sided windowing only: exactly one of a, b must be a
 %   WindowedMaetDensity. Two-sided windowing is not supported.
@@ -44,22 +57,19 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, varargin)
 %
 %   Cached-norm mode (internal optimisation)
 %   ----------------------------------------
-%   When called as ``internal.windowedInnerProduct(densQ, wmd,
-%   verbose, cachedIpQQ)``, uses the supplied pre-computed unwindowed
-%   query self inner product instead of recomputing it. Used by
-%   windowedSimilarity's per-offset loop together with the norm-only
-%   mode above. A trailing argument is accepted but ignored, for
-%   backward compatibility with callers that previously passed
-%   (cachedIpQQ, cachedIpCC).
+%   When called as ``internal.windowedInnerProduct(densQ, wmd, verbose,
+%   cachedIpQQ)``, uses the supplied pre-computed unwindowed query
+%   self inner product instead of recomputing it. The fifth argument
+%   ``normalize`` (default ``'oneSidedDenom'``) selects the
+%   denominator as described above.
 %
 %   See also windowedSimilarity, windowTensor.
 
-    % Trailing cachedIpCC argument (legacy 5-arg call) is accepted and
-    % ignored: under normaliser (i), the context's unwindowed self
-    % inner product no longer appears in the denominator.
-    %#ok<INUSD,VUNUS>
-    if ~isempty(varargin)
-        % kept for backward compatibility; intentionally unused
+    if nargin < 5 || isempty(normalize)
+        normalize = 'oneSidedDenom';
+    end
+    if nargin < 4
+        cachedIpQQ = [];
     end
 
     % Norm-only mode: return <a, a>_unwindowed.
@@ -101,21 +111,96 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, varargin)
     % Structural compatibility checks.
     localCheckMACompat(dens_q, dens_c);
 
-    % --- Query self inner product (denominator under normaliser (i)) ---
-    if nargin >= 4 && ~isempty(cachedIpQQ)
+    % Query self inner product (unwindowed). Required for both
+    % denominator options; cached across a sweep by the caller when
+    % available.
+    if ~isempty(cachedIpQQ)
         ip_qq = cachedIpQQ;
     else
         ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose);
     end
 
-    % --- Windowed numerator ---
+    % Windowed cross inner product: <h * dens_c, dens_q>.
     ip_qc = localCosSimNumeratorMA(dens_q, dens_c, wmd, verbose);
 
-    if ip_qq == 0
-        s = NaN;
-    else
-        s = ip_qc / ip_qq;
+    switch normalize
+        case 'oneSidedDenom'
+            if ip_qq == 0
+                s = NaN;
+            else
+                s = ip_qc / ip_qq;
+            end
+        case 'cosine'
+            % Strict shape-only cosine: divide by
+            % sqrt(<h*dens_c, h*dens_c> * <dens_q, dens_q>). The
+            % windowed self inner product is closed-form when every
+            % group's window is pure-Gaussian (mix = 0; h^2 is
+            % Gaussian with size scaled by 1/sqrt(2)) or pure-boxcar
+            % (mix = 1; h^2 = h). Intermediate mix raises.
+            wmd_squared = localWindowSquared(wmd);
+            ip_cc_h = localCosSimNumeratorMA(dens_c, dens_c, wmd_squared, verbose);
+            denom = sqrt(max(ip_cc_h * ip_qq, 0));
+            if denom == 0
+                s = NaN;
+            else
+                s = ip_qc / denom;
+            end
+        otherwise
+            error('internal:windowedInnerProduct:badNormalize', ...
+                  ['normalize must be ''cosine'' or ''oneSidedDenom''; ' ...
+                   'got ''%s''.'], normalize);
     end
+end
+
+
+function wmd_sq = localWindowSquared(wmd)
+%LOCALWINDOWSQUARED  Construct a WindowedMaetDensity carrying the
+%pointwise square h^2 of the original window h.
+%
+%   For each group g with mix_g == 0 (pure Gaussian window of width
+%   size_g * sigma_g), h^2 is itself a Gaussian of width
+%   (size_g * sigma_g) / sqrt(2); equivalently, size_g' = size_g /
+%   sqrt(2) with mix_g' = 0.
+%
+%   For each group g with mix_g == 1 (pure boxcar window of half-width
+%   size_g * sigma_g * sqrt(3)), h(z) in {0, 1} pointwise so h^2 = h;
+%   size_g and mix_g are unchanged.
+%
+%   For mix_g in (0, 1), h^2 is the square of a rectangular-convolved-
+%   with-Gaussian and is not in the (size, mix) family; this case
+%   raises and directs the user to the 'oneSidedDenom' option.
+
+    spec = struct();
+    spec.size   = wmd.size;
+    spec.mix    = wmd.mix;
+    spec.centre = wmd.centre;
+
+    G = numel(spec.size);
+    for g = 1:G
+        sz_g  = spec.size(g);
+        mix_g = spec.mix(g);
+
+        if ~isfinite(sz_g) || sz_g == 0
+            % Group is not windowed (size = Inf or NaN); leave alone.
+            continue;
+        end
+
+        if mix_g == 0
+            spec.size(g) = sz_g / sqrt(2);
+        elseif mix_g == 1
+            % h^2 = h; no change.
+        else
+            error('internal:windowedInnerProduct:unsupportedNormalize', ...
+                  ['Strict shape-only cosine (normalize = ''cosine'') ' ...
+                   'requires every group''s windowSpec.mix to be 0 ' ...
+                   '(pure Gaussian) or 1 (pure boxcar). Group %d has ' ...
+                   'mix = %g. Use normalize = ''oneSidedDenom'' for ' ...
+                   'intermediate mix values, or set the mix to 0 or 1.'], ...
+                  g, mix_g);
+        end
+    end
+
+    wmd_sq = windowTensor(wmd.dens, spec);
 end
 
 

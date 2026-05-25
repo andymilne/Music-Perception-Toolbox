@@ -32,6 +32,8 @@ from .tensor import (
     difference_events,
     bind_events,
     simplex_vertices,
+    translate_events,
+    TranslateEventsNoOpWarning,
     window_tensor,
     windowed_similarity,
 )
@@ -98,6 +100,8 @@ __all__ = [
     "difference_events",
     "bind_events",
     "simplex_vertices",
+    "translate_events",
+    "TranslateEventsNoOpWarning",
     "window_tensor",
     "windowed_similarity",
     "WindowedMaetDensity",

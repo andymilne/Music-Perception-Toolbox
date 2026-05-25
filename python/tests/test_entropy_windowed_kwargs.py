@@ -132,8 +132,7 @@ class TestWindowedSimilaritySignature:
         # Call windowed_similarity with bad arguments (insufficient
         # positional args) to trigger an error mid-call.
         try:
-            mpt.windowed_similarity(
-                None, None, None, None,
+            mpt.windowed_similarity(None, None, None, None,
                 truncation_sigmas=6.0,
             )
         except (TypeError, AttributeError, ValueError):

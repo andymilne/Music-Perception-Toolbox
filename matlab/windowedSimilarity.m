@@ -1,38 +1,60 @@
-function profile = windowedSimilarity(densQuery, densContext, windowSpec, offsets, varargin)
+function profile = windowedSimilarity(densContext, densQuery, windowSpec, offsets, varargin)
 %WINDOWEDSIMILARITY  Sliding-window similarity profile (cross-correlation).
 %
-%   profile = windowedSimilarity(densQuery, densContext, windowSpec, offsets)
+%   profile = windowedSimilarity(densContext, densQuery, windowSpec, offsets)
 %   returns a 1 x M profile of windowed similarities. For each offset
 %   column, the context density is windowed with windowSpec at the
-%   corresponding centre, and its similarity against densQuery
-%   (unwindowed) is computed. The normaliser uses the UNWINDOWED L2
-%   norms of both operands (Option Z).
+%   corresponding centre, and its windowed inner product against
+%   densQuery (unwindowed) is finalised by a normaliser selected via
+%   the 'normalize' name-value option (default 'oneSidedDenom').
 %
-%   profile = windowedSimilarity({d_q_1, ..., d_q_n}, densContext, ...)
-%   profile = windowedSimilarity(densQuery, {d_c_1, ..., d_c_m}, ...)
-%   profile = windowedSimilarity({d_q_1, ...}, {d_c_1, ...}, ...)
-%   List mode. Either or both density inputs may be a cell
-%   array of MaetDensity structs. Returns a cell array of 1-by-M
-%   profiles. Modes (controlled via the 'mode' name-value option):
-%     'bulger'  — n_q == n_c required; pair element-by-element.
+%   The two operands play asymmetric roles:
+%     * densContext is the operand that the window multiplies. As the
+%       sweep proceeds, the window shifts to each centre defined by
+%       the offsets matrix, selecting different regions of densContext
+%       at each step.
+%     * densQuery is the unwindowed operand whose self inner product
+%       appears in the denominator. The query supplies the
+%       "comparison template" against which each windowed context
+%       region is scored.
+%
+%   profile = windowedSimilarity(densContext, {d_q_1, ..., d_q_n}, ...)
+%   profile = windowedSimilarity({d_c_1, ..., d_c_m}, densQuery, ...)
+%   profile = windowedSimilarity({d_c_1, ...}, {d_q_1, ...}, ...)
+%   List mode. Either or both density inputs may be a cell array of
+%   MaetDensity structs. Returns a cell array of 1-by-M profiles.
+%   Modes (controlled via the 'mode' name-value option):
+%     'bulger'    — n_c == n_q required; pair element-by-element.
 %                   Returns a 1-by-n cell.
-%     'cartesian' — Cross every query with every context.
-%                   Returns an n_q-by-n_c cell.
+%     'cartesian' — Cross every context with every query.
+%                   Returns an n_c-by-n_q cell.
 %     'auto'      — pairwise if lengths match, cartesian otherwise
 %                   (default).
-%   Option II shape rule: a length-1 list returns a length-1 cell.
+%   Shape rule: a length-1 list returns a length-1 cell (never
+%   collapses to a scalar profile).
 %
-%   Why "similarity" rather than "cosine similarity"
-%   ------------------------------------------------
-%   The output is a magnitude-aware *windowed similarity*: because the
-%   denominator uses unwindowed L2 norms (rather than the windowed
-%   norm of the context), the profile is not bounded in [-1, 1] across
-%   sweep positions and does not correspond to an inner product on a
-%   single Hilbert space. This is the intended behaviour for sliding-
-%   motif analysis -- a dense local match should outscore a sparse
-%   one. The strict shape-only cosine similarity (with windowed
-%   denominator) is a separate notion not currently implemented in the
-%   toolbox.
+%   Normalisation: 'oneSidedDenom' versus 'cosine'
+%   ----------------------------------------------
+%   The numerator at each sweep position is the windowed inner product
+%   ip_qc = <h * dens_c, dens_q>. The denominator depends on
+%   'normalize':
+%
+%     'oneSidedDenom' (default) — divide by the unwindowed query self
+%         inner product, <dens_q, dens_q>. The result is magnitude-
+%         aware: self-similarity at full window coverage equals 1,
+%         silent regions of the context score near zero, and a region
+%         where the windowed context has more matching mass than the
+%         query holds in total may score above 1. This is the
+%         intended reading for sliding-motif analysis -- a dense
+%         local match should outscore a sparse one.
+%
+%     'cosine' — divide by sqrt(<h * dens_c, h * dens_c> *
+%         <dens_q, dens_q>). The result is the strict shape-only
+%         cosine, bounded in [-1, 1] and invariant to a positive
+%         scalar on either operand. Closed-form across the (size,
+%         mix) family only for pure-Gaussian (mix = 0) and pure-
+%         boxcar (mix = 1) windows; intermediate mix raises and
+%         directs the user to 'oneSidedDenom'.
 %
 %   Reference-point semantics
 %   -------------------------
@@ -86,8 +108,8 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %   behaviour). See User Guide §3.1 "Post-tensor windowing".
 %
 %   Inputs
-%       densQuery   - MaetDensity (not windowed).
-%       densContext - MaetDensity to be windowed.
+%       densContext - MaetDensity to be windowed (positional arg 1).
+%       densQuery   - MaetDensity, unwindowed (positional arg 2).
 %       windowSpec  - Window spec struct (see windowTensor). Only the
 %                     'size' and 'mix' fields are read; any 'centre'
 %                     field is ignored (offsets are used instead).
@@ -115,6 +137,12 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
 %       'mode'      - List-mode pairing. 'bulger', 'cartesian',
 %                     or 'auto' (default). Ignored when both inputs are
 %                     scalar densities.
+%       'normalize' / 'normalise' — 'oneSidedDenom' (default) or
+%                     'cosine'. Selects the denominator applied to the
+%                     windowed inner product (see "Normalisation"
+%                     section above). Either spelling of the keyword
+%                     is accepted; matching on the value is case-
+%                     insensitive.
 %       'verbose'   - Default true.
 %       'truncationSigmas' - Numeric scalar or []. Override the
 %                     toolbox-wide mptDefaults('truncationSigmas')
@@ -140,6 +168,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     verbose = true;
     reference = [];
     mode = 'auto';
+    normalize = 'oneSidedDenom';
     truncationSigmas = [];
     kernelPrecision = [];
     for i = 1:2:numel(varargin)
@@ -154,6 +183,19 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
                     error('windowedSimilarity:badMode', ...
                         ['''mode'' must be ''bulger'', ''cartesian'', or ' ...
                          '''auto''; got ''%s''.'], mode);
+                end
+            case {'normalize', 'normalise'}
+                % Accept both American and British spellings of the
+                % keyword; case-insensitive matching on the value.
+                val = char(varargin{i + 1});
+                if strcmpi(val, 'cosine')
+                    normalize = 'cosine';
+                elseif strcmpi(val, 'oneSidedDenom')
+                    normalize = 'oneSidedDenom';
+                else
+                    error('windowedSimilarity:badNormalize', ...
+                          ['''normalize'' must be ''cosine'' or ' ...
+                           '''oneSidedDenom''; got ''%s''.'], val);
                 end
             case 'truncationsigmas'
                 truncationSigmas = varargin{i + 1};
@@ -173,21 +215,23 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
     % calls so the API contract on the recursive form is unchanged.
 
     % --- LIST mode ------------------------------------------
-    % Either or both of densQuery, densContext may be a cell array of
+    % Either or both of densContext, densQuery may be a cell array of
     % MaetDensity structs, in which case the function returns a cell
     % array of profiles. Modes:
-    %   'bulger'  — n_q == n_c required; pair element-by-element.
+    %   'bulger'    — n_c == n_q required; pair element-by-element.
     %                 Returns a 1-by-n cell of 1-by-M profiles.
-    %   'cartesian' — Cross every query with every context.
-    %                 Returns an n_q-by-n_c cell of 1-by-M profiles.
-    %   'auto'      — pairwise if n_q == n_c, otherwise cartesian.
-    % Option II shape rule: a length-1 list returns a length-1 cell.
-    isQueryList   = iscell(densQuery);
+    %   'cartesian' — Cross every context with every query.
+    %                 Returns an n_c-by-n_q cell of 1-by-M profiles.
+    %   'auto'      — pairwise if n_c == n_q, otherwise cartesian.
+    % Shape rule: a length-1 list returns a length-1 cell (never
+    % collapses to a scalar profile).
     isContextList = iscell(densContext);
-    if isQueryList || isContextList
+    isQueryList   = iscell(densQuery);
+    if isContextList || isQueryList
         profile = localWindowedSimilarityList( ...
-            densQuery, densContext, windowSpec, offsets, ...
-            reference, mode, truncationSigmas, kernelPrecision, verbose);
+            densContext, densQuery, windowSpec, offsets, ...
+            reference, mode, normalize, ...
+            truncationSigmas, kernelPrecision, verbose);
         return;
     end
 
@@ -267,13 +311,14 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         'closed-form windowed inner product (single algorithmic path)', ...
         0, false);
 
-    % --- Pre-compute the unwindowed L2 norm (denominator).
-    % Under normaliser (i), the denominator is the query's unwindowed
-    % self inner product ip_qq = <Q, Q>_unwindowed. It depends only on
-    % the densities, NOT on the window offset. Computing it ONCE here
-    % lets every per-offset call to internal.windowedInnerProduct skip
-    % the redundant per-call work. The context's ip_cc no longer
-    % appears in the denominator and is not cached.
+    % --- Pre-compute the unwindowed L2 norm of the query (denominator) ---
+    % The unwindowed query self inner product <dens_q, dens_q> appears
+    % in the denominator under both 'oneSidedDenom' (where it IS the
+    % denominator) and 'cosine' (where it is one factor of the
+    % geometric mean). It depends only on densQuery, not on the
+    % window offset, so we compute it once and cache it across the
+    % sweep, letting every per-offset call to
+    % internal.windowedInnerProduct skip the redundant work.
     ipQQcache = internal.windowedInnerProduct(densQuery, [], false);
 
     % --- Up-front time estimate + adaptive progress stride ---
@@ -303,7 +348,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_w.centre = centre_cell_w;
         wmd_w = windowTensor(densContext, spec_w);
         internal.windowedInnerProduct(densQuery, wmd_w, false, ...
-            ipQQcache);
+            ipQQcache, normalize);
 
         % Timed calibration sample over the same indices.
         tCalStart = tic;
@@ -320,7 +365,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
             spec_s.centre = centre_cell_s;
             wmd_s = windowTensor(densContext, spec_s);
             internal.windowedInnerProduct(densQuery, wmd_s, false, ...
-                ipQQcache);
+                ipQQcache, normalize);
         end
         tCalTotal  = toc(tCalStart);
         tPerPoint  = tCalTotal / numel(sampleIdx);
@@ -345,7 +390,7 @@ function profile = windowedSimilarity(densQuery, densContext, windowSpec, offset
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
         profile(m) = internal.windowedInnerProduct(densQuery, wmd, false, ...
-            ipQQcache);
+            ipQQcache, normalize);
 
         if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
             fprintf('  %d / %d points computed.\n', m, M);
@@ -359,36 +404,38 @@ end
 
 
 function profile = localWindowedSimilarityList( ...
-    densQuery, densContext, windowSpec, offsets, ...
-    reference, mode, truncationSigmas, kernelPrecision, verbose)
+    densContext, densQuery, windowSpec, offsets, ...
+    reference, mode, normalize, ...
+    truncationSigmas, kernelPrecision, verbose)
 %LOCALWINDOWEDSIMILARITYLIST  Polymorphic list dispatch.
 %
-%   Iterates over query and context lists, calling windowedSimilarity
-%   recursively for each pair. Suppresses the periodic-window warning
-%   inside the loop after the first emission to avoid spam.
+%   Iterates over context and query lists, calling windowedSimilarity
+%   recursively for each pair. The recursive call uses the same
+%   positional convention as the public entry: context first, query
+%   second.
 %
-%   ``truncationSigmas`` and ``kernelPrecision`` are forwarded to each
-%   recursive ``windowedSimilarity`` call so per-call kwargs reach the
-%   per-offset ``internal.windowedInnerProduct`` consumers without going
-%   through ``mptDefaults`` global state.
+%   ``normalize``, ``truncationSigmas`` and ``kernelPrecision`` are
+%   forwarded to each recursive call so per-call kwargs reach the
+%   per-offset ``internal.windowedInnerProduct`` consumers without
+%   going through ``mptDefaults`` global state.
 
     % Wrap singletons so the loops below can index uniformly.
-    if iscell(densQuery)
-        Q = densQuery;
-    else
-        Q = {densQuery};
-    end
     if iscell(densContext)
         C = densContext;
     else
         C = {densContext};
     end
-    nQ = numel(Q);
+    if iscell(densQuery)
+        Q = densQuery;
+    else
+        Q = {densQuery};
+    end
     nC = numel(C);
+    nQ = numel(Q);
 
     % Resolve mode.
     if strcmp(mode, 'auto')
-        if nQ == nC
+        if nC == nQ
             modeR = 'bulger';
         else
             modeR = 'cartesian';
@@ -396,10 +443,10 @@ function profile = localWindowedSimilarityList( ...
     else
         modeR = mode;
     end
-    if strcmp(modeR, 'bulger') && nQ ~= nC
+    if strcmp(modeR, 'bulger') && nC ~= nQ
         error('windowedSimilarity:listLengthMismatch', ...
-              ['windowedSimilarity (list mode, pairwise): query and context ' ...
-               'must have the same length, got %d and %d.'], nQ, nC);
+              ['windowedSimilarity (list mode, pairwise): context and ' ...
+               'query must have the same length, got %d and %d.'], nC, nQ);
     end
 
     % Resolve reference per-query. Three forms:
@@ -418,31 +465,34 @@ function profile = localWindowedSimilarityList( ...
     end
 
     if strcmp(modeR, 'bulger')
-        profile = cell(1, nQ);
-        for k = 1:nQ
+        % Pairwise: paired indices.
+        profile = cell(1, nC);
+        for k = 1:nC
             if perQueryRef
                 refK = reference{k};
             else
                 refK = reference;
             end
-            profile{k} = windowedSimilarity(Q{k}, C{k}, windowSpec, offsets, ...
+            profile{k} = windowedSimilarity(C{k}, Q{k}, windowSpec, offsets, ...
                 'verbose', verbose, 'reference', refK, ...
+                'normalize', normalize, ...
                 'truncationSigmas', truncationSigmas, ...
                 'kernelPrecision', kernelPrecision);
         end
     else
-        % cartesian
-        profile = cell(nQ, nC);
-        for i = 1:nQ
-            for j = 1:nC
+        % Cartesian: row i = context i, column j = query j.
+        profile = cell(nC, nQ);
+        for i = 1:nC
+            for j = 1:nQ
                 if perQueryRef
-                    refIJ = reference{i};
+                    refIJ = reference{j};
                 else
                     refIJ = reference;
                 end
                 profile{i, j} = windowedSimilarity( ...
-                    Q{i}, C{j}, windowSpec, offsets, ...
+                    C{i}, Q{j}, windowSpec, offsets, ...
                     'verbose', verbose, 'reference', refIJ, ...
+                    'normalize', normalize, ...
                     'truncationSigmas', truncationSigmas, ...
                     'kernelPrecision', kernelPrecision);
             end

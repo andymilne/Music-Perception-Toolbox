@@ -154,9 +154,9 @@ for i = 1:n_scn
 end
 
 offsets_off = [OFFSET_GRID; M4_TIME * ones(1, numel(OFFSET_GRID))];
-p_D_cells = windowedSimilarity(dq_list_scn, dens_c, spec, offsets_off, ...
+p_D_cells = windowedSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
     'verbose', false);
-p_F_cells = windowedSimilarity(dq_list_scn, dens_c, spec, offsets_off, ...
+p_F_cells = windowedSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
     'reference', REF_HARM, 'verbose', false);
 
 profs = cell(n_scn, 3);  % {mu, p_D, p_F}
@@ -265,15 +265,20 @@ for s = 1:nSweeps
         mus(i) = mean(dq_list{i}.Centres{1});
     end
 
-    P_D_cells   = windowedSimilarity(dq_list, dens_c, spec, offsets_off, ...
+    P_D_cells   = windowedSimilarity(dens_c, dq_list, spec, offsets_off, ...
         'verbose', false);
-    P_F_cells   = windowedSimilarity(dq_list, dens_c, spec, offsets_off, ...
+    P_F_cells   = windowedSimilarity(dens_c, dq_list, spec, offsets_off, ...
         'reference', REF_HARM, 'verbose', false);
-    p_abs_cells = windowedSimilarity(dq_list, dens_c, spec, offsets_abs, ...
+    p_abs_cells = windowedSimilarity(dens_c, dq_list, spec, offsets_abs, ...
         'reference', ref_abs, 'verbose', false);
 
-    P_D = cell2mat(P_D_cells);
-    P_F = cell2mat(P_F_cells);
+    % Stack the per-query 1-by-M profiles into an nS-by-M matrix, with
+    % each row corresponding to one query in dq_list. The list-mode
+    % return is a cell of 1-by-M row vectors (whose cell layout follows
+    % the (context, query) positional convention); vertcat is robust to
+    % that layout.
+    P_D = vertcat(P_D_cells{:});
+    P_F = vertcat(P_F_cells{:});
 
     pk_D = zeros(nS, 1);  pk_F = zeros(nS, 1);
     pk_abs = zeros(nS, 1);
@@ -389,9 +394,10 @@ for i = 1:nB
     dq_list_fig4{i} = build_query(q_p, q_t, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF, ...
         BETA_FIG4(i), PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
 end
-p_cells = windowedSimilarity(dq_list_fig4, dens_c, spec, offsets_off, ...
+p_cells = windowedSimilarity(dens_c, dq_list_fig4, spec, offsets_off, ...
     'reference', REF_HARM, 'verbose', false);
-P_cal = cell2mat(p_cells);
+% Stack per-query 1-by-M profiles into an nB-by-M matrix (see note above).
+P_cal = vertcat(p_cells{:});
 
 pk_off = zeros(nB, 1);  pk_val = zeros(nB, 1);
 for i = 1:nB

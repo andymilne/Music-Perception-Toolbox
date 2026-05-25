@@ -135,6 +135,17 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
                               win_size_time, win_mix, offsets)
 %SWEEPPROFILES  Return a length(sigma_reg_values) x length(offsets) array
 %   of cross-correlation windowed-similarity profiles.
+
+    % Acquire a top-level dispatch scope for the duration of the
+    % per-sigma_reg loop. Each iteration calls windowedSimilarity as
+    % an independent top-level entry; without this guard, each entry
+    % would reset the dispatch-announce throttle, re-emitting the
+    % same "windowedSimilarity: chose 'direct' path." message per
+    % iteration. Holding a scope guard here keeps every iteration
+    % nested at depth >= 1, so the throttle deduplicates announces
+    % across the sweep. See internal.dispatchScope.
+    guard = internal.dispatchScope(); %#ok<NASGU>
+
     windowSpec = struct('size', [Inf, Inf, win_size_time], ...
                         'mix',  [0,   0,   win_mix]);
     % Offsets: pc and reg offsets = 0; sweep time offset
@@ -147,7 +158,7 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
         sr = sigma_reg_values(i);
         dq = build2Group(q_cents, q_t, sigma_pc, sr, sigma_time);
         dc = build2Group(c_cents, c_t, sigma_pc, sr, sigma_time);
-        prof(i, :) = windowedSimilarity(dq, dc, windowSpec, offsets_3d, ...
+        prof(i, :) = windowedSimilarity(dc, dq, windowSpec, offsets_3d, ...
             'verbose', false);
     end
 end

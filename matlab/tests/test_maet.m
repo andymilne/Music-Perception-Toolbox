@@ -755,6 +755,190 @@ vals_v = evalExpTens(dens_v, x_query);
 results{end+1,1} = 'differenceEvents: voices-as-attrs — evalExpTens returns finite non-negative values';
 results{end,2}   = all(isfinite(vals_v)) && all(vals_v >= 0);
 
+% -- translateEvents: zero shift identity --
+
+p_t = {[60 62 64], [0 1 2]};
+out = translateEvents(p_t, [1 2], [0 0], [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: zero shift returns input values';
+results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
+
+% -- translateEvents: all-NaN offsets identity --
+
+out = translateEvents(p_t, [1 2], [NaN NaN], [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: all-NaN offsets are identity';
+results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
+
+% -- translateEvents: does not mutate input --
+
+p_orig = [60 62 64];
+p_in   = {p_orig};
+translateEvents(p_in, [], 5, false, false, 0);   % discard output
+results{end+1,1} = 'translateEvents: does not mutate input matrix';
+results{end,2}   = isequal(p_in{1}, p_orig);
+
+% -- translateEvents: non-periodic absolute shift --
+
+out = translateEvents({[60 62 64]}, [], 5, false, false, 0);
+results{end+1,1} = 'translateEvents: non-periodic adds mu to every value';
+results{end,2}   = isequal(out{1}, [65 67 69]);
+
+% -- translateEvents: periodic wrap to [0, P) --
+
+out = translateEvents({[10 11 0]}, [], 3, false, true, 12);
+results{end+1,1} = 'translateEvents: periodic shift wraps to [0, P)';
+results{end,2}   = isequal(out{1}, [1 2 3]);
+
+% -- translateEvents: periodic negative mu wraps into [0, P) --
+
+out = translateEvents({[1 2]}, [], -3, false, true, 12);
+results{end+1,1} = 'translateEvents: negative mu wraps into [0, P)';
+results{end,2}   = isequal(out{1}, [10 11]);
+
+% -- translateEvents: period ignored when isPer is false --
+
+out = translateEvents({[10 11]}, [], 5, false, false, 12);
+% Non-periodic: no wrap, values become 15, 16 (not 3, 4).
+results{end+1,1} = 'translateEvents: period ignored when isPer is false';
+results{end,2}   = isequal(out{1}, [15 16]);
+
+% -- translateEvents: K_a > 1 (multi-slot attribute) --
+
+out = translateEvents({[60 64 67; 63 67 70]}, [], 5, false, false, 0);
+results{end+1,1} = 'translateEvents: K_a > 1 shifts every slot uniformly';
+results{end,2}   = isequal(out{1}, [65 69 72; 68 72 75]);
+
+% -- translateEvents: relative group emits no-op warning and passes through --
+
+lastwarn('');   % clear the warning buffer
+out = translateEvents({[60 64 67]}, [], 5, true, false, 0);
+[~, warnId] = lastwarn;
+results{end+1,1} = 'translateEvents: relative group emits noOpRelative warning';
+results{end,2}   = strcmp(warnId, 'translateEvents:noOpRelative');
+results{end+1,1} = 'translateEvents: relative group passes through unchanged';
+results{end,2}   = isequal(out{1}, [60 64 67]);
+
+% -- translateEvents: NaN entries skip groups --
+
+p_tg = {[60 64], [0 1]};
+out = translateEvents(p_tg, [1 2], [5 NaN], [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: NaN skips group, finite shifts other';
+results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0 1]);
+
+% -- translateEvents: multi-group simultaneous --
+
+out = translateEvents(p_tg, [1 2], [5 0.5], [false false], [false false], [0 0]);
+results{end+1,1} = 'translateEvents: multi-group simultaneous';
+results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0.5 1.5]);
+
+% -- translateEvents: multiple attributes sharing one group --
+
+p_share = {[60 64], [67 71]};
+out = translateEvents(p_share, [1 1], 5, false, false, 0);
+results{end+1,1} = 'translateEvents: multi-attribute shared group both shift';
+results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [72 76]);
+
+% -- translateEvents: composition (non-periodic) --
+
+p_c = {[60 62 64]};
+once  = translateEvents(p_c, [], 5, false, false, 0);
+twice = translateEvents(once, [], 3, false, false, 0);
+direct = translateEvents(p_c, [], 8, false, false, 0);
+results{end+1,1} = 'translateEvents: composition is additive (non-periodic)';
+results{end,2}   = isequal(twice{1}, direct{1});
+
+% -- translateEvents: composition (periodic) --
+
+p_cp = {[10 11]};
+once  = translateEvents(p_cp, [], 7, false, true, 12);
+twice = translateEvents(once, [], 9, false, true, 12);
+% 10 + 16 = 26; mod(26, 12) = 2.  11 + 16 = 27; mod(27, 12) = 3.
+results{end+1,1} = 'translateEvents: composition (periodic) wraps correctly';
+results{end,2}   = isequal(twice{1}, [2 3]);
+
+% -- translateEvents: self-IP invariant under translation (non-periodic) --
+
+p_si = {[60 64 67]};
+M_si = buildExpTens(p_si, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+ip_self = cosSimExpTens(M_si, M_si, 'verbose', false);
+si_ok = true;
+for mu = [-3.0 1.5 7.0]
+    p_mu = translateEvents(p_si, [], mu, false, false, 0);
+    M_mu = buildExpTens(p_mu, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+    ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
+    if abs(ip_mu - ip_self) > 1e-12 * max(1, abs(ip_self))
+        si_ok = false;
+        break;
+    end
+end
+results{end+1,1} = 'translateEvents: <f^mu, f^mu> = <f, f> non-periodic';
+results{end,2}   = si_ok;
+
+% -- translateEvents: self-IP invariant under translation (periodic) --
+
+p_sp = {[0 4 7]};
+M_sp = buildExpTens(p_sp, [], 0.15, 1, [], false, true, 12, 'verbose', false);
+ip_sp_self = cosSimExpTens(M_sp, M_sp, 'verbose', false);
+sp_ok = true;
+for mu = [-7.0 1.5 6.0 15.0]
+    p_mu = translateEvents(p_sp, [], mu, false, true, 12);
+    M_mu = buildExpTens(p_mu, [], 0.15, 1, [], false, true, 12, 'verbose', false);
+    ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
+    if abs(ip_mu - ip_sp_self) > 1e-12 * max(1, abs(ip_sp_self))
+        sp_ok = false;
+        break;
+    end
+end
+results{end+1,1} = 'translateEvents: <f^mu, f^mu> = <f, f> periodic';
+results{end,2}   = sp_ok;
+
+% -- translateEvents: cos-sim sweep recovers transposition peak --
+
+p_q = {[60 64 67]};       % C major
+p_c = {[62 66 69]};       % D major (= +2 st)
+M_q = buildExpTens(p_q, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+best_mu = NaN;
+best_s  = -Inf;
+for mu = -12:0.25:12
+    p_c_mu = translateEvents(p_c, [], mu, false, false, 0);
+    M_c_mu = buildExpTens(p_c_mu, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+    s = cosSimExpTens(M_q, M_c_mu, 'verbose', false);
+    if s > best_s
+        best_s = s;
+        best_mu = mu;
+    end
+end
+results{end+1,1} = 'translateEvents: sweep peak at expected offset (-2 st)';
+results{end,2}   = abs(best_mu - (-2.0)) < 0.01;
+results{end+1,1} = 'translateEvents: sweep peak similarity is 1';
+results{end,2}   = best_s > 1.0 - 1e-9;
+
+% -- translateEvents: error cases --
+
+results{end+1,1} = 'translateEvents: wrong-length offsets errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2]}, [], [5 0], false, false, 0), ...
+    'translateEvents:wrongOffsetsLength');
+
+results{end+1,1} = 'translateEvents: wrong-length isRel errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2]}, [], 5, [false false], false, 0), ...
+    'translateEvents:wrongIsRelLength');
+
+results{end+1,1} = 'translateEvents: wrong-length isPer errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2]}, [], 5, false, [false false], 0), ...
+    'translateEvents:wrongIsPerLength');
+
+results{end+1,1} = 'translateEvents: wrong-length periods errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2]}, [], 5, false, false, [0 12]), ...
+    'translateEvents:wrongPeriodsLength');
+
+results{end+1,1} = 'translateEvents: infinite offset errors';
+results{end,2}   = throwsErrorWithId( ...
+    @() translateEvents({[1 2]}, [], Inf, false, false, 0), ...
+    'translateEvents:nonFiniteOffset');
+
 % -- windowTensor: basic construction --
 
 pitch_w = [60 62 64 65];    % 1 x 4 events
@@ -885,7 +1069,7 @@ offs_sw = linspace(-0.5, 3.5, M_sweep);
 offsets_sw = zeros(2, M_sweep);
 offsets_sw(2, :) = offs_sw;
 spec_sw = struct('size', [Inf, 0.3], 'mix', [0, 0]);
-profile = windowedSimilarity(q_sw, ctx_narrow, spec_sw, offsets_sw, ...
+profile = windowedSimilarity(ctx_narrow, q_sw, spec_sw, offsets_sw, ...
     'verbose', false);
 [~, peak_idx] = max(profile);
 peak_off = offs_sw(peak_idx);
@@ -931,9 +1115,9 @@ ctx_ref   = dens_w;
 offs_ref  = zeros(2, 11);
 offs_ref(2, :) = linspace(-0.5, 1.5, 11);
 spec_ref  = struct('size', [Inf, 0.3], 'mix', [0, 0]);
-prof_default  = windowedSimilarity(q_ref, ctx_ref, spec_ref, offs_ref, ...
+prof_default  = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
                                'verbose', false);
-prof_explicit = windowedSimilarity(q_ref, ctx_ref, spec_ref, offs_ref, ...
+prof_explicit = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
                                'reference', [], 'verbose', false);
 results{end+1,1} = 'windowedSimilarity: reference=[] == default';
 results{end,2}   = max(abs(prof_default - prof_explicit)) < 1e-12;
@@ -950,9 +1134,9 @@ M_sh      = 21;
 offs_sh   = zeros(2, M_sh);
 off_t_sh  = linspace(-1.0, 3.0, M_sh);
 offs_sh(2, :) = off_t_sh;
-prof_d  = windowedSimilarity(q_ref, ctx_ref, spec_ref, offs_sh, ...
+prof_d  = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
                          'verbose', false);
-prof_sh = windowedSimilarity(q_ref, ctx_ref, spec_ref, offs_sh, ...
+prof_sh = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
                          'reference', ref_shift, 'verbose', false);
 % Check: prof_sh(m) should equal prof_d at offset off_t_sh(m) + 0.2
 ok_shift = true;
@@ -971,11 +1155,11 @@ results{end,2}   = ok_shift;
 
 % -- windowedSimilarity: bad reference shape errors --
 results{end+1,1} = 'windowedSimilarity: reference wrong cell count errors';
-results{end,2}   = throwsError(@() windowedSimilarity(q_ref, ctx_ref, ...
+results{end,2}   = throwsError(@() windowedSimilarity(ctx_ref, q_ref, ...
     spec_ref, offs_ref, 'reference', {muA_pitch}, 'verbose', false));
 
 results{end+1,1} = 'windowedSimilarity: reference wrong length errors';
-results{end,2}   = throwsError(@() windowedSimilarity(q_ref, ctx_ref, ...
+results{end,2}   = throwsError(@() windowedSimilarity(ctx_ref, q_ref, ...
     spec_ref, offs_ref, 'reference', {muA_pitch, [0; 0]}, 'verbose', false));
 
 % -- windowedSimilarity: periodic windowing (wrapped-Gaussian) --

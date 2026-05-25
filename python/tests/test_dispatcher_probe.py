@@ -217,9 +217,10 @@ class TestAbsPreScreen:
         assert probed is False
 
     def test_borderline_K_abs_falls_through_to_probe(self):
-        # K=10 r=3 abs: ratio = 100/15 = 6.67, below margin 10.
-        # Pre-screen should NOT fire; probe runs for non-tiny n_q.
-        K = 10
+        # K=6 r=3 abs: ratio = K^(r-1) / (B_r * r) = 36/15 = 2.4,
+        # below the 3.0 dominance margin. Pre-screen does NOT fire;
+        # probe runs for non-tiny n_q.
+        K = 6
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 1000))
@@ -296,12 +297,12 @@ class TestCentresMemoryBudget:
 class TestProbing:
 
     def test_probe_fires_for_non_trivial_workload(self):
-        # K=10 r=3 abs: centres_cost/orbit_cost = 100/15 ≈ 6.7 <
-        # margin 10, so the abs pre-screen does NOT fire and the
-        # probe is reached. (K=20 r=3 abs would now pre-screen to
-        # orbit — ratio ≈ 27 — so it doesn't probe.)
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        # K=6 r=3 abs: ratio K^(r-1)/(B_r * r) = 36/15 = 2.4 < 3.0
+        # dominance margin, so the abs pre-screen does NOT fire and
+        # the probe is reached. (K=7 r=3 abs would pre-screen to
+        # orbit — ratio ≈ 3.3 — so it doesn't probe.)
+        p = np.linspace(0, 1200, 6, endpoint=False)
+        dens = build_exp_tens(p, np.ones(6), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
         chosen, probed, est, _ = _select_and_estimate_sa(
             dens, x, 500, method='auto',
@@ -313,9 +314,9 @@ class TestProbing:
         assert est > 0
 
     def test_estimate_scales_with_n_q(self):
-        # K=10 r=3 abs falls through the abs pre-screen (ratio 6.7 < margin).
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        # K=6 r=3 abs falls through the abs pre-screen (ratio 2.4 < margin 3.0).
+        p = np.linspace(0, 1200, 6, endpoint=False)
+        dens = build_exp_tens(p, np.ones(6), 12.0, 3, False, False, 0.0)
         rng = np.random.default_rng(42)
         x1 = rng.uniform(0, 1200, (3, 500))
         x2 = rng.uniform(0, 1200, (3, 1000))
@@ -338,9 +339,9 @@ class TestProbing:
 class TestVerboseDispatchMessage:
 
     def test_message_prints_when_probed(self, capsys):
-        # K=10 r=3 abs falls through to probe (see TestProbing notes).
-        p = np.linspace(0, 1200, 10, endpoint=False)
-        dens = build_exp_tens(p, np.ones(10), 12.0, 3, False, False, 0.0)
+        # K=6 r=3 abs falls through to probe (see TestProbing notes).
+        p = np.linspace(0, 1200, 6, endpoint=False)
+        dens = build_exp_tens(p, np.ones(6), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, truncation_sigmas=6.0, verbose=True)

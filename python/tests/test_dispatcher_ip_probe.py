@@ -95,19 +95,26 @@ class TestPreScreen:
         assert chosen == "mobius"
         assert probed is False
 
-    def test_small_K_at_r_routes_pairwise_via_prescreen_or_probe(self):
-        """r=2 with K=5: pairwise cost (K*(K-1))^2 = 400 vs orbit cost
-        B_2 * K^2 = 50. Ratio = 8.0, just under the 10x pre-screen
-        threshold, so probe fires. Either decision is acceptable;
-        verify probed is True."""
-        dens_x, dens_y = _dens(5, 2), _dens(5, 2, seed=1)
+    def test_small_K_at_r_routes_via_prescreen(self):
+        """At the smallest safe K (K=4, r=2: K-r=2, just clears the
+        Möbius cancellation guard), the IP pre-screen analytical cost
+        models still place the ratio outside the 3× indeterminate
+        band: pairwise_full = ((K)_r)^2 = (4·3)^2 = 144 vs
+        orbit_full = B_2 · K^2 = 32, ratio 4.5 > 3, so the pre-screen
+        routes to mobius without probing. This is the smallest
+        configuration that exercises the IP dispatcher at all (K-r<2
+        forces a Möbius-cancellation-guard short-circuit upstream of
+        the pre-screen). With the current 3× dominance, every safe
+        (K, r) lands outside the indeterminate band, so the IP probe
+        path is unreachable; this test pins the pre-screen routing at
+        the boundary."""
+        dens_x, dens_y = _dens(4, 2), _dens(4, 2, seed=1)
         chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen in ("mobius", "bulger")
-        # Probe fires because pre-screen ratio is < 10x dominance.
-        assert probed is True
+        assert chosen == "mobius"
+        assert probed is False
 
 
 # ----------------------------------------------------------------------

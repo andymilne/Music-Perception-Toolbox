@@ -1,52 +1,43 @@
-function [pAttrDiff, wDiff] = differenceEvents(pAttr, w, groups, diffOrders, periods)
-%DIFFERENCEEVENTS Replace selected groups' event sequences with differences.
+function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders)
+%DIFFERENCEEVENTS Replace selected attributes' event sequences with differences.
 %
-%   [pAttrDiff, wDiff] = differenceEvents(pAttr, w, groups, diffOrders, periods)
+%   [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders)
 %   is a cross-event preprocessing helper for multi-attribute tensor
-%   input. It takes the (pAttr, w) pair that one would otherwise feed
-%   to buildExpTens and returns a transformed (pAttrDiff, wDiff) pair
-%   with the same shape conventions, in which the event columns of
-%   each selected group have been replaced by k-fold inter-event
-%   differences. The output feeds directly into buildExpTens.
+%   input. It takes the (pAttr, w, groups) triple that one would
+%   otherwise feed to buildExpTens and returns a transformed
+%   (pAttrDiff, wDiff, groupsDiff) triple ready to chain into another
+%   pre-MAET operation or into buildExpTens.
 %
-%   See the MAET specification §7 for the full semantics. In brief:
+%   Differencing orders are specified per attribute (via Option C
+%   syntax — see below). The k_a-th finite difference is applied
+%   along the event axis to each attribute, reducing its event count
+%   by k_a. Order 0 leaves an attribute unchanged. Attributes are
+%   brought onto a common output event grid of length
+%   N' = N - max_a k_a by dropping leading max_a k_a - k_a events
+%   from each.
 %
-%     Values. For a group with diffOrders(g) = k, the value matrix of
-%     each attribute in that group is replaced by its k-th finite
-%     difference along the event axis, reducing the event count by k.
-%     Order 0 leaves a group unchanged. If periods(g) > 0, each raw
-%     difference is wrapped to [-P/2, P/2) (shortest-arc convention,
-%     matching cosSimExpTens).
+%   The output values are emitted raw; periodic groups are NOT wrapped
+%   here, regardless of [per] settings. Wrapping (when desired) is the
+%   kernel's job in buildExpTens, consulting the group's [per] flag.
 %
-%     Weights. Weight inputs follow the toolbox's standard broadcast
-%     convention: [] broadcasts 1, a scalar broadcasts uniformly,
-%     event-dependent inputs (1 x N row, K_a x N matrix) supply
-%     per-event values, and a K_a x 1 column broadcasts per slot.
-%     The weight of a difference event is the product of the
-%     weights of its k+1 constituent input events — a rolling
-%     product of width k+1 along the event axis — interpretable as
-%     the probability that all constituents are perceived under the
-%     standard weights-as-salience reading.
+%   Differencing requires K_a = 1 for any attribute being differenced
+%   (k_a > 0). Multi-slot attributes (K_a > 1) are permitted in the
+%   input but only as pass-through (k_a = 0); if the analyst specifies
+%   a non-zero order for a K_a > 1 attribute, a warning is issued and
+%   that attribute is treated as k_a = 0 (still subject to leading-
+%   event drop for alignment). The warning is emitted at most once per
+%   call.
 %
-%     Event-count alignment. The output event count is
-%     N' = N - max_g k_g. Groups with k_g < max_g k_g have their
-%     leading max_g k_g - k_g events dropped to keep columns aligned.
-%     Weights are dropped to match.
+%   Per-attribute weights propagate as a rolling product over the
+%   k_a + 1 constituent input events for each differenced attribute,
+%   under the standard weights-as-salience reading. Pass-through
+%   attributes have their leading events dropped to match the common
+%   grid.
 %
 %   Inputs
 %       pAttr      - 1 x A cell array of K_a x N per-attribute value
-%                    matrices, with K_a = 1 for every attribute.
-%                    Same convention as buildExpTens but restricted
-%                    to the single-slot case: within-event slot
-%                    exchangeability does not license the cross-
-%                    event slot correspondence that column-wise
-%                    differencing imposes, so attributes with
-%                    K_a ~= 1 raise differenceEvents:multiSlotAttribute.
-%                    For voice-leading or step-size analyses, encode
-%                    each voice as its own K_a = 1 attribute in a
-%                    shared group, difference that, then (optionally)
-%                    stack the differenced attributes into a single
-%                    multi-slot attribute before buildExpTens.
+%                    matrices. K_a >= 1; K_a = 0 (empty attribute) is
+%                    rejected. K_a > 1 is permitted as pass-through.
 %       w          - Weights. [], scalar, or 1 x A cell of per-attribute
 %                    weight inputs (each [], scalar, 1 x N row, K_a x 1
 %                    column, or K_a x N matrix). Same convention as
@@ -54,28 +45,37 @@ function [pAttrDiff, wDiff] = differenceEvents(pAttr, w, groups, diffOrders, per
 %       groups     - Group assignment. [] (each attribute its own group),
 %                    a 1 x A index vector, or a 1 x G cell of attribute-
 %                    index lists. Matches buildExpTens.
-%       diffOrders - 1 x G vector of per-group differencing orders
-%                    (non-negative integers). Order 0 leaves the group
-%                    unchanged.
-%       periods    - 1 x G vector of periods for shortest-arc wrapping
-%                    of differences. An entry of 0 (or negative) means
-%                    the group is non-periodic and differences are
-%                    left unwrapped.
+%       diffOrders - Per-attribute or per-group differencing orders
+%                    (non-negative integers). Option C syntax:
+%
+%                      scalar              broadcast to all attributes
+%                      1 x A or A x 1      per-attribute
+%                      1 x G or G x 1      per-group, broadcast within
+%                                          group (G ~= A; the A == G
+%                                          case is read as per-attribute,
+%                                          identical output)
+%                      1 x G cell          per-group, with each cell:
+%                                            [] (skip → 0),
+%                                            scalar (broadcast in group),
+%                                            length-n_g vector
+%                                            (per-attribute in group).
 %
 %   Outputs
 %       pAttrDiff  - 1 x A cell of transformed per-attribute matrices,
 %                    each K_a x N'.
-%       wDiff      - Transformed weights under the rule described
-%                    above. Shape mirrors w: [] stays []; a scalar
-%                    stays a scalar when all groups share the same
-%                    order, expanding to a 1 x A cell of per-
-%                    attribute scalars when orders vary; a 1 x A
-%                    cell stays a 1 x A cell, with per-attribute
-%                    event-dependent entries becoming K_a x N'
-%                    matrices and non-event-dependent entries
-%                    keeping their input shape.
+%       wDiff      - Transformed weights. Shape mirrors w: [] stays [];
+%                    a scalar stays a scalar when all attributes share
+%                    the same order, expanding to a 1 x A cell of per-
+%                    attribute scalars when orders vary; a 1 x A cell
+%                    stays a 1 x A cell, with per-attribute event-
+%                    dependent entries becoming K_a x N' matrices and
+%                    non-event-dependent entries keeping their input
+%                    shape.
+%       groupsDiff - Same group structure as input (differencing does
+%                    not change group membership). Returned for clean
+%                    chaining of pre-MAET operations.
 %
-%   See also BUILDEXPTENS.
+%   See also BUILDEXPTENS, BINDEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
 if ~iscell(pAttr)
@@ -93,40 +93,12 @@ for a = 1:A
         error('differenceEvents:badAttrShape', ...
               'Attribute %d input must be a numeric 2-D matrix.', a);
     end
-    pAttr{a} = double(M);
-end
-
-% --- Enforce K_a = 1 per attribute ---
-% Event differencing requires every attribute to have exactly one
-% slot per event. Column-wise subtraction across adjacent events
-% imposes a cross-event slot correspondence (slot i at event n-1
-% paired with slot i at event n) that within-event slot
-% exchangeability does not license; for multi-slot attributes the
-% output would silently depend on an arbitrary slot-listing choice.
-% K_a = 0 (empty attribute) is also rejected. The principled route
-% for voice-leading or step-size analyses is to encode each voice
-% as its own K_a = 1 attribute in a shared group, difference that,
-% then (optionally) stack the differenced attributes into a single
-% multi-slot attribute before buildExpTens. See USER_GUIDE §3
-% (Event differencing).
-for a = 1:A
-    K_a = size(pAttr{a}, 1);
-    if K_a ~= 1
-        error('differenceEvents:multiSlotAttribute', ...
-              ['Attribute %d has K_a = %d; event differencing ' ...
-               'requires every attribute to have K_a = 1. Column-' ...
-               'wise differencing imposes a cross-event slot ' ...
-               'alignment that within-event slot exchangeability ' ...
-               'does not license, so multi-slot attributes are ' ...
-               'rejected; empty attributes (K_a = 0) are rejected ' ...
-               'likewise. For voice-leading or step-size analyses, ' ...
-               'encode each voice as a separate K_a = 1 attribute ' ...
-               'in a shared group, call differenceEvents on that, ' ...
-               'then (optionally) stack the differenced attributes ' ...
-               'into a single multi-slot attribute before ' ...
-               'buildExpTens. See USER_GUIDE Section 3 (Event ' ...
-               'differencing).'], a, K_a);
+    if size(M, 1) == 0
+        error('differenceEvents:emptyAttribute', ...
+              ['Attribute %d has K_a = 0 (empty attribute); empty ' ...
+               'attributes are not permitted.'], a);
     end
+    pAttr{a} = double(M);
 end
 
 % --- Verify shared event count N ---
@@ -140,51 +112,60 @@ for a = 2:A
     end
 end
 
-% --- Canonicalise groups to a 1 x A index vector ---
-groupOfAttr = localCanonicaliseGroups(groups, A);
-G = max(groupOfAttr);
+% --- Canonicalise groups: 1xA assignment, attrsOfGroup, G ---
+[groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A);
 
-% --- Validate diffOrders and periods ---
-diffOrders = double(diffOrders(:).');
-if numel(diffOrders) ~= G
-    error('differenceEvents:badDiffOrdersLength', ...
-          'diffOrders must have length G = %d; got length %d.', ...
-          G, numel(diffOrders));
-end
-if any(diffOrders < 0) || any(diffOrders ~= round(diffOrders))
-    error('differenceEvents:badDiffOrders', ...
-          'All entries of diffOrders must be non-negative integers.');
-end
-diffOrders = int32(diffOrders);
+% --- Parse diffOrders via Option C → ordersPerAttr (1xA) ---
+ordersPerAttr = localCanonicaliseDiffOrders( ...
+    diffOrders, A, G, attrsOfGroup);
 
-periods = double(periods(:).');
-if numel(periods) ~= G
-    error('differenceEvents:badPeriodsLength', ...
-          'periods must have length G = %d; got length %d.', ...
-          G, numel(periods));
+% --- Handle K_a > 1 with order > 0: warn once and pass through ---
+warnedMultiSlot = false;
+for a = 1:A
+    K_a = size(pAttr{a}, 1);
+    if K_a > 1 && ordersPerAttr(a) > 0
+        if ~warnedMultiSlot
+            warning('differenceEvents:multiSlotAttributeDifferenced', ...
+                    ['Attribute %d has K_a = %d but was assigned ' ...
+                     'order %d; event differencing requires K_a = 1 ' ...
+                     'for differenced attributes (column-wise ' ...
+                     'subtraction imposes a cross-event slot ' ...
+                     'alignment that within-event slot ' ...
+                     'exchangeability does not license). The ' ...
+                     'attribute is treated as order 0 (passed ' ...
+                     'through with leading-event drop). For voice-' ...
+                     'leading or step-size analyses, encode each ' ...
+                     'voice as a K_a = 1 attribute and difference ' ...
+                     'those. Subsequent multi-slot attributes in ' ...
+                     'this call are silenced.'], ...
+                    a, K_a, ordersPerAttr(a));
+            warnedMultiSlot = true;
+        end
+        ordersPerAttr(a) = 0;
+    end
 end
+ordersPerAttr = int32(ordersPerAttr);
 
-maxOrder = max(diffOrders);
+% --- Compute maxOrder, output event count ---
+maxOrder = max(ordersPerAttr);
+if isempty(maxOrder)
+    maxOrder = int32(0);
+end
 nPrime = nEvents - double(maxOrder);
 if nPrime < 1
     error('differenceEvents:orderTooHigh', ...
           ['Differencing orders are too high for the input event ' ...
-           'count: max(diffOrders) = %d but N = %d.'], ...
-          maxOrder, nEvents);
+           'count: max order = %d but N = %d.'], ...
+          double(maxOrder), nEvents);
 end
 
 % --- Difference each attribute's value matrix ---
 pAttrDiff = cell(1, A);
 for a = 1:A
-    g = groupOfAttr(a);
-    k = double(diffOrders(g));
-    P = periods(g);
+    k = double(ordersPerAttr(a));
     Md = pAttr{a};
     for step = 1:k
         Md = Md(:, 2:end) - Md(:, 1:end-1);
-        if P > 0
-            Md = Md - P .* floor(Md / P + 0.5);
-        end
     end
     extraDrop = double(maxOrder) - k;
     if extraDrop > 0
@@ -194,27 +175,116 @@ for a = 1:A
 end
 
 % --- Transform weights ---
-wDiff = localDifferenceWeights(w, A, groupOfAttr, diffOrders, ...
-    nEvents, nPrime);
+wDiff = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime);
+
+% --- Groups unchanged ---
+groupsDiff = groups;
 
 end
 
 
 % =========================================================================
-%  localDifferenceWeights — weight transformation under differencing
+%  localCanonicaliseDiffOrders — Option C parsing → 1xA per-attribute
 % =========================================================================
 
-function wOut = localDifferenceWeights(w, A, groupOfAttr, diffOrders, ...
-    nEvents, nPrime)
-%LOCALDIFFERENCEWEIGHTS Transform weights under the difference-events
-%convention.
+function ordersPerAttr = localCanonicaliseDiffOrders( ...
+    diffOrders, A, G, attrsOfGroup)
+%LOCALCANONICALISEDIFFORDERS  Coerce diffOrders to a 1 x A row vector.
+
+    if iscell(diffOrders)
+        ordersPerAttr = localCanonicaliseDiffOrdersCell( ...
+            diffOrders, A, G, attrsOfGroup);
+        localValidateOrders(ordersPerAttr);
+        return;
+    end
+    if ~isnumeric(diffOrders)
+        error('differenceEvents:badDiffOrdersType', ...
+              ['diffOrders must be numeric or a 1-by-G cell; ' ...
+               'got class %s.'], class(diffOrders));
+    end
+
+    v = double(diffOrders);
+    n = numel(v);
+    if n == 1
+        % Scalar: broadcast.
+        ordersPerAttr = v(1) * ones(1, A);
+    elseif n == A
+        % Length-A: per-attribute. (Also handles A == G case.)
+        ordersPerAttr = v(:).';
+    elseif n == G
+        % Length-G: per-group, broadcast within group.
+        ordersPerAttr = zeros(1, A);
+        v = v(:).';
+        for g = 1:G
+            attrs = attrsOfGroup{g};
+            ordersPerAttr(attrs) = v(g);
+        end
+    else
+        error('differenceEvents:badDiffOrdersLength', ...
+              ['diffOrders has %d entries; expected scalar (1), ' ...
+               'per-attribute (A = %d), or per-group (G = %d).'], ...
+              n, A, G);
+    end
+    localValidateOrders(ordersPerAttr);
+end
+
+
+function ordersPerAttr = localCanonicaliseDiffOrdersCell( ...
+    c, A, G, attrsOfGroup)
+%LOCALCANONICALISEDIFFORDERSCELL  Process the per-group cell form.
+
+    sz = size(c);
+    if numel(sz) ~= 2 || sz(1) ~= 1 || sz(2) ~= G
+        error('differenceEvents:badDiffOrdersShape', ...
+              ['diffOrders cell array must be 1-by-G = 1-by-%d; ' ...
+               'got shape %d-by-%d.'], G, sz(1), sz(2));
+    end
+    ordersPerAttr = zeros(1, A);
+    for g = 1:G
+        val = c{g};
+        attrs = attrsOfGroup{g};
+        if isempty(val)
+            % Skip group → order 0 (default).
+            continue;
+        end
+        if ~isnumeric(val)
+            error('differenceEvents:badDiffOrdersShape', ...
+                  'diffOrders{%d} must be numeric or empty; got %s.', ...
+                  g, class(val));
+        end
+        vec = double(val(:).');
+        n_g = numel(attrs);
+        if isscalar(vec)
+            ordersPerAttr(attrs) = vec;
+        elseif numel(vec) == n_g
+            ordersPerAttr(attrs) = vec;
+        else
+            error('differenceEvents:badDiffOrdersShape', ...
+                  ['diffOrders{%d} has %d entries; expected scalar ' ...
+                   'or n_g = %d.'], g, numel(vec), n_g);
+        end
+    end
+end
+
+
+function localValidateOrders(ordersPerAttr)
+    if any(ordersPerAttr < 0) || any(ordersPerAttr ~= round(ordersPerAttr))
+        error('differenceEvents:badDiffOrders', ...
+              'All entries of diffOrders must be non-negative integers.');
+    end
+end
+
+
+% =========================================================================
+%  localDifferenceWeights — weight transformation
+% =========================================================================
+
+function wOut = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime)
+%LOCALDIFFERENCEWEIGHTS Transform weights under per-attribute orders.
 %
-%  The weight of each difference event is the product of the weights
-%  of the k + 1 input events on which the difference depends — a
-%  rolling product of width k + 1 along the event axis, applied
-%  semantically under the toolbox's broadcast convention. Under the
-%  K_a = 1 restriction on differenceEvents inputs, valid per-
-%  attribute weight inputs are [], scalar, or 1 x N.
+%  Each differenced attribute's weights are propagated via a rolling
+%  product of width k_a + 1. Pass-through attributes (k_a = 0) have
+%  their leading events dropped to match the common output grid.
 
     if isempty(w) && ~iscell(w)
         wOut = [];
@@ -224,19 +294,16 @@ function wOut = localDifferenceWeights(w, A, groupOfAttr, diffOrders, ...
     % --- Top-level scalar ---
     if isnumeric(w) && isscalar(w)
         c = double(w);
-        ordersPerAttr = zeros(1, A);
-        for a = 1:A
-            ordersPerAttr(a) = double(diffOrders(groupOfAttr(a)));
-        end
-        if all(ordersPerAttr == ordersPerAttr(1))
+        ordersDouble = double(ordersPerAttr);
+        if all(ordersDouble == ordersDouble(1))
             % Uniform orders — shape preserved as a scalar.
-            wOut = c ^ (ordersPerAttr(1) + 1);
+            wOut = c ^ (ordersDouble(1) + 1);
             return;
         end
         % Varying orders — emit a per-attribute cell.
         wOut = cell(1, A);
         for a = 1:A
-            wOut{a} = c ^ (ordersPerAttr(a) + 1);
+            wOut{a} = c ^ (ordersDouble(a) + 1);
         end
         return;
     end
@@ -252,20 +319,18 @@ function wOut = localDifferenceWeights(w, A, groupOfAttr, diffOrders, ...
               A, numel(w));
     end
 
-    maxOrder = max(diffOrders);
+    maxOrder = max(double(ordersPerAttr));
     wOut = cell(1, A);
     for a = 1:A
-        g = groupOfAttr(a);
-        k = double(diffOrders(g));
+        k = double(ordersPerAttr(a));
         wa = w{a};
         if ~localWeightHasEventDep(wa, nEvents, a)
-            % No event dependence — rolling product of a constant
-            % reduces to raising each entry to power k + 1. [] stays
-            % []; a scalar stays a scalar.
+            % Non-event-dependent: rolling product of a constant
+            % reduces to raising each entry to power k + 1.
             wOut{a} = localRaiseNoEventDep(wa, k + 1);
             continue;
         end
-        % Event-dependent: under K_a = 1 the validated shape is 1 x N.
+        % Event-dependent (1 x N row or K_a x N matrix).
         W = double(wa);
         if k > 0
             W = localRollingProduct(W, k + 1);
@@ -282,15 +347,14 @@ end
 
 function out = localRaiseNoEventDep(wa, p)
 %LOCALRAISENOEVENTDEP Raise a non-event-dependent weight input to
-%power p, shape-preserving. Under the K_a = 1 restriction on
-%differenceEvents inputs, the non-event-dependent inputs reaching
-%this helper are just [] and scalars.
+%power p, shape-preserving. The non-event-dependent inputs reaching
+%this helper are [], scalars, or K_a x 1 column broadcasts.
     if isempty(wa)
         out = wa;
         return;
     end
     if p == 1
-        out = wa;  % fast path: order 0 groups
+        out = wa;  % fast path: order 0 attribute
         return;
     end
     out = double(wa) .^ double(p);
@@ -298,9 +362,9 @@ end
 
 
 function tf = localWeightHasEventDep(wa, N, attrIdx)
-    % True iff wa's shape carries the N axis. Under the K_a = 1
-    % restriction on differenceEvents inputs, valid per-attribute
-    % weight shapes are [], scalar, or 1 x N.
+    % True iff wa's shape carries the N axis. Accepts [], scalar,
+    % K_a x 1 column (broadcast per slot), 1 x N row, or K_a x N
+    % matrix.
     if isempty(wa)
         tf = false;
         return;
@@ -313,14 +377,21 @@ function tf = localWeightHasEventDep(wa, N, attrIdx)
         tf = false;
         return;
     end
-    if isequal(size(wa), [1 N])
+    sz = size(wa);
+    if numel(sz) == 2 && sz(2) == N
+        % 1 x N row or K_a x N matrix.
         tf = true;
         return;
     end
+    if numel(sz) == 2 && sz(2) == 1
+        % K_a x 1 column broadcast (no event dependence).
+        tf = false;
+        return;
+    end
     error('differenceEvents:badWeightShape', ...
-          ['Attribute %d weight has shape [%s]; under the K_a = 1 ' ...
-           'restriction, expected [], scalar, or [1 %d].'], ...
-          attrIdx, num2str(size(wa)), N);
+          ['Attribute %d weight has shape [%s]; expected [], scalar, ' ...
+           '[K_a 1] column, [1 %d] row, or [K_a %d] matrix.'], ...
+          attrIdx, num2str(sz), N, N);
 end
 
 
@@ -330,7 +401,8 @@ function out = localRollingProduct(W, width)
     nOut = N - width + 1;
     if nOut < 1
         error('differenceEvents:rollingProductWidth', ...
-              'Rolling-product width %d exceeds event count %d.', width, N);
+              'Rolling-product width %d exceeds event count %d.', ...
+              width, N);
     end
     out = zeros(K, nOut);
     for i = 1:nOut
@@ -339,14 +411,15 @@ function out = localRollingProduct(W, width)
 end
 
 
-function groupOfAttr = localCanonicaliseGroups(groups, A)
-    % Return a 1 x A vector of 1-indexed group labels.
+function [groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A)
+    % Return:
+    %   groupOfAttr  — 1 x A vector of 1-indexed group labels.
+    %   attrsOfGroup — 1 x G cell, attrsOfGroup{g} is the column
+    %                  vector of attribute indices in group g.
+    %   G            — number of groups.
     if isempty(groups)
         groupOfAttr = 1:A;
-        return;
-    end
-    if iscell(groups)
-        % Cell of attribute-index lists, one per group.
+    elseif iscell(groups)
         G = numel(groups);
         groupOfAttr = zeros(1, A);
         for g = 1:G
@@ -361,16 +434,20 @@ function groupOfAttr = localCanonicaliseGroups(groups, A)
             error('differenceEvents:badGroups', ...
                   'Every attribute must appear in exactly one group.');
         end
-        return;
-    end
-    if isnumeric(groups) && numel(groups) == A
+    elseif isnumeric(groups) && numel(groups) == A
         groupOfAttr = double(groups(:).');
         if any(groupOfAttr < 1) || any(groupOfAttr ~= round(groupOfAttr))
             error('differenceEvents:badGroups', ...
                   'Numeric groups must be positive integers.');
         end
-        return;
+    else
+        error('differenceEvents:badGroupsShape', ...
+              ['groups must be [], a length-A numeric vector, or a ' ...
+               'cell of index lists.']);
     end
-    error('differenceEvents:badGroupsShape', ...
-          'groups must be [], a length-A numeric vector, or a cell of index lists.');
+    G = max(groupOfAttr);
+    attrsOfGroup = cell(1, G);
+    for g = 1:G
+        attrsOfGroup{g} = find(groupOfAttr == g);
+    end
 end

@@ -594,7 +594,7 @@ results{end,2}   = abs(H_scalar - H_vec) < 1e-12;
 % -- differenceEvents: order 0 identity --
 
 p_d = {[0 2 5 7]};
-[pd, wd] = differenceEvents(p_d, [], [], 0, 12);
+[pd, wd, ~] = differenceEvents(p_d, [], [], 0);
 results{end+1,1} = 'differenceEvents: order 0 values unchanged';
 results{end,2}   = isequal(pd{1}, p_d{1});
 results{end+1,1} = 'differenceEvents: order 0 weight stays []';
@@ -602,32 +602,32 @@ results{end,2}   = isempty(wd);
 
 % -- differenceEvents: order 1 non-periodic --
 
-[pd, ~] = differenceEvents({[0 2 5 7]}, [], [], 1, 0);
+[pd, ~, ~] = differenceEvents({[0 2 5 7]}, [], [], 1);
 results{end+1,1} = 'differenceEvents: order 1 non-periodic';
 results{end,2}   = isequal(pd{1}, [2 3 2]);
 
-% -- differenceEvents: order 1 periodic wrap --
+% -- differenceEvents: order 1 periodic does NOT wrap --
 
-[pd, ~] = differenceEvents({[0 11]}, [], [], 1, 12);
-results{end+1,1} = 'differenceEvents: order 1 periodic wrap (11 -> -1)';
-results{end,2}   = isequal(pd{1}, -1);
+[pd, ~, ~] = differenceEvents({[0 11]}, [], [], 1);
+results{end+1,1} = 'differenceEvents: order 1 periodic emits raw signed subtraction (no wrap)';
+results{end,2}   = isequal(pd{1}, 11);
 
 % -- differenceEvents: order 2 --
 
-[pd, ~] = differenceEvents({[0 2 5 7]}, [], [], 2, 0);
+[pd, ~, ~] = differenceEvents({[0 2 5 7]}, [], [], 2);
 results{end+1,1} = 'differenceEvents: order 2';
 results{end,2}   = isequal(pd{1}, [1 -1]);
 
 % -- differenceEvents: order 1 weight rolling product --
 
-[~, wd] = differenceEvents({[0 2 5 7]}, {[0.5 0.8 1.0 0.2]}, [], 1, 0);
+[~, wd, ~] = differenceEvents({[0 2 5 7]}, {[0.5 0.8 1.0 0.2]}, [], 1);
 expected = [0.5*0.8, 0.8*1.0, 1.0*0.2];
 results{end+1,1} = 'differenceEvents: order 1 rolling-product weights';
 results{end,2}   = max(abs(wd{1} - expected)) < 1e-12;
 
 % -- differenceEvents: order 2 weight rolling product (width 3) --
 
-[~, wd] = differenceEvents({[0 1 3 6]}, {[0.5 0.8 1.0 0.2]}, [], 2, 0);
+[~, wd, ~] = differenceEvents({[0 1 3 6]}, {[0.5 0.8 1.0 0.2]}, [], 2);
 expected = [0.5*0.8*1.0, 0.8*1.0*0.2];
 results{end+1,1} = 'differenceEvents: order 2 rolling-product weights';
 results{end,2}   = max(abs(wd{1} - expected)) < 1e-12;
@@ -637,14 +637,14 @@ results{end,2}   = max(abs(wd{1} - expected)) < 1e-12;
 % so scalar and vector-of-c inputs produce equivalent downstream
 % densities.
 
-[~, wd] = differenceEvents({[0 2 5]}, 0.7, [], 1, 0);
+[~, wd, ~] = differenceEvents({[0 2 5]}, 0.7, [], 1);
 results{end+1,1} = 'differenceEvents: scalar weight raised to power';
 results{end,2}   = abs(wd - 0.7^2) < 1e-12;
 
 % -- differenceEvents: mixed orders alignment --
 
 p_d = {[0 2 5 7], [0 1 2 3.5]};
-[pd, ~] = differenceEvents(p_d, [], [], [0 1], [0 0]);
+[pd, ~, ~] = differenceEvents(p_d, [], [], [0 1]);
 results{end+1,1} = 'differenceEvents: mixed orders — k=0 group drops leading';
 results{end,2}   = isequal(pd{1}, [2 5 7]);
 results{end+1,1} = 'differenceEvents: mixed orders — k=1 group differenced';
@@ -653,14 +653,14 @@ results{end,2}   = isequal(pd{2}, [1 1 1.5]);
 % -- differenceEvents: grouped attributes share order --
 
 p_d = {[0 1 3], [10 12 16]};
-[pd, ~] = differenceEvents(p_d, [], [1 1], 1, 0);
+[pd, ~, ~] = differenceEvents(p_d, [], [1 1], 1);
 results{end+1,1} = 'differenceEvents: grouped attrs both differenced';
 results{end,2}   = isequal(pd{1}, [1 2]) && isequal(pd{2}, [2 4]);
 
 % -- differenceEvents: output feeds buildExpTens --
 
 p_d = {[0 2 5 7], [0 0.5 1.2 1.7]};
-[pd, wd] = differenceEvents(p_d, [], [], [0 1], [1200 0]);
+[pd, wd, ~] = differenceEvents(p_d, [], [], [0 1]);
 dens_d = buildExpTens(pd, wd, [10 0.05], [1 1], [], ...
     [false false], [true false], [1200 0], 'verbose', false);
 results{end+1,1} = 'differenceEvents: output feeds buildExpTens';
@@ -669,58 +669,79 @@ results{end,2}   = strcmp(dens_d.tag, 'MaetDensity') && dens_d.N == 3;
 % -- differenceEvents: too-high order errors --
 
 results{end+1,1} = 'differenceEvents: too-high order errors';
-results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], 3, 0));
+results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], 3));
 
 % -- differenceEvents: negative order errors --
 
 results{end+1,1} = 'differenceEvents: negative order errors';
-results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], -1, 0));
+results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], -1));
 
 % -- differenceEvents: diffOrders length mismatch errors --
 
 results{end+1,1} = 'differenceEvents: diffOrders length mismatch errors';
-results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], [1 1], [0 0]));
+results{end,2}   = throwsError(@() differenceEvents({[0 2 5]}, [], [], [1 1]));
 
 % -- differenceEvents: mismatched event counts error --
 
 results{end+1,1} = 'differenceEvents: mismatched event counts error';
-results{end,2}   = throwsError(@() differenceEvents({[0 2 5], [0 1]}, [], [], [0 0], [0 0]));
+results{end,2}   = throwsError(@() differenceEvents({[0 2 5], [0 1]}, [], [], [0 0]));
 
 % -- differenceEvents: multi-slot attribute errors --
-% A single K_a = 2 attribute must raise differenceEvents:multiSlotAttribute.
-% Column-wise differencing would impose a cross-event slot correspondence
-% that within-event slot exchangeability does not license.
+% A K_a = 2 attribute with order > 0 now warns and passes through
+% (no error). The K_a check fires only when the attribute is actually
+% being asked to be differenced.
 
 p_ms = {[60 62 64; 67 69 71]};   % K_a = 2, N = 3
-results{end+1,1} = 'differenceEvents: K_a = 2 attribute errors (multiSlotAttribute id)';
-results{end,2}   = throwsErrorWithId( ...
-    @() differenceEvents(p_ms, [], [], 1, 0), ...
-    'differenceEvents:multiSlotAttribute');
+warning('off', 'differenceEvents:multiSlotAttributeDifferenced');
+lastwarn('', '');
+[pd_ms, ~, ~] = differenceEvents(p_ms, [], [], 1);
+[~, warnId] = lastwarn;
+warning('on', 'differenceEvents:multiSlotAttributeDifferenced');
+results{end+1,1} = 'differenceEvents: K_a = 2 attribute with order > 0 warns (multiSlotAttributeDifferenced)';
+results{end,2}   = strcmp(warnId, 'differenceEvents:multiSlotAttributeDifferenced');
+results{end+1,1} = 'differenceEvents: K_a > 1 with order > 0 treated as order 0 (pass-through)';
+results{end,2}   = isequal(pd_ms{1}, p_ms{1});
+
+% A K_a = 2 attribute with order 0 passes through silently (no warning).
+
+lastwarn('', '');
+[pd_pt, ~, ~] = differenceEvents(p_ms, [], [], 0);
+[~, warnId2] = lastwarn;
+results{end+1,1} = 'differenceEvents: K_a = 2 with order 0 passes through silently';
+results{end,2}   = isempty(warnId2) && isequal(pd_pt{1}, p_ms{1});
 
 % -- differenceEvents: empty attribute (K_a = 0) errors --
-% K_a = 0 is likewise rejected by the K_a = 1 check; there is nothing
-% to difference in an empty attribute.
+% K_a = 0 is still hard-rejected — there is nothing to difference
+% and nothing to pass through.
 
 p_empty = {zeros(0, 3)};          % K_a = 0, N = 3
-results{end+1,1} = 'differenceEvents: K_a = 0 attribute errors (multiSlotAttribute id)';
+results{end+1,1} = 'differenceEvents: K_a = 0 attribute errors (emptyAttribute id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() differenceEvents(p_empty, [], [], 1, 0), ...
-    'differenceEvents:multiSlotAttribute');
+    @() differenceEvents(p_empty, [], [], 1), ...
+    'differenceEvents:emptyAttribute');
 
-% -- differenceEvents: mixed K_a input errors on the offending attribute --
-% Attribute 1 has K_a = 1, attribute 2 has K_a = 2 — the error must fire
-% and its message must name the offending attribute index.
+% -- differenceEvents: mixed K_a input warns on the offending attribute --
+% Attribute 1 has K_a = 1, attribute 2 has K_a = 2 — the warning must
+% fire on attribute 2 (passed through with leading-drop), and the K_a = 1
+% attribute is still differenced normally.
 
 p_mixed = {[60 62 64], [60 62 64; 67 69 71]};
-results{end+1,1} = 'differenceEvents: mixed K_a input errors (multiSlotAttribute id)';
-results{end,2}   = throwsErrorWithId( ...
-    @() differenceEvents(p_mixed, [], [], [1 1], [0 0]), ...
-    'differenceEvents:multiSlotAttribute');
+warning('off', 'differenceEvents:multiSlotAttributeDifferenced');
+lastwarn('', '');
+[pd_mx, ~, ~] = differenceEvents(p_mixed, [], [], [1 1]);
+[warnMsg, warnId3] = lastwarn;
+warning('on', 'differenceEvents:multiSlotAttributeDifferenced');
+results{end+1,1} = 'differenceEvents: mixed K_a input warns (multiSlotAttributeDifferenced)';
+results{end,2}   = strcmp(warnId3, 'differenceEvents:multiSlotAttributeDifferenced');
 
-results{end+1,1} = 'differenceEvents: mixed K_a error message names attribute 2';
-results{end,2}   = errorMessageContains( ...
-    @() differenceEvents(p_mixed, [], [], [1 1], [0 0]), ...
-    'Attribute 2');
+results{end+1,1} = 'differenceEvents: mixed K_a warning message names attribute 2';
+results{end,2}   = ~isempty(strfind(warnMsg, 'Attribute 2'));
+
+% K_a = 1 attribute differenced normally; K_a > 1 passes through with leading-drop.
+results{end+1,1} = 'differenceEvents: mixed K_a — K_a=1 attr differenced normally';
+results{end,2}   = isequal(pd_mx{1}, [2 2]);
+results{end+1,1} = 'differenceEvents: mixed K_a — K_a>1 attr passed through with leading-drop';
+results{end,2}   = isequal(pd_mx{2}, p_mixed{2}(:, 2:end));
 
 % -- differenceEvents: voices-as-attributes pipeline round trip --
 % Four voices, each K_a = 1 in a shared group, differenced, then stacked
@@ -734,7 +755,7 @@ pT = [60 62 64 65];     % tenor
 pB = [48 50 52 53];     % bass
 pAttr  = {pS, pA, pT, pB};
 groupsV = [1 1 1 1];
-[pDiff, ~] = differenceEvents(pAttr, [], groupsV, 1, 0);
+[pDiff, ~, ~] = differenceEvents(pAttr, [], groupsV, 1);
 
 results{end+1,1} = 'differenceEvents: voices-as-attrs — each differenced attribute is 1 x 3';
 results{end,2}   = all(cellfun(@(M) isequal(size(M), [1 3]), pDiff));
@@ -754,6 +775,54 @@ x_query = [-3 0 2 4 7];
 vals_v = evalExpTens(dens_v, x_query);
 results{end+1,1} = 'differenceEvents: voices-as-attrs — evalExpTens returns finite non-negative values';
 results{end,2}   = all(isfinite(vals_v)) && all(vals_v >= 0);
+
+% -- differenceEvents: Option C scalar / per-attribute / per-group ----------
+
+% Scalar diff_orders broadcasts to all attributes.
+p_sb = {[0 2 5], [10 11 13]};
+[pd_sb, ~, ~] = differenceEvents(p_sb, [], [], 1);
+results{end+1,1} = 'differenceEvents: scalar order broadcasts to every attribute';
+results{end,2}   = isequal(pd_sb{1}, [2 3]) && isequal(pd_sb{2}, [1 2]);
+
+% Per-attribute orders (length A) when attributes share a group.
+p_pa = {[0 2 5 9], [10 11 13 16]};
+groups_pa = [1 1];
+[pd_pa, ~, ~] = differenceEvents(p_pa, [], groups_pa, [1 2]);
+% attr 1: diff once [2 3 4], leading-drop 1 → [3 4].
+% attr 2: diff twice → [1 1].
+results{end+1,1} = 'differenceEvents: per-attribute orders within one group';
+results{end,2}   = isequal(pd_pa{1}, [3 4]) && isequal(pd_pa{2}, [1 1]);
+
+% Per-group orders (length G, G != A) broadcasts within each group.
+p_pg = {[0 2 5], [10 12 13], [100 101 103]};
+groups_pg = [1 1 2];   % A = 3, G = 2
+[pd_pg, ~, ~] = differenceEvents(p_pg, [], groups_pg, [1 0]);
+% Group 1: order 1; group 2: order 0 with leading-drop 1.
+results{end+1,1} = 'differenceEvents: length-G vector broadcasts within group';
+results{end,2}   = isequal(pd_pg{1}, [2 3]) && ...
+                   isequal(pd_pg{2}, [2 1]) && ...
+                   isequal(pd_pg{3}, [101 103]);
+
+% Cell form: group 1 at order 1 (scalar broadcast), group 2 omitted (= 0).
+[pd_cf1, ~, ~] = differenceEvents(p_pg, [], groups_pg, {1, []});
+results{end+1,1} = 'differenceEvents: cell form scalar within group, empty skips';
+results{end,2}   = isequal(pd_cf1{1}, [2 3]) && ...
+                   isequal(pd_cf1{2}, [2 1]) && ...
+                   isequal(pd_cf1{3}, [101 103]);
+
+% Cell form per-attribute within group.
+p_cf2 = {[0 2 5 9], [10 11 13 16]};
+groups_cf2 = [1 1];
+[pd_cf2, ~, ~] = differenceEvents(p_cf2, [], groups_cf2, {[1 2]});
+results{end+1,1} = 'differenceEvents: cell form per-attribute within group';
+results{end,2}   = isequal(pd_cf2{1}, [3 4]) && isequal(pd_cf2{2}, [1 1]);
+
+% Third return value is the input groups (unchanged).
+p_g = {[0 2 5]};
+groups_g = [1];
+[~, ~, gd] = differenceEvents(p_g, [], groups_g, 1);
+results{end+1,1} = 'differenceEvents: groupsDiff equals input groups (passthrough)';
+results{end,2}   = isequal(gd, groups_g);
 
 % -- translateAttributes: zero shift identity (scalar broadcast) --
 
@@ -923,6 +992,43 @@ results{end+1,1} = 'translateAttributes: sweep peak at expected offset (-2 st)';
 results{end,2}   = abs(best_mu - (-2.0)) < 0.01;
 results{end+1,1} = 'translateAttributes: sweep peak similarity is 1';
 results{end,2}   = best_s > 1.0 - 1e-9;
+
+% -- translateAttributes: numeric G-form (per-group, broadcast within group) --
+
+% Three attributes, two groups: attrs 1 and 2 in group 1, attr 3 in group 2.
+% A = 3, G = 2 (so A ~= G, G-form is unambiguous).
+p_g = {[60 64], [67 71], [0 1]};
+groups_g = [1 1 2];
+% G-by-1 column: group 1 by +5, group 2 by -2.
+out_g = translateAttributes(p_g, groups_g, [5; -2], ...
+                            [false false], [false false], [0 0]);
+results{end+1,1} = 'translateAttributes: G-by-1 column broadcasts within each group';
+results{end,2}   = isequal(out_g{1}, [65 69]) && ...
+                   isequal(out_g{2}, [72 76]) && ...
+                   isequal(out_g{3}, [-2 -1]);
+
+% G-by-M matrix: group 1 sweeps (5, 7); group 2 sweeps (-2, 0).
+out_gm = translateAttributes(p_g, groups_g, [5 7; -2 0], ...
+                             [false false], [false false], [0 0]);
+results{end+1,1} = 'translateAttributes: G-by-M matrix returns 1-by-M cell';
+results{end,2}   = iscell(out_gm) && numel(out_gm) == 2;
+results{end+1,1} = 'translateAttributes: G-by-M sweep m=1 matches group offsets';
+results{end,2}   = isequal(out_gm{1}{1}, [65 69]) && ...
+                   isequal(out_gm{1}{2}, [72 76]) && ...
+                   isequal(out_gm{1}{3}, [-2 -1]);
+results{end+1,1} = 'translateAttributes: G-by-M sweep m=2 matches group offsets';
+results{end,2}   = isequal(out_gm{2}{1}, [67 71]) && ...
+                   isequal(out_gm{2}{2}, [74 78]) && ...
+                   isequal(out_gm{2}{3}, [0 1]);
+
+% A == G case: when each attribute is its own group, A-by-1 and G-by-1 are
+% the same shape; per-attribute interpretation applies (identical output).
+p_ag = {60, 0};
+groups_ag = [1 2];   % A = G = 2
+out_ag = translateAttributes(p_ag, groups_ag, [5; -2], ...
+                             [false false], [false false], [0 0]);
+results{end+1,1} = 'translateAttributes: A == G column is read as per-attribute';
+results{end,2}   = isequal(out_ag{1}, 65) && isequal(out_ag{2}, -2);
 
 % -- translateAttributes: error cases --
 

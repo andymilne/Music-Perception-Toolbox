@@ -254,10 +254,9 @@ def build_diff_maet(pitch_cents, time_sec):
     cell, useful for sanity checks and plotting.
     """
     p_attr = [pitch_cents[np.newaxis, :], time_sec[np.newaxis, :]]
-    p_diff, w_diff = mpt.difference_events(
+    p_diff, w_diff, _ = mpt.difference_events(
         p_attr, None, None,
         [1, 0],
-        [pitch_period, time_period],
     )
     dens = mpt.build_exp_tens(
         p_diff,

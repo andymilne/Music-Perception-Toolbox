@@ -86,7 +86,7 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %   Examples
 %       % 2-tuple entropy of step sizes (diatonic scale, sigma = 0)
 %       p = [0 2 4 5 7 9 11];
-%       d = differenceEvents({p}, [], [], 1, 12);   % 1 x 7 (circular)
+%       d = differenceEvents({p}, [], [], 1);   % 1 x 7 (circular)
 %       [pB, wB] = bindEvents(d{1}, [], 2, 'circular', true);
 %       T = buildExpTens(pB, wB, 1e-6, [1 1], 1, false, true, 12);
 %       H = entropyExpTens(T);
@@ -94,8 +94,8 @@ function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
 %       % Compare 2-tuple distributions of two scales via cosine
 %       % similarity (smoothed)
 %       p1 = [0 2 4 5 7 9 11]; p2 = [0 1 3 5 6 8 10];
-%       d1 = differenceEvents({p1}, [], [], 1, 12);
-%       d2 = differenceEvents({p2}, [], [], 1, 12);
+%       d1 = differenceEvents({p1}, [], [], 1);
+%       d2 = differenceEvents({p2}, [], [], 1);
 %       [pB1, wB1] = bindEvents(d1{1}, [], 2, 'circular', true);
 %       [pB2, wB2] = bindEvents(d2{1}, [], 2, 'circular', true);
 %       T1 = buildExpTens(pB1, wB1, 1, [1 1], 1, false, true, 12);

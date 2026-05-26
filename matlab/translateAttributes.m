@@ -34,7 +34,14 @@ function pAttrTranslated = translateAttributes(pAttr, groups, offsets, isRel, is
 %                             Returns 1-by-1 cell (matrix-mode).
 %       A-by-M matrix:        per-attribute, M-sweep. Returns 1-by-M
 %                             cell.
-%       2-D with rows neither 1 nor A: error.
+%       G-by-1 column:        per-group, broadcast within group;
+%                             single translation. Requires A ~= G to
+%                             disambiguate from per-attribute (when
+%                             A == G the per-attribute reading
+%                             applies, with identical results).
+%       G-by-M matrix:        per-group, broadcast within group;
+%                             M-sweep. Same A ~= G requirement.
+%       2-D with rows not in {1, A, G}: error.
 %
 %     Cell form. offsets is a 1-by-G cell array; each cell offsets{g}
 %     holds the per-group value following an analogous orientation
@@ -295,16 +302,31 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
         return;
     end
     if nRows == A
-        % A-by-M (M >= 1): per-attribute.
+        % A-by-M (M >= 1): per-attribute. (Also handles A == G case,
+        % where per-attribute and per-group are equivalent.)
         matrixMode = true;
         offsetsPerAttr = offsets;
         return;
     end
+    if nRows == G
+        % G-by-M (M >= 1): per-group, broadcast within group. Expand
+        % to per-attribute by replicating each group's row across the
+        % attributes of that group. The A == G case is handled above
+        % (per-attribute interpretation; the two are equivalent there).
+        matrixMode = (nCols > 1);
+        offsetsPerAttr = zeros(A, nCols);
+        for g = 1:G
+            attrs = attrsOfGroup{g};
+            offsetsPerAttr(attrs, :) = repmat(offsets(g, :), numel(attrs), 1);
+        end
+        return;
+    end
     error('translateAttributes:wrongOffsetsShape', ...
           ['offsets is a 2-D array with shape %d-by-%d; row count must ' ...
-           'be 1 (broadcast across all attributes) or A = %d (per-' ...
-           'attribute). For per-group offsets, use the 1-by-G cell form.'], ...
-          nRows, nCols, A);
+           'be 1 (broadcast across all attributes), A = %d (per-' ...
+           'attribute), or G = %d (per-group, broadcast within group). ' ...
+           'For mixed-per-group layouts, use the 1-by-G cell form.'], ...
+          nRows, nCols, A, G);
 end
 
 

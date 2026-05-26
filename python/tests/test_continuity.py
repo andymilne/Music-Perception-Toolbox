@@ -137,10 +137,10 @@ class TestContinuity:
         # agrees with the same weights applied outside.
         seq = [3, 5, 7, 7, 9]
         w = [0.8, 1.0, 0.7, 1.0, 0.9]
-        p_d, w_d = mpt.difference_events(
+        p_d, w_d, _ = mpt.difference_events(
             [np.asarray(seq).reshape(1, -1)],
             [np.asarray(w).reshape(1, -1)],
-            None, [1], [0],
+            None, [1],
         )
         diff_weights = np.asarray(w_d[0]).reshape(-1)   # length N-1
         # Unweighted continuity for the same query, then apply the

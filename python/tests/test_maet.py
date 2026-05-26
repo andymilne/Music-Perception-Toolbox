@@ -911,27 +911,28 @@ class TestMAET:
     def test_diff_order_0_identity(self):
         """Order 0 returns the input unchanged."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]])]
-        pd, wd = mpt.difference_events(p, None, None, [0], [12.0])
+        pd, wd, _ = mpt.difference_events(p, None, None, [0])
         np.testing.assert_array_equal(pd[0], p[0])
         assert wd is None
 
     def test_diff_order_1_nonperiodic(self):
         """Order-1 differencing produces pairwise inter-event differences."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]])]
-        pd, _ = mpt.difference_events(p, None, None, [1], [0.0])
+        pd, _, _ = mpt.difference_events(p, None, None, [1])
         np.testing.assert_allclose(pd[0], [[2.0, 3.0, 2.0]])
 
-    def test_diff_order_1_periodic_wrap(self):
-        """Periodic wrapping maps large positive differences to negative
-        shortest-arc values."""
-        p = [np.array([[0.0, 11.0]])]  # diff = 11, wraps to -1 under P=12
-        pd, _ = mpt.difference_events(p, None, None, [1], [12.0])
-        np.testing.assert_allclose(pd[0], [[-1.0]])
+    def test_diff_order_1_periodic_no_wrap(self):
+        """For periodic groups, differencing emits raw signed
+        subtraction without wrapping; the kernel applies [per] wrap
+        downstream."""
+        p = [np.array([[0.0, 11.0]])]  # diff = 11, NOT wrapped to -1
+        pd, _, _ = mpt.difference_events(p, None, None, [1])
+        np.testing.assert_allclose(pd[0], [[11.0]])
 
     def test_diff_order_2(self):
         """Order 2 applies first-order differencing twice."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]])]
-        pd, _ = mpt.difference_events(p, None, None, [2], [0.0])
+        pd, _, _ = mpt.difference_events(p, None, None, [2])
         # 1st: [2, 3, 2]; 2nd: [1, -1]
         np.testing.assert_allclose(pd[0], [[1.0, -1.0]])
 
@@ -939,7 +940,7 @@ class TestMAET:
         """Order-1 weights are a rolling product of width 2."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]])]
         w = [np.array([[0.5, 0.8, 1.0, 0.2]])]
-        _, wd = mpt.difference_events(p, w, None, [1], [0.0])
+        _, wd, _ = mpt.difference_events(p, w, None, [1])
         np.testing.assert_allclose(wd[0], [[0.5*0.8, 0.8*1.0, 1.0*0.2]])
 
     def test_diff_weight_rolling_product_order_2(self):
@@ -947,7 +948,7 @@ class TestMAET:
         constituent weight appears exactly once per output column)."""
         p = [np.array([[0.0, 1.0, 3.0, 6.0]])]
         w = [np.array([[0.5, 0.8, 1.0, 0.2]])]
-        _, wd = mpt.difference_events(p, w, None, [2], [0.0])
+        _, wd, _ = mpt.difference_events(p, w, None, [2])
         np.testing.assert_allclose(
             wd[0], [[0.5*0.8*1.0, 0.8*1.0*0.2]]
         )
@@ -957,7 +958,7 @@ class TestMAET:
         scalar c**(k+1), so scalar and vector-of-c inputs produce
         equivalent downstream densities."""
         p = [np.array([[0.0, 2.0, 5.0]])]
-        _, wd = mpt.difference_events(p, 0.7, None, [1], [0.0])
+        _, wd, _ = mpt.difference_events(p, 0.7, None, [1])
         assert wd == pytest.approx(0.7 ** 2)
 
     def test_diff_mixed_orders_align(self):
@@ -965,7 +966,7 @@ class TestMAET:
         the highest-order group."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]]),
              np.array([[0.0, 1.0, 2.0, 3.5]])]
-        pd, _ = mpt.difference_events(p, None, None, [0, 1], [0.0, 0.0])
+        pd, _, _ = mpt.difference_events(p, None, None, [0, 1])
         # Group 0 (k=0): max_order - k = 1 leading event dropped.
         np.testing.assert_allclose(pd[0], [[2.0, 5.0, 7.0]])
         # Group 1 (k=1): differenced, no further drop.
@@ -977,7 +978,7 @@ class TestMAET:
         """Two attributes in one group receive the same differencing."""
         p = [np.array([[0.0, 1.0, 3.0]]), np.array([[10.0, 12.0, 16.0]])]
         groups = [0, 0]  # both in group 0 (0-indexed, Python)
-        pd, _ = mpt.difference_events(p, None, groups, [1], [0.0])
+        pd, _, _ = mpt.difference_events(p, None, groups, [1])
         np.testing.assert_allclose(pd[0], [[1.0, 2.0]])
         np.testing.assert_allclose(pd[1], [[2.0, 4.0]])
 
@@ -985,8 +986,8 @@ class TestMAET:
         """Output of differenceEvents feeds directly into build_exp_tens."""
         p = [np.array([[0.0, 2.0, 5.0, 7.0]]),
              np.array([[0.0, 0.5, 1.2, 1.7]])]
-        pd, wd = mpt.difference_events(
-            p, None, None, [0, 1], [1200.0, 0.0],
+        pd, wd, _ = mpt.difference_events(
+            p, None, None, [0, 1],
         )
         dens = mpt.build_exp_tens(
             pd, wd, [10.0, 0.05], [1, 1], None,
@@ -1000,50 +1001,86 @@ class TestMAET:
         """Differencing order > N - 1 raises."""
         p = [np.array([[0.0, 2.0, 5.0]])]
         with pytest.raises(ValueError, match="too high"):
-            mpt.difference_events(p, None, None, [3], [0.0])
+            mpt.difference_events(p, None, None, [3])
 
     def test_diff_negative_order_errors(self):
         """Negative differencing order raises."""
         p = [np.array([[0.0, 2.0, 5.0]])]
         with pytest.raises(ValueError, match="non-negative"):
-            mpt.difference_events(p, None, None, [-1], [0.0])
+            mpt.difference_events(p, None, None, [-1])
 
     def test_diff_wrong_length_diff_orders(self):
         """diff_orders length mismatch raises."""
         p = [np.array([[0.0, 2.0, 5.0]])]
         with pytest.raises(ValueError, match="diff_orders"):
-            mpt.difference_events(p, None, None, [1, 1], [0.0, 0.0])
+            mpt.difference_events(p, None, None, [1, 1])
 
     def test_diff_mismatched_event_counts(self):
         """Attributes with different N raise."""
         p = [np.array([[0.0, 2.0, 5.0]]), np.array([[0.0, 1.0]])]
         with pytest.raises(ValueError, match="event count"):
-            mpt.difference_events(p, None, None, [0, 0], [0.0, 0.0])
+            mpt.difference_events(p, None, None, [0, 0])
 
-    def test_diff_multi_slot_attribute_errors(self):
-        """A K_a = 2 attribute must raise. Column-wise differencing would
-        impose a cross-event slot correspondence that within-event slot
-        exchangeability does not license."""
+    def test_diff_multi_slot_attribute_warns_and_passes_through(self):
+        """A K_a > 1 attribute with order > 0 triggers a UserWarning
+        and is treated as order 0 (pass through with leading-event
+        drop). Column-wise differencing would impose a cross-event
+        slot correspondence that within-event slot exchangeability
+        does not license."""
         p = [np.array([[60.0, 62.0, 64.0], [67.0, 69.0, 71.0]])]  # K_a = 2
-        with pytest.raises(ValueError, match=r"K_a\s*=\s*2"):
-            mpt.difference_events(p, None, None, [1], [0.0])
+        with pytest.warns(UserWarning, match=r"K_a\s*=\s*2"):
+            pd, _, _ = mpt.difference_events(p, None, None, [1])
+        # Treated as order 0: identity (no events dropped, since the
+        # only attribute is the K_a > 1 one and max order is now 0).
+        np.testing.assert_array_equal(pd[0], p[0])
+
+    def test_diff_multi_slot_with_order_zero_passes_through_silently(self):
+        """A K_a > 1 attribute with order 0 (or default) passes
+        through silently — no warning, just standard alignment."""
+        p = [np.array([[60.0, 62.0, 64.0], [67.0, 69.0, 71.0]])]  # K_a = 2
+        # No warning expected for K_a > 1 with order 0.
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")  # turn warnings into errors
+            pd, _, _ = mpt.difference_events(p, None, None, [0])
+        np.testing.assert_array_equal(pd[0], p[0])
 
     def test_diff_empty_attribute_errors(self):
-        """K_a = 0 (empty attribute) is likewise rejected by the
-        K_a = 1 check; there is nothing to difference."""
+        """K_a = 0 (empty attribute) is hard-rejected; there is
+        nothing to difference and nothing to pass through."""
         p = [np.zeros((0, 3))]
-        with pytest.raises(ValueError, match=r"K_a\s*=\s*0"):
-            mpt.difference_events(p, None, None, [1], [0.0])
+        with pytest.raises(ValueError, match=r"K_a\s*=\s*0|empty attribute"):
+            mpt.difference_events(p, None, None, [1])
 
-    def test_diff_multi_slot_error_names_offending_attribute(self):
-        """With a mix of K_a = 1 and K_a > 1 attributes, the error must
-        fire and its message must name the offending attribute index."""
+    def test_diff_multi_slot_warning_names_offending_attribute(self):
+        """With a mix of K_a = 1 and K_a > 1 attributes, the warning
+        names the offending attribute index. The valid (K_a = 1)
+        attribute still gets differenced normally."""
         p = [
             np.array([[60.0, 62.0, 64.0]]),                         # K_a = 1
             np.array([[60.0, 62.0, 64.0], [67.0, 69.0, 71.0]]),     # K_a = 2
         ]
-        with pytest.raises(ValueError, match=r"Attribute 1"):
-            mpt.difference_events(p, None, None, [1, 1], [0.0, 0.0])
+        with pytest.warns(UserWarning, match=r"Attribute 1"):
+            pd, _, _ = mpt.difference_events(p, None, None, [1, 1])
+        # K_a = 1 attribute: differenced (length 2 after order 1).
+        np.testing.assert_allclose(pd[0], [[2.0, 2.0]])
+        # K_a = 2 attribute: pass-through with leading-event drop to
+        # match the common grid (N' = N - max_order = 3 - 1 = 2).
+        np.testing.assert_array_equal(pd[1], p[1][:, 1:])
+
+    def test_diff_multi_slot_warning_emitted_once_per_call(self):
+        """Even when multiple K_a > 1 attributes are differenced, the
+        warning fires only once per call (subsequent silenced)."""
+        p = [
+            np.array([[60.0, 62.0, 64.0], [67.0, 69.0, 71.0]]),  # K_a = 2
+            np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),         # K_a = 2
+        ]
+        import warnings
+        with warnings.catch_warnings(record=True) as ws:
+            warnings.simplefilter("always")
+            mpt.difference_events(p, None, None, [1, 1])
+        relevant = [w for w in ws if issubclass(w.category, UserWarning)]
+        assert len(relevant) == 1, f"Expected 1 warning, got {len(relevant)}"
 
     def test_diff_voices_as_attrs_pipeline(self):
         """Round-trip test for the voices-as-attributes pipeline: encode
@@ -1058,7 +1095,7 @@ class TestMAET:
         pB = np.array([[48.0, 50.0, 52.0, 53.0]])   # bass
         p_attr = [pS, pA, pT, pB]
         groups = [0, 0, 0, 0]   # shared group (0-indexed in Python)
-        p_diff, _ = mpt.difference_events(p_attr, None, groups, [1], [0.0])
+        p_diff, _, _ = mpt.difference_events(p_attr, None, groups, [1])
         # Each differenced attribute should be 1 x 3.
         assert all(M.shape == (1, 3) for M in p_diff)
         # Stack into a single K_a = 4, N' = 3 multi-slot attribute.
@@ -1075,6 +1112,80 @@ class TestMAET:
         vals = mpt.eval_exp_tens(dens, x_query)
         assert np.all(np.isfinite(vals))
         assert np.all(vals >= 0.0)
+
+    # --- difference_events Option C: scalar / per-attribute / per-group ---
+
+    def test_diff_scalar_order_broadcasts(self):
+        """A scalar diff_orders broadcasts to all attributes."""
+        p = [np.array([[0.0, 2.0, 5.0]]),
+             np.array([[10.0, 11.0, 13.0]])]
+        # Scalar order 1 → both attributes get order 1.
+        pd, _, _ = mpt.difference_events(p, None, None, 1)
+        np.testing.assert_allclose(pd[0], [[2.0, 3.0]])
+        np.testing.assert_allclose(pd[1], [[1.0, 2.0]])
+
+    def test_diff_per_attribute_orders(self):
+        """A length-A vector gives per-attribute orders, even when
+        attributes share a group."""
+        p = [np.array([[0.0, 2.0, 5.0, 9.0]]),
+             np.array([[10.0, 11.0, 13.0, 16.0]])]
+        groups = [0, 0]   # both in one group
+        # Per-attribute: attr 0 differenced at order 1, attr 1 at order 2.
+        # Max order = 2, so output has N' = N - 2 = 2 events.
+        # attr 0: diff once → [2, 3, 4]; leading-drop 1 → [3, 4].
+        # attr 1: diff twice → [1, 2, 3] → [1, 1]; no extra drop.
+        pd, _, _ = mpt.difference_events(p, None, groups, [1, 2])
+        np.testing.assert_allclose(pd[0], [[3.0, 4.0]])
+        np.testing.assert_allclose(pd[1], [[1.0, 1.0]])
+
+    def test_diff_per_group_orders_via_g_vector(self):
+        """A length-G vector (G != A) broadcasts within each group."""
+        # A = 3, G = 2: attrs 0, 1 in group 0 (length 2); attr 2 in group 1.
+        p = [np.array([[0.0, 2.0, 5.0]]),
+             np.array([[10.0, 12.0, 13.0]]),
+             np.array([[100.0, 101.0, 103.0]])]
+        groups = [0, 0, 1]
+        # Length-G [1, 0]: group 0 differenced at order 1, group 1 left alone.
+        # Max order 1; N' = 2.
+        pd, _, _ = mpt.difference_events(p, None, groups, [1, 0])
+        np.testing.assert_allclose(pd[0], [[2.0, 3.0]])      # diff'd
+        np.testing.assert_allclose(pd[1], [[2.0, 1.0]])      # diff'd
+        np.testing.assert_allclose(pd[2], [[101.0, 103.0]])  # leading-dropped
+
+    def test_diff_dict_form_per_group(self):
+        """Dict form: each group gets its own scalar or per-attribute spec."""
+        p = [np.array([[0.0, 2.0, 5.0]]),
+             np.array([[10.0, 12.0, 13.0]]),
+             np.array([[100.0, 101.0, 103.0]])]
+        groups = [0, 0, 1]
+        # Dict: group 0 at order 1 (scalar broadcast within), group 1 omitted (=0).
+        pd, _, _ = mpt.difference_events(p, None, groups, {0: 1})
+        np.testing.assert_allclose(pd[0], [[2.0, 3.0]])
+        np.testing.assert_allclose(pd[1], [[2.0, 1.0]])
+        np.testing.assert_allclose(pd[2], [[101.0, 103.0]])
+
+    def test_diff_dict_form_per_attribute_within_group(self):
+        """Dict form supports per-attribute orders inside a group."""
+        p = [np.array([[0.0, 2.0, 5.0, 9.0]]),
+             np.array([[10.0, 11.0, 13.0, 16.0]])]
+        groups = [0, 0]
+        # Per-attribute within group 0: [1, 2].
+        pd, _, _ = mpt.difference_events(p, None, groups, {0: [1, 2]})
+        np.testing.assert_allclose(pd[0], [[3.0, 4.0]])
+        np.testing.assert_allclose(pd[1], [[1.0, 1.0]])
+
+    def test_diff_groups_passes_through_unchanged(self):
+        """The third return value (groups_diff) is the input groups."""
+        p = [np.array([[0.0, 2.0, 5.0]])]
+        groups = [0]
+        _, _, gd = mpt.difference_events(p, None, groups, [1])
+        assert gd == groups
+
+    def test_diff_returns_three_tuple(self):
+        """Function returns (p_attr_diff, w_diff, groups_diff)."""
+        p = [np.array([[0.0, 2.0]])]
+        out = mpt.difference_events(p, None, None, [1])
+        assert len(out) == 3
 
     # --- translate_attributes ------------------------------------------
 
@@ -1381,6 +1492,65 @@ class TestMAET:
                 p, [0, 1], np.zeros((3, 5)),
                 [False, False], [False, False], [0.0, 0.0],
             )
+
+    # --- translate_attributes numeric G-form (per-group, broadcast) ----------
+
+    def test_translate_numeric_g_column_per_group(self):
+        """A (G, 1) column gives each group its own offset, broadcast
+        within group. Used when A != G (different attributes per group)."""
+        # Three attributes; two in group 0, one in group 1. A=3, G=2.
+        p = [np.array([[60.0, 64.0]]),     # group 0
+             np.array([[67.0, 71.0]]),     # group 0
+             np.array([[0.0, 1.0]])]       # group 1
+        groups = [0, 0, 1]
+        # G-vector: group 0 offsets by 5, group 1 by -2.
+        offsets = np.array([[5.0], [-2.0]])  # (G=2, 1)
+        out = mpt.translate_attributes(
+            p, groups, offsets,
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
+        np.testing.assert_allclose(out[2], [[-2.0, -1.0]])
+
+    def test_translate_numeric_g_matrix_per_group_sweep(self):
+        """A (G, M) matrix gives each group its own M-position sweep,
+        broadcast within group."""
+        p = [np.array([[60.0, 64.0]]),     # group 0
+             np.array([[67.0, 71.0]]),     # group 0
+             np.array([[0.0, 1.0]])]       # group 1
+        groups = [0, 0, 1]
+        # G x M: group 0 sweeps (5, 7); group 1 sweeps (-2, 0).
+        offsets = np.array([[5.0, 7.0], [-2.0, 0.0]])
+        out = mpt.translate_attributes(
+            p, groups, offsets,
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        # Sweep returns list of M length-A lists.
+        assert len(out) == 2
+        # m=0: group 0 by +5, group 1 by -2
+        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
+        np.testing.assert_allclose(out[0][2], [[-2.0, -1.0]])
+        # m=1: group 0 by +7, group 1 by 0
+        np.testing.assert_allclose(out[1][0], [[67.0, 71.0]])
+        np.testing.assert_allclose(out[1][1], [[74.0, 78.0]])
+        np.testing.assert_allclose(out[1][2], [[0.0, 1.0]])
+
+    def test_translate_numeric_g_equals_a_takes_per_attribute(self):
+        """When A == G (every attribute its own group), the shape
+        (A, M) = (G, M) is ambiguous; per-attribute interpretation
+        applies. The two readings give identical output anyway."""
+        p = [np.array([[60.0]]), np.array([[0.0]])]
+        groups = [0, 1]   # A = G = 2
+        offsets = np.array([[5.0], [-2.0]])  # could be A-form or G-form
+        out = mpt.translate_attributes(
+            p, groups, offsets,
+            [False, False], [False, False], [0.0, 0.0],
+        )
+        # Should treat as per-attribute (which equals per-group here).
+        np.testing.assert_allclose(out[0][0], [[65.0]])
+        np.testing.assert_allclose(out[0][1], [[-2.0]])
 
     # --- translate_attributes polymorphic dict (per-attribute) --------------
 

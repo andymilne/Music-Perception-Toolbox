@@ -191,7 +191,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 
     % --- Bind n consecutive cyclic step sizes ---
 
-    [pBound, wBound] = bindEvents(diffsRow, [], n, 'circular', true);
+    [pBound, wBound, ~] = bindEvents({diffsRow}, [], [], n, 'circular', true);
 
     % --- Resolve sigma per the sigmaSpace flag ---
     %

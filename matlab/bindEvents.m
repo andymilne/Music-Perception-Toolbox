@@ -1,259 +1,421 @@
-function [pBound, wBound] = bindEvents(p, w, n, nvArgs)
-%BINDEVENTS Bind n consecutive events into n-attribute super-events.
+function [pAttrBound, wBound, groupsBound] = bindEvents(pAttr, w, groups, bindOrders, nvArgs)
+%BINDEVENTS Bind sliding windows of consecutive events into super-attributes.
 %
-%   [pBound, wBound] = bindEvents(p, w, n) is a cross-event
-%   preprocessing helper for multi-attribute tensor input. It takes a
-%   single-attribute event sequence and slides a window of width n
-%   across it, emitting each window as an n-attribute super-event
-%   whose j-th attribute holds the value at lag j-1 (j = 1, ..., n).
-%   The output is a 1 x n cell of K_a x N' matrices, suitable for
-%   direct use as the pAttr argument of buildExpTens with all n
-%   attributes assigned to a single group.
+%   [pAttrBound, wBound, groupsBound] = bindEvents(pAttr, w, groups, bindOrders, 'circular', false)
+%   is a cross-event preprocessing helper for multi-attribute tensor
+%   input. It takes the (pAttr, w, groups) triple that one would
+%   otherwise feed to buildExpTens and returns a transformed
+%   (pAttrBound, wBound, groupsBound) triple ready to chain into
+%   another pre-MAET operation or into buildExpTens.
 %
-%   This complements differenceEvents: differencing aggregates across
-%   event boundaries (collapsing k+1 consecutive events into a single
-%   value), while binding aggregates within a window (gathering n
-%   consecutive values into a single super-event with n separate slot
-%   attributes). The two operations compose naturally: differencing
-%   then binding gives n-tuples of consecutive step sizes, recovering
-%   the n-tuple entropy of Milne & Dean (2016) as a special case
-%   (sigma -> 0, integer-step grid, uniform weights, periodic domain)
-%   while extending it to non-zero sigma, continuous-valued steps,
-%   non-periodic domains, and per-event weights propagated through
-%   both stages. The bound MAET is itself a density that can be fed
-%   into the rest of the toolbox: pairs of bound MAETs can be
-%   compared via cosSimExpTens, queried via windowed similarity, and
-%   so on.
+%   Bind orders are specified per attribute (via Option C syntax —
+%   see below). For an input attribute a with bind order L_a, a
+%   sliding window of width L_a is laid across the event axis and
+%   each lag in the window is emitted as a separate output super-
+%   attribute. The total output attribute count is A' = sum_a L_a;
+%   each input attribute contributes L_a super-attributes to the
+%   output, all in the same group as the source attribute. Lag
+%   identity is non-exchangeable, so the L_a copies are emitted as
+%   separate attributes rather than packed into a multi-slot one.
+%   The original K_a slot structure of each input attribute is
+%   preserved in every super-attribute.
 %
-%   The lag slots are emitted as separate K_a-valued attributes (one
-%   attribute per lag) rather than packed into a single attribute,
-%   because lag identity is not exchangeable: the value at lag j and
-%   the value at lag j+1 carry distinct positional meanings within
-%   the bound super-event. By contrast, K_a > 1 inputs (multi-value
-%   attributes whose slots are deliberately exchangeable) are
-%   permitted: each output attribute then carries the K_a slot values
-%   of one underlying event, and the within-attribute exchangeability
-%   is preserved per output attribute. Cross-event slot alignment is
-%   never imposed, because the cross-event structure is between
-%   output attributes, not within.
+%   Event-axis alignment. The natural output event count of an
+%   attribute with bind order L_a is N - L_a + 1 (non-circular) or N
+%   (circular). With per-attribute orders, the common output event
+%   count is N' = N - max_a L_a + 1 (non-circular) or N (circular);
+%   attributes with L_a < max_a L_a have their trailing
+%   max_a L_a - L_a super-events dropped to align all attributes on
+%   the same output grid. This is the natural composition partner of
+%   differenceEvents' leading-drop alignment: D then B gives the same
+%   output (super-attribute by super-attribute) as B then D, for any
+%   choice of per-attribute orders.
 %
-%   N' = N - n + 1 (default) or N (when 'circular' is true).
+%   Weights. Each output super-attribute inherits the slot weights of
+%   the underlying input event at its lag, propagated under the
+%   toolbox's standard broadcast convention. buildExpTens then
+%   multiplies across attributes during tuple enumeration, so the
+%   end-to-end weight of a bound super-event equals the product of
+%   the L_a constituent events' weights — the natural pre-MAET
+%   factoring of the rolling product.
 %
 %   Inputs
-%       p  - Event values: a K_a x N matrix, a 1 x N row, a length-N
-%            vector, or a 1-cell {K_a x N} (the 1-cell form is
-%            accepted for symmetry with the output of
-%            differenceEvents). K_a >= 1.
-%       w  - Weights. [], scalar, 1 x N row, K_a x 1 column, K_a x N
-%            matrix, or a 1-cell of any of those (matching the
-%            p-input form).
-%       n  - Window size (positive integer).
+%       pAttr      - 1 x A cell array of K_a x N per-attribute value
+%                    matrices. K_a >= 1; K_a = 0 (empty attribute)
+%                    is rejected.
+%       w          - Weights. [], scalar, or 1 x A cell of per-attribute
+%                    weight inputs (each [], scalar, 1 x N row, K_a x 1
+%                    column, or K_a x N matrix). Same convention as
+%                    buildExpTens.
+%       groups     - Group assignment. [] (each attribute its own group),
+%                    a 1 x A index vector, or a 1 x G cell of attribute-
+%                    index lists. Matches buildExpTens.
+%       bindOrders - Per-attribute or per-group bind orders (positive
+%                    integers, >= 1). L = 1 is the no-op (each input
+%                    event becomes a one-event super-event = itself).
+%                    Option C syntax:
 %
-%   Name-Value Arguments
-%       'circular' - Logical (default: false). When true, the window
-%                    wraps around the end of the sequence; N' = N.
-%                    When false, N' = N - n + 1.
+%                      scalar              broadcast to all attributes
+%                      1 x A or A x 1      per-attribute
+%                      1 x G or G x 1      per-group, broadcast within
+%                                          group (G ~= A; the A == G
+%                                          case is read as per-attribute,
+%                                          identical output)
+%                      1 x G cell          per-group, with each cell:
+%                                            [] (skip → 1),
+%                                            scalar (broadcast in group),
+%                                            length-n_g vector
+%                                            (per-attribute in group).
 %
-%                    The 'circular' flag describes the *event
-%                    sequence* (whether the last event connects back
-%                    to the first), and is independent of the
-%                    *positional periodicity* set in buildExpTens via
-%                    its isPer / period arguments. Both combinations
-%                    are meaningful: a non-circular sequence on a
-%                    periodic domain (a non-cyclic motif living in
-%                    pitch-class space), and a circular sequence on a
-%                    linear domain (a cyclic rhythm represented in
-%                    linear time, e.g., for windowed analysis). The
-%                    two flags are orthogonal.
+%   Name-value pairs
+%       'circular'  - false (default) or true. When true, the sliding
+%                     window wraps around the event axis and N' = N
+%                     regardless of L_a.
 %
 %   Outputs
-%       pBound - 1 x n cell of K_a x N' matrices. pBound{j} contains
-%                the value(s) at lag j-1 for each window. For K_a = 1
-%                input each cell is 1 x N'.
-%       wBound - Per-attribute weight propagation, in the form that
-%                buildExpTens accepts directly:
-%                  - []           stays []
-%                  - scalar c     stays c (broadcast in buildExpTens)
-%                  - 1 x N row    becomes 1 x n cell of 1 x N' rows
-%                  - K_a x 1 col  becomes 1 x n cell of K_a x 1 cols
-%                  - K_a x N      becomes 1 x n cell of K_a x N' mats
-%                The end-to-end numerics are equivalent to a rolling
-%                product of slot weights: each output attribute
-%                inherits the slot weights of the underlying event at
-%                its lag, and buildExpTens multiplies across attributes
-%                during tuple enumeration.
+%       pAttrBound  - 1 x A' cell of super-attribute value matrices,
+%                     each K_a x N', where A' = sum_a L_a.
+%       wBound      - Transformed weights. Shape mirrors w: [] stays
+%                     []; a scalar stays a scalar; a 1 x A cell becomes
+%                     a 1 x A' cell with each super-attribute carrying
+%                     the lag-indexed slice (event-dependent weights)
+%                     or the inherited non-event-dependent input
+%                     (scalar / [] / K_a x 1 column).
+%       groupsBound - 1 x A' numeric vector of group labels. Each input
+%                     attribute's L_a super-attributes are placed in
+%                     the same group as the source attribute (the group
+%                     count is unchanged; group membership expands).
 %
-%   Examples
-%       % 2-tuple entropy of step sizes (diatonic scale, sigma = 0)
-%       p = [0 2 4 5 7 9 11];
-%       d = differenceEvents({p}, [], [], 1);   % 1 x 7 (circular)
-%       [pB, wB] = bindEvents(d{1}, [], 2, 'circular', true);
-%       T = buildExpTens(pB, wB, 1e-6, [1 1], 1, false, true, 12);
-%       H = entropyExpTens(T);
-%
-%       % Compare 2-tuple distributions of two scales via cosine
-%       % similarity (smoothed)
-%       p1 = [0 2 4 5 7 9 11]; p2 = [0 1 3 5 6 8 10];
-%       d1 = differenceEvents({p1}, [], [], 1);
-%       d2 = differenceEvents({p2}, [], [], 1);
-%       [pB1, wB1] = bindEvents(d1{1}, [], 2, 'circular', true);
-%       [pB2, wB2] = bindEvents(d2{1}, [], 2, 'circular', true);
-%       T1 = buildExpTens(pB1, wB1, 1, [1 1], 1, false, true, 12);
-%       T2 = buildExpTens(pB2, wB2, 1, [1 1], 1, false, true, 12);
-%       s = cosSimExpTens(T1, T2);
-%
-%   See also DIFFERENCEEVENTS, BUILDEXPTENS, ENTROPYEXPTENS,
-%   COSSIMEXPTENS, NTUPLEENTROPY.
+%   See also BUILDEXPTENS, DIFFERENCEEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
 
-    arguments
-        p
-        w = []
-        n (1, 1) {mustBePositive, mustBeInteger} = 2
-        nvArgs.circular (1, 1) logical = false
+arguments
+    pAttr
+    w
+    groups
+    bindOrders
+    nvArgs.circular (1, 1) logical = false
+end
+
+% --- Normalise pAttr to a cell of 2-D double matrices ---
+if ~iscell(pAttr)
+    error('bindEvents:badPAttrType', ...
+          'pAttr must be a cell array of per-attribute matrices.');
+end
+A = numel(pAttr);
+if A < 1
+    error('bindEvents:noAttrs', ...
+          'pAttr must contain at least one attribute.');
+end
+for a = 1:A
+    M = pAttr{a};
+    if ~isnumeric(M) || ndims(M) > 2
+        error('bindEvents:badAttrShape', ...
+              'Attribute %d input must be a numeric 2-D matrix.', a);
     end
-
-    % --- Unwrap 1-cell inputs (symmetry with differenceEvents output) ---
-    inputWasCellP = iscell(p);
-    if inputWasCellP
-        if numel(p) ~= 1
-            error('bindEvents:multiAttribute', ...
-                  ['p as a cell must contain exactly one attribute; ' ...
-                   'got %d. To bind multiple attributes, call ' ...
-                   'bindEvents on each separately.'], numel(p));
-        end
-        p = p{1};
+    if size(M, 1) == 0
+        error('bindEvents:emptyAttribute', ...
+              ['Attribute %d has K_a = 0 (empty attribute); empty ' ...
+               'attributes are not permitted.'], a);
     end
+    pAttr{a} = double(M);
+end
 
-    inputWasCellW = iscell(w);
-    if inputWasCellW
-        if numel(w) ~= 1
-            error('bindEvents:multiAttributeWeight', ...
-                  ['w as a cell must contain exactly one entry; got %d.'], ...
-                  numel(w));
-        end
-        w = w{1};
+% --- Verify shared event count N ---
+nEvents = size(pAttr{1}, 2);
+for a = 2:A
+    if size(pAttr{a}, 2) ~= nEvents
+        error('bindEvents:eventCountMismatch', ...
+              ['All attributes must share the same event count N. ' ...
+               'Attribute 1 has N=%d; attribute %d has N=%d.'], ...
+              nEvents, a, size(pAttr{a}, 2));
     end
+end
 
-    % --- Validate p shape (allow any K_a >= 1) ---
-    if ~isnumeric(p)
-        error('bindEvents:badPType', 'p must be numeric.');
+% --- Canonicalise groups: 1xA assignment, attrsOfGroup, G ---
+[groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A);
+
+% --- Parse bindOrders via Option C → ordersPerAttr (1xA) ---
+ordersPerAttr = localCanonicaliseBindOrders( ...
+    bindOrders, A, G, attrsOfGroup);
+
+% --- Compute output sizes ---
+maxOrder = max(ordersPerAttr);
+if nvArgs.circular
+    nPrime = nEvents;
+    if maxOrder > nEvents
+        error('bindEvents:windowTooLarge', ...
+              ['Circular window size max L = %d exceeds event ' ...
+               'count N = %d.'], double(maxOrder), nEvents);
     end
-    p = double(p);
-    if ndims(p) > 2
-        error('bindEvents:badPDims', ...
-              'p must be at most 2-D; got ndims = %d.', ndims(p));
+else
+    nPrime = nEvents - double(maxOrder) + 1;
+    if nPrime < 1
+        error('bindEvents:windowTooLarge', ...
+              ['Bind orders too high for the input event count: ' ...
+               'max L = %d but N = %d (non-circular).'], ...
+              double(maxOrder), nEvents);
     end
-    if isvector(p)
-        % Canonicalise length-N vector to 1 x N (K_a = 1).
-        p = reshape(p, 1, []);
-    end
-    Ka = size(p, 1);
-    N  = size(p, 2);
+end
 
-    if nvArgs.circular
-        if n > N
-            error('bindEvents:windowTooLarge', ...
-                  ['Circular window size n = %d exceeds event count ' ...
-                   'N = %d.'], n, N);
-        end
-        nPrime = N;
-    else
-        nPrime = N - n + 1;
-        if nPrime < 1
-            error('bindEvents:windowTooLarge', ...
-                  ['Window size n = %d exceeds event count N = %d ' ...
-                   '(non-circular mode).'], n, N);
-        end
-    end
+% --- Total output attribute count ---
+A_prime = sum(double(ordersPerAttr));
 
-    % --- Build the n lag matrices, preserving K_a ---
-    if nvArgs.circular
-        idxMat = mod((0:nPrime-1).' + (0:n-1), N) + 1;   % nPrime x n
-    else
-        idxMat = (0:nPrime-1).' + (1:n);                  % nPrime x n
-    end
-    pBound = cell(1, n);
-    for j = 1:n
-        pBound{j} = p(:, idxMat(:, j));      % K_a x nPrime
-    end
+% --- Build output value matrices and group labels ---
+pAttrBound  = cell(1, A_prime);
+groupsBound = zeros(1, A_prime);
+outIdx = 0;
+for a = 1:A
+    L_a = double(ordersPerAttr(a));
+    g_a = groupOfAttr(a);
+    Marr = pAttr{a};   % K_a x N
 
-    % --- Weights: per-attribute propagation ---
-    %
-    % Each output attribute inherits the slot weights of the underlying
-    % event at its lag. buildExpTens then multiplies across attributes
-    % during tuple enumeration, so the end-to-end weight of a bound
-    % super-event equals the product of the n constituent events'
-    % weights (the same numerical contribution as the prior eager
-    % rolling product, for K_a = 1; the natural generalisation for
-    % K_a > 1).
-
-    if isempty(w)
-        wBound = [];
-    elseif isnumeric(w) && isscalar(w)
-        % Scalar weight broadcasts in buildExpTens; pass through as scalar.
-        % Note: a scalar c here means each event has weight c, which makes
-        % each bound super-event's effective weight c^n via the multi-
-        % attribute weight machinery. Numerically equivalent to the
-        % prior c^n eager return, after buildExpTens' broadcast.
-        wBound = double(w);
-    elseif isnumeric(w)
-        if ndims(w) > 2
-            error('bindEvents:badWDims', ...
-                  'w must be at most 2-D; got ndims = %d.', ndims(w));
-        end
-        wMat = double(w);
-
-        % Coerce 1-D vector / 1 x N row / K_a x 1 col / K_a x N matrix
-        % into a 2-D matrix consistent with the p-shape.
-        if isvector(wMat)
-            if numel(wMat) == N
-                wMat = reshape(wMat, 1, []);     % 1 x N row
-            elseif numel(wMat) == Ka && Ka ~= N
-                wMat = reshape(wMat, [], 1);     % K_a x 1 col
-            elseif Ka == N
-                % Ambiguous: the input length matches both N and K_a.
-                % Honour the literal shape supplied (vectors are coerced
-                % above to a row by default, so this branch is the
-                % literal-shape pass-through).
-                wMat = reshape(wMat, 1, []);
-            else
-                error('bindEvents:badWeightShape', ...
-                      ['w as a vector must have length N = %d or ' ...
-                       'K_a = %d (got length %d).'], N, Ka, numel(wMat));
-            end
-        end
-
-        if size(wMat, 1) == 1 && size(wMat, 2) == N
-            % 1 x N row -> propagate per attribute as 1 x N' rows
-            wBound = cell(1, n);
-            for j = 1:n
-                wBound{j} = wMat(1, idxMat(:, j));   % 1 x nPrime
-            end
-        elseif size(wMat, 1) == Ka && size(wMat, 2) == 1
-            % K_a x 1 column -> per-attribute K_a x 1 (broadcast in builder)
-            wBound = cell(1, n);
-            for j = 1:n
-                wBound{j} = wMat;                    % K_a x 1
-            end
-        elseif size(wMat, 1) == Ka && size(wMat, 2) == N
-            % K_a x N matrix -> per-attribute K_a x N' matrix
-            wBound = cell(1, n);
-            for j = 1:n
-                wBound{j} = wMat(:, idxMat(:, j));   % K_a x nPrime
-            end
+    for ell = 0:(L_a - 1)
+        outIdx = outIdx + 1;
+        if nvArgs.circular
+            indices = mod((0:nPrime - 1) + ell, nEvents) + 1;
         else
-            error('bindEvents:badWeightShape', ...
-                  ['w must be [], a scalar, a 1 x N row, a K_a x 1 ' ...
-                   'column, or a K_a x N matrix (got shape [%s] with ' ...
-                   'K_a = %d, N = %d).'], num2str(size(w)), Ka, N);
+            indices = (ell + 1):(ell + nPrime);
         end
-    else
-        error('bindEvents:badWeightType', ...
-              'w must be [] or numeric.');
+        pAttrBound{outIdx} = Marr(:, indices);
+        groupsBound(outIdx) = g_a;
+    end
+end
+
+% --- Transform weights ---
+wBound = localBindWeights(w, A, ordersPerAttr, nEvents, nPrime, ...
+                          nvArgs.circular);
+
+end
+
+
+% =========================================================================
+%  localCanonicaliseBindOrders — Option C parsing → 1xA per-attribute
+% =========================================================================
+
+function ordersPerAttr = localCanonicaliseBindOrders( ...
+    bindOrders, A, G, attrsOfGroup)
+%LOCALCANONICALISEBINDORDERS  Coerce bindOrders to a 1 x A row vector.
+
+    if iscell(bindOrders)
+        ordersPerAttr = localCanonicaliseBindOrdersCell( ...
+            bindOrders, A, G, attrsOfGroup);
+        localValidateOrders(ordersPerAttr);
+        return;
+    end
+    if ~isnumeric(bindOrders)
+        error('bindEvents:badBindOrdersType', ...
+              ['bindOrders must be numeric or a 1-by-G cell; ' ...
+               'got class %s.'], class(bindOrders));
     end
 
-    % --- Re-wrap weight in a 1-cell if input was 1-cell ---
-    if inputWasCellW
-        wBound = {wBound};
+    v = double(bindOrders);
+    n = numel(v);
+    if n == 1
+        % Scalar: broadcast.
+        ordersPerAttr = v(1) * ones(1, A);
+    elseif n == A
+        % Length-A: per-attribute. (Also handles A == G case.)
+        ordersPerAttr = v(:).';
+    elseif n == G
+        % Length-G: per-group, broadcast within group.
+        ordersPerAttr = zeros(1, A);
+        v = v(:).';
+        for g = 1:G
+            attrs = attrsOfGroup{g};
+            ordersPerAttr(attrs) = v(g);
+        end
+    else
+        error('bindEvents:badBindOrdersLength', ...
+              ['bindOrders has %d entries; expected scalar (1), ' ...
+               'per-attribute (A = %d), or per-group (G = %d).'], ...
+              n, A, G);
+    end
+    localValidateOrders(ordersPerAttr);
+end
+
+
+function ordersPerAttr = localCanonicaliseBindOrdersCell( ...
+    c, A, G, attrsOfGroup)
+%LOCALCANONICALISEBINDORDERSCELL  Process the per-group cell form.
+
+    sz = size(c);
+    if numel(sz) ~= 2 || sz(1) ~= 1 || sz(2) ~= G
+        error('bindEvents:badBindOrdersShape', ...
+              ['bindOrders cell array must be 1-by-G = 1-by-%d; ' ...
+               'got shape %d-by-%d.'], G, sz(1), sz(2));
+    end
+    ordersPerAttr = ones(1, A);   % default: skipped groups get L = 1 (no-op)
+    for g = 1:G
+        val = c{g};
+        attrs = attrsOfGroup{g};
+        if isempty(val)
+            % Skip group → L = 1 (no-op, no super-attr expansion).
+            continue;
+        end
+        if ~isnumeric(val)
+            error('bindEvents:badBindOrdersShape', ...
+                  'bindOrders{%d} must be numeric or empty; got %s.', ...
+                  g, class(val));
+        end
+        vec = double(val(:).');
+        n_g = numel(attrs);
+        if isscalar(vec)
+            ordersPerAttr(attrs) = vec;
+        elseif numel(vec) == n_g
+            ordersPerAttr(attrs) = vec;
+        else
+            error('bindEvents:badBindOrdersShape', ...
+                  ['bindOrders{%d} has %d entries; expected scalar ' ...
+                   'or n_g = %d.'], g, numel(vec), n_g);
+        end
+    end
+end
+
+
+function localValidateOrders(ordersPerAttr)
+    if any(ordersPerAttr < 1) || any(ordersPerAttr ~= round(ordersPerAttr))
+        error('bindEvents:badBindOrders', ...
+              ['All entries of bindOrders must be positive integers ' ...
+               '(>= 1; L = 1 is the no-op).']);
+    end
+end
+
+
+% =========================================================================
+%  localBindWeights — weight transformation
+% =========================================================================
+
+function wOut = localBindWeights(w, A, ordersPerAttr, nEvents, nPrime, isCircular)
+%LOCALBINDWEIGHTS Transform weights under per-attribute binding.
+%
+%  Each output super-attribute carries the slot weights of the input
+%  event at its lag. Non-event-dependent inputs (None, scalar, K_a x 1
+%  column) are inherited as-is by every super-attribute; the kernel
+%  product over the L_a super-attributes in buildExpTens recovers the
+%  rolling product naturally. Event-dependent inputs (1 x N row,
+%  K_a x N matrix) are sliced into the output's lag-indexed columns.
+
+    if isempty(w) && ~iscell(w)
+        wOut = [];
+        return;
+    end
+
+    % --- Top-level scalar ---
+    if isnumeric(w) && isscalar(w)
+        % Inherited by every super-attribute via broadcast.
+        wOut = double(w);
+        return;
+    end
+
+    if ~iscell(w)
+        error('bindEvents:badWeightsType', ...
+              ['w must be [], a scalar, or a cell array of ' ...
+               'per-attribute weight inputs.']);
+    end
+    if numel(w) ~= A
+        error('bindEvents:badWeightsLength', ...
+              'Weight cell must have length A = %d; got length %d.', ...
+              A, numel(w));
+    end
+
+    A_prime = sum(double(ordersPerAttr));
+    wOut = cell(1, A_prime);
+    outIdx = 0;
+    for a = 1:A
+        L_a = double(ordersPerAttr(a));
+        wa = w{a};
+        K_a = NaN;  % to be inferred if needed
+        eventDep = localWeightHasEventDep(wa, nEvents, a);
+
+        for ell = 0:(L_a - 1)
+            outIdx = outIdx + 1;
+            if ~eventDep
+                % Non-event-dependent: each super-attr inherits the same input.
+                wOut{outIdx} = wa;
+                continue;
+            end
+            % Event-dependent (1 x N row or K_a x N matrix): slice by lag.
+            W = double(wa);
+            if isCircular
+                indices = mod((0:nPrime - 1) + ell, nEvents) + 1;
+            else
+                indices = (ell + 1):(ell + nPrime);
+            end
+            wOut{outIdx} = W(:, indices);
+        end
+    end
+end
+
+
+function tf = localWeightHasEventDep(wa, N, attrIdx)
+    % True iff wa's shape carries the N axis. Accepts [], scalar,
+    % K_a x 1 column (broadcast per slot), 1 x N row, or K_a x N
+    % matrix.
+    if isempty(wa)
+        tf = false;
+        return;
+    end
+    if ~isnumeric(wa)
+        error('bindEvents:badWeightType', ...
+              'Attribute %d weight must be numeric.', attrIdx);
+    end
+    if isscalar(wa)
+        tf = false;
+        return;
+    end
+    sz = size(wa);
+    if numel(sz) == 2 && sz(2) == N
+        tf = true;
+        return;
+    end
+    if numel(sz) == 2 && sz(2) == 1
+        tf = false;
+        return;
+    end
+    error('bindEvents:badWeightShape', ...
+          ['Attribute %d weight has shape [%s]; expected [], scalar, ' ...
+           '[K_a 1] column, [1 %d] row, or [K_a %d] matrix.'], ...
+          attrIdx, num2str(sz), N, N);
+end
+
+
+function [groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A)
+    % Return:
+    %   groupOfAttr  — 1 x A vector of 1-indexed group labels.
+    %   attrsOfGroup — 1 x G cell, attrsOfGroup{g} is the column
+    %                  vector of attribute indices in group g.
+    %   G            — number of groups.
+    if isempty(groups)
+        groupOfAttr = 1:A;
+    elseif iscell(groups)
+        G = numel(groups);
+        groupOfAttr = zeros(1, A);
+        for g = 1:G
+            idx = groups{g};
+            if any(idx < 1) || any(idx > A) || any(groupOfAttr(idx) ~= 0)
+                error('bindEvents:badGroups', ...
+                      'Invalid cell-form groups specification.');
+            end
+            groupOfAttr(idx) = g;
+        end
+        if any(groupOfAttr == 0)
+            error('bindEvents:badGroups', ...
+                  'Every attribute must appear in exactly one group.');
+        end
+    elseif isnumeric(groups) && numel(groups) == A
+        groupOfAttr = double(groups(:).');
+        if any(groupOfAttr < 1) || any(groupOfAttr ~= round(groupOfAttr))
+            error('bindEvents:badGroups', ...
+                  'Numeric groups must be positive integers.');
+        end
+    else
+        error('bindEvents:badGroupsShape', ...
+              ['groups must be [], a length-A numeric vector, or a ' ...
+               'cell of index lists.']);
+    end
+    G = max(groupOfAttr);
+    attrsOfGroup = cell(1, G);
+    for g = 1:G
+        attrsOfGroup{g} = find(groupOfAttr == g);
     end
 end

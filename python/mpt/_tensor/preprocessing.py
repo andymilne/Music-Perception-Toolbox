@@ -7,7 +7,7 @@ This module hosts the small preprocessing layer that sits *before*
   k-th finite differences along the event axis.
 * :func:`bind_events` --- slide a length-n window across an event
   sequence, emitting each window as an n-attribute super-event.
-* :func:`translate_events` --- shift every value of every attribute
+* :func:`translate_attributes` --- shift every value of every attribute
   in selected groups by a per-group offset (rigid translation).
 
 It also exposes :func:`simplex_vertices`, the categorical-encoding
@@ -26,8 +26,8 @@ from .._utils import validate_weights
 from .density import _canonicalise_groups
 
 
-class TranslateEventsNoOpWarning(UserWarning):
-    """Emitted when ``translate_events`` is asked to translate a
+class TranslateAttributesNoOpWarning(UserWarning):
+    """Emitted when ``translate_attributes`` is asked to translate a
     relative-mode group, which is a structural no-op (the relative
     MAET depends only on within-tuple differences, so a uniform shift
     of all values cancels in every pairwise difference). The group is
@@ -616,11 +616,11 @@ def bind_events(p, w=None, n=2, *, circular=False) -> tuple[list[np.ndarray], No
 
 
 # ===================================================================
-#  translate_events
+#  translate_attributes
 # ===================================================================
 
 
-def translate_events(
+def translate_attributes(
     p_attr,
     groups,
     offsets,
@@ -628,17 +628,16 @@ def translate_events(
     is_per,
     periods,
 ) -> list[np.ndarray] | list[list[np.ndarray]]:
-    """Translate selected groups' event values by a per-group offset.
+    """Translate selected attributes' values by a chosen offset.
 
-    Cross-event preprocessing for multi-attribute tensor input. Takes
+    Per-attribute preprocessing for multi-attribute tensor input. Takes
     the ``p_attr`` list one would otherwise feed to
     :func:`build_exp_tens` and returns a transformed ``p_attr_translated``
-    list with the same shape conventions, in which every value of every
-    attribute belonging to a selected group has been shifted by the
-    group's offset. The output feeds directly into
-    :func:`build_exp_tens` without any further massaging.
+    list with the same shape conventions, in which selected attributes'
+    values have been shifted by a chosen offset. The output feeds
+    directly into :func:`build_exp_tens` without any further massaging.
 
-    Sliding-comparison context. ``translate_events`` is the pre-tensor
+    Sliding-comparison context. ``translate_attributes`` is the pre-tensor
     route to a sliding comparison along one or more attribute-group
     axes: for each candidate offset ``mu`` on a sweep grid, translate
     the events and compute a similarity against an un-shifted reference.
@@ -703,7 +702,7 @@ def translate_events(
     - **Relative** (``is_rel[g] = True``): a uniform shift of every
       value cancels in every within-tuple difference, so translation
       on a relative group is a structural no-op. The group is left
-      unchanged. A :class:`TranslateEventsNoOpWarning` is emitted at
+      unchanged. A :class:`TranslateAttributesNoOpWarning` is emitted at
       most once per call, even when the matrix form has many columns
       with finite entries on the relative-group row.
 
@@ -730,19 +729,19 @@ def translate_events(
         Length-G vector of relative-mode flags, same convention as
         :func:`build_exp_tens`. Groups with ``is_rel[g] = True`` that
         have at least one finite offset entry emit a single
-        :class:`TranslateEventsNoOpWarning` and pass through unchanged
+        :class:`TranslateAttributesNoOpWarning` and pass through unchanged
         on every column.
     is_per : array-like of bool
         Length-G vector of periodic-mode flags, same convention as
         :func:`build_exp_tens`. Accepted for signature parallelism with
         the rest of the MAET pipeline; not consulted by
-        ``translate_events`` itself, since translation outputs
+        ``translate_attributes`` itself, since translation outputs
         unwrapped values and the periodic kernel in
         :func:`build_exp_tens` handles wrapping downstream.
     periods : array-like of float
         Length-G vector of periods, same convention as
         :func:`build_exp_tens`. Accepted for signature parallelism;
-        not consulted by ``translate_events`` itself.
+        not consulted by ``translate_attributes`` itself.
 
     Returns
     -------
@@ -762,7 +761,7 @@ def translate_events(
 
     Warns
     -----
-    TranslateEventsNoOpWarning
+    TranslateAttributesNoOpWarning
         When the offsets specify a finite translation on a group with
         ``is_rel[g] = True``. At most one warning is emitted per call,
         regardless of how many columns or relative groups are involved.
@@ -784,7 +783,7 @@ def translate_events(
 
         >>> import numpy as np
         >>> from mpt import (
-        ...     translate_events, build_exp_tens, cos_sim_exp_tens,
+        ...     translate_attributes, build_exp_tens, cos_sim_exp_tens,
         ... )
         >>> p_q = [np.array([[60., 64., 67.], [63., 64., 67.]])]
         >>> p_c = [np.array([[62., 66., 69.], [65., 66., 69.]])]
@@ -792,7 +791,7 @@ def translate_events(
         >>> is_rel, is_per, periods = [False], [False], [0.0]
         >>> best = -np.inf
         >>> for mu in np.arange(-12., 12.01, 0.25):
-        ...     p_c_mu = translate_events(
+        ...     p_c_mu = translate_attributes(
         ...         p_c, groups, {0: mu}, is_rel, is_per, periods,
         ...     )
         ...     M_q = build_exp_tens(
@@ -810,7 +809,7 @@ def translate_events(
     Sweep all transpositions in a single call using the matrix form::
 
         >>> mu_grid = np.arange(-12., 12.01, 0.25).reshape(1, -1)  # (G, M)
-        >>> p_c_sweep = translate_events(
+        >>> p_c_sweep = translate_attributes(
         ...     p_c, groups, mu_grid, is_rel, is_per, periods,
         ... )  # list of length M, each entry a length-A list
         >>> len(p_c_sweep) == mu_grid.shape[1]
@@ -893,7 +892,7 @@ def translate_events(
                 f"of all values cancels in every within-tuple "
                 f"difference). The group is left unchanged on every "
                 f"offset column.",
-                TranslateEventsNoOpWarning,
+                TranslateAttributesNoOpWarning,
                 stacklevel=2,
             )
             warned_relative = True

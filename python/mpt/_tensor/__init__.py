@@ -7,7 +7,7 @@ re-export shim over this sub-package).
 Module layout:
   density.py        Density classes + MA-input helpers.
   build.py          build_exp_tens (SA + MA paths).
-  preprocessing.py  difference_events, bind_events, translate_events,
+  preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
   windowing.py      window_tensor, windowed_similarity, windowed IP.
   canonical.py      Canonical-form key helpers for batched dedup.
@@ -37,11 +37,11 @@ from .build import (
 )
 
 from .preprocessing import (
-    TranslateEventsNoOpWarning,
+    TranslateAttributesNoOpWarning,
     bind_events,
     difference_events,
     simplex_vertices,
-    translate_events,
+    translate_attributes,
 )
 
 from .windowing import (
@@ -92,8 +92,8 @@ __all__ = [
     "bind_events",
     "difference_events",
     "simplex_vertices",
-    "translate_events",
-    "TranslateEventsNoOpWarning",
+    "translate_attributes",
+    "TranslateAttributesNoOpWarning",
     # Windowing (public)
     "window_tensor",
     "windowed_similarity",

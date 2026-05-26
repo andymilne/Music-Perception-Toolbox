@@ -1,6 +1,6 @@
 """demo_translate_sweep.py
 
-Pre-tensor sliding-comparison sweep with ``translate_events`` and the
+Pre-tensor sliding-comparison sweep with ``translate_attributes`` and the
 raw-MA list mode of ``cos_sim_exp_tens``.
 
 Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
@@ -12,11 +12,14 @@ MAET (pitch periodic at the octave; time absolute non-periodic). The
 sweep should peak at (0 cents, 3 s) where the query aligns with the
 embedded C-E-G, and at (1200 cents, 3 s) by octave periodicity.
 
-The workflow is two function calls: one to ``translate_events`` (with
-a ``(G, M)`` offsets matrix), one to ``cos_sim_exp_tens`` (raw-MA
-scalar-vs-list form, with the translated ``p_attr`` list as one
-operand and the reference ``p_attr`` as the other). The build step is
-internalised: the reference is built once, each translated query once.
+The workflow is two function calls: one to ``translate_attributes``, one
+to ``cos_sim_exp_tens`` (raw-MA scalar-vs-list form, with the
+translated ``p_attr`` list as one operand and the reference
+``p_attr`` as the other). The build step is internalised: the
+reference is built once, each translated query once. The sweep can
+be specified in either of two equivalent forms --- a single ``(A, M)``
+numeric matrix or a ``{group_index: sweep}`` dict --- and Section 3
+shows both with a parity check.
 
 Compare ``demo_maet_windowing`` (post-tensor sliding) and
 ``demo_windowing_reference`` (reference-point options for
@@ -28,7 +31,7 @@ from the query's own support.
 
 See also
 --------
-mpt.translate_events
+mpt.translate_attributes
 mpt.cos_sim_exp_tens
 mpt.build_exp_tens
 mpt.windowed_similarity
@@ -91,9 +94,8 @@ time_grid  = np.arange(-1.0, 5.001, 0.25)
 
 P_mesh, T_mesh = np.meshgrid(pitch_grid, time_grid, indexing="ij")
 M = P_mesh.size
-
-# offsets_mat is (G, M). Row 0 = pitch shifts, row 1 = time shifts.
-offsets_mat = np.vstack([P_mesh.ravel(), T_mesh.ravel()])
+# P_mesh and T_mesh are used in Section 3 to build the sweep in either
+# of the two equivalent offset forms.
 
 print(f"  pitch grid: {pitch_grid.size} transpositions over one octave "
       f"(100-cent steps)")
@@ -104,15 +106,46 @@ print()
 
 
 # =====================================================================
-# 3. Pre-tensor translation: one call returns a length-M list
+# 3. Pre-tensor translation: two equivalent offset forms
 # =====================================================================
 
-print("=== 3. translate_events (matrix form) ===")
+print("=== 3. translate_attributes (two equivalent offset forms) ===")
 
-qry_pAttr_swept = mpt.translate_events(
+# Form A: numeric matrix. Rows index attributes, columns index sweep
+# positions. With A = 2 singleton groups here, row 0 is the pitch
+# attribute and row 1 is the time attribute.
+offsets_mat = np.vstack([P_mesh.ravel(),     # pitch shifts (attribute 0)
+                         T_mesh.ravel()])    # time  shifts (attribute 1)
+
+qry_pAttr_swept_mat = mpt.translate_attributes(
     qry_pAttr, groups, offsets_mat, is_rel, is_per, periods,
 )
 
+# Form B: dict keyed by group index, with one group's sweep per entry.
+# Each value is a 1-D length-M row, which the orientation grammar
+# reads as "broadcast within group, M-position sweep" --- here that
+# coincides with per-attribute because each group is a singleton.
+# Reads naturally as "sweep pitch (group 0) by these values; sweep
+# time (group 1) by these values".
+offsets_dict = {
+    0: P_mesh.ravel(),   # pitch axis
+    1: T_mesh.ravel(),   # time axis
+}
+
+qry_pAttr_swept_dict = mpt.translate_attributes(
+    qry_pAttr, groups, offsets_dict, is_rel, is_per, periods,
+)
+
+# Parity check: the two forms must produce identical translated values.
+diff_max_forms = 0.0
+for entry_m, entry_d in zip(qry_pAttr_swept_mat, qry_pAttr_swept_dict):
+    for a, b in zip(entry_m, entry_d):
+        diff_max_forms = max(diff_max_forms, float(np.max(np.abs(a - b))))
+print(f"  matrix form vs dict form: max |diff| = {diff_max_forms:.2e}")
+assert diff_max_forms == 0.0, "Matrix form and dict form disagree."
+
+# Proceed with the matrix-form output for the downstream computation.
+qry_pAttr_swept = qry_pAttr_swept_mat
 print(f"  qry_pAttr_swept: {type(qry_pAttr_swept).__name__}, "
       f"length {len(qry_pAttr_swept)}")
 print(f"  each entry is a length-{len(qry_pAttr)} list of K_a x N "
@@ -189,7 +222,7 @@ print()
 
 print("=== 6. Equivalent explicit build loop ===")
 print("  This is what the raw-MA list mode does internally; spelled")
-print("  out here so the relationship between translate_events,")
+print("  out here so the relationship between translate_attributes,")
 print("  build_exp_tens, and cos_sim_exp_tens is transparent.")
 print()
 

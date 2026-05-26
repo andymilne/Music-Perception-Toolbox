@@ -1,15 +1,15 @@
-function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer, periods)
-%TRANSLATEEVENTS Translate event values by a per-attribute offset.
+function pAttrTranslated = translateAttributes(pAttr, groups, offsets, isRel, isPer, periods)
+%TRANSLATEATTRIBUTES Translate selected attributes' values by a chosen offset.
 %
-%   pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer, periods)
-%   is a cross-event preprocessing helper for multi-attribute tensor
+%   pAttrTranslated = translateAttributes(pAttr, groups, offsets, isRel, isPer, periods)
+%   is a per-attribute preprocessing helper for multi-attribute tensor
 %   input. It takes the pAttr list one would otherwise feed to
 %   buildExpTens and returns a transformed pAttrTranslated list with the
 %   same shape conventions, in which selected attributes' values have
 %   been shifted by a chosen offset. The output feeds directly into
 %   buildExpTens without any further massaging.
 %
-%   Sliding-comparison context. translateEvents is the pre-tensor route
+%   Sliding-comparison context. translateAttributes is the pre-tensor route
 %   to a sliding comparison along one or more attribute axes: for each
 %   candidate offset mu on a sweep grid, translate the events and
 %   compute a similarity against an un-shifted reference. The post-
@@ -75,7 +75,7 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %     Relative (isRel(g) = true): a uniform shift of every value
 %     cancels in every within-tuple difference, so translation on a
 %     relative group is a structural no-op. The group is left
-%     unchanged. The warning translateEvents:noOpRelative is emitted
+%     unchanged. The warning translateAttributes:noOpRelative is emitted
 %     at most once per call, even when multiple sweep columns carry
 %     finite entries on the relative-group attributes.
 %
@@ -93,13 +93,13 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %                  input forms" block above.
 %       isRel    - 1 x G logical vector. Groups with isRel(g) = true
 %                  carrying any finite offset on their attributes emit
-%                  a single translateEvents:noOpRelative warning and
+%                  a single translateAttributes:noOpRelative warning and
 %                  pass through unchanged on every column.
 %       isPer    - 1 x G logical vector. Accepted for signature
 %                  parallelism with the rest of the MAET pipeline; not
-%                  consulted by translateEvents itself.
+%                  consulted by translateAttributes itself.
 %       periods  - 1 x G numeric vector. Accepted for signature
-%                  parallelism; not consulted by translateEvents
+%                  parallelism; not consulted by translateAttributes
 %                  itself.
 %
 %   Output
@@ -109,16 +109,16 @@ function pAttrTranslated = translateEvents(pAttr, groups, offsets, isRel, isPer,
 %                         mode (any other input).
 %
 %   Errors
-%       translateEvents:badPAttr           - pAttr is malformed.
-%       translateEvents:badEventCount      - inconsistent N across attrs.
-%       translateEvents:wrongIsRelLength   - isRel has length != G.
-%       translateEvents:wrongIsPerLength   - isPer has length != G.
-%       translateEvents:wrongPeriodsLength - periods has length != G.
-%       translateEvents:wrongOffsetsShape  - offsets not a valid shape.
-%       translateEvents:nonFiniteOffset    - an offset is +/-Inf.
+%       translateAttributes:badPAttr           - pAttr is malformed.
+%       translateAttributes:badEventCount      - inconsistent N across attrs.
+%       translateAttributes:wrongIsRelLength   - isRel has length != G.
+%       translateAttributes:wrongIsPerLength   - isPer has length != G.
+%       translateAttributes:wrongPeriodsLength - periods has length != G.
+%       translateAttributes:wrongOffsetsShape  - offsets not a valid shape.
+%       translateAttributes:nonFiniteOffset    - an offset is +/-Inf.
 %
 %   Warnings
-%       translateEvents:noOpRelative - emitted once per call when any
+%       translateAttributes:noOpRelative - emitted once per call when any
 %                                       relative-group attribute has any
 %                                       finite offset entry.
 %
@@ -129,7 +129,7 @@ if isnumeric(pAttr)
     pAttr = {pAttr};
 end
 if ~iscell(pAttr) || isempty(pAttr)
-    error('translateEvents:badPAttr', ...
+    error('translateAttributes:badPAttr', ...
           'pAttr must be a non-empty cell of value matrices.');
 end
 A = numel(pAttr);
@@ -138,7 +138,7 @@ for a = 1:A
     if isvector(Marr) && (size(Marr, 1) == 1 || size(Marr, 2) == 1)
         Marr = reshape(double(Marr), 1, []);   % row form
     elseif ndims(Marr) > 2 %#ok<ISMAT>
-        error('translateEvents:badPAttr', ...
+        error('translateAttributes:badPAttr', ...
               'pAttr{%d} must be 1-D or 2-D; got ndims=%d.', a, ndims(Marr));
     else
         Marr = double(Marr);
@@ -150,7 +150,7 @@ end
 N = size(pAttr{1}, 2);
 for a = 2:A
     if size(pAttr{a}, 2) ~= N
-        error('translateEvents:badEventCount', ...
+        error('translateAttributes:badEventCount', ...
               ['All attributes must share the same event count N. ' ...
                'Attribute 1 has N=%d; attribute %d has N=%d.'], ...
               N, a, size(pAttr{a}, 2));
@@ -169,16 +169,16 @@ end
 
 % --- Validate isRel, isPer, periods ---
 if numel(isRel) ~= G
-    error('translateEvents:wrongIsRelLength', ...
+    error('translateAttributes:wrongIsRelLength', ...
           'isRel must have length G = %d (number of groups); got %d.', ...
           G, numel(isRel));
 end
 if numel(isPer) ~= G
-    error('translateEvents:wrongIsPerLength', ...
+    error('translateAttributes:wrongIsPerLength', ...
           'isPer must have length G = %d; got %d.', G, numel(isPer));
 end
 if numel(periods) ~= G
-    error('translateEvents:wrongPeriodsLength', ...
+    error('translateAttributes:wrongPeriodsLength', ...
           'periods must have length G = %d; got %d.', G, numel(periods));
 end
 isRel = logical(isRel(:).');
@@ -208,7 +208,7 @@ for g = 1:G
         continue;
     end
     if ~warnedRelative
-        warning('translateEvents:noOpRelative', ...
+        warning('translateAttributes:noOpRelative', ...
                 ['Group %d has isRel=true; translation is a structural ' ...
                  'no-op on relative groups (a uniform shift of all values ' ...
                  'cancels in every within-tuple difference). The group is ' ...
@@ -259,12 +259,12 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
         return;
     end
     if ~isnumeric(offsets)
-        error('translateEvents:wrongOffsetsShape', ...
+        error('translateAttributes:wrongOffsetsShape', ...
               ['offsets must be a numeric matrix or a 1-by-G cell array; ' ...
                'got class %s.'], class(offsets));
     end
     if ndims(offsets) > 2 %#ok<ISMAT>
-        error('translateEvents:wrongOffsetsShape', ...
+        error('translateAttributes:wrongOffsetsShape', ...
               ['offsets must be a numeric matrix (scalar, row, column, ' ...
                'or 2-D) or a 1-by-G cell; got an array with ndims=%d.'], ...
               ndims(offsets));
@@ -274,7 +274,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
 
     % Reject inf early (NaN is allowed as skip sentinel).
     if any(isinf(offsets(:)))
-        error('translateEvents:nonFiniteOffset', ...
+        error('translateAttributes:nonFiniteOffset', ...
               'offsets entries must be finite (or NaN to skip a cell).');
     end
 
@@ -282,7 +282,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
         % Scalar: broadcast no sweep.
         matrixMode = false;
         if isnan(offsets)
-            error('translateEvents:nonFiniteOffset', ...
+            error('translateAttributes:nonFiniteOffset', ...
                   'Scalar offset must be finite; got NaN.');
         end
         offsetsPerAttr = repmat(offsets, A, 1);
@@ -300,7 +300,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
         offsetsPerAttr = offsets;
         return;
     end
-    error('translateEvents:wrongOffsetsShape', ...
+    error('translateAttributes:wrongOffsetsShape', ...
           ['offsets is a 2-D array with shape %d-by-%d; row count must ' ...
            'be 1 (broadcast across all attributes) or A = %d (per-' ...
            'attribute). For per-group offsets, use the 1-by-G cell form.'], ...
@@ -312,7 +312,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G,
 %LOCALNORMALISEOFFSETSCELL  Process the polymorphic 1-by-G cell form.
     sz = size(offsets);
     if numel(sz) ~= 2 || sz(1) ~= 1 || sz(2) ~= G
-        error('translateEvents:wrongOffsetsShape', ...
+        error('translateAttributes:wrongOffsetsShape', ...
               ['offsets cell array must be 1-by-G = 1-by-%d (one cell ' ...
                'per group, in group order); got shape %d-by-%d.'], ...
               G, sz(1), sz(2));
@@ -329,18 +329,18 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G,
             continue;
         end
         if ~isnumeric(val)
-            error('translateEvents:wrongOffsetsShape', ...
+            error('translateAttributes:wrongOffsetsShape', ...
                   'offsets{%d} must be numeric or empty; got class %s.', ...
                   g, class(val));
         end
         if ndims(val) > 2 %#ok<ISMAT>
-            error('translateEvents:wrongOffsetsShape', ...
+            error('translateAttributes:wrongOffsetsShape', ...
                   'offsets{%d} must be 2-D (scalar, row, column, or matrix); got ndims=%d.', ...
                   g, ndims(val));
         end
         val = double(val);
         if any(isinf(val(:)))
-            error('translateEvents:nonFiniteOffset', ...
+            error('translateAttributes:nonFiniteOffset', ...
                   'offsets{%d}: entries must be finite (or NaN to skip a cell).', g);
         end
         [nRows, nCols] = size(val);
@@ -349,7 +349,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G,
             if M == 1
                 M = nCols;
             elseif nCols ~= M
-                error('translateEvents:wrongOffsetsShape', ...
+                error('translateAttributes:wrongOffsetsShape', ...
                       ['offsets{%d} has shape %d-by-%d; sweep dimension ' ...
                        '%d does not match the %d sweep positions ' ...
                        'established by other entries.'], ...
@@ -375,7 +375,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G,
         if nRows == 1 && nCols == 1
             % scalar: broadcast within group, no sweep.
             if isnan(val)
-                error('translateEvents:nonFiniteOffset', ...
+                error('translateAttributes:nonFiniteOffset', ...
                       ['offsets{%d}: scalar offset must be finite (use ' ...
                        'empty [] to skip a group); got NaN.'], g);
             end
@@ -391,7 +391,7 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsetsCell(offsets, A, G,
                 offsetsPerAttr(attrs(ii), :) = val(ii, :);
             end
         else
-            error('translateEvents:wrongOffsetsShape', ...
+            error('translateAttributes:wrongOffsetsShape', ...
                   ['offsets{%d} is %d-by-%d; row count must be 1 ' ...
                    '(broadcast within group) or %d (per-attribute, ' ...
                    'matching the number of attributes in group %d).'], ...
@@ -416,7 +416,7 @@ function groupOfAttr = localCanonicaliseGroups(groups, A)
             groupOfAttr(attrs) = g;
         end
         if any(groupOfAttr == 0)
-            error('translateEvents:badGroups', ...
+            error('translateAttributes:badGroups', ...
                   ['Partition does not cover all attributes; some ' ...
                    'attribute has no group assigned.']);
         end
@@ -424,7 +424,7 @@ function groupOfAttr = localCanonicaliseGroups(groups, A)
     end
     groups = groups(:).';
     if numel(groups) ~= A
-        error('translateEvents:badGroups', ...
+        error('translateAttributes:badGroups', ...
               ['groups vector must have length A = %d (one entry per ' ...
                'attribute); got length %d.'], A, numel(groups));
     end

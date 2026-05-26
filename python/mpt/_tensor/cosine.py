@@ -192,7 +192,7 @@ def cos_sim_exp_tens(*args,
       sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec)``
       where exactly one of the two ``p_attr`` arguments is a list of
       ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
-      :func:`translate_events`) and the other is a single ``p_attr``.
+      :func:`translate_attributes`) and the other is a single ``p_attr``.
       Build is internalised: the scalar operand is built once, the
       list operand once per entry. Weights for the list side are
       shared across every entry — a single ``w`` value, not a list of
@@ -362,7 +362,7 @@ def cos_sim_exp_tens(*args,
         # examines the first element: ndarray → single MA;
         # list/tuple → list of MA. This matches the convention
         # used elsewhere in the toolbox and is what the matrix-form
-        # output of translate_events produces.
+        # output of translate_attributes produces.
         a_is_list = isinstance(a[0], (list, tuple))
         b = args[2] if len(args) >= 3 else None
         b_is_list = (

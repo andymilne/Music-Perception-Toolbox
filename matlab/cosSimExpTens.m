@@ -45,7 +45,7 @@ function s = cosSimExpTens(varargin)
 %   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
 %   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
 %   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
-%   output of translateEvents); the other is a single 1-by-A pAttr
+%   output of translateAttributes); the other is a single 1-by-A pAttr
 %   cell. The scalar operand is built once; the list operand is
 %   built once per entry. Weights for the list side are shared
 %   across every entry (a single w value, not a cell of weights).

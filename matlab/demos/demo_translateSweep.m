@@ -1,5 +1,5 @@
 %DEMO_TRANSLATESWEEP Pre-tensor sliding-comparison sweep with
-% translateEvents and the raw-MA list mode of cosSimExpTens.
+% translateAttributes and the raw-MA list mode of cosSimExpTens.
 %
 % Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 % (D E F C E G A, one note per second). The motif appears exactly at
@@ -11,11 +11,14 @@
 % with the embedded C-E-G, and at (1200 cents, 3 s) by octave
 % periodicity.
 %
-% The workflow is two function calls: one to translateEvents (with a
-% G-by-M offsets matrix), one to cosSimExpTens (raw-MA scalar-vs-list
-% form, with the translated p_attr list as one operand and the
-% reference pAttr as the other). The build step is internalised: the
-% reference is built once, each translated query once.
+% The workflow is two function calls: one to translateAttributes, one to
+% cosSimExpTens (raw-MA scalar-vs-list form, with the translated p_attr
+% list as one operand and the reference pAttr as the other). The build
+% step is internalised: the reference is built once, each translated
+% query once. The sweep can be specified in either of two equivalent
+% forms --- a single A-by-M numeric matrix or a 1-by-G cell with one
+% group's sweep per cell --- and Section 3 shows both with a parity
+% check.
 %
 % Compare demo_maetWindowing (post-tensor sliding) and
 % demo_windowingReference (reference-point options for
@@ -25,7 +28,7 @@
 % returns a magnitude-aware windowed similarity and decouples locality
 % from the query's own support.
 %
-% See also TRANSLATEEVENTS, COSSIMEXPTENS, BUILDEXPTENS,
+% See also TRANSLATEATTRIBUTES, COSSIMEXPTENS, BUILDEXPTENS,
 % WINDOWEDSIMILARITY.
 
 clear; clc;
@@ -81,11 +84,8 @@ timeGrid  = -1:0.25:5;
 
 [Pmesh, Tmesh] = meshgrid(pitchGrid, timeGrid);
 M = numel(Pmesh);
-
-% offsets_mat is G-by-M. Row 1 = pitch shifts, row 2 = time shifts.
-offsetsMat        = zeros(2, M);
-offsetsMat(1, :)  = Pmesh(:).';
-offsetsMat(2, :)  = Tmesh(:).';
+% Pmesh and Tmesh are used in Section 3 to build the sweep in either
+% of the two equivalent offset forms.
 
 fprintf('  pitch grid: %d transpositions over one octave (100-cent steps)\n', ...
         numel(pitchGrid));
@@ -95,14 +95,45 @@ fprintf('  total sweep positions: M = %d\n', M);
 fprintf('\n');
 
 %% ===================================================================
-%  3. Pre-tensor translation: one call returns a 1-by-M cell
+%  3. Pre-tensor translation: two equivalent offset forms
 %  ===================================================================
 
-fprintf('=== 3. translateEvents (matrix form) ===\n');
+fprintf('=== 3. translateAttributes (two equivalent offset forms) ===\n');
 
-qryPAttrSwept = translateEvents(qryPAttr, groups, offsetsMat, ...
-                                 isRel, isPer, periods);
+% Form A: numeric matrix. Rows index attributes, columns index sweep
+% positions. With A = 2 singleton groups here, row 1 is the pitch
+% attribute and row 2 is the time attribute.
+offsetsMat        = zeros(2, M);
+offsetsMat(1, :)  = Pmesh(:).';   % pitch shifts (attribute 1)
+offsetsMat(2, :)  = Tmesh(:).';   % time  shifts (attribute 2)
 
+qryPAttrSweptMat = translateAttributes(qryPAttr, groups, offsetsMat, ...
+                                    isRel, isPer, periods);
+
+% Form B: 1-by-G cell, with one group's sweep per cell. Each entry is
+% a 1-by-M row, which the orientation grammar reads as "broadcast
+% within group, M-position sweep" --- here that coincides with per-
+% attribute because each group is a singleton. Reads naturally as
+% "sweep pitch (group 1) by these values; sweep time (group 2) by
+% these values".
+offsetsCell = {Pmesh(:).', Tmesh(:).'};
+
+qryPAttrSweptCell = translateAttributes(qryPAttr, groups, offsetsCell, ...
+                                     isRel, isPer, periods);
+
+% Parity check: the two forms must produce identical translated values.
+diffMaxForms = 0;
+for m = 1:M
+    for a = 1:numel(qryPAttr)
+        d = max(abs(qryPAttrSweptMat{m}{a}(:) - qryPAttrSweptCell{m}{a}(:)));
+        if d > diffMaxForms, diffMaxForms = d; end
+    end
+end
+fprintf('  matrix form vs cell form: max |diff| = %.2e\n', diffMaxForms);
+assert(diffMaxForms == 0, 'Matrix form and cell form disagree.');
+
+% Proceed with the matrix-form output for the downstream computation.
+qryPAttrSwept = qryPAttrSweptMat;
 fprintf('  qryPAttrSwept: %s, length %d\n', class(qryPAttrSwept), ...
         numel(qryPAttrSwept));
 fprintf('  each entry is a 1-by-%d cell of K_a-by-N value matrices\n', ...
@@ -172,7 +203,7 @@ fprintf('\n');
 
 fprintf('=== 6. Equivalent explicit build loop ===\n');
 fprintf('  This is what the raw-MA list mode does internally; here it\n');
-fprintf('  is spelled out so the relationship between translateEvents,\n');
+fprintf('  is spelled out so the relationship between translateAttributes,\n');
 fprintf('  buildExpTens, and cosSimExpTens is transparent.\n\n');
 
 densRef = buildExpTens(refPAttr, [], sigma, r, groups, ...

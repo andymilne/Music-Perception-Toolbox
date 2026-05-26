@@ -30,7 +30,7 @@ Version 2.2.0 is primarily a **performance release**. The headline gains come fr
 
 v2.2 also exposes **Rényi-2 differential entropy** $H_2 = -\log_b \langle T, T\rangle / Z^2$ as `method='renyi2'` on `entropyExpTens`. The analytical route was conceptually available in v2.0 / v2.1 (it requires only the inner product and total mass, both already analytical); v2.2 wires it up as a user-facing option and gains efficiency at high $r$ / $K$ via the Möbius method. **Shannon differential entropy** has no closed form in any version and is unchanged — `method='shannon'` continues to use a numerical grid.
 
-Additional improvements outside the two strands: **`bindEvents`** accepts $K_{a, n} > 1$ input, unblocking polyphonic-binding analyses with multi-slot attributes at the source. A new pre-tensor preprocessing primitive **`translateEvents` / `translate_events`** shifts selected attributes' values by a chosen offset (unwrapped on periodic groups, with the periodic kernel handling wrap downstream; structural no-op on relative groups); this is the pre-tensor route to sliding-comparison along an attribute axis, complementary to the post-tensor `windowedSimilarity`, and handles multi-slot attributes ($K_{a, n} > 1$) without ambiguity since every slot translates by the same offset.
+Additional improvements outside the two strands: **`bindEvents`** accepts $K_{a, n} > 1$ input, unblocking polyphonic-binding analyses with multi-slot attributes at the source. A new pre-tensor preprocessing primitive **`translateAttributes` / `translate_attributes`** shifts selected attributes' values by a chosen offset (unwrapped on periodic groups, with the periodic kernel handling wrap downstream; structural no-op on relative groups); this is the pre-tensor route to sliding-comparison along an attribute axis, complementary to the post-tensor `windowedSimilarity`, and handles multi-slot attributes ($K_{a, n} > 1$) without ambiguity since every slot translates by the same offset.
 
 The release is additive: existing v2.1.0 calling conventions are preserved at the floating-point level for the default routing in standard regimes. The new method choice is exposed via a `method` keyword on `cosSimExpTens`, `evalExpTens`, and `entropyExpTens` (accepting `'auto'`, `'bulger'`, `'mobius'`, plus `'centres'` for eval and `'direct'` for small problems); `'auto'` is the default and matches v2.1 numerical behaviour on standard inputs. The kernel-evaluation controls default to no truncation and double precision (i.e., the v2.1 numerical behaviour) and only activate when the user opts in.
 
@@ -72,13 +72,13 @@ These controls govern how the dense Gaussian-kernel matrix is computed in the "c
 
 - **`bindEvents` accepts `K_{a, n} > 1` input.** The output's $n$ attributes each preserve the input $K_{a, n}$. The weight return changed from a rolling-product row to a 1-by-$n$ cell array parallel to `pBound` (numerically equivalent for $K_{a, n} = 1$ via lazy multiplication), so consumers can apply per-attribute weight semantics. Unblocks polyphonic-binding analyses where the input is itself a multi-attribute MAET.
 
-### Added — `translateEvents` / `translate_events`
+### Added — `translateAttributes` / `translate_attributes`
 
-- **New pre-tensor preprocessing helper.** Shifts selected attributes' values by a chosen offset. Takes the `pAttr` list one would otherwise feed to `buildExpTens` and returns a transformed `pAttrTranslated` list with the same shape conventions; the output feeds directly into `buildExpTens` without further massaging. Sits alongside `differenceEvents` and `bindEvents` in the cross-event preprocessing family. The primitive is per-attribute; broadcast-within-group (translating a whole group as a unit — the transposition / time-shift case for pitch / time groups respectively) is a common case expressed by setting the affected rows of the offset block equal.
+- **New pre-tensor preprocessing helper.** Shifts selected attributes' values by a chosen offset. Takes the `pAttr` list one would otherwise feed to `buildExpTens` and returns a transformed `pAttrTranslated` list with the same shape conventions; the output feeds directly into `buildExpTens` without further massaging. Sits in the preprocessing family alongside `differenceEvents` and `bindEvents`, but is per-attribute and event-local (no cross-event correspondence) whereas its siblings are cross-event. The primitive is per-attribute; broadcast-within-group (translating a whole group as a unit — the transposition / time-shift case for pitch / time groups respectively) is a common case expressed by setting the affected rows of the offset block equal.
 
 - **Sliding-comparison primitive.** Provides the **pre-tensor** route to a sliding comparison along an attribute axis: for each candidate offset $\mu$ on a sweep grid, translate the events and compute a similarity against an un-shifted reference, then read off the peak. Complements the **post-tensor** `windowedSimilarity` route. The two routes differ in two ways: locality (pre-tensor uses the query's intrinsic support; post-tensor uses an externally chosen window, decoupling the comparison region's scale from the query) and normalisation (pre-tensor preserves the symmetric cosine and bounds values in $[0, 1]$; post-tensor is magnitude-aware by default, with values that can exceed $1$ and asymmetric query/context roles). On periodic groups both routes are well-defined and operationally interchangeable for whole-density alignment; on relative groups only the post-tensor route is available, since pre-tensor translation is a no-op there.
 
-- **Group-geometry semantics.** Absolute non-periodic groups (`is_per[g] = False`): `value + mu`. Absolute periodic groups (`is_per[g] = True` with `periods[g] > 0`): `value + mu`, unwrapped — the wrapped periodic Gaussian kernel of `buildExpTens` is invariant under any additive shift by a multiple of $P$, so no canonical wrap of the translated values is required. **Relative groups**: structural no-op (a uniform shift cancels in every within-tuple difference); the function emits `translateEvents:noOpRelative` (MATLAB) / `TranslateEventsNoOpWarning` (Python) and leaves the group unchanged. The `is_rel`, `is_per`, and `periods` arguments mirror `buildExpTens` in shape, so the caller can pass the same per-group geometry flags they would pass to the downstream `buildExpTens` call without translation; `is_per` and `periods` are accepted for signature parallelism but are not consulted by `translateEvents` itself, since translation outputs unwrapped values regardless of the group's periodicity.
+- **Group-geometry semantics.** Absolute non-periodic groups (`is_per[g] = False`): `value + mu`. Absolute periodic groups (`is_per[g] = True` with `periods[g] > 0`): `value + mu`, unwrapped — the wrapped periodic Gaussian kernel of `buildExpTens` is invariant under any additive shift by a multiple of $P$, so no canonical wrap of the translated values is required. **Relative groups**: structural no-op (a uniform shift cancels in every within-tuple difference); the function emits `translateAttributes:noOpRelative` (MATLAB) / `TranslateAttributesNoOpWarning` (Python) and leaves the group unchanged. The `is_rel`, `is_per`, and `periods` arguments mirror `buildExpTens` in shape, so the caller can pass the same per-group geometry flags they would pass to the downstream `buildExpTens` call without translation; `is_per` and `periods` are accepted for signature parallelism but are not consulted by `translateAttributes` itself, since translation outputs unwrapped values regardless of the group's periodicity.
 
 - **Multi-slot attributes ($K_{a, n} > 1$) handled without ambiguity.** Every value in the per-event multiset is shifted by the same offset, so unlike post-tensor windowing — where a per-event scalar weight would have to summarise multiple values' distances from a localising centre — translation has no analogous obstruction at $K_{a, n} > 1$.
 
@@ -88,24 +88,24 @@ These controls govern how the dense Gaussian-kernel matrix is computed in the "c
 
   ```python
   # broadcast, single translation
-  p_translated = translate_events(
+  p_translated = translate_attributes(
       p_attr, groups, 6.0, is_rel, is_per, periods,
   )
 
   # broadcast sweep — 1 x M row (or 1-D ndarray)
-  p_swept = translate_events(
+  p_swept = translate_attributes(
       p_attr, groups, np.array([[0.0, 5.0, 10.0]]),
       is_rel, is_per, periods,
   )                                                   # list of length M
 
   # per-attribute sweep — (A, M) matrix
   offsets_mat = np.vstack([pitch_grid, time_grid])    # (A, M)
-  p_swept = translate_events(
+  p_swept = translate_attributes(
       p_attr, groups, offsets_mat, is_rel, is_per, periods,
   )
 
   # mixed per-group layout — dict form
-  p_swept = translate_events(
+  p_swept = translate_attributes(
       p_attr, groups,
       {0: 5.0,                              # group 0: broadcast scalar
        1: np.array([[0.1], [-0.2], [0.0]])},# group 1: per-attribute column
@@ -117,33 +117,33 @@ These controls govern how the dense Gaussian-kernel matrix is computed in the "c
 
   ```matlab
   % broadcast, single translation
-  pTranslated = translateEvents(pAttr, groups, 6, ...
+  pTranslated = translateAttributes(pAttr, groups, 6, ...
                                 isRel, isPer, periods);
 
   % broadcast sweep  (1-by-M row)
-  pSwept = translateEvents(pAttr, groups, [0 5 10], ...
+  pSwept = translateAttributes(pAttr, groups, [0 5 10], ...
                            isRel, isPer, periods);
 
   % per-attribute sweep  (A-by-M matrix)
   offsetsMat = [pitchGrid; timeGrid];     % A-by-M
-  pSwept = translateEvents(pAttr, groups, offsetsMat, ...
+  pSwept = translateAttributes(pAttr, groups, offsetsMat, ...
                            isRel, isPer, periods);   % 1-by-M cell
 
   % mixed per-group layout  (1-by-G cell)
-  pSwept = translateEvents(pAttr, groups, ...
+  pSwept = translateAttributes(pAttr, groups, ...
                            {5, [0.1; -0.2; 0.0]}, ...
                            isRel, isPer, periods);
   ```
 
-  The MATLAB warning identifier is `translateEvents:noOpRelative`; the Python warning class is `TranslateEventsNoOpWarning` (re-exported as `mpt.TranslateEventsNoOpWarning`).
+  The MATLAB warning identifier is `translateAttributes:noOpRelative`; the Python warning class is `TranslateAttributesNoOpWarning` (re-exported as `mpt.TranslateAttributesNoOpWarning`).
 
 - **Manuscript context.** Translation is presented in the JMM manuscript's "Sliding comparisons" section as one of two parallel routes (the other being post-tensor windowing) for asking how a similarity profile varies along an attribute axis. The translation primitive is used in §6.1.3 (cadence-progression similarity under transposition) to demonstrate the pre-tensor route, with `windowedSimilarity` used in §6.1.4 for the post-tensor route. The two examples expose the operational differences (bounded vs magnitude-aware, symmetric vs asymmetric, locality coupled to query vs locality independent) in concrete musical settings.
 
 ### Added — `cosSimExpTens` / `cos_sim_exp_tens` raw-MA scalar-vs-list mode
 
-- **One-call sweep from the matrix form of `translateEvents`.** The raw multi-attribute calling form of `cosSimExpTens` accepts a list of `pAttr` blocks (cell-of-cells in MATLAB; list-of-lists in Python) as exactly one of its two `pAttr` operands. The scalar operand is built once internally and reused against each list entry; the list operand is built once per entry. Weights for the list side are shared across every entry — a single `w` value, not a per-entry list. Returns a 1-by-$M$ cell (MATLAB) or 1-D ndarray (Python). Detection examines the first element of the cell / list: a numeric matrix indicates a single `pAttr` (scalar-vs-scalar dispatch); a nested cell or list indicates a list of `pAttr` blocks (scalar-vs-list dispatch). List-vs-list calls are rejected with a directive to use the explicit density-struct list mode instead — list-vs-list is already served by the struct path, and supporting it in the raw form would double the dispatch surface for a use case that path covers cleanly.
+- **One-call sweep from the matrix form of `translateAttributes`.** The raw multi-attribute calling form of `cosSimExpTens` accepts a list of `pAttr` blocks (cell-of-cells in MATLAB; list-of-lists in Python) as exactly one of its two `pAttr` operands. The scalar operand is built once internally and reused against each list entry; the list operand is built once per entry. Weights for the list side are shared across every entry — a single `w` value, not a per-entry list. Returns a 1-by-$M$ cell (MATLAB) or 1-D ndarray (Python). Detection examines the first element of the cell / list: a numeric matrix indicates a single `pAttr` (scalar-vs-scalar dispatch); a nested cell or list indicates a list of `pAttr` blocks (scalar-vs-list dispatch). List-vs-list calls are rejected with a directive to use the explicit density-struct list mode instead — list-vs-list is already served by the struct path, and supporting it in the raw form would double the dispatch surface for a use case that path covers cleanly.
 
-- **Eliminates the per-offset `buildExpTens` loop.** A pre-tensor sliding-comparison sweep over $M$ offsets is now expressed in two calls: `translateEvents` with a $G$-by-$M$ matrix produces the swept list; `cosSimExpTens` in scalar-vs-list mode consumes it and returns the similarity profile. Floating-point parity with an explicit per-offset build loop is exact (max $|S_\text{raw} - S_\text{manual}| = 0$ to machine precision on the demo and tests).
+- **Eliminates the per-offset `buildExpTens` loop.** A pre-tensor sliding-comparison sweep over $M$ offsets is expressed in two calls: `translateAttributes` with an $A$-by-$M$ matrix produces the swept list; `cosSimExpTens` in scalar-vs-list mode consumes it and returns the similarity profile. Floating-point parity with an explicit per-offset build loop is exact (max $|S_\text{raw} - S_\text{manual}| = 0$ to machine precision on the demo and tests).
 
 ### Fixed
 
@@ -269,7 +269,7 @@ The release is additive: existing v2.0.0 single-attribute calling conventions fo
 
 ### Added — Cross-event preprocessing
 
-- **`differenceEvents`.** Preprocessing helper that replaces each selected group's event sequence with inter-event differences before tensor construction. Per-group differencing order $k$ produces the $k$-th finite differences along the event axis (reducing the event count by $k$); periods supplied per group wrap each raw difference to the shortest signed arc. Weights propagate as rolling products of width $k + 1$, interpretable as the probability that all constituents of a difference are jointly perceived. Inputs are restricted to $K_a = 1$ slots per event; see User Guide §3.1 (Cross-event preprocessing) for the rationale and the voices-as-attributes pipeline for polyphonic step-size analyses. Output feeds directly into `buildExpTens`. This supports analyses over interval content, IOIs, and higher-order differences without needing a dedicated interval representation.
+- **`differenceEvents`.** Preprocessing helper that replaces each selected group's event sequence with inter-event differences before tensor construction. Per-group differencing order $k$ produces the $k$-th finite differences along the event axis (reducing the event count by $k$); periods supplied per group wrap each raw difference to the shortest signed arc. Weights propagate as rolling products of width $k + 1$, interpretable as the probability that all constituents of a difference are jointly perceived. Inputs are restricted to $K_a = 1$ slots per event; see User Guide §3.1 (Preprocessing) for the rationale and the voices-as-attributes pipeline for polyphonic step-size analyses. Output feeds directly into `buildExpTens`. This supports analyses over interval content, IOIs, and higher-order differences without needing a dedicated interval representation.
 
 - **`bindEvents`.** Preprocessing helper that gathers $n$ consecutive events into a single super-event with $n$ separate attributes carrying the values at lags $0$ through $n-1$. Output is a length-$n$ list of $K_a \times N'$ matrices, suitable as the `pAttr` argument of `buildExpTens` with all $n$ attributes assigned to a single group sharing $\sigma$ and the other group-level parameters. Lag slots are kept as separate attributes (rather than a single $K_a = n$ multi-slot attribute) because lag identity is non-exchangeable — within-attribute multiset symmetry would otherwise collapse ordered tuples to unordered ones. Per-event weights propagate per-attribute (each output attribute inherits the slot weights of the underlying event at its lag); `buildExpTens` multiplies across attributes during tuple enumeration, so the end-to-end effective weight of a bound super-event equals the product of the $n$ constituent events' weights, matching the differencing rule. Inputs may have any $K_a \ge 1$: when the input attribute has multi-value slots, each output attribute carries the full $K_a$-slot vector of its underlying event, with within-attribute exchangeability preserved per output attribute. Default output has $N - n + 1$ super-events; a `circular` option produces $N$ by wrapping around the input sequence. Composes with `differenceEvents`: the standard pipeline `differenceEvents` $\to$ `bindEvents` $\to$ `buildExpTens` $\to$ `entropyExpTens` recovers the n-tuple entropy of Milne & Dean (2016) at $\sigma \to 0$ and uniform weights, and extends it to the smoothed continuous case, weighted events, and non-periodic domains; for $n \ge 2$ the bound MAET is itself an $n$-dimensional density supporting cosine-similarity comparison of n-tuple distributions across pieces and the rest of the MAET pipeline. Used without preceding differencing, produces n-grams in absolute pitch or time register, useful when register or absolute timing carries musical information that the differenced view discards.
 

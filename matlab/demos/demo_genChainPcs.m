@@ -37,12 +37,12 @@
 % Reference chord (in cents)
 %   4:5:6 JI major triad: [0, 386.31, 701.96] with period 1200
 %   Bohlen-Pierce "major" triad: [0, 884.36, 1466.87] with period 1902
-refPitches = [0, 1200*log2(5/4), 1200*log2(6/4)];
+refPitches = [0, log2(3), log2(5), log2(7), log2(11)] * 1200;
 refWeights = [];   % weights for reference pitches (empty = all ones)
 refName    = '4:5:6 JI major triad';
 
 % Generator-chain parameters
-nTones  = 19;      % number of tones in the chain
+nTones  = 15;      % number of tones in the chain
 genStep = 0.1;     % step size for generator sweep (cents)
 
 % Expectation tensor parameters

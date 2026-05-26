@@ -336,6 +336,11 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         X          = varargin{9};
         dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, groups_arg, ...
                             isRel_arg, isPer_arg, period_arg, 'verbose', verbose);
+        % localEvalMA reads heavy fields (e.g. nJ); buildExpTens
+        % returns the skinny struct, so materialise the heavy fields
+        % here. Mirrors the MaetDensity and WindowedMaetDensity
+        % struct branches above.
+        dens = internal.ensureExpTensExpensive(dens);
         vals = localEvalMA(dens, X, normalize, verbose, ...
                            truncationSigmas, kernelPrecision);
         return;

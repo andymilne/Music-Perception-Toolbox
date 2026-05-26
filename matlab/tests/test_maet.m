@@ -392,6 +392,61 @@ results{end,2}   = throwsError(@() evalExpTens(dens, ...
 results{end+1,1} = 'evalExpTens MA: wrong total rows (matrix form) errors';
 results{end,2}   = throwsError(@() evalExpTens(dens, zeros(5,1), 'verbose', false));
 
+% -- evalExpTens MA raw form: parity with struct path --
+
+% Two-attribute setup: pitch (group 1, periodic mod 12) and time
+% (group 2, non-periodic), with three events.
+pAttr_er  = {[67 66 64], [5 6 7]};
+w_er      = [];
+sigma_er  = [0.5, 0.25];
+r_er      = [1, 1];
+groups_er = [1 2];
+isRel_er  = [false false];
+isPer_er  = [true false];
+periods_er = [12 0];
+
+Xq_er = [66; 6];   % single query at the penult event
+
+% Path 1: build dens, then eval.
+dens_er = buildExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+                       isRel_er, isPer_er, periods_er, 'verbose', false);
+vals_er_struct = evalExpTens(dens_er, Xq_er, 'verbose', false);
+
+% Path 2: raw MA form (9 positional args + 'verbose').
+vals_er_raw = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+                          isRel_er, isPer_er, periods_er, Xq_er, ...
+                          'verbose', false);
+
+results{end+1,1} = 'evalExpTens MA raw: matches dens-struct path';
+results{end,2}   = max(abs(vals_er_raw(:) - vals_er_struct(:))) < 1e-12;
+
+% Multi-query (3 columns), check matrix form parity.
+Xq_er_multi = [60 66 72; 5 6 7];
+vals_er_multi_struct = evalExpTens(dens_er, Xq_er_multi, 'verbose', false);
+vals_er_multi_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+                                   isRel_er, isPer_er, periods_er, Xq_er_multi, ...
+                                   'verbose', false);
+results{end+1,1} = 'evalExpTens MA raw: multi-query matches struct path';
+results{end,2}   = max(abs(vals_er_multi_raw(:) - vals_er_multi_struct(:))) < 1e-12;
+
+% Cell-form X parity (raw MA path must route through localEvalMA, which
+% accepts {X_1, ..., X_A} per-attribute cells as well as stacked matrices).
+Xq_er_cell = {[60 66 72], [5 6 7]};
+vals_er_cell_struct = evalExpTens(dens_er, Xq_er_cell, 'verbose', false);
+vals_er_cell_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+                                  isRel_er, isPer_er, periods_er, Xq_er_cell, ...
+                                  'verbose', false);
+results{end+1,1} = 'evalExpTens MA raw: cell-form X matches struct path';
+results{end,2}   = max(abs(vals_er_cell_raw(:) - vals_er_cell_struct(:))) < 1e-12;
+
+% Normalize argument as trailing 10th positional.
+vals_er_norm_struct = evalExpTens(dens_er, Xq_er, 'pdf', 'verbose', false);
+vals_er_norm_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+                                  isRel_er, isPer_er, periods_er, Xq_er, ...
+                                  'pdf', 'verbose', false);
+results{end+1,1} = 'evalExpTens MA raw: trailing normalize matches struct path';
+results{end,2}   = max(abs(vals_er_norm_raw(:) - vals_er_norm_struct(:))) < 1e-12;
+
 % -- cosSimExpTens MA path: SA-equivalence --
 
 p_a_v  = [0; 400; 700];

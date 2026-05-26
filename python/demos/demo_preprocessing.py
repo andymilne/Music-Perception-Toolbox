@@ -230,3 +230,170 @@ print(f"  W (centre c - mu = {c_pitch - mu_pitch}) before T:")
 print(f"    w_path2[0] = {[round(v, 4) for v in w_path2[0].ravel().tolist()]}")
 print(f"  difference max = {float(np.max(np.abs(w_path1[0] - w_path2[0])))}  "
       "(zero --- centre-shift rule holds)")
+
+# ===================================================================
+#  9. Pre-MAET into the raw multi-attribute form (route (ii))
+# ===================================================================
+
+print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
+
+# Two routes lead from a pre-MAET triple to a density value, an
+# entropy, or a similarity:
+#
+#   (i)  build a MaetDensity once via build_exp_tens, then pass the
+#        struct to entropy_exp_tens / eval_exp_tens / cos_sim_exp_tens.
+#        Preferred when the same density is re-evaluated many times,
+#        because the structural work (group canonicalisation, tuple
+#        index pre-computation, weight products) is paid once.
+#
+#   (ii) call the raw multi-attribute form of each function directly,
+#        passing (p_attr, w, sigma, r, groups, is_rel, is_per, periods)
+#        as positional arguments. The function builds the density
+#        internally and returns the answer; no struct is exposed.
+#        Convenient for single-shot uses and keeps the call shape
+#        symmetric with build_exp_tens itself.
+#
+# Section 9 below exercises route (ii) on the original p_attr and on
+# the differenced / translated pre-MAETs. Section 10 then exercises
+# route (i) on the same set, building each density once via
+# build_exp_tens and reusing it across entropy_exp_tens, eval_exp_tens,
+# cos_sim_exp_tens, and the LIST form of cos_sim_exp_tens, with parity
+# assertions confirming the two routes return identical values.
+sigma = [0.5, 0.25]   # kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
+r     = [1, 1]        # single-slot attributes (K_a = 1) in both groups
+
+# --- 9a. entropy_exp_tens (raw MA form) ---
+# Signature:
+#   H = entropy_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods, ...)
+H_orig = mpt.entropy_exp_tens(
+    p_attr, w, sigma, r, groups, is_rel, is_per, periods,
+    method="renyi2", normalize=False, verbose=False,
+)
+print(f"  entropy_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods)")
+print(f"    = {H_orig:.4f}  (Renyi-2)")
+
+# --- 9b. eval_exp_tens at the penult event (pitch = 66, t = 6) ---
+# Query points are (A, M_q) with one column per query and row a
+# giving attribute a's value(s). Single query here, so a (2, 1)
+# column.
+Xq = np.array([[66.0], [6.0]])
+val_at_penult = mpt.eval_exp_tens(
+    p_attr, w, sigma, r, groups, is_rel, is_per, periods, Xq,
+    verbose=False,
+)
+print(f"  eval_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods, Xq)")
+print(f"    = {float(val_at_penult[0]):.4f}")
+print("  (Density peak near an actual event; the value reflects the")
+print("   contribution from event 2 at (66, 6) plus tails from its neighbours.)")
+
+# --- 9c. cos_sim_exp_tens on two pre-MAETs (raw MA form) ---
+# Signature:
+#   s = cos_sim_exp_tens(p_X, w_X, p_Y, w_Y, sigma, r, groups,
+#                        is_rel, is_per, periods, ...)
+# Compare the original chorale fragment against the transposed copy
+# (Section 4). Group 0's PC kernel is narrow (sigma = 0.5 semitones),
+# so the 5-semitone shift puts every event out of kernel reach of its
+# original PC, and the similarity collapses to 0. Pre-MAET D in step
+# 9d below recovers it.
+sim_T = mpt.cos_sim_exp_tens(
+    p_attr, w, pT, w, sigma, r, groups, is_rel, is_per, periods,
+    verbose=False,
+)
+print(f"  cos_sim_exp_tens(p_attr, w, pT, w, sigma, r, groups, is_rel, is_per, periods)")
+print(f"    = {float(sim_T):.4f}")
+
+# --- 9d. cos_sim of the differenced pair: D(T) == D identity in action ---
+# Section 7's identity D o T == D guarantees that the differenced
+# original and the differenced transposed copy are value-wise
+# identical, so their cosine similarity must be exactly 1. The
+# algebraic identity from Section 7 surfacing as a downstream
+# observable; no build_exp_tens required.
+pDT_again, wDT_again, gDT_again = mpt.difference_events(pT, w, groups, [1, 0])
+sim_diffed = mpt.cos_sim_exp_tens(
+    pD, wD, pDT_again, wDT_again,
+    sigma, r, gD, is_rel, is_per, periods,
+    verbose=False,
+)
+print(f"  cos_sim_exp_tens(pD, wD, pD(T), wD(T), ...)")
+print(f"    = {float(sim_diffed):.4f}  (exactly 1: D absorbs T)")
+
+# ===================================================================
+#  10. Pre-MAET via build_exp_tens dens structs (route (i))
+# ===================================================================
+
+print("\n=== 10. Dens form: build once, query many; parity with route (ii) ===")
+
+# Build each pre-MAET into a MaetDensity once. After this the
+# structural work --- group canonicalisation, tuple-index
+# pre-computation, weight products --- is paid; subsequent
+# entropy/eval/cos_sim calls just consume the struct.
+dens_orig = mpt.build_exp_tens(
+    p_attr, w, sigma, r, groups, is_rel, is_per, periods, verbose=False,
+)
+dens_T = mpt.build_exp_tens(
+    pT, w, sigma, r, groups, is_rel, is_per, periods, verbose=False,
+)
+dens_D = mpt.build_exp_tens(
+    pD, wD, sigma, r, gD, is_rel, is_per, periods, verbose=False,
+)
+pDT_4, wDT_4, gDT_4 = mpt.difference_events(pT, w, groups, [1, 0])
+dens_DT = mpt.build_exp_tens(
+    pDT_4, wDT_4, sigma, r, gDT_4, is_rel, is_per, periods, verbose=False,
+)
+
+# --- 10a. entropy_exp_tens on the struct; same answer as 9a. ---
+H_orig_dens = mpt.entropy_exp_tens(
+    dens_orig, method="renyi2", normalize=False, verbose=False,
+)
+delta_a = abs(float(H_orig_dens) - float(H_orig))
+print("  entropy_exp_tens(dens_orig)")
+print(f"    = {float(H_orig_dens):.4f}  (Renyi-2; parity vs 9a: |delta| = {delta_a:.2e})")
+assert delta_a < 1e-12, "Section 10a: entropy raw and dens forms disagree."
+
+# --- 10b. eval_exp_tens at the same query; same answer as 9b. ---
+val_at_penult_dens = mpt.eval_exp_tens(dens_orig, Xq, verbose=False)
+delta_b = abs(float(val_at_penult_dens[0]) - float(val_at_penult[0]))
+print("  eval_exp_tens(dens_orig, Xq)")
+print(f"    = {float(val_at_penult_dens[0]):.4f}  (parity vs 9b: |delta| = {delta_b:.2e})")
+assert delta_b < 1e-12, "Section 10b: eval raw and dens forms disagree."
+
+# --- 10c. cos_sim_exp_tens(dens_orig, dens_T); same answer as 9c. ---
+sim_T_dens = mpt.cos_sim_exp_tens(dens_orig, dens_T, verbose=False)
+delta_c = abs(float(sim_T_dens) - float(sim_T))
+print("  cos_sim_exp_tens(dens_orig, dens_T)")
+print(f"    = {float(sim_T_dens):.4f}  (parity vs 9c: |delta| = {delta_c:.2e})")
+assert delta_c < 1e-12, "Section 10c: cos_sim raw and dens forms disagree."
+
+# --- 10d. cos_sim_exp_tens(dens_D, dens_DT) on the differenced pair; ---
+#       same answer as 9d. (Section 7 identity: should be exactly 1.)
+sim_diffed_dens = mpt.cos_sim_exp_tens(dens_D, dens_DT, verbose=False)
+delta_d = abs(float(sim_diffed_dens) - float(sim_diffed))
+print("  cos_sim_exp_tens(dens_D, dens_DT)")
+print(f"    = {float(sim_diffed_dens):.4f}  (parity vs 9d: |delta| = {delta_d:.2e})")
+assert delta_d < 1e-12, "Section 10d: cos_sim raw and dens forms disagree."
+
+# --- 10e. LIST form: one reference against many candidates. ---
+# Scalar-vs-list cos_sim_exp_tens broadcasts dens_orig against each
+# candidate in the list, returning a length-n list of similarity
+# scalars. Useful for "compare one reference density against many"
+# workflows.
+#
+# Four entries are returned for [dens_orig, dens_T, dens_D, dens_DT]:
+#   entry 0:  sim(orig, orig) = 1 by definition.
+#   entry 1:  sim(orig, T) -- matches 9c's sim_T.
+#   entry 2:  sim(orig, D(orig)) -- new value; how similar the original
+#             p_attr is to its first-difference.
+#   entry 3:  sim(orig, D(T))   -- Section 7's identity D o T == D
+#             forces this to equal entry 2.
+sim_list = mpt.cos_sim_exp_tens(
+    [dens_orig, dens_T, dens_D, dens_DT], dens_orig, verbose=False,
+)
+sim_list_vals = [float(v) for v in sim_list]
+print("  cos_sim_exp_tens([dens_orig, dens_T, dens_D, dens_DT], dens_orig)")
+print("    = [{:.4f}, {:.4f}, {:.4f}, {:.4f}]".format(*sim_list_vals))
+print("    (entry 0: self = 1; entry 1: vs T (= 9c);")
+print("     entry 2: vs D(orig); entry 3: vs D(T) -- equals entry 2 by D o T == D.)")
+assert abs(sim_list_vals[0] - 1.0)         < 1e-12, "10e: self-similarity not 1."
+assert abs(sim_list_vals[1] - float(sim_T)) < 1e-12, "10e: LIST entry 1 != 9c value."
+assert abs(sim_list_vals[2] - sim_list_vals[3]) < 1e-12, \
+    "10e: D o T == D identity violated (entries 2 and 3 should match)."

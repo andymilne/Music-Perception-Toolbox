@@ -75,19 +75,36 @@ function H = entropyExpTens(varargin)
 %   distribution (e.g., at least 3*sigma beyond the outermost values).
 %   Rényi-2 is grid-free and ignores xMin, xMax, and nPointsPerDim.
 %
-%   Inputs (SA path)
-%       p       - Pitch or position values (vector); or a struct as
-%                 returned by buildExpTens (in which case the
-%                 subsequent positional arguments are not required).
-%       w       - Weights (vector, same length as p).
-%       sigma   - Gaussian bandwidth.
-%       r       - Tuple size (positive integer; r >= 2 if isRel == true).
-%       isRel   - Logical: true for relative (transposition-invariant).
-%       isPer   - Logical: true for periodic domain.
-%       period  - Period of the domain.
+%   Multiset-argument shapes (pick one of three):
+%     p      — Vector of length K. SA raw form (single multiset,
+%              single-attribute).
+%     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
+%              form (rows are independent SA-style multisets,
+%              processed in lockstep; returns an nRows-by-1 column
+%              vector of per-row entropies).
+%     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
+%              (multi-attribute; per-attribute centre rows).
+%   Lowercase p stands for "pitch or position"; uppercase P is the
+%   2-D batched lift; pAttr is the multi-attribute generalisation.
+%   The same convention is used in evalExpTens and cosSimExpTens.
 %
-%   Inputs (MA path)
-%       pAttr     - 1 x A cell array of K_a x N matrices.
+%   Inputs (SA raw and BATCHED-RAW paths)
+%       p       — Pitch or position values (vector of length K) for
+%                 the SA raw form. The corresponding BATCHED-RAW form
+%                 takes P (nRows-by-K matrix; each row is one
+%                 SA-style multiset).
+%       w       — Weights. For SA raw: vector of length K, or [] for
+%                 uniform. For BATCHED-RAW: nRows-by-K matrix, or [].
+%                 (In the docstring above, this is denoted W when paired
+%                 with P.)
+%       sigma   — Gaussian bandwidth.
+%       r       — Tuple size (positive integer; r >= 2 if isRel == true).
+%       isRel   — Logical: true for relative (transposition-invariant).
+%       isPer   — Logical: true for periodic domain.
+%       period  — Period of the domain.
+%
+%   Inputs (MA raw path)
+%       pAttr     — 1 x A cell array of K_a x N matrices.
 %       w         - Weights. []/scalar/1 x A cell; see buildExpTens.
 %       sigmaVec  - 1 x G per-group Gaussian widths.
 %       rVec      - 1 x A per-attribute tuple sizes.
@@ -237,30 +254,22 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     nPos = numel(posArgs);
     firstArg = posArgs{1};
 
-    % 0. LIST mode: first arg is a cell of density structs.
-    %    Returns a 1-by-n cell of per-density entropy values (Option II
-    %    shape rule). Does NOT match the MA-raw cell-of-arrays form
-    %    below (disambiguated by element type: structs vs numeric arrays).
-    if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
-        if nPos > 1
-            error('entropyExpTens:listExtraArgs', ...
-                  ['When a cell of density structs is passed, no further ' ...
-                   'positional arguments may be provided.']);
-        end
-        H = localEntropyDensityList(firstArg, nvArgs);
-        return;
-    end
+    % ==================================================================
+    % Canonical dispatch order (mirrors evalExpTens and cosSimExpTens):
+    %   1. Struct first operand: switch firstArg.tag.
+    %   2. Cell first operand:
+    %        - cell-of-struct  -> LIST (cell of density structs)
+    %        - cell-of-numeric -> MA raw (cell of attribute matrices)
+    %   3. Numeric first operand:
+    %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
+    %        - vector or scalar       -> SA raw
+    %   4. Otherwise -> usage error.
+    % Each detector is positive (no reliance on a preceding check having
+    % failed) and self-sufficient: reordering branches does not change
+    % correctness.
+    % ==================================================================
 
-    % 0b. BATCHED-RAW mode: first arg is a 2-D numeric matrix
-    %     (rows = multisets) and total positional count is 7.
-    %     Returns an nRows-by-1 vector of entropy values.
-    if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1 ...
-            && nPos == 7
-        H = localEntropyBatchedRaw(posArgs, nvArgs);
-        return;
-    end
-
-    % 1. Precomputed struct (tag-based).
+    % --- 1. Struct first operand: precomputed density ---
     if isstruct(firstArg) && isfield(firstArg, 'tag')
         if nPos > 1
             error('entropyExpTens:extraArgs', ...
@@ -283,53 +292,97 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
     end
 
-    % 2. MA raw args (first arg is a cell).
+    % --- 2. Cell first operand: LIST or MA raw, disambiguated by ---
+    % --- the inner element type. ---
     if iscell(firstArg)
-        if nPos ~= 8
-            error('entropyExpTens:wrongArgCountMA', ...
-                  ['Multi-attribute raw call expects 8 positional arguments ' ...
-                   '(pAttr, w, sigmaVec, rVec, groups, isRelVec, isPerVec, ' ...
-                   'periodVec); got %d.'], nPos);
+        if isempty(firstArg)
+            error('entropyExpTens:emptyCell', ...
+                  ['First argument is an empty cell. Expected a cell of ' ...
+                   'density structs (LIST mode) or a cell of attribute ' ...
+                   'matrices (MA raw mode).']);
         end
-        pAttr     = posArgs{1};
-        w         = posArgs{2};
-        sigmaVec  = posArgs{3};
-        rVec      = posArgs{4};
-        groups    = posArgs{5};
-        isRelVec  = posArgs{6};
-        isPerVec  = posArgs{7};
-        periodVec = posArgs{8};
-        dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
-                            isRelVec, isPerVec, periodVec, 'verbose', false);
-        H = localEntropyMA(dens, nvArgs);
+        if isstruct(firstArg{1})
+            % LIST: cell of density structs.
+            if nPos > 1
+                error('entropyExpTens:listExtraArgs', ...
+                      ['When a cell of density structs is passed, no ' ...
+                       'further positional arguments may be provided.']);
+            end
+            H = localEntropyDensityList(firstArg, nvArgs);
+            return;
+        end
+        if isnumeric(firstArg{1})
+            % MA raw: cell of attribute matrices.
+            if nPos ~= 8
+                error('entropyExpTens:wrongArgCountMA', ...
+                      ['Multi-attribute raw call expects 8 positional ' ...
+                       'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                       'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+            end
+            pAttr     = posArgs{1};
+            w         = posArgs{2};
+            sigmaVec  = posArgs{3};
+            rVec      = posArgs{4};
+            groups    = posArgs{5};
+            isRelVec  = posArgs{6};
+            isPerVec  = posArgs{7};
+            periodVec = posArgs{8};
+            dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
+                                isRelVec, isPerVec, periodVec, 'verbose', false);
+            H = localEntropyMA(dens, nvArgs);
+            return;
+        end
+        error('entropyExpTens:badCellContents', ...
+              ['Cell first argument must contain either density structs ' ...
+               '(LIST mode) or numeric attribute matrices (MA raw mode); ' ...
+               'first cell entry is of class %s.'], class(firstArg{1}));
+    end
+
+    % --- 3. Numeric first operand: BATCHED-RAW or SA raw, by shape. ---
+    if isnumeric(firstArg)
+        if size(firstArg, 1) > 1 && size(firstArg, 2) > 1
+            % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
+            if nPos ~= 7
+                error('entropyExpTens:wrongArgCountBatched', ...
+                      ['Batched-raw call expects 7 positional arguments ' ...
+                       '(P, W, sigma, r, isRel, isPer, period); got %d.'], nPos);
+            end
+            H = localEntropyBatchedRaw(posArgs, nvArgs);
+            return;
+        end
+        % SA raw: numeric vector or scalar.
+        if nPos ~= 7
+            error('entropyExpTens:wrongArgCountSA', ...
+                  ['Single-attribute raw call expects 7 positional arguments ' ...
+                   '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
+        end
+        p      = posArgs{1};
+        w      = posArgs{2};
+        sigma  = posArgs{3};
+        r      = posArgs{4};
+        isRel  = posArgs{5};
+        isPer  = posArgs{6};
+        period = posArgs{7};
+
+        % Apply spectral enrichment if requested.
+        if ~isempty(nvArgs.spectrum)
+            if ~iscell(nvArgs.spectrum)
+                error('entropyExpTens:badSpectrum', ...
+                      '''spectrum'' value must be a cell array of addSpectra arguments.');
+            end
+            [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
+        end
+
+        T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+        H = localEntropySA(T, nvArgs);
         return;
     end
 
-    % 3. SA raw args.
-    if nPos ~= 7
-        error('entropyExpTens:wrongArgCountSA', ...
-              ['Single-attribute raw call expects 7 positional arguments ' ...
-               '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
-    end
-    p      = posArgs{1};
-    w      = posArgs{2};
-    sigma  = posArgs{3};
-    r      = posArgs{4};
-    isRel  = posArgs{5};
-    isPer  = posArgs{6};
-    period = posArgs{7};
-
-    % Apply spectral enrichment if requested.
-    if ~isempty(nvArgs.spectrum)
-        if ~iscell(nvArgs.spectrum)
-            error('entropyExpTens:badSpectrum', ...
-                  '''spectrum'' value must be a cell array of addSpectra arguments.');
-        end
-        [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
-    end
-
-    T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
-    H = localEntropySA(T, nvArgs);
+    % --- 4. Else: usage error ---
+    error('entropyExpTens:badFirstArg', ...
+          ['First argument must be a density struct, a cell array (LIST or ' ...
+           'MA raw), or a numeric array (SA raw or BATCHED-RAW); got class %s.'], ...
+          class(firstArg));
 
 end
 

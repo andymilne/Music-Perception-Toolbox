@@ -11,6 +11,16 @@ function vals = evalExpTens(varargin)
 %   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
 %   Evaluates the density from raw arguments (builds tuples internally).
 %
+%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X):
+%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X, normalize):
+%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X, ..., 'verbose', false):
+%   Raw multi-attribute mode. pAttr is a 1-by-A cell of K_a-by-N
+%   attribute matrices (the same shape one would pass to buildExpTens);
+%   sigma, r, isRel, isPer, periods are per-group vectors; groups is
+%   the per-attribute group assignment ([], length-A index vector, or
+%   1-by-G cell of index lists). Builds a MaetDensity internally and
+%   returns vals as a length-nQ row vector.
+%
 %   valsCell = evalExpTens({d_1, ..., d_n}, X [, normalize]):
 %   valsCell = evalExpTens({d_1, ..., d_n}, {X_1, ..., X_n} [, normalize]):
 %   List mode. Iterates over a cell array of density structs,
@@ -25,6 +35,19 @@ function vals = evalExpTens(varargin)
 %   matrix of values. Detection is by P having both dimensions > 1.
 %   Row vectors and column vectors fall through to the existing scalar
 %   SA raw path for backward compatibility.
+%
+%   Multiset-argument shapes (pick one of three):
+%     p      — Vector of length K. SA raw form (single multiset,
+%              single-attribute).
+%     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
+%              form (rows are independent SA-style multisets,
+%              processed in lockstep; returns an nRows-by-nQ matrix
+%              with one row per multiset).
+%     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
+%              (multi-attribute; per-attribute centre rows).
+%   Lowercase p stands for "pitch or position"; uppercase P is the
+%   2-D batched lift; pAttr is the multi-attribute generalisation.
+%   The same convention is used in entropyExpTens and cosSimExpTens.
 %
 %   The density at a query point x is:
 %     f(x) = sum_j prod(w_j) * exp(-(x - c_j)' * M * (x - c_j) / (2*sigma^2))
@@ -51,13 +74,41 @@ function vals = evalExpTens(varargin)
 %     In summary, X should have dim rows, where dim = r - isRel.
 %
 %   Inputs:
-%     dens      — Precomputed density struct from buildExpTens (OR pass the
-%                 raw arguments p, w, sigma, r, isRel, isPer, period instead)
+%     dens      — Precomputed density struct from buildExpTens. Pass
+%                 this in lieu of the raw arguments below; the struct
+%                 carries its own sigma, r, isRel, isPer, period (or
+%                 their per-group vectors for MA).
+%     p / P / pAttr
+%               — Pitch or position values for the raw forms. Pick the
+%                 shape matching the desired calling convention (see
+%                 "Multiset-argument shapes" above):
+%                   p     vector of length K       (SA raw)
+%                   P     nRows-by-K matrix        (BATCHED-RAW)
+%                   pAttr 1-by-A cell of K_a-by-N  (MA raw)
+%     w / W     — Weights paired with the corresponding p / P / pAttr.
+%                 w is a vector (SA raw and MA raw); W is an nRows-by-K
+%                 matrix (BATCHED-RAW). Pass [] for uniform weights.
+%     sigma     — Gaussian bandwidth. Scalar for SA raw and BATCHED-RAW;
+%                 length-G vector (one per group) for MA raw.
+%     r         — Tuple size (positive integer; r >= 2 if isRel == true).
+%                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
+%     groups    — (MA only) Per-attribute group assignment: [] (each
+%                 attribute its own group), length-A index vector, or
+%                 1-by-G cell of attribute-index lists.
+%     isRel     — Logical: true for relative (transposition-invariant).
+%                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
+%     isPer     — Logical: true for periodic domain. Scalar for SA /
+%                 BATCHED-RAW; length-G vector for MA.
+%     period    — Period of the domain. Scalar for SA / BATCHED-RAW;
+%                 length-G vector for MA (one per group; ignored where
+%                 isPer == false).
 %     X         — Query points: dim x nQ matrix, where dim = r - isRel.
 %                 Each column is a point at which to evaluate the density.
 %                 For isRel == false: r-dimensional pitch or position
 %                 vectors.
 %                 For isRel == true:  (r-1)-dimensional interval vectors.
+%                 For MA: a 1-by-A cell of per-attribute query matrices
+%                 is also accepted.
 %     normalize — Optional string controlling normalization (default: 'none'):
 %
 %                 'none' (default):
@@ -204,84 +255,113 @@ end
 
 % Dispatch: struct vs raw arguments
 nArgs = numel(varargin);
+if nArgs == 0
+    error('evalExpTens:noArgs', ...
+        'evalExpTens requires at least one positional argument.');
+end
+firstArg = varargin{1};
 
-% --- WindowedMaetDensity: evaluate underlying density, multiply by window ---
-if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
-        && strcmp(varargin{1}.tag, 'WindowedMaetDensity')
-    wmd = varargin{1};
+% ==================================================================
+% Canonical dispatch order (mirrors entropyExpTens and cosSimExpTens):
+%   1. Struct first operand: switch firstArg.tag.
+%   2. Cell first operand:
+%        - cell-of-struct  -> LIST (cell of density structs)
+%        - cell-of-numeric -> MA raw (cell of attribute matrices)
+%   3. Numeric first operand:
+%        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
+%        - vector or scalar       -> SA raw
+%   4. Otherwise -> usage error.
+% MA-routed branches (MaetDensity, WindowedMaetDensity, LIST, MA raw,
+% BATCHED-RAW) return early. SA-routed branches (ExpTensDensity, SA
+% raw) set `dens` and `X` and fall through to the shared SA dispatch
+% below. Each detector is positive (no reliance on a preceding check
+% having failed) and self-sufficient.
+% ==================================================================
+
+USAGE_MSG = ['Usage: evalExpTens(dens, X [, normalize]) or ' ...
+    'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
+    'evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X [, normalize]).\n' ...
+    'normalize must be ''none'', ''gaussian'', or ''pdf''.'];
+
+% --- 1. Struct first operand: precomputed density ---
+if isstruct(firstArg) && isfield(firstArg, 'tag')
     if nArgs ~= 2
-        error(['Usage for a WindowedMaetDensity: evalExpTens(wmd, X).']);
+        error(USAGE_MSG);
     end
     X = varargin{2};
-    underlying = localEvalMA(internal.ensureExpTensExpensive(wmd.dens), X, ...
-        normalize, verbose, truncationSigmas, kernelPrecision);
-    % Evaluate the window function on the query points and multiply.
-    W_vals = localEvaluateWindowOnQuery(wmd, X);
-    vals = underlying .* W_vals;
-    return;
-end
-
-% --- MA path: MaetDensity struct ---
-if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
-        && strcmp(varargin{1}.tag, 'MaetDensity')
-    dens = internal.ensureExpTensExpensive(varargin{1});
-    if nArgs ~= 2
-        error(['Usage for a MaetDensity: evalExpTens(dens, X [, normalize]).\n' ...
-            'X is either a cell {X_1, ..., X_A} of per-attribute query matrices, ' ...
-            'or a single dim x nQ matrix with attribute rows stacked. ' ...
-            'normalize must be ''none'', ''gaussian'', or ''pdf''.']);
+    switch firstArg.tag
+        case 'ExpTensDensity'
+            % SA dens: fall through to SA dispatch below.
+            dens = firstArg;
+        case 'MaetDensity'
+            dens_ma = internal.ensureExpTensExpensive(firstArg);
+            vals = localEvalMA(dens_ma, X, normalize, verbose, ...
+                truncationSigmas, kernelPrecision);
+            return;
+        case 'WindowedMaetDensity'
+            underlying = localEvalMA( ...
+                internal.ensureExpTensExpensive(firstArg.dens), X, ...
+                normalize, verbose, truncationSigmas, kernelPrecision);
+            W_vals = localEvaluateWindowOnQuery(firstArg, X);
+            vals = underlying .* W_vals;
+            return;
+        otherwise
+            error('evalExpTens:unknownTag', ...
+                'Unknown density struct tag: %s.', firstArg.tag);
     end
-    X = varargin{2};
-    vals = localEvalMA(dens, X, normalize, verbose, ...
-        truncationSigmas, kernelPrecision);
-    return;
-end
 
-% --- LIST path: nArgs == 2, first arg is a cell array of density structs ---
-%   evalExpTens({d_1, ..., d_n}, X [, normalize])
-%   evalExpTens({d_1, ..., d_n}, {X_1, ..., X_n} [, normalize])
-%   Returns a 1-by-n cell of value vectors (Option II shape rule).
-%   If X is a cell of length n, treated as per-density query points;
-%   otherwise broadcast to all densities.
-if nArgs == 2 && iscell(varargin{1}) ...
-        && ~isempty(varargin{1}) && isstruct(varargin{1}{1})
-    densCell = varargin{1};
-    Xarg = varargin{2};
-    vals = localEvalDensityList(densCell, Xarg, normalize, verbose);
-    return;
-end
-
-% --- BATCHED-RAW path: nArgs == 8, first arg is a 2-D pitch matrix ---
-%   evalExpTens(P, W, sigma, r, isRel, isPer, period, X [, normalize])
-%   where P is nRows-by-K (rows = multisets); X is shared across rows.
-%   Returns an nRows-by-nQ matrix of values.
-%   Detection: numeric first arg with both dimensions > 1 (genuine
-%   matrix). Row vectors and column vectors fall through to the
-%   existing scalar SA raw path.
-if nArgs == 8 && isnumeric(varargin{1}) ...
-        && size(varargin{1}, 1) > 1 && size(varargin{1}, 2) > 1
-    vals = localEvalBatchedRaw( ...
-        varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
-        varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
-        normalize, verbose);
-    return;
-end
-
-if nArgs >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'tag') ...
-        && strcmp(varargin{1}.tag, 'ExpTensDensity')
-    % --- Precomputed struct: evalExpTens(dens, X [, normalize]) ---
-    %   Kept skinny here: Möbius branch reads only cheap fields; centres
-    %   branch ensures heavy fields on demand.
-    dens = varargin{1};
-    if nArgs ~= 2
-        error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
-            'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...
-            'normalize must be ''none'', ''gaussian'', or ''pdf''.']);
+% --- 2. Cell first operand: LIST or MA raw, by inner type ---
+elseif iscell(firstArg) && ~isempty(firstArg)
+    if isstruct(firstArg{1})
+        % LIST: cell of density structs.
+        if nArgs ~= 2
+            error(USAGE_MSG);
+        end
+        vals = localEvalDensityList(firstArg, varargin{2}, normalize, verbose);
+        return;
     end
-    X = varargin{2};
+    if isnumeric(firstArg{1})
+        % MA raw: cell of attribute matrices, length-9 positional form.
+        if nArgs ~= 9
+            error(USAGE_MSG);
+        end
+        pAttr_arg  = varargin{1};
+        w_arg      = varargin{2};
+        sigma_arg  = varargin{3};
+        r_arg      = varargin{4};
+        groups_arg = varargin{5};
+        isRel_arg  = varargin{6};
+        isPer_arg  = varargin{7};
+        period_arg = varargin{8};
+        X          = varargin{9};
+        dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, groups_arg, ...
+                            isRel_arg, isPer_arg, period_arg, 'verbose', verbose);
+        vals = localEvalMA(dens, X, normalize, verbose, ...
+                           truncationSigmas, kernelPrecision);
+        return;
+    end
+    error('evalExpTens:badCellContents', ...
+        ['Cell first argument must contain either density structs (LIST mode) ' ...
+         'or numeric attribute matrices (MA raw mode); first cell entry is of ' ...
+         'class %s.'], class(firstArg{1}));
 
-elseif nArgs == 8
-    % --- Raw arguments: evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]) ---
+% --- 3. Numeric first operand: BATCHED-RAW or SA raw, by shape ---
+elseif isnumeric(firstArg)
+    if size(firstArg, 1) > 1 && size(firstArg, 2) > 1
+        % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
+        if nArgs ~= 8
+            error(USAGE_MSG);
+        end
+        vals = localEvalBatchedRaw( ...
+            varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
+            varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
+            normalize, verbose);
+        return;
+    end
+    % SA raw: numeric vector or scalar.
+    if nArgs ~= 8
+        error(USAGE_MSG);
+    end
     p_arg     = varargin{1};
     w_arg     = varargin{2};
     sigma_arg = varargin{3};
@@ -293,10 +373,14 @@ elseif nArgs == 8
     % Build skinny: Möbius branch may not need heavy fields.
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
                         isPer_arg, J_arg, 'verbose', verbose);
+    % Fall through to SA dispatch.
+
+% --- 4. Else: usage error ---
 else
-    error(['Usage: evalExpTens(dens, X [, normalize]) or ' ...
-        'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]).\n' ...
-        'normalize must be ''none'', ''gaussian'', or ''pdf''.']);
+    error('evalExpTens:badFirstArg', ...
+        ['First argument must be a density struct, a cell array (LIST or MA ' ...
+         'raw), or a numeric array (SA raw or BATCHED-RAW); got class %s.'], ...
+        class(firstArg));
 end
 
 % === Validate query points (cheap fields only) ===

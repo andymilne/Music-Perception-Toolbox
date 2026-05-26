@@ -59,6 +59,20 @@ function s = cosSimExpTens(varargin)
 %   the explicit repmat(refPitches, M, 1) idiom for the common case
 %   "compare one reference multiset against many candidates".
 %
+%   Multiset-argument shapes (each operand takes the same shape on both
+%   sides; subscript 1 / 2 selects which operand):
+%     p1, p2          — Vectors of length K_1, K_2 (may differ). SA raw
+%                       form (single multiset, single-attribute).
+%     P1, P2          — nRows-by-K matrices, both dimensions > 1.
+%                       BATCHED-RAW form (rows are independent SA-style
+%                       multisets, processed in lockstep; returns an
+%                       nRows-by-1 vector of per-row similarities).
+%     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices. MA raw form
+%                       (multi-attribute; per-attribute centre rows).
+%   Lowercase p stands for "pitch or position"; uppercase P is the
+%   2-D batched lift; pAttr is the multi-attribute generalisation.
+%   The same convention is used in entropyExpTens and evalExpTens.
+%
 %   In batched-raw mode the following name-value options are accepted
 %   (all forwarded to the underlying paired-rows implementation):
 %     'spectrum'  — Cell of arguments to addSpectra; if supplied,
@@ -90,7 +104,7 @@ function s = cosSimExpTens(varargin)
 %              Both structs must share the same r, sigma, isRel, isPer,
 %              and (if periodic) period.
 %
-%   Inputs (raw calling convention):
+%   Inputs (SA raw calling convention):
 %     p1     — Pitch or position values for the first multiset (vector
 %              of length n_1).
 %     w1     — Weights for the first multiset (vector of length n_1, or
@@ -105,6 +119,36 @@ function s = cosSimExpTens(varargin)
 %              quadratic form.
 %     isPer  — If true, wrap differences to periodic interval [-J/2, J/2).
 %     period — Period J for periodic wrapping.
+%
+%   Inputs (BATCHED-RAW calling convention):
+%     P1, P2 — nRows-by-K matrices of pitch or position values (rows
+%              are independent SA-style multisets, paired between P1
+%              and P2). At least one of P1, P2 must have both
+%              dimensions > 1; the other may be a length-K vector that
+%              is broadcast against the matrix's rows.
+%     W1, W2 — Weights paired with P1, P2 (same shape, or [] for
+%              uniform). Broadcast in lockstep with their P operand.
+%     sigma, r, isRel, isPer, period — As in the SA raw convention
+%              (shared across all rows).
+%
+%   Inputs (MA raw calling convention):
+%     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices (per-attribute
+%                       value rows; the same shape one would pass to
+%                       buildExpTens). For the scalar-vs-list sweep
+%                       form, exactly one of these is a 1-by-M cell of
+%                       such cells; the other is a single pAttr cell.
+%     w1, w2          — Weights paired with pAttr1, pAttr2 (see
+%                       buildExpTens for the accepted shapes). Shared
+%                       across every list entry in the sweep form.
+%     sigmaVec        — 1-by-G per-group Gaussian widths.
+%     rVec            — 1-by-A per-attribute tuple sizes.
+%     groups          — Per-attribute group assignment ([], length-A
+%                       index vector, or 1-by-G cell of attribute-index
+%                       lists).
+%     isRelVec        — 1-by-G per-group relative flags.
+%     isPerVec        — 1-by-G per-group periodic flags.
+%     periodVec       — 1-by-G per-group period values (ignored where
+%                       isPerVec(g) == false).
 %
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
@@ -305,6 +349,9 @@ nArgs = numel(varargin);
 % genuine 2-D matrix (both dimensions > 1).  The other operand may
 % be a vector of matching length, in which case it is broadcast
 % against the matrix's rows.
+% Compute willBatch early; used both for kwarg validation (only the
+% batched-raw mode accepts 'spectrum', 'precision', 'dedup') and as
+% the BATCHED-RAW dispatch trigger within the nArgs == 9 branch.
 willBatch = false;
 if nArgs == 9 && isnumeric(varargin{1}) && isnumeric(varargin{3})
     isP1Mat = size(varargin{1}, 1) > 1 && size(varargin{1}, 2) > 1;
@@ -328,8 +375,8 @@ if ~willBatch
     end
 end
 
-% --- Windowed path: reject WindowedMaetDensity operands ---
-% As of v2.2, cosSimExpTens no longer accepts WindowedMaetDensity
+% --- Windowed contract check (preserved at top, before canonical dispatch) ---
+% As of v2.2, cosSimExpTens does not accept WindowedMaetDensity
 % operands. The windowed inner product is a magnitude-aware similarity
 % (not a strict cosine similarity in [0, 1]) and is therefore not
 % within cosSimExpTens's contract. Use windowedSimilarity for both
@@ -341,36 +388,170 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
     error('cosSimExpTens:windowedNotSupported', ...
           ['cosSimExpTens does not accept WindowedMaetDensity ' ...
            'operands. Use windowedSimilarity(densQuery, densContext, ' ...
-           'windowSpec, offsets) — pass a single-column offsets ' ...
+           'windowSpec, offsets) --- pass a single-column offsets ' ...
            'vector for the scalar single-offset case, or a dim x M ' ...
            'matrix for the M-offset sweep.']);
 end
 
-% --- MA path: two MaetDensity structs ---
-if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
-        && isfield(varargin{1}, 'tag') ...
-        && strcmp(varargin{1}.tag, 'MaetDensity') ...
-        && isfield(varargin{2}, 'tag') ...
-        && strcmp(varargin{2}.tag, 'MaetDensity')
-    % Kept skinny here: Möbius branch reads only cheap fields; Bulger
-    % branch ensures heavy fields on demand inside localCosSimMA.
-    s = localCosSimMA(varargin{1}, varargin{2}, ...
-                       method, normalize, cancellationThreshold, verbose);
-    return;
-end
+% ==================================================================
+% Canonical dispatch order (mirrors entropyExpTens and evalExpTens):
+%   nArgs == 2:  precomputed-density forms or LIST.
+%     - both struct -> switch on tag pair:
+%         * (ExpTensDensity, ExpTensDensity) -> SA dens (falls through
+%           to shared SA compatibility validation + SA dispatch below).
+%         * (MaetDensity,   MaetDensity)   -> MA dens (early return).
+%         * tag mismatch                   -> error.
+%     - either operand iscell                -> LIST (early return).
+%     - otherwise                            -> usage error.
+%
+%   nArgs == 9:  single-attribute raw form (vectors), with optional
+%                batched-raw lift.
+%     - either operand iscell                -> "use 10 args" error.
+%     - both numeric:
+%         * any operand a 2-D matrix         -> BATCHED-RAW (early return).
+%         * both vectors                     -> SA raw (falls through).
+%
+%   nArgs == 10: multi-attribute raw form (cells).
+%     - both operands iscell                 -> MA raw (handles single-
+%                                                vs-list sub-cases).
+%     - otherwise                            -> usage error.
+%
+%   Otherwise -> usage error.
+%
+% Each detector is positive and self-sufficient: reordering branches
+% within the same nArgs group does not change correctness.
+% ==================================================================
 
-% --- MA path: raw args (10 positional, first is cell) ---
-if nArgs == 10 && iscell(varargin{1})
-    if ~iscell(varargin{3})
-        error(['cosSimExpTens: p1 is a cell (multi-attribute) but p2 is ' ...
-            'not. Both must be the same kind: either both cells (MA) ' ...
-            'or both numeric vectors (SA).']);
+USAGE_MSG = ['Usage:\n' ...
+    '  SA struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
+    '  SA raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
+    '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
+    '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, groups, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
+    '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
+    '  Batched raw:  cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
+    '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).'];
+
+if nArgs == 2
+    a = varargin{1};
+    b = varargin{2};
+
+    if isstruct(a) && isstruct(b)
+        if ~isfield(a, 'tag') || ~isfield(b, 'tag')
+            error('cosSimExpTens:untaggedStruct', ...
+                'Both density structs must carry a ''tag'' field.');
+        end
+        switch [a.tag '|' b.tag]
+            case 'ExpTensDensity|ExpTensDensity'
+                % SA dens: validate compatibility below, then fall through.
+                dens_x = a;
+                dens_y = b;
+            case 'MaetDensity|MaetDensity'
+                s = localCosSimMA(a, b, method, normalize, ...
+                                  cancellationThreshold, verbose);
+                return;
+            otherwise
+                error('cosSimExpTens:tagMismatch', ...
+                    ['Both density structs must carry matching tags ' ...
+                     '(ExpTensDensity vs ExpTensDensity, or MaetDensity vs ' ...
+                     'MaetDensity). Got %s and %s.'], a.tag, b.tag);
+        end
+    elseif iscell(a) || iscell(b)
+        % LIST: cell-of-struct on either side (scalar struct may be
+        % broadcast against the cell). Inner-element validation occurs
+        % within localCosSimDensityList.
+        s = localCosSimDensityList(a, b, normalize, verbose);
+        return;
+    else
+        error('cosSimExpTens:badPairTypes', USAGE_MSG);
     end
-    % Distinguish single MA pAttr (cell of numeric matrices) from a
-    % list of MA pAttr blocks (cell of cells). The first element of
-    % the cell decides: numeric → single MA, cell → list-of-MA.
-    aIsListOfMA = ~isempty(varargin{1}) && iscell(varargin{1}{1});
-    bIsListOfMA = ~isempty(varargin{3}) && iscell(varargin{3}{1});
+
+elseif nArgs == 9
+    a = varargin{1};
+    c = varargin{3};
+    if iscell(a) || iscell(c)
+        error('cosSimExpTens:cellNeedsTenArgs', ...
+            ['cell-form p1/p2 (multi-attribute) requires 10 positional ' ...
+             'arguments: pAttr1, w1, pAttr2, w2, sigmaVec, rVec, groups, ' ...
+             'isRelVec, isPerVec, periodVec.']);
+    end
+    if ~isnumeric(a) || ~isnumeric(c)
+        error('cosSimExpTens:badPairTypes', USAGE_MSG);
+    end
+    if willBatch
+        % --- BATCHED-RAW (with optional broadcast) ---
+        P1 = varargin{1};
+        W1 = varargin{2};
+        P2 = varargin{3};
+        W2 = varargin{4};
+
+        isP1Mat = size(P1, 1) > 1 && size(P1, 2) > 1;
+        isP2Mat = size(P2, 1) > 1 && size(P2, 2) > 1;
+
+        % Force vector operands to row form (1xK) for uniform broadcast.
+        if ~isP1Mat
+            P1 = P1(:).';
+            if ~isempty(W1), W1 = W1(:).'; end
+        end
+        if ~isP2Mat
+            P2 = P2(:).';
+            if ~isempty(W2), W2 = W2(:).'; end
+        end
+
+        M1 = size(P1, 1);
+        M2 = size(P2, 1);
+        if M1 == 1 && M2 > 1
+            P1 = repmat(P1, M2, 1);
+            if ~isempty(W1), W1 = repmat(W1, M2, 1); end
+        elseif M2 == 1 && M1 > 1
+            P2 = repmat(P2, M1, 1);
+            if ~isempty(W2), W2 = repmat(W2, M1, 1); end
+        elseif M1 ~= M2
+            error('cosSimExpTens:batchedRowMismatch', ...
+                ['Batched-raw P1 and P2 must either have matching row counts, ' ...
+                 'or one of them must be a single-row reference (vector or 1xK ' ...
+                 'matrix) to broadcast against the other. Got %d and %d rows.'], ...
+                M1, M2);
+        end
+
+        s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
+            varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
+            normalize, verbose, ...
+            spectrumGiven, spectrumOpt, ...
+            precisionGiven, precisionOpt, ...
+            dedupGiven, dedupOpt);
+        return;
+    end
+    % --- SA raw: numeric vectors. Builds skinny; Bulger branch ensures
+    %     heavy fields on demand inside localCosSimSA. Falls through to
+    %     SA compatibility validation + SA dispatch below.
+    p1     = varargin{1};
+    w1     = varargin{2};
+    p2     = varargin{3};
+    w2     = varargin{4};
+    sigma_arg  = varargin{5};
+    r_arg      = varargin{6};
+    isRel_arg  = varargin{7};
+    isPer_arg  = varargin{8};
+    J_arg      = varargin{9};
+
+    dens_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
+                          'verbose', verbose);
+    dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
+                          'verbose', verbose);
+
+elseif nArgs == 10
+    a = varargin{1};
+    c = varargin{3};
+    if ~iscell(a) || ~iscell(c)
+        error('cosSimExpTens:tenArgsNeedsCells', ...
+            ['The 10-positional-argument form requires both p1 (1st) and ' ...
+             'p2 (3rd) to be cells (multi-attribute pAttr).']);
+    end
+    % --- MA raw: cell of attribute matrices. Distinguishes a single
+    %     MA pAttr (cell of numeric matrices) from a list-of-MA (cell
+    %     of cells) by inspecting the first inner element.
+    aIsListOfMA = ~isempty(a) && iscell(a{1});
+    bIsListOfMA = ~isempty(c) && iscell(c{1});
     pAttr1    = varargin{1};
     w1        = varargin{2};
     pAttr2    = varargin{3};
@@ -388,18 +569,17 @@ if nArgs == 10 && iscell(varargin{1})
                '(build each entry with buildExpTens first).']);
     end
     if ~aIsListOfMA && ~bIsListOfMA
-        % Scalar-vs-scalar raw MA: existing path.
-        dens_x = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
+        dens_x_ma = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
             isRelVec, isPerVec, periodVec, 'verbose', verbose);
-        dens_y = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
+        dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
             isRelVec, isPerVec, periodVec, 'verbose', verbose);
-        s = localCosSimMA(dens_x, dens_y, method, normalize, ...
+        s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
                           cancellationThreshold, verbose);
         return;
     end
-    % Scalar-vs-list broadcast. Build the scalar side once, then
-    % iterate over the list. Weights for the list side are shared
-    % across every entry.
+    % Scalar-vs-list broadcast. Build the scalar side once, iterate
+    % over the list. Weights for the list side are shared across all
+    % entries.
     if bIsListOfMA
         scalarPAttr = pAttr1;  scalarW = w1;
         listPAttr   = pAttr2;  listW   = w2;
@@ -425,132 +605,29 @@ if nArgs == 10 && iscell(varargin{1})
         end
     end
     return;
-end
-
-% --- LIST path: nArgs == 2, at least one arg is a cell of density structs ---
-%   Three accepted shapes:
-%     cosSimExpTens({d_a_1, ..., d_a_n}, {d_b_1, ..., d_b_n})
-%       Paired entry-by-entry; cell lengths must match. Returns 1-by-n cell.
-%     cosSimExpTens(d_a, {d_b_1, ..., d_b_n})
-%     cosSimExpTens({d_a_1, ..., d_a_n}, d_b)
-%       Scalar density broadcast against the list; returns 1-by-n cell.
-%   Shape rule: a length-1 cell returns a length-1 cell (never collapses
-%   to a scalar).
-if nArgs == 2 && (iscell(varargin{1}) || iscell(varargin{2}))
-    s = localCosSimDensityList(varargin{1}, varargin{2}, normalize, verbose);
-    return;
-end
-
-% --- BATCHED-RAW path (with optional broadcast) ---
-%   At least one of P1, P2 is an M-by-K matrix (both dims > 1).  If
-%   the other is a vector of length K, it is broadcast against the
-%   matrix's M rows; weights (if non-empty) are broadcast in lockstep.
-%   Returns an M-by-1 vector of similarities.
-%   The 'spectrum', 'precision', and 'dedup' kwargs (if supplied) are
-%   forwarded to batchCosSimExpTens for spectral enrichment, dedup
-%   precision tolerance, and dedup on/off respectively.
-if willBatch
-    P1 = varargin{1};
-    W1 = varargin{2};
-    P2 = varargin{3};
-    W2 = varargin{4};
-
-    isP1Mat = size(P1, 1) > 1 && size(P1, 2) > 1;
-    isP2Mat = size(P2, 1) > 1 && size(P2, 2) > 1;
-
-    % Force vector operands to row form (1×K) for uniform broadcast.
-    if ~isP1Mat
-        P1 = P1(:).';
-        if ~isempty(W1), W1 = W1(:).'; end
-    end
-    if ~isP2Mat
-        P2 = P2(:).';
-        if ~isempty(W2), W2 = W2(:).'; end
-    end
-
-    M1 = size(P1, 1);
-    M2 = size(P2, 1);
-    if M1 == 1 && M2 > 1
-        P1 = repmat(P1, M2, 1);
-        if ~isempty(W1), W1 = repmat(W1, M2, 1); end
-    elseif M2 == 1 && M1 > 1
-        P2 = repmat(P2, M1, 1);
-        if ~isempty(W2), W2 = repmat(W2, M1, 1); end
-    elseif M1 ~= M2
-        error('cosSimExpTens:batchedRowMismatch', ...
-            ['Batched-raw P1 and P2 must either have matching row counts, ' ...
-             'or one of them must be a single-row reference (vector or 1xK ' ...
-             'matrix) to broadcast against the other. Got %d and %d rows.'], ...
-            M1, M2);
-    end
-
-    s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
-        varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-        normalize, verbose, ...
-        spectrumGiven, spectrumOpt, ...
-        precisionGiven, precisionOpt, ...
-        dedupGiven, dedupOpt);
-    return;
-end
-
-if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
-        && isfield(varargin{1}, 'tag') ...
-        && strcmp(varargin{1}.tag, 'ExpTensDensity') ...
-        && isfield(varargin{2}, 'tag') ...
-        && strcmp(varargin{2}.tag, 'ExpTensDensity')
-    % --- Precomputed structs (kept skinny for now: Möbius method doesn't
-    % need per-tuple fields; Bulger branch ensures them on demand) ---
-    dens_x = varargin{1};
-    dens_y = varargin{2};
-
-    % Validate that both structs share compatible parameters
-    if dens_x.r ~= dens_y.r
-        error('Both density structs must have the same r.');
-    end
-    if dens_x.isRel ~= dens_y.isRel
-        error('Both density structs must have the same isRel.');
-    end
-    if dens_x.isPer ~= dens_y.isPer
-        error('Both density structs must have the same isPer.');
-    end
-    if dens_x.isPer && dens_x.period ~= dens_y.period
-        error('Both density structs must have the same period.');
-    end
-    if dens_x.sigma ~= dens_y.sigma
-        error('Both density structs must have the same sigma.');
-    end
-
-elseif nArgs == 9
-    % --- Raw arguments (SA): build skinny; Bulger branch ensures later ---
-    if iscell(varargin{1}) || iscell(varargin{3})
-        error(['cosSimExpTens: cell-form p1/p2 (multi-attribute) requires ' ...
-            '10 positional arguments: pAttr1, w1, pAttr2, w2, sigmaVec, ' ...
-            'rVec, groups, isRelVec, isPerVec, periodVec.']);
-    end
-    p1     = varargin{1};
-    w1     = varargin{2};
-    p2     = varargin{3};
-    w2     = varargin{4};
-    sigma_arg  = varargin{5};
-    r_arg      = varargin{6};
-    isRel_arg  = varargin{7};
-    isPer_arg  = varargin{8};
-    J_arg      = varargin{9};
-
-    dens_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          'verbose', verbose);
-    dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          'verbose', verbose);
 
 else
-    error(['Usage:\n' ...
-        '  SA struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
-        '  SA raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
-        '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
-        '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, groups, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
-        '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
-        '  Batched raw:  cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
-        '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).']);
+    error('cosSimExpTens:wrongArgCount', USAGE_MSG);
+end
+
+% --- SA compatibility validation (shared by SA dens-struct and SA raw) ---
+% For SA raw the two densities are built from identical scalar
+% parameters, so these checks are trivially satisfied. They are run
+% unconditionally so the same code path serves both entry forms.
+if dens_x.r ~= dens_y.r
+    error('Both density structs must have the same r.');
+end
+if dens_x.isRel ~= dens_y.isRel
+    error('Both density structs must have the same isRel.');
+end
+if dens_x.isPer ~= dens_y.isPer
+    error('Both density structs must have the same isPer.');
+end
+if dens_x.isPer && dens_x.period ~= dens_y.period
+    error('Both density structs must have the same period.');
+end
+if dens_x.sigma ~= dens_y.sigma
+    error('Both density structs must have the same sigma.');
 end
 
 % --- Common SA cheap-field setup (used by Möbius and Bulger branches) ---

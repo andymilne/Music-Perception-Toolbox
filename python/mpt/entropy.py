@@ -15,6 +15,7 @@ from .tensor import (
     WindowedMaetDensity,
     bind_events,
     build_exp_tens,
+    difference_events,
     eval_exp_tens,
     _orbit_inner_abs,
     _orbit_inner_rel,
@@ -1307,12 +1308,20 @@ def n_tuple_entropy(
                 f"(got {n_grid})."
             )
 
-    # --- Cyclic step sizes: K events -> K cyclic differences ---
-    diffs = np.mod(
-        np.diff(np.concatenate([p, [p[0] + period]])),
-        period,
+    # --- Cyclic first differences via the framework's circular mode ---
+    # difference_events with circular=True wraps at the sequence
+    # boundary (output position 0 holds p(0) - p(N-1)); the
+    # downstream periodic kernel handles mod-period wrapping at
+    # evaluation time, so no explicit mod is needed here. The
+    # resulting multiset of consecutive-difference n-grams is
+    # invariant under the cyclic rotation that distinguishes this
+    # ordering from the equivalent "diff first, wrap difference at
+    # position N" convention.
+    p_row = p.astype(np.float64).reshape(1, -1)
+    p_diff_list, _, _ = difference_events(
+        [p_row], None, None, 1, circular=True,
     )
-    diffs_row = diffs.astype(np.float64).reshape(1, -1)
+    diffs_row = p_diff_list[0]
 
     # --- Bind n consecutive cyclic step sizes ---
     p_bound, w_bound, _ = bind_events(

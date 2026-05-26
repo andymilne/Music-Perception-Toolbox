@@ -1,7 +1,8 @@
-function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders)
+function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders, nvArgs)
 %DIFFERENCEEVENTS Replace selected attributes' event sequences with differences.
 %
 %   [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders)
+%   [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)
 %   is a cross-event preprocessing helper for multi-attribute tensor
 %   input. It takes the (pAttr, w, groups) triple that one would
 %   otherwise feed to buildExpTens and returns a transformed
@@ -10,11 +11,14 @@ function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, dif
 %
 %   Differencing orders are specified per attribute (via Option C
 %   syntax — see below). The k_a-th finite difference is applied
-%   along the event axis to each attribute, reducing its event count
-%   by k_a. Order 0 leaves an attribute unchanged. Attributes are
-%   brought onto a common output event grid of length
-%   N' = N - max_a k_a by dropping leading max_a k_a - k_a events
-%   from each.
+%   along the event axis to each attribute. With circular = false
+%   (default), the output event count for an attribute with order k_a
+%   is N - k_a, and attributes are brought onto a common output grid
+%   of length N' = N - max_a k_a by dropping leading max_a k_a - k_a
+%   events from each. With circular = true, the event index wraps at
+%   the sequence boundary (n - 1 is taken cyclically: position 0 is
+%   identified with position N), so every attribute's output retains
+%   length N regardless of its order; no alignment drop is needed.
 %
 %   The output values are emitted raw; periodic groups are NOT wrapped
 %   here, regardless of [per] settings. Wrapping (when desired) is the
@@ -25,14 +29,16 @@ function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, dif
 %   input but only as pass-through (k_a = 0); if the analyst specifies
 %   a non-zero order for a K_a > 1 attribute, a warning is issued and
 %   that attribute is treated as k_a = 0 (still subject to leading-
-%   event drop for alignment). The warning is emitted at most once per
+%   event drop for alignment in the non-circular case, or pass-through
+%   in the circular case). The warning is emitted at most once per
 %   call.
 %
 %   Per-attribute weights propagate as a rolling product over the
 %   k_a + 1 constituent input events for each differenced attribute,
-%   under the standard weights-as-salience reading. Pass-through
-%   attributes have their leading events dropped to match the common
-%   grid.
+%   under the standard weights-as-salience reading. Indexing wraps
+%   when circular = true; pass-through attributes (k_a = 0) have their
+%   leading events dropped (non-circular) or passed unchanged
+%   (circular).
 %
 %   Inputs
 %       pAttr      - 1 x A cell array of K_a x N per-attribute value
@@ -75,7 +81,28 @@ function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, dif
 %                    not change group membership). Returned for clean
 %                    chaining of pre-MAET operations.
 %
+%   Name-Value
+%       'circular' - false (default) or true. When true, the difference
+%                    operator wraps at the event-sequence boundary:
+%                    Delta p(n) = p(n) - p(prev(n)) with prev(1) = N,
+%                    so each attribute's output has N events regardless
+%                    of order. When false, the leading k_a events of
+%                    each differenced attribute are dropped and all
+%                    attributes are aligned to N' = N - max_a k_a.
+%                    Suitable for cyclic event sequences (looped
+%                    rhythms, ostinati) in which the boundary
+%                    difference is a genuine inter-event interval, not
+%                    an artefact of the sequence cutting off.
+%
 %   See also BUILDEXPTENS, BINDEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
+
+arguments
+    pAttr
+    w
+    groups
+    diffOrders
+    nvArgs.circular (1, 1) logical = false
+end
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
 if ~iscell(pAttr)
@@ -151,12 +178,22 @@ maxOrder = max(ordersPerAttr);
 if isempty(maxOrder)
     maxOrder = int32(0);
 end
-nPrime = nEvents - double(maxOrder);
-if nPrime < 1
-    error('differenceEvents:orderTooHigh', ...
-          ['Differencing orders are too high for the input event ' ...
-           'count: max order = %d but N = %d.'], ...
-          double(maxOrder), nEvents);
+if nvArgs.circular
+    nPrime = nEvents;
+    if double(maxOrder) >= nEvents
+        error('differenceEvents:orderTooHigh', ...
+              ['Differencing order too high for circular mode: ' ...
+               'max order = %d but N = %d (need max order < N).'], ...
+               double(maxOrder), nEvents);
+    end
+else
+    nPrime = nEvents - double(maxOrder);
+    if nPrime < 1
+        error('differenceEvents:orderTooHigh', ...
+              ['Differencing orders are too high for the input event ' ...
+               'count: max order = %d but N = %d.'], ...
+              double(maxOrder), nEvents);
+    end
 end
 
 % --- Difference each attribute's value matrix ---
@@ -164,18 +201,30 @@ pAttrDiff = cell(1, A);
 for a = 1:A
     k = double(ordersPerAttr(a));
     Md = pAttr{a};
-    for step = 1:k
-        Md = Md(:, 2:end) - Md(:, 1:end-1);
-    end
-    extraDrop = double(maxOrder) - k;
-    if extraDrop > 0
-        Md = Md(:, extraDrop + 1:end);
+    if nvArgs.circular
+        % Cyclic differencing: each pass uses prev(n) = mod(n-2, N) + 1,
+        % which keeps the output length at N. Implemented as
+        % Md - Md(:, [end, 1:end-1]).
+        for step = 1:k
+            Md = Md - Md(:, [end, 1:end-1]);
+        end
+        % No leading-event drop needed: every attribute already has
+        % nPrime = N columns.
+    else
+        for step = 1:k
+            Md = Md(:, 2:end) - Md(:, 1:end-1);
+        end
+        extraDrop = double(maxOrder) - k;
+        if extraDrop > 0
+            Md = Md(:, extraDrop + 1:end);
+        end
     end
     pAttrDiff{a} = Md;
 end
 
 % --- Transform weights ---
-wDiff = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime);
+wDiff = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime, ...
+                               nvArgs.circular);
 
 % --- Groups unchanged ---
 groupsDiff = groups;
@@ -279,12 +328,15 @@ end
 %  localDifferenceWeights — weight transformation
 % =========================================================================
 
-function wOut = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime)
+function wOut = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime, circular)
 %LOCALDIFFERENCEWEIGHTS Transform weights under per-attribute orders.
 %
 %  Each differenced attribute's weights are propagated via a rolling
-%  product of width k_a + 1. Pass-through attributes (k_a = 0) have
-%  their leading events dropped to match the common output grid.
+%  product of width k_a + 1. In non-circular mode, pass-through
+%  attributes (k_a = 0) have their leading events dropped to match the
+%  common output grid. In circular mode the rolling product wraps at
+%  the event-sequence boundary and pass-through attributes are kept at
+%  length N.
 
     if isempty(w) && ~iscell(w)
         wOut = [];
@@ -333,11 +385,15 @@ function wOut = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime)
         % Event-dependent (1 x N row or K_a x N matrix).
         W = double(wa);
         if k > 0
-            W = localRollingProduct(W, k + 1);
+            W = localRollingProduct(W, k + 1, circular);
         end
-        extraDrop = double(maxOrder) - k;
-        if extraDrop > 0
-            W = W(:, extraDrop + 1:end);
+        if circular
+            % No alignment drop in circular mode.
+        else
+            extraDrop = double(maxOrder) - k;
+            if extraDrop > 0
+                W = W(:, extraDrop + 1:end);
+            end
         end
         assert(size(W, 2) == nPrime);
         wOut{a} = W;
@@ -395,18 +451,40 @@ function tf = localWeightHasEventDep(wa, N, attrIdx)
 end
 
 
-function out = localRollingProduct(W, width)
-    % Rolling product of width *width* along columns.
+function out = localRollingProduct(W, width, circular)
+    % Rolling product of length-N row windows of width *width*.
+    % circular = false: output length N - width + 1; window i covers
+    % columns i .. i + width - 1.
+    % circular = true: output length N; window n covers columns
+    % n - width + 1 .. n (wrapped mod N). Indexing matches the
+    % differencing operator's prev(n) = mod(n-2, N) + 1 convention,
+    % so the product attached to Delta^k p(n) is the product of
+    % w(n), w(prev(n)), w(prev(prev(n))), ..., over width entries.
     [K, N] = size(W);
-    nOut = N - width + 1;
-    if nOut < 1
-        error('differenceEvents:rollingProductWidth', ...
-              'Rolling-product width %d exceeds event count %d.', ...
-              width, N);
-    end
-    out = zeros(K, nOut);
-    for i = 1:nOut
-        out(:, i) = prod(W(:, i:i + width - 1), 2);
+    if circular
+        if width > N
+            error('differenceEvents:rollingProductWidth', ...
+                  ['Circular rolling-product width %d exceeds event ' ...
+                   'count %d.'], width, N);
+        end
+        out = zeros(K, N);
+        for n = 1:N
+            % Window columns: prev^0(n), prev^1(n), ..., prev^{width-1}(n)
+            % = mod(n - 1, N) + 1, mod(n - 2, N) + 1, ..., mod(n - width, N) + 1.
+            idx = mod(n - (1:width), N) + 1;
+            out(:, n) = prod(W(:, idx), 2);
+        end
+    else
+        nOut = N - width + 1;
+        if nOut < 1
+            error('differenceEvents:rollingProductWidth', ...
+                  'Rolling-product width %d exceeds event count %d.', ...
+                  width, N);
+        end
+        out = zeros(K, nOut);
+        for i = 1:nOut
+            out(:, i) = prod(W(:, i:i + width - 1), 2);
+        end
     end
 end
 

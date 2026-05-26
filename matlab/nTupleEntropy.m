@@ -183,11 +183,18 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         nGrid = nvArgs.nPointsPerDim;
     end
 
-    % --- Cyclic step sizes (K events -> K cyclic differences) ---
-
-    pCol = p(:);
-    diffs = mod(diff([pCol; pCol(1) + period]), period);
-    diffsRow = diffs(:).';
+    % --- Cyclic first differences via the framework's circular mode ---
+    % differenceEvents with 'circular' = true wraps at the sequence
+    % boundary (output position 1 holds p(1) - p(N)); the downstream
+    % periodic kernel handles mod-period wrapping at evaluation time,
+    % so no explicit mod is needed here. The resulting multiset of
+    % consecutive-difference n-grams is invariant under the cyclic
+    % rotation that distinguishes this ordering from the equivalent
+    % "diff first, wrap difference at position N" convention.
+    pRow = p(:).';
+    [pDiffCell, ~, ~] = differenceEvents({pRow}, [], [], 1, ...
+                                          'circular', true);
+    diffsRow = pDiffCell{1};
 
     % --- Bind n consecutive cyclic step sizes ---
 

@@ -879,6 +879,48 @@ groups_g = [1];
 results{end+1,1} = 'differenceEvents: groupsDiff equals input groups (passthrough)';
 results{end,2}   = isequal(gd, groups_g);
 
+% -- differenceEvents: circular = true, order 1 values --
+% Cyclic first difference of [0 4 7] gives [0-7, 4-0, 7-4] = [-7, 4, 3].
+% Output length equals input length (no leading drop).
+[pd_c, ~, ~] = differenceEvents({[0 4 7]}, [], [], 1, 'circular', true);
+results{end+1,1} = 'differenceEvents: circular k=1 values';
+results{end,2}   = isequal(pd_c{1}, [-7, 4, 3]);
+
+% -- differenceEvents: circular passthrough keeps length N --
+[pd_pt, ~, ~] = differenceEvents({[0 4 7]}, [], [], 0, 'circular', true);
+results{end+1,1} = 'differenceEvents: circular k=0 passthrough keeps N';
+results{end,2}   = isequal(pd_pt{1}, [0 4 7]);
+
+% -- differenceEvents: circular, order 2 --
+% Cyclic second difference: first cyclic diff is [-7, 4, 3]; second
+% cyclic diff is [-7 - 3, 4 - (-7), 3 - 4] = [-10, 11, -1].
+[pd_c2, ~, ~] = differenceEvents({[0 4 7]}, [], [], 2, 'circular', true);
+results{end+1,1} = 'differenceEvents: circular k=2 values';
+results{end,2}   = isequal(pd_c2{1}, [-10, 11, -1]);
+
+% -- differenceEvents: circular rolling-product weights --
+% At order 1 cyclic, w'(n) = w(n) * w(prev(n)) with prev(1) = N.
+% For w = [a b c]: w' = [a*c, b*a, c*b].
+w_in = [0.5 0.8 0.2];
+[~, wd_c, ~] = differenceEvents({[0 4 7]}, {w_in}, [], 1, 'circular', true);
+expected_c = [0.5*0.2, 0.8*0.5, 0.2*0.8];
+results{end+1,1} = 'differenceEvents: circular k=1 rolling-product weights';
+results{end,2}   = max(abs(wd_c{1} - expected_c)) < 1e-12;
+
+% -- differenceEvents: circular too-high order errors --
+% In circular mode max order < N is required.
+results{end+1,1} = 'differenceEvents: circular order >= N errors';
+results{end,2}   = throwsError(@() differenceEvents( ...
+    {[0 4 7]}, [], [], 3, 'circular', true));
+
+% -- nTupleEntropy: parity after refactor onto differenceEvents --
+% A second sanity check that the refactor preserves the n-tuple
+% entropy value for a familiar input (whole-tone scale on the
+% 12-EDO).
+H_whole = nTupleEntropy([0 2 4 6 8 10], 12, 2, 'normalize', false);
+results{end+1,1} = 'nTupleEntropy: whole-tone n=2 still = 0 after refactor';
+results{end,2}   = abs(H_whole) < 1e-12;
+
 % -- bindEvents: pre-MAET API ---------------------------------------------
 
 % Three-tuple return.

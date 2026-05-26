@@ -1187,6 +1187,64 @@ class TestMAET:
         out = mpt.difference_events(p, None, None, [1])
         assert len(out) == 3
 
+    # --- difference_events circular mode --------------------------------
+
+    def test_diff_circular_order_1_values(self):
+        """Cyclic first difference of [0, 4, 7] gives [0-7, 4-0, 7-4]
+        = [-7, 4, 3]. Output length equals input length (no leading
+        drop)."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        pd, _, _ = mpt.difference_events(
+            p, None, None, 1, circular=True,
+        )
+        np.testing.assert_array_equal(pd[0].ravel(), [-7.0, 4.0, 3.0])
+
+    def test_diff_circular_order_0_passthrough_keeps_N(self):
+        """Pass-through (k=0) in circular mode keeps N events (no
+        leading drop)."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        pd, _, _ = mpt.difference_events(
+            p, None, None, 0, circular=True,
+        )
+        np.testing.assert_array_equal(pd[0].ravel(), [0.0, 4.0, 7.0])
+
+    def test_diff_circular_order_2_values(self):
+        """Cyclic second difference: first cyclic diff of [0, 4, 7]
+        is [-7, 4, 3]; second cyclic diff is
+        [-7 - 3, 4 - (-7), 3 - 4] = [-10, 11, -1]."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        pd, _, _ = mpt.difference_events(
+            p, None, None, 2, circular=True,
+        )
+        np.testing.assert_array_equal(pd[0].ravel(), [-10.0, 11.0, -1.0])
+
+    def test_diff_circular_rolling_product_weights(self):
+        """At order 1 cyclic, w'(n) = w(n) * w(prev(n)) with
+        prev(0) = N - 1. For w = [a, b, c]: w' = [a*c, b*a, c*b]."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        w = [np.array([0.5, 0.8, 0.2])]
+        _, wd, _ = mpt.difference_events(
+            p, w, None, 1, circular=True,
+        )
+        expected = np.array([0.5 * 0.2, 0.8 * 0.5, 0.2 * 0.8])
+        np.testing.assert_allclose(wd[0].ravel(), expected, atol=1e-12)
+
+    def test_diff_circular_order_geq_N_errors(self):
+        """Circular mode requires max order < N."""
+        p = [np.array([[0.0, 4.0, 7.0]])]
+        with pytest.raises(ValueError, match="circular"):
+            mpt.difference_events(p, None, None, 3, circular=True)
+
+    def test_diff_circular_n_tuple_entropy_parity(self):
+        """After the n_tuple_entropy refactor onto
+        difference_events(..., circular=True), the entropy of the
+        whole-tone scale at n=2 is still exactly 0 (every cyclic
+        2-tuple of step sizes is (2, 2))."""
+        H, _ = mpt.n_tuple_entropy(
+            [0, 2, 4, 6, 8, 10], 12, 2, normalize=False,
+        )
+        assert abs(H) < 1e-12
+
     # --- bind_events ----------------------------------------------------
 
     def test_bind_returns_three_tuple(self):

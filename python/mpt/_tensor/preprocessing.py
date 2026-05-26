@@ -46,6 +46,8 @@ def difference_events(
     w,
     groups,
     diff_orders,
+    *,
+    circular: bool = False,
 ) -> tuple[list[np.ndarray], None | float | list[float] | list[np.ndarray], object]:
     """Replace selected attributes' event sequences with inter-event differences.
 
@@ -57,11 +59,15 @@ def difference_events(
 
     Differencing orders are specified per attribute (via Option C
     syntax — see ``diff_orders`` below). The ``k_a``-th finite
-    difference is applied along the event axis to each attribute,
-    reducing its event count by ``k_a``. Order 0 leaves an attribute
-    unchanged. Attributes are brought onto a common output event grid
-    of length ``N' = N - max_a k_a`` by dropping leading
-    ``max_a k_a - k_a`` events from each.
+    difference is applied along the event axis to each attribute.
+    With ``circular = False`` (default), the output event count for
+    an attribute with order ``k_a`` is ``N - k_a``, and attributes are
+    brought onto a common output grid of length ``N' = N - max_a k_a``
+    by dropping leading ``max_a k_a - k_a`` events from each. With
+    ``circular = True``, the event index wraps at the sequence
+    boundary (position 0 is identified with position N), so every
+    attribute's output retains length N regardless of its order; no
+    alignment drop is needed.
 
     Output values are emitted raw; periodic groups are NOT wrapped
     here, regardless of ``[per]`` settings. Wrapping (when desired)
@@ -74,13 +80,15 @@ def difference_events(
     if the analyst specifies a non-zero order for a ``K_a > 1``
     attribute, a :class:`UserWarning` is issued and that attribute is
     treated as ``k_a = 0`` (still subject to leading-event drop for
-    alignment). The warning is emitted at most once per call.
+    alignment in the non-circular case, or pass-through in the
+    circular case). The warning is emitted at most once per call.
 
     Per-attribute weights propagate as a rolling product over the
     ``k_a + 1`` constituent input events for each differenced
     attribute, under the standard weights-as-salience reading.
-    Pass-through attributes have their leading events dropped to
-    match the common grid.
+    Indexing wraps when ``circular = True``; pass-through attributes
+    (``k_a = 0``) have their leading events dropped (non-circular) or
+    passed unchanged (circular).
 
     Parameters
     ----------
@@ -109,6 +117,17 @@ def difference_events(
           a scalar (broadcast within group) or a length-``n_g``
           vector (per-attribute within group). Omitted groups are
           treated as order 0.
+    circular : bool, keyword-only
+        When ``True``, the difference operator wraps at the
+        event-sequence boundary: ``Delta p(n) = p(n) - p(prev(n))``
+        with ``prev(0) = N - 1``, so each attribute's output has
+        ``N`` events regardless of order. When ``False`` (default),
+        the leading ``k_a`` events of each differenced attribute are
+        dropped and all attributes are aligned to
+        ``N' = N - max_a k_a``. Suitable for cyclic event sequences
+        (looped rhythms, ostinati) in which the boundary difference
+        is a genuine inter-event interval, not an artefact of the
+        sequence cutting off.
 
     Returns
     -------
@@ -205,28 +224,48 @@ def difference_events(
 
     # --- Compute max_order, output event count ---
     max_order = int(orders_per_attr.max()) if A > 0 else 0
-    n_prime = n_events - max_order
-    if n_prime < 1:
-        raise ValueError(
-            f"Differencing orders are too high for the input event count: "
-            f"max order = {max_order} but N = {n_events}."
-        )
+    if circular:
+        n_prime = n_events
+        if max_order >= n_events:
+            raise ValueError(
+                f"Differencing order too high for circular mode: "
+                f"max order = {max_order} but N = {n_events} "
+                f"(need max order < N)."
+            )
+    else:
+        n_prime = n_events - max_order
+        if n_prime < 1:
+            raise ValueError(
+                f"Differencing orders are too high for the input event count: "
+                f"max order = {max_order} but N = {n_events}."
+            )
 
     # --- Difference each attribute's value matrix ---
     p_attr_diff = []
     for a, M in enumerate(p_attr):
         k = int(orders_per_attr[a])
         M_diff = M
-        for _ in range(k):
-            M_diff = M_diff[:, 1:] - M_diff[:, :-1]
-        extra_drop = max_order - k
-        if extra_drop > 0:
-            M_diff = M_diff[:, extra_drop:]
+        if circular:
+            # Cyclic differencing: each pass uses prev(n) = (n-1) mod N,
+            # so the output retains N columns. np.roll shifts columns to
+            # the right by 1 (wrapping), placing the original column N-1
+            # at position 0 and so on.
+            for _ in range(k):
+                M_diff = M_diff - np.roll(M_diff, 1, axis=1)
+            # No leading-event drop needed in circular mode.
+        else:
+            for _ in range(k):
+                M_diff = M_diff[:, 1:] - M_diff[:, :-1]
+            extra_drop = max_order - k
+            if extra_drop > 0:
+                M_diff = M_diff[:, extra_drop:]
         assert M_diff.shape[1] == n_prime
         p_attr_diff.append(M_diff)
 
     # --- Transform weights ---
-    w_diff = _difference_weights(w, A, orders_per_attr, n_events, n_prime)
+    w_diff = _difference_weights(
+        w, A, orders_per_attr, n_events, n_prime, circular,
+    )
 
     # --- Groups unchanged ---
     return p_attr_diff, w_diff, groups
@@ -312,12 +351,15 @@ def _validate_orders(orders):
         )
 
 
-def _difference_weights(w, A, orders_per_attr, n_events, n_prime):
+def _difference_weights(w, A, orders_per_attr, n_events, n_prime, circular):
     """Transform weights under per-attribute differencing orders.
 
     Each differenced attribute's weights are propagated via a rolling
-    product of width ``k_a + 1``. Pass-through attributes (``k_a = 0``)
-    have their leading events dropped to match the common output grid.
+    product of width ``k_a + 1``. In non-circular mode, pass-through
+    attributes (``k_a = 0``) have their leading events dropped to
+    match the common output grid. In circular mode the rolling
+    product wraps at the event-sequence boundary and pass-through
+    attributes are kept at length ``N``.
     """
     if w is None:
         return None
@@ -355,10 +397,11 @@ def _difference_weights(w, A, orders_per_attr, n_events, n_prime):
         if W.ndim == 1:
             W = W.reshape(1, n_events)
         if k > 0:
-            W = _rolling_product(W, k + 1)
-        extra_drop = max_order - k
-        if extra_drop > 0:
-            W = W[:, extra_drop:]
+            W = _rolling_product(W, k + 1, circular)
+        if not circular:
+            extra_drop = max_order - k
+            if extra_drop > 0:
+                W = W[:, extra_drop:]
         assert W.shape[1] == n_prime
         w_diff.append(W)
     return w_diff
@@ -384,13 +427,32 @@ def _raise_no_event_dep(wa, p: int):
     return arr.astype(np.float64) ** int(p)
 
 
-def _rolling_product(W, width):
-    """Rolling product of width *width* along the last axis.
+def _rolling_product(W, width, circular=False):
+    """Rolling product of length-N row windows of width *width*.
 
-    Output shape: (K, N - width + 1). Output column *i* is
-    ``prod(W[:, i : i + width], axis=1)``.
+    With ``circular=False``: output shape ``(K, N - width + 1)``;
+    output column ``i`` is ``prod(W[:, i : i + width], axis=1)``.
+
+    With ``circular=True``: output shape ``(K, N)``; output column
+    ``n`` is the product of ``W`` over the ``width`` indices
+    ``(n, n-1, n-2, ..., n-width+1)`` taken modulo ``N``. This matches
+    the cyclic differencing operator's ``prev(n) = (n - 1) mod N``
+    convention, so the weight attached to the ``k``-th cyclic
+    difference at output position ``n`` is the product of
+    ``w(n), w(prev(n)), ..., w(prev^{width-1}(n))``.
     """
     K, N = W.shape
+    if circular:
+        if width > N:
+            raise ValueError(
+                f"Circular rolling-product width {width} exceeds event "
+                f"count {N}."
+            )
+        out = np.empty((K, N), dtype=np.float64)
+        for n in range(N):
+            idx = (n - np.arange(width)) % N
+            out[:, n] = np.prod(W[:, idx], axis=1)
+        return out
     n_out = N - width + 1
     if n_out < 1:
         raise ValueError(

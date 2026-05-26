@@ -978,6 +978,163 @@ results{end,2}   = numel(pdb_db) == numel(pbd_db) && ...
                    all(arrayfun(@(i) isequal(pdb_db{i}, pbd_db{i}), ...
                                 1:numel(pdb_db)));
 
+% -- weightEvents: per-event window via product-of-attributes (Design P) --
+
+% gamma = 0 limit: pure Gaussian with std = width.
+p_we = {[60 62 64 67 72]};
+w_we = weightEvents(p_we, [], [], 1, 64, 3, 0, false, 0);
+expected_we = exp(-(([60 62 64 67 72] - 64) .^ 2) ./ (2 * 3 ^ 2));
+results{end+1,1} = 'weightEvents: gamma = 0 is pure Gaussian (std = width)';
+results{end,2}   = max(abs(w_we{1} - expected_we)) < 1e-12;
+
+% gamma = 1 limit: pure rectangle with half-width = width * sqrt(3).
+w_re = weightEvents({[60 62 64 67 72]}, [], [], 1, 64, 3, 1, false, 0);
+expected_re = double(abs([60 62 64 67 72] - 64) <= 3 * sqrt(3));
+results{end+1,1} = 'weightEvents: gamma = 1 is pure rectangle (half-width = width * sqrt(3))';
+results{end,2}   = isequal(w_re{1}, expected_re);
+
+% Peak h(0) = 1 throughout the family.
+gammas_peak = [0.05 0.1 0.25 0.5 0.75 0.9 0.95];
+peak_ok = true;
+for gg = gammas_peak
+    w_pk = weightEvents({5}, [], [], 1, 5, 2, gg, false, 0);
+    if abs(w_pk{1} - 1) >= 1e-12
+        peak_ok = false; break;
+    end
+end
+results{end+1,1} = 'weightEvents: peak h(0) = 1 for every gamma in (0, 1)';
+results{end,2}   = peak_ok;
+
+% Fixed-variance property: total variance is width^2 for every gamma.
+y_fv = linspace(-30, 30, 60001);
+dy_fv = y_fv(2) - y_fv(1);
+width_fv = 4;
+gammas_fv = [0 0.1 0.25 0.5 0.75 0.9 1.0];
+var_ok = true;
+for gg = gammas_fv
+    w_fv = weightEvents({y_fv}, [], [], 1, 0, width_fv, gg, false, 0);
+    h_fv = w_fv{1};
+    area = sum(h_fv) * dy_fv;
+    variance = sum(y_fv .^ 2 .* h_fv) * dy_fv / area;
+    if abs(variance - width_fv ^ 2) >= 5e-3
+        var_ok = false; break;
+    end
+end
+results{end+1,1} = 'weightEvents: variance is width^2 for every gamma (fixed-variance family)';
+results{end,2}   = var_ok;
+
+% Output is a 1 x A cell of per-attribute weight slots.
+p_la = {[1 2], [3 4]};
+w_la = weightEvents(p_la, [], [], 1, 1.5, 1, 0, false, 0);
+results{end+1,1} = 'weightEvents: returns 1 x A cell of per-attribute weight slots';
+results{end,2}   = iscell(w_la) && numel(w_la) == 2;
+
+% Non-input attributes pass through.
+p_pt = {[1 2 3], [10 20 30]};
+w_pt = weightEvents(p_pt, {[], 0.5}, [], 1, 2, 1, 0, false, 0);
+results{end+1,1} = 'weightEvents: non-input attribute passes through unchanged';
+results{end,2}   = isequal(w_pt{2}, 0.5);
+
+% Multi-attribute Design P: each input attr gets its own factor.
+p_mp = {[60 64 67], [0 1 2]};
+w_mp = weightEvents(p_mp, [], [], [1 2], [64 1], [3 1], [0 0], [false false], [0 0]);
+h0 = exp(-(([60 64 67] - 64) .^ 2) ./ 18);
+h1 = exp(-(([0 1 2]  - 1)  .^ 2) ./ 2);
+results{end+1,1} = 'weightEvents: multi-attribute Design P writes h_i into each slot';
+results{end,2}   = max(abs(w_mp{1} - h0)) < 1e-12 && ...
+                   max(abs(w_mp{2} - h1)) < 1e-12;
+joint_mp = h0 .* h1;
+product_mp = w_mp{1} .* w_mp{2};
+results{end+1,1} = 'weightEvents: product across slots recovers joint window';
+results{end,2}   = max(abs(product_mp - joint_mp)) < 1e-12;
+
+% Per-input-attr width and shape.
+w_ml = weightEvents({[0 1], [0 1]}, [], [], [1 2], [0 0], [1 1], [0 1], [false false], [0 0]);
+% Attr 0: gamma = 0, pure Gaussian width 1, values [0 1]
+% Attr 1: gamma = 1, pure rectangle, half-width sqrt(3) ~ 1.73, values [0 1]
+results{end+1,1} = 'weightEvents: per-input-attr width and shape honoured';
+results{end,2}   = max(abs(w_ml{1} - [1 exp(-0.5)])) < 1e-12 && ...
+                   isequal(w_ml{2}, [1 1]);
+
+% Periodic wrap: delta = v - c wrapped to [-P/2, P/2] before h.
+p_per = {[10 11 0 1 2]};
+w_per = weightEvents(p_per, [], [], 1, 0, 2, 0, true, 12);
+expected_per = exp(-([-2 -1 0 1 2] .^ 2) ./ 8);
+results{end+1,1} = 'weightEvents: periodic wrap of delta before shape';
+results{end,2}   = max(abs(w_per{1} - expected_per)) < 1e-12;
+results{end+1,1} = 'weightEvents: input values stay raw (no value mutation)';
+results{end,2}   = isequal(p_per{1}, [10 11 0 1 2]);
+
+% K_a > 1: per-slot evaluation, K_a x N output.
+p_k2_we = {[60 62 64; 70 67 64]};
+w_k2_we = weightEvents(p_k2_we, [], [], 1, 64, 3, 0, false, 0);
+results{end+1,1} = 'weightEvents: K_a > 1 input emits K_a x N factor matrix';
+results{end,2}   = isequal(size(w_k2_we{1}), [2 3]);
+expected_k2_row1 = exp(-(([60 62 64] - 64) .^ 2) ./ 18);
+expected_k2_row2 = exp(-(([70 67 64] - 64) .^ 2) ./ 18);
+results{end+1,1} = 'weightEvents: K_a > 1 factor matches per-slot evaluation';
+results{end,2}   = max(abs(w_k2_we{1}(1, :) - expected_k2_row1)) < 1e-12 && ...
+                   max(abs(w_k2_we{1}(2, :) - expected_k2_row2)) < 1e-12;
+
+% Scalar existing weight multiplies in.
+w_mul = weightEvents({[1 2 3]}, 0.5, [], 1, 2, 1, 0, false, 0);
+h_mul = exp(-(([1 2 3] - 2) .^ 2) ./ 2);
+results{end+1,1} = 'weightEvents: scalar existing weight multiplies in';
+results{end,2}   = max(abs(w_mul{1} - 0.5 .* h_mul)) < 1e-12;
+
+% Empty inputAttrs passes weights through.
+w_em = weightEvents({[1 2], [3 4]}, {0.5, 0.7}, [], [], [], [], [], [], []);
+results{end+1,1} = 'weightEvents: empty inputAttrs passes weights through';
+results{end,2}   = iscell(w_em) && numel(w_em) == 2 && ...
+                   isequal(w_em{1}, 0.5) && isequal(w_em{2}, 0.7);
+
+% Error cases.
+results{end+1,1} = 'weightEvents: zero width errors (badWidth id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 0, 0.5, false, 0), ...
+    'weightEvents:badWidth');
+
+results{end+1,1} = 'weightEvents: negative width errors (badWidth id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, -1, 0.5, false, 0), ...
+    'weightEvents:badWidth');
+
+results{end+1,1} = 'weightEvents: shape > 1 errors (badShape id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1.5, false, 0), ...
+    'weightEvents:badShape');
+
+results{end+1,1} = 'weightEvents: shape < 0 errors (badShape id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, -0.1, false, 0), ...
+    'weightEvents:badShape');
+
+results{end+1,1} = 'weightEvents: inputAttrs out of range errors (badInputAttrs id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 2, 1, 1, 0, false, 0), ...
+    'weightEvents:badInputAttrs');
+
+results{end+1,1} = 'weightEvents: duplicate inputAttrs errors (badInputAttrs id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2], [3 4]}, [], [], [1 1], [1 1], [1 1], [0 0], [false false], [0 0]), ...
+    'weightEvents:badInputAttrs');
+
+results{end+1,1} = 'weightEvents: isPer=true with periods=0 errors (badPeriods id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, true, 0), ...
+    'weightEvents:badPeriods');
+
+% T ∘ W centre-shift commutation: T then W with centre c equals W with
+% centre c - mu then T (T leaves weights unchanged). Use an
+% intermediate gamma so the convolution branch is exercised.
+p_tw = {[60 62 64]};
+mu_tw = 5; c_tw = 64; width_tw = 3; gamma_tw = 0.3;
+p_after_t = translateAttributes(p_tw, [], mu_tw, false, false, 0);
+w_after_t = weightEvents(p_after_t, [], [], 1, c_tw, width_tw, gamma_tw, false, 0);
+w_first = weightEvents(p_tw, [], [], 1, c_tw - mu_tw, width_tw, gamma_tw, false, 0);
+results{end+1,1} = 'weightEvents: T ∘ W centre-shift commutation';
+results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
+
 % -- translateAttributes: zero shift identity (scalar broadcast) --
 
 p_t = {[60 62 64], [0 1 2]};

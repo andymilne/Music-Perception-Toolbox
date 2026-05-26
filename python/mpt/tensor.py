@@ -30,6 +30,7 @@ from ._tensor.preprocessing import (
     difference_events,
     simplex_vertices,
     translate_attributes,
+    weight_events,
 )
 from ._tensor.windowing import (
     window_tensor,

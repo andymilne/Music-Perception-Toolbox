@@ -21,6 +21,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from scipy.special import erf as _erf
 
 from .._utils import validate_weights
 from .density import _canonicalise_groups
@@ -747,6 +748,346 @@ def _bind_weights(w, A, orders_per_attr, n_events, n_prime, circular):
                 indices = np.arange(ell, ell + n_prime)
             w_bound.append(W[:, indices])
     return w_bound
+
+
+# ===================================================================
+#  weight_events
+# ===================================================================
+
+
+def weight_events(
+    p_attr,
+    w,
+    groups,
+    input_attrs,
+    centre,
+    width,
+    shape,
+    is_per,
+    periods,
+) -> list:
+    r"""Apply a per-event weight via a multi-attribute window.
+
+    Per-event preprocessing for multi-attribute tensor input. Computes
+    a per-event weight contribution from a window in input-attribute
+    space and multiplies it into the existing weight *w*, returning
+    the new weight ``w_out``. Values and group structure pass through
+    unchanged; only the per-attribute weight slots are updated.
+
+    The window is specified per input attribute by three numeric
+    parameters: ``centre_i``, ``width_i`` (window standard deviation
+    in absolute units), and ``shape_i`` :math:`= \gamma_i \in [0, 1]`
+    (dimensionless shape interpolating between Gaussian and
+    rectangle). The factor written into the *i*-th input attribute's
+    weight slot is the peak-normalised convolution
+    :math:`\mathrm{rect}_{\phi_i} * \mathcal{G}_{\xi_i}` with
+    derived sub-parameters
+
+    .. math::
+
+        \phi_i = \text{width}_i\sqrt{3\gamma_i},\qquad
+        \xi_i  = \text{width}_i\sqrt{1-\gamma_i}.
+
+    This fixed-variance parametrisation keeps the total variance equal
+    to :math:`\text{width}_i^2` for every :math:`\gamma_i \in [0, 1]`
+    (rectangle on :math:`[-\phi_i, \phi_i]` contributes variance
+    :math:`\phi_i^2/3 = \text{width}_i^2\,\gamma_i`; Gaussian
+    contributes :math:`\xi_i^2 = \text{width}_i^2\,(1-\gamma_i)`).
+    The window's standard deviation is therefore :math:`\text{width}_i`
+    throughout the family, regardless of :math:`\gamma_i`. The window
+    is peak-normalised so :math:`h_i(0) = 1`.
+
+    Limits (computed directly for numerical cleanliness):
+
+    - :math:`\gamma_i = 0`: pure Gaussian
+      :math:`h_i(\delta) = \exp(-\delta^2/(2\,\text{width}_i^2))`.
+    - :math:`\gamma_i = 1`: pure rectangle
+      :math:`h_i(\delta) = \mathbb{1}[|\delta| \le \text{width}_i\sqrt 3]`.
+
+    Note that at :math:`\gamma_i = 1` the rectangle's half-width is
+    :math:`\text{width}_i\sqrt 3` (so its variance equals
+    :math:`\text{width}_i^2`); the parameter ``width`` always means
+    the standard deviation, not the half-extent.
+
+    Design P. Each input attribute contributes a *separate* factor
+    :math:`h_i` to its own per-attribute weight slot. The kernel
+    product over attributes in :func:`build_exp_tens` then recovers
+    the joint window naturally as
+    :math:`W_n = \prod_i h_i(p_{a_i, n})`. This factoring keeps each
+    input attribute's weight independent and makes ``weight_events``
+    commute cleanly with :func:`translate_attributes` (under a
+    centre-shift rule) and pass through :func:`difference_events` /
+    :func:`bind_events`.
+
+    For multi-slot attributes (``K_a > 1``), the window factor is
+    evaluated per slot value: ``h_i`` is applied independently to
+    each of the ``K_a`` entries in every event column, yielding a
+    ``(K_a, N)`` factor matrix that multiplies the input attribute's
+    weight slot under :func:`build_exp_tens`' broadcast convention.
+
+    The pre-MAET values themselves are not modified. For periodic
+    groups (``is_per_i = True``), only the difference
+    ``δ = v - centre_i`` used inside ``h_i`` is wrapped to
+    ``[-P/2, P/2]``; the stored values ``v`` stay raw. (The kernel in
+    :func:`build_exp_tens` handles the value-axis periodicity
+    downstream via the group ``[per]`` flag.)
+
+    Parameters
+    ----------
+    p_attr : list/tuple of array-like
+        Length-A list of ``(K_a, N)`` per-attribute value matrices.
+        ``K_a >= 1``; ``K_a = 0`` is rejected.
+    w : None, scalar, or list/tuple
+        Existing weights to multiply into. ``None``, a scalar, or a
+        length-A list of per-attribute weight inputs (each ``None``,
+        scalar, 1-D, or 2-D). Same convention as
+        :func:`build_exp_tens`.
+    groups : array-like or list-of-lists or None
+        Group assignment (validated for shape only; not used by the
+        window math).
+    input_attrs : array-like of int
+        Length-M array of attribute indices (0-based, in ``0..A-1``)
+        selecting the attributes the window spans. Repeats are not
+        allowed. If empty, ``w`` is returned unchanged
+        (canonicalised to a length-A list).
+    centre : array-like of float
+        Length-M array of window centres.
+    width : array-like of float
+        Length-M array of window standard deviations (``> 0``), in
+        absolute units of the attribute. The window's total variance
+        is ``width**2`` for every value of ``shape``.
+    shape : array-like of float
+        Length-M array of shape parameters :math:`\gamma \in [0, 1]`.
+        ``shape = 0`` is pure Gaussian; ``shape = 1`` is pure
+        rectangle (with half-width :math:`\text{width}\sqrt 3`);
+        intermediate values are the fixed-variance convolution family.
+    is_per : array-like of bool
+        Length-M boolean array. When ``True``, the difference
+        ``δ = v - centre[i]`` is wrapped to
+        ``[-periods[i]/2, periods[i]/2]`` before applying ``h_i``.
+        Must mirror the ``[per]`` flag of ``input_attrs[i]``'s group
+        in the downstream :func:`build_exp_tens` call.
+    periods : array-like of float
+        Length-M array of periods. Used only when ``is_per[i]`` is
+        ``True``; required to be ``> 0`` in that case.
+
+    Returns
+    -------
+    w_out : list
+        Length-A list of per-attribute weights, ready to feed into
+        :func:`build_exp_tens` (possibly after further pre-MAET
+        chaining). Each input attribute's slot holds the existing
+        input weight broadcast times ``h_i`` as a ``(K_a, N)`` matrix;
+        non-input attributes pass through unchanged.
+
+    See Also
+    --------
+    build_exp_tens, difference_events, bind_events, translate_attributes
+    """
+    # --- Normalise p_attr ---
+    if not isinstance(p_attr, (list, tuple)):
+        raise TypeError(
+            "p_attr must be a list/tuple of per-attribute matrices."
+        )
+    p_attr = [np.asarray(M, dtype=np.float64) for M in p_attr]
+    A = len(p_attr)
+    if A == 0:
+        raise ValueError("p_attr must contain at least one attribute.")
+    for a, M in enumerate(p_attr):
+        if M.ndim != 2:
+            raise ValueError(
+                f"Attribute {a} value matrix must be 2-D; got ndim={M.ndim}."
+            )
+        if M.shape[0] == 0:
+            raise ValueError(
+                f"Attribute {a} has K_a = 0 (empty attribute); empty "
+                f"attributes are not permitted."
+            )
+
+    # --- Shared N ---
+    n_events = p_attr[0].shape[1]
+    for a, M in enumerate(p_attr):
+        if M.shape[1] != n_events:
+            raise ValueError(
+                f"All attributes must share the same event count N. "
+                f"Attribute 0 has N={n_events}; attribute {a} has N={M.shape[1]}."
+            )
+
+    # --- Validate groups (shape only) ---
+    _canonicalise_groups(groups, A)
+
+    # --- Validate input_attrs ---
+    input_attrs = np.asarray(input_attrs).ravel()
+    n_inputs = input_attrs.size
+    if n_inputs == 0:
+        return _normalise_weights_to_list(w, A)
+    if input_attrs.dtype.kind not in "iu":
+        if not np.all(input_attrs == np.round(input_attrs)):
+            raise ValueError(
+                "input_attrs entries must be integers."
+            )
+        input_attrs = input_attrs.astype(np.int64)
+    if np.any(input_attrs < 0) or np.any(input_attrs >= A):
+        raise ValueError(
+            f"input_attrs entries must be in 0..A-1 = 0..{A - 1}."
+        )
+    if np.unique(input_attrs).size != n_inputs:
+        raise ValueError(
+            "input_attrs must not contain repeated indices."
+        )
+
+    # --- Validate centre, width, shape (all numeric, length M) ---
+    centre = np.asarray(centre, dtype=np.float64).ravel()
+    width = np.asarray(width, dtype=np.float64).ravel()
+    shape = np.asarray(shape, dtype=np.float64).ravel()
+    if centre.size != n_inputs:
+        raise ValueError(
+            f"centre must have length M = {n_inputs} (one per input "
+            f"attribute); got {centre.size}."
+        )
+    if width.size != n_inputs:
+        raise ValueError(
+            f"width must have length M = {n_inputs}; got {width.size}."
+        )
+    if shape.size != n_inputs:
+        raise ValueError(
+            f"shape must have length M = {n_inputs} (gamma per input "
+            f"attribute); got {shape.size}."
+        )
+    if not (np.all(np.isfinite(centre)) and np.all(np.isfinite(width))
+            and np.all(np.isfinite(shape))):
+        raise ValueError(
+            "centre, width, and shape entries must be finite."
+        )
+    if np.any(width <= 0):
+        raise ValueError("width entries must be > 0.")
+    if np.any((shape < 0) | (shape > 1)):
+        raise ValueError(
+            "shape entries (gamma) must lie in [0, 1]: gamma = 0 is "
+            "pure Gaussian, gamma = 1 is pure rectangle, intermediate "
+            "values are the fixed-variance convolution family."
+        )
+
+    # --- Validate is_per, periods ---
+    is_per_arr = np.asarray(is_per, dtype=bool).ravel()
+    periods_arr = np.asarray(periods, dtype=np.float64).ravel()
+    if is_per_arr.size != n_inputs:
+        raise ValueError(
+            f"is_per must have length M = {n_inputs}; got {is_per_arr.size}."
+        )
+    if periods_arr.size != n_inputs:
+        raise ValueError(
+            f"periods must have length M = {n_inputs}; got {periods_arr.size}."
+        )
+    if np.any(is_per_arr & (periods_arr <= 0)):
+        raise ValueError(
+            "periods entries must be > 0 wherever is_per is True "
+            "(non-periodic entries are unused and may be 0)."
+        )
+
+    # --- Compute factor h_i for each input attribute ---
+    factors = []
+    for i in range(n_inputs):
+        a = int(input_attrs[i])
+        val_mat = p_attr[a].astype(np.float64, copy=False)   # (K_a, N)
+        delta = val_mat - centre[i]
+        if is_per_arr[i]:
+            P = periods_arr[i]
+            delta = delta - P * np.floor(delta / P + 0.5)
+        factors.append(_evaluate_shape(delta, width[i], shape[i]))
+
+    # --- Normalise w to length-A list and multiply factors in ---
+    w_out = _normalise_weights_to_list(w, A)
+    for i in range(n_inputs):
+        a = int(input_attrs[i])
+        w_out[a] = _multiply_weights(w_out[a], factors[i], a)
+    return w_out
+
+
+def _evaluate_shape(delta, width, gamma):
+    r"""Peak-normalised fixed-variance window family (Eqs.~5.2.1 of MAET).
+
+    Three parameters: window centre ``c`` (already absorbed into
+    ``delta = v - c``), the window standard deviation ``width``
+    (= :math:`\lambda\sigma` in the manuscript's notation), and a
+    shape parameter ``gamma`` :math:`\in [0, 1]` interpolating between
+    pure Gaussian (``gamma=0``) and pure rectangle (``gamma=1``).
+
+    The window is the convolution :math:`\mathrm{rect}_\phi *
+    \mathcal{G}_\xi` with derived parameters
+
+    .. math::
+
+        \phi = \text{width}\cdot\sqrt{3\gamma}, \qquad
+        \xi  = \text{width}\cdot\sqrt{1-\gamma}.
+
+    These constrain the total variance to ``width**2`` across the
+    entire family (rectangle on :math:`[-\phi, \phi]` has variance
+    :math:`\phi^2/3 = \text{width}^2\,\gamma`; Gaussian has variance
+    :math:`\xi^2 = \text{width}^2\,(1-\gamma)`; the two variances sum
+    to :math:`\text{width}^2`). The window is peak-normalised so
+    ``h(0) = 1`` throughout.
+
+    Limits (computed directly):
+
+    - ``gamma = 0``: pure Gaussian
+      :math:`h(\delta) = \exp(-\delta^2 / (2\,\text{width}^2))`.
+    - ``gamma = 1``: pure rectangle
+      :math:`h(\delta) = \mathbb{1}[|\delta| \le \text{width}\sqrt{3}]`.
+    """
+    if not (0.0 <= gamma <= 1.0):
+        raise ValueError(
+            f"shape entries (gamma) must lie in [0, 1]; got {gamma}."
+        )
+    if width <= 0.0:
+        raise ValueError(
+            f"width entries must be > 0; got {width}."
+        )
+    if gamma == 0.0:
+        return np.exp(-(delta ** 2) / (2.0 * width ** 2))
+    if gamma == 1.0:
+        phi = width * np.sqrt(3.0)
+        return (np.abs(delta) <= phi).astype(np.float64)
+    phi = width * np.sqrt(3.0 * gamma)
+    xi = width * np.sqrt(1.0 - gamma)
+    scale = xi * np.sqrt(2.0)
+    num = _erf((delta + phi) / scale) - _erf((delta - phi) / scale)
+    peak = 2.0 * _erf(phi / scale)
+    return num / peak
+
+
+def _normalise_weights_to_list(w, A):
+    """Coerce ``w`` to a length-A list, preserving entries."""
+    if w is None:
+        return [None] * A
+    if np.isscalar(w):
+        return [float(w)] * A
+    if isinstance(w, (list, tuple)):
+        if len(w) != A:
+            raise ValueError(
+                f"Weight list must have length A = {A}; got length {len(w)}."
+            )
+        return list(w)
+    raise TypeError(
+        "w must be None, a scalar, or a length-A list of per-attribute "
+        "weight inputs."
+    )
+
+
+def _multiply_weights(w_existing, factor, attr_idx):
+    """Multiply existing per-attribute weight by ``factor`` ((K_a, N)).
+
+    Broadcasting follows the toolbox convention (scalar / (1, N) row /
+    (K_a, 1) column / (K_a, N) matrix all multiply naturally into the
+    (K_a, N) factor).
+    """
+    if w_existing is None:
+        return factor
+    if np.isscalar(w_existing):
+        return float(w_existing) * factor
+    arr = np.asarray(w_existing, dtype=np.float64)
+    # numpy broadcasting handles the per-slot / per-event cases.
+    return arr * factor
 
 
 # ===================================================================

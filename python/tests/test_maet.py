@@ -1416,6 +1416,283 @@ class TestMAET:
         np.testing.assert_allclose(pdb[0], pbd[0])
         np.testing.assert_allclose(pdb[1], pbd[1])
 
+    # --- weight_events --------------------------------------------------
+
+    def test_weight_pure_gaussian_gamma_zero(self):
+        """gamma = 0 limit: pure Gaussian with std = width."""
+        p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[64.0], width=[3.0], shape=[0.0],
+            is_per=[False], periods=[0.0],
+        )
+        expected = np.exp(
+            -((np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) ** 2)
+            / (2 * 3.0 ** 2)
+        ).reshape(1, -1)
+        np.testing.assert_allclose(w_out[0], expected)
+
+    def test_weight_pure_rectangle_gamma_one(self):
+        """gamma = 1 limit: pure rectangle with half-width = width * sqrt(3)."""
+        p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[64.0], width=[3.0], shape=[1.0],
+            is_per=[False], periods=[0.0],
+        )
+        half = 3.0 * np.sqrt(3.0)
+        expected = (
+            np.abs(np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) <= half
+        ).astype(float).reshape(1, -1)
+        np.testing.assert_array_equal(w_out[0], expected)
+
+    def test_weight_intermediate_gamma_peak_one(self):
+        """Peak h(0) = 1 throughout the family, for every gamma in (0, 1)."""
+        p = [np.array([[5.0]])]   # single event at the centre
+        for g in [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]:
+            w_out = mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[5.0], width=[2.0], shape=[g],
+                is_per=[False], periods=[0.0],
+            )
+            assert abs(w_out[0][0, 0] - 1.0) < 1e-12, (
+                f"peak at gamma={g} was {w_out[0][0, 0]}, expected 1.0"
+            )
+
+    def test_weight_fixed_variance_property(self):
+        """Total variance of the window is width^2 for every gamma in [0, 1]
+        (the manuscript's fixed-variance parametrisation)."""
+        # Sample h finely on a wide grid and compute variance numerically.
+        y = np.linspace(-30.0, 30.0, 60001).reshape(1, -1)
+        p = [y]
+        width = 4.0
+        for g in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]:
+            w_out = mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[0.0], width=[width], shape=[g],
+                is_per=[False], periods=[0.0],
+            )
+            h = w_out[0].ravel()
+            dy = y[0, 1] - y[0, 0]
+            area = h.sum() * dy
+            variance = (y.ravel() ** 2 * h).sum() * dy / area
+            assert abs(variance - width ** 2) < 5e-3, (
+                f"variance at gamma={g} was {variance}, expected {width**2}"
+            )
+
+    def test_weight_returns_length_a_list(self):
+        """Output is a length-A list of per-attribute weight slots."""
+        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[1.5], width=[1.0], shape=[0.0],
+            is_per=[False], periods=[0.0],
+        )
+        assert isinstance(w_out, list)
+        assert len(w_out) == 2
+
+    def test_weight_non_input_attributes_pass_through(self):
+        """Attributes not listed in input_attrs keep their incoming weight."""
+        p = [np.array([[1.0, 2.0, 3.0]]), np.array([[10.0, 20.0, 30.0]])]
+        w_in = [None, 0.5]
+        w_out = mpt.weight_events(
+            p, w_in, None,
+            input_attrs=[0],
+            centre=[2.0], width=[1.0], shape=[0.0],
+            is_per=[False], periods=[0.0],
+        )
+        assert w_out[0].shape == (1, 3)
+        assert w_out[1] == 0.5
+
+    def test_weight_multi_attribute_product_design_p(self):
+        """Each input attribute gets its own factor in its own slot
+        (Design P); product across slots gives the joint window."""
+        p = [np.array([[60.0, 64.0, 67.0]]),
+             np.array([[0.0, 1.0, 2.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0, 1],
+            centre=[64.0, 1.0], width=[3.0, 1.0], shape=[0.0, 0.0],
+            is_per=[False, False], periods=[0.0, 0.0],
+        )
+        h0 = np.exp(-((np.array([60.0, 64.0, 67.0]) - 64.0) ** 2) / 18.0)
+        h1 = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
+        np.testing.assert_allclose(w_out[0].ravel(), h0)
+        np.testing.assert_allclose(w_out[1].ravel(), h1)
+        joint = h0 * h1
+        product = w_out[0].ravel() * w_out[1].ravel()
+        np.testing.assert_allclose(product, joint)
+
+    def test_weight_per_input_attr_width_and_shape(self):
+        """Each input attribute can have its own width and gamma."""
+        p = [np.array([[0.0, 1.0]]), np.array([[0.0, 1.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0, 1],
+            centre=[0.0, 0.0], width=[1.0, 1.0], shape=[0.0, 1.0],
+            is_per=[False, False], periods=[0.0, 0.0],
+        )
+        # Attr 0: pure Gaussian (gamma = 0), width = 1
+        np.testing.assert_allclose(w_out[0].ravel(), [1.0, np.exp(-0.5)])
+        # Attr 1: pure rectangle (gamma = 1), half-width = sqrt(3) ~ 1.73
+        np.testing.assert_array_equal(w_out[1].ravel(), [1.0, 1.0])
+
+    def test_weight_periodic_wrap(self):
+        """Periodic input attribute wraps delta = v - c to [-P/2, P/2]
+        before applying the shape function. Values themselves stay raw."""
+        p = [np.array([[10.0, 11.0, 0.0, 1.0, 2.0]])]   # raw
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[0.0], width=[2.0], shape=[0.0],
+            is_per=[True], periods=[12.0],
+        )
+        deltas = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
+        expected = np.exp(-(deltas ** 2) / 8.0).reshape(1, -1)
+        np.testing.assert_allclose(w_out[0], expected)
+
+    def test_weight_k_a_greater_than_one_per_slot(self):
+        """For K_a > 1, the window factor is applied per slot value;
+        output is K_a x N."""
+        p = [np.array([[60.0, 62.0, 64.0],
+                       [70.0, 67.0, 64.0]])]
+        w_out = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[64.0], width=[3.0], shape=[0.0],
+            is_per=[False], periods=[0.0],
+        )
+        assert w_out[0].shape == (2, 3)
+        np.testing.assert_allclose(
+            w_out[0][0], np.exp(-(np.array([60.0, 62.0, 64.0]) - 64.0) ** 2 / 18.0)
+        )
+        np.testing.assert_allclose(
+            w_out[0][1], np.exp(-(np.array([70.0, 67.0, 64.0]) - 64.0) ** 2 / 18.0)
+        )
+
+    def test_weight_multiplies_into_existing_weight(self):
+        """Window factor multiplies into the incoming weight slot."""
+        p = [np.array([[1.0, 2.0, 3.0]])]
+        w_in = 0.5
+        w_out = mpt.weight_events(
+            p, w_in, None,
+            input_attrs=[0],
+            centre=[2.0], width=[1.0], shape=[0.0],
+            is_per=[False], periods=[0.0],
+        )
+        h = np.exp(-(np.array([1.0, 2.0, 3.0]) - 2.0) ** 2 / 2.0)
+        np.testing.assert_allclose(w_out[0].ravel(), 0.5 * h)
+
+    def test_weight_empty_input_attrs_passes_through(self):
+        """If input_attrs is empty, w is returned unchanged as a list."""
+        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
+        w_out = mpt.weight_events(
+            p, [0.5, 0.7], None,
+            input_attrs=[],
+            centre=[], width=[], shape=[],
+            is_per=[], periods=[],
+        )
+        assert w_out == [0.5, 0.7]
+
+    def test_weight_zero_width_errors(self):
+        """width = 0 is rejected (degenerate)."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="width"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[1.0], width=[0.0], shape=[0.5],
+                is_per=[False], periods=[0.0],
+            )
+
+    def test_weight_negative_width_errors(self):
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="width"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[1.0], width=[-1.0], shape=[0.5],
+                is_per=[False], periods=[0.0],
+            )
+
+    def test_weight_shape_out_of_range_errors(self):
+        """shape (gamma) outside [0, 1] is rejected."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="shape"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[1.0], width=[1.0], shape=[1.5],
+                is_per=[False], periods=[0.0],
+            )
+        with pytest.raises(ValueError, match="shape"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[1.0], width=[1.0], shape=[-0.1],
+                is_per=[False], periods=[0.0],
+            )
+
+    def test_weight_input_attr_out_of_range_errors(self):
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="input_attrs"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[2],
+                centre=[1.0], width=[1.0], shape=[0.0],
+                is_per=[False], periods=[0.0],
+            )
+
+    def test_weight_duplicate_input_attrs_errors(self):
+        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
+        with pytest.raises(ValueError, match="input_attrs"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0, 0],
+                centre=[1.0, 1.0], width=[1.0, 1.0], shape=[0.0, 0.0],
+                is_per=[False, False], periods=[0.0, 0.0],
+            )
+
+    def test_weight_periodic_requires_positive_period(self):
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="periods"):
+            mpt.weight_events(
+                p, None, None,
+                input_attrs=[0],
+                centre=[1.0], width=[1.0], shape=[0.0],
+                is_per=[True], periods=[0.0],
+            )
+
+    def test_weight_t_w_centre_shift_commutation(self):
+        """T then W with centre c equals W with centre c-mu then T,
+        on the same input attribute (centre-shift composition rule)."""
+        p = [np.array([[60.0, 62.0, 64.0]])]
+        mu = 5.0
+        c = 64.0
+        width = 3.0
+        gamma = 0.3   # intermediate (non-trivial convolution)
+        p_t = mpt.translate_attributes(
+            p, [0], {0: mu}, [False], [False], [0.0],
+        )
+        w_after_t = mpt.weight_events(
+            p_t, None, None,
+            input_attrs=[0],
+            centre=[c], width=[width], shape=[gamma],
+            is_per=[False], periods=[0.0],
+        )
+        w_first = mpt.weight_events(
+            p, None, None,
+            input_attrs=[0],
+            centre=[c - mu], width=[width], shape=[gamma],
+            is_per=[False], periods=[0.0],
+        )
+        np.testing.assert_allclose(w_first[0], w_after_t[0])
+
     # --- translate_attributes ------------------------------------------
 
     def test_translate_zero_is_identity(self):

@@ -42,6 +42,7 @@ from .preprocessing import (
     difference_events,
     simplex_vertices,
     translate_attributes,
+    weight_events,
 )
 
 from .windowing import (
@@ -94,6 +95,7 @@ __all__ = [
     "simplex_vertices",
     "translate_attributes",
     "TranslateAttributesNoOpWarning",
+    "weight_events",
     # Windowing (public)
     "window_tensor",
     "windowed_similarity",

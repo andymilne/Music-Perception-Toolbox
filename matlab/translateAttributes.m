@@ -35,10 +35,13 @@ function pAttrTranslated = translateAttributes(pAttr, groups, offsets, isRel, is
 %       A-by-M matrix:        per-attribute, M-sweep. Returns 1-by-M
 %                             cell.
 %       G-by-1 column:        per-group, broadcast within group;
-%                             single translation. Requires A ~= G to
-%                             disambiguate from per-attribute (when
-%                             A == G the per-attribute reading
-%                             applies, with identical results).
+%                             single translation. Returns 1-by-1 cell
+%                             (matrix-mode), consistent with A-by-1.
+%                             Requires A ~= G to disambiguate from
+%                             per-attribute (when A == G the per-
+%                             attribute reading applies, with
+%                             identical numeric output and identical
+%                             matrix-mode wrapping).
 %       G-by-M matrix:        per-group, broadcast within group;
 %                             M-sweep. Same A ~= G requirement.
 %       2-D with rows not in {1, A, G}: error.
@@ -311,9 +314,13 @@ function [matrixMode, offsetsPerAttr] = localNormaliseOffsets(offsets, A, G, att
     if nRows == G
         % G-by-M (M >= 1): per-group, broadcast within group. Expand
         % to per-attribute by replicating each group's row across the
-        % attributes of that group. The A == G case is handled above
-        % (per-attribute interpretation; the two are equivalent there).
-        matrixMode = (nCols > 1);
+        % attributes of that group. Always returns matrix mode (1-by-M
+        % wrapper) for consistency with the A-by-M and cell-form
+        % n_g-by-M conventions: any 2-D input with nRows > 1 is a
+        % per-axis spec and gets a sweep wrapper. The A == G case is
+        % handled above (per-attribute interpretation; identical
+        % numeric output, same matrix-mode wrapping).
+        matrixMode = true;
         offsetsPerAttr = zeros(A, nCols);
         for g = 1:G
             attrs = attrsOfGroup{g};

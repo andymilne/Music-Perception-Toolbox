@@ -999,13 +999,14 @@ results{end,2}   = best_s > 1.0 - 1e-9;
 % A = 3, G = 2 (so A ~= G, G-form is unambiguous).
 p_g = {[60 64], [67 71], [0 1]};
 groups_g = [1 1 2];
-% G-by-1 column: group 1 by +5, group 2 by -2.
+% G-by-1 column: group 1 by +5, group 2 by -2. Returns matrix-mode
+% (1-by-1 wrapper around length-A cell), consistent with A-by-1.
 out_g = translateAttributes(p_g, groups_g, [5; -2], ...
                             [false false], [false false], [0 0]);
 results{end+1,1} = 'translateAttributes: G-by-1 column broadcasts within each group';
-results{end,2}   = isequal(out_g{1}, [65 69]) && ...
-                   isequal(out_g{2}, [72 76]) && ...
-                   isequal(out_g{3}, [-2 -1]);
+results{end,2}   = isequal(out_g{1}{1}, [65 69]) && ...
+                   isequal(out_g{1}{2}, [72 76]) && ...
+                   isequal(out_g{1}{3}, [-2 -1]);
 
 % G-by-M matrix: group 1 sweeps (5, 7); group 2 sweeps (-2, 0).
 out_gm = translateAttributes(p_g, groups_g, [5 7; -2 0], ...
@@ -1021,14 +1022,16 @@ results{end,2}   = isequal(out_gm{2}{1}, [67 71]) && ...
                    isequal(out_gm{2}{2}, [74 78]) && ...
                    isequal(out_gm{2}{3}, [0 1]);
 
-% A == G case: when each attribute is its own group, A-by-1 and G-by-1 are
-% the same shape; per-attribute interpretation applies (identical output).
+% A == G case: when each attribute is its own group, the A-by-1 shape
+% is read as per-attribute via the A-row branch, which returns matrix-
+% mode output (a 1-by-1 cell wrapper around the length-A attribute
+% cell, consistent with the A-by-M convention).
 p_ag = {60, 0};
 groups_ag = [1 2];   % A = G = 2
 out_ag = translateAttributes(p_ag, groups_ag, [5; -2], ...
                              [false false], [false false], [0 0]);
 results{end+1,1} = 'translateAttributes: A == G column is read as per-attribute';
-results{end,2}   = isequal(out_ag{1}, 65) && isequal(out_ag{2}, -2);
+results{end,2}   = isequal(out_ag{1}{1}, 65) && isequal(out_ag{1}{2}, -2);
 
 % -- translateAttributes: error cases --
 

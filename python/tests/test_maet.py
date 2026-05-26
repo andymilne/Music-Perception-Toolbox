@@ -1497,7 +1497,8 @@ class TestMAET:
 
     def test_translate_numeric_g_column_per_group(self):
         """A (G, 1) column gives each group its own offset, broadcast
-        within group. Used when A != G (different attributes per group)."""
+        within group. Returns matrix-mode (length-1 outer list),
+        consistent with (A, 1)."""
         # Three attributes; two in group 0, one in group 1. A=3, G=2.
         p = [np.array([[60.0, 64.0]]),     # group 0
              np.array([[67.0, 71.0]]),     # group 0
@@ -1509,9 +1510,10 @@ class TestMAET:
             p, groups, offsets,
             [False, False], [False, False], [0.0, 0.0],
         )
-        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
-        np.testing.assert_allclose(out[2], [[-2.0, -1.0]])
+        # Matrix mode: out is a length-1 list of length-A lists.
+        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
+        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
+        np.testing.assert_allclose(out[0][2], [[-2.0, -1.0]])
 
     def test_translate_numeric_g_matrix_per_group_sweep(self):
         """A (G, M) matrix gives each group its own M-position sweep,

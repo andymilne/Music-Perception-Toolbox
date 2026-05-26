@@ -742,8 +742,9 @@ def translate_attributes(
       length-``M`` list of length-``A`` lists. Also handles ``A == G``
       (per-attribute and per-group equivalent).
     - 2-D ``(G, M)`` with ``G != A``: per-group, broadcast within
-      group; ``M``-position sweep (``M = 1`` acceptable). Each
-      group's row is replicated across its attributes.
+      group; ``M``-position sweep (``M = 1`` acceptable, returns a
+      length-1 outer list — matrix mode, consistent with ``(A, M)``).
+      Each group's row is replicated across its attributes.
     - 2-D with rows not in ``{1, A, G}``: ValueError.
 
     **Dict form.** ``offsets`` is ``{group_index: value}`` (0-indexed
@@ -1087,15 +1088,19 @@ def _normalise_offsets(
             # Per-attribute (also handles A == G case, equivalent to per-group there).
             return True, arr.astype(np.float64, copy=True)
         if n_rows == G:
-            # Per-group, broadcast within group. Expand to per-attribute by
-            # replicating each group's row across its attributes. The A == G
-            # case is handled above (per-attribute interpretation; identical
-            # output for either reading).
+            # Per-group, broadcast within group. Expand to per-attribute
+            # by replicating each group's row across its attributes.
+            # Always returns matrix mode (M-position wrapper) for
+            # consistency with the (A, M) and dict-form (n_g, M)
+            # conventions: any 2-D input with n_rows > 1 is a per-axis
+            # spec and gets a sweep wrapper. The A == G case is handled
+            # above (per-attribute interpretation; identical numeric
+            # output, same matrix-mode wrapping).
             result = np.zeros((A, M), dtype=np.float64)
             for g in range(G):
                 attrs = attrs_of_group[g]
                 result[attrs, :] = arr[g, :]
-            return (M > 1), result
+            return True, result
         raise ValueError(
             f"offsets is a 2-D array with shape {arr.shape}; row "
             f"count must be 1 (broadcast across all attributes), "

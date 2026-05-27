@@ -10,7 +10,32 @@ This guide documents migration paths between major versions of the Music Percept
 
 ## v2.1 → v2.2
 
-v2.2.0 is fully additive: existing v2.1 calling conventions are preserved at the floating-point level for the default routing in standard regimes, so no v2.1 code requires changes.
+v2.2.0 is largely additive: existing v2.1 calling conventions are preserved at the floating-point level for the default routing in standard regimes. One pre-MAET preprocessing primitive has a breaking signature change (see `differenceEvents` below); all other v2.1 code requires no changes.
+
+### `differenceEvents` signature and periodicity convention (breaking)
+
+The v2.1 signature `differenceEvents(pAttr, w, groups, diffOrders, periods)` is now `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)`: four positional arguments, with `'circular'` as a Name-Value (MATLAB) / keyword-only (Python) flag and no trailing `periods` positional argument. The `circular` flag controls whether the difference operator wraps at the event-sequence boundary (the natural choice for cyclic event sequences — looped rhythms, ostinati); the default `false` preserves the v2.1 leading-event-drop convention for non-cyclic inputs.
+
+Periodicity is no longer handled inside `differenceEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the mod-period wrap on periodic groups is applied by the kernel at MAET-construction time, downstream of `differenceEvents`. This aligns the function with the toolbox-wide convention that pre-MAET preprocessing primitives produce raw values and the kernel handles wrap downstream.
+
+**Migration.** v2.1 callers passing a `periods` positional argument must remove it. Three cases:
+
+```matlab
+% v2.1 — periods positional
+[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1, periods);
+
+% v2.2 — drop periods; kernel handles wrap
+[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1);
+```
+
+For analyses on cyclic event sequences (e.g. looped rhythms) that benefit from boundary wrap of the difference operator, opt in via the new flag:
+
+```matlab
+% v2.2 — circular differencing on a cyclic input
+[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1, 'circular', true);
+```
+
+Numerically equivalent v2.1 / v2.2 outputs on the standard `differenceEvents` → `buildExpTens` → MAET-consumer pipeline: the v2.1 wrap was to the shortest signed arc on $[-P/2, P/2)$, while v2.2 leaves the signed subtraction unwrapped; the kernel applies the same mod-$P$ wrap on either input at evaluation time, so downstream densities and all MAET-consumer outputs (cosine similarities, entropies, evaluations) are identical at floating-point precision. Only direct consumers of the pre-MAET values themselves see the wrapping difference, and the toolbox does not ship any such consumer.
 
 ### What's new at the surface
 
@@ -23,6 +48,10 @@ v2.2.0 is fully additive: existing v2.1 calling conventions are preserved at the
 - **Shipped orbit tables for $r \in \{2, \ldots, 8\}$.** Both Python and MATLAB ship pre-built tables for $r = 2$ through $r = 8$. The user-build path remains available for $r > 8$, gated by a cost-preview warning that prints the Bell-number scaling and estimated build time before construction begins. Set `MPT_NO_BUILD_WARN=1` (environment variable) to suppress the preview message in automation contexts. The user-build cache lives at `~/.mpt/orbit_tables/` (overridable via `MPT_CACHE_DIR`) and persists across sessions. The hard cap on $r$ is 12; beyond that, the build cost is prohibitive even for one-off use.
 
 - **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `cosSimExpTens`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.1 code requires no changes; the new default produces chunk sizes that differ from v2.1's fixed budget, so values differ from v2.1 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
+
+- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a width $w$ (standard deviation), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `deleteInput` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `deleteInput=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §3.7 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
+
+- **`circular` flag on `differenceEvents` / `difference_events`.** New Name-Value (MATLAB) / keyword-only (Python) flag on `differenceEvents`, paralleling the existing flag on `bindEvents`. Default `false` preserves the v2.1 leading-event-drop convention. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order. Note that v2.2 also drops the v2.1 trailing `periods` positional argument from `differenceEvents`' signature; see the breaking-change section above.
 
 ### What's new under the hood
 

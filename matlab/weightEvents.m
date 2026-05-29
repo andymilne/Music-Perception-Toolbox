@@ -1,234 +1,240 @@
-function wOut = weightEvents(pAttr, w, groups, inputAttrs, centre, width, shape, isPer, periods)
-%WEIGHTEVENTS Apply a per-event weight via a multi-attribute window.
+function [pAttrOut, wOut, groupsOut] = weightEvents( ...
+    pAttr, w, groups, inputAttr, targetAttr, ...
+    centre, width, shape, isPer, period, opts)
+%WEIGHTEVENTS Apply a per-event weight via an input-to-target window factor.
 %
-%   wOut = weightEvents(pAttr, w, groups, inputAttrs, centre, width, shape, isPer, periods)
+%   [pAttrOut, wOut, groupsOut] = weightEvents(pAttr, w, groups, ...
+%       inputAttr, targetAttr, centre, width, shape, isPer, period, ...
+%       'deleteInput', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor
-%   input. It computes a per-event weight contribution from a window
-%   in input-attribute space and multiplies it into the existing
-%   weight w, returning the new weight wOut. The values and group
-%   structure pass through unchanged; only the per-attribute weight
-%   slots are updated.
+%   input. It reads the K=1 value at every event from inputAttr,
+%   evaluates a window function h centred at centre with standard
+%   deviation width and shape parameter shape (= gamma), and writes
+%   the resulting (1, N) per-event factor into the weight slot of
+%   targetAttr, multiplied into any existing weight already there.
+%   targetAttr may differ from inputAttr (the typical case --- e.g.,
+%   time-driven windowing of pitch events) or coincide with it (the
+%   input attribute weights itself).
 %
-%   The window is specified per input attribute by three numeric
-%   parameters: centre c_i, the window's standard deviation width_i
-%   (in absolute units of the attribute), and a shape parameter
-%   shape_i = gamma_i in [0, 1] interpolating between pure Gaussian
-%   and pure rectangle. The factor written into the i-th input
-%   attribute's weight slot is the peak-normalised convolution
-%   rect_{phi_i} * G_{xi_i} with derived sub-parameters
+%   When deleteInput=true and inputAttr differs from targetAttr, the
+%   input attribute is removed from the returned pAttrOut / wOut /
+%   groupsOut after the factor has been transferred to the target.
+%   This is the canonical windowed-entropy / windowed-mass workflow:
+%   the input attribute provides the scaffolding for the window and
+%   is no longer needed downstream. When deleteInput=false, the input
+%   attribute is preserved unchanged in the output. deleteInput=true
+%   paired with inputAttr == targetAttr is rejected as incoherent
+%   (deleting the input would discard the factor just written to it).
 %
-%       phi_i = width_i * sqrt(3 * gamma_i),
-%       xi_i  = width_i * sqrt(1 - gamma_i),
+%   The window family is the peak-normalised convolution of a
+%   rectangle and a Gaussian, with derived sub-parameters
 %
-%   chosen so that the rectangular contribution to variance
-%   (phi_i^2 / 3 = width_i^2 * gamma_i) and the Gaussian contribution
-%   (xi_i^2 = width_i^2 * (1 - gamma_i)) sum to width_i^2 for every
-%   gamma_i in [0, 1]. The window's standard deviation is therefore
-%   width_i throughout the family, regardless of gamma_i; the window
-%   is peak-normalised so h_i(0) = 1.
+%       phi = width * sqrt(3 * gamma),
+%       xi  = width * sqrt(1 - gamma),
 %
-%   Limits (computed directly for numerical cleanliness):
-%       gamma_i = 0: pure Gaussian h_i(delta) = exp(-delta^2 / (2 * width_i^2)).
-%       gamma_i = 1: pure rectangle h_i(delta) = 1[|delta| <= width_i * sqrt(3)].
+%   chosen so that the total variance equals width^2 across the whole
+%   family (rectangle on [-phi, phi] has variance phi^2/3 = width^2 *
+%   gamma; Gaussian has variance xi^2 = width^2 * (1 - gamma); the
+%   two sum to width^2). The window is peak-normalised so h(0) = 1.
 %
-%   Note that at gamma_i = 1 the rectangle's half-width is
-%   width_i * sqrt(3); the parameter width always means the standard
-%   deviation, not the half-extent.
+%   Limits:
+%       gamma = 0: pure Gaussian h(delta) = exp(-delta^2 / (2 width^2)).
+%       gamma = 1: pure rectangle h(delta) = 1[|delta| <= width sqrt(3)].
 %
-%   Design P. Each input attribute contributes a separate factor h_i
-%   to its own per-attribute weight slot. The kernel product over
-%   attributes in buildExpTens then recovers the joint window
-%   naturally as W_n = prod_i h_i(p_{a_i, n}). This factoring keeps
-%   each input attribute's weight independent and makes weightEvents
-%   commute cleanly with translateAttributes (under a centre-shift
-%   rule) and pass through differenceEvents / bindEvents.
+%   For a periodic input group (isPer = true), the difference
+%   delta = v - centre is wrapped to [-P/2, P/2] before applying h;
+%   the stored values in pAttr are not modified.
 %
-%   For multi-slot attributes (K_a > 1), the window factor is
-%   evaluated per slot value: h_i is applied independently to each
-%   of the K_a entries in every event column, yielding a K_a x N
-%   factor matrix that multiplies the input attribute's weight slot
-%   under buildExpTens' broadcast convention.
+%   The per-event factor is broadcast across the target attribute's
+%   K_target slots, so every slot of every event sees the same factor.
 %
-%   The pre-MAET values themselves are not modified by weightEvents.
-%   For periodic groups (isPer_i = true), only the difference
-%   delta = v - centre_i used inside h_i is wrapped to [-P/2, P/2];
-%   the stored values v stay raw. (The kernel in buildExpTens handles
-%   the value-axis periodicity downstream via the group [per] flag.)
+%   Factor entries whose distance from the centre exceeds the global
+%   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * width)
+%   are hard-zeroed. The threshold is the same one the IP / evaluation
+%   kernels use: at that distance a Gaussian window's value is
+%   exp(-truncationSigmas^2 / 2). The default global value is Inf
+%   (no truncation); set mptDefaults('truncationSigmas', k) to enable
+%   hard truncation at k * width.
 %
-%   Inputs
-%       pAttr      - 1 x A cell array of K_a x N per-attribute value
-%                    matrices. K_a >= 1; K_a = 0 is rejected.
-%       w          - Existing weights to multiply into. [], scalar, or
-%                    1 x A cell of per-attribute weight inputs (each
-%                    [], scalar, 1 x N row, K_a x 1 column, or K_a x N
-%                    matrix). Same convention as buildExpTens.
-%       groups     - Group assignment. [] (each attribute its own group),
-%                    a 1 x A index vector, or a 1 x G cell of attribute-
-%                    index lists. Validated for shape only; not used
-%                    by the window math (the relevant [per] / period
-%                    info is supplied per input attribute via isPer
-%                    and periods).
-%       inputAttrs - 1 x M vector of attribute indices (1-based, in
-%                    1..A) selecting the attributes the window spans.
-%                    Repeats are not allowed.
-%       centre     - 1 x M vector of window centres.
-%       width      - 1 x M vector of window standard deviations (> 0),
-%                    in absolute units of the attribute. The window's
-%                    total variance is width(i)^2 for every value of
-%                    shape(i).
-%       shape      - 1 x M vector of shape parameters gamma in [0, 1].
-%                    shape = 0 is pure Gaussian; shape = 1 is pure
-%                    rectangle (with half-width width * sqrt(3));
-%                    intermediate values are the fixed-variance
-%                    convolution family.
-%       isPer      - 1 x M logical vector. When isPer(i) is true, the
-%                    difference delta = v - centre(i) is wrapped to
-%                    [-periods(i)/2, periods(i)/2] before applying the
-%                    shape function. Must mirror the [per] flag of
-%                    inputAttrs(i)'s group in the downstream
-%                    buildExpTens call.
-%       periods    - 1 x M vector of periods. Used only when isPer(i)
-%                    is true; required to be > 0 in that case.
+%   Inputs:
+%     pAttr        1 x A cell of (K_a, N) per-attribute value matrices.
+%                  K_a >= 1.
+%     w            Existing weights. [], scalar, or 1 x A cell of
+%                  scalar/(1, N)/(K_a, N) entries. None / [] means no
+%                  existing weight (factor goes in directly).
+%     groups       Group assignment for the input attributes. [], 1xA
+%                  numeric vector of group indices, or cell-array of
+%                  attribute-index lists per group (canonical-form
+%                  matches buildExpTens).
+%     inputAttr    Scalar integer in [1, A]. The attribute whose K = 1
+%                  value supplies the window argument. Must have K = 1.
+%     targetAttr   Scalar integer in [1, A]. The attribute whose
+%                  weight slot receives the factor. May equal
+%                  inputAttr.
+%     centre       Scalar finite double. Window centre c.
+%     width        Scalar positive double. Window standard deviation.
+%     shape        Scalar double in [0, 1]. Shape parameter gamma.
+%     isPer        Scalar logical. If true, the input attribute is
+%                  periodic — delta is wrapped to [-period/2, period/2]
+%                  before applying h.
+%     period       Scalar positive double (only used when isPer).
 %
-%   Outputs
-%       wOut       - 1 x A cell of per-attribute weights, ready to
-%                    feed into buildExpTens (possibly after further
-%                    pre-MAET chaining). Each input attribute's slot
-%                    holds the existing input weight broadcast times
-%                    h_i as a K_a x N matrix; non-input attributes
-%                    pass through unchanged.
+%   Name-Value options:
+%     deleteInput  (1,1) logical, REQUIRED (no default; the choice is
+%                  destructive enough to be explicit at every call).
 %
-%   See also BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES.
+%   Outputs:
+%     pAttrOut     1 x A_out cell of per-attribute value matrices.
+%                  Length A if deleteInput=false, A - 1 otherwise.
+%     wOut         1 x A_out cell of weights. The targetAttr slot (in
+%                  the output indexing) carries the windowed weights.
+%     groupsOut    1 x A_out numeric vector of canonical group indices.
+%
+%   See also BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
+%            MPTDEFAULTS.
 
-% --- Normalise pAttr ---
-if ~iscell(pAttr)
-    error('weightEvents:badPAttrType', ...
-          'pAttr must be a cell array of per-attribute matrices.');
-end
-A = numel(pAttr);
-if A < 1
-    error('weightEvents:noAttrs', ...
-          'pAttr must contain at least one attribute.');
-end
-for a = 1:A
-    M = pAttr{a};
-    if ~isnumeric(M) || ndims(M) > 2
-        error('weightEvents:badAttrShape', ...
-              'Attribute %d input must be a numeric 2-D matrix.', a);
+    arguments
+        pAttr cell
+        w
+        groups
+        inputAttr (1,1) double {mustBeInteger, mustBePositive}
+        targetAttr (1,1) double {mustBeInteger, mustBePositive}
+        centre (1,1) double
+        width (1,1) double
+        shape (1,1) double
+        isPer (1,1) logical
+        period (1,1) double
+        opts.deleteInput (1,1) logical
     end
-    if size(M, 1) == 0
-        error('weightEvents:emptyAttribute', ...
-              ['Attribute %d has K_a = 0 (empty attribute); empty ' ...
-               'attributes are not permitted.'], a);
+
+    % --- Normalise pAttr ---
+    A = numel(pAttr);
+    if A == 0
+        error('weightEvents:emptyPAttr', ...
+              'pAttr must contain at least one attribute.');
     end
-end
-
-% --- Shared N ---
-nEvents = size(pAttr{1}, 2);
-for a = 2:A
-    if size(pAttr{a}, 2) ~= nEvents
-        error('weightEvents:eventCountMismatch', ...
-              ['All attributes must share the same event count N. ' ...
-               'Attribute 1 has N=%d; attribute %d has N=%d.'], ...
-              nEvents, a, size(pAttr{a}, 2));
+    for a = 1:A
+        M = pAttr{a};
+        if ~ismatrix(M)
+            error('weightEvents:badPAttrNdim', ...
+                  'Attribute %d value matrix must be 2-D.', a);
+        end
+        if size(M, 1) == 0
+            error('weightEvents:emptyKa', ...
+                  ['Attribute %d has K_a = 0 (empty attribute); ' ...
+                   'empty attributes are not permitted.'], a);
+        end
+        pAttr{a} = double(M);
     end
-end
 
-% --- Validate groups (shape only — group internals not used here) ---
-[~, ~, ~] = localCanonicaliseGroups(groups, A);
+    % --- Shared N ---
+    nEvents = size(pAttr{1}, 2);
+    for a = 1:A
+        if size(pAttr{a}, 2) ~= nEvents
+            error('weightEvents:badNEvents', ...
+                  ['All attributes must share the same event count N. ' ...
+                   'Attribute 1 has N = %d; attribute %d has N = %d.'], ...
+                  nEvents, a, size(pAttr{a}, 2));
+        end
+    end
 
-% --- Validate inputAttrs ---
-if ~isnumeric(inputAttrs)
-    error('weightEvents:badInputAttrsType', ...
-          'inputAttrs must be a numeric vector.');
-end
-inputAttrs = double(inputAttrs(:).');
-nInputs = numel(inputAttrs);
-if nInputs == 0
-    % No window: return existing weights unchanged (canonicalised to cell).
+    % --- Canonicalise groups ---
+    groupOfAttr = localCanonicaliseGroups(groups, A);
+
+    % --- Validate inputAttr ---
+    if inputAttr > A
+        error('weightEvents:badInputAttr', ...
+              'inputAttr must be in 1..%d; got %d.', A, inputAttr);
+    end
+    if size(pAttr{inputAttr}, 1) ~= 1
+        error('weightEvents:inputAttrNotK1', ...
+              ['inputAttr %d has K = %d; weightEvents requires the ' ...
+               'input attribute to have K = 1 (single value per event).'], ...
+              inputAttr, size(pAttr{inputAttr}, 1));
+    end
+
+    % --- Validate targetAttr ---
+    if targetAttr > A
+        error('weightEvents:badTargetAttr', ...
+              'targetAttr must be in 1..%d; got %d.', A, targetAttr);
+    end
+
+    % --- Validate deleteInput ---
+    deleteInput = opts.deleteInput;
+    if deleteInput && inputAttr == targetAttr
+        error('weightEvents:deleteInputIncoherent', ...
+              ['deleteInput=true is incoherent when inputAttr == ' ...
+               'targetAttr (=%d): deleting the input would discard ' ...
+               'the weight factor just written to it. Set ' ...
+               'deleteInput=false, or choose a different targetAttr.'], ...
+              inputAttr);
+    end
+
+    % --- Validate centre, width, shape ---
+    if ~isfinite(centre)
+        error('weightEvents:badCentre', ...
+              'centre must be finite; got %g.', centre);
+    end
+    if ~isfinite(width) || width <= 0
+        error('weightEvents:badWidth', ...
+              'width must be finite and > 0; got %g.', width);
+    end
+    if shape < 0 || shape > 1
+        error('weightEvents:badShape', ...
+              ['shape (gamma) must lie in [0, 1]: gamma = 0 is pure ' ...
+               'Gaussian, gamma = 1 is pure rectangle, intermediate ' ...
+               'values are the fixed-variance convolution family. ' ...
+               'Got %g.'], shape);
+    end
+    if isPer && period <= 0
+        error('weightEvents:badPeriod', ...
+              'period must be > 0 when isPer is true; got %g.', period);
+    end
+
+    % --- Compute factor h(delta) from input attribute values ---
+    valRow = pAttr{inputAttr};         % (1, N)
+    delta = valRow - centre;
+    if isPer
+        delta = delta - period * floor(delta / period + 0.5);
+    end
+    factor = localEvaluateShape(delta, width, shape);   % (1, N)
+
+    % Truncate: zero factor entries whose distance exceeds
+    % truncationSigmas * width. Uniform convention with the kernel
+    % truncation in the IP / eval paths: at that distance a Gaussian
+    % window's value is exp(-truncationSigmas^2 / 2), the same
+    % threshold the kernel truncation uses. Reads the global default
+    % so changes via mptDefaults('truncationSigmas', ...) propagate
+    % without an extra kwarg. Inf disables (default).
+    truncSig = mptDefaults('truncationSigmas');
+    if isfinite(truncSig)
+        factor(abs(delta) > truncSig * width) = 0;
+    end
+
+    % --- Normalise w to length-A cell; multiply factor into target slot ---
     wOut = localNormaliseWeightsToCell(w, A);
-    return;
-end
-if any(inputAttrs < 1) || any(inputAttrs > A) || ...
-        any(inputAttrs ~= round(inputAttrs))
-    error('weightEvents:badInputAttrs', ...
-          'inputAttrs entries must be integers in 1..A = 1..%d.', A);
-end
-if numel(unique(inputAttrs)) ~= nInputs
-    error('weightEvents:badInputAttrs', ...
-          'inputAttrs must not contain repeated indices.');
-end
+    wOut{targetAttr} = localMultiplyWeights( ...
+        wOut{targetAttr}, factor, size(pAttr{targetAttr}, 1));
 
-% --- Validate centre, width, shape (all numeric, length M) ---
-centre = double(centre(:).');
-width  = double(width(:).');
-shape  = double(shape(:).');
-if numel(centre) ~= nInputs
-    error('weightEvents:badCentreLength', ...
-          'centre must have length M = %d (one per input attribute); got %d.', ...
-          nInputs, numel(centre));
-end
-if numel(width) ~= nInputs
-    error('weightEvents:badWidthLength', ...
-          'width must have length M = %d; got %d.', nInputs, numel(width));
-end
-if numel(shape) ~= nInputs
-    error('weightEvents:badShapeLength', ...
-          'shape must have length M = %d (gamma per input attribute); got %d.', ...
-          nInputs, numel(shape));
-end
-if any(~isfinite(centre)) || any(~isfinite(width)) || any(~isfinite(shape))
-    error('weightEvents:nonFiniteParam', ...
-          'centre, width, and shape entries must be finite.');
-end
-if any(width <= 0)
-    error('weightEvents:badWidth', ...
-          'width entries must be > 0.');
-end
-if any(shape < 0) || any(shape > 1)
-    error('weightEvents:badShape', ...
-          ['shape entries (gamma) must lie in [0, 1]: gamma = 0 is ' ...
-           'pure Gaussian, gamma = 1 is pure rectangle, intermediate ' ...
-           'values are the fixed-variance convolution family.']);
-end
-
-% --- Validate isPer, periods ---
-isPer = logical(isPer(:).');
-if numel(isPer) ~= nInputs
-    error('weightEvents:badIsPerLength', ...
-          'isPer must have length M = %d; got %d.', nInputs, numel(isPer));
-end
-periods = double(periods(:).');
-if numel(periods) ~= nInputs
-    error('weightEvents:badPeriodsLength', ...
-          'periods must have length M = %d; got %d.', nInputs, numel(periods));
-end
-if any(isPer & (periods <= 0))
-    error('weightEvents:badPeriods', ...
-          ['periods entries must be > 0 wherever isPer is true ' ...
-           '(non-periodic entries are unused and may be 0).']);
-end
-
-% --- Compute factor h_i for each input attribute ---
-factors = cell(1, nInputs);
-for i = 1:nInputs
-    a = inputAttrs(i);
-    valMat = double(pAttr{a});   % K_a x N
-    delta = valMat - centre(i);
-    if isPer(i)
-        P = periods(i);
-        delta = delta - P .* floor(delta ./ P + 0.5);
+    % --- Build output structures, applying deleteInput if requested ---
+    if deleteInput
+        keep = setdiff(1:A, inputAttr);
+        pAttrOut = pAttr(keep);
+        wOut = wOut(keep);
+        % Compact group numbering: if the input's group becomes empty
+        % (input was its sole member), drop that group index and
+        % decrement higher labels.
+        gInput = groupOfAttr(inputAttr);
+        keptGroups = groupOfAttr(keep);
+        if sum(groupOfAttr == gInput) == 1
+            keptGroups(keptGroups > gInput) = ...
+                keptGroups(keptGroups > gInput) - 1;
+        end
+        groupsOut = keptGroups;
+    else
+        pAttrOut = pAttr;
+        groupsOut = groupOfAttr;
     end
-    factors{i} = localEvaluateShape(delta, width(i), shape(i));
-end
-
-% --- Normalise w to 1xA cell and multiply factors in ---
-wOut = localNormaliseWeightsToCell(w, A);
-for i = 1:nInputs
-    a = inputAttrs(i);
-    wOut{a} = localMultiplyWeights(wOut{a}, factors{i}, a);
-end
-
 end
 
 
@@ -284,18 +290,17 @@ function wCell = localNormaliseWeightsToCell(w, A)
     end
     if iscell(w)
         if numel(w) ~= A
-            error('weightEvents:badWeightsLength', ...
-                  'Weight cell must have length A = %d; got %d.', ...
-                  A, numel(w));
+            error('weightEvents:badWeightCellLength', ...
+                  'w cell must have length A = %d; got %d.', A, numel(w));
         end
         for a = 1:A
             wCell{a} = w{a};
         end
         return;
     end
-    error('weightEvents:badWeightsType', ...
-          ['w must be [], a scalar, or a 1 x A cell of per-' ...
-           'attribute weight inputs.']);
+    error('weightEvents:badWeightType', ...
+          ['w must be [], a scalar, or a 1 x A cell of scalar/' ...
+           '(1,N)/(K_a,N) entries.']);
 end
 
 
@@ -303,63 +308,92 @@ end
 %  localMultiplyWeights
 % =========================================================================
 
-function out = localMultiplyWeights(wExisting, factor, attrIdx)
-%LOCALMULTIPLYWEIGHTS  Multiply existing weight by factor (K_a x N).
-%Broadcasting follows the toolbox convention (scalar / 1 x N row /
-%K_a x 1 column / K_a x N matrix all multiply naturally into the
-%K_a x N factor via MATLAB's implicit expansion).
+function wNew = localMultiplyWeights(wExisting, factor, K_target)
+%LOCALMULTIPLYWEIGHTS  Multiply per-attribute weight by factor ((1, N) row).
+%
+%   factor is (1, N); the target attribute's existing weight may be
+%   [], a scalar, a (1, N) row, or a (K_target, N) matrix. The factor
+%   broadcasts across K_target slots (every slot of every event sees
+%   the same factor).
     if isempty(wExisting)
-        out = factor;
+        % factor broadcast to (K_target, N).
+        wNew = repmat(factor, K_target, 1);
         return;
     end
     if isnumeric(wExisting) && isscalar(wExisting)
-        out = double(wExisting) .* factor;
+        wNew = repmat(double(wExisting) * factor, K_target, 1);
         return;
     end
-    if ~isnumeric(wExisting)
-        error('weightEvents:badWeightType', ...
-              'Attribute %d weight must be numeric.', attrIdx);
+    arr = double(wExisting);
+    if isequal(size(arr), [1, size(factor, 2)])
+        % (1, N) row: broadcast to K_target after multiplying.
+        wNew = repmat(arr .* factor, K_target, 1);
+        return;
     end
-    out = double(wExisting) .* factor;
+    if isequal(size(arr), [K_target, size(factor, 2)])
+        % (K_target, N): per-slot weights, broadcast factor across rows.
+        wNew = arr .* factor;
+        return;
+    end
+    error('weightEvents:badExistingWeightShape', ...
+          ['Existing weight shape [%s] is incompatible with target ' ...
+           'shape [%d, %d] (factor is (1, %d)).'], ...
+          num2str(size(arr)), K_target, size(factor, 2), size(factor, 2));
 end
 
 
 % =========================================================================
-%  localCanonicaliseGroups (validation only)
+%  localCanonicaliseGroups
 % =========================================================================
 
-function [groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A)
-    if isempty(groups)
+function groupOfAttr = localCanonicaliseGroups(groupsIn, A)
+%LOCALCANONICALISEGROUPS  Canonical 1 x A vector of group indices.
+%
+%   Accepts [] (each attribute its own group), a 1 x A numeric vector
+%   (already canonical, relabelled to contiguous 1..G), or a
+%   cell-array of attribute-index lists (one per group).
+    if isempty(groupsIn)
         groupOfAttr = 1:A;
-    elseif iscell(groups)
-        G = numel(groups);
+        return;
+    end
+    if isnumeric(groupsIn)
+        gv = double(groupsIn(:).');
+        if numel(gv) ~= A
+            error('weightEvents:badGroupsLength', ...
+                  'groups vector must have length A = %d; got %d.', ...
+                  A, numel(gv));
+        end
+        % Relabel contiguous 1..G in order of first appearance.
+        [~, ~, ic] = unique(gv, 'stable');
+        groupOfAttr = ic(:).';
+        return;
+    end
+    if iscell(groupsIn)
+        G_in = numel(groupsIn);
         groupOfAttr = zeros(1, A);
-        for g = 1:G
-            idx = groups{g};
-            if any(idx < 1) || any(idx > A) || any(groupOfAttr(idx) ~= 0)
-                error('weightEvents:badGroups', ...
-                      'Invalid cell-form groups specification.');
+        for g = 1:G_in
+            idx = groupsIn{g};
+            idx = idx(:).';
+            for a = idx
+                if a < 1 || a > A
+                    error('weightEvents:badGroupIdx', ...
+                          ['Group %d references attribute %d, out of ' ...
+                           'range [1, %d].'], g, a, A);
+                end
+                if groupOfAttr(a) ~= 0
+                    error('weightEvents:duplicateGroupAttr', ...
+                          'Attribute %d is listed in more than one group.', a);
+                end
+                groupOfAttr(a) = g;
             end
-            groupOfAttr(idx) = g;
         end
         if any(groupOfAttr == 0)
-            error('weightEvents:badGroups', ...
-                  'Every attribute must appear in exactly one group.');
+            missing = find(groupOfAttr == 0, 1);
+            error('weightEvents:missingGroupAttr', ...
+                  'Attribute %d is not assigned to any group.', missing);
         end
-    elseif isnumeric(groups) && numel(groups) == A
-        groupOfAttr = double(groups(:).');
-        if any(groupOfAttr < 1) || any(groupOfAttr ~= round(groupOfAttr))
-            error('weightEvents:badGroups', ...
-                  'Numeric groups must be positive integers.');
-        end
-    else
-        error('weightEvents:badGroupsShape', ...
-              ['groups must be [], a length-A numeric vector, or a ' ...
-               'cell of index lists.']);
+        return;
     end
-    G = max(groupOfAttr);
-    attrsOfGroup = cell(1, G);
-    for g = 1:G
-        attrsOfGroup{g} = find(groupOfAttr == g);
-    end
+    error('weightEvents:badGroupsType', ...
+          'groups must be [], a numeric vector, or a cell array.');
 end

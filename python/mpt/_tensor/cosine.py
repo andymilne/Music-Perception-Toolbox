@@ -1221,13 +1221,23 @@ def _cos_sim_exp_tens_ma(
 def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    *, truncation_sigmas=None,
 ):
     """MA inner product with memory-aware chunking along the comb side.
 
     Peak per-chunk memory is dominated by the largest per-attribute
     (r_a, nJ, nKc) difference tensor. Use ``(max(r_a) + 2) * nJ * 8``
     bytes per K-column as the sizing heuristic.
+
+    ``truncation_sigmas`` is honoured via log-space thresholding on
+    the accumulated MA log-kernel; ``None`` resolves to the global
+    default ``mpt.get_default('truncation_sigmas')``.
     """
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
+
     max_r = int(np.max(r_vec)) if A > 0 else 1
     bytes_per_col = (max_r + 2) * int(n_j) * 8
     mem_limit = kernel_chunk_bytes_resolved()
@@ -1237,6 +1247,7 @@ def _ip_core_ma(
         return _ip_full_ma(
             u_cell, w_u, n_j, v_cell, w_v, n_k,
             A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+            truncation_sigmas=truncation_sigmas,
         )
 
     chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
@@ -1249,7 +1260,7 @@ def _ip_core_ma(
             u_cell, v_chunk, int(n_j), n_kc,
             A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
         )
-        E = np.exp(log_kernel)
+        E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
         acc = acc + E @ w_v[c_start:c_end]
     return float(w_u @ acc)
 
@@ -1258,13 +1269,23 @@ def _ip_core_ma(
 def _ip_full_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    *, truncation_sigmas=None,
 ):
-    """Fully vectorized MA inner product (single chunk)."""
+    """Fully vectorized MA inner product (single chunk).
+
+    ``truncation_sigmas`` is honoured via log-space thresholding;
+    ``None`` resolves to the global default.
+    """
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
+
     log_kernel = _ma_log_kernel(
         u_cell, v_cell, int(n_j), int(n_k),
         A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
     )
-    E = np.exp(log_kernel)
+    E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
     return float(w_u @ (E @ w_v))
 
 
@@ -1343,9 +1364,73 @@ def _ma_has_nan(dens):
 
 
 
+def _trunc_kernel_exp(exp_arg, sigma, truncation_sigmas):
+    """Evaluate ``exp(-exp_arg / (4 σ²))`` with optional truncation.
+
+    ``exp_arg`` is the non-negative quantity entering the kernel
+    exponent. For a 1-D pairwise Gaussian inner-product kernel,
+    ``exp_arg = (p_x - p_y)²``; for an r-D r-tuple kernel,
+    ``exp_arg = ||d||² = Σ_a d_a²``.
+
+    When ``truncation_sigmas`` is finite, entries with
+    ``exp_arg > 2 · (truncation_sigmas · σ)²`` are zeroed without
+    evaluating ``np.exp``, saving work proportional to the pruned
+    fraction. The threshold uniformly matches "the inner-product
+    kernel value falls below ``exp(-truncation_sigmas² / 2)``": that
+    kernel is ``G(d; σ√2)``, so its value at distance ``|d|`` is
+    ``exp(-|d|² / (4 σ²))``, and the cutoff condition is
+    ``|d|² > 2 (truncation_sigmas · σ)²``.
+
+    For r-tuple kernels the same threshold on ``Σ_a d_a²`` is correct
+    because the r-D kernel is ``Π_a G(d_a; σ√2) = exp(-Σ_a d_a² /
+    (4 σ²))``.
+
+    When ``truncation_sigmas`` is ``None`` or non-finite, the full
+    exponential is computed and no masking work is done.
+    """
+    if truncation_sigmas is None or not np.isfinite(truncation_sigmas):
+        return np.exp(-exp_arg / (4 * sigma ** 2))
+    cutoff = 2.0 * (truncation_sigmas * sigma) ** 2
+    mask = exp_arg <= cutoff
+    out = np.zeros_like(exp_arg)
+    out[mask] = np.exp(-exp_arg[mask] / (4 * sigma ** 2))
+    return out
+
+
+
+def _trunc_log_kernel_exp(log_kernel, truncation_sigmas):
+    """Evaluate ``exp(log_kernel)`` with optional truncation in log space.
+
+    ``log_kernel`` is the (non-positive) log of the kernel — typically
+    ``-Σ_a d_a² / (4 σ_a²)`` accumulated across attributes (the
+    Bulger-method MA log-kernel pattern), where each attribute may
+    have its own σ.
+
+    When ``truncation_sigmas`` is finite, entries with
+    ``log_kernel < -truncation_sigmas² / 2`` are zeroed without
+    evaluating ``np.exp``. The threshold uniformly matches: kernel
+    value falls below ``exp(-truncation_sigmas² / 2)``. This is the
+    log-space counterpart of :func:`_trunc_kernel_exp` and applies
+    cleanly to the MA log-kernel case where per-attribute σ values
+    differ (so a single quadratic-form cutoff doesn't apply).
+
+    When ``truncation_sigmas`` is ``None`` or non-finite, the full
+    exponential is computed and no masking work is done.
+    """
+    if truncation_sigmas is None or not np.isfinite(truncation_sigmas):
+        return np.exp(log_kernel)
+    threshold = -0.5 * truncation_sigmas ** 2
+    mask = log_kernel >= threshold
+    out = np.zeros_like(log_kernel)
+    out[mask] = np.exp(log_kernel[mask])
+    return out
+
+
+
 def _ma_per_attr_inner_matrix(
     Px, Wx, Py, Wy, sigma, r, is_rel, is_per, period,
-    *, return_cancellation_ratio=False,
+    *, return_cancellation_ratio=False, truncation_sigmas=None,
+    prune_zero_weight_events=True,
 ):
     """Per-attribute (event_X, event_Y) inner product matrix for the
     MA path under the Möbius method.
@@ -1383,23 +1468,114 @@ def _ma_per_attr_inner_matrix(
     entries — a scalar in (0, 1]. Direct-enum entries always have
     ratio 1.0; the worst ratio comes from the safe-Möbius submatrix.
     If no safe pairs exist, the worst ratio is 1.0.
+
+    ``truncation_sigmas`` is honoured in every kernel-evaluation
+    branch (r=1 abs, r>=2 abs safe, r>=2 abs unsafe via
+    :func:`_batched_direct_enum_abs_sa`, and rel-per via
+    :func:`_ma_per_attr_inner_matrix_rel_per`): kernel entries whose
+    underlying squared distance exceeds the truncation cutoff are
+    zeroed without evaluating ``np.exp``. ``None`` resolves to the
+    global default ``mpt.get_default('truncation_sigmas')``.
+
+    ``prune_zero_weight_events`` (default ``True``) drops events with
+    column-wise weight identically zero (treating NaN as missing)
+    before dispatching to any sub-helper. Such events contribute zero
+    to every kernel entry, so the result is mathematically
+    unchanged; the saving is wall-clock — the einsum / batched
+    Möbius contraction operates on smaller matrices. Combines
+    naturally with the global ``truncation_sigmas`` since
+    :func:`mpt.weight_events` hard-zeros the factor outside the
+    cutoff. Result is scattered back into the full (N_x, N_y) output
+    shape with zeros in the dropped rows / columns. Set
+    ``prune_zero_weight_events=False`` to bypass.
     """
     from .._mobius import inner_product_orbit_pw_batched
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
 
     K_x_max, N_x = Px.shape
     K_y_max, N_y = Py.shape
 
+    # --- Zero-weight-event pruning (auto, before dispatch) ---
+    # An event contributes zero to every output entry iff its weight
+    # column is identically zero in this attribute (NaN entries are
+    # missing slots — equivalent to zero in the IP). Drop such events,
+    # recurse on the smaller matrices, scatter the result back.
+    if prune_zero_weight_events and (N_x > 0) and (N_y > 0):
+        # nanmax over a column returns NaN only when ALL entries are
+        # NaN (which is an invalid event); for any partial-NaN column
+        # it returns the max over the non-NaN slots. Compare > 0 to
+        # find columns with at least one positive-magnitude slot.
+        with np.errstate(invalid='ignore'):
+            col_max_x = np.nanmax(np.abs(Wx), axis=0)
+            col_max_y = np.nanmax(np.abs(Wy), axis=0)
+        keep_x = np.isfinite(col_max_x) & (col_max_x > 0.0)
+        keep_y = np.isfinite(col_max_y) & (col_max_y > 0.0)
+        if not (keep_x.all() and keep_y.all()):
+            if not (keep_x.any() and keep_y.any()):
+                # Every event on at least one side has zero weight;
+                # the IP is the all-zero matrix.
+                result = np.zeros((N_x, N_y), dtype=np.float64)
+                if return_cancellation_ratio:
+                    return result, 1.0
+                return result
+            sub = _ma_per_attr_inner_matrix(
+                Px[:, keep_x], Wx[:, keep_x],
+                Py[:, keep_y], Wy[:, keep_y],
+                sigma, r, is_rel, is_per, period,
+                return_cancellation_ratio=return_cancellation_ratio,
+                truncation_sigmas=truncation_sigmas,
+                prune_zero_weight_events=False,   # avoid infinite recursion
+            )
+            if return_cancellation_ratio:
+                sub_ip, sub_ratio = sub
+            else:
+                sub_ip = sub
+            result = np.zeros((N_x, N_y), dtype=np.float64)
+            result[np.ix_(np.where(keep_x)[0], np.where(keep_y)[0])] = sub_ip
+            if return_cancellation_ratio:
+                return result, sub_ratio
+            return result
+
     # --- r = 1: direct kernel sum, zero-pad fine (no cancellation) ---
     if r == 1:
         Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
-        diffs = Px_[:, :, None, None] - Py_[None, None, :, :]
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
-        out = np.einsum(
-            'xn,xnym,ym->nm', Wx_, K_tens, Wy_, optimize=True,
-        )
-        result = out * (sigma * np.sqrt(np.pi)) ** r
+        prefactor = sigma * np.sqrt(np.pi)
+        # Memory: each of diffs, diffs**2, K_tens is
+        # (K_x_max, chunk_N_x, K_y_max, N_y) * 8 bytes. Up to ~3 live
+        # arrays during evaluation; budget accordingly.
+        per_row_bytes = 3 * K_x_max * K_y_max * N_y * 8
+        mem_limit = kernel_chunk_bytes_resolved()
+        chunk_N_x = max(1, min(N_x, mem_limit // max(per_row_bytes, 1)))
+
+        if chunk_N_x >= N_x:
+            # Fast path: single shot.
+            diffs = Px_[:, :, None, None] - Py_[None, None, :, :]
+            if is_per:
+                diffs = diffs - period * np.floor(diffs / period + 0.5)
+            K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+            out = np.einsum(
+                'xn,xnym,ym->nm', Wx_, K_tens, Wy_, optimize=True,
+            )
+            result = out * prefactor
+        else:
+            # Chunked path: process N_x in chunks.
+            result = np.empty((N_x, N_y), dtype=np.float64)
+            for n_start in range(0, N_x, chunk_N_x):
+                n_end = min(n_start + chunk_N_x, N_x)
+                Px_chunk = Px_[:, n_start:n_end]
+                Wx_chunk = Wx_[:, n_start:n_end]
+                diffs = Px_chunk[:, :, None, None] - Py_[None, None, :, :]
+                if is_per:
+                    diffs = diffs - period * np.floor(diffs / period + 0.5)
+                K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                out_chunk = np.einsum(
+                    'xn,xnym,ym->nm', Wx_chunk, K_tens, Wy_, optimize=True,
+                )
+                result[n_start:n_end, :] = out_chunk * prefactor
+
         if return_cancellation_ratio:
             return result, 1.0
         return result
@@ -1411,6 +1587,7 @@ def _ma_per_attr_inner_matrix(
             return _ma_per_attr_inner_matrix_rel_per(
                 Px_, Wx_, Py_, Wy_, sigma, r, period,
                 return_cancellation_ratio=return_cancellation_ratio,
+                truncation_sigmas=truncation_sigmas,
             )
         out = np.empty((N_x, N_y), dtype=np.float64)
         worst_ratio = 1.0
@@ -1463,34 +1640,79 @@ def _ma_per_attr_inner_matrix(
 
         N_xs = safe_x_idx.size
         N_ys = safe_y_idx.size
-        diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_tens = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
-        K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-            N_xs * N_ys, K_x_max, K_y_max,
-        )
-        w_A_pairs = np.broadcast_to(
-            Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
-        ).reshape(N_xs * N_ys, K_x_max)
-        w_B_pairs = np.broadcast_to(
-            Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
-        ).reshape(N_xs * N_ys, K_y_max)
+        prefactor = (sigma * np.sqrt(np.pi)) ** r
+        # Memory: each of diffs, diffs**2, K_tens is
+        # (K_x_max, chunk_N_xs, K_y_max, N_ys) * 8 bytes; ~3 live arrays.
+        # K_pairs reshape adds another N_pairs * K_x_max * K_y_max * 8.
+        per_row_bytes = 4 * K_x_max * K_y_max * N_ys * 8
+        mem_limit = kernel_chunk_bytes_resolved()
+        chunk_N_xs = max(1, min(N_xs, mem_limit // max(per_row_bytes, 1)))
 
-        if return_cancellation_ratio:
-            flat, ratios = inner_product_orbit_pw_batched(
-                K_pairs, w_A_pairs, w_B_pairs, r,
-                prefactor=(sigma * np.sqrt(np.pi)) ** r,
-                return_cancellation_ratio=True,
+        if chunk_N_xs >= N_xs:
+            # Fast path: single shot.
+            diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
+            if is_per:
+                diffs = diffs - period * np.floor(diffs / period + 0.5)
+            K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+            K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
+                N_xs * N_ys, K_x_max, K_y_max,
             )
-            worst_ratio = min(worst_ratio, float(np.min(ratios)))
+            w_A_pairs = np.broadcast_to(
+                Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
+            ).reshape(N_xs * N_ys, K_x_max)
+            w_B_pairs = np.broadcast_to(
+                Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
+            ).reshape(N_xs * N_ys, K_y_max)
+
+            if return_cancellation_ratio:
+                flat, ratios = inner_product_orbit_pw_batched(
+                    K_pairs, w_A_pairs, w_B_pairs, r,
+                    prefactor=prefactor,
+                    return_cancellation_ratio=True,
+                )
+                worst_ratio = min(worst_ratio, float(np.min(ratios)))
+            else:
+                flat = inner_product_orbit_pw_batched(
+                    K_pairs, w_A_pairs, w_B_pairs, r,
+                    prefactor=prefactor,
+                )
+            out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
         else:
-            flat = inner_product_orbit_pw_batched(
-                K_pairs, w_A_pairs, w_B_pairs, r,
-                prefactor=(sigma * np.sqrt(np.pi)) ** r,
-            )
-        # Use ix_ for fancy 2-D indexing into the output.
-        out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
+            # Chunked path: process safe_x_idx in chunks of chunk_N_xs.
+            safe_flat = np.empty((N_xs, N_ys), dtype=np.float64)
+            for n_start in range(0, N_xs, chunk_N_xs):
+                n_end = min(n_start + chunk_N_xs, N_xs)
+                n_chunk = n_end - n_start
+                Px_chunk = Px_s[:, n_start:n_end]
+                Wx_chunk = Wx_s[:, n_start:n_end]
+                diffs = Px_chunk[:, :, None, None] - Py_s[None, None, :, :]
+                if is_per:
+                    diffs = diffs - period * np.floor(diffs / period + 0.5)
+                K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
+                    n_chunk * N_ys, K_x_max, K_y_max,
+                )
+                w_A_pairs = np.broadcast_to(
+                    Wx_chunk.T[:, None, :], (n_chunk, N_ys, K_x_max),
+                ).reshape(n_chunk * N_ys, K_x_max)
+                w_B_pairs = np.broadcast_to(
+                    Wy_s.T[None, :, :], (n_chunk, N_ys, K_y_max),
+                ).reshape(n_chunk * N_ys, K_y_max)
+
+                if return_cancellation_ratio:
+                    flat, ratios = inner_product_orbit_pw_batched(
+                        K_pairs, w_A_pairs, w_B_pairs, r,
+                        prefactor=prefactor,
+                        return_cancellation_ratio=True,
+                    )
+                    worst_ratio = min(worst_ratio, float(np.min(ratios)))
+                else:
+                    flat = inner_product_orbit_pw_batched(
+                        K_pairs, w_A_pairs, w_B_pairs, r,
+                        prefactor=prefactor,
+                    )
+                safe_flat[n_start:n_end, :] = flat.reshape(n_chunk, N_ys)
+            out[np.ix_(safe_x_idx, safe_y_idx)] = safe_flat
 
     # --- Pairs involving any unsafe event: K-grouped batched direct ---
     # All pairs not in (safe_x, safe_y) flow through ordered-r-tuple
@@ -1517,12 +1739,14 @@ def _ma_per_attr_inner_matrix(
         out, Px, Wx, Py, Wy,
         unsafe_x_idx, np.arange(N_y),
         K_eff_x, K_eff_y, sigma, r, is_per, period,
+        truncation_sigmas=truncation_sigmas,
     )
     if unsafe_y_idx.size > 0 and safe_x_idx.size > 0:
         _ma_fill_direct_enum_groups(
             out, Px, Wx, Py, Wy,
             safe_x_idx, unsafe_y_idx,
             K_eff_x, K_eff_y, sigma, r, is_per, period,
+            truncation_sigmas=truncation_sigmas,
         )
 
     if return_cancellation_ratio:
@@ -1534,6 +1758,7 @@ def _ma_per_attr_inner_matrix(
 def _ma_fill_direct_enum_groups(
     out, Px, Wx, Py, Wy, x_idx, y_idx,
     K_eff_x, K_eff_y, sigma, r, is_per, period,
+    *, truncation_sigmas=None,
 ):
     """K-grouped batched direct-enum fill into ``out`` for a rectangle
     of (x_idx, y_idx) pairs.
@@ -1542,6 +1767,10 @@ def _ma_fill_direct_enum_groups(
     value, then computes each (K_x_val, K_y_val) sub-block as a single
     vectorised tensor contraction. Output entries at (x_idx[i],
     y_idx[j]) are filled in place.
+
+    ``truncation_sigmas`` is forwarded to
+    :func:`_batched_direct_enum_abs_sa`; ``None`` resolves to the
+    global default.
 
     No-op if either side is empty.
     """
@@ -1574,6 +1803,7 @@ def _ma_fill_direct_enum_groups(
             sub_ip = _batched_direct_enum_abs_sa(
                 Px_grp, Wx_grp, Py_grp, Wy_grp,
                 sigma, r, is_per, period,
+                truncation_sigmas=truncation_sigmas,
             )
             out[np.ix_(x_grp, y_grp)] = sub_ip
 
@@ -1607,6 +1837,7 @@ def _pack_nan_top(P, W):
 def _batched_direct_enum_abs_sa(
     Px_group, Wx_group, Py_group, Wy_group,
     sigma, r, is_per, period,
+    *, truncation_sigmas=None,
 ):
     """Batched direct r-tuple enumeration IP for groups at fixed K_x, K_y.
 
@@ -1626,6 +1857,11 @@ def _batched_direct_enum_abs_sa(
         Same for Y side.
     sigma, r, is_per, period
         Group parameters.
+    truncation_sigmas : float, optional
+        Kernel-truncation cutoff in σ units. Kernel entries whose
+        squared distance exceeds the cutoff are zeroed without
+        evaluating ``np.exp``. ``None`` resolves to the global default
+        ``mpt.get_default('truncation_sigmas')``.
 
     Returns
     -------
@@ -1633,6 +1869,11 @@ def _batched_direct_enum_abs_sa(
         Inner-product matrix (no Möbius alternating sum; exact for any
         K_x, K_y >= r).
     """
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
+
     K_x, N_x = Px_group.shape
     K_y, N_y = Py_group.shape
 
@@ -1643,7 +1884,7 @@ def _batched_direct_enum_abs_sa(
         diffs = Px_group[:, :, None, None] - Py_group[None, None, :, :]
         if is_per:
             diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_mat = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+        K_mat = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
         ip = np.einsum(
             'xn,xnym,ym->nm', Wx_group, K_mat, Wy_group, optimize=True,
         )
@@ -1676,7 +1917,7 @@ def _batched_direct_enum_abs_sa(
     if is_per:
         diffs = diffs - period * np.floor(diffs / period + 0.5)
     Q = np.sum(diffs ** 2, axis=0)                  # (N_x, nJ_x, N_y, nJ_y)
-    K_mat = np.exp(-Q / (4 * sigma ** 2))
+    K_mat = _trunc_kernel_exp(Q, sigma, truncation_sigmas)
 
     ip = np.einsum(
         'xj,xjyk,yk->xy', Wj_x, K_mat, Wj_y, optimize=True,
@@ -1707,7 +1948,7 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 
 def _ma_per_attr_inner_matrix_rel_per(
     Px, Wx, Py, Wy, sigma, r, period, samples_per_sigma=5,
-    *, return_cancellation_ratio=False,
+    *, return_cancellation_ratio=False, truncation_sigmas=None,
 ):
     """Vectorised relative-periodic case of ``_ma_per_attr_inner_matrix``.
 
@@ -1727,67 +1968,97 @@ def _ma_per_attr_inner_matrix_rel_per(
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case ratio across the (N_pairs · N_u) batched Möbius-method cells.
+
+    ``truncation_sigmas`` is honoured on the per-u kernel tensor:
+    entries whose squared (period-wrapped) distance exceeds the
+    cutoff are zeroed without evaluating ``np.exp``. ``None``
+    resolves to the global default ``mpt.get_default('truncation_sigmas')``.
     """
     from .._mobius import inner_product_orbit_pw_batched
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
 
     K, N_x = Px.shape
     _, N_y = Py.shape
-    N_pairs = N_x * N_y
 
     N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
     u_grid = np.linspace(0.0, period, N_u, endpoint=False)
     du = period / N_u
 
-    # Per-pair weights (independent of u) — shape (N_pairs, K).
-    w_A_pairs = np.broadcast_to(
-        Wx.T[:, None, :], (N_x, N_y, K),
-    ).reshape(N_pairs, K)
-    w_B_pairs = np.broadcast_to(
-        Wy.T[None, :, :], (N_x, N_y, K),
-    ).reshape(N_pairs, K)
-
-    # Pair-wise raw differences, independent of u: shape (K, N_x, K, N_y).
-    diffs_pair = Px[:, :, None, None] - Py[None, None, :, :]
-
-    # Chunk along u to bound memory.
-    bytes_per_u = N_pairs * K * K * 8 * 2  # kernel + diffs
+    # Memory: pair tensor diffs_pair has shape (K, N_x, K, N_y); inner
+    # u-loop's kernel tensor has shape (n_uc, K, N_x_chunk, K, N_y).
+    # Chunk along N_x to keep diffs_pair under budget; the existing
+    # u-chunking nests inside, sized for the per-chunk N_pairs.
+    bytes_per_row = K * K * N_y * 8
     mem_limit = kernel_chunk_bytes_resolved()
-    chunk_u = max(1, min(N_u, mem_limit // max(bytes_per_u, 1)))
+    # Reserve half the budget for the pair tensor; the u-chunk loop
+    # uses the rest for the kernel tensor.
+    chunk_N_x = max(1, min(N_x, mem_limit // max(2 * bytes_per_row, 1)))
 
-    F = np.zeros((N_pairs, N_u), dtype=np.float64)
+    F = np.zeros((N_x * N_y, N_u), dtype=np.float64)
     worst_ratio = 1.0
-    for u_start in range(0, N_u, chunk_u):
-        u_end = min(u_start + chunk_u, N_u)
-        n_uc = u_end - u_start
-        u_slice = u_grid[u_start:u_end]
-        # diffs[u, K_i, N_x, K_j, N_y] = diffs_pair + u
-        diffs = diffs_pair[None, :, :, :, :] + u_slice[:, None, None, None, None]
-        diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_uc = np.exp(-(diffs ** 2) / (4 * sigma ** 2))  # (n_uc, K, N_x, K, N_y)
-        # Reorder to (n_uc, N_x, N_y, K, K) and flatten leading axes.
-        K_uc = np.transpose(K_uc, (0, 2, 4, 1, 3)).reshape(
-            n_uc * N_pairs, K, K,
-        )
-        # Replicate weights across u-axis for each pair.
-        w_A_uc = np.broadcast_to(
-            w_A_pairs[None, :, :], (n_uc, N_pairs, K),
-        ).reshape(n_uc * N_pairs, K)
-        w_B_uc = np.broadcast_to(
-            w_B_pairs[None, :, :], (n_uc, N_pairs, K),
-        ).reshape(n_uc * N_pairs, K)
-        if return_cancellation_ratio:
-            flat, ratios = inner_product_orbit_pw_batched(
-                K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
-                return_cancellation_ratio=True,
+
+    for n_start in range(0, N_x, chunk_N_x):
+        n_end = min(n_start + chunk_N_x, N_x)
+        nc_x = n_end - n_start
+        Px_chunk = Px[:, n_start:n_end]
+        Wx_chunk = Wx[:, n_start:n_end]
+        N_pairs_chunk = nc_x * N_y
+
+        # Per-pair weights for this chunk (independent of u).
+        w_A_pairs = np.broadcast_to(
+            Wx_chunk.T[:, None, :], (nc_x, N_y, K),
+        ).reshape(N_pairs_chunk, K)
+        w_B_pairs = np.broadcast_to(
+            Wy.T[None, :, :], (nc_x, N_y, K),
+        ).reshape(N_pairs_chunk, K)
+
+        # Pair-wise raw differences for this chunk: (K, nc_x, K, N_y).
+        diffs_pair = Px_chunk[:, :, None, None] - Py[None, None, :, :]
+
+        # Inner: chunk along u.
+        bytes_per_u = N_pairs_chunk * K * K * 8 * 2  # kernel + diffs
+        chunk_u = max(1, min(N_u, mem_limit // max(bytes_per_u, 1)))
+
+        F_chunk = np.zeros((N_pairs_chunk, N_u), dtype=np.float64)
+        for u_start in range(0, N_u, chunk_u):
+            u_end_u = min(u_start + chunk_u, N_u)
+            n_uc = u_end_u - u_start
+            u_slice = u_grid[u_start:u_end_u]
+            # diffs[u, K_i, nc_x, K_j, N_y] = diffs_pair + u
+            diffs = diffs_pair[None, :, :, :, :] + u_slice[:, None, None, None, None]
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+            K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+            # Reorder to (n_uc, nc_x, N_y, K, K) and flatten leading axes.
+            K_uc = np.transpose(K_uc, (0, 2, 4, 1, 3)).reshape(
+                n_uc * N_pairs_chunk, K, K,
             )
-            chunk_min = float(np.min(ratios))
-            if chunk_min < worst_ratio:
-                worst_ratio = chunk_min
-        else:
-            flat = inner_product_orbit_pw_batched(
-                K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
-            )
-        F[:, u_start:u_end] = flat.reshape(n_uc, N_pairs).T
+            # Replicate weights across u-axis for each pair.
+            w_A_uc = np.broadcast_to(
+                w_A_pairs[None, :, :], (n_uc, N_pairs_chunk, K),
+            ).reshape(n_uc * N_pairs_chunk, K)
+            w_B_uc = np.broadcast_to(
+                w_B_pairs[None, :, :], (n_uc, N_pairs_chunk, K),
+            ).reshape(n_uc * N_pairs_chunk, K)
+            if return_cancellation_ratio:
+                flat, ratios = inner_product_orbit_pw_batched(
+                    K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+                    return_cancellation_ratio=True,
+                )
+                chunk_min = float(np.min(ratios))
+                if chunk_min < worst_ratio:
+                    worst_ratio = chunk_min
+            else:
+                flat = inner_product_orbit_pw_batched(
+                    K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+                )
+            F_chunk[:, u_start:u_end_u] = flat.reshape(n_uc, N_pairs_chunk).T
+
+        # Insert into global F: pair indices for rows [n_start, n_end)
+        # are the contiguous block [n_start * N_y : n_end * N_y).
+        F[n_start * N_y : n_end * N_y, :] = F_chunk
 
     integral = F.sum(axis=1) * du  # periodic Riemann sum
     c = sigma * np.sqrt(2 * np.pi / r)
@@ -1995,7 +2266,10 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
     mem_limit = kernel_chunk_bytes_resolved()
 
     if bytes_needed <= mem_limit:
-        return _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period)
+        return _ip_full(
+            U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
+            truncation_sigmas=trunc_resolved,
+        )
 
     chunk_size = max(1, int(mem_limit / ((r + 2) * int(nJ) * 8)))
     acc = np.zeros(nJ)
@@ -2010,7 +2284,7 @@ def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
         if is_per and not is_rel:
             Dc = Dc - period * np.floor(Dc / period + 0.5)
         Qc = _compute_Q(Dc, r, is_rel, is_per, period)
-        Ec = np.exp(-Qc / (4 * sigma**2))
+        Ec = _trunc_kernel_exp(Qc, sigma, trunc_resolved)
         acc += Ec @ wV[idx]
 
     return float(wU @ acc)
@@ -2041,8 +2315,18 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
 
 
 
-def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
-    """Fully vectorized inner product."""
+def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
+             *, truncation_sigmas=None):
+    """Fully vectorized inner product.
+
+    ``truncation_sigmas`` is honoured on the kernel; ``None``
+    resolves to the global default.
+    """
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
+
     D = U[:, :, None] - V[:, None, :]  # (r, nJ, nK)
 
     # The outer wrap is needed only when _compute_Q does not re-wrap
@@ -2057,26 +2341,34 @@ def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period):
 
     Q = _compute_Q(D, r, is_rel, is_per, period)
 
-    E = np.exp(-Q / (4 * sigma**2))  # (nJ, nK)
+    E = _trunc_kernel_exp(Q, sigma, truncation_sigmas)   # (nJ, nK)
     return float(wU @ (E @ wV))
 
 
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
-                     *, return_cancellation_ratio=False):
+                     *, return_cancellation_ratio=False,
+                     truncation_sigmas=None):
     """<T_A, T_B> in absolute mode via the Möbius method.
 
     With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
     where ratio is ``|sum| / max(|term|)`` from the Möbius alternating
     partition sum (1.0 means no cancellation; <<1 means digits lost). See
     :func:`mpt._mobius.inner_product_orbit` for full semantics.
+
+    ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
+    to the global default.
     """
     from .._mobius import inner_product_orbit
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
 
     diffs = p_a[:, None] - p_b[None, :]
     if is_per:
         diffs = diffs - period * np.floor(diffs / period + 0.5)
-    K = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+    K = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
     return inner_product_orbit(
         K, w_a, w_b, r, prefactor=(sigma * np.sqrt(np.pi)) ** r,
         return_cancellation_ratio=return_cancellation_ratio,
@@ -2182,7 +2474,8 @@ def _build_ordered_r_tuples(p, w, r):
 
 def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      samples_per_sigma=10, *,
-                     return_cancellation_ratio=False):
+                     return_cancellation_ratio=False,
+                     truncation_sigmas=None):
     """<T_A, T_B> in relative mode via Möbius machinery + translation grid.
 
     Marginalises a translation u over either ``[0, P)`` (periodic) or a
@@ -2200,8 +2493,15 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     where ratio is the worst-case (minimum) cancellation ratio across
     the u-grid points. A point with severe cancellation drives the
     integration result toward catastrophic loss of significance.
+
+    ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
+    to the global default.
     """
     from .._mobius import inner_product_orbit_grid
+    from .._defaults import get_default
+
+    if truncation_sigmas is None:
+        truncation_sigmas = get_default('truncation_sigmas')
 
     if is_per:
         N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
@@ -2220,7 +2520,7 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
         u_grid = np.linspace(u_min, u_max, N_u)
         diffs = (p_a[None, :, None] - p_b[None, None, :]
                  + u_grid[:, None, None])
-    K_u = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
+    K_u = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
     if return_cancellation_ratio:
         F, ratios = inner_product_orbit_grid(
             K_u, w_a, w_b, r, return_cancellation_ratio=True,

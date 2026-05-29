@@ -948,6 +948,30 @@ function vals = localEvalSAOrbit(dens, X, verbose, ...
     period = dens.period;
     nQ     = size(X, 2);
 
+    % --- Auto-prune zero-weight events ---
+    % Per-event-level prune here (rather than joint-tuple prune as in
+    % the centres path) because the orbit path operates on the raw
+    % event positions, not the post-build joint tuples. An event with
+    % w(i) == 0 contributes zero to every r-tuple that involves it, so
+    % dropping is exact. dens.w may be scalar or per-event; only the
+    % per-event case admits selective drop.
+    wVec = w(:);
+    if numel(wVec) > 1
+        keep = wVec ~= 0;
+        if ~all(keep)
+            if ~any(keep)
+                vals = zeros(1, nQ);
+                return;
+            end
+            pVec = p(:);
+            p = pVec(keep);
+            w = wVec(keep);
+        end
+    elseif numel(wVec) == 1 && wVec(1) == 0
+        vals = zeros(1, nQ);
+        return;
+    end
+
     % Build kwarg list — pass through only when explicitly supplied
     % at the evalExpTens call level; otherwise the Möbius evaluators
     % consult mptDefaults themselves.
@@ -990,6 +1014,23 @@ function vals = localEvalSACentres(dens, X, nQ, verbose, ...
     isRel   = dens.isRel;
     isPer   = dens.isPer;
     J       = dens.period;
+
+    % --- Auto-prune zero-weight joint perm-side tuples ---
+    % See localEvalMA for the rationale: dens.wJ is the per-attribute
+    % weight product, so a tuple with wJ == 0 contributes zero at every
+    % query point. Strict zero convention matches the IP-path prune.
+    if nJ > 0
+        keep = wJ ~= 0;
+        if ~all(keep)
+            nJ = nnz(keep);
+            if nJ == 0
+                vals = zeros(1, nQ);
+                return;
+            end
+            wJ = wJ(keep);
+            Centres = Centres(:, keep);
+        end
+    end
 
     % Build the keyword list for the helper. Pass-through only when
     % values were supplied at this call's level; otherwise the helper
@@ -1062,6 +1103,21 @@ function vals = localEvalSACentresFast(dens, X, nQ)
     if nJ == 0 || nQ == 0
         vals = zeros(1, nQ);
         return;
+    end
+
+    % --- Auto-prune zero-weight joint perm-side tuples ---
+    % See localEvalMA for the rationale: dens.wJ is the per-attribute
+    % weight product, so a tuple with wJ == 0 contributes zero at every
+    % query point. Strict zero convention matches the IP-path prune.
+    keep = wJ ~= 0;
+    if ~all(keep)
+        nJ = nnz(keep);
+        if nJ == 0
+            vals = zeros(1, nQ);
+            return;
+        end
+        wJ = wJ(keep);
+        Centres = Centres(:, keep);
     end
 
     % FP-identical to localExactKernelSum (in internal.gaussianKernelSum):
@@ -1179,6 +1235,25 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     periodG    = dens.period;
     Centres    = dens.Centres;
     wJ         = dens.wJ;
+
+    % --- Auto-prune zero-weight joint perm-side tuples ---
+    % The MaetDensity build expands per-attribute slot combinations into
+    % joint perm-side tuples and computes wJ as the product of
+    % per-attribute weights. A tuple with wJ == 0 contributes zero at
+    % every query point, so dropping it is exact (matches the strict
+    % zero convention of the IP-path prune in
+    % mobius.maPerAttrInnerMatrix). Rebinding here is local; dens is
+    % untouched on disk.
+    if N_J > 0
+        keep = wJ ~= 0;
+        if ~all(keep)
+            N_J = nnz(keep);
+            wJ = wJ(keep);
+            for a = 1:A
+                Centres{a} = Centres{a}(:, keep);
+            end
+        end
+    end
 
     % --- Normalise query-point input to cell form {X_1, ..., X_A} ---
 

@@ -743,6 +743,7 @@ def _eval_exp_tens_sa(
 
 def _eval_exp_tens_sa_centres_fast(
     dens: ExpTensDensity, x: np.ndarray, n_q: int,
+    *, prune_zero_weight_events: bool = True,
 ) -> np.ndarray:
     """inline direct broadcast for the centres path.
 
@@ -758,6 +759,10 @@ def _eval_exp_tens_sa_centres_fast(
     per-block intermediates. Without chunking, large workloads
     (e.g. K=72 r=3 nQ=29161 → ~155 GB peak) hit MATLAB's array-size
     cap and Python's memory limits.
+
+    When ``prune_zero_weight_events=True`` (default), joint perm-side
+    tuples with ``w_j[j] == 0`` are dropped before evaluation. Same
+    convention as :func:`_eval_exp_tens_ma`.
     """
     centres = dens.centres
     w_j = dens.w_j
@@ -771,6 +776,16 @@ def _eval_exp_tens_sa_centres_fast(
 
     if n_j == 0 or n_q == 0:
         return np.zeros(n_q, dtype=np.float64)
+
+    # Auto-prune zero-weight joint tuples (see _eval_exp_tens_ma).
+    if prune_zero_weight_events:
+        keep = w_j != 0
+        if not bool(keep.all()):
+            n_j = int(keep.sum())
+            if n_j == 0:
+                return np.zeros(n_q, dtype=np.float64)
+            w_j = w_j[keep]
+            centres = centres[:, keep]
 
     bytes_per_scalar = 8  # default-mode is always double
     # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × bytes_per_scalar:
@@ -828,6 +843,7 @@ def _eval_exp_tens_sa_centres(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    prune_zero_weight_events: bool = True,
 ) -> np.ndarray:
     """Centres-array path for SA evaluation.
 
@@ -841,6 +857,10 @@ def _eval_exp_tens_sa_centres(
     ``cos_sim_exp_tens`` Bulger. The v2.0/v2.1 algebraic-with-outer-
     wrap form is an inherited v1 approximation in the rel+per case
     and is no longer used.
+
+    When ``prune_zero_weight_events=True`` (default), joint perm-side
+    tuples with ``w_j[j] == 0`` are dropped before evaluation. Same
+    convention as :func:`_eval_exp_tens_ma`.
     """
     centres = dens.centres
     w_j = dens.w_j
@@ -851,6 +871,16 @@ def _eval_exp_tens_sa_centres(
     is_rel = dens.is_rel
     is_per = dens.is_per
     period = dens.period
+
+    # Auto-prune zero-weight joint tuples (see _eval_exp_tens_ma).
+    if prune_zero_weight_events and n_j > 0:
+        keep = w_j != 0
+        if not bool(keep.all()):
+            n_j = int(keep.sum())
+            if n_j == 0:
+                return np.zeros(n_q, dtype=np.float64)
+            w_j = w_j[keep]
+            centres = centres[:, keep]
 
     # Forward kwargs to the helper. ``None`` means "consult mpt defaults".
     kw = {}
@@ -877,6 +907,7 @@ def _eval_exp_tens_sa_orbit(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    prune_zero_weight_events: bool = True,
 ) -> np.ndarray:
     """Orbit-Möbius point evaluator for SA evaluation.
 
@@ -889,6 +920,14 @@ def _eval_exp_tens_sa_orbit(
     ``kernel_precision`` to the Möbius evaluators. The non-periodic
     per-block kernel sum routes through ``gaussian_kernel_sum`` with
     ``sigma_eff = sigma/sqrt(m)``, gaining truncation natively.
+
+    When ``prune_zero_weight_events=True`` (default), events whose
+    weight is exactly zero are dropped from ``p`` / ``w`` before
+    evaluation. Per-event-level prune here (rather than joint-tuple
+    prune as in the centres path) because the orbit path operates on
+    the raw event positions, not the post-build joint tuples. An event
+    with ``w[i] == 0`` contributes zero to every r-tuple that involves
+    it, so dropping is exact.
     """
     from .._mobius import eval_orbit_abs, eval_orbit_rel
 
@@ -899,6 +938,21 @@ def _eval_exp_tens_sa_orbit(
     is_rel = bool(dens.is_rel)
     is_per = bool(dens.is_per)
     period = float(dens.period)
+
+    # Auto-prune zero-weight events. dens.w may be scalar or per-event;
+    # only the per-event case admits selective drop.
+    if prune_zero_weight_events:
+        w_arr = np.atleast_1d(np.asarray(w, dtype=np.float64))
+        if w_arr.size > 1:
+            keep = w_arr != 0
+            if not bool(keep.all()):
+                if not bool(keep.any()):
+                    return np.zeros(n_q, dtype=np.float64)
+                p = np.asarray(p)
+                p = p[keep] if p.ndim == 1 else p[:, keep]
+                w = w_arr[keep]
+        elif w_arr.size == 1 and w_arr[0] == 0:
+            return np.zeros(n_q, dtype=np.float64)
 
     if verbose:
         pass
@@ -963,8 +1017,21 @@ def _eval_exp_tens_ma(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    prune_zero_weight_events: bool = True,
 ) -> np.ndarray:
-    """Multi-attribute expectation tensor evaluation."""
+    """Multi-attribute expectation tensor evaluation.
+
+    When ``prune_zero_weight_events=True`` (default), joint perm-side
+    tuples whose product weight ``w_j[j] == 0`` are dropped before
+    evaluation. The joint weight already incorporates the per-attribute
+    weight product, so a zero entry indicates that at least one
+    attribute has zero weight at that tuple --- the tuple contributes
+    zero to the density at every query point, so dropping it is exact.
+    Set to ``False`` to bypass (only useful for testing the pre-prune
+    work). The cost saving scales with the fraction of zero-weight
+    tuples, which can be very large after :func:`weight_events` has
+    hard-zeroed factors outside the truncation radius.
+    """
     A           = dens.n_attrs
     n_j         = dens.n_j
     dim         = dens.dim
@@ -977,6 +1044,20 @@ def _eval_exp_tens_ma(
     period_g    = dens.period
     centres     = dens.centres
     w_j         = dens.w_j
+
+    # --- Auto-prune zero-weight joint perm-side tuples ---
+    # The MaetDensity build expands per-attribute slot combinations into
+    # joint perm-side tuples and computes w_j as the product of
+    # per-attribute weights. A tuple with w_j == 0 contributes zero at
+    # every query point, so dropping it is exact (matches the strict
+    # zero convention of the IP-path prune in mobius.maPerAttrInnerMatrix).
+    # The rebinding here is local; dens is untouched on disk.
+    if prune_zero_weight_events and n_j > 0:
+        keep = w_j != 0
+        if not bool(keep.all()):
+            n_j = int(keep.sum())
+            w_j = w_j[keep]
+            centres = [c[:, keep] for c in centres]
 
     # --- Normalise query input to a list of A per-attribute matrices ---
 

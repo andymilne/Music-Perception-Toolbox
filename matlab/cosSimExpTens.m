@@ -447,7 +447,8 @@ if nArgs == 2
                 dens_y = b;
             case 'MaetDensity|MaetDensity'
                 s = localCosSimMA(a, b, method, normalize, ...
-                                  cancellationThreshold, verbose);
+                                  cancellationThreshold, verbose, ...
+                                  truncationSigmas);
                 return;
             otherwise
                 error('cosSimExpTens:tagMismatch', ...
@@ -574,7 +575,8 @@ elseif nArgs == 10
         dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
             isRelVec, isPerVec, periodVec, 'verbose', verbose);
         s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
-                          cancellationThreshold, verbose);
+                          cancellationThreshold, verbose, ...
+                          truncationSigmas);
         return;
     end
     % Scalar-vs-list broadcast. Build the scalar side once, iterate
@@ -598,10 +600,12 @@ elseif nArgs == 10
             groups, isRelVec, isPerVec, periodVec, 'verbose', false);
         if scalarFirst
             s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
-                                 normalize, cancellationThreshold, false);
+                                 normalize, cancellationThreshold, false, ...
+                                 truncationSigmas);
         else
             s{m} = localCosSimMA(dens_m, dens_scalar, method, ...
-                                 normalize, cancellationThreshold, false);
+                                 normalize, cancellationThreshold, false, ...
+                                 truncationSigmas);
         end
     end
     return;
@@ -662,7 +666,8 @@ ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
 
 if strcmp(chosen, 'mobius')
-    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y);
+    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y, ...
+                                                            truncationSigmas);
 
     % Three-layer fallback guard.
     %  1. Cross-cancellation: |<X,Y>| small relative to sqrt(<X,X><Y,Y>).
@@ -795,7 +800,7 @@ end
         memLimit = internal.kernelChunkBytesResolved();
 
         if bytesNeeded <= memLimit
-            ipval = ipFull(U, wU, nJ, V, wV, nK);
+            ipval = ipFull(U, wU, nJ, V, wV, nK, truncResolved);
         else
             chunkSize = max(1, ...
                 floor(memLimit / ((r + 2) * double(nJ) * 8)));
@@ -818,7 +823,9 @@ end
 
                 Qc = computeQ(Dc);
 
-                Ec = reshape(exp(-Qc(:) / (4 * sigma^2)), nJ, nKc);
+                Ec = reshape( ...
+                    internal.truncKernelExp(Qc(:), sigma, truncResolved), ...
+                    nJ, nKc);
                 acc = acc + Ec * wV(idx)';
             end
 
@@ -888,7 +895,7 @@ end
     %  The weighted sum is computed as wU' * (E * wV), avoiding the full
     %  outer-product weight matrix.
     % -----------------------------------------------------------------
-    function ipval = ipFull(U, wU, nJ, V, wV, nK)
+    function ipval = ipFull(U, wU, nJ, V, wV, nK, truncResolved)
         D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
 
         % The outer wrap is needed only when computeQ does not re-wrap
@@ -905,7 +912,9 @@ end
 
         Qvec = computeQ(D);
 
-        E = reshape(exp(-Qvec(:) / (4 * sigma^2)), nJ, nK);
+        E = reshape( ...
+            internal.truncKernelExp(Qvec(:), sigma, truncResolved), ...
+            nJ, nK);
         ipval = wU(:)' * (E * wV(:));
     end
 
@@ -1206,10 +1215,10 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
 
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
-        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
+        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
         % Timed pass.
         tStart = tic;
-        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY);
+        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
         t = toc(tStart);
     else
         subX = internal.ensureExpTensExpensive(subX);
@@ -1270,10 +1279,12 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
     else
         Q = reshape(sum(D .^ 2, 1), nJ, nK);
     end
-    if ~isempty(truncationSigmas) && isfinite(truncationSigmas)
-        Q(Q > (truncationSigmas * 2 * sigma) ^ 2) = Inf;
+    if isempty(truncationSigmas)
+        truncResolved = mptDefaults('truncationSigmas');
+    else
+        truncResolved = truncationSigmas;
     end
-    E = exp(-Q / (4 * sigma ^ 2));
+    E = internal.truncKernelExp(Q, sigma, truncResolved);
     if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
         E = single(E);
     end
@@ -1281,7 +1292,9 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
 end
 
 
-function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y)
+function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, ...
+                                                                 dens_y, ...
+                                                                 truncationSigmas)
 %LOCALCOSSIMSAORBIT  Three SA inner products via the Möbius method.
 %
 %   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
@@ -1297,14 +1310,29 @@ function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y)
     p_x = dens_x.p; w_x = dens_x.w;
     p_y = dens_y.p; w_y = dens_y.w;
 
-    if isRel
-        [ip_xy, r_xy] = mobius.orbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
-        [ip_xx, r_xx] = mobius.orbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
-        [ip_yy, r_yy] = mobius.orbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+    % Resolve truncationSigmas to a concrete value at call time so the
+    % per-call override is honoured (an empty/unset trunc defers to
+    % mptDefaults inside the orbit helpers).
+    if isempty(truncationSigmas)
+        truncResolved = mptDefaults('truncationSigmas');
     else
-        [ip_xy, r_xy] = mobius.orbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period);
-        [ip_xx, r_xx] = mobius.orbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period);
-        [ip_yy, r_yy] = mobius.orbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period);
+        truncResolved = truncationSigmas;
+    end
+
+    if isRel
+        [ip_xy, r_xy] = mobius.orbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
+        [ip_xx, r_xx] = mobius.orbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
+        [ip_yy, r_yy] = mobius.orbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
+    else
+        [ip_xy, r_xy] = mobius.orbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
+        [ip_xx, r_xx] = mobius.orbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
+        [ip_yy, r_yy] = mobius.orbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+            'truncationSigmas', truncResolved);
     end
     worstRatio = min([r_xy, r_xx, r_yy]);
 end
@@ -1345,7 +1373,7 @@ end
 % =========================================================================
 
 function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
-                            cancellationThreshold, verbose)
+                            cancellationThreshold, verbose, truncationSigmas)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
@@ -1414,7 +1442,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     ranOrbit = false;
 
     if strcmp(chosen, 'mobius')
-        [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y);
+        [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
+                                                    truncationSigmas);
 
         % Three-layer fallback guard (mirrors SA path).
         denomGeo = sqrt(max(ip_xx * ip_yy, 0));
@@ -1478,6 +1507,13 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     % =====================================================================
 
     function ipval = ipCoreMA(U_cell, wU, nJ, V_cell, wV, nK)
+        % Resolve truncationSigmas against mptDefaults for both branches.
+        if isempty(truncationSigmas)
+            truncResolved = mptDefaults('truncationSigmas');
+        else
+            truncResolved = truncationSigmas;
+        end
+
         % Memory-aware chunking along the comb-side (nK) dimension.
         maxRa = double(max(rVec));
         bytesNeeded = (maxRa + 2) * double(nJ) * double(nK) * 8;
@@ -1485,7 +1521,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         memLimit = internal.kernelChunkBytesResolved();
 
         if bytesNeeded <= memLimit
-            ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK);
+            ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK, truncResolved);
         else
             chunkSize = max(1, floor(memLimit / ((maxRa + 2) * double(nJ) * 8)));
             acc = zeros(nJ, 1);
@@ -1500,16 +1536,16 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                 end
 
                 logK = maLogKernel(U_cell, V_chunk, nJ, nKc);
-                Ec = exp(logK);
+                Ec = internal.truncLogKernelExp(logK, truncResolved);
                 acc = acc + Ec * wV(idx).';
             end
             ipval = wU(:).' * acc;
         end
     end
 
-    function ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK)
+    function ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK, truncResolved)
         logK = maLogKernel(U_cell, V_cell, nJ, nK);
-        E = exp(logK);                    % nJ x nK
+        E = internal.truncLogKernelExp(logK, truncResolved);  % nJ x nK
         ipval = wU(:).' * (E * wV(:));
     end
 
@@ -1658,7 +1694,8 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
 end
 
 
-function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
+function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
+                                                     truncationSigmas)
 %LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute Möbius method.
 %
 %   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
@@ -1677,6 +1714,15 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
     P_xx = ones(N_x, N_x);
     P_yy = ones(N_y, N_y);
 
+    % Resolve truncationSigmas to a concrete value at call time so the
+    % per-call override path is honoured. [] (no override) defers to
+    % mptDefaults inside maPerAttrInnerMatrix.
+    if isempty(truncationSigmas)
+        truncResolved = mptDefaults('truncationSigmas');
+    else
+        truncResolved = truncationSigmas;
+    end
+
     for a = 1:A
         g       = dens_x.groupOfAttr(a);
         r_a     = dens_x.r(a);
@@ -1689,11 +1735,14 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y)
         Py = dens_y.pAttr{a};   Wy = dens_y.w{a};
 
         I_xy = mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
-            sigma_g, r_a, isRel_g, isPer_g, period_g);
+            sigma_g, r_a, isRel_g, isPer_g, period_g, ...
+            'truncationSigmas', truncResolved);
         I_xx = mobius.maPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
-            sigma_g, r_a, isRel_g, isPer_g, period_g);
+            sigma_g, r_a, isRel_g, isPer_g, period_g, ...
+            'truncationSigmas', truncResolved);
         I_yy = mobius.maPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
-            sigma_g, r_a, isRel_g, isPer_g, period_g);
+            sigma_g, r_a, isRel_g, isPer_g, period_g, ...
+            'truncationSigmas', truncResolved);
 
         P_xy = P_xy .* I_xy;
         P_xx = P_xx .* I_xx;

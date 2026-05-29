@@ -1,5 +1,5 @@
 function [val, ratio] = orbitInnerAbsSA(p_a, w_a, p_b, w_b, sigma, r, ...
-                                          isPer, period)
+                                          isPer, period, opts)
 %MOBIUS.ORBITINNERABSSA  <T_A, T_B>_abs via mobius.innerProductOrbit.
 %
 %   [VAL, RATIO] = MOBIUS.ORBITINNERABSSA(P_A, W_A, P_B, W_B, SIGMA, R,
@@ -18,6 +18,12 @@ function [val, ratio] = orbitInnerAbsSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %     IS_PER     logical; wrap differences modulo PERIOD when true.
 %     PERIOD     positive scalar; periodic mode only.
 %
+%   Name-Value options:
+%     truncationSigmas  (1,1) double, default mptDefaults('truncationSigmas').
+%                       Kernel entries whose squared distance exceeds
+%                       the truncation cutoff are zeroed without
+%                       evaluating exp().
+%
 %   Outputs:
 %     VAL        scalar inner product, including the (sigma * sqrt(pi))^r
 %                prefactor.
@@ -25,14 +31,27 @@ function [val, ratio] = orbitInnerAbsSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %                near 1 mean no cancellation, low values mean digits
 %                lost in the orbit alternating sum.
 %
-%   See also MOBIUS.INNERPRODUCTORBIT, MOBIUS.ORBITINNERRELSA.
+%   See also MOBIUS.INNERPRODUCTORBIT, MOBIUS.ORBITINNERRELSA,
+%            INTERNAL.TRUNCKERNELEXP.
+
+    arguments
+        p_a double
+        w_a double
+        p_b double
+        w_b double
+        sigma (1,1) double {mustBePositive}
+        r (1,1) double {mustBeInteger, mustBePositive}
+        isPer (1,1) logical
+        period (1,1) double
+        opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
+    end
 
     p_a = p_a(:); p_b = p_b(:);
     diffs = p_a - p_b.';                              % n_a x n_b
     if isPer
         diffs = diffs - period * floor(diffs / period + 0.5);
     end
-    K = exp(-(diffs.^2) / (4 * sigma^2));
+    K = internal.truncKernelExp(diffs.^2, sigma, opts.truncationSigmas);
     [val, ratio] = mobius.innerProductOrbit(K, w_a(:), w_b(:), r, ...
         'prefactor', (sigma * sqrt(pi))^r, ...
         'returnCancellationRatio', true);

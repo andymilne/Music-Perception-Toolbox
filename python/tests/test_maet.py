@@ -1479,62 +1479,66 @@ class TestMAET:
     def test_weight_pure_gaussian_gamma_zero(self):
         """gamma = 0 limit: pure Gaussian with std = width."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
-        w_out = mpt.weight_events(
+        _, w_out, _ = mpt.weight_events(
             p, None, None,
-            input_attrs=[0],
-            centre=[64.0], width=[3.0], shape=[0.0],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=0,
+            centre=64.0, width=3.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
         expected = np.exp(
             -((np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) ** 2)
             / (2 * 3.0 ** 2)
         ).reshape(1, -1)
-        np.testing.assert_allclose(w_out[0], expected)
+        np.testing.assert_allclose(np.asarray(w_out[0]), expected)
 
     def test_weight_pure_rectangle_gamma_one(self):
         """gamma = 1 limit: pure rectangle with half-width = width * sqrt(3)."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
-        w_out = mpt.weight_events(
+        _, w_out, _ = mpt.weight_events(
             p, None, None,
-            input_attrs=[0],
-            centre=[64.0], width=[3.0], shape=[1.0],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=0,
+            centre=64.0, width=3.0, shape=1.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
         half = 3.0 * np.sqrt(3.0)
         expected = (
             np.abs(np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) <= half
         ).astype(float).reshape(1, -1)
-        np.testing.assert_array_equal(w_out[0], expected)
+        np.testing.assert_array_equal(np.asarray(w_out[0]), expected)
 
     def test_weight_intermediate_gamma_peak_one(self):
         """Peak h(0) = 1 throughout the family, for every gamma in (0, 1)."""
         p = [np.array([[5.0]])]   # single event at the centre
         for g in [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]:
-            w_out = mpt.weight_events(
+            _, w_out, _ = mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[5.0], width=[2.0], shape=[g],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=5.0, width=2.0, shape=g,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
-            assert abs(w_out[0][0, 0] - 1.0) < 1e-12, (
-                f"peak at gamma={g} was {w_out[0][0, 0]}, expected 1.0"
+            assert abs(np.asarray(w_out[0])[0, 0] - 1.0) < 1e-12, (
+                f"peak at gamma={g} was {np.asarray(w_out[0])[0, 0]}, "
+                f"expected 1.0"
             )
 
     def test_weight_fixed_variance_property(self):
         """Total variance of the window is width^2 for every gamma in [0, 1]
         (the manuscript's fixed-variance parametrisation)."""
-        # Sample h finely on a wide grid and compute variance numerically.
         y = np.linspace(-30.0, 30.0, 60001).reshape(1, -1)
         p = [y]
         width = 4.0
         for g in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]:
-            w_out = mpt.weight_events(
+            _, w_out, _ = mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[0.0], width=[width], shape=[g],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=0.0, width=width, shape=g,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
-            h = w_out[0].ravel()
+            h = np.asarray(w_out[0]).ravel()
             dy = y[0, 1] - y[0, 0]
             area = h.sum() * dy
             variance = (y.ravel() ** 2 * h).sum() * dy / area
@@ -1542,120 +1546,229 @@ class TestMAET:
                 f"variance at gamma={g} was {variance}, expected {width**2}"
             )
 
-    def test_weight_returns_length_a_list(self):
-        """Output is a length-A list of per-attribute weight slots."""
+    def test_weight_returns_three_tuple(self):
+        """Output is a 3-tuple (p_attr_out, w_out, groups_out)."""
         p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
-        w_out = mpt.weight_events(
-            p, None, None,
-            input_attrs=[0],
-            centre=[1.5], width=[1.0], shape=[0.0],
-            is_per=[False], periods=[0.0],
+        out = mpt.weight_events(
+            p, None, [0, 1],
+            input_attr=0, target_attr=0,
+            centre=1.5, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        assert isinstance(w_out, list)
-        assert len(w_out) == 2
+        assert isinstance(out, tuple) and len(out) == 3
+        p_out, w_out, g_out = out
+        assert isinstance(p_out, list) and len(p_out) == 2
+        assert isinstance(w_out, list) and len(w_out) == 2
+        assert isinstance(g_out, np.ndarray) and g_out.shape == (2,)
 
     def test_weight_non_input_attributes_pass_through(self):
-        """Attributes not listed in input_attrs keep their incoming weight."""
-        p = [np.array([[1.0, 2.0, 3.0]]), np.array([[10.0, 20.0, 30.0]])]
-        w_in = [None, 0.5]
-        w_out = mpt.weight_events(
+        """Attributes that are neither input nor target keep their incoming
+        weight."""
+        p = [np.array([[1.0, 2.0, 3.0]]),
+             np.array([[10.0, 20.0, 30.0]]),
+             np.array([[100.0, 200.0, 300.0]])]
+        w_in = [None, None, 0.5]
+        _, w_out, _ = mpt.weight_events(
             p, w_in, None,
-            input_attrs=[0],
-            centre=[2.0], width=[1.0], shape=[0.0],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=1,
+            centre=2.0, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        assert w_out[0].shape == (1, 3)
-        assert w_out[1] == 0.5
+        # Attr 2 (not input, not target) keeps its weight unchanged.
+        assert w_out[2] == 0.5
 
-    def test_weight_multi_attribute_product_design_p(self):
-        """Each input attribute gets its own factor in its own slot
-        (Design P); product across slots gives the joint window."""
-        p = [np.array([[60.0, 64.0, 67.0]]),
-             np.array([[0.0, 1.0, 2.0]])]
-        w_out = mpt.weight_events(
-            p, None, None,
-            input_attrs=[0, 1],
-            centre=[64.0, 1.0], width=[3.0, 1.0], shape=[0.0, 0.0],
-            is_per=[False, False], periods=[0.0, 0.0],
+    def test_weight_input_ne_target_factor_to_target_only(self):
+        """When input != target, the factor lands on target's slot and the
+        input's own slot is unchanged."""
+        p = [np.array([[60.0, 64.0, 67.0]]),    # pitch (target)
+             np.array([[0.0, 1.0, 2.0]])]        # time (input)
+        _, w_out, _ = mpt.weight_events(
+            p, None, [0, 1],
+            input_attr=1, target_attr=0,
+            centre=1.0, width=1.0, shape=0.0,    # Gaussian on time at t=1
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        h0 = np.exp(-((np.array([60.0, 64.0, 67.0]) - 64.0) ** 2) / 18.0)
-        h1 = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
-        np.testing.assert_allclose(w_out[0].ravel(), h0)
-        np.testing.assert_allclose(w_out[1].ravel(), h1)
-        joint = h0 * h1
-        product = w_out[0].ravel() * w_out[1].ravel()
-        np.testing.assert_allclose(product, joint)
+        expected_factor = np.exp(
+            -((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0
+        )
+        np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), expected_factor)
+        # Input slot (time) unchanged: still None passes through as None.
+        assert w_out[1] is None
 
-    def test_weight_per_input_attr_width_and_shape(self):
-        """Each input attribute can have its own width and gamma."""
-        p = [np.array([[0.0, 1.0]]), np.array([[0.0, 1.0]])]
-        w_out = mpt.weight_events(
-            p, None, None,
-            input_attrs=[0, 1],
-            centre=[0.0, 0.0], width=[1.0, 1.0], shape=[0.0, 1.0],
-            is_per=[False, False], periods=[0.0, 0.0],
+    def test_weight_target_K_gt_1_broadcasts(self):
+        """A (1, N) factor broadcasts across the target's K_target slots."""
+        # pitch attr with K=3 (target), time attr with K=1 (input).
+        p = [np.array([[60.0, 64.0],
+                       [62.0, 65.0],
+                       [64.0, 67.0]]),
+             np.array([[0.0, 1.0]])]
+        # Pre-existing weight on pitch with full (3, 2) shape, all 1s.
+        w_in = [np.ones((3, 2)), None]
+        _, w_out, _ = mpt.weight_events(
+            p, w_in, [0, 1],
+            input_attr=1, target_attr=0,
+            centre=0.0, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        # Attr 0: pure Gaussian (gamma = 0), width = 1
-        np.testing.assert_allclose(w_out[0].ravel(), [1.0, np.exp(-0.5)])
-        # Attr 1: pure rectangle (gamma = 1), half-width = sqrt(3) ~ 1.73
-        np.testing.assert_array_equal(w_out[1].ravel(), [1.0, 1.0])
+        # The (1, 2) factor broadcasts across the 3 pitch slots, giving (3, 2).
+        out0 = np.asarray(w_out[0])
+        assert out0.shape == (3, 2)
+        factor = np.exp(-((np.array([0.0, 1.0])) ** 2) / 2.0)
+        for k in range(3):
+            np.testing.assert_allclose(out0[k], factor)
 
     def test_weight_periodic_wrap(self):
-        """Periodic input attribute wraps delta = v - c to [-P/2, P/2]
-        before applying the shape function. Values themselves stay raw."""
+        """Periodic input attribute wraps delta = v - c to [-P/2, P/2] before
+        applying the shape function. Values themselves stay raw."""
         p = [np.array([[10.0, 11.0, 0.0, 1.0, 2.0]])]   # raw
-        w_out = mpt.weight_events(
+        _, w_out, _ = mpt.weight_events(
             p, None, None,
-            input_attrs=[0],
-            centre=[0.0], width=[2.0], shape=[0.0],
-            is_per=[True], periods=[12.0],
+            input_attr=0, target_attr=0,
+            centre=0.0, width=2.0, shape=0.0,
+            is_per=True, period=12.0,
+            delete_input=False,
         )
         deltas = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
         expected = np.exp(-(deltas ** 2) / 8.0).reshape(1, -1)
-        np.testing.assert_allclose(w_out[0], expected)
-
-    def test_weight_k_a_greater_than_one_per_slot(self):
-        """For K_a > 1, the window factor is applied per slot value;
-        output is K_a x N."""
-        p = [np.array([[60.0, 62.0, 64.0],
-                       [70.0, 67.0, 64.0]])]
-        w_out = mpt.weight_events(
-            p, None, None,
-            input_attrs=[0],
-            centre=[64.0], width=[3.0], shape=[0.0],
-            is_per=[False], periods=[0.0],
-        )
-        assert w_out[0].shape == (2, 3)
-        np.testing.assert_allclose(
-            w_out[0][0], np.exp(-(np.array([60.0, 62.0, 64.0]) - 64.0) ** 2 / 18.0)
-        )
-        np.testing.assert_allclose(
-            w_out[0][1], np.exp(-(np.array([70.0, 67.0, 64.0]) - 64.0) ** 2 / 18.0)
-        )
+        np.testing.assert_allclose(np.asarray(w_out[0]), expected)
 
     def test_weight_multiplies_into_existing_weight(self):
-        """Window factor multiplies into the incoming weight slot."""
+        """Window factor multiplies into the target's incoming weight."""
         p = [np.array([[1.0, 2.0, 3.0]])]
         w_in = 0.5
-        w_out = mpt.weight_events(
+        _, w_out, _ = mpt.weight_events(
             p, w_in, None,
-            input_attrs=[0],
-            centre=[2.0], width=[1.0], shape=[0.0],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=0,
+            centre=2.0, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
         h = np.exp(-(np.array([1.0, 2.0, 3.0]) - 2.0) ** 2 / 2.0)
-        np.testing.assert_allclose(w_out[0].ravel(), 0.5 * h)
+        np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), 0.5 * h)
 
-    def test_weight_empty_input_attrs_passes_through(self):
-        """If input_attrs is empty, w is returned unchanged as a list."""
-        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
-        w_out = mpt.weight_events(
-            p, [0.5, 0.7], None,
-            input_attrs=[],
-            centre=[], width=[], shape=[],
-            is_per=[], periods=[],
+    def test_weight_sequential_composition_for_two_windows(self):
+        """Multi-axis windowing via two sequential calls to the same target
+        (the canonical replacement for old multi-input behaviour)."""
+        # pitch (target), two scaffolding attrs (input1 = time, input2 = beat).
+        p = [np.array([[60.0, 64.0, 67.0]]),
+             np.array([[0.0, 1.0, 2.0]]),
+             np.array([[0.0, 0.5, 1.0]])]
+        # First call: time-window into pitch; keep input for the next call
+        # (which expects all three attributes still present).
+        p1, w1, g1 = mpt.weight_events(
+            p, None, [0, 1, 2],
+            input_attr=1, target_attr=0,
+            centre=1.0, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        assert w_out == [0.5, 0.7]
+        # Second call: beat-window into pitch.
+        _, w2, _ = mpt.weight_events(
+            p1, w1, g1,
+            input_attr=2, target_attr=0,
+            centre=0.5, width=0.5, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=False,
+        )
+        # Result: pitch slot carries the product of both factors.
+        h_time = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
+        h_beat = np.exp(-((np.array([0.0, 0.5, 1.0]) - 0.5) ** 2) / 0.5)
+        np.testing.assert_allclose(
+            np.asarray(w2[0]).ravel(), h_time * h_beat,
+        )
+
+    def test_weight_delete_input_drops_attribute(self):
+        """delete_input=True (with input != target) drops the input attribute
+        from the output structures."""
+        p = [np.array([[60.0, 64.0, 67.0]]),
+             np.array([[0.0, 1.0, 2.0]])]
+        p_out, w_out, g_out = mpt.weight_events(
+            p, None, [0, 1],
+            input_attr=1, target_attr=0,
+            centre=1.0, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=True,
+        )
+        assert len(p_out) == 1
+        assert len(w_out) == 1
+        # The remaining attribute is the original pitch (attr 0).
+        np.testing.assert_array_equal(p_out[0], p[0])
+
+    def test_weight_delete_input_group_compaction_when_sole(self):
+        """When the input attribute is the sole member of its group,
+        deleting it removes that group and decrements higher group labels."""
+        # 3 attrs in 3 groups: [0, 1, 2]. Input = attr 1 (sole in group 1).
+        p = [np.array([[1.0, 2.0]]),
+             np.array([[3.0, 4.0]]),
+             np.array([[5.0, 6.0]])]
+        _, _, g_out = mpt.weight_events(
+            p, None, [0, 1, 2],
+            input_attr=1, target_attr=0,
+            centre=3.5, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=True,
+        )
+        # Group 1 (sole member, deleted) is gone; group 2 renumbers to 1.
+        np.testing.assert_array_equal(g_out, np.array([0, 1]))
+
+    def test_weight_delete_input_group_retained_when_not_sole(self):
+        """When the input attribute's group has other members, that group
+        survives and numbering only loses the input's row."""
+        # 3 attrs in 2 groups: [0, 0, 1]. Input = attr 0 (group 0 also has attr 1).
+        p = [np.array([[1.0, 2.0]]),
+             np.array([[3.0, 4.0]]),
+             np.array([[5.0, 6.0]])]
+        _, _, g_out = mpt.weight_events(
+            p, None, [0, 0, 1],
+            input_attr=0, target_attr=2,
+            centre=1.5, width=1.0, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=True,
+        )
+        # Group 0 still has attr 1 (now at index 0); attr 2 (group 1) → index 1, group 1.
+        np.testing.assert_array_equal(g_out, np.array([0, 1]))
+
+    def test_weight_delete_input_with_input_eq_target_errors(self):
+        """delete_input=True with input_attr == target_attr is incoherent
+        and raises ValueError."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="delete_input"):
+            mpt.weight_events(
+                p, None, None,
+                input_attr=0, target_attr=0,
+                centre=1.0, width=1.0, shape=0.0,
+                is_per=False, period=0.0,
+                delete_input=True,
+            )
+
+    def test_weight_delete_input_required_no_default(self):
+        """delete_input must be specified by the caller; no default."""
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(TypeError, match="delete_input"):
+            mpt.weight_events(
+                p, None, None,
+                input_attr=0, target_attr=0,
+                centre=1.0, width=1.0, shape=0.0,
+                is_per=False, period=0.0,
+            )
+
+    def test_weight_k_input_greater_than_one_errors(self):
+        """An input attribute with K > 1 is rejected (the factor must be a
+        single value per event)."""
+        p = [np.array([[60.0, 62.0],
+                       [64.0, 65.0]])]   # K = 2
+        with pytest.raises(ValueError, match="K = 1"):
+            mpt.weight_events(
+                p, None, None,
+                input_attr=0, target_attr=0,
+                centre=62.0, width=2.0, shape=0.0,
+                is_per=False, period=0.0,
+                delete_input=False,
+            )
 
     def test_weight_zero_width_errors(self):
         """width = 0 is rejected (degenerate)."""
@@ -1663,9 +1776,10 @@ class TestMAET:
         with pytest.raises(ValueError, match="width"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[1.0], width=[0.0], shape=[0.5],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=1.0, width=0.0, shape=0.5,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
 
     def test_weight_negative_width_errors(self):
@@ -1673,9 +1787,10 @@ class TestMAET:
         with pytest.raises(ValueError, match="width"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[1.0], width=[-1.0], shape=[0.5],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=1.0, width=-1.0, shape=0.5,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
 
     def test_weight_shape_out_of_range_errors(self):
@@ -1684,51 +1799,56 @@ class TestMAET:
         with pytest.raises(ValueError, match="shape"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[1.0], width=[1.0], shape=[1.5],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=1.0, width=1.0, shape=1.5,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
         with pytest.raises(ValueError, match="shape"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[1.0], width=[1.0], shape=[-0.1],
-                is_per=[False], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=1.0, width=1.0, shape=-0.1,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
 
     def test_weight_input_attr_out_of_range_errors(self):
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="input_attrs"):
+        with pytest.raises(ValueError, match="input_attr"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[2],
-                centre=[1.0], width=[1.0], shape=[0.0],
-                is_per=[False], periods=[0.0],
+                input_attr=2, target_attr=0,
+                centre=1.0, width=1.0, shape=0.0,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
 
-    def test_weight_duplicate_input_attrs_errors(self):
-        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
-        with pytest.raises(ValueError, match="input_attrs"):
+    def test_weight_target_attr_out_of_range_errors(self):
+        p = [np.array([[1.0, 2.0]])]
+        with pytest.raises(ValueError, match="target_attr"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0, 0],
-                centre=[1.0, 1.0], width=[1.0, 1.0], shape=[0.0, 0.0],
-                is_per=[False, False], periods=[0.0, 0.0],
+                input_attr=0, target_attr=3,
+                centre=1.0, width=1.0, shape=0.0,
+                is_per=False, period=0.0,
+                delete_input=False,
             )
 
     def test_weight_periodic_requires_positive_period(self):
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="periods"):
+        with pytest.raises(ValueError, match="period"):
             mpt.weight_events(
                 p, None, None,
-                input_attrs=[0],
-                centre=[1.0], width=[1.0], shape=[0.0],
-                is_per=[True], periods=[0.0],
+                input_attr=0, target_attr=0,
+                centre=1.0, width=1.0, shape=0.0,
+                is_per=True, period=0.0,
+                delete_input=False,
             )
 
     def test_weight_t_w_centre_shift_commutation(self):
-        """T then W with centre c equals W with centre c-mu then T,
-        on the same input attribute (centre-shift composition rule)."""
+        """T then W with centre c equals W with centre c-mu then T, on the
+        same input attribute (centre-shift composition rule)."""
         p = [np.array([[60.0, 62.0, 64.0]])]
         mu = 5.0
         c = 64.0
@@ -1737,19 +1857,23 @@ class TestMAET:
         p_t = mpt.translate_attributes(
             p, [0], {0: mu}, [False], [False], [0.0],
         )
-        w_after_t = mpt.weight_events(
+        _, w_after_t, _ = mpt.weight_events(
             p_t, None, None,
-            input_attrs=[0],
-            centre=[c], width=[width], shape=[gamma],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=0,
+            centre=c, width=width, shape=gamma,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        w_first = mpt.weight_events(
+        _, w_first, _ = mpt.weight_events(
             p, None, None,
-            input_attrs=[0],
-            centre=[c - mu], width=[width], shape=[gamma],
-            is_per=[False], periods=[0.0],
+            input_attr=0, target_attr=0,
+            centre=c - mu, width=width, shape=gamma,
+            is_per=False, period=0.0,
+            delete_input=False,
         )
-        np.testing.assert_allclose(w_first[0], w_after_t[0])
+        np.testing.assert_allclose(
+            np.asarray(w_first[0]), np.asarray(w_after_t[0]),
+        )
 
     # --- translate_attributes ------------------------------------------
 
@@ -3010,3 +3134,98 @@ class TestMAET:
                 "size": [1.0, 1.0], "mix": [0.0, 0.0],
                 "centre": [np.array([0.0, 0.0])],  # length 1 list, need A=2
             })
+
+    # --- Memory chunking on the per-attribute IP matrix ----------------
+
+    def test_chunking_parity_r1_abs(self):
+        """`_ma_per_attr_inner_matrix` r = 1 abs branch: chunked path
+        (forced via a tiny kernel_chunk_bytes budget) matches the
+        unchunked fast path to floating-point precision."""
+        # Sized so that the fast path comfortably fits, and the chunked
+        # path takes multiple chunks: N = 12, K = 6.
+        rng = np.random.default_rng(1234)
+        N, K = 12, 6
+        p = rng.uniform(0, 1200, size=(K, N))
+        w = rng.uniform(0.5, 1.5, size=(K, N))
+        # Run with default (auto) budget — fast path.
+        mpt.reset_defaults()
+        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        ip_default = _ma_per_attr_inner_matrix(
+            p, w, p, w, sigma=80.0, r=1, is_rel=False,
+            is_per=False, period=0.0,
+        )
+        # Force chunking with a small budget.
+        mpt.set_default(kernel_chunk_bytes=4096)
+        try:
+            ip_chunked = _ma_per_attr_inner_matrix(
+                p, w, p, w, sigma=80.0, r=1, is_rel=False,
+                is_per=False, period=0.0,
+            )
+        finally:
+            mpt.reset_defaults()
+        np.testing.assert_allclose(ip_default, ip_chunked, rtol=1e-12, atol=1e-12)
+
+    def test_chunking_parity_r2_abs_safe(self):
+        """`_ma_per_attr_inner_matrix` r >= 2 abs safe-x-safe submatrix:
+        chunked path matches the unchunked path."""
+        rng = np.random.default_rng(5678)
+        N, K = 8, 5
+        # K = 5, r = 2 -> K - r = 3 >= 2, so all events are safe.
+        p = rng.uniform(0, 1200, size=(K, N))
+        w = rng.uniform(0.5, 1.5, size=(K, N))
+        mpt.reset_defaults()
+        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        ip_default = _ma_per_attr_inner_matrix(
+            p, w, p, w, sigma=80.0, r=2, is_rel=False,
+            is_per=False, period=0.0,
+        )
+        mpt.set_default(kernel_chunk_bytes=4096)
+        try:
+            ip_chunked = _ma_per_attr_inner_matrix(
+                p, w, p, w, sigma=80.0, r=2, is_rel=False,
+                is_per=False, period=0.0,
+            )
+        finally:
+            mpt.reset_defaults()
+        np.testing.assert_allclose(ip_default, ip_chunked, rtol=1e-10, atol=1e-12)
+
+    def test_chunking_parity_rel_per(self):
+        """`_ma_per_attr_inner_matrix_rel_per`: outer N_x chunking matches
+        the unchunked single-shot pair-tensor allocation."""
+        rng = np.random.default_rng(9012)
+        N, K = 6, 4
+        p = rng.uniform(0, 12, size=(K, N))
+        w = rng.uniform(0.5, 1.5, size=(K, N))
+        mpt.reset_defaults()
+        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        ip_default = _ma_per_attr_inner_matrix(
+            p, w, p, w, sigma=0.3, r=2, is_rel=True,
+            is_per=True, period=12.0,
+        )
+        mpt.set_default(kernel_chunk_bytes=8192)
+        try:
+            ip_chunked = _ma_per_attr_inner_matrix(
+                p, w, p, w, sigma=0.3, r=2, is_rel=True,
+                is_per=True, period=12.0,
+            )
+        finally:
+            mpt.reset_defaults()
+        np.testing.assert_allclose(ip_default, ip_chunked, rtol=1e-8, atol=1e-10)
+
+    def test_chunking_large_NK_does_not_oom(self):
+        """N = 272, K = 48 (BWV 347 + 12 partials × 4 voices): the
+        configuration that motivated chunking. Runs to completion at
+        default budget; verifies the OOM hazard is fixed."""
+        rng = np.random.default_rng(2026)
+        N, K = 272, 48
+        p = rng.uniform(0, 12000, size=(K, N))
+        w = rng.uniform(0.5, 1.5, size=(K, N))
+        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        ip = _ma_per_attr_inner_matrix(
+            p, w, p, w, sigma=10.0, r=1, is_rel=False,
+            is_per=False, period=0.0,
+        )
+        # Sanity: result is (N, N), finite, with positive diagonal.
+        assert ip.shape == (N, N)
+        assert np.all(np.isfinite(ip))
+        assert np.all(np.diag(ip) > 0)

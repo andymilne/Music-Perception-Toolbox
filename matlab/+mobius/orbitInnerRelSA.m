@@ -1,5 +1,5 @@
 function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
-                                          isPer, period)
+                                          isPer, period, opts)
 %MOBIUS.ORBITINNERRELSA  <T_A, T_B>_rel via translation-grid integration.
 %
 %   [VAL, RATIO] = MOBIUS.ORBITINNERRELSA(P_A, W_A, P_B, W_B, SIGMA, R,
@@ -22,11 +22,30 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %     IS_PER     logical.
 %     PERIOD     positive scalar; periodic mode only.
 %
+%   Name-Value options:
+%     truncationSigmas  (1,1) double, default mptDefaults('truncationSigmas').
+%                       Kernel entries whose squared distance exceeds
+%                       the truncation cutoff are zeroed without
+%                       evaluating exp().
+%
 %   Outputs:
 %     VAL        scalar inner product.
 %     RATIO      worst per-u-slice cancellation ratio in (0, 1].
 %
-%   See also MOBIUS.INNERPRODUCTORBITGRID, MOBIUS.ORBITINNERABSSA.
+%   See also MOBIUS.INNERPRODUCTORBITGRID, MOBIUS.ORBITINNERABSSA,
+%            INTERNAL.TRUNCKERNELEXP.
+
+    arguments
+        p_a double
+        w_a double
+        p_b double
+        w_b double
+        sigma (1,1) double {mustBePositive}
+        r (1,1) double {mustBeInteger, mustBePositive}
+        isPer (1,1) logical
+        period (1,1) double
+        opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
+    end
 
     samplesPerSigma = 10;
     p_a = p_a(:); p_b = p_b(:);
@@ -50,7 +69,7 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
     if isPer
         diffs = diffs - period * floor(diffs / period + 0.5);
     end
-    K_u = exp(-(diffs.^2) / (4 * sigma^2));
+    K_u = internal.truncKernelExp(diffs.^2, sigma, opts.truncationSigmas);
 
     [F, ratios] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
         'returnCancellationRatio', true);

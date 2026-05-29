@@ -70,20 +70,28 @@ class TestCosSimSACentresRouting:
             f"|diff|={abs(s_exact - s_trunc):.3e}"
         )
 
-    def test_rel_periodic_unaffected_by_truncation_kwarg(self):
-        """Rel+per stays on existing pairwise-wrap path; the kwarg is
-        accepted but doesn't change the result."""
+    def test_rel_periodic_truncation_now_applies_inline(self):
+        """Rel+per stays on the pairwise-wrap inline / chunked path
+        (the helper doesn't yet support that quadratic form), but the
+        inline ``_ip_full`` / chunked branch now honours
+        ``truncation_sigmas`` via the same per-entry mask used in the
+        Möbius IP path. Result agrees with the un-truncated reference
+        to better than the truncation tail ``exp(-k^2/2)``."""
         reset_defaults()
         dens_x, dens_y = _build_density_pair(is_rel=True, is_per=True)
-        s_default = cos_sim_exp_tens(
+        s_exact = cos_sim_exp_tens(
             dens_x, dens_y, method='bulger', verbose=False,
         )
-        s_with_kwarg = cos_sim_exp_tens(
+        s_trunc = cos_sim_exp_tens(
             dens_x, dens_y, method='bulger',
             truncation_sigmas=6.0, verbose=False,
         )
-        # Bit-exact: helper not used for rel+per.
-        assert s_default == s_with_kwarg
+        # 6-sigma kernel cutoff: discard bound exp(-18) ~ 1.5e-8 per
+        # entry; cosine is O(1) so 1e-7 absolute is a generous bound.
+        assert abs(s_exact - s_trunc) < 1e-7, (
+            f"rel+per: exact={s_exact}, trunc={s_trunc}, "
+            f"|diff|={abs(s_exact - s_trunc):.3e}"
+        )
 
     def test_truncation_speedup_at_larger_k(self):
         """K=12 harmonic template gives a measurable speedup."""

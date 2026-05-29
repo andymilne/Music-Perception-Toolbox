@@ -1,5 +1,5 @@
 function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
-                                    isPer, period)
+                                    isPer, period, opts)
 %MOBIUS.MAPERATTRINNERMATRIX  Per-attribute (event_X, event_Y) IP matrix.
 %
 %   I = MOBIUS.MAPERATTRINNERMATRIX(PX, WX, PY, WY, SIGMA, R, IS_REL,
@@ -19,6 +19,31 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     IS_REL     logical.
 %     IS_PER     logical.
 %     PERIOD     positive scalar; periodic mode only.
+%
+%   Name-Value options:
+%     truncationSigmas         (1,1) double, default mptDefaults('truncationSigmas').
+%                              When finite, kernel entries whose squared
+%                              distance exceeds the cutoff are zeroed
+%                              without evaluating exp() in every
+%                              kernel-evaluation branch (r=1 abs, r>=2
+%                              abs safe via batched Möbius, r>=2 abs
+%                              unsafe via direct enumeration, and the
+%                              r>=2 rel per-pair fallback). Threshold
+%                              matches: kernel value falls below
+%                              exp(-truncationSigmas^2 / 2).
+%     pruneZeroWeightEvents    (1,1) logical, default true. Drops
+%                              events with column-wise weight
+%                              identically zero (treating NaN as
+%                              missing) before dispatching to any
+%                              sub-helper. Such events contribute zero
+%                              to every kernel entry, so the result is
+%                              mathematically unchanged; the saving is
+%                              wall-clock. Combines naturally with
+%                              truncationSigmas since WEIGHTEVENTS
+%                              hard-zeros the factor outside the cutoff.
+%                              Result is scattered back into the full
+%                              (N_x, N_y) output shape with zeros in
+%                              the dropped rows / columns.
 %
 %   Output:
 %     I          (N_x, N_y) double; entry (n_X, n_Y) is the
@@ -49,20 +74,67 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     R + 2 or use method='auto' (which routes to Bulger's method).
 %
 %   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.INNERPRODUCTDIRECTABSSA,
-%            MOBIUS.ORBITINNERRELSA.
+%            MOBIUS.ORBITINNERRELSA, INTERNAL.TRUNCKERNELEXP.
+
+    arguments
+        Px double
+        Wx double
+        Py double
+        Wy double
+        sigma (1,1) double {mustBePositive}
+        r (1,1) double {mustBeInteger, mustBePositive}
+        isRel (1,1) logical
+        isPer (1,1) logical
+        period (1,1) double
+        opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
+        opts.pruneZeroWeightEvents (1,1) logical = true
+    end
 
     [Kx, Nx] = size(Px); %#ok<ASGLU>
     [Ky, Ny] = size(Py); %#ok<ASGLU>
 
+    % --- Zero-weight-event pruning (auto, before dispatch) ---
+    % An event contributes zero to every output entry iff its weight
+    % column is identically zero in this attribute (NaN entries are
+    % missing slots — equivalent to zero in the IP). Drop such events,
+    % recurse on the smaller matrices, scatter the result back.
+    if opts.pruneZeroWeightEvents && Nx > 0 && Ny > 0
+        colMaxX = max(abs(Wx), [], 1, 'omitnan');
+        colMaxY = max(abs(Wy), [], 1, 'omitnan');
+        keepX = isfinite(colMaxX) & colMaxX > 0;
+        keepY = isfinite(colMaxY) & colMaxY > 0;
+        if ~(all(keepX) && all(keepY))
+            if ~any(keepX) || ~any(keepY)
+                % Every event on at least one side has zero weight;
+                % the IP is the all-zero matrix.
+                I = zeros(Nx, Ny);
+                return;
+            end
+            subIp = mobius.maPerAttrInnerMatrix( ...
+                Px(:, keepX), Wx(:, keepX), ...
+                Py(:, keepY), Wy(:, keepY), ...
+                sigma, r, isRel, isPer, period, ...
+                'truncationSigmas', opts.truncationSigmas, ...
+                'pruneZeroWeightEvents', false);   % avoid infinite recursion
+            I = zeros(Nx, Ny);
+            I(keepX, keepY) = subIp;
+            return;
+        end
+    end
+
+    truncationSigmas = opts.truncationSigmas;
+
     % --- r = 1: direct kernel sum, zero-pad fine (no cancellation) ---
     if r == 1
-        I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period);
+        I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
+            truncationSigmas);
         return;
     end
 
     % --- r >= 2 rel: per-pair loop, zero-pad (rare regime) ---
     if isRel
-        I = localR2RelPerPair(Px, Wx, Py, Wy, sigma, r, isPer, period);
+        I = localR2RelPerPair(Px, Wx, Py, Wy, sigma, r, isPer, period, ...
+            truncationSigmas);
         return;
     end
 
@@ -88,7 +160,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
         I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
             Px(:, safe_x_idx), Wx(:, safe_x_idx), ...
             Py(:, safe_y_idx), Wy(:, safe_y_idx), ...
-            sigma, r, isPer, period);
+            sigma, r, isPer, period, truncationSigmas);
     end
 
     % --- Pairs involving any unsafe event: K-grouped batched direct ---
@@ -106,12 +178,12 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
     if ~isempty(unsafe_x_idx)
         I = localFillDirectEnumGroups(I, ...
             Px, Wx, Py, Wy, unsafe_x_idx, 1:Ny, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period);
+            K_eff_x, K_eff_y, sigma, r, isPer, period, truncationSigmas);
     end
     if ~isempty(unsafe_y_idx) && ~isempty(safe_x_idx)
         I = localFillDirectEnumGroups(I, ...
             Px, Wx, Py, Wy, safe_x_idx, unsafe_y_idx, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period);
+            K_eff_x, K_eff_y, sigma, r, isPer, period, truncationSigmas);
     end
 end
 
@@ -120,7 +192,8 @@ end
 %  Local helpers
 % =========================================================================
 
-function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period)
+function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
+                              truncationSigmas)
 %LOCALR1ZEROPAD  r=1 direct kernel sum with NaN -> zero-weight padding.
 
     [Kx, Nx] = size(Px);
@@ -137,22 +210,38 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period)
         Wy(nanY) = 0;
     end
 
-    diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
-    end
-    K_tens = exp(-(diffs.^2) / (4 * sigma^2));
+    % Memory: each of diffs, diffs.^2, K_tens is
+    % (Kx, chunk_Nx, Ky, Ny) * 8 bytes. Up to ~3 live arrays during
+    % evaluation; budget accordingly.
+    perRowBytes = 3 * Kx * Ky * Ny * 8;
+    memLimit = internal.kernelChunkBytesResolved();
+    chunkNx = max(1, min(Nx, floor(memLimit / max(perRowBytes, 1))));
+
     I = zeros(Nx, Ny);
-    for n_x = 1:Nx
-        slab = squeeze(K_tens(:, n_x, :, :));     % (Kx, Ky, Ny)
-        tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
-        I(n_x, :) = sum(tmp .* Wy, 1);
+    for nStart = 1:chunkNx:Nx
+        nEnd = min(nStart + chunkNx - 1, Nx);
+        idxX = nStart:nEnd;
+        nc = numel(idxX);
+
+        diffs = reshape(Px(:, idxX), Kx, nc, 1, 1) ...
+              - reshape(Py, 1, 1, Ky, Ny);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
+        for n_local = 1:nc
+            n_x = idxX(n_local);
+            slab = squeeze(K_tens(:, n_local, :, :));   % (Kx, Ky, Ny)
+            tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
+            I(n_x, :) = sum(tmp .* Wy, 1);
+        end
     end
     I = I * sigma * sqrt(pi);
 end
 
 
-function I = localR2RelPerPair(Px, Wx, Py, Wy, sigma, r, isPer, period)
+function I = localR2RelPerPair(Px, Wx, Py, Wy, sigma, r, isPer, period, ...
+                                  truncationSigmas)
 %LOCALR2RELPERPAIR  r>=2 rel: per-pair loop with zero-pad.
 
     [~, Nx] = size(Px);
@@ -174,14 +263,15 @@ function I = localR2RelPerPair(Px, Wx, Py, Wy, sigma, r, isPer, period)
         for n_y = 1:Ny
             I(n_x, n_y) = mobius.orbitInnerRelSA( ...
                 Px(:, n_x), Wx(:, n_x), Py(:, n_y), Wy(:, n_y), ...
-                sigma, r, isPer, period);
+                sigma, r, isPer, period, ...
+                'truncationSigmas', truncationSigmas);
         end
     end
 end
 
 
 function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
-                                  sigma, r, isPer, period)
+                                  sigma, r, isPer, period, truncationSigmas)
 %LOCALSAFESAFEORBIT  Vectorised Möbius-method IP on the safe submatrix.
 %
 %   Within the safe group K still varies per event; zero-pad to the
@@ -203,33 +293,52 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
         Wy_safe(nanY) = 0;
     end
 
-    diffs = reshape(Px_safe, Kx, Nx_safe, 1, 1) ...
-          - reshape(Py_safe, 1, 1, Ky, Ny_safe);
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
+    prefactor = (sigma * sqrt(pi))^r;
+
+    % Memory: each of diffs, diffs.^2, K_tens is
+    % (Kx, chunk_Nxs, Ky, Ny_safe) * 8 bytes; ~3 live arrays.
+    % The K_pairs reshape adds another N_pairs * Kx * Ky * 8.
+    perRowBytes = 4 * Kx * Ky * Ny_safe * 8;
+    memLimit = internal.kernelChunkBytesResolved();
+    chunkNxs = max(1, min(Nx_safe, floor(memLimit / max(perRowBytes, 1))));
+
+    I = zeros(Nx_safe, Ny_safe);
+    for nStart = 1:chunkNxs:Nx_safe
+        nEnd = min(nStart + chunkNxs - 1, Nx_safe);
+        idxX = nStart:nEnd;
+        nc = numel(idxX);
+
+        Px_chunk = Px_safe(:, idxX);
+        Wx_chunk = Wx_safe(:, idxX);
+
+        diffs = reshape(Px_chunk, Kx, nc, 1, 1) ...
+              - reshape(Py_safe, 1, 1, Ky, Ny_safe);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
+
+        K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (nc, Ny_safe, Kx, Ky)
+        K_pairs = reshape(K_perm, nc*Ny_safe, Kx, Ky);
+
+        Wx_t = Wx_chunk.';                            % (nc, Kx)
+        Wx_pairs = reshape(repmat(reshape(Wx_t, nc, 1, Kx), 1, Ny_safe, 1), ...
+                            nc*Ny_safe, Kx);
+        Wy_t = Wy_safe.';                            % (Ny_safe, Ky)
+        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny_safe, Ky), nc, 1, 1), ...
+                            nc*Ny_safe, Ky);
+
+        flat = mobius.innerProductOrbitPwBatched( ...
+            K_pairs, Wx_pairs, Wy_pairs, r, ...
+            'prefactor', prefactor);
+        I(idxX, :) = reshape(flat, nc, Ny_safe);
     end
-    K_tens = exp(-(diffs.^2) / (4 * sigma^2));   % (Kx, Nx_safe, Ky, Ny_safe)
-
-    K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (Nx_safe, Ny_safe, Kx, Ky)
-    K_pairs = reshape(K_perm, Nx_safe*Ny_safe, Kx, Ky);
-
-    Wx_t = Wx_safe.';                            % (Nx_safe, Kx)
-    Wx_pairs = reshape(repmat(reshape(Wx_t, Nx_safe, 1, Kx), 1, Ny_safe, 1), ...
-                        Nx_safe*Ny_safe, Kx);
-    Wy_t = Wy_safe.';                            % (Ny_safe, Ky)
-    Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny_safe, Ky), Nx_safe, 1, 1), ...
-                        Nx_safe*Ny_safe, Ky);
-
-    flat = mobius.innerProductOrbitPwBatched( ...
-        K_pairs, Wx_pairs, Wy_pairs, r, ...
-        'prefactor', (sigma * sqrt(pi))^r);
-    I = reshape(flat, Nx_safe, Ny_safe);
 end
 
 
 function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
                                          K_eff_x, K_eff_y, sigma, r, ...
-                                         isPer, period)
+                                         isPer, period, truncationSigmas)
 %LOCALFILLDIRECTENUMGROUPS  K-grouped batched direct-enum fill.
 %
 %   Partitions x_idx by K_eff_x value and y_idx by K_eff_y value, then
@@ -264,7 +373,7 @@ function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
             Wy_grp = Wy_grp(1:double(Ky_val), :);
             sub_ip = localBatchedDirectEnumAbsSA( ...
                 Px_grp, Wx_grp, Py_grp, Wy_grp, ...
-                sigma, r, isPer, period);
+                sigma, r, isPer, period, truncationSigmas);
             I(x_grp, y_grp) = sub_ip;
         end
     end
@@ -297,7 +406,7 @@ end
 
 
 function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
-                                          isPer, period)
+                                          isPer, period, truncationSigmas)
 %LOCALBATCHEDDIRECTENUMABSSA  Batched direct r-tuple enumeration IP.
 %
 %   Vectorised replacement for repeated calls to
@@ -329,7 +438,7 @@ function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
         if isPer
             diffs = diffs - period * floor(diffs / period + 0.5);
         end
-        K_tens = exp(-(diffs.^2) / (4 * sigma^2));
+        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         I = zeros(Nx, Ny);
         for n_x = 1:Nx
             slab = squeeze(K_tens(:, n_x, :, :));   % (Kx, Ky, Ny)
@@ -384,7 +493,7 @@ function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
         diffs = diffs - period * floor(diffs / period + 0.5);
     end
     Q = reshape(sum(diffs.^2, 1), Nx, nJ_x, Ny, nJ_y);
-    Kmat = exp(-Q / (4 * sigma^2));
+    Kmat = internal.truncKernelExp(Q, sigma, truncationSigmas);
 
     % Contract: ip(n_x, n_y) = sum_{jx, jy}
     %               Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy) * Wj_y(n_y, jy)

@@ -19,7 +19,7 @@ class TestEntropy:
     def test_n_tuple_entropy_2tuple(self):
         # Diatonic 2-tuple entropy ~1.56 bits (Milne & Dean 2016)
         H, _ = mpt.n_tuple_entropy(
-            [0, 2, 4, 5, 7, 9, 11], 12, 2, normalize=False
+            [0, 2, 4, 5, 7, 9, 11], 12, 2, method='shannon'
         )
         assert H == pytest.approx(1.56, abs=0.01)
 
@@ -34,7 +34,8 @@ class TestEntropy:
     def test_entropy_exp_tens_uniform(self):
         # Chromatic scale with wide sigma → nearly uniform → H ≈ 1
         H = mpt.entropy_exp_tens(
-            np.arange(12), np.ones(12), 100, 1, False, True, 12
+            np.arange(12), np.ones(12), 100, 1, False, True, 12,
+            n_points_per_dim=1200,
         )
         assert H > 0.95
 

@@ -123,7 +123,7 @@ def test_cos_sim_orbit_does_not_materialise():
 
 def test_entropy_renyi2_does_not_materialise():
     T = _make_dens(K=10, r=3)
-    entropy_exp_tens(T, method="renyi2", normalize=False)
+    entropy_exp_tens(T, method="renyi2")
     assert T.materialised is False
 
 

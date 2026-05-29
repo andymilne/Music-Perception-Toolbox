@@ -39,11 +39,18 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %                         'interval' treats sigma as independent
 %                         uncertainty per derived step. See "Sigma
 %                         semantics" below.
-%       'normalize'     - Logical (default true). Divide by
-%                         log_base(nPointsPerDim^n).
+%       'method'        - Entropy variant (default 'normalized').
+%                         One of {'normalized', 'shannon',
+%                         'differential', 'renyi2'} (or the British
+%                         alias 'normalised'). See entropyExpTens for
+%                         the four-method API. The continuous methods
+%                         ('differential', 'renyi2') require sigma > 0.
 %       'base'          - Logarithm base (default 2).
-%       'nPointsPerDim' - Grid resolution per dimension. Default 0
-%                         means use period.
+%       'nPointsPerDim' - Grid resolution per dimension (used by
+%                         'normalized' and 'shannon'; ignored by
+%                         'differential' and 'renyi2'). Default 0
+%                         means use period (the Milne & Dean 2016
+%                         mass-conserving Gaussian-confusion grid).
 %
 %   Sigma semantics
 %       Under the toolbox convention, sigma applies to the input
@@ -90,10 +97,10 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %       % Son clave rhythm (16-step cycle)
 %       H = nTupleEntropy([0, 3, 6, 10, 12], 16)
 %
-%       % Unnormalized 2-tuple entropy in bits (1.56 bits, matching
+%       % Raw 2-tuple Shannon entropy in bits (1.56 bits, matching
 %       % Milne & Dean 2016, p. 50)
 %       H = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
-%                          'normalize', false)
+%                          'method', 'shannon')
 %
 %   References
 %     Milne, A. J. & Dean, R. T. (2016). Computational creation
@@ -128,9 +135,30 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         nvArgs.sigmaSpace (1,:) char ...
             {mustBeMember(nvArgs.sigmaSpace, {'position', 'interval'})} ...
             = 'position'
-        nvArgs.normalize (1,1) logical = true
+        nvArgs.method (1,:) char ...
+            {mustBeMember(nvArgs.method, ...
+                {'differential','shannon','normalized','normalised','renyi2'})} ...
+            = 'normalized'
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.nPointsPerDim (1,1) {mustBeNonnegative, mustBeInteger} = 0
+    end
+
+    % Canonicalise British 'normalised' alias.
+    if strcmp(nvArgs.method, 'normalised')
+        nvArgs.method = 'normalized';
+    end
+
+    % Continuous-form methods diverge at sigma=0; reject explicitly
+    % before the internal sigma=0 -> sigma=1e-12 nudge that supports
+    % the categorical Gaussian-confusion path on a pinned integer
+    % grid (which is valid only for the discrete methods).
+    if nvArgs.sigma == 0 && any(strcmp(nvArgs.method, {'differential','renyi2'}))
+        error('nTupleEntropy:continuousNeedsSigmaPositive', ...
+              ['nTupleEntropy: method=''%s'' requires sigma > 0 ' ...
+               '(the continuous form diverges at sigma=0). For ' ...
+               'categorical sigma=0 n-tuple entropy use ' ...
+               'method=''shannon'' or method=''normalized'' (the ' ...
+               'default).'], nvArgs.method);
     end
 
     % --- Batched dispatch ---
@@ -239,12 +267,30 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
                      ones(1, n), false, true, period, ...
                      'verbose', false);
 
-    % --- Shannon entropy on the chosen grid ---
-
-    H = entropyExpTens(T, ...
-                       'normalize', nvArgs.normalize, ...
-                       'base', nvArgs.base, ...
-                       'nPointsPerDim', nGrid);
+    % --- Entropy on the chosen grid / via the chosen method ---
+    % Grid-based methods ('shannon', 'normalized') use the pinned
+    % period grid nGrid. 'differential' and 'renyi2' bypass the grid
+    % (adaptive and analytical respectively).
+    switch nvArgs.method
+        case 'shannon'
+            H = entropyExpTens(T, ...
+                               'method', 'shannon', ...
+                               'base', nvArgs.base, ...
+                               'nPointsPerDim', nGrid);
+        case 'normalized'
+            H = entropyExpTens(T, ...
+                               'method', 'normalized', ...
+                               'base', nvArgs.base, ...
+                               'nPointsPerDim', nGrid);
+        case 'differential'
+            H = entropyExpTens(T, ...
+                               'method', 'differential', ...
+                               'base', nvArgs.base);
+        otherwise  % 'renyi2'
+            H = entropyExpTens(T, ...
+                               'method', 'renyi2', ...
+                               'base', nvArgs.base);
+    end
 
     % --- Tuples matrix (K, n) for compatibility with the prior API ---
 
@@ -294,7 +340,7 @@ function [HVec, tuplesCell] = localBatchedNTupleEntropy(P, period, n, nvArgs)
 
         [Hk, tk] = nTupleEntropy(pK(:), period, n, ...
             'sigma', nvArgs.sigma, 'sigmaSpace', nvArgs.sigmaSpace, ...
-            'normalize', nvArgs.normalize, 'base', nvArgs.base, ...
+            'method', nvArgs.method, 'base', nvArgs.base, ...
             'nPointsPerDim', nvArgs.nPointsPerDim);
         HVec(k)       = Hk;
         tuplesCell{k} = tk;

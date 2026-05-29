@@ -6,7 +6,8 @@ Verifies the analytical Rényi-2 entropy
 
 against direct numerical integration of (T/Z)² across the four SA
 modes and several MA configurations. Also checks the API contract:
-``method`` argument validation, ``normalize=True`` rejection, and the
+``method`` argument validation, migration error on the removed
+``normalize`` kwarg, and the
 SA/MA dispatch.
 """
 import numpy as np
@@ -70,7 +71,7 @@ def test_renyi2_sa_abs_per_matches_grid(seed):
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     H2_grid = _grid_renyi2_sa(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
@@ -84,7 +85,7 @@ def test_renyi2_sa_rel_per_matches_grid(seed):
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, True, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     H2_grid = _grid_renyi2_sa(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
@@ -97,7 +98,7 @@ def test_renyi2_sa_abs_nonper_matches_grid(seed):
     p = rng.uniform(-200, 200, K)
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, False, False, 0.0, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     H2_grid = _grid_renyi2_sa(T, 1000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
@@ -110,7 +111,7 @@ def test_renyi2_sa_rel_nonper_matches_grid(seed):
     p = rng.uniform(-200, 200, K)
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, True, False, 0.0, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     H2_grid = _grid_renyi2_sa(T, 4000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
@@ -128,7 +129,7 @@ def test_renyi2_sa_high_r_works_where_grid_would_fail():
     p = rng.uniform(0, P, K)
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     # Sanity bounds: bounded above by log_2(P^r) (uniform on the
     # r-torus) and below by ~0 for typical configs at this sigma.
     assert np.isfinite(H2)
@@ -149,7 +150,7 @@ def test_renyi2_ma_two_attr_periodic_matches_grid():
         p_attr, w, [50.0, 0.05], [1, 1], [0, 1],
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(dens, method='renyi2')
 
     # Direct grid: each attribute contributes 1 dimension (r=1 abs)
     ax0 = np.linspace(0, P, 200, endpoint=False)
@@ -175,7 +176,7 @@ def test_renyi2_ma_mixed_r_matches_grid():
         p_attr, w, [50.0, 0.05], [2, 1], [0, 1],
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(dens, method='renyi2')
 
     ax0 = np.linspace(0, P, 100, endpoint=False)
     ax1 = np.linspace(0, 1.0, 100, endpoint=False)
@@ -200,21 +201,26 @@ def test_renyi2_ma_relative_attribute():
         p_attr, w, [50.0, 0.05], [2, 1], [0, 1],
         [True, False], [True, True], [P, 1.0], verbose=False,
     )
-    H2 = entropy_exp_tens(dens, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(dens, method='renyi2')
     assert np.isfinite(H2)
 
 
 # ---- API contract tests ------------------------------------------
 
 
-def test_renyi2_rejects_normalize_true():
+def test_renyi2_normalize_kwarg_raises_migration():
+    """Legacy ``normalize`` kwarg was removed in v2.2; passing it
+    (with any value) raises a migration-error TypeError pointing to
+    the four-method API."""
     rng = np.random.default_rng(0)
     P = 1200.0
     T = build_exp_tens(
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
-    with pytest.raises(NotImplementedError, match="normalize=True"):
+    with pytest.raises(TypeError, match="'normalize'.*removed in v2.2"):
+        entropy_exp_tens(T, method='renyi2', normalize=False)
+    with pytest.raises(TypeError, match="'normalize'.*removed in v2.2"):
         entropy_exp_tens(T, method='renyi2', normalize=True)
 
 
@@ -226,7 +232,7 @@ def test_invalid_method_rejected():
         50.0, 2, False, True, P, verbose=False,
     )
     with pytest.raises(ValueError, match="method must be"):
-        entropy_exp_tens(T, method='bogus', normalize=False)
+        entropy_exp_tens(T, method='bogus')
 
 
 def test_renyi2_default_is_shannon():
@@ -239,8 +245,8 @@ def test_renyi2_default_is_shannon():
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 1, False, True, P, verbose=False,
     )
-    H_default = entropy_exp_tens(T)
-    H_explicit = entropy_exp_tens(T, method='shannon')
+    H_default = entropy_exp_tens(T, n_points_per_dim=1200)
+    H_explicit = entropy_exp_tens(T, method='shannon', n_points_per_dim=1200)
     assert H_default == H_explicit
 
 
@@ -263,11 +269,11 @@ def test_renyi2_inequality_with_shannon():
     # log2(P/N) (the "differential entropy" correction).
     N = 1200
     H_shannon_disc = entropy_exp_tens(
-        T, method='shannon', normalize=False,
+        T, method='shannon',
         n_points_per_dim=N,
     )
     H_shannon_cont = H_shannon_disc + np.log2(P / N)
-    H2 = entropy_exp_tens(T, method='renyi2', normalize=False)
+    H2 = entropy_exp_tens(T, method='renyi2')
     # Continuous Rényi-2 ≤ continuous Shannon, with rough equality
     # when the density is near-uniform.
     assert H2 <= H_shannon_cont + 1e-3
@@ -301,7 +307,7 @@ def test_renyi2_sa_raises_on_orbit_negative(monkeypatch):
         ent_mod, '_orbit_inner_abs', lambda *a, **k: -1.0,
     )
     with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(T, method='renyi2', normalize=False)
+        entropy_exp_tens(T, method='renyi2')
 
 
 def test_renyi2_sa_raises_on_orbit_nonfinite(monkeypatch):
@@ -317,7 +323,7 @@ def test_renyi2_sa_raises_on_orbit_nonfinite(monkeypatch):
         ent_mod, '_orbit_inner_abs', lambda *a, **k: float('nan'),
     )
     with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(T, method='renyi2', normalize=False)
+        entropy_exp_tens(T, method='renyi2')
 
 
 def test_renyi2_ma_raises_on_orbit_negative(monkeypatch):
@@ -346,4 +352,4 @@ def test_renyi2_ma_raises_on_orbit_negative(monkeypatch):
     monkeypatch.setattr(ent_mod, '_ma_per_attr_inner_matrix', fake_matrix)
 
     with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(dens, method='renyi2', normalize=False)
+        entropy_exp_tens(dens, method='renyi2')

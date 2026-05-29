@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+from scipy.special import erf as _erf
 
 from ._utils import maybe_print_batched_estimate
 from ._defaults import _with_dispatch_scope
@@ -30,6 +31,290 @@ _DEFAULT_GRID_LIMIT = int(1e8)
 
 
 # ===================================================================
+#  v2.2 migration: 'normalize' kwarg removed
+# ===================================================================
+#  The 'normalize' boolean kwarg on entropy_exp_tens and
+#  spectral_entropy was the v2.1 mechanism for selecting between raw
+#  discrete Shannon (normalize=False) and the Pielou-style ratio
+#  H/log_b(N) in [0, 1] (normalize=True, the legacy default). In v2.2
+#  the four-method API supersedes it: method='shannon' for raw H and
+#  method='normalized' for the [0, 1] ratio. The continuous methods
+#  ('differential', 'renyi2') had no [0, 1] reference and triggered an
+#  error under the v2.1 default. Detection of the removed kwarg in
+#  callers raises this message with the calling function name spliced
+#  in via .format(fn=...).
+_NORMALIZE_REMOVED_MSG = (
+    "{fn}: the 'normalize' kwarg has been removed in v2.2. "
+    "Use method='normalized' for H/log_b(N) in [0, 1] (the v2.1 "
+    "default behaviour), or method='shannon' for raw H = -sum q log_b q. "
+    "method='differential' and method='renyi2' are continuous-form "
+    "entropies and have no [0, 1] reference."
+)
+
+
+# ===================================================================
+#  Method validation and aliases
+# ===================================================================
+_VALID_METHODS = ("differential", "shannon", "normalized", "renyi2")
+
+
+def _canonicalize_method(method: str) -> str:
+    """Validate and canonicalize the ``method`` kwarg.
+
+    Accepts the British spelling ``'normalised'`` as an alias for
+    ``'normalized'``. Raises ``ValueError`` for unrecognised names.
+    """
+    if not isinstance(method, str):
+        raise TypeError(f"method must be a string; got {type(method).__name__}.")
+    m = method.strip().lower()
+    if m == "normalised":
+        m = "normalized"
+    if m not in _VALID_METHODS:
+        raise ValueError(
+            f"method must be one of {_VALID_METHODS} (or 'normalised'); "
+            f"got {method!r}."
+        )
+    return m
+
+
+def _require_explicit_grid(n_points_per_dim) -> None:
+    """Require an explicit grid resolution for the discrete methods.
+
+    The previous toolbox-wide default of 1200 silently masked grid-
+    fragility bugs in callers; making the grid explicit forces the
+    choice up front. Called from each compute-path branch of the
+    Shannon dispatch (after input-form validation, so the input-form
+    errors surface first when both apply).
+    """
+    if n_points_per_dim is None:
+        raise TypeError(
+            "discrete entropy (method='shannon' or 'normalized') "
+            "requires an explicit `n_points_per_dim` (the previous "
+            "toolbox-wide default of 1200 has been dropped, since the "
+            "right grid resolution is density- and sigma-dependent). "
+            "For a grid-free continuous quantity, use "
+            "method='differential' (adaptive) or method='renyi2' "
+            "(analytical)."
+        )
+
+
+def _raise_if_any_sigma_zero(dens, *, method_name: str) -> None:
+    """Reject sigma=0 for the continuous methods ('differential', 'renyi2').
+
+    Both are continuous-form entropies that diverge at sigma=0:
+    differential h_hat -> -inf, analytical Rényi-2 -log<f,f> -> -inf.
+    The discrete forms ('shannon', 'normalized') handle sigma=0
+    correctly (delta masses sit exactly in their cells) and are not
+    guarded here. Reads sigma from any density-object form
+    (ExpTensDensity, MaetDensity, WindowedMaetDensity).
+    """
+    if isinstance(dens, WindowedMaetDensity):
+        sigma = dens.dens.sigma
+    else:
+        sigma = dens.sigma
+    sigma_arr = np.asarray(sigma, dtype=np.float64)
+    if sigma_arr.size > 0 and np.any(sigma_arr <= 0.0):
+        raise ValueError(
+            f"method={method_name!r} requires sigma > 0 for every group "
+            f"(the continuous form diverges at sigma=0). Got sigma="
+            f"{sigma_arr.tolist() if sigma_arr.ndim else float(sigma_arr)}. "
+            f"For categorical (sigma=0) entropy, use method='shannon' "
+            f"or method='normalized' on a category grid."
+        )
+
+
+# ===================================================================
+#  Bin-integration core (cell masses via per-axis Phi-differences)
+# ===================================================================
+#
+# The categorical-path discretization for `shannon` and `normalized`:
+# the discrete pmf entry at grid cell j is the actual probability mass
+# inside that cell, ∫_{cell_j} f dx, not the density sample f(x_j)·Δ.
+# For a Gaussian-mixture density with diagonal kernel covariance in
+# the effective grid coordinates --- which holds for is_rel=False
+# (every group absolute) --- the cell mass factorizes into a product
+# of per-axis erf differences, summed over tuples.
+#
+# n_tuple_entropy reaches this path by differencing events externally
+# (difference_events + bind_events) and then building an absolute
+# (is_rel=False) MAET, so its sigma is the effective sigma_eff already.
+# Relative-mode direct calls (is_rel=True) fall back to point-evaluation,
+# which is within ~1e-4 of bin-integration on the fine grids those uses
+# require anyway; the full multivariate-normal box treatment is a v2.3
+# item that retires the marginal-matched approximation.
+
+_SQRT2 = float(np.sqrt(2.0))
+
+
+def _phi_diff_axis(centres: np.ndarray, edges_lo: np.ndarray,
+                   edges_hi: np.ndarray, sigma: float) -> np.ndarray:
+    """Non-periodic per-axis erf-difference cell mass.
+
+    Returns ``(n_j, n_cells)`` array with entry ``[t, j]`` equal to
+    ``Phi((edges_hi[j] - centres[t]) / sigma) - Phi((edges_lo[j] -
+    centres[t]) / sigma)``, the 1-D Gaussian probability mass in cell
+    ``j`` for the tuple-slot at ``centres[t]``.
+    """
+    inv = 1.0 / (sigma * _SQRT2)
+    z_hi = (edges_hi[None, :] - centres[:, None]) * inv
+    z_lo = (edges_lo[None, :] - centres[:, None]) * inv
+    return 0.5 * (_erf(z_hi) - _erf(z_lo))
+
+
+def _phi_diff_axis_periodic(centres: np.ndarray, edges_lo: np.ndarray,
+                            edges_hi: np.ndarray, sigma: float,
+                            period: float,
+                            truncation_sigmas: float = 6.0) -> np.ndarray:
+    """Periodic per-axis erf-difference cell mass.
+
+    Sums wraps of the Gaussian across the period grid for wraps within
+    ``truncation_sigmas`` of every centre. ``period`` is the group
+    period; ``edges_lo``/``edges_hi`` partition one full period.
+    """
+    inv = 1.0 / (sigma * _SQRT2)
+    n_wraps = int(np.ceil(truncation_sigmas * sigma / period)) + 1
+    n_j = int(centres.size)
+    n_cells = int(edges_lo.size)
+    out = np.zeros((n_j, n_cells), dtype=np.float64)
+    for w in range(-n_wraps, n_wraps + 1):
+        shift = float(w) * period
+        z_hi = (edges_hi[None, :] - centres[:, None] - shift) * inv
+        z_lo = (edges_lo[None, :] - centres[:, None] - shift) * inv
+        out += 0.5 * (_erf(z_hi) - _erf(z_lo))
+    return out
+
+
+def _axis_edges(ax: np.ndarray, is_per: bool, period: float):
+    """Cell edges for a 1-D axis.
+
+    For a periodic group, ``ax`` is ``linspace(0, P, n+1)[:-1]`` and
+    each cell is symmetric of width ``P/n`` around its grid point.
+    For non-periodic, the interior cells are bounded by mid-points
+    between adjacent grid points; the boundary cells extend by
+    half-step on each side. Returns ``(lo, hi)`` arrays both shaped
+    like ``ax``.
+    """
+    ax = np.asarray(ax, dtype=float)
+    n = int(ax.size)
+    if n < 2:
+        raise ValueError("Each axis needs >= 2 points.")
+    if is_per:
+        step = float(period) / float(n)
+        return ax - step / 2.0, ax + step / 2.0
+    mids = 0.5 * (ax[:-1] + ax[1:])
+    step0 = float(ax[1] - ax[0])
+    stepN = float(ax[-1] - ax[-2])
+    lo = np.concatenate([[ax[0] - step0 / 2.0], mids])
+    hi = np.concatenate([mids, [ax[-1] + stepN / 2.0]])
+    return lo, hi
+
+
+def _cell_masses_ma_absolute(dens, axes: list,
+                             truncation_sigmas: float = 6.0) -> np.ndarray:
+    """Cell masses on the Cartesian-product grid built from ``axes``.
+
+    Parallels ``_entropy_exp_tens_ma``'s grid evaluation but returns
+    ``int_{cell} f dx`` (via per-axis erf differences) instead of
+    point-evaluated density values. Restricted to absolute-mode
+    densities (every group ``is_rel=False``); the caller is responsible
+    for routing relative-mode densities elsewhere.
+
+    The output is flat ``(prod(n_axis_d),)`` in C order, matching the
+    layout of ``numpy.meshgrid(*axes, indexing='ij').ravel()`` so it
+    drops in where ``eval_exp_tens`` would return point values.
+    """
+    if np.any(np.asarray(dens.is_rel)):
+        raise ValueError(
+            "_cell_masses_ma_absolute: relative-mode densities are not "
+            "supported by this path. Route is_rel=True via point-eval."
+        )
+
+    A = int(dens.n_attrs)
+    dim_per = np.asarray(dens.dim_per_attr).astype(int)
+    group_of = np.asarray(dens.group_of_attr).astype(int)
+    sigma_per_group = np.asarray(dens.sigma).astype(float)  # (G,)
+    is_per_g = np.asarray(dens.is_per).astype(bool)
+    period_g = np.asarray(dens.period).astype(float)
+
+    centres = dens.centres  # length-A list; each (dim_per[a], n_j)
+    w_j = np.asarray(dens.w_j).astype(float)
+
+    Mats = []  # one (n_j, n_cells_d) matrix per effective axis
+    axis_d = 0
+    for a in range(A):
+        da = int(dim_per[a])
+        g = int(group_of[a])
+        sig = float(sigma_per_group[g])
+        is_per_a = bool(is_per_g[g])
+        per_a = float(period_g[g]) if is_per_a else 0.0
+        Ca = np.asarray(centres[a], dtype=float)  # (da, n_j)
+        for sub in range(da):
+            ax = axes[axis_d]
+            lo, hi = _axis_edges(ax, is_per_a, per_a)
+            cents = Ca[sub, :]
+            if is_per_a:
+                Mat = _phi_diff_axis_periodic(
+                    cents, lo, hi, sig, per_a, truncation_sigmas)
+            else:
+                Mat = _phi_diff_axis(cents, lo, hi, sig)
+            Mats.append(Mat)
+            axis_d += 1
+
+    D = axis_d
+    if D == 0:
+        return np.array([float(np.sum(w_j))])
+
+    letters = "abcdefghijklmnopqrstuvwxyz"[:D]
+    operands = ",".join("t" + L for L in letters)
+    cells = np.einsum(f"t,{operands}->{letters}", w_j, *Mats)
+    return cells.ravel()
+
+
+def _cell_masses_sa_absolute(T, ax: np.ndarray,
+                             truncation_sigmas: float = 6.0) -> np.ndarray:
+    """Cell masses for an ``ExpTensDensity`` (single-attribute path).
+
+    Parallels ``_cell_masses_ma_absolute`` for the SA case: builds the
+    Cartesian-product grid implicitly from a single 1-D axis ``ax``
+    repeated across the ``T.dim`` effective dimensions, returns flat
+    cell masses. Restricted to ``is_rel=False`` densities.
+    """
+    if bool(T.is_rel):
+        raise ValueError(
+            "_cell_masses_sa_absolute: is_rel=True not supported by this path."
+        )
+    dim = int(T.dim)
+    sig = float(T.sigma)
+    is_per = bool(T.is_per)
+    per = float(T.period) if is_per else 0.0
+    C = np.asarray(T.centres, dtype=float)  # (r, n_j) == (dim, n_j) when is_rel=False
+    w_j = np.asarray(T.w_j, dtype=float)
+
+    lo, hi = _axis_edges(ax, is_per, per)
+    if is_per:
+        Mat_template = _phi_diff_axis_periodic(
+            C[0, :], lo, hi, sig, per, truncation_sigmas)
+    else:
+        Mat_template = _phi_diff_axis(C[0, :], lo, hi, sig)
+    # We have a per-tuple per-axis matrix for axis 0. For dim>1 each
+    # axis uses the same edges but a different centres row.
+    Mats = [Mat_template]
+    for d in range(1, dim):
+        if is_per:
+            Mats.append(_phi_diff_axis_periodic(
+                C[d, :], lo, hi, sig, per, truncation_sigmas))
+        else:
+            Mats.append(_phi_diff_axis(C[d, :], lo, hi, sig))
+
+    if dim == 0:
+        return np.array([float(np.sum(w_j))])
+    letters = "abcdefghijklmnopqrstuvwxyz"[:dim]
+    operands = ",".join("t" + L for L in letters)
+    cells = np.einsum(f"t,{operands}->{letters}", w_j, *Mats)
+    return cells.ravel()
+
+
+# ===================================================================
 #  entropy_exp_tens
 # ===================================================================
 
@@ -42,62 +327,81 @@ def entropy_exp_tens(
     method: str = "shannon",
     precision: int | None = None,
     dedup: bool = True,
-    normalize: bool = True,
     base: float = 2.0,
-    n_points_per_dim: int = 1200,
+    n_points_per_dim: int | None = None,
     x_min=float("nan"),
     x_max=float("nan"),
     grid_limit: int = _DEFAULT_GRID_LIMIT,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    **legacy_kwargs,
 ) -> float | np.ndarray:
     """Entropy of an expectation tensor density.
 
-    Two methods are supported:
+    Four methods are supported. The discrete methods take an explicit
+    grid; the continuous methods do not.
 
-    - ``method='shannon'`` (default): grid-based Shannon entropy.
-      Discretises the density on a Cartesian-product grid of resolution
-      ``n_points_per_dim`` per effective dimension, normalises to a
-      pmf, and returns ``H = -Σ q log q``. With ``normalize=True``,
-      divides by ``log N`` (grid size) for a value in ``[0, 1]``.
-      Supports the full polymorphic-input dispatch (single density,
-      list of densities, raw scalar/batched SA, raw MA).
+    - ``method='differential'``: adaptive nested-grid evaluation of the
+      differential entropy ĥ = H_disc + log_b(Δ-volume). The span
+      auto-derives from event centres ± ``truncation_sigmas * sigma``
+      per group (non-periodic) or ``[0, period]`` (periodic); the grid
+      doubles from a sample-per-sigma initial resolution until
+      successive Richardson-extrapolated estimates fall below tolerance
+      (anchored at ``max(exp(-truncation_sigmas^2 / 2), 1e-12)``).
+      Grid-independent (no caller choice of grid), and the principled
+      scale-free quantity for comparisons across densities of different
+      cardinality or spread. Errors at ``sigma=0`` (the continuous form
+      diverges).
+
+    - ``method='shannon'``: raw discrete Shannon entropy
+      ``H = -Σ q log_b q`` on an explicit Cartesian-product grid of
+      resolution ``n_points_per_dim`` per effective dimension. Bin-mass
+      integration via per-axis Φ-difference contractions
+      (``is_rel=False``) or point-evaluation (``is_rel=True``). Supports
+      the full polymorphic-input dispatch (single density, list of
+      densities, raw scalar/batched SA, raw MA).
+
+    - ``method='normalized'`` (alias ``'normalised'``): the Pielou-style
+      ratio ``H / log_b(N)`` in ``[0, 1]``. Same grid as ``'shannon'``.
+      Reproduces the values reported in Milne et al. (2017) and Smit
+      et al. (2019).
 
     - ``method='renyi2'``: analytical Rényi-2 (collision) entropy via
-      the Möbius inner product and the closed-form total mass.
-      Returns ``H_2 = -log_b(<T,T> / Z²)``, the continuous Rényi-2
-      entropy of the normalised density ``q = T/Z``. Computed in
-      closed form with no grid; works at arbitrary tensor order ``r``
-      where the grid path would exhaust memory. Currently restricted
-      to single-density input (scalar density or raw scalar SA/MA);
-      list and batched input forms are not yet supported with this
-      method.
+      the Möbius inner product and the closed-form total mass. Returns
+      ``H_2 = -log_b(<T,T> / Z²)``, the continuous Rényi-2 entropy of
+      the normalised density ``q = T/Z``. Computed in closed form with
+      no grid; works at arbitrary tensor order ``r`` where the grid
+      path would exhaust memory. Currently restricted to single-density
+      input. Errors at ``sigma=0`` (the continuous form diverges).
 
-      ``normalize=True`` is not currently supported with
-      ``method='renyi2'`` — the natural normaliser ``log_b(V)`` (where
-      V is the support volume) yields a [-∞, 1] range rather than
-      Shannon's [0, 1], and resolving the discrepancy is a separate
-      question. Pass ``normalize=False`` to use this method.
+    The ``normalize`` kwarg of v2.1 has been removed; pick the
+    appropriate ``method`` instead (a migration error is raised if
+    ``normalize`` is passed).
 
-    Input forms (Shannon supports all; Rényi-2 supports only the
-    scalar forms — scalar pre-built density, raw SA scalar, raw MA
-    scalar — and raises ``NotImplementedError`` on list / batched
-    forms):
+    The continuous methods ('differential', 'renyi2') do not accept
+    ``n_points_per_dim``, ``x_min``, or ``x_max``; the discrete methods
+    ('shannon', 'normalized') require an explicit ``n_points_per_dim``
+    (no toolbox-wide default).
+
+    Input forms (Shannon and normalized support all; differential and
+    Rényi-2 support only scalar forms — pre-built density, raw SA
+    scalar, raw MA scalar — and raise ``NotImplementedError`` on list
+    or batched forms):
 
     **Pre-built density input**:
 
     - ``entropy_exp_tens(dens)`` — scalar density.
       Returns a Python float.
     - ``entropy_exp_tens([d1, d2, …])`` — list of densities
-      (Shannon only). Returns ``(M,)`` ndarray.
+      (Shannon/normalized only). Returns ``(M,)`` ndarray.
 
     **Raw single-attribute scalar input**:
 
     - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
       Returns a Python float. Optional ``spectrum``.
 
-    **Raw single-attribute batched input** (Shannon only):
+    **Raw single-attribute batched input** (Shannon/normalized only):
 
     - ``entropy_exp_tens(P, W, sigma, r, is_rel, is_per, period)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
@@ -118,33 +422,38 @@ def entropy_exp_tens(
         7 trailing for raw MA.
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`. Raw SA only.
-    method : {'shannon', 'renyi2'}, default 'shannon'
-        Entropy variant. See the introduction above.
+    method : {'differential', 'shannon', 'normalized', 'renyi2'}, default 'shannon'
+        Entropy variant. See the introduction above. ``'normalised'``
+        is accepted as an alias for ``'normalized'``.
     precision : int, optional
         Round canonical values to this many decimal places, to absorb
-        FP noise when deduplicating. Raw SA batched only (Shannon).
+        FP noise when deduplicating. Raw SA batched only
+        (Shannon / normalized).
     dedup : bool, default True
         Deduplicate structurally-identical chords. List/batch only
-        (Shannon).
-    normalize : bool, default True
-        Shannon only: divide by ``log_b(N)`` to give ``[0, 1]``.
-        ``method='renyi2'`` with ``normalize=True`` raises.
+        (Shannon / normalized).
     base : float, default 2.0
-        Logarithm base. For Shannon with ``normalize=True`` the base
-        cancels.
-    n_points_per_dim : int, default 1200
-        Shannon only: grid resolution per effective dimension.
+        Logarithm base. For ``method='normalized'`` the base cancels.
+    n_points_per_dim : int, optional
+        Required for ``method='shannon'`` and ``method='normalized'``;
+        ignored by the continuous methods. The previous toolbox-wide
+        default of 1200 has been dropped, since the right grid
+        resolution is density- and sigma-dependent.
     x_min, x_max
-        Shannon, non-periodic only: grid bounds. SA scalar; MA scalar
-        (broadcast) or length-G vector.
+        Shannon / normalized, non-periodic only: grid bounds. SA scalar;
+        MA scalar (broadcast) or length-G vector.
     grid_limit : int
-        Shannon only: ceiling on total grid size before allocation.
+        Ceiling on total grid size before allocation.
+    truncation_sigmas : float, optional
+        Truncate the kernel beyond this many sigmas. For
+        ``method='differential'`` this also anchors the convergence
+        tolerance ``max(exp(-truncation_sigmas^2 / 2), 1e-12)``.
 
     Returns
     -------
     float or np.ndarray
         Scalar in scalar input modes; ``(M,)`` ndarray in list/batch
-        modes. ``method='renyi2'`` always returns a scalar (it is
+        modes. The continuous methods always return a scalar (they are
         currently restricted to scalar input).
 
     Notes
@@ -174,41 +483,59 @@ def entropy_exp_tens(
     For ``method='shannon'``, accuracy is set by the grid resolution
     ``n_points_per_dim`` and is independent of the Möbius method.
     """
-    # Validate the method kwarg and reject the unimplementable combination
-    # renyi2 + normalize=True (the analytical Rényi-2 form has no natural
-    # [0, 1] reference).
-    if method not in ("shannon", "renyi2"):
-        raise ValueError(
-            f"method must be 'shannon' or 'renyi2'; got {method!r}."
-        )
-    if method == "renyi2" and normalize:
-        raise NotImplementedError(
-            "method='renyi2' with normalize=True is not implemented. "
-            "The continuous Rényi-2 entropy ranges over (-∞, log_b V] "
-            "rather than Shannon's [0, log_b N], so a uniform "
-            "normaliser does not yield a [0, 1] value. Pass "
-            "normalize=False to use this method."
+    # Detect the legacy normalize kwarg (removed in v2.2) and emit a
+    # migration error pointing to the four-method API. Other unknown
+    # kwargs surface as a standard TypeError.
+    if "normalize" in legacy_kwargs:
+        raise TypeError(_NORMALIZE_REMOVED_MSG.format(fn="entropy_exp_tens"))
+    if legacy_kwargs:
+        unknown = ", ".join(repr(k) for k in legacy_kwargs)
+        raise TypeError(
+            f"entropy_exp_tens: unexpected keyword argument(s): {unknown}"
         )
 
-    # Dispatch on method. Both methods do parallel per-input-form
-    # resolution; see ``_entropy_exp_tens_shannon_dispatch`` and
-    # ``_entropy_exp_tens_renyi2_dispatch`` for the per-form branching.
-    # Shannon supports the full input surface (single density, list of
-    # densities, raw scalar SA/MA, raw batched SA, windowed MA). Renyi-2
-    # is restricted to single-density input — list, batched, and
-    # windowed forms are not yet implemented and produce informative
-    # errors.
-    if method == "shannon":
+    # Canonicalize the method kwarg (accepts British 'normalised') and
+    # validate against the four supported methods.
+    method = _canonicalize_method(method)
+
+    # 'differential' routes to the adaptive nested-grid evaluator.
+    if method == "differential":
+        return _entropy_exp_tens_differential_dispatch(
+            p_or_dens, args,
+            spectrum=spectrum, precision=precision, dedup=dedup, base=base,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            grid_limit=grid_limit, verbose=verbose,
+        )
+
+    # Discrete methods: 'normalized' forces H/log_b(N) in [0, 1];
+    # 'shannon' is the raw discrete H = -sum q log_b q. Both share the
+    # bin-integration core via _entropy_exp_tens_shannon_dispatch.
+    if method == "normalized":
         return _entropy_exp_tens_shannon_dispatch(
             p_or_dens, args,
             spectrum=spectrum, precision=precision, dedup=dedup,
-            normalize=normalize, base=base,
+            normalize=True, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
         )
+
+    if method == "shannon":
+        return _entropy_exp_tens_shannon_dispatch(
+            p_or_dens, args,
+            spectrum=spectrum, precision=precision, dedup=dedup,
+            normalize=False, base=base,
+            n_points_per_dim=n_points_per_dim,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
+
+    # 'renyi2': analytical, continuous-form, no [0, 1] reference.
     return _entropy_exp_tens_renyi2_dispatch(
         p_or_dens, args,
         spectrum=spectrum, precision=precision, dedup=dedup, base=base,
@@ -243,6 +570,7 @@ def _entropy_exp_tens_shannon_dispatch(
             raise TypeError(
                 "'spectrum' and 'precision' kwargs are only valid in raw input mode."
             )
+        _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_scalar(
             p_or_dens,
             normalize=normalize, base=base,
@@ -274,6 +602,7 @@ def _entropy_exp_tens_shannon_dispatch(
             raise TypeError(
                 "'spectrum' and 'precision' kwargs are only valid in raw input mode."
             )
+        _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_density_list(
             p_or_dens,
             dedup=dedup,
@@ -305,6 +634,7 @@ def _entropy_exp_tens_shannon_dispatch(
             is_rel_vec, is_per_vec, period_vec,
             verbose=False,
         )
+        _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_ma(
             dens,
             normalize=normalize, base=base,
@@ -335,6 +665,7 @@ def _entropy_exp_tens_shannon_dispatch(
             raise TypeError(
                 "'precision' kwarg is only valid for raw SA batched input."
             )
+        _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_sa(
             p_or_dens, w, sigma, r, is_rel, is_per, period,
             spectrum=spectrum, normalize=normalize, base=base,
@@ -342,6 +673,7 @@ def _entropy_exp_tens_shannon_dispatch(
             x_min=x_min, x_max=x_max,
         )
     if p_arr.ndim == 2:
+        _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_raw_sa_batch(
             p_arr, w, sigma, r, is_rel, is_per, period,
             spectrum=spectrum, precision=precision,
@@ -411,6 +743,15 @@ def _entropy_exp_tens_renyi2_dispatch(
             "method='shannon'."
         )
     dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+
+    # Policy: the analytical Rényi-2 is the differential (continuous)
+    # Rényi-2, -log <f,f>, which diverges at sigma=0 (the self-IP of a
+    # sum of deltas blows up). Reject sigma=0 explicitly so users see a
+    # clear message rather than a divergent number. The discrete Rényi-2
+    # (-log sum q^2) on a category grid is the right object at sigma=0
+    # but is a separate computation not currently exposed.
+    _raise_if_any_sigma_zero(dens, method_name="renyi2")
+
     # Announce dispatch for the Rényi-2 path. Analytical Möbius is the
     # only method for Rényi-2 (no probe, no method choice), so the
     # message is the unprobed form: ``entropy_exp_tens: chose 'mobius'
@@ -423,6 +764,294 @@ def _entropy_exp_tens_renyi2_dispatch(
     if is_sa:
         return _renyi2_exp_tens_sa(dens, base=base)
     return _renyi2_exp_tens_ma(dens, base=base)
+
+
+# ===================================================================
+#  Adaptive differential entropy (method='differential')
+# ===================================================================
+#
+# h_hat = H_disc + log_b(cell_volume), converged on a per-axis nested-grid
+# refinement to a truncation-sigma-anchored tolerance. The span auto-
+# derives per group from `centres ± truncation_sigmas * sigma` (non-
+# periodic) or `[0, period]` (periodic). The initial resolution is set
+# at ~2 samples per sigma per axis; N then doubles each iteration until
+# successive h_hat differences fall below tolerance, the differences
+# stop decreasing (numerical-floor guard), or `grid_limit` is hit.
+
+
+def _diff_spans_sa(T, ts: float):
+    """Auto-spans for an ExpTensDensity (single attribute).
+
+    Returns
+    -------
+    x_min, x_max : float
+        Span bounds (only meaningful for non-periodic).
+    n0 : int
+        Initial N per axis (~2 samples per sigma).
+    dim : int
+        Effective dimension (= T.dim).
+    per_axis_W : list of float
+        Width per axis (period if periodic, x_max - x_min otherwise).
+    per_axis_per : list of bool
+        Periodicity flag per axis.
+    """
+    sig = float(T.sigma)
+    is_per = bool(T.is_per)
+    per = float(T.period)
+    dim = int(T.dim)
+
+    if is_per:
+        x_min = float("nan")  # not consumed by the periodic grid construction
+        x_max = float("nan")
+        W = per
+    else:
+        # ExpTensDensity centres: (dim, n_j) when is_rel=False
+        centres = np.asarray(T.centres, dtype=float)
+        c_flat = centres.ravel()
+        c_min = float(c_flat.min())
+        c_max = float(c_flat.max())
+        x_min = c_min - ts * sig
+        x_max = c_max + ts * sig
+        W = x_max - x_min
+
+    per_axis_W = [W] * dim
+    per_axis_per = [is_per] * dim
+    n0 = max(4, int(np.ceil(2.0 * W / sig)))
+    return x_min, x_max, n0, dim, per_axis_W, per_axis_per
+
+
+def _diff_spans_ma(dens, ts: float):
+    """Auto-spans for a MaetDensity.
+
+    Returns x_min_g, x_max_g (length-G arrays; NaN for periodic groups),
+    initial N (max across groups), total dim, per-axis widths, and
+    per-axis periodicity flags (in attribute-then-sub-axis order, matching
+    the grid layout used by _entropy_exp_tens_ma).
+    """
+    G = int(dens.n_groups)
+    A = int(dens.n_attrs)
+    dim_per = np.asarray(dens.dim_per_attr).astype(int)
+    group_of = np.asarray(dens.group_of_attr).astype(int)
+    sigma_g = np.asarray(dens.sigma).astype(float)   # (G,)
+    is_per_g = np.asarray(dens.is_per).astype(bool)  # (G,)
+    period_g = np.asarray(dens.period).astype(float)
+    centres = dens.centres  # length-A list
+
+    x_min_g = np.full(G, float("nan"))
+    x_max_g = np.full(G, float("nan"))
+    n0_per_group = np.zeros(G, dtype=int)
+
+    for g in range(G):
+        sig = float(sigma_g[g])
+        if bool(is_per_g[g]):
+            W_g = float(period_g[g])
+        else:
+            # Collect centres from every attribute in this group.
+            c_chunks = [np.asarray(centres[a], dtype=float).ravel()
+                        for a in range(A) if int(group_of[a]) == g]
+            if c_chunks:
+                c_flat = np.concatenate(c_chunks)
+                c_min = float(c_flat.min())
+                c_max = float(c_flat.max())
+            else:
+                c_min = c_max = 0.0
+            x_min_g[g] = c_min - ts * sig
+            x_max_g[g] = c_max + ts * sig
+            W_g = x_max_g[g] - x_min_g[g]
+        n0_per_group[g] = max(4, int(np.ceil(2.0 * W_g / sig)))
+
+    per_axis_W = []
+    per_axis_per = []
+    for a in range(A):
+        g = int(group_of[a])
+        if bool(is_per_g[g]):
+            W_a = float(period_g[g])
+        else:
+            W_a = float(x_max_g[g] - x_min_g[g])
+        for _ in range(int(dim_per[a])):
+            per_axis_W.append(W_a)
+            per_axis_per.append(bool(is_per_g[g]))
+
+    dim = int(np.sum(dim_per))
+    n0 = int(n0_per_group.max()) if n0_per_group.size > 0 else 4
+    return x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per
+
+
+def _differential_adaptive(
+    dens, *, is_sa: bool, base: float,
+    truncation_sigmas: float, kernel_precision,
+    grid_limit: int, verbose: bool,
+) -> float:
+    """Adaptive nested-grid evaluation of differential entropy h_hat.
+
+    Reuses the existing Shannon dispatch for the per-grid H_disc and
+    adds log_b(cell_volume) to produce h_hat. Doubles N from the
+    sample-per-sigma initial size until convergence to the truncation-
+    sigma-anchored tolerance, the floor is reached, or grid_limit hits.
+    """
+    import math
+    ts = float(truncation_sigmas)
+    # truncation_sigmas controls kernel truncation, where +inf is valid
+    # ("no truncation"). The differential span and tolerance anchoring
+    # need a finite extent, so cap any non-finite ts at the sensible
+    # default 6.0 -- this matches the _cell_masses_ma_absolute internal
+    # default and keeps span/tolerance well-defined when the user (or
+    # mpt.get_default('truncation_sigmas')) is set to inf.
+    ts_span = ts if math.isfinite(ts) else 6.0
+    tol = max(math.exp(-0.5 * ts_span * ts_span), 1e-12)
+    max_iter = 10
+
+    if is_sa:
+        x_min, x_max, n0, dim, per_axis_W, per_axis_per = _diff_spans_sa(dens, ts_span)
+    else:
+        x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per = _diff_spans_ma(dens, ts_span)
+
+    N = max(int(n0), 4)
+    h_history = []   # list of h_hat values, in iteration order
+    R_history = []   # list of Richardson-extrapolated estimates
+    log_b = math.log(base)
+
+    for _iter in range(max_iter):
+        if dim > 0:
+            total = N ** dim
+            if total > grid_limit:
+                if not h_history:
+                    raise ValueError(
+                        f"method='differential' needs grid_limit >= "
+                        f"{total} for an initial N={N} at dim={dim}; got "
+                        f"grid_limit={grid_limit}. Increase grid_limit, "
+                        f"or use method='renyi2' (closed-form, no grid)."
+                    )
+                if verbose:
+                    warnings.warn(
+                        f"method='differential' hit grid_limit={grid_limit} "
+                        f"at N={N} (dim={dim}); returning h_hat from the "
+                        f"last feasible grid -- may not be fully converged.",
+                        UserWarning, stacklevel=2,
+                    )
+                break
+
+        if is_sa:
+            H_disc = _entropy_exp_tens_sa(
+                dens, None, None, None, None, None, None,
+                spectrum=None, normalize=False, base=base,
+                n_points_per_dim=N, x_min=x_min, x_max=x_max,
+                truncation_sigmas=ts, kernel_precision=kernel_precision,
+            )
+        else:
+            H_disc = _entropy_exp_tens_ma(
+                dens, normalize=False, base=base,
+                n_points_per_dim=N,
+                x_min=x_min_g, x_max=x_max_g,
+                grid_limit=grid_limit,
+                truncation_sigmas=ts, kernel_precision=kernel_precision,
+            )
+
+        # Sum log_base(delta_d) over axes.
+        log_cell_vol = 0.0
+        for is_per_d, W_d in zip(per_axis_per, per_axis_W):
+            delta = W_d / N if is_per_d else W_d / (N - 1)
+            log_cell_vol += math.log(delta) / log_b
+        h_hat = float(H_disc + log_cell_vol)
+        h_history.append(h_hat)
+
+        if len(h_history) >= 2:
+            h_prev, h_curr = h_history[-2], h_history[-1]
+            # Direct h_hat convergence (1-D regime: fast).
+            if abs(h_curr - h_prev) < tol:
+                return h_curr
+            # Richardson extrapolation: bin-integration h_hat converges
+            # at second order in Δ, so h ≈ h_curr + (h_curr - h_prev)/3
+            # has fourth-order error -- O(Δ⁴), i.e. 16× per doubling.
+            # Crucial in dim >= 2 where O(Δ²) alone is too slow.
+            R = h_curr + (h_curr - h_prev) / 3.0
+            R_history.append(R)
+            if len(R_history) >= 2:
+                dR = abs(R_history[-1] - R_history[-2])
+                if dR < tol:
+                    return R_history[-1]
+                # Floor guard on the Richardson sequence: stop when the
+                # successive Richardson differences stop shrinking.
+                if len(R_history) >= 3:
+                    dR_prev = abs(R_history[-2] - R_history[-3])
+                    if dR_prev > 0 and dR >= 0.95 * dR_prev:
+                        return R_history[-1]
+        N *= 2
+
+    # Fell off the loop without an explicit-tolerance return: prefer
+    # Richardson if available (4th-order), else last raw h_hat.
+    return R_history[-1] if R_history else h_history[-1]
+
+
+def _entropy_exp_tens_differential_dispatch(
+    p_or_dens, args, *,
+    spectrum, precision, dedup, base,
+    truncation_sigmas, kernel_precision,
+    grid_limit, verbose,
+):
+    """Adaptive differential entropy dispatch (parallel to renyi2 path).
+
+    Single-density input only; list and batched input forms raise
+    NotImplementedError. Windowed MA is also not yet supported.
+    """
+    # Reject list inputs.
+    if isinstance(p_or_dens, (list, tuple)):
+        if len(p_or_dens) > 0 and isinstance(
+            p_or_dens[0],
+            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+        ):
+            raise NotImplementedError(
+                "method='differential' does not yet support list input. "
+                "Apply it to each density individually."
+            )
+    elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
+        raise NotImplementedError(
+            "method='differential' does not yet support list input. "
+            "Apply it to each density individually."
+        )
+    # Reject 2-D raw SA input (batched).
+    if (not isinstance(
+            p_or_dens,
+            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+        )
+        and not _looks_like_ma_p(p_or_dens)):
+        try:
+            p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
+            if p_arr_check.ndim == 2:
+                raise NotImplementedError(
+                    "method='differential' does not yet support raw SA "
+                    "batched (2-D) input. Pass each chord row "
+                    "individually, or pre-build densities."
+                )
+        except (TypeError, ValueError):
+            pass
+    if precision is not None or dedup is not True:
+        raise TypeError(
+            "'precision' and 'dedup' kwargs are only valid for "
+            "method='shannon'."
+        )
+
+    dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+    _raise_if_any_sigma_zero(dens, method_name="differential")
+
+    if isinstance(dens, WindowedMaetDensity):
+        raise NotImplementedError(
+            "method='differential' with WindowedMaetDensity is not yet "
+            "implemented. Apply differential entropy to the unwindowed "
+            "density, or use a Shannon/normalized path with an explicit "
+            "grid for windowed densities."
+        )
+
+    if truncation_sigmas is None:
+        ts = 6.0  # match _cell_masses_ma_absolute internal default
+    else:
+        ts = float(truncation_sigmas)
+
+    return _differential_adaptive(
+        dens, is_sa=is_sa, base=base,
+        truncation_sigmas=ts, kernel_precision=kernel_precision,
+        grid_limit=grid_limit, verbose=verbose,
+    )
 
 
 def _entropy_exp_tens_scalar(
@@ -973,11 +1602,19 @@ def _entropy_exp_tens_sa(
         mesh = np.meshgrid(*([ax] * dim), indexing="ij")
         x = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
-    t = eval_exp_tens(
-        T, x, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
+    # Absolute-mode densities use bin-integration (analytic cell mass
+    # via per-axis erf differences); relative-mode falls back to
+    # point-evaluation pending v2.3 covariance work.
+    if not bool(T.is_rel):
+        ts = (6.0 if truncation_sigmas is None
+              else float(truncation_sigmas))
+        t = _cell_masses_sa_absolute(T, ax, truncation_sigmas=ts)
+    else:
+        t = eval_exp_tens(
+            T, x, verbose=False,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
 
     total = np.sum(t)
     if total == 0:
@@ -1092,12 +1729,28 @@ def _entropy_exp_tens_ma(
     mesh = np.meshgrid(*axes, indexing="ij")
     X = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
-    # --- Evaluate density ---
-    t = eval_exp_tens(
-        dens, X, verbose=False,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
+    # --- Evaluate density on the grid ---
+    # For absolute-mode unwindowed densities (is_rel=False everywhere)
+    # the categorical pmf is the genuine bin masses (int_{cell} f dx),
+    # obtained analytically via per-axis erf differences. For
+    # relative-mode densities the bin integral is a multivariate-
+    # normal box probability (off-diagonal covariance in the effective
+    # coordinates); pending the v2.3 covariance machinery we fall back
+    # to point-evaluation, which agrees with bin-integration to ~1e-4
+    # on the fine grids relative-mode use-cases require. Windowed
+    # densities also use point-evaluation here -- windowed
+    # cell-integration is a separate problem not yet addressed.
+    is_windowed = isinstance(dens, WindowedMaetDensity)
+    if not is_windowed and not bool(np.any(np.asarray(base_dens.is_rel))):
+        ts = (6.0 if truncation_sigmas is None
+              else float(truncation_sigmas))
+        t = _cell_masses_ma_absolute(base_dens, axes, truncation_sigmas=ts)
+    else:
+        t = eval_exp_tens(
+            dens, X, verbose=False,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
 
     # --- Shannon entropy ---
     total = float(np.sum(t))
@@ -1144,7 +1797,7 @@ def n_tuple_entropy(
     *,
     sigma: float = 0.0,
     sigma_space: str = "position",
-    normalize: bool = True,
+    method: str = "normalized",
     base: float = 2.0,
     n_points_per_dim: int | None = None,
 ) -> tuple[float, np.ndarray]:
@@ -1162,10 +1815,10 @@ def n_tuple_entropy(
 
     Convenience wrapper around the bind-and-compute pipeline of
     :func:`bind_events`, :func:`build_exp_tens`, and
-    :func:`entropy_exp_tens`. With default arguments — ``sigma = 0``
-    and ``n_points_per_dim = None`` (which selects the integer-step
-    grid ``period``) — this exactly replicates the discrete *n*-tuple
-    entropy of Milne & Dean (2016).
+    :func:`entropy_exp_tens`. With default arguments — ``sigma = 0``,
+    ``method = 'normalized'``, and ``n_points_per_dim = None`` (which
+    selects the integer-step grid ``period``) — this exactly replicates
+    the discrete *n*-tuple entropy of Milne & Dean (2016).
 
     Parameters
     ----------
@@ -1186,13 +1839,19 @@ def n_tuple_entropy(
         treats sigma as positional uncertainty on each ``p_k``;
         'interval' treats sigma as independent uncertainty per
         derived step. See "Sigma semantics" below.
-    normalize : bool
-        If True (default), divide by ``log_base(n_points_per_dim ** n)``.
+    method : {'normalized', 'shannon', 'differential', 'renyi2'}
+        Entropy variant (default ``'normalized'``). See
+        :func:`entropy_exp_tens` for the four-method API. ``'normalised'``
+        is accepted as an alias. The continuous methods
+        (``'differential'``, ``'renyi2'``) require ``sigma > 0``.
     base : float
-        Logarithm base (default 2). Cancels when *normalize* is True.
+        Logarithm base (default 2). Cancels for ``method='normalized'``.
     n_points_per_dim : int or None
-        Grid resolution per dimension. ``None`` (default) selects
-        ``period``.
+        Grid resolution per dimension (used by ``'normalized'`` and
+        ``'shannon'``; ignored by ``'differential'`` and ``'renyi2'``).
+        ``None`` (default) selects ``period``, which (with integer
+        centres and a periodic kernel) gives the Milne & Dean (2016)
+        mass-conserving Gaussian-confusion grid.
 
     Sigma semantics
     ---------------
@@ -1263,12 +1922,26 @@ def n_tuple_entropy(
             f"(got {sigma_space!r})."
         )
 
+    # Canonicalize method (accepts British 'normalised').
+    method = _canonicalize_method(method)
+
+    # Continuous-form methods diverge at sigma=0. Reject explicitly
+    # rather than letting the entropy_exp_tens guard surface a less-
+    # specific error after the kludge that nudges sigma off zero.
+    if sigma == 0.0 and method in ("differential", "renyi2"):
+        raise ValueError(
+            f"n_tuple_entropy: method={method!r} requires sigma > 0 "
+            f"(the continuous form diverges at sigma=0). For categorical "
+            f"sigma=0 n-tuple entropy use method='shannon' or "
+            f"method='normalized' (the default)."
+        )
+
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 2:
         return _n_tuple_entropy_batched(
             p_arr, period, n,
             sigma=sigma, sigma_space=sigma_space,
-            normalize=normalize, base=base,
+            method=method, base=base,
             n_points_per_dim=n_points_per_dim,
         )
 
@@ -1367,13 +2040,28 @@ def n_tuple_entropy(
         verbose=False,
     )
 
-    # --- Shannon entropy on the chosen grid ---
-    H = entropy_exp_tens(
-        T,
-        normalize=normalize,
-        base=base,
-        n_points_per_dim=n_grid,
-    )
+    # --- Entropy on the chosen grid / via the chosen method ---
+    # Grid-based methods ('shannon', 'normalized') use the pinned period
+    # grid n_grid. 'differential' and 'renyi2' bypass the grid (adaptive
+    # and analytical respectively).
+    if method == "shannon":
+        H = entropy_exp_tens(
+            T, method="shannon",
+            base=base, n_points_per_dim=n_grid,
+        )
+    elif method == "normalized":
+        H = entropy_exp_tens(
+            T, method="normalized",
+            base=base, n_points_per_dim=n_grid,
+        )
+    elif method == "differential":
+        H = entropy_exp_tens(
+            T, method="differential", base=base,
+        )
+    else:  # method == "renyi2"
+        H = entropy_exp_tens(
+            T, method="renyi2", base=base,
+        )
 
     # --- Tuples matrix (K, n) for compatibility with the prior API ---
     tuples_out = np.column_stack(
@@ -1386,7 +2074,7 @@ def n_tuple_entropy(
 def _n_tuple_entropy_batched(
     P, period, n,
     *,
-    sigma, sigma_space, normalize, base, n_points_per_dim,
+    sigma, sigma_space, method, base, n_points_per_dim,
 ):
     """Batched dispatch for ``n_tuple_entropy``.
 
@@ -1416,7 +2104,7 @@ def _n_tuple_entropy_batched(
         H_i, t_i = n_tuple_entropy(
             p_valid, period, n,
             sigma=sigma, sigma_space=sigma_space,
-            normalize=normalize, base=base,
+            method=method, base=base,
             n_points_per_dim=n_points_per_dim,
         )
         H_out[i] = H_i

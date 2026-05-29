@@ -33,7 +33,7 @@ class TestEntropyExpTensKwargs:
             12.0, 2, True, False, 0.0,
         )
         common = dict(
-            base=2.0, normalize=True,
+            base=2.0,
             n_points_per_dim=200,
             x_min=-1200.0, x_max=1200.0,
         )
@@ -61,7 +61,7 @@ class TestEntropyExpTensKwargs:
             12.0, 2, True, False, 0.0,
         )
         common = dict(
-            base=2.0, normalize=True,
+            base=2.0,
             n_points_per_dim=200,
             x_min=-1200.0, x_max=1200.0,
         )
@@ -84,13 +84,13 @@ class TestEntropyExpTensKwargs:
         )
         mpt.reset_defaults()
         h_default = mpt.entropy_exp_tens(
-            dens, base=2.0, normalize=True, n_points_per_dim=200,
+            dens, base=2.0, n_points_per_dim=200,
             x_min=-1200.0, x_max=1200.0,
         )
         mpt.set_default(truncation_sigmas=6.0)
         try:
             h_trunc = mpt.entropy_exp_tens(
-                dens, base=2.0, normalize=True, n_points_per_dim=200,
+                dens, base=2.0, n_points_per_dim=200,
                 x_min=-1200.0, x_max=1200.0,
             )
         finally:

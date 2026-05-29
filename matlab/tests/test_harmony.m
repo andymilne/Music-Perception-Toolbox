@@ -87,12 +87,12 @@ results{end,2}   = isempty(strtrim(outSEBatch));
 % --- entropyExpTens batched verbose (Bundle 2) ---
 P_ee = [0, 100, 200, 300; 0, 200, 400, 600; 0, 100, 200, 300];
 outEEBatch = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
-    '''xMin'', 0, ''xMax'', 600, ''verbose'', true);']);
+    '''xMin'', 0, ''xMax'', 600, ''nPointsPerDim'', 1200, ''verbose'', true);']);
 results{end+1,1} = 'entropyExpTens batched: verbose=true silent for fast call';
 results{end,2}   = isempty(strtrim(outEEBatch));
 
 outEEBatchSilent = evalc(['entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ' ...
-    '''xMin'', 0, ''xMax'', 600, ''verbose'', false);']);
+    '''xMin'', 0, ''xMax'', 600, ''nPointsPerDim'', 1200, ''verbose'', false);']);
 results{end+1,1} = 'entropyExpTens batched: verbose=false silent';
 results{end,2}   = isempty(strtrim(outEEBatchSilent));
 
@@ -100,9 +100,9 @@ mptDefaults(prevSH_harmony1);  % restore showHints
 
 % Numerical results unchanged by verbose flag
 H_ee_v = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
-    'xMin', 0, 'xMax', 600, 'verbose', true);
+    'xMin', 0, 'xMax', 600, 'nPointsPerDim', 1200, 'verbose', true);
 H_ee_q = entropyExpTens(P_ee, [], 12, 1, false, false, 1200, ...
-    'xMin', 0, 'xMax', 600, 'verbose', false);
+    'xMin', 0, 'xMax', 600, 'nPointsPerDim', 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens batched: verbose flag does not affect outputs';
 results{end,2}   = isequaln(H_ee_v, H_ee_q);
 

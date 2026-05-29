@@ -80,7 +80,7 @@ results{end, 2}   = abs(sC - GOLDEN_C) < RTOL * abs(GOLDEN_C) + ATOL;
 %% ---- Case D: SA entropy Rényi-2, abs r=2 ----
 
 HD = entropyExpTens(p1, w, 20, 2, false, false, 0, ...
-    'method', 'renyi2', 'normalize', false, 'base', 2);
+    'method', 'renyi2', 'base', 2);
 GOLDEN_D = 14.88031481996820;
 results{end+1, 1} = 'cross-language golden D: SA entropy Rényi-2 abs r=2';
 results{end, 2}   = abs(HD - GOLDEN_D) < RTOL * abs(GOLDEN_D) + ATOL;
@@ -96,7 +96,7 @@ time = [0 0.5 1.0 1.5];              % (1, 4)
 HE = entropyExpTens({pitch, time}, [], ...
     [12, 0.05], [3, 1], [1, 2], ...
     [false, false], [true, false], [1200, 0], ...
-    'method', 'renyi2', 'normalize', false, 'base', 2);
+    'method', 'renyi2', 'base', 2);
 GOLDEN_E = 21.64284222436801;
 results{end+1, 1} = 'cross-language golden E: MA entropy Rényi-2';
 results{end, 2}   = abs(HE - GOLDEN_E) < RTOL * abs(GOLDEN_E) + ATOL;
@@ -117,6 +117,61 @@ v = evalExpTens(tp, tw, 80, 3, true, false, 1200, X, 'verbose', false);
 GOLDEN_G = 2.07507623760499e-06;
 results{end+1, 1} = 'cross-language golden G: evalExpTens rel orbit';
 results{end, 2}   = abs(v - GOLDEN_G) < RTOL * abs(GOLDEN_G) + ATOL;
+
+%% ---- Case H: SA Shannon entropy abs r=2 dim=2 (bin-integration path) ----
+% These cases lock in the bin-integration parity for the discrete entropy
+% methods. The bin-integration path was added to Python without a
+% parallel MATLAB port for a release window; these goldens catch any
+% future drift between the per-axis Phi-difference contractions.
+
+dens_h = buildExpTens([100; 200; 300], [], 20, 2, false, false, 0, ...
+    'verbose', false);
+HH = entropyExpTens(dens_h, 'method', 'shannon', ...
+    'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
+GOLDEN_H = 9.383611317877847;
+results{end+1, 1} = 'cross-language golden H: SA shannon abs r=2 dim=2 bin-integration';
+results{end, 2}   = abs(HH - GOLDEN_H) < RTOL * abs(GOLDEN_H) + ATOL;
+
+%% ---- Case I: SA normalized (Pielou ratio) ----
+
+HI = entropyExpTens(dens_h, 'method', 'normalized', ...
+    'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
+GOLDEN_I = 0.8815988444951405;
+results{end+1, 1} = 'cross-language golden I: SA normalized abs r=2 dim=2';
+results{end, 2}   = abs(HI - GOLDEN_I) < RTOL * abs(GOLDEN_I) + ATOL;
+
+%% ---- Case J: SA Shannon periodic r=1 ----
+
+dens_j = buildExpTens([0; 3; 7], [], 0.7, 1, false, true, 12, ...
+    'verbose', false);
+HJ = entropyExpTens(dens_j, 'method', 'shannon', ...
+    'nPointsPerDim', 24, 'verbose', false);
+GOLDEN_J = 4.093676510565166;
+results{end+1, 1} = 'cross-language golden J: SA shannon periodic r=1';
+results{end, 2}   = abs(HJ - GOLDEN_J) < RTOL * abs(GOLDEN_J) + ATOL;
+
+%% ---- Case K: MA Shannon abs dim=2 ----
+
+P2 = [100, 200, 300; 200, 250, 100];
+W2 = [1, 1, 1];
+dens_k = buildExpTens({P2}, {W2}, 20, 2, 1, false, false, 0, ...
+    'verbose', false);
+HK = entropyExpTens(dens_k, 'method', 'shannon', ...
+    'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
+GOLDEN_K = 9.347143263809102;
+results{end+1, 1} = 'cross-language golden K: MA shannon abs dim=2';
+results{end, 2}   = abs(HK - GOLDEN_K) < RTOL * abs(GOLDEN_K) + ATOL;
+
+%% ---- Case L: SA differential entropy (adaptive) ----
+% Adaptive convergence tolerance is ~exp(-18) ~ 1.5e-8;
+% allow 1e-5 absolute as a comfortable bound.
+
+dens_l = buildExpTens([0; 400; 700], [], 20, 1, false, false, 0, ...
+    'verbose', false);
+HL = entropyExpTens(dens_l, 'method', 'differential', 'verbose', false);
+GOLDEN_L = 7.953986161000217;
+results{end+1, 1} = 'cross-language golden L: SA differential r=1 adaptive';
+results{end, 2}   = abs(HL - GOLDEN_L) < 1e-5;
 
 %% ---- Standalone summary ----
 

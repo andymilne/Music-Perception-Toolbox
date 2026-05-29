@@ -598,7 +598,7 @@ results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 
 p_uniform = (0:11).';
 H_u = entropyExpTens({p_uniform}, [], 100, 1, [], false, true, 12, ...
-    'nPointsPerDim', 400, 'verbose', false);
+    'method', 'normalized', 'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: uniform chromatic near 1';
 results{end,2}   = H_u > 0.95;
 
@@ -621,6 +621,7 @@ densE = buildExpTens({pitchE, timeE}, [], ...
 results{end+1,1} = 'entropyExpTens MA: dim == 2 (r=2 pitch + r=1 time)';
 results{end,2}   = densE.dim == 2;
 H_pt = entropyExpTens(densE, ...
+    'method', 'normalized', ...
     'xMin', -0.5, 'xMax', 1.5, 'nPointsPerDim', 80, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: pitch+time H in (0,1)';
 results{end,2}   = H_pt > 0 && H_pt < 1;
@@ -917,7 +918,7 @@ results{end,2}   = throwsError(@() differenceEvents( ...
 % A second sanity check that the refactor preserves the n-tuple
 % entropy value for a familiar input (whole-tone scale on the
 % 12-EDO).
-H_whole = nTupleEntropy([0 2 4 6 8 10], 12, 2, 'normalize', false);
+H_whole = nTupleEntropy([0 2 4 6 8 10], 12, 2, 'method', 'shannon');
 results{end+1,1} = 'nTupleEntropy: whole-tone n=2 still = 0 after refactor';
 results{end,2}   = abs(H_whole) < 1e-12;
 

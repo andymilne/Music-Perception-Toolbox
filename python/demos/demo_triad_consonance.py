@@ -249,13 +249,17 @@ if do_tmpl:
 # --- Spectral entropy ---
 # One spectral_entropy call on a stacked chord matrix.
 #
-# Method choice: we use the default method='shannon'. spectral_entropy
-# also supports method='renyi2' (analytical Rényi-2 / collision entropy
-# via the inner-product / Möbius form used by entropy_exp_tens; requires
-# normalize=False). For consonance ordering both methods give the same
-# monotonic ranking of chords, but Shannon is the established choice in
-# the consonance literature (e.g. Smit et al. 2019, Milne et al. 2017)
-# and is used for this triad comparison.
+# Method choice: we pass method='normalized' explicitly to reproduce
+# the consonance ordering and absolute values reported in Smit et al.
+# (2019) and Milne et al. (2017), which use the normalised Shannon
+# entropy H / log_b(N) in [0, 1]. The toolbox default for
+# spectral_entropy is 'differential' (adaptive nested-grid differential
+# entropy h_hat) which gives the same ordering of chords by consonance
+# but in different units and at higher per-call cost (the adaptive
+# evaluator doubles the grid to convergence, which is several times
+# slower than a single discrete pass). method='renyi2' (analytical
+# Rényi-2 via the inner-product / Möbius machinery) is also available;
+# it agrees on ordering but, like differential, is in different units.
 if do_spec_ent:
     chord_mat_se = np.column_stack([
         np.zeros(n_upper), int1_lin, int2_lin
@@ -263,7 +267,7 @@ if do_spec_ent:
     t0 = time.time()
     spec_ent_lin = mpt.spectral_entropy(
         chord_mat_se, None, sigma_ent,
-        spectrum=spec_ent, verbose=True,
+        spectrum=spec_ent, method='normalized', verbose=True,
     )
     print(f"  Spectral entropy:     {time.time() - t0:.2f} s actual "
           f"({n_upper} triads, batched)")

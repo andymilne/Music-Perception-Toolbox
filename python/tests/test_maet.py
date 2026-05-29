@@ -820,16 +820,22 @@ class TestMAET:
     def test_ma_entropy_concentrated_below_uniform(self):
         """A single pitch is more concentrated than the chromatic
         scale, so gives lower normalised entropy."""
+        # sigma must be substantially smaller than the period (12) for
+        # the distributions to be distinguishable: at sigma >> period
+        # the periodic kernel wraps many times and both densities are
+        # analytically uniform (and bin-integration gives H_norm = 1
+        # for both, exposing the degenerate setup; point-evaluation
+        # was passing by sampling noise).
         p_one = np.array([5.0])
         H_one = mpt.entropy_exp_tens(
             [p_one.reshape(1, 1)], None,
-            [20.0], [1], None, [False], [True], [12.0],
+            [1.0], [1], None, [False], [True], [12.0],
             n_points_per_dim=400,
         )
         p_all = np.arange(12, dtype=np.float64)
         H_all = mpt.entropy_exp_tens(
             [p_all.reshape(12, 1)], None,
-            [20.0], [1], None, [False], [True], [12.0],
+            [1.0], [1], None, [False], [True], [12.0],
             n_points_per_dim=400,
         )
         assert H_one < H_all
@@ -849,7 +855,7 @@ class TestMAET:
         # dim = (2-1) + 1 = 2
         assert dens.dim == 2
         H = mpt.entropy_exp_tens(
-            dens,
+            dens, method='normalized',
             x_min=-0.5, x_max=1.5,
             n_points_per_dim=80,
         )
@@ -1241,7 +1247,7 @@ class TestMAET:
         whole-tone scale at n=2 is still exactly 0 (every cyclic
         2-tuple of step sizes is (2, 2))."""
         H, _ = mpt.n_tuple_entropy(
-            [0, 2, 4, 6, 8, 10], 12, 2, normalize=False,
+            [0, 2, 4, 6, 8, 10], 12, 2, method='shannon',
         )
         assert abs(H) < 1e-12
 

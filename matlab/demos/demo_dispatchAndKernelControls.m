@@ -148,9 +148,9 @@ fprintf('\n=== 5. Renyi-2 differential entropy ===\n\n');
 
 [t_shannon, h_shannon] = timeCall(@() entropyExpTens(dens_x, ...
     'method', 'shannon', 'xMin', 0, 'xMax', 1200, ...
-    'nPointsPerDim', 100, 'normalize', false, 'verbose', false));
+    'nPointsPerDim', 100, 'verbose', false));
 [t_renyi2, h_renyi2] = timeCall(@() entropyExpTens(dens_x, ...
-    'method', 'renyi2', 'normalize', false, 'verbose', false));
+    'method', 'renyi2', 'verbose', false));
 
 fprintf('  method=shannon (numerical grid)  : %7.1f ms   H  = %.4f\n', 1000*t_shannon, h_shannon);
 fprintf('  method=renyi2  (closed-form)     : %7.1f ms   H2 = %.4f\n', 1000*t_renyi2, h_renyi2);

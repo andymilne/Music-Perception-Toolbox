@@ -2,34 +2,49 @@ function H = entropyExpTens(varargin)
 %ENTROPYEXPTENS Entropy of an expectation tensor density.
 %
 %   H = ENTROPYEXPTENS(...) returns the entropy of a single- or
-%   multi-attribute expectation tensor density. Two variants are
+%   multi-attribute expectation tensor density. Four variants are
 %   supported via the 'method' name-value argument:
 %
-%     'shannon' (default) --- discretized Shannon entropy of the
-%       density on a Cartesian-product grid (one 1-D linspace per
-%       effective dimension, on each group's domain). The differential
-%       entropy of a Gaussian mixture has no closed-form analytic
-%       solution, so the density is evaluated on the grid, normalized
-%       to a probability mass function, and -sum(q*log_b(q)) returned.
-%       With 'normalize', true (default), the result is divided by
-%       log_b(N), where N is the total number of grid points; this
-%       gives a value in [0, 1] independent of grid resolution.
-%       Accuracy depends on the ratio of sigma to the grid spacing.
-%       The convention 0 * log(0) = 0 is applied.
+%     'shannon' (default) --- raw discrete Shannon entropy
+%       H = -sum_k q_k log_b q_k of the density on an explicit
+%       Cartesian-product grid (one 1-D linspace per effective
+%       dimension, on each group's domain). Bin-mass integration via
+%       per-axis Phi-difference contractions for isRel=false;
+%       point-evaluation for isRel=true.
+%
+%     'normalized' (alias 'normalised') --- the Pielou-style ratio
+%       H / log_b(N) in [0, 1]. Reproduces the values reported in
+%       Milne et al. (2017) and Smit et al. (2019).
+%
+%     'differential' --- adaptive nested-grid evaluation of the
+%       differential entropy h_hat = H_disc + log_b(Delta-volume).
+%       The span auto-derives per group from centres +/-
+%       truncationSigmas * sigma (non-periodic) or [0, period]
+%       (periodic); the grid doubles from a sample-per-sigma initial
+%       resolution until successive Richardson-extrapolated estimates
+%       fall below tolerance. Grid-independent (no caller choice of
+%       grid), and the principled scale-free quantity for comparisons
+%       across densities of different cardinality or spread. Currently
+%       restricted to single-density input; errors at sigma=0.
 %
 %     'renyi2' --- analytical Rényi-2 (collision) entropy
 %       H_2 = -log_b(<T,T> / Z^2), computed in closed form via the
 %       orbit-Möbius inner product (<T,T>) and the closed-form total
 %       mass (Z). Grid-free; works at arbitrary tensor order r where
 %       the Shannon-path Cartesian grid would exhaust memory.
-%       Currently restricted to single-density input (scalar density
-%       struct or raw scalar SA/MA); list, batched, and windowed
-%       input forms are not yet implemented and produce informative
-%       errors. 'normalize', true is not supported with 'renyi2' ---
-%       the continuous Rényi-2 entropy ranges over (-Inf, log_b V]
-%       rather than Shannon's [0, log_b N], so a uniform normaliser
-%       does not yield a [0, 1] value; pass 'normalize', false to use
-%       this method.
+%       Currently restricted to single-density input. Errors at
+%       sigma=0.
+%
+%   v2.2 breaking change: the legacy 'normalize' boolean kwarg has
+%   been removed. Use method='normalized' for the v2.1 default
+%   behaviour (H/log_b(N) in [0, 1]) or method='shannon' for raw H.
+%   Passing 'normalize' raises a migration-error exception.
+%
+%   The discrete methods ('shannon', 'normalized') require an
+%   explicit 'nPointsPerDim'; the continuous methods ('differential',
+%   'renyi2') do not accept it. The previous toolbox-wide default of
+%   1200 for nPointsPerDim has been dropped, since the right grid
+%   resolution is density- and sigma-dependent.
 %
 %   Both methods accept the input forms below. Forms marked
 %   "Shannon-only" raise an informative error under method='renyi2'.
@@ -115,29 +130,27 @@ function H = entropyExpTens(varargin)
 %       periodVec - 1 x G per-group periods.
 %
 %   Name-Value Arguments
-%       'method'        - 'shannon' (default) or 'renyi2'. See above.
+%       'method'        - One of {'shannon' (default), 'normalized',
+%                         'differential', 'renyi2'} (or the British
+%                         alias 'normalised'). See above.
 %       'spectrum'      - (SA only.) Cell array of arguments passed to
 %                         addSpectra. If provided, partials are added
 %                         to the multiset before building the tensor.
 %                         For MA, apply addSpectra to the pitch
 %                         attribute before calling.
-%       'normalize'     - Logical (default: true). Shannon only:
-%                         divide by log_b(N) to give a value in
-%                         [0, 1]. method='renyi2' with normalize=true
-%                         errors.
-%       'base'          - Logarithm base (default: 2). For Shannon
-%                         with normalize=true, the base cancels and
-%                         has no effect on the result.
-%       'nPointsPerDim' - Shannon only: grid resolution per effective
-%                         dimension (default: 1200).
-%       'xMin'          - Shannon, non-periodic only. SA: scalar.
-%                         MA: scalar (broadcast to all non-periodic
-%                         groups) or length-G vector (one entry per
-%                         group; periodic-group entries are ignored).
-%                         Default: NaN.
+%       'base'          - Logarithm base (default: 2). The base cancels
+%                         for method='normalized'.
+%       'nPointsPerDim' - Required for method='shannon' and
+%                         method='normalized' (no toolbox-wide default
+%                         in v2.2); ignored by 'differential' and
+%                         'renyi2'. Pass an explicit positive integer.
+%       'xMin'          - Discrete methods, non-periodic only.
+%                         SA: scalar. MA: scalar (broadcast to all
+%                         non-periodic groups) or length-G vector (one
+%                         entry per group; periodic-group entries are
+%                         ignored). Default: NaN.
 %       'xMax'          - As xMin. Default: NaN.
-%       'gridLimit'     - Shannon only: hard ceiling on total grid
-%                         size (nPointsPerDim ^ dim) before allocation.
+%       'gridLimit'     - Ceiling on total grid size before allocation.
 %                         Applies to MA always, and to SA whenever the
 %                         density's effective dimension dim > 1 (e.g.
 %                         r = 2 with isRel = false). Default: 1e8.
@@ -145,11 +158,16 @@ function H = entropyExpTens(varargin)
 %       'truncationSigmas' - Numeric scalar or []. Override the
 %                         toolbox-wide mptDefaults('truncationSigmas')
 %                         setting for this call. Passes through to the
-%                         kernel evaluator on the centres path (Shannon
-%                         only); skips Gaussian contributions whose
+%                         kernel evaluator on the centres path
+%                         ('shannon', 'normalized', 'differential');
+%                         skips Gaussian contributions whose
 %                         centre-to-query distance exceeds k*sigma
-%                         (kernel floor exp(-k^2/2)). [] (default)
-%                         means use the global default (factory: Inf).
+%                         (kernel floor exp(-k^2/2)). For
+%                         method='differential' this also anchors the
+%                         convergence tolerance
+%                         max(exp(-truncationSigmas^2/2), 1e-12).
+%                         [] (default) means use the global default
+%                         (factory: Inf).
 %       'kernelPrecision' - 'double' (default via mptDefaults), 'single',
 %                         or [] for the global default. Override the
 %                         toolbox-wide kernelPrecision setting for this
@@ -170,7 +188,7 @@ function H = entropyExpTens(varargin)
 %       H = entropyExpTens(T);
 %
 %       % Rényi-2 of the same chord --- closed-form, no grid
-%       H = entropyExpTens(T, 'method', 'renyi2', 'normalize', false);
+%       H = entropyExpTens(T, 'method', 'renyi2');
 %
 %       % MA: pitch + time, Shannon
 %       pitch = [0 12; 4 15; 7 19];  time = [0 1];
@@ -185,12 +203,30 @@ function H = entropyExpTens(varargin)
 % Top-level call guard: see internal.dispatchScope.
 guard = internal.dispatchScope(); %#ok<NASGU>
 
+% Detect the legacy 'normalize' kwarg (removed in v2.2). We scan
+% varargin directly *before* invoking localParseNVPairs (which would
+% otherwise treat 'normalize' as a positional argument once it's
+% gone from nvDefaults). A migration error then points users to
+% method='normalized' / method='shannon'.
+for kArg = 1:numel(varargin)
+    if (ischar(varargin{kArg}) || (isstring(varargin{kArg}) ...
+                                   && isscalar(varargin{kArg}))) ...
+            && strcmpi(char(varargin{kArg}), 'normalize')
+        error('entropyExpTens:normalizeRemoved', ...
+              ['entropyExpTens: the ''normalize'' kwarg has been ' ...
+               'removed in v2.2. Use method=''normalized'' for ' ...
+               'H/log_b(N) in [0, 1] (the v2.1 default behaviour), ' ...
+               'or method=''shannon'' for raw H = -sum q log_b q. ' ...
+               'method=''differential'' and method=''renyi2'' are ' ...
+               'continuous-form entropies and have no [0, 1] reference.']);
+    end
+end
+
 nvDefaults = struct( ...
     'spectrum',          {{}}, ...
     'method',            'shannon', ...
-    'normalize',         true, ...
     'base',              2, ...
-    'nPointsPerDim',     1200, ...
+    'nPointsPerDim',     [], ...
     'xMin',              NaN, ...
     'xMax',              NaN, ...
     'gridLimit',         1e8, ...
@@ -206,34 +242,38 @@ if nPos < 1
           'At least one positional argument is required.');
 end
 
-% Validate the method kwarg and reject the unimplementable combination
-% renyi2 + normalize=true (the analytical Rényi-2 form has no natural
-% [0, 1] reference).
-if ~ismember(nvArgs.method, {'shannon', 'renyi2'})
-    error('entropyExpTens:badMethod', ...
-          '''method'' must be ''shannon'' or ''renyi2''; got ''%s''.', ...
-          nvArgs.method);
-end
-if strcmp(nvArgs.method, 'renyi2') && nvArgs.normalize
-    error('entropyExpTens:renyi2NormalizeNotSupported', ...
-          ['method=''renyi2'' with normalize=true is not implemented. ' ...
-           'The continuous Rényi-2 entropy ranges over (-Inf, log_b V] ' ...
-           'rather than Shannon''s [0, log_b N], so a uniform ' ...
-           'normaliser does not yield a [0, 1] value. Pass ' ...
-           'normalize=false to use this method.']);
-end
+% Canonicalize the method kwarg (accepts British 'normalised') and
+% validate against the four supported methods:
+%   'differential' - adaptive truncationSigmas-aware nested grid;
+%                    returns h_hat. Grid-independent, errors at sigma=0.
+%   'shannon'      - raw discrete Shannon entropy H = -sum q log_b q
+%                    on an explicit Cartesian-product grid.
+%   'normalized'   - the Pielou-style ratio H/log_b(N) in [0, 1].
+%   'renyi2'       - analytical Rényi-2 (collision) entropy.
+%                    Grid-free, errors at sigma=0.
+nvArgs.method = localCanonicalizeMethod(nvArgs.method);
 
-% Dispatch on method. Both methods do parallel per-input-form
-% resolution; see localEntropyShannonDispatch and
-% localEntropyRenyi2Dispatch for the per-form branching. Shannon
-% supports the full input surface (single density, list of densities,
-% raw scalar SA/MA, raw batched SA, windowed MA). Renyi-2 is
-% restricted to single-density input — list, batched, and windowed
-% forms are not yet implemented and produce informative errors.
-if strcmp(nvArgs.method, 'shannon')
-    H = localEntropyShannonDispatch(posArgs, nvArgs);
-else
-    H = localEntropyRenyi2Dispatch(posArgs, nvArgs);
+% The internal nvArgs.normalize flag controls whether the discrete
+% Shannon helper divides by log_b(N). It is determined here from the
+% method (it is no longer user-facing; passing 'normalize' to this
+% function triggers the migration error above).
+switch nvArgs.method
+    case 'normalized'
+        nvArgs.normalize = true;
+        H = localEntropyShannonDispatch(posArgs, nvArgs);
+    case 'shannon'
+        nvArgs.normalize = false;
+        H = localEntropyShannonDispatch(posArgs, nvArgs);
+    case 'differential'
+        nvArgs.normalize = false;
+        H = localEntropyDifferentialDispatch(posArgs, nvArgs);
+    case 'renyi2'
+        nvArgs.normalize = false;
+        H = localEntropyRenyi2Dispatch(posArgs, nvArgs);
+    otherwise
+        error('entropyExpTens:internalCanonicalisation', ...
+              'Internal error: canonicalised method %s not handled.', ...
+              nvArgs.method);
 end
 
 end
@@ -278,12 +318,15 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
         switch firstArg.tag
             case 'ExpTensDensity'
+                localRequireExplicitGrid(nvArgs.nPointsPerDim);
                 H = localEntropySA(firstArg, nvArgs);
                 return;
             case 'MaetDensity'
+                localRequireExplicitGrid(nvArgs.nPointsPerDim);
                 H = localEntropyMA(firstArg, nvArgs);
                 return;
             case 'WindowedMaetDensity'
+                localRequireExplicitGrid(nvArgs.nPointsPerDim);
                 H = localEntropyMA(firstArg, nvArgs);
                 return;
             otherwise
@@ -327,6 +370,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             isRelVec  = posArgs{6};
             isPerVec  = posArgs{7};
             periodVec = posArgs{8};
+            localRequireExplicitGrid(nvArgs.nPointsPerDim);
             dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
                                 isRelVec, isPerVec, periodVec, 'verbose', false);
             H = localEntropyMA(dens, nvArgs);
@@ -347,6 +391,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                       ['Batched-raw call expects 7 positional arguments ' ...
                        '(P, W, sigma, r, isRel, isPer, period); got %d.'], nPos);
             end
+            localRequireExplicitGrid(nvArgs.nPointsPerDim);
             H = localEntropyBatchedRaw(posArgs, nvArgs);
             return;
         end
@@ -373,6 +418,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
         end
 
+        localRequireExplicitGrid(nvArgs.nPointsPerDim);
         T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
         H = localEntropySA(T, nvArgs);
         return;
@@ -417,41 +463,66 @@ function H = localEntropySA(T, nvArgs)
         x1 = linspace(nvArgs.xMin, nvArgs.xMax, nvArgs.nPointsPerDim);
     end
 
-    % Build query matrix. For dim = 1, X is a 1 x nQ row vector. For
-    % dim > 1, take the Cartesian product of dim copies of x1, giving a
-    % dim x (nPointsPerDim^dim) matrix where each column is one point.
-    if dim == 1
-        X = x1;
-    else
-        % Hard ceiling on grid size before allocation.
-        gridLimit = nvArgs.gridLimit;
+    % Grid-size guard applies to both bin-integration and point-eval
+    % paths since both materialise an array of length nPointsPerDim^dim.
+    if dim > 1
         gridSize = nvArgs.nPointsPerDim ^ dim;
-        if gridSize > gridLimit
+        if gridSize > nvArgs.gridLimit
             error('entropyExpTens:gridLimitExceeded', ...
                   ['SA Cartesian grid (%g points = nPointsPerDim^dim = %d^%d) ' ...
                    'exceeds gridLimit (%g). Reduce nPointsPerDim or raise ' ...
-                   '''gridLimit''.'], gridSize, nvArgs.nPointsPerDim, dim, gridLimit);
-        end
-        % Cartesian product via ndgrid. We build dim grid arrays then
-        % reshape each to a row, stacking into a dim x nQ matrix.
-        gridArgs = repmat({x1}, 1, dim);
-        gridCells = cell(1, dim);
-        [gridCells{:}] = ndgrid(gridArgs{:});
-        X = zeros(dim, gridSize);
-        for d = 1:dim
-            X(d, :) = gridCells{d}(:).';
+                   '''gridLimit''.'], gridSize, nvArgs.nPointsPerDim, dim, nvArgs.gridLimit);
         end
     end
 
-    % Evaluate tensor. Forward truncation/precision kwargs when set.
-    evalKw = {'verbose', false};
-    if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas)
-        evalKw = [evalKw, {'truncationSigmas', nvArgs.truncationSigmas}];
+    % Evaluate density on the grid.
+    %
+    % For absolute-mode densities (isRel=false) the categorical pmf is
+    % the genuine bin masses int_{cell} f dx, obtained analytically
+    % via per-axis erf differences. This matches Python's
+    % _cell_masses_sa_absolute and gives Python/MATLAB parity on this
+    % path. For relative-mode densities (isRel=true) the bin integral
+    % is a multivariate-normal box probability (off-diagonal kernel
+    % covariance in the effective coordinates); pending the v2.3
+    % covariance machinery we fall back to point-evaluation here too.
+    if ~logical(T.isRel)
+        % truncationSigmas for the bin-integration path: empty means
+        % use the cell-integration default 6.0. (mptDefaults factory
+        % default is Inf which is meaningless for span derivation but
+        % fine here since periodic-wrap counting is capped by it.)
+        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas) ...
+                && isfinite(nvArgs.truncationSigmas)
+            ts = double(nvArgs.truncationSigmas);
+        else
+            ts = 6.0;
+        end
+        Tx = ensureExpTensExpensive(T);
+        t = localCellMassesSAAbsolute(Tx, x1, ts);
+    else
+        % Build query matrix. For dim = 1, X is a 1 x nQ row vector. For
+        % dim > 1, take the Cartesian product of dim copies of x1, giving a
+        % dim x (nPointsPerDim^dim) matrix where each column is one point.
+        if dim == 1
+            X = x1;
+        else
+            gridArgs = repmat({x1}, 1, dim);
+            gridCells = cell(1, dim);
+            [gridCells{:}] = ndgrid(gridArgs{:});
+            X = zeros(dim, nvArgs.nPointsPerDim ^ dim);
+            for d = 1:dim
+                X(d, :) = gridCells{d}(:).';
+            end
+        end
+        % Evaluate tensor. Forward truncation/precision kwargs when set.
+        evalKw = {'verbose', false};
+        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas)
+            evalKw = [evalKw, {'truncationSigmas', nvArgs.truncationSigmas}];
+        end
+        if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
+            evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
+        end
+        t = evalExpTens(T, X, evalKw{:});
     end
-    if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
-        evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
-    end
-    t = evalExpTens(T, X, evalKw{:});
 
     % Normalize to pmf.
     q = t(:) / sum(t(:));
@@ -555,25 +626,49 @@ function H = localEntropyMA(dens, nvArgs)
         end
     end
 
-    % --- Cartesian product as (dim x totalPoints) query matrix ---
-    % Use ndgrid so the first axis varies fastest (column-major).
-    meshCells = cell(1, dim);
-    [meshCells{:}] = ndgrid(axes1D{:});
-    X = zeros(dim, round(totalPoints));
-    for d = 1:dim
-        Md = meshCells{d};
-        X(d, :) = Md(:).';
+    % --- Evaluate density on the grid ---
+    %
+    % For absolute-mode unwindowed densities (isRel=false everywhere)
+    % the categorical pmf is the genuine bin masses (int_{cell} f dx),
+    % obtained analytically via per-axis erf differences. This matches
+    % Python's _cell_masses_ma_absolute and gives Python/MATLAB parity
+    % on this path. For relative-mode densities the bin integral is a
+    % multivariate-normal box probability (off-diagonal covariance in
+    % the effective coordinates); pending the v2.3 covariance machinery
+    % we fall back to point-evaluation, which agrees with bin-
+    % integration to ~1e-4 on the fine grids relative-mode use-cases
+    % require. Windowed densities also use point-evaluation here --
+    % windowed cell-integration is a separate problem.
+    isWindowed = isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity');
+    isAbs = ~any(logical(base_dens.isRel));
+    if ~isWindowed && isAbs
+        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas) ...
+                && isfinite(nvArgs.truncationSigmas)
+            ts = double(nvArgs.truncationSigmas);
+        else
+            ts = 6.0;
+        end
+        densX = ensureExpTensExpensive(base_dens);
+        t = localCellMassesMAAbsolute(densX, axes1D, ts);
+    else
+        % --- Cartesian product as (dim x totalPoints) query matrix ---
+        % Use ndgrid so the first axis varies fastest (column-major).
+        meshCells = cell(1, dim);
+        [meshCells{:}] = ndgrid(axes1D{:});
+        X = zeros(dim, round(totalPoints));
+        for d = 1:dim
+            Md = meshCells{d};
+            X(d, :) = Md(:).';
+        end
+        evalKw = {'verbose', false};
+        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas)
+            evalKw = [evalKw, {'truncationSigmas', nvArgs.truncationSigmas}];
+        end
+        if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
+            evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
+        end
+        t = evalExpTens(dens, X, evalKw{:});
     end
-
-    % --- Evaluate density. Forward truncation/precision kwargs. ---
-    evalKw = {'verbose', false};
-    if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas)
-        evalKw = [evalKw, {'truncationSigmas', nvArgs.truncationSigmas}];
-    end
-    if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
-        evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
-    end
-    t = evalExpTens(dens, X, evalKw{:});
 
     % --- Shannon entropy ---
     totalMass = sum(t(:));
@@ -652,15 +747,23 @@ function HCell = localEntropyDensityList(densCell, nvArgs)
     n = numel(densCell);
     HCell = cell(1, n);
 
-    % Re-pack the name-value defaults so we can pass them through.
-    nvPairs = localPackNVPairs(nvArgs);
-
+    % First pass: validate that every entry is a struct. We do this
+    % up-front (before any compute) so that the listNonStruct error
+    % surfaces deterministically regardless of where the bad entry
+    % sits, and ahead of the grid-required check that fires on the
+    % recursive entropyExpTens call for the first valid entry.
     for i = 1:n
         if ~isstruct(densCell{i})
             error('entropyExpTens:listNonStruct', ...
                 ['entropyExpTens (list mode): cell entries must be density ' ...
                  'structs from buildExpTens; entry %d is not a struct.'], i);
         end
+    end
+
+    % Re-pack the name-value defaults so we can pass them through.
+    nvPairs = localPackNVPairs(nvArgs);
+
+    for i = 1:n
         HCell{i} = entropyExpTens(densCell{i}, nvPairs{:});
     end
 end
@@ -797,10 +900,19 @@ function nvPairs = localPackNVPairs(nvArgs)
 %
 %   Used by the LIST and BATCHED-RAW dispatch helpers to forward the
 %   name-value arguments to recursive entropyExpTens calls.
+%
+%   The 'normalize' field is omitted: it is an internal-only flag set
+%   from the user-facing 'method' value (true for 'normalized', false
+%   for the other three methods), not a name-value pair the user is
+%   allowed to supply. Recursive entropyExpTens calls would otherwise
+%   see 'normalize' in varargin and trip the v2.2 migration error.
 
     nvPairs = {};
     fns = fieldnames(nvArgs);
     for i = 1:numel(fns)
+        if strcmp(fns{i}, 'normalize')
+            continue;
+        end
         nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
     end
 end
@@ -808,6 +920,698 @@ end
 
 % =========================================================================
 %  Rényi-2 (collision) entropy via orbit-Möbius IP
+% =========================================================================
+
+% =========================================================================
+%  Bin-integration core (cell masses via per-axis Phi-differences)
+% =========================================================================
+%
+% The categorical-path discretization for 'shannon' and 'normalized':
+% the discrete pmf entry at grid cell j is the actual probability mass
+% inside that cell, int_{cell_j} f dx, not the density sample f(x_j) * Delta.
+% For a Gaussian-mixture density with diagonal kernel covariance in the
+% effective grid coordinates --- which holds for isRel=false (every group
+% absolute) --- the cell mass factorizes into a product of per-axis erf
+% differences, summed over tuples. Mirrors the Python implementation in
+% python/mpt/entropy.py for bit-for-bit parity.
+%
+% n_tuple_entropy reaches this path by differencing events externally
+% (differenceEvents + bindEvents) and then building an absolute
+% (isRel=false) MAET, so its sigma is the effective sigma_eff already.
+% Relative-mode direct calls (isRel=true) fall back to point-evaluation,
+% which agrees with bin-integration to ~1e-4 on the fine grids relative-
+% mode use-cases require; the full multivariate-normal box treatment is
+% a v2.3 item.
+
+
+function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
+%LOCALPHIDIFFAXIS  Non-periodic per-axis erf-difference cell mass.
+%
+%   Returns an (nJ x nCells) array with entry [t, j] equal to
+%   Phi((edgesHi(j) - centres(t))/sigma) - Phi((edgesLo(j) -
+%   centres(t))/sigma), the 1-D Gaussian probability mass in cell j
+%   for the tuple-slot at centres(t).
+
+    centres = centres(:);   % (nJ x 1)
+    edgesLo = edgesLo(:).'; % (1 x nCells)
+    edgesHi = edgesHi(:).';
+    inv = 1.0 / (sigma * sqrt(2));
+    zHi = (edgesHi - centres) * inv;   % (nJ x nCells), broadcast
+    zLo = (edgesLo - centres) * inv;
+    Mat = 0.5 * (erf(zHi) - erf(zLo));
+end
+
+
+function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, period, truncationSigmas)
+%LOCALPHIDIFFAXISPERIODIC  Periodic per-axis erf-difference cell mass.
+%
+%   Sums wraps of the Gaussian across the period grid for wraps within
+%   truncationSigmas of every centre. period is the group period;
+%   edgesLo/edgesHi partition one full period.
+
+    centres = centres(:);
+    edgesLo = edgesLo(:).';
+    edgesHi = edgesHi(:).';
+    inv = 1.0 / (sigma * sqrt(2));
+    nWraps = ceil(truncationSigmas * sigma / period) + 1;
+    nJ = numel(centres);
+    nCells = numel(edgesLo);
+    Mat = zeros(nJ, nCells);
+    for w = -nWraps:nWraps
+        shift = double(w) * period;
+        zHi = (edgesHi - centres - shift) * inv;
+        zLo = (edgesLo - centres - shift) * inv;
+        Mat = Mat + 0.5 * (erf(zHi) - erf(zLo));
+    end
+end
+
+
+function [lo, hi] = localAxisEdges(ax, isPer, period)
+%LOCALAXISEDGES  Cell edges for a 1-D axis.
+%
+%   For a periodic group, ax is linspace(0, P, n+1) without its last
+%   point, and each cell is symmetric of width P/n around its grid
+%   point. For non-periodic, the interior cells are bounded by mid-
+%   points between adjacent grid points; the boundary cells extend by
+%   half-step on each side. Returns (lo, hi) arrays both shaped like
+%   ax.
+
+    ax = double(ax(:).');
+    n = numel(ax);
+    if n < 2
+        error('localAxisEdges:tooFewPoints', ...
+              'Each axis needs >= 2 points (got %d).', n);
+    end
+    if isPer
+        step = double(period) / double(n);
+        lo = ax - step / 2.0;
+        hi = ax + step / 2.0;
+        return;
+    end
+    mids = 0.5 * (ax(1:end-1) + ax(2:end));
+    step0 = double(ax(2) - ax(1));
+    stepN = double(ax(end) - ax(end-1));
+    lo = [ax(1) - step0/2.0, mids];
+    hi = [mids, ax(end) + stepN/2.0];
+end
+
+
+function out = localContractTupleAxes(wJ, Mats)
+%LOCALCONTRACTTUPLEAXES  Einsum-equivalent reduction sum_t w(t) * prod_d Mats{d}(t, n_d).
+%
+%   Mats is a 1-by-D cell of (nJ x n_d) per-axis matrices. wJ is
+%   (nJ x 1). Returns a flat column vector of length prod_d n_d.
+%
+%   Implementation notes for memory and performance.
+%
+%   For D=1 and D=2 the contraction reduces to a matrix-vector and a
+%   matrix-matrix product respectively, with no t-dependent intermediate.
+%
+%   For D>=3 the contraction necessarily holds a t-indexed tensor
+%   until the final sum over t (since every Mats{d} carries the t
+%   index). Materialising the full (nJ x prod n_d) intermediate would
+%   blow up for densities with large nJ at moderate dim (e.g. nJ=6840
+%   at dim=3 N=100 -> ~51 GB). We therefore process t in chunks, with
+%   the chunk size chosen so the per-chunk working set stays bounded.
+%   Python's numpy.einsum handles the same case via C-level iterator
+%   accumulation without an explicit intermediate; the t-chunking
+%   here is the MATLAB-side equivalent of that bounded-memory
+%   strategy.
+%
+%   Layout: the flat output uses MATLAB column-major ordering over
+%   (n_1, n_2, ..., n_D) i.e. n_1 varies fastest. This differs from
+%   Python's numpy C-order, but the entropy consumer normalises and
+%   sums over cells which is invariant to ordering, so cross-language
+%   parity at the entropy value level holds. For symmetric output
+%   tensors (e.g. absolute-mode densities under the standard
+%   permutation-symmetric build) the orderings happen to coincide
+%   element-wise as well.
+
+    D = numel(Mats);
+    nJ = numel(wJ);
+    if D == 0
+        out = sum(wJ);
+        return;
+    end
+
+    nDims = zeros(1, D);
+    for d = 1:D
+        nDims(d) = size(Mats{d}, 2);
+    end
+
+    % Fast paths for D <= 2: standard BLAS-friendly matrix products,
+    % no t-dependent intermediate.
+    if D == 1
+        out = (wJ(:).' * Mats{1}).';
+        return;
+    end
+    if D == 2
+        % cells(a, b) = sum_t wJ(t) * M1(t,a) * M2(t,b)
+        %             = M1.' * (wJ .* M2)
+        cells2 = Mats{1}.' * (wJ(:) .* Mats{2});
+        out = cells2(:);
+        return;
+    end
+
+    % D >= 3: t-chunked contraction.
+    prodN = prod(nDims);
+    MAX_BYTES = 2^28;   % 256 MB per-chunk working set
+    B = max(1, floor(MAX_BYTES / (max(prodN, 1) * 8)));
+    B = min(B, nJ);
+
+    out = zeros(prodN, 1);
+    wJcol = wJ(:);
+    for tb = 1:B:nJ
+        te = min(tb + B - 1, nJ);
+        idx = tb:te;
+        Bt = numel(idx);
+
+        % Build chunk's (Bt x prodN) accumulator.
+        acc = wJcol(idx) .* Mats{1}(idx, :);    % (Bt x n_1)
+        for d = 2:D
+            nD_ = nDims(d);
+            nAcc = size(acc, 2);
+            acc = reshape(acc, [Bt, nAcc, 1]) ...
+                .* reshape(Mats{d}(idx, :), [Bt, 1, nD_]);
+            acc = reshape(acc, [Bt, nAcc * nD_]);
+        end
+
+        % Sum over the chunk's tuple axis and accumulate.
+        out = out + sum(acc, 1).';
+    end
+end
+
+
+function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
+%LOCALCELLMASSESSAABSOLUTE  Cell masses for an ExpTensDensity (SA path).
+%
+%   Returns a flat (prod_d n_cells x 1) column vector of integrated
+%   cell masses int_{cell} f dx via per-axis erf differences. Restricted
+%   to isRel=false; the caller is responsible for routing isRel=true
+%   elsewhere. Mirrors Python's _cell_masses_sa_absolute exactly so
+%   numerical outputs match across languages.
+
+    if logical(T.isRel)
+        error('entropyExpTens:cellMassesSANotAbsolute', ...
+            'localCellMassesSAAbsolute: isRel=true is not supported by this path.');
+    end
+    dim = double(T.dim);
+    sig = double(T.sigma);
+    isPer = logical(T.isPer);
+    per = double(T.period);
+    if ~isPer
+        per = 0.0;
+    end
+    C = double(T.Centres);         % (dim x nJ) when isRel=false
+    wJ = double(T.wJ(:));
+
+    [lo, hi] = localAxisEdges(ax, isPer, per);
+
+    if dim == 0
+        cells = sum(wJ);
+        return;
+    end
+
+    Mats = cell(1, dim);
+    for d = 1:dim
+        if isPer
+            Mats{d} = localPhiDiffAxisPeriodic(C(d, :), lo, hi, sig, per, truncationSigmas);
+        else
+            Mats{d} = localPhiDiffAxis(C(d, :), lo, hi, sig);
+        end
+    end
+    cells = localContractTupleAxes(wJ, Mats);
+end
+
+
+function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
+%LOCALCELLMASSESMAABSOLUTE  Cell masses for a MaetDensity (MA path).
+%
+%   Returns a flat column vector of integrated cell masses on the
+%   Cartesian-product grid built from axes (a 1-by-D cell of 1-D
+%   linspaces). Restricted to absolute-mode densities (every group
+%   isRel=false). Mirrors Python's _cell_masses_ma_absolute.
+
+    if any(logical(dens.isRel))
+        error('entropyExpTens:cellMassesMANotAbsolute', ...
+            ['localCellMassesMAAbsolute: relative-mode densities are ' ...
+             'not supported by this path. Route isRel=true via point-' ...
+             'evaluation.']);
+    end
+
+    A = double(dens.nAttrs);
+    dimPer = double(dens.dimPerAttr);
+    groupOf = double(dens.groupOfAttr);
+    sigmaG = double(dens.sigma);
+    isPerG = logical(dens.isPer);
+    periodG = double(dens.period);
+    Centres = dens.Centres;        % 1-by-A cell; each (dim_per(a) x nJ)
+    wJ = double(dens.wJ(:));
+
+    Mats = {};
+    axisD = 0;
+    for a = 1:A
+        da = double(dimPer(a));
+        g = double(groupOf(a));
+        sig = double(sigmaG(g));
+        isPerA = isPerG(g);
+        if isPerA
+            perA = double(periodG(g));
+        else
+            perA = 0.0;
+        end
+        Ca = double(Centres{a});  % (da x nJ)
+        for sub = 1:da
+            axisD = axisD + 1;
+            ax = axes{axisD};
+            [lo, hi] = localAxisEdges(ax, isPerA, perA);
+            cents = Ca(sub, :);
+            if isPerA
+                Mats{axisD} = localPhiDiffAxisPeriodic(cents, lo, hi, sig, perA, truncationSigmas); %#ok<AGROW>
+            else
+                Mats{axisD} = localPhiDiffAxis(cents, lo, hi, sig); %#ok<AGROW>
+            end
+        end
+    end
+
+    D = axisD;
+    if D == 0
+        cells = sum(wJ);
+        return;
+    end
+    cells = localContractTupleAxes(wJ, Mats);
+end
+
+
+function methodCanon = localCanonicalizeMethod(methodRaw)
+%LOCALCANONICALIZEMETHOD  Validate and canonicalize the 'method' kwarg.
+%
+%   Accepts 'normalised' as an alias for 'normalized'. Errors for
+%   unrecognised names.
+
+    if ~(ischar(methodRaw) || isstring(methodRaw))
+        error('entropyExpTens:badMethodType', ...
+              '''method'' must be a string; got %s.', class(methodRaw));
+    end
+    m = lower(strtrim(char(methodRaw)));
+    if strcmp(m, 'normalised')
+        m = 'normalized';
+    end
+    valid = {'differential', 'shannon', 'normalized', 'renyi2'};
+    if ~any(strcmp(m, valid))
+        error('entropyExpTens:badMethod', ...
+              ['''method'' must be one of ' ...
+               '{''differential'', ''shannon'', ''normalized'', ' ...
+               '''renyi2''} (or the British alias ''normalised''); ' ...
+               'got ''%s''.'], methodRaw);
+    end
+    methodCanon = m;
+end
+
+
+function localRaiseIfAnySigmaZero(dens, methodName)
+%LOCALRAISEIFANYSIGMAZERO  Reject sigma=0 for continuous methods.
+%
+%   The continuous-form entropies ('differential', 'renyi2') diverge
+%   at sigma=0. Reads sigma from any density-struct form
+%   (ExpTensDensity, MaetDensity, WindowedMaetDensity).
+
+    if isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity')
+        sigma = dens.dens.sigma;
+    else
+        sigma = dens.sigma;
+    end
+    if ~isempty(sigma) && any(double(sigma(:)) <= 0)
+        error('entropyExpTens:sigmaZeroNotSupported', ...
+              ['method=''%s'' requires sigma > 0 for every group ' ...
+               '(the continuous form diverges at sigma=0). For ' ...
+               'categorical sigma=0 entropy, use method=''shannon'' ' ...
+               'or method=''normalized'' on a category grid.'], ...
+              methodName);
+    end
+end
+
+
+function localRequireExplicitGrid(nPointsPerDim)
+%LOCALREQUIREEXPLICITGRID  Require explicit grid for discrete methods.
+%
+%   The previous toolbox-wide default of 1200 has been dropped, since
+%   the right grid resolution is density- and sigma-dependent. Called
+%   from each compute-path branch of the Shannon dispatch (after
+%   input-form validation, so the more-specific input-form errors
+%   surface first when both apply).
+
+    if isempty(nPointsPerDim)
+        error('entropyExpTens:gridRequired', ...
+              ['Discrete entropy (method=''shannon'' or ' ...
+               '''normalized'') requires an explicit ' ...
+               '''nPointsPerDim'' (the previous toolbox-wide default ' ...
+               'of 1200 has been dropped, since the right grid ' ...
+               'resolution is density- and sigma-dependent). For a ' ...
+               'grid-free continuous quantity, use ' ...
+               'method=''differential'' (adaptive) or ' ...
+               'method=''renyi2'' (analytical).']);
+    end
+end
+
+
+% =========================================================================
+%  Adaptive differential entropy (method='differential')
+% =========================================================================
+%
+% h_hat = H_disc + log_b(cell_volume), converged on a per-axis nested-
+% grid refinement to a truncation-sigma-anchored tolerance. The span
+% auto-derives per group from `centres +/- truncation_sigmas * sigma`
+% (non-periodic) or `[0, period]` (periodic). The initial resolution
+% is ~2 samples per sigma per axis; N doubles each iteration until
+% successive Richardson-extrapolated estimates fall below tolerance,
+% the differences stop decreasing (numerical-floor guard), or
+% gridLimit is hit. Mirrors the Python implementation in
+% python/mpt/entropy.py.
+
+
+function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
+%LOCALENTROPYDIFFERENTIALDISPATCH  Adaptive differential entropy dispatch.
+%
+%   Single-density input only (scalar density struct, raw scalar SA,
+%   or raw scalar MA). List and batched input forms raise informative
+%   errors. WindowedMaetDensity is not yet supported.
+
+    nPos = numel(posArgs);
+    firstArg = posArgs{1};
+
+    % --- Reject unsupported input forms early ---
+    if iscell(firstArg) && ~isempty(firstArg) && isstruct(firstArg{1})
+        error('entropyExpTens:differentialListNotSupported', ...
+            ['method=''differential'' does not yet support list ' ...
+             'input. Apply it to each density individually.']);
+    end
+    if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
+        error('entropyExpTens:differentialBatchedNotSupported', ...
+            ['method=''differential'' does not yet support raw SA ' ...
+             'batched (2-D) input. Pass each chord row individually, ' ...
+             'or pre-build a density struct.']);
+    end
+
+    % --- Resolve input to a density struct ---
+    if isstruct(firstArg) && isfield(firstArg, 'tag')
+        if nPos > 1
+            error('entropyExpTens:extraArgs', ...
+                ['When a precomputed density struct is passed, no ' ...
+                 'further positional arguments may be provided.']);
+        end
+        switch firstArg.tag
+            case 'ExpTensDensity'
+                dens = firstArg;
+                isSA = true;
+            case 'MaetDensity'
+                dens = firstArg;
+                isSA = false;
+            case 'WindowedMaetDensity'
+                error('entropyExpTens:differentialWindowedNotSupported', ...
+                    ['method=''differential'' with ' ...
+                     'WindowedMaetDensity is not yet implemented.']);
+            otherwise
+                error('entropyExpTens:unknownTag', ...
+                    'Unknown density struct tag: %s.', firstArg.tag);
+        end
+    elseif iscell(firstArg)
+        % MA raw args.
+        if nPos ~= 8
+            error('entropyExpTens:wrongArgCountMA', ...
+                ['Multi-attribute raw call expects 8 positional ' ...
+                 'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                 'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+        end
+        dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, posArgs{8}, ...
+                            'verbose', false);
+        isSA = false;
+    else
+        % SA raw args.
+        if nPos ~= 7
+            error('entropyExpTens:wrongArgCountSA', ...
+                ['Single-attribute raw call expects 7 positional ' ...
+                 'arguments (p, w, sigma, r, isRel, isPer, period); ' ...
+                 'got %d.'], nPos);
+        end
+        p      = posArgs{1};
+        w      = posArgs{2};
+        sigma  = posArgs{3};
+        r      = posArgs{4};
+        isRel  = posArgs{5};
+        isPer  = posArgs{6};
+        period = posArgs{7};
+        if ~isempty(nvArgs.spectrum)
+            if ~iscell(nvArgs.spectrum)
+                error('entropyExpTens:badSpectrum', ...
+                    '''spectrum'' value must be a cell array.');
+            end
+            [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
+        end
+        dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, ...
+                            'verbose', false);
+        isSA = true;
+    end
+
+    % --- sigma > 0 guard ---
+    localRaiseIfAnySigmaZero(dens, 'differential');
+
+    % --- truncation_sigmas fallback (match cell-mass internal default) ---
+    if isempty(nvArgs.truncationSigmas)
+        ts = 6.0;
+    else
+        ts = double(nvArgs.truncationSigmas);
+    end
+
+    H = localDifferentialAdaptive(dens, isSA, nvArgs.base, ts, ...
+                                  nvArgs.gridLimit, nvArgs.verbose);
+end
+
+
+function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
+%LOCALDIFFERENTIALADAPTIVE  Nested-grid h_hat with Richardson extrapolation.
+
+    % truncation_sigmas controls kernel truncation, where Inf is valid
+    % ("no truncation"). The differential span and tolerance anchoring
+    % need a finite extent, so cap any non-finite ts at the sensible
+    % default 6.0 -- this matches the cell-mass integration's internal
+    % default and keeps span/tolerance well-defined when the user (or
+    % mptDefaults('truncationSigmas')) is set to Inf.
+    if isfinite(ts)
+        tsSpan = ts;
+    else
+        tsSpan = 6.0;
+    end
+    tol = max(exp(-0.5 * tsSpan * tsSpan), 1e-12);
+    maxIter = 10;
+
+    if isSA
+        [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(dens, tsSpan);
+    else
+        [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, tsSpan);
+    end
+
+    N = max(n0, 4);
+    hHistory = [];
+    rHistory = [];
+    logB = log(base);
+    H = NaN;
+
+    for it = 1:maxIter
+        if dim > 0
+            total = double(N) ^ double(dim);
+            if total > gridLimit
+                if isempty(hHistory)
+                    error('entropyExpTens:differentialGridLimit', ...
+                        ['method=''differential'' needs gridLimit ' ...
+                         '>= %g for an initial N=%d at dim=%d; got ' ...
+                         'gridLimit=%g. Increase gridLimit, or use ' ...
+                         'method=''renyi2'' (no grid).'], ...
+                        total, N, dim, gridLimit);
+                end
+                if verbose
+                    warning('entropyExpTens:differentialGridLimitHit', ...
+                        ['method=''differential'' hit gridLimit=%g ' ...
+                         'at N=%d (dim=%d); returning h_hat from the ' ...
+                         'last feasible grid -- may not be fully ' ...
+                         'converged.'], gridLimit, N, dim);
+                end
+                break;
+            end
+        end
+
+        % Compute H_disc on this grid via the existing Shannon path.
+        nvSub = struct( ...
+            'spectrum',          {{}}, ...
+            'method',            'shannon', ...
+            'normalize',         false, ...
+            'base',              base, ...
+            'nPointsPerDim',     N, ...
+            'xMin',              NaN, ...
+            'xMax',              NaN, ...
+            'gridLimit',         gridLimit, ...
+            'truncationSigmas',  ts, ...
+            'kernelPrecision',   [], ...
+            'verbose',           false);
+        if isSA
+            nvSub.xMin = xMin;
+            nvSub.xMax = xMax;
+            HDisc = localEntropySA(dens, nvSub);
+        else
+            nvSub.xMin = xMinG;
+            nvSub.xMax = xMaxG;
+            HDisc = localEntropyMA(dens, nvSub);
+        end
+
+        % log_b(Delta_d) summed across axes.
+        % Periodic axes: Delta = W/N (linspace [0,P) at step P/N).
+        % Non-periodic: Delta = W/(N-1) (linspace endpoint-inclusive,
+        % N-1 intervals).
+        logCellVol = 0;
+        for d = 1:dim
+            if perAxisPer(d)
+                delta = perAxisW(d) / N;
+            else
+                delta = perAxisW(d) / (N - 1);
+            end
+            logCellVol = logCellVol + log(delta) / logB;
+        end
+        hHat = double(HDisc) + logCellVol;
+        hHistory(end+1) = hHat; %#ok<AGROW>
+
+        if numel(hHistory) >= 2
+            hPrev = hHistory(end-1);
+            hCurr = hHistory(end);
+            % Direct h_hat convergence (1-D regime: fast).
+            if abs(hCurr - hPrev) < tol
+                H = hCurr;
+                return;
+            end
+            % Richardson extrapolation: O(Delta^2) -> O(Delta^4).
+            R = hCurr + (hCurr - hPrev) / 3.0;
+            rHistory(end+1) = R; %#ok<AGROW>
+            if numel(rHistory) >= 2
+                dR = abs(rHistory(end) - rHistory(end-1));
+                if dR < tol
+                    H = rHistory(end);
+                    return;
+                end
+                if numel(rHistory) >= 3
+                    dRPrev = abs(rHistory(end-1) - rHistory(end-2));
+                    if dRPrev > 0 && dR >= 0.95 * dRPrev
+                        % Floor reached.
+                        H = rHistory(end);
+                        return;
+                    end
+                end
+            end
+        end
+        N = N * 2;
+    end
+
+    if ~isempty(rHistory)
+        H = rHistory(end);
+    elseif ~isempty(hHistory)
+        H = hHistory(end);
+    end
+end
+
+
+function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(T, ts)
+%LOCALDIFFSPANSSA  Auto-spans for an ExpTensDensity.
+
+    sig = double(T.sigma);
+    isPer = logical(T.isPer);
+    per = double(T.period);
+    dim = double(T.dim);
+
+    if isPer
+        xMin = NaN;
+        xMax = NaN;
+        W = per;
+    else
+        c = double(T.p(:));
+        cMin = min(c);
+        cMax = max(c);
+        xMin = cMin - ts * sig;
+        xMax = cMax + ts * sig;
+        W = xMax - xMin;
+    end
+    perAxisW = repmat(W, 1, dim);
+    perAxisPer = repmat(isPer, 1, dim);
+    n0 = max(4, ceil(2.0 * W / sig));
+end
+
+
+function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, ts)
+%LOCALDIFFSPANSMA  Auto-spans for a MaetDensity.
+
+    G = double(dens.nGroups);
+    A = double(dens.nAttrs);
+    dimPer = double(dens.dimPerAttr);
+    groupOf = double(dens.groupOfAttr);
+    sigmaG = double(dens.sigma);
+    isPerG = logical(dens.isPer);
+    periodG = double(dens.period);
+    pAttr = dens.pAttr;
+
+    xMinG = nan(1, G);
+    xMaxG = nan(1, G);
+    n0PerGroup = zeros(1, G);
+
+    for g = 1:G
+        sig = sigmaG(g);
+        if isPerG(g)
+            Wg = periodG(g);
+        else
+            % Collect centres from every attribute in this group.
+            cFlat = [];
+            for a = 1:A
+                if groupOf(a) == g
+                    Pa = double(pAttr{a});
+                    cFlat = [cFlat; Pa(:)]; %#ok<AGROW>
+                end
+            end
+            if isempty(cFlat)
+                cMin = 0;
+                cMax = 0;
+            else
+                cMin = min(cFlat);
+                cMax = max(cFlat);
+            end
+            xMinG(g) = cMin - ts * sig;
+            xMaxG(g) = cMax + ts * sig;
+            Wg = xMaxG(g) - xMinG(g);
+        end
+        n0PerGroup(g) = max(4, ceil(2.0 * Wg / sig));
+    end
+
+    perAxisW = [];
+    perAxisPer = [];
+    for a = 1:A
+        g = groupOf(a);
+        if isPerG(g)
+            Wa = periodG(g);
+        else
+            Wa = xMaxG(g) - xMinG(g);
+        end
+        for j = 1:dimPer(a)
+            perAxisW(end+1) = Wa; %#ok<AGROW>
+            perAxisPer(end+1) = isPerG(g); %#ok<AGROW>
+        end
+    end
+    dim = sum(dimPer);
+    if isempty(n0PerGroup)
+        n0 = 4;
+    else
+        n0 = max(n0PerGroup);
+    end
+end
+
+
+% =========================================================================
+%  localEntropyRenyi2Dispatch — input-form resolution for Rényi-2
 % =========================================================================
 
 function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
@@ -846,9 +1650,11 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         end
         switch firstArg.tag
             case 'ExpTensDensity'
+                localRaiseIfAnySigmaZero(firstArg, 'renyi2');
                 H = localRenyi2SA(firstArg, base);
                 return;
             case 'MaetDensity'
+                localRaiseIfAnySigmaZero(firstArg, 'renyi2');
                 H = localRenyi2MA(firstArg, base);
                 return;
             case 'WindowedMaetDensity'
@@ -874,6 +1680,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
                             posArgs{5}, posArgs{6}, posArgs{7}, posArgs{8}, ...
                             'verbose', false);
+        localRaiseIfAnySigmaZero(dens, 'renyi2');
         H = localRenyi2MA(dens, base);
         return;
     end
@@ -903,6 +1710,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % buildExpTens is cheap in lazy mode; we only read cheap fields.
     dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+    localRaiseIfAnySigmaZero(dens, 'renyi2');
     H = localRenyi2SA(dens, base);
 end
 

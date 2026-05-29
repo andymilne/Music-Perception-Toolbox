@@ -108,7 +108,7 @@ def test_ma_cos_sim_orbit_does_not_materialise():
 
 def test_ma_renyi2_does_not_materialise():
     T = _make_ma()
-    entropy_exp_tens(T, method="renyi2", normalize=False)
+    entropy_exp_tens(T, method="renyi2")
     assert T.materialised is False
 
 

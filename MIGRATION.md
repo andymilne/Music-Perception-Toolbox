@@ -37,11 +37,87 @@ For analyses on cyclic event sequences (e.g. looped rhythms) that benefit from b
 
 Numerically equivalent v2.1 / v2.2 outputs on the standard `differenceEvents` → `buildExpTens` → MAET-consumer pipeline: the v2.1 wrap was to the shortest signed arc on $[-P/2, P/2)$, while v2.2 leaves the signed subtraction unwrapped; the kernel applies the same mod-$P$ wrap on either input at evaluation time, so downstream densities and all MAET-consumer outputs (cosine similarities, entropies, evaluations) are identical at floating-point precision. Only direct consumers of the pre-MAET values themselves see the wrapping difference, and the toolbox does not ship any such consumer.
 
+### `entropyExpTens` / `entropy_exp_tens` four-method API and `n_points_per_dim` default (breaking)
+
+The entropy API has been refactored into four distinct methods — `'shannon'` (raw discrete), `'normalized'` / `'normalised'` (the explicit name for $H / \log_b N$), `'differential'` (adaptive continuous $\hat h$), `'renyi2'` (analytical Rényi-2) — and the toolbox-wide default of `n_points_per_dim=1200` for `entropyExpTens` has been dropped. Two breaking elements:
+
+1. **`n_points_per_dim` is now required for the discrete methods** (`'shannon'`, `'normalized'`). A missing value at these methods raises `TypeError` with a message pointing to either supplying an explicit grid or switching to a grid-free method (`'differential'` or `'renyi2'`). The continuous methods ignore `n_points_per_dim` and need no migration.
+
+   ```python
+   # v2.1 — implicit grid via the 1200 default
+   H = entropy_exp_tens(dens)
+
+   # v2.2 — either pass the grid explicitly
+   H = entropy_exp_tens(dens, n_points_per_dim=1200)
+   # ... or switch to the grid-free continuous form
+   h = entropy_exp_tens(dens, method='differential')
+   ```
+
+2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.1 default behaviour (the Pielou-style ratio in $[0, 1]$, equivalent to the values reported in Milne et al. 2017 and Smit et al. 2019), pass `method='normalized'`:
+
+   ```python
+   # v2.1 default (normalised Shannon in [0, 1])
+   H = spectral_entropy(p, sigma=12)
+
+   # v2.2 — to reproduce the v2.1 default exactly
+   H = spectral_entropy(p, sigma=12, method='normalized')
+
+   # v2.2 default — the principled grid-independent differential entropy
+   h = spectral_entropy(p, sigma=12)
+   ```
+
+   The semantic shift is intentional. Differential entropy $\hat h$ is grid-independent and compares densities of different cardinality or spread on the same scale, whereas the normalised Shannon ratio is grid-dependent (its denominator $\log_b N$ depends on the discretisation). Cross-density comparisons published in the toolbox's existing literature (Milne et al. 2017, Smit et al. 2019) used the normalised form and are reproduced by `method='normalized'`; new analyses should generally prefer `method='differential'`.
+
+### `normalize` kwarg removed from `entropyExpTens`, `spectralEntropy`, and `nTupleEntropy`
+
+The v2.1 `normalize` boolean is **removed** from all three entropy entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.1 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of the three entry points raises a migration-error exception identifying the calling function and naming the replacement methods.
+
+```python
+# Python — v2.1
+H = entropy_exp_tens(T, normalize=False)         # raw
+H = entropy_exp_tens(T)                          # H/log_b(N) (default)
+H = entropy_exp_tens(T, method='renyi2',
+                     normalize=False)            # renyi2 (required kwarg)
+H, _ = n_tuple_entropy(p, period, n=2,
+                       normalize=False)          # raw
+H_spec = spectral_entropy(p, sigma=12,
+                          normalize=False)       # raw
+
+# Python — v2.2
+H = entropy_exp_tens(T, method='shannon')        # raw
+H = entropy_exp_tens(T, method='normalized')     # H/log_b(N)
+H = entropy_exp_tens(T, method='renyi2')         # renyi2 (no normalize needed)
+H, _ = n_tuple_entropy(p, period, n=2,
+                       method='shannon')         # raw
+H_spec = spectral_entropy(p, sigma=12,
+                          method='shannon')      # raw
+```
+
+```matlab
+% MATLAB — v2.1
+H = entropyExpTens(T, 'normalize', false);                       % raw
+H = entropyExpTens(T);                                           % H/log_b(N)
+H = entropyExpTens(T, 'method', 'renyi2', 'normalize', false);   % renyi2
+[H, tuples] = nTupleEntropy(p, period, 2, 'normalize', false);   % raw
+H_spec = spectralEntropy(p, [], 12, 'normalize', false);         % raw
+
+% MATLAB — v2.2
+H = entropyExpTens(T, 'method', 'shannon');                      % raw
+H = entropyExpTens(T, 'method', 'normalized');                   % H/log_b(N)
+H = entropyExpTens(T, 'method', 'renyi2');                       % renyi2
+[H, tuples] = nTupleEntropy(p, period, 2, 'method', 'shannon');  % raw
+H_spec = spectralEntropy(p, [], 12, 'method', 'shannon');        % raw
+```
+
+The continuous methods (`'differential'`, `'renyi2'`) are rejected at `sigma=0` with an explicit error rather than silently producing $-\infty$.
+
+Note that the **default** of `entropy_exp_tens` / `entropyExpTens` is still `method='shannon'` but the semantics of `shannon` have changed: v2.1's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v2.2's `method='shannon'` returns raw $H$. To recover the v2.1 default value pass `method='normalized'` explicitly. The defaults of `n_tuple_entropy` and `spectral_entropy` already give the v2.1 default value without changes (`'normalized'` and `'differential'` respectively; the latter gives the same ordering as the v2.1 normalised Shannon for consonance work, on a different scale).
+
 ### What's new at the surface
 
 - **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.1 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values: `'bulger'` (v2.1 decomposition; IP-only), `'mobius'` (new in v2.2; IP, eval, total mass), `'centres'` (eval only), `'direct'` (small problems). The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
 
-- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 / v2.1 (the inputs were both already analytical) but is newly exposed as a user-facing option in v2.2 and made efficient at high $r$ / $K$ via the Möbius method. Default remains `method='shannon'` (v2.1 numerical-grid behaviour, unchanged — Shannon differential entropy has no closed form in any version). `normalize=True` with `method='renyi2'` raises `NotImplementedError` for now (the natural normaliser yields a $(-\infty, 1]$ range that doesn't compose with Shannon's $[0, 1]$); divide externally if needed.
+- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 / v2.1 (the inputs were both already analytical) but is newly exposed as a user-facing option in v2.2 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
 
 - **`cancellationThreshold`** keyword on `cosSimExpTens` (default `1e-12`). Guards the Möbius method's alternating partition sum against catastrophic cancellation; if the cancellation ratio drops below the threshold, the dispatcher falls back to Bulger's method. Most callers will not need to touch it.
 

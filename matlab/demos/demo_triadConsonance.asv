@@ -40,11 +40,11 @@
 % Comment out or remove entries to skip them. The subplot grid adapts
 % automatically to the number of selected measures.
 plotMeasures = {
-    'tmplMax'     % Template harmonicity: hMax (Milne 2013)
-    'tmplEnt'     % Template harmonicity: -hEntropy (Harrison 2020)
-    'tensor'      % Tensor harmonicity (Smit et al. 2019)
+    % 'tmplMax'     % Template harmonicity: hMax (Milne 2013)
+    % 'tmplEnt'     % Template harmonicity: -hEntropy (Harrison 2020)
+    % 'tensor'      % Tensor harmonicity (Smit et al. 2019)
     'specEnt'     % -Spectral entropy (Milne et al. 2017)
-    'rough'       % -Roughness (Sethares 1993)
+    % 'rough'       % -Roughness (Sethares 1993)
 };
 
 % Grid
@@ -226,23 +226,19 @@ end
 % --- Spectral entropy ---
 % One spectralEntropy call on a stacked chord matrix.
 %
-% Method choice: we pass 'method', 'normalized' explicitly to
-% reproduce the consonance ordering and absolute values reported in
-% Smit et al. (2019) and Milne et al. (2017), which use the
-% normalised Shannon entropy H / log_b(N) in [0, 1]. The toolbox
-% default for spectralEntropy is 'differential' (adaptive nested-
-% grid differential entropy h_hat) which gives the same ordering of
-% chords by consonance but in different units and at higher per-call
-% cost (the adaptive evaluator doubles the grid to convergence,
-% which is several times slower than a single discrete pass).
-% 'method', 'renyi2' (analytical Rényi-2 via the inner-product /
-% Möbius machinery) is also available; it agrees on ordering but,
-% like differential, is in different units.
+% Method choice: we use the default method='shannon'. spectralEntropy
+% also supports method='renyi2' (analytical Rényi-2 / collision entropy
+% via the inner-product / Möbius form used by entropyExpTens; requires
+% 'normalize', false). For consonance ordering both methods give the
+% same monotonic ranking of chords, but Shannon is the established
+% choice in the consonance literature (e.g. Smit et al. 2019, Milne
+% et al. 2017) and is used for this triad comparison.
 if doSpecEnt
     chordMatSE = [zeros(nUpper, 1), int1Lin, int2Lin];
     t0 = tic;
     specEntLin = spectralEntropy(chordMatSE, [], sigma_ent, ...
-        'spectrum', spec_ent, 'method', 'normalized', 'verbose', true);
+        'spectrum', spec_ent, 'verbose', true, ...
+        'method', 'diff');
     fprintf('  Spectral entropy:     %.2f s actual (%d triads, batched)\n', ...
         toc(t0), nUpper);
     specEnt(linIdxUpper) = specEntLin;

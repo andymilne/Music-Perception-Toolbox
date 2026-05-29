@@ -114,7 +114,7 @@ def test_golden_sa_renyi2_abs_r2():
     w = np.array([1.0, 1.0, 1.0])
     H = entropy_exp_tens(
         p, w, 20.0, 2, False, False, 0.0,
-        method='renyi2', normalize=False, base=2,
+        method='renyi2', base=2,
     )
     GOLDEN = 14.88031481996820
     assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
@@ -139,7 +139,7 @@ def test_golden_ma_renyi2():
         [pitch, time], None,
         [12.0, 0.05], [3, 1], [0, 1],
         [False, False], [True, False], [1200.0, 0.0],
-        method='renyi2', normalize=False, base=2,
+        method='renyi2', base=2,
     )
     GOLDEN = 21.64284222436801
     assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
@@ -171,6 +171,83 @@ def test_golden_eval_exp_tens_rel():
                       verbose=False)
     GOLDEN = 2.07507623760499e-06
     assert abs(v[0] - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
+
+
+# ----------------------------------------------------------------------
+# Case H: SA Shannon entropy r=2, dim=2 (bin-integration path)
+# ----------------------------------------------------------------------
+# These cases lock in the bin-integration parity for the discrete
+# entropy methods. The bin-integration path was added to Python without
+# a parallel MATLAB port for a release window; these goldens catch any
+# future drift between the per-axis Phi-difference contractions.
+
+def test_golden_sa_shannon_abs_r2_dim2():
+    T = build_exp_tens(
+        np.array([100., 200., 300.]), None, 20.0, 2, False, False, 0.0,
+        verbose=False,
+    )
+    H = entropy_exp_tens(
+        T, method='shannon',
+        n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
+    )
+    GOLDEN = 9.383611317877847
+    assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
+
+
+def test_golden_sa_normalized_abs_r2_dim2():
+    T = build_exp_tens(
+        np.array([100., 200., 300.]), None, 20.0, 2, False, False, 0.0,
+        verbose=False,
+    )
+    H = entropy_exp_tens(
+        T, method='normalized',
+        n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
+    )
+    GOLDEN = 0.8815988444951405
+    assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
+
+
+def test_golden_sa_shannon_periodic_r1():
+    T = build_exp_tens(
+        np.array([0., 3., 7.]), None, 0.7, 1, False, True, 12.0,
+        verbose=False,
+    )
+    H = entropy_exp_tens(
+        T, method='shannon',
+        n_points_per_dim=24, verbose=False,
+    )
+    GOLDEN = 4.093676510565166
+    assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
+
+
+def test_golden_ma_shannon_abs_dim2():
+    P2 = np.array([[100., 200., 300.], [200., 250., 100.]])
+    W2 = np.array([1., 1., 1.])
+    dens = build_exp_tens(
+        [P2], [W2], [20.0], [2], [0], [False], [False], [0.0],
+        verbose=False,
+    )
+    H = entropy_exp_tens(
+        dens, method='shannon',
+        n_points_per_dim=40, x_min=50.0, x_max=350.0, verbose=False,
+    )
+    GOLDEN = 9.347143263809102
+    assert abs(H - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
+
+
+def test_golden_sa_differential_r1():
+    """Adaptive differential entropy. Looser tolerance (1e-4) because
+    the adaptive convergence stops at the truncation-sigma-anchored
+    tolerance rather than machine precision."""
+    T = build_exp_tens(
+        np.array([0., 400., 700.]), None, 20.0, 1, False, False, 0.0,
+        verbose=False,
+    )
+    h_hat = entropy_exp_tens(T, method='differential', verbose=False)
+    GOLDEN = 7.953986161000217
+    # Adaptive convergence tolerance is ~exp(-18) ~ 1.5e-8;
+    # allow 1e-5 absolute as a comfortable bound.
+    assert abs(h_hat - GOLDEN) < 1e-5
 
 
 if __name__ == '__main__':

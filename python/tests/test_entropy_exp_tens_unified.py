@@ -52,15 +52,22 @@ def density_set():
 
 class TestDensityScalar:
     def test_returns_python_float(self, density_set):
-        h = entropy_exp_tens(density_set["major"], n_points_per_dim=200)
-        assert isinstance(h, float)
-        assert 0.0 <= h <= 1.0   # normalize=True by default
-
-    def test_disable_normalize(self, density_set):
+        # method='normalized' to preserve the [0, 1] range assertion;
+        # the default 'shannon' returns raw H which can exceed 1.
         h = entropy_exp_tens(
-            density_set["major"], normalize=False, n_points_per_dim=200,
+            density_set["major"], method='normalized', n_points_per_dim=200,
         )
-        # Without normalization, value can exceed 1.
+        assert isinstance(h, float)
+        assert 0.0 <= h <= 1.0
+
+    def test_method_shannon_is_raw(self, density_set):
+        # method='shannon' now returns raw H = -sum q log_b q
+        # (the v2.1 default normalize=True behaviour has been moved to
+        # method='normalized'). Raw H is unbounded above; we only check
+        # the return type here.
+        h = entropy_exp_tens(
+            density_set["major"], method='shannon', n_points_per_dim=200,
+        )
         assert isinstance(h, float)
 
 
@@ -303,7 +310,7 @@ class TestEntropyExpTensVerboseEstimate:
         ])
         H = mpt.entropy_exp_tens(
             P, None, 12.0, 1, False, False, 1200,
-            x_min=0, x_max=600, verbose=True,
+            x_min=0, x_max=600, n_points_per_dim=1200, verbose=True,
         )
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -314,7 +321,7 @@ class TestEntropyExpTensVerboseEstimate:
         P = np.array([[0, 100, 200], [0, 200, 400]])
         H = mpt.entropy_exp_tens(
             P, None, 12.0, 1, False, False, 1200,
-            x_min=0, x_max=600, verbose=False,
+            x_min=0, x_max=600, n_points_per_dim=1200, verbose=False,
         )
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -325,7 +332,7 @@ class TestEntropyExpTensVerboseEstimate:
         P = np.array([[0, 100, 200], [0, 200, 400]])
         mpt.entropy_exp_tens(
             P, None, 12.0, 1, False, False, 1200,
-            x_min=0, x_max=600,
+            x_min=0, x_max=600, n_points_per_dim=1200,
         )
         captured = capsys.readouterr()
         assert captured.out == ""
@@ -335,10 +342,10 @@ class TestEntropyExpTensVerboseEstimate:
         P = np.array([[0, 100, 200], [0, 200, 400]])
         H_a = mpt.entropy_exp_tens(
             P, None, 12.0, 1, False, False, 1200,
-            x_min=0, x_max=600, verbose=True,
+            x_min=0, x_max=600, n_points_per_dim=1200, verbose=True,
         )
         H_b = mpt.entropy_exp_tens(
             P, None, 12.0, 1, False, False, 1200,
-            x_min=0, x_max=600, verbose=False,
+            x_min=0, x_max=600, n_points_per_dim=1200, verbose=False,
         )
         assert np.allclose(H_a, H_b, equal_nan=True)

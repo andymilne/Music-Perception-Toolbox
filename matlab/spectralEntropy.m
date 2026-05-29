@@ -14,18 +14,42 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   r = 1, isRel = false, isPer = false (1-D absolute non-periodic
 %   density). It applies addSpectra to enrich the pitches with
 %   partials (if a 'spectrum' argument is supplied), shifts the
-%   lowest pitch to 0, computes appropriate grid bounds, and
-%   delegates the entropy computation. Two methods are supported:
+%   lowest pitch to 0, computes appropriate grid bounds where needed,
+%   and delegates the entropy computation. Four methods are supported:
 %
-%     method='shannon' (default) computes the discrete Shannon
-%       entropy of the density evaluated on a regular grid, normalised
-%       to [0, 1] by log_base(N) when normalize=true (the default).
+%     method='differential' (default) computes the adaptive
+%       differential entropy h_hat; grid-independent and the
+%       principled scale-free choice. Lower h_hat -> more consonant.
+%       Note: adaptive convergence (nested-grid doubling to a
+%       truncation-sigma-anchored tolerance) costs several discrete
+%       passes per call --- typically 10-30x the cost of method=
+%       'normalized' on the same density at the default
+%       truncationSigmas (~ 6). Passing 'truncationSigmas', 3 loosens
+%       the convergence tolerance to exp(-9/2) ~= 1.1e-2 and brings
+%       differential to comparable cost to the discrete methods, at
+%       the price of fifth-decimal drift in the returned value
+%       (consonance ordering is preserved). For consonance comparisons
+%       across many chords, prefer 'normalized' (faster and the
+%       method established in the consonance literature).
+%
+%     method='normalized' (alias 'normalised') computes the Pielou-
+%       style ratio H / log_b(N) in [0, 1]. Reproduces the values
+%       reported in Milne et al. (2017) and Smit et al. (2019).
+%       Computed on an explicit grid of nPointsPerDim = 1200 over
+%       [0, max(spec_p) + 4*sigma].
+%
+%     method='shannon' computes the raw discrete Shannon entropy
+%       H = -sum q log_b q on the same grid as 'normalized'.
 %
 %     method='renyi2' computes the analytical (grid-independent)
 %       Rényi-2 / collision entropy via the inner-product / Möbius
-%       machinery used by entropyExpTens. normalize=true is not
-%       supported under renyi2 (the analytical form has no natural
-%       [0, 1] reference); pass normalize=false.
+%       machinery used by entropyExpTens.
+%
+%   v2.2 breaking change: the legacy 'normalize' boolean kwarg has
+%   been removed from spectralEntropy. Use method='normalized' for
+%   the v2.1 default behaviour (H/log_b(N) in [0, 1]) or
+%   method='shannon' for raw H. Passing 'normalize' raises a
+%   migration-error exception.
 %
 %   Inputs:
 %     p     — Pitch values in cents (vector for one chord; nRows-by-K
@@ -49,20 +73,20 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    Examples:
 %                      'spectrum', {'harmonic', 24, 'powerlaw', 1}
 %                      'spectrum', {'harmonic', 12, 'geometric', 0.9}
-%     'method'     — 'shannon' (default) or 'renyi2'. See above.
-%     'normalize'  — Logical (default: true). Shannon only: divides
-%                    the entropy by log_base(N) to give a value in
-%                    [0, 1] that is independent of grid resolution.
-%                    Requesting 'renyi2' with normalize=true errors.
+%     'method'     — One of {'differential' (default), 'normalized',
+%                    'shannon', 'renyi2'} (or the British alias
+%                    'normalised'). See above.
 %     'base'       — Logarithm base for entropy (default: 2, giving
-%                    bits). When 'normalize' is true, the base cancels
-%                    and has no effect on the result.
+%                    bits). The base cancels for method='normalized'.
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                    wide mptDefaults('truncationSigmas') setting for
 %                    this call. Passes through to the entropyExpTens
-%                    Shannon-path kernel evaluator; skips Gaussian
-%                    contributions whose centre-to-query distance
-%                    exceeds k*sigma. [] (default) means use the
+%                    kernel evaluator; skips Gaussian contributions
+%                    whose centre-to-query distance exceeds k*sigma.
+%                    For method='differential' this also anchors the
+%                    convergence tolerance --- 'truncationSigmas', 3
+%                    is the recommended fast-path setting (see method
+%                    description above). [] (default) means use the
 %                    global default (factory: Inf).
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                    default. Override the toolbox-wide
@@ -74,31 +98,38 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    console output (time estimates, progress
 %                    messages).
 %
-%   Grid resolution (Shannon path) is the entropyExpTens default
-%   (nPointsPerDim = 1200 over [0, max(spec_p) + 4*sigma]). Users
+%   Grid resolution for the discrete paths is fixed at
+%   nPointsPerDim = 1200 over [0, max(spec_p) + 4*sigma]. Users
 %   needing finer control should call entropyExpTens directly with a
 %   pre-built density and their own nPointsPerDim / gridLimit.
 %
 %   Output:
 %     H     — Spectral entropy. Scalar for a single chord, nRows-by-1
-%             vector for a batched input. When method='shannon' and
-%             normalize=true (defaults), H is in [0, 1] with lower
-%             values indicating greater consonance.
+%             vector for a batched input. Under method='normalized'
+%             (or 'shannon' divided by log_b(N) externally), lower
+%             values indicate greater consonance.
 %
 %   Examples:
-%     % Shannon entropy of a JI major triad (with harmonic spectra)
+%     % JI major triad with harmonic spectra, default method
+%     % (differential, scale-free).
 %     H = spectralEntropy([0, 386.31, 701.96], [], 12, ...
 %                         'spectrum', {'harmonic', 24, 'powerlaw', 1})
 %
-%     % Rényi-2 of the same chord (must pass normalize=false)
+%     % Rényi-2 of the same chord --- closed-form, no grid.
 %     H = spectralEntropy([0, 386.31, 701.96], [], 12, ...
 %                         'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
-%                         'method', 'renyi2', 'normalize', false)
+%                         'method', 'renyi2')
 %
-%     % Compare JI vs 12-EDO
-%     spec = {'harmonic', 24, 'powerlaw', 1};
-%     H_ji  = spectralEntropy([0, 386.31, 701.96], [], 12, 'spectrum', spec)
-%     H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec)
+%     % Differential with truncationSigmas=3 for fast batched runs.
+%     H = spectralEntropy(chordBatch, [], 12, ...
+%                         'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
+%                         'method', 'differential', ...
+%                         'truncationSigmas', 3)
+%
+%     % Reproduce Smit et al. (2019) / Milne et al. (2017) values.
+%     H = spectralEntropy(chord, [], 12, ...
+%                         'spectrum', {'harmonic', 24, 'powerlaw', 1}, ...
+%                         'method', 'normalized')
 %
 %     % Empirical peaks (no spectral enrichment — the default)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
@@ -122,8 +153,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         sigma (1,1) {mustBePositive} = 12
         nvArgs.spectrum = {}
         nvArgs.method (1,:) char ...
-            {mustBeMember(nvArgs.method, {'shannon','renyi2'})} = 'shannon'
-        nvArgs.normalize (1,1) logical = true
+            {mustBeMember(nvArgs.method, ...
+                {'differential','shannon','normalized','normalised','renyi2'})} ...
+            = 'differential'
         nvArgs.base (1,1) {mustBePositive} = 2
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
             = mptDefaults('truncationSigmas')
@@ -131,22 +163,32 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
             {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
             = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
+        nvArgs.normalize = []  % v2.2 sentinel: any value triggers migration error
     end
 
     % Top-level call guard: see internal.dispatchScope.
     guard = internal.dispatchScope(); %#ok<NASGU>
 
-    % renyi2 + normalize=true is not implementable (no natural [0,1]
-    % reference for the analytical form). Mirror entropyExpTens's
-    % constraint upfront with a spectralEntropy-specific identifier
-    % so the user sees the API surface they invoked.
-    if strcmp(nvArgs.method, 'renyi2') && nvArgs.normalize
-        error('spectralEntropy:renyi2NormalizeNotSupported', ...
-            ['method=''renyi2'' with normalize=true is not implemented. ' ...
-             'The analytical Rényi-2 entropy has no natural [0, 1] ' ...
-             'reference (unlike Shannon, which normalises by ' ...
-             'log_b(N) on the grid). Pass normalize=false to use ' ...
-             'this method.']);
+    % Detect the legacy 'normalize' kwarg (removed in v2.2). The empty
+    % default cannot be supplied by a caller; any value here means the
+    % user explicitly passed 'normalize', ...  We emit a migration
+    % error pointing to the four-method API.
+    if ~isempty(nvArgs.normalize)
+        error('spectralEntropy:normalizeRemoved', ...
+              ['spectralEntropy: the ''normalize'' kwarg has been ' ...
+               'removed in v2.2. Use method=''normalized'' for ' ...
+               'H/log_b(N) in [0, 1] (the v2.1 default behaviour), ' ...
+               'or method=''shannon'' for raw H = -sum q log_b q. ' ...
+               'method=''differential'' and method=''renyi2'' are ' ...
+               'continuous-form entropies and have no [0, 1] reference.']);
+    end
+    % Remove the sentinel field before passing nvArgs onward, so the
+    % internal helpers do not see it.
+    nvArgs = rmfield(nvArgs, 'normalize');
+
+    % Canonicalise the British 'normalised' alias to 'normalized'.
+    if strcmp(nvArgs.method, 'normalised')
+        nvArgs.method = 'normalized';
     end
 
     % --- Batched dispatch ---
@@ -200,12 +242,12 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     end
 
     % Up-front time estimate: dominated by the kernel-pair work in
-    % evalExpTens (Shannon path) — numel(spec_p) * numel(grid).
-    % renyi2 is analytical (no grid), so the estimate is irrelevant
-    % there; emit only for the shannon path. Use the entropyExpTens
-    % default grid size (1200 points per dim) for the estimate.
-    if strcmp(nvArgs.method, 'shannon')
-        nGrid = 1200;  % matches entropyExpTens default nPointsPerDim
+    % evalExpTens (Shannon path) — numel(spec_p) * numel(grid). The
+    % grid-free methods (differential, renyi2) bypass this; emit only
+    % for the discrete (shannon, normalized) paths. Use the same
+    % nPointsPerDim=1200 the delegate will pass downstream.
+    if any(strcmp(nvArgs.method, {'shannon', 'normalized'}))
+        nGrid = 1200;
         nPairs = double(numel(spec_p)) * double(nGrid);
         estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
     end
@@ -221,23 +263,31 @@ end
 function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyExpTens.
 %
-%   Used by both the scalar path (called directly after spec_p, spec_w
-%   are prepared) and by the batched per-row path (called once per
-%   unique canonical chord via the row loop).
+%   For 'shannon' and 'normalized', passes explicit non-periodic grid
+%   bounds (xMin = 0, xMax = max(spec_p) + 4*sigma) and an explicit
+%   nPointsPerDim = 1200 (matching the toolbox's pre-v2.2 default).
+%   For 'differential', the span auto-derives from event centres
+%   +/- truncationSigmas * sigma and the grid is refined adaptively.
+%   For 'renyi2', no grid is constructed (analytical inner-product
+%   form).
 %
-%   For method='shannon', passes only the non-periodic grid bounds
-%   (xMin = 0, xMax = max(spec_p) + 4*sigma) and lets entropyExpTens
-%   use its default nPointsPerDim. Users who want finer or coarser
-%   grid control should call entropyExpTens directly with a pre-built
-%   density.
-%
-%   For method='renyi2', entropyExpTens uses the analytical inner-
-%   product form — no grid involved.
+%   Used by both the scalar path (called directly after spec_p,
+%   spec_w are prepared) and by the batched per-row path (called once
+%   per unique canonical chord via the row loop).
 
     if strcmp(nvArgs.method, 'renyi2')
         H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
             'method', 'renyi2', ...
-            'normalize', nvArgs.normalize, ...
+            'base', nvArgs.base, ...
+            'truncationSigmas', nvArgs.truncationSigmas, ...
+            'kernelPrecision', nvArgs.kernelPrecision, ...
+            'verbose', false);
+        return;
+    end
+
+    if strcmp(nvArgs.method, 'differential')
+        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+            'method', 'differential', ...
             'base', nvArgs.base, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
             'kernelPrecision', nvArgs.kernelPrecision, ...
@@ -248,10 +298,24 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     margin = 4 * sigma;
     xMax = max(spec_p) + margin;
 
+    if strcmp(nvArgs.method, 'normalized')
+        H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
+            'method', 'normalized', ...
+            'base', nvArgs.base, ...
+            'nPointsPerDim', 1200, ...
+            'xMin', 0, ...
+            'xMax', xMax, ...
+            'truncationSigmas', nvArgs.truncationSigmas, ...
+            'kernelPrecision', nvArgs.kernelPrecision, ...
+            'verbose', false);
+        return;
+    end
+
+    % method == 'shannon': raw discrete H = -sum q log_b q.
     H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
         'method', 'shannon', ...
-        'normalize', nvArgs.normalize, ...
         'base', nvArgs.base, ...
+        'nPointsPerDim', 1200, ...
         'xMin', 0, ...
         'xMax', xMax, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...
@@ -299,11 +363,17 @@ function H = localBatchedSpectralEntropy(P, W, sigma, nvArgs)
               '''spectrum'' value must be a cell array of addSpectra arguments.');
     end
 
-    % --- Up-front time estimate (shannon path only; renyi2 is analytical) ---
-    % Adaptive progress-print state. Defaults: silent.
+    % --- Up-front time estimate and adaptive progress-print ---
+    % Method-agnostic empirical calibration: time a small sample of
+    % rows, extrapolate to estTotal, print an up-front estimate, and
+    % stride the row-completion countdown to keep terminal noise
+    % proportional to wall-clock time. The mechanism applies to all
+    % four methods --- differential and the discrete methods benefit
+    % most (renyi2 is usually fast enough that showProgress's >= 5 s
+    % gate suppresses the countdown automatically).
     progStride = 1;
     showProgress = false;
-    if strcmp(nvArgs.method, 'shannon') && nvArgs.verbose && nRows > 1
+    if nvArgs.verbose && nRows > 1
         nCal = min(10, nRows);
         sampleIdx = unique(round(linspace(1, nRows, nCal)));
 

@@ -91,12 +91,12 @@ def spectral_entropy(
     sigma: float = 12.0,
     *,
     spectrum: list | None = None,
-    method: str = "shannon",
-    normalize: bool = True,
+    method: str = "differential",
     base: float = 2.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
+    **legacy_kwargs,
 ) -> float | np.ndarray:
     """Spectral entropy of a weighted pitch multiset.
 
@@ -111,24 +111,39 @@ def spectral_entropy(
     ``is_per=False`` (1-D absolute non-periodic density). It applies
     :func:`~mpt.spectra.add_spectra` to enrich the pitches with
     partials (if a ``spectrum`` argument is supplied), shifts the
-    lowest pitch to 0, computes appropriate grid bounds, and
-    delegates the entropy computation. Two methods are supported:
+    lowest pitch to 0, computes appropriate grid bounds where needed,
+    and delegates the entropy computation. Four methods are supported:
 
-    - ``method='shannon'`` (default) computes the discrete Shannon
-      entropy of the density evaluated on a regular grid, normalised
-      to ``[0, 1]`` by ``log_base(N)`` when ``normalize=True`` (the
-      default).
-    - ``method='renyi2'`` computes the analytical (grid-independent)
-      Rényi-2 / collision entropy via the inner-product / Möbius
-      machinery used by :func:`~mpt.entropy_exp_tens`. ``normalize=True``
-      is not supported under renyi2 (the analytical form has no
-      natural ``[0, 1]`` reference); pass ``normalize=False``.
+    - ``method='differential'`` (default): adaptive evaluation of the
+      differential entropy ĥ; grid-independent and the principled
+      scale-free choice. Lower ĥ → more consonant. Note: adaptive
+      convergence (nested-grid doubling to a truncation-sigma-anchored
+      tolerance) costs several discrete passes per call --- typically
+      10-30× the cost of ``method='normalized'`` at the default
+      ``truncation_sigmas`` (≈ 6). Passing ``truncation_sigmas=3``
+      loosens the tolerance to ``exp(-9/2) ≈ 1.1e-2`` and brings
+      differential to comparable cost to the discrete methods, at the
+      price of fifth-decimal drift (consonance ordering is preserved).
+      For consonance comparisons across many chords, prefer
+      ``'normalized'`` (faster and the method established in the
+      consonance literature).
+    - ``method='normalized'`` (alias ``'normalised'``): the Pielou-style
+      ratio ``H / log_b(N)`` in ``[0, 1]``. Reproduces the values
+      reported in Milne et al. (2017) and Smit et al. (2019). Computed
+      on an explicit grid of resolution ``n_points_per_dim=1200`` over
+      ``[0, max(spec_p) + 4*sigma]``.
+    - ``method='shannon'``: raw discrete Shannon entropy
+      ``H = -Σ q log_b q`` on the same grid as ``'normalized'``.
+    - ``method='renyi2'``: analytical (grid-independent) Rényi-2 /
+      collision entropy via the inner-product / Möbius machinery.
 
-    Grid resolution (Shannon path) is the :func:`entropy_exp_tens`
-    default (``n_points_per_dim=1200`` over ``[0, max(spec_p) + 4*sigma]``).
-    Users needing finer control should call :func:`entropy_exp_tens`
-    directly with a pre-built density and their own ``n_points_per_dim``
-    or ``grid_limit``.
+    The ``normalize`` kwarg of v2.1 has been removed; pick the
+    appropriate ``method`` instead (a migration error is raised if
+    ``normalize`` is passed).
+
+    Users needing finer control over the grid resolution should call
+    :func:`entropy_exp_tens` directly with a pre-built density and
+    their own ``n_points_per_dim`` or ``grid_limit``.
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
@@ -151,12 +166,9 @@ def spectral_entropy(
         Gaussian smoothing width in cents (typical: 6-15).
     spectrum : list or None
         Arguments for :func:`~mpt.spectra.add_spectra`.
-    method : {'shannon', 'renyi2'}
-        Entropy variant. See above.
-    normalize : bool
-        Shannon only: if True (default), divide by ``log_base(N)`` to
-        give ``[0, 1]``. ``method='renyi2'`` with ``normalize=True``
-        raises.
+    method : {'differential', 'normalized', 'shannon', 'renyi2'}
+        Entropy variant (default ``'differential'``; ``'normalised'``
+        accepted as an alias for ``'normalized'``). See above.
     base : float
         Logarithm base (default 2 = bits).
     verbose : bool
@@ -177,27 +189,26 @@ def spectral_entropy(
     space of perfectly balanced rhythms and scales. *Journal of
     Mathematics and Music*, 11(2-3), 101-133.
     """
-    if method not in ("shannon", "renyi2"):
-        raise ValueError(
-            f"method must be 'shannon' or 'renyi2'; got {method!r}."
+    from .entropy import _canonicalize_method, _NORMALIZE_REMOVED_MSG
+    if "normalize" in legacy_kwargs:
+        raise TypeError(_NORMALIZE_REMOVED_MSG.format(fn="spectral_entropy"))
+    if legacy_kwargs:
+        unknown = ", ".join(repr(k) for k in legacy_kwargs)
+        raise TypeError(
+            f"spectral_entropy: unexpected keyword argument(s): {unknown}"
         )
-    if method == "renyi2" and normalize:
-        raise ValueError(
-            "method='renyi2' with normalize=True is not implemented. "
-            "The analytical Rényi-2 entropy has no natural [0, 1] "
-            "reference (unlike Shannon, which normalises by log_b(N) "
-            "on the grid). Pass normalize=False to use this method."
-        )
+
+    method = _canonicalize_method(method)
 
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _spectral_entropy_scalar(
-            p_arr, w, sigma, spectrum, method, normalize, base,
+            p_arr, w, sigma, spectrum, method, base,
             truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _spectral_entropy_batched(
-            p_arr, w, sigma, spectrum, method, normalize, base,
+            p_arr, w, sigma, spectrum, method, base,
             truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
@@ -206,17 +217,17 @@ def spectral_entropy(
     )
 
 
-def _spectral_entropy_scalar(p, w, sigma, spectrum, method, normalize, base,
+def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
                              truncation_sigmas, kernel_precision, verbose):
     """Single-chord scalar dispatch.
 
     Prepares ``(spec_p, spec_w)`` (transposition shift + optional
-    add_spectra) and delegates to :func:`entropy_exp_tens`. For
-    ``method='shannon'`` the wrapper passes only the non-periodic grid
-    bounds ``x_min=0``, ``x_max=max(spec_p) + 4*sigma`` and lets
-    ``entropy_exp_tens`` use its default ``n_points_per_dim``. For
-    ``method='renyi2'`` the analytical inner-product form is used and
-    no grid bounds are needed.
+    add_spectra) and delegates to :func:`entropy_exp_tens`. For the
+    grid-based methods (``'shannon'`` and ``'normalized'``), the wrapper
+    passes explicit non-periodic bounds ``x_min=0``,
+    ``x_max=max(spec_p) + 4*sigma`` and ``n_points_per_dim=1200``. For
+    ``'differential'`` the span and grid are derived adaptively. For
+    ``'renyi2'`` the analytical form is used and no grid is needed.
     """
     p = p.ravel()
     w = validate_weights(w, len(p))
@@ -227,62 +238,70 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, normalize, base,
     else:
         spec_p, spec_w = p.copy(), w.copy()
 
-    # Up-front time estimate (Shannon path only; renyi2 is analytical).
-    # Use the entropy_exp_tens default n_points_per_dim for the estimate.
-    if method == "shannon":
-        n_grid = 1200  # matches entropy_exp_tens default
+    # Up-front time estimate for grid-based methods only ('shannon',
+    # 'normalized'). 'differential' uses an adaptive grid whose final
+    # resolution is data-dependent; 'renyi2' is analytical (no grid).
+    if method in ("shannon", "normalized"):
+        n_grid = 1200  # explicit grid for the discrete methods
         n_pairs = int(len(spec_p)) * n_grid
         estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
 
     return _spectral_entropy_delegate(
-        spec_p, spec_w, sigma, method, normalize, base,
+        spec_p, spec_w, sigma, method, base,
         truncation_sigmas, kernel_precision,
     )
 
 
-def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, normalize, base,
+def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
                                truncation_sigmas, kernel_precision):
     """Delegate the entropy computation to entropy_exp_tens.
 
     Used by both the scalar path and the batched per-row path.
 
-    For ``method='shannon'``, passes only the non-periodic grid bounds
-    (``x_min=0``, ``x_max=max(spec_p) + 4*sigma``) and lets
-    ``entropy_exp_tens`` use its default ``n_points_per_dim``. Users
-    needing finer or coarser grid control should call
-    ``entropy_exp_tens`` directly with a pre-built density.
-
-    For ``method='renyi2'``, the analytical inner-product / Möbius
-    form is used; no grid is constructed.
+    For grid-based methods ('shannon', 'normalized'), supplies explicit
+    bounds (``x_min=0``, ``x_max=max(spec_p) + 4*sigma``) and an
+    explicit ``n_points_per_dim=1200``. For 'differential', the span
+    auto-derives from event centres +/- ``truncation_sigmas * sigma``
+    and the grid is refined adaptively. For 'renyi2', no grid is
+    constructed (analytical inner-product form).
     """
     if method == "renyi2":
         return entropy_exp_tens(
             spec_p, spec_w, sigma, 1, False, False, 1200,
             method="renyi2",
-            normalize=normalize,
             base=base,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=False,
         )
 
+    if method == "differential":
+        return entropy_exp_tens(
+            spec_p, spec_w, sigma, 1, False, False, 1200,
+            method="differential",
+            base=base,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=False,
+        )
+
+    # Discrete methods: 'shannon' (raw H) or 'normalized' (H/log_b N).
+    # Both share an explicit grid; the method kwarg selects the variant.
     margin = 4 * sigma
     x_max = float(np.max(spec_p)) + margin
-
     return entropy_exp_tens(
         spec_p, spec_w, sigma, 1, False, False, 1200,
-        method="shannon",
-        normalize=normalize,
+        method=method,
         base=base,
-        x_min=0.0,
-        x_max=x_max,
+        n_points_per_dim=1200,
+        x_min=0.0, x_max=x_max,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=False,
     )
 
 
-def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
+def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
                               truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
@@ -316,11 +335,14 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
     out = np.full(M, np.nan)
     result_cache: dict = {}
 
-    # Adaptive progress-print state. Defaults: silent.
+    # Adaptive progress-print state. Defaults: silent. Up-front time
+    # estimate + adaptive countdown: method-agnostic empirical
+    # calibration that benefits all four methods (differential most;
+    # renyi2 is usually fast enough that show_progress's >= 5 s gate
+    # suppresses the countdown automatically).
     prog_stride = 1
     show_progress = False
-    # Up-front time estimate (Shannon path only; renyi2 is analytical).
-    if method == "shannon" and verbose and M > 1:
+    if verbose and M > 1:
         n_cal = min(10, M)
         sample_idx = np.unique(np.linspace(0, M - 1, n_cal).astype(int))
 
@@ -338,7 +360,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
             else:
                 w_valid_s = None
             _spectral_entropy_scalar(
-                p_valid_s, w_valid_s, sigma, spectrum, method, normalize, base,
+                p_valid_s, w_valid_s, sigma, spectrum, method, base,
                 truncation_sigmas, kernel_precision,
                 verbose=False,
             )
@@ -361,7 +383,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
                 else:
                     w_valid_s = None
                 _spectral_entropy_scalar(
-                    p_valid_s, w_valid_s, sigma, spectrum, method, normalize,
+                    p_valid_s, w_valid_s, sigma, spectrum, method,
                     base, truncation_sigmas, kernel_precision,
                     verbose=False,
                 )
@@ -403,7 +425,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, normalize, base,
             out[i] = result_cache[key]
         else:
             h = _spectral_entropy_scalar(
-                p_valid, w_valid, sigma, spectrum, method, normalize, base,
+                p_valid, w_valid, sigma, spectrum, method, base,
                 truncation_sigmas, kernel_precision, verbose=False,
             )
             result_cache[key] = h

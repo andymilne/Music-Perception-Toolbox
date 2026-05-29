@@ -239,6 +239,16 @@ def _cell_masses_ma_absolute(dens, axes: list,
     centres = dens.centres  # length-A list; each (dim_per[a], n_j)
     w_j = np.asarray(dens.w_j).astype(float)
 
+    # Auto-prune zero-weight tuples. Mirrors the eval-path prune in
+    # _tensor/eval.py: zero-weight tuples contribute exactly zero to
+    # the einsum, so dropping them is mathematically exact and avoids
+    # building (n_j, n_cells) erf-difference matrices over tuples that
+    # weight_events has truncated to zero.
+    mask = w_j > 0
+    if not bool(np.all(mask)):
+        w_j = w_j[mask]
+        centres = [np.asarray(c, dtype=float)[:, mask] for c in centres]
+
     Mats = []  # one (n_j, n_cells_d) matrix per effective axis
     axis_d = 0
     for a in range(A):
@@ -289,6 +299,12 @@ def _cell_masses_sa_absolute(T, ax: np.ndarray,
     per = float(T.period) if is_per else 0.0
     C = np.asarray(T.centres, dtype=float)  # (r, n_j) == (dim, n_j) when is_rel=False
     w_j = np.asarray(T.w_j, dtype=float)
+
+    # Auto-prune zero-weight tuples (see _cell_masses_ma_absolute).
+    mask = w_j > 0
+    if not bool(np.all(mask)):
+        w_j = w_j[mask]
+        C = C[:, mask]
 
     lo, hi = _axis_edges(ax, is_per, per)
     if is_per:

@@ -834,6 +834,45 @@ def _scalarize(x, name, *, dtype):
     return dtype(val)
 
 
+def rect_width_from_support(total_support: float) -> float:
+    r"""Convert a desired full rect-window support into ``width``.
+
+    The window family in :func:`weight_events` is parameterised so that
+    total variance equals ``width**2`` for every ``shape`` value in
+    :math:`[0, 1]`. For a pure rectangle (``shape = 1``) the indicator
+    is on :math:`|\delta| \le \text{width}\sqrt{3}`, so the full support
+    is :math:`L = 2 \cdot \text{width} \cdot \sqrt{3}` and the variance
+    of a uniform on :math:`[-L/2, L/2]` is :math:`L^2 / 12`; equating
+    that to :math:`\text{width}^2` gives
+    :math:`\text{width} = L / (2\sqrt{3})`.
+
+    Use this when the natural specification is the full support of the
+    rectangle. For example, a rect window covering one 16th-note grid
+    step in quarter-note units has ``total_support = 0.25``, hence
+    ``width = 0.25 / (2*sqrt(3)) ≈ 0.0722``.
+
+    For a pure Gaussian (``shape = 0``), ``width`` is already the
+    standard deviation, so no conversion is needed.
+
+    Parameters
+    ----------
+    total_support : float
+        Full support of the rectangle (must be positive).
+
+    Returns
+    -------
+    float
+        The ``width`` value to pass to :func:`weight_events` to obtain
+        a rectangle (``shape = 1``) of the given full support.
+    """
+    if not np.isfinite(total_support) or total_support <= 0.0:
+        raise ValueError(
+            f"total_support must be a positive finite scalar; got "
+            f"{total_support}."
+        )
+    return float(total_support) / (2.0 * np.sqrt(3.0))
+
+
 def weight_events(
     p_attr,
     w,

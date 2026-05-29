@@ -1125,6 +1125,13 @@ function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
     C = double(T.Centres);         % (dim x nJ) when isRel=false
     wJ = double(T.wJ(:));
 
+    % Auto-prune zero-weight tuples (see localCellMassesMAAbsolute).
+    mask = wJ > 0;
+    if ~all(mask)
+        wJ = wJ(mask);
+        C = C(:, mask);
+    end
+
     [lo, hi] = localAxisEdges(ax, isPer, per);
 
     if dim == 0
@@ -1167,6 +1174,19 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
     periodG = double(dens.period);
     Centres = dens.Centres;        % 1-by-A cell; each (dim_per(a) x nJ)
     wJ = double(dens.wJ(:));
+
+    % Auto-prune zero-weight tuples. Mirrors the eval-path prune:
+    % zero-weight tuples contribute exactly zero to the tensor
+    % contraction, so dropping them is mathematically exact and avoids
+    % building (nJ x n_cells) erf-difference matrices over tuples that
+    % weightEvents has truncated to zero.
+    mask = wJ > 0;
+    if ~all(mask)
+        wJ = wJ(mask);
+        for a = 1:A
+            Centres{a} = Centres{a}(:, mask);
+        end
+    end
 
     Mats = {};
     axisD = 0;

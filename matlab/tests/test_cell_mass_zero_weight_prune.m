@@ -1,8 +1,8 @@
-%% test_cell_mass_zero_weight_prune.m — rectWidthFromSupport + cell-mass prune
+%% test_cell_mass_zero_weight_prune.m
 %
-%  Tests for rectWidthFromSupport helper and for the auto-prune of
-%  zero-weight tuples in localCellMassesMAAbsolute /
-%  localCellMassesSAAbsolute inside entropyExpTens.
+%  Regression tests for the auto-prune of zero-weight tuples in
+%  localCellMassesMAAbsolute / localCellMassesSAAbsolute inside
+%  entropyExpTens.
 %
 %  The auto-prune mirrors the eval-path prune in evalExpTens. Without
 %  it, when weightEvents truncates most events to zero weight under a
@@ -17,8 +17,6 @@
 if ~exist('results', 'var')
     results = {};
     standalone_cm = true;
-    % Defaults isolation when run standalone (when invoked from
-    % test_mpt.m the outer wrapper has already isolated defaults).
     addpath(fileparts(mfilename('fullpath')));
     clear cleanupDefaults_cm
     cleanupDefaults_cm = mptTestIsolateDefaults(); %#ok<NASGU>
@@ -26,62 +24,12 @@ else
     standalone_cm = false;
 end
 
-% Reset defaults before testing.
 mptDefaults('reset');
-
-
-%% -----------------------------------------------------------------
-%% Helper math
-%% -----------------------------------------------------------------
-
-% Total support 0.25 -> width = 0.25 / (2*sqrt(3))
-w_rect = rectWidthFromSupport(0.25);
-results{end+1,1} = 'rectWidthFromSupport(0.25) = 0.25 / (2*sqrt(3))';
-results{end,2}   = abs(w_rect - 0.25/(2*sqrt(3))) < 1e-15;
-
-% Round-trip: full support implied by the returned width must recover the input.
-roundtrip_ok = true;
-for L = [0.05, 0.1, 0.25, 0.5, 1.0, 7.5]
-    w_L = rectWidthFromSupport(L);
-    L_implied = 2 * w_L * sqrt(3);
-    if abs(L_implied - L) > 1e-12
-        roundtrip_ok = false;
-        break;
-    end
-end
-results{end+1,1} = 'rectWidthFromSupport: full-support round-trip';
-results{end,2}   = roundtrip_ok;
-
-% Non-positive / non-finite inputs error.
-threw = false;
-try; rectWidthFromSupport(0);    catch; threw = true; end %#ok<NOSEM>
-results{end+1,1} = 'rectWidthFromSupport(0) errors';
-results{end,2}   = threw;
-
-threw = false;
-try; rectWidthFromSupport(-1.0); catch; threw = true; end %#ok<NOSEM>
-results{end+1,1} = 'rectWidthFromSupport(-1.0) errors';
-results{end,2}   = threw;
-
-threw = false;
-try; rectWidthFromSupport(NaN);  catch; threw = true; end %#ok<NOSEM>
-results{end+1,1} = 'rectWidthFromSupport(NaN) errors';
-results{end,2}   = threw;
-
-threw = false;
-try; rectWidthFromSupport(Inf);  catch; threw = true; end %#ok<NOSEM>
-results{end+1,1} = 'rectWidthFromSupport(Inf) errors';
-results{end,2}   = threw;
 
 
 %% -----------------------------------------------------------------
 %% Auto-prune in localCellMassesMAAbsolute
 %% -----------------------------------------------------------------
-%
-%  Build a 500-event sequence with 4 voices per event and a 12-partial
-%  spectrum. Apply a narrow Gaussian window via weightEvents that zeros
-%  most events. Differential and shannon entropy with auto-prune must
-%  match the manual-prune reference to high precision.
 
 rng(0, 'twister');
 N_events = 500;
@@ -100,27 +48,25 @@ for n = 1:N_events
     wPartials(n, :) = wAug(:).';
 end
 
-% Pre-MAET inputs: 2 attributes (pitch K=48 partials, time K=1 events).
-% MATLAB indexing: attribute 1 is pitch, attribute 2 is time, both in
-% their own groups (1 and 2 respectively).
-pAttrPre = {pPartials.', times};                   % 1xA cell of (K_a x N) matrices
+% Pre-MAET inputs: pitch attribute (group 1, K = 48 partials) and time
+% attribute (group 2, K = 1).
+pAttrPre = {pPartials.', times};
 wPre     = {wPartials.', ones(1, N_events)};
 groupsPre = [1, 2];
 
-% Apply Gaussian window of sigma=1 at mid-sequence with truncationSigmas=3.
-% truncationSigmas hard-zeros events more than 3 widths from the centre.
+% Apply Gaussian window of sd = 1 at mid-sequence with truncationSigmas = 3.
 mptDefaults('truncationSigmas', 3.0);
 
 centre_qn = times(round(N_events / 2));
-% weightEvents signature (MATLAB):
-%   (pAttr, w, groups, inputAttr, targetAttr, centre, width, shape, ...
-%    isPer, period, 'deleteInput', tf)
+% weightEvents signature (MATLAB, post-redesign):
+%   (pAttr, w, groups, inputAttr, targetAttr, centre, shape, isPer, period,
+%    'sd', s,  'deleteInput', tf)
 % inputAttr = 2 (time supplies the per-event scalar values),
 % targetAttr = 1 (pitch's weight slot receives the factor).
 [p_w, w_w, g_w] = weightEvents(pAttrPre, wPre, groupsPre, ...
-    2, 1, centre_qn, 1.0, 0.0, false, 0.0, 'deleteInput', true);
+    2, 1, centre_qn, 0.0, false, 0.0, ...
+    'sd', 1.0, 'deleteInput', true);
 
-% Confirm weightEvents leaves all events in but zeros most weights.
 results{end+1,1} = 'weightEvents preserves event count after truncation';
 results{end,2}   = (size(p_w{1}, 2) == N_events);
 
@@ -167,7 +113,6 @@ H_manual_shan = entropyExpTens(p_w_pruned, w_w_pruned, 10.0, 1, g_w, ...
 results{end+1,1} = 'auto-prune shannon matches manual prune';
 results{end,2}   = abs(H_auto_shan - H_manual_shan) < 1e-10;
 
-% Restore factory defaults so subsequent tests see a clean state.
 mptDefaults('reset');
 
 

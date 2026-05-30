@@ -1,20 +1,45 @@
 function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     pAttr, w, groups, inputAttr, targetAttr, ...
-    centre, width, shape, isPer, period, opts)
+    centre, shape, isPer, period, opts)
 %WEIGHTEVENTS Apply a per-event weight via an input-to-target window factor.
 %
 %   [pAttrOut, wOut, groupsOut] = weightEvents(pAttr, w, groups, ...
-%       inputAttr, targetAttr, centre, width, shape, isPer, period, ...
-%       'deleteInput', tf)
+%       inputAttr, targetAttr, centre, shape, isPer, period, ...
+%       'sd', s,     'deleteInput', tf)
+%   [pAttrOut, wOut, groupsOut] = weightEvents(pAttr, w, groups, ...
+%       inputAttr, targetAttr, centre, shape, isPer, period, ...
+%       'width', L,  'deleteInput', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor
 %   input. It reads the K=1 value at every event from inputAttr,
-%   evaluates a window function h centred at centre with standard
-%   deviation width and shape parameter shape (= gamma), and writes
-%   the resulting (1, N) per-event factor into the weight slot of
-%   targetAttr, multiplied into any existing weight already there.
-%   targetAttr may differ from inputAttr (the typical case --- e.g.,
-%   time-driven windowing of pitch events) or coincide with it (the
-%   input attribute weights itself).
+%   evaluates a window function h centred at centre with shape
+%   parameter shape (= gamma), and writes the resulting (1, N)
+%   per-event factor into the weight slot of targetAttr, multiplied
+%   into any existing weight already there. targetAttr may differ
+%   from inputAttr (the typical case --- e.g., time-driven windowing
+%   of pitch events) or coincide with it (the input attribute weights
+%   itself).
+%
+%   The window size is specified through exactly one of two
+%   Name-Value arguments, 'sd' or 'width'. Both name the same
+%   underlying scale on different terms:
+%
+%     'sd' is the standard deviation of the window. sd = 1.0 gives a
+%       Gaussian of standard deviation 1 at shape = 0 and a rectangle
+%       whose standard deviation is 1 (i.e., full support 2*sqrt(3))
+%       at shape = 1.
+%     'width' is the full support of the rectangle at shape = 1.
+%       width = 1.0 gives a rectangle on [-1/2, +1/2] at shape = 1
+%       and a Gaussian of standard deviation 1/(2*sqrt(3)) at
+%       shape = 0. The conversion is sd = width / (2 * sqrt(3)).
+%
+%   The two conventions exist because each is the natural way to
+%   specify the kind of kernel a particular analysis is built around:
+%   Gaussian users typically think in standard deviations, rectangle
+%   users typically think in full supports. Across the full shape
+%   family the SD is held constant regardless of which parameter the
+%   caller supplied (variance-normalised behaviour), so the only
+%   effect of the parameter choice is the numerical value the user
+%   types.
 %
 %   When deleteInput=true and inputAttr differs from targetAttr, the
 %   input attribute is removed from the returned pAttrOut / wOut /
@@ -27,19 +52,20 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %   (deleting the input would discard the factor just written to it).
 %
 %   The window family is the peak-normalised convolution of a
-%   rectangle and a Gaussian, with derived sub-parameters
+%   rectangle and a Gaussian. Internally, in terms of the standard
+%   deviation s (= 'sd' directly, or 'width' / (2 * sqrt(3))):
 %
-%       phi = width * sqrt(3 * gamma),
-%       xi  = width * sqrt(1 - gamma),
+%       phi = s * sqrt(3 * gamma),
+%       xi  = s * sqrt(1 - gamma),
 %
-%   chosen so that the total variance equals width^2 across the whole
-%   family (rectangle on [-phi, phi] has variance phi^2/3 = width^2 *
-%   gamma; Gaussian has variance xi^2 = width^2 * (1 - gamma); the
-%   two sum to width^2). The window is peak-normalised so h(0) = 1.
+%   parameterised so the total variance equals s^2 across the whole
+%   family. The window is peak-normalised so h(0) = 1.
 %
 %   Limits:
-%       gamma = 0: pure Gaussian h(delta) = exp(-delta^2 / (2 width^2)).
-%       gamma = 1: pure rectangle h(delta) = 1[|delta| <= width sqrt(3)].
+%       gamma = 0: pure Gaussian h(delta) = exp(-delta^2 / (2 s^2)).
+%       gamma = 1: pure rectangle h(delta) = 1[|delta| <= s*sqrt(3)],
+%                  i.e., total support 2*s*sqrt(3) (= 'width' when
+%                  the caller supplied 'width').
 %
 %   For a periodic input group (isPer = true), the difference
 %   delta = v - centre is wrapped to [-P/2, P/2] before applying h;
@@ -49,12 +75,14 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %   K_target slots, so every slot of every event sees the same factor.
 %
 %   Factor entries whose distance from the centre exceeds the global
-%   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * width)
-%   are hard-zeroed. The threshold is the same one the IP / evaluation
-%   kernels use: at that distance a Gaussian window's value is
-%   exp(-truncationSigmas^2 / 2). The default global value is Inf
-%   (no truncation); set mptDefaults('truncationSigmas', k) to enable
-%   hard truncation at k * width.
+%   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * s,
+%   where s is the kernel's standard deviation, equal to 'sd' or
+%   'width' / (2 * sqrt(3))) are hard-zeroed. The threshold is the
+%   same one the IP / evaluation kernels use: at that distance a
+%   Gaussian window's value is exp(-truncationSigmas^2 / 2). The
+%   default global value is Inf (no truncation); set
+%   mptDefaults('truncationSigmas', k) to enable hard truncation at
+%   k * s.
 %
 %   Inputs:
 %     pAttr        1 x A cell of (K_a, N) per-attribute value matrices.
@@ -72,7 +100,6 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %                  weight slot receives the factor. May equal
 %                  inputAttr.
 %     centre       Scalar finite double. Window centre c.
-%     width        Scalar positive double. Window standard deviation.
 %     shape        Scalar double in [0, 1]. Shape parameter gamma.
 %     isPer        Scalar logical. If true, the input attribute is
 %                  periodic — delta is wrapped to [-period/2, period/2]
@@ -80,6 +107,12 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %     period       Scalar positive double (only used when isPer).
 %
 %   Name-Value options:
+%     sd           Scalar positive double. Window standard deviation.
+%                  Exactly one of 'sd' or 'width' must be supplied.
+%     width        Scalar positive double. Full support of the
+%                  rectangle at shape = 1; internally translated to
+%                  sd = width / (2 * sqrt(3)). Exactly one of 'sd' or
+%                  'width' must be supplied.
 %     deleteInput  (1,1) logical, REQUIRED (no default; the choice is
 %                  destructive enough to be explicit at every call).
 %
@@ -100,10 +133,11 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
         inputAttr (1,1) double {mustBeInteger, mustBePositive}
         targetAttr (1,1) double {mustBeInteger, mustBePositive}
         centre (1,1) double
-        width (1,1) double
         shape (1,1) double
         isPer (1,1) logical
         period (1,1) double
+        opts.sd (1,1) double = NaN
+        opts.width (1,1) double = NaN
         opts.deleteInput (1,1) logical
     end
 
@@ -170,14 +204,35 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
               inputAttr);
     end
 
-    % --- Validate centre, width, shape ---
+    % --- Validate sd/width XOR, centre, shape, period ---
+    % Exactly one of opts.sd or opts.width must be supplied
+    % (both default to NaN, so use isnan as the "absent" sentinel).
+    sdSpec    = ~isnan(opts.sd);
+    widthSpec = ~isnan(opts.width);
+    if sdSpec == widthSpec
+        error('weightEvents:sdWidthXor', ...
+              ['weightEvents requires exactly one of ''sd'' or ' ...
+               '''width'' (Name-Value). ''sd'' is the window standard ' ...
+               'deviation; ''width'' is the full support of the ' ...
+               'rectangle at shape=1, equivalent to sd * 2 * sqrt(3). ' ...
+               'Got sd=%g, width=%g.'], opts.sd, opts.width);
+    end
+    if sdSpec
+        sd = opts.sd;
+        if ~isfinite(sd) || sd <= 0
+            error('weightEvents:badSd', ...
+                  'sd must be finite and > 0; got %g.', sd);
+        end
+    else
+        if ~isfinite(opts.width) || opts.width <= 0
+            error('weightEvents:badWidth', ...
+                  'width must be finite and > 0; got %g.', opts.width);
+        end
+        sd = opts.width / (2 * sqrt(3));
+    end
     if ~isfinite(centre)
         error('weightEvents:badCentre', ...
               'centre must be finite; got %g.', centre);
-    end
-    if ~isfinite(width) || width <= 0
-        error('weightEvents:badWidth', ...
-              'width must be finite and > 0; got %g.', width);
     end
     if shape < 0 || shape > 1
         error('weightEvents:badShape', ...
@@ -197,10 +252,10 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     if isPer
         delta = delta - period * floor(delta / period + 0.5);
     end
-    factor = localEvaluateShape(delta, width, shape);   % (1, N)
+    factor = localEvaluateShape(delta, sd, shape);   % (1, N)
 
     % Truncate: zero factor entries whose distance exceeds
-    % truncationSigmas * width. Uniform convention with the kernel
+    % truncationSigmas * sd. Uniform convention with the kernel
     % truncation in the IP / eval paths: at that distance a Gaussian
     % window's value is exp(-truncationSigmas^2 / 2), the same
     % threshold the kernel truncation uses. Reads the global default
@@ -208,7 +263,7 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     % without an extra kwarg. Inf disables (default).
     truncSig = mptDefaults('truncationSigmas');
     if isfinite(truncSig)
-        factor(abs(delta) > truncSig * width) = 0;
+        factor(abs(delta) > truncSig * sd) = 0;
     end
 
     % --- Normalise w to length-A cell; multiply factor into target slot ---
@@ -242,25 +297,25 @@ end
 %  localEvaluateShape -- peak-normalised fixed-variance window family
 % =========================================================================
 
-function h = localEvaluateShape(delta, width, gamma)
+function h = localEvaluateShape(delta, sd, gamma)
 %LOCALEVALUATESHAPE  Peak-normalised rect * Gaussian convolution
 %(Section 5.2.1 of the MAET manuscript), with derived parameters
-%   phi = width * sqrt(3 * gamma)   (rectangle half-width)
-%   xi  = width * sqrt(1 - gamma)   (Gaussian std)
-%so that the total variance is width^2 across the whole family.
+%   phi = sd * sqrt(3 * gamma)   (rectangle half-width)
+%   xi  = sd * sqrt(1 - gamma)   (Gaussian std)
+%so that the total variance is sd^2 across the whole family.
     if gamma == 0
-        % Pure Gaussian, std = width.
-        h = exp(-(delta .^ 2) ./ (2 * width ^ 2));
+        % Pure Gaussian, std = sd.
+        h = exp(-(delta .^ 2) ./ (2 * sd ^ 2));
         return;
     end
     if gamma == 1
-        % Pure rectangle, half-width = width * sqrt(3).
-        phi = width * sqrt(3);
+        % Pure rectangle, half-width = sd * sqrt(3).
+        phi = sd * sqrt(3);
         h = double(abs(delta) <= phi);
         return;
     end
-    phi   = width * sqrt(3 * gamma);
-    xi    = width * sqrt(1 - gamma);
+    phi   = sd * sqrt(3 * gamma);
+    xi    = sd * sqrt(1 - gamma);
     scale = xi * sqrt(2);
     num   = erf((delta + phi) ./ scale) - erf((delta - phi) ./ scale);
     peak  = 2 * erf(phi ./ scale);

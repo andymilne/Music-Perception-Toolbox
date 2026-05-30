@@ -834,45 +834,6 @@ def _scalarize(x, name, *, dtype):
     return dtype(val)
 
 
-def rect_width_from_support(total_support: float) -> float:
-    r"""Convert a desired full rect-window support into ``width``.
-
-    The window family in :func:`weight_events` is parameterised so that
-    total variance equals ``width**2`` for every ``shape`` value in
-    :math:`[0, 1]`. For a pure rectangle (``shape = 1``) the indicator
-    is on :math:`|\delta| \le \text{width}\sqrt{3}`, so the full support
-    is :math:`L = 2 \cdot \text{width} \cdot \sqrt{3}` and the variance
-    of a uniform on :math:`[-L/2, L/2]` is :math:`L^2 / 12`; equating
-    that to :math:`\text{width}^2` gives
-    :math:`\text{width} = L / (2\sqrt{3})`.
-
-    Use this when the natural specification is the full support of the
-    rectangle. For example, a rect window covering one 16th-note grid
-    step in quarter-note units has ``total_support = 0.25``, hence
-    ``width = 0.25 / (2*sqrt(3)) ≈ 0.0722``.
-
-    For a pure Gaussian (``shape = 0``), ``width`` is already the
-    standard deviation, so no conversion is needed.
-
-    Parameters
-    ----------
-    total_support : float
-        Full support of the rectangle (must be positive).
-
-    Returns
-    -------
-    float
-        The ``width`` value to pass to :func:`weight_events` to obtain
-        a rectangle (``shape = 1``) of the given full support.
-    """
-    if not np.isfinite(total_support) or total_support <= 0.0:
-        raise ValueError(
-            f"total_support must be a positive finite scalar; got "
-            f"{total_support}."
-        )
-    return float(total_support) / (2.0 * np.sqrt(3.0))
-
-
 def weight_events(
     p_attr,
     w,
@@ -880,25 +841,48 @@ def weight_events(
     input_attr,
     target_attr,
     centre,
-    width,
     shape,
     is_per,
     period,
     *,
+    sd=None,
+    width=None,
     delete_input,
 ) -> tuple:
     r"""Apply a per-event weight via an input-to-target window factor.
 
     Per-event preprocessing for multi-attribute tensor input. Reads the
     K=1 value at every event from ``input_attr``, evaluates a window
-    function :math:`h` centred at ``centre`` with standard deviation
-    ``width`` and shape parameter ``shape`` (:math:`= \gamma`), and
-    writes the resulting :math:`(1, N)` per-event factor into the
-    weight slot of ``target_attr``, multiplied into any existing
-    weight already there. ``target_attr`` may differ from
-    ``input_attr`` (the typical case --- e.g., time-driven windowing
-    of pitch events) or coincide with it (the input attribute weights
-    itself).
+    function :math:`h` centred at ``centre`` with shape parameter
+    ``shape`` (:math:`= \gamma`), and writes the resulting
+    :math:`(1, N)` per-event factor into the weight slot of
+    ``target_attr``, multiplied into any existing weight already there.
+    ``target_attr`` may differ from ``input_attr`` (the typical case
+    --- e.g., time-driven windowing of pitch events) or coincide with
+    it (the input attribute weights itself).
+
+    The window size is specified through exactly one of two
+    keyword-only arguments, ``sd`` or ``width``. Both name the same
+    underlying scale on different terms:
+
+    - ``sd`` is the **standard deviation** of the window. ``sd = 1.0``
+      gives a Gaussian of standard deviation 1 at ``shape = 0`` and a
+      rectangle whose standard deviation is 1 (i.e., full support
+      :math:`2\sqrt 3`) at ``shape = 1``.
+    - ``width`` is the **full support of the rectangle** at
+      ``shape = 1``. ``width = 1.0`` gives a rectangle on
+      :math:`[-1/2, +1/2]` at ``shape = 1`` and a Gaussian of standard
+      deviation :math:`1/(2\sqrt 3)` at ``shape = 0``. The conversion
+      is ``sd = width / (2 sqrt(3))``.
+
+    The two conventions exist because each is the natural way to
+    specify the *kind* of kernel a particular analysis is built
+    around: Gaussian users typically think in standard deviations,
+    rectangle users typically think in full supports. Across the full
+    ``shape`` family the SD is held constant regardless of which
+    parameter the caller supplied (variance-normalised behaviour), so
+    the only effect of the parameter choice is the numerical value
+    the user types.
 
     When ``delete_input=True`` and ``input_attr`` differs from
     ``target_attr``, the input attribute is removed from the returned
@@ -912,20 +896,23 @@ def weight_events(
     the input would discard the factor just written to it).
 
     The window family is the peak-normalised convolution of a rectangle
-    and a Gaussian:
+    and a Gaussian. Internally, in terms of the standard deviation
+    :math:`s` (= ``sd`` directly, or ``width / (2 sqrt(3))``):
 
     .. math::
 
-        \phi = \text{width}\sqrt{3\gamma}, \qquad
-        \xi  = \text{width}\sqrt{1-\gamma},
+        \phi = s\sqrt{3\gamma}, \qquad
+        \xi  = s\sqrt{1-\gamma},
 
-    parameterised so the total variance equals :math:`\text{width}^2`
-    for every :math:`\gamma \in [0, 1]`. Limits:
+    parameterised so the total variance equals :math:`s^2` for every
+    :math:`\gamma \in [0, 1]`. Limits:
 
     - :math:`\gamma = 0`: pure Gaussian
-      :math:`h(\delta) = \exp(-\delta^2 / (2\,\text{width}^2))`.
+      :math:`h(\delta) = \exp(-\delta^2 / (2 s^2))`.
     - :math:`\gamma = 1`: pure rectangle
-      :math:`h(\delta) = \mathbb{1}[|\delta| \le \text{width}\sqrt 3]`.
+      :math:`h(\delta) = \mathbb{1}[|\delta| \le s\sqrt 3]`,
+      i.e., total support :math:`2 s\sqrt 3` (equivalently
+      ``= width`` when the caller supplied ``width``).
 
     The window is peak-normalised so :math:`h(0) = 1`. For a periodic
     input group (``is_per=True``), the difference
@@ -939,13 +926,14 @@ def weight_events(
 
     Factor entries whose distance from the centre exceeds the global
     ``truncation_sigmas`` cutoff (i.e., :math:`|\delta| > \text{
-    truncation\_sigmas} \cdot \text{width}`) are hard-zeroed.
-    The threshold is the same one the IP / evaluation kernels use:
-    at that distance a Gaussian window's value is
+    truncation\_sigmas} \cdot s`, where :math:`s` is the kernel's
+    standard deviation, equal to ``sd`` or ``width / (2 sqrt(3))``)
+    are hard-zeroed. The threshold is the same one the IP / evaluation
+    kernels use: at that distance a Gaussian window's value is
     :math:`\exp(-\text{truncation\_sigmas}^2 / 2)`. The default global
     value is :math:`\infty` (no truncation); set
     ``mpt.set_default(truncation_sigmas=k)`` to enable hard
-    truncation at :math:`k\,\text{width}`.
+    truncation at :math:`k\,s`.
 
     Parameters
     ----------
@@ -971,10 +959,6 @@ def weight_events(
         factor broadcasts across slots.
     centre : float
         Window centre, in the input attribute's units.
-    width : float
-        Window standard deviation, ``> 0``, in the input attribute's
-        units. The window's total variance equals ``width**2`` for
-        every value of ``shape``.
     shape : float
         Shape parameter :math:`\gamma \in [0, 1]`. ``0`` is pure
         Gaussian; ``1`` is pure rectangle; intermediate values
@@ -986,6 +970,14 @@ def weight_events(
     period : float
         Period of the input attribute's group. Used only when
         ``is_per=True`` (must then be ``> 0``); ignored otherwise.
+    sd : float, keyword-only
+        Window standard deviation, ``> 0``, in the input attribute's
+        units. Exactly one of ``sd`` or ``width`` must be supplied.
+    width : float, keyword-only
+        Full support of the rectangle at ``shape = 1``, ``> 0``, in
+        the input attribute's units. Internally translated to a
+        standard deviation as ``sd = width / (2 sqrt(3))``. Exactly
+        one of ``sd`` or ``width`` must be supplied.
     delete_input : bool, keyword-only, REQUIRED
         Whether to remove the input attribute from the output. If
         ``True`` and ``input_attr != target_attr``, drops the input
@@ -1106,17 +1098,33 @@ def weight_events(
             f"delete_input=False, or choose a different target_attr."
         )
 
-    # --- Validate centre, width, shape, is_per, period (scalars) ---
+    # --- Validate centre, sd/width (XOR), shape, is_per, period (scalars) ---
     centre_f = _scalarize(centre, "centre", dtype=float)
-    width_f = _scalarize(width, "width", dtype=float)
+    # Exactly one of sd or width must be supplied. Convert width →
+    # sd internally; the rest of the body operates on sd_f.
+    if (sd is None) == (width is None):
+        raise TypeError(
+            "weight_events requires exactly one of `sd` or `width` "
+            "(keyword-only). `sd` is the window standard deviation; "
+            "`width` is the full support of the rectangle at "
+            "shape=1, equivalent to sd * 2 * sqrt(3). Got "
+            f"sd={sd!r}, width={width!r}."
+        )
+    if sd is not None:
+        sd_f = _scalarize(sd, "sd", dtype=float)
+        if not np.isfinite(sd_f) or sd_f <= 0:
+            raise ValueError(f"sd must be finite and > 0; got {sd_f}.")
+    else:
+        width_f = _scalarize(width, "width", dtype=float)
+        if not np.isfinite(width_f) or width_f <= 0:
+            raise ValueError(f"width must be finite and > 0; got {width_f}.")
+        sd_f = width_f / (2.0 * np.sqrt(3.0))
     shape_f = _scalarize(shape, "shape", dtype=float)
     is_per_b = _scalarize(is_per, "is_per", dtype=bool)
     period_f = _scalarize(period, "period", dtype=float)
 
     if not np.isfinite(centre_f):
         raise ValueError(f"centre must be finite; got {centre_f}.")
-    if not np.isfinite(width_f) or width_f <= 0:
-        raise ValueError(f"width must be finite and > 0; got {width_f}.")
     if not (0.0 <= shape_f <= 1.0):
         raise ValueError(
             f"shape (gamma) must lie in [0, 1]: gamma = 0 is pure Gaussian, "
@@ -1133,10 +1141,10 @@ def weight_events(
     delta = val_row - centre_f
     if is_per_b:
         delta = delta - period_f * np.floor(delta / period_f + 0.5)
-    factor = _evaluate_shape(delta, width_f, shape_f)  # (1, N)
+    factor = _evaluate_shape(delta, sd_f, shape_f)  # (1, N)
 
     # Truncate: zero factor entries whose distance exceeds
-    # truncation_sigmas · width. Uniform convention with the kernel
+    # truncation_sigmas · sd. Uniform convention with the kernel
     # truncation in the IP/eval paths: at that distance a Gaussian
     # window's value is exp(-truncation_sigmas² / 2), the same
     # threshold the kernel truncation uses. Reads the global default
@@ -1145,7 +1153,7 @@ def weight_events(
     from .._defaults import get_default
     trunc_sig = get_default('truncation_sigmas')
     if np.isfinite(trunc_sig):
-        factor[np.abs(delta) > trunc_sig * width_f] = 0.0
+        factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
 
     # --- Normalise w to length-A list; multiply factor into target slot ---
     w_out = _normalise_weights_to_list(w, A)

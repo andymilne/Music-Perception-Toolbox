@@ -1,6 +1,6 @@
-"""Regression tests for ``rect_width_from_support`` and the auto-prune
-of zero-weight tuples in ``_cell_masses_ma_absolute`` /
-``_cell_masses_sa_absolute``.
+"""Regression tests for the auto-prune of zero-weight tuples in
+``_cell_masses_ma_absolute`` / ``_cell_masses_sa_absolute``, plus the
+``sd`` / ``width`` keyword-only API on ``weight_events``.
 
 The auto-prune mirrors the eval-path prune in ``_tensor/eval.py``.
 Without it, when ``weight_events`` truncates most events to zero weight
@@ -10,11 +10,14 @@ including the zero-weighted ones. For long sequences this can OOM,
 even though zero-weight tuples contribute exactly zero to the result.
 
 The tests cover:
-1. ``rect_width_from_support`` math and input validation.
+1. The ``sd`` / ``width`` keyword-only API on :func:`weight_events`:
+   exactly one must be supplied; ``width`` is internally converted to
+   an SD as ``sd = width / (2 * sqrt(3))`` so the two parameterizations
+   produce the same density when their values are paired by that ratio.
 2. Differential entropy on a long sequence (1000 events) with a
    Gaussian window that zeros most events: must (a) return a finite
    value in bounded time, and (b) agree with the manually-pruned
-   computation to machine precision.
+   computation to high precision.
 3. ``method='shannon'`` on the same long-sequence input: same numerical
    parity check.
 """
@@ -28,39 +31,143 @@ import mpt
 from mpt import (
     add_spectra,
     entropy_exp_tens,
-    rect_width_from_support,
     weight_events,
 )
 
 
 # ---------------------------------------------------------------------
-# Helper math
+# sd / width keyword-only API
 # ---------------------------------------------------------------------
 
-def test_rect_width_from_support_value():
-    """For total support 0.25, width = 0.25 / (2*sqrt(3))."""
-    assert rect_width_from_support(0.25) == pytest.approx(
-        0.25 / (2.0 * math.sqrt(3.0)), rel=0, abs=1e-15
-    )
+def _trivial_two_attr_inputs(n=4):
+    """Minimal 2-attribute inputs (pitch K=1, time K=1) for API tests."""
+    pitches = np.arange(n, dtype=float) + 60.0      # (1, n)
+    times = np.arange(n, dtype=float) * 0.25        # (1, n)
+    p_attr = [pitches.reshape(1, n), times.reshape(1, n)]
+    w = [np.ones((1, n)), np.ones((1, n))]
+    return p_attr, w
 
 
-def test_rect_width_from_support_inverse_relationship():
-    """The full support implied by the returned width must round-trip.
+def test_weight_events_requires_sd_or_width():
+    """Calling with neither sd nor width must raise TypeError."""
+    p_attr, w = _trivial_two_attr_inputs()
+    with pytest.raises(TypeError, match="exactly one of `sd` or `width`"):
+        weight_events(
+            p_attr, w, [0, 1],
+            input_attr=1, target_attr=0,
+            centre=0.5, shape=0.0,
+            is_per=False, period=0.0,
+            delete_input=True,
+        )
 
-    The cutoff for shape=1 is at width*sqrt(3), so full support is
-    2*width*sqrt(3). That should recover the input.
+
+def test_weight_events_rejects_both_sd_and_width():
+    """Calling with both sd and width must raise TypeError."""
+    p_attr, w = _trivial_two_attr_inputs()
+    with pytest.raises(TypeError, match="exactly one of `sd` or `width`"):
+        weight_events(
+            p_attr, w, [0, 1],
+            input_attr=1, target_attr=0,
+            centre=0.5, shape=0.0,
+            is_per=False, period=0.0,
+            sd=1.0, width=1.0,
+            delete_input=True,
+        )
+
+
+def test_weight_events_sd_and_width_yield_same_density_under_conversion():
+    """``sd = s`` and ``width = s * 2 * sqrt(3)`` must produce identical
+    output (same SD specified two ways).
     """
-    for L in [0.05, 0.1, 0.25, 0.5, 1.0, 7.5]:
-        w = rect_width_from_support(L)
-        full_support_implied = 2.0 * w * math.sqrt(3.0)
-        assert full_support_implied == pytest.approx(L, rel=0, abs=1e-12)
+    p_attr, w = _trivial_two_attr_inputs(n=20)
+    s = 1.0
+    L = s * 2.0 * math.sqrt(3.0)
+
+    # Rectangle (shape = 1)
+    _, w_sd, _ = weight_events(
+        p_attr, w, [0, 1],
+        input_attr=1, target_attr=0,
+        centre=2.0, shape=1.0,
+        is_per=False, period=0.0,
+        sd=s, delete_input=True,
+    )
+    _, w_width, _ = weight_events(
+        p_attr, w, [0, 1],
+        input_attr=1, target_attr=0,
+        centre=2.0, shape=1.0,
+        is_per=False, period=0.0,
+        width=L, delete_input=True,
+    )
+    np.testing.assert_allclose(w_sd[0], w_width[0], rtol=0, atol=1e-12)
+
+    # Gaussian (shape = 0)
+    _, w_sd_g, _ = weight_events(
+        p_attr, w, [0, 1],
+        input_attr=1, target_attr=0,
+        centre=2.0, shape=0.0,
+        is_per=False, period=0.0,
+        sd=s, delete_input=True,
+    )
+    _, w_width_g, _ = weight_events(
+        p_attr, w, [0, 1],
+        input_attr=1, target_attr=0,
+        centre=2.0, shape=0.0,
+        is_per=False, period=0.0,
+        width=L, delete_input=True,
+    )
+    np.testing.assert_allclose(w_sd_g[0], w_width_g[0], rtol=0, atol=1e-12)
 
 
-def test_rect_width_from_support_rejects_nonpositive():
-    """Zero and negative inputs are invalid; NaN/inf likewise."""
-    for bad in [0.0, -1.0, -0.25, float('nan'), float('inf'), -float('inf')]:
-        with pytest.raises(ValueError, match='positive finite scalar'):
-            rect_width_from_support(bad)
+def test_weight_events_rect_width_is_full_support():
+    """At shape=1, ``width=L`` gives a rectangle covering ``[-L/2, +L/2]``
+    around the centre: events at exactly ``+/- L/2`` are kept; events
+    just beyond are zeroed.
+    """
+    # Place events at -L/2, -L/4, 0, +L/4, +L/2, and just past +L/2.
+    L = 1.0
+    eps = 1e-6
+    times = np.array([-L/2, -L/4, 0.0, +L/4, +L/2, +L/2 + eps])
+    n = len(times)
+    pitches = np.full((1, n), 60.0)
+    p_attr = [pitches, times.reshape(1, n)]
+    w = [np.ones((1, n)), np.ones((1, n))]
+
+    _, w_out, _ = weight_events(
+        p_attr, w, [0, 1],
+        input_attr=1, target_attr=0,
+        centre=0.0, shape=1.0,
+        is_per=False, period=0.0,
+        width=L, delete_input=True,
+    )
+    # First five events should have weight 1; the sixth (just past L/2) is 0.
+    np.testing.assert_allclose(w_out[0][0, :5], 1.0)
+    assert w_out[0][0, 5] == 0.0
+
+
+def test_weight_events_sd_rejects_nonpositive():
+    p_attr, w = _trivial_two_attr_inputs()
+    for bad in [0.0, -1.0]:
+        with pytest.raises(ValueError, match="sd must be finite and > 0"):
+            weight_events(
+                p_attr, w, [0, 1],
+                input_attr=1, target_attr=0,
+                centre=0.5, shape=0.0,
+                is_per=False, period=0.0,
+                sd=bad, delete_input=True,
+            )
+
+
+def test_weight_events_width_rejects_nonpositive():
+    p_attr, w = _trivial_two_attr_inputs()
+    for bad in [0.0, -1.0]:
+        with pytest.raises(ValueError, match="width must be finite and > 0"):
+            weight_events(
+                p_attr, w, [0, 1],
+                input_attr=1, target_attr=0,
+                centre=0.5, shape=0.0,
+                is_per=False, period=0.0,
+                width=bad, delete_input=True,
+            )
 
 
 # ---------------------------------------------------------------------
@@ -107,7 +214,7 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     n_events = 1000
     p_attr, w, times = _build_long_sequence_density_inputs(n_events)
 
-    # Gaussian window of sigma=1 (in 0.25-QN units of the time axis) at
+    # Gaussian window of sd=1 (in 0.25-QN units of the time axis) at
     # mid-sequence; truncation_sigmas=3 hard-zeros far-away events.
     mpt.set_default(truncation_sigmas=3.0)
     c = float(times[n_events // 2])
@@ -115,9 +222,9 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     p_w, w_w, g_w = weight_events(
         p_attr, w, [0, 1],
         input_attr=1, target_attr=0,
-        centre=c, width=1.0, shape=0.0,
+        centre=c, shape=0.0,
         is_per=False, period=0.0,
-        delete_input=True,
+        sd=1.0, delete_input=True,
     )
     # Sanity: weight_events should zero most events, but not prune them.
     assert p_w[0].shape[1] == n_events
@@ -152,9 +259,9 @@ def test_differential_entropy_matches_manual_prune():
     p_w, w_w, g_w = weight_events(
         p_attr, w, [0, 1],
         input_attr=1, target_attr=0,
-        centre=c, width=1.0, shape=0.0,
+        centre=c, shape=0.0,
         is_per=False, period=0.0,
-        delete_input=True,
+        sd=1.0, delete_input=True,
     )
     H_auto = entropy_exp_tens(
         p_w, w_w, [10.0], [1], list(g_w), [False], [False], [0.0],
@@ -191,9 +298,9 @@ def test_shannon_grid_matches_manual_prune():
     p_w, w_w, g_w = weight_events(
         p_attr, w, [0, 1],
         input_attr=1, target_attr=0,
-        centre=c, width=1.0, shape=0.0,
+        centre=c, shape=0.0,
         is_per=False, period=0.0,
-        delete_input=True,
+        sd=1.0, delete_input=True,
     )
     H_auto = entropy_exp_tens(
         p_w, w_w, [10.0], [1], list(g_w), [False], [False], [0.0],

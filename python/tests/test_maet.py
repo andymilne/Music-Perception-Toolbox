@@ -1488,7 +1488,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, None, None,
             input_attr=0, target_attr=0,
-            centre=64.0, width=3.0, shape=0.0,
+            centre=64.0, sd=3.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1504,7 +1504,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, None, None,
             input_attr=0, target_attr=0,
-            centre=64.0, width=3.0, shape=1.0,
+            centre=64.0, sd=3.0, shape=1.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1521,7 +1521,7 @@ class TestMAET:
             _, w_out, _ = mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=5.0, width=2.0, shape=g,
+                centre=5.0, sd=2.0, shape=g,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1540,7 +1540,7 @@ class TestMAET:
             _, w_out, _ = mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=0.0, width=width, shape=g,
+                centre=0.0, sd=width, shape=g,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1558,7 +1558,7 @@ class TestMAET:
         out = mpt.weight_events(
             p, None, [0, 1],
             input_attr=0, target_attr=0,
-            centre=1.5, width=1.0, shape=0.0,
+            centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1578,7 +1578,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, w_in, None,
             input_attr=0, target_attr=1,
-            centre=2.0, width=1.0, shape=0.0,
+            centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1593,7 +1593,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, None, [0, 1],
             input_attr=1, target_attr=0,
-            centre=1.0, width=1.0, shape=0.0,    # Gaussian on time at t=1
+            centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1616,7 +1616,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, w_in, [0, 1],
             input_attr=1, target_attr=0,
-            centre=0.0, width=1.0, shape=0.0,
+            centre=0.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1634,7 +1634,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, None, None,
             input_attr=0, target_attr=0,
-            centre=0.0, width=2.0, shape=0.0,
+            centre=0.0, sd=2.0, shape=0.0,
             is_per=True, period=12.0,
             delete_input=False,
         )
@@ -1649,7 +1649,7 @@ class TestMAET:
         _, w_out, _ = mpt.weight_events(
             p, w_in, None,
             input_attr=0, target_attr=0,
-            centre=2.0, width=1.0, shape=0.0,
+            centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1668,7 +1668,7 @@ class TestMAET:
         p1, w1, g1 = mpt.weight_events(
             p, None, [0, 1, 2],
             input_attr=1, target_attr=0,
-            centre=1.0, width=1.0, shape=0.0,
+            centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1676,7 +1676,7 @@ class TestMAET:
         _, w2, _ = mpt.weight_events(
             p1, w1, g1,
             input_attr=2, target_attr=0,
-            centre=0.5, width=0.5, shape=0.0,
+            centre=0.5, sd=0.5, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
@@ -1695,7 +1695,7 @@ class TestMAET:
         p_out, w_out, g_out = mpt.weight_events(
             p, None, [0, 1],
             input_attr=1, target_attr=0,
-            centre=1.0, width=1.0, shape=0.0,
+            centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=True,
         )
@@ -1714,7 +1714,7 @@ class TestMAET:
         _, _, g_out = mpt.weight_events(
             p, None, [0, 1, 2],
             input_attr=1, target_attr=0,
-            centre=3.5, width=1.0, shape=0.0,
+            centre=3.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=True,
         )
@@ -1731,7 +1731,7 @@ class TestMAET:
         _, _, g_out = mpt.weight_events(
             p, None, [0, 0, 1],
             input_attr=0, target_attr=2,
-            centre=1.5, width=1.0, shape=0.0,
+            centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=True,
         )
@@ -1746,7 +1746,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=1.0, shape=0.0,
+                centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
                 delete_input=True,
             )
@@ -1758,7 +1758,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=1.0, shape=0.0,
+                centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
             )
 
@@ -1771,7 +1771,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=62.0, width=2.0, shape=0.0,
+                centre=62.0, sd=2.0, shape=0.0,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1779,22 +1779,22 @@ class TestMAET:
     def test_weight_zero_width_errors(self):
         """width = 0 is rejected (degenerate)."""
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="width"):
+        with pytest.raises(ValueError, match="sd"):
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=0.0, shape=0.5,
+                centre=1.0, sd=0.0, shape=0.5,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
 
     def test_weight_negative_width_errors(self):
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="width"):
+        with pytest.raises(ValueError, match="sd"):
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=-1.0, shape=0.5,
+                centre=1.0, sd=-1.0, shape=0.5,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1806,7 +1806,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=1.0, shape=1.5,
+                centre=1.0, sd=1.0, shape=1.5,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1814,7 +1814,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=1.0, shape=-0.1,
+                centre=1.0, sd=1.0, shape=-0.1,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1825,7 +1825,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=2, target_attr=0,
-                centre=1.0, width=1.0, shape=0.0,
+                centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1836,7 +1836,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=3,
-                centre=1.0, width=1.0, shape=0.0,
+                centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
                 delete_input=False,
             )
@@ -1847,7 +1847,7 @@ class TestMAET:
             mpt.weight_events(
                 p, None, None,
                 input_attr=0, target_attr=0,
-                centre=1.0, width=1.0, shape=0.0,
+                centre=1.0, sd=1.0, shape=0.0,
                 is_per=True, period=0.0,
                 delete_input=False,
             )
@@ -1866,14 +1866,14 @@ class TestMAET:
         _, w_after_t, _ = mpt.weight_events(
             p_t, None, None,
             input_attr=0, target_attr=0,
-            centre=c, width=width, shape=gamma,
+            centre=c, sd=width, shape=gamma,
             is_per=False, period=0.0,
             delete_input=False,
         )
         _, w_first, _ = mpt.weight_events(
             p, None, None,
             input_attr=0, target_attr=0,
-            centre=c - mu, width=width, shape=gamma,
+            centre=c - mu, sd=width, shape=gamma,
             is_per=False, period=0.0,
             delete_input=False,
         )

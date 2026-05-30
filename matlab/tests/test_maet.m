@@ -1082,15 +1082,13 @@ results{end,2}   = numel(pdb_db) == numel(pbd_db) && ...
 
 % gamma = 0 limit: pure Gaussian with std = width.
 p_we = {[60 62 64 67 72]};
-[~, w_we, ~] = weightEvents(p_we, [], [], 1, 1, 64, 3, 0, false, 0, ...
-    'deleteInput', false);
+[~, w_we, ~] = weightEvents(p_we, [], [], 1, 1, 64, 0, false, 0, 'sd', 3,      'deleteInput', false);
 expected_we = exp(-(([60 62 64 67 72] - 64) .^ 2) ./ (2 * 3 ^ 2));
 results{end+1,1} = 'weightEvents: gamma = 0 is pure Gaussian (std = width)';
 results{end,2}   = max(abs(w_we{1} - expected_we)) < 1e-12;
 
 % gamma = 1 limit: pure rectangle with half-width = width * sqrt(3).
-[~, w_re, ~] = weightEvents({[60 62 64 67 72]}, [], [], 1, 1, 64, 3, 1, ...
-    false, 0, 'deleteInput', false);
+[~, w_re, ~] = weightEvents({[60 62 64 67 72]}, [], [], 1, 1, 64, 1,      false, 0, 'sd', 3, 'deleteInput', false);
 expected_re = double(abs([60 62 64 67 72] - 64) <= 3 * sqrt(3));
 results{end+1,1} = 'weightEvents: gamma = 1 is pure rectangle (half-width = width * sqrt(3))';
 results{end,2}   = isequal(w_re{1}, expected_re);
@@ -1099,8 +1097,7 @@ results{end,2}   = isequal(w_re{1}, expected_re);
 gammas_peak = [0.05 0.1 0.25 0.5 0.75 0.9 0.95];
 peak_ok = true;
 for gg = gammas_peak
-    [~, w_pk, ~] = weightEvents({5}, [], [], 1, 1, 5, 2, gg, false, 0, ...
-        'deleteInput', false);
+    [~, w_pk, ~] = weightEvents({5}, [], [], 1, 1, 5, gg, false, 0, 'sd', 2,          'deleteInput', false);
     if abs(w_pk{1} - 1) >= 1e-12
         peak_ok = false; break;
     end
@@ -1115,8 +1112,7 @@ width_fv = 4;
 gammas_fv = [0 0.1 0.25 0.5 0.75 0.9 1.0];
 var_ok = true;
 for gg = gammas_fv
-    [~, w_fv, ~] = weightEvents({y_fv}, [], [], 1, 1, 0, width_fv, gg, ...
-        false, 0, 'deleteInput', false);
+    [~, w_fv, ~] = weightEvents({y_fv}, [], [], 1, 1, 0, gg,          false, 0, 'sd', width_fv, 'deleteInput', false);
     h_fv = w_fv{1};
     area = sum(h_fv) * dy_fv;
     variance = sum(y_fv .^ 2 .* h_fv) * dy_fv / area;
@@ -1129,8 +1125,7 @@ results{end,2}   = var_ok;
 
 % Output is a 3-tuple (pAttrOut, wOut, groupsOut).
 p_3t = {[1 2], [3 4]};
-[p_3t_out, w_3t_out, g_3t_out] = weightEvents(p_3t, [], [1 2], 1, 1, ...
-    1.5, 1, 0, false, 0, 'deleteInput', false);
+[p_3t_out, w_3t_out, g_3t_out] = weightEvents(p_3t, [], [1 2], 1, 1,      1.5, 0, false, 0, 'sd', 1, 'deleteInput', false);
 results{end+1,1} = 'weightEvents: returns three-tuple (pAttr, w, groups)';
 results{end,2}   = iscell(p_3t_out) && numel(p_3t_out) == 2 && ...
                    iscell(w_3t_out) && numel(w_3t_out) == 2 && ...
@@ -1138,15 +1133,13 @@ results{end,2}   = iscell(p_3t_out) && numel(p_3t_out) == 2 && ...
 
 % Non-input, non-target attribute passes its incoming weight through.
 p_pt = {[1 2 3], [10 20 30], [100 200 300]};
-[~, w_pt, ~] = weightEvents(p_pt, {[], [], 0.5}, [], 1, 2, 2, 1, 0, ...
-    false, 0, 'deleteInput', false);
+[~, w_pt, ~] = weightEvents(p_pt, {[], [], 0.5}, [], 1, 2, 2, 0,      false, 0, 'sd', 1, 'deleteInput', false);
 results{end+1,1} = 'weightEvents: non-input non-target attribute passes through unchanged';
 results{end,2}   = isequal(w_pt{3}, 0.5);
 
 % input ~= target: factor lands on target slot, input slot unchanged.
 p_int = {[60 64 67], [0 1 2]};        % pitch (target), time (input)
-[~, w_int, ~] = weightEvents(p_int, [], [1 2], 2, 1, 1, 1, 0, false, 0, ...
-    'deleteInput', false);
+[~, w_int, ~] = weightEvents(p_int, [], [1 2], 2, 1, 1, 0, false, 0, 'sd', 1,      'deleteInput', false);
 expected_int = exp(-(([0 1 2] - 1) .^ 2) ./ 2);
 results{end+1,1} = 'weightEvents: input ~= target writes factor to target slot only';
 results{end,2}   = max(abs(w_int{1} - expected_int)) < 1e-12 && isempty(w_int{2});
@@ -1154,8 +1147,7 @@ results{end,2}   = max(abs(w_int{1} - expected_int)) < 1e-12 && isempty(w_int{2}
 % Target with K_target > 1: (1, N) factor broadcasts across K_target slots.
 p_bc = {[60 64; 62 65; 64 67], [0 1]};   % pitch K=3 (target), time K=1 (input)
 w_bc_in = {ones(3, 2), []};
-[~, w_bc, ~] = weightEvents(p_bc, w_bc_in, [1 2], 2, 1, 0, 1, 0, false, 0, ...
-    'deleteInput', false);
+[~, w_bc, ~] = weightEvents(p_bc, w_bc_in, [1 2], 2, 1, 0, 0, false, 0, 'sd', 1,      'deleteInput', false);
 factor_bc = exp(-([0 1] .^ 2) ./ 2);
 expected_bc = repmat(factor_bc, 3, 1);
 results{end+1,1} = 'weightEvents: (1, N) factor broadcasts across target K_target > 1 slots';
@@ -1164,8 +1156,7 @@ results{end,2}   = isequal(size(w_bc{1}), [3 2]) && ...
 
 % Periodic wrap: delta = v - c wrapped to [-P/2, P/2] before h. Raw values intact.
 p_per = {[10 11 0 1 2]};
-[~, w_per, ~] = weightEvents(p_per, [], [], 1, 1, 0, 2, 0, true, 12, ...
-    'deleteInput', false);
+[~, w_per, ~] = weightEvents(p_per, [], [], 1, 1, 0, 0, true, 12, 'sd', 2,      'deleteInput', false);
 expected_per = exp(-([-2 -1 0 1 2] .^ 2) ./ 8);
 results{end+1,1} = 'weightEvents: periodic wrap of delta before shape';
 results{end,2}   = max(abs(w_per{1} - expected_per)) < 1e-12;
@@ -1173,8 +1164,7 @@ results{end+1,1} = 'weightEvents: input values stay raw (no value mutation)';
 results{end,2}   = isequal(p_per{1}, [10 11 0 1 2]);
 
 % Scalar existing weight multiplies in.
-[~, w_mul, ~] = weightEvents({[1 2 3]}, 0.5, [], 1, 1, 2, 1, 0, false, 0, ...
-    'deleteInput', false);
+[~, w_mul, ~] = weightEvents({[1 2 3]}, 0.5, [], 1, 1, 2, 0, false, 0, 'sd', 1,      'deleteInput', false);
 h_mul = exp(-(([1 2 3] - 2) .^ 2) ./ 2);
 results{end+1,1} = 'weightEvents: scalar existing weight multiplies in';
 results{end,2}   = max(abs(w_mul{1} - 0.5 .* h_mul)) < 1e-12;
@@ -1182,10 +1172,8 @@ results{end,2}   = max(abs(w_mul{1} - 0.5 .* h_mul)) < 1e-12;
 % Sequential composition replaces the old multi-input behaviour: two calls
 % on the same target multiply factors. pitch (target), two scaffolding attrs.
 p_seq = {[60 64 67], [0 1 2], [0 0.5 1]};
-[p_seq1, w_seq1, g_seq1] = weightEvents(p_seq, [], [1 2 3], 2, 1, ...
-    1, 1, 0, false, 0, 'deleteInput', false);
-[~, w_seq2, ~] = weightEvents(p_seq1, w_seq1, g_seq1, 3, 1, ...
-    0.5, 0.5, 0, false, 0, 'deleteInput', false);
+[p_seq1, w_seq1, g_seq1] = weightEvents(p_seq, [], [1 2 3], 2, 1,      1, 0, false, 0, 'sd', 1, 'deleteInput', false);
+[~, w_seq2, ~] = weightEvents(p_seq1, w_seq1, g_seq1, 3, 1,      0.5, 0, false, 0, 'sd', 0.5, 'deleteInput', false);
 h_time_seq = exp(-(([0 1 2] - 1) .^ 2) ./ 2);
 h_beat_seq = exp(-(([0 0.5 1] - 0.5) .^ 2) ./ 0.5);
 results{end+1,1} = 'weightEvents: sequential composition multiplies factors into target';
@@ -1193,8 +1181,7 @@ results{end,2}   = max(abs(w_seq2{1} - h_time_seq .* h_beat_seq)) < 1e-12;
 
 % delete_input=true drops the input attribute.
 p_del = {[60 64 67], [0 1 2]};
-[p_del_out, w_del_out, g_del_out] = weightEvents(p_del, [], [1 2], ...
-    2, 1, 1, 1, 0, false, 0, 'deleteInput', true);
+[p_del_out, w_del_out, g_del_out] = weightEvents(p_del, [], [1 2],      2, 1, 1, 0, false, 0, 'sd', 1, 'deleteInput', true);
 results{end+1,1} = 'weightEvents: delete_input=true drops the input attribute';
 results{end,2}   = numel(p_del_out) == 1 && numel(w_del_out) == 1 && ...
                    isequal(p_del_out{1}, [60 64 67]);
@@ -1203,8 +1190,7 @@ results{end,2}   = numel(p_del_out) == 1 && numel(w_del_out) == 1 && ...
 % Input groups [1 2 3] (3 attrs, 3 groups). Delete attr 2 (group 2, sole).
 % Remaining kept groups [1 3] -> compact -> [1 2].
 p_gc = {[1 2], [3 4], [5 6]};
-[~, ~, g_gc_out] = weightEvents(p_gc, [], [1 2 3], 2, 1, ...
-    3.5, 1, 0, false, 0, 'deleteInput', true);
+[~, ~, g_gc_out] = weightEvents(p_gc, [], [1 2 3], 2, 1,      3.5, 0, false, 0, 'sd', 1, 'deleteInput', true);
 results{end+1,1} = 'weightEvents: delete_input compacts groups when input is sole member';
 results{end,2}   = isequal(g_gc_out(:).', [1 2]);
 
@@ -1212,58 +1198,80 @@ results{end,2}   = isequal(g_gc_out(:).', [1 2]);
 % Input groups [1 1 2] (3 attrs, 2 groups). Delete attr 1 (group 1, not sole).
 % Remaining kept groups [1 2] -- attr 2 still in group 1, attr 3 in group 2.
 p_gk = {[1 2], [3 4], [5 6]};
-[~, ~, g_gk_out] = weightEvents(p_gk, [], [1 1 2], 1, 3, ...
-    1.5, 1, 0, false, 0, 'deleteInput', true);
+[~, ~, g_gk_out] = weightEvents(p_gk, [], [1 1 2], 1, 3,      1.5, 0, false, 0, 'sd', 1, 'deleteInput', true);
 results{end+1,1} = 'weightEvents: delete_input retains group when input shares it';
 results{end,2}   = isequal(g_gk_out(:).', [1 2]);
 
-% Error cases (per-validation IDs in MATLAB).
-results{end+1,1} = 'weightEvents: zero width errors (badWidth id)';
+% --- sd / width API: exactly one must be supplied; both convertible. ---
+results{end+1,1} = 'weightEvents: no sd and no width errors (sdWidthXor)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, 0.5, false, 0, ...
-        'deleteInput', false), ...
-    'weightEvents:badWidth');
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, false, 0, 'deleteInput', false), ...
+    'weightEvents:sdWidthXor');
 
-results{end+1,1} = 'weightEvents: negative width errors (badWidth id)';
+results{end+1,1} = 'weightEvents: both sd and width errors (sdWidthXor)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, -1, 0.5, false, 0, ...
-        'deleteInput', false), ...
-    'weightEvents:badWidth');
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, false, 0, ...
+        'sd', 1, 'width', 1, 'deleteInput', false), ...
+    'weightEvents:sdWidthXor');
+
+% sd and width produce the same output when paired by sd = width / (2*sqrt(3)).
+sd_xy   = 1.0;
+wid_xy  = sd_xy * 2 * sqrt(3);
+[~, w_sd_xy,  ~] = weightEvents({linspace(-5, 5, 21)}, [], [], 1, 1, 0, ...
+    1, false, 0, 'sd', sd_xy, 'deleteInput', false);
+[~, w_wid_xy, ~] = weightEvents({linspace(-5, 5, 21)}, [], [], 1, 1, 0, ...
+    1, false, 0, 'width', wid_xy, 'deleteInput', false);
+results{end+1,1} = 'weightEvents: sd and width yield identical output under conversion';
+results{end,2}   = max(abs(w_sd_xy{1} - w_wid_xy{1})) < 1e-12;
+
+% width form: rect of full support L covers [-L/2, L/2]; events just past zeroed.
+L_rect = 1.0;
+eps_rect = 1e-6;
+t_rect = [-L_rect/2, -L_rect/4, 0, L_rect/4, L_rect/2, L_rect/2 + eps_rect];
+[~, w_rect, ~] = weightEvents({t_rect}, [], [], 1, 1, 0, ...
+    1, false, 0, 'width', L_rect, 'deleteInput', false);
+results{end+1,1} = 'weightEvents: width gives rectangle of total support width';
+results{end,2}   = all(w_rect{1}(1:5) == 1) && w_rect{1}(6) == 0;
+
+% Error cases (per-validation IDs in MATLAB).
+results{end+1,1} = 'weightEvents: zero sd errors (badSd id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0.5, false, 0, 'sd', 0,          'deleteInput', false), ...
+    'weightEvents:badSd');
+
+results{end+1,1} = 'weightEvents: negative sd errors (badSd id)';
+results{end,2}   = throwsErrorWithId( ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0.5, false, 0, 'sd', -1,          'deleteInput', false), ...
+    'weightEvents:badSd');
 
 results{end+1,1} = 'weightEvents: shape > 1 errors (badShape id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1, 1.5, false, 0, ...
-        'deleteInput', false), ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1.5, false, 0, 'sd', 1,          'deleteInput', false), ...
     'weightEvents:badShape');
 
 results{end+1,1} = 'weightEvents: shape < 0 errors (badShape id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1, -0.1, false, 0, ...
-        'deleteInput', false), ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, -0.1, false, 0, 'sd', 1,          'deleteInput', false), ...
     'weightEvents:badShape');
 
 results{end+1,1} = 'weightEvents: inputAttr out of range errors (badInputAttr id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 2, 1, 1, 1, 0, false, 0, ...
-        'deleteInput', false), ...
+    @() weightEvents({[1 2]}, [], [], 2, 1, 1, 0, false, 0, 'sd', 1,          'deleteInput', false), ...
     'weightEvents:badInputAttr');
 
 results{end+1,1} = 'weightEvents: input K > 1 errors (inputAttrNotK1 id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2; 3 4]}, [], [], 1, 1, 1, 1, 0, false, 0, ...
-        'deleteInput', false), ...
+    @() weightEvents({[1 2; 3 4]}, [], [], 1, 1, 1, 0, false, 0, 'sd', 1,          'deleteInput', false), ...
     'weightEvents:inputAttrNotK1');
 
 results{end+1,1} = 'weightEvents: delete_input=true with input==target errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1, 0, false, 0, ...
-        'deleteInput', true), ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, false, 0, 'sd', 1,          'deleteInput', true), ...
     'weightEvents:deleteInputIncoherent');
 
 results{end+1,1} = 'weightEvents: isPer=true with period=0 errors (badPeriod id)';
 results{end,2}   = throwsErrorWithId( ...
-    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 1, 0, true, 0, ...
-        'deleteInput', false), ...
+    @() weightEvents({[1 2]}, [], [], 1, 1, 1, 0, true, 0, 'sd', 1,          'deleteInput', false), ...
     'weightEvents:badPeriod');
 
 % T \circ W centre-shift commutation: T then W with centre c equals W with
@@ -1272,10 +1280,8 @@ results{end,2}   = throwsErrorWithId( ...
 p_tw = {[60 62 64]};
 mu_tw = 5; c_tw = 64; width_tw = 3; gamma_tw = 0.3;
 p_after_t = translateAttributes(p_tw, [], mu_tw, false, false, 0);
-[~, w_after_t, ~] = weightEvents(p_after_t, [], [], 1, 1, c_tw, ...
-    width_tw, gamma_tw, false, 0, 'deleteInput', false);
-[~, w_first, ~]   = weightEvents(p_tw, [], [], 1, 1, c_tw - mu_tw, ...
-    width_tw, gamma_tw, false, 0, 'deleteInput', false);
+[~, w_after_t, ~] = weightEvents(p_after_t, [], [], 1, 1, c_tw, gamma_tw, false, 0, 'sd', width_tw, 'deleteInput', false);
+[~, w_first, ~]   = weightEvents(p_tw, [], [], 1, 1, c_tw - mu_tw, gamma_tw, false, 0, 'sd', width_tw, 'deleteInput', false);
 results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 

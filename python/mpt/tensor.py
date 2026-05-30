@@ -28,7 +28,6 @@ from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
     bind_events,
     difference_events,
-    rect_width_from_support,
     simplex_vertices,
     translate_attributes,
     weight_events,

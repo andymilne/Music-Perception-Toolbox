@@ -987,6 +987,8 @@ def _cos_sim_exp_tens_sa(
     the Möbius method is selected and the result agrees with v2.1 to
     floating-point precision.
     """
+    dens_x = dens_x.pruned()
+    dens_y = dens_y.pruned()
     if dens_x.r != dens_y.r:
         raise ValueError("Both densities must have the same r.")
     if dens_x.is_rel != dens_y.is_rel:
@@ -1108,6 +1110,9 @@ def _cos_sim_exp_tens_ma(
     counts may differ freely — that's the whole point of the similarity
     measure.
     """
+    dens_x = dens_x.pruned()
+    dens_y = dens_y.pruned()
+
     # --- Structural compatibility ---
     if dens_x.n_attrs != dens_y.n_attrs:
         raise ValueError("Both MaetDensities must have the same n_attrs.")

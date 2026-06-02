@@ -443,8 +443,8 @@ if nArgs == 2
         switch [a.tag '|' b.tag]
             case 'ExpTensDensity|ExpTensDensity'
                 % SA dens: validate compatibility below, then fall through.
-                dens_x = a;
-                dens_y = b;
+                dens_x = internal.prunedExpTens(a);
+                dens_y = internal.prunedExpTens(b);
             case 'MaetDensity|MaetDensity'
                 s = localCosSimMA(a, b, method, normalize, ...
                                   cancellationThreshold, verbose, ...
@@ -1395,6 +1395,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 %   isRel, isPer, period. Weights and event/slot counts may differ.
 
     % --- Structural compatibility (cheap fields only) ---
+    dens_x = internal.prunedExpTens(dens_x);
+    dens_y = internal.prunedExpTens(dens_y);
     if dens_x.nAttrs ~= dens_y.nAttrs
         error('cosSimExpTens:nAttrsMismatch', ...
             'Both MaetDensities must have the same nAttrs.');

@@ -1744,6 +1744,7 @@ function H = localRenyi2SA(dens, base)
 %   Z = integral T(x) dx via the closed-form total-mass formulae in
 %   the +mobius package.
 
+    dens = internal.prunedExpTens(dens);
     p = dens.p; w = dens.w;
     sigma = dens.sigma; r = dens.r;
     isRel = dens.isRel; isPer = dens.isPer; period = dens.period;
@@ -1830,6 +1831,7 @@ function H = localRenyi2MA(dens, base)
              'WindowedMaetDensity.']);
     end
 
+    dens = internal.prunedExpTens(dens);
     A = dens.nAttrs;
     N = dens.N;
     if A == 0 || N == 0

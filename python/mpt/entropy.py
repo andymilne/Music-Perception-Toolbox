@@ -1384,6 +1384,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     """
     from ._mobius import total_mass_abs, total_mass_rel
 
+    dens = dens.pruned()
     p, w = dens.p, dens.w
     sigma, r = dens.sigma, dens.r
     is_rel, is_per, period = dens.is_rel, dens.is_per, dens.period
@@ -1479,7 +1480,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
             "WindowedMaetDensity. Use method='shannon' for windowed "
             "MA densities, or compute on the underlying MaetDensity."
         )
-    dens = dens_or_windowed
+    dens = dens_or_windowed.pruned()
     A = dens.n_attrs
     N = dens.n
     if A == 0 or N == 0:

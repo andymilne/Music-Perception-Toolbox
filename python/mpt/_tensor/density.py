@@ -44,6 +44,19 @@ def _nchoosek_indices(n: int, r: int) -> np.ndarray:
 # -------------------------------------------------------------------
 
 
+def _weight_is_live(w: np.ndarray) -> np.ndarray:
+    """Boolean mask of weights that contribute to a density.
+
+    A weight contributes iff it is finite and of nonzero magnitude.
+    NaN (a structurally absent slot) and ``0`` (present but
+    zero-weighted, e.g. hard-zeroed outside a window's truncation
+    support) both fail the test. This is the single definition of a
+    "live" weight used by the event-level prune below.
+    """
+    w = np.asarray(w)
+    return np.isfinite(w) & (np.abs(w) > 0.0)
+
+
 class ExpTensDensity:
     """Precomputed single-attribute expectation tensor density.
 
@@ -113,6 +126,37 @@ class ExpTensDensity:
     def materialised(self) -> bool:
         """``True`` if the per-tuple arrays have been built."""
         return self._centres is not None
+
+    @property
+    def live_events(self) -> np.ndarray:
+        """Boolean ``(n,)`` mask of source elements that can contribute.
+
+        An element is live iff its weight is finite and nonzero; a
+        zero- or NaN-weight element adds nothing to any inner product
+        or total mass. Cached on first access.
+        """
+        live = getattr(self, "_live_events", None)
+        if live is None:
+            live = _weight_is_live(self.w)
+            self._live_events = live
+        return live
+
+    def pruned(self) -> "ExpTensDensity":
+        """Equivalent density restricted to live elements.
+
+        Dropping zero-/NaN-weight elements leaves every inner product
+        and total mass unchanged (they contribute nothing) while
+        shrinking the work. Returns ``self`` when nothing is dead, so
+        the common (un-windowed) path pays only one mask scan.
+        """
+        live = self.live_events
+        if live.all():
+            return self
+        return ExpTensDensity(
+            p=self.p[live], w=self.w[live], sigma=self.sigma, r=self.r,
+            is_rel=self.is_rel, is_per=self.is_per, period=self.period,
+            dim=self.dim,
+        )
 
     def _build_perm_arrays(self) -> None:
         """Build the per-tuple permutation / combination arrays.
@@ -343,6 +387,60 @@ class MaetDensity:
     def materialised(self) -> bool:
         """``True`` if the per-tuple arrays have been built."""
         return self._n_j is not None
+
+    @property
+    def live_events(self) -> np.ndarray:
+        """Boolean ``(n,)`` mask of events that can contribute.
+
+        An event is live iff every attribute has at least one finite,
+        nonzero weight slot in that event's column. An attribute whose
+        column is all-zero or all-NaN kills the event (the
+        per-attribute factors multiply); a partly-zero column does not.
+        Cached on first access.
+        """
+        live = getattr(self, "_live_events", None)
+        if live is None:
+            live = np.ones(self.n, dtype=bool)
+            for W in self.w:
+                live &= _weight_is_live(W).any(axis=0)
+            self._live_events = live
+        return live
+
+    def pruned(self) -> "MaetDensity":
+        """Equivalent density restricted to live events.
+
+        Dead events contribute nothing to any per-attribute inner
+        product or total mass, so dropping them leaves results
+        unchanged while shrinking the O(n) / O(n^2) work and the
+        per-tuple expansion. Returns ``self`` when nothing is dead.
+        The subset is rebuilt through the same lazy machinery
+        ``build_exp_tens`` uses, so the per-tuple fields stay correct
+        for any consumer that later materialises them.
+        """
+        live = self.live_events
+        if live.all():
+            return self
+        from .build import _ma_build_perm_arrays
+
+        p_attr = [P[:, live] for P in self.p_attr]
+        w = [W[:, live] for W in self.w]
+        n_k = int(live.sum())
+
+        def _build_lazy():
+            return _ma_build_perm_arrays(
+                p_attr=p_attr, w_list=w, r_vec=self.r,
+                group_of_attr=self.group_of_attr,
+                is_rel_vec=self.is_rel, N=n_k, A=self.n_attrs,
+            )
+
+        return MaetDensity(
+            tag=self.tag, n_attrs=self.n_attrs, n_groups=self.n_groups,
+            n=n_k, group_of_attr=self.group_of_attr,
+            attrs_of_group=self.attrs_of_group, r=self.r, k=self.k,
+            p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
+            is_per=self.is_per, period=self.period, dim=self.dim,
+            dim_per_attr=self.dim_per_attr, _build_lazy=_build_lazy,
+        )
 
     def _materialise(self) -> None:
         """Trigger the lazy build. No-op if already materialised."""

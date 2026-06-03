@@ -52,6 +52,8 @@ from .density import (
 )
 from .dispatch import (
     _compute_Q,
+    _compute_Q_inner_blocks,
+    _inner_r_vec,
     _normalize_density_input,
     _orbit_ips_look_corrupted,
     _resolve_list_list_mode,
@@ -1216,6 +1218,19 @@ def _cos_sim_exp_tens_ma(
     if ordered_any:
         chosen = "bulger"
 
+    # Nested attributes use a custom enumeration (and, for the inner unit,
+    # a block-diagonal metric) that the orbit / Möbius re-enumeration does
+    # not represent. Force the centres-based pairwise path, which reads the
+    # stored per-attribute centres directly.
+    nested_x = getattr(dens_x, "nested", None)
+    nested_y = getattr(dens_y, "nested", None)
+    nested_any = (
+        (nested_x is not None and any(s is not None for s in nested_x))
+        or (nested_y is not None and any(s is not None for s in nested_y))
+    )
+    if nested_any:
+        chosen = "bulger"
+
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y,
@@ -1255,7 +1270,7 @@ def _cos_sim_exp_tens_ma(
 def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
-    *, truncation_sigmas=None,
+    *, truncation_sigmas=None, inner_r=None,
 ):
     """MA inner product with memory-aware chunking along the comb side.
 
@@ -1281,7 +1296,7 @@ def _ip_core_ma(
         return _ip_full_ma(
             u_cell, w_u, n_j, v_cell, w_v, n_k,
             A, r_vec, sigma, is_rel, is_per, period,
-            truncation_sigmas=truncation_sigmas,
+            truncation_sigmas=truncation_sigmas, inner_r=inner_r,
         )
 
     chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
@@ -1293,6 +1308,7 @@ def _ip_core_ma(
         log_kernel = _ma_log_kernel(
             u_cell, v_chunk, int(n_j), n_kc,
             A, r_vec, sigma, is_rel, is_per, period,
+            inner_r=inner_r,
         )
         E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
         acc = acc + E @ w_v[c_start:c_end]
@@ -1303,7 +1319,7 @@ def _ip_core_ma(
 def _ip_full_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
-    *, truncation_sigmas=None,
+    *, truncation_sigmas=None, inner_r=None,
 ):
     """Fully vectorized MA inner product (single chunk).
 
@@ -1318,6 +1334,7 @@ def _ip_full_ma(
     log_kernel = _ma_log_kernel(
         u_cell, v_cell, int(n_j), int(n_k),
         A, r_vec, sigma, is_rel, is_per, period,
+        inner_r=inner_r,
     )
     E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
     return float(w_u @ (E @ w_v))
@@ -1327,6 +1344,7 @@ def _ip_full_ma(
 def _ma_log_kernel(
     u_cell, v_cell, n_j, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
+    *, inner_r=None,
 ):
     """Accumulate the summed-Q / (4 sigma^2) log-kernel across attributes.
 
@@ -1335,11 +1353,25 @@ def _ma_log_kernel(
       2. Apply periodic wrapping for the attribute's group.
       3. Compute the per-attribute quadratic form Q_a.
       4. Accumulate ``-Q_a / (4 sigma^2)`` into log_kernel.
+
+    ``inner_r[a] > 0`` selects the inner ``[rel]`` co-transposition unit
+    for attribute *a*: the block-diagonal metric over its event blocks
+    (full-tuple convention, ``reduced=False``).
     """
     log_kernel = np.zeros((int(n_j), int(n_k)), dtype=np.float64)
     for a in range(A):
         r_a = int(r_vec[a])
         D = u_cell[a][:, :, None] - v_cell[a][:, None, :]  # (r_a, nJ, nK)
+
+        r_in = 0 if inner_r is None else int(inner_r[a])
+        if r_in > 0:
+            # Inner unit: block-diagonal sum of per-event quotient forms.
+            # _compute_Q applies the pairwise wrap inside, so the full
+            # tuples enter without an outer wrap.
+            Q_a = _compute_Q_inner_blocks(
+                D, r_in, bool(is_per[a]), float(period[a]), reduced=False)
+            log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
+            continue
 
         # The outer wrap is only needed when _compute_Q does not re-wrap
         # the pairwise component differences (i.e., for is_per and not
@@ -2172,6 +2204,8 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
     n_jx, n_kx = dens_x.n_j, dens_x.n_k
     n_jy, n_ky = dens_y.n_j, dens_y.n_k
 
+    inner_r = _inner_r_vec(dens_x)
+
     total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
     max_r = int(np.max(r_vec)) if A > 0 else 1
     estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
@@ -2180,16 +2214,19 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         A, r_vec, sigma, is_rel, is_per, period,
+        inner_r=inner_r,
     )
     ip_xx = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_x.v_comb, dens_x.wv_comb, n_kx,
         A, r_vec, sigma, is_rel, is_per, period,
+        inner_r=inner_r,
     )
     ip_yy = _ip_core_ma(
         dens_y.u_perm, dens_y.w_j, n_jy,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         A, r_vec, sigma, is_rel, is_per, period,
+        inner_r=inner_r,
     )
     return ip_xy, ip_xx, ip_yy
 

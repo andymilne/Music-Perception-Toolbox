@@ -293,12 +293,11 @@ def _build_exp_tens_ma(
                 f"K_total = {int(K_a[a])} (slot count)."
             )
         rel_unit, proj = _canonicalise_nested_rel(spec.get("rel"), L, a)
-        if proj in ("inner", "intermediate"):
+        if proj == "intermediate":
             raise NotImplementedError(
-                f"nested attribute {a}: the inner / intermediate [rel] "
-                f"co-transposition unit is not yet wired; only absolute and "
-                f"the outermost (whole-tuple) unit are available for now. "
-                f"Use rel = 'outermost' / the outermost level, or absolute."
+                f"nested attribute {a}: an intermediate [rel] co-transposition "
+                f"unit needs L > 2 nesting, which is a later step. Use the "
+                f"innermost or outermost unit, or absolute."
             )
         nested[a] = dict(spec)
         nested[a]["r"] = r_levels
@@ -396,7 +395,13 @@ def _build_exp_tens_ma(
     dim_per_attr = np.empty(A, dtype=np.intp)
     for a in range(A):
         r_a = int(r_vec[a])
-        if is_rel_vec[a]:
+        spec = nested[a]
+        if spec is not None and spec["proj"] == "inner":
+            # Inner unit: r_outer blocks each reduced to (r_inner - 1).
+            r_in = int(np.asarray(spec["r"]).ravel()[0])
+            r_out = int(np.asarray(spec["r"]).ravel()[1])
+            dim_per_attr[a] = r_out * (r_in - 1)
+        elif is_rel_vec[a]:
             dim_per_attr[a] = r_a - 1 if r_a >= 2 else 0
         else:
             dim_per_attr[a] = r_a
@@ -751,7 +756,23 @@ def _ma_build_perm_arrays(
     centres = []
     for a in range(A):
         r_a = int(r_vec[a])
-        if is_rel_vec[a]:
+        spec = nested[a]
+        if spec is not None and spec.get("proj") == "inner":
+            # Inner unit: reduce each r_outer event-block independently by
+            # subtracting its own first slot (per-event interval space),
+            # then stack the blocks (tensor-joined across events).
+            r_in = int(np.asarray(spec["r"]).ravel()[0])
+            r_out = int(np.asarray(spec["r"]).ravel()[1])
+            if r_in >= 2:
+                blocks = [
+                    u_perm[a][b * r_in + 1:(b + 1) * r_in, :]
+                    - u_perm[a][b * r_in:b * r_in + 1, :]
+                    for b in range(r_out)
+                ]
+                centres.append(np.vstack(blocks))
+            else:
+                centres.append(np.empty((0, n_j), dtype=np.float64))
+        elif is_rel_vec[a]:
             if r_a >= 2:
                 centres.append(u_perm[a][1:, :] - u_perm[a][:1, :])
             else:

@@ -108,10 +108,12 @@ def test_rel_outermost_vector_matches_string():
 
 def test_rel_subsumption_warns_on_multiple():
     """rel=[1,1] warns (finer subsumes coarser) and resolves to innermost."""
-    spec = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False], rel=[1, 1])
+    base = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
+    d_inner = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="innermost"))
     with pytest.warns(UserWarning):
-        with pytest.raises(NotImplementedError):
-            _nest([0.0, 4.0, 7.0, 11.0], spec)
+        d_sub = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel=[1, 1]))
+    assert d_sub.dim == d_inner.dim == 2
+    assert float(cos_sim_exp_tens(d_inner, d_sub, verbose=False)) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_inner_outer_rel_projection_dims():
@@ -136,11 +138,57 @@ def test_scalar_rel_rejected_for_nested():
         _nest([0.0, 7.0], dict(tags=[0, 1], r=[1, 2], sym=[True, False], rel=True))
 
 
-def test_inner_rel_not_yet_supported():
-    """The inner co-transposition unit raises until its block path lands."""
-    with pytest.raises(NotImplementedError):
-        _nest([0.0, 4.0, 7.0, 11.0],
-              dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False], rel="innermost"))
+def test_inner_rel_dim_and_per_event_invariance():
+    """Inner/per-event [rel] unit: dim 2 (two dyads) and exact invariance to
+    translating each source event independently; an interval change at a
+    resolving sigma does shift the density."""
+    d = _nest([0.0, 4.0, 7.0, 11.0],
+              dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                   rel="innermost"))
+    assert d.dim == 2  # r_outer * (r_inner - 1) = 2 * 1
+    # Shift each event independently: within-event intervals unchanged.
+    d_shift = _nest([10.0, 14.0, 107.0, 111.0],
+                    dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                         rel="innermost"))
+    assert float(cos_sim_exp_tens(d, d_shift, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+    # Changing one event's interval changes the density (resolving sigma).
+    d_a = build_exp_tens([np.array([[0.0], [4.0], [7.0], [11.0]])], None,
+                         [1.0], [1], [False], [False], [0.0],
+                         nested=[dict(tags=[0, 0, 1, 1], r=[2, 2],
+                                      sym=[True, False], rel="innermost")],
+                         verbose=False)
+    d_b = build_exp_tens([np.array([[0.0], [5.0], [7.0], [11.0]])], None,
+                         [1.0], [1], [False], [False], [0.0],
+                         nested=[dict(tags=[0, 0, 1, 1], r=[2, 2],
+                                      sym=[True, False], rel="innermost")],
+                         verbose=False)
+    assert float(cos_sim_exp_tens(d_a, d_b, verbose=False)) < 0.95
+
+
+def test_inner_equals_tensor_join_of_is_rel_dyads():
+    """For one outer combination, the inner unit equals the tensor join of
+    per-event is_rel dyad densities (§6.3: within-event intervals,
+    tensor-joined). Checked through both eval and cosine."""
+    d_in = _nest([0.0, 4.0, 7.0, 11.0],
+                 dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False],
+                      rel="innermost"))
+    d_ref = build_exp_tens(
+        [np.array([[0.0], [4.0]]), np.array([[7.0], [11.0]])], None,
+        [50.0, 50.0], [2, 2], [True, True], [False, False], [0.0, 0.0],
+        verbose=False,
+    )
+    assert d_in.dim == d_ref.dim == 2
+    for x in ([4.0, 4.0], [4.0, -4.0], [0.0, 0.0], [3.0, 5.0], [-4.0, 4.0]):
+        assert _ev(d_in, x) == pytest.approx(_ev(d_ref, x), abs=1e-11)
+
+
+def test_inner_and_outer_are_distinct_objects():
+    """Inner (dim 2) and outer (dim 3) are different projections of the
+    same nested attribute."""
+    base = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, False])
+    d_inner = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="innermost"))
+    d_outer = _nest([0.0, 4.0, 7.0, 11.0], dict(base, rel="outermost"))
+    assert d_inner.dim == 2 and d_outer.dim == 3
 
 
 def test_user_is_rel_on_nested_rejected():

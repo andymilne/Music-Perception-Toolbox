@@ -1252,6 +1252,20 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     Centres    = dens.Centres;
     wJ         = dens.wJ;
 
+    % Per-attribute inner-unit block size (r_inner where attribute a is a
+    % nested attribute resolved to the inner [rel] co-transposition unit,
+    % 0 otherwise). Switches on the block-diagonal metric below.
+    innerR = zeros(1, A);
+    if isfield(dens, 'nested') && iscell(dens.nested)
+        for a = 1:A
+            s = dens.nested{a};
+            if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
+                    && strcmp(s.proj, 'inner')
+                innerR(a) = s.r(1);
+            end
+        end
+    end
+
     % --- Auto-prune zero-weight joint perm-side tuples ---
     % The MaetDensity build expands per-attribute slot combinations into
     % joint perm-side tuples and computes wJ as the product of
@@ -1425,6 +1439,14 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 Xa = Xchunk{a};
                 D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
                 Pg = periodG(a);
+                if innerR(a) > 0
+                    % Inner [rel] unit: block-diagonal metric over event
+                    % blocks (reduced convention). The block helper applies
+                    % the pairwise wrap, so no outer wrap here.
+                    Q_a = qInnerBlocksReducedLocal(D_a, innerR(a), a, Pg);
+                    Q_total = Q_total + Q_a / (2 * sigmaG(a)^2);
+                    continue;
+                end
                 % Outer wrap only needed for abs+per. For rel+per the
                 % pairwise wrap below subsumes it (Eq 6).
                 if isPerG(a) && ~isRelG(a)
@@ -1476,6 +1498,13 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             Xa = cast(Xchunk{a}, qDtype);
             D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
             Pg = cast(periodG(a), qDtype);
+            if innerR(a) > 0
+                % Inner [rel] unit: block-diagonal metric over event blocks
+                % (reduced convention; pairwise wrap inside the helper).
+                Q_a = qInnerBlocksReducedLocal(D_a, innerR(a), a, Pg);
+                Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
+                continue;
+            end
             % Outer wrap only needed for abs+per. For rel+per the
             % pairwise wrap below subsumes it (Eq 6).
             if isPerG(a) && ~isRelG(a)
@@ -1518,6 +1547,43 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 
         wJq = cast(wJ(:).', qDtype);
         v = double(wJq * E);
+    end
+
+    function Q_a = qInnerBlocksReducedLocal(D_a, rIn, a, Pg)
+        % Block-diagonal quadratic form for the inner [rel] co-transposition
+        % unit (reduced / centres convention). D_a is
+        % (rOut*(rIn-1)) x nJ x nQc; each event block is the (rIn-1)-row
+        % slot-0 reduction of an rIn-tuple. Q_a is the sum over blocks of
+        % the per-block flat relative quotient form (the within-event
+        % intervals, tensor-joined across events).
+        nJ_  = size(D_a, 2);
+        nQc_ = size(D_a, 3);
+        Q_a  = zeros(nJ_, nQc_, 'like', D_a);
+        blk  = rIn - 1;
+        if blk <= 0
+            return;   % rIn == 1: trivial (dim 0) inner space
+        end
+        nBlocks = size(D_a, 1) / blk;
+        for b = 1:nBlocks
+            rows = (b - 1) * blk + (1:blk);
+            Db = D_a(rows, :, :);
+            if isPerG(a)
+                slot0 = Db - Pg .* floor(Db / Pg + 0.5);
+                Qb = reshape(sum(slot0 .^ 2, 1), nJ_, nQc_);
+                for i = 1:blk
+                    for j = i+1:blk
+                        delta = reshape(Db(i, :, :) - Db(j, :, :), nJ_, nQc_);
+                        delta = delta - Pg .* floor(delta / Pg + 0.5);
+                        Qb = Qb + delta .^ 2;
+                    end
+                end
+                Qb = Qb / rIn;
+            else
+                Qb = reshape(sum(Db .^ 2, 1), nJ_, nQc_) ...
+                   - reshape(sum(Db, 1) .^ 2, nJ_, nQc_) / rIn;
+            end
+            Q_a = Q_a + Qb;
+        end
     end
 
 end

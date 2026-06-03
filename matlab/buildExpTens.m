@@ -455,11 +455,11 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
             relRaw = spec.rel;
         end
         [relUnit, proj] = localCanonicaliseNestedRel(relRaw, L, a);
-        if strcmp(proj, 'inner') || strcmp(proj, 'intermediate')
-            error('buildExpTens:nestedRelInner', ...
-                  ['nested{%d}: the inner / intermediate [rel] co-transposition ' ...
-                   'unit is not yet wired; only absolute and the outermost ' ...
-                   '(whole-tuple) unit are available for now.'], a);
+        if strcmp(proj, 'intermediate')
+            error('buildExpTens:nestedRelIntermediate', ...
+                  ['nested{%d}: an intermediate [rel] co-transposition unit ' ...
+                   'needs L > 2 nesting, which is a later step. Use the ' ...
+                   'innermost or outermost unit, or absolute.'], a);
         end
         spec.r       = rLevels;
         spec.sym     = symLevels;
@@ -529,7 +529,10 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
     dimPerAttr = zeros(1, A);
     for a = 1:A
         r_a = rVec(a);
-        if isRelVec(a)
+        if ~isempty(nested{a}) && strcmp(nested{a}.proj, 'inner')
+            % Inner unit: r_outer blocks each reduced to (r_inner - 1).
+            dimPerAttr(a) = nested{a}.r(2) * (nested{a}.r(1) - 1);
+        elseif isRelVec(a)
             if r_a >= 2
                 dimPerAttr(a) = r_a - 1;
             else
@@ -804,7 +807,24 @@ function dens = localFillMAExpensive(dens, verbose)
     Centres = cell(1, A);
     for a = 1:A
         r_a = rVec(a);
-        if isRelVec(a)
+        spec = nested{a};
+        if ~isempty(spec) && strcmp(spec.proj, 'inner')
+            % Inner unit: reduce each r_outer event-block independently by
+            % subtracting its own first slot, then stack (tensor-joined).
+            rIn  = spec.r(1);
+            rOut = spec.r(2);
+            if rIn >= 2
+                blocks = cell(1, rOut);
+                for b = 1:rOut
+                    base = (b - 1) * rIn;
+                    blocks{b} = U_perm{a}(base + 2:base + rIn, :) ...
+                              - U_perm{a}(base + 1, :);
+                end
+                Centres{a} = vertcat(blocks{:});
+            else
+                Centres{a} = zeros(0, nJ);
+            end
+        elseif isRelVec(a)
             if r_a >= 2
                 Centres{a} = U_perm{a}(2:r_a, :) - U_perm{a}(1, :);
             else

@@ -1451,6 +1451,20 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
+    % Per-attribute inner-unit block size (r_inner where attribute a is a
+    % nested attribute resolved to the inner [rel] co-transposition unit,
+    % 0 otherwise). Used by maLogKernel for the block-diagonal metric.
+    innerR = zeros(1, A);
+    if isfield(dens_x, 'nested') && iscell(dens_x.nested)
+        for a = 1:A
+            s = dens_x.nested{a};
+            if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
+                    && strcmp(s.proj, 'inner')
+                innerR(a) = s.r(1);
+            end
+        end
+    end
+
     % --- Method dispatch ---
     chosen = localSelectMAInnerProductMethod( ...
         rVec, isRelG, sigmaG, isPerG, periodG, method, verbose);
@@ -1472,6 +1486,17 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         if sxOrd || syOrd
             chosen = 'bulger';
         end
+    end
+
+    % Nested attributes use a custom enumeration (and, for the inner unit,
+    % a block-diagonal metric) that the orbit / Möbius re-enumeration does
+    % not represent. Force the centres-based pairwise path.
+    nestedAny = (isfield(dens_x, 'nested') && iscell(dens_x.nested) ...
+                 && any(~cellfun(@isempty, dens_x.nested))) ...
+             || (isfield(dens_y, 'nested') && iscell(dens_y.nested) ...
+                 && any(~cellfun(@isempty, dens_y.nested)));
+    if nestedAny
+        chosen = 'bulger';
     end
 
     ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
@@ -1593,6 +1618,15 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             D = reshape(U_cell{a}, r_a, nJ, 1) ...
               - reshape(V_cell{a}, r_a, 1, nK);
 
+            if innerR(a) > 0
+                % Inner [rel] unit: block-diagonal sum of per-event
+                % quotient forms (full-tuple convention). The block
+                % helper applies the pairwise wrap, so no outer wrap.
+                Qa = qInnerBlocks(D, innerR(a), a);
+                logK = logK - reshape(Qa, nJ, nK) / (4 * sigmaG(a)^2);
+                continue;
+            end
+
             % The outer wrap is only needed when computeQaMA does not
             % re-wrap the pairwise component differences (i.e., for
             % isPer and not isRel: Qa = sum(D.^2), which requires
@@ -1607,6 +1641,34 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 
             Qa = computeQaMA(D, a, r_a);
             logK = logK - reshape(Qa, nJ, nK) / (4 * sigmaG(a)^2);
+        end
+    end
+
+    function Qa = qInnerBlocks(D, rIn, a)
+        % Block-diagonal quadratic form for the inner [rel] co-transposition
+        % unit (full-tuple / inner-product convention). D is
+        % (rOut*rIn) x nJ x nK; each event block is a full rIn-tuple. Qa is
+        % the sum over blocks of the per-block flat relative quotient form
+        % (within-event intervals, tensor-joined across events).
+        sz = size(D);
+        if numel(sz) < 3, sz = [sz, 1]; end
+        Qa = zeros(1, sz(2), sz(3));
+        nBlocks = floor(sz(1) / rIn);
+        P_g = periodG(a);
+        for b = 1:nBlocks
+            rows = (b - 1) * rIn + (1:rIn);
+            Db = D(rows, :, :);
+            if isPerG(a)
+                for i = 1:rIn
+                    for j = i+1:rIn
+                        delta = Db(i, :, :) - Db(j, :, :);
+                        delta = delta - P_g .* floor(delta / P_g + 0.5);
+                        Qa = Qa + delta.^2 / rIn;
+                    end
+                end
+            else
+                Qa = Qa + (sum(Db.^2, 1) - sum(Db, 1).^2 / rIn);
+            end
         end
     end
 

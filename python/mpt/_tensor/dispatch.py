@@ -399,6 +399,57 @@ def _select_ma_inner_product_method(
 
 
 
+def _compute_Q_inner_blocks(D, r_inner, is_per, period, *, reduced):
+    """Block-diagonal quadratic form for the inner ``[rel]`` co-transposition unit.
+
+    The inner unit removes each source event's own all-ones, leaving the
+    within-event intervals tensor-joined across events (toolbox spec
+    §6.3). Concretely the metric is block-diagonal: ``D``'s rows are
+    ``r_outer`` event-blocks and the form is the sum over blocks of the
+    per-block flat relative quotient :func:`_compute_Q` (``is_rel=True``).
+
+    ``reduced=False``: each block is a full ``r_inner``-tuple, so ``D`` has
+    ``r_outer * r_inner`` rows (the inner-product / cosine convention,
+    which carries the full perm-side tuples). ``reduced=True``: each block
+    is the ``(r_inner-1)``-row slot-0 reduction of an ``r_inner``-tuple, so
+    ``D`` has ``r_outer * (r_inner-1)`` rows (the centres-array evaluation
+    convention). The periodic pairwise wrap is applied inside
+    :func:`_compute_Q`, so callers must *not* pre-wrap ``D`` for the inner
+    unit.
+    """
+    block = r_inner if not reduced else (r_inner - 1)
+    if block <= 0:
+        # r_inner == 1: each event's interval space is trivial (dim 0).
+        return np.zeros(D.shape[1:], dtype=D.dtype)
+    n_blocks = D.shape[0] // block
+    Q = np.zeros(D.shape[1:], dtype=D.dtype)
+    for b in range(n_blocks):
+        sl = slice(b * block, (b + 1) * block)
+        Q = Q + _compute_Q(D[sl], r_inner, True, is_per, period,
+                            reduced=reduced)
+    return Q
+
+
+def _inner_r_vec(dens):
+    """Per-attribute inner-unit block size (0 where not an inner [rel] attr).
+
+    Returns an int array of length ``n_attrs`` whose entry *a* is
+    ``r_inner`` when attribute *a* is a nested attribute resolved to the
+    inner co-transposition unit, and 0 otherwise. Used by the evaluation
+    and inner-product paths to switch on the block-diagonal metric.
+    """
+    A = int(dens.n_attrs)
+    out = np.zeros(A, dtype=np.intp)
+    nested = getattr(dens, "nested", None)
+    if nested is None:
+        return out
+    for a in range(A):
+        s = nested[a]
+        if s is not None and isinstance(s, dict) and s.get("proj") == "inner":
+            out[a] = int(np.asarray(s["r"]).ravel()[0])
+    return out
+
+
 def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
     """Compute the quadratic form from differences D.
 

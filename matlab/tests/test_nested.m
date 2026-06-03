@@ -123,6 +123,49 @@ results{end+1,1} = 'nested: [rel] projection dims 4/2/3/2';
 results{end,2}   = isequal(dims, [4 2 3 2]);
 
 
+% --- Inner/per-event [rel] unit: dim 2 and per-event invariance ---
+nspIn = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
+               'rel', 'innermost');
+dIn = buildExpTens({[0; 4; 7; 11]}, [], 50, 1, false, false, 0, ...
+                   'nested', {nspIn}, 'verbose', false);
+dInPE = buildExpTens({[10; 14; 107; 111]}, [], 50, 1, false, false, 0, ...
+                     'nested', {nspIn}, 'verbose', false);  % per-event shift
+% Interval change must register at a resolving sigma.
+dInA = buildExpTens({[0; 4; 7; 11]}, [], 1, 1, false, false, 0, ...
+                    'nested', {nspIn}, 'verbose', false);
+dInB = buildExpTens({[0; 5; 7; 11]}, [], 1, 1, false, false, 0, ...
+                    'nested', {nspIn}, 'verbose', false);
+okInner = (dIn.dim == 2) ...
+    && (abs(cosSimExpTens(dIn, dInPE, 'verbose', false) - 1) < 1e-9) ...
+    && (cosSimExpTens(dInA, dInB, 'verbose', false) < 0.95);
+results{end+1,1} = 'nested: inner [rel] dim 2 and per-event-invariant';
+results{end,2}   = okInner;
+
+
+% --- Inner equals tensor join of two is_rel dyads (eval parity) ---
+dRef = buildExpTens({[0; 4], [7; 11]}, [], [50 50], [2 2], ...
+                    [true true], [false false], [0 0], 'verbose', false);
+okJoin = (dIn.dim == dRef.dim);
+for q = {[4; 4], [4; -4], [0; 0], [3; 5], [-4; 4]}
+    okJoin = okJoin && abs( ...
+        evalExpTens(dIn,  q{1}, 'verbose', false) ...
+      - evalExpTens(dRef, q{1}, 'verbose', false)) < 1e-11;
+end
+results{end+1,1} = 'nested: inner equals tensor-join of two is_rel dyads';
+results{end,2}   = okJoin;
+
+
+% --- rel=[1 1] subsumes to inner (warns; dim 2) ---
+ws = warning('off', 'buildExpTens:nestedRelSubsumption');
+dSub = buildExpTens({[0; 4; 7; 11]}, [], 50, 1, false, false, 0, ...
+        'nested', {struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
+                          'rel', [1 1])}, 'verbose', false);
+warning(ws);
+results{end+1,1} = 'nested: rel=[1 1] subsumes to inner (dim 2)';
+results{end,2}   = (dSub.dim == 2) ...
+                   && (abs(cosSimExpTens(dIn, dSub, 'verbose', false) - 1) < 1e-9);
+
+
 % --- Guards ---
 okScalar = false;
 try
@@ -135,16 +178,6 @@ end
 results{end+1,1} = 'nested: scalar/bool rel rejected for nested';
 results{end,2}   = okScalar;
 
-okInner = false;
-try
-    buildExpTens({[0; 4; 7; 11]}, [], 50, 1, false, false, 0, ...
-        'nested', {struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
-                          'rel', 'innermost')}, 'verbose', false);
-catch
-    okInner = true;
-end
-results{end+1,1} = 'nested: inner [rel] unit not yet wired (errors)';
-results{end,2}   = okInner;
 
 okUserRel = false;
 try

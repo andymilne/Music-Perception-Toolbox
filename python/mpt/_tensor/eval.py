@@ -39,7 +39,8 @@ from ..spectra import add_spectra
 from .build import _looks_like_multi_attr, build_exp_tens
 from .canonical import _chord_canonical_key
 from .density import ExpTensDensity, MaetDensity, WindowedMaetDensity
-from .dispatch import _compute_Q, _normalize_density_input, _select_and_estimate_sa
+from .dispatch import (_compute_Q, _compute_Q_inner_blocks, _inner_r_vec,
+                       _normalize_density_input, _select_and_estimate_sa)
 from .windowing import _evaluate_window_on_query
 
 
@@ -1156,10 +1157,12 @@ def _eval_exp_tens_ma(
             is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
+            inner_r=_inner_r_vec(dens),
         )
     else:
         chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
         vals = np.zeros(n_q, dtype=np.float64)
+        inner_r = _inner_r_vec(dens)
         for c_start in range(0, n_q, chunk_size):
             c_end = min(c_start + chunk_size, n_q)
             n_qc = c_end - c_start
@@ -1170,6 +1173,7 @@ def _eval_exp_tens_ma(
                 is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
+                inner_r=inner_r,
             )
 
     # --- Normalisation ---
@@ -1205,6 +1209,7 @@ def _ma_eval_full(
     *,
     truncation_sigmas=None,
     kernel_precision=None,
+    inner_r=None,
 ):
     """Single-chunk MAET evaluation.
 
@@ -1248,6 +1253,16 @@ def _ma_eval_full(
             c_a = centres[a]
             x_a = x_list[a]
             d_a = c_a[:, :, None] - x_a[:, None, :]
+            r_in = 0 if inner_r is None else int(inner_r[a])
+            if r_in > 0:
+                # Inner [rel] unit: block-diagonal metric over event blocks.
+                # _compute_Q applies the pairwise wrap inside, so no
+                # outer wrap here.
+                q_a = _compute_Q_inner_blocks(
+                    d_a, r_in, bool(is_per[a]), float(period[a]),
+                    reduced=True)
+                q_total = q_total + q_a / (2 * sigma[a] ** 2)
+                continue
             # Outer wrap only needed for abs+per. For rel+per, _compute_Q
             # applies the pairwise wrap inside (Eq 6 of the preprint).
             if is_per[a] and not is_rel[a]:
@@ -1274,6 +1289,15 @@ def _ma_eval_full(
         c_a = centres[a].astype(dtype, copy=False)
         x_a = x_list[a].astype(dtype, copy=False)
         d_a = c_a[:, :, None] - x_a[:, None, :]
+
+        r_in = 0 if inner_r is None else int(inner_r[a])
+        if r_in > 0:
+            # Inner [rel] unit: block-diagonal metric over event blocks
+            # (pairwise wrap applied inside _compute_Q).
+            q_a = _compute_Q_inner_blocks(
+                d_a, r_in, bool(is_per[a]), float(period[a]), reduced=True)
+            q_total = q_total + q_a / (2 * dtype(sigma[a]) ** 2)
+            continue
 
         # Outer wrap only needed for abs+per. For rel+per, _compute_Q
         # applies the pairwise wrap inside (Eq 6).

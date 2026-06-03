@@ -86,19 +86,22 @@ print(f"  D(time)     = {pD[1].ravel().tolist()}   "
 
 print("=== 3. bind_events (B) ===")
 
-# Bind 2 consecutive events into 2-grams on both attributes. Each
-# source attribute yields L_a = 2 super-attributes (the two slots of
-# the 2-gram), so A' = sum_a L_a = 4. Trailing-drop alignment gives
+# Bind 2 consecutive events into 2-grams on both attributes. Each source
+# attribute becomes ONE nested attribute: the two bound events form the
+# ordered outer level, each event's own value the inner level (inheriting
+# the source r/is_rel/is_sym). A' = A = 2. Trailing-drop alignment gives
 # N' = N - max(L) + 1 = 2.
 bind_orders = [2, 2]
-pB, wB, gB = mpt.bind_events(p_attr, w, groups, bind_orders)
+pB, wB, specB = mpt.bind_events(
+    p_attr, w, bind_orders, [1, 1], is_rel, [True, True],
+)
 
-print(f"  bind_orders  = {bind_orders}")
-print(f"  A' = {len(pB)} (each source attribute expands to L_a = 2 super-attributes)")
-print(f"  pitch 2-grams: a_0 slot 0 = {pB[0].ravel().tolist()}; "
-      f"slot 1 = {pB[1].ravel().tolist()}")
-print(f"  time  2-grams: a_1 slot 0 = {pB[2].ravel().tolist()}; "
-      f"slot 1 = {pB[3].ravel().tolist()}\n")
+print(f"  bind_orders = {bind_orders}")
+print(f"  A' = {len(pB)} (each source attribute -> one nested attribute)")
+print(f"  pitch nest (stacked L*K x N'):\n{pB[0]}")
+s0 = specB[0]
+print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
+      f"tags = {np.asarray(s0['tags']).tolist()}\n")
 
 
 # ===================================================================
@@ -150,31 +153,21 @@ print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
 #  6. D o B == B o D (n-tuple entropy pipeline commutation)
 # ===================================================================
 
-print("=== 6. D o B == B o D ===")
+print("=== 6. D then B (nested 2-grams of intervals) ===")
 
-# Path 1: D then B.
+# Difference first, then bind the interval sequence into 2-grams. Under the
+# nested emission each bound attribute is a single nested attribute (outer
+# level = the two bound interval-events, inner level = each interval).
 pD1, wD1, gD1 = mpt.difference_events(p_attr, w, groups, [1, 0])
-pDB, wDB, gDB = mpt.bind_events(pD1, wD1, gD1, [2, 2])
-
-# Path 2: B then D (difference group 0 (pitch slots), leave group 1
-# (time slots) alone). After B, A' = 4 but G is still 2 (super-
-# attributes inherit their source group), so the per-group length-G
-# form is the natural spelling.
-pB1, wB1, gB1 = mpt.bind_events(p_attr, w, groups, [2, 2])
-pBD, wBD, gBD = mpt.difference_events(pB1, wB1, gB1, [1, 0])
-
-max_diff_pitch = max(
-    float(np.max(np.abs(pDB[0] - pBD[0]))),
-    float(np.max(np.abs(pDB[1] - pBD[1]))),
+pDB, wDB, specDB = mpt.bind_events(
+    pD1, wD1, [2, 2], [1, 1], is_rel, [True, True],
 )
-max_diff_time = max(
-    float(np.max(np.abs(pDB[2] - pBD[2]))),
-    float(np.max(np.abs(pDB[3] - pBD[3]))),
-)
-print(f"  pitch slots agree to max |.| = {max_diff_pitch}")
-print(f"  time  slots agree to max |.| = {max_diff_time}")
-print("  (Both routes yield the same value-wise output --- this is the")
-print("   commutation property used by the n-tuple entropy pipeline.)\n")
+
+print(f"  D(pitch) then B: nested interval 2-gram (stacked L*K x N'):\n{pDB[0]}")
+print("  The full D o B == B o D commutation illustration returns once")
+print("  difference_events consumes/produces the specs form (it still uses")
+print("  the group form here), so that both routes share one nested")
+print("  representation.\n")
 
 
 # ===================================================================

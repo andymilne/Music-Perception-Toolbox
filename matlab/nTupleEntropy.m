@@ -226,7 +226,8 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 
     % --- Bind n consecutive cyclic step sizes ---
 
-    [pBound, wBound, ~] = bindEvents({diffsRow}, [], [], n, 'circular', true);
+    [pBound, wBound, specs] = bindEvents({diffsRow}, [], n, 1, false, true, ...
+                                         'circular', true);
 
     % --- Resolve sigma per the sigmaSpace flag ---
     %
@@ -262,10 +263,12 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
     end
 
     % --- Build MAET ---
+    % The bound events nest into a single attribute (outer r = n reads the
+    % whole window, rel absolute), reproducing the old tensor join of n
+    % single-step attributes (spec §6.5); sigma/isPer/period are scalar.
 
-    T = buildExpTens(pBound, wBound, sigmaUse * ones(1, n), ones(1, n), ...
-                     false(1, n), true(1, n), period * ones(1, n), ...
-                     'verbose', false);
+    T = buildExpTens(pBound, wBound, 'specs', specs, 'sigma', sigmaUse, ...
+                     'isPer', true, 'period', period, 'verbose', false);
 
     % --- Entropy on the chosen grid / via the chosen method ---
     % Grid-based methods ('shannon', 'normalized') use the pinned
@@ -292,13 +295,12 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
                                'base', nvArgs.base);
     end
 
-    % --- Tuples matrix (K, n) for compatibility with the prior API ---
+    % --- Tuples matrix (N', n) for compatibility with the prior API ---
+    % pBound is one stacked attribute; its columns are the n-grams, so the
+    % tuples matrix is its transpose.
 
     if nargout > 1
-        tuples = zeros(K, n);
-        for j = 1:n
-            tuples(:, j) = pBound{j}(:);
-        end
+        tuples = pBound{1}.';
     end
 end
 

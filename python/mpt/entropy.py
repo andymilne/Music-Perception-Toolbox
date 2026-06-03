@@ -2058,8 +2058,8 @@ def n_tuple_entropy(
     diffs_row = p_diff_list[0]
 
     # --- Bind n consecutive cyclic step sizes ---
-    p_bound, w_bound, _ = bind_events(
-        [diffs_row], None, None, n, circular=True,
+    p_bound, w_bound, specs = bind_events(
+        [diffs_row], None, n, [1], [False], [True], circular=True,
     )
 
     # --- Resolve sigma per the sigma_space flag ---
@@ -2094,10 +2094,13 @@ def n_tuple_entropy(
         sigma_use = 1e-12
 
     # --- Build MAET ---
+    # The bound events nest into a single attribute (outer r = n reads the
+    # whole window, rel absolute), which reproduces the old tensor join of
+    # n single-step attributes (spec §6.5); sigma/is_per/period are scalar
+    # per-attribute and pass straight through.
     T = build_exp_tens(
         p_bound, w_bound,
-        [sigma_use] * n, [1] * n,
-        [False] * n, [True] * n, [period] * n,
+        specs=specs, sigma=[sigma_use], is_per=[True], period=[period],
         verbose=False,
     )
 
@@ -2125,9 +2128,9 @@ def n_tuple_entropy(
         )
 
     # --- Tuples matrix (K, n) for compatibility with the prior API ---
-    tuples_out = np.column_stack(
-        [row.ravel() for row in p_bound]
-    )
+    # p_bound is one stacked attribute; its columns are the n-grams, so
+    # the (N', n) tuples matrix is its transpose.
+    tuples_out = p_bound[0].T
 
     return H, tuples_out
 

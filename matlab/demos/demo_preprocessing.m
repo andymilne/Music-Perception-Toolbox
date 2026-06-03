@@ -78,19 +78,22 @@ fprintf('  D(time)      = [%g %g]   (unchanged in value, leading event dropped)\
 
 fprintf('=== 3. bindEvents (B) ===\n');
 
-% Bind 2 consecutive events into 2-grams on both attributes. Each
-% source attribute yields L_a = 2 super-attributes (the two slots of
-% the 2-gram), so A' = sum_a L_a = 4. Trailing-drop alignment gives
+% Bind 2 consecutive events into 2-grams on both attributes. Each source
+% attribute becomes ONE nested attribute: the two bound events form the
+% ordered outer level, each event's own value the inner level (inheriting
+% the source r/isRel/isSym). A' = A = 2. Trailing-drop alignment gives
 % N' = N - max(L) + 1 = 2.
-bindOrders   = {2, 2};
-[pB, wB, gB] = bindEvents(pAttr, w, groups, bindOrders);
+bindOrders      = [2 2];
+[pB, wB, specB] = bindEvents(pAttr, w, bindOrders, [1 1], isRel, [true true]);
 
-fprintf('  bindOrders   = {2, 2}\n');
-fprintf('  A'' = %d (each source attribute expands to L_a = 2 super-attributes)\n', numel(pB));
-fprintf('  pitch 2-grams: a_1 slot 1 = [%g %g]; a_1 slot 2 = [%g %g]\n', ...
-        pB{1}, pB{2});
-fprintf('  time  2-grams: a_2 slot 1 = [%g %g]; a_2 slot 2 = [%g %g]\n\n', ...
-        pB{3}, pB{4});
+fprintf('  bindOrders = [2 2]\n');
+fprintf('  A'' = %d (each source attribute -> one nested attribute)\n', numel(pB));
+fprintf('  pitch nest (stacked L*K x N''):\n');
+disp(pB{1});
+fprintf(['  spec{1}: r = [%d %d], sym = [%d %d], rel = [%d %d], ' ...
+         'tags = [%s]\n\n'], specB{1}.r(1), specB{1}.r(2), ...
+        specB{1}.sym(1), specB{1}.sym(2), specB{1}.rel(1), specB{1}.rel(2), ...
+        num2str(specB{1}.tags));
 
 
 %% ===================================================================
@@ -133,28 +136,20 @@ fprintf('  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2/2).)\n\n');
 %  6. D o B == B o D (n-tuple entropy pipeline commutation)
 %  ===================================================================
 
-fprintf('=== 6. D o B == B o D ===\n');
+fprintf('=== 6. D then B (nested 2-grams of intervals) ===\n');
 
-% Path 1: D then B (difference first, then bind into 2-grams).
-[pD1, wD1, gD1]   = differenceEvents(pAttr, w, groups, {1, 0});
-[pDB, wDB, gDB]   = bindEvents(pD1, wD1, gD1, {2, 2});
+% Difference first, then bind the interval sequence into 2-grams. Under the
+% nested emission each bound attribute is a single nested attribute (outer
+% level = the two bound interval-events, inner level = each interval).
+[pD1, wD1, gD1]    = differenceEvents(pAttr, w, groups, {1, 0});
+[pDB, wDB, specDB] = bindEvents(pD1, wD1, [2 2], [1 1], isRel, [true true]);
 
-% Path 2: B then D (bind first, then difference each super-attribute).
-[pB1, wB1, gB1]   = bindEvents(pAttr, w, groups, {2, 2});
-% After B, A' = 4 but G is still 2 (super-attributes inherit their
-% source group). Difference group 1 (pitch slots) and leave group 2
-% (time slots) alone --- the per-group form is the natural spelling.
-[pBD, wBD, gBD]   = differenceEvents(pB1, wB1, gB1, {1, 0});
-
-% Equality holds value-wise after recognising the cell-position
-% reorder: D o B's two pitch slots equal B o D's two pitch slots, and
-% likewise for time.
-maxDiffPitch = max(abs([pDB{1} pDB{2}] - [pBD{1} pBD{2}]));
-maxDiffTime  = max(abs([pDB{3} pDB{4}] - [pBD{3} pBD{4}]));
-fprintf('  pitch slots agree to max |.| = %g\n', maxDiffPitch);
-fprintf('  time  slots agree to max |.| = %g\n', maxDiffTime);
-fprintf('  (Both routes yield the same value-wise output --- this is the\n');
-fprintf('   commutation property used by the n-tuple entropy pipeline.)\n\n');
+fprintf('  D(pitch) then B: nested interval 2-gram (stacked L*K x N''):\n');
+disp(pDB{1});
+fprintf(['  The full D o B == B o D commutation illustration returns once\n' ...
+         '  differenceEvents consumes/produces the specs form (it still\n' ...
+         '  uses the group form here), so that both routes share one\n' ...
+         '  nested representation.\n\n']);
 
 
 %% ===================================================================

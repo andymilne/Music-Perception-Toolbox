@@ -499,110 +499,123 @@ def _weight_has_event_dependence(wa, N, attr_idx=None):
 # ===================================================================
 
 
+def _bcast_geom(x, A, name, *, cast):
+    """Broadcast a scalar or length-A geometry argument to a length-A list."""
+    if np.isscalar(x) or isinstance(x, (bool, np.bool_, int, np.integer, float)):
+        return [cast(x)] * A
+    arr = list(x)
+    if len(arr) == 1:
+        return [cast(arr[0])] * A
+    if len(arr) != A:
+        raise ValueError(
+            f"{name} must be a scalar or length-A ({A}); got {len(arr)}."
+        )
+    return [cast(v) for v in arr]
+
+
+def _bcast_names(name, A):
+    if name is None:
+        return [None] * A
+    if isinstance(name, str):
+        return [name] * A
+    names = list(name)
+    if len(names) != A:
+        raise ValueError(f"name must be None, a string, or length-A ({A}).")
+    return names
+
+
 def bind_events(
     p_attr,
     w,
-    groups,
     bind_orders,
+    r,
+    is_rel,
+    is_sym,
     *,
     circular: bool = False,
-) -> tuple[list[np.ndarray], object, object]:
-    """Bind sliding windows of consecutive events into super-attributes.
+    r_outer=None,
+    sym_outer=False,
+    rel_outer=False,
+    name=None,
+    level_names=None,
+) -> tuple[list[np.ndarray], object, list]:
+    """Bind sliding windows of consecutive events into nested attributes.
 
-    Cross-event preprocessing for multi-attribute tensor input. Takes
-    the ``(p_attr, w, groups)`` triple that one would otherwise feed
-    to :func:`build_exp_tens` and returns a transformed
-    ``(p_attr_bound, w_bound, groups_bound)`` triple ready to chain
-    into another pre-MAET operation or into :func:`build_exp_tens`.
+    Cross-event preprocessing. For each input attribute *a*, a sliding
+    window of width ``L_a`` (``bind_orders``) is laid across the event
+    axis and the ``L_a`` consecutive events are nested into a single
+    output attribute (toolbox spec §6.1): the bound events form an
+    **ordered outer level** (event order; ``sym_outer = 0`` by default,
+    lossless), and each event's own value multiset is the **inner
+    level**. This replaces the old separate-attribute emission with one
+    nested attribute per input attribute (§6.5).
 
-    Bind orders are specified per attribute (via Option C syntax —
-    see ``bind_orders`` below). For an input attribute *a* with bind
-    order ``L_a``, a sliding window of width ``L_a`` is laid across
-    the event axis and each lag in the window is emitted as a
-    separate output super-attribute. The total output attribute
-    count is ``A' = sum_a L_a``; each input attribute contributes
-    ``L_a`` super-attributes to the output, all in the same group as
-    the source attribute. Lag identity is non-exchangeable, so the
-    ``L_a`` copies are emitted as separate attributes rather than
-    packed into a multi-slot one. The original ``K_a`` slot
-    structure of each input attribute is preserved in every
-    super-attribute.
+    The output is a ``specs`` list ready for ``build_exp_tens(...,
+    specs=...)``. Level-structured geometry lives in the spec; the inner
+    level **inherits** the original attribute's ``r``/``is_rel``/
+    ``is_sym`` (that is why they are required arguments), and the outer
+    level defaults to ``r = L_a`` (read the whole bound window),
+    ``sym = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: a flat
+    passthrough (a one-level spec), not a degenerate nest.
 
-    Event-axis alignment. The natural output event count of an
-    attribute with bind order ``L_a`` is ``N - L_a + 1``
-    (non-circular) or ``N`` (circular). With per-attribute orders,
-    the common output event count is ``N' = N - max_a L_a + 1``
-    (non-circular) or ``N`` (circular); attributes with
-    ``L_a < max_a L_a`` have their trailing ``max_a L_a - L_a``
-    super-events dropped to align all attributes on the same output
-    grid. This is the natural composition partner of
-    :func:`difference_events`' leading-drop alignment: D then B
-    gives the same output (super-attribute by super-attribute) as B
-    then D, for any choice of per-attribute orders.
+    With the defaults and ``rel = [is_rel, 0]``, the outer ``r = L_a``
+    reading is the tensor product of the events' inner densities — it
+    reproduces the old separate-attribute binding (§6.5). The genuinely
+    new lever is ``rel_outer = 1`` on an absolute attribute, giving the
+    global-transposition quotient ``rel = [0, 1]``.
 
-    Weights. Each output super-attribute inherits the slot weights
-    of the underlying input event at its lag, propagated under the
-    toolbox's standard broadcast convention. :func:`build_exp_tens`
-    then multiplies across attributes during tuple enumeration, so
-    the end-to-end weight of a bound super-event equals the product
-    of the ``L_a`` constituent events' weights — the natural
-    pre-MAET factoring of the rolling product.
+    Event-axis alignment. The common output event count is
+    ``N' = N - max_a L_a + 1`` (non-circular) or ``N`` (circular);
+    attributes with ``L_a < max_a L_a`` keep their leading ``N'``
+    windows, so D-then-B equals B-then-D with
+    :func:`difference_events`.
 
     Parameters
     ----------
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
-        ``K_a >= 1``; ``K_a = 0`` (empty attribute) is rejected.
-    w : None, scalar, or list/tuple
-        Weights. ``None``, a scalar, or a length-A list of per-
-        attribute weight inputs (each ``None``, scalar, 1-D, or
-        2-D). Same convention as :func:`build_exp_tens`.
-    groups : array-like or list-of-lists or None
-        Group assignment. ``None`` treats each attribute as its own
-        singleton group; a length-A index vector, or a list of
-        attribute-index lists, gives explicit groupings.
-    bind_orders : scalar, array-like, or dict
-        Per-attribute or per-group bind orders (positive integers,
-        ``>= 1``). ``L = 1`` is the no-op (each input event becomes
-        a one-event super-event = itself). Option C syntax:
-
-        - scalar: broadcast to all attributes.
-        - length-``A`` array: per-attribute.
-        - length-``G`` array (``G != A``): per-group, broadcast
-          within group. The ``A == G`` case is read as per-
-          attribute, producing identical output for either reading.
-        - dict ``{g: value}`` (0-indexed groups): each value can be
-          a scalar (broadcast within group) or a length-``n_g``
-          vector (per-attribute within group). Omitted groups are
-          treated as ``L = 1`` (no-op).
-
+    w : None, scalar, or length-A list
+        Weights (same convention as :func:`build_exp_tens`). Each bound
+        attribute's slot weights are the windowed-and-stacked input
+        weights, so the kernel product over the nested tuple recovers
+        the rolling product.
+    bind_orders : scalar or length-A array-like
+        Per-attribute window widths ``L_a >= 1`` (``L_a = 1`` no-op).
+    r, is_rel, is_sym : scalar or length-A array-like
+        The original per-attribute geometry; the inner level inherits
+        these. ``is_rel``/``is_sym`` are bool, ``r`` is a positive int.
     circular : bool, keyword-only
-        When True, the sliding window wraps around the event axis
-        and ``N' = N`` regardless of ``L_a``. When False (default),
-        ``N' = N - max_a L_a + 1``.
+        Wrap the window around the event axis (``N' = N``).
+    r_outer : None, scalar, or length-A, keyword-only
+        Outer-level ``r`` (how many bound events to read). ``None``
+        defaults to ``L_a`` (the whole window).
+    sym_outer, rel_outer : bool / scalar / length-A, keyword-only
+        Outer-level ``[sym]`` and ``[rel]``. Default ``0``/``0``.
+    name : None, str, or length-A, keyword-only
+        Optional per-attribute name(s), stamped onto each spec.
+    level_names : None or length-2 list, keyword-only
+        Optional ``[inner, outer]`` level names, stamped onto each
+        nested spec's ``names`` field (legibility; functional rel-by-
+        name resolution is a later step).
 
     Returns
     -------
     p_attr_bound : list of ndarray
-        Length-``A'`` list of super-attribute value matrices, each
-        ``(K_a, N')``, where ``A' = sum_a L_a``.
+        Length-A list. For ``L_a >= 2`` a stacked ``(L_a * K_a, N')``
+        value matrix (the ``L_a`` lag windows vertically stacked); for
+        ``L_a = 1`` the trailing-aligned ``(K_a, N')`` original.
     w_bound : same general form as *w*
-        Transformed weights. ``None`` stays ``None``; a scalar stays
-        a scalar; a length-A list becomes a length-``A'`` list with
-        each super-attribute carrying the lag-indexed slice (event-
-        dependent weights) or the inherited non-event-dependent
-        input (scalar / ``None`` / ``(K_a, 1)`` column).
-    groups_bound : ndarray of int
-        Length-``A'`` array of group labels (1-indexed). Each input
-        attribute's ``L_a`` super-attributes are placed in the same
-        group as the source attribute (the group count is unchanged;
-        group membership expands).
+        Transformed weights aligned to the value layout.
+    specs : list of dict
+        Length-A. A nested spec ``{tags, r, sym, rel, name?, names?}``
+        for ``L_a >= 2``; a flat spec ``{r, rel, sym, name?}`` for
+        ``L_a = 1``. Feed to ``build_exp_tens(p_attr_bound, w_bound,
+        specs=specs, sigma=..., is_per=..., period=...)``.
 
     See Also
     --------
     build_exp_tens, difference_events, translate_attributes
     """
-    # --- Normalise p_attr to a list of 2-D float arrays ---
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
             "p_attr must be a list/tuple of per-attribute matrices."
@@ -621,132 +634,113 @@ def bind_events(
                 f"Attribute {a} has K_a = 0 (empty attribute); empty "
                 f"attributes are not permitted."
             )
-
-    # --- Verify shared event count N ---
     n_events = p_attr[0].shape[1]
     for a, M in enumerate(p_attr):
         if M.shape[1] != n_events:
             raise ValueError(
                 f"All attributes must share the same event count N. "
-                f"Attribute 0 has N={n_events}; attribute {a} has N={M.shape[1]}."
+                f"Attribute 0 has N={n_events}; attribute {a} has "
+                f"N={M.shape[1]}."
             )
+    K = [M.shape[0] for M in p_attr]
 
-    # --- Canonicalise groups ---
-    group_of_attr, attrs_of_group, G = _canonicalise_groups(groups, A)
+    orders = _canonicalise_bind_orders(bind_orders, A)
+    r_in = _bcast_geom(r, A, "r", cast=int)
+    rel_in = _bcast_geom(is_rel, A, "is_rel", cast=bool)
+    sym_in = _bcast_geom(is_sym, A, "is_sym", cast=bool)
+    if r_outer is None:
+        r_out = [int(orders[a]) for a in range(A)]
+    else:
+        r_out = _bcast_geom(r_outer, A, "r_outer", cast=int)
+    sym_out = _bcast_geom(sym_outer, A, "sym_outer", cast=bool)
+    rel_out = _bcast_geom(rel_outer, A, "rel_outer", cast=bool)
+    names_attr = _bcast_names(name, A)
+    if level_names is not None and len(level_names) != 2:
+        raise ValueError(
+            "level_names must be a length-2 [inner, outer] list (two-level "
+            "binding)."
+        )
 
-    # --- Parse bind_orders via Option C → orders_per_attr (length A) ---
-    orders_per_attr = _canonicalise_bind_orders(
-        bind_orders, A, G, attrs_of_group,
-    )
-
-    # --- Compute output sizes ---
-    max_order = int(orders_per_attr.max()) if A > 0 else 0
+    max_order = int(orders.max()) if A > 0 else 0
     if circular:
         n_prime = n_events
         if max_order > n_events:
             raise ValueError(
-                f"Circular window size max L = {max_order} exceeds "
-                f"event count N = {n_events}."
+                f"Circular window size max L = {max_order} exceeds event "
+                f"count N = {n_events}."
             )
     else:
         n_prime = n_events - max_order + 1
         if n_prime < 1:
             raise ValueError(
-                f"Bind orders too high for the input event count: "
-                f"max L = {max_order} but N = {n_events} (non-circular)."
+                f"Bind orders too high for the input event count: max L = "
+                f"{max_order} but N = {n_events} (non-circular)."
             )
 
-    # --- Build output value matrices and group labels ---
-    A_prime = int(orders_per_attr.sum())
+    def _lag_index(ell):
+        if circular:
+            return (np.arange(n_prime) + ell) % n_events
+        return np.arange(ell, ell + n_prime)
+
     p_attr_bound = []
-    groups_bound = np.zeros(A_prime, dtype=np.int64)
-    out_idx = 0
+    specs = []
     for a in range(A):
-        L_a = int(orders_per_attr[a])
-        g_a = int(group_of_attr[a])
+        L_a = int(orders[a])
+        K_a = K[a]
         M = p_attr[a]
-        for ell in range(L_a):
-            if circular:
-                indices = (np.arange(n_prime) + ell) % n_events
-            else:
-                indices = np.arange(ell, ell + n_prime)
-            p_attr_bound.append(M[:, indices])
-            groups_bound[out_idx] = g_a
-            out_idx += 1
+        if L_a == 1:
+            p_attr_bound.append(M[:, _lag_index(0)])
+            spec = {"r": int(r_in[a]), "rel": bool(rel_in[a]),
+                    "sym": bool(sym_in[a])}
+            if names_attr[a] is not None:
+                spec["name"] = names_attr[a]
+            specs.append(spec)
+        else:
+            blocks = [M[:, _lag_index(ell)] for ell in range(L_a)]
+            p_attr_bound.append(np.vstack(blocks))
+            tags = np.repeat(np.arange(L_a, dtype=np.intp), K_a)
+            spec = {
+                "tags": tags,
+                "r": [int(r_in[a]), int(r_out[a])],
+                "sym": [bool(sym_in[a]), bool(sym_out[a])],
+                "rel": [int(rel_in[a]), int(rel_out[a])],
+            }
+            if names_attr[a] is not None:
+                spec["name"] = names_attr[a]
+            if level_names is not None:
+                spec["names"] = list(level_names)
+            specs.append(spec)
 
-    # --- Transform weights ---
-    w_bound = _bind_weights(
-        w, A, orders_per_attr, n_events, n_prime, circular,
+    w_bound = _bind_weights_nested(
+        w, A, orders, K, n_events, n_prime, circular,
     )
+    return p_attr_bound, w_bound, specs
 
-    return p_attr_bound, w_bound, groups_bound
 
-
-def _canonicalise_bind_orders(bind_orders, A, G, attrs_of_group):
-    """Coerce ``bind_orders`` to a length-A int array via Option C."""
-    if isinstance(bind_orders, dict):
-        return _canonicalise_bind_orders_dict(
-            bind_orders, A, G, attrs_of_group,
-        )
-
+def _canonicalise_bind_orders(bind_orders, A):
+    """Coerce ``bind_orders`` to a length-A int array (scalar or per-attr)."""
     arr = np.asarray(bind_orders)
     if arr.dtype.kind not in "iuf":
         raise TypeError(
-            f"bind_orders must be numeric or a dict; got dtype={arr.dtype}."
+            f"bind_orders must be numeric; got dtype={arr.dtype}."
         )
-
     if arr.ndim == 0:
         result = np.full(A, float(arr), dtype=np.float64)
     elif arr.ndim == 1:
-        n = arr.size
-        if n == 1:
+        if arr.size == 1:
             result = np.full(A, float(arr[0]), dtype=np.float64)
-        elif n == A:
+        elif arr.size == A:
             result = arr.astype(np.float64, copy=True)
-        elif n == G:
-            result = np.zeros(A, dtype=np.float64)
-            for g in range(G):
-                result[attrs_of_group[g]] = arr[g]
         else:
             raise ValueError(
-                f"bind_orders has {n} entries; expected scalar (1), "
-                f"per-attribute (A = {A}), or per-group (G = {G})."
+                f"bind_orders has {arr.size} entries; expected scalar (1) "
+                f"or per-attribute (A = {A})."
             )
     else:
         raise ValueError(
-            f"bind_orders must be a scalar, 1-D array, or dict; "
-            f"got ndim = {arr.ndim}."
+            f"bind_orders must be a scalar or 1-D array; got ndim = "
+            f"{arr.ndim}."
         )
-
-    _validate_bind_orders(result)
-    return result.astype(np.int64, copy=False)
-
-
-def _canonicalise_bind_orders_dict(d, A, G, attrs_of_group):
-    """Process the per-group dict form of bind_orders.
-
-    Omitted groups default to ``L = 1`` (no-op).
-    """
-    result = np.ones(A, dtype=np.float64)  # default L = 1
-    for g_key, val in d.items():
-        g = int(g_key)
-        if g < 0 or g >= G:
-            raise ValueError(
-                f"bind_orders dict key {g} out of range; groups are "
-                f"0-indexed, valid range [0, {G - 1}]."
-            )
-        attrs = attrs_of_group[g]
-        n_g = len(attrs)
-        val_arr = np.asarray(val).ravel()
-        if val_arr.size == 1:
-            result[attrs] = float(val_arr[0])
-        elif val_arr.size == n_g:
-            result[attrs] = val_arr.astype(np.float64)
-        else:
-            raise ValueError(
-                f"bind_orders[{g}] has {val_arr.size} entries; expected "
-                f"scalar or n_g = {n_g}."
-            )
     _validate_bind_orders(result)
     return result.astype(np.int64, copy=False)
 
@@ -763,25 +757,20 @@ def _validate_bind_orders(orders):
         )
 
 
-def _bind_weights(w, A, orders_per_attr, n_events, n_prime, circular):
-    """Transform weights under per-attribute binding.
+def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular):
+    """Transform weights to match the nested value layout.
 
-    Each output super-attribute carries the slot weights of the input
-    event at its lag. Non-event-dependent inputs (``None``, scalar,
-    ``(K_a, 1)`` column) are inherited as-is by every super-
-    attribute; the kernel product over the ``L_a`` super-attributes
-    in :func:`build_exp_tens` recovers the rolling product naturally.
-    Event-dependent inputs (length-N 1-D, ``(1, N)`` row,
-    ``(K_a, N)`` matrix) are sliced into the output's lag-indexed
-    columns.
+    For ``L_a >= 2`` the per-event weight slices are windowed and
+    stacked into a ``(L_a * K_a, N')`` column aligned with the value
+    stack (per-event weights are expanded across the ``K_a`` slots of
+    their event); for ``L_a = 1`` the weight is trailing-aligned.
+    Non-event-dependent inputs (``None``, scalar, ``(K_a, 1)`` column)
+    are inherited / tiled across the bound slots.
     """
     if w is None:
         return None
-
-    # --- Top-level scalar ---
     if np.isscalar(w):
         return float(w)
-
     if not isinstance(w, (list, tuple)):
         raise TypeError(
             "w must be None, a scalar, or a list/tuple of per-attribute "
@@ -792,23 +781,34 @@ def _bind_weights(w, A, orders_per_attr, n_events, n_prime, circular):
             f"Weight list must have length A = {A}; got length {len(w)}."
         )
 
+    def _lag_index(ell):
+        if circular:
+            return (np.arange(n_prime) + ell) % n_events
+        return np.arange(ell, ell + n_prime)
+
     w_bound = []
     for a, wa in enumerate(w):
-        L_a = int(orders_per_attr[a])
+        L_a = int(orders[a])
+        K_a = K[a]
         event_dep = _weight_has_event_dependence(wa, n_events, a)
-        for ell in range(L_a):
-            if not event_dep:
-                # Inherit as-is.
+        if not event_dep:
+            if wa is None or np.isscalar(wa):
                 w_bound.append(wa)
-                continue
-            W = np.asarray(wa, dtype=np.float64)
-            if W.ndim == 1:
-                W = W.reshape(1, n_events)
-            if circular:
-                indices = (np.arange(n_prime) + ell) % n_events
             else:
-                indices = np.arange(ell, ell + n_prime)
-            w_bound.append(W[:, indices])
+                W = np.asarray(wa, dtype=np.float64)   # (K_a, 1) per-slot
+                w_bound.append(W if L_a == 1 else np.tile(W, (L_a, 1)))
+            continue
+        # Event-dependent: materialise to (K_a, N), window per lag, stack.
+        W = np.asarray(wa, dtype=np.float64)
+        if W.ndim == 1:
+            W = W.reshape(1, -1)
+        if W.shape[0] == 1 and K_a > 1:
+            W = np.tile(W, (K_a, 1))
+        if L_a == 1:
+            w_bound.append(W[:, _lag_index(0)])
+        else:
+            blocks = [W[:, _lag_index(ell)] for ell in range(L_a)]
+            w_bound.append(np.vstack(blocks))
     return w_bound
 
 

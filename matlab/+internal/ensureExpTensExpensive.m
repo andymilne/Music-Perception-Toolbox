@@ -54,6 +54,15 @@ function dens = ensureExpTensExpensive(dens)
         symArgs = {dens.isSym};
     end
 
+    % Forward the per-attribute nesting spec (representation B) so a
+    % nested attribute is not silently flattened when its expensive
+    % fields are materialised. Only meaningful for MA densities.
+    nestedArgs = {};
+    if isfield(dens, 'nested') && iscell(dens.nested) ...
+            && any(~cellfun(@isempty, dens.nested))
+        nestedArgs = {'nested', dens.nested};
+    end
+
     switch dens.tag
         case 'ExpTensDensity'
             dens = buildExpTens( ...
@@ -65,7 +74,7 @@ function dens = ensureExpTensExpensive(dens)
             dens = buildExpTens( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
                 dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
-                'lazy', false, 'verbose', false);
+                nestedArgs{:}, 'lazy', false, 'verbose', false);
 
         otherwise
             error('ensureExpTensExpensive:badTag', ...

@@ -361,6 +361,7 @@ class MaetDensity:
         dim: int,
         dim_per_attr: np.ndarray,
         is_sym: np.ndarray | None = None,
+        nested: list | None = None,
         # The build closure: a no-arg callable that returns a dict
         # populating the lazy fields. Stored on the instance and
         # called on first access of any lazy field.
@@ -385,6 +386,11 @@ class MaetDensity:
         # specifying it.
         self.is_sym = (np.ones(n_attrs, dtype=bool) if is_sym is None
                        else np.asarray(is_sym, dtype=bool).ravel())
+        # Per-attribute nesting spec (representation B): None per attribute
+        # for flat attributes, or a dict {tags, r_inner, r_outer,
+        # sym_inner, sym_outer} for a nested one. Per-slot tags are
+        # row-indexed, so event (column) pruning leaves them untouched.
+        self.nested = ([None] * n_attrs if nested is None else list(nested))
 
         # Lazy slots
         self._build_lazy_fn = _build_lazy
@@ -445,7 +451,7 @@ class MaetDensity:
             return _ma_build_perm_arrays(
                 p_attr=p_attr, w_list=w, r_vec=self.r,
                 is_rel_vec=self.is_rel, is_sym_vec=self.is_sym,
-                N=n_k, A=self.n_attrs,
+                N=n_k, A=self.n_attrs, nested=self.nested,
             )
 
         return MaetDensity(
@@ -454,6 +460,7 @@ class MaetDensity:
             p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
             is_per=self.is_per, period=self.period, dim=self.dim,
             dim_per_attr=self.dim_per_attr, is_sym=self.is_sym,
+            nested=self.nested,
             _build_lazy=_build_lazy,
         )
 

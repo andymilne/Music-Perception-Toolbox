@@ -70,6 +70,10 @@ function dens = prunedExpTens(dens)
             if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
+            % Per-slot nesting spec (representation B): tags are
+            % row-indexed, so event (column) pruning leaves them intact.
+            % Must be carried, or the rebuild flattens the attribute.
+            if isfield(dens, 'nested'); out.nested = dens.nested; end
             dens             = out;
 
         otherwise

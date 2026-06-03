@@ -39,7 +39,7 @@ from .density import (
 )
 
 
-def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDensity:
+def build_exp_tens(p, w, *args, nested=None, verbose: bool = True) -> ExpTensDensity | MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
     Dispatches on the type of the first argument:
@@ -118,6 +118,11 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
     --------
     ExpTensDensity, MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
+    if nested is not None and not _looks_like_multi_attr(p):
+        raise ValueError(
+            "nested= is only valid for multi-attribute calls (p_attr a "
+            "list/tuple of attribute matrices)."
+        )
     if _looks_like_multi_attr(p):
         if len(args) not in (5, 6):
             raise ValueError(
@@ -130,6 +135,7 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
         return _build_exp_tens_ma(
             p, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+            nested=nested,
             verbose=verbose,
         )
     else:
@@ -189,6 +195,7 @@ def _build_exp_tens_ma(
     period_vec,
     is_sym_vec=None,
     *,
+    nested=None,
     verbose: bool = True,
 ) -> MaetDensity:
     """Multi-attribute expectation tensor builder.
@@ -232,6 +239,42 @@ def _build_exp_tens_ma(
         raise ValueError(
             f"r_vec must have length {A} (n attributes), got {r_vec.size}."
         )
+
+    # --- Nested attributes (representation B) -------------------------
+    # A nested attribute carries its level breakdown in nested[a] (a dict
+    # with keys r_inner, r_outer, sym_inner, sym_outer, tags) and a flat
+    # K_total-slot value column; r_vec[a] is (re)derived to the total
+    # tuple dim D_a = r_inner * r_outer so dim/allocation stay scalar.
+    # nested[a] is None for ordinary flat attributes (unchanged path).
+    if nested is None:
+        nested = [None] * A
+    elif len(nested) != A:
+        raise ValueError(
+            f"nested must have length {A} (n attributes), got {len(nested)}."
+        )
+    else:
+        nested = list(nested)
+    r_vec = r_vec.copy()
+    for a in range(A):
+        spec = nested[a]
+        if spec is None:
+            continue
+        ri = int(spec["r_inner"])
+        ro = int(spec["r_outer"])
+        if ri < 1 or ro < 1:
+            raise ValueError(
+                f"nested attribute {a}: r_inner and r_outer must be >= 1."
+            )
+        tags = np.asarray(spec["tags"]).ravel()
+        if tags.size != int(K_a[a]):
+            raise ValueError(
+                f"nested attribute {a}: tags length {tags.size} must equal "
+                f"K_total = {int(K_a[a])} (slot count)."
+            )
+        nested[a] = dict(spec)
+        nested[a]["tags"] = tags
+        r_vec[a] = ri * ro  # total tuple dim D_a
+
     if np.any(r_vec < 1):
         raise ValueError("All r_a must be positive integers.")
 
@@ -260,6 +303,12 @@ def _build_exp_tens_ma(
             )
 
     for a in range(A):
+        if nested[a] is not None and is_rel_vec[a]:
+            raise NotImplementedError(
+                f"nested attribute {a}: is_rel (the [rel] co-transposition-"
+                f"unit selector for nested attributes) is not yet wired; "
+                f"build nested attributes with is_rel = False for now."
+            )
         if is_rel_vec[a] and r_vec[a] < 2:
             warnings.warn(
                 f"is_rel = True combined with r_a = 1 for attribute {a} "
@@ -277,8 +326,26 @@ def _build_exp_tens_ma(
     # build call rather than later on first downstream consumer call.
     for n in range(N):
         for a in range(A):
+            col = p_attr[a][:, n]
+            valid = ~np.isnan(col)
+            spec = nested[a]
+            if spec is not None:
+                tags = spec["tags"]
+                ri = int(spec["r_inner"])
+                ro = int(spec["r_outer"])
+                good = sum(
+                    1 for t in np.unique(tags[valid])
+                    if int(np.sum(valid & (tags == t))) >= ri
+                )
+                if good < ro:
+                    raise ValueError(
+                        f"Event {n}, nested attribute {a}: only {good} "
+                        f"source-event(s) have >= r_inner = {ri} non-NaN "
+                        f"slot(s), but r_outer = {ro}."
+                    )
+                continue
             r_a = int(r_vec[a])
-            valid_count = int(np.sum(~np.isnan(p_attr[a][:, n])))
+            valid_count = int(np.sum(valid))
             if valid_count < r_a:
                 raise ValueError(
                     f"Event {n}, attribute {a} has {valid_count} non-NaN "
@@ -314,7 +381,7 @@ def _build_exp_tens_ma(
         return _ma_build_perm_arrays(
             p_attr=p_attr, w_list=w_list, r_vec=r_vec,
             is_rel_vec=is_rel_vec, is_sym_vec=is_sym_vec,
-            N=N, A=A,
+            N=N, A=A, nested=nested,
         )
 
     return MaetDensity(
@@ -332,9 +399,77 @@ def _build_exp_tens_ma(
         is_sym=is_sym_vec,
         dim=dim,
         dim_per_attr=dim_per_attr,
+        nested=nested,
         _build_lazy=_build_lazy,
     )
 
+
+
+def _nested_enum_indices(valid_slots, tags_valid, r_inner, r_outer,
+                         sym_inner, sym_outer):
+    """Tag-scoped nested r-tuple enumeration (representation B, 2-level).
+
+    Parameters
+    ----------
+    valid_slots : (Kv,) intp
+        Slot indices (into the attribute's full K_total axis) that are
+        non-NaN for this output-event.
+    tags_valid : (Kv,) intp
+        Source-event-in-window tag for each valid slot.
+    r_inner, r_outer : int
+        Inner (within-event) and outer (across-event) tuple sizes.
+    sym_inner, sym_outer : bool
+        Per-level symmetrisation. ``sym_outer`` is 0 for ordinary
+        binding (the bound events carry sequence order); 1 pools them
+        as an unordered bag.
+
+    Returns
+    -------
+    perm_idx, comb_idx : (D, M) intp, D = r_inner * r_outer
+        Slot-index arrays. ``perm_idx`` is the symmetrised deposit (the
+        density's kernel centres): inner ``S_{r_inner}`` orbit per chosen
+        event when ``sym_inner``; outer listed order (or full orbit when
+        ``sym_outer``). ``comb_idx`` is the canonical one-per-combination
+        side (inner combinations, outer listed) used for inner-product
+        pairing. Columns are concatenated in (outer-order, inner-order).
+    """
+    from itertools import combinations as _comb, permutations as _perm
+    from itertools import product as _product
+
+    tags_valid = np.asarray(tags_valid)
+    valid_slots = np.asarray(valid_slots, dtype=np.intp)
+    uniq = sorted(set(tags_valid.tolist()))
+    slots_of = {t: valid_slots[tags_valid == t] for t in uniq}
+
+    # Outer level: choose r_outer distinct tags. sym_outer = 0 keeps
+    # sequence order (combinations); sym_outer = 1 pools (full orbit).
+    outer_comb = list(_comb(uniq, r_outer))
+    outer_perm = (
+        [p for c in outer_comb for p in _perm(c)] if sym_outer
+        else outer_comb
+    )
+
+    # Inner level per event: choose r_inner of that event's slots.
+    def inner(t, symmetrise):
+        sl = slots_of[t]
+        combs = list(_comb(range(len(sl)), r_inner))
+        if symmetrise:
+            combs = [p for c in combs for p in _perm(c)]
+        return [sl[list(c)] for c in combs]
+
+    def assemble(outer_sel, sym_in):
+        cols = []
+        for osel in outer_sel:
+            per_event = [inner(t, sym_in) for t in osel]
+            for combo in _product(*per_event):
+                cols.append(np.concatenate(combo))
+        if not cols:
+            return np.empty((r_inner * r_outer, 0), dtype=np.intp)
+        return np.array(cols, dtype=np.intp).T
+
+    perm_idx = assemble(outer_perm, sym_inner)
+    comb_idx = assemble(outer_comb, False)
+    return perm_idx, comb_idx
 
 
 def _ma_build_perm_arrays(
@@ -346,6 +481,7 @@ def _ma_build_perm_arrays(
     is_sym_vec,
     N,
     A,
+    nested=None,
 ):
     """Heavy per-event / per-attribute r-ad enumeration and assembly.
 
@@ -360,6 +496,9 @@ def _ma_build_perm_arrays(
     """
     from itertools import combinations as _combinations
 
+    if nested is None:
+        nested = [None] * A
+
     perm_idx = [[None] * A for _ in range(N)]
     comb_idx = [[None] * A for _ in range(N)]
     perm_w   = [[None] * A for _ in range(N)]
@@ -370,6 +509,27 @@ def _ma_build_perm_arrays(
             val_col = p_attr[a][:, n]
             valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
             K_na = int(valid.size)
+
+            # --- Nested attribute (representation B): tag-scoped two-level
+            # enumeration. r_vec[a] holds the total tuple dim D_a =
+            # r_inner * r_outer; the level breakdown and per-value source-
+            # event tags live in nested[a]. Flat attributes (nested[a] is
+            # None) take the original single-level path below, unchanged.
+            spec = nested[a]
+            if spec is not None:
+                tags_valid = np.asarray(spec["tags"])[valid]
+                perm_mat, comb_mat = _nested_enum_indices(
+                    valid, tags_valid,
+                    int(spec["r_inner"]), int(spec["r_outer"]),
+                    bool(spec["sym_inner"]), bool(spec["sym_outer"]),
+                )
+                perm_idx[n][a] = perm_mat
+                comb_idx[n][a] = comb_mat
+                w_col = w_list[a][:, n]
+                perm_w[n][a] = np.prod(w_col[perm_mat], axis=0)
+                comb_w[n][a] = np.prod(w_col[comb_mat], axis=0)
+                continue
+
             r_a = int(r_vec[a])
             if K_na < r_a:
                 raise ValueError(

@@ -100,7 +100,7 @@ function dens = buildExpTens(varargin)
     % ------------------------------------------------------------------
     % Parse optional name-value pairs and split positional args
     % ------------------------------------------------------------------
-    [posArgs, verbose, lazy] = localExtractKwargs(varargin);
+    [posArgs, verbose, lazy, nested] = localExtractKwargs(varargin);
 
     if isempty(posArgs)
         error('buildExpTens:missingInputs', ...
@@ -111,9 +111,14 @@ function dens = buildExpTens(varargin)
 
     if iscell(first)
         % Multi-attribute path
-        dens = localBuildMA(posArgs, verbose, lazy);
+        dens = localBuildMA(posArgs, verbose, lazy, nested);
     elseif isnumeric(first)
         % Single-attribute legacy path
+        if ~isempty(nested)
+            error('buildExpTens:nestedSAUnsupported', ...
+                  ['nested is only valid for multi-attribute calls ' ...
+                   '(first argument a cell array of attribute matrices).']);
+        end
         dens = localBuildSA(posArgs, verbose, lazy);
     else
         error('buildExpTens:badFirstArg', ...
@@ -127,14 +132,15 @@ end
 %  Helpers: kwarg parsing
 % ======================================================================
 
-function [posArgs, verbose, lazy] = localExtractKwargs(args)
+function [posArgs, verbose, lazy, nested] = localExtractKwargs(args)
     verbose = true;
     lazy = true;  % default to skinny dens; eager via 'lazy', false
+    nested = [];  % per-attribute nesting spec (cell), [] = all flat
     posArgs = args;
     i = 1;
     while i <= numel(posArgs)
         if (ischar(posArgs{i}) || isstring(posArgs{i})) ...
-                && any(strcmpi(posArgs{i}, {'verbose', 'lazy'}))
+                && any(strcmpi(posArgs{i}, {'verbose', 'lazy', 'nested'}))
             key = lower(char(posArgs{i}));
             if i + 1 > numel(posArgs)
                 error('buildExpTens:kwargMissingValue', ...
@@ -145,6 +151,8 @@ function [posArgs, verbose, lazy] = localExtractKwargs(args)
                     verbose = logical(posArgs{i + 1});
                 case 'lazy'
                     lazy = logical(posArgs{i + 1});
+                case 'nested'
+                    nested = posArgs{i + 1};
             end
             posArgs(i:i + 1) = [];
         else
@@ -325,7 +333,7 @@ end
 %  Multi-attribute (MAET) path
 % ======================================================================
 
-function dens = localBuildMA(posArgs, verbose, lazy)
+function dens = localBuildMA(posArgs, verbose, lazy, nested)
 
     if numel(posArgs) == 7
         [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec] = posArgs{:};
@@ -385,6 +393,54 @@ function dens = localBuildMA(posArgs, verbose, lazy)
         error('buildExpTens:rLength', ...
               'rVec must have length equal to the number of attributes.');
     end
+
+    % --- Nested attributes (representation B) ---------------------------
+    % A nested attribute carries its level breakdown in nested{a} (a
+    % struct with fields rInner, rOuter, symInner, symOuter, tags) and a
+    % flat K_total-slot value column; rVec(a) is (re)derived to the total
+    % tuple dim D_a = rInner * rOuter so dim/allocation stay scalar.
+    % nested{a} = [] for an ordinary flat attribute (unchanged path).
+    if isempty(nested)
+        nested = cell(1, A);
+    else
+        if ~iscell(nested) || numel(nested) ~= A
+            error('buildExpTens:nestedLength', ...
+                  'nested must be a 1 x %d cell array (one entry per attribute).', A);
+        end
+        nested = nested(:).';
+    end
+    for a = 1:A
+        spec = nested{a};
+        if isempty(spec)
+            continue
+        end
+        if ~isstruct(spec) || ...
+                ~all(isfield(spec, {'rInner', 'rOuter', 'symInner', 'symOuter', 'tags'}))
+            error('buildExpTens:nestedSpec', ...
+                  ['nested{%d} must be a struct with fields rInner, ' ...
+                   'rOuter, symInner, symOuter, tags.'], a);
+        end
+        ri = double(spec.rInner);
+        ro = double(spec.rOuter);
+        if ri < 1 || ro < 1 || rem(ri, 1) ~= 0 || rem(ro, 1) ~= 0
+            error('buildExpTens:nestedR', ...
+                  'nested{%d}: rInner and rOuter must be positive integers.', a);
+        end
+        tags = double(spec.tags(:).');
+        if numel(tags) ~= Ka(a)
+            error('buildExpTens:nestedTags', ...
+                  ['nested{%d}: tags length %d must equal K_total = %d ' ...
+                   '(slot count).'], a, numel(tags), Ka(a));
+        end
+        spec.rInner   = ri;
+        spec.rOuter   = ro;
+        spec.symInner = logical(spec.symInner);
+        spec.symOuter = logical(spec.symOuter);
+        spec.tags     = tags;
+        nested{a}     = spec;
+        rVec(a)       = ri * ro;   % total tuple dim D_a
+    end
+
     if any(rVec < 1) || any(rem(rVec, 1) ~= 0)
         error('buildExpTens:rNotInt', 'All r_a must be positive integers.');
     end
@@ -414,6 +470,12 @@ function dens = localBuildMA(posArgs, verbose, lazy)
 
     % isRel + r_a = 1 degenerate warning (per attribute)
     for a = 1:A
+        if ~isempty(nested{a}) && isRelVec(a)
+            error('buildExpTens:nestedRelUnsupported', ...
+                  ['nested attribute %d: isRel (the [rel] co-transposition-' ...
+                   'unit selector for nested attributes) is not yet wired; ' ...
+                   'build nested attributes with isRel = false for now.'], a);
+        end
         if isRelVec(a) && rVec(a) < 2
             warning('buildExpTens:isRelDegenerate', ...
                     ['isRel = true combined with r_a = 1 for ' ...
@@ -451,7 +513,30 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     for n = 1:N
         for a = 1:A
             valCol = pAttr{a}(:, n);
-            K_na = sum(~isnan(valCol));
+            spec   = nested{a};
+            if ~isempty(spec)
+                tags     = spec.tags(:).';          % 1 x K_total row
+                validRow = (~isnan(valCol(:))).';   % 1 x K_total row
+                ri   = spec.rInner;
+                ro   = spec.rOuter;
+                present = unique(tags(validRow));
+                present = present(:).';             % force row for the loop
+                good = 0;
+                for t = present
+                    if sum(validRow & (tags == t)) >= ri
+                        good = good + 1;
+                    end
+                end
+                if good < ro
+                    error('buildExpTens:nestedInsufficientTags', ...
+                          ['Event %d, nested attribute %d: only %d ' ...
+                           'source-event(s) have >= rInner = %d non-NaN ' ...
+                           'slot(s), but rOuter = %d.'], n, a, good, ri, ro);
+                end
+                continue
+            end
+            valid = ~isnan(valCol);
+            K_na = sum(valid);
             r_a = rVec(a);
             if K_na < r_a
                 error('buildExpTens:insufficientSlots', ...
@@ -478,6 +563,7 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     dens.isSym        = isSymVec;
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;
+    dens.nested       = nested;
 
     if lazy
         if verbose
@@ -503,6 +589,11 @@ function dens = localFillMAExpensive(dens, verbose)
     isSymVec    = dens.isSym;
     pAttr       = dens.pAttr;
     wCell       = dens.w;
+    if isfield(dens, 'nested')
+        nested = dens.nested;
+    else
+        nested = cell(1, A);
+    end
 
     % --- Per-event, per-attribute r-ad enumeration ---
 
@@ -516,6 +607,27 @@ function dens = localFillMAExpensive(dens, verbose)
             valCol  = pAttr{a}(:, n);
             valid   = find(~isnan(valCol));
             K_na    = numel(valid);
+
+            % --- Nested attribute (representation B): tag-scoped two-level
+            % enumeration. rVec(a) holds the total tuple dim D_a =
+            % rInner * rOuter; the level breakdown and per-value source-
+            % event tags live in nested{a}. Flat attributes (empty
+            % nested{a}) take the original single-level path below.
+            spec = nested{a};
+            if ~isempty(spec)
+                tagsValid = spec.tags(valid);
+                [permMat, combMat] = localNestedEnumIndices( ...
+                    valid(:).', tagsValid(:).', ...
+                    spec.rInner, spec.rOuter, spec.symInner, spec.symOuter);
+                permIdx{n, a} = permMat;
+                combIdx{n, a} = combMat;
+                wCol = wCell{a}(:, n);
+                D_a = spec.rInner * spec.rOuter;
+                permW{n, a} = prod(reshape(wCol(permMat), D_a, []), 1);
+                combW{n, a} = prod(reshape(wCol(combMat), D_a, []), 1);
+                continue
+            end
+
             r_a     = rVec(a);
             if K_na < r_a
                 error('buildExpTens:insufficientSlots', ...
@@ -781,5 +893,136 @@ function idxCell = localCartesianIndices(sizes)
             row = repmat(row, 1, repOuter);
         end
         idxCell{a} = row;
+    end
+end
+
+function [permIdx, combIdx] = localNestedEnumIndices( ...
+        validSlots, tagsValid, rInner, rOuter, symInner, symOuter)
+    %LOCALNESTEDENUMINDICES  Tag-scoped nested r-tuple enumeration (rep. B).
+    %   Two-level enumeration for one output-event of a nested attribute.
+    %   validSlots : 1 x Kv slot indices (into the attribute's K_total
+    %                axis) that are non-NaN for this event.
+    %   tagsValid  : 1 x Kv source-event-in-window tag per valid slot.
+    %   Returns permIdx, combIdx: each D x M slot-index arrays,
+    %   D = rInner * rOuter. permIdx is the symmetrised deposit (the
+    %   density's kernel centres): inner S_{rInner} orbit per chosen
+    %   event when symInner; outer listed order (or full orbit when
+    %   symOuter). combIdx is the canonical one-per-combination side
+    %   (inner combinations, outer listed) used for inner-product
+    %   pairing. Columns are concatenated in (outer-order, inner-order).
+
+    uniq = unique(tagsValid);            % sorted ascending
+    L = numel(uniq);
+    slotsOf = cell(1, L);
+    for ti = 1:L
+        slotsOf{ti} = validSlots(tagsValid == uniq(ti));
+    end
+
+    % Outer selections of rOuter distinct tags (rows of tag-indices into
+    % uniq). symOuter = 0 keeps sequence order (combinations); symOuter =
+    % 1 pools as an unordered bag (full orbit).
+    if rOuter > L
+        outerComb = zeros(0, rOuter);
+    elseif rOuter == L
+        outerComb = 1:L;
+    else
+        outerComb = nchoosek(1:L, rOuter);
+    end
+    if symOuter
+        outerPerm = localExpandPerms(outerComb);
+    else
+        outerPerm = outerComb;
+    end
+
+    permIdx = localNestedAssemble(slotsOf, outerPerm, rInner, rOuter, symInner);
+    combIdx = localNestedAssemble(slotsOf, outerComb, rInner, rOuter, false);
+end
+
+
+function cols = localNestedAssemble(slotsOf, outerSel, rInner, rOuter, symInner)
+    %LOCALNESTEDASSEMBLE  Assemble nested r-tuple slot-index columns.
+    D = rInner * rOuter;
+    colsList = {};
+    for s = 1:size(outerSel, 1)
+        tagIdxRow = outerSel(s, :);
+        perEvent = cell(1, rOuter);
+        ok = true;
+        for j = 1:rOuter
+            perEvent{j} = localInnerTuples(slotsOf{tagIdxRow(j)}, rInner, symInner);
+            if isempty(perEvent{j})
+                ok = false;
+                break
+            end
+        end
+        if ~ok
+            continue
+        end
+        counts = cellfun(@numel, perEvent);
+        total = prod(counts);
+        for c = 0:total - 1
+            choice = zeros(1, rOuter);
+            rem = c;
+            for j = rOuter:-1:1          % last event varies fastest
+                choice(j) = mod(rem, counts(j)) + 1;
+                rem = floor(rem / counts(j));
+            end
+            seg = zeros(1, D);
+            pos = 0;
+            for j = 1:rOuter
+                seg(pos + 1 : pos + rInner) = perEvent{j}{choice(j)};
+                pos = pos + rInner;
+            end
+            colsList{end + 1} = seg(:);  %#ok<AGROW>
+        end
+    end
+    if isempty(colsList)
+        cols = zeros(D, 0);
+    else
+        cols = [colsList{:}];
+    end
+end
+
+
+function tuples = localInnerTuples(sl, rInner, symInner)
+    %LOCALINNERTUPLES  Inner r-tuples (slot indices) within one event.
+    sl = sl(:).';
+    nsl = numel(sl);
+    if rInner > nsl
+        tuples = {};
+        return
+    elseif rInner == nsl
+        combs = 1:nsl;
+    else
+        combs = nchoosek(1:nsl, rInner);
+    end
+    if symInner
+        combs = localExpandPerms(combs);
+    end
+    nT = size(combs, 1);
+    tuples = cell(1, nT);
+    for i = 1:nT
+        tuples{i} = sl(combs(i, :));
+    end
+end
+
+
+function out = localExpandPerms(combs)
+    %LOCALEXPANDPERMS  Expand each row (a combination) into its full
+    %   permutation orbit; stacks rows of width size(combs, 2).
+    if isempty(combs)
+        out = combs;
+        return
+    end
+    r = size(combs, 2);
+    P = perms(1:r);
+    nP = size(P, 1);
+    nC = size(combs, 1);
+    out = zeros(nC * nP, r);
+    row = 0;
+    for i = 1:nC
+        for pp = 1:nP
+            row = row + 1;
+            out(row, :) = combs(i, P(pp, :));
+        end
     end
 end

@@ -94,7 +94,7 @@ cost = {'test_estimate_comp_time.m', 'test_print_batched_estimate.m', ...
 serial = {'test_serial_continuity.m', 'test_serial_seq_weights.m'};
 
 % Multi-Attribute Expectation Tensor (MAET, v2.1.0)
-maet = {'test_maet.m', 'test_windowed_similarity_offset.m', 'test_sym.m'};
+maet = {'test_maet.m', 'test_windowed_similarity_offset.m', 'test_sym.m', 'test_nested.m'};
 
 % Geometry helpers
 geom = {'test_simplex_vertices.m'};

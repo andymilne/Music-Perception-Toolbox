@@ -230,6 +230,7 @@ nvDefaults = struct( ...
     'gridLimit',         1e8, ...
     'truncationSigmas',  [], ...
     'kernelPrecision',   [], ...
+    'isSym',             [], ...
     'verbose',           true);
 
 [posArgs, nvArgs] = localParseNVPairs(varargin, nvDefaults);
@@ -238,6 +239,20 @@ nPos = numel(posArgs);
 if nPos < 1
     error('entropyExpTens:noArgs', ...
           'At least one positional argument is required.');
+end
+
+% Optional [sym] geometry flag for the raw forms. Entropy integrates
+% over the whole space, so the raw layouts are pure geometry with no
+% query: ..., period[, isSym]. A raw call therefore has 7 positional
+% args, or 8 with isSym. (Struct and list forms have a single
+% positional and never reach 8.) Pop a trailing isSym here, leaving
+% posArgs at 7 so the per-method dispatch checks are unchanged, and
+% stash it on nvArgs for the build calls. The default (empty =
+% symmetric) comes from nvDefaults; an 8th positional overrides it.
+if nPos == 8
+    nvArgs.isSym = posArgs{8};
+    posArgs(8) = [];
+    nPos = numel(posArgs);
 end
 
 % Canonicalize the method kwarg (accepts British 'normalised') and
@@ -356,9 +371,10 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             % MA raw: cell of attribute matrices.
             if nPos ~= 7
                 error('entropyExpTens:wrongArgCountMA', ...
-                      ['Multi-attribute raw call expects 7 positional ' ...
+                      ['Multi-attribute raw call expects 7 or 8 positional ' ...
                        'arguments (pAttr, w, sigmaVec, rVec, ' ...
-                       'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+                       'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], ...
+                      nPos);
             end
             pAttr     = posArgs{1};
             w         = posArgs{2};
@@ -368,8 +384,10 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             isPerVec  = posArgs{6};
             periodVec = posArgs{7};
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
+            symArgs = localSymArgs(nvArgs);
             dens = buildExpTens(pAttr, w, sigmaVec, rVec, ...
-                                isRelVec, isPerVec, periodVec, 'verbose', false);
+                                isRelVec, isPerVec, periodVec, symArgs{:}, ...
+                                'verbose', false);
             H = localEntropyMA(dens, nvArgs);
             return;
         end
@@ -385,8 +403,9 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
             if nPos ~= 7
                 error('entropyExpTens:wrongArgCountBatched', ...
-                      ['Batched-raw call expects 7 positional arguments ' ...
-                       '(P, W, sigma, r, isRel, isPer, period); got %d.'], nPos);
+                      ['Batched-raw call expects 7 or 8 positional arguments ' ...
+                       '(P, W, sigma, r, isRel, isPer, period[, isSym]); ' ...
+                       'got %d.'], nPos);
             end
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
             H = localEntropyBatchedRaw(posArgs, nvArgs);
@@ -395,8 +414,9 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         % SA raw: numeric vector or scalar.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSA', ...
-                  ['Single-attribute raw call expects 7 positional arguments ' ...
-                   '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
+                  ['Single-attribute raw call expects 7 or 8 positional ' ...
+                   'arguments (p, w, sigma, r, isRel, isPer, period' ...
+                   '[, isSym]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -416,7 +436,9 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
 
         localRequireExplicitGrid(nvArgs.nPointsPerDim);
-        T = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+        symArgs = localSymArgs(nvArgs);
+        T = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+                         'verbose', false);
         H = localEntropySA(T, nvArgs);
         return;
     end
@@ -779,6 +801,24 @@ function H = localEntropyBatchedRaw(posArgs, nvArgs)
     isPer  = posArgs{6};
     period = posArgs{7};
 
+    % The per-row dedup keys rows by a multiset canonical form, which
+    % collapses rows that share a multiset but differ in order. That is
+    % correct only for the symmetric reading: under isSym = false the
+    % order is significant, so the dedup would silently merge distinct
+    % ordered densities (and hence entropies). Reject rather than return
+    % a wrong answer (parity with the Python batched path). Order-aware
+    % batched dedup is a tracked follow-up; compute ordered densities one
+    % row at a time.
+    if isfield(nvArgs, 'isSym') && ~isempty(nvArgs.isSym) ...
+            && ~all(logical(nvArgs.isSym(:))) && r > 1
+        error('entropyExpTens:batchedOrderedUnsupported', ...
+              ['entropyExpTens batched (2-D) input does not yet support ' ...
+               'isSym = false (ordered) densities at r > 1: the batched ' ...
+               'dedup canonicalises each row''s multiset and would merge ' ...
+               'order-distinct rows. Compute ordered densities one row ' ...
+               'at a time (vector input).']);
+    end
+
     nRows = size(P, 1);
     H = nan(nRows, 1);
 
@@ -900,11 +940,19 @@ function nvPairs = localPackNVPairs(nvArgs)
 %   for the other three methods), not a name-value pair the user is
 %   allowed to supply. Recursive entropyExpTens calls would otherwise
 %   see 'normalize' in varargin and trip the v2.2 migration error.
+%
+%   The 'isSym' field is likewise omitted: it is an internal-only
+%   carrier for the optional trailing positional flag, popped from the
+%   raw-form positional args. It is not a name-value pair, so forwarding
+%   it would be mis-parsed as a positional argument by the recursive
+%   call. The LIST path's densities already carry their own isSym, and
+%   the BATCHED path builds symmetric per-row densities by default
+%   (ordered batched input is rejected before any recursion).
 
     nvPairs = {};
     fns = fieldnames(nvArgs);
     for i = 1:numel(fns)
-        if strcmp(fns{i}, 'normalize')
+        if strcmp(fns{i}, 'normalize') || strcmp(fns{i}, 'isSym')
             continue;
         end
         nvPairs = [nvPairs, {fns{i}, nvArgs.(fns{i})}]; %#ok<AGROW>
@@ -1215,6 +1263,20 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
 end
 
 
+function c = localSymArgs(nvArgs)
+%LOCALSYMARGS  Cell of the optional isSym positional for buildExpTens.
+%
+%   Returns {} when no [sym] flag was supplied (symmetric default) or
+%   {isSym} otherwise, for splatting into a buildExpTens call as the
+%   trailing positional after periodVec.
+    if ~isfield(nvArgs, 'isSym') || isempty(nvArgs.isSym)
+        c = {};
+    else
+        c = {nvArgs.isSym};
+    end
+end
+
+
 function methodCanon = localCanonicalizeMethod(methodRaw)
 %LOCALCANONICALIZEMETHOD  Validate and canonicalize the 'method' kwarg.
 %
@@ -1351,21 +1413,22 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         % MA raw args.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
-                ['Multi-attribute raw call expects 7 positional ' ...
+                ['Multi-attribute raw call expects 7 or 8 positional ' ...
                  'arguments (pAttr, w, sigmaVec, rVec, ' ...
-                 'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+                 'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
         end
+        symArgs = localSymArgs(nvArgs);
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
                             'verbose', false);
         isSA = false;
     else
         % SA raw args.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSA', ...
-                ['Single-attribute raw call expects 7 positional ' ...
-                 'arguments (p, w, sigma, r, isRel, isPer, period); ' ...
-                 'got %d.'], nPos);
+                ['Single-attribute raw call expects 7 or 8 positional ' ...
+                 'arguments (p, w, sigma, r, isRel, isPer, period' ...
+                 '[, isSym]); got %d.'], nPos);
         end
         p      = posArgs{1};
         w      = posArgs{2};
@@ -1381,7 +1444,8 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
             end
             [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
         end
-        dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, ...
+        symArgs = localSymArgs(nvArgs);
+        dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
                             'verbose', false);
         isSA = true;
     end
@@ -1676,12 +1740,13 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     if iscell(firstArg)
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
-                ['Multi-attribute raw call expects 7 positional ' ...
+                ['Multi-attribute raw call expects 7 or 8 positional ' ...
                  'arguments (pAttr, w, sigmaVec, rVec, ' ...
-                 'isRelVec, isPerVec, periodVec); got %d.'], nPos);
+                 'isRelVec, isPerVec, periodVec[, isSymVec]); got %d.'], nPos);
         end
+        symArgs = localSymArgs(nvArgs);
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
         H = localRenyi2MA(dens, base);
@@ -1691,8 +1756,8 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     % --- SA raw args ---
     if nPos ~= 7
         error('entropyExpTens:wrongArgCountSA', ...
-            ['Single-attribute raw call expects 7 positional arguments ' ...
-             '(p, w, sigma, r, isRel, isPer, period); got %d.'], nPos);
+            ['Single-attribute raw call expects 7 or 8 positional arguments ' ...
+             '(p, w, sigma, r, isRel, isPer, period[, isSym]); got %d.'], nPos);
     end
     p      = posArgs{1};
     w      = posArgs{2};
@@ -1712,7 +1777,9 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     end
 
     % buildExpTens is cheap in lazy mode; we only read cheap fields.
-    dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, 'verbose', false);
+    symArgs = localSymArgs(nvArgs);
+    dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+                        'verbose', false);
     localRaiseIfAnySigmaZero(dens, 'renyi2');
     H = localRenyi2SA(dens, base);
 end
@@ -1731,6 +1798,19 @@ function H = localRenyi2SA(dens, base)
     p = dens.p; w = dens.w;
     sigma = dens.sigma; r = dens.r;
     isRel = dens.isRel; isPer = dens.isPer; period = dens.period;
+
+    % The analytic collision inner product below is built on the orbit
+    % (Möbius) machinery, which presumes symmetrisation. An ordered
+    % (isSym = false) density needs the direct (un-orbited) double sum, a
+    % separate derivation not yet implemented. r = 1 is exempt: [sym] is
+    % vacuous there, so ordered and symmetric coincide.
+    if isfield(dens, 'isSym') && ~all(logical(dens.isSym)) && r > 1
+        error('entropyExpTens:renyi2OrderedNotSupported', ...
+            ['method=''renyi2'' does not yet support isSym = false ' ...
+             '(ordered) densities at r > 1; the analytic collision ' ...
+             'inner product currently assumes symmetrisation. Use ' ...
+             'method=''shannon'' or ''differential'' for ordered densities.']);
+    end
 
     % r=1 rel is degenerate: the relative density lives on a 0-D space
     % (one position has no internal relative structure); H_2 is
@@ -1820,6 +1900,23 @@ function H = localRenyi2MA(dens, base)
     if A == 0 || N == 0
         H = 0;
         return;
+    end
+
+    % Orbit (Möbius) IP presumes symmetrisation per attribute. Any
+    % ordered attribute (isSym = false) at r > 1 needs the direct
+    % un-orbited sum, not yet implemented. r = 1 attributes are exempt
+    % ([sym] vacuous).
+    if isfield(dens, 'isSym')
+        isSymVec = logical(dens.isSym(:).');
+        rVec = dens.r(:).';
+        if any(~isSymVec & (rVec > 1))
+            error('entropyExpTens:renyi2OrderedNotSupported', ...
+                ['method=''renyi2'' does not yet support isSym = false ' ...
+                 '(ordered) attributes at r > 1; the analytic collision ' ...
+                 'inner product currently assumes symmetrisation. Use ' ...
+                 'method=''shannon'' or ''differential'' for ordered ' ...
+                 'densities.']);
+        end
     end
 
     internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...

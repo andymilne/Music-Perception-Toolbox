@@ -160,12 +160,17 @@ end
 
 function dens = localBuildSA(posArgs, verbose, lazy)
 
-    if numel(posArgs) ~= 7
+    if numel(posArgs) == 7
+        [p, w, sigma, r, isRel, isPer, period] = posArgs{:};
+        isSym = true;
+    elseif numel(posArgs) == 8
+        [p, w, sigma, r, isRel, isPer, period, isSym] = posArgs{:};
+    else
         error('buildExpTens:saArgCount', ...
-              ['Single-attribute call expects 7 positional arguments: ' ...
-               'p, w, sigma, r, isRel, isPer, period.']);
+              ['Single-attribute call expects 7 or 8 positional ' ...
+               'arguments: p, w, sigma, r, isRel, isPer, period[, isSym].']);
     end
-    [p, w, sigma, r, isRel, isPer, period] = posArgs{:};
+    isSym = logical(isSym);
 
     p = p(:);
     w = w(:);
@@ -233,6 +238,7 @@ function dens = localBuildSA(posArgs, verbose, lazy)
     dens.isRel  = isRel;
     dens.isPer  = isPer;
     dens.period = period;
+    dens.isSym  = isSym;
     dens.dim    = dim;
 
     if lazy
@@ -256,10 +262,22 @@ function dens = localFillSAExpensive(dens, verbose)
     w     = dens.w;
     r     = dens.r;
     isRel = dens.isRel;
+    isSym = dens.isSym;
 
     n      = numel(p);
-    nPerms = factorial(r);
     nCombs = nchoosek(n, r);
+
+    % isSym = true (default): symmetrise each combination over its full
+    % S_r orbit (the perm side has r! copies). isSym = false: keep each
+    % combination in listed order, so the perm side equals the comb side
+    % (the de-reflected, ordered density). r = 1 has no order to
+    % symmetrise, so perms(1) gives the single identity either way.
+    if isSym
+        allPerms = perms(1:r)';
+    else
+        allPerms = (1:r)';   % identity only
+    end
+    nPerms = size(allPerms, 2);
     nJ     = nPerms * nCombs;
     nK     = nCombs;
 
@@ -268,7 +286,6 @@ function dens = localFillSAExpensive(dens, verbose)
             nJ, r, n);
     end
 
-    allPerms = perms(1:r)';
     nck      = nchoosek(1:numel(p), r)';
 
     Ju     = zeros(r, nJ);
@@ -310,12 +327,18 @@ end
 
 function dens = localBuildMA(posArgs, verbose, lazy)
 
-    if numel(posArgs) ~= 7
+    if numel(posArgs) == 7
+        [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec] = posArgs{:};
+        isSymVec = [];
+    elseif numel(posArgs) == 8
+        [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec, isSymVec] ...
+            = posArgs{:};
+    else
         error('buildExpTens:maArgCount', ...
-              ['Multi-attribute call expects 7 positional arguments: ' ...
-               'pAttr, w, sigmaVec, rVec, isRelVec, isPerVec, periodVec.']);
+              ['Multi-attribute call expects 7 or 8 positional arguments: ' ...
+               'pAttr, w, sigmaVec, rVec, isRelVec, isPerVec, ' ...
+               'periodVec[, isSymVec].']);
     end
-    [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec] = posArgs{:};
 
     % --- Input normalisation ---
 
@@ -375,6 +398,19 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     if numel(isRelVec)  ~= A, error('buildExpTens:isRelLength',  'isRelVec must have length %d (nAttrs).',  A); end
     if numel(isPerVec)  ~= A, error('buildExpTens:isPerLength',  'isPerVec must have length %d (nAttrs).',  A); end
     if numel(periodVec) ~= A, error('buildExpTens:periodLength', 'periodVec must have length %d (nAttrs).', A); end
+
+    % isSym per attribute. Default (empty) is symmetric for every
+    % attribute (legacy reading). Must otherwise have length A, matching
+    % the other per-attribute parameter vectors.
+    if isempty(isSymVec)
+        isSymVec = true(1, A);
+    else
+        isSymVec = logical(isSymVec(:).');
+        if numel(isSymVec) ~= A
+            error('buildExpTens:isSymLength', ...
+                  'isSymVec must have length %d (nAttrs).', A);
+        end
+    end
 
     % isRel + r_a = 1 degenerate warning (per attribute)
     for a = 1:A
@@ -439,6 +475,7 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     dens.isRel        = isRelVec;
     dens.isPer        = isPerVec;
     dens.period       = periodVec;
+    dens.isSym        = isSymVec;
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;
 
@@ -463,6 +500,7 @@ function dens = localFillMAExpensive(dens, verbose)
     N           = dens.N;
     rVec        = dens.r;
     isRelVec    = dens.isRel;
+    isSymVec    = dens.isSym;
     pAttr       = dens.pAttr;
     wCell       = dens.w;
 
@@ -515,8 +553,11 @@ function dens = localFillMAExpensive(dens, verbose)
                 combMat = nchoosek(valid, r_a).';
             end
 
-            % Permutations: r_a x (r_a! * C(K_na, r_a))
-            if r_a == 1
+            % Permutations: r_a x (r_a! * C(K_na, r_a)) when symmetric.
+            % An ordered attribute (isSym = false) keeps each combination
+            % in listed order, so the perm side equals the comb side.
+            % r_a = 1 has no order to symmetrise either way.
+            if r_a == 1 || ~isSymVec(a)
                 permMat = combMat;
             else
                 Pm = perms(1:r_a).';

@@ -256,6 +256,26 @@ if nArgs == 0
     error('evalExpTens:noArgs', ...
         'evalExpTens requires at least one positional argument.');
 end
+
+% Optional [sym] geometry flag for the raw forms. The raw layouts carry
+% one shared geometry (..., period) followed by the query X as the final
+% positional. isSym joins the geometry, sitting between period and X:
+%   p, w, sigma, r, isRel, isPer, period, isSym, X
+% Pop it here (position 8) so the existing raw dispatch -- which expects
+% X as the 8th positional -- is unchanged; forward it to buildExpTens
+% via symArgs. The two-density and list forms (nArgs == 2) read isSym
+% from the precomputed structs and never reach this.
+symArgs = {};
+isSymRaw = [];
+if nArgs == 9
+    isSymRaw = varargin{8};
+    varargin(8) = [];
+    nArgs = numel(varargin);
+    if ~isempty(isSymRaw)
+        symArgs = {isSymRaw};
+    end
+end
+
 firstArg = varargin{1};
 
 % ==================================================================
@@ -331,7 +351,8 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         period_arg = varargin{7};
         X          = varargin{8};
         dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, ...
-                            isRel_arg, isPer_arg, period_arg, 'verbose', verbose);
+                            isRel_arg, isPer_arg, period_arg, symArgs{:}, ...
+                            'verbose', verbose);
         % localEvalMA reads heavy fields (e.g. nJ); buildExpTens
         % returns the skinny struct, so materialise the heavy fields
         % here. Mirrors the MaetDensity and WindowedMaetDensity
@@ -356,7 +377,7 @@ elseif isnumeric(firstArg)
         vals = localEvalBatchedRaw( ...
             varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
-            normalize, verbose);
+            isSymRaw, normalize, verbose);
         return;
     end
     % SA raw: numeric vector or scalar.
@@ -373,7 +394,7 @@ elseif isnumeric(firstArg)
     X         = varargin{8};
     % Build skinny: Möbius branch may not need heavy fields.
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
-                        isPer_arg, J_arg, 'verbose', verbose);
+                        isPer_arg, J_arg, symArgs{:}, 'verbose', verbose);
     % Fall through to SA dispatch.
 
 % --- 4. Else: usage error ---
@@ -1710,11 +1731,27 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
 end
 
 
-function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, normalize, verbose)
+function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose)
 %LOCALEVALBATCHEDRAW Batched evaluation from a 2-D pitch matrix.
 %
 %   P is nRows-by-K; X is shared across all rows. Returns an
 %   nRows-by-nQ matrix of values (one row per multiset).
+
+    % The per-row dedup keys rows by a multiset canonical form, which
+    % collapses rows that share a multiset but differ in order. That is
+    % correct only for the symmetric reading: under isSym = false the
+    % order is significant, so the dedup would silently merge distinct
+    % ordered densities. Reject rather than return a wrong answer
+    % (parity with the Python batched path). Order-aware batched dedup is
+    % a tracked follow-up; evaluate ordered densities one row at a time.
+    if nargin >= 9 && ~isempty(isSym) && ~all(logical(isSym(:))) && r > 1
+        error('evalExpTens:batchedOrderedUnsupported', ...
+              ['evalExpTens batched (2-D) input does not yet support ' ...
+               'isSym = false (ordered) densities at r > 1: the batched ' ...
+               'dedup canonicalises each row''s multiset and would merge ' ...
+               'order-distinct rows. Evaluate ordered densities one row ' ...
+               'at a time (vector input).']);
+    end
 
     nRows = size(P, 1);
     nQ = size(X, 2);

@@ -119,28 +119,30 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
     ExpTensDensity, MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
     if _looks_like_multi_attr(p):
-        if len(args) != 5:
+        if len(args) not in (5, 6):
             raise ValueError(
-                f"Multi-attribute call expects 7 positional arguments "
+                f"Multi-attribute call expects 7 or 8 positional arguments "
                 f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, is_per_vec, "
-                f"period_vec); got {2 + len(args)}."
+                f"period_vec[, is_sym_vec]); got {2 + len(args)}."
             )
-        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
+        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:5]
+        is_sym_vec = args[5] if len(args) == 6 else None
         return _build_exp_tens_ma(
             p, w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec,
+            is_rel_vec, is_per_vec, period_vec, is_sym_vec,
             verbose=verbose,
         )
     else:
-        if len(args) != 5:
+        if len(args) not in (5, 6):
             raise ValueError(
-                f"Single-attribute call expects 7 positional arguments "
-                f"(p, w, sigma, r, is_rel, is_per, period); got "
+                f"Single-attribute call expects 7 or 8 positional arguments "
+                f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); got "
                 f"{2 + len(args)}."
             )
-        sigma, r, is_rel, is_per, period = args
+        sigma, r, is_rel, is_per, period = args[:5]
+        is_sym = args[5] if len(args) == 6 else True
         return _build_exp_tens_sa(
-            p, w, sigma, r, is_rel, is_per, period,
+            p, w, sigma, r, is_rel, is_per, period, is_sym,
             verbose=verbose,
         )
 
@@ -185,6 +187,7 @@ def _build_exp_tens_ma(
     is_rel_vec,
     is_per_vec,
     period_vec,
+    is_sym_vec=None,
     *,
     verbose: bool = True,
 ) -> MaetDensity:
@@ -237,10 +240,20 @@ def _build_exp_tens_ma(
     is_per_vec = np.asarray(is_per_vec, dtype=bool).ravel()
     period_vec = np.asarray(period_vec, dtype=np.float64).ravel()
 
+    # [sym] is per-attribute; default all-True preserves the legacy
+    # symmetrised (v2.0.0) semantics. [sym] = 1 symmetrises each
+    # r-sub-tuple over the slot-permutation (S_r) orbit; [sym] = 0
+    # keeps it ordered. (r_a = 1 makes the flag vacuous.)
+    if is_sym_vec is None:
+        is_sym_vec = np.ones(A, dtype=bool)
+    else:
+        is_sym_vec = np.asarray(is_sym_vec, dtype=bool).ravel()
+
     for name, vec in (("sigma_vec",  sigma_vec),
                       ("is_rel_vec", is_rel_vec),
                       ("is_per_vec", is_per_vec),
-                      ("period_vec", period_vec)):
+                      ("period_vec", period_vec),
+                      ("is_sym_vec", is_sym_vec)):
         if vec.size != A:
             raise ValueError(
                 f"{name} must have length {A} (n attributes), got {vec.size}."
@@ -300,7 +313,7 @@ def _build_exp_tens_ma(
     def _build_lazy():
         return _ma_build_perm_arrays(
             p_attr=p_attr, w_list=w_list, r_vec=r_vec,
-            is_rel_vec=is_rel_vec,
+            is_rel_vec=is_rel_vec, is_sym_vec=is_sym_vec,
             N=N, A=A,
         )
 
@@ -316,6 +329,7 @@ def _build_exp_tens_ma(
         is_rel=is_rel_vec,
         is_per=is_per_vec,
         period=period_vec,
+        is_sym=is_sym_vec,
         dim=dim,
         dim_per_attr=dim_per_attr,
         _build_lazy=_build_lazy,
@@ -329,6 +343,7 @@ def _ma_build_perm_arrays(
     w_list,
     r_vec,
     is_rel_vec,
+    is_sym_vec,
     N,
     A,
 ):
@@ -381,7 +396,14 @@ def _ma_build_perm_arrays(
             comb_list = list(_combinations(valid.tolist(), r_a))
             comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
 
-            if r_a == 1:
+            # [sym] = 1 (default): symmetrise each combination into its
+            # full S_r orbit (r! permuted copies) -- the perm side is the
+            # symmetrised density. [sym] = 0: keep each combination in
+            # listed order (one ordered kernel per combination), so the
+            # perm side equals the comb side -- the de-reflected density
+            # (upper triangle at r=2, the single ordered tuple at r=K).
+            # r_a == 1 has no order to symmetrise, so both coincide there.
+            if r_a == 1 or not is_sym_vec[a]:
                 perm_mat = comb_mat.copy()
             else:
                 all_perms = np.array(
@@ -501,6 +523,7 @@ def _build_exp_tens_sa(
     is_rel: bool,
     is_per: bool,
     period: float,
+    is_sym: bool = True,
     *,
     verbose: bool = True,
 ) -> ExpTensDensity:
@@ -593,4 +616,5 @@ def _build_exp_tens_sa(
         is_per=is_per,
         period=period,
         dim=dim,
+        is_sym=bool(is_sym),
     )

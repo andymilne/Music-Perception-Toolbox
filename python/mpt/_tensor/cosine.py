@@ -379,12 +379,12 @@ def cos_sim_exp_tens(*args,
 
         if not a_is_list and not b_is_list:
             # Single MA scalar-vs-scalar — existing path.
-            if len(args) != 9:
+            if len(args) not in (9, 10):
                 raise TypeError(
-                    f"Raw multi-attribute input expects 9 positional "
+                    f"Raw multi-attribute input expects 9 or 10 positional "
                     f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
                     f"r_vec, is_rel_vec, is_per_vec, "
-                    f"period_vec); got {len(args)}."
+                    f"period_vec[, is_sym_vec]); got {len(args)}."
                 )
             return _cos_sim_raw_ma_scalar(
                 *args,
@@ -397,12 +397,12 @@ def cos_sim_exp_tens(*args,
         # Scalar-vs-list broadcast. Build the scalar side once, then
         # iterate over the list side. Weights on the list side are
         # shared across every list entry.
-        if len(args) != 9:
+        if len(args) not in (9, 10):
             raise TypeError(
-                f"Raw multi-attribute scalar-vs-list input expects 9 "
+                f"Raw multi-attribute scalar-vs-list input expects 9 or 10 "
                 f"positional arguments (p_attr1, w1, p_attr2, w2, "
                 f"sigma_vec, r_vec, is_rel_vec, is_per_vec, "
-                f"period_vec); got {len(args)}."
+                f"period_vec[, is_sym_vec]); got {len(args)}."
             )
         return _cos_sim_raw_ma_broadcast(
             *args,
@@ -417,11 +417,11 @@ def cos_sim_exp_tens(*args,
     # ------------------------------------------------------------------
     # Raw single-attribute dispatch.
     # ------------------------------------------------------------------
-    if len(args) != 9:
+    if len(args) not in (9, 10):
         raise TypeError(
-            f"Raw single-attribute input expects 9 positional arguments "
-            f"(p1, w1, p2, w2, sigma, r, is_rel, is_per, period); "
-            f"got {len(args)}."
+            f"Raw single-attribute input expects 9 or 10 positional "
+            f"arguments (p1, w1, p2, w2, sigma, r, is_rel, is_per, "
+            f"period[, is_sym]); got {len(args)}."
         )
 
     try:
@@ -451,6 +451,7 @@ def cos_sim_exp_tens(*args,
     # Batched dispatch fires whenever either operand is 2-D.
     if a_arr.ndim == 2 or b_arr.ndim == 2:
         sigma, r_, is_rel, is_per, period = args[4:9]
+        is_sym = args[9] if len(args) == 10 else None
         W1_arg, W2_arg = args[1], args[3]
 
         # Reshape any 1-D operand to (1, K) so both are 2-D from here on.
@@ -487,7 +488,7 @@ def cos_sim_exp_tens(*args,
             )
 
         return _cos_sim_raw_sa_batch(
-            P1, P2, sigma, r_, is_rel, is_per, period,
+            P1, P2, sigma, r_, is_rel, is_per, period, is_sym,
             weights_a=W1, weights_b=W2,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
@@ -811,7 +812,7 @@ def _cos_sim_density_path(
 
 def _cos_sim_raw_sa_scalar(
     p1, w1, p2, w2,
-    sigma, r, is_rel, is_per, period,
+    sigma, r, is_rel, is_per, period, is_sym=None,
     *,
     spectrum=None,
     method: str = "auto",
@@ -820,6 +821,8 @@ def _cos_sim_raw_sa_scalar(
     verbose: bool = True,
 ) -> float:
     """Raw single-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
+    if is_sym is None:
+        is_sym = True
     if spectrum is not None:
         p1_aug, w1_aug = add_spectra(
             np.asarray(p1, dtype=np.float64),
@@ -838,10 +841,12 @@ def _cos_sim_raw_sa_scalar(
         p2_aug, w2_aug = p2, w2
 
     dx = build_exp_tens(
-        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+        p1_aug, w1_aug, sigma, r, is_rel, is_per, period, is_sym,
+        verbose=verbose,
     )
     dy = build_exp_tens(
-        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, verbose=verbose,
+        p2_aug, w2_aug, sigma, r, is_rel, is_per, period, is_sym,
+        verbose=verbose,
     )
     return _cos_sim_pair_core(
         dx, dy,
@@ -855,7 +860,7 @@ def _cos_sim_raw_sa_scalar(
 
 def _cos_sim_raw_ma_scalar(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec=None,
     *,
     method: str = "auto",
     normalize: str = "cosine",
@@ -865,11 +870,11 @@ def _cos_sim_raw_ma_scalar(
     """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
     dx = build_exp_tens(
         p_attr1, w1, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
     dy = build_exp_tens(
         p_attr2, w2, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
     return _cos_sim_pair_core(
         dx, dy,
@@ -882,7 +887,7 @@ def _cos_sim_raw_ma_scalar(
 
 def _cos_sim_raw_ma_broadcast(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec=None,
     *,
     a_is_list: bool,
     b_is_list: bool,
@@ -920,7 +925,7 @@ def _cos_sim_raw_ma_broadcast(
 
     dens_scalar = build_exp_tens(
         scalar_pAttr, scalar_w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
 
     M = len(list_pAttr)
@@ -928,7 +933,7 @@ def _cos_sim_raw_ma_broadcast(
     for m in range(M):
         dens_m = build_exp_tens(
             list_pAttr[m], list_w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, verbose=False,
+            is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=False,
         )
         if scalar_first:
             out[m] = _cos_sim_pair_core(
@@ -1026,6 +1031,20 @@ def _cos_sim_exp_tens_sa(
         kernel_precision=kernel_precision,
         verbose=verbose,
     )
+
+    # Ordered ([sym]=0) densities are not symmetrised, so the orbit
+    # (Möbius) inner product — which reconstructs the full S_r orbit
+    # from p/w/r — does not represent them. The pairwise/centres path
+    # reads the actual stored centres and is correct for either reading,
+    # so force it whenever either operand is ordered at r > 1 (r = 1 is
+    # vacuous: ordered and symmetric coincide).
+    if (
+        ((not bool(np.all(dens_x.is_sym)))
+         or (not bool(np.all(dens_y.is_sym))))
+        and r > 1
+    ):
+        chosen = "bulger"
+        routing_reason = "ordered density (sym=0) requires centres path"
 
     # Dispatch-decision message: bypasses per-call verbose, gated by
     # the toolbox-wide show_hints flag and throttled once per
@@ -1182,6 +1201,20 @@ def _cos_sim_exp_tens_ma(
         sigma_over_P_max=sop_max,
         user_method=method,
     )
+
+    # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
+    # (Möbius) per-attribute inner product does not represent them. Force
+    # the pairwise/centres path whenever any attribute is ordered at
+    # r_a > 1 (r_a = 1 is vacuous). The centres path reads the actual
+    # stored per-attribute centres and is correct for either reading.
+    is_sym_x = np.asarray(getattr(dens_x, "is_sym", np.ones(A, dtype=bool)))
+    is_sym_y = np.asarray(getattr(dens_y, "is_sym", np.ones(A, dtype=bool)))
+    ordered_any = (
+        np.any((~is_sym_x) & (r_vec > 1))
+        or np.any((~is_sym_y) & (r_vec > 1))
+    )
+    if ordered_any:
+        chosen = "bulger"
 
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
@@ -2652,6 +2685,7 @@ def _cos_sim_raw_sa_batch(
     is_rel: bool,
     is_per: bool,
     period: float,
+    is_sym=None,
     *,
     weights_a: np.ndarray | None = None,
     weights_b: np.ndarray | None = None,
@@ -2706,6 +2740,23 @@ def _cos_sim_raw_sa_batch(
     """
     p_mat_a = np.asarray(p_mat_a, dtype=np.float64)
     p_mat_b = np.asarray(p_mat_b, dtype=np.float64)
+
+    # The batched path deduplicates rows by a multiset canonical key,
+    # which collapses rows that share a multiset but differ in order.
+    # That is correct only for the symmetric reading: under [sym]=0 the
+    # order is significant, so the dedup would silently merge distinct
+    # ordered densities. Reject it rather than return a wrong answer.
+    # Order-aware batched dedup is a tracked follow-up; for now use the
+    # scalar or density-list forms for ordered densities.
+    if (is_sym is not None) and (not bool(np.all(is_sym))) and r > 1:
+        raise NotImplementedError(
+            "cos_sim_exp_tens batched (2-D) input does not yet support "
+            "[sym]=0 (ordered) densities at r > 1: the batched dedup "
+            "canonicalises each row's multiset and would merge "
+            "order-distinct rows. Build densities individually (scalar "
+            "or density-list input) for ordered comparisons."
+        )
+
     if p_mat_a.ndim == 1:
         p_mat_a = p_mat_a.reshape(1, -1)
     if p_mat_b.ndim == 1:
@@ -2781,7 +2832,8 @@ def _cos_sim_raw_sa_batch(
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
         dens_cache_a[ka] = build_exp_tens(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+            p_arr, w_arr, sigma, r, is_rel, is_per, period,
+            True if is_sym is None else is_sym, verbose=False
         )
 
     dens_cache_b: dict[tuple, object] = {}
@@ -2789,7 +2841,8 @@ def _cos_sim_raw_sa_batch(
         if use_spec:
             p_arr, w_arr = add_spectra(p_arr, w_arr, *spectrum)
         dens_cache_b[kb] = build_exp_tens(
-            p_arr, w_arr, sigma, r, is_rel, is_per, period, verbose=False
+            p_arr, w_arr, sigma, r, is_rel, is_per, period,
+            True if is_sym is None else is_sym, verbose=False
         )
 
     n_unique_a = len(dens_cache_a)

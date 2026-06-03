@@ -337,6 +337,25 @@ varargin = varargin(keepMask);
 
 nArgs = numel(varargin);
 
+% Optional shared [sym] geometry flag. The raw forms (SA and MA) carry
+% one shared geometry (sigma, r, isRel, isPer, period); isSym joins it
+% as an optional trailing positional. Pop it here and normalise nArgs
+% back to 9 so the raw-form dispatch below is unchanged; forward it to
+% every buildExpTens call via symArgs. (The two-density forms at
+% nArgs == 2 read isSym from the precomputed structs and never reach
+% this.)
+isSymRaw = [];
+if nArgs == 10
+    isSymRaw = varargin{10};
+    varargin(10) = [];
+    nArgs = numel(varargin);
+end
+if isempty(isSymRaw)
+    symArgs = {};
+else
+    symArgs = {isSymRaw};
+end
+
 % Determine whether we will dispatch to batched-raw (the only mode
 % that accepts 'spectrum', 'precision', and 'dedup'). Reject these
 % kwargs early in any other dispatch context so the user gets a
@@ -495,9 +514,9 @@ elseif nArgs == 9
         end
         if ~aIsListOfMA && ~bIsListOfMA
             dens_x_ma = buildExpTens(pAttr1, w1, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, 'verbose', verbose);
+                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
             dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, 'verbose', verbose);
+                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
             s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
                               cancellationThreshold, verbose, ...
                               truncationSigmas);
@@ -516,12 +535,12 @@ elseif nArgs == 9
             scalarFirst = false;
         end
         dens_scalar = buildExpTens(scalarPAttr, scalarW, sigmaVec, rVec, ...
-            isRelVec, isPerVec, periodVec, 'verbose', verbose);
+            isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
         M = numel(listPAttr);
         s = cell(1, M);
         for m = 1:M
             dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, 'verbose', false);
+                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', false);
             if scalarFirst
                 s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
                                      normalize, cancellationThreshold, false, ...
@@ -575,7 +594,7 @@ elseif nArgs == 9
 
         s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-            normalize, verbose, ...
+            isSymRaw, normalize, verbose, ...
             spectrumGiven, spectrumOpt, ...
             precisionGiven, precisionOpt, ...
             dedupGiven, dedupOpt);
@@ -595,9 +614,9 @@ elseif nArgs == 9
     J_arg      = varargin{9};
 
     dens_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          'verbose', verbose);
+                          symArgs{:}, 'verbose', verbose);
     dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          'verbose', verbose);
+                          symArgs{:}, 'verbose', verbose);
 
 else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
@@ -643,6 +662,18 @@ end
 % probe's extrapolated timing also drives the verbose dispatch message.
 [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
     dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
+
+% Ordered (isSym = false) densities are not symmetrised, so the orbit
+% (Möbius) inner product --- which reconstructs the full S_r orbit from
+% p/w/r --- does not represent them. The pairwise/centres path reads the
+% actual stored centres and is correct for either reading, so force it
+% whenever either operand is ordered at r > 1 (r = 1 is vacuous).
+xOrdered = isfield(dens_x, 'isSym') && ~all(logical(dens_x.isSym(:)));
+yOrdered = isfield(dens_y, 'isSym') && ~all(logical(dens_y.isSym(:)));
+if (xOrdered || yOrdered) && dens_x.r > 1
+    chosen = 'bulger';
+    routingReason = 'ordered density (sym=0) requires centres path';
+end
 
 % Dispatch messages bypass per-call verbose; they're gated by the
 % toolbox-wide showHints flag and throttled to once per top-level user
@@ -1424,6 +1455,25 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     chosen = localSelectMAInnerProductMethod( ...
         rVec, isRelG, sigmaG, isPerG, periodG, method, verbose);
 
+    % Ordered (isSym = false) attributes are not symmetrised, so the
+    % orbit (Möbius) per-attribute inner product does not represent
+    % them. Force the pairwise/centres path whenever any attribute is
+    % ordered at r_a > 1 (r_a = 1 is vacuous). The centres path reads the
+    % actual stored per-attribute centres and is correct either way.
+    if isfield(dens_x, 'isSym') || isfield(dens_y, 'isSym')
+        rRow = rVec(:).';
+        sxOrd = false; syOrd = false;
+        if isfield(dens_x, 'isSym')
+            sxOrd = any(~logical(dens_x.isSym(:).') & (rRow > 1));
+        end
+        if isfield(dens_y, 'isSym')
+            syOrd = any(~logical(dens_y.isSym(:).') & (rRow > 1));
+        end
+        if sxOrd || syOrd
+            chosen = 'bulger';
+        end
+    end
+
     ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
     ranOrbit = false;
 
@@ -1830,7 +1880,7 @@ end
 
 
 function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
-    normalize, verbose, ...
+    isSym, normalize, verbose, ...
     spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
@@ -1852,6 +1902,30 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         error('cosSimExpTens:batchedRowMismatch', ...
             ['cosSimExpTens (batched mode): P1 and P2 must have the same ' ...
              'number of rows, got %d and %d.'], size(P1, 1), size(P2, 1));
+    end
+
+    % Shared [sym] flag forwarded to every per-row density build.
+    if nargin < 10 || isempty(isSym)
+        symArgsB = {};
+    else
+        symArgsB = {isSym};
+    end
+
+    % The batched path deduplicates rows by a multiset canonical key,
+    % which collapses rows that share a multiset but differ in order.
+    % That is correct only for the symmetric reading: under isSym = false
+    % the order is significant, so the dedup would silently merge
+    % distinct ordered densities. Reject rather than return a wrong
+    % answer (parity with the Python batched path). Order-aware batched
+    % dedup is a tracked follow-up; use scalar or density-list forms for
+    % ordered comparisons.
+    if ~isempty(symArgsB) && ~all(logical(isSym(:))) && r > 1
+        error('cosSimExpTens:batchedOrderedUnsupported', ...
+              ['cosSimExpTens batched (2-D) input does not yet support ' ...
+               'isSym = false (ordered) densities at r > 1: the batched ' ...
+               'dedup canonicalises each row''s multiset and would merge ' ...
+               'order-distinct rows. Build densities individually ' ...
+               '(scalar or density-list input) for ordered comparisons.']);
     end
 
     pMatA    = P1;
@@ -2066,7 +2140,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
             [pA_u, wA_u] = addSpectra(pA_u, wA_u, specArgs{:});
         end
         densA{ua} = buildExpTens(pA_u, wA_u, sigma, r, isRel, isPer, period, ...
-                                 'verbose', false);
+                                 symArgsB{:}, 'verbose', false);
     end
 
     densB = cell(nUniqueB, 1);
@@ -2076,7 +2150,7 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
             [pB_u, wB_u] = addSpectra(pB_u, wB_u, specArgs{:});
         end
         densB{ub} = buildExpTens(pB_u, wB_u, sigma, r, isRel, isPer, period, ...
-                                 'verbose', false);
+                                 symArgsB{:}, 'verbose', false);
     end
 
     if verbose

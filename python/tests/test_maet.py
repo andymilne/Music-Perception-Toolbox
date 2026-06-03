@@ -286,7 +286,7 @@ class TestMAET:
     def test_ma_wrong_positional_count(self):
         pitch = np.array([[0, 4]], dtype=float)
         # 6 positional args for MA is wrong (should be 7)
-        with pytest.raises(ValueError, match="7 positional"):
+        with pytest.raises(ValueError, match="7 or 8 positional"):
             mpt.build_exp_tens(
                 [pitch], None, [10.0], [1],
                 [False], [True], verbose=False,

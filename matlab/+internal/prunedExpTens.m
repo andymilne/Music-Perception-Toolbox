@@ -41,6 +41,7 @@ function dens = prunedExpTens(dens)
             out.isRel  = dens.isRel;
             out.isPer  = dens.isPer;
             out.period = dens.period;
+            if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
             out.dim    = dens.dim;
             dens       = out;
 
@@ -66,6 +67,7 @@ function dens = prunedExpTens(dens)
             out.isRel        = dens.isRel;
             out.isPer        = dens.isPer;
             out.period       = dens.period;
+            if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
             dens             = out;

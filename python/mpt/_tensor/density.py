@@ -100,6 +100,7 @@ class ExpTensDensity:
         is_per: bool,
         period: float,
         dim: int,
+        is_sym: bool = True,
     ) -> None:
         self.p = p
         self.w = w
@@ -109,6 +110,11 @@ class ExpTensDensity:
         self.is_per = is_per
         self.period = period
         self.dim = dim
+        # Per-attribute symmetrisation flag. Default True preserves the
+        # legacy symmetric reading (the source multiset's r-subsets read
+        # as unordered). is_sym = False reads each r-subset in listed
+        # order (the de-reflected density).
+        self.is_sym = bool(is_sym)
         # Lazy cache: built on first access to any per-tuple field
         # (``centres``, ``u_perm``, ``w_perm``, ``w_j``, ``v_comb``,
         # ``wv_comb``, ``n_j``, ``n_j_perm``, ``n_k``). All five
@@ -155,7 +161,7 @@ class ExpTensDensity:
         return ExpTensDensity(
             p=self.p[live], w=self.w[live], sigma=self.sigma, r=self.r,
             is_rel=self.is_rel, is_per=self.is_per, period=self.period,
-            dim=self.dim,
+            dim=self.dim, is_sym=self.is_sym,
         )
 
     def _build_perm_arrays(self) -> None:
@@ -173,18 +179,26 @@ class ExpTensDensity:
         r = self.r
         n = len(p)
 
-        n_perms = factorial(r)
         n_combs = int(_comb(n, r, exact=True))
-        n_j = n_perms * n_combs
-        n_k = n_combs
 
         # All r-combinations (r x C(n,r))
         nck = _nchoosek_indices(n, r)
 
-        # All permutations of range(r) — each column is one permutation
-        all_perms = np.array(
-            list(permutations(range(r))), dtype=np.intp,
-        ).T  # r x r!
+        # is_sym = True (default): symmetrise each combination over its
+        # full S_r orbit (the perm side has r! copies). is_sym = False:
+        # keep each combination in listed order, so the perm side equals
+        # the comb side (the de-reflected, ordered density). r = 1 has
+        # no order to symmetrise, so permutations(range(1)) gives the
+        # single identity either way.
+        if self.is_sym:
+            all_perms = np.array(
+                list(permutations(range(r))), dtype=np.intp,
+            ).T  # r x r!
+        else:
+            all_perms = np.arange(r, dtype=np.intp).reshape(r, 1)  # identity
+        n_perms = all_perms.shape[1]
+        n_j = n_perms * n_combs
+        n_k = n_combs
 
         # Build ordered r-tuples (perm side)
         j_idx = np.empty((r, n_j), dtype=np.intp)
@@ -346,6 +360,7 @@ class MaetDensity:
         period: np.ndarray,
         dim: int,
         dim_per_attr: np.ndarray,
+        is_sym: np.ndarray | None = None,
         # The build closure: a no-arg callable that returns a dict
         # populating the lazy fields. Stored on the instance and
         # called on first access of any lazy field.
@@ -365,6 +380,11 @@ class MaetDensity:
         self.period = period
         self.dim = dim
         self.dim_per_attr = dim_per_attr
+        # Per-attribute symmetrisation flag. Default all-True (legacy
+        # symmetric reading) when a caller constructs the struct without
+        # specifying it.
+        self.is_sym = (np.ones(n_attrs, dtype=bool) if is_sym is None
+                       else np.asarray(is_sym, dtype=bool).ravel())
 
         # Lazy slots
         self._build_lazy_fn = _build_lazy
@@ -424,7 +444,8 @@ class MaetDensity:
         def _build_lazy():
             return _ma_build_perm_arrays(
                 p_attr=p_attr, w_list=w, r_vec=self.r,
-                is_rel_vec=self.is_rel, N=n_k, A=self.n_attrs,
+                is_rel_vec=self.is_rel, is_sym_vec=self.is_sym,
+                N=n_k, A=self.n_attrs,
             )
 
         return MaetDensity(
@@ -432,7 +453,8 @@ class MaetDensity:
             n=n_k, r=self.r, k=self.k,
             p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
             is_per=self.is_per, period=self.period, dim=self.dim,
-            dim_per_attr=self.dim_per_attr, _build_lazy=_build_lazy,
+            dim_per_attr=self.dim_per_attr, is_sym=self.is_sym,
+            _build_lazy=_build_lazy,
         )
 
     def _materialise(self) -> None:

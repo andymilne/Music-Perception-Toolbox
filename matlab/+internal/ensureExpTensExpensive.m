@@ -45,17 +45,26 @@ function dens = ensureExpTensExpensive(dens)
         return
     end
 
+    % Forward the stored isSym flag so an ordered ([sym]=0) density does
+    % not silently revert to symmetric when its expensive fields are
+    % materialised. Older skinny structs without the field default to
+    % symmetric (empty -> buildExpTens default).
+    symArgs = {};
+    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
+        symArgs = {dens.isSym};
+    end
+
     switch dens.tag
         case 'ExpTensDensity'
             dens = buildExpTens( ...
                 dens.p, dens.w, dens.sigma, dens.r, ...
-                dens.isRel, dens.isPer, dens.period, ...
+                dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
                 'lazy', false, 'verbose', false);
 
         case 'MaetDensity'
             dens = buildExpTens( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
-                dens.isRel, dens.isPer, dens.period, ...
+                dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
                 'lazy', false, 'verbose', false);
 
         otherwise

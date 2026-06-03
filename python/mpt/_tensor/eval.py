@@ -216,19 +216,26 @@ def eval_exp_tens(*args,
     # Raw multi-attribute dispatch
     # ------------------------------------------------------------------
     if _looks_like_multi_attr(a):
-        # 8 or 9 positional args.
+        # Positional geometry order: p_attr, w, sigma_vec, r_vec,
+        # is_rel_vec, is_per_vec, period_vec, [is_sym_vec], x.
+        # 8 args omit is_sym_vec (defaults to symmetric); 9 supply it.
+        # normalize is keyword-only in raw mode.
+        is_sym_vec = None
         if len(args) == 8:
             (p_attr, w_in, sigma_vec, r_vec,
              is_rel_vec, is_per_vec, period_vec, x) = args
         elif len(args) == 9:
             (p_attr, w_in, sigma_vec, r_vec,
-             is_rel_vec, is_per_vec, period_vec, x, normalize) = args
+             is_rel_vec, is_per_vec, period_vec, is_sym_vec, x) = args
+        elif len(args) == 10:
+            (p_attr, w_in, sigma_vec, r_vec,
+             is_rel_vec, is_per_vec, period_vec, is_sym_vec, x, normalize) = args
         else:
             raise TypeError(
-                f"Raw multi-attribute input expects 8 or 9 positional "
+                f"Raw multi-attribute input expects 8, 9, or 10 positional "
                 f"arguments (p_attr, w, sigma_vec, r_vec, "
-                f"is_rel_vec, is_per_vec, period_vec, x[, normalize]); "
-                f"got {len(args)}."
+                f"is_rel_vec, is_per_vec, period_vec[, is_sym_vec], x"
+                f"[, normalize]); got {len(args)}."
             )
         if spectrum is not None:
             raise TypeError(
@@ -241,22 +248,28 @@ def eval_exp_tens(*args,
             )
         return _eval_exp_tens_raw_ma_scalar(
             p_attr, w_in, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec, x, normalize,
+            is_rel_vec, is_per_vec, period_vec, is_sym_vec, x, normalize,
             verbose=verbose,
         )
 
     # ------------------------------------------------------------------
     # Raw single-attribute dispatch (1-D = scalar, 2-D = batch)
     # ------------------------------------------------------------------
+    # Positional geometry order: p, w, sigma, r, is_rel, is_per, period,
+    # [is_sym], x [, normalize]. 8 args omit is_sym (defaults symmetric)
+    # and normalize (kwarg/default); 9 supply is_sym; 10 supply both.
+    is_sym = None
     if len(args) == 8:
         p, w, sigma, r_, is_rel, is_per, period, x = args
     elif len(args) == 9:
-        p, w, sigma, r_, is_rel, is_per, period, x, normalize = args
+        p, w, sigma, r_, is_rel, is_per, period, is_sym, x = args
+    elif len(args) == 10:
+        p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize = args
     else:
         raise TypeError(
-            f"Raw single-attribute input expects 8 or 9 positional "
-            f"arguments (p, w, sigma, r, is_rel, is_per, period, x"
-            f"[, normalize]); got {len(args)}."
+            f"Raw single-attribute input expects 8, 9, or 10 positional "
+            f"arguments (p, w, sigma, r, is_rel, is_per, period"
+            f"[, is_sym], x[, normalize]); got {len(args)}."
         )
 
     try:
@@ -275,12 +288,12 @@ def eval_exp_tens(*args,
                 "'precision' kwarg is only valid for raw SA batched input."
             )
         return _eval_exp_tens_raw_sa_scalar(
-            p, w, sigma, r_, is_rel, is_per, period, x, normalize,
+            p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
             spectrum=spectrum, method=method, verbose=verbose,
         )
     if a_arr.ndim == 2:
         return _eval_exp_tens_raw_sa_batch(
-            p, w, sigma, r_, is_rel, is_per, period, x, normalize,
+            p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
             spectrum=spectrum, precision=precision,
             dedup=dedup, method=method, verbose=verbose,
         )
@@ -413,7 +426,7 @@ def _eval_exp_tens_density_list(
 
 
 def _eval_exp_tens_raw_sa_scalar(
-    p, w, sigma, r, is_rel, is_per, period,
+    p, w, sigma, r, is_rel, is_per, period, is_sym,
     x, normalize: str,
     *, spectrum=None, method: str = "auto", verbose: bool,
 ) -> np.ndarray:
@@ -424,7 +437,8 @@ def _eval_exp_tens_raw_sa_scalar(
                  else np.asarray(w, dtype=np.float64))
         p, w = add_spectra(p_arr, w_arr, *spectrum)
     dens = build_exp_tens(
-        p, w, sigma, r, is_rel, is_per, period, verbose=verbose,
+        p, w, sigma, r, is_rel, is_per, period,
+        True if is_sym is None else is_sym, verbose=verbose,
     )
     return _eval_exp_tens_scalar(
         dens, x, normalize, method=method, verbose=verbose,
@@ -433,7 +447,7 @@ def _eval_exp_tens_raw_sa_scalar(
 
 
 def _eval_exp_tens_raw_sa_batch(
-    P, W, sigma, r, is_rel, is_per, period,
+    P, W, sigma, r, is_rel, is_per, period, is_sym,
     x, normalize: str,
     *, spectrum=None, precision: int | None = None,
     dedup: bool = True, method: str = "auto",
@@ -448,6 +462,23 @@ def _eval_exp_tens_raw_sa_batch(
     P = np.asarray(P, dtype=np.float64)
     if P.ndim != 2:
         raise ValueError(f"P must be 2-D for batched mode; got shape {P.shape}.")
+
+    # The per-row dedup keys rows by a multiset canonical form, which
+    # collapses rows that share a multiset but differ in order. That is
+    # correct only for the symmetric reading: under [sym]=0 the order is
+    # significant, so the dedup would silently merge distinct ordered
+    # densities. Reject rather than return a wrong answer. Order-aware
+    # batched dedup is a tracked follow-up; use scalar input for ordered
+    # densities.
+    if (is_sym is not None) and (not bool(np.all(is_sym))) and r > 1:
+        raise NotImplementedError(
+            "eval_exp_tens batched (2-D) input does not yet support "
+            "[sym]=0 (ordered) densities at r > 1: the batched dedup "
+            "canonicalises each row's multiset and would merge "
+            "order-distinct rows. Evaluate ordered densities one row at "
+            "a time (scalar input)."
+        )
+
     M, K = P.shape
     use_w = W is not None
     if use_w:
@@ -486,6 +517,7 @@ def _eval_exp_tens_raw_sa_batch(
                 w_canon = w_canon_aug
             dens_cache[key] = build_exp_tens(
                 p_canon, w_canon, sigma, r, is_rel, is_per, period,
+                True if is_sym is None else is_sym,
                 verbose=False,
             )
         row_to_key[i] = key
@@ -532,14 +564,14 @@ def _eval_exp_tens_raw_sa_batch(
 
 def _eval_exp_tens_raw_ma_scalar(
     p_attr, w, sigma_vec, r_vec,
-    is_rel_vec, is_per_vec, period_vec,
+    is_rel_vec, is_per_vec, period_vec, is_sym_vec,
     x, normalize: str,
     *, verbose: bool,
 ) -> np.ndarray:
     """Raw MA scalar dispatch: build MA density, evaluate."""
     dens = build_exp_tens(
         p_attr, w, sigma_vec, r_vec,
-        is_rel_vec, is_per_vec, period_vec, verbose=verbose,
+        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
     return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
 
@@ -1369,6 +1401,6 @@ def eval_exp_tens_raw(
         stacklevel=2,
     )
     return eval_exp_tens(
-        p, w, sigma, r, is_rel, is_per, period, x, normalize,
+        p, w, sigma, r, is_rel, is_per, period, x, normalize=normalize,
         verbose=verbose,
     )

@@ -626,12 +626,14 @@ def _entropy_exp_tens_shannon_dispatch(
         )
 
     # --- Raw args: dispatch on type of p ---
+    # Positional order: ..., period[, is_sym]. 6 trailing args omit
+    # is_sym (defaults symmetric); 7 supply it.
     if _looks_like_ma_p(p_or_dens):
-        if len(args) != 6:
+        if len(args) not in (6, 7):
             raise ValueError(
-                f"Multi-attribute raw call expects 7 positional arguments "
-                f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, "
-                f"is_per_vec, period_vec); got {1 + len(args)}."
+                f"Multi-attribute raw call expects 7 or 8 positional "
+                f"arguments (p_attr, w, sigma_vec, r_vec, is_rel_vec, "
+                f"is_per_vec, period_vec[, is_sym_vec]); got {1 + len(args)}."
             )
         if spectrum is not None:
             raise TypeError(
@@ -642,10 +644,11 @@ def _entropy_exp_tens_shannon_dispatch(
             raise TypeError(
                 "'precision' kwarg is only valid in raw SA batched input mode."
             )
-        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
+        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:6]
+        is_sym_vec = args[6] if len(args) == 7 else None
         dens = build_exp_tens(
             p_or_dens, w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec,
+            is_rel_vec, is_per_vec, period_vec, is_sym_vec,
             verbose=False,
         )
         _require_explicit_grid(n_points_per_dim)
@@ -657,12 +660,14 @@ def _entropy_exp_tens_shannon_dispatch(
         )
 
     # SA raw args. Distinguish scalar (1-D) from batched (2-D) by shape.
-    if len(args) != 6:
+    if len(args) not in (6, 7):
         raise ValueError(
-            f"Single-attribute raw call expects 7 positional arguments "
-            f"(p, w, sigma, r, is_rel, is_per, period); got {1 + len(args)}."
+            f"Single-attribute raw call expects 7 or 8 positional arguments "
+            f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); "
+            f"got {1 + len(args)}."
         )
-    w, sigma, r, is_rel, is_per, period = args
+    w, sigma, r, is_rel, is_per, period = args[:6]
+    is_sym = args[6] if len(args) == 7 else None
 
     try:
         p_arr = np.asarray(p_or_dens, dtype=np.float64)
@@ -681,7 +686,7 @@ def _entropy_exp_tens_shannon_dispatch(
             )
         _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_sa(
-            p_or_dens, w, sigma, r, is_rel, is_per, period,
+            p_or_dens, w, sigma, r, is_rel, is_per, period, is_sym,
             spectrum=spectrum, normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max,
@@ -689,7 +694,7 @@ def _entropy_exp_tens_shannon_dispatch(
     if p_arr.ndim == 2:
         _require_explicit_grid(n_points_per_dim)
         return _entropy_exp_tens_raw_sa_batch(
-            p_arr, w, sigma, r, is_rel, is_per, period,
+            p_arr, w, sigma, r, is_rel, is_per, period, is_sym,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
             normalize=normalize, base=base,
@@ -1154,7 +1159,7 @@ def _entropy_exp_tens_density_list(
 
 
 def _entropy_exp_tens_raw_sa_batch(
-    P, W, sigma, r, is_rel, is_per, period,
+    P, W, sigma, r, is_rel, is_per, period, is_sym=None,
     *, spectrum, precision, dedup,
     normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
     verbose=True,
@@ -1170,6 +1175,23 @@ def _entropy_exp_tens_raw_sa_batch(
 
     P = np.asarray(P, dtype=np.float64)
     M, K = P.shape
+
+    # The per-row dedup keys rows by a multiset canonical form, which
+    # collapses rows that share a multiset but differ in order. That is
+    # correct only for the symmetric reading: under [sym]=0 the order is
+    # significant, so the dedup would silently merge distinct ordered
+    # densities (and hence entropies). Reject rather than return a wrong
+    # answer. Order-aware batched dedup is a tracked follow-up; use
+    # scalar input for ordered densities.
+    if (is_sym is not None) and (not bool(np.all(is_sym))) and r > 1:
+        raise NotImplementedError(
+            "entropy_exp_tens batched (2-D) input does not yet support "
+            "[sym]=0 (ordered) densities at r > 1: the batched dedup "
+            "canonicalises each row's multiset and would merge "
+            "order-distinct rows. Compute ordered densities one row at a "
+            "time (scalar input)."
+        )
+
     use_w = W is not None
     if use_w:
         W = np.asarray(W, dtype=np.float64)
@@ -1209,7 +1231,8 @@ def _entropy_exp_tens_raw_sa_batch(
                 p_aug = p_valid_s
                 w_aug = w_valid_s
             T = build_exp_tens(
-                p_aug, w_aug, sigma, r, is_rel, is_per, period, verbose=False,
+                p_aug, w_aug, sigma, r, is_rel, is_per, period,
+                True if is_sym is None else is_sym, verbose=False,
             )
             _entropy_exp_tens_scalar(
                 T, normalize=normalize, base=base,
@@ -1271,6 +1294,7 @@ def _entropy_exp_tens_raw_sa_batch(
                 w_canon = w_canon_aug
             dens_cache[key] = build_exp_tens(
                 p_canon, w_canon, sigma, r, is_rel, is_per, period,
+                True if is_sym is None else is_sym,
                 verbose=False,
             )
         if not dedup or key not in entropy_cache:
@@ -1329,33 +1353,39 @@ def _resolve_density(p_or_dens, args, spectrum):
         return p_or_dens, True
 
     # --- Raw args: dispatch on type of p ---
+    # Positional order: ..., period[, is_sym]. 6 trailing args omit
+    # is_sym (defaults symmetric); 7 supply it.
     if _looks_like_ma_p(p_or_dens):
-        if len(args) != 6:
+        if len(args) not in (6, 7):
             raise ValueError(
-                f"Multi-attribute raw call expects 7 positional arguments "
-                f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, "
-                f"is_per_vec, period_vec); got {1 + len(args)}."
+                f"Multi-attribute raw call expects 7 or 8 positional "
+                f"arguments (p_attr, w, sigma_vec, r_vec, is_rel_vec, "
+                f"is_per_vec, period_vec[, is_sym_vec]); got {1 + len(args)}."
             )
-        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
+        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:6]
+        is_sym_vec = args[6] if len(args) == 7 else None
         dens = build_exp_tens(
             p_or_dens, w, sigma_vec, r_vec,
-            is_rel_vec, is_per_vec, period_vec,
+            is_rel_vec, is_per_vec, period_vec, is_sym_vec,
             verbose=False,
         )
         return dens, False
 
     # SA raw args.
-    if len(args) != 6:
+    if len(args) not in (6, 7):
         raise ValueError(
-            f"Single-attribute raw call expects 7 positional arguments "
-            f"(p, w, sigma, r, is_rel, is_per, period); got {1 + len(args)}."
+            f"Single-attribute raw call expects 7 or 8 positional arguments "
+            f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); "
+            f"got {1 + len(args)}."
         )
-    w, sigma, r, is_rel, is_per, period = args
+    w, sigma, r, is_rel, is_per, period = args[:6]
+    is_sym = args[6] if len(args) == 7 else None
     p = np.asarray(p_or_dens, dtype=np.float64).ravel()
     if spectrum is not None:
         p, w = add_spectra(p, w, *spectrum)
     dens = build_exp_tens(
-        p, w, sigma, r, is_rel, is_per, period, verbose=False,
+        p, w, sigma, r, is_rel, is_per, period,
+        True if is_sym is None else is_sym, verbose=False,
     )
     return dens, True
 
@@ -1374,6 +1404,18 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     and ``Z = ∫T(x)dx`` via the closed-form total-mass formulae in
     :mod:`mpt._mobius`.
     """
+    # The analytic collision inner product below is built on the orbit
+    # (Möbius) machinery, which presumes symmetrisation. An ordered
+    # ([sym] = 0) density needs the direct (un-orbited) double sum, a
+    # separate derivation not yet implemented. r = 1 is exempt: [sym]
+    # is vacuous there, so ordered and symmetric coincide.
+    if (not bool(getattr(dens, "is_sym", True))) and int(dens.r) > 1:
+        raise NotImplementedError(
+            "method='renyi2' does not yet support [sym]=0 (ordered) "
+            "densities at r > 1; the analytic collision inner product "
+            "currently assumes symmetrisation. Use method='shannon' or "
+            "'differential' for ordered densities."
+        )
     from ._mobius import total_mass_abs, total_mass_rel
 
     dens = dens.pruned()
@@ -1478,7 +1520,19 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     if A == 0 or N == 0:
         return 0.0
 
-    # ---- <T, T> via per-attribute Möbius IP ----
+    # Orbit (Möbius) IP presumes symmetrisation per attribute. Any
+    # ordered attribute ([sym] = 0) at r > 1 needs the direct un-orbited
+    # sum, not yet implemented. r = 1 attributes are exempt ([sym]
+    # vacuous).
+    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
+    r_vec = np.asarray(dens.r)
+    if np.any((~is_sym) & (r_vec > 1)):
+        raise NotImplementedError(
+            "method='renyi2' does not yet support [sym]=0 (ordered) "
+            "attributes at r > 1; the analytic collision inner product "
+            "currently assumes symmetrisation. Use method='shannon' or "
+            "'differential' for ordered densities."
+        )
     # The per-(n, m) cancellation ratio aggregated across attributes
     # was empirically shown to fire spuriously in 100% of typical
     # musical regimes for self-IPs (sweep_self_ip.py): off-diagonal
@@ -1562,7 +1616,7 @@ def _looks_like_ma_p(p) -> bool:
 
 
 def _entropy_exp_tens_sa(
-    p_or_dens, w, sigma, r, is_rel, is_per, period,
+    p_or_dens, w, sigma, r, is_rel, is_per, period, is_sym=None,
     *,
     spectrum, normalize, base,
     n_points_per_dim, x_min, x_max,
@@ -1586,7 +1640,10 @@ def _entropy_exp_tens_sa(
             w = np.ones_like(p)
         if spectrum is not None:
             p, w = add_spectra(p, w, *spectrum)
-        T = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
+        T = build_exp_tens(
+            p, w, sigma, r, is_rel, is_per, period,
+            True if is_sym is None else is_sym, verbose=False,
+        )
 
     # Construct query points. For dim == 1 the grid is a single 1-D
     # linspace; for dim > 1 it is a Cartesian product, mirroring the

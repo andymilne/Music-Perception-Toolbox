@@ -159,7 +159,7 @@ class TestRawSAScalar:
         d = build_exp_tens(p, None, 15.0, 2, False, True, 1200.0, verbose=False)
         ref = eval_exp_tens(d, query_grid, "pdf", verbose=False)
         vals = eval_exp_tens(
-            p, None, 15.0, 2, False, True, 1200.0, query_grid, "pdf",
+            p, None, 15.0, 2, False, True, 1200.0, True, query_grid, "pdf",
             verbose=False,
         )
         np.testing.assert_allclose(vals, ref, atol=1e-14)

@@ -387,9 +387,10 @@ class MaetDensity:
         self.is_sym = (np.ones(n_attrs, dtype=bool) if is_sym is None
                        else np.asarray(is_sym, dtype=bool).ravel())
         # Per-attribute nesting spec (representation B): None per attribute
-        # for flat attributes, or a dict {tags, r_inner, r_outer,
-        # sym_inner, sym_outer} for a nested one. Per-slot tags are
-        # row-indexed, so event (column) pruning leaves them untouched.
+        # for flat attributes, or a dict {tags, r, sym, rel, ...} (per-level
+        # r/sym vectors and the resolved [rel] projection) for a nested one.
+        # Per-slot tags are row-indexed, so event (column) pruning leaves
+        # them untouched.
         self.nested = ([None] * n_attrs if nested is None else list(nested))
 
         # Lazy slots

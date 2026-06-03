@@ -242,10 +242,13 @@ def _build_exp_tens_ma(
 
     # --- Nested attributes (representation B) -------------------------
     # A nested attribute carries its level breakdown in nested[a] (a dict
-    # with keys r_inner, r_outer, sym_inner, sym_outer, tags) and a flat
+    # with keys: tags (per-slot source-event tag), r and sym (per-level
+    # vectors, innermost-outward), and rel (the co-transposition-unit
+    # selector: a per-level vector or 'innermost'/'outermost')) and a flat
     # K_total-slot value column; r_vec[a] is (re)derived to the total
-    # tuple dim D_a = r_inner * r_outer so dim/allocation stay scalar.
-    # nested[a] is None for ordinary flat attributes (unchanged path).
+    # tuple dim D_a = prod(r) so dim/allocation stay scalar. nested[a] is
+    # None for ordinary flat attributes (unchanged path). Two-level only
+    # for now (recursion to L > 2 is a later step).
     if nested is None:
         nested = [None] * A
     elif len(nested) != A:
@@ -255,15 +258,33 @@ def _build_exp_tens_ma(
     else:
         nested = list(nested)
     r_vec = r_vec.copy()
+    # A spec that already carries the internal 'proj' field was produced by
+    # a previous build (a reconstruction forwards it), not by a user; the
+    # user-is_rel guard below is skipped for those so the derived is_rel
+    # value round-trips cleanly.
+    nested_was_norm = [False] * A
     for a in range(A):
         spec = nested[a]
         if spec is None:
             continue
-        ri = int(spec["r_inner"])
-        ro = int(spec["r_outer"])
-        if ri < 1 or ro < 1:
+        nested_was_norm[a] = isinstance(spec, dict) and "proj" in spec
+        r_levels = np.asarray(spec["r"], dtype=np.intp).ravel()
+        sym_levels = np.asarray(spec["sym"], dtype=bool).ravel()
+        L = int(r_levels.size)
+        if L != 2:
+            raise NotImplementedError(
+                f"nested attribute {a}: only two-level nesting (L = 2) is "
+                f"supported for now; got L = {L}. Deeper nesting is a "
+                f"later step."
+            )
+        if sym_levels.size != L:
             raise ValueError(
-                f"nested attribute {a}: r_inner and r_outer must be >= 1."
+                f"nested attribute {a}: sym must have length {L} (one per "
+                f"level), got {sym_levels.size}."
+            )
+        if np.any(r_levels < 1):
+            raise ValueError(
+                f"nested attribute {a}: all per-level r must be >= 1."
             )
         tags = np.asarray(spec["tags"]).ravel()
         if tags.size != int(K_a[a]):
@@ -271,9 +292,21 @@ def _build_exp_tens_ma(
                 f"nested attribute {a}: tags length {tags.size} must equal "
                 f"K_total = {int(K_a[a])} (slot count)."
             )
+        rel_unit, proj = _canonicalise_nested_rel(spec.get("rel"), L, a)
+        if proj in ("inner", "intermediate"):
+            raise NotImplementedError(
+                f"nested attribute {a}: the inner / intermediate [rel] "
+                f"co-transposition unit is not yet wired; only absolute and "
+                f"the outermost (whole-tuple) unit are available for now. "
+                f"Use rel = 'outermost' / the outermost level, or absolute."
+            )
         nested[a] = dict(spec)
+        nested[a]["r"] = r_levels
+        nested[a]["sym"] = sym_levels
         nested[a]["tags"] = tags
-        r_vec[a] = ri * ro  # total tuple dim D_a
+        nested[a]["rel_unit"] = rel_unit
+        nested[a]["proj"] = proj
+        r_vec[a] = int(np.prod(r_levels))  # total tuple dim D_a
 
     if np.any(r_vec < 1):
         raise ValueError("All r_a must be positive integers.")
@@ -303,12 +336,18 @@ def _build_exp_tens_ma(
             )
 
     for a in range(A):
-        if nested[a] is not None and is_rel_vec[a]:
-            raise NotImplementedError(
-                f"nested attribute {a}: is_rel (the [rel] co-transposition-"
-                f"unit selector for nested attributes) is not yet wired; "
-                f"build nested attributes with is_rel = False for now."
-            )
+        if nested[a] is not None:
+            if is_rel_vec[a] and not nested_was_norm[a]:
+                raise ValueError(
+                    f"nested attribute {a}: set the [rel] co-transposition "
+                    f"unit via the nested spec's 'rel' field, not the "
+                    f"is_rel_vec entry (leave it False for nested attributes)."
+                )
+            # The outer / whole-tuple co-transposition unit is exactly the
+            # flat is_rel reduction applied to the whole D_a-tuple, so map
+            # it onto the internal is_rel machinery; absolute leaves it off.
+            is_rel_vec[a] = (nested[a]["proj"] == "outer")
+            continue
         if is_rel_vec[a] and r_vec[a] < 2:
             warnings.warn(
                 f"is_rel = True combined with r_a = 1 for attribute {a} "
@@ -331,8 +370,8 @@ def _build_exp_tens_ma(
             spec = nested[a]
             if spec is not None:
                 tags = spec["tags"]
-                ri = int(spec["r_inner"])
-                ro = int(spec["r_outer"])
+                ri = int(spec["r"][0])   # innermost
+                ro = int(spec["r"][1])   # outermost
                 good = sum(
                     1 for t in np.unique(tags[valid])
                     if int(np.sum(valid & (tags == t))) >= ri
@@ -472,6 +511,70 @@ def _nested_enum_indices(valid_slots, tags_valid, r_inner, r_outer,
     return perm_idx, comb_idx
 
 
+def _canonicalise_nested_rel(rel, L, a):
+    """Resolve a nested attribute's ``[rel]`` selector to a co-transposition unit.
+
+    Returns ``(rel_unit, proj)`` where ``rel_unit`` is ``None`` (absolute)
+    or a 0-based level index (innermost-outward, matching the ``r`` and
+    ``sym`` vectors) of the finest selected co-transposition unit, and
+    ``proj`` is one of ``'absolute'``, ``'inner'``, ``'outer'``,
+    ``'intermediate'``.
+
+    ``[rel]`` carries subsumption: a finer (lower-index) co-transposition
+    unit subsumes every coarser one, so the finest 1 wins and additional
+    1s are redundant (warned). Strings ``'innermost'`` -> level 0 and
+    ``'outermost'`` -> level ``L-1`` are depth-proof and need no count.
+    A bare scalar/bool is rejected for a nested attribute (``L > 1``);
+    ``None`` (or an absent key) means absolute.
+    """
+    if rel is None:
+        return None, "absolute"
+    if isinstance(rel, str):
+        key = rel.strip().lower()
+        if key == "innermost":
+            unit = 0
+        elif key == "outermost":
+            unit = L - 1
+        else:
+            raise ValueError(
+                f"nested attribute {a}: [rel] string must be 'innermost' "
+                f"or 'outermost', got {rel!r}."
+            )
+    elif np.isscalar(rel) or isinstance(rel, (bool, np.bool_, int, np.integer)):
+        raise ValueError(
+            f"nested attribute {a}: [rel] must be a length-{L} per-level "
+            f"vector or 'innermost'/'outermost'; a scalar/bool is not "
+            f"allowed for a nested attribute (it is ambiguous about which "
+            f"co-transposition unit is meant)."
+        )
+    else:
+        v = np.asarray(rel).ravel()
+        if v.size != L:
+            raise ValueError(
+                f"nested attribute {a}: [rel] vector must have length "
+                f"{L} (one per nesting level), got {v.size}."
+            )
+        ones = np.nonzero(v.astype(bool))[0]
+        if ones.size == 0:
+            return None, "absolute"
+        if ones.size > 1:
+            warnings.warn(
+                f"nested attribute {a}: multiple [rel] levels set "
+                f"{ones.tolist()}; a finer co-transposition unit subsumes "
+                f"every coarser one, so the innermost (level {int(ones.min())}) "
+                f"is used and the rest are redundant."
+            )
+        unit = int(ones.min())
+
+    if unit == 0:
+        proj = "inner"
+    elif unit == L - 1:
+        proj = "outer"
+    else:
+        proj = "intermediate"
+    return unit, proj
+
+
 def _ma_build_perm_arrays(
     *,
     p_attr,
@@ -520,8 +623,8 @@ def _ma_build_perm_arrays(
                 tags_valid = np.asarray(spec["tags"])[valid]
                 perm_mat, comb_mat = _nested_enum_indices(
                     valid, tags_valid,
-                    int(spec["r_inner"]), int(spec["r_outer"]),
-                    bool(spec["sym_inner"]), bool(spec["sym_outer"]),
+                    int(spec["r"][0]), int(spec["r"][1]),
+                    bool(spec["sym"][0]), bool(spec["sym"][1]),
                 )
                 perm_idx[n][a] = perm_mat
                 comb_idx[n][a] = comb_mat

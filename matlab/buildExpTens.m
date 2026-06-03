@@ -396,10 +396,13 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
 
     % --- Nested attributes (representation B) ---------------------------
     % A nested attribute carries its level breakdown in nested{a} (a
-    % struct with fields rInner, rOuter, symInner, symOuter, tags) and a
-    % flat K_total-slot value column; rVec(a) is (re)derived to the total
-    % tuple dim D_a = rInner * rOuter so dim/allocation stay scalar.
-    % nested{a} = [] for an ordinary flat attribute (unchanged path).
+    % struct with fields: tags (per-slot source-event tag), r and sym
+    % (per-level vectors, innermost-outward), and optional rel (the
+    % co-transposition-unit selector: a per-level vector or
+    % 'innermost'/'outermost')) and a flat K_total-slot value column;
+    % rVec(a) is (re)derived to the total tuple dim D_a = prod(r) so
+    % dim/allocation stay scalar. nested{a} = [] for an ordinary flat
+    % attribute (unchanged path). Two-level only for now.
     if isempty(nested)
         nested = cell(1, A);
     else
@@ -409,22 +412,37 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
         end
         nested = nested(:).';
     end
+    % A spec that already carries the internal 'proj' field was produced by
+    % a previous build (a rebuild via ensureExpTensExpensive forwards it),
+    % not typed by a user; the user-isRel guard below is skipped for those
+    % so the derived isRel value round-trips cleanly.
+    nestedWasNorm = false(1, A);
     for a = 1:A
         spec = nested{a};
         if isempty(spec)
             continue
         end
-        if ~isstruct(spec) || ...
-                ~all(isfield(spec, {'rInner', 'rOuter', 'symInner', 'symOuter', 'tags'}))
+        nestedWasNorm(a) = isstruct(spec) && isfield(spec, 'proj');
+        if ~isstruct(spec) || ~all(isfield(spec, {'r', 'sym', 'tags'}))
             error('buildExpTens:nestedSpec', ...
-                  ['nested{%d} must be a struct with fields rInner, ' ...
-                   'rOuter, symInner, symOuter, tags.'], a);
+                  ['nested{%d} must be a struct with fields r, sym, tags ' ...
+                   '(and optional rel).'], a);
         end
-        ri = double(spec.rInner);
-        ro = double(spec.rOuter);
-        if ri < 1 || ro < 1 || rem(ri, 1) ~= 0 || rem(ro, 1) ~= 0
+        rLevels   = double(spec.r(:).');
+        symLevels = logical(spec.sym(:).');
+        L = numel(rLevels);
+        if L ~= 2
+            error('buildExpTens:nestedDepth', ...
+                  ['nested{%d}: only two-level nesting (L = 2) is supported ' ...
+                   'for now; got L = %d.'], a, L);
+        end
+        if numel(symLevels) ~= L
+            error('buildExpTens:nestedSymLen', ...
+                  'nested{%d}: sym must have length %d (one per level).', a, L);
+        end
+        if any(rLevels < 1) || any(rem(rLevels, 1) ~= 0)
             error('buildExpTens:nestedR', ...
-                  'nested{%d}: rInner and rOuter must be positive integers.', a);
+                  'nested{%d}: all per-level r must be positive integers.', a);
         end
         tags = double(spec.tags(:).');
         if numel(tags) ~= Ka(a)
@@ -432,13 +450,24 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
                   ['nested{%d}: tags length %d must equal K_total = %d ' ...
                    '(slot count).'], a, numel(tags), Ka(a));
         end
-        spec.rInner   = ri;
-        spec.rOuter   = ro;
-        spec.symInner = logical(spec.symInner);
-        spec.symOuter = logical(spec.symOuter);
-        spec.tags     = tags;
-        nested{a}     = spec;
-        rVec(a)       = ri * ro;   % total tuple dim D_a
+        relRaw = [];
+        if isfield(spec, 'rel')
+            relRaw = spec.rel;
+        end
+        [relUnit, proj] = localCanonicaliseNestedRel(relRaw, L, a);
+        if strcmp(proj, 'inner') || strcmp(proj, 'intermediate')
+            error('buildExpTens:nestedRelInner', ...
+                  ['nested{%d}: the inner / intermediate [rel] co-transposition ' ...
+                   'unit is not yet wired; only absolute and the outermost ' ...
+                   '(whole-tuple) unit are available for now.'], a);
+        end
+        spec.r       = rLevels;
+        spec.sym     = symLevels;
+        spec.tags    = tags;
+        spec.relUnit = relUnit;
+        spec.proj    = proj;
+        nested{a}    = spec;
+        rVec(a)      = prod(rLevels);   % total tuple dim D_a
     end
 
     if any(rVec < 1) || any(rem(rVec, 1) ~= 0)
@@ -468,13 +497,20 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
         end
     end
 
-    % isRel + r_a = 1 degenerate warning (per attribute)
+    % isRel + r_a = 1 degenerate warning (per attribute); nested mapping
     for a = 1:A
-        if ~isempty(nested{a}) && isRelVec(a)
-            error('buildExpTens:nestedRelUnsupported', ...
-                  ['nested attribute %d: isRel (the [rel] co-transposition-' ...
-                   'unit selector for nested attributes) is not yet wired; ' ...
-                   'build nested attributes with isRel = false for now.'], a);
+        if ~isempty(nested{a})
+            if isRelVec(a) && ~nestedWasNorm(a)
+                error('buildExpTens:nestedUserIsRel', ...
+                      ['nested attribute %d: set the [rel] co-transposition ' ...
+                       'unit via the nested spec''s rel field, not the ' ...
+                       'isRelVec entry (leave it false for nested attributes).'], a);
+            end
+            % The outer / whole-tuple co-transposition unit is exactly the
+            % flat isRel reduction on the whole D_a-tuple, so map it onto
+            % the internal isRel machinery; absolute leaves it off.
+            isRelVec(a) = strcmp(nested{a}.proj, 'outer');
+            continue
         end
         if isRelVec(a) && rVec(a) < 2
             warning('buildExpTens:isRelDegenerate', ...
@@ -517,8 +553,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
             if ~isempty(spec)
                 tags     = spec.tags(:).';          % 1 x K_total row
                 validRow = (~isnan(valCol(:))).';   % 1 x K_total row
-                ri   = spec.rInner;
-                ro   = spec.rOuter;
+                ri   = spec.r(1);                   % innermost
+                ro   = spec.r(2);                   % outermost
                 present = unique(tags(validRow));
                 present = present(:).';             % force row for the loop
                 good = 0;
@@ -618,11 +654,11 @@ function dens = localFillMAExpensive(dens, verbose)
                 tagsValid = spec.tags(valid);
                 [permMat, combMat] = localNestedEnumIndices( ...
                     valid(:).', tagsValid(:).', ...
-                    spec.rInner, spec.rOuter, spec.symInner, spec.symOuter);
+                    spec.r(1), spec.r(2), spec.sym(1), spec.sym(2));
                 permIdx{n, a} = permMat;
                 combIdx{n, a} = combMat;
                 wCol = wCell{a}(:, n);
-                D_a = spec.rInner * spec.rOuter;
+                D_a = spec.r(1) * spec.r(2);
                 permW{n, a} = prod(reshape(wCol(permMat), D_a, []), 1);
                 combW{n, a} = prod(reshape(wCol(combMat), D_a, []), 1);
                 continue
@@ -1024,5 +1060,67 @@ function out = localExpandPerms(combs)
             row = row + 1;
             out(row, :) = combs(i, P(pp, :));
         end
+    end
+end
+
+
+function [relUnit, proj] = localCanonicaliseNestedRel(rel, L, a)
+    %LOCALCANONICALISENESTEDREL  Resolve a nested attribute's [rel] selector.
+    %   Returns relUnit (NaN = absolute, or a 1-based level index,
+    %   innermost-outward, of the finest selected co-transposition unit)
+    %   and proj ('absolute' | 'inner' | 'outer' | 'intermediate').
+    %   [rel] carries subsumption: a finer (lower-index) unit subsumes
+    %   every coarser one, so the finest 1 wins (extra 1s warn). Strings
+    %   'innermost' -> level 1 and 'outermost' -> level L are depth-proof.
+    %   A bare scalar/bool is rejected for a nested attribute (L > 1);
+    %   [] (absent) means absolute.
+    if isempty(rel)
+        relUnit = NaN; proj = 'absolute'; return
+    end
+    if ischar(rel) || isstring(rel)
+        key = lower(char(rel));
+        switch key
+            case 'innermost'
+                unit = 1;
+            case 'outermost'
+                unit = L;
+            otherwise
+                error('buildExpTens:nestedRelString', ...
+                      ['nested attribute %d: [rel] string must be ' ...
+                       '''innermost'' or ''outermost''.'], a);
+        end
+    elseif isscalar(rel)
+        error('buildExpTens:nestedRelScalar', ...
+              ['nested attribute %d: [rel] must be a length-%d per-level ' ...
+               'vector or ''innermost''/''outermost''; a scalar/bool is not ' ...
+               'allowed for a nested attribute (it is ambiguous about which ' ...
+               'co-transposition unit is meant).'], a, L);
+    else
+        v = logical(rel(:).');
+        if numel(v) ~= L
+            error('buildExpTens:nestedRelLength', ...
+                  ['nested attribute %d: [rel] vector must have length %d ' ...
+                   '(one per nesting level).'], a, L);
+        end
+        onesIdx = find(v);
+        if isempty(onesIdx)
+            relUnit = NaN; proj = 'absolute'; return
+        end
+        if numel(onesIdx) > 1
+            warning('buildExpTens:nestedRelSubsumption', ...
+                    ['nested attribute %d: multiple [rel] levels set; a finer ' ...
+                     'co-transposition unit subsumes every coarser one, so the ' ...
+                     'innermost (level %d) is used and the rest are redundant.'], ...
+                    a, onesIdx(1));
+        end
+        unit = onesIdx(1);
+    end
+    relUnit = unit;
+    if unit == 1
+        proj = 'inner';
+    elseif unit == L
+        proj = 'outer';
+    else
+        proj = 'intermediate';
     end
 end

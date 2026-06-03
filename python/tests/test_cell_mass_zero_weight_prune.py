@@ -233,7 +233,7 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
 
     t0 = time.time()
     H = entropy_exp_tens(
-        p_w, w_w, [10.0], [1], list(g_w), [False], [False], [0.0],
+        p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='differential', base=2.0,
     )
     elapsed = time.time() - t0
@@ -264,7 +264,7 @@ def test_differential_entropy_matches_manual_prune():
         sd=1.0, delete_input=True,
     )
     H_auto = entropy_exp_tens(
-        p_w, w_w, [10.0], [1], list(g_w), [False], [False], [0.0],
+        p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='differential', base=2.0,
     )
 
@@ -273,7 +273,7 @@ def test_differential_entropy_matches_manual_prune():
     p_w_pruned = [p[:, keep] for p in p_w]
     w_w_pruned = [ww[:, keep] for ww in w_w]
     H_manual = entropy_exp_tens(
-        p_w_pruned, w_w_pruned, [10.0], [1], list(g_w),
+        p_w_pruned, w_w_pruned, [10.0], [1],
         [False], [False], [0.0],
         method='differential', base=2.0,
     )
@@ -303,7 +303,7 @@ def test_shannon_grid_matches_manual_prune():
         sd=1.0, delete_input=True,
     )
     H_auto = entropy_exp_tens(
-        p_w, w_w, [10.0], [1], list(g_w), [False], [False], [0.0],
+        p_w, w_w, [10.0], [1], [False], [False], [0.0],
         method='shannon', base=2.0,
         n_points_per_dim=2001, x_min=3000.0, x_max=13000.0,
     )
@@ -312,7 +312,7 @@ def test_shannon_grid_matches_manual_prune():
     p_w_pruned = [p[:, keep] for p in p_w]
     w_w_pruned = [ww[:, keep] for ww in w_w]
     H_manual = entropy_exp_tens(
-        p_w_pruned, w_w_pruned, [10.0], [1], list(g_w),
+        p_w_pruned, w_w_pruned, [10.0], [1],
         [False], [False], [0.0],
         method='shannon', base=2.0,
         n_points_per_dim=2001, x_min=3000.0, x_max=13000.0,

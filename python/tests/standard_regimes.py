@@ -357,7 +357,7 @@ def materialise_cell(cell, default_pitch_range=None):
     expected by build_exp_tens (SA or MA, depending on cell['kind']).
 
     SA call: ``build_exp_tens(p, w, sigma, r, is_rel, is_per, period)``
-    MA call: ``build_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, period)``
+    MA call: ``build_exp_tens(p_attr, w, sigma, r, is_rel, is_per, period)``
     """
     if cell['kind'] == 'SA':
         K = cell['K']
@@ -387,7 +387,7 @@ def materialise_cell(cell, default_pitch_range=None):
         for a in range(A):
             p_attr.append(rng.uniform(0.0, period_vec[a], (K_vec[a], N)))
             w.append(rng.uniform(0.5, 1.5, (K_vec[a], N)))
-        return (p_attr, w, cell['sigma'], cell['r'], list(range(A)),
+        return (p_attr, w, cell['sigma'], cell['r'],
                 cell['is_rel'], cell['is_per'], cell['period'])
     else:
         raise ValueError(f"Unknown cell kind: {cell['kind']!r}")

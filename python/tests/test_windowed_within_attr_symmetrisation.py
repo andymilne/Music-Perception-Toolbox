@@ -157,9 +157,9 @@ def _toolbox_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
     axis's offset from the unweighted query centroid mu_q."""
     Pa = p_a.reshape(-1, 1); Wa = w_a.reshape(-1, 1)
     Pb = p_b.reshape(-1, 1); Wb = w_b.reshape(-1, 1)
-    dens_q = build_exp_tens([Pa], [Wa], [sigma], [r], [0],
+    dens_q = build_exp_tens([Pa], [Wa], [sigma], [r], 
                              [False], [False], [0.0], verbose=False)
-    dens_c = build_exp_tens([Pb], [Wb], [sigma], [r], [0],
+    dens_c = build_exp_tens([Pb], [Wb], [sigma], [r], 
                              [False], [False], [0.0], verbose=False)
     wmd = window_tensor(dens_c, dict(
         size=size, mix=mix,
@@ -351,12 +351,12 @@ def test_multi_attribute_within_attribute_symmetrisation():
     p0_y = rng.uniform(-200, 200, (K_a, 1)); w0_y = rng.uniform(0.5, 1.5, (K_a, 1))
     p1_y = rng.uniform(-200, 200, (K_b, 1)); w1_y = rng.uniform(0.5, 1.5, (K_b, 1))
 
-    dens_x = build_exp_tens([p0_x, p1_x], [w0_x, w1_x], [sigma],
-                             [r_0, r_1], [0, 0],
-                             [False], [False], [0.0], verbose=False)
-    dens_y = build_exp_tens([p0_y, p1_y], [w0_y, w1_y], [sigma],
-                             [r_0, r_1], [0, 0],
-                             [False], [False], [0.0], verbose=False)
+    dens_x = build_exp_tens([p0_x, p1_x], [w0_x, w1_x], [sigma, sigma],
+                             [r_0, r_1],
+                             [False, False], [False, False], [0.0, 0.0], verbose=False)
+    dens_y = build_exp_tens([p0_y, p1_y], [w0_y, w1_y], [sigma, sigma],
+                             [r_0, r_1],
+                             [False, False], [False, False], [0.0, 0.0], verbose=False)
 
     # Non-uniform within-attribute centres for each attribute
     centre_attr0 = np.array([10.0, 50.0])    # non-uniform within attr 0

@@ -217,7 +217,7 @@ fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n'
 %        index pre-computation, weight products) is paid once.
 %
 %   (ii) call the raw multi-attribute form of each function directly,
-%        passing (pAttr, w, sigma, r, groups, isRel, isPer, periods)
+%        passing (pAttr, w, sigma, r, isRel, isPer, periods)
 %        as positional arguments. The function builds the density
 %        internally and returns the answer; no struct is exposed.
 %        Convenient for single-shot uses and keeps the call shape
@@ -234,38 +234,38 @@ r     = [1, 1];          % single-slot attributes (K_a = 1) in both groups
 
 % --- 9a. entropyExpTens (raw MA form) ---
 % Signature:
-%   H = entropyExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, ...)
-H_orig = entropyExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, ...
+%   H = entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods, ...)
+H_orig = entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods, ...
                         'method', 'renyi2', ...
                         'verbose', false);
-fprintf('  entropyExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods)\n');
+fprintf('  entropyExpTens(pAttr, w, sigma, r, isRel, isPer, periods)\n');
 fprintf('    = %.4f  (Renyi-2)\n', H_orig);
 
 % --- 9b. evalExpTens at the penult event (pitch = 66, t = 6) ---
 % Signature:
-%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X, ...)
+%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, ...)
 % Query points are A-by-M_q with one column per query and row a
 % giving attribute a's value(s). Single query here, so a 2-by-1 column.
 Xq = [66; 6];
-val_at_penult = evalExpTens(pAttr, w, sigma, r, groups, ...
+val_at_penult = evalExpTens(pAttr, w, sigma, r, ...
                             isRel, isPer, periods, Xq, ...
                             'verbose', false);
-fprintf('  evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, Xq)\n');
+fprintf('  evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, Xq)\n');
 fprintf('    = %.4f\n', val_at_penult);
 fprintf('  (Density peak near an actual event; the value reflects the\n');
 fprintf('   contribution from event 2 at (66, 6) plus tails from its neighbours.)\n');
 
 % --- 9c. cosSimExpTens on two pre-MAETs (raw MA form) ---
 % Signature:
-%   s = cosSimExpTens(pX, wX, pY, wY, sigma, r, groups, isRel, isPer, periods, ...)
+%   s = cosSimExpTens(pX, wX, pY, wY, sigma, r, isRel, isPer, periods, ...)
 % Compare the original chorale fragment against the transposed copy
 % (Section 4). Group 1's PC kernel is narrow (sigma = 0.5 semitones),
 % so the 5-semitone shift puts every event out of kernel reach of its
 % original PC, and the similarity collapses to 0. Pre-MAET D in step
 % 9d below recovers it.
-sim_T = cosSimExpTens(pAttr, w, pT, w, sigma, r, groups, ...
+sim_T = cosSimExpTens(pAttr, w, pT, w, sigma, r, ...
                       isRel, isPer, periods, 'verbose', false);
-fprintf('  cosSimExpTens(pAttr, w, pT, w, sigma, r, groups, isRel, isPer, periods)\n');
+fprintf('  cosSimExpTens(pAttr, w, pT, w, sigma, r, isRel, isPer, periods)\n');
 fprintf('    = %.4f\n', sim_T);
 
 % --- 9d. cosSim of the differenced pair: D(T) == D identity in action ---
@@ -276,7 +276,7 @@ fprintf('    = %.4f\n', sim_T);
 % observable; no buildExpTens required.
 [pDT_again, wDT_again, gDT_again] = differenceEvents(pT, w, groups, {1, 0});
 sim_diffed = cosSimExpTens(pD, wD, pDT_again, wDT_again, ...
-                           sigma, r, gD, isRel, isPer, periods, ...
+                           sigma, r, isRel, isPer, periods, ...
                            'verbose', false);
 fprintf('  cosSimExpTens(pD, wD, pD(T), wD(T), ...)\n');
 fprintf('    = %.4f  (exactly 1: D absorbs T)\n', sim_diffed);
@@ -291,14 +291,14 @@ fprintf('\n=== 10. Dens form: build once, query many; parity with route (ii) ===
 % structural work --- group canonicalisation, tuple-index
 % pre-computation, weight products --- is paid; subsequent
 % entropy/eval/cosSim calls just consume the struct.
-dens_orig = buildExpTens(pAttr, w, sigma, r, groups, ...
+dens_orig = buildExpTens(pAttr, w, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-dens_T    = buildExpTens(pT,    w, sigma, r, groups, ...
+dens_T    = buildExpTens(pT,    w, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-dens_D    = buildExpTens(pD,   wD, sigma, r, gD, ...
+dens_D    = buildExpTens(pD,   wD, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
 [pDT_4, wDT_4, gDT_4] = differenceEvents(pT, w, groups, {1, 0});
-dens_DT   = buildExpTens(pDT_4, wDT_4, sigma, r, gDT_4, ...
+dens_DT   = buildExpTens(pDT_4, wDT_4, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
 
 % --- 10a. entropyExpTens on the struct; same answer as 9a. ---

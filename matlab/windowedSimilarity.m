@@ -93,17 +93,17 @@ function profile = windowedSimilarity(densContext, densQuery, windowSpec, offset
 %   In both cases, a peak at offset delta means the context has
 %   similarity-relevant structure at reference + delta.
 %
-%   Periodic groups
-%   ---------------
-%   For periodic groups, the window is the wrapped Gaussian (or
+%   Periodic attributes
+%   -------------------
+%   For periodic attributes, the window is the wrapped Gaussian (or
 %   wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
 %   window functions at all periodic images of the centre. The
 %   toolbox sums these contributions adaptively, truncating when the
 %   latest image-pair's contribution falls below the floating-point
 %   threshold (1e-12 for double, 1e-7 for kernelPrecision='single').
-%   For multi-D absolute periodic groups, the image sum factorises
+%   For multi-D absolute periodic attributes, the image sum factorises
 %   per axis (linear in dimension). For multi-D relative periodic
-%   groups, image summation is deferred to a future release and the
+%   attributes, image summation is deferred to a future release and the
 %   existing line-case formula is used (matching the pre-2.2
 %   behaviour). See User Guide §3.1 "Post-tensor windowing".
 %

@@ -56,9 +56,9 @@ results{end+1,1} = 'lazy: SA ensure idempotent';
 dens_twice_sa = internal.ensureExpTensExpensive(dens_filled_sa);
 results{end,2}   = isequal(dens_twice_sa, dens_filled_sa);
 
-dens_eager_ma  = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], true, isPer_, period_, ...
+dens_eager_ma  = buildExpTens({p_sa}, {w_sa}, sigma, r_, true, isPer_, period_, ...
     'lazy', false, 'verbose', false);
-dens_skinny_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], true, isPer_, period_, ...
+dens_skinny_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, true, isPer_, period_, ...
     'verbose', false);
 results{end+1,1} = 'lazy: MA skinny default has only cheap fields';
 results{end,2}   = ~isfield(dens_skinny_ma, 'Centres') ...
@@ -91,7 +91,7 @@ results{end,2}   = max(abs(v_skinny - v_eager)) < 1e-12;
 for isRel_ = [false, true]
     dens_sa = buildExpTens(p_sa, w_sa, sigma, r_, isRel_, isPer_, period_, ...
         'lazy', false, 'verbose', false);
-    dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, [], isRel_, isPer_, period_, ...
+    dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, isRel_, isPer_, period_, ...
         'lazy', false, 'verbose', false);
 
     relTag = sprintf(' (isRel=%d)', isRel_);
@@ -119,7 +119,7 @@ end
 
 % Dimensionality reduction under isRel=true
 results{end+1,1} = 'MAET: Centres dim reduction (isRel=true, r=2)';
-dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, [], true, true, 1200, ...
+dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, true, true, 1200, ...
     'lazy', false, 'verbose', false);
 results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
 
@@ -128,17 +128,13 @@ results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
 pitchMat = [0 12; 4 15; 7 19];       % 3 x 2
 timeMat  = [0 1];                     % 1 x 2
 dens = buildExpTens({pitchMat, timeMat}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 
 results{end+1,1} = 'MAET: struct nAttrs';
 results{end,2}   = dens.nAttrs == 2;
-results{end+1,1} = 'MAET: struct nGroups';
-results{end,2}   = dens.nGroups == 2;
 results{end+1,1} = 'MAET: struct N';
 results{end,2}   = dens.N == 2;
-results{end+1,1} = 'MAET: struct groupOfAttr default';
-results{end,2}   = isequal(dens.groupOfAttr, [1 2]);
 results{end+1,1} = 'MAET: struct r';
 results{end,2}   = isequal(dens.r, [3 1]);
 results{end+1,1} = 'MAET: struct K';
@@ -153,7 +149,7 @@ results{end,2}   = isequal(dens.dimPerAttr, [2 1]);
 pitchMat = [0 12 5; 4 15 9; 7 19 12];   % 3 x 3
 timeMat  = [0 1 2];                      % 1 x 3
 dens = buildExpTens({pitchMat, timeMat}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'lazy', false, 'verbose', false);
 
 results{end+1,1} = 'MAET: nJ = sum of per-event Cartesian products';
@@ -168,75 +164,38 @@ results{end,2}   = isequal(dens.eventOfK, 1:3);
 % -- Weight broadcasting --
 
 pitchMat = [0 4; 4 8];                   % K=2, N=2
-dens = buildExpTens({pitchMat}, [], 10, 2, [], false, true, 1200, 'verbose', false);
+dens = buildExpTens({pitchMat}, [], 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'MAET: weight [] -> ones';
 results{end,2}   = isequal(dens.w{1}, ones(2, 2));
 
-dens = buildExpTens({pitchMat}, 0.5, 10, 2, [], false, true, 1200, 'verbose', false);
+dens = buildExpTens({pitchMat}, 0.5, 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'MAET: weight scalar top-level';
 results{end,2}   = isequal(dens.w{1}, 0.5 * ones(2, 2));
 
 pitchMat = [0 4 5; 4 8 6];               % K=2, N=3
 wRow = [0.5, 1.0, 2.0];                  % 1 x N
-dens = buildExpTens({pitchMat}, {wRow}, 10, 2, [], false, true, 1200, 'verbose', false);
+dens = buildExpTens({pitchMat}, {wRow}, 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'MAET: weight 1 x N row broadcast';
 results{end,2}   = isequal(dens.w{1}, [0.5 1.0 2.0; 0.5 1.0 2.0]);
 
 pitchMat = [0 4 5; 4 8 6; 7 10 9];       % K=3, N=3
 wCol = [0.5; 1.0; 2.0];                  % K x 1
-dens = buildExpTens({pitchMat}, {wCol}, 10, 2, [], false, true, 1200, 'verbose', false);
+dens = buildExpTens({pitchMat}, {wCol}, 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'MAET: weight K x 1 column broadcast';
 results{end,2}   = isequal(dens.w{1}, repmat([0.5; 1.0; 2.0], 1, 3));
 
 pitchMat = [0 4; 4 8];
 W = [0.1 0.2; 0.3 0.4];
-dens = buildExpTens({pitchMat}, {W}, 10, 2, [], false, true, 1200, 'verbose', false);
+dens = buildExpTens({pitchMat}, {W}, 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'MAET: weight K x N full matrix';
 results{end,2}   = isequal(dens.w{1}, W);
-
-% -- Groups: vector form and cell form agree --
-
-pitchMat = [0; 4];   % K=2, N=1
-timeMat  = 0;         % 1 x 1
-xMat     = 0; yMat = 0; zMat = 0;
-sigV     = [10, 0.1, 0.2];  rV = [1 1 1 1 1];
-isRelV   = [false false false];
-isPerV   = [true false false];
-perV     = [1200, 0, 0];
-
-dens_v = buildExpTens({pitchMat, timeMat, xMat, yMat, zMat}, [], ...
-    sigV, rV, [1 2 3 3 3], isRelV, isPerV, perV, 'verbose', false);
-dens_c = buildExpTens({pitchMat, timeMat, xMat, yMat, zMat}, [], ...
-    sigV, rV, {1, 2, [3 4 5]}, isRelV, isPerV, perV, 'verbose', false);
-
-results{end+1,1} = 'MAET: groups vector vs cell (groupOfAttr)';
-results{end,2}   = isequal(dens_v.groupOfAttr, dens_c.groupOfAttr);
-results{end+1,1} = 'MAET: groups vector vs cell (nGroups)';
-results{end,2}   = dens_v.nGroups == dens_c.nGroups;
-
-agree = true;
-for gg = 1:dens_v.nGroups
-    if ~isequal(sort(dens_v.attrsOfGroup{gg}), sort(dens_c.attrsOfGroup{gg}))
-        agree = false; break;
-    end
-end
-results{end+1,1} = 'MAET: groups vector vs cell (attrsOfGroup)';
-results{end,2}   = agree;
-
-results{end+1,1} = 'MAET: groups non-contiguous errors';
-results{end,2}   = throwsError(@() buildExpTens({pitchMat, pitchMat}, [], ...
-    [10 10], [1 1], [1 3], [false false], [true true], [1200 1200], 'verbose', false));
-
-results{end+1,1} = 'MAET: groups cell duplicate attr errors';
-results{end,2}   = throwsError(@() buildExpTens({pitchMat, pitchMat}, [], ...
-    10, [1 1], {[1 2], 2}, false, true, 1200, 'verbose', false));
 
 % -- NaN-padded variable-size events --
 
 pitchMat = [0 0; 4 4; 7 NaN];
 timeMat  = [0 1];
 dens = buildExpTens({pitchMat, timeMat}, [], ...
-    [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
+    [10, 0.1], [2, 1], [false false], [true false], [1200, 0], ...
     'lazy', false, 'verbose', false);
 % Event 1: P(3,2)=6 perms, C(3,2)=3 combs. Event 2: P(2,2)=2, C(2,2)=1.
 results{end+1,1} = 'MAET: NaN-padded nJ';
@@ -251,7 +210,7 @@ time1  = 1.5;
 wPitch = [2.0; 3.0];
 wTime  = 5.0;
 dens = buildExpTens({pitch1, time1}, {wPitch, wTime}, ...
-    [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
+    [10, 0.1], [2, 1], [false false], [true false], [1200, 0], ...
     'lazy', false, 'verbose', false);
 % 2 pitch perms, each with weight 2 * 3 * 5 = 30
 results{end+1,1} = 'MAET: per-tuple weight factorisation (wJ)';
@@ -264,28 +223,28 @@ results{end,2}   = all(abs(dens.wv_comb - 30) < 1e-12);
 pitchMat = [0 4];
 results{end+1,1} = 'MAET: insufficient slots errors';
 results{end,2}   = throwsError(@() buildExpTens({[0 0; 4 NaN; NaN NaN]}, [], ...
-    10, 2, [], false, true, 1200, 'verbose', false));
+    10, 2, false, true, 1200, 'verbose', false));
 
 results{end+1,1} = 'MAET: wrong r length errors';
 results{end,2}   = throwsError(@() buildExpTens({pitchMat, pitchMat}, [], ...
-    [10 10], 1, [], [false false], [true true], [1200 1200], 'verbose', false));
+    [10 10], 1, [false false], [true true], [1200 1200], 'verbose', false));
 
 results{end+1,1} = 'MAET: wrong sigma length errors';
 results{end,2}   = throwsError(@() buildExpTens({pitchMat, pitchMat}, [], ...
-    10, [1 1], [], [false false], [true true], [1200 1200], 'verbose', false));
+    10, [1 1], [false false], [true true], [1200 1200], 'verbose', false));
 
 results{end+1,1} = 'MAET: mismatched N errors';
 results{end,2}   = throwsError(@() buildExpTens({[0 4], [0 1 2]}, [], ...
-    [10 0.1], [1 1], [], [false false], [true false], [1200 0], 'verbose', false));
+    [10 0.1], [1 1], [false false], [true false], [1200 0], 'verbose', false));
 
 results{end+1,1} = 'MAET: wrong positional count errors';
 results{end,2}   = throwsError(@() buildExpTens({pitchMat}, [], ...
-    10, 1, false, true, 1200, 'verbose', false));
+    10, 1, false, true, 'verbose', false));
 
 % -- isRel + r=1 degenerate warning --
 
 lastwarn('');   % clear the warning buffer
-buildExpTens({pitchMat}, [], 10, 1, [], true, true, 1200, 'verbose', false);
+buildExpTens({pitchMat}, [], 10, 1, true, true, 1200, 'verbose', false);
 warnMsg = lastwarn;
 results{end+1,1} = 'MAET: isRel + r=1 emits degenerate warning';
 results{end,2}   = ~isempty(warnMsg) && contains(warnMsg, 'degenerate');
@@ -301,7 +260,7 @@ dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, false, isPer_v, period_v, .
     'verbose', false);
 vals_sa = evalExpTens(dens_sa, xSA_abs, 'verbose', false);
 
-dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, [], false, isPer_v, ...
+dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, false, isPer_v, ...
     period_v, 'verbose', false);
 vals_ma_cell = evalExpTens(dens_ma, {xSA_abs}, 'verbose', false);
 vals_ma_mat  = evalExpTens(dens_ma,  xSA_abs,  'verbose', false);
@@ -319,7 +278,7 @@ dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, true, isPer_v, period_v, ..
     'verbose', false);
 vals_sa = evalExpTens(dens_sa, xSA_rel, 'verbose', false);
 
-dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, [], true, isPer_v, ...
+dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, true, isPer_v, ...
     period_v, 'verbose', false);
 vals_ma = evalExpTens(dens_ma, {xSA_rel}, 'verbose', false);
 
@@ -340,7 +299,7 @@ end
 pitchMat = [0; 4; 7];    % K=3, N=1
 timeMat  = 1.0;           % 1 x 1
 dens = buildExpTens({pitchMat, timeMat}, [], ...
-    [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
+    [10, 0.1], [2, 1], [false false], [true false], [1200, 0], ...
     'verbose', false);
 
 x_pitch = [0 4; 4 7];    % 2 x 2
@@ -355,7 +314,7 @@ results{end,2}   = isequal(vals_cell, vals_mat);
 pitch1 = 0;   % K=1, N=1
 time1  = 0;
 dens = buildExpTens({pitch1, time1}, [], ...
-    [20, 20], [1, 1], [], [false false], [true false], [1200, 0], ...
+    [20, 20], [1, 1], [false false], [true false], [1200, 0], ...
     'verbose', false);
 % Pitch periodic: value at pitch=0 vs pitch=1200 should be equal
 v_p0    = evalExpTens(dens, {0,    0}, 'verbose', false);
@@ -373,7 +332,7 @@ results{end,2}   = v_t1200 < v_t0;
 pitchMat = [0; 4; 7];
 timeMat  = 1.0;
 dens = buildExpTens({pitchMat, timeMat}, [], ...
-    [10, 0.1], [2, 1], [], [false false], [true false], [1200, 0], ...
+    [10, 0.1], [2, 1], [false false], [true false], [1200, 0], ...
     'verbose', false);
 v_centre = evalExpTens(dens, {[0; 4], 1.0}, 'verbose', false);
 v_far    = evalExpTens(dens, {[600; 800], 50.0}, 'verbose', false);
@@ -400,7 +359,6 @@ pAttr_er  = {[67 66 64], [5 6 7]};
 w_er      = [];
 sigma_er  = [0.5, 0.25];
 r_er      = [1, 1];
-groups_er = [1 2];
 isRel_er  = [false false];
 isPer_er  = [true false];
 periods_er = [12 0];
@@ -408,12 +366,12 @@ periods_er = [12 0];
 Xq_er = [66; 6];   % single query at the penult event
 
 % Path 1: build dens, then eval.
-dens_er = buildExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+dens_er = buildExpTens(pAttr_er, w_er, sigma_er, r_er, ...
                        isRel_er, isPer_er, periods_er, 'verbose', false);
 vals_er_struct = evalExpTens(dens_er, Xq_er, 'verbose', false);
 
-% Path 2: raw MA form (9 positional args + 'verbose').
-vals_er_raw = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+% Path 2: raw MA form (8 positional args + 'verbose').
+vals_er_raw = evalExpTens(pAttr_er, w_er, sigma_er, r_er, ...
                           isRel_er, isPer_er, periods_er, Xq_er, ...
                           'verbose', false);
 
@@ -423,7 +381,7 @@ results{end,2}   = max(abs(vals_er_raw(:) - vals_er_struct(:))) < 1e-12;
 % Multi-query (3 columns), check matrix form parity.
 Xq_er_multi = [60 66 72; 5 6 7];
 vals_er_multi_struct = evalExpTens(dens_er, Xq_er_multi, 'verbose', false);
-vals_er_multi_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+vals_er_multi_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, ...
                                    isRel_er, isPer_er, periods_er, Xq_er_multi, ...
                                    'verbose', false);
 results{end+1,1} = 'evalExpTens MA raw: multi-query matches struct path';
@@ -433,15 +391,15 @@ results{end,2}   = max(abs(vals_er_multi_raw(:) - vals_er_multi_struct(:))) < 1e
 % accepts {X_1, ..., X_A} per-attribute cells as well as stacked matrices).
 Xq_er_cell = {[60 66 72], [5 6 7]};
 vals_er_cell_struct = evalExpTens(dens_er, Xq_er_cell, 'verbose', false);
-vals_er_cell_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+vals_er_cell_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, ...
                                   isRel_er, isPer_er, periods_er, Xq_er_cell, ...
                                   'verbose', false);
 results{end+1,1} = 'evalExpTens MA raw: cell-form X matches struct path';
 results{end,2}   = max(abs(vals_er_cell_raw(:) - vals_er_cell_struct(:))) < 1e-12;
 
-% Normalize argument as trailing 10th positional.
+% Normalize argument as trailing 9th positional.
 vals_er_norm_struct = evalExpTens(dens_er, Xq_er, 'pdf', 'verbose', false);
-vals_er_norm_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, groups_er, ...
+vals_er_norm_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, ...
                                   isRel_er, isPer_er, periods_er, Xq_er, ...
                                   'pdf', 'verbose', false);
 results{end+1,1} = 'evalExpTens MA raw: trailing normalize matches struct path';
@@ -457,8 +415,8 @@ w_b_v  = [1; 0.6; 0.8];
 % Absolute (isRel=false), periodic
 s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 2, false, true, 1200, ...
     'verbose', false);
-da = buildExpTens({p_a_v}, {w_a_v}, 10, 2, [], false, true, 1200, 'verbose', false);
-db = buildExpTens({p_b_v}, {w_b_v}, 10, 2, [], false, true, 1200, 'verbose', false);
+da = buildExpTens({p_a_v}, {w_a_v}, 10, 2, false, true, 1200, 'verbose', false);
+db = buildExpTens({p_b_v}, {w_b_v}, 10, 2, false, true, 1200, 'verbose', false);
 s_ma = cosSimExpTens(da, db, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: SA-equivalence abs periodic';
 results{end,2}   = abs(s_ma - s_sa) < 1e-12;
@@ -467,8 +425,8 @@ results{end,2}   = abs(s_ma - s_sa) < 1e-12;
 for r_v = [2, 3]
     s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, r_v, true, true, 1200, ...
         'verbose', false);
-    da = buildExpTens({p_a_v}, {w_a_v}, 10, r_v, [], true, true, 1200, 'verbose', false);
-    db = buildExpTens({p_b_v}, {w_b_v}, 10, r_v, [], true, true, 1200, 'verbose', false);
+    da = buildExpTens({p_a_v}, {w_a_v}, 10, r_v, true, true, 1200, 'verbose', false);
+    db = buildExpTens({p_b_v}, {w_b_v}, 10, r_v, true, true, 1200, 'verbose', false);
     s_ma = cosSimExpTens(da, db, 'verbose', false);
     results{end+1,1} = sprintf('cosSimExpTens MA: SA-equivalence rel periodic r=%d', r_v); %#ok<SAGROW>
     results{end,2}   = abs(s_ma - s_sa) < 1e-12;
@@ -477,8 +435,8 @@ end
 % Relative + non-periodic
 s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 3, true, false, 0, ...
     'verbose', false);
-da = buildExpTens({p_a_v}, {w_a_v}, 10, 3, [], true, false, 0, 'verbose', false);
-db = buildExpTens({p_b_v}, {w_b_v}, 10, 3, [], true, false, 0, 'verbose', false);
+da = buildExpTens({p_a_v}, {w_a_v}, 10, 3, true, false, 0, 'verbose', false);
+db = buildExpTens({p_b_v}, {w_b_v}, 10, 3, true, false, 0, 'verbose', false);
 s_ma = cosSimExpTens(da, db, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: SA-equivalence rel non-periodic';
 results{end,2}   = abs(s_ma - s_sa) < 1e-12;
@@ -488,7 +446,7 @@ results{end,2}   = abs(s_ma - s_sa) < 1e-12;
 pitchMA = [0 12; 4 15; 7 19];    % 3 x 2
 timeMA  = [0 1];                  % 1 x 2
 d = buildExpTens({pitchMA, timeMA}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 s_self = cosSimExpTens(d, d, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: self-similarity = 1';
@@ -501,10 +459,10 @@ timeA  = [0 1];
 pitchB = [0 10; 4 13; 7 17];
 timeB  = [0 1.2];
 da = buildExpTens({pitchA, timeA}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 db = buildExpTens({pitchB, timeB}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 s_ab = cosSimExpTens(da, db, 'verbose', false);
 s_ba = cosSimExpTens(db, da, 'verbose', false);
@@ -517,10 +475,10 @@ pitchT  = [0; 400; 700];
 pitchTs = pitchT + 137;
 timeT   = 1;
 d1 = buildExpTens({pitchT,  timeT}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 d2 = buildExpTens({pitchTs, timeT}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 s_trans = cosSimExpTens(d1, d2, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: isRel transposition invariance';
@@ -529,7 +487,7 @@ results{end,2}   = abs(s_trans - 1) < 1e-10;
 % -- cosSimExpTens MA: raw-args matches struct form --
 
 s_raw = cosSimExpTens({pitchA, timeA}, [], {pitchB, timeB}, [], ...
-    [10, 0.1], [3, 1], [], [true, false], [true, false], [1200, 0], ...
+    [10, 0.1], [3, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: raw-args == struct form';
 results{end,2}   = abs(s_raw - s_ab) < 1e-12;
@@ -550,27 +508,27 @@ results{end,2}   = throwsError(@() cosSimExpTens( ...
 % -- cosSimExpTens MA: mixed struct types error --
 
 d_sa = buildExpTens([0 4 7], [], 10, 2, false, true, 1200, 'verbose', false);
-d_ma = buildExpTens({[0; 4; 7]}, [], 10, 2, [], false, true, 1200, 'verbose', false);
+d_ma = buildExpTens({[0; 4; 7]}, [], 10, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens: mixed SA/MA structs error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_sa, d_ma, 'verbose', false));
 
 % -- cosSimExpTens MA: parameter-mismatch errors --
 
-d_ref = buildExpTens({pitchA}, [], 10, 2, [], false, true, 1200, 'verbose', false);
+d_ref = buildExpTens({pitchA}, [], 10, 2, false, true, 1200, 'verbose', false);
 % different r
-d_r = buildExpTens({pitchA}, [], 10, 3, [], false, true, 1200, 'verbose', false);
+d_r = buildExpTens({pitchA}, [], 10, 3, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: mismatched r error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_r, 'verbose', false));
 % different sigma
-d_s = buildExpTens({pitchA}, [], 20, 2, [], false, true, 1200, 'verbose', false);
+d_s = buildExpTens({pitchA}, [], 20, 2, false, true, 1200, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: mismatched sigma error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_s, 'verbose', false));
 % different isRel
-d_rel = buildExpTens({pitchA}, [], 10, 2, [], true, true, 1200, 'verbose', false);
+d_rel = buildExpTens({pitchA}, [], 10, 2, true, true, 1200, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: mismatched isRel error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_rel, 'verbose', false));
 % different period on periodic group
-d_p = buildExpTens({pitchA}, [], 10, 2, [], false, true, 2400, 'verbose', false);
+d_p = buildExpTens({pitchA}, [], 10, 2, false, true, 2400, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: mismatched period error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_p, 'verbose', false));
 
@@ -580,7 +538,7 @@ p_e = [0; 4; 7];
 w_e = [1; 1; 1];
 H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
-H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, [], false, true, 12, ...
+H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: SA-equivalence periodic';
 results{end,2}   = abs(H_ma - H_sa) < 1e-10;
@@ -589,7 +547,7 @@ results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 
 H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, false, 0, ...
     'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
-H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, [], false, false, 0, ...
+H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, false, false, 0, ...
     'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: SA-equivalence non-periodic';
 results{end,2}   = abs(H_ma - H_sa) < 1e-10;
@@ -597,16 +555,16 @@ results{end,2}   = abs(H_ma - H_sa) < 1e-10;
 % -- entropyExpTens MA: uniform pitch near 1 --
 
 p_uniform = (0:11).';
-H_u = entropyExpTens({p_uniform}, [], 100, 1, [], false, true, 12, ...
+H_u = entropyExpTens({p_uniform}, [], 100, 1, false, true, 12, ...
     'method', 'normalized', 'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: uniform chromatic near 1';
 results{end,2}   = H_u > 0.95;
 
 % -- entropyExpTens MA: concentrated below uniform --
 
-H_one = entropyExpTens({5}, [], 20, 1, [], false, true, 12, ...
+H_one = entropyExpTens({5}, [], 20, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
-H_all = entropyExpTens({p_uniform}, [], 20, 1, [], false, true, 12, ...
+H_all = entropyExpTens({p_uniform}, [], 20, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: concentrated < uniform';
 results{end,2}   = H_one < H_all;
@@ -616,7 +574,7 @@ results{end,2}   = H_one < H_all;
 pitchE = [0 12; 4 15; 7 19];   % 3 x 2
 timeE  = [0 1];                 % 1 x 2
 densE = buildExpTens({pitchE, timeE}, [], ...
-    [20, 0.1], [2, 1], [], [true, false], [true, false], [1200, 0], ...
+    [20, 0.1], [2, 1], [true, false], [true, false], [1200, 0], ...
     'verbose', false);
 results{end+1,1} = 'entropyExpTens MA: dim == 2 (r=2 pitch + r=1 time)';
 results{end,2}   = densE.dim == 2;
@@ -635,7 +593,7 @@ results{end,2}   = throwsError(@() entropyExpTens(densE, ...
 % -- entropyExpTens MA: missing bounds error --
 
 results{end+1,1} = 'entropyExpTens MA: missing non-periodic bounds errors';
-results{end,2}   = throwsError(@() entropyExpTens({p_e}, [], 10, 1, [], ...
+results{end,2}   = throwsError(@() entropyExpTens({p_e}, [], 10, 1, ...
     false, false, 0, 'nPointsPerDim', 100, 'verbose', false));
 
 % -- entropyExpTens MA: per-group bounds vector matches scalar --
@@ -717,7 +675,7 @@ results{end,2}   = isequal(pd{1}, [1 2]) && isequal(pd{2}, [2 4]);
 
 p_d = {[0 2 5 7], [0 0.5 1.2 1.7]};
 [pd, wd, ~] = differenceEvents(p_d, [], [], [0 1]);
-dens_d = buildExpTens(pd, wd, [10 0.05], [1 1], [], ...
+dens_d = buildExpTens(pd, wd, [10 0.05], [1 1], ...
     [false false], [true false], [1200 0], 'verbose', false);
 results{end+1,1} = 'differenceEvents: output feeds buildExpTens';
 results{end,2}   = strcmp(dens_d.tag, 'MaetDensity') && dens_d.N == 3;
@@ -820,7 +778,7 @@ pBundled = { vertcat(pDiff{:}) };    % 4 x 3 multi-slot bundle
 results{end+1,1} = 'differenceEvents: voices-as-attrs — bundle is 4 x 3';
 results{end,2}   = isequal(size(pBundled{1}), [4 3]);
 
-dens_v = buildExpTens(pBundled, [], 10, 1, [], false, false, 0, ...
+dens_v = buildExpTens(pBundled, [], 10, 1, false, false, 0, ...
     'verbose', false);
 results{end+1,1} = 'differenceEvents: voices-as-attrs — buildExpTens returns MaetDensity';
 results{end,2}   = strcmp(dens_v.tag, 'MaetDensity');
@@ -1400,12 +1358,12 @@ results{end,2}   = isequal(twice{1}, [26 27]);
 % -- translateAttributes: self-IP invariant under translation (non-periodic) --
 
 p_si = {[60 64 67]};
-M_si = buildExpTens(p_si, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+M_si = buildExpTens(p_si, [], 0.15, 1, false, false, 0, 'verbose', false);
 ip_self = cosSimExpTens(M_si, M_si, 'verbose', false);
 si_ok = true;
 for mu = [-3.0 1.5 7.0]
     p_mu = translateAttributes(p_si, [], mu, false, false, 0);
-    M_mu = buildExpTens(p_mu, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+    M_mu = buildExpTens(p_mu, [], 0.15, 1, false, false, 0, 'verbose', false);
     ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
     if abs(ip_mu - ip_self) > 1e-12 * max(1, abs(ip_self))
         si_ok = false;
@@ -1418,12 +1376,12 @@ results{end,2}   = si_ok;
 % -- translateAttributes: self-IP invariant under translation (periodic) --
 
 p_sp = {[0 4 7]};
-M_sp = buildExpTens(p_sp, [], 0.15, 1, [], false, true, 12, 'verbose', false);
+M_sp = buildExpTens(p_sp, [], 0.15, 1, false, true, 12, 'verbose', false);
 ip_sp_self = cosSimExpTens(M_sp, M_sp, 'verbose', false);
 sp_ok = true;
 for mu = [-7.0 1.5 6.0 15.0]
     p_mu = translateAttributes(p_sp, [], mu, false, true, 12);
-    M_mu = buildExpTens(p_mu, [], 0.15, 1, [], false, true, 12, 'verbose', false);
+    M_mu = buildExpTens(p_mu, [], 0.15, 1, false, true, 12, 'verbose', false);
     ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
     if abs(ip_mu - ip_sp_self) > 1e-12 * max(1, abs(ip_sp_self))
         sp_ok = false;
@@ -1437,12 +1395,12 @@ results{end,2}   = sp_ok;
 
 p_q = {[60 64 67]};       % C major
 p_c = {[62 66 69]};       % D major (= +2 st)
-M_q = buildExpTens(p_q, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+M_q = buildExpTens(p_q, [], 0.15, 1, false, false, 0, 'verbose', false);
 best_mu = NaN;
 best_s  = -Inf;
 for mu = -12:0.25:12
     p_c_mu = translateAttributes(p_c, [], mu, false, false, 0);
-    M_c_mu = buildExpTens(p_c_mu, [], 0.15, 1, [], false, false, 0, 'verbose', false);
+    M_c_mu = buildExpTens(p_c_mu, [], 0.15, 1, false, false, 0, 'verbose', false);
     s = cosSimExpTens(M_q, M_c_mu, 'verbose', false);
     if s > best_s
         best_s = s;
@@ -1646,7 +1604,7 @@ period_ma = [1200 0];
 
 % (a) Scalar dispatch unchanged.
 s_scalar = cosSimExpTens(p_ref, [], p_qry, [], ...
-    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
 results{end+1,1} = 'cosSimExpTens raw-MA scalar dispatch returns numeric scalar';
 results{end,2}   = isnumeric(s_scalar) && isscalar(s_scalar) && isfinite(s_scalar);
@@ -1656,7 +1614,7 @@ offs_rma  = [-100  0   100  200; 0 1 2 1];
 qry_swept = translateAttributes(p_qry, groups_ma, offs_rma, ...
                              isRel_ma, isPer_ma, period_ma);
 s_list = cosSimExpTens(p_ref, [], qry_swept, [], ...
-    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
 results{end+1,1} = 'cosSimExpTens raw-MA list returns 1-by-M cell';
 results{end,2}   = iscell(s_list) && numel(s_list) == 4 ...
@@ -1664,11 +1622,11 @@ results{end,2}   = iscell(s_list) && numel(s_list) == 4 ...
                                   s_list));
 
 % (c) Floating-point parity with manual build loop.
-dens_ref = buildExpTens(p_ref, [], sigma_ma, r_ma, groups_ma, ...
+dens_ref = buildExpTens(p_ref, [], sigma_ma, r_ma, ...
     isRel_ma, isPer_ma, period_ma, 'verbose', false);
 s_manual = zeros(1, numel(qry_swept));
 for m = 1:numel(qry_swept)
-    dens_q = buildExpTens(qry_swept{m}, [], sigma_ma, r_ma, groups_ma, ...
+    dens_q = buildExpTens(qry_swept{m}, [], sigma_ma, r_ma, ...
         isRel_ma, isPer_ma, period_ma, 'verbose', false);
     s_manual(m) = cosSimExpTens(dens_ref, dens_q, 'verbose', false);
 end
@@ -1678,7 +1636,7 @@ results{end,2}   = max(abs(s_list_num - s_manual)) < 1e-12;
 
 % (d) Operand order symmetric.
 s_rev = cosSimExpTens(qry_swept, [], p_ref, [], ...
-    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
 s_rev_num = cell2mat(s_rev);
 results{end+1,1} = 'cosSimExpTens raw-MA list symmetric in operand order';
@@ -1692,7 +1650,7 @@ ref_swept   = translateAttributes(p_ref, groups_ma, [0 50; 0 0], ...
 results{end+1,1} = 'cosSimExpTens raw-MA list-vs-list rejected';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(ref_swept, [], qry_swept_2, [], ...
-        sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+        sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
         'verbose', false), ...
     'cosSimExpTens:listVsListNotSupported');
 
@@ -1701,7 +1659,7 @@ offs_self = [-200 -100 0 100 200; 0 0 0 0 0];
 ref_self  = translateAttributes(p_ref, groups_ma, offs_self, ...
                              isRel_ma, isPer_ma, period_ma);
 s_self    = cosSimExpTens(p_ref, [], ref_self, [], ...
-    sigma_ma, r_ma, groups_ma, isRel_ma, isPer_ma, period_ma, ...
+    sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
 s_self_num = cell2mat(s_self);
 [~, iMax]  = max(s_self_num);
@@ -1713,7 +1671,7 @@ results{end,2}   = iMax == 3 && abs(s_self_num(3) - 1) < 1e-9;
 pitch_w = [60 62 64 65];    % 1 x 4 events
 time_w  = [0  1  2  3];
 dens_w = buildExpTens({pitch_w, time_w}, [], ...
-    [10 0.1], [1 1], [], ...
+    [10 0.1], [1 1], ...
     [false false], [true false], [1200 0], ...
     'lazy', false, 'verbose', false);
 
@@ -1779,7 +1737,7 @@ results{end,2}   = isfinite(s_raised) && s_raised > 0 && s_raised < 1;
 % -- windowTensor: multi-D relative Gaussian works --
 
 pitchMR = [60 62; 64 65; 67 69];   % 3 slots, 2 events
-dens_mr = buildExpTens({pitchMR}, [], 10, 3, [], ...
+dens_mr = buildExpTens({pitchMR}, [], 10, 3, ...
     true, true, 1200, 'verbose', false);
 spec_mr_gauss = struct('size', 1, 'mix', 0, ...
                        'centre', {{[50; 100]}});
@@ -1825,12 +1783,12 @@ results{end,2}   = H_narrow < H_base;
 pitch_narrow = [60 62 64 65];
 time_narrow  = [0  1  2  3];
 ctx_narrow = buildExpTens({pitch_narrow, time_narrow}, [], ...
-    [0.5 0.1], [1 1], [], [false false], [true false], [1200 0], ...
+    [0.5 0.1], [1 1], [false false], [true false], [1200 0], ...
     'verbose', false);
 
 % Fixed single-event query at pitch 62, time 0 (centroid at t=0).
 q_sw = buildExpTens({62, 0}, [], ...
-    [0.5 0.1], [1 1], [], [false false], [true false], [1200 0], ...
+    [0.5 0.1], [1 1], [false false], [true false], [1200 0], ...
     'verbose', false);
 
 M_sweep = 21;
@@ -1967,7 +1925,7 @@ results{end,2}   = no_warn_periodic;
 P_test = 12;
 sigma_test = 1;
 pitches_test = [3, 7];
-dens_per = buildExpTens({pitches_test}, [], sigma_test, 1, [], false, true, P_test, 'verbose', false);
+dens_per = buildExpTens({pitches_test}, [], sigma_test, 1, false, true, P_test, 'verbose', false);
 spec_eval = struct('size', 3, 'mix', 0, 'centre', {{2}});
 wmd_eval = windowTensor(dens_per, spec_eval);
 v0      = evalExpTens(wmd_eval, 0.5);
@@ -2041,7 +1999,7 @@ results{end,2}   = isequal(wmd_n.centre{1}, -7.5) && isequal(wmd_n.centre{2}, -7
 % Multi-D scalar broadcasting: r=3 absolute single attribute, d_a = 3.
 % A scalar should fill all three slots.
 pitchMA3 = [60 62 64; 67 69 71; 72 74 76];   % 3 slots, 3 events
-dens_ma3 = buildExpTens({pitchMA3}, [], 10, 3, [], ...
+dens_ma3 = buildExpTens({pitchMA3}, [], 10, 3, ...
     false, false, 0, 'verbose', false);
 spec_sc3 = struct('size', 1.5, 'mix', 0.5, 'centre', 5.0);
 wmd_sc3 = windowTensor(dens_ma3, spec_sc3);
@@ -2231,10 +2189,10 @@ p0_x = (rand(K_a4, 1) * 2 - 1) * 200; w0_x = 0.5 + rand(K_a4, 1);
 p1_x = (rand(K_b4, 1) * 2 - 1) * 200; w1_x = 0.5 + rand(K_b4, 1);
 p0_y = (rand(K_a4, 1) * 2 - 1) * 200; w0_y = 0.5 + rand(K_a4, 1);
 p1_y = (rand(K_b4, 1) * 2 - 1) * 200; w1_y = 0.5 + rand(K_b4, 1);
-dens_x_4 = buildExpTens({p0_x, p1_x}, {w0_x, w1_x}, 30.0, [2 2], [1 1], ...
-    false, false, 0.0, 'verbose', false);
-dens_y_4 = buildExpTens({p0_y, p1_y}, {w0_y, w1_y}, 30.0, [2 2], [1 1], ...
-    false, false, 0.0, 'verbose', false);
+dens_x_4 = buildExpTens({p0_x, p1_x}, {w0_x, w1_x}, [30.0 30.0], [2 2], ...
+    [false false], [false false], [0.0 0.0], 'verbose', false);
+dens_y_4 = buildExpTens({p0_y, p1_y}, {w0_y, w1_y}, [30.0 30.0], [2 2], ...
+    [false false], [false false], [0.0 0.0], 'verbose', false);
 centre_a0 = [10; 50];   centre_a1 = [-30; 20];
 spec_orig_4 = struct('size', 5.0, 'mix', 0.0, ...
     'centre', {{centre_a0, centre_a1}});
@@ -2416,9 +2374,9 @@ function c = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %case, used as the path under test in the symmetrisation suite.
     Pa = p_a(:);  Wa = w_a(:);
     Pb = p_b(:);  Wb = w_b(:);
-    dens_q = buildExpTens({Pa}, {Wa}, sigma, r, [], ...
+    dens_q = buildExpTens({Pa}, {Wa}, sigma, r, ...
         false, false, 0, 'verbose', false);
-    dens_c = buildExpTens({Pb}, {Wb}, sigma, r, [], ...
+    dens_c = buildExpTens({Pb}, {Wb}, sigma, r, ...
         false, false, 0, 'verbose', false);
     spec = struct('size', size_v, 'mix', mix_v, ...
         'centre', {{offset_vec(:)}});

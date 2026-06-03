@@ -41,10 +41,10 @@ def err_orbit_vs_pairwise(p1, w1, p2, w2, sigma, P, r, is_rel, is_per):
     is_pers = [is_per]
     periods = [P]
     d1 = build_exp_tens(
-        [p1], [w1], sigmas, rs, groups, is_rels, is_pers, periods, verbose=False,
+        [p1], [w1], sigmas, rs, is_rels, is_pers, periods, verbose=False,
     )
     d2 = build_exp_tens(
-        [p2], [w2], sigmas, rs, groups, is_rels, is_pers, periods, verbose=False,
+        [p2], [w2], sigmas, rs, is_rels, is_pers, periods, verbose=False,
     )
     o_xy, o_xx, o_yy = _cos_sim_exp_tens_ma_orbit(d1, d2)
     p_xy, p_xx, p_yy = _cos_sim_exp_tens_ma_pairwise(d1, d2, verbose=False)

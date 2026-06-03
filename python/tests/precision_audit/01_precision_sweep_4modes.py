@@ -20,8 +20,8 @@ def precision_cell(seed, r, K, sigma=50.0, is_rel=False, is_per=False, period=0.
     is_rel_vec = [is_rel] * A
     is_per_vec = [is_per] * A
     period_vec = [period] * A
-    dx = build_exp_tens(p_x, w_x, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec, verbose=False)
-    dy = build_exp_tens(p_y, w_y, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    dx = build_exp_tens(p_x, w_x, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    dy = build_exp_tens(p_y, w_y, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
     o_xy, o_xx, o_yy = _cos_sim_exp_tens_ma_orbit(dx, dy)
     p_xy, p_xx, p_yy = _cos_sim_exp_tens_ma_pairwise(dx, dy, verbose=False)
     cos_o = o_xy / np.sqrt(max(o_xx * o_yy, 1e-300))

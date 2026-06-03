@@ -261,7 +261,7 @@ class TestRawMAScalar:
         p_attr = [np.array([[0.0, 400.0, 700.0]]).T]   # shape (3, 1)
         s = cos_sim_exp_tens(
             p_attr, None, p_attr, None,
-            [15.0], [2], None, [False], [True], [1200.0],
+            [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
         assert s == pytest.approx(1.0)
@@ -272,15 +272,15 @@ class TestRawMAScalar:
         p_attr2 = [np.array([[0.0, 300.0, 700.0]]).T]
         s_raw = cos_sim_exp_tens(
             p_attr1, None, p_attr2, None,
-            [15.0], [2], None, [False], [True], [1200.0],
+            [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
         d1 = build_exp_tens(
-            p_attr1, None, [15.0], [2], None, [False], [True], [1200.0],
+            p_attr1, None, [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
         d2 = build_exp_tens(
-            p_attr2, None, [15.0], [2], None, [False], [True], [1200.0],
+            p_attr2, None, [15.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
         s_dens = cos_sim_exp_tens(d1, d2, verbose=False)

@@ -110,7 +110,7 @@ class TestCosSimNormalize:
 def _make_ma_density(p, sigma=100., r=1, period=1200.):
     return mpt.build_exp_tens(
         [np.asarray(p, dtype=float).reshape(1, -1)], None,
-        [sigma], [r], [0],
+        [sigma], [r], 
         [False], [True], [period], verbose=False,
     )
 

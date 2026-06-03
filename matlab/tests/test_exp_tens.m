@@ -172,8 +172,8 @@ results{end,2}   = throwsErrorWithId( ...
 
 results{end+1,1} = 'cosSimExpTens MA struct: ''spectrum'' kwarg errors';
 % Build small MA densities just for this test
-densMA_x = buildExpTens({[0; 4; 7]}, [], 0.5, 1, [], false, true, 12, 'verbose', false);
-densMA_y = buildExpTens({[0; 4; 7]}, [], 0.5, 1, [], false, true, 12, 'verbose', false);
+densMA_x = buildExpTens({[0; 4; 7]}, [], 0.5, 1, false, true, 12, 'verbose', false);
+densMA_y = buildExpTens({[0; 4; 7]}, [], 0.5, 1, false, true, 12, 'verbose', false);
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(densMA_x, densMA_y, 'spectrum', spec_fwd, 'verbose', false), ...
     'cosSimExpTens:spectrumNotApplicable');

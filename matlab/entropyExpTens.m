@@ -18,7 +18,7 @@ function H = entropyExpTens(varargin)
 %
 %     'differential' --- adaptive nested-grid evaluation of the
 %       differential entropy h_hat = H_disc + log_b(Delta-volume).
-%       The span auto-derives per group from centres +/-
+%       The span auto-derives per attribute from centres +/-
 %       truncationSigmas * sigma (non-periodic) or [0, period]
 %       (periodic); the grid doubles from a sample-per-sigma initial
 %       resolution until successive Richardson-extrapolated estimates
@@ -56,10 +56,10 @@ function H = entropyExpTens(varargin)
 %       weighted multiset (p, w), where p represents pitches or
 %       positions.
 %
-%     H = ENTROPYEXPTENS(pAttr, w, sigmaVec, rVec, groups, ...
+%     H = ENTROPYEXPTENS(pAttr, w, sigmaVec, rVec, ...
 %                        isRelVec, isPerVec, periodVec)
 %       Multi-attribute raw form. pAttr is a cell of per-attribute
-%       matrices; per-group parameters as in buildExpTens.
+%       matrices; per-attribute parameters as in buildExpTens.
 %
 %     H = ENTROPYEXPTENS(T)
 %       Pre-built density form. T is a struct as returned by
@@ -84,8 +84,8 @@ function H = entropyExpTens(varargin)
 %   H = ENTROPYEXPTENS(..., Name, Value) specifies additional options
 %   using one or more name-value arguments.
 %
-%   For periodic groups (isPer = true), the Shannon grid spans
-%   [0, period). For non-periodic groups, bounds must be specified
+%   For periodic attributes (isPer = true), the Shannon grid spans
+%   [0, period). For non-periodic attributes, bounds must be specified
 %   via xMin and xMax, wide enough to capture the full support of the
 %   distribution (e.g., at least 3*sigma beyond the outermost values).
 %   Rényi-2 is grid-free and ignores xMin, xMax, and nPointsPerDim.
@@ -121,13 +121,11 @@ function H = entropyExpTens(varargin)
 %   Inputs (MA raw path)
 %       pAttr     — 1 x A cell array of K_a x N matrices.
 %       w         - Weights. []/scalar/1 x A cell; see buildExpTens.
-%       sigmaVec  - 1 x G per-group Gaussian widths.
+%       sigmaVec  - 1 x A per-attribute Gaussian widths.
 %       rVec      - 1 x A per-attribute tuple sizes.
-%       groups    - Group assignment ([], index vector, or cell of
-%                   attribute-index lists); see buildExpTens.
-%       isRelVec  - 1 x G per-group relative flags.
-%       isPerVec  - 1 x G per-group periodic flags.
-%       periodVec - 1 x G per-group periods.
+%       isRelVec  - 1 x A per-attribute relative flags.
+%       isPerVec  - 1 x A per-attribute periodic flags.
+%       periodVec - 1 x A per-attribute periods.
 %
 %   Name-Value Arguments
 %       'method'        - One of {'shannon' (default), 'normalized',
@@ -146,9 +144,9 @@ function H = entropyExpTens(varargin)
 %                         'renyi2'. Pass an explicit positive integer.
 %       'xMin'          - Discrete methods, non-periodic only.
 %                         SA: scalar. MA: scalar (broadcast to all
-%                         non-periodic groups) or length-G vector (one
-%                         entry per group; periodic-group entries are
-%                         ignored). Default: NaN.
+%                         non-periodic attributes) or length-A vector
+%                         (one entry per attribute; periodic-attribute
+%                         entries are ignored). Default: NaN.
 %       'xMax'          - As xMin. Default: NaN.
 %       'gridLimit'     - Ceiling on total grid size before allocation.
 %                         Applies to MA always, and to SA whenever the
@@ -356,22 +354,21 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
         if isnumeric(firstArg{1})
             % MA raw: cell of attribute matrices.
-            if nPos ~= 8
+            if nPos ~= 7
                 error('entropyExpTens:wrongArgCountMA', ...
-                      ['Multi-attribute raw call expects 8 positional ' ...
-                       'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                      ['Multi-attribute raw call expects 7 positional ' ...
+                       'arguments (pAttr, w, sigmaVec, rVec, ' ...
                        'isRelVec, isPerVec, periodVec); got %d.'], nPos);
             end
             pAttr     = posArgs{1};
             w         = posArgs{2};
             sigmaVec  = posArgs{3};
             rVec      = posArgs{4};
-            groups    = posArgs{5};
-            isRelVec  = posArgs{6};
-            isPerVec  = posArgs{7};
-            periodVec = posArgs{8};
+            isRelVec  = posArgs{5};
+            isPerVec  = posArgs{6};
+            periodVec = posArgs{7};
             localRequireExplicitGrid(nvArgs.nPointsPerDim);
-            dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
+            dens = buildExpTens(pAttr, w, sigmaVec, rVec, ...
                                 isRelVec, isPerVec, periodVec, 'verbose', false);
             H = localEntropyMA(dens, nvArgs);
             return;
@@ -561,8 +558,6 @@ function H = localEntropyMA(dens, nvArgs)
         base_dens = dens;
     end
     A         = base_dens.nAttrs;
-    G         = base_dens.nGroups;
-    groupOf   = base_dens.groupOfAttr;
     dimPer    = base_dens.dimPerAttr;
     dim       = base_dens.dim;
     isPerG    = logical(base_dens.isPer);
@@ -575,21 +570,21 @@ function H = localEntropyMA(dens, nvArgs)
         return;
     end
 
-    % --- Resolve xMin/xMax to per-group vectors ---
-    xMinG = localBroadcastBounds(nvArgs.xMin, G, 'xMin');
-    xMaxG = localBroadcastBounds(nvArgs.xMax, G, 'xMax');
+    % --- Resolve xMin/xMax to per-attribute vectors ---
+    xMinG = localBroadcastBounds(nvArgs.xMin, A, 'xMin');
+    xMaxG = localBroadcastBounds(nvArgs.xMax, A, 'xMax');
 
-    % --- Check non-periodic groups have valid bounds ---
+    % --- Check non-periodic attributes have valid bounds ---
     needsBounds = find(~isPerG);
     for idx = 1:numel(needsBounds)
         g = needsBounds(idx);
         if isnan(xMinG(g)) || isnan(xMaxG(g))
             error('entropyExpTens:missingBounds', ...
-                  'xMin and xMax must be specified for non-periodic group %d.', g);
+                  'xMin and xMax must be specified for non-periodic attribute %d.', g);
         end
         if xMinG(g) >= xMaxG(g)
             error('entropyExpTens:invalidBounds', ...
-                  'xMin must be less than xMax (group %d).', g);
+                  'xMin must be less than xMax (attribute %d).', g);
         end
     end
 
@@ -606,19 +601,18 @@ function H = localEntropyMA(dens, nvArgs)
     end
 
     % --- Build one 1-D axis per effective dimension ---
-    % Each effective dimension belongs to an attribute, which belongs
-    % to a group. Each 1-D axis uses that group's domain.
+    % Each effective dimension belongs to an attribute, which carries
+    % its own domain.
     axes1D = cell(1, dim);
     k = 0;
     for a = 1:A
         da = dimPer(a);
-        g  = groupOf(a);
-        if isPerG(g)
-            P = periodG(g);
+        if isPerG(a)
+            P = periodG(a);
             ax = linspace(0, P, nvArgs.nPointsPerDim + 1);
             ax = ax(1:end-1);
         else
-            ax = linspace(xMinG(g), xMaxG(g), nvArgs.nPointsPerDim);
+            ax = linspace(xMinG(a), xMaxG(a), nvArgs.nPointsPerDim);
         end
         for j = 1:da
             k = k + 1;
@@ -691,22 +685,22 @@ end
 %  Helpers
 % =========================================================================
 
-function out = localBroadcastBounds(v, G, name)
-% Coerce xMin or xMax input to a length-G vector.
-%   - scalar    -> broadcast to all groups
-%   - length-G  -> pass through
+function out = localBroadcastBounds(v, A, name)
+% Coerce xMin or xMax input to a length-A vector.
+%   - scalar    -> broadcast to all attributes
+%   - length-A  -> pass through
     v = double(v);
     if isscalar(v)
-        out = repmat(v, 1, G);
+        out = repmat(v, 1, A);
         return;
     end
-    if isvector(v) && numel(v) == G
+    if isvector(v) && numel(v) == A
         out = v(:).';
         return;
     end
     error('entropyExpTens:badBoundsShape', ...
-          '%s must be a scalar or a length-%d vector (one per group); got size [%s].', ...
-          name, G, num2str(size(v)));
+          '%s must be a scalar or a length-%d vector (one per attribute); got size [%s].', ...
+          name, A, num2str(size(v)));
 end
 
 
@@ -1168,7 +1162,6 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
 
     A = double(dens.nAttrs);
     dimPer = double(dens.dimPerAttr);
-    groupOf = double(dens.groupOfAttr);
     sigmaG = double(dens.sigma);
     isPerG = logical(dens.isPer);
     periodG = double(dens.period);
@@ -1192,11 +1185,10 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
     axisD = 0;
     for a = 1:A
         da = double(dimPer(a));
-        g = double(groupOf(a));
-        sig = double(sigmaG(g));
-        isPerA = isPerG(g);
+        sig = double(sigmaG(a));
+        isPerA = isPerG(a);
         if isPerA
-            perA = double(periodG(g));
+            perA = double(periodG(a));
         else
             perA = 0.0;
         end
@@ -1301,7 +1293,7 @@ end
 %
 % h_hat = H_disc + log_b(cell_volume), converged on a per-axis nested-
 % grid refinement to a truncation-sigma-anchored tolerance. The span
-% auto-derives per group from `centres +/- truncation_sigmas * sigma`
+% auto-derives per attribute from `centres +/- truncation_sigmas * sigma`
 % (non-periodic) or `[0, period]` (periodic). The initial resolution
 % is ~2 samples per sigma per axis; N doubles each iteration until
 % successive Richardson-extrapolated estimates fall below tolerance,
@@ -1357,14 +1349,14 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         end
     elseif iscell(firstArg)
         % MA raw args.
-        if nPos ~= 8
+        if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
-                ['Multi-attribute raw call expects 8 positional ' ...
-                 'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                ['Multi-attribute raw call expects 7 positional ' ...
+                 'arguments (pAttr, w, sigmaVec, rVec, ' ...
                  'isRelVec, isPerVec, periodVec); got %d.'], nPos);
         end
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, posArgs{8}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, ...
                             'verbose', false);
         isSA = false;
     else
@@ -1567,32 +1559,24 @@ end
 function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, ts)
 %LOCALDIFFSPANSMA  Auto-spans for a MaetDensity.
 
-    G = double(dens.nGroups);
     A = double(dens.nAttrs);
     dimPer = double(dens.dimPerAttr);
-    groupOf = double(dens.groupOfAttr);
     sigmaG = double(dens.sigma);
     isPerG = logical(dens.isPer);
     periodG = double(dens.period);
     pAttr = dens.pAttr;
 
-    xMinG = nan(1, G);
-    xMaxG = nan(1, G);
-    n0PerGroup = zeros(1, G);
+    xMinG = nan(1, A);
+    xMaxG = nan(1, A);
+    n0PerAttr = zeros(1, A);
 
-    for g = 1:G
-        sig = sigmaG(g);
-        if isPerG(g)
-            Wg = periodG(g);
+    for a = 1:A
+        sig = sigmaG(a);
+        if isPerG(a)
+            Wg = periodG(a);
         else
-            % Collect centres from every attribute in this group.
-            cFlat = [];
-            for a = 1:A
-                if groupOf(a) == g
-                    Pa = double(pAttr{a});
-                    cFlat = [cFlat; Pa(:)]; %#ok<AGROW>
-                end
-            end
+            Pa = double(pAttr{a});
+            cFlat = Pa(:);
             if isempty(cFlat)
                 cMin = 0;
                 cMax = 0;
@@ -1600,32 +1584,31 @@ function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, 
                 cMin = min(cFlat);
                 cMax = max(cFlat);
             end
-            xMinG(g) = cMin - ts * sig;
-            xMaxG(g) = cMax + ts * sig;
-            Wg = xMaxG(g) - xMinG(g);
+            xMinG(a) = cMin - ts * sig;
+            xMaxG(a) = cMax + ts * sig;
+            Wg = xMaxG(a) - xMinG(a);
         end
-        n0PerGroup(g) = max(4, ceil(2.0 * Wg / sig));
+        n0PerAttr(a) = max(4, ceil(2.0 * Wg / sig));
     end
 
     perAxisW = [];
     perAxisPer = [];
     for a = 1:A
-        g = groupOf(a);
-        if isPerG(g)
-            Wa = periodG(g);
+        if isPerG(a)
+            Wa = periodG(a);
         else
-            Wa = xMaxG(g) - xMinG(g);
+            Wa = xMaxG(a) - xMinG(a);
         end
         for j = 1:dimPer(a)
             perAxisW(end+1) = Wa; %#ok<AGROW>
-            perAxisPer(end+1) = isPerG(g); %#ok<AGROW>
+            perAxisPer(end+1) = isPerG(a); %#ok<AGROW>
         end
     end
     dim = sum(dimPer);
-    if isempty(n0PerGroup)
+    if isempty(n0PerAttr)
         n0 = 4;
     else
-        n0 = max(n0PerGroup);
+        n0 = max(n0PerAttr);
     end
 end
 
@@ -1691,14 +1674,14 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % --- MA raw args (first arg is a cell of arrays) ---
     if iscell(firstArg)
-        if nPos ~= 8
+        if nPos ~= 7
             error('entropyExpTens:wrongArgCountMA', ...
-                ['Multi-attribute raw call expects 8 positional ' ...
-                 'arguments (pAttr, w, sigmaVec, rVec, groups, ' ...
+                ['Multi-attribute raw call expects 7 positional ' ...
+                 'arguments (pAttr, w, sigmaVec, rVec, ' ...
                  'isRelVec, isPerVec, periodVec); got %d.'], nPos);
         end
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
-                            posArgs{5}, posArgs{6}, posArgs{7}, posArgs{8}, ...
+                            posArgs{5}, posArgs{6}, posArgs{7}, ...
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
         H = localRenyi2MA(dens, base);
@@ -1850,12 +1833,11 @@ function H = localRenyi2MA(dens, base)
     % rather than a ratio fallback.
     P_xx = ones(N, N);
     for a = 1:A
-        g = dens.groupOfAttr(a);
         r_a = dens.r(a);
-        sigma_g = dens.sigma(g);
-        isRel_g = dens.isRel(g);
-        isPer_g = dens.isPer(g);
-        period_g = dens.period(g);
+        sigma_g = dens.sigma(a);
+        isRel_g = dens.isRel(a);
+        isPer_g = dens.isPer(a);
+        period_g = dens.period(a);
         Pa = dens.pAttr{a};
         Wa = dens.w{a};
         I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
@@ -1881,10 +1863,9 @@ function H = localRenyi2MA(dens, base)
     % the helper.
     Z_per_event_attr = zeros(N, A);
     for a = 1:A
-        g = dens.groupOfAttr(a);
         r_a = dens.r(a);
-        sigma_g = dens.sigma(g);
-        isRel_g = dens.isRel(g);
+        sigma_g = dens.sigma(a);
+        isRel_g = dens.isRel(a);
         Pa = dens.pAttr{a};   % (K_a, N)
         Wa = dens.w{a};       % (K_a, N)
         for n = 1:N

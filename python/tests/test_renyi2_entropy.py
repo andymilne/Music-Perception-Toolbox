@@ -147,7 +147,7 @@ def test_renyi2_ma_two_attr_periodic_matches_grid():
     p_attr = [rng.uniform(0, P, (1, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (1, N)), rng.uniform(0.5, 1.5, (1, N))]
     dens = build_exp_tens(
-        p_attr, w, [50.0, 0.05], [1, 1], [0, 1],
+        p_attr, w, [50.0, 0.05], [1, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
     H2 = entropy_exp_tens(dens, method='renyi2')
@@ -173,7 +173,7 @@ def test_renyi2_ma_mixed_r_matches_grid():
     p_attr = [rng.uniform(0, P, (3, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (3, N)), rng.uniform(0.5, 1.5, (1, N))]
     dens = build_exp_tens(
-        p_attr, w, [50.0, 0.05], [2, 1], [0, 1],
+        p_attr, w, [50.0, 0.05], [2, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
     H2 = entropy_exp_tens(dens, method='renyi2')
@@ -198,7 +198,7 @@ def test_renyi2_ma_relative_attribute():
     p_attr = [rng.uniform(0, P, (3, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (3, N)), rng.uniform(0.5, 1.5, (1, N))]
     dens = build_exp_tens(
-        p_attr, w, [50.0, 0.05], [2, 1], [0, 1],
+        p_attr, w, [50.0, 0.05], [2, 1], 
         [True, False], [True, True], [P, 1.0], verbose=False,
     )
     H2 = entropy_exp_tens(dens, method='renyi2')
@@ -336,7 +336,7 @@ def test_renyi2_ma_raises_on_orbit_negative(monkeypatch):
     p_attr = [rng.uniform(0, P, (1, N)), rng.uniform(0, 1.0, (1, N))]
     w = [rng.uniform(0.5, 1.5, (1, N)), rng.uniform(0.5, 1.5, (1, N))]
     dens = build_exp_tens(
-        p_attr, w, [50.0, 0.05], [1, 1], [0, 1],
+        p_attr, w, [50.0, 0.05], [1, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
 

@@ -81,11 +81,11 @@ def main():
                 w2 = rng.uniform(0.1, 1.0, (K, N))
 
                 d1 = build_exp_tens(
-                    [p1], [w1], [sigma], [r], [0],
+                    [p1], [w1], [sigma], [r], 
                     [is_rel], [is_per], [P], verbose=False,
                 )
                 d2 = build_exp_tens(
-                    [p2], [w2], [sigma], [r], [0],
+                    [p2], [w2], [sigma], [r], 
                     [is_rel], [is_per], [P], verbose=False,
                 )
 

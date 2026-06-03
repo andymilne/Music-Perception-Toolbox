@@ -191,7 +191,7 @@ def _build_ma_pitch_time(rng, N, K_pitch=3, sigma_pitch=10.0, sigma_time=0.05,
     time = np.atleast_2d(rng.uniform(0, N * 0.5, N))  # 1 × N
     return build_exp_tens(
         [pitch, time], None,
-        [sigma_pitch, sigma_time], [r_pitch, r_time], None,
+        [sigma_pitch, sigma_time], [r_pitch, r_time], 
         [pitch_rel, False], [pitch_per, False], [P, 0.0],
         verbose=False,
     )
@@ -248,14 +248,14 @@ def test_orbit_ma_matches_pairwise_single_attr():
     pitch = rng.uniform(0, 1200, (K, N))
     dens_x = build_exp_tens(
         [pitch], None,
-        [12.0], [3], None,
+        [12.0], [3], 
         [True], [True], [1200.0],
         verbose=False,
     )
     pitch2 = rng.uniform(0, 1200, (K, N))
     dens_y = build_exp_tens(
         [pitch2], None,
-        [12.0], [3], None,
+        [12.0], [3], 
         [True], [True], [1200.0],
         verbose=False,
     )
@@ -290,14 +290,14 @@ def test_orbit_ma_matches_pairwise_rel_nonper(r_a, K_a, N):
                 for _ in range(A)]
     dens_x = build_exp_tens(
         p_attr_X, None,
-        [12.0], [r_a]*A, [0]*A,
-        [True], [False], [1200.0],   # rel + nonper, single group
+        [12.0]*A, [r_a]*A,
+        [True]*A, [False]*A, [1200.0]*A,   # rel + nonper, shared geometry
         verbose=False,
     )
     dens_y = build_exp_tens(
         p_attr_Y, None,
-        [12.0], [r_a]*A, [0]*A,
-        [True], [False], [1200.0],
+        [12.0]*A, [r_a]*A,
+        [True]*A, [False]*A, [1200.0]*A,
         verbose=False,
     )
     cos_orbit = cos_sim_exp_tens(
@@ -343,7 +343,7 @@ def test_orbit_ma_handles_r1_attribute():
     a2 = np.atleast_2d(rng.uniform(0, 1200, N))
     dens_x = build_exp_tens(
         [a1, a2], None,
-        [10.0, 10.0], [1, 1], None,
+        [10.0, 10.0], [1, 1], 
         [False, False], [True, True], [1200.0, 1200.0],
         verbose=False,
     )
@@ -351,7 +351,7 @@ def test_orbit_ma_handles_r1_attribute():
     a2y = np.atleast_2d(rng.uniform(0, 1200, N))
     dens_y = build_exp_tens(
         [a1y, a2y], None,
-        [10.0, 10.0], [1, 1], None,
+        [10.0, 10.0], [1, 1], 
         [False, False], [True, True], [1200.0, 1200.0],
         verbose=False,
     )
@@ -384,13 +384,13 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
     weights_y = np.ones_like(pitch_y)
     dens_x = build_exp_tens(
         [pitch_x], [weights_x],
-        [12.0], [2], None,
+        [12.0], [2], 
         [True], [True], [1200.0],
         verbose=False,
     )
     dens_y = build_exp_tens(
         [pitch_y], [weights_y],
-        [12.0], [2], None,
+        [12.0], [2], 
         [True], [True], [1200.0],
         verbose=False,
     )
@@ -428,13 +428,13 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
 
     dens_x = build_exp_tens(
         [pitch_x], [weights_x],
-        [25.0], [3], None,
+        [25.0], [3], 
         [False], [False], [0.0],
         verbose=False,
     )
     dens_y = build_exp_tens(
         [pitch_y], [weights_y],
-        [25.0], [3], None,
+        [25.0], [3], 
         [False], [False], [0.0],
         verbose=False,
     )

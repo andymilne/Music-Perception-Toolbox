@@ -13,12 +13,12 @@ function wmd = windowTensor(dens, windowSpec)
 %       windowSpec  - Struct with fields:
 %           size    - Per-group window effective standard deviation in
 %                     multiples of that group's sigma. Scalar (broadcast
-%                     across all groups) or 1 x G vector. NaN or Inf on
+%                     across all attributes) or 1 x A vector. NaN or Inf on
 %                     an entry means the group is not windowed.
 %           mix     - Per-group shape parameter in [0, 1]: 0 = pure
 %                     Gaussian, 1 = pure rectangular, in between =
 %                     rectangular-convolved-with-Gaussian. Scalar or
-%                     1 x G vector.
+%                     1 x A vector.
 %           centre  - Per-attribute centre coordinates, in any of three
 %                     forms:
 %                       * Numeric scalar (or 1x1 numeric array, or any
@@ -50,7 +50,6 @@ function wmd = windowTensor(dens, windowSpec)
     end
 
     A = dens.nAttrs;
-    G = dens.nGroups;
     dimPerAttr = dens.dimPerAttr;
     dim_total = dens.dim;
 
@@ -61,12 +60,12 @@ function wmd = windowTensor(dens, windowSpec)
     end
     size_arr = double(windowSpec.size(:).');
     if isscalar(size_arr)
-        size_arr = repmat(size_arr, 1, G);
+        size_arr = repmat(size_arr, 1, A);
     end
-    if numel(size_arr) ~= G
+    if numel(size_arr) ~= A
         error('windowTensor:sizeLength', ...
               'windowSpec.size must be a scalar or length-%d vector; got length %d.', ...
-              G, numel(size_arr));
+              A, numel(size_arr));
     end
 
     % --- mix ---
@@ -76,12 +75,12 @@ function wmd = windowTensor(dens, windowSpec)
     end
     mix_arr = double(windowSpec.mix(:).');
     if isscalar(mix_arr)
-        mix_arr = repmat(mix_arr, 1, G);
+        mix_arr = repmat(mix_arr, 1, A);
     end
-    if numel(mix_arr) ~= G
+    if numel(mix_arr) ~= A
         error('windowTensor:mixLength', ...
               'windowSpec.mix must be a scalar or length-%d vector; got length %d.', ...
-              G, numel(mix_arr));
+              A, numel(mix_arr));
     end
     if any(mix_arr < 0) || any(mix_arr > 1)
         error('windowTensor:mixRange', ...

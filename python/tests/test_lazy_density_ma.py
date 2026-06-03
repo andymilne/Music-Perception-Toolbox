@@ -5,7 +5,7 @@ Parallel to ``test_lazy_density.py`` for the SA path. Verifies:
 1. ``build_exp_tens`` returns a lazy MA density.
 2. Reading any of the eager fields (``p_attr``, ``w``, ``sigma``,
    ``r``, ``k``, ``is_rel``, ``is_per``, ``period``,
-   ``group_of_attr``, ``attrs_of_group``, ``n_attrs``, ``n_groups``,
+   ``n_attrs``,
    ``n``, ``dim``, ``dim_per_attr``, ``tag``) does not materialise.
 3. Reading any of the lazy fields (``n_j``, ``n_k``, ``centres``,
    ``u_perm``, ``v_comb``, ``w_j``, ``wv_comb``, ``event_of_j``,
@@ -44,7 +44,7 @@ def _make_ma(seed=0):
         rng.uniform(0.5, 1.5, (1, N)),
     ]
     return build_exp_tens(
-        p_attr, w, [33.0, 0.05], [2, 1], [0, 1],
+        p_attr, w, [33.0, 0.05], [2, 1], 
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
 
@@ -62,7 +62,7 @@ def test_ma_build_returns_lazy_density():
 @pytest.mark.parametrize(
     "field",
     ["p_attr", "w", "sigma", "r", "k", "is_rel", "is_per", "period",
-     "group_of_attr", "attrs_of_group", "n_attrs", "n_groups", "n",
+     "n_attrs", "n",
      "dim", "dim_per_attr", "tag"],
 )
 def test_ma_eager_field_reads_do_not_materialise(field):
@@ -176,7 +176,7 @@ def test_ma_insufficient_slots_eager_error():
     pitch = np.array([[0.0, 0.0], [4.0, np.nan], [np.nan, np.nan]])
     with pytest.raises(ValueError, match="non-NaN slot"):
         build_exp_tens(
-            [pitch], None, [10.0], [2], None,
+            [pitch], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
 
@@ -186,7 +186,7 @@ def test_ma_wrong_r_vec_length_eager_error():
     pitch = np.array([[0.0, 4.0]])
     with pytest.raises(ValueError, match="r_vec"):
         build_exp_tens(
-            [pitch, pitch], None, [10.0, 10.0], [1], None,
+            [pitch, pitch], None, [10.0, 10.0], [1], 
             [False, False], [True, True], [1200.0, 1200.0],
             verbose=False,
         )

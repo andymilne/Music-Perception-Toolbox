@@ -231,8 +231,7 @@ def _cell_masses_ma_absolute(dens, axes: list,
 
     A = int(dens.n_attrs)
     dim_per = np.asarray(dens.dim_per_attr).astype(int)
-    group_of = np.asarray(dens.group_of_attr).astype(int)
-    sigma_per_group = np.asarray(dens.sigma).astype(float)  # (G,)
+    sigma_per_attr = np.asarray(dens.sigma).astype(float)  # (A,)
     is_per_g = np.asarray(dens.is_per).astype(bool)
     period_g = np.asarray(dens.period).astype(float)
 
@@ -253,10 +252,9 @@ def _cell_masses_ma_absolute(dens, axes: list,
     axis_d = 0
     for a in range(A):
         da = int(dim_per[a])
-        g = int(group_of[a])
-        sig = float(sigma_per_group[g])
-        is_per_a = bool(is_per_g[g])
-        per_a = float(period_g[g]) if is_per_a else 0.0
+        sig = float(sigma_per_attr[a])
+        is_per_a = bool(is_per_g[a])
+        per_a = float(period_g[a]) if is_per_a else 0.0
         Ca = np.asarray(centres[a], dtype=float)  # (da, n_j)
         for sub in range(da):
             ax = axes[axis_d]
@@ -426,7 +424,7 @@ def entropy_exp_tens(
 
     **Raw multi-attribute scalar input**:
 
-    - ``entropy_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+    - ``entropy_exp_tens(p_attr, w, sigma_vec, r_vec,
       is_rel_vec, is_per_vec, period_vec)``. Returns a Python float.
 
     Parameters
@@ -629,10 +627,10 @@ def _entropy_exp_tens_shannon_dispatch(
 
     # --- Raw args: dispatch on type of p ---
     if _looks_like_ma_p(p_or_dens):
-        if len(args) != 7:
+        if len(args) != 6:
             raise ValueError(
-                f"Multi-attribute raw call expects 8 positional arguments "
-                f"(p_attr, w, sigma_vec, r_vec, groups, is_rel_vec, "
+                f"Multi-attribute raw call expects 7 positional arguments "
+                f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, "
                 f"is_per_vec, period_vec); got {1 + len(args)}."
             )
         if spectrum is not None:
@@ -644,9 +642,9 @@ def _entropy_exp_tens_shannon_dispatch(
             raise TypeError(
                 "'precision' kwarg is only valid in raw SA batched input mode."
             )
-        w, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
+        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
         dens = build_exp_tens(
-            p_or_dens, w, sigma_vec, r_vec, groups,
+            p_or_dens, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec,
             verbose=False,
         )
@@ -839,57 +837,51 @@ def _diff_spans_sa(T, ts: float):
 def _diff_spans_ma(dens, ts: float):
     """Auto-spans for a MaetDensity.
 
-    Returns x_min_g, x_max_g (length-G arrays; NaN for periodic groups),
-    initial N (max across groups), total dim, per-axis widths, and
-    per-axis periodicity flags (in attribute-then-sub-axis order, matching
-    the grid layout used by _entropy_exp_tens_ma).
+    Returns x_min_a, x_max_a (length-A arrays; NaN for periodic
+    attributes), initial N (max across attributes), total dim, per-axis
+    widths, and per-axis periodicity flags (in attribute-then-sub-axis
+    order, matching the grid layout used by _entropy_exp_tens_ma).
     """
-    G = int(dens.n_groups)
     A = int(dens.n_attrs)
     dim_per = np.asarray(dens.dim_per_attr).astype(int)
-    group_of = np.asarray(dens.group_of_attr).astype(int)
-    sigma_g = np.asarray(dens.sigma).astype(float)   # (G,)
-    is_per_g = np.asarray(dens.is_per).astype(bool)  # (G,)
+    sigma_a = np.asarray(dens.sigma).astype(float)   # (A,)
+    is_per_g = np.asarray(dens.is_per).astype(bool)  # (A,)
     period_g = np.asarray(dens.period).astype(float)
     centres = dens.centres  # length-A list
 
-    x_min_g = np.full(G, float("nan"))
-    x_max_g = np.full(G, float("nan"))
-    n0_per_group = np.zeros(G, dtype=int)
+    x_min_g = np.full(A, float("nan"))
+    x_max_g = np.full(A, float("nan"))
+    n0_per_attr = np.zeros(A, dtype=int)
 
-    for g in range(G):
-        sig = float(sigma_g[g])
-        if bool(is_per_g[g]):
-            W_g = float(period_g[g])
+    for a in range(A):
+        sig = float(sigma_a[a])
+        if bool(is_per_g[a]):
+            W_g = float(period_g[a])
         else:
-            # Collect centres from every attribute in this group.
-            c_chunks = [np.asarray(centres[a], dtype=float).ravel()
-                        for a in range(A) if int(group_of[a]) == g]
-            if c_chunks:
-                c_flat = np.concatenate(c_chunks)
+            c_flat = np.asarray(centres[a], dtype=float).ravel()
+            if c_flat.size:
                 c_min = float(c_flat.min())
                 c_max = float(c_flat.max())
             else:
                 c_min = c_max = 0.0
-            x_min_g[g] = c_min - ts * sig
-            x_max_g[g] = c_max + ts * sig
-            W_g = x_max_g[g] - x_min_g[g]
-        n0_per_group[g] = max(4, int(np.ceil(2.0 * W_g / sig)))
+            x_min_g[a] = c_min - ts * sig
+            x_max_g[a] = c_max + ts * sig
+            W_g = x_max_g[a] - x_min_g[a]
+        n0_per_attr[a] = max(4, int(np.ceil(2.0 * W_g / sig)))
 
     per_axis_W = []
     per_axis_per = []
     for a in range(A):
-        g = int(group_of[a])
-        if bool(is_per_g[g]):
-            W_a = float(period_g[g])
+        if bool(is_per_g[a]):
+            W_a = float(period_g[a])
         else:
-            W_a = float(x_max_g[g] - x_min_g[g])
+            W_a = float(x_max_g[a] - x_min_g[a])
         for _ in range(int(dim_per[a])):
             per_axis_W.append(W_a)
-            per_axis_per.append(bool(is_per_g[g]))
+            per_axis_per.append(bool(is_per_g[a]))
 
     dim = int(np.sum(dim_per))
-    n0 = int(n0_per_group.max()) if n0_per_group.size > 0 else 4
+    n0 = int(n0_per_attr.max()) if n0_per_attr.size > 0 else 4
     return x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per
 
 
@@ -1338,15 +1330,15 @@ def _resolve_density(p_or_dens, args, spectrum):
 
     # --- Raw args: dispatch on type of p ---
     if _looks_like_ma_p(p_or_dens):
-        if len(args) != 7:
+        if len(args) != 6:
             raise ValueError(
-                f"Multi-attribute raw call expects 8 positional arguments "
-                f"(p_attr, w, sigma_vec, r_vec, groups, is_rel_vec, "
+                f"Multi-attribute raw call expects 7 positional arguments "
+                f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, "
                 f"is_per_vec, period_vec); got {1 + len(args)}."
             )
-        w, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
+        w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
         dens = build_exp_tens(
-            p_or_dens, w, sigma_vec, r_vec, groups,
+            p_or_dens, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec,
             verbose=False,
         )
@@ -1498,12 +1490,11 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     # SA path.
     P_xx = np.ones((N, N), dtype=np.float64)
     for a in range(A):
-        g = int(dens.group_of_attr[a])
         r_a = int(dens.r[a])
-        sigma = float(dens.sigma[g])
-        is_rel = bool(dens.is_rel[g])
-        is_per = bool(dens.is_per[g])
-        period = float(dens.period[g])
+        sigma = float(dens.sigma[a])
+        is_rel = bool(dens.is_rel[a])
+        is_per = bool(dens.is_per[a])
+        period = float(dens.period[a])
         Pa = dens.p_attr[a]
         Wa = dens.w[a]
         I_xx = _ma_per_attr_inner_matrix(
@@ -1528,10 +1519,9 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     # σ_a factors carry over without modification.
     Z_per_event_attr = np.empty((N, A), dtype=np.float64)
     for a in range(A):
-        g = int(dens.group_of_attr[a])
         r_a = int(dens.r[a])
-        sigma = float(dens.sigma[g])
-        is_rel = bool(dens.is_rel[g])
+        sigma = float(dens.sigma[a])
+        is_rel = bool(dens.is_rel[a])
         Pa = dens.p_attr[a]   # (K_a, N)
         Wa = dens.w[a]        # (K_a, N)
         for n in range(N):
@@ -1673,7 +1663,7 @@ def _entropy_exp_tens_ma(
 
     Accepts either a :class:`MaetDensity` or a
     :class:`WindowedMaetDensity`. Structural fields (dim, dim_per_attr,
-    groups, etc.) are read from the underlying density; evaluation
+    etc.) are read from the underlying density; evaluation
     itself calls :func:`eval_exp_tens` on the input object, so window
     application (if present) is handled automatically.
     """
@@ -1685,8 +1675,6 @@ def _entropy_exp_tens_ma(
     dim      = int(base_dens.dim)
     dim_per  = base_dens.dim_per_attr
     A        = base_dens.n_attrs
-    G        = base_dens.n_groups
-    group_of = base_dens.group_of_attr
     is_per_g = base_dens.is_per
     period_g = base_dens.period
 
@@ -1695,21 +1683,21 @@ def _entropy_exp_tens_ma(
         # with r=1). Density is a constant; entropy is 0.
         return 0.0
 
-    # --- Resolve x_min/x_max to per-group arrays ---
-    x_min_g = _broadcast_bounds(x_min, G, "x_min")
-    x_max_g = _broadcast_bounds(x_max, G, "x_max")
+    # --- Resolve x_min/x_max to per-attribute arrays ---
+    x_min_g = _broadcast_bounds(x_min, A, "x_min")
+    x_max_g = _broadcast_bounds(x_max, A, "x_max")
 
-    # --- Check non-periodic groups have valid bounds ---
+    # --- Check non-periodic attributes have valid bounds ---
     needs_bounds = np.flatnonzero(~is_per_g)
     for g in needs_bounds:
         if np.isnan(x_min_g[g]) or np.isnan(x_max_g[g]):
             raise ValueError(
                 f"x_min and x_max must be specified for non-periodic "
-                f"group {int(g)}."
+                f"attribute {int(g)}."
             )
         if x_min_g[g] >= x_max_g[g]:
             raise ValueError(
-                f"x_min must be less than x_max (group {int(g)})."
+                f"x_min must be less than x_max (attribute {int(g)})."
             )
 
     # --- Grid-size guard ---
@@ -1724,18 +1712,17 @@ def _entropy_exp_tens_ma(
         )
 
     # --- Build one 1-D linspace per effective dimension ---
-    # Each effective dimension belongs to an attribute, which belongs
-    # to a group. Each 1-D linspace uses that group's domain.
+    # Each effective dimension belongs to an attribute, which carries
+    # its own domain.
     axes = []
     for a in range(A):
         da = int(dim_per[a])
-        g = int(group_of[a])
-        if is_per_g[g]:
-            P = float(period_g[g])
+        if is_per_g[a]:
+            P = float(period_g[a])
             ax = np.linspace(0.0, P, int(n_points_per_dim) + 1)[:-1]
         else:
             ax = np.linspace(
-                float(x_min_g[g]), float(x_max_g[g]), int(n_points_per_dim)
+                float(x_min_g[a]), float(x_max_g[a]), int(n_points_per_dim)
             )
         for _ in range(da):
             axes.append(ax)
@@ -1785,20 +1772,20 @@ def _entropy_exp_tens_ma(
     return H
 
 
-def _broadcast_bounds(v, G, name):
-    """Coerce x_min or x_max input to a length-G float array.
+def _broadcast_bounds(v, A, name):
+    """Coerce x_min or x_max input to a length-A float array.
 
-    Accepts NaN, a scalar (broadcast), or a length-G array. Entries for
-    periodic groups are not validated here (they're never used).
+    Accepts NaN, a scalar (broadcast), or a length-A array. Entries for
+    periodic attributes are not validated here (they're never used).
     """
     arr = np.asarray(v, dtype=np.float64)
     if arr.ndim == 0:
-        return np.full(G, float(arr), dtype=np.float64)
-    if arr.ndim == 1 and arr.size == G:
+        return np.full(A, float(arr), dtype=np.float64)
+    if arr.ndim == 1 and arr.size == A:
         return arr.astype(np.float64, copy=False)
     raise ValueError(
-        f"{name} must be a scalar or a length-{G} vector (one entry per "
-        f"group); got shape {arr.shape}."
+        f"{name} must be a scalar or a length-{A} vector (one entry per "
+        f"attribute); got shape {arr.shape}."
     )
 
 
@@ -2052,8 +2039,8 @@ def n_tuple_entropy(
     # --- Build MAET ---
     T = build_exp_tens(
         p_bound, w_bound,
-        [sigma_use], [1] * n, [0] * n,
-        [False], [True], [period],
+        [sigma_use] * n, [1] * n,
+        [False] * n, [True] * n, [period] * n,
         verbose=False,
     )
 

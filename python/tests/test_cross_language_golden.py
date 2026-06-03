@@ -95,9 +95,9 @@ def test_golden_ma_cossim_ragged_k_hybrid():
     P_y = P_x + 50.0
     W_y = W_x.copy()
 
-    dx = build_exp_tens([P_x], [W_x], [25.0], [3], None,
+    dx = build_exp_tens([P_x], [W_x], [25.0], [3], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P_y], [W_y], [25.0], [3], None,
+    dy = build_exp_tens([P_y], [W_y], [25.0], [3], 
                         [False], [False], [0.0], verbose=False)
     s = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
     GOLDEN = 0.12066345091832
@@ -137,7 +137,7 @@ def test_golden_ma_renyi2():
     time = np.array([[0.0, 0.5, 1.0, 1.5]])  # (1, 4)
     H = entropy_exp_tens(
         [pitch, time], None,
-        [12.0, 0.05], [3, 1], [0, 1],
+        [12.0, 0.05], [3, 1], 
         [False, False], [True, False], [1200.0, 0.0],
         method='renyi2', base=2,
     )
@@ -224,7 +224,7 @@ def test_golden_ma_shannon_abs_dim2():
     P2 = np.array([[100., 200., 300.], [200., 250., 100.]])
     W2 = np.array([1., 1., 1.])
     dens = build_exp_tens(
-        [P2], [W2], [20.0], [2], [0], [False], [False], [0.0],
+        [P2], [W2], [20.0], [2], [False], [False], [0.0],
         verbose=False,
     )
     H = entropy_exp_tens(

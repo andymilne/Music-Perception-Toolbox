@@ -33,7 +33,7 @@ function s = cosSimExpTens(varargin)
 %   vector of similarities. Pass [] for W1 or W2 to use uniform
 %   weights. Equivalent to batchCosSimExpTens (which is now deprecated).
 %
-%   s = cosSimExpTens(pAttr1, w1, pAttr2, w2, sigma, r, groups, ...
+%   s = cosSimExpTens(pAttr1, w1, pAttr2, w2, sigma, r, ...
 %                     isRel, isPer, periods):
 %   Raw multi-attribute mode. pAttr1 and pAttr2 are each a 1-by-A
 %   cell of K_a-by-N value matrices (the same shape one would pass
@@ -41,7 +41,7 @@ function s = cosSimExpTens(varargin)
 %   and returns a scalar.
 %
 %   sCell = cosSimExpTens(refPAttr, refW, {pAttrA, pAttrB, ...}, qryW, ...
-%                          sigma, r, groups, isRel, isPer, periods):
+%                          sigma, r, isRel, isPer, periods):
 %   Raw multi-attribute scalar-vs-list mode (sweep). Exactly one of
 %   the two pAttr arguments is a cell-of-cells (a 1-by-M cell whose
 %   entries are themselves 1-by-A pAttr cells, e.g. the matrix-form
@@ -142,13 +142,10 @@ function s = cosSimExpTens(varargin)
 %                       across every list entry in the sweep form.
 %     sigmaVec        — 1-by-G per-group Gaussian widths.
 %     rVec            — 1-by-A per-attribute tuple sizes.
-%     groups          — Per-attribute group assignment ([], length-A
-%                       index vector, or 1-by-G cell of attribute-index
-%                       lists).
-%     isRelVec        — 1-by-G per-group relative flags.
-%     isPerVec        — 1-by-G per-group periodic flags.
-%     periodVec       — 1-by-G per-group period values (ignored where
-%                       isPerVec(g) == false).
+%     isRelVec        — 1-by-A per-attribute relative flags.
+%     isPerVec        — 1-by-A per-attribute periodic flags.
+%     periodVec       — 1-by-A per-attribute period values (ignored where
+%                       isPerVec(a) == false).
 %
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
@@ -411,7 +408,7 @@ end
 %         * any operand a 2-D matrix         -> BATCHED-RAW (early return).
 %         * both vectors                     -> SA raw (falls through).
 %
-%   nArgs == 10: multi-attribute raw form (cells).
+%   nArgs == 9:  multi-attribute raw form (cells).
 %     - both operands iscell                 -> MA raw (handles single-
 %                                                vs-list sub-cases).
 %     - otherwise                            -> usage error.
@@ -426,7 +423,7 @@ USAGE_MSG = ['Usage:\n' ...
     '  SA struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
     '  SA raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
     '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
-    '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, groups, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
+    '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
     '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
     '  Batched raw:  cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period) -> vector of values\n' ...
     '                (P1, P2 are nRows-by-K matrices; rows are paired multisets).'];
@@ -470,10 +467,72 @@ elseif nArgs == 9
     a = varargin{1};
     c = varargin{3};
     if iscell(a) || iscell(c)
-        error('cosSimExpTens:cellNeedsTenArgs', ...
-            ['cell-form p1/p2 (multi-attribute) requires 10 positional ' ...
-             'arguments: pAttr1, w1, pAttr2, w2, sigmaVec, rVec, groups, ' ...
-             'isRelVec, isPerVec, periodVec.']);
+        % --- MA raw: cell of attribute matrices (9-arg form).
+        %     Distinguishes a single MA pAttr (cell of numeric matrices)
+        %     from a list-of-MA (cell of cells) by the first inner
+        %     element. ---
+        if ~iscell(a) || ~iscell(c)
+            error('cosSimExpTens:cellPairNeedsCells', ...
+                ['The multi-attribute form requires both p1 (1st) and ' ...
+                 'p2 (3rd) to be cells (multi-attribute pAttr).']);
+        end
+        aIsListOfMA = ~isempty(a) && iscell(a{1});
+        bIsListOfMA = ~isempty(c) && iscell(c{1});
+        pAttr1    = varargin{1};
+        w1        = varargin{2};
+        pAttr2    = varargin{3};
+        w2        = varargin{4};
+        sigmaVec  = varargin{5};
+        rVec      = varargin{6};
+        isRelVec  = varargin{7};
+        isPerVec  = varargin{8};
+        periodVec = varargin{9};
+        if aIsListOfMA && bIsListOfMA
+            error('cosSimExpTens:listVsListNotSupported', ...
+                  ['Raw multi-attribute list-vs-list is not supported; pass ' ...
+                   'explicit density structs via the density list mode ' ...
+                   '(build each entry with buildExpTens first).']);
+        end
+        if ~aIsListOfMA && ~bIsListOfMA
+            dens_x_ma = buildExpTens(pAttr1, w1, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, 'verbose', verbose);
+            dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, 'verbose', verbose);
+            s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
+                              cancellationThreshold, verbose, ...
+                              truncationSigmas);
+            return;
+        end
+        % Scalar-vs-list broadcast. Build the scalar side once, iterate
+        % over the list. Weights for the list side are shared across all
+        % entries.
+        if bIsListOfMA
+            scalarPAttr = pAttr1;  scalarW = w1;
+            listPAttr   = pAttr2;  listW   = w2;
+            scalarFirst = true;
+        else
+            scalarPAttr = pAttr2;  scalarW = w2;
+            listPAttr   = pAttr1;  listW   = w1;
+            scalarFirst = false;
+        end
+        dens_scalar = buildExpTens(scalarPAttr, scalarW, sigmaVec, rVec, ...
+            isRelVec, isPerVec, periodVec, 'verbose', verbose);
+        M = numel(listPAttr);
+        s = cell(1, M);
+        for m = 1:M
+            dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, 'verbose', false);
+            if scalarFirst
+                s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
+                                     normalize, cancellationThreshold, false, ...
+                                     truncationSigmas);
+            else
+                s{m} = localCosSimMA(dens_m, dens_scalar, method, ...
+                                     normalize, cancellationThreshold, false, ...
+                                     truncationSigmas);
+            end
+        end
+        return;
     end
     if ~isnumeric(a) || ~isnumeric(c)
         error('cosSimExpTens:badPairTypes', USAGE_MSG);
@@ -539,76 +598,6 @@ elseif nArgs == 9
                           'verbose', verbose);
     dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
                           'verbose', verbose);
-
-elseif nArgs == 10
-    a = varargin{1};
-    c = varargin{3};
-    if ~iscell(a) || ~iscell(c)
-        error('cosSimExpTens:tenArgsNeedsCells', ...
-            ['The 10-positional-argument form requires both p1 (1st) and ' ...
-             'p2 (3rd) to be cells (multi-attribute pAttr).']);
-    end
-    % --- MA raw: cell of attribute matrices. Distinguishes a single
-    %     MA pAttr (cell of numeric matrices) from a list-of-MA (cell
-    %     of cells) by inspecting the first inner element.
-    aIsListOfMA = ~isempty(a) && iscell(a{1});
-    bIsListOfMA = ~isempty(c) && iscell(c{1});
-    pAttr1    = varargin{1};
-    w1        = varargin{2};
-    pAttr2    = varargin{3};
-    w2        = varargin{4};
-    sigmaVec  = varargin{5};
-    rVec      = varargin{6};
-    groups    = varargin{7};
-    isRelVec  = varargin{8};
-    isPerVec  = varargin{9};
-    periodVec = varargin{10};
-    if aIsListOfMA && bIsListOfMA
-        error('cosSimExpTens:listVsListNotSupported', ...
-              ['Raw multi-attribute list-vs-list is not supported; pass ' ...
-               'explicit density structs via the density list mode ' ...
-               '(build each entry with buildExpTens first).']);
-    end
-    if ~aIsListOfMA && ~bIsListOfMA
-        dens_x_ma = buildExpTens(pAttr1, w1, sigmaVec, rVec, groups, ...
-            isRelVec, isPerVec, periodVec, 'verbose', verbose);
-        dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, groups, ...
-            isRelVec, isPerVec, periodVec, 'verbose', verbose);
-        s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
-                          cancellationThreshold, verbose, ...
-                          truncationSigmas);
-        return;
-    end
-    % Scalar-vs-list broadcast. Build the scalar side once, iterate
-    % over the list. Weights for the list side are shared across all
-    % entries.
-    if bIsListOfMA
-        scalarPAttr = pAttr1;  scalarW = w1;
-        listPAttr   = pAttr2;  listW   = w2;
-        scalarFirst = true;
-    else
-        scalarPAttr = pAttr2;  scalarW = w2;
-        listPAttr   = pAttr1;  listW   = w1;
-        scalarFirst = false;
-    end
-    dens_scalar = buildExpTens(scalarPAttr, scalarW, sigmaVec, rVec, ...
-        groups, isRelVec, isPerVec, periodVec, 'verbose', verbose);
-    M = numel(listPAttr);
-    s = cell(1, M);
-    for m = 1:M
-        dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
-            groups, isRelVec, isPerVec, periodVec, 'verbose', false);
-        if scalarFirst
-            s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
-                                 normalize, cancellationThreshold, false, ...
-                                 truncationSigmas);
-        else
-            s{m} = localCosSimMA(dens_m, dens_scalar, method, ...
-                                 normalize, cancellationThreshold, false, ...
-                                 truncationSigmas);
-        end
-    end
-    return;
 
 else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
@@ -1401,35 +1390,30 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         error('cosSimExpTens:nAttrsMismatch', ...
             'Both MaetDensities must have the same nAttrs.');
     end
-    if ~isequal(dens_x.groupOfAttr, dens_y.groupOfAttr)
-        error('cosSimExpTens:groupsMismatch', ...
-            'Both MaetDensities must have the same groupOfAttr.');
-    end
     if ~isequal(dens_x.r, dens_y.r)
         error('cosSimExpTens:rMismatch', ...
             'Both MaetDensities must have the same r (per attribute).');
     end
     if ~isequal(dens_x.sigma, dens_y.sigma)
         error('cosSimExpTens:sigmaMismatch', ...
-            'Both MaetDensities must have the same sigma (per group).');
+            'Both MaetDensities must have the same sigma (per attribute).');
     end
     if ~isequal(logical(dens_x.isRel), logical(dens_y.isRel))
         error('cosSimExpTens:isRelMismatch', ...
-            'Both MaetDensities must have the same isRel (per group).');
+            'Both MaetDensities must have the same isRel (per attribute).');
     end
     if ~isequal(logical(dens_x.isPer), logical(dens_y.isPer))
         error('cosSimExpTens:isPerMismatch', ...
-            'Both MaetDensities must have the same isPer (per group).');
+            'Both MaetDensities must have the same isPer (per attribute).');
     end
     perMask = logical(dens_x.isPer);
     if any(dens_x.period(perMask) ~= dens_y.period(perMask))
         error('cosSimExpTens:periodMismatch', ...
-            'Both MaetDensities must have the same period for periodic groups.');
+            'Both MaetDensities must have the same period for periodic attributes.');
     end
 
     % --- Unpack shared parameters (scope for nested helpers) ---
     A        = dens_x.nAttrs;
-    groupOf  = dens_x.groupOfAttr;
     rVec     = dens_x.r;
     sigmaG   = dens_x.sigma;
     isRelG   = logical(dens_x.isRel);
@@ -1504,7 +1488,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     % =====================================================================
-    %  Nested helpers (rVec, sigmaG, isRelG, isPerG, periodG, groupOf, A
+    %  Nested helpers (rVec, sigmaG, isRelG, isPerG, periodG, A
     %  are in scope from the parent).
     % =====================================================================
 
@@ -1552,10 +1536,9 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     function logK = maLogKernel(U_cell, V_cell, nJ, nK)
-        % Accumulate sum_a -Q_a / (4 sigma_g^2) over attributes.
+        % Accumulate sum_a -Q_a / (4 sigma^2) over attributes.
         logK = zeros(nJ, nK);
         for a = 1:A
-            g = groupOf(a);
             r_a = rVec(a);
             D = reshape(U_cell{a}, r_a, nJ, 1) ...
               - reshape(V_cell{a}, r_a, 1, nK);
@@ -1567,29 +1550,29 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             % each pairwise (D(i)-D(j)) inside (Eq 6 form); that
             % inner wrap is invariant under integer-period shifts, so
             % wrapping D first is redundant.
-            if isPerG(g) && ~isRelG(g)
-                P_g = periodG(g);
+            if isPerG(a) && ~isRelG(a)
+                P_g = periodG(a);
                 D = D - P_g .* floor(D / P_g + 0.5);
             end
 
-            Qa = computeQaMA(D, g, r_a);
-            logK = logK - reshape(Qa, nJ, nK) / (4 * sigmaG(g)^2);
+            Qa = computeQaMA(D, a, r_a);
+            logK = logK - reshape(Qa, nJ, nK) / (4 * sigmaG(a)^2);
         end
     end
 
-    function Qa = computeQaMA(D, g, r_a)
+    function Qa = computeQaMA(D, a, r_a)
         % Per-attribute quadratic form. Matches the SA computeQ logic:
         %   - is_rel && is_per: pairwise-differences formula (wraps
         %     each pairwise delta to [-P/2, P/2), restores exact
         %     transposition invariance on the circle).
         %   - is_rel && ~is_per: sum(d.^2) - sum(d)^2 / r_a.
         %   - ~is_rel:           sum(d.^2).
-        if isRelG(g)
-            if isPerG(g)
+        if isRelG(a)
+            if isPerG(a)
                 sz = size(D);
                 if numel(sz) < 3, sz = [sz, 1]; end
                 Qa = zeros(1, sz(2), sz(3));
-                P_g = periodG(g);
+                P_g = periodG(a);
                 for i = 1:r_a
                     for j = i+1:r_a
                         delta = D(i, :, :) - D(j, :, :);
@@ -1657,11 +1640,11 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
         return;
     end
 
-    % sigma/period guard (rel + per groups only).
+    % sigma/period guard (rel + per attributes only).
     sigmaOverP_max = 0;
-    for g = 1:numel(sigmaG)
-        if isRelG(g) && isPerG(g) && periodG(g) > 0
-            ratio = sigmaG(g) / periodG(g);
+    for a = 1:numel(sigmaG)
+        if isRelG(a) && isPerG(a) && periodG(a) > 0
+            ratio = sigmaG(a) / periodG(a);
             if ratio > sigmaOverP_max
                 sigmaOverP_max = ratio;
             end
@@ -1671,7 +1654,7 @@ function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
         if verbose
             warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
                     ['Maximum sigma/period = %.3f across periodic-relative ' ...
-                     'groups exceeds the Möbius-method threshold (0.03); ' ...
+                     'attributes exceeds the Möbius-method threshold (0.03); ' ...
                      'falling back to Bulger''s method (the pairwise-wrap ' ...
                      'form). Pass ''method'', ''bulger'' explicitly to ' ...
                      'silence this warning.'], sigmaOverP_max);
@@ -1726,12 +1709,11 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
     end
 
     for a = 1:A
-        g       = dens_x.groupOfAttr(a);
         r_a     = dens_x.r(a);
-        sigma_g = dens_x.sigma(g);
-        isRel_g = dens_x.isRel(g);
-        isPer_g = dens_x.isPer(g);
-        period_g = dens_x.period(g);
+        sigma_g = dens_x.sigma(a);
+        isRel_g = dens_x.isRel(a);
+        isPer_g = dens_x.isPer(a);
+        period_g = dens_x.period(a);
 
         Px = dens_x.pAttr{a};   Wx = dens_x.w{a};
         Py = dens_y.pAttr{a};   Wy = dens_y.w{a};

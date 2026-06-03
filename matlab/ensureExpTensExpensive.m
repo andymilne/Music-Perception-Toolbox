@@ -18,7 +18,7 @@ function dens = ensureExpTensExpensive(dens)
 %     SA tag 'ExpTensDensity':
 %       p, w, sigma, r, isRel, isPer, period, dim
 %     MA tag 'MaetDensity':
-%       nAttrs, nGroups, N, groupOfAttr, attrsOfGroup, r, K, pAttr,
+%       nAttrs, N, r, K, pAttr,
 %       w, sigma, isRel, isPer, period, dim, dimPerAttr
 %
 %   Expensive fields (populated by this helper):
@@ -55,7 +55,6 @@ function dens = ensureExpTensExpensive(dens)
         case 'MaetDensity'
             dens = buildExpTens( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
-                dens.groupOfAttr, ...
                 dens.isRel, dens.isPer, dens.period, ...
                 'lazy', false, 'verbose', false);
 

@@ -41,7 +41,7 @@ def _make_time_pitch_dens(events, sigma_pitch=10.0, sigma_time=0.05):
     times = np.array([[t for _, t in events]])        # (1, n_events)
     return build_exp_tens(
         [pitches, times], None,
-        [sigma_pitch, sigma_time], [1, 1], None,
+        [sigma_pitch, sigma_time], [1, 1], 
         [False, False], [False, False], [0.0, 0.0],
         verbose=False,
     )

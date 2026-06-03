@@ -21,13 +21,12 @@ def _build(seed, A, K, N, r, sigma=20.0, is_rel=0):
     rng = np.random.default_rng(seed)
     P = [rng.uniform(-50, 50, size=(K, N)) for _ in range(A)]
     W = [rng.uniform(0.5, 1.5, size=(K, N)) for _ in range(A)]
-    sigma_vec = np.array([sigma], dtype=np.float64)
+    sigma_vec = np.full(A, sigma, dtype=np.float64)
     r_vec = np.asarray(r, dtype=np.intp)
-    groups = np.zeros(A, dtype=np.intp)
-    is_rel_vec = np.array([is_rel], dtype=np.intp)
-    is_per_vec = np.array([0], dtype=np.intp)
-    period_vec = np.array([0.0])
-    return build_exp_tens(P, W, sigma_vec, r_vec, groups,
+    is_rel_vec = np.full(A, is_rel, dtype=np.intp)
+    is_per_vec = np.zeros(A, dtype=np.intp)
+    period_vec = np.zeros(A, dtype=np.float64)
+    return build_exp_tens(P, W, sigma_vec, r_vec,
                           is_rel_vec, is_per_vec, period_vec,
                           verbose=False)
 
@@ -77,11 +76,10 @@ def test_list_form_never_broadcasts():
     W_list = [rng.uniform(0.5, 1.5, size=(4, 5)) for _ in range(2)]
     sigma_vec = np.array([20.0, 25.0])
     r_vec = np.array([1, 1], dtype=np.intp)
-    groups = np.array([0, 1], dtype=np.intp)
     is_rel = np.array([0, 0], dtype=np.intp)
     is_per = np.array([0, 0], dtype=np.intp)
     period = np.array([0.0, 0.0])
-    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec, groups,
+    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec,
                              is_rel, is_per, period, verbose=False)
     with pytest.raises(ValueError, match="length A = 2; got length 1"):
         window_tensor(dens_c, dict(size=[1, 1], mix=[0, 0],
@@ -110,13 +108,12 @@ def test_global_scalar_broadcast_ma_two_groups():
 
     sigma_vec = np.array([20.0, 25.0])
     r_vec = np.array([2, 3], dtype=np.intp)
-    groups = np.array([0, 1], dtype=np.intp)
     is_rel = np.array([0, 0], dtype=np.intp)
     is_per = np.array([0, 0], dtype=np.intp)
     period = np.array([0.0, 0.0])
-    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec, groups,
+    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec,
                              is_rel, is_per, period, verbose=False)
-    dens_q = build_exp_tens(P_q, W_q, sigma_vec, r_vec, groups,
+    dens_q = build_exp_tens(P_q, W_q, sigma_vec, r_vec,
                              is_rel, is_per, period, verbose=False)
     # d_a per attribute = r_a since absolute: [2, 3]; dim_total = 5.
     assert list(dens_c.dim_per_attr) == [2, 3]
@@ -145,11 +142,10 @@ def test_per_attribute_scalar_list_not_broadcast():
     W_list = [rng.uniform(0.5, 1.5, size=(4, 5)) for _ in range(2)]
     sigma_vec = np.array([20.0, 25.0])
     r_vec = np.array([2, 3], dtype=np.intp)
-    groups = np.array([0, 1], dtype=np.intp)
     is_rel = np.array([0, 0], dtype=np.intp)
     is_per = np.array([0, 0], dtype=np.intp)
     period = np.array([0.0, 0.0])
-    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec, groups,
+    dens_c = build_exp_tens(P_list, W_list, sigma_vec, r_vec,
                              is_rel, is_per, period, verbose=False)
     # dim_total = 2 + 3 = 5; a length-2 list-of-scalars is not auto-
     # broadcast to per-attribute uniform centres.

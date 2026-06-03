@@ -96,7 +96,7 @@ def eval_exp_tens(*args,
 
     **Raw multi-attribute scalar input**:
 
-    - ``eval_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+    - ``eval_exp_tens(p_attr, w, sigma_vec, r_vec,
       is_rel_vec, is_per_vec, period_vec, X)``. Returns ``(nQ,)``.
 
     Parameters
@@ -216,17 +216,17 @@ def eval_exp_tens(*args,
     # Raw multi-attribute dispatch
     # ------------------------------------------------------------------
     if _looks_like_multi_attr(a):
-        # 9 or 10 positional args.
-        if len(args) == 9:
-            (p_attr, w_in, sigma_vec, r_vec, groups,
+        # 8 or 9 positional args.
+        if len(args) == 8:
+            (p_attr, w_in, sigma_vec, r_vec,
              is_rel_vec, is_per_vec, period_vec, x) = args
-        elif len(args) == 10:
-            (p_attr, w_in, sigma_vec, r_vec, groups,
+        elif len(args) == 9:
+            (p_attr, w_in, sigma_vec, r_vec,
              is_rel_vec, is_per_vec, period_vec, x, normalize) = args
         else:
             raise TypeError(
-                f"Raw multi-attribute input expects 9 or 10 positional "
-                f"arguments (p_attr, w, sigma_vec, r_vec, groups, "
+                f"Raw multi-attribute input expects 8 or 9 positional "
+                f"arguments (p_attr, w, sigma_vec, r_vec, "
                 f"is_rel_vec, is_per_vec, period_vec, x[, normalize]); "
                 f"got {len(args)}."
             )
@@ -240,7 +240,7 @@ def eval_exp_tens(*args,
                 "'precision' kwarg is only valid in raw SA batched input mode."
             )
         return _eval_exp_tens_raw_ma_scalar(
-            p_attr, w_in, sigma_vec, r_vec, groups,
+            p_attr, w_in, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, x, normalize,
             verbose=verbose,
         )
@@ -531,14 +531,14 @@ def _eval_exp_tens_raw_sa_batch(
 
 
 def _eval_exp_tens_raw_ma_scalar(
-    p_attr, w, sigma_vec, r_vec, groups,
+    p_attr, w, sigma_vec, r_vec,
     is_rel_vec, is_per_vec, period_vec,
     x, normalize: str,
     *, verbose: bool,
 ) -> np.ndarray:
     """Raw MA scalar dispatch: build MA density, evaluate."""
     dens = build_exp_tens(
-        p_attr, w, sigma_vec, r_vec, groups,
+        p_attr, w, sigma_vec, r_vec,
         is_rel_vec, is_per_vec, period_vec, verbose=verbose,
     )
     return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
@@ -1036,12 +1036,11 @@ def _eval_exp_tens_ma(
     n_j         = dens.n_j
     dim         = dens.dim
     dim_per     = dens.dim_per_attr
-    group_of    = dens.group_of_attr
     r_vec       = dens.r
-    sigma_g     = dens.sigma
-    is_rel_g    = dens.is_rel
-    is_per_g    = dens.is_per
-    period_g    = dens.period
+    sigma       = dens.sigma
+    is_rel      = dens.is_rel
+    is_per      = dens.is_per
+    period      = dens.period
     centres     = dens.centres
     w_j         = dens.w_j
 
@@ -1121,8 +1120,8 @@ def _eval_exp_tens_ma(
     if bytes_needed <= mem_limit:
         vals = _ma_eval_full(
             centres, w_j, n_j, x_list, n_q,
-            A, dim_per, group_of, r_vec, sigma_g,
-            is_rel_g, is_per_g, period_g,
+            A, dim_per, r_vec, sigma,
+            is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
         )
@@ -1135,8 +1134,8 @@ def _eval_exp_tens_ma(
             x_chunk = [xa[:, c_start:c_end] for xa in x_list]
             vals[c_start:c_end] = _ma_eval_full(
                 centres, w_j, n_j, x_chunk, n_qc,
-                A, dim_per, group_of, r_vec, sigma_g,
-                is_rel_g, is_per_g, period_g,
+                A, dim_per, r_vec, sigma,
+                is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
             )
@@ -1145,13 +1144,12 @@ def _eval_exp_tens_ma(
     if normalize != "none":
         gauss_const = 1.0
         for a in range(A):
-            g = int(group_of[a])
             da = int(dim_per[a])
-            if is_rel_g[g] and r_vec[a] >= 2:
+            if is_rel[a] and r_vec[a] >= 2:
                 det_m_a = 1.0 / float(r_vec[a])
             else:
                 det_m_a = 1.0
-            gauss_const *= (2 * np.pi * sigma_g[g]**2) ** (-da / 2) \
+            gauss_const *= (2 * np.pi * sigma[a]**2) ** (-da / 2) \
                            * np.sqrt(det_m_a)
         vals = vals * gauss_const
 
@@ -1170,8 +1168,8 @@ def _eval_exp_tens_ma(
 
 def _ma_eval_full(
     centres, w_j, n_j, x_list, n_qc,
-    A, dim_per, group_of, r_vec, sigma_g,
-    is_rel_g, is_per_g, period_g,
+    A, dim_per, r_vec, sigma,
+    is_rel, is_per, period,
     *,
     truncation_sigmas=None,
     kernel_precision=None,
@@ -1180,6 +1178,8 @@ def _ma_eval_full(
 
     Accumulates the summed-quadratic exponent across attributes, then
     exponentiates once and does the weighted sum against ``w_j``.
+    Geometry (``sigma``, ``is_rel``, ``is_per``, ``period``) is
+    per-attribute, indexed directly by ``a``.
 
     Default-mode bypass: when ``truncation_sigmas`` is None/Inf and
     ``kernel_precision`` is None/'double', runs the inline accumulation
@@ -1210,7 +1210,6 @@ def _ma_eval_full(
         # post-filter branching.
         q_total = np.zeros((int(n_j), int(n_qc)), dtype=np.float64)
         for a in range(A):
-            g = int(group_of[a])
             da = int(dim_per[a])
             if da == 0:
                 continue
@@ -1219,13 +1218,13 @@ def _ma_eval_full(
             d_a = c_a[:, :, None] - x_a[:, None, :]
             # Outer wrap only needed for abs+per. For rel+per, _compute_Q
             # applies the pairwise wrap inside (Eq 6 of the preprint).
-            if is_per_g[g] and not is_rel_g[g]:
-                pg = float(period_g[g])
+            if is_per[a] and not is_rel[a]:
+                pg = float(period[a])
                 d_a = d_a - pg * np.floor(d_a / pg + 0.5)
-            q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel_g[g]),
-                             bool(is_per_g[g]), float(period_g[g]),
-                             reduced=bool(is_rel_g[g]))
-            q_total = q_total + q_a / (2 * sigma_g[g] ** 2)
+            q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel[a]),
+                             bool(is_per[a]), float(period[a]),
+                             reduced=bool(is_rel[a]))
+            q_total = q_total + q_a / (2 * sigma[a] ** 2)
         e = np.exp(-q_total)
         return w_j @ e
 
@@ -1236,7 +1235,6 @@ def _ma_eval_full(
     q_total = np.zeros((int(n_j), int(n_qc)), dtype=dtype)
 
     for a in range(A):
-        g = int(group_of[a])
         da = int(dim_per[a])
         if da == 0:
             continue
@@ -1247,17 +1245,17 @@ def _ma_eval_full(
 
         # Outer wrap only needed for abs+per. For rel+per, _compute_Q
         # applies the pairwise wrap inside (Eq 6).
-        if is_per_g[g] and not is_rel_g[g]:
-            pg = dtype(period_g[g])
+        if is_per[a] and not is_rel[a]:
+            pg = dtype(period[a])
             d_a = d_a - pg * np.floor(d_a / pg + 0.5)
 
         # _compute_Q matches d_a.dtype, preserving the single-precision
         # accumulator when kernel_precision='single'.
-        q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel_g[g]),
-                         bool(is_per_g[g]), float(period_g[g]),
-                         reduced=bool(is_rel_g[g]))
+        q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel[a]),
+                         bool(is_per[a]), float(period[a]),
+                         reduced=bool(is_rel[a]))
 
-        q_total = q_total + q_a / (2 * dtype(sigma_g[g]) ** 2)
+        q_total = q_total + q_a / (2 * dtype(sigma[a]) ** 2)
 
     use_truncation = (
         truncation_sigmas is not None

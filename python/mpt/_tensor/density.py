@@ -306,22 +306,23 @@ class MaetDensity:
     Lazy materialisation
     --------------------
     The eager-stored fields (``p_attr``, ``w``, ``sigma``, ``r``,
-    ``k``, ``is_rel``, ``is_per``, ``period``, ``group_of_attr``,
-    ``attrs_of_group``, ``n_attrs``, ``n_groups``, ``n``, ``dim``,
-    ``dim_per_attr``, ``tag``) are populated by ``build_exp_tens``.
-    The per-tuple fields (``n_j``, ``n_k``, ``centres``, ``u_perm``,
-    ``v_comb``, ``w_j``, ``wv_comb``, ``event_of_j``, ``event_of_k``)
-    are constructed lazily on first access and cached. This keeps
-    ``build_exp_tens`` cheap and avoids OOM at high cardinality when
-    only the Möbius method is exercised (MA cosine
-    ``method='mobius'``, MA Rényi-2 entropy). Use :attr:`materialised`
-    to check the cache state without triggering a build.
+    ``k``, ``is_rel``, ``is_per``, ``period``, ``n_attrs``, ``n``,
+    ``dim``, ``dim_per_attr``, ``tag``) are populated by
+    ``build_exp_tens``. Every attribute is self-contained, so the
+    geometry fields ``sigma``, ``is_rel``, ``is_per``, and ``period``
+    are per-attribute (length *A*). The per-tuple fields (``n_j``,
+    ``n_k``, ``centres``, ``u_perm``, ``v_comb``, ``w_j``, ``wv_comb``,
+    ``event_of_j``, ``event_of_k``) are constructed lazily on first
+    access and cached. This keeps ``build_exp_tens`` cheap and avoids
+    OOM at high cardinality when only the Möbius method is exercised
+    (MA cosine ``method='mobius'``, MA Rényi-2 entropy). Use
+    :attr:`materialised` to check the cache state without triggering a
+    build.
 
     Conventions
     -----------
-    Group and attribute indices in the fields below are 0-indexed
-    (Python convention). Input accepts 0-indexed group-index vectors or
-    cell-of-lists forms; the MATLAB struct exposes 1-indexed indices.
+    Attribute indices in the fields below are 0-indexed (Python
+    convention).
 
     Column *j* of ``centres[a]``, ``u_perm[a]``, ``w_j``, and
     ``event_of_j`` refer to the same global perm-side tuple. Similarly
@@ -334,10 +335,7 @@ class MaetDensity:
         *,
         tag: str,
         n_attrs: int,
-        n_groups: int,
         n: int,
-        group_of_attr: np.ndarray,
-        attrs_of_group: list,
         r: np.ndarray,
         k: np.ndarray,
         p_attr: list,
@@ -356,10 +354,7 @@ class MaetDensity:
         # Eager fields
         self.tag = tag
         self.n_attrs = n_attrs
-        self.n_groups = n_groups
         self.n = n
-        self.group_of_attr = group_of_attr
-        self.attrs_of_group = attrs_of_group
         self.r = r
         self.k = k
         self.p_attr = p_attr
@@ -429,14 +424,12 @@ class MaetDensity:
         def _build_lazy():
             return _ma_build_perm_arrays(
                 p_attr=p_attr, w_list=w, r_vec=self.r,
-                group_of_attr=self.group_of_attr,
                 is_rel_vec=self.is_rel, N=n_k, A=self.n_attrs,
             )
 
         return MaetDensity(
-            tag=self.tag, n_attrs=self.n_attrs, n_groups=self.n_groups,
-            n=n_k, group_of_attr=self.group_of_attr,
-            attrs_of_group=self.attrs_of_group, r=self.r, k=self.k,
+            tag=self.tag, n_attrs=self.n_attrs,
+            n=n_k, r=self.r, k=self.k,
             p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
             is_per=self.is_per, period=self.period, dim=self.dim,
             dim_per_attr=self.dim_per_attr, _build_lazy=_build_lazy,
@@ -526,7 +519,7 @@ class MaetDensity:
     def __repr__(self) -> str:
         built = "materialised" if self.materialised else "lazy"
         return (
-            f"MaetDensity(A={self.n_attrs}, G={self.n_groups}, "
+            f"MaetDensity(A={self.n_attrs}, "
             f"N={self.n}, dim={self.dim}, {built})"
         )
 
@@ -555,26 +548,25 @@ class WindowedMaetDensity:
         Always ``"WindowedMaetDensity"``.
     dens : MaetDensity
         Underlying unwindowed density.
-    size : (G,) float64
-        Per-group window effective standard deviation in multiples of
-        that group's ``sigma``. NaN or Inf means the group is not
-        windowed.
-    mix : (G,) float64
-        Per-group shape parameter in [0, 1]: 0 = pure Gaussian,
+    size : (A,) float64
+        Per-attribute window effective standard deviation in multiples
+        of that attribute's ``sigma``. NaN or Inf means the attribute is
+        not windowed.
+    mix : (A,) float64
+        Per-attribute shape parameter in [0, 1]: 0 = pure Gaussian,
         1 = pure rectangular, in between = rectangular-convolved-with-
-        Gaussian. Ignored for groups with ``size`` NaN/Inf.
+        Gaussian. Ignored for attributes with ``size`` NaN/Inf.
     centre : list of ndarray
         Length-A list; entry *a* is a 1-D array of length
-        ``dim_per_attr[a]`` giving the per-attribute centre coordinates
-        in effective space. Concatenating the entries for the attributes
-        in a group gives the centre point in that group's effective
-        subspace. Ignored for groups with ``size`` NaN/Inf.
+        ``dim_per_attr[a]`` giving the per-attribute centre point in
+        that attribute's effective subspace. Ignored for attributes
+        with ``size`` NaN/Inf.
     """
 
     tag: str
     dens: "MaetDensity"
-    size: np.ndarray                     # (G,) float64
-    mix: np.ndarray                      # (G,) float64
+    size: np.ndarray                     # (A,) float64
+    mix: np.ndarray                      # (A,) float64
     centre: list                         # list of length A; each (dim_per_attr[a],)
 
 

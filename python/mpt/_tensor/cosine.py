@@ -182,14 +182,14 @@ def cos_sim_exp_tens(*args,
 
     **Raw multi-attribute scalar input**:
 
-    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups,
+    - ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec,
       is_rel_vec, is_per_vec, period_vec)`` where ``p_attr*`` are
       lists of per-attribute matrices. Returns scalar.
 
     **Raw multi-attribute scalar-vs-list (sweep)**:
 
     - ``cos_sim_exp_tens(p_attr_ref, w_ref, p_attr_list, w_shared,
-      sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec)``
+      sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
       where exactly one of the two ``p_attr`` arguments is a list of
       ``p_attr`` blocks (a list of lists; e.g. the matrix-form output of
       :func:`translate_attributes`) and the other is a single ``p_attr``.
@@ -379,11 +379,11 @@ def cos_sim_exp_tens(*args,
 
         if not a_is_list and not b_is_list:
             # Single MA scalar-vs-scalar — existing path.
-            if len(args) != 10:
+            if len(args) != 9:
                 raise TypeError(
-                    f"Raw multi-attribute input expects 10 positional "
+                    f"Raw multi-attribute input expects 9 positional "
                     f"arguments (p_attr1, w1, p_attr2, w2, sigma_vec, "
-                    f"r_vec, groups, is_rel_vec, is_per_vec, "
+                    f"r_vec, is_rel_vec, is_per_vec, "
                     f"period_vec); got {len(args)}."
                 )
             return _cos_sim_raw_ma_scalar(
@@ -397,11 +397,11 @@ def cos_sim_exp_tens(*args,
         # Scalar-vs-list broadcast. Build the scalar side once, then
         # iterate over the list side. Weights on the list side are
         # shared across every list entry.
-        if len(args) != 10:
+        if len(args) != 9:
             raise TypeError(
-                f"Raw multi-attribute scalar-vs-list input expects 10 "
+                f"Raw multi-attribute scalar-vs-list input expects 9 "
                 f"positional arguments (p_attr1, w1, p_attr2, w2, "
-                f"sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, "
+                f"sigma_vec, r_vec, is_rel_vec, is_per_vec, "
                 f"period_vec); got {len(args)}."
             )
         return _cos_sim_raw_ma_broadcast(
@@ -855,7 +855,7 @@ def _cos_sim_raw_sa_scalar(
 
 def _cos_sim_raw_ma_scalar(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec,
     *,
     method: str = "auto",
     normalize: str = "cosine",
@@ -864,11 +864,11 @@ def _cos_sim_raw_ma_scalar(
 ) -> float:
     """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
     dx = build_exp_tens(
-        p_attr1, w1, sigma_vec, r_vec, groups,
+        p_attr1, w1, sigma_vec, r_vec,
         is_rel_vec, is_per_vec, period_vec, verbose=verbose,
     )
     dy = build_exp_tens(
-        p_attr2, w2, sigma_vec, r_vec, groups,
+        p_attr2, w2, sigma_vec, r_vec,
         is_rel_vec, is_per_vec, period_vec, verbose=verbose,
     )
     return _cos_sim_pair_core(
@@ -882,7 +882,7 @@ def _cos_sim_raw_ma_scalar(
 
 def _cos_sim_raw_ma_broadcast(
     p_attr1, w1, p_attr2, w2,
-    sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec,
     *,
     a_is_list: bool,
     b_is_list: bool,
@@ -919,7 +919,7 @@ def _cos_sim_raw_ma_broadcast(
         scalar_first = False  # densX is per-entry, densY is scalar
 
     dens_scalar = build_exp_tens(
-        scalar_pAttr, scalar_w, sigma_vec, r_vec, groups,
+        scalar_pAttr, scalar_w, sigma_vec, r_vec,
         is_rel_vec, is_per_vec, period_vec, verbose=verbose,
     )
 
@@ -927,7 +927,7 @@ def _cos_sim_raw_ma_broadcast(
     out = np.empty(M, dtype=np.float64)
     for m in range(M):
         dens_m = build_exp_tens(
-            list_pAttr[m], list_w, sigma_vec, r_vec, groups,
+            list_pAttr[m], list_w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, verbose=False,
         )
         if scalar_first:
@@ -1116,24 +1116,20 @@ def _cos_sim_exp_tens_ma(
     # --- Structural compatibility ---
     if dens_x.n_attrs != dens_y.n_attrs:
         raise ValueError("Both MaetDensities must have the same n_attrs.")
-    if not np.array_equal(dens_x.group_of_attr, dens_y.group_of_attr):
-        raise ValueError(
-            "Both MaetDensities must have the same group_of_attr."
-        )
     if not np.array_equal(dens_x.r, dens_y.r):
         raise ValueError("Both MaetDensities must have the same r (per attribute).")
     if not np.array_equal(dens_x.sigma, dens_y.sigma):
-        raise ValueError("Both MaetDensities must have the same sigma (per group).")
+        raise ValueError("Both MaetDensities must have the same sigma (per attribute).")
     if not np.array_equal(dens_x.is_rel, dens_y.is_rel):
-        raise ValueError("Both MaetDensities must have the same is_rel (per group).")
+        raise ValueError("Both MaetDensities must have the same is_rel (per attribute).")
     if not np.array_equal(dens_x.is_per, dens_y.is_per):
-        raise ValueError("Both MaetDensities must have the same is_per (per group).")
-    # Periods must match for groups where is_per is True (non-periodic
-    # groups can carry any period value without affecting the kernel).
+        raise ValueError("Both MaetDensities must have the same is_per (per attribute).")
+    # Periods must match for attributes where is_per is True (non-periodic
+    # attributes can carry any period value without affecting the kernel).
     per_mask = dens_x.is_per.astype(bool)
     if np.any(dens_x.period[per_mask] != dens_y.period[per_mask]):
         raise ValueError(
-            "Both MaetDensities must have the same period for periodic groups."
+            "Both MaetDensities must have the same period for periodic attributes."
         )
 
     if method not in ("auto", "bulger", "direct", "mobius"):
@@ -1145,27 +1141,27 @@ def _cos_sim_exp_tens_ma(
     # --- Dispatcher ---
     A = dens_x.n_attrs
     r_vec = dens_x.r
-    is_rel_g = dens_x.is_rel
-    is_per_g = dens_x.is_per
-    sigma_g = dens_x.sigma
-    period_g = dens_x.period
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    sigma = dens_x.sigma
+    period = dens_x.period
 
     r_max = int(np.max(r_vec)) if A > 0 else 1
-    # Maximum σ/P across groups that are both relative AND periodic.
+    # Maximum σ/P across attributes that are both relative AND periodic.
     sop_max = 0.0
     any_per = False
     any_rel_nonper = False
     any_rel_per = False
-    for g in range(int(dens_x.n_groups)):
-        if bool(is_per_g[g]):
+    for a in range(A):
+        if bool(is_per[a]):
             any_per = True
-        if bool(is_rel_g[g]):
-            if bool(is_per_g[g]):
+        if bool(is_rel[a]):
+            if bool(is_per[a]):
                 any_rel_per = True
-                if float(period_g[g]) > 0:
+                if float(period[a]) > 0:
                     sop_max = max(
                         sop_max,
-                        float(sigma_g[g]) / float(period_g[g]),
+                        float(sigma[a]) / float(period[a]),
                     )
             else:
                 any_rel_nonper = True
@@ -1225,7 +1221,7 @@ def _cos_sim_exp_tens_ma(
 
 def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
-    A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    A, r_vec, sigma, is_rel, is_per, period,
     *, truncation_sigmas=None,
 ):
     """MA inner product with memory-aware chunking along the comb side.
@@ -1251,7 +1247,7 @@ def _ip_core_ma(
     if bytes_needed <= mem_limit:
         return _ip_full_ma(
             u_cell, w_u, n_j, v_cell, w_v, n_k,
-            A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+            A, r_vec, sigma, is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas,
         )
 
@@ -1263,7 +1259,7 @@ def _ip_core_ma(
         v_chunk = [V[:, c_start:c_end] for V in v_cell]
         log_kernel = _ma_log_kernel(
             u_cell, v_chunk, int(n_j), n_kc,
-            A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+            A, r_vec, sigma, is_rel, is_per, period,
         )
         E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
         acc = acc + E @ w_v[c_start:c_end]
@@ -1273,7 +1269,7 @@ def _ip_core_ma(
 
 def _ip_full_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
-    A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    A, r_vec, sigma, is_rel, is_per, period,
     *, truncation_sigmas=None,
 ):
     """Fully vectorized MA inner product (single chunk).
@@ -1288,7 +1284,7 @@ def _ip_full_ma(
 
     log_kernel = _ma_log_kernel(
         u_cell, v_cell, int(n_j), int(n_k),
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+        A, r_vec, sigma, is_rel, is_per, period,
     )
     E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
     return float(w_u @ (E @ w_v))
@@ -1297,7 +1293,7 @@ def _ip_full_ma(
 
 def _ma_log_kernel(
     u_cell, v_cell, n_j, n_k,
-    A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+    A, r_vec, sigma, is_rel, is_per, period,
 ):
     """Accumulate the summed-Q / (4 sigma^2) log-kernel across attributes.
 
@@ -1305,11 +1301,10 @@ def _ma_log_kernel(
       1. Compute (r_a, nJ, nK) differences between perm-side and comb-side.
       2. Apply periodic wrapping for the attribute's group.
       3. Compute the per-attribute quadratic form Q_a.
-      4. Accumulate ``-Q_a / (4 sigma_g^2)`` into log_kernel.
+      4. Accumulate ``-Q_a / (4 sigma^2)`` into log_kernel.
     """
     log_kernel = np.zeros((int(n_j), int(n_k)), dtype=np.float64)
     for a in range(A):
-        g = int(group_of[a])
         r_a = int(r_vec[a])
         D = u_cell[a][:, :, None] - v_cell[a][:, None, :]  # (r_a, nJ, nK)
 
@@ -1319,13 +1314,13 @@ def _ma_log_kernel(
         # For rel+per, _compute_Q wraps each pairwise (D[i]-D[j]) inside
         # (Eq 6 form); that inner wrap is invariant under integer-period
         # shifts, so wrapping D first is redundant.
-        if is_per_g[g] and not is_rel_g[g]:
-            p_g = float(period_g[g])
-            D = D - p_g * np.floor(D / p_g + 0.5)
+        if is_per[a] and not is_rel[a]:
+            p_a = float(period[a])
+            D = D - p_a * np.floor(D / p_a + 0.5)
 
-        Q_a = _compute_Q(D, r_a, bool(is_rel_g[g]), bool(is_per_g[g]),
-                         float(period_g[g]))
-        log_kernel = log_kernel - Q_a / (4 * float(sigma_g[g]) ** 2)
+        Q_a = _compute_Q(D, r_a, bool(is_rel[a]), bool(is_per[a]),
+                         float(period[a]))
+        log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
 
     return log_kernel
 
@@ -2101,12 +2096,11 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
     P_yy = np.ones((N_y, N_y), dtype=np.float64)
 
     for a in range(A):
-        g = int(dens_x.group_of_attr[a])
         r_a = int(dens_x.r[a])
-        sigma = float(dens_x.sigma[g])
-        is_rel = bool(dens_x.is_rel[g])
-        is_per = bool(dens_x.is_per[g])
-        period = float(dens_x.period[g])
+        sigma = float(dens_x.sigma[a])
+        is_rel = bool(dens_x.is_rel[a])
+        is_per = bool(dens_x.is_per[a])
+        period = float(dens_x.period[a])
 
         Px, Py = dens_x.p_attr[a], dens_y.p_attr[a]
         Wx, Wy = dens_x.w[a], dens_y.w[a]
@@ -2136,12 +2130,11 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
     factored out so the new dispatcher can route to it cleanly.
     """
     A = dens_x.n_attrs
-    group_of = dens_x.group_of_attr
     r_vec = dens_x.r
-    sigma_g = dens_x.sigma
-    is_rel_g = dens_x.is_rel
-    is_per_g = dens_x.is_per
-    period_g = dens_x.period
+    sigma = dens_x.sigma
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    period = dens_x.period
 
     n_jx, n_kx = dens_x.n_j, dens_x.n_k
     n_jy, n_ky = dens_y.n_j, dens_y.n_k
@@ -2153,17 +2146,17 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
     ip_xy = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+        A, r_vec, sigma, is_rel, is_per, period,
     )
     ip_xx = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_x.v_comb, dens_x.wv_comb, n_kx,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+        A, r_vec, sigma, is_rel, is_per, period,
     )
     ip_yy = _ip_core_ma(
         dens_y.u_perm, dens_y.w_j, n_jy,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, group_of, r_vec, sigma_g, is_rel_g, is_per_g, period_g,
+        A, r_vec, sigma, is_rel, is_per, period,
     )
     return ip_xy, ip_xx, ip_yy
 
@@ -2187,7 +2180,7 @@ def cos_sim_exp_tens_raw(
        :func:`cos_sim_exp_tens` entry point. Pass raw arrays directly:
 
        - SA: ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
-       - MA: ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec)``
+       - MA: ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
 
        This shim will be removed in a future release.
     """

@@ -542,7 +542,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
         mpt.set_default(truncation_sigmas=old)
 
     dens = mpt.build_exp_tens(
-        p, w, np.array([1.0, 1.0]), np.array([1, 1]), np.array([0, 1]),
+        p, w, np.array([1.0, 1.0]), np.array([1, 1]), 
         np.array([False, False]), np.array([False, False]),
         np.array([0.0, 0.0]),
         verbose=False,
@@ -572,7 +572,7 @@ def test_eval_ma_auto_prune_default_is_on():
                     0.0, 0.0, 0.0, 0.0, 0.0]])]
 
     dens = mpt.build_exp_tens(
-        p, w, np.array([1.0]), np.array([1]), np.array([0]),
+        p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
@@ -593,7 +593,7 @@ def test_eval_ma_auto_prune_all_zero_returns_zeros():
     w = [np.zeros((1, 3))]   # entire weight is zero --- joint w_j is zero
 
     dens = mpt.build_exp_tens(
-        p, w, np.array([1.0]), np.array([1]), np.array([0]),
+        p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
@@ -612,7 +612,7 @@ def test_eval_ma_auto_prune_no_zeros_is_a_noop():
     w = [rng.uniform(0.5, 1.5, size=(1, 8))]   # strictly positive
 
     dens = mpt.build_exp_tens(
-        p, w, np.array([1.0]), np.array([1]), np.array([0]),
+        p, w, np.array([1.0]), np.array([1]), 
         np.array([False]), np.array([False]), np.array([0.0]),
         verbose=False,
     )
@@ -647,7 +647,7 @@ def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
         mpt.set_default(truncation_sigmas=old)
 
     H = mpt.entropy_exp_tens(
-        p, w, np.array([1.0, 1.0]), np.array([1, 1]), np.array([0, 1]),
+        p, w, np.array([1.0, 1.0]), np.array([1, 1]), 
         np.array([False, False]), np.array([False, False]),
         np.array([0.0, 0.0]),
         method='shannon',

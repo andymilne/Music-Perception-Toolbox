@@ -32,7 +32,6 @@ from .density import (
     ExpTensDensity,
     MaetDensity,
     _broadcast_attr_weight,
-    _canonicalise_groups,
     _cartesian_indices,
     _coerce_attr_matrix,
     _nchoosek_indices,
@@ -57,13 +56,15 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
 
     Multi-attribute signature::
 
-        build_exp_tens(p_attr, w, sigma_vec, r_vec, groups,
+        build_exp_tens(p_attr, w, sigma_vec, r_vec,
                        is_rel_vec, is_per_vec, period_vec, *, verbose=True)
 
-    The two paths differ only in positional-argument count (7 vs 8) and
-    in the types of the individual arguments. See the MAET specification
-    (``multi_attribute_tensor_specification.md``) §2 and §6 for the
-    multi-attribute semantics.
+    Both paths take seven positional arguments; they are distinguished
+    purely by the type of the first argument (a list/tuple of attribute
+    matrices selects the multi-attribute path). Every attribute is
+    self-contained, carrying its own geometry, so all geometry vectors
+    are per-attribute (length *A*); shared geometry is expressed by
+    repeating a value across the attributes that should share it.
 
     Parameters (single-attribute path)
     ----------------------------------
@@ -98,20 +99,15 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
         array of length *N* (per-event) or *K_a* (per-slot), a 2-D
         array of shape (1, N), (K_a, 1), or (K_a, N). See Section 2.8
         of the MAET specification.
-    sigma_vec : (G,) array-like of float
-        Per-group Gaussian widths.
+    sigma_vec : (A,) array-like of float
+        Per-attribute Gaussian widths.
     r_vec : (A,) array-like of int
         Per-attribute tuple sizes.
-    groups : None, (A,) array-like of int, or list of length G
-        Group assignment. ``None`` (or empty) defaults to each
-        attribute its own singleton group. A length-*A* vector gives
-        the 0-indexed group index per attribute (contiguous 0..G-1).
-        A length-*G* list of attribute-index lists gives an explicit
-        partition.
-    is_rel_vec, is_per_vec : (G,) array-like of bool
-        Per-group isRel and isPer flags.
-    period_vec : (G,) array-like of float
-        Per-group periods (use 0 for groups that are not periodic).
+    is_rel_vec, is_per_vec : (A,) array-like of bool
+        Per-attribute isRel and isPer flags.
+    period_vec : (A,) array-like of float
+        Per-attribute periods (use 0 for attributes that are not
+        periodic).
 
     Returns
     -------
@@ -123,15 +119,15 @@ def build_exp_tens(p, w, *args, verbose: bool = True) -> ExpTensDensity | MaetDe
     ExpTensDensity, MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
     if _looks_like_multi_attr(p):
-        if len(args) != 6:
+        if len(args) != 5:
             raise ValueError(
-                f"Multi-attribute call expects 8 positional arguments "
-                f"(p_attr, w, sigma_vec, r_vec, groups, is_rel_vec, "
-                f"is_per_vec, period_vec); got {2 + len(args)}."
+                f"Multi-attribute call expects 7 positional arguments "
+                f"(p_attr, w, sigma_vec, r_vec, is_rel_vec, is_per_vec, "
+                f"period_vec); got {2 + len(args)}."
             )
-        sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec = args
+        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args
         return _build_exp_tens_ma(
-            p, w, sigma_vec, r_vec, groups,
+            p, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec,
             verbose=verbose,
         )
@@ -186,7 +182,6 @@ def _build_exp_tens_ma(
     w,
     sigma_vec,
     r_vec,
-    groups,
     is_rel_vec,
     is_per_vec,
     period_vec,
@@ -197,6 +192,11 @@ def _build_exp_tens_ma(
 
     Private: users call :func:`build_exp_tens`, which dispatches here
     when given a list/tuple of attribute matrices as the first argument.
+
+    Every attribute is self-contained: the geometry vectors
+    (``sigma_vec``, ``is_rel_vec``, ``is_per_vec``, ``period_vec``)
+    are per-attribute (length *A*). Shared geometry is expressed by
+    repeating a value across attributes.
 
     The body performs only the cheap input validation and metadata
     work and returns a :class:`MaetDensity` whose per-tuple arrays
@@ -232,8 +232,6 @@ def _build_exp_tens_ma(
     if np.any(r_vec < 1):
         raise ValueError("All r_a must be positive integers.")
 
-    group_of_attr, attrs_of_group, G = _canonicalise_groups(groups, A)
-
     sigma_vec  = np.asarray(sigma_vec,  dtype=np.float64).ravel()
     is_rel_vec = np.asarray(is_rel_vec, dtype=bool).ravel()
     is_per_vec = np.asarray(is_per_vec, dtype=bool).ravel()
@@ -243,19 +241,18 @@ def _build_exp_tens_ma(
                       ("is_rel_vec", is_rel_vec),
                       ("is_per_vec", is_per_vec),
                       ("period_vec", period_vec)):
-        if vec.size != G:
+        if vec.size != A:
             raise ValueError(
-                f"{name} must have length {G} (n groups), got {vec.size}."
+                f"{name} must have length {A} (n attributes), got {vec.size}."
             )
 
     for a in range(A):
-        g = int(group_of_attr[a])
-        if is_rel_vec[g] and r_vec[a] < 2:
+        if is_rel_vec[a] and r_vec[a] < 2:
             warnings.warn(
-                f"is_rel = True on group {g} combined with r_a = 1 for "
-                f"attribute {a} produces a degenerate (constant) density. "
-                f"For cross-event translation invariance, use "
-                f"`difference_events` as a preprocessing step."
+                f"is_rel = True combined with r_a = 1 for attribute {a} "
+                f"produces a degenerate (constant) density. For cross-event "
+                f"translation invariance, use `difference_events` as a "
+                f"preprocessing step."
             )
 
     w_list = _normalise_weights_ma(w, A, K_a, N)
@@ -279,9 +276,8 @@ def _build_exp_tens_ma(
     # materialisation) -------------------------------------------------
     dim_per_attr = np.empty(A, dtype=np.intp)
     for a in range(A):
-        g = int(group_of_attr[a])
         r_a = int(r_vec[a])
-        if is_rel_vec[g]:
+        if is_rel_vec[a]:
             dim_per_attr[a] = r_a - 1 if r_a >= 2 else 0
         else:
             dim_per_attr[a] = r_a
@@ -289,7 +285,7 @@ def _build_exp_tens_ma(
 
     if verbose:
         print(
-            f"build_exp_tens (MAET): {A} attributes, {G} groups, "
+            f"build_exp_tens (MAET): {A} attributes, "
             f"{N} events (per-tuple arrays deferred to first access)."
         )
 
@@ -304,7 +300,6 @@ def _build_exp_tens_ma(
     def _build_lazy():
         return _ma_build_perm_arrays(
             p_attr=p_attr, w_list=w_list, r_vec=r_vec,
-            group_of_attr=group_of_attr,
             is_rel_vec=is_rel_vec,
             N=N, A=A,
         )
@@ -312,10 +307,7 @@ def _build_exp_tens_ma(
     return MaetDensity(
         tag="MaetDensity",
         n_attrs=A,
-        n_groups=G,
         n=N,
-        group_of_attr=group_of_attr,
-        attrs_of_group=attrs_of_group,
         r=r_vec,
         k=K_a,
         p_attr=p_attr,
@@ -336,7 +328,6 @@ def _ma_build_perm_arrays(
     p_attr,
     w_list,
     r_vec,
-    group_of_attr,
     is_rel_vec,
     N,
     A,
@@ -474,9 +465,8 @@ def _ma_build_perm_arrays(
 
     centres = []
     for a in range(A):
-        g = int(group_of_attr[a])
         r_a = int(r_vec[a])
-        if is_rel_vec[g]:
+        if is_rel_vec[a]:
             if r_a >= 2:
                 centres.append(u_perm[a][1:, :] - u_perm[a][:1, :])
             else:

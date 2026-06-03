@@ -157,12 +157,12 @@ function wmd_sq = localWindowSquared(wmd)
 %LOCALWINDOWSQUARED  Construct a WindowedMaetDensity carrying the
 %pointwise square h^2 of the original window h.
 %
-%   For each group g with mix_g == 0 (pure Gaussian window of width
+%   For each attribute a with mix_a == 0 (pure Gaussian window of width
 %   size_g * sigma_g), h^2 is itself a Gaussian of width
 %   (size_g * sigma_g) / sqrt(2); equivalently, size_g' = size_g /
 %   sqrt(2) with mix_g' = 0.
 %
-%   For each group g with mix_g == 1 (pure boxcar window of half-width
+%   For each attribute a with mix_a == 1 (pure boxcar window of half-width
 %   size_g * sigma_g * sqrt(3)), h(z) in {0, 1} pointwise so h^2 = h;
 %   size_g and mix_g are unchanged.
 %
@@ -181,7 +181,7 @@ function wmd_sq = localWindowSquared(wmd)
         mix_g = spec.mix(g);
 
         if ~isfinite(sz_g) || sz_g == 0
-            % Group is not windowed (size = Inf or NaN); leave alone.
+            % Attribute is not windowed (size = Inf or NaN); leave alone.
             continue;
         end
 
@@ -192,8 +192,8 @@ function wmd_sq = localWindowSquared(wmd)
         else
             error('internal:windowedInnerProduct:unsupportedNormalize', ...
                   ['Strict shape-only cosine (normalize = ''cosine'') ' ...
-                   'requires every group''s windowSpec.mix to be 0 ' ...
-                   '(pure Gaussian) or 1 (pure boxcar). Group %d has ' ...
+                   'requires every attribute''s windowSpec.mix to be 0 ' ...
+                   '(pure Gaussian) or 1 (pure boxcar). Attribute %d has ' ...
                    'mix = %g. Use normalize = ''oneSidedDenom'' for ' ...
                    'intermediate mix values, or set the mix to 0 or 1.'], ...
                   g, mix_g);
@@ -208,10 +208,6 @@ function localCheckMACompat(dx, dy)
     if dx.nAttrs ~= dy.nAttrs
         error('cosSimExpTens:nAttrsMismatch', ...
               'Both densities must have the same nAttrs.');
-    end
-    if ~isequal(dx.groupOfAttr, dy.groupOfAttr)
-        error('cosSimExpTens:groupsMismatch', ...
-              'Both densities must have the same groupOfAttr.');
     end
     if ~isequal(dx.r, dy.r)
         error('cosSimExpTens:rMismatch', ...
@@ -232,7 +228,7 @@ function localCheckMACompat(dx, dy)
     perMask = logical(dx.isPer);
     if any(dx.period(perMask) ~= dy.period(perMask))
         error('cosSimExpTens:periodMismatch', ...
-              'Both densities must agree on periods of periodic groups.');
+              'Both densities must agree on periods of periodic attributes.');
     end
 end
 
@@ -270,8 +266,7 @@ function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
         if d_a < 2
             continue;
         end
-        g = dx.groupOfAttr(a);
-        if ~localIsWindowedGroupG(wmd.size(g), wmd.mix(g))
+        if ~localIsWindowedAttrG(wmd.size(a), wmd.mix(a))
             continue;
         end
         c_a = wmd.centre{a}(:);
@@ -350,8 +345,8 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 %   inside the windowed-factor integrand (so the closed-form helper
 %   ``localWindowedContribution`` is reused verbatim), and by adding a
 %   per-attribute tuple-space shift
-%       delta_a = { (c_g - mu_q_g)|_a            if group g is absolute
-%                 { [0, (c_g - mu_q_g)|_a_eff]   if group g is relative
+%       delta_a = { (c_a - mu_q_a)|_a            if attribute a is absolute
+%                 { [0, (c_a - mu_q_a)|_a_eff]   if attribute a is relative
 %                                                 (slot-0-anchored lift)
 %   to D = U - V before computing Q_a. Groups that are not windowed
 %   receive no shift.
@@ -364,7 +359,6 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 %   computes the IP for a single concrete wmd.
 
     A         = dx.nAttrs;
-    groupOf   = dx.groupOfAttr;
     rVec      = dx.r;
     sigmaG    = dx.sigma;
     isRelG    = logical(dx.isRel);
@@ -373,71 +367,51 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 
     n_jx = dx.nJ;
     n_ky = dy.nK;
-    nGroups = dx.nGroups;
-    attrsOfGroup = dx.attrsOfGroup;
     dimPerAttr = dx.dimPerAttr;
 
     % --- Pre-compute cross-correlation shifts (windowed path only) ---
     % shiftPerAttr{a} : (r_a x 1) shift added to D for attribute a.
-    %                   Empty if attribute a is in a non-windowed group.
-    % muQperG{g}      : (d_g x 1) effective-space query mean, windowed g.
+    %                   Empty if attribute a is not windowed.
+    % muQperAttr{a}   : (d_a x 1) effective-space query mean, windowed a.
     shiftPerAttr = cell(1, A);
-    muQperG = cell(1, nGroups);
+    muQperAttr = cell(1, A);
     if ~isempty(wmd)
-        for g = 1:nGroups
-            if ~localIsWindowedGroupG(wmd.size(g), wmd.mix(g))
+        for a = 1:A
+            if ~localIsWindowedAttrG(wmd.size(a), wmd.mix(a))
                 continue;
             end
-            attrs_g = attrsOfGroup{g};
-            % Query effective-space mean in group g: average over perm
-            % rows, concatenated across attributes.
-            mu_parts = cell(1, numel(attrs_g));
-            centre_parts = cell(1, numel(attrs_g));
-            for ia = 1:numel(attrs_g)
-                a = attrs_g(ia);
-                mu_parts{ia} = mean(dx.Centres{a}, 2);   % (d_a x 1)
-                centre_parts{ia} = wmd.centre{a}(:);     % (d_a x 1)
-            end
-            mu_q_g = vertcat(mu_parts{:});       % (d_g x 1)
-            centre_g = vertcat(centre_parts{:}); % (d_g x 1)
-            delta_g = centre_g - mu_q_g;         % (d_g x 1)
-            muQperG{g} = mu_q_g;
+            r_a = rVec(a);
+            d_a = dimPerAttr(a);
+            mu_q_a = mean(dx.Centres{a}, 2);             % (d_a x 1)
+            centre_a = wmd.centre{a}(:);                 % (d_a x 1)
+            delta_a_eff = centre_a - mu_q_a;             % (d_a x 1)
+            muQperAttr{a} = mu_q_a;
 
-            % Lift delta_g into per-attribute r_a-slot shifts.
-            offset = 0;
-            g_is_rel = isRelG(g);
-            for ia = 1:numel(attrs_g)
-                a = attrs_g(ia);
-                r_a = rVec(a);
-                d_a = dimPerAttr(a);
-                delta_a_eff = delta_g(offset + 1 : offset + d_a);  % (d_a x 1)
-                offset = offset + d_a;
-                if g_is_rel
-                    if r_a == 1
-                        shift_a = zeros(1, 1);
-                    else
-                        % Slot-0 anchored lift: first slot = 0, remaining
-                        % r_a - 1 slots = effective shift.
-                        shift_a = [0; delta_a_eff(:)];
-                    end
+            % Lift delta_a_eff into the attribute's r_a-slot shift.
+            if isRelG(a)
+                if r_a == 1
+                    shift_a = zeros(1, 1);
                 else
-                    % Absolute: effective dim == r_a, direct mapping.
-                    shift_a = delta_a_eff(:);
+                    % Slot-0 anchored lift: first slot = 0, remaining
+                    % r_a - 1 slots = effective shift.
+                    shift_a = [0; delta_a_eff(:)];
                 end
-                if numel(shift_a) ~= r_a
-                    error('localCosSimNumeratorMA:shiftShape', ...
-                          'Internal: shift for attribute %d has size %d, expected %d.', ...
-                          a, numel(shift_a), r_a);
-                end
-                shiftPerAttr{a} = shift_a;
+            else
+                % Absolute: effective dim == r_a, direct mapping.
+                shift_a = delta_a_eff(:);
             end
+            if numel(shift_a) ~= r_a
+                error('localCosSimNumeratorMA:shiftShape', ...
+                      'Internal: shift for attribute %d has size %d, expected %d.', ...
+                      a, numel(shift_a), r_a);
+            end
+            shiftPerAttr{a} = shift_a;
         end
     end
 
-    % --- Base unwindowed log-kernel: sum_g -Q_g / (4 sigma_g^2) ---
+    % --- Base unwindowed log-kernel: sum_a -Q_a / (4 sigma_a^2) ---
     log_kernel = zeros(n_jx, n_ky);
     for a = 1:A
-        g = groupOf(a);
         r_a = rVec(a);
         Ua = dx.U_perm{a};
         Va = dy.V_comb{a};
@@ -451,39 +425,28 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
         % See note in cosSimExpTens maLogKernel: outer wrap is only
         % needed when localComputeQ does not re-wrap pairwise
         % component differences (i.e., for isPer and not isRel).
-        if isPerG(g) && ~isRelG(g)
-            P_g = periodG(g);
+        if isPerG(a) && ~isRelG(a)
+            P_g = periodG(a);
             D = D - P_g .* floor(D / P_g + 0.5);
         end
 
-        Qa = localComputeQ(D, g, r_a, isRelG, isPerG, periodG);
-        log_kernel = log_kernel - reshape(Qa, n_jx, n_ky) / (4 * sigmaG(g)^2);
+        Qa = localComputeQ(D, a, r_a, isRelG, isPerG, periodG);
+        log_kernel = log_kernel - reshape(Qa, n_jx, n_ky) / (4 * sigmaG(a)^2);
     end
 
-    % --- Add windowed-group contributions (log F_g per pair) ---
+    % --- Add windowed contributions (log F_a per pair) ---
     if ~isempty(wmd)
         effX = localEffectiveCentresPerm(dx);    % perm-side eff centres
         effY = localEffectiveCentresComb(dy);    % comb-side eff centres
 
-        for g = 1:nGroups
-            if ~localIsWindowedGroupG(wmd.size(g), wmd.mix(g))
+        for a = 1:A
+            if ~localIsWindowedAttrG(wmd.size(a), wmd.mix(a))
                 continue;
             end
-            attrs_g = attrsOfGroup{g};
-            % Stack per-attribute effective centres into a (d_g x nJ/nK) matrix.
-            cx_parts = cell(1, numel(attrs_g));
-            cy_parts = cell(1, numel(attrs_g));
-            centre_parts = cell(1, numel(attrs_g));
-            for ia = 1:numel(attrs_g)
-                a = attrs_g(ia);
-                cx_parts{ia} = effX{a};
-                cy_parts{ia} = effY{a};
-                centre_parts{ia} = wmd.centre{a}(:);
-            end
-            cx_g = vertcat(cx_parts{:});   % (d_g, nJ)
-            cy_g = vertcat(cy_parts{:});   % (d_g, nK)
-            centre_g = vertcat(centre_parts{:});  % (d_g, 1)
-            mu_q_g = muQperG{g};                  % (d_g, 1)
+            cx_g = effX{a};                  % (d_a, nJ)
+            cy_g = effY{a};                  % (d_a, nK)
+            centre_g = wmd.centre{a}(:);     % (d_a, 1)
+            mu_q_g = muQperAttr{a};          % (d_a, 1)
 
             % Cross-correlation coordinate substitution: translate query
             % centres to origin via mu_q_g, translate context centres to
@@ -493,14 +456,14 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
             centre_sub = zeros(size(centre_g));
             d_g = size(cx_sub, 1);
 
-            s_g = wmd.size(g);
-            mix_g = wmd.mix(g);
-            sigma_g = sigmaG(g);
-            is_rel = isRelG(g);
-            r_a = rVec(attrs_g(1));
+            s_g = wmd.size(a);
+            mix_g = wmd.mix(a);
+            sigma_g = sigmaG(a);
+            is_rel = isRelG(a);
+            r_a = rVec(a);
 
-            if isPerG(g)
-                % Periodic group: sum line-case contributions over
+            if isPerG(a)
+                % Periodic attribute: sum line-case contributions over
                 % periodic images of the window centre. The wrapped
                 % Gaussian window equals the sum of line-case Gaussians
                 % at all integer-multiples of the period; the windowed
@@ -509,7 +472,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
                 log_F = localPeriodicImageSumContribution( ...
                     cx_sub, cy_sub, centre_sub, ...
                     s_g, mix_g, sigma_g, is_rel, r_a, d_g, ...
-                    double(periodG(g)), 1e-12);
+                    double(periodG(a)), 1e-12);
             else
                 log_F = localWindowedContribution( ...
                     cx_sub, cy_sub, centre_sub, ...
@@ -564,16 +527,14 @@ function eff = localEffectiveCentresComb(dens)
 %centres on the comb side from V_comb, using the same reduction as
 %build_exp_tens (drop first slot; v[i] = u[i+1] - u[1]).
     A = dens.nAttrs;
-    groupOf = dens.groupOfAttr;
     isRelG = logical(dens.isRel);
     rVec = dens.r;
     nK = dens.nK;
     eff = cell(1, A);
     for a = 1:A
-        g = groupOf(a);
         r_a = rVec(a);
         V = dens.V_comb{a};
-        if ~isRelG(g)
+        if ~isRelG(a)
             eff{a} = V;
         elseif r_a >= 2
             eff{a} = V(2:end, :) - V(1, :);
@@ -584,7 +545,7 @@ function eff = localEffectiveCentresComb(dens)
 end
 
 
-function tf = localIsWindowedGroupG(size_g, mix_g)
+function tf = localIsWindowedAttrG(size_g, mix_g)
     tf = isfinite(size_g) && size_g > 0;
 end
 
@@ -607,7 +568,7 @@ function log_F = localPeriodicImageSumContribution(cx_sub, cy_sub, ...
 %   instead of O(n_max^d_g) over the Cartesian product. For multi-D
 %   relative groups the F factor does not factorise across axes and a
 %   Cartesian-product sum would be needed; that path is deferred to a
-%   future release. For now, multi-D relative periodic groups fall
+%   future release. For now, multi-D relative periodic attributes fall
 %   through to the existing line-case formula (the pre-v2.2 behaviour).
 
     % Multi-D relative groups: defer to the existing line-case formula.
@@ -707,7 +668,7 @@ function log_F = localWindowedContribution(cx_g, cy_g, centre_g, ...
         s_g, mix_g, sigma_g, is_rel, r_a, d_g)
 %LOCALWINDOWEDCONTRIBUTION  Closed-form log(F_g) per (j, k) pair.
 %
-%   Dispatches on group geometry:
+%   Dispatches on attribute geometry:
 %     - 1-D groups (any type) and multi-D absolute groups: per-axis
 %       factorisable form, full (size, mix) family.
 %     - Multi-D relative groups: Gaussian window only (mix = 0). Raises

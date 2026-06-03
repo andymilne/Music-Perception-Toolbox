@@ -99,27 +99,26 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
         raise TypeError("window_spec must be a dict.")
 
     A = dens.n_attrs
-    G = dens.n_groups
     dim_per = dens.dim_per_attr
     dim_total = int(dens.dim)
 
     # --- size ---
     size_arr = np.asarray(window_spec.get("size"), dtype=np.float64).ravel()
     if size_arr.size == 1:
-        size_arr = np.full(G, float(size_arr.item()))
-    if size_arr.size != G:
+        size_arr = np.full(A, float(size_arr.item()))
+    if size_arr.size != A:
         raise ValueError(
-            f"window_spec['size'] must be a scalar or length-{G} array; "
+            f"window_spec['size'] must be a scalar or length-{A} array; "
             f"got length {size_arr.size}."
         )
 
     # --- mix ---
     mix_arr = np.asarray(window_spec.get("mix"), dtype=np.float64).ravel()
     if mix_arr.size == 1:
-        mix_arr = np.full(G, float(mix_arr.item()))
-    if mix_arr.size != G:
+        mix_arr = np.full(A, float(mix_arr.item()))
+    if mix_arr.size != A:
         raise ValueError(
-            f"window_spec['mix'] must be a scalar or length-{G} array; "
+            f"window_spec['mix'] must be a scalar or length-{A} array; "
             f"got length {mix_arr.size}."
         )
     if np.any((mix_arr < 0) | (mix_arr > 1)):
@@ -199,9 +198,9 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
 # -------------------------------------------------------------------
 
 
-def _is_windowed_group(size_g, mix_g):
-    """True iff the group has an effective window (size finite and > 0)."""
-    return np.isfinite(size_g) and size_g > 0
+def _is_windowed_attr(size_a, mix_a):
+    """True iff the attribute has an effective window (size finite and > 0)."""
+    return np.isfinite(size_a) and size_a > 0
 
 
 def _window_width_params(size_g, mix_g, sigma_g):
@@ -266,25 +265,23 @@ def _evaluate_window_on_query(wmd: "WindowedMaetDensity", x_list):
     """
     dens = wmd.dens
     A = dens.n_attrs
-    group_of = dens.group_of_attr
     dim_per = dens.dim_per_attr
-    sigma_g = dens.sigma
-    is_per_g = dens.is_per
-    period_g = dens.period
+    sigma = dens.sigma
+    is_per = dens.is_per
+    period = dens.period
 
     n_q = x_list[0].shape[1] if A > 0 else 0
     result = np.ones(n_q, dtype=np.float64)
     for a in range(A):
-        g = int(group_of[a])
-        if not _is_windowed_group(wmd.size[g], wmd.mix[g]):
+        if not _is_windowed_attr(wmd.size[a], wmd.mix[a]):
             continue
-        a_, b_ = _window_width_params(wmd.size[g], wmd.mix[g], sigma_g[g])
+        a_, b_ = _window_width_params(wmd.size[a], wmd.mix[a], sigma[a])
         da = int(dim_per[a])
         centre_a = wmd.centre[a]  # shape (da,)
         x_a = x_list[a]           # shape (da, nQ)
         u = x_a - centre_a[:, None]  # (da, nQ)
-        per = bool(is_per_g[g])
-        P_g = float(period_g[g]) if per else 0.0
+        per = bool(is_per[a])
+        P_g = float(period[a]) if per else 0.0
         for i in range(da):
             if per:
                 # Wrapped window: sum line-case window at u + n*P for
@@ -1010,8 +1007,8 @@ def _check_ma_compatibility(dens_x: MaetDensity, dens_y: MaetDensity):
     """Structural compatibility check, mirroring _cos_sim_exp_tens_ma."""
     if dens_x.n_attrs != dens_y.n_attrs:
         raise ValueError("Both densities must have the same n_attrs.")
-    if not np.array_equal(dens_x.group_of_attr, dens_y.group_of_attr):
-        raise ValueError("Both densities must have the same group_of_attr.")
+    if dens_x.n_attrs != dens_y.n_attrs:
+        raise ValueError("Both densities must have the same n_attrs.")
     if not np.array_equal(dens_x.r, dens_y.r):
         raise ValueError("Both densities must have the same r.")
     if not np.array_equal(dens_x.sigma, dens_y.sigma):
@@ -1071,10 +1068,9 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             d_a = int(dens_x.dim_per_attr[a])
             if d_a < 2:
                 continue
-            g = int(dens_x.group_of_attr[a])
-            # Only attributes whose group is actually windowed need
+            # Only attributes that are actually windowed need
             # symmetrising.
-            if not _is_windowed_group(windowed_c.size[g], windowed_c.mix[g]):
+            if not _is_windowed_attr(windowed_c.size[a], windowed_c.mix[a]):
                 continue
             c_a = np.asarray(windowed_c.centre[a], dtype=np.float64)
             if c_a.shape[0] != d_a:
@@ -1118,7 +1114,6 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
     # ----- end symmetrisation wrapper -----
 
     A          = dens_x.n_attrs
-    group_of   = dens_x.group_of_attr
     r_vec      = dens_x.r
     sigma_g    = dens_x.sigma
     is_rel_g   = dens_x.is_rel
@@ -1169,69 +1164,59 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
     # skipped and cos_sim_exp_tens semantics are preserved exactly.
     # =====================================================================
     shift_per_attr = {}     # attr index -> (r_a,) float64 shift to add to D
-    eff_shift_per_g = {}    # group index -> (d_g,) effective-space shift
-    mu_q_per_g = {}         # group index -> (d_g,) effective-space query mean
+    eff_shift_per_attr = {} # attr index -> (d_a,) effective-space shift
+    mu_q_per_attr = {}      # attr index -> (d_a,) effective-space query mean
 
     if windowed_c is not None:
         wmd = windowed_c
-        attrs_of_g = dens_x.attrs_of_group
         dim_per = dens_x.dim_per_attr
 
-        for g in range(dens_x.n_groups):
-            if not _is_windowed_group(wmd.size[g], wmd.mix[g]):
+        for a in range(A):
+            if not _is_windowed_attr(wmd.size[a], wmd.mix[a]):
                 continue
-            attrs_g = attrs_of_g[g]
 
-            # mu_q_g: unweighted mean over perm-side tuple centres of
-            # the query's effective-space Gaussian centres, concatenated
-            # across attributes in g. The unweighted mean gives the
-            # offset coordinate a weight-independent meaning (see User
-            # Guide §3 on windowing). For relative groups this is
-            # (approximately) zero by perm-symmetry, which is the
-            # correct convention: translation-invariant groups have no
-            # canonical position. Where the window centre in a relative
-            # group is non-zero in effective space, the shift is still
-            # applied and lifted via slot-0 anchoring.
-            mu_q_parts = [dens_x.centres[a].mean(axis=1) for a in attrs_g]
-            mu_q_g = np.concatenate(mu_q_parts)
-            centre_g = np.concatenate([wmd.centre[a] for a in attrs_g])
-            delta_g = centre_g - mu_q_g                          # (d_g,)
+            # mu_q_a: unweighted mean over perm-side tuple centres of
+            # the query's effective-space Gaussian centres for this
+            # attribute. The unweighted mean gives the offset coordinate
+            # a weight-independent meaning (see User Guide §3 on
+            # windowing). For relative attributes this is (approximately)
+            # zero by perm-symmetry, which is the correct convention:
+            # translation-invariant attributes have no canonical
+            # position. Where the window centre in a relative attribute
+            # is non-zero in effective space, the shift is still applied
+            # and lifted via slot-0 anchoring.
+            r_a = int(r_vec[a])
+            d_a = int(dim_per[a])
+            mu_q_a = dens_x.centres[a].mean(axis=1)               # (d_a,)
+            centre_a = np.asarray(wmd.centre[a], dtype=np.float64) # (d_a,)
+            delta_a_eff = centre_a - mu_q_a                       # (d_a,)
 
-            mu_q_per_g[g] = mu_q_g
-            eff_shift_per_g[g] = delta_g
+            mu_q_per_attr[a] = mu_q_a
+            eff_shift_per_attr[a] = delta_a_eff
 
-            # Lift delta_g into per-attribute r_a-slot shifts.
-            offset = 0
-            g_is_rel = bool(is_rel_g[g])
-            for a in attrs_g:
-                a = int(a)
-                r_a = int(r_vec[a])
-                d_a = int(dim_per[a])
-                delta_a_eff = delta_g[offset:offset + d_a]        # (d_a,)
-                offset += d_a
-                if g_is_rel:
-                    # Slot-0 anchored lift: shift[0]=0, shift[1:]=delta_a_eff.
-                    # For r_a == 1 and isRel=True the group is degenerate
-                    # (d_a == 0) and no shift is needed.
-                    if r_a == 1:
-                        shift_a = np.zeros(1, dtype=np.float64)
-                    else:
-                        shift_a = np.concatenate(
-                            ([0.0], np.asarray(delta_a_eff, dtype=np.float64))
-                        )
+            # Lift delta_a_eff into the attribute's r_a-slot shift.
+            if bool(is_rel_g[a]):
+                # Slot-0 anchored lift: shift[0]=0, shift[1:]=delta_a_eff.
+                # For r_a == 1 and isRel=True the attribute is degenerate
+                # (d_a == 0) and no shift is needed.
+                if r_a == 1:
+                    shift_a = np.zeros(1, dtype=np.float64)
                 else:
-                    # Absolute: effective dim equals r_a, direct mapping.
-                    shift_a = np.asarray(delta_a_eff, dtype=np.float64).copy()
-                if shift_a.shape[0] != r_a:
-                    raise RuntimeError(
-                        f"Internal: shift for attribute {a} has shape "
-                        f"{shift_a.shape}, expected ({r_a},)."
+                    shift_a = np.concatenate(
+                        ([0.0], np.asarray(delta_a_eff, dtype=np.float64))
                     )
-                shift_per_attr[a] = shift_a
+            else:
+                # Absolute: effective dim equals r_a, direct mapping.
+                shift_a = np.asarray(delta_a_eff, dtype=np.float64).copy()
+            if shift_a.shape[0] != r_a:
+                raise RuntimeError(
+                    f"Internal: shift for attribute {a} has shape "
+                    f"{shift_a.shape}, expected ({r_a},)."
+                )
+            shift_per_attr[a] = shift_a
 
     # ---- Main D / Q loop (with cross-correlation shift applied). ----
     for a in range(A):
-        g = int(group_of[a])
         r_a = int(r_vec[a])
         U = dens_x.u_perm[a]   # (r_a, nJ_x)
         V = dens_y.v_comb[a]   # (r_a, nK_y)
@@ -1244,33 +1229,29 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
         # See note in cosine._ma_log_kernel: outer wrap is only needed
         # when _compute_Q does not re-wrap the pairwise component
         # differences (i.e., for is_per and not is_rel).
-        if is_per_g[g] and not is_rel_g[g]:
-            p_g = float(period_g[g])
+        if is_per_g[a] and not is_rel_g[a]:
+            p_g = float(period_g[a])
             D = D - p_g * np.floor(D / p_g + 0.5)
 
-        Q_a = _compute_Q(D, r_a, bool(is_rel_g[g]), bool(is_per_g[g]),
-                         float(period_g[g]))
-        log_kernel = log_kernel - Q_a / (4.0 * float(sigma_g[g]) ** 2)
+        Q_a = _compute_Q(D, r_a, bool(is_rel_g[a]), bool(is_per_g[a]),
+                         float(period_g[a]))
+        log_kernel = log_kernel - Q_a / (4.0 * float(sigma_g[a]) ** 2)
 
-    # ---- Windowed-factor contributions per group (cross-correlation
+    # ---- Windowed-factor contributions per attribute (cross-correlation
     # substitution applied). ----
     if windowed_c is not None:
         wmd = windowed_c
-        attrs_of_g = dens_x.attrs_of_group
         eff_x_perm = _effective_centres_from_U(dens_x, side="perm")
         eff_y_comb = _effective_centres_from_V(dens_y, side="comb")
 
-        for g in range(dens_x.n_groups):
-            if not _is_windowed_group(wmd.size[g], wmd.mix[g]):
+        for a in range(A):
+            if not _is_windowed_attr(wmd.size[a], wmd.mix[a]):
                 continue
-            attrs_g = attrs_of_g[g]
 
-            cx_list = [eff_x_perm[a] for a in attrs_g]   # each (d_a, nJ_x)
-            cy_list = [eff_y_comb[a] for a in attrs_g]   # each (d_a, nK_y)
-            cx_g = np.concatenate(cx_list, axis=0)        # (d_g, nJ_x)
-            cy_g = np.concatenate(cy_list, axis=0)        # (d_g, nK_y)
-            centre_g = np.concatenate([wmd.centre[a] for a in attrs_g])
-            mu_q_g = mu_q_per_g[g]                        # (d_g,)
+            cx_g = eff_x_perm[a]                          # (d_a, nJ_x)
+            cy_g = eff_y_comb[a]                          # (d_a, nK_y)
+            centre_g = np.asarray(wmd.centre[a], dtype=np.float64)
+            mu_q_g = mu_q_per_attr[a]                     # (d_a,)
 
             # Cross-correlation coordinate substitution: translate query
             # centres to origin via mu_q_g, translate context centres to
@@ -1279,14 +1260,14 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             cy_sub = cy_g - centre_g[:, None]
             centre_sub = np.zeros_like(centre_g)
 
-            s_g = wmd.size[g]
-            mix_g = wmd.mix[g]
-            sigma_gv = float(sigma_g[g])
-            is_rel = bool(is_rel_g[g])
+            s_g = wmd.size[a]
+            mix_g = wmd.mix[a]
+            sigma_gv = float(sigma_g[a])
+            is_rel = bool(is_rel_g[a])
             d_g = cx_sub.shape[0]
 
-            if bool(is_per_g[g]):
-                # Periodic group: sum line-case contributions over
+            if bool(is_per_g[a]):
+                # Periodic attribute: sum line-case contributions over
                 # periodic images of the window centre. The wrapped
                 # Gaussian window equals the sum of line-case Gaussians
                 # at all integer-multiples of the period; the windowed
@@ -1295,15 +1276,15 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 contrib, log_D = _periodic_image_sum_contribution(
                     cx_sub, cy_sub, centre_sub,
                     s_g, mix_g, sigma_gv, is_rel,
-                    int(r_vec[int(attrs_g[0])]), d_g,
-                    float(period_g[g]),
+                    int(r_vec[a]), d_g,
+                    float(period_g[a]),
                     _IMAGE_SUM_TOL_DOUBLE,    # FP-precision relative tolerance
                 )
             else:
                 contrib, log_D = _windowed_group_contribution(
                     cx_sub, cy_sub, centre_sub,
                     s_g, mix_g, sigma_gv, is_rel,
-                    int(r_vec[int(attrs_g[0])]), d_g,
+                    int(r_vec[a]), d_g,
                 )
             log_kernel = log_kernel + contrib
             log_prefactor = log_prefactor + log_D
@@ -1353,17 +1334,15 @@ def _effective_centres_from_V(dens: "MaetDensity", side: str):
       - Relative groups with r_a = 1: empty (0, nK) array (degenerate).
     """
     A = dens.n_attrs
-    group_of = dens.group_of_attr
     is_rel_g = dens.is_rel
     r_vec = dens.r
     n_k = dens.n_k
 
     out = []
     for a in range(A):
-        g = int(group_of[a])
         r_a = int(r_vec[a])
         V = dens.v_comb[a]                     # (r_a, nK)
-        if not is_rel_g[g]:
+        if not is_rel_g[a]:
             out.append(V)
         elif r_a >= 2:
             out.append(V[1:, :] - V[0:1, :])    # (r_a - 1, nK)

@@ -293,14 +293,14 @@ class TestRawMAScalar:
 
         # Density-then-eval.
         d = build_exp_tens(
-            p_attr, None, [60.0], [2], None, [False], [True], [1200.0],
+            p_attr, None, [60.0], [2], [False], [True], [1200.0],
             verbose=False,
         )
         ref = eval_exp_tens(d, x, verbose=False)
 
         # Raw-via-unified.
         vals = eval_exp_tens(
-            p_attr, None, [60.0], [2], None, [False], [True], [1200.0], x,
+            p_attr, None, [60.0], [2], [False], [True], [1200.0], x,
             verbose=False,
         )
         np.testing.assert_allclose(vals, ref, atol=1e-14)

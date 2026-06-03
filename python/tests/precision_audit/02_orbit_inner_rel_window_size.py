@@ -69,8 +69,8 @@ def cosine_pairwise(seed, A, r, K, N, sigma=50.0):
     is_rel_vec = [True] * A
     is_per_vec = [False] * A
     period_vec = [0.0] * A
-    dx = build_exp_tens(p_x, w_x, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec, verbose=False)
-    dy = build_exp_tens(p_y, w_y, sigma_vec, r_vec, groups, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    dx = build_exp_tens(p_x, w_x, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
+    dy = build_exp_tens(p_y, w_y, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, verbose=False)
     ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(dx, dy, verbose=False)
     return ip_xy / np.sqrt(ip_xx * ip_yy)
 

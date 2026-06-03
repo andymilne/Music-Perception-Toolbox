@@ -11,12 +11,12 @@ function vals = evalExpTens(varargin)
 %   vals = evalExpTens(p, w, sigma, r, isRel, isPer, period, X, ..., 'verbose', false):
 %   Evaluates the density from raw arguments (builds tuples internally).
 %
-%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X):
-%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X, normalize):
-%   vals = evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X, ..., 'verbose', false):
+%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X):
+%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, normalize):
+%   vals = evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X, ..., 'verbose', false):
 %   Raw multi-attribute mode. pAttr is a 1-by-A cell of K_a-by-N
 %   attribute matrices (the same shape one would pass to buildExpTens);
-%   sigma, r, isRel, isPer, periods are per-group vectors; groups is
+%   sigma, r, isRel, isPer, periods are per-attribute vectors.
 %   the per-attribute group assignment ([], length-A index vector, or
 %   1-by-G cell of index lists). Builds a MaetDensity internally and
 %   returns vals as a length-nQ row vector.
@@ -92,9 +92,6 @@ function vals = evalExpTens(varargin)
 %                 length-G vector (one per group) for MA raw.
 %     r         — Tuple size (positive integer; r >= 2 if isRel == true).
 %                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
-%     groups    — (MA only) Per-attribute group assignment: [] (each
-%                 attribute its own group), length-A index vector, or
-%                 1-by-G cell of attribute-index lists.
 %     isRel     — Logical: true for relative (transposition-invariant).
 %                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
 %     isPer     — Logical: true for periodic domain. Scalar for SA /
@@ -280,7 +277,7 @@ firstArg = varargin{1};
 
 USAGE_MSG = ['Usage: evalExpTens(dens, X [, normalize]) or ' ...
     'evalExpTens(p, w, sigma, r, isRel, isPer, period, X [, normalize]) or ' ...
-    'evalExpTens(pAttr, w, sigma, r, groups, isRel, isPer, periods, X [, normalize]).\n' ...
+    'evalExpTens(pAttr, w, sigma, r, isRel, isPer, periods, X [, normalize]).\n' ...
     'normalize must be ''none'', ''gaussian'', or ''pdf''.'];
 
 % --- 1. Struct first operand: precomputed density ---
@@ -321,20 +318,19 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         return;
     end
     if isnumeric(firstArg{1})
-        % MA raw: cell of attribute matrices, length-9 positional form.
-        if nArgs ~= 9
+        % MA raw: cell of attribute matrices, length-8 positional form.
+        if nArgs ~= 8
             error(USAGE_MSG);
         end
         pAttr_arg  = varargin{1};
         w_arg      = varargin{2};
         sigma_arg  = varargin{3};
         r_arg      = varargin{4};
-        groups_arg = varargin{5};
-        isRel_arg  = varargin{6};
-        isPer_arg  = varargin{7};
-        period_arg = varargin{8};
-        X          = varargin{9};
-        dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, groups_arg, ...
+        isRel_arg  = varargin{5};
+        isPer_arg  = varargin{6};
+        period_arg = varargin{7};
+        X          = varargin{8};
+        dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, ...
                             isRel_arg, isPer_arg, period_arg, 'verbose', verbose);
         % localEvalMA reads heavy fields (e.g. nJ); buildExpTens
         % returns the skinny struct, so materialise the heavy fields
@@ -1227,7 +1223,6 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     N_J        = dens.nJ;
     dim        = dens.dim;
     dimPerAttr = dens.dimPerAttr;
-    groupOf    = dens.groupOfAttr;
     r_         = dens.r;
     sigmaG     = dens.sigma;
     isRelG     = dens.isRel;
@@ -1349,15 +1344,14 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     if strcmp(normalize, 'gaussian') || strcmp(normalize, 'pdf')
         gaussConst = 1;
         for a = 1:A
-            g = groupOf(a);
             da = dimPerAttr(a);
-            if isRelG(g) && r_(a) >= 2
+            if isRelG(a) && r_(a) >= 2
                 detM_a = 1 / r_(a);
             else
                 detM_a = 1;
             end
             gaussConst = gaussConst * ...
-                (2 * pi * sigmaG(g)^2)^(-da / 2) * sqrt(detM_a);
+                (2 * pi * sigmaG(a)^2)^(-da / 2) * sqrt(detM_a);
         end
         vals = vals * gaussConst;
 
@@ -1402,7 +1396,6 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             % Direct double accumulation path.
             Q_total = zeros(N_J, nQc);
             for a = 1:A
-                g = groupOf(a);
                 da = dimPerAttr(a);
                 if da == 0
                     continue;
@@ -1410,14 +1403,14 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 Ca = Centres{a};
                 Xa = Xchunk{a};
                 D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
-                Pg = periodG(g);
+                Pg = periodG(a);
                 % Outer wrap only needed for abs+per. For rel+per the
                 % pairwise wrap below subsumes it (Eq 6).
-                if isPerG(g) && ~isRelG(g)
+                if isPerG(a) && ~isRelG(a)
                     D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
                 end
-                if isRelG(g)
-                    if isPerG(g)
+                if isRelG(a)
+                    if isPerG(a)
                         % Pairwise-wrap form on reduced centres
                         % (slot 0 = 0 implicit). Slot-0 vectorised.
                         slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
@@ -1437,7 +1430,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 else
                     Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
                 end
-                Q_total = Q_total + Q_a / (2 * sigmaG(g)^2);
+                Q_total = Q_total + Q_a / (2 * sigmaG(a)^2);
             end
             E = exp(-Q_total);
             v = wJ(:).' * E;
@@ -1454,7 +1447,6 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         Q_total = zeros(N_J, nQc, qDtype);
 
         for a = 1:A
-            g = groupOf(a);
             da = dimPerAttr(a);
             if da == 0
                 continue;
@@ -1462,14 +1454,14 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             Ca = cast(Centres{a}, qDtype);
             Xa = cast(Xchunk{a}, qDtype);
             D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
-            Pg = cast(periodG(g), qDtype);
+            Pg = cast(periodG(a), qDtype);
             % Outer wrap only needed for abs+per. For rel+per the
             % pairwise wrap below subsumes it (Eq 6).
-            if isPerG(g) && ~isRelG(g)
+            if isPerG(a) && ~isRelG(a)
                 D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
             end
-            if isRelG(g)
-                if isPerG(g)
+            if isRelG(a)
+                if isPerG(a)
                     % Slot-0 pairs vectorised; inner pairs looped.
                     slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
                     Q_a = reshape(sum(slot0_wrapped .^ 2, 1), N_J, nQc);
@@ -1488,7 +1480,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             else
                 Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
             end
-            Q_total = Q_total + Q_a / (2 * cast(sigmaG(g), qDtype)^2);
+            Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
         end
 
         % Post-filter truncation: exp(-Q_total) is negligible beyond
@@ -1528,7 +1520,6 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
     A          = dens.nAttrs;
     dimPerAttr = dens.dimPerAttr;
     dim        = dens.dim;
-    groupOf    = dens.groupOfAttr;
     sigmaG     = dens.sigma;
     isPerG     = logical(dens.isPer);
     periodG    = dens.period;
@@ -1567,18 +1558,17 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
     IMAGE_SUM_TOL = 1e-12;   % FP-precision tolerance (matches Python)
 
     for a = 1:A
-        g = groupOf(a);
-        if ~localIsWindowedGroup(wmd.size(g), wmd.mix(g))
+        if ~localIsWindowedAttr(wmd.size(a), wmd.mix(a))
             continue;
         end
-        [a_, b_] = localWindowWidthParams(wmd.size(g), wmd.mix(g), sigmaG(g));
+        [a_, b_] = localWindowWidthParams(wmd.size(a), wmd.mix(a), sigmaG(a));
         da = dimPerAttr(a);
         centre_a = wmd.centre{a};    % (da, 1)
         centre_a = centre_a(:);
         Xa = Xc{a};                   % (da, nQ)
-        per = isPerG(g);
+        per = isPerG(a);
         if per
-            P_g = double(periodG(g));
+            P_g = double(periodG(a));
         else
             P_g = 0;
         end
@@ -1596,7 +1586,7 @@ function W_vals = localEvaluateWindowOnQuery(wmd, X)
 end
 
 
-function tf = localIsWindowedGroup(size_g, mix_g)
+function tf = localIsWindowedAttr(size_g, mix_g)
     tf = isfinite(size_g) && size_g > 0;
 end
 

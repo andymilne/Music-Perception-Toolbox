@@ -38,7 +38,7 @@ class TestMAET:
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_exp_tens(
-            p_attr, w_ma, [sigma], [r], None,
+            p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
 
@@ -63,7 +63,7 @@ class TestMAET:
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_exp_tens(
-            p_attr, w_ma, [sigma], [r], None,
+            p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
         assert dens_ma.centres[0].shape == (r - 1, dens_ma.n_j)
@@ -77,15 +77,13 @@ class TestMAET:
         time = np.array([[0.0, 1.0]])                               # 1 x 2
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         assert dens.tag == "MaetDensity"
         assert dens.n_attrs == 2
-        assert dens.n_groups == 2
         assert dens.n == 2
-        np.testing.assert_array_equal(dens.group_of_attr, [0, 1])
         np.testing.assert_array_equal(dens.r, [3, 1])
         np.testing.assert_array_equal(dens.k, [3, 1])
         # pitch contributes r_p - 1 = 2, time contributes r_t = 1
@@ -98,7 +96,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0, 2.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -113,7 +111,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0, 2.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -125,7 +123,7 @@ class TestMAET:
     def test_ma_weight_none(self):
         pitch = np.array([[0, 4], [4, 8]], dtype=float)
         dens = mpt.build_exp_tens(
-            [pitch], None, [10.0], [2], None,
+            [pitch], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         np.testing.assert_array_equal(dens.w[0], np.ones((2, 2)))
@@ -133,7 +131,7 @@ class TestMAET:
     def test_ma_weight_scalar_top_level(self):
         pitch = np.array([[0, 4], [4, 8]], dtype=float)
         dens = mpt.build_exp_tens(
-            [pitch], 0.5, [10.0], [2], None,
+            [pitch], 0.5, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         np.testing.assert_array_equal(dens.w[0], np.full((2, 2), 0.5))
@@ -142,7 +140,7 @@ class TestMAET:
         pitch = np.array([[0, 4, 5], [4, 8, 6]], dtype=float)  # K=2, N=3
         w_row = np.array([[0.5, 1.0, 2.0]])                    # (1, 3)
         dens = mpt.build_exp_tens(
-            [pitch], [w_row], [10.0], [2], None,
+            [pitch], [w_row], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         np.testing.assert_array_equal(
@@ -155,7 +153,7 @@ class TestMAET:
         )  # K=3, N=3
         w_col = np.array([[0.5], [1.0], [2.0]])                # (3, 1)
         dens = mpt.build_exp_tens(
-            [pitch], [w_col], [10.0], [2], None,
+            [pitch], [w_col], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         np.testing.assert_array_equal(
@@ -166,7 +164,7 @@ class TestMAET:
         pitch = np.array([[0, 4], [4, 8]], dtype=float)
         W = np.array([[0.1, 0.2], [0.3, 0.4]])
         dens = mpt.build_exp_tens(
-            [pitch], [W], [10.0], [2], None,
+            [pitch], [W], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         np.testing.assert_array_equal(dens.w[0], W)
@@ -175,7 +173,7 @@ class TestMAET:
         pitch = np.array([[0, 4], [4, 8], [7, 9]], dtype=float)  # K=3, N=2
         w_1d = np.array([0.5, 1.0])  # length N=2 (not K=3) -> per-event
         dens = mpt.build_exp_tens(
-            [pitch], [w_1d], [10.0], [2], None,
+            [pitch], [w_1d], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         expected = np.array([[0.5, 1.0], [0.5, 1.0], [0.5, 1.0]])
@@ -185,7 +183,7 @@ class TestMAET:
         pitch = np.array([[0, 4], [4, 8], [7, 9]], dtype=float)  # K=3, N=2
         w_1d = np.array([0.5, 1.0, 2.0])  # length K=3 (not N=2) -> per-slot
         dens = mpt.build_exp_tens(
-            [pitch], [w_1d], [10.0], [2], None,
+            [pitch], [w_1d], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         expected = np.tile([[0.5], [1.0], [2.0]], (1, 2))
@@ -198,65 +196,11 @@ class TestMAET:
         w_1d = np.array([0.5, 1.0, 2.0])
         with pytest.raises(ValueError, match="ambiguous"):
             mpt.build_exp_tens(
-                [pitch], [w_1d], [10.0], [2], None,
+                [pitch], [w_1d], [10.0], [2], 
                 [False], [True], [1200.0], verbose=False,
             )
 
     # --- Groups -------------------------------------------------------
-
-    def test_ma_groups_default_singleton(self):
-        pitch = np.array([[0, 4]], dtype=float)
-        time = np.array([[0.0, 1.0]])
-        dens = mpt.build_exp_tens(
-            [pitch, time], None, [10.0, 0.1], [1, 1], None,
-            [False, False], [True, False], [1200.0, 0.0], verbose=False,
-        )
-        assert dens.n_groups == 2
-        np.testing.assert_array_equal(dens.group_of_attr, [0, 1])
-
-    def test_ma_groups_vector_and_cell_agree(self):
-        pitch = np.array([[0, 4]], dtype=float)
-        time = np.array([[0.0, 1.0]])
-        x = np.array([[0.0, 0.5]])
-        y = np.array([[0.0, 0.5]])
-        z = np.array([[0.0, 0.5]])
-
-        args_rest = (
-            [10.0, 0.1, 0.2], [1, 1, 1, 1, 1],   # sigma_vec, r_vec
-        )
-        flags = ([False, False, False], [True, False, False],
-                 [1200.0, 0.0, 0.0])
-
-        dens_v = mpt.build_exp_tens(
-            [pitch, time, x, y, z], None,
-            *args_rest, [0, 1, 2, 2, 2], *flags, verbose=False,
-        )
-        dens_c = mpt.build_exp_tens(
-            [pitch, time, x, y, z], None,
-            *args_rest, [[0], [1], [2, 3, 4]], *flags, verbose=False,
-        )
-        np.testing.assert_array_equal(dens_v.group_of_attr, dens_c.group_of_attr)
-        assert dens_v.n_groups == dens_c.n_groups
-        for g in range(dens_v.n_groups):
-            np.testing.assert_array_equal(
-                dens_v.attrs_of_group[g], dens_c.attrs_of_group[g]
-            )
-
-    def test_ma_groups_noncontiguous_errors(self):
-        pitch = np.array([[0, 4]], dtype=float)
-        with pytest.raises(ValueError, match="contiguous"):
-            mpt.build_exp_tens(
-                [pitch, pitch], None, [10.0, 10.0], [1, 1], [0, 2],
-                [False, False], [True, True], [1200.0, 1200.0], verbose=False,
-            )
-
-    def test_ma_groups_cell_duplicate_attr_errors(self):
-        pitch = np.array([[0, 4]], dtype=float)
-        with pytest.raises(ValueError, match="more than one group"):
-            mpt.build_exp_tens(
-                [pitch, pitch], None, [10.0], [1, 1], [[0, 1], [1]],
-                [False], [True], [1200.0], verbose=False,
-            )
 
     # --- NaN-padded variable-size events -----------------------------
 
@@ -265,7 +209,7 @@ class TestMAET:
         pitch = np.array([[0, 0], [4, 4], [7, np.nan]], dtype=float)
         time = np.array([[0.0, 1.0]])
         dens = mpt.build_exp_tens(
-            [pitch, time], None, [10.0, 0.1], [2, 1], None,
+            [pitch, time], None, [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0], verbose=False,
         )
         # Event 0: P(3,2)=6 perms, C(3,2)=3 combs. Event 1: P(2,2)=2, C(2,2)=1.
@@ -285,7 +229,7 @@ class TestMAET:
         w_time = np.array([[5.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], [w_pitch, w_time],
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0], verbose=False,
         )
         # 2 pitch perms, each with weight 2*3*5 = 30.
@@ -302,7 +246,7 @@ class TestMAET:
         )
         with pytest.raises(ValueError, match="non-NaN slot"):
             mpt.build_exp_tens(
-                [pitch], None, [10.0], [2], None,
+                [pitch], None, [10.0], [2], 
                 [False], [True], [1200.0], verbose=False,
             )
 
@@ -310,7 +254,7 @@ class TestMAET:
         pitch = np.array([[0, 4]], dtype=float)
         with pytest.raises(ValueError, match="r_vec"):
             mpt.build_exp_tens(
-                [pitch, pitch], None, [10.0, 10.0], [1], None,
+                [pitch, pitch], None, [10.0, 10.0], [1], 
                 [False, False], [True, True], [1200.0, 1200.0], verbose=False,
             )
 
@@ -318,7 +262,7 @@ class TestMAET:
         pitch = np.array([[0, 4]], dtype=float)
         with pytest.raises(ValueError, match="sigma_vec"):
             mpt.build_exp_tens(
-                [pitch, pitch], None, [10.0], [1, 1], None,
+                [pitch, pitch], None, [10.0], [1, 1], 
                 [False, False], [True, True], [1200.0, 1200.0], verbose=False,
             )
 
@@ -327,7 +271,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0, 2.0]])             # N=3
         with pytest.raises(ValueError, match="share N"):
             mpt.build_exp_tens(
-                [pitch, time], None, [10.0, 0.1], [1, 1], None,
+                [pitch, time], None, [10.0, 0.1], [1, 1], 
                 [False, False], [True, False], [1200.0, 0.0], verbose=False,
             )
 
@@ -335,17 +279,17 @@ class TestMAET:
         pitch = np.array([[0, 4]], dtype=float)
         with pytest.warns(UserWarning, match="degenerate"):
             mpt.build_exp_tens(
-                [pitch], None, [10.0], [1], None,
+                [pitch], None, [10.0], [1], 
                 [True], [True], [1200.0], verbose=False,
             )
 
     def test_ma_wrong_positional_count(self):
         pitch = np.array([[0, 4]], dtype=float)
-        # 7 positional args for MA is wrong (should be 8)
-        with pytest.raises(ValueError, match="8 positional"):
+        # 6 positional args for MA is wrong (should be 7)
+        with pytest.raises(ValueError, match="7 positional"):
             mpt.build_exp_tens(
                 [pitch], None, [10.0], [1],
-                [False], [True], [1200.0], verbose=False,
+                [False], [True], verbose=False,
             )
 
     # --- evalExpTens MA path ------------------------------------------
@@ -365,7 +309,7 @@ class TestMAET:
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_exp_tens(
-            p_attr, w_ma, [sigma], [r], None,
+            p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
         vals_ma_cell = mpt.eval_exp_tens(dens_ma, [x_sa], verbose=False)
@@ -387,7 +331,7 @@ class TestMAET:
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_exp_tens(
-            p_attr, w_ma, [sigma], [r], None,
+            p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
 
@@ -408,7 +352,7 @@ class TestMAET:
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
         dens_ma = mpt.build_exp_tens(
-            p_attr, w_ma, [sigma], [r], None,
+            p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
         for mode in ("gaussian", "pdf"):
@@ -422,7 +366,7 @@ class TestMAET:
         time  = np.array([[1.0]])                     # K=1, N=1
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -440,7 +384,7 @@ class TestMAET:
         time  = np.array([[0.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [20.0, 20.0], [1, 1], None,
+            [20.0, 20.0], [1, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -469,7 +413,7 @@ class TestMAET:
         time  = np.array([[1.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -486,7 +430,7 @@ class TestMAET:
         time  = np.array([[1.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -501,7 +445,7 @@ class TestMAET:
         time  = np.array([[1.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -516,7 +460,7 @@ class TestMAET:
         time  = np.array([[1.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [2, 1], None,
+            [10.0, 0.1], [2, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -527,7 +471,7 @@ class TestMAET:
     def test_ma_eval_empty_query(self):
         pitch = np.array([[0.0, 4.0]]).T
         dens = mpt.build_exp_tens(
-            [pitch], None, [10.0], [2], None,
+            [pitch], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         vals = mpt.eval_exp_tens(dens, np.zeros((2, 0)), verbose=False)
@@ -542,7 +486,7 @@ class TestMAET:
         assert isinstance(dens_sa, mpt.ExpTensDensity)
         # MaetDensity -> MA path
         dens_ma = mpt.build_exp_tens(
-            [np.array([[0.0, 4.0]]).T], None, [10.0], [2], None,
+            [np.array([[0.0, 4.0]]).T], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         assert isinstance(dens_ma, mpt.MaetDensity)
@@ -569,11 +513,11 @@ class TestMAET:
         # MA form: one attribute, one event, column weight
         da = mpt.build_exp_tens(
             [np.array(p_a).reshape(3, 1)], [np.array(w_a).reshape(3, 1)],
-            [sigma], [r], None, [is_rel], [is_per], [period], verbose=False,
+            [sigma], [r], [is_rel], [is_per], [period], verbose=False,
         )
         db = mpt.build_exp_tens(
             [np.array(p_b).reshape(3, 1)], [np.array(w_b).reshape(3, 1)],
-            [sigma], [r], None, [is_rel], [is_per], [period], verbose=False,
+            [sigma], [r], [is_rel], [is_per], [period], verbose=False,
         )
         s_ma = mpt.cos_sim_exp_tens(da, db, verbose=False)
 
@@ -593,11 +537,11 @@ class TestMAET:
             )
             da = mpt.build_exp_tens(
                 [np.array(p_a).reshape(3, 1)], [np.array(w_a).reshape(3, 1)],
-                [10.0], [r], None, [True], [is_per], [period], verbose=False,
+                [10.0], [r], [True], [is_per], [period], verbose=False,
             )
             db = mpt.build_exp_tens(
                 [np.array(p_b).reshape(3, 1)], [np.array(w_b).reshape(3, 1)],
-                [10.0], [r], None, [True], [is_per], [period], verbose=False,
+                [10.0], [r], [True], [is_per], [period], verbose=False,
             )
             s_ma = mpt.cos_sim_exp_tens(da, db, verbose=False)
             np.testing.assert_allclose(
@@ -611,7 +555,7 @@ class TestMAET:
         time  = np.array([[0.0, 1.0]])
         d = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -627,13 +571,13 @@ class TestMAET:
 
         da = mpt.build_exp_tens(
             [pitchA, timeA], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         db = mpt.build_exp_tens(
             [pitchB, timeB], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -651,13 +595,13 @@ class TestMAET:
 
         d1 = mpt.build_exp_tens(
             [pitch, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         d2 = mpt.build_exp_tens(
             [pitch_shifted, time], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -674,19 +618,19 @@ class TestMAET:
         # Raw MA form: 10 positional args
         s_raw = mpt.cos_sim_exp_tens_raw(
             [pitchA, timeA], None, [pitchB, timeB], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1],
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         da = mpt.build_exp_tens(
             [pitchA, timeA], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         db = mpt.build_exp_tens(
             [pitchB, timeB], None,
-            [10.0, 0.1], [3, 1], None,
+            [10.0, 0.1], [3, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -704,12 +648,12 @@ class TestMAET:
     def test_ma_cossim_raw_mismatched_types_errors(self):
         """p1 is MA but p2 is SA. Under the unified cos_sim_exp_tens
         dispatcher, the first arg's type (here, list of arrays = MA)
-        sets the dispatch arm, and the resulting positional-count
-        mismatch (MA needs 10 positional args; SA-style call gives 9)
+        sets the dispatch arm; the SA-shaped second operand then builds
+        an SA density, and comparing densities of different types
         produces a clear TypeError."""
         pitch_ma = [np.array([[0.0, 4.0]]).T]
         pitch_sa = [0.0, 4.0]
-        with pytest.raises(TypeError, match="positional"):
+        with pytest.raises(TypeError, match="same type"):
             mpt.cos_sim_exp_tens_raw(
                 pitch_ma, None, pitch_sa, None,
                 10.0, 2, False, True, 1200.0, verbose=False,
@@ -722,7 +666,7 @@ class TestMAET:
         )
         d_ma = mpt.build_exp_tens(
             [np.array([[0.0, 4.0, 7.0]]).T], None,
-            [10.0], [2], None, [False], [True], [1200.0], verbose=False,
+            [10.0], [2], [False], [True], [1200.0], verbose=False,
         )
         with pytest.raises(TypeError, match="same type"):
             mpt.cos_sim_exp_tens(d_sa, d_ma, verbose=False)
@@ -734,39 +678,39 @@ class TestMAET:
         pitch = np.array([[0.0, 4.0, 7.0]]).T
         base_kwargs = dict(
             p_attr=[pitch], w=None,
-            sigma_vec=[10.0], r_vec=[2], groups=None,
+            sigma_vec=[10.0], r_vec=[2],
             is_rel_vec=[False], is_per_vec=[True], period_vec=[1200.0],
         )
         d_ref = mpt.build_exp_tens(
             base_kwargs["p_attr"], base_kwargs["w"],
-            base_kwargs["sigma_vec"], base_kwargs["r_vec"], base_kwargs["groups"],
+            base_kwargs["sigma_vec"], base_kwargs["r_vec"], 
             base_kwargs["is_rel_vec"], base_kwargs["is_per_vec"],
             base_kwargs["period_vec"], verbose=False,
         )
         # Different r_vec
         d_r = mpt.build_exp_tens(
-            [pitch], None, [10.0], [3], None,
+            [pitch], None, [10.0], [3], 
             [False], [True], [1200.0], verbose=False,
         )
         with pytest.raises(ValueError, match="r"):
             mpt.cos_sim_exp_tens(d_ref, d_r, verbose=False)
         # Different sigma
         d_s = mpt.build_exp_tens(
-            [pitch], None, [20.0], [2], None,
+            [pitch], None, [20.0], [2], 
             [False], [True], [1200.0], verbose=False,
         )
         with pytest.raises(ValueError, match="sigma"):
             mpt.cos_sim_exp_tens(d_ref, d_s, verbose=False)
         # Different is_rel
         d_rel = mpt.build_exp_tens(
-            [pitch], None, [10.0], [2], None,
+            [pitch], None, [10.0], [2], 
             [True], [True], [1200.0], verbose=False,
         )
         with pytest.raises(ValueError, match="is_rel"):
             mpt.cos_sim_exp_tens(d_ref, d_rel, verbose=False)
         # Different period on periodic group
         d_p = mpt.build_exp_tens(
-            [pitch], None, [10.0], [2], None,
+            [pitch], None, [10.0], [2], 
             [False], [True], [2400.0], verbose=False,
         )
         with pytest.raises(ValueError, match="period"):
@@ -785,7 +729,7 @@ class TestMAET:
         )
         H_ma = mpt.entropy_exp_tens(
             [p.reshape(3, 1)], [w.reshape(3, 1)],
-            [10.0], [1], None, [False], [True], [12.0],
+            [10.0], [1], [False], [True], [12.0],
             n_points_per_dim=400,
         )
         np.testing.assert_allclose(H_ma, H_sa, rtol=1e-10, atol=1e-10)
@@ -801,7 +745,7 @@ class TestMAET:
         )
         H_ma = mpt.entropy_exp_tens(
             [p.reshape(3, 1)], [w.reshape(3, 1)],
-            [10.0], [1], None, [False], [False], [0.0],
+            [10.0], [1], [False], [False], [0.0],
             x_min=-3.0, x_max=10.0, n_points_per_dim=400,
         )
         np.testing.assert_allclose(H_ma, H_sa, rtol=1e-10, atol=1e-10)
@@ -812,7 +756,7 @@ class TestMAET:
         p = np.arange(12, dtype=np.float64)
         H = mpt.entropy_exp_tens(
             [p.reshape(12, 1)], None,
-            [100.0], [1], None, [False], [True], [12.0],
+            [100.0], [1], [False], [True], [12.0],
             n_points_per_dim=400,
         )
         assert H > 0.95
@@ -829,13 +773,13 @@ class TestMAET:
         p_one = np.array([5.0])
         H_one = mpt.entropy_exp_tens(
             [p_one.reshape(1, 1)], None,
-            [1.0], [1], None, [False], [True], [12.0],
+            [1.0], [1], [False], [True], [12.0],
             n_points_per_dim=400,
         )
         p_all = np.arange(12, dtype=np.float64)
         H_all = mpt.entropy_exp_tens(
             [p_all.reshape(12, 1)], None,
-            [1.0], [1], None, [False], [True], [12.0],
+            [1.0], [1], [False], [True], [12.0],
             n_points_per_dim=400,
         )
         assert H_one < H_all
@@ -848,7 +792,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0]])                               # 1 x 2
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [20.0, 0.1], [2, 1], None,
+            [20.0, 0.1], [2, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -867,7 +811,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0]])
         dens = mpt.build_exp_tens(
             [pitch, time], None,
-            [20.0, 0.1], [2, 1], None,
+            [20.0, 0.1], [2, 1], 
             [True, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -885,7 +829,7 @@ class TestMAET:
         with pytest.raises(ValueError, match="non-periodic"):
             mpt.entropy_exp_tens(
                 [p.reshape(3, 1)], None,
-                [10.0], [1], None, [False], [False], [0.0],
+                [10.0], [1], [False], [False], [0.0],
                 n_points_per_dim=100,
             )
 
@@ -896,7 +840,7 @@ class TestMAET:
         time = np.array([[0.0, 1.0]])
         H_scalar = mpt.entropy_exp_tens(
             [pitch, time], None,
-            [20.0, 0.1], [2, 1], None,
+            [20.0, 0.1], [2, 1],
             [True, False], [True, False], [1200.0, 0.0],
             x_min=-0.5, x_max=1.5,
             n_points_per_dim=60,
@@ -904,7 +848,7 @@ class TestMAET:
         # Length-G vector with NaN for the periodic group — same result.
         H_vec = mpt.entropy_exp_tens(
             [pitch, time], None,
-            [20.0, 0.1], [2, 1], None,
+            [20.0, 0.1], [2, 1],
             [True, False], [True, False], [1200.0, 0.0],
             x_min=[float("nan"), -0.5],
             x_max=[float("nan"),  1.5],
@@ -996,7 +940,7 @@ class TestMAET:
             p, None, None, [0, 1],
         )
         dens = mpt.build_exp_tens(
-            pd, wd, [10.0, 0.05], [1, 1], None,
+            pd, wd, [10.0, 0.05], [1, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -1108,7 +1052,7 @@ class TestMAET:
         p_bundled = [np.vstack(p_diff)]
         assert p_bundled[0].shape == (4, 3)
         dens = mpt.build_exp_tens(
-            p_bundled, None, [10.0], [1], None,
+            p_bundled, None, [10.0], [1], 
             [False], [False], [0.0],
             verbose=False,
         )
@@ -2050,7 +1994,7 @@ class TestMAET:
         sigma, r = [0.15], [1]
         is_rel, is_per, periods = [False], [False], [0.0]
         M = mpt.build_exp_tens(
-            p, None, sigma, r, groups, is_rel, is_per, periods,
+            p, None, sigma, r, is_rel, is_per, periods,
             verbose=False,
         )
         for mu in (-3.0, 1.5, 7.0):
@@ -2058,7 +2002,7 @@ class TestMAET:
                 p, groups, {0: mu}, is_rel, is_per, periods,
             )
             M_mu = mpt.build_exp_tens(
-                p_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                p_mu, None, sigma, r, is_rel, is_per, periods,
                 verbose=False,
             )
             ip_self = mpt.cos_sim_exp_tens(M, M, verbose=False)
@@ -2073,7 +2017,7 @@ class TestMAET:
         sigma, r = [0.15], [1]
         is_rel, is_per, periods = [False], [True], [12.0]
         M = mpt.build_exp_tens(
-            p, None, sigma, r, groups, is_rel, is_per, periods,
+            p, None, sigma, r, is_rel, is_per, periods,
             verbose=False,
         )
         for mu in (-7.0, 1.5, 6.0, 15.0):
@@ -2081,7 +2025,7 @@ class TestMAET:
                 p, groups, {0: mu}, is_rel, is_per, periods,
             )
             M_mu = mpt.build_exp_tens(
-                p_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                p_mu, None, sigma, r, is_rel, is_per, periods,
                 verbose=False,
             )
             np.testing.assert_allclose(
@@ -2100,7 +2044,7 @@ class TestMAET:
         sigma, r = [0.15], [1]
         is_rel, is_per, periods = [False], [False], [0.0]
         M_q = mpt.build_exp_tens(
-            p_q, None, sigma, r, groups, is_rel, is_per, periods,
+            p_q, None, sigma, r, is_rel, is_per, periods,
             verbose=False,
         )
         best_mu, best_s = None, -np.inf
@@ -2109,7 +2053,7 @@ class TestMAET:
                 p_c, groups, {0: mu}, is_rel, is_per, periods,
             )
             M_c_mu = mpt.build_exp_tens(
-                p_c_mu, None, sigma, r, groups, is_rel, is_per, periods,
+                p_c_mu, None, sigma, r, is_rel, is_per, periods,
                 verbose=False,
             )
             s = mpt.cos_sim_exp_tens(M_q, M_c_mu, verbose=False)
@@ -2635,7 +2579,7 @@ class TestMAET:
         ref_pAttr, qry_pAttr, p = self._ma_inputs()
         s = mpt.cos_sim_exp_tens(
             ref_pAttr, None, qry_pAttr, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
@@ -2652,7 +2596,7 @@ class TestMAET:
         )
         S = mpt.cos_sim_exp_tens(
             ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
@@ -2671,19 +2615,19 @@ class TestMAET:
         )
         S = mpt.cos_sim_exp_tens(
             ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
         dens_ref = mpt.build_exp_tens(
-            ref_pAttr, None, p['sigma'], p['r'], p['groups'],
+            ref_pAttr, None, p['sigma'], p['r'], 
             p['is_rel'], p['is_per'], p['periods'], verbose=False,
         )
         S_manual = np.array([
             mpt.cos_sim_exp_tens(
                 dens_ref,
                 mpt.build_exp_tens(
-                    pa, None, p['sigma'], p['r'], p['groups'],
+                    pa, None, p['sigma'], p['r'], 
                     p['is_rel'], p['is_per'], p['periods'],
                     verbose=False,
                 ),
@@ -2705,13 +2649,13 @@ class TestMAET:
         )
         S_ref_first = mpt.cos_sim_exp_tens(
             ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
         S_list_first = mpt.cos_sim_exp_tens(
             qry_swept, None, ref_pAttr, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
@@ -2733,7 +2677,7 @@ class TestMAET:
         with pytest.raises(TypeError, match="list-vs-list"):
             mpt.cos_sim_exp_tens(
                 list1, None, list2, None,
-                p['sigma'], p['r'], p['groups'],
+                p['sigma'], p['r'],
                 p['is_rel'], p['is_per'], p['periods'],
                 verbose=False,
             )
@@ -2753,7 +2697,7 @@ class TestMAET:
         )
         S = mpt.cos_sim_exp_tens(
             ref_pAttr, None, ref_swept, None,
-            p['sigma'], p['r'], p['groups'],
+            p['sigma'], p['r'],
             p['is_rel'], p['is_per'], p['periods'],
             verbose=False,
         )
@@ -2768,7 +2712,7 @@ class TestMAET:
         times   = np.array([[t for (_, t) in events]])
         return mpt.build_exp_tens(
             [pitches, times], None,
-            [10.0, 0.1], [1, 1], None,
+            [10.0, 0.1], [1, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -2848,7 +2792,7 @@ class TestMAET:
         pitch = np.array([[60.0, 62.0], [64.0, 65.0], [67.0, 69.0]])
         dens = mpt.build_exp_tens(
             [pitch], None,
-            [10.0], [3], None,
+            [10.0], [3], 
             [True], [True], [1200.0],
             verbose=False,
         )
@@ -2865,7 +2809,7 @@ class TestMAET:
         pitch = np.array([[60.0, 62.0], [64.0, 65.0], [67.0, 69.0]])
         dens = mpt.build_exp_tens(
             [pitch], None,
-            [10.0], [3], None,
+            [10.0], [3], 
             [True], [True], [1200.0],
             verbose=False,
         )
@@ -2880,7 +2824,7 @@ class TestMAET:
         pitch = np.array([[60.0, 62.0], [64.0, 65.0], [67.0, 69.0]])
         dens = mpt.build_exp_tens(
             [pitch], None,
-            [10.0], [3], None,
+            [10.0], [3], 
             [True], [True], [1200.0],
             verbose=False,
         )
@@ -2896,7 +2840,7 @@ class TestMAET:
         pitch = np.array([[60.0, 62.0], [64.0, 65.0], [67.0, 69.0]])
         dens = mpt.build_exp_tens(
             [pitch], None,
-            [10.0], [3], None,
+            [10.0], [3], 
             [True], [True], [1200.0],
             verbose=False,
         )
@@ -2931,14 +2875,14 @@ class TestMAET:
         ctx = mpt.build_exp_tens(
             [np.array([[60.0, 62.0, 64.0, 65.0]]),
              np.array([[0.0, 1.0, 2.0, 3.0]])],
-            None, [0.5, 0.1], [1, 1], None,
+            None, [0.5, 0.1], [1, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
         # Query: single event at pitch 62, time 0 (fixed, not swept).
         q = mpt.build_exp_tens(
             [np.array([[62.0]]), np.array([[0.0]])], None,
-            [0.5, 0.1], [1, 1], None,
+            [0.5, 0.1], [1, 1], 
             [False, False], [True, False], [1200.0, 0.0],
             verbose=False,
         )
@@ -3094,7 +3038,7 @@ class TestMAET:
         pitches = np.array([[3.0, 7.0]])
         dens = mpt.build_exp_tens(
             [pitches], None,
-            [sigma], [1], [0],
+            [sigma], [1], 
             [False], [True], [P],
             verbose=False,
         )

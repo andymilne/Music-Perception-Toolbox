@@ -77,7 +77,7 @@ def _ma_density(p_attr, w, r=(1, 1)):
     return build_exp_tens(
         [np.asarray(P, float) for P in p_attr],
         None if w is None else [np.asarray(W, float) for W in w],
-        [0.5, 0.15], list(r), [0, 1], [False, False], [False, False],
+        [0.5, 0.15], list(r), [False, False], [False, False],
         [0.0, 0.0], verbose=False,
     )
 
@@ -277,12 +277,12 @@ def test_renyi2_ma_windowed_matches_manual_prune():
     n_live = int((w_w[0].sum(axis=0) > 0).sum())
     assert 0 < n_live < 40              # narrow window keeps a handful
 
-    d_auto = build_exp_tens(p_w, w_w, [0.5], [1], list(g_w),
+    d_auto = build_exp_tens(p_w, w_w, [0.5], [1], 
                             [False], [False], [0.0], verbose=False)
     keep = w_w[0].sum(axis=0) > 0
     d_manual = build_exp_tens(
         [p[:, keep] for p in p_w], [ww[:, keep] for ww in w_w],
-        [0.5], [1], list(g_w),
+        [0.5], [1], 
         [False], [False], [0.0], verbose=False,
     )
     h_auto = entropy_exp_tens(d_auto, method='renyi2', verbose=False)
@@ -298,7 +298,7 @@ def test_renyi2_ma_windowed_bounded_time():
     mpt.set_default(truncation_sigmas=3.0)
     n_events = 3000
     p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=3)
-    d = build_exp_tens(p_w, w_w, [0.5], [1], list(g_w),
+    d = build_exp_tens(p_w, w_w, [0.5], [1], 
                        [False], [False], [0.0], verbose=False)
     t0 = time.time()
     h = entropy_exp_tens(d, method='renyi2', verbose=False)

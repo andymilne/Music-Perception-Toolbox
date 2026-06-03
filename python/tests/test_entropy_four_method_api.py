@@ -178,8 +178,9 @@ class TestDifferentialConvergence:
         period = 12.0
         sigma_eff = math.sqrt(2)
         dens_ma = build_exp_tens(
-            [P2, P2], [W2, W2], [sigma_eff],
-            [1, 1], [0, 0], [False], [True], [period], verbose=False,
+            [P2, P2], [W2, W2], [sigma_eff, sigma_eff],
+            [1, 1], [False, False], [True, True], [period, period],
+            verbose=False,
         )
         h_diff = entropy_exp_tens(dens_ma, method='differential', verbose=False)
         # Compare to fixed N=500 h_hat
@@ -428,7 +429,7 @@ def ma_dens():
     w = [np.ones(4), np.ones(4)]
     return build_exp_tens(
         p_attr, w,
-        [20.0, 5.0], [1, 1], [0, 1],
+        [20.0, 5.0], [1, 1], 
         [False, False], [False, False], [0.0, 0.0], verbose=False,
     )
 

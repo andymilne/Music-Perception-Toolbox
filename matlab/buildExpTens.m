@@ -6,7 +6,7 @@ function dens = buildExpTens(varargin)
 %     dens = buildExpTens(..., 'verbose', false)
 %
 %   MULTI-ATTRIBUTE (MAET):
-%     dens = buildExpTens(pAttr, w, sigmaVec, rVec, groups, ...
+%     dens = buildExpTens(pAttr, w, sigmaVec, rVec, ...
 %                         isRelVec, isPerVec, periodVec)
 %     dens = buildExpTens(..., 'verbose', false)
 %
@@ -43,24 +43,21 @@ function dens = buildExpTens(varargin)
 %                   1 x A cell of per-attribute inputs
 %                 Each per-attribute input is [], scalar, 1 x N row,
 %                 K_a x 1 column, or K_a x N matrix; broadcasts to K_a x N.
-%     sigmaVec  - 1 x G vector of per-group Gaussian widths
+%     sigmaVec  - 1 x A vector of per-attribute Gaussian widths
 %     rVec      - 1 x A vector of per-attribute tuple sizes
-%     groups    - Group assignment. One of:
-%                   []                      -> each attribute its own group
-%                   1 x A vector of indices -> explicit indices
-%                   1 x G cell of attr lists -> explicit partition
-%     isRelVec  - 1 x G logical vector of per-group isRel flags
-%     isPerVec  - 1 x G logical vector of per-group periodic flags
-%     periodVec - 1 x G vector of per-group periods (0 when not periodic)
+%     isRelVec  - 1 x A logical vector of per-attribute isRel flags
+%     isPerVec  - 1 x A logical vector of per-attribute periodic flags
+%     periodVec - 1 x A vector of per-attribute periods (0 when not periodic)
+%
+%   Every attribute is self-contained, carrying its own geometry, so all
+%   geometry vectors are per-attribute (length A); shared geometry is
+%   expressed by repeating a value across the attributes that share it.
 %
 %   Output (multi-attribute path):
 %     dens - struct with fields:
 %       .tag           = 'MaetDensity'
 %       .nAttrs        = A
-%       .nGroups       = G
 %       .N             = number of events
-%       .groupOfAttr   = 1 x A vector, group index per attribute
-%       .attrsOfGroup  = 1 x G cell, attribute indices per group
 %       .r             = 1 x A vector, per-attribute tuple size
 %       .K             = 1 x A vector, max K_a (for reference)
 %       .pAttr         = 1 x A cell, input value matrices
@@ -313,12 +310,12 @@ end
 
 function dens = localBuildMA(posArgs, verbose, lazy)
 
-    if numel(posArgs) ~= 8
+    if numel(posArgs) ~= 7
         error('buildExpTens:maArgCount', ...
-              ['Multi-attribute call expects 8 positional arguments: ' ...
-               'pAttr, w, sigmaVec, rVec, groups, isRelVec, isPerVec, periodVec.']);
+              ['Multi-attribute call expects 7 positional arguments: ' ...
+               'pAttr, w, sigmaVec, rVec, isRelVec, isPerVec, periodVec.']);
     end
-    [pAttr, wIn, sigmaVec, rVec, groupsIn, isRelVec, isPerVec, periodVec] = posArgs{:};
+    [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec] = posArgs{:};
 
     % --- Input normalisation ---
 
@@ -369,28 +366,24 @@ function dens = localBuildMA(posArgs, verbose, lazy)
         error('buildExpTens:rNotInt', 'All r_a must be positive integers.');
     end
 
-    % Groups
-    [groupOfAttr, attrsOfGroup, G] = localCanonicalizeGroups(groupsIn, A);
-
-    % Per-group parameters
+    % Per-attribute parameters (every attribute is self-contained)
     sigmaVec  = double(sigmaVec(:).');
     isRelVec  = logical(isRelVec(:).');
     isPerVec  = logical(isPerVec(:).');
     periodVec = double(periodVec(:).');
-    if numel(sigmaVec)  ~= G, error('buildExpTens:sigmaLength',  'sigmaVec must have length %d (nGroups).',  G); end
-    if numel(isRelVec)  ~= G, error('buildExpTens:isRelLength',  'isRelVec must have length %d (nGroups).',  G); end
-    if numel(isPerVec)  ~= G, error('buildExpTens:isPerLength',  'isPerVec must have length %d (nGroups).',  G); end
-    if numel(periodVec) ~= G, error('buildExpTens:periodLength', 'periodVec must have length %d (nGroups).', G); end
+    if numel(sigmaVec)  ~= A, error('buildExpTens:sigmaLength',  'sigmaVec must have length %d (nAttrs).',  A); end
+    if numel(isRelVec)  ~= A, error('buildExpTens:isRelLength',  'isRelVec must have length %d (nAttrs).',  A); end
+    if numel(isPerVec)  ~= A, error('buildExpTens:isPerLength',  'isPerVec must have length %d (nAttrs).',  A); end
+    if numel(periodVec) ~= A, error('buildExpTens:periodLength', 'periodVec must have length %d (nAttrs).', A); end
 
     % isRel + r_a = 1 degenerate warning (per attribute)
     for a = 1:A
-        g = groupOfAttr(a);
-        if isRelVec(g) && rVec(a) < 2
+        if isRelVec(a) && rVec(a) < 2
             warning('buildExpTens:isRelDegenerate', ...
-                    ['isRel = true on group %d combined with r_a = 1 for ' ...
+                    ['isRel = true combined with r_a = 1 for ' ...
                      'attribute %d produces a degenerate (constant) density. ' ...
                      'For cross-event translation invariance, use ' ...
-                     'differenceEvents as a preprocessing step.'], g, a);
+                     'differenceEvents as a preprocessing step.'], a);
         end
     end
 
@@ -401,9 +394,8 @@ function dens = localBuildMA(posArgs, verbose, lazy)
 
     dimPerAttr = zeros(1, A);
     for a = 1:A
-        g = groupOfAttr(a);
         r_a = rVec(a);
-        if isRelVec(g)
+        if isRelVec(a)
             if r_a >= 2
                 dimPerAttr(a) = r_a - 1;
             else
@@ -438,10 +430,7 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     dens = struct();
     dens.tag          = 'MaetDensity';
     dens.nAttrs       = A;
-    dens.nGroups      = G;
     dens.N            = N;
-    dens.groupOfAttr  = groupOfAttr;
-    dens.attrsOfGroup = attrsOfGroup;
     dens.r            = rVec;
     dens.K            = Ka;
     dens.pAttr        = pAttr;
@@ -456,8 +445,8 @@ function dens = localBuildMA(posArgs, verbose, lazy)
     if lazy
         if verbose
             fprintf(['buildExpTens (MAET): skinny density (%d attributes, ' ...
-                     '%d groups, %d events); per-tuple fields populated ' ...
-                     'lazily on first consumer use.\n'], A, G, N);
+                     '%d events); per-tuple fields populated ' ...
+                     'lazily on first consumer use.\n'], A, N);
         end
         return
     end
@@ -471,9 +460,7 @@ function dens = localFillMAExpensive(dens, verbose)
 %LOCALFILLMAEXPENSIVE  Populate per-tuple MA fields on a skinny dens.
 
     A           = dens.nAttrs;
-    G           = dens.nGroups;
     N           = dens.N;
-    groupOfAttr = dens.groupOfAttr;
     rVec        = dens.r;
     isRelVec    = dens.isRel;
     pAttr       = dens.pAttr;
@@ -570,9 +557,9 @@ function dens = localFillMAExpensive(dens, verbose)
     nK = sum(nK_n);
 
     if verbose
-        fprintf(['buildExpTens (MAET): %d attributes, %d groups, %d events. ' ...
+        fprintf(['buildExpTens (MAET): %d attributes, %d events. ' ...
                  'Total tuples: nJ = %d (perm), nK = %d (comb).\n'], ...
-                A, G, N, nJ, nK);
+                A, N, nJ, nK);
     end
 
     U_perm = cell(1, A);
@@ -627,9 +614,8 @@ function dens = localFillMAExpensive(dens, verbose)
 
     Centres = cell(1, A);
     for a = 1:A
-        g = groupOfAttr(a);
         r_a = rVec(a);
-        if isRelVec(g)
+        if isRelVec(a)
             if r_a >= 2
                 Centres{a} = U_perm{a}(2:r_a, :) - U_perm{a}(1, :);
             else
@@ -655,66 +641,8 @@ end
 
 
 % ======================================================================
-%  Helpers: group canonicalisation, weight normalisation, Cartesian index
+%  Helpers: weight normalisation, Cartesian index
 % ======================================================================
-
-function [groupOfAttr, attrsOfGroup, G] = localCanonicalizeGroups(groupsIn, A)
-    if isempty(groupsIn)
-        groupOfAttr = 1:A;
-    elseif iscell(groupsIn)
-        % Cell array of attribute-index lists, one per group
-        G_in = numel(groupsIn);
-        groupOfAttr = zeros(1, A);
-        for g = 1:G_in
-            idx = groupsIn{g};
-            idx = idx(:).';
-            for a = idx
-                if a < 1 || a > A
-                    error('buildExpTens:badGroupIdx', ...
-                          'Group %d references attribute %d, out of range [1, %d].', g, a, A);
-                end
-                if groupOfAttr(a) ~= 0
-                    error('buildExpTens:duplicateGroupAttr', ...
-                          'Attribute %d is listed in more than one group.', a);
-                end
-                groupOfAttr(a) = g;
-            end
-        end
-        if any(groupOfAttr == 0)
-            missing = find(groupOfAttr == 0);
-            error('buildExpTens:unassignedAttrs', ...
-                  'Attributes [%s] are not assigned to any group.', num2str(missing));
-        end
-    elseif isnumeric(groupsIn)
-        groupOfAttr = double(groupsIn(:).');
-        if numel(groupOfAttr) ~= A
-            error('buildExpTens:groupsLength', ...
-                  'Group-index vector must have length equal to the number of attributes (%d).', A);
-        end
-        if any(rem(groupOfAttr, 1) ~= 0) || any(groupOfAttr < 1)
-            error('buildExpTens:badGroupIndices', ...
-                  'Group indices must be positive integers.');
-        end
-        % Check that indices are contiguous 1:G (no gaps)
-        uniq = unique(groupOfAttr);
-        if ~isequal(uniq, 1:numel(uniq))
-            error('buildExpTens:nonContiguousGroups', ...
-                  ['Group indices must be contiguous integers 1:G with ' ...
-                   'no gaps. Got unique values: %s.'], mat2str(uniq));
-        end
-    else
-        error('buildExpTens:badGroupsType', ...
-              'groups must be [], a numeric vector of indices, or a cell array of attribute lists.');
-    end
-
-    G = max(groupOfAttr);
-    attrsOfGroup = cell(1, G);
-    for a = 1:A
-        g = groupOfAttr(a);
-        attrsOfGroup{g} = [attrsOfGroup{g}, a];
-    end
-end
-
 
 function wCell = localNormaliseWeights(wIn, A, Ka, N)
     % Top-level normalisation: [] / scalar / cell of per-attribute inputs.

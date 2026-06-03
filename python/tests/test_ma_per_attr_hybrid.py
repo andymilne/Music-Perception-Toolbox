@@ -179,9 +179,9 @@ def test_mixed_safe_unsafe_cossim_orbit_matches_pairwise():
     sigma = 30.0
     r = 3
 
-    dx = build_exp_tens([P], [W], [sigma], [r], None,
+    dx = build_exp_tens([P], [W], [sigma], [r], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P], [W], [sigma], [r], None,
+    dy = build_exp_tens([P], [W], [sigma], [r], 
                         [False], [False], [0.0], verbose=False)
     s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
     s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
@@ -196,9 +196,9 @@ def test_r1_ragged_orbit_matches_pairwise():
     W = np.where(np.isnan(P), np.nan, 1.0)
     sigma = 30.0
 
-    dx = build_exp_tens([P], [W], [sigma], [1], None,
+    dx = build_exp_tens([P], [W], [sigma], [1], 
                         [False], [False], [0.0], verbose=False)
-    dy = build_exp_tens([P], [W], [sigma], [1], None,
+    dy = build_exp_tens([P], [W], [sigma], [1], 
                         [False], [False], [0.0], verbose=False)
     s_orbit = cos_sim_exp_tens(dx, dy, method='mobius', verbose=False)
     s_pw = cos_sim_exp_tens(dx, dy, method='bulger', verbose=False)
@@ -303,7 +303,7 @@ class TestKGroupedDispatch:
             Wx[:K_eff, n] = 1.0
 
         sigma = 30.0
-        dens = build_exp_tens([Px], [Wx], [sigma], [r], None,
+        dens = build_exp_tens([Px], [Wx], [sigma], [r], 
                               [False], [False], [0.0], verbose=False)
         s_orbit = cos_sim_exp_tens(dens, dens, method='mobius',
                                     verbose=False)

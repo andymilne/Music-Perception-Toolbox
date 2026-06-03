@@ -33,7 +33,7 @@ class TestWindowedCrossCorrelation:
         return mpt.build_exp_tens(
             [pitches, times], None,
             [sigma_pitch, sigma_time],
-            [r_pitch, r_time], None,
+            [r_pitch, r_time], 
             [pitch_is_rel, False],
             [pitch_is_per, False],
             [pitch_period, 0.0],
@@ -142,7 +142,7 @@ class TestWindowedCrossCorrelation:
         def _build_dyad(p_attr):
             return mpt.build_exp_tens(
                 p_attr, None,
-                [1.0, 0.2], [2, 1], None,
+                [1.0, 0.2], [2, 1], 
                 [True, False], [False, False], [0.0, 0.0],
                 verbose=False,
             )

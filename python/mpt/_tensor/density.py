@@ -362,6 +362,7 @@ class MaetDensity:
         dim_per_attr: np.ndarray,
         is_sym: np.ndarray | None = None,
         nested: list | None = None,
+        names: list | None = None,
         # The build closure: a no-arg callable that returns a dict
         # populating the lazy fields. Stored on the instance and
         # called on first access of any lazy field.
@@ -392,6 +393,11 @@ class MaetDensity:
         # Per-slot tags are row-indexed, so event (column) pruning leaves
         # them untouched.
         self.nested = ([None] * n_attrs if nested is None else list(nested))
+        # Optional per-attribute user-defined names (None where unnamed).
+        # Attribute-indexed and prune-invariant (pruning drops events /
+        # tuples, never attributes), so it is carried through unchanged.
+        # Per-level names for a nested attribute live inside nested[a].
+        self.names = ([None] * n_attrs if names is None else list(names))
 
         # Lazy slots
         self._build_lazy_fn = _build_lazy
@@ -462,6 +468,7 @@ class MaetDensity:
             is_per=self.is_per, period=self.period, dim=self.dim,
             dim_per_attr=self.dim_per_attr, is_sym=self.is_sym,
             nested=self.nested,
+            names=self.names,
             _build_lazy=_build_lazy,
         )
 

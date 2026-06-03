@@ -39,7 +39,55 @@ from .density import (
 )
 
 
-def build_exp_tens(p, w, *args, nested=None, verbose: bool = True) -> ExpTensDensity | MaetDensity:
+def _normalise_specs(specs, A):
+    """Unpack a per-attribute ``specs`` list into the internal geometry.
+
+    ``specs`` is the canonical home for level-structured geometry (§6.4):
+    each entry is a per-attribute dict. A **flat** attribute is a one-level
+    spec ``{r, rel?, sym?, name?}`` (scalar ``r``, bool ``rel``/``sym``); a
+    **nested** attribute carries ``tags`` plus per-level vectors
+    ``{tags, r, sym, rel, name?, names?}``. The presence of ``tags`` is the
+    flat-vs-nested discriminant. Scalar per-attribute geometry that is not
+    level-structured (``sigma``, ``is_per``, ``period``) stays outside the
+    spec.
+
+    Returns ``(r_vec, is_rel_vec, is_sym_vec, nested_list, names)``. For a
+    nested entry the geometry slots are placeholders: the nested machinery
+    in :func:`_build_exp_tens_ma` derives ``r`` from ``prod(level r)`` and
+    ``is_rel`` from the resolved projection, and uses the per-level ``sym``.
+    """
+    if not isinstance(specs, (list, tuple)):
+        raise TypeError(
+            "specs must be a list/tuple of per-attribute spec dicts."
+        )
+    if len(specs) != A:
+        raise ValueError(
+            f"specs must have length {A} (one per attribute), got {len(specs)}."
+        )
+    r_vec, is_rel_vec, is_sym_vec, nested_list, names = [], [], [], [], []
+    for a, s in enumerate(specs):
+        if not isinstance(s, dict):
+            raise TypeError(f"specs[{a}] must be a dict.")
+        names.append(s.get("name"))
+        if "tags" in s:
+            nested_list.append(s)
+            r_vec.append(1)            # placeholder -> prod(level r)
+            is_rel_vec.append(False)   # placeholder -> resolved projection
+            is_sym_vec.append(True)    # placeholder -> per-level sym
+        else:
+            if "r" not in s:
+                raise ValueError(
+                    f"specs[{a}] (flat) must have an 'r' field."
+                )
+            nested_list.append(None)
+            r_vec.append(int(s["r"]))
+            is_rel_vec.append(bool(s.get("rel", False)))
+            is_sym_vec.append(bool(s.get("sym", True)))
+    return r_vec, is_rel_vec, is_sym_vec, nested_list, names
+
+
+def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
+                   period=None, nested=None, verbose: bool = True) -> ExpTensDensity | MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
     Dispatches on the type of the first argument:
@@ -118,6 +166,39 @@ def build_exp_tens(p, w, *args, nested=None, verbose: bool = True) -> ExpTensDen
     --------
     ExpTensDensity, MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
+    # --- Canonical specs form (level-structured geometry lives in specs;
+    #     scalar sigma/is_per/period are supplied as keywords) ----------
+    if specs is not None:
+        if not _looks_like_multi_attr(p):
+            raise ValueError(
+                "specs= is only valid for multi-attribute calls (p_attr a "
+                "list/tuple of attribute matrices)."
+            )
+        if args:
+            raise ValueError(
+                "With specs=, do not pass positional geometry; supply "
+                "sigma=, is_per=, period= as keywords (level-structured "
+                "r / rel / sym live in specs)."
+            )
+        if nested is not None:
+            raise ValueError("Pass nesting via specs=, not nested=.")
+        if sigma is None or is_per is None or period is None:
+            raise ValueError(
+                "specs= requires sigma=, is_per=, period= (each length-A)."
+            )
+        A = len(p)
+        r_vec, is_rel_vec, is_sym_vec, nested_list, names = _normalise_specs(
+            specs, A)
+        return _build_exp_tens_ma(
+            p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
+            nested=nested_list, names=names, verbose=verbose,
+        )
+    if sigma is not None or is_per is not None or period is not None:
+        raise ValueError(
+            "sigma=, is_per=, period= keywords are only for the specs= form; "
+            "the positional form takes them in order."
+        )
+
     if nested is not None and not _looks_like_multi_attr(p):
         raise ValueError(
             "nested= is only valid for multi-attribute calls (p_attr a "
@@ -196,6 +277,7 @@ def _build_exp_tens_ma(
     is_sym_vec=None,
     *,
     nested=None,
+    names=None,
     verbose: bool = True,
 ) -> MaetDensity:
     """Multi-attribute expectation tensor builder.
@@ -444,6 +526,7 @@ def _build_exp_tens_ma(
         dim=dim,
         dim_per_attr=dim_per_attr,
         nested=nested,
+        names=names,
         _build_lazy=_build_lazy,
     )
 

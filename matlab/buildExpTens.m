@@ -100,18 +100,55 @@ function dens = buildExpTens(varargin)
     % ------------------------------------------------------------------
     % Parse optional name-value pairs and split positional args
     % ------------------------------------------------------------------
-    [posArgs, verbose, lazy, nested] = localExtractKwargs(varargin);
+    [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw] = ...
+        localExtractKwargs(varargin);
 
     if isempty(posArgs)
         error('buildExpTens:missingInputs', ...
               'At least the pitch/attribute input is required.');
     end
 
+    % --- Canonical specs form (level-structured geometry lives in specs;
+    %     scalar sigma/isPer/period are supplied as name-value kwargs) ---
+    if ~isempty(specs)
+        if ~iscell(posArgs{1})
+            error('buildExpTens:specsMultiOnly', ...
+                  ['specs is only valid for multi-attribute calls (first ' ...
+                   'argument a cell array of attribute matrices).']);
+        end
+        if numel(posArgs) ~= 2
+            error('buildExpTens:specsPositional', ...
+                  ['With specs, pass only (pAttr, w) positionally; supply ' ...
+                   'sigma, isPer, period as name-value kwargs (level-' ...
+                   'structured r/rel/sym live in specs).']);
+        end
+        if ~isempty(nested)
+            error('buildExpTens:specsAndNested', ...
+                  'Pass nesting via specs, not nested.');
+        end
+        if isempty(sigmaKw) || isempty(isPerKw) || isempty(periodKw)
+            error('buildExpTens:specsMissingScalar', ...
+                  'specs requires sigma, isPer, period kwargs (each length-A).');
+        end
+        A = numel(posArgs{1});
+        [rVec, isRelVec, isSymVec, nestedList, names] = ...
+            localNormaliseSpecs(specs, A);
+        synthArgs = {posArgs{1}, posArgs{2}, sigmaKw, rVec, isRelVec, ...
+                     isPerKw, periodKw, isSymVec};
+        dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names);
+        return
+    end
+    if ~isempty(sigmaKw) || ~isempty(isPerKw) || ~isempty(periodKw)
+        error('buildExpTens:scalarKwargWithoutSpecs', ...
+              ['sigma/isPer/period kwargs are only for the specs form; ' ...
+               'the positional form takes them in order.']);
+    end
+
     first = posArgs{1};
 
     if iscell(first)
         % Multi-attribute path
-        dens = localBuildMA(posArgs, verbose, lazy, nested);
+        dens = localBuildMA(posArgs, verbose, lazy, nested, {});
     elseif isnumeric(first)
         % Single-attribute legacy path
         if ~isempty(nested)
@@ -132,15 +169,19 @@ end
 %  Helpers: kwarg parsing
 % ======================================================================
 
-function [posArgs, verbose, lazy, nested] = localExtractKwargs(args)
+function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw] ...
+        = localExtractKwargs(args)
     verbose = true;
     lazy = true;  % default to skinny dens; eager via 'lazy', false
     nested = [];  % per-attribute nesting spec (cell), [] = all flat
+    specs = [];   % canonical per-attribute level-geometry spec (cell)
+    sigmaKw = []; isPerKw = []; periodKw = [];  % scalar geometry (specs form)
     posArgs = args;
     i = 1;
     while i <= numel(posArgs)
         if (ischar(posArgs{i}) || isstring(posArgs{i})) ...
-                && any(strcmpi(posArgs{i}, {'verbose', 'lazy', 'nested'}))
+                && any(strcmpi(posArgs{i}, {'verbose', 'lazy', 'nested', ...
+                                            'specs', 'sigma', 'isPer', 'period'}))
             key = lower(char(posArgs{i}));
             if i + 1 > numel(posArgs)
                 error('buildExpTens:kwargMissingValue', ...
@@ -153,10 +194,69 @@ function [posArgs, verbose, lazy, nested] = localExtractKwargs(args)
                     lazy = logical(posArgs{i + 1});
                 case 'nested'
                     nested = posArgs{i + 1};
+                case 'specs'
+                    specs = posArgs{i + 1};
+                case 'sigma'
+                    sigmaKw = posArgs{i + 1};
+                case 'isper'
+                    isPerKw = posArgs{i + 1};
+                case 'period'
+                    periodKw = posArgs{i + 1};
             end
             posArgs(i:i + 1) = [];
         else
             i = i + 1;
+        end
+    end
+end
+
+
+function [rVec, isRelVec, isSymVec, nestedList, names] = ...
+        localNormaliseSpecs(specs, A)
+    %LOCALNORMALISESPECS  Unpack a per-attribute specs cell into geometry.
+    %   specs is the canonical home for level-structured geometry (§6.4):
+    %   a cell of per-attribute structs. A flat attribute is a one-level
+    %   spec struct('r',.,'rel',.,'sym',.,'name',.) (scalar r, bool
+    %   rel/sym); a nested attribute carries a 'tags' field plus per-level
+    %   vectors. The presence of 'tags' is the flat-vs-nested discriminant.
+    %   Returns rVec/isRelVec/isSymVec (placeholders for nested entries,
+    %   overridden by the nested machinery), nestedList (cell, [] = flat),
+    %   and names (cell of attribute names, [] = unnamed).
+    if ~iscell(specs)
+        error('buildExpTens:specsType', ...
+              'specs must be a cell array of per-attribute spec structs.');
+    end
+    if numel(specs) ~= A
+        error('buildExpTens:specsLength', ...
+              'specs must have length %d (one per attribute), got %d.', ...
+              A, numel(specs));
+    end
+    rVec = zeros(1, A); isRelVec = false(1, A); isSymVec = true(1, A);
+    nestedList = cell(1, A); names = cell(1, A);
+    for a = 1:A
+        s = specs{a};
+        if ~isstruct(s)
+            error('buildExpTens:specsEntry', 'specs{%d} must be a struct.', a);
+        end
+        if isfield(s, 'name')
+            names{a} = s.name;
+        else
+            names{a} = [];
+        end
+        if isfield(s, 'tags')
+            nestedList{a} = s;       % nested machinery derives r/rel/sym
+            rVec(a)     = 1;         % placeholder -> prod(level r)
+            isRelVec(a) = false;     % placeholder -> resolved projection
+            isSymVec(a) = true;      % placeholder -> per-level sym
+        else
+            if ~isfield(s, 'r')
+                error('buildExpTens:specsFlatR', ...
+                      'specs{%d} (flat) must have an ''r'' field.', a);
+            end
+            nestedList{a} = [];
+            rVec(a) = double(s.r);
+            if isfield(s, 'rel'), isRelVec(a) = logical(s.rel); end
+            if isfield(s, 'sym'), isSymVec(a) = logical(s.sym); end
         end
     end
 end
@@ -333,7 +433,10 @@ end
 %  Multi-attribute (MAET) path
 % ======================================================================
 
-function dens = localBuildMA(posArgs, verbose, lazy, nested)
+function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
+    if nargin < 5
+        names = {};
+    end
 
     if numel(posArgs) == 7
         [pAttr, wIn, sigmaVec, rVec, isRelVec, isPerVec, periodVec] = posArgs{:};
@@ -603,6 +706,14 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested)
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;
     dens.nested       = nested;
+    % Optional per-attribute user-defined names ([] where unnamed).
+    % Attribute-indexed and prune-invariant; per-level names for a nested
+    % attribute live inside nested{a}.
+    if isempty(names)
+        dens.names = cell(1, A);
+    else
+        dens.names = names;
+    end
 
     if lazy
         if verbose

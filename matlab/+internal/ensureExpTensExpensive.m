@@ -63,6 +63,13 @@ function dens = ensureExpTensExpensive(dens)
         nestedArgs = {'nested', dens.nested};
     end
 
+    % Names are attribute-indexed and rebuild-invariant; the rebuild does
+    % not carry them, so save and restore around it.
+    savedNames = {};
+    if isfield(dens, 'names')
+        savedNames = dens.names;
+    end
+
     switch dens.tag
         case 'ExpTensDensity'
             dens = buildExpTens( ...
@@ -75,6 +82,9 @@ function dens = ensureExpTensExpensive(dens)
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...
                 dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
                 nestedArgs{:}, 'lazy', false, 'verbose', false);
+            if ~isempty(savedNames)
+                dens.names = savedNames;
+            end
 
         otherwise
             error('ensureExpTensExpensive:badTag', ...

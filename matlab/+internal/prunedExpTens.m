@@ -74,6 +74,7 @@ function dens = prunedExpTens(dens)
             % row-indexed, so event (column) pruning leaves them intact.
             % Must be carried, or the rebuild flattens the attribute.
             if isfield(dens, 'nested'); out.nested = dens.nested; end
+            if isfield(dens, 'names'); out.names = dens.names; end
             dens             = out;
 
         otherwise

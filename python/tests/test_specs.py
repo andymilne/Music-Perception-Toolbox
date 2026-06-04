@@ -121,3 +121,66 @@ def test_specs_rejected_for_single_attribute():
         build_exp_tens([0.0, 4.0, 7.0], None, specs=[dict(r=2)],
                        sigma=[50.0], is_per=[False], period=[0.0],
                        verbose=False)
+
+
+# ===================================================================
+#  3c-iv-a: flat_specs constructor + partial hand-edit tolerance
+# ===================================================================
+
+from mpt import flat_specs
+
+
+def test_flat_specs_constructor_matches_positional():
+    """flat_specs(...) builds specs equal to the old positional build."""
+    s = flat_specs(P2, r=[2, 1], rel=[True, False], name=["pitch", "time"])
+    assert s == [
+        {"r": 2, "rel": True, "sym": True, "name": "pitch"},
+        {"r": 1, "rel": False, "sym": True, "name": "time"},
+    ]
+    d_fs = build_exp_tens(P2, None, specs=s, sigma=[50.0, 30.0],
+                          is_per=[False, False], period=[0.0, 0.0],
+                          verbose=False)
+    d_pos = build_exp_tens(P2, None, [50.0, 30.0], [2, 1], [True, False],
+                           [False, False], [0.0, 0.0], verbose=False)
+    for x in ([5.0, 100.0], [7.0, 140.0]):
+        assert _ev(d_fs, x) == pytest.approx(_ev(d_pos, x), abs=1e-12)
+
+
+def test_flat_specs_scalar_broadcast():
+    s = flat_specs([np.zeros((1, 3))] * 3, r=2)
+    assert s == [{"r": 2, "rel": False, "sym": True}] * 3
+
+
+def test_nested_spec_omitted_sym_defaults_true():
+    """A nested spec without 'sym' defaults every level symmetric."""
+    pv = [np.array([[0.0], [4.0], [7.0], [11.0]])]
+    full = dict(tags=[0, 0, 1, 1], r=[2, 2], sym=[True, True], rel="innermost")
+    partial = dict(tags=[0, 0, 1, 1], r=[2, 2], rel="innermost")  # no sym
+    d_full = build_exp_tens(pv, None, specs=[full], sigma=[50.0],
+                            is_per=[False], period=[0.0], verbose=False)
+    d_part = build_exp_tens(pv, None, specs=[partial], sigma=[50.0],
+                            is_per=[False], period=[0.0], verbose=False)
+    assert float(cos_sim_exp_tens(d_full, d_part, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_nested_spec_carries_unknown_fields():
+    """Unknown fields (name, names, stray keys) ride through untouched."""
+    pv = [np.array([[0.0], [4.0], [7.0], [11.0]])]
+    edited = dict(tags=[0, 0, 1, 1], r=[2, 2], rel="outermost", name="cp",
+                  names=["n", "c"], my_note="hand-edit")
+    d = build_exp_tens(pv, None, specs=[edited], sigma=[50.0], is_per=[False],
+                       period=[0.0], verbose=False)
+    assert d.names == ["cp"]
+    assert d.nested[0].get("names") == ["n", "c"]
+    assert d.nested[0].get("my_note") == "hand-edit"
+
+
+def test_nested_structural_fields_required():
+    """'r' and 'tags' are structural (no default); each gives a clear error."""
+    pv = [np.array([[0.0], [4.0], [7.0], [11.0]])]
+    with pytest.raises(ValueError):  # missing r
+        build_exp_tens(pv, None, specs=[dict(tags=[0, 0, 1, 1], sym=[True, False])],
+                       sigma=[50.0], is_per=[False], period=[0.0], verbose=False)
+    with pytest.raises(ValueError):  # vector r but missing tags
+        build_exp_tens(pv, None, specs=[dict(r=[2, 2], sym=[True, False])],
+                       sigma=[50.0], is_per=[False], period=[0.0], verbose=False)

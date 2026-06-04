@@ -524,6 +524,52 @@ def _bcast_names(name, A):
     return names
 
 
+def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
+    """Build a list of flat (one-level) specs for bare attributes.
+
+    Convenience constructor for the canonical specs carrier: wraps a list
+    of per-attribute value matrices in flat spec dicts ``{r, rel, sym,
+    name?}``, broadcasting scalar geometry across attributes. This is the
+    trivial flat-specs synthesis at the entry of a pre-MAET chain (raw
+    attributes carry no level structure yet) and an ergonomic alternative
+    to hand-writing flat dicts for ``build_exp_tens(..., specs=...)``.
+
+    Parameters
+    ----------
+    p_attr : list/tuple of array-like
+        Length-A list of per-attribute value matrices (used only for its
+        length A; values are not inspected).
+    r : int or length-A, keyword-only
+        Per-attribute read-arity (default 1).
+    rel, sym : bool or length-A, keyword-only
+        Per-attribute ``[rel]`` / ``[sym]`` (defaults ``False`` / ``True``).
+    name : None, str, or length-A, keyword-only
+        Optional per-attribute names.
+
+    Returns
+    -------
+    list of dict
+        Length-A list of flat specs, ready for ``build_exp_tens(specs=...)``
+        or to thread through the pre-MAET operators.
+    """
+    if not isinstance(p_attr, (list, tuple)):
+        raise TypeError(
+            "p_attr must be a list/tuple of per-attribute matrices."
+        )
+    A = len(p_attr)
+    r_v = _bcast_geom(r, A, "r", cast=int)
+    rel_v = _bcast_geom(rel, A, "rel", cast=bool)
+    sym_v = _bcast_geom(sym, A, "sym", cast=bool)
+    name_v = _bcast_names(name, A)
+    specs = []
+    for a in range(A):
+        s = {"r": r_v[a], "rel": rel_v[a], "sym": sym_v[a]}
+        if name_v[a] is not None:
+            s["name"] = name_v[a]
+        specs.append(s)
+    return specs
+
+
 def bind_events(
     p_attr,
     w,

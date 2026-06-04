@@ -108,6 +108,73 @@ results{end+1,1} = 'specs: guards (positional/missing/length/flat-r)';
 results{end,2}   = okG1 && okG2 && okG3 && okG4 && okG5;
 
 
+% ===================================================================
+%  3c-iv-a: flatSpecs constructor + partial hand-edit tolerance
+% ===================================================================
+
+% --- flatSpecs constructor matches positional ---
+sFS = flatSpecs(P2, 'r', [2 1], 'rel', [true false], 'name', {'pitch', 'time'});
+dFS = buildExpTens(P2, [], 'specs', sFS, 'sigma', [50 30], ...
+                   'isPer', [false false], 'period', [0 0], 'verbose', false);
+dPos = buildExpTens(P2, [], [50 30], [2 1], [true false], ...
+                    [false false], [0 0], 'verbose', false);
+okFS = (dFS.dim == dPos.dim) ...
+       && strcmp(sFS{1}.name, 'pitch') && sFS{1}.r == 2 && sFS{1}.rel == true;
+for q = {[5; 100], [7; 140]}
+    okFS = okFS && abs(evalExpTens(dFS,  q{1}, 'verbose', false) ...
+                     - evalExpTens(dPos, q{1}, 'verbose', false)) < 1e-12;
+end
+results{end+1,1} = 'specs: flatSpecs constructor matches positional';
+results{end,2}   = okFS;
+
+
+% --- flatSpecs scalar broadcast ---
+sSB = flatSpecs({zeros(1,3), zeros(1,3), zeros(1,3)}, 'r', 2);
+results{end+1,1} = 'specs: flatSpecs scalar broadcast';
+results{end,2}   = numel(sSB) == 3 && sSB{2}.r == 2 ...
+                   && sSB{3}.rel == false && sSB{1}.sym == true;
+
+
+% --- Nested omitted sym defaults to all-True ---
+pvT = {[0; 4; 7; 11]};
+full    = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true true], 'rel', 'innermost');
+partial = struct('tags', [0 0 1 1], 'r', [2 2], 'rel', 'innermost');   % no sym
+dFull = buildExpTens(pvT, [], 'specs', {full},    'sigma', 50, ...
+                     'isPer', false, 'period', 0, 'verbose', false);
+dPart = buildExpTens(pvT, [], 'specs', {partial}, 'sigma', 50, ...
+                     'isPer', false, 'period', 0, 'verbose', false);
+results{end+1,1} = 'specs: nested omitted sym defaults all-True';
+results{end,2}   = abs(cosSimExpTens(dFull, dPart, 'verbose', false) - 1) < 1e-9;
+
+
+% --- Nested carries unknown fields (name, names, stray key) ---
+edited = struct('tags', [0 0 1 1], 'r', [2 2], 'rel', 'outermost', 'name', 'cp');
+edited.names = {'n', 'c'};
+edited.myNote = 'hand-edit';
+dE = buildExpTens(pvT, [], 'specs', {edited}, 'sigma', 50, ...
+                  'isPer', false, 'period', 0, 'verbose', false);
+results{end+1,1} = 'specs: nested carries unknown fields';
+results{end,2}   = strcmp(dE.names{1}, 'cp') ...
+                   && isfield(dE.nested{1}, 'names') ...
+                   && strcmp(dE.nested{1}.names{2}, 'c') ...
+                   && isfield(dE.nested{1}, 'myNote') ...
+                   && strcmp(dE.nested{1}.myNote, 'hand-edit');
+
+
+% --- Structural fields required (r, tags) ---
+okSR1 = false; okSR2 = false;
+try
+    buildExpTens(pvT, [], 'specs', {struct('tags', [0 0 1 1], 'sym', [true false])}, ...
+        'sigma', 50, 'isPer', false, 'period', 0, 'verbose', false);
+catch; okSR1 = true; end
+try
+    buildExpTens(pvT, [], 'specs', {struct('r', [2 2], 'sym', [true false])}, ...
+        'sigma', 50, 'isPer', false, 'period', 0, 'verbose', false);
+catch; okSR2 = true; end
+results{end+1,1} = 'specs: structural fields r/tags required';
+results{end,2}   = okSR1 && okSR2;
+
+
 % --- Standalone summary ---
 if standalone
     nPass = sum([results{:, 2}]);

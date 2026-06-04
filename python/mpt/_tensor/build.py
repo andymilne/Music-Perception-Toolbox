@@ -79,8 +79,16 @@ def _normalise_specs(specs, A):
                 raise ValueError(
                     f"specs[{a}] (flat) must have an 'r' field."
                 )
+            r_a = np.asarray(s["r"]).ravel()
+            if r_a.size != 1:
+                raise ValueError(
+                    f"specs[{a}]: 'r' is a multi-element vector but the spec "
+                    f"has no 'tags' field. A per-level 'r' denotes a nested "
+                    f"spec, which must also carry 'tags' (the slot-to-level "
+                    f"map)."
+                )
             nested_list.append(None)
-            r_vec.append(int(s["r"]))
+            r_vec.append(int(r_a[0]))
             is_rel_vec.append(bool(s.get("rel", False)))
             is_sym_vec.append(bool(s.get("sym", True)))
     return r_vec, is_rel_vec, is_sym_vec, nested_list, names
@@ -350,9 +358,30 @@ def _build_exp_tens_ma(
         if spec is None:
             continue
         nested_was_norm[a] = isinstance(spec, dict) and "proj" in spec
+        # Structural fields (no default): 'r' defines the levels and per-
+        # level read-arity; 'tags' maps slots to levels. Everything else is
+        # optional and defaults here, so a hand-edited spec can carry only
+        # the fields the user means to change (unknown fields such as
+        # 'name'/'names'/'proj' ride through the dict(spec) copy untouched).
+        if "r" not in spec:
+            raise ValueError(
+                f"nested attribute {a}: spec must have an 'r' field (the "
+                f"per-level read-arity vector); it is structural and has no "
+                f"default."
+            )
+        if "tags" not in spec:
+            raise ValueError(
+                f"nested attribute {a}: spec must have a 'tags' field (the "
+                f"slot-to-level map); it is structural and has no default."
+            )
         r_levels = np.asarray(spec["r"], dtype=np.intp).ravel()
-        sym_levels = np.asarray(spec["sym"], dtype=bool).ravel()
         L = int(r_levels.size)
+        if "sym" in spec and spec["sym"] is not None:
+            sym_levels = np.asarray(spec["sym"], dtype=bool).ravel()
+        else:
+            # Optional: default every level symmetric (matches the flat
+            # sym=True default). An ordered level is set explicitly.
+            sym_levels = np.ones(L, dtype=bool)
         if L != 2:
             raise NotImplementedError(
                 f"nested attribute {a}: only two-level nesting (L = 2) is "

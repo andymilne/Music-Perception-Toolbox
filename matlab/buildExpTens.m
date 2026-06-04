@@ -253,8 +253,16 @@ function [rVec, isRelVec, isSymVec, nestedList, names] = ...
                 error('buildExpTens:specsFlatR', ...
                       'specs{%d} (flat) must have an ''r'' field.', a);
             end
+            rA = s.r(:).';
+            if numel(rA) ~= 1
+                error('buildExpTens:specsFlatRVec', ...
+                      ['specs{%d}: ''r'' is a multi-element vector but the ' ...
+                       'spec has no ''tags'' field. A per-level ''r'' denotes ' ...
+                       'a nested spec, which must also carry ''tags'' (the ' ...
+                       'slot-to-level map).'], a);
+            end
             nestedList{a} = [];
-            rVec(a) = double(s.r);
+            rVec(a) = double(rA(1));
             if isfield(s, 'rel'), isRelVec(a) = logical(s.rel); end
             if isfield(s, 'sym'), isSymVec(a) = logical(s.sym); end
         end
@@ -526,14 +534,32 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
             continue
         end
         nestedWasNorm(a) = isstruct(spec) && isfield(spec, 'proj');
-        if ~isstruct(spec) || ~all(isfield(spec, {'r', 'sym', 'tags'}))
-            error('buildExpTens:nestedSpec', ...
-                  ['nested{%d} must be a struct with fields r, sym, tags ' ...
-                   '(and optional rel).'], a);
+        if ~isstruct(spec)
+            error('buildExpTens:nestedSpec', 'nested{%d} must be a struct.', a);
+        end
+        % Structural fields (no default): 'r' (per-level read-arity) and
+        % 'tags' (slot-to-level map). Everything else is optional and
+        % defaults here, so a hand-edited spec can carry only the fields
+        % being changed (unknown fields such as name/names/proj ride
+        % through untouched via the struct copy).
+        if ~isfield(spec, 'r')
+            error('buildExpTens:nestedR', ...
+                  ['nested{%d}: spec must have an ''r'' field (the per-level ' ...
+                   'read-arity vector); it is structural and has no default.'], a);
+        end
+        if ~isfield(spec, 'tags')
+            error('buildExpTens:nestedTags', ...
+                  ['nested{%d}: spec must have a ''tags'' field (the slot-to-' ...
+                   'level map); it is structural and has no default.'], a);
         end
         rLevels   = double(spec.r(:).');
-        symLevels = logical(spec.sym(:).');
         L = numel(rLevels);
+        if isfield(spec, 'sym') && ~isempty(spec.sym)
+            symLevels = logical(spec.sym(:).');
+        else
+            % Optional: default every level symmetric (flat sym=True default).
+            symLevels = true(1, L);
+        end
         if L ~= 2
             error('buildExpTens:nestedDepth', ...
                   ['nested{%d}: only two-level nesting (L = 2) is supported ' ...

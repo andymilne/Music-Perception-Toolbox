@@ -28,6 +28,7 @@ from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
     bind_events,
     difference_events,
+    flat_specs,
     simplex_vertices,
     translate_attributes,
     weight_events,

@@ -139,6 +139,43 @@ results{end,2}   = throwsErrorWithId( ...
     'buildExpTens:nestedInfeasible');
 
 
+% --- bind_events deepening: flat -> L=2 -> L=3 ---
+% bindEvents deepens an already-nested attribute by tiling the existing
+% tag columns and appending a new outermost grouping level; r/sym/rel
+% extend by the bound outer level.
+pf = {[0 2 4 5 7 9]};                        % flat, K=1, N=6
+[p1, w1, s1] = bindEvents(pf, [], 2);        % -> L=2
+[p2, w2, s2] = bindEvents(p1, w1, 2, 'specs', s1);   % -> L=3
+sp = s2{1};
+results{end+1,1} = 'L3 bind: deepened tags is (4,2)';
+results{end,2}   = isequal(size(sp.tags), [4 2]);
+results{end+1,1} = 'L3 bind: deepened r = [1 2 2]';
+results{end,2}   = isequal(sp.r(:).', [1 2 2]) && numel(sp.sym) == 3 ...
+                   && numel(sp.rel) == 3;
+results{end+1,1} = 'L3 bind: new outermost column = [0 0 1 1]';
+results{end,2}   = isequal(sp.tags(:, 2).', [0 0 1 1]) ...
+                   && isequal(sp.tags(:, 1).', [0 1 0 1]);
+
+dB = buildExpTens(p2, w2, 'specs', s2, bkw{:});
+results{end+1,1} = 'L3 bind: deepened density builds (dim 4)';
+results{end,2}   = dB.dim == 4;
+results{end+1,1} = 'L3 bind: deepened cosine self-match = 1';
+results{end,2}   = abs(cosSimExpTens(dB, dB, 'verbose', false) - 1) < 1e-9;
+
+[p2r, w2r, s2r] = bindEvents(p1, w1, 2, 'specs', s1, 'relOuter', true);
+dR  = buildExpTens(p2r, w2r, 'specs', s2r, bkw{:});
+dRT = buildExpTens({p2r{1} + 5}, w2r, 'specs', s2r, bkw{:});
+results{end+1,1} = 'L3 bind: relOuter deepen -> rel [0 0 1], outer dim 3';
+results{end,2}   = isequal(s2r{1}.rel(:).', [0 0 1]) && dR.dim == 3;
+results{end+1,1} = 'L3 bind: relOuter deepen is global-transposition invariant';
+results{end,2}   = abs(cosSimExpTens(dR, dRT, 'verbose', false) - 1) < 1e-6;
+
+results{end+1,1} = 'L3 bind: levelNames rejected when deepening';
+results{end,2}   = throwsErrorWithId( ...
+    @() bindEvents(p1, w1, 2, 'specs', s1, 'levelNames', {'x','y','z'}), ...
+    'bindEvents:levelNamesNested');
+
+
 if standalone
     nPass = sum(cell2mat(results(:, 2)));
     fprintf('test_nesting_L3: %d/%d passed\n', nPass, size(results, 1));

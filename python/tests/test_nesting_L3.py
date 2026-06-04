@@ -197,3 +197,50 @@ def test_L3_infeasible_read_errors():
     bad = [dict(r=[2, 2, 3], sym=[True, True, False], tags=_TAGS3, rel=None)]
     with pytest.raises(ValueError):
         build_exp_tens(_P3, None, specs=bad, **_KW)
+
+
+# --- bind_events deepening: flat -> L=2 -> L=3 -----------------------
+#
+# bind_events deepens an already-nested attribute by tiling the existing
+# tag columns and appending a new outermost grouping level; r/sym/rel
+# extend by the bound outer level.
+
+def test_bind_deepens_nested_to_L3():
+    p = [np.array([[0., 2, 4, 5, 7, 9]])]            # flat, K=1, N=6
+    p1, w1, s1 = mpt.bind_events(p, None, 2)         # -> L=2
+    p2, w2, s2 = mpt.bind_events(p1, w1, 2, specs=s1)  # -> L=3
+    sp = s2[0]
+    assert np.asarray(sp["tags"]).shape == (4, 2)    # K_total=4, L-1=2 columns
+    assert list(sp["r"]) == [1, 2, 2]
+    assert len(sp["sym"]) == 3 and len(sp["rel"]) == 3
+    # New outermost column distinguishes the two bound super-events;
+    # inner column is the tiled level-1 grouping.
+    np.testing.assert_array_equal(np.asarray(sp["tags"])[:, 1], [0, 0, 1, 1])
+    np.testing.assert_array_equal(np.asarray(sp["tags"])[:, 0], [0, 1, 0, 1])
+
+
+def test_bind_deepened_L3_builds_and_self_matches():
+    p = [np.array([[0., 2, 4, 5, 7, 9]])]
+    p1, w1, s1 = mpt.bind_events(p, None, 2)
+    p2, w2, s2 = mpt.bind_events(p1, w1, 2, specs=s1)
+    d = build_exp_tens(p2, w2, specs=s2, **_KW)
+    assert d.dim == 4                                 # prod(r) = 1*2*2
+    assert float(cos_sim_exp_tens(d, d, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_bind_deepen_rel_outer_is_global_transposition_invariant():
+    p = [np.array([[0., 2, 4, 5, 7, 9]])]
+    p1, w1, s1 = mpt.bind_events(p, None, 2)
+    p2, w2, s2 = mpt.bind_events(p1, w1, 2, specs=s1, rel_outer=True)
+    assert list(s2[0]["rel"]) == [0, 0, 1]            # new outermost relative
+    d = build_exp_tens(p2, w2, specs=s2, **_KW)
+    dT = build_exp_tens([p2[0] + 5.0], w2, specs=s2, **_KW)
+    assert d.dim == 3                                 # D - 1
+    assert float(cos_sim_exp_tens(d, dT, verbose=False)) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_bind_deepen_rejects_level_names():
+    p = [np.array([[0., 2, 4, 5, 7, 9]])]
+    p1, w1, s1 = mpt.bind_events(p, None, 2)
+    with pytest.raises(ValueError):
+        mpt.bind_events(p1, w1, 2, specs=s1, level_names=["x", "y", "z"])

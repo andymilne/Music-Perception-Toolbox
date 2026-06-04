@@ -608,11 +608,11 @@ def bind_events(
             )
         specs_in = list(specs)
     for a, s in enumerate(specs_in):
-        if isinstance(s, dict) and "tags" in s:
+        if (isinstance(s, dict) and "tags" in s and level_names is not None):
             raise ValueError(
-                f"attribute {a}: bind_events binds flat attributes; binding "
-                f"an already-nested attribute (L >= 3 deep nesting) is not "
-                f"yet supported."
+                f"attribute {a}: level_names is not supported when deepening "
+                f"an already-nested attribute; the per-level names carry "
+                f"through from the incoming spec."
             )
 
     # --- Outer-level overrides ----------------------------------------
@@ -654,36 +654,63 @@ def bind_events(
     specs_out = []
     for a in range(A):
         L_a = int(orders[a])
-        K_a = K[a]
+        K_a = K[a]                       # flat slot count K_total
         M = p_attr[a]
         s_in = specs_in[a] if isinstance(specs_in[a], dict) else {}
-        r_in_a = int(s_in.get("r", 1))
-        rel_in_a = bool(s_in.get("rel", False))
-        sym_in_a = bool(s_in.get("sym", True))
+        is_nested_in = "tags" in s_in
         name_in_a = s_in.get("name")
         nm = names_attr[a] if names_attr[a] is not None else name_in_a
         if L_a == 1:
-            # No-op: the incoming flat spec passes through (name override).
+            # No-op: the incoming spec passes through (name override).
+            # Works for both flat and already-nested inputs.
             p_attr_bound.append(M[:, _lag_index(0)])
             spec = dict(s_in)
             if nm is not None:
                 spec["name"] = nm
             specs_out.append(spec)
-        else:
-            blocks = [M[:, _lag_index(ell)] for ell in range(L_a)]
-            p_attr_bound.append(np.vstack(blocks))
-            tags = np.repeat(np.arange(L_a, dtype=np.intp), K_a)
+            continue
+
+        # Lag and stack the (super-)event matrix over the new outer level.
+        blocks = [M[:, _lag_index(ell)] for ell in range(L_a)]
+        p_attr_bound.append(np.vstack(blocks))
+        new_col = np.repeat(np.arange(L_a, dtype=np.intp), K_a)
+
+        if is_nested_in:
+            # Deepen: append a new outermost grouping level above the
+            # existing nesting. The existing tag columns are tiled once per
+            # bound super-event; the new column distinguishes the L_a bound
+            # super-events. r/sym/rel extend by the new outer level.
+            tags_in = np.asarray(s_in["tags"])
+            if tags_in.ndim == 1:
+                tags_in = tags_in.reshape(-1, 1)
+            tags = np.column_stack([np.tile(tags_in, (L_a, 1)), new_col])
             spec = {
                 "tags": tags,
+                "r": [int(x) for x in np.asarray(s_in["r"]).ravel()]
+                     + [int(r_out[a])],
+                "sym": [bool(x) for x in np.asarray(s_in["sym"]).ravel()]
+                       + [bool(sym_out[a])],
+                "rel": [int(x) for x in np.asarray(s_in["rel"]).ravel()]
+                       + [int(rel_out[a])],
+            }
+            if "names" in s_in and s_in["names"] is not None:
+                spec["names"] = list(s_in["names"]) + [None]
+        else:
+            # Flat input -> two-level nested attribute (unchanged).
+            r_in_a = int(s_in.get("r", 1))
+            rel_in_a = bool(s_in.get("rel", False))
+            sym_in_a = bool(s_in.get("sym", True))
+            spec = {
+                "tags": new_col,
                 "r": [r_in_a, int(r_out[a])],
                 "sym": [sym_in_a, bool(sym_out[a])],
                 "rel": [int(rel_in_a), int(rel_out[a])],
             }
-            if nm is not None:
-                spec["name"] = nm
             if level_names is not None:
                 spec["names"] = list(level_names)
-            specs_out.append(spec)
+        if nm is not None:
+            spec["name"] = nm
+        specs_out.append(spec)
 
     w_bound = _bind_weights_nested(
         w, A, orders, K, n_events, n_prime, circular,

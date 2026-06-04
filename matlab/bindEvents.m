@@ -118,11 +118,12 @@ else
     end
 end
 for a = 1:A
-    if isstruct(specsIn{a}) && isfield(specsIn{a}, 'tags')
-        error('bindEvents:nestedInput', ...
-              ['attribute %d: bindEvents binds flat attributes; binding an ' ...
-               'already-nested attribute (L >= 3 deep nesting) is not yet ' ...
-               'supported.'], a);
+    if isstruct(specsIn{a}) && isfield(specsIn{a}, 'tags') ...
+            && ~isempty(nvArgs.levelNames)
+        error('bindEvents:levelNamesNested', ...
+              ['attribute %d: levelNames is not supported when deepening an ' ...
+               'already-nested attribute; the per-level names carry through ' ...
+               'from the incoming spec.'], a);
     end
 end
 
@@ -164,12 +165,10 @@ pAttrBound = cell(1, A);
 specs = cell(1, A);
 for a = 1:A
     L_a = double(orders(a));
-    K_a = K(a);
+    K_a = K(a);                           % flat slot count K_total
     Marr = pAttr{a};
     sIn = specsIn{a};
-    rInA   = double(localSpecField(sIn, 'r',   1));
-    relInA = logical(localSpecField(sIn, 'rel', false));
-    symInA = logical(localSpecField(sIn, 'sym', true));
+    isNestedIn = isstruct(sIn) && isfield(sIn, 'tags');
     nameInA = localSpecField(sIn, 'name', []);
     if ~isempty(namesAttr{a})
         nm = namesAttr{a};
@@ -178,23 +177,46 @@ for a = 1:A
     end
     if L_a == 1
         pAttrBound{a} = Marr(:, localLagIndex(0, nPrime, nEvents, nvArgs.circular));
-        spec = sIn;                       % passthrough the incoming flat spec
+        spec = sIn;                       % passthrough (flat or nested)
         if ~isempty(nm); spec.name = nm; end
         specs{a} = spec;
-    else
-        blocks = cell(1, L_a);
-        for ell = 0:(L_a - 1)
-            idx = localLagIndex(ell, nPrime, nEvents, nvArgs.circular);
-            blocks{ell + 1} = Marr(:, idx);
-        end
-        pAttrBound{a} = vertcat(blocks{:});
-        tags = repelem(0:(L_a - 1), K_a);
-        spec = struct('tags', tags, 'r', [rInA rOut(a)], ...
-                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
-        if ~isempty(nm); spec.name = nm; end
-        if ~isempty(levelNames); spec.names = levelNames; end
-        specs{a} = spec;
+        continue
     end
+    blocks = cell(1, L_a);
+    for ell = 0:(L_a - 1)
+        idx = localLagIndex(ell, nPrime, nEvents, nvArgs.circular);
+        blocks{ell + 1} = Marr(:, idx);
+    end
+    pAttrBound{a} = vertcat(blocks{:});
+    newColRow = repelem(0:(L_a - 1), K_a);    % 1 x (K_total*L_a)
+    if isNestedIn
+        % Deepen: append a new outermost grouping level above the existing
+        % nesting. The existing tag columns are tiled once per bound
+        % super-event; the new column distinguishes the L_a bound
+        % super-events. r/sym/rel extend by the new outer level.
+        tagsIn = sIn.tags;
+        if isvector(tagsIn)
+            tagsIn = tagsIn(:);               % K_total x 1 (L_in = 2)
+        end
+        tagsNew = [repmat(tagsIn, L_a, 1), newColRow.'];
+        spec = struct('tags', tagsNew, ...
+                      'r',   [sIn.r(:).',            rOut(a)], ...
+                      'sym', [logical(sIn.sym(:).'), logical(symOut(a))], ...
+                      'rel', [double(sIn.rel(:).'),  double(relOut(a))]);
+        if isfield(sIn, 'names') && ~isempty(sIn.names)
+            spec.names = [sIn.names(:).', {[]}];
+        end
+    else
+        % Flat input -> two-level nested attribute (unchanged).
+        rInA   = double(localSpecField(sIn, 'r',   1));
+        relInA = logical(localSpecField(sIn, 'rel', false));
+        symInA = logical(localSpecField(sIn, 'sym', true));
+        spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
+                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
+        if ~isempty(levelNames); spec.names = levelNames; end
+    end
+    if ~isempty(nm); spec.name = nm; end
+    specs{a} = spec;
 end
 
 % --- Transform weights ---

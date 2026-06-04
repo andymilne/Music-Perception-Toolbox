@@ -11,11 +11,11 @@ function wmd = windowTensor(dens, windowSpec)
 %   Inputs
 %       dens        - MaetDensity (from buildExpTens, MA call form).
 %       windowSpec  - Struct with fields:
-%           size    - Per-group window effective standard deviation in
-%                     multiples of that group's sigma. Scalar (broadcast
+%           size    - Per-attribute window effective standard deviation in
+%                     multiples of that attribute's sigma. Scalar (broadcast
 %                     across all attributes) or 1 x A vector. NaN or Inf on
-%                     an entry means the group is not windowed.
-%           mix     - Per-group shape parameter in [0, 1]: 0 = pure
+%                     an entry means the attribute is not windowed.
+%           mix     - Per-attribute shape parameter in [0, 1]: 0 = pure
 %                     Gaussian, 1 = pure rectangular, in between =
 %                     rectangular-convolved-with-Gaussian. Scalar or
 %                     1 x A vector.

@@ -47,9 +47,6 @@ from ._tensor.windowing import (
 # Density-layer helpers (mostly used by MA input plumbing).
 from ._tensor.density import (
     _broadcast_attr_weight,
-    _canon_groups_cell_form,
-    _canon_groups_vector_form,
-    _canonicalise_groups,
     _cartesian_indices,
     _coerce_attr_matrix,
     _nchoosek_indices,

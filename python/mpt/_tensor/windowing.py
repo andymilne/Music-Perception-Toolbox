@@ -2,7 +2,7 @@
 
 This module hosts the windowing layer of the MAET pipeline:
 
-* :func:`window_tensor` --- wrap a :class:`MaetDensity` with a per-group
+* :func:`window_tensor` --- wrap a :class:`MaetDensity` with a per-attribute
   window specification (size, mix, optional centre), returning a
   :class:`WindowedMaetDensity`. No math is done at construction time;
   windowing is applied lazily.
@@ -16,7 +16,7 @@ is also exposed at module level for internal use by the cosine-similarity
 machinery in :mod:`mpt.tensor` (which currently still hosts the
 non-windowed cosine path).
 
-Periodic groups are handled exactly (to floating-point precision) by
+Periodic attributes are handled exactly (to floating-point precision) by
 summing line-case window contributions over periodic images of the
 window centre. The image sum is truncated adaptively when the latest
 image-pair's contribution falls below
@@ -73,19 +73,20 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
     window_spec : dict
         Window specification with keys:
 
-        ``size`` : scalar or length-G array
-            Per-group window effective standard deviation in multiples
-            of that group's ``sigma``. NaN or Inf means the group is
-            not windowed. A scalar is broadcast across all groups.
-        ``mix`` : scalar or length-G array
-            Per-group shape parameter in [0, 1]: 0 = pure Gaussian,
+        ``size`` : scalar or length-A array
+            Per-attribute window effective standard deviation in
+            multiples of that attribute's ``sigma``. NaN or Inf means the
+            attribute is not windowed. A scalar is broadcast across all
+            attributes.
+        ``mix`` : scalar or length-A array
+            Per-attribute shape parameter in [0, 1]: 0 = pure Gaussian,
             1 = pure rectangular, in between = rectangular-convolved-
             with-Gaussian. A scalar is broadcast.
         ``centre`` : length-A list of array-like, or a single array-like
             Per-attribute centre coordinates. Each entry has length
             ``dim_per_attr[a]``. A single 1-D array of total length
             ``dim`` is split across attributes in order. Entries whose
-            attribute's group has ``size`` NaN/Inf are ignored.
+            attribute has ``size`` NaN/Inf are ignored.
 
     Returns
     -------
@@ -622,17 +623,17 @@ def windowed_similarity(dens_context, dens_query, window_spec, offsets, *,
         intermediate ``mix`` raises and directs the user to
         ``'oneSidedDenom'``.
 
-    Periodic groups
-    ---------------
-    For periodic groups, the window is the wrapped Gaussian (or
+    Periodic attributes
+    -------------------
+    For periodic attributes, the window is the wrapped Gaussian (or
     wrapped rect-conv-Gaussian for ``mix > 0``): the sum of line-case
     window functions at all periodic images of the centre. The
     toolbox sums these contributions adaptively, truncating when the
     latest image-pair's contribution falls below the floating-point
     threshold (1e-12 for double, 1e-7 for ``kernel_precision='single'``).
-    For multi-D absolute periodic groups, the image sum factorises per
+    For multi-D absolute periodic attributes, the image sum factorises per
     axis (linear in dimension, not exponential). For multi-D relative
-    periodic groups, image summation is deferred to a future release and
+    periodic attributes, image summation is deferred to a future release and
     the existing line-case formula is used.
 
     See USER_GUIDE §3.1 "Post-tensor windowing".
@@ -989,8 +990,8 @@ def _window_squared(wmd: "WindowedMaetDensity") -> "WindowedMaetDensity":
         else:
             raise ValueError(
                 "Strict shape-only cosine (normalize = 'cosine') requires "
-                "every group's window_spec['mix'] to be 0 (pure Gaussian) "
-                f"or 1 (pure boxcar). Group {g} has mix = {mix_g}. Use "
+                "every attribute's window_spec['mix'] to be 0 (pure Gaussian) "
+                f"or 1 (pure boxcar). Attribute {g} has mix = {mix_g}. Use "
                 "normalize = 'oneSidedDenom' for intermediate mix values, "
                 "or set the mix to 0 or 1."
             )

@@ -24,7 +24,6 @@ import numpy as np
 from scipy.special import erf as _erf
 
 from .._utils import validate_weights
-from .density import _canonicalise_groups
 
 
 class TranslateAttributesNoOpWarning(UserWarning):

@@ -427,13 +427,6 @@ def _build_exp_tens_ma(
                 f"(K_total, L-1) matrix; got ndim = {tags.ndim}."
             )
         rel_unit, proj = _canonicalise_nested_rel(spec.get("rel"), L, a)
-        if L > 2 and proj in ("inner", "intermediate"):
-            raise NotImplementedError(
-                f"nested attribute {a}: the '{proj}' co-transposition "
-                f"projection at L = {L} (> 2) is not yet implemented; the "
-                f"per-group quotient reduction is a later step. Use the "
-                f"outermost unit (global transposition) or absolute."
-            )
         nested[a] = dict(spec)
         nested[a]["r"] = r_levels
         nested[a]["sym"] = sym_levels
@@ -531,11 +524,16 @@ def _build_exp_tens_ma(
     for a in range(A):
         r_a = int(r_vec[a])
         spec = nested[a]
-        if spec is not None and spec["proj"] == "inner":
-            # Inner unit: r_outer blocks each reduced to (r_inner - 1).
-            r_in = int(np.asarray(spec["r"]).ravel()[0])
-            r_out = int(np.asarray(spec["r"]).ravel()[1])
-            dim_per_attr[a] = r_out * (r_in - 1)
+        if spec is not None and spec["proj"] in ("inner", "intermediate"):
+            # Co-transposition at unit u: the D_a leaves split into
+            # G_u = prod(r[u+1:]) contiguous blocks of size s_u =
+            # prod(r[:u+1]); each block loses its own all-ones, so
+            # dim = D_a - G_u = G_u * (s_u - 1).
+            r_levels = np.asarray(spec["r"]).ravel()
+            u = int(spec["rel_unit"])
+            s_u = int(np.prod(r_levels[:u + 1]))
+            G_u = r_a // s_u
+            dim_per_attr[a] = r_a - G_u
         elif is_rel_vec[a]:
             dim_per_attr[a] = r_a - 1 if r_a >= 2 else 0
         else:
@@ -939,17 +937,23 @@ def _ma_build_perm_arrays(
     for a in range(A):
         r_a = int(r_vec[a])
         spec = nested[a]
-        if spec is not None and spec.get("proj") == "inner":
-            # Inner unit: reduce each r_outer event-block independently by
-            # subtracting its own first slot (per-event interval space),
-            # then stack the blocks (tensor-joined across events).
-            r_in = int(np.asarray(spec["r"]).ravel()[0])
-            r_out = int(np.asarray(spec["r"]).ravel()[1])
-            if r_in >= 2:
+        if spec is not None and spec.get("proj") in ("inner", "intermediate"):
+            # Co-transposition at unit u: the leaves split into G_u
+            # contiguous blocks of size s_u = prod(r[:u+1]) (the
+            # depth-first enumeration lays each level-u sub-tuple out
+            # contiguously). Reduce each block by its own first slot
+            # (per-block interval space), then stack the blocks. At u = 0
+            # this is the per-event inner reduction; at u = L-2 a per-
+            # intermediate-group one.
+            r_levels = np.asarray(spec["r"]).ravel()
+            u = int(spec["rel_unit"])
+            s_u = int(np.prod(r_levels[:u + 1]))
+            G_u = r_a // s_u
+            if s_u >= 2:
                 blocks = [
-                    u_perm[a][b * r_in + 1:(b + 1) * r_in, :]
-                    - u_perm[a][b * r_in:b * r_in + 1, :]
-                    for b in range(r_out)
+                    u_perm[a][b * s_u + 1:(b + 1) * s_u, :]
+                    - u_perm[a][b * s_u:b * s_u + 1, :]
+                    for b in range(G_u)
                 ]
                 centres.append(np.vstack(blocks))
             else:

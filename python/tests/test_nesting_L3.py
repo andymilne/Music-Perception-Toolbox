@@ -114,12 +114,61 @@ def test_L3_entropy_runs():
     assert np.isfinite(h)
 
 
-# --- Deferred projections (per-group reduction at L >= 3) -------------
+# --- inner / intermediate per-group reduction at L = 3 ---------------
+#
+# Co-transposition at unit u removes each level-u sub-tuple's all-ones:
+# inner (u=0) is per-chord, intermediate (u=1) per-bar, outer (u=2)
+# global. dim = D - G_u with G_u = prod(r[u+1:]). Each unit is invariant
+# to transposition at its own level and coarser, and not finer.
 
-@pytest.mark.parametrize("rel", [[1, 0, 0], [0, 1, 0]])
-def test_L3_inner_and_intermediate_defer(rel):
-    with pytest.raises(NotImplementedError):
-        build_exp_tens(_P3, None, specs=_spec(rel), **_KW)
+# Per-slot offsets: per-chord (tags col 0), per-bar (tags col 1), global.
+_PER_CHORD = [_P3[0] + np.array([[0., 0, 60, 60, 0, 0, 60, 60]]).T]
+_PER_BAR = [_P3[0] + np.array([[10., 10, 10, 10, 20, 20, 20, 20]]).T]
+_GLOBAL = [_P3[0] + 5.0]
+
+
+def _build(rel, p=_P3):
+    return build_exp_tens(p, None, specs=_spec(rel), **_KW)
+
+
+def test_L3_inner_dim_and_self_match():
+    d = _build([1, 0, 0])
+    assert d.dim == 4                                # D - G_0 = 8 - 4
+    assert float(cos_sim_exp_tens(d, d, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_L3_inner_is_per_chord_transposition_invariant():
+    d = _build([1, 0, 0])
+    dC = _build([1, 0, 0], _PER_CHORD)
+    assert float(cos_sim_exp_tens(d, dC, verbose=False)) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_L3_intermediate_dim_and_self_match():
+    d = _build([0, 1, 0])
+    assert d.dim == 6                                # D - G_1 = 8 - 2
+    assert float(cos_sim_exp_tens(d, d, verbose=False)) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_L3_intermediate_is_per_bar_invariant_not_per_chord():
+    d = _build([0, 1, 0])
+    dB = _build([0, 1, 0], _PER_BAR)
+    dC = _build([0, 1, 0], _PER_CHORD)
+    assert float(cos_sim_exp_tens(d, dB, verbose=False)) == pytest.approx(1.0, abs=1e-6)
+    assert float(cos_sim_exp_tens(d, dC, verbose=False)) < 0.5    # finer: not invariant
+
+
+def test_L3_outer_invariant_global_not_per_bar():
+    d = _build([0, 0, 1])
+    dG = _build([0, 0, 1], _GLOBAL)
+    dB = _build([0, 0, 1], _PER_BAR)
+    assert float(cos_sim_exp_tens(d, dG, verbose=False)) == pytest.approx(1.0, abs=1e-6)
+    assert float(cos_sim_exp_tens(d, dB, verbose=False)) < 0.999  # coarser unit only
+
+
+def test_L3_unit_dims_strictly_increase_inner_to_outer():
+    """Finer co-transposition quotients more: dim inner < intermediate < outer < absolute."""
+    dims = [_build(r).dim for r in ([1, 0, 0], [0, 1, 0], [0, 0, 1], None)]
+    assert dims == [4, 6, 7, 8]
 
 
 # --- Representation validation ----------------------------------------

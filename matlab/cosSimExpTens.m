@@ -1451,16 +1451,18 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
-    % Per-attribute inner-unit block size (r_inner where attribute a is a
-    % nested attribute resolved to the inner [rel] co-transposition unit,
-    % 0 otherwise). Used by maLogKernel for the block-diagonal metric.
+    % Per-attribute co-transposition block size s_u = prod(r(1:u)) where
+    % attribute a is a nested attribute resolved to an inner or
+    % intermediate [rel] unit u (1-based), 0 otherwise. Used by
+    % maLogKernel for the block-diagonal metric.
     innerR = zeros(1, A);
     if isfield(dens_x, 'nested') && iscell(dens_x.nested)
         for a = 1:A
             s = dens_x.nested{a};
             if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
-                    && strcmp(s.proj, 'inner')
-                innerR(a) = s.r(1);
+                    && (strcmp(s.proj, 'inner') || strcmp(s.proj, 'intermediate'))
+                u = s.relUnit;                 % 1-based level index
+                innerR(a) = prod(s.r(1:u));    % block size s_u
             end
         end
     end

@@ -64,20 +64,49 @@ results{end+1,1} = 'L3: absolute is NOT transposition invariant';
 results{end,2}   = cosSimExpTens(dA, dAT, 'verbose', false) < 0.999;
 
 
-% --- Deferred per-group projections (inner / intermediate) at L >= 3 ---
-specInner = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
-                   'rel', [1 0 0]);
-results{end+1,1} = 'L3: inner projection deferred (errors)';
-results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specInner}, bkw{:}), ...
-    'buildExpTens:nestedProjDeferred');
+% --- inner / intermediate per-group reduction at L = 3 ---
+% Co-transposition at unit u removes each level-u sub-tuple's all-ones:
+% inner (u=1) per-chord, intermediate (u=2) per-bar, outer (u=3) global.
+% dim = D - G_u with G_u = prod(r(u+1:end)). Each unit is invariant to
+% transposition at its own level and coarser, not finer.
 
+% Per-slot offsets: per-chord (tags col 1), per-bar (col 2), global.
+perChord = P3{1} + [0; 0; 60; 60; 0; 0; 60; 60];
+perBar   = P3{1} + [10; 10; 10; 10; 20; 20; 20; 20];
+glob     = P3{1} + 5;
+
+specIn  = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
+                 'rel', [1 0 0]);
 specMid = struct('tags', tags3, 'r', [2 2 2], 'sym', [true true false], ...
                  'rel', [0 1 0]);
-results{end+1,1} = 'L3: intermediate projection deferred (errors)';
-results{end,2}   = throwsErrorWithId( ...
-    @() buildExpTens(P3, [], 'specs', {specMid}, bkw{:}), ...
-    'buildExpTens:nestedProjDeferred');
+
+dIn  = buildExpTens(P3, [], 'specs', {specIn},  bkw{:});
+dMid = buildExpTens(P3, [], 'specs', {specMid}, bkw{:});
+
+% inner: dim 4, self-match, per-chord transposition invariant
+dInC = buildExpTens({perChord}, [], 'specs', {specIn}, bkw{:});
+results{end+1,1} = 'L3: inner dim = D - G0 (4)';
+results{end,2}   = dIn.dim == 4;
+results{end+1,1} = 'L3: inner cosine self-match = 1';
+results{end,2}   = abs(cosSimExpTens(dIn, dIn, 'verbose', false) - 1) < 1e-9;
+results{end+1,1} = 'L3: inner is per-chord transposition invariant';
+results{end,2}   = abs(cosSimExpTens(dIn, dInC, 'verbose', false) - 1) < 1e-6;
+
+% intermediate: dim 6, self-match, per-bar invariant, per-chord NOT
+dMidB = buildExpTens({perBar},   [], 'specs', {specMid}, bkw{:});
+dMidC = buildExpTens({perChord}, [], 'specs', {specMid}, bkw{:});
+results{end+1,1} = 'L3: intermediate dim = D - G1 (6)';
+results{end,2}   = dMid.dim == 6;
+results{end+1,1} = 'L3: intermediate cosine self-match = 1';
+results{end,2}   = abs(cosSimExpTens(dMid, dMid, 'verbose', false) - 1) < 1e-9;
+results{end+1,1} = 'L3: intermediate is per-bar transposition invariant';
+results{end,2}   = abs(cosSimExpTens(dMid, dMidB, 'verbose', false) - 1) < 1e-6;
+results{end+1,1} = 'L3: intermediate NOT invariant to finer (per-chord)';
+results{end,2}   = cosSimExpTens(dMid, dMidC, 'verbose', false) < 0.5;
+
+% Unit dims strictly increase inner -> intermediate -> outer -> absolute
+results{end+1,1} = 'L3: unit dims increase 4 < 6 < 7 < 8';
+results{end,2}   = isequal([dIn.dim, dMid.dim, dO.dim, dA.dim], [4 6 7 8]);
 
 
 % --- Representation validation ---

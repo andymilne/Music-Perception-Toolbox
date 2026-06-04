@@ -431,12 +431,17 @@ def _compute_Q_inner_blocks(D, r_inner, is_per, period, *, reduced):
 
 
 def _inner_r_vec(dens):
-    """Per-attribute inner-unit block size (0 where not an inner [rel] attr).
+    """Per-attribute co-transposition block size (0 where not block-metric).
 
-    Returns an int array of length ``n_attrs`` whose entry *a* is
-    ``r_inner`` when attribute *a* is a nested attribute resolved to the
-    inner co-transposition unit, and 0 otherwise. Used by the evaluation
-    and inner-product paths to switch on the block-diagonal metric.
+    Returns an int array of length ``n_attrs`` whose entry *a* is the
+    block size ``s_u = prod(r[:u+1])`` when attribute *a* is a nested
+    attribute resolved to an ``inner`` or ``intermediate`` co-transposition
+    unit *u* (innermost-outward, 0-based), and 0 otherwise (flat
+    attributes, ``absolute``, and the whole-tuple ``outer`` unit, which
+    rides the ordinary ``is_rel`` path). The block-diagonal metric removes
+    each level-*u* sub-tuple's own all-ones; there are ``D_a / s_u`` such
+    blocks. Used by the evaluation and inner-product paths to switch on
+    :func:`_compute_Q_inner_blocks`.
     """
     A = int(dens.n_attrs)
     out = np.zeros(A, dtype=np.intp)
@@ -445,8 +450,11 @@ def _inner_r_vec(dens):
         return out
     for a in range(A):
         s = nested[a]
-        if s is not None and isinstance(s, dict) and s.get("proj") == "inner":
-            out[a] = int(np.asarray(s["r"]).ravel()[0])
+        if (s is not None and isinstance(s, dict)
+                and s.get("proj") in ("inner", "intermediate")):
+            r_levels = np.asarray(s["r"]).ravel()
+            u = int(s["rel_unit"])
+            out[a] = int(np.prod(r_levels[:u + 1]))   # block size s_u
     return out
 
 

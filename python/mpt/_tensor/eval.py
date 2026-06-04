@@ -1178,10 +1178,18 @@ def _eval_exp_tens_ma(
 
     # --- Normalisation ---
     if normalize != "none":
+        inner_r = _inner_r_vec(dens)
         gauss_const = 1.0
         for a in range(A):
             da = int(dim_per[a])
-            if is_rel[a] and r_vec[a] >= 2:
+            s_u = int(inner_r[a])
+            if s_u >= 2:
+                # Block-diagonal co-transposition metric: G_u blocks, each
+                # the relative quotient of an s_u-tuple (det 1/s_u), so the
+                # reduced metric determinant is (1/s_u)^G_u.
+                G_u = int(r_vec[a]) // s_u
+                det_m_a = (1.0 / float(s_u)) ** G_u
+            elif is_rel[a] and r_vec[a] >= 2:
                 det_m_a = 1.0 / float(r_vec[a])
             else:
                 det_m_a = 1.0

@@ -606,13 +606,6 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
             relRaw = spec.rel;
         end
         [relUnit, proj] = localCanonicaliseNestedRel(relRaw, L, a);
-        if L > 2 && (strcmp(proj, 'inner') || strcmp(proj, 'intermediate'))
-            error('buildExpTens:nestedProjDeferred', ...
-                  ['nested{%d}: the ''%s'' co-transposition projection at ' ...
-                   'L = %d (> 2) is not yet implemented; the per-group ' ...
-                   'quotient reduction is a later step. Use the outermost ' ...
-                   'unit (global transposition) or absolute.'], a, proj, L);
-        end
         spec.r       = rLevels;
         spec.sym     = symLevels;
         spec.tags    = tags;
@@ -681,9 +674,16 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
     dimPerAttr = zeros(1, A);
     for a = 1:A
         r_a = rVec(a);
-        if ~isempty(nested{a}) && strcmp(nested{a}.proj, 'inner')
-            % Inner unit: r_outer blocks each reduced to (r_inner - 1).
-            dimPerAttr(a) = nested{a}.r(2) * (nested{a}.r(1) - 1);
+        if ~isempty(nested{a}) && (strcmp(nested{a}.proj, 'inner') ...
+                || strcmp(nested{a}.proj, 'intermediate'))
+            % Co-transposition at unit u: D_a leaves split into
+            % G_u = prod(r(u+1:end)) contiguous blocks of size
+            % s_u = prod(r(1:u)); each block loses its own all-ones, so
+            % dim = D_a - G_u = G_u * (s_u - 1).
+            u   = nested{a}.relUnit;            % 1-based level
+            s_u = prod(nested{a}.r(1:u));
+            G_u = r_a / s_u;
+            dimPerAttr(a) = r_a - G_u;
         elseif isRelVec(a)
             if r_a >= 2
                 dimPerAttr(a) = r_a - 1;
@@ -966,16 +966,22 @@ function dens = localFillMAExpensive(dens, verbose)
     for a = 1:A
         r_a = rVec(a);
         spec = nested{a};
-        if ~isempty(spec) && strcmp(spec.proj, 'inner')
-            % Inner unit: reduce each r_outer event-block independently by
-            % subtracting its own first slot, then stack (tensor-joined).
-            rIn  = spec.r(1);
-            rOut = spec.r(2);
-            if rIn >= 2
-                blocks = cell(1, rOut);
-                for b = 1:rOut
-                    base = (b - 1) * rIn;
-                    blocks{b} = U_perm{a}(base + 2:base + rIn, :) ...
+        if ~isempty(spec) && (strcmp(spec.proj, 'inner') ...
+                || strcmp(spec.proj, 'intermediate'))
+            % Co-transposition at unit u: the leaves split into G_u
+            % contiguous blocks of size s_u = prod(r(1:u)) (the depth-first
+            % enumeration lays each level-u sub-tuple out contiguously).
+            % Reduce each block by its own first slot (per-block interval
+            % space), then stack. At u = 1 this is the per-event inner
+            % reduction; for an intermediate u a per-intermediate-group one.
+            u   = spec.relUnit;
+            s_u = prod(spec.r(1:u));
+            G_u = r_a / s_u;
+            if s_u >= 2
+                blocks = cell(1, G_u);
+                for b = 1:G_u
+                    base = (b - 1) * s_u;
+                    blocks{b} = U_perm{a}(base + 2:base + s_u, :) ...
                               - U_perm{a}(base + 1, :);
                 end
                 Centres{a} = vertcat(blocks{:});

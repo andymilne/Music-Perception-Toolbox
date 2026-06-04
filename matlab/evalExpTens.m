@@ -1252,16 +1252,19 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     Centres    = dens.Centres;
     wJ         = dens.wJ;
 
-    % Per-attribute inner-unit block size (r_inner where attribute a is a
-    % nested attribute resolved to the inner [rel] co-transposition unit,
-    % 0 otherwise). Switches on the block-diagonal metric below.
+    % Per-attribute co-transposition block size s_u = prod(r(1:u)) where
+    % attribute a is a nested attribute resolved to an inner or
+    % intermediate [rel] unit u (1-based), 0 otherwise (flat, absolute,
+    % and the whole-tuple outer unit ride the ordinary isRel path).
+    % Switches on the block-diagonal metric below.
     innerR = zeros(1, A);
     if isfield(dens, 'nested') && iscell(dens.nested)
         for a = 1:A
             s = dens.nested{a};
             if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
-                    && strcmp(s.proj, 'inner')
-                innerR(a) = s.r(1);
+                    && (strcmp(s.proj, 'inner') || strcmp(s.proj, 'intermediate'))
+                u = s.relUnit;                 % 1-based level index
+                innerR(a) = prod(s.r(1:u));    % block size s_u
             end
         end
     end
@@ -1380,7 +1383,13 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         gaussConst = 1;
         for a = 1:A
             da = dimPerAttr(a);
-            if isRelG(a) && r_(a) >= 2
+            if innerR(a) >= 2
+                % Block-diagonal co-transposition metric: G_u blocks, each
+                % the relative quotient of an s_u-tuple (det 1/s_u), so the
+                % reduced determinant is (1/s_u)^G_u.
+                Gu = r_(a) / innerR(a);
+                detM_a = (1 / innerR(a))^Gu;
+            elseif isRelG(a) && r_(a) >= 2
                 detM_a = 1 / r_(a);
             else
                 detM_a = 1;

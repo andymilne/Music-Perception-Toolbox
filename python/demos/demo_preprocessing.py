@@ -103,6 +103,53 @@ print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
 
 
 # ===================================================================
+#  3b. bind_events again (B o B): deepen a nested attribute to L = 3
+# ===================================================================
+
+print("=== 3b. bind_events again (B o B): deepen to L = 3 ===")
+
+# bind_events accepts the (p_attr, w, specs) carrier it produces, so a
+# second bind deepens the *already-nested* attribute rather than starting
+# over. The existing tag matrix is tiled and a fresh outermost grouping
+# column is appended; r/sym/rel each gain one outer level. The hierarchy
+# grows note -> 2-event group (first bind) -> 2-group window (second
+# bind). Trailing-drop again: N'' = N' - max(L) + 1 = 1.
+pBB, wBB, specBB = mpt.bind_events(pB, wB, [2, 2], specs=specB)
+
+sBB = specBB[0]
+print(f"  N'' = {pBB[0].shape[1]}  (one 3-level super-event)")
+print(f"  pitch nest (stacked D x N''):\n{pBB[0]}")
+print(f"  spec[0]: r = {sBB['r']}, sym = {sBB['sym']}, rel = {sBB['rel']}")
+print(f"  tags (K_total x (L-1) = 4 x 2):\n{np.asarray(sBB['tags']).tolist()}")
+print("  (inner column [0,1] tiled; new outermost column [0,0,1,1] appended.)")
+
+# Build the absolute L=3 nest and confirm a clean self-similarity.
+kwBB = dict(sigma=[0.5, 0.25], is_per=[True, False], period=[12.0, 0.0],
+            verbose=False)
+dBB_abs = mpt.build_exp_tens(pBB, wBB, specs=specBB, **kwBB)
+sm_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs, verbose=False))
+print(f"  absolute build: dim = {dBB_abs.dim}, "
+      f"cosine self-match = {sm_abs:.4f}")
+
+# Outermost [rel] on pitch quotients the whole 3-level tuple by a common
+# shift: the doubly-bound pitch structure is then invariant to transposing
+# every note together. Absolute (no [rel]) is not --- the narrow PC kernel
+# (sigma = 0.5) puts a 5-semitone shift out of reach.
+specBB_out = [dict(specBB[0]), dict(specBB[1])]
+specBB_out[0]["rel"] = [0, 0, 1]                 # outermost unit on pitch
+dBB_out = mpt.build_exp_tens(pBB, wBB, specs=specBB_out, **kwBB)
+pBB_T = [pBB[0] + 5.0, pBB[1]]                    # transpose all pitches +5
+dBB_out_T = mpt.build_exp_tens(pBB_T, wBB, specs=specBB_out, **kwBB)
+dBB_abs_T = mpt.build_exp_tens(pBB_T, wBB, specs=specBB, **kwBB)
+sim_out = float(mpt.cos_sim_exp_tens(dBB_out, dBB_out_T, verbose=False))
+sim_abs = float(mpt.cos_sim_exp_tens(dBB_abs, dBB_abs_T, verbose=False))
+print(f"  outer pitch (rel=[0,0,1]): dim = {dBB_out.dim}, "
+      f"vs +5 transpose = {sim_out:.4f}  (global-transposition invariant)")
+print(f"  absolute pitch:            vs +5 transpose = {sim_abs:.4f}  "
+      "(not invariant)\n")
+
+
+# ===================================================================
 #  4. translate_attributes (T): transpose pitch up a perfect fourth
 # ===================================================================
 

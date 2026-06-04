@@ -97,6 +97,58 @@ fprintf(['  spec{1}: r = [%d %d], sym = [%d %d], rel = [%d %d], ' ...
 
 
 %% ===================================================================
+%  3b. bindEvents again (B o B): deepen a nested attribute to L = 3
+%  ===================================================================
+
+fprintf('=== 3b. bindEvents again (B o B): deepen to L = 3 ===\n');
+
+% bindEvents accepts the (pAttr, w, specs) carrier it produces, so a
+% second bind deepens the *already-nested* attribute rather than starting
+% over. The existing tag matrix is tiled and a fresh outermost grouping
+% column is appended; r/sym/rel each gain one outer level. The hierarchy
+% grows note -> 2-event group (first bind) -> 2-group window (second
+% bind). Trailing-drop again: N'' = N' - max(L) + 1 = 1.
+[pBB, wBB, specBB] = bindEvents(pB, wB, [2 2], 'specs', specB);
+
+fprintf('  N'''' = %d  (one 3-level super-event)\n', size(pBB{1}, 2));
+fprintf('  pitch nest (stacked D x N''''):\n');
+disp(pBB{1});
+fprintf(['  spec{1}: r = [%d %d %d], sym = [%d %d %d], ' ...
+         'rel = [%d %d %d]\n'], ...
+        specBB{1}.r(1), specBB{1}.r(2), specBB{1}.r(3), ...
+        specBB{1}.sym(1), specBB{1}.sym(2), specBB{1}.sym(3), ...
+        specBB{1}.rel(1), specBB{1}.rel(2), specBB{1}.rel(3));
+fprintf('  tags (K_total x (L-1) = 4 x 2):\n');
+disp(specBB{1}.tags);
+fprintf(['  (inner column [0;1] tiled; new outermost column ' ...
+         '[0;0;1;1] appended.)\n']);
+
+% Build the absolute L=3 nest and confirm a clean self-similarity.
+bkwBB  = {'sigma', [0.5 0.25], 'isPer', [true false], 'period', [12 0], ...
+          'verbose', false};
+dBBabs = buildExpTens(pBB, wBB, 'specs', specBB, bkwBB{:});
+fprintf('  absolute build: dim = %d, cosine self-match = %.4f\n', ...
+        dBBabs.dim, cosSimExpTens(dBBabs, dBBabs, 'verbose', false));
+
+% Outermost [rel] on pitch quotients the whole 3-level tuple by a common
+% shift: the doubly-bound pitch structure is then invariant to transposing
+% every note together. Absolute (no [rel]) is not --- the narrow PC kernel
+% (sigma = 0.5) puts a 5-semitone shift out of reach.
+specBBout        = specBB;
+specBBout{1}.rel = [0 0 1];                  % outermost unit on pitch
+dBBout  = buildExpTens(pBB, wBB, 'specs', specBBout, bkwBB{:});
+pBBt    = {pBB{1} + 5, pBB{2}};              % transpose all pitches +5
+dBBoutT = buildExpTens(pBBt, wBB, 'specs', specBBout, bkwBB{:});
+dBBabsT = buildExpTens(pBBt, wBB, 'specs', specBB, bkwBB{:});
+simOut  = cosSimExpTens(dBBout, dBBoutT, 'verbose', false);
+simAbs  = cosSimExpTens(dBBabs, dBBabsT, 'verbose', false);
+fprintf(['  outer pitch (rel=[0 0 1]): dim = %d, vs +5 transpose = %.4f' ...
+         '  (global-transposition invariant)\n'], dBBout.dim, simOut);
+fprintf(['  absolute pitch:            vs +5 transpose = %.4f' ...
+         '  (not invariant)\n\n'], simAbs);
+
+
+%% ===================================================================
 %  4. translateAttributes (T): transpose pitch up a perfect fourth
 %  ===================================================================
 

@@ -1404,18 +1404,37 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     and ``Z = ∫T(x)dx`` via the closed-form total-mass formulae in
     :mod:`mpt._mobius`.
     """
-    # The analytic collision inner product below is built on the orbit
-    # (Möbius) machinery, which presumes symmetrisation. An ordered
-    # ([sym] = 0) density needs the direct (un-orbited) double sum, a
-    # separate derivation not yet implemented. r = 1 is exempt: [sym]
-    # is vacuous there, so ordered and symmetric coincide.
+    # An ordered ([sym] = 0) density at r > 1 has no orbit, so the Möbius
+    # collision inner product (which presumes symmetrisation) does not
+    # apply. Compute it numerically via the direct double sum of Gaussian
+    # overlaps over the C(K, r) ordered tuples, reusing the shared
+    # per-attribute machinery on a single-attribute, single-event density.
+    # r = 1 is exempt ([sym] vacuous; ordered and symmetric coincide) and
+    # falls through to the closed-form path below.
     if (not bool(getattr(dens, "is_sym", True))) and int(dens.r) > 1:
-        raise NotImplementedError(
-            "method='renyi2' does not yet support [sym]=0 (ordered) "
-            "densities at r > 1; the analytic collision inner product "
-            "currently assumes symmetrisation. Use method='shannon' or "
-            "'differential' for ordered densities."
+        from ._tensor.build import build_exp_tens
+
+        dens_p = dens.pruned()
+        p2 = np.asarray(dens_p.p, dtype=np.float64).reshape(-1, 1)
+        w2 = np.asarray(dens_p.w, dtype=np.float64).reshape(-1, 1)
+        da_dens = build_exp_tens(
+            [p2], [w2], [float(dens_p.sigma)], [int(dens_p.r)],
+            [bool(dens_p.is_rel)], [bool(dens_p.is_per)],
+            [float(dens_p.period)], [False], verbose=False,
         )
+        I_a, Z_a = _renyi2_per_attr_numerical(da_dens, 0)
+        ip_xx = float(I_a[0, 0])
+        Z = float(Z_a[0])
+        if not np.isfinite(ip_xx) or ip_xx <= 0:
+            raise FloatingPointError(
+                f"Computed <T,T>={ip_xx} for the ordered density is "
+                "non-positive or non-finite."
+            )
+        if not np.isfinite(Z) or Z <= 0:
+            raise FloatingPointError(
+                f"Computed Z={Z} is non-positive or non-finite."
+            )
+        return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
     from ._mobius import total_mass_abs, total_mass_rel
 
     dens = dens.pruned()
@@ -1493,24 +1512,25 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
 
 
-def _renyi2_per_attr_nested(dens, a):
+def _renyi2_per_attr_numerical(dens, a):
     """Per-attribute (event, event) inner matrix and per-event total mass
-    for a *nested* attribute, computed numerically via the nested tuple
-    enumeration and block-diagonal co-transposition metric.
+    computed numerically via explicit tuple enumeration and the (block-
+    diagonal) co-transposition metric. Handles both *nested* attributes
+    and *ordered* (``[sym] = 0``) flat attributes at ``r > 1``.
 
     Returns ``(I_a, Z_a)`` where ``I_a[n, m] = integral k_a^n(x) k_a^m(x)``
     over event *n*'s and event *m*'s attribute-*a* kernels, and
     ``Z_a[n] = integral k_a^n`` is event *n*'s total mass. These compose
-    with the flat-attribute matrices in the MA Rényi-2 factorisation
-    ``integral p^2 = sum_{n,m} prod_a I_a[n,m]`` and
+    with the flat-symmetric Möbius matrices in the MA Rényi-2
+    factorisation ``integral p^2 = sum_{n,m} prod_a I_a[n,m]`` and
     ``Z = sum_n prod_a Z_a[n]``.
 
-    The flat Möbius per-attribute matrix assumes a single symmetric
+    The flat Möbius per-attribute matrix presumes a single *symmetric*
     ``r_a``-tuple over the slots and re-derives the full S_{r_a} orbit;
-    for a nested attribute ``r_a = prod(r_levels)`` and that orbit is both
-    wrong (the symmetry is the structured nested one) and infeasible. The
-    numerical reading here builds the attribute's nested density, whose
-    tuples and block metric are correct at any depth, and forms the
+    that orbit is wrong for an ordered attribute (no symmetrisation) and,
+    for a nested attribute (``r_a = prod(r_levels)``), both wrong and
+    infeasible. The numerical reading here builds the attribute's density,
+    whose tuples and metric are correct in either case, and forms the
     overlap integrals in closed form: for two kernels of common metric
     ``M`` and width ``sigma`` the Gaussian overlap is
     ``(pi sigma^2)^{d/2} / sqrt(det M) * exp(-Q_M(c_t - c_s) / (4 sigma^2))``
@@ -1521,14 +1541,28 @@ def _renyi2_per_attr_nested(dens, a):
         _compute_Q_inner_blocks, _compute_Q, _inner_r_vec,
     )
 
-    spec = dens.nested[a]
+    nested = getattr(dens, "nested", None)
+    spec = nested[a] if nested is not None else None
     sigma = float(dens.sigma[a])
     is_per = bool(dens.is_per[a])
     period = float(dens.period[a])
-    da = build_exp_tens(
-        [dens.p_attr[a]], [dens.w[a]], specs=[spec],
-        sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
-    )
+    if spec is not None:
+        # Nested attribute: rebuild from its resolved spec.
+        da = build_exp_tens(
+            [dens.p_attr[a]], [dens.w[a]], specs=[spec],
+            sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
+        )
+    else:
+        # Flat ordered attribute: rebuild from its flat parameters with
+        # is_sym=False, so the materialised tuples are the C(K, r_a)
+        # ordered sub-tuples (one kernel each, no orbit).
+        r_a0 = int(dens.r[a])
+        is_rel0 = bool(dens.is_rel[a])
+        da = build_exp_tens(
+            [dens.p_attr[a]], [dens.w[a]],
+            [sigma], [r_a0], [is_rel0], [is_per], [period], [False],
+            verbose=False,
+        )
     centres = da.centres[0]            # (d_a, n_j) reduced centres
     w_j = da.w_j                       # (n_j,)
     event_of_j = da.event_of_j         # (n_j,) -> event index 0..N-1
@@ -1551,7 +1585,7 @@ def _renyi2_per_attr_nested(dens, a):
     I_a = np.zeros((N, N), dtype=np.float64)
     Z_a = np.zeros(N, dtype=np.float64)
     if n_j > 0:
-        # Pairwise block-metric quadratic form on the reduced centres.
+        # Pairwise (block-)metric quadratic form on the reduced centres.
         D = centres[:, :, None] - centres[:, None, :]   # (d_a, n_j, n_j)
         if block_size >= 2:
             Q = _compute_Q_inner_blocks(
@@ -1597,41 +1631,34 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     if A == 0 or N == 0:
         return 0.0
 
-    # Orbit (Möbius) IP presumes symmetrisation per attribute for *flat*
-    # attributes. An ordered ([sym] = 0) flat attribute at r > 1 needs the
-    # direct un-orbited sum, not yet implemented. Nested attributes are
-    # exempt: they flow through the numerical block-metric path below,
-    # which honours each level's [sym] in the enumeration. r = 1 flat
-    # attributes are exempt ([sym] vacuous).
+    # Per-attribute inner matrices compose as
+    # <T,T> = sum_{n,m} prod_a I_a[n,m] and Z = sum_n prod_a Z_a^(n).
+    # Symmetric flat attributes take the Möbius per-attribute matrix and
+    # closed-form total mass (the fast path; orbit-collapse assumes
+    # symmetrisation). Nested attributes, and ordered ([sym] = 0) flat
+    # attributes at r > 1, take the numerical inner matrix
+    # (:func:`_renyi2_per_attr_numerical`): an ordered attribute has no
+    # orbit, so its tuples are summed directly. r = 1 flat attributes are
+    # symmetric-equivalent ([sym] vacuous) and stay on the Möbius path.
+    #
+    # The per-(n, m) cancellation ratio aggregated across attributes was
+    # empirically shown to fire spuriously in 100% of typical musical
+    # regimes for self-IPs (sweep_self_ip.py): off-diagonal entries can
+    # have low ratios while the diagonal entries (which dominate the sum)
+    # are clean, so the sum Σ P_xx[n,m] is correct even when some entries
+    # are noisy. We therefore rely solely on a post-hoc finite/positive
+    # check. The Bulger fallback was abandoned for the same convention-
+    # mismatch reason as in the SA path.
     is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
     r_vec = np.asarray(dens.r)
     nested = getattr(dens, "nested", [None] * A)
-    flat_mask = np.array([nested[a] is None for a in range(A)])
-    if np.any(flat_mask & (~is_sym) & (r_vec > 1)):
-        raise NotImplementedError(
-            "method='renyi2' does not yet support [sym]=0 (ordered) "
-            "attributes at r > 1; the analytic collision inner product "
-            "currently assumes symmetrisation. Use method='shannon' or "
-            "'differential' for ordered densities."
-        )
-    # The per-(n, m) cancellation ratio aggregated across attributes
-    # was empirically shown to fire spuriously in 100% of typical
-    # musical regimes for self-IPs (sweep_self_ip.py): off-diagonal
-    # entries can have low ratios while the diagonal entries (which
-    # dominate the sum) are clean, so the sum Σ P_xx[n,m] is correct
-    # even when some entries are noisy. We therefore rely solely on
-    # a post-hoc finite/positive check. The Bulger fallback was
-    # abandoned for the same convention-mismatch reason as in the
-    # SA path.
-    #
-    # Nested attributes take the numerical block-metric inner matrix
-    # (:func:`_renyi2_per_attr_nested`); flat attributes take the Möbius
-    # per-attribute matrix and closed-form SA total mass.
     P_xx = np.ones((N, N), dtype=np.float64)
     Z_per_event_attr = np.empty((N, A), dtype=np.float64)
     for a in range(A):
-        if nested[a] is not None:
-            I_xx, Z_a = _renyi2_per_attr_nested(dens, a)
+        ordered_flat = (nested[a] is None) and (not bool(is_sym[a])) \
+            and (int(r_vec[a]) > 1)
+        if nested[a] is not None or ordered_flat:
+            I_xx, Z_a = _renyi2_per_attr_numerical(dens, a)
         else:
             r_a = int(dens.r[a])
             sigma = float(dens.sigma[a])

@@ -1799,17 +1799,30 @@ function H = localRenyi2SA(dens, base)
     sigma = dens.sigma; r = dens.r;
     isRel = dens.isRel; isPer = dens.isPer; period = dens.period;
 
-    % The analytic collision inner product below is built on the orbit
-    % (Möbius) machinery, which presumes symmetrisation. An ordered
-    % (isSym = false) density needs the direct (un-orbited) double sum, a
-    % separate derivation not yet implemented. r = 1 is exempt: [sym] is
-    % vacuous there, so ordered and symmetric coincide.
+    % An ordered (isSym = false) density at r > 1 has no orbit, so the
+    % Möbius collision inner product (which presumes symmetrisation) does
+    % not apply. Compute it numerically via the direct double sum of
+    % Gaussian overlaps over the C(K, r) ordered tuples, reusing the
+    % shared per-attribute machinery on a single-attribute, single-event
+    % density. r = 1 is exempt ([sym] vacuous; ordered and symmetric
+    % coincide) and falls through to the closed-form path below.
     if isfield(dens, 'isSym') && ~all(logical(dens.isSym)) && r > 1
-        error('entropyExpTens:renyi2OrderedNotSupported', ...
-            ['method=''renyi2'' does not yet support isSym = false ' ...
-             '(ordered) densities at r > 1; the analytic collision ' ...
-             'inner product currently assumes symmetrisation. Use ' ...
-             'method=''shannon'' or ''differential'' for ordered densities.']);
+        da = buildExpTens({p(:)}, {w(:)}, sigma, r, isRel, isPer, period, ...
+                          false, 'lazy', false, 'verbose', false);
+        [I_a, Z_a] = localRenyi2PerAttrNumerical(da, 1);
+        ip_xx = I_a(1, 1);
+        Z = Z_a(1);
+        if ~isfinite(ip_xx) || ip_xx <= 0
+            error('entropyExpTens:renyi2NonPositiveIP', ...
+                ['Computed <T,T>=%g for the ordered density is ' ...
+                 'non-positive or non-finite.'], ip_xx);
+        end
+        if ~isfinite(Z) || Z <= 0
+            error('entropyExpTens:renyi2NonPositiveZ', ...
+                'Computed Z=%g is non-positive or non-finite.', Z);
+        end
+        H = -log(ip_xx / (Z * Z)) / log(base);
+        return;
     end
 
     % r=1 rel is degenerate: the relative density lives on a 0-D space
@@ -1902,12 +1915,15 @@ function H = localRenyi2MA(dens, base)
         return;
     end
 
-    % Orbit (Möbius) IP presumes symmetrisation per attribute for *flat*
-    % attributes. An ordered (isSym = false) flat attribute at r > 1 needs
-    % the direct un-orbited sum, not yet implemented. Nested attributes are
-    % exempt: they flow through the numerical block-metric path below,
-    % which honours each level's [sym] in the enumeration. r = 1 flat
-    % attributes are exempt ([sym] vacuous).
+    % Per-attribute inner matrices compose as
+    % <T,T> = sum_{n,m} prod_a I_a[n,m] and Z = sum_n prod_a Z_a^(n).
+    % Symmetric flat attributes take the Möbius per-attribute matrix and
+    % closed-form total mass (the fast path; orbit-collapse assumes
+    % symmetrisation). Nested attributes, and ordered (isSym = false) flat
+    % attributes at r > 1, take the numerical inner matrix
+    % (localRenyi2PerAttrNumerical): an ordered attribute has no orbit, so
+    % its tuples are summed directly. r = 1 flat attributes are symmetric-
+    % equivalent ([sym] vacuous) and stay on the Möbius path.
     nested = {};
     if isfield(dens, 'nested'); nested = dens.nested; end
     isNested = false(1, A);
@@ -1919,16 +1935,10 @@ function H = localRenyi2MA(dens, base)
     end
     if isfield(dens, 'isSym')
         isSymVec = logical(dens.isSym(:).');
-        rVec = dens.r(:).';
-        if any(~isNested & ~isSymVec & (rVec > 1))
-            error('entropyExpTens:renyi2OrderedNotSupported', ...
-                ['method=''renyi2'' does not yet support isSym = false ' ...
-                 '(ordered) attributes at r > 1; the analytic collision ' ...
-                 'inner product currently assumes symmetrisation. Use ' ...
-                 'method=''shannon'' or ''differential'' for ordered ' ...
-                 'densities.']);
-        end
+    else
+        isSymVec = true(1, A);
     end
+    rVec = dens.r(:).';
 
     internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
         sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A), 0, false);
@@ -1936,15 +1946,13 @@ function H = localRenyi2MA(dens, base)
     % --- <T, T> and Z, per attribute ---
     % Per-(n,m) cancellation ratios were shown empirically to fire
     % spuriously for self-IPs in typical musical regimes; we rely on a
-    % post-hoc finite/positive check rather than a ratio fallback. Nested
-    % attributes take the numerical block-metric inner matrix
-    % (localRenyi2PerAttrNested); flat attributes take the Möbius
-    % per-attribute matrix and closed-form SA total mass.
+    % post-hoc finite/positive check rather than a ratio fallback.
     P_xx = ones(N, N);
     Z_per_event_attr = zeros(N, A);
     for a = 1:A
-        if isNested(a)
-            [I_xx, Z_a] = localRenyi2PerAttrNested(dens, a);
+        orderedFlat = ~isNested(a) && ~isSymVec(a) && (rVec(a) > 1);
+        if isNested(a) || orderedFlat
+            [I_xx, Z_a] = localRenyi2PerAttrNumerical(dens, a);
         else
             r_a = dens.r(a);
             sigma_g = dens.sigma(a);
@@ -1995,27 +2003,46 @@ function H = localRenyi2MA(dens, base)
 end
 
 
-function [I_a, Z_a] = localRenyi2PerAttrNested(dens, a)
-%LOCALRENYI2PERATTRNESTED  Per-attribute (event, event) inner matrix and
-%per-event total mass for a *nested* attribute, computed numerically via
-%the nested tuple enumeration and block-diagonal co-transposition metric.
+function [I_a, Z_a] = localRenyi2PerAttrNumerical(dens, a)
+%LOCALRENYI2PERATTRNUMERICAL  Per-attribute (event, event) inner matrix and
+%per-event total mass computed numerically via explicit tuple enumeration
+%and the (block-diagonal) co-transposition metric. Handles both *nested*
+%attributes and *ordered* (isSym = false) flat attributes at r > 1.
 %
 %   Returns I_a (N x N), where I_a(n,m) = integral k_a^n(x) k_a^m(x), and
 %   Z_a (N x 1), where Z_a(n) = integral k_a^n. These compose with the
-%   flat-attribute matrices in the MA Rényi-2 factorisation. The flat
-%   Möbius matrix would re-derive the full S_{D_a} orbit (wrong symmetry
-%   and infeasible); the nested density's tuples and block metric are
-%   correct at any depth. For two kernels of common metric M and width
-%   sigma the Gaussian overlap is
+%   flat-symmetric Möbius matrices in the MA Rényi-2 factorisation. The
+%   flat Möbius matrix presumes a single symmetric tuple and re-derives the
+%   full S_{r} orbit; that orbit is wrong for an ordered attribute (no
+%   symmetrisation) and, for a nested attribute, both wrong and infeasible.
+%   The numerical reading builds the attribute's density, whose tuples and
+%   metric are correct in either case. For two kernels of common metric M
+%   and width sigma the Gaussian overlap is
 %   (pi sigma^2)^{d/2}/sqrt(det M) * exp(-Q_M(c_t - c_s)/(4 sigma^2)) and
 %   the single-kernel mass is (2 pi sigma^2)^{d/2}/sqrt(det M).
-    spec = dens.nested{a};
     sig  = dens.sigma(a);
     isper = dens.isPer(a);
     per  = dens.period(a);
-    da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
-                      'sigma', sig, 'isPer', isper, 'period', per, ...
-                      'lazy', false, 'verbose', false);
+    isNestedA = isfield(dens, 'nested') && numel(dens.nested) >= a ...
+        && ~isempty(dens.nested{a}) && isstruct(dens.nested{a}) ...
+        && isfield(dens.nested{a}, 'tags');
+    if isNestedA
+        % Nested attribute: rebuild from its resolved spec.
+        spec = dens.nested{a};
+        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
+                          'sigma', sig, 'isPer', isper, 'period', per, ...
+                          'lazy', false, 'verbose', false);
+    else
+        % Flat ordered attribute: rebuild from its flat parameters with
+        % isSym = false, so the materialised tuples are the C(K, r_a)
+        % ordered sub-tuples (one kernel each, no orbit).
+        spec = [];
+        r_a0   = dens.r(a);
+        isRel0 = dens.isRel(a);
+        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, sig, r_a0, ...
+                          isRel0, isper, per, false, ...
+                          'lazy', false, 'verbose', false);
+    end
     C   = da.Centres{1};         % (d_a x nJ) reduced centres
     wj  = da.wJ(:);              % (nJ x 1)
     eoj = da.eventOfJ(:);        % (nJ x 1) 1-based event index
@@ -2024,8 +2051,8 @@ function [I_a, Z_a] = localRenyi2PerAttrNested(dens, a)
     N   = dens.N;
 
     blockSize = 0;
-    if isfield(spec, 'proj') && (strcmp(spec.proj, 'inner') ...
-            || strcmp(spec.proj, 'intermediate'))
+    if ~isempty(spec) && isfield(spec, 'proj') ...
+            && (strcmp(spec.proj, 'inner') || strcmp(spec.proj, 'intermediate'))
         u = spec.relUnit;
         blockSize = prod(spec.r(1:u));
     end

@@ -278,9 +278,9 @@ class TestDefaultAndSelf:
 
 class TestOrderedRejections:
     """The batched dedup keys rows by a sorted multiset and would
-    over-merge order-distinct rows; the analytic renyi2 collision IP
-    assumes symmetrisation. Both reject [sym]=0 at r>1 rather than
-    return a wrong answer. r=1 is exempt ([sym] vacuous)."""
+    over-merge order-distinct rows, so the batched cosine/eval paths
+    reject [sym]=0 at r>1 rather than return a wrong answer. (Single-
+    density ordered renyi2 is supported — see TestOrderedRenyi2.)"""
 
     def test_batched_cosine_rejects_ordered(self):
         P = np.array([[0.0, 4.0, 7.0], [7.0, 4.0, 0.0]])
@@ -304,11 +304,26 @@ class TestOrderedRejections:
                              method="shannon", n_points_per_dim=50,
                              x_min=-3, x_max=12)
 
-    def test_renyi2_rejects_ordered(self):
-        from mpt import entropy_exp_tens
-        with pytest.raises(NotImplementedError):
-            entropy_exp_tens([0.0, 4.0, 7.0], None, 1.0, 2, False, False, 0.0,
-                             False, method="renyi2")
+
+def _grid_renyi2(d, sig):
+    """Brute-force grid estimate of -log integral p~^2 (natural log)."""
+    from mpt import eval_exp_tens
+    c = d.centres[0]
+    dim = d.dim
+    ng = 70 if dim == 1 else 45
+    axes = [np.linspace(c[k].min() - 6 * sig, c[k].max() + 6 * sig, ng)
+            for k in range(dim)]
+    mesh = np.meshgrid(*axes, indexing="ij")
+    X = np.vstack([m.ravel() for m in mesh])
+    vals = eval_exp_tens(d, X, verbose=False)
+    dv = float(np.prod([axes[k][1] - axes[k][0] for k in range(dim)]))
+    z = vals.sum() * dv
+    return -np.log(((vals / z) ** 2).sum() * dv)
+
+
+class TestOrderedRenyi2:
+    """Ordered ([sym]=0) renyi2 at r>1 is computed via the direct double
+    sum of Gaussian overlaps (no orbit), matching a brute-force grid."""
 
     def test_renyi2_ordered_r1_allowed(self):
         from mpt import entropy_exp_tens
@@ -316,3 +331,41 @@ class TestOrderedRejections:
         val = entropy_exp_tens([0.0, 4.0, 7.0], None, 1.0, 1, False, False,
                                0.0, False, method="renyi2")
         assert np.isfinite(val)
+
+    @pytest.mark.parametrize("r", [2, 3])
+    @pytest.mark.parametrize("rel", [False, True])
+    def test_renyi2_ordered_sa_matches_grid(self, r, rel):
+        from mpt import entropy_exp_tens, build_exp_tens
+        P = np.array([0.0, 4.0, 7.0, 11.0])
+        sig = 2.0
+        h = float(entropy_exp_tens(list(P), None, sig, r, rel, False, 0.0,
+                                   False, method="renyi2", base=np.e,
+                                   verbose=False))
+        d = build_exp_tens([P[:, None]], None, [sig], [r], [rel], [False],
+                           [0.0], [False], verbose=False)
+        assert h == pytest.approx(float(_grid_renyi2(d, sig)), abs=2e-2)
+
+    def test_renyi2_ordered_ma_matches_grid(self):
+        from mpt import entropy_exp_tens, build_exp_tens
+        P = np.array([0.0, 4.0, 7.0, 11.0])
+        sig = 2.0
+        d = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+                           [0.0], [False], verbose=False)
+        h = float(entropy_exp_tens(d, method="renyi2", base=np.e,
+                                   verbose=False))
+        assert h == pytest.approx(float(_grid_renyi2(d, sig)), abs=2e-2)
+
+    def test_renyi2_ordered_differs_from_symmetric(self):
+        from mpt import entropy_exp_tens, build_exp_tens
+        # An order-bearing tuple set: ordered and symmetric readings give
+        # genuinely different collision entropies.
+        P = np.array([0.0, 3.0, 8.0])
+        sig = 1.5
+        dO = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+                            [0.0], [False], verbose=False)
+        dS = build_exp_tens([P[:, None]], None, [sig], [2], [False], [False],
+                            [0.0], [True], verbose=False)
+        hO = float(entropy_exp_tens(dO, method="renyi2", verbose=False))
+        hS = float(entropy_exp_tens(dS, method="renyi2", verbose=False))
+        assert np.isfinite(hO) and np.isfinite(hS)
+        assert abs(hO - hS) > 1e-6

@@ -221,10 +221,32 @@ results{end+1,1} = 'sym: batched eval rejects isSym=false at r>1';
 results{end,2}   = errorMessageContains( ...
     @() evalExpTens(P2, [], 30, 2, false, false, 0, false, [0;4], ...
                     'verbose', false), 'ordered');
-results{end+1,1} = 'sym: renyi2 rejects isSym=false at r>1';
-results{end,2}   = errorMessageContains( ...
-    @() entropyExpTens(p3, [], 1, 2, false, false, 0, false, ...
-                       'method', 'renyi2'), 'ordered');
+
+
+% ---------------------------------------------------------------------
+%  Ordered renyi2 at r > 1 computes (no orbit); golden vs Python
+% ---------------------------------------------------------------------
+
+% SA raw form: ordered absolute r=2, sigma=1, base 2 (default).
+hOrdSA = entropyExpTens(p3, [], 1, 2, false, false, 0, false, ...
+                        'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'sym: renyi2 SA ordered r2 finite';
+results{end,2}   = isfinite(hOrdSA);
+results{end+1,1} = 'sym: renyi2 SA ordered r2 matches Python golden';
+results{end,2}   = abs(hOrdSA - 5.120408605589989) < 1e-6;
+
+% r = 1 ordered is exempt ([sym] vacuous) and must still compute.
+hOrdR1 = entropyExpTens(p3, [], 1, 1, false, false, 0, false, ...
+                        'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'sym: renyi2 SA ordered r1 finite';
+results{end,2}   = isfinite(hOrdR1);
+
+% MA flat-ordered attribute (positional form): r=2 absolute, sigma=2.
+dOrdMA = buildExpTens({[0 4 7 11].'}, [], 2, 2, false, false, 0, false, ...
+                      'verbose', false);
+hOrdMA = entropyExpTens(dOrdMA, 'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'sym: renyi2 MA ordered r2 matches Python golden';
+results{end,2}   = abs(hOrdMA - 7.136351706681117) < 1e-6;
 
 
 % ---------------------------------------------------------------------

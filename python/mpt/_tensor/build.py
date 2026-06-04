@@ -382,11 +382,10 @@ def _build_exp_tens_ma(
             # Optional: default every level symmetric (matches the flat
             # sym=True default). An ordered level is set explicitly.
             sym_levels = np.ones(L, dtype=bool)
-        if L != 2:
-            raise NotImplementedError(
-                f"nested attribute {a}: only two-level nesting (L = 2) is "
-                f"supported for now; got L = {L}. Deeper nesting is a "
-                f"later step."
+        if L < 2:
+            raise ValueError(
+                f"nested attribute {a}: a nested spec needs L >= 2 levels; "
+                f"got L = {L}. A single-level attribute is flat (no spec)."
             )
         if sym_levels.size != L:
             raise ValueError(
@@ -397,23 +396,48 @@ def _build_exp_tens_ma(
             raise ValueError(
                 f"nested attribute {a}: all per-level r must be >= 1."
             )
-        tags = np.asarray(spec["tags"]).ravel()
-        if tags.size != int(K_a[a]):
+        # tags: a (K_total, L-1) integer matrix, one column per grouping
+        # level innermost-outward; column 0 is the finest grouping above
+        # the leaf slots, column L-2 the outermost. A 1-D vector is the
+        # single-column (L = 2) case and is kept as-is.
+        tags = np.asarray(spec["tags"])
+        K_total_a = int(K_a[a])
+        if tags.ndim == 1:
+            if L != 2:
+                raise ValueError(
+                    f"nested attribute {a}: a 1-D tags vector is only valid "
+                    f"for L = 2 (one grouping column); for L = {L} supply a "
+                    f"(K_total, L-1) = ({K_total_a}, {L - 1}) tag matrix."
+                )
+            if tags.size != K_total_a:
+                raise ValueError(
+                    f"nested attribute {a}: tags length {tags.size} must "
+                    f"equal K_total = {K_total_a} (slot count)."
+                )
+        elif tags.ndim == 2:
+            if tags.shape != (K_total_a, L - 1):
+                raise ValueError(
+                    f"nested attribute {a}: tags matrix shape "
+                    f"{tuple(tags.shape)} must be (K_total, L-1) = "
+                    f"({K_total_a}, {L - 1})."
+                )
+        else:
             raise ValueError(
-                f"nested attribute {a}: tags length {tags.size} must equal "
-                f"K_total = {int(K_a[a])} (slot count)."
+                f"nested attribute {a}: tags must be 1-D (L = 2) or a 2-D "
+                f"(K_total, L-1) matrix; got ndim = {tags.ndim}."
             )
         rel_unit, proj = _canonicalise_nested_rel(spec.get("rel"), L, a)
-        if proj == "intermediate":
+        if L > 2 and proj in ("inner", "intermediate"):
             raise NotImplementedError(
-                f"nested attribute {a}: an intermediate [rel] co-transposition "
-                f"unit needs L > 2 nesting, which is a later step. Use the "
-                f"innermost or outermost unit, or absolute."
+                f"nested attribute {a}: the '{proj}' co-transposition "
+                f"projection at L = {L} (> 2) is not yet implemented; the "
+                f"per-group quotient reduction is a later step. Use the "
+                f"outermost unit (global transposition) or absolute."
             )
         nested[a] = dict(spec)
         nested[a]["r"] = r_levels
         nested[a]["sym"] = sym_levels
-        nested[a]["tags"] = tags
+        nested[a]["tags"] = tags          # 1-D (L=2) or (K_total, L-1)
         nested[a]["rel_unit"] = rel_unit
         nested[a]["proj"] = proj
         r_vec[a] = int(np.prod(r_levels))  # total tuple dim D_a
@@ -479,18 +503,18 @@ def _build_exp_tens_ma(
             valid = ~np.isnan(col)
             spec = nested[a]
             if spec is not None:
-                tags = spec["tags"]
-                ri = int(spec["r"][0])   # innermost
-                ro = int(spec["r"][1])   # outermost
-                good = sum(
-                    1 for t in np.unique(tags[valid])
-                    if int(np.sum(valid & (tags == t))) >= ri
-                )
-                if good < ro:
+                r_levels = np.asarray(spec["r"]).ravel().astype(int)
+                tags = np.asarray(spec["tags"])
+                if tags.ndim == 1:
+                    tags = tags.reshape(-1, 1)
+                valid_idx = np.nonzero(valid)[0].astype(np.intp)
+                if not _nested_feasible(valid_idx, tags, r_levels,
+                                        len(r_levels) - 1):
                     raise ValueError(
-                        f"Event {n}, nested attribute {a}: only {good} "
-                        f"source-event(s) have >= r_inner = {ri} non-NaN "
-                        f"slot(s), but r_outer = {ro}."
+                        f"Event {n}, nested attribute {a}: the non-NaN slots "
+                        f"do not admit a full nested r-tuple for "
+                        f"r = {r_levels.tolist()} (too few groups or slots at "
+                        f"some nesting level)."
                     )
                 continue
             r_a = int(r_vec[a])
@@ -561,70 +585,116 @@ def _build_exp_tens_ma(
 
 
 
-def _nested_enum_indices(valid_slots, tags_valid, r_inner, r_outer,
-                         sym_inner, sym_outer):
-    """Tag-scoped nested r-tuple enumeration (representation B, 2-level).
+def _nested_feasible(slots, tags_mat, r_levels, level):
+    """Whether ``slots`` admit at least one full level-``level`` nested r-tuple.
+
+    Recurses outermost-inward through the tag-matrix columns, mirroring
+    :func:`_nested_enum_indices`: enough distinct groups at each grouping
+    level (each itself recursively feasible) and enough leaf slots in the
+    finest groups. ``tags_mat`` is the full ``(K_total, L-1)`` matrix
+    indexed by absolute slot index.
+    """
+    slots = np.asarray(slots, dtype=np.intp)
+    if level == 0:
+        return int(slots.size) >= int(r_levels[0])
+    col = level - 1
+    gids = np.asarray(tags_mat)[slots, col]
+    need = int(r_levels[level])
+    feasible = 0
+    for g in set(gids.tolist()):
+        sub = slots[gids == g]
+        if _nested_feasible(sub, tags_mat, r_levels, level - 1):
+            feasible += 1
+            if feasible >= need:
+                return True
+    return feasible >= need
+
+
+def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
+    """Tag-scoped nested r-tuple enumeration (representation B, L levels).
+
+    Generalises the two-level enumeration to arbitrary nesting depth by
+    recursing outermost-inward through the grouping columns of the tag
+    matrix. At ``L = 2`` it reproduces the two-level result exactly.
 
     Parameters
     ----------
     valid_slots : (Kv,) intp
-        Slot indices (into the attribute's full K_total axis) that are
-        non-NaN for this output-event.
-    tags_valid : (Kv,) intp
-        Source-event-in-window tag for each valid slot.
-    r_inner, r_outer : int
-        Inner (within-event) and outer (across-event) tuple sizes.
-    sym_inner, sym_outer : bool
-        Per-level symmetrisation. ``sym_outer`` is 0 for ordinary
-        binding (the bound events carry sequence order); 1 pools them
-        as an unordered bag.
+        Slot indices (into the attribute's full ``K_total`` axis) that are
+        non-NaN for this output-event, in ascending order.
+    tags_valid : (Kv, L-1) intp
+        Per-slot group ids at each grouping level, innermost-grouping
+        first: column ``j`` is the level-``(j+1)`` group of each valid
+        slot (column 0 is the finest grouping above the leaf slots,
+        column ``L-2`` the outermost). A 1-D ``(Kv,)`` array is accepted
+        as the single-column ``L = 2`` case.
+    r_levels : (L,) int
+        Per-level read-arities, innermost-outward: ``r_levels[0]`` is the
+        leaf (within-finest-group) arity, ``r_levels[g]`` (``g >= 1``) the
+        number of level-``g`` groups to read.
+    sym_levels : (L,) bool
+        Per-level symmetrisation, innermost-outward. ``sym_levels[-1]``
+        (outermost) is 0 for ordinary binding (the bound events carry
+        sequence order); 1 pools that level as an unordered bag.
 
     Returns
     -------
-    perm_idx, comb_idx : (D, M) intp, D = r_inner * r_outer
+    perm_idx, comb_idx : (D, M) intp, ``D = prod(r_levels)``
         Slot-index arrays. ``perm_idx`` is the symmetrised deposit (the
-        density's kernel centres): inner ``S_{r_inner}`` orbit per chosen
-        event when ``sym_inner``; outer listed order (or full orbit when
-        ``sym_outer``). ``comb_idx`` is the canonical one-per-combination
-        side (inner combinations, outer listed) used for inner-product
-        pairing. Columns are concatenated in (outer-order, inner-order).
+        density's kernel centres): at each level the chosen sub-units are
+        permuted into their orbit when that level's ``sym`` is set, else
+        kept in listed order. ``comb_idx`` is the canonical
+        one-per-combination side (combinations at every level, listed
+        order) used for inner-product pairing. Columns are concatenated
+        outermost-group-major, innermost-slot-minor.
     """
     from itertools import combinations as _comb, permutations as _perm
     from itertools import product as _product
 
-    tags_valid = np.asarray(tags_valid)
     valid_slots = np.asarray(valid_slots, dtype=np.intp)
-    uniq = sorted(set(tags_valid.tolist()))
-    slots_of = {t: valid_slots[tags_valid == t] for t in uniq}
+    tags_valid = np.asarray(tags_valid)
+    if tags_valid.ndim == 1:
+        tags_valid = tags_valid.reshape(-1, 1)
+    r_levels = [int(x) for x in np.asarray(r_levels).ravel()]
+    sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
+    L = len(r_levels)
 
-    # Outer level: choose r_outer distinct tags. sym_outer = 0 keeps
-    # sequence order (combinations); sym_outer = 1 pools (full orbit).
-    outer_comb = list(_comb(uniq, r_outer))
-    outer_perm = (
-        [p for c in outer_comb for p in _perm(c)] if sym_outer
-        else outer_comb
-    )
+    # Map a slot index to its row in tags_valid (slots are a subset of
+    # valid_slots, kept in ascending order throughout the recursion).
+    row_of = {int(s): i for i, s in enumerate(valid_slots.tolist())}
 
-    # Inner level per event: choose r_inner of that event's slots.
-    def inner(t, symmetrise):
-        sl = slots_of[t]
-        combs = list(_comb(range(len(sl)), r_inner))
-        if symmetrise:
-            combs = [p for c in combs for p in _perm(c)]
-        return [sl[list(c)] for c in combs]
+    def enum_side(slots, level, symmetrise):
+        # Returns a list of 1-D index arrays, each length prod(r_levels[:level+1]).
+        if level == 0:
+            r0 = r_levels[0]
+            combs = list(_comb(slots.tolist(), r0))
+            if symmetrise[0]:
+                return [np.array(p, dtype=np.intp)
+                        for c in combs for p in _perm(c)]
+            return [np.array(c, dtype=np.intp) for c in combs]
+        col = level - 1
+        gids = np.array([tags_valid[row_of[int(s)], col] for s in slots])
+        uniq = sorted(set(gids.tolist()))
+        gcombs = list(_comb(uniq, r_levels[level]))
+        gsels = ([p for c in gcombs for p in _perm(c)]
+                 if symmetrise[level] else gcombs)
+        out = []
+        for gsel in gsels:
+            per_group = []
+            for g in gsel:
+                sub = slots[gids == g]
+                per_group.append(enum_side(sub, level - 1, symmetrise))
+            for combo in _product(*per_group):
+                out.append(np.concatenate(combo))
+        return out
 
-    def assemble(outer_sel, sym_in):
-        cols = []
-        for osel in outer_sel:
-            per_event = [inner(t, sym_in) for t in osel]
-            for combo in _product(*per_event):
-                cols.append(np.concatenate(combo))
-        if not cols:
-            return np.empty((r_inner * r_outer, 0), dtype=np.intp)
-        return np.array(cols, dtype=np.intp).T
-
-    perm_idx = assemble(outer_perm, sym_inner)
-    comb_idx = assemble(outer_comb, False)
+    D = int(np.prod(r_levels)) if r_levels else 0
+    perm_cols = enum_side(valid_slots, L - 1, sym_levels)
+    comb_cols = enum_side(valid_slots, L - 1, [False] * L)
+    perm_idx = (np.array(perm_cols, dtype=np.intp).T if perm_cols
+                else np.empty((D, 0), dtype=np.intp))
+    comb_idx = (np.array(comb_cols, dtype=np.intp).T if comb_cols
+                else np.empty((D, 0), dtype=np.intp))
     return perm_idx, comb_idx
 
 
@@ -740,8 +810,8 @@ def _ma_build_perm_arrays(
                 tags_valid = np.asarray(spec["tags"])[valid]
                 perm_mat, comb_mat = _nested_enum_indices(
                     valid, tags_valid,
-                    int(spec["r"][0]), int(spec["r"][1]),
-                    bool(spec["sym"][0]), bool(spec["sym"][1]),
+                    np.asarray(spec["r"]).ravel(),
+                    np.asarray(spec["sym"]).ravel(),
                 )
                 perm_idx[n][a] = perm_mat
                 comb_idx[n][a] = comb_mat

@@ -560,10 +560,10 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
             % Optional: default every level symmetric (flat sym=True default).
             symLevels = true(1, L);
         end
-        if L ~= 2
+        if L < 2
             error('buildExpTens:nestedDepth', ...
-                  ['nested{%d}: only two-level nesting (L = 2) is supported ' ...
-                   'for now; got L = %d.'], a, L);
+                  ['nested{%d}: a nested spec needs L >= 2 levels; got ' ...
+                   'L = %d. A single-level attribute is flat (no spec).'], a, L);
         end
         if numel(symLevels) ~= L
             error('buildExpTens:nestedSymLen', ...
@@ -573,22 +573,45 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
             error('buildExpTens:nestedR', ...
                   'nested{%d}: all per-level r must be positive integers.', a);
         end
-        tags = double(spec.tags(:).');
-        if numel(tags) ~= Ka(a)
-            error('buildExpTens:nestedTags', ...
-                  ['nested{%d}: tags length %d must equal K_total = %d ' ...
-                   '(slot count).'], a, numel(tags), Ka(a));
+        % tags: a K_total x (L-1) integer matrix, one column per grouping
+        % level innermost-outward (column 1 the finest grouping above the
+        % leaf slots, column L-1 the outermost). A vector is the single-
+        % column (L = 2) case and is stored as a 1 x K_total row.
+        rawTags = spec.tags;
+        if isvector(rawTags)
+            if L ~= 2
+                error('buildExpTens:nestedTags', ...
+                      ['nested{%d}: a tags vector is only valid for L = 2 ' ...
+                       '(one grouping column); for L = %d supply a ' ...
+                       '(K_total, L-1) = (%d, %d) tag matrix.'], ...
+                      a, L, Ka(a), L - 1);
+            end
+            if numel(rawTags) ~= Ka(a)
+                error('buildExpTens:nestedTags', ...
+                      ['nested{%d}: tags length %d must equal K_total = %d ' ...
+                       '(slot count).'], a, numel(rawTags), Ka(a));
+            end
+            tags = double(rawTags(:).');           % 1 x K_total (L = 2)
+        else
+            if size(rawTags, 1) ~= Ka(a) || size(rawTags, 2) ~= L - 1
+                error('buildExpTens:nestedTags', ...
+                      ['nested{%d}: tags matrix is %d x %d but must be ' ...
+                       '(K_total, L-1) = (%d, %d).'], ...
+                      a, size(rawTags, 1), size(rawTags, 2), Ka(a), L - 1);
+            end
+            tags = double(rawTags);                % K_total x (L-1)
         end
         relRaw = [];
         if isfield(spec, 'rel')
             relRaw = spec.rel;
         end
         [relUnit, proj] = localCanonicaliseNestedRel(relRaw, L, a);
-        if strcmp(proj, 'intermediate')
-            error('buildExpTens:nestedRelIntermediate', ...
-                  ['nested{%d}: an intermediate [rel] co-transposition unit ' ...
-                   'needs L > 2 nesting, which is a later step. Use the ' ...
-                   'innermost or outermost unit, or absolute.'], a);
+        if L > 2 && (strcmp(proj, 'inner') || strcmp(proj, 'intermediate'))
+            error('buildExpTens:nestedProjDeferred', ...
+                  ['nested{%d}: the ''%s'' co-transposition projection at ' ...
+                   'L = %d (> 2) is not yet implemented; the per-group ' ...
+                   'quotient reduction is a later step. Use the outermost ' ...
+                   'unit (global transposition) or absolute.'], a, proj, L);
         end
         spec.r       = rLevels;
         spec.sym     = symLevels;
@@ -683,23 +706,18 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
             valCol = pAttr{a}(:, n);
             spec   = nested{a};
             if ~isempty(spec)
-                tags     = spec.tags(:).';          % 1 x K_total row
-                validRow = (~isnan(valCol(:))).';   % 1 x K_total row
-                ri   = spec.r(1);                   % innermost
-                ro   = spec.r(2);                   % outermost
-                present = unique(tags(validRow));
-                present = present(:).';             % force row for the loop
-                good = 0;
-                for t = present
-                    if sum(validRow & (tags == t)) >= ri
-                        good = good + 1;
-                    end
+                rLv = spec.r(:).';
+                tg  = spec.tags;
+                if isvector(tg)
+                    tg = tg(:);                      % K_total x 1 (L = 2)
                 end
-                if good < ro
-                    error('buildExpTens:nestedInsufficientTags', ...
-                          ['Event %d, nested attribute %d: only %d ' ...
-                           'source-event(s) have >= rInner = %d non-NaN ' ...
-                           'slot(s), but rOuter = %d.'], n, a, good, ri, ro);
+                validIdx = find(~isnan(valCol(:))).';   % 1 x Kv slot indices
+                if ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
+                    error('buildExpTens:nestedInfeasible', ...
+                          ['Event %d, nested attribute %d: the non-NaN ' ...
+                           'slots do not admit a full nested r-tuple for ' ...
+                           'r = [%s] (too few groups or slots at some ' ...
+                           'nesting level).'], n, a, num2str(rLv));
                 end
                 continue
             end
@@ -791,14 +809,17 @@ function dens = localFillMAExpensive(dens, verbose)
             % nested{a}) take the original single-level path below.
             spec = nested{a};
             if ~isempty(spec)
-                tagsValid = spec.tags(valid);
+                tg = spec.tags;
+                if isvector(tg)
+                    tg = tg(:);                       % K_total x 1
+                end
+                tagsValid = tg(valid, :);             % Kv x (L-1)
                 [permMat, combMat] = localNestedEnumIndices( ...
-                    valid(:).', tagsValid(:).', ...
-                    spec.r(1), spec.r(2), spec.sym(1), spec.sym(2));
+                    valid(:).', tagsValid, spec.r(:).', spec.sym(:).');
                 permIdx{n, a} = permMat;
                 combIdx{n, a} = combMat;
                 wCol = wCell{a}(:, n);
-                D_a = spec.r(1) * spec.r(2);
+                D_a = prod(spec.r);
                 permW{n, a} = prod(reshape(wCol(permMat), D_a, []), 1);
                 combW{n, a} = prod(reshape(wCol(combMat), D_a, []), 1);
                 continue
@@ -1090,59 +1111,95 @@ function idxCell = localCartesianIndices(sizes)
 end
 
 function [permIdx, combIdx] = localNestedEnumIndices( ...
-        validSlots, tagsValid, rInner, rOuter, symInner, symOuter)
+        validSlots, tagsValid, rLevels, symLevels)
     %LOCALNESTEDENUMINDICES  Tag-scoped nested r-tuple enumeration (rep. B).
-    %   Two-level enumeration for one output-event of a nested attribute.
-    %   validSlots : 1 x Kv slot indices (into the attribute's K_total
-    %                axis) that are non-NaN for this event.
-    %   tagsValid  : 1 x Kv source-event-in-window tag per valid slot.
-    %   Returns permIdx, combIdx: each D x M slot-index arrays,
-    %   D = rInner * rOuter. permIdx is the symmetrised deposit (the
-    %   density's kernel centres): inner S_{rInner} orbit per chosen
-    %   event when symInner; outer listed order (or full orbit when
-    %   symOuter). combIdx is the canonical one-per-combination side
-    %   (inner combinations, outer listed) used for inner-product
-    %   pairing. Columns are concatenated in (outer-order, inner-order).
-
-    uniq = unique(tagsValid);            % sorted ascending
-    L = numel(uniq);
-    slotsOf = cell(1, L);
-    for ti = 1:L
-        slotsOf{ti} = validSlots(tagsValid == uniq(ti));
+    %   Generalises the two-level enumeration to arbitrary nesting depth by
+    %   recursing outermost-inward through the grouping columns of the tag
+    %   matrix. At L = 2 it reproduces the two-level result exactly.
+    %   validSlots : 1 x Kv slot indices (ascending) non-NaN for this event.
+    %   tagsValid  : Kv x (L-1) per-slot group ids, innermost-grouping first
+    %                (column 1 the finest grouping above the leaf slots,
+    %                column L-1 the outermost). A Kv-vector is the single-
+    %                column (L = 2) case.
+    %   rLevels    : 1 x L read-arities, innermost-outward (rLevels(1) leaf).
+    %   symLevels  : 1 x L per-level symmetrisation.
+    %   Returns permIdx, combIdx: D x M slot-index arrays, D = prod(rLevels).
+    %   permIdx is the symmetrised deposit (each level permuted into its
+    %   orbit when that level's sym is set, else listed order); combIdx is
+    %   the canonical one-per-combination side (combinations at every level)
+    %   used for inner-product pairing. Columns concatenate outermost-group-
+    %   major, innermost-slot-minor.
+    if isvector(tagsValid)
+        tagsValid = tagsValid(:);            % Kv x 1 (L = 2 single column)
     end
-
-    % Outer selections of rOuter distinct tags (rows of tag-indices into
-    % uniq). symOuter = 0 keeps sequence order (combinations); symOuter =
-    % 1 pools as an unordered bag (full orbit).
-    if rOuter > L
-        outerComb = zeros(0, rOuter);
-    elseif rOuter == L
-        outerComb = 1:L;
-    else
-        outerComb = nchoosek(1:L, rOuter);
-    end
-    if symOuter
-        outerPerm = localExpandPerms(outerComb);
-    else
-        outerPerm = outerComb;
-    end
-
-    permIdx = localNestedAssemble(slotsOf, outerPerm, rInner, rOuter, symInner);
-    combIdx = localNestedAssemble(slotsOf, outerComb, rInner, rOuter, false);
+    rLevels = rLevels(:).';
+    symLevels = logical(symLevels(:).');
+    L = numel(rLevels);
+    D = prod(rLevels);
+    Kv = numel(validSlots);
+    permCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
+                             rLevels, symLevels);
+    combCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
+                             rLevels, false(1, L));
+    if isempty(permCols), permIdx = zeros(D, 0); else, permIdx = [permCols{:}]; end
+    if isempty(combCols), combIdx = zeros(D, 0); else, combIdx = [combCols{:}]; end
 end
 
 
-function cols = localNestedAssemble(slotsOf, outerSel, rInner, rOuter, symInner)
-    %LOCALNESTEDASSEMBLE  Assemble nested r-tuple slot-index columns.
-    D = rInner * rOuter;
-    colsList = {};
-    for s = 1:size(outerSel, 1)
-        tagIdxRow = outerSel(s, :);
-        perEvent = cell(1, rOuter);
+function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
+                              rLevels, symFlags)
+    %LOCALENUMSIDE  Recursive enumeration. `rowset` are row indices into
+    %   validSlots/tagsValid. Returns a cell row of column vectors, each of
+    %   length prod(rLevels(1:level)) holding emitted slot indices.
+    rowset = rowset(:).';
+    if level == 1
+        r0 = rLevels(1);
+        k = numel(rowset);
+        if r0 > k
+            cols = {};
+            return
+        elseif r0 == k
+            combRows = rowset;                        % single combination
+        else
+            combRows = rowset(nchoosek(1:k, r0));     % nC x r0 row indices
+        end
+        if symFlags(1)
+            combRows = localExpandPerms(combRows);
+        end
+        nC = size(combRows, 1);
+        cols = cell(1, nC);
+        for i = 1:nC
+            cols{i} = validSlots(combRows(i, :)).';   % r0 x 1 slot column
+        end
+        return
+    end
+    col = level - 1;
+    gids = tagsValid(rowset, col).';                  % 1 x k group ids
+    ug = unique(gids);                                % ascending
+    ng = numel(ug);
+    rg = rLevels(level);
+    if rg > ng
+        cols = {};
+        return
+    elseif rg == ng
+        gsel = 1:ng;
+    else
+        gsel = nchoosek(1:ng, rg);                    % nG x rg positions
+    end
+    if symFlags(level)
+        gsel = localExpandPerms(gsel);
+    end
+    cols = {};
+    for s = 1:size(gsel, 1)
+        pickPos = gsel(s, :);
+        perGroup = cell(1, rg);
         ok = true;
-        for j = 1:rOuter
-            perEvent{j} = localInnerTuples(slotsOf{tagIdxRow(j)}, rInner, symInner);
-            if isempty(perEvent{j})
+        for j = 1:rg
+            g = ug(pickPos(j));
+            subrows = rowset(gids == g);
+            perGroup{j} = localEnumSide(subrows, level - 1, validSlots, ...
+                                        tagsValid, rLevels, symFlags);
+            if isempty(perGroup{j})
                 ok = false;
                 break
             end
@@ -1150,52 +1207,52 @@ function cols = localNestedAssemble(slotsOf, outerSel, rInner, rOuter, symInner)
         if ~ok
             continue
         end
-        counts = cellfun(@numel, perEvent);
+        counts = cellfun(@numel, perGroup);
         total = prod(counts);
         for c = 0:total - 1
-            choice = zeros(1, rOuter);
+            choice = zeros(1, rg);
             rem = c;
-            for j = rOuter:-1:1          % last event varies fastest
+            for j = rg:-1:1            % last group varies fastest
                 choice(j) = mod(rem, counts(j)) + 1;
                 rem = floor(rem / counts(j));
             end
-            seg = zeros(1, D);
-            pos = 0;
-            for j = 1:rOuter
-                seg(pos + 1 : pos + rInner) = perEvent{j}{choice(j)};
-                pos = pos + rInner;
+            seg = [];
+            for j = 1:rg
+                seg = [seg; perGroup{j}{choice(j)}];  %#ok<AGROW>
             end
-            colsList{end + 1} = seg(:);  %#ok<AGROW>
+            cols{end + 1} = seg;       %#ok<AGROW>
         end
-    end
-    if isempty(colsList)
-        cols = zeros(D, 0);
-    else
-        cols = [colsList{:}];
     end
 end
 
 
-function tuples = localInnerTuples(sl, rInner, symInner)
-    %LOCALINNERTUPLES  Inner r-tuples (slot indices) within one event.
-    sl = sl(:).';
-    nsl = numel(sl);
-    if rInner > nsl
-        tuples = {};
+function tf = localNestedFeasible(slots, tagsMat, rLevels, level)
+    %LOCALNESTEDFEASIBLE  Whether `slots` admit a full level-`level` nested
+    %   r-tuple. Recurses outermost-inward through tagsMat (K_total x (L-1),
+    %   indexed by absolute slot index), mirroring localNestedEnumIndices:
+    %   enough distinct groups at each grouping level (each recursively
+    %   feasible) and enough leaf slots in the finest groups.
+    slots = slots(:).';
+    if level == 1
+        tf = numel(slots) >= rLevels(1);
         return
-    elseif rInner == nsl
-        combs = 1:nsl;
-    else
-        combs = nchoosek(1:nsl, rInner);
     end
-    if symInner
-        combs = localExpandPerms(combs);
+    col = level - 1;
+    gids = tagsMat(slots, col).';
+    ug = unique(gids);
+    need = rLevels(level);
+    feasible = 0;
+    for gi = 1:numel(ug)
+        sub = slots(gids == ug(gi));
+        if localNestedFeasible(sub, tagsMat, rLevels, level - 1)
+            feasible = feasible + 1;
+            if feasible >= need
+                tf = true;
+                return
+            end
+        end
     end
-    nT = size(combs, 1);
-    tuples = cell(1, nT);
-    for i = 1:nT
-        tuples{i} = sl(combs(i, :));
-    end
+    tf = feasible >= need;
 end
 
 

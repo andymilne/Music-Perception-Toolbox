@@ -64,8 +64,8 @@ fprintf('=== 2. differenceEvents (D) ===\n');
 
 % Take the first difference of pitch and leave time alone. The first
 % event is dropped (leading-drop alignment): N' = N - max(k) = 2.
-diffOrders   = {1, 0};
-[pD, wD, gD] = differenceEvents(pAttr, w, groups, diffOrders);
+diffOrders   = [1 0];
+[pD, wD, sD] = differenceEvents(pAttr, w, diffOrders);
 
 fprintf('  diffOrders   = {1, 0}\n');
 fprintf('  D(pitch)     = [%g %g]   (interval sequence: F#-G, E-F#)\n', pD{1});
@@ -136,20 +136,28 @@ fprintf('  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2/2).)\n\n');
 %  6. D o B == B o D (n-tuple entropy pipeline commutation)
 %  ===================================================================
 
-fprintf('=== 6. D then B (nested 2-grams of intervals) ===\n');
+fprintf('=== 6. B o D == D o B (pipeline commutation) ===\n');
 
-% Difference first, then bind the interval sequence into 2-grams. Under the
-% nested emission each bound attribute is a single nested attribute (outer
-% level = the two bound interval-events, inner level = each interval).
-[pD1, wD1, gD1]    = differenceEvents(pAttr, w, groups, {1, 0});
-[pDB, wDB, specDB] = bindEvents(pD1, wD1, [2 2], [1 1], isRel, [true true]);
+% Both pre-MAET operators now speak the (pAttr, w, specs) carrier, so the
+% two routes coincide. Differencing is slot-wise across (super-)events and
+% the sliding bind window commutes with it, on the ordered/K=1 domain where
+% differencing is defined.
+%   D then B: difference each attribute (order 1), then bind 2-grams.
+[pD1, wD1, sD1] = differenceEvents(pAttr, w, [1 1]);
+[pDB, wDB, sDB] = bindEvents(pD1, wD1, [2 2], [1 1], isRel, [true true]);
+%   B then D: bind 2-grams, then difference each nested attribute slot-wise.
+[pB1, wB1, sB1] = bindEvents(pAttr, w, [2 2], [1 1], isRel, [true true]);
+[pBD, wBD, sBD] = differenceEvents(pB1, wB1, [1 1], 'specs', sB1);
 
-fprintf('  D(pitch) then B: nested interval 2-gram (stacked L*K x N''):\n');
+valsAgree = isequal(pDB{1}, pBD{1}) && isequal(pDB{2}, pBD{2});
+specsAgree = isequal(sDB{1}.tags, sBD{1}.tags) && isequal(sDB{1}.r, sBD{1}.r) ...
+          && isequal(sDB{1}.sym, sBD{1}.sym) && isequal(sDB{1}.rel, sBD{1}.rel);
+fprintf('  D(pitch) intervals, bound (stacked L*K x N''):\n');
 disp(pDB{1});
-fprintf(['  The full D o B == B o D commutation illustration returns once\n' ...
-         '  differenceEvents consumes/produces the specs form (it still\n' ...
-         '  uses the group form here), so that both routes share one\n' ...
-         '  nested representation.\n\n']);
+fprintf('  values agree (both routes): %d\n', valsAgree);
+fprintf('  specs  agree (both routes): %d\n', specsAgree);
+fprintf(['  (Slot-wise differencing commutes with the sliding bind window;\n' ...
+         '   the two routes share one nested representation.)\n\n']);
 
 
 %% ===================================================================
@@ -163,7 +171,7 @@ fprintf('=== 7. D o T == D ===\n');
 % difference operator (T o D, by contrast, adds mu to every
 % difference).
 pT_for_D            = translateAttributes(pAttr, groups, {muPitch, 0}, isRel, isPer, periods);
-[pDT, wDT, gDT]     = differenceEvents(pT_for_D, w, groups, {1, 0});
+[pDT, wDT, sDT]     = differenceEvents(pT_for_D, w, [1 0]);
 
 fprintf('  D(T(pitch))    = [%g %g]\n', pDT{1});
 fprintf('  D(pitch)       = [%g %g]\n', pD{1});
@@ -269,7 +277,7 @@ fprintf('    = %.4f\n', sim_T);
 % identical, so their cosine similarity must be exactly 1. The
 % algebraic identity from Section 7 surfacing as a downstream
 % observable; no buildExpTens required.
-[pDT_again, wDT_again, gDT_again] = differenceEvents(pT, w, groups, {1, 0});
+[pDT_again, wDT_again, sDT_again] = differenceEvents(pT, w, [1 0]);
 sim_diffed = cosSimExpTens(pD, wD, pDT_again, wDT_again, ...
                            sigma, r, isRel, isPer, periods, ...
                            'verbose', false);
@@ -292,7 +300,7 @@ dens_T    = buildExpTens(pT,    w, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
 dens_D    = buildExpTens(pD,   wD, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
-[pDT_4, wDT_4, gDT_4] = differenceEvents(pT, w, groups, {1, 0});
+[pDT_4, wDT_4, sDT_4] = differenceEvents(pT, w, [1 0]);
 dens_DT   = buildExpTens(pDT_4, wDT_4, sigma, r, ...
                          isRel, isPer, periods, 'verbose', false);
 

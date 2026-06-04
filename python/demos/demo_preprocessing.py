@@ -71,7 +71,7 @@ print("=== 2. difference_events (D) ===")
 # Take the first difference of pitch and leave time alone. The first
 # event is dropped (leading-drop alignment): N' = N - max(k) = 2.
 diff_orders = [1, 0]
-pD, wD, gD = mpt.difference_events(p_attr, w, groups, diff_orders)
+pD, wD, sD = mpt.difference_events(p_attr, w, diff_orders)
 
 print(f"  diff_orders = {diff_orders}")
 print(f"  D(pitch)    = {pD[0].ravel().tolist()}   "
@@ -153,21 +153,29 @@ print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
 #  6. D o B == B o D (n-tuple entropy pipeline commutation)
 # ===================================================================
 
-print("=== 6. D then B (nested 2-grams of intervals) ===")
+print("=== 6. B o D == D o B (pipeline commutation) ===")
 
-# Difference first, then bind the interval sequence into 2-grams. Under the
-# nested emission each bound attribute is a single nested attribute (outer
-# level = the two bound interval-events, inner level = each interval).
-pD1, wD1, gD1 = mpt.difference_events(p_attr, w, groups, [1, 0])
-pDB, wDB, specDB = mpt.bind_events(
-    pD1, wD1, [2, 2], [1, 1], is_rel, [True, True],
+# Both pre-MAET operators now speak the (p_attr, w, specs) carrier, so the
+# two routes coincide. Difference is slot-wise across (super-)events and the
+# sliding bind window commutes with it, on the ordered/K=1 domain where
+# difference is defined.
+#   D then B: difference each attribute (order 1), then bind 2-grams.
+pD1, wD1, sD1 = mpt.difference_events(p_attr, w, [1, 1])
+pDB, wDB, sDB = mpt.bind_events(pD1, wD1, [2, 2], [1, 1], is_rel, [True, True])
+#   B then D: bind 2-grams, then difference each nested attribute slot-wise.
+pB1, wB1, sB1 = mpt.bind_events(p_attr, w, [2, 2], [1, 1], is_rel, [True, True])
+pBD, wBD, sBD = mpt.difference_events(pB1, wB1, [1, 1], specs=sB1)
+
+vals_agree = all(np.allclose(pDB[a], pBD[a], equal_nan=True) for a in range(2))
+specs_agree = all(
+    list(np.ravel(sDB[a][k])) == list(np.ravel(sBD[a][k]))
+    for a in range(2) for k in ("tags", "r", "sym", "rel")
 )
-
-print(f"  D(pitch) then B: nested interval 2-gram (stacked L*K x N'):\n{pDB[0]}")
-print("  The full D o B == B o D commutation illustration returns once")
-print("  difference_events consumes/produces the specs form (it still uses")
-print("  the group form here), so that both routes share one nested")
-print("  representation.\n")
+print(f"  D(pitch) intervals, bound (stacked L*K x N''):\n{pDB[0]}")
+print(f"  values agree (both routes): {vals_agree}")
+print(f"  specs  agree (both routes): {specs_agree}")
+print("  (Slot-wise differencing commutes with the sliding bind window; the\n"
+      "   two routes share one nested representation.)\n")
 
 
 # ===================================================================
@@ -181,7 +189,7 @@ print("=== 7. D o T == D ===")
 # difference operator (T o D, by contrast, adds mu to every
 # difference).
 pT_for_D = mpt.translate_attributes(p_attr, groups, mu, is_rel, is_per, periods)
-pDT, wDT, gDT = mpt.difference_events(pT_for_D, w, groups, [1, 0])
+pDT, wDT, sDT = mpt.difference_events(pT_for_D, w, [1, 0])
 
 print(f"  D(T(pitch)) = {pDT[0].ravel().tolist()}")
 print(f"  D(pitch)    = {pD[0].ravel().tolist()}")
@@ -301,7 +309,7 @@ print(f"    = {float(sim_T):.4f}")
 # identical, so their cosine similarity must be exactly 1. The
 # algebraic identity from Section 7 surfacing as a downstream
 # observable; no build_exp_tens required.
-pDT_again, wDT_again, gDT_again = mpt.difference_events(pT, w, groups, [1, 0])
+pDT_again, wDT_again, sDT_again = mpt.difference_events(pT, w, [1, 0])
 sim_diffed = mpt.cos_sim_exp_tens(
     pD, wD, pDT_again, wDT_again,
     sigma, r, gD, is_rel, is_per, periods,
@@ -329,7 +337,7 @@ dens_T = mpt.build_exp_tens(
 dens_D = mpt.build_exp_tens(
     pD, wD, sigma, r, gD, is_rel, is_per, periods, verbose=False,
 )
-pDT_4, wDT_4, gDT_4 = mpt.difference_events(pT, w, groups, [1, 0])
+pDT_4, wDT_4, sDT_4 = mpt.difference_events(pT, w, [1, 0])
 dens_DT = mpt.build_exp_tens(
     pDT_4, wDT_4, sigma, r, gDT_4, is_rel, is_per, periods, verbose=False,
 )

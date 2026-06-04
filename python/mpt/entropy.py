@@ -2053,7 +2053,7 @@ def n_tuple_entropy(
     # position N" convention.
     p_row = p.astype(np.float64).reshape(1, -1)
     p_diff_list, _, _ = difference_events(
-        [p_row], None, None, 1, circular=True,
+        [p_row], None, 1, circular=True,
     )
     diffs_row = p_diff_list[0]
 

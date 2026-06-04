@@ -41,123 +41,69 @@ class TranslateAttributesNoOpWarning(UserWarning):
 # ===================================================================
 
 
-def difference_events(
-    p_attr,
-    w,
-    groups,
-    diff_orders,
-    *,
-    circular: bool = False,
-) -> tuple[list[np.ndarray], None | float | list[float] | list[np.ndarray], object]:
+def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     """Replace selected attributes' event sequences with inter-event differences.
 
-    Cross-event preprocessing for multi-attribute tensor input. Takes
-    the ``(p_attr, w, groups)`` triple that one would otherwise feed
-    to :func:`build_exp_tens` and returns a transformed
-    ``(p_attr_diff, w_diff, groups_diff)`` triple ready to chain into
-    another pre-MAET operation or into :func:`build_exp_tens`.
+    Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
+    carrier. The ``k_a``-th finite difference is applied along the event
+    axis to each attribute; the returned ``(p_attr_diff, w_diff, specs)``
+    chains into another pre-MAET operation or into ``build_exp_tens(...,
+    specs=...)``.
 
-    Differencing orders are specified per attribute (via Option C
-    syntax — see ``diff_orders`` below). The ``k_a``-th finite
-    difference is applied along the event axis to each attribute.
-    With ``circular = False`` (default), the output event count for
-    an attribute with order ``k_a`` is ``N - k_a``, and attributes are
-    brought onto a common output grid of length ``N' = N - max_a k_a``
-    by dropping leading ``max_a k_a - k_a`` events from each. With
-    ``circular = True``, the event index wraps at the sequence
-    boundary (position 0 is identified with position N), so every
-    attribute's output retains length N regardless of its order; no
-    alignment drop is needed.
+    Differencing is **slot-wise**: event *i*'s slot *k* differences against
+    event *i+1*'s slot *k*. This is well-defined exactly when the slots
+    have stable identity --- an ordered attribute (``[sym] = 0``) or a
+    singleton (``K = 1``). A symmetric multiset (``K > 1``, ``[sym] = 1``)
+    is a bag with no slot correspondence, so differencing it is undefined
+    and raises. The rule extends per level for a nested attribute: every
+    level must be ordered (or of size 1). Ragged ordered data (events of
+    differing length) is represented by NaN-padding to a common ``K``; a
+    difference touching a NaN slot is NaN, so absence propagates rather
+    than fabricating an interval.
 
-    Output values are emitted raw; periodic groups are NOT wrapped
-    here, regardless of ``[per]`` settings. Wrapping (when desired)
-    is the kernel's job in :func:`build_exp_tens`, consulting the
-    group's ``[per]`` flag.
+    Differencing changes **values only**; the spec (``tags``, ``r``,
+    ``sym``, ``rel``) passes through unchanged. Output values are raw;
+    periodic wrapping, when desired, is the kernel's job in
+    :func:`build_exp_tens`.
 
-    Differencing requires ``K_a = 1`` for any attribute being
-    differenced (``k_a > 0``). Multi-slot attributes (``K_a > 1``)
-    are permitted in the input but only as pass-through (``k_a = 0``);
-    if the analyst specifies a non-zero order for a ``K_a > 1``
-    attribute, a :class:`UserWarning` is issued and that attribute is
-    treated as ``k_a = 0`` (still subject to leading-event drop for
-    alignment in the non-circular case, or pass-through in the
-    circular case). The warning is emitted at most once per call.
-
+    Event-axis alignment. With ``circular = False`` (default), an attribute
+    of order ``k_a`` yields ``N - k_a`` events and all attributes are
+    brought onto ``N' = N - max_a k_a`` by dropping leading events; with
+    ``circular = True`` the index wraps and every attribute keeps ``N``.
     Per-attribute weights propagate as a rolling product over the
-    ``k_a + 1`` constituent input events for each differenced
-    attribute, under the standard weights-as-salience reading.
-    Indexing wraps when ``circular = True``; pass-through attributes
-    (``k_a = 0``) have their leading events dropped (non-circular) or
-    passed unchanged (circular).
+    ``k_a + 1`` constituent events.
 
     Parameters
     ----------
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
-        ``K_a >= 1``; ``K_a = 0`` (empty attribute) is rejected.
-        ``K_a > 1`` is permitted as pass-through (``k_a = 0`` only).
-    w : None, scalar, or list/tuple
-        Weights. ``None``, a scalar, or a length-A list of per-
-        attribute weight inputs (each ``None``, scalar, 1-D, or 2-D).
-        Same convention as :func:`build_exp_tens`.
-    groups : array-like or list-of-lists or None
-        Group assignment. ``None`` treats each attribute as its own
-        singleton group; a length-A index vector, or a list of
-        attribute-index lists, gives explicit groupings.
-    diff_orders : scalar, array-like, or dict
-        Per-attribute or per-group differencing orders (non-negative
-        integers). Option C syntax:
-
-        - scalar: broadcast to all attributes.
-        - length-``A`` array: per-attribute.
-        - length-``G`` array (``G != A``): per-group, broadcast within
-          group. The ``A == G`` case is read as per-attribute,
-          producing identical output for either reading.
-        - dict ``{g: value}`` (0-indexed groups): each value can be
-          a scalar (broadcast within group) or a length-``n_g``
-          vector (per-attribute within group). Omitted groups are
-          treated as order 0.
+        ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
+        slot-wise when the attribute is ordered (see above).
+    w : None, scalar, or length-A list
+        Weights (``build_exp_tens`` convention).
+    diff_orders : scalar or length-A array-like
+        Per-attribute differencing orders (non-negative integers; a scalar
+        broadcasts to all attributes).
     circular : bool, keyword-only
-        When ``True``, the difference operator wraps at the
-        event-sequence boundary: ``Delta p(n) = p(n) - p(prev(n))``
-        with ``prev(0) = N - 1``, so each attribute's output has
-        ``N`` events regardless of order. When ``False`` (default),
-        the leading ``k_a`` events of each differenced attribute are
-        dropped and all attributes are aligned to
-        ``N' = N - max_a k_a``. Suitable for cyclic event sequences
-        (looped rhythms, ostinati) in which the boundary difference
-        is a genuine inter-event interval, not an artefact of the
-        sequence cutting off.
+        Wrap the difference at the event-sequence boundary (``N' = N``).
+    specs : None or length-A list, keyword-only
+        The carrier specs. ``None`` synthesises flat specs
+        (:func:`flat_specs` defaults). The ordered-or-singleton guard reads
+        ``[sym]`` from here, and the specs pass through to the output
+        unchanged.
 
     Returns
     -------
     p_attr_diff : list of ndarray
-        Length-A list of transformed per-attribute matrices, each
-        ``(K_a, N')``.
+        Length-A list of differenced matrices, each ``(K_a, N')``.
     w_diff : same general form as *w*
-        Transformed weights. ``None`` stays ``None``; a scalar stays
-        a scalar when all attributes share the same order, expanding
-        to a length-A list of per-attribute scalars when orders vary;
-        a length-A list stays a length-A list, with per-attribute
-        event-dependent entries becoming ``(K_a, N')`` matrices and
-        non-event-dependent entries keeping their input shape.
-    groups_diff : same as *groups*
-        Group structure passes through unchanged (differencing does
-        not alter group membership). Returned for clean chaining of
-        pre-MAET operations.
-
-    Warns
-    -----
-    UserWarning
-        If any attribute has ``K_a > 1`` and is assigned a non-zero
-        order. That attribute is then treated as order 0
-        (pass-through). The warning is emitted at most once per call.
+    specs : list of dict
+        The carrier specs, unchanged from the input (or synthesised).
 
     See Also
     --------
-    build_exp_tens, bind_events, translate_attributes
+    build_exp_tens, bind_events, flat_specs, translate_attributes
     """
-    # --- Normalize p_attr to list of 2-D float arrays ---
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
             "p_attr must be a list/tuple of per-attribute matrices."
@@ -171,88 +117,63 @@ def difference_events(
     A = len(p_attr)
     if A == 0:
         raise ValueError("p_attr must contain at least one attribute.")
-
-    # --- Reject empty (K_a = 0) attributes ---
     for a, M in enumerate(p_attr):
         if M.shape[0] == 0:
             raise ValueError(
                 f"Attribute {a} has K_a = 0 (empty attribute); empty "
                 f"attributes are not permitted."
             )
-
-    # --- Verify shared event count N ---
     n_events = p_attr[0].shape[1]
     for a, M in enumerate(p_attr):
         if M.shape[1] != n_events:
             raise ValueError(
                 f"All attributes must share the same event count N. "
-                f"Attribute 0 has N={n_events}; attribute {a} has N={M.shape[1]}."
+                f"Attribute 0 has N={n_events}; attribute {a} has "
+                f"N={M.shape[1]}."
             )
+    K = [M.shape[0] for M in p_attr]
 
-    # --- Canonicalize groups ---
-    group_of_attr, attrs_of_group, G = _canonicalise_groups(groups, A)
+    # --- Carrier specs: synthesise flat if none supplied --------------
+    if specs is None:
+        specs_out = flat_specs(p_attr)
+    else:
+        if not isinstance(specs, (list, tuple)) or len(specs) != A:
+            raise ValueError(
+                f"specs must be a length-A ({A}) list, one per attribute."
+            )
+        specs_out = list(specs)
 
-    # --- Parse diff_orders via Option C → orders_per_attr (length A) ---
-    orders_per_attr = _canonicalise_diff_orders(
-        diff_orders, A, G, attrs_of_group,
-    )
+    orders = _canonicalise_diff_orders(diff_orders, A)
 
-    # --- Handle K_a > 1 with order > 0: warn once and pass through ---
-    warned_multi_slot = False
+    # --- Ordered-or-singleton guard for each differenced attribute ----
     for a in range(A):
-        K_a = p_attr[a].shape[0]
-        if K_a > 1 and orders_per_attr[a] > 0:
-            if not warned_multi_slot:
-                warnings.warn(
-                    f"Attribute {a} has K_a = {K_a} but was assigned "
-                    f"order {orders_per_attr[a]}; event differencing "
-                    f"requires K_a = 1 for differenced attributes "
-                    f"(column-wise subtraction imposes a cross-event "
-                    f"slot alignment that within-event slot "
-                    f"exchangeability does not license). The attribute "
-                    f"is treated as order 0 (passed through with "
-                    f"leading-event drop). For voice-leading or "
-                    f"step-size analyses, encode each voice as a "
-                    f"K_a = 1 attribute and difference those. "
-                    f"Subsequent multi-slot attributes in this call "
-                    f"are silenced.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                warned_multi_slot = True
-            orders_per_attr[a] = 0
+        if int(orders[a]) > 0:
+            _check_differenceable(specs_out[a], K[a], a)
 
-    # --- Compute max_order, output event count ---
-    max_order = int(orders_per_attr.max()) if A > 0 else 0
+    max_order = int(orders.max()) if A > 0 else 0
     if circular:
         n_prime = n_events
         if max_order >= n_events:
             raise ValueError(
-                f"Differencing order too high for circular mode: "
-                f"max order = {max_order} but N = {n_events} "
-                f"(need max order < N)."
+                f"Differencing order too high for circular mode: max order "
+                f"= {max_order} but N = {n_events} (need max order < N)."
             )
     else:
         n_prime = n_events - max_order
         if n_prime < 1:
             raise ValueError(
-                f"Differencing orders are too high for the input event count: "
-                f"max order = {max_order} but N = {n_events}."
+                f"Differencing orders are too high for the input event "
+                f"count: max order = {max_order} but N = {n_events}."
             )
 
-    # --- Difference each attribute's value matrix ---
+    # --- Difference each value matrix (slot-wise; NaN propagates) -----
     p_attr_diff = []
     for a, M in enumerate(p_attr):
-        k = int(orders_per_attr[a])
+        k = int(orders[a])
         M_diff = M
         if circular:
-            # Cyclic differencing: each pass uses prev(n) = (n-1) mod N,
-            # so the output retains N columns. np.roll shifts columns to
-            # the right by 1 (wrapping), placing the original column N-1
-            # at position 0 and so on.
             for _ in range(k):
                 M_diff = M_diff - np.roll(M_diff, 1, axis=1)
-            # No leading-event drop needed in circular mode.
         else:
             for _ in range(k):
                 M_diff = M_diff[:, 1:] - M_diff[:, :-1]
@@ -262,84 +183,72 @@ def difference_events(
         assert M_diff.shape[1] == n_prime
         p_attr_diff.append(M_diff)
 
-    # --- Transform weights ---
     w_diff = _difference_weights(
-        w, A, orders_per_attr, n_events, n_prime, circular,
+        w, A, orders, n_events, n_prime, circular,
     )
-
-    # --- Groups unchanged ---
-    return p_attr_diff, w_diff, groups
+    return p_attr_diff, w_diff, specs_out
 
 
-def _canonicalise_diff_orders(diff_orders, A, G, attrs_of_group):
-    """Coerce ``diff_orders`` to a length-A int array via Option C."""
-    if isinstance(diff_orders, dict):
-        return _canonicalise_diff_orders_dict(
-            diff_orders, A, G, attrs_of_group,
-        )
+def _check_differenceable(spec, K_a, a):
+    """Guard: an attribute is differenceable only if its slots have stable
+    identity across events --- ordered (``[sym] = 0``) or singleton at
+    every level. A symmetric multiset of size > 1 is a bag with no slot
+    correspondence, so differencing it is undefined.
+    """
+    if isinstance(spec, dict) and "tags" in spec:
+        tags = np.asarray(spec["tags"]).ravel()
+        sym = spec.get("sym")
+        sym = (np.ones(2, dtype=bool) if sym is None
+               else np.asarray(sym, dtype=bool).ravel())
+        n_groups = int(np.unique(tags).size)            # outer level size
+        inner_sz = int(tags.size // max(n_groups, 1))   # slots per group
+        inner_ok = (not bool(sym[0])) or inner_sz == 1
+        outer_ok = (not bool(sym[-1])) or n_groups == 1
+        if not (inner_ok and outer_ok):
+            bad = "inner" if not inner_ok else "outer"
+            raise ValueError(
+                f"attribute {a}: differencing requires every level ordered "
+                f"(or of size 1); the {bad} level is symmetric with size > "
+                f"1. Set that level's [sym] = 0 to difference it."
+            )
+    else:
+        sym = bool(spec.get("sym", True)) if isinstance(spec, dict) else True
+        if sym and K_a > 1:
+            raise ValueError(
+                f"attribute {a}: differencing requires an ordered attribute "
+                f"([sym] = 0) or K = 1; got a symmetric multiset with K = "
+                f"{K_a}. A symmetric multiset is a bag with no slot "
+                f"correspondence across events. Set [sym] = 0 (e.g. via "
+                f"flat_specs(..., sym=False)) to difference it."
+            )
 
+
+def _canonicalise_diff_orders(diff_orders, A):
+    """Coerce ``diff_orders`` to a length-A int array (scalar or per-attr)."""
     arr = np.asarray(diff_orders)
     if arr.dtype.kind not in "iuf":
         raise TypeError(
-            f"diff_orders must be numeric or a dict; got dtype={arr.dtype}."
+            f"diff_orders must be numeric; got dtype={arr.dtype}."
         )
-
-    # 0-D scalar.
     if arr.ndim == 0:
         result = np.full(A, float(arr), dtype=np.float64)
     elif arr.ndim == 1:
-        n = arr.size
-        if n == 1:
+        if arr.size == 1:
             result = np.full(A, float(arr[0]), dtype=np.float64)
-        elif n == A:
-            # Per-attribute. (Also handles A == G case.)
+        elif arr.size == A:
             result = arr.astype(np.float64, copy=True)
-        elif n == G:
-            # Per-group, broadcast within group.
-            result = np.zeros(A, dtype=np.float64)
-            for g in range(G):
-                result[attrs_of_group[g]] = arr[g]
         else:
             raise ValueError(
-                f"diff_orders has {n} entries; expected scalar (1), "
-                f"per-attribute (A = {A}), or per-group (G = {G})."
+                f"diff_orders has {arr.size} entries; expected scalar (1) "
+                f"or per-attribute (A = {A})."
             )
     else:
         raise ValueError(
-            f"diff_orders must be a scalar, 1-D array, or dict; "
-            f"got ndim = {arr.ndim}."
+            f"diff_orders must be a scalar or 1-D array; got ndim = "
+            f"{arr.ndim}."
         )
-
     _validate_orders(result)
     return result.astype(np.int64, copy=False)
-
-
-def _canonicalise_diff_orders_dict(d, A, G, attrs_of_group):
-    """Process the per-group dict form of diff_orders."""
-    result = np.zeros(A, dtype=np.float64)
-    for g_key, val in d.items():
-        g = int(g_key)
-        if g < 0 or g >= G:
-            raise ValueError(
-                f"diff_orders dict key {g} out of range; groups are "
-                f"0-indexed, valid range [0, {G - 1}]."
-            )
-        attrs = attrs_of_group[g]
-        n_g = len(attrs)
-        val_arr = np.asarray(val).ravel()
-        if val_arr.size == 1:
-            result[attrs] = float(val_arr[0])
-        elif val_arr.size == n_g:
-            result[attrs] = val_arr.astype(np.float64)
-        else:
-            raise ValueError(
-                f"diff_orders[{g}] has {val_arr.size} entries; expected "
-                f"scalar or n_g = {n_g}."
-            )
-    _validate_orders(result)
-    return result.astype(np.int64, copy=False)
-
-
 def _validate_orders(orders):
     if np.any(orders < 0):
         raise ValueError(

@@ -220,7 +220,7 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
     % rotation that distinguishes this ordering from the equivalent
     % "diff first, wrap difference at position N" convention.
     pRow = p(:).';
-    [pDiffCell, ~, ~] = differenceEvents({pRow}, [], [], 1, ...
+    [pDiffCell, ~, ~] = differenceEvents({pRow}, [], 1, ...
                                           'circular', true);
     diffsRow = pDiffCell{1};
 

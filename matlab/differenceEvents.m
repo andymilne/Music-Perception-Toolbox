@@ -1,107 +1,52 @@
-function [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders, nvArgs)
-%DIFFERENCEEVENTS Replace selected attributes' event sequences with differences.
+function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvArgs)
+%DIFFERENCEEVENTS Replace event sequences with inter-event differences.
 %
-%   [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders)
-%   [pAttrDiff, wDiff, groupsDiff] = differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)
-%   is a cross-event preprocessing helper for multi-attribute tensor
-%   input. It takes the (pAttr, w, groups) triple that one would
-%   otherwise feed to buildExpTens and returns a transformed
-%   (pAttrDiff, wDiff, groupsDiff) triple ready to chain into another
-%   pre-MAET operation or into buildExpTens.
+%   [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, ...)
+%   is cross-event preprocessing on the canonical (pAttr, w, specs) carrier.
+%   The k_a-th finite difference is applied along the event axis to each
+%   attribute; the returned (pAttrDiff, wDiff, specs) chains into another
+%   pre-MAET operation or into buildExpTens(..., 'specs', specs).
 %
-%   Differencing orders are specified per attribute (via Option C
-%   syntax — see below). The k_a-th finite difference is applied
-%   along the event axis to each attribute. With circular = false
-%   (default), the output event count for an attribute with order k_a
-%   is N - k_a, and attributes are brought onto a common output grid
-%   of length N' = N - max_a k_a by dropping leading max_a k_a - k_a
-%   events from each. With circular = true, the event index wraps at
-%   the sequence boundary (n - 1 is taken cyclically: position 0 is
-%   identified with position N), so every attribute's output retains
-%   length N regardless of its order; no alignment drop is needed.
+%   Differencing is slot-wise: event i's slot k differences against event
+%   i+1's slot k. This is well-defined exactly when the slots have stable
+%   identity --- an ordered attribute ([sym] = 0) or a singleton (K = 1).
+%   A symmetric multiset (K > 1, [sym] = 1) is a bag with no slot
+%   correspondence, so differencing it is undefined and errors. The rule
+%   extends per level for a nested attribute: every level must be ordered
+%   (or of size 1). Ragged ordered data (events of differing length) is
+%   represented by NaN-padding to a common K; a difference touching a NaN
+%   slot is NaN, so absence propagates rather than fabricating an interval.
 %
-%   The output values are emitted raw; periodic groups are NOT wrapped
-%   here, regardless of [per] settings. Wrapping (when desired) is the
-%   kernel's job in buildExpTens, consulting the group's [per] flag.
-%
-%   Differencing requires K_a = 1 for any attribute being differenced
-%   (k_a > 0). Multi-slot attributes (K_a > 1) are permitted in the
-%   input but only as pass-through (k_a = 0); if the analyst specifies
-%   a non-zero order for a K_a > 1 attribute, a warning is issued and
-%   that attribute is treated as k_a = 0 (still subject to leading-
-%   event drop for alignment in the non-circular case, or pass-through
-%   in the circular case). The warning is emitted at most once per
-%   call.
-%
-%   Per-attribute weights propagate as a rolling product over the
-%   k_a + 1 constituent input events for each differenced attribute,
-%   under the standard weights-as-salience reading. Indexing wraps
-%   when circular = true; pass-through attributes (k_a = 0) have their
-%   leading events dropped (non-circular) or passed unchanged
-%   (circular).
+%   Differencing changes values only; the spec (tags, r, sym, rel) passes
+%   through unchanged. Output values are raw; periodic wrapping is the
+%   kernel's job in buildExpTens.
 %
 %   Inputs
-%       pAttr      - 1 x A cell array of K_a x N per-attribute value
-%                    matrices. K_a >= 1; K_a = 0 (empty attribute) is
-%                    rejected. K_a > 1 is permitted as pass-through.
-%       w          - Weights. [], scalar, or 1 x A cell of per-attribute
-%                    weight inputs (each [], scalar, 1 x N row, K_a x 1
-%                    column, or K_a x N matrix). Same convention as
-%                    buildExpTens.
-%       groups     - Group assignment. [] (each attribute its own group),
-%                    a 1 x A index vector, or a 1 x G cell of attribute-
-%                    index lists. Matches buildExpTens.
-%       diffOrders - Per-attribute or per-group differencing orders
-%                    (non-negative integers). Option C syntax:
+%       pAttr     - 1 x A cell of K_a x N per-attribute value matrices.
+%       w         - Weights ([], scalar, or 1 x A cell); rolling product
+%                   over the k_a + 1 constituent events per differenced
+%                   attribute.
+%       diffOrders- Scalar or 1 x A non-negative differencing orders.
 %
-%                      scalar              broadcast to all attributes
-%                      1 x A or A x 1      per-attribute
-%                      1 x G or G x 1      per-group, broadcast within
-%                                          group (G ~= A; the A == G
-%                                          case is read as per-attribute,
-%                                          identical output)
-%                      1 x G cell          per-group, with each cell:
-%                                            [] (skip → 0),
-%                                            scalar (broadcast in group),
-%                                            length-n_g vector
-%                                            (per-attribute in group).
+%   Name-value pairs
+%       'circular' - false (default) or true (wrap; N' = N).
+%       'specs'    - [] (synthesise flat via flatSpecs) or a 1 x A cell of
+%                    per-attribute specs. The ordered-or-singleton guard
+%                    reads [sym] from here; the specs pass through unchanged.
 %
 %   Outputs
-%       pAttrDiff  - 1 x A cell of transformed per-attribute matrices,
-%                    each K_a x N'.
-%       wDiff      - Transformed weights. Shape mirrors w: [] stays [];
-%                    a scalar stays a scalar when all attributes share
-%                    the same order, expanding to a 1 x A cell of per-
-%                    attribute scalars when orders vary; a 1 x A cell
-%                    stays a 1 x A cell, with per-attribute event-
-%                    dependent entries becoming K_a x N' matrices and
-%                    non-event-dependent entries keeping their input
-%                    shape.
-%       groupsDiff - Same group structure as input (differencing does
-%                    not change group membership). Returned for clean
-%                    chaining of pre-MAET operations.
+%       pAttrDiff - 1 x A cell of differenced matrices, each K_a x N'.
+%       wDiff     - Transformed weights.
+%       specs     - The carrier specs, unchanged from input (or synthesised).
 %
-%   Name-Value
-%       'circular' - false (default) or true. When true, the difference
-%                    operator wraps at the event-sequence boundary:
-%                    Delta p(n) = p(n) - p(prev(n)) with prev(1) = N,
-%                    so each attribute's output has N events regardless
-%                    of order. When false, the leading k_a events of
-%                    each differenced attribute are dropped and all
-%                    attributes are aligned to N' = N - max_a k_a.
-%                    Suitable for cyclic event sequences (looped
-%                    rhythms, ostinati) in which the boundary
-%                    difference is a genuine inter-event interval, not
-%                    an artefact of the sequence cutting off.
-%
-%   See also BUILDEXPTENS, BINDEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
+%   See also BUILDEXPTENS, BINDEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 
 arguments
     pAttr
     w
-    groups
     diffOrders
     nvArgs.circular (1, 1) logical = false
+    nvArgs.specs = []
 end
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
@@ -114,6 +59,7 @@ if A < 1
     error('differenceEvents:noAttrs', ...
           'pAttr must contain at least one attribute.');
 end
+K = zeros(1, A);
 for a = 1:A
     M = pAttr{a};
     if ~isnumeric(M) || ndims(M) > 2
@@ -126,6 +72,7 @@ for a = 1:A
                'attributes are not permitted.'], a);
     end
     pAttr{a} = double(M);
+    K(a) = size(pAttr{a}, 1);
 end
 
 % --- Verify shared event count N ---
@@ -139,36 +86,24 @@ for a = 2:A
     end
 end
 
-% --- Canonicalise groups: 1xA assignment, attrsOfGroup, G ---
-[groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A);
+% --- Carrier specs: synthesise flat if none supplied ---
+if isempty(nvArgs.specs)
+    specs = flatSpecs(pAttr);
+else
+    specs = nvArgs.specs;
+    if ~iscell(specs) || numel(specs) ~= A
+        error('differenceEvents:specsLength', ...
+              'specs must be a length-A (%d) cell, one per attribute.', A);
+    end
+end
 
-% --- Parse diffOrders via Option C → ordersPerAttr (1xA) ---
-ordersPerAttr = localCanonicaliseDiffOrders( ...
-    diffOrders, A, G, attrsOfGroup);
+% --- Parse diffOrders (scalar or 1 x A) ---
+ordersPerAttr = localCanonicaliseDiffOrders(diffOrders, A);
 
-% --- Handle K_a > 1 with order > 0: warn once and pass through ---
-warnedMultiSlot = false;
+% --- Ordered-or-singleton guard for each differenced attribute ---
 for a = 1:A
-    K_a = size(pAttr{a}, 1);
-    if K_a > 1 && ordersPerAttr(a) > 0
-        if ~warnedMultiSlot
-            warning('differenceEvents:multiSlotAttributeDifferenced', ...
-                    ['Attribute %d has K_a = %d but was assigned ' ...
-                     'order %d; event differencing requires K_a = 1 ' ...
-                     'for differenced attributes (column-wise ' ...
-                     'subtraction imposes a cross-event slot ' ...
-                     'alignment that within-event slot ' ...
-                     'exchangeability does not license). The ' ...
-                     'attribute is treated as order 0 (passed ' ...
-                     'through with leading-event drop). For voice-' ...
-                     'leading or step-size analyses, encode each ' ...
-                     'voice as a K_a = 1 attribute and difference ' ...
-                     'those. Subsequent multi-slot attributes in ' ...
-                     'this call are silenced.'], ...
-                    a, K_a, ordersPerAttr(a));
-            warnedMultiSlot = true;
-        end
-        ordersPerAttr(a) = 0;
+    if double(ordersPerAttr(a)) > 0
+        localCheckDifferenceable(specs{a}, K(a), a);
     end
 end
 ordersPerAttr = int32(ordersPerAttr);
@@ -182,9 +117,9 @@ if nvArgs.circular
     nPrime = nEvents;
     if double(maxOrder) >= nEvents
         error('differenceEvents:orderTooHigh', ...
-              ['Differencing order too high for circular mode: ' ...
-               'max order = %d but N = %d (need max order < N).'], ...
-               double(maxOrder), nEvents);
+              ['Differencing order too high for circular mode: max order ' ...
+               '= %d but N = %d (need max order < N).'], ...
+              double(maxOrder), nEvents);
     end
 else
     nPrime = nEvents - double(maxOrder);
@@ -196,20 +131,15 @@ else
     end
 end
 
-% --- Difference each attribute's value matrix ---
+% --- Difference each attribute's value matrix (slot-wise; NaN propagates) ---
 pAttrDiff = cell(1, A);
 for a = 1:A
     k = double(ordersPerAttr(a));
     Md = pAttr{a};
     if nvArgs.circular
-        % Cyclic differencing: each pass uses prev(n) = mod(n-2, N) + 1,
-        % which keeps the output length at N. Implemented as
-        % Md - Md(:, [end, 1:end-1]).
         for step = 1:k
             Md = Md - Md(:, [end, 1:end-1]);
         end
-        % No leading-event drop needed: every attribute already has
-        % nPrime = N columns.
     else
         for step = 1:k
             Md = Md(:, 2:end) - Md(:, 1:end-1);
@@ -226,107 +156,75 @@ end
 wDiff = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime, ...
                                nvArgs.circular);
 
-% --- Groups unchanged ---
-groupsDiff = groups;
+% --- specs pass through unchanged ---
 
 end
 
 
-% =========================================================================
-%  localCanonicaliseDiffOrders — Option C parsing → 1xA per-attribute
-% =========================================================================
-
-function ordersPerAttr = localCanonicaliseDiffOrders( ...
-    diffOrders, A, G, attrsOfGroup)
-%LOCALCANONICALISEDIFFORDERS  Coerce diffOrders to a 1 x A row vector.
-
-    if iscell(diffOrders)
-        ordersPerAttr = localCanonicaliseDiffOrdersCell( ...
-            diffOrders, A, G, attrsOfGroup);
-        localValidateOrders(ordersPerAttr);
-        return;
-    end
-    if ~isnumeric(diffOrders)
-        error('differenceEvents:badDiffOrdersType', ...
-              ['diffOrders must be numeric or a 1-by-G cell; ' ...
-               'got class %s.'], class(diffOrders));
-    end
-
-    v = double(diffOrders);
-    n = numel(v);
-    if n == 1
-        % Scalar: broadcast.
-        ordersPerAttr = v(1) * ones(1, A);
-    elseif n == A
-        % Length-A: per-attribute. (Also handles A == G case.)
-        ordersPerAttr = v(:).';
-    elseif n == G
-        % Length-G: per-group, broadcast within group.
-        ordersPerAttr = zeros(1, A);
-        v = v(:).';
-        for g = 1:G
-            attrs = attrsOfGroup{g};
-            ordersPerAttr(attrs) = v(g);
+function localCheckDifferenceable(spec, K_a, a)
+%LOCALCHECKDIFFERENCEABLE  An attribute is differenceable only if its slots
+%   have stable identity across events --- ordered ([sym] = 0) or singleton
+%   at every level. A symmetric multiset of size > 1 is a bag with no slot
+%   correspondence, so differencing it is undefined.
+    if isstruct(spec) && isfield(spec, 'tags')
+        tags = double(spec.tags(:).');
+        if isfield(spec, 'sym') && ~isempty(spec.sym)
+            sym = logical(spec.sym(:).');
+        else
+            sym = true(1, 2);
+        end
+        nGroups = numel(unique(tags));           % outer level size
+        innerSz = numel(tags) / max(nGroups, 1); % slots per group
+        innerOk = (~sym(1)) || innerSz == 1;
+        outerOk = (~sym(end)) || nGroups == 1;
+        if ~(innerOk && outerOk)
+            if ~innerOk, bad = 'inner'; else, bad = 'outer'; end
+            error('differenceEvents:notDifferenceable', ...
+                  ['attribute %d: differencing requires every level ordered ' ...
+                   '(or of size 1); the %s level is symmetric with size > 1. ' ...
+                   'Set that level''s [sym] = 0 to difference it.'], a, bad);
         end
     else
-        error('differenceEvents:badDiffOrdersLength', ...
-              ['diffOrders has %d entries; expected scalar (1), ' ...
-               'per-attribute (A = %d), or per-group (G = %d).'], ...
-              n, A, G);
-    end
-    localValidateOrders(ordersPerAttr);
-end
-
-
-function ordersPerAttr = localCanonicaliseDiffOrdersCell( ...
-    c, A, G, attrsOfGroup)
-%LOCALCANONICALISEDIFFORDERSCELL  Process the per-group cell form.
-
-    sz = size(c);
-    if numel(sz) ~= 2 || sz(1) ~= 1 || sz(2) ~= G
-        error('differenceEvents:badDiffOrdersShape', ...
-              ['diffOrders cell array must be 1-by-G = 1-by-%d; ' ...
-               'got shape %d-by-%d.'], G, sz(1), sz(2));
-    end
-    ordersPerAttr = zeros(1, A);
-    for g = 1:G
-        val = c{g};
-        attrs = attrsOfGroup{g};
-        if isempty(val)
-            % Skip group → order 0 (default).
-            continue;
-        end
-        if ~isnumeric(val)
-            error('differenceEvents:badDiffOrdersShape', ...
-                  'diffOrders{%d} must be numeric or empty; got %s.', ...
-                  g, class(val));
-        end
-        vec = double(val(:).');
-        n_g = numel(attrs);
-        if isscalar(vec)
-            ordersPerAttr(attrs) = vec;
-        elseif numel(vec) == n_g
-            ordersPerAttr(attrs) = vec;
+        if isstruct(spec) && isfield(spec, 'sym')
+            sym = logical(spec.sym);
         else
-            error('differenceEvents:badDiffOrdersShape', ...
-                  ['diffOrders{%d} has %d entries; expected scalar ' ...
-                   'or n_g = %d.'], g, numel(vec), n_g);
+            sym = true;
+        end
+        if sym && K_a > 1
+            error('differenceEvents:notDifferenceable', ...
+                  ['attribute %d: differencing requires an ordered attribute ' ...
+                   '([sym] = 0) or K = 1; got a symmetric multiset with K = ' ...
+                   '%d. A symmetric multiset is a bag with no slot ' ...
+                   'correspondence across events. Set [sym] = 0 (e.g. via ' ...
+                   'flatSpecs(..., ''sym'', false)) to difference it.'], a, K_a);
         end
     end
 end
 
 
-function localValidateOrders(ordersPerAttr)
-    if any(ordersPerAttr < 0) || any(ordersPerAttr ~= round(ordersPerAttr))
+function orders = localCanonicaliseDiffOrders(diffOrders, A)
+%LOCALCANONICALISEDIFFORDERS  Coerce to a 1 x A row (scalar or per-attr).
+    if ~isnumeric(diffOrders)
+        error('differenceEvents:badDiffOrdersType', ...
+              'diffOrders must be numeric; got class %s.', class(diffOrders));
+    end
+    v = double(diffOrders(:).');
+    n = numel(v);
+    if n == 1
+        orders = v(1) * ones(1, A);
+    elseif n == A
+        orders = v;
+    else
+        error('differenceEvents:badDiffOrdersLength', ...
+              ['diffOrders has %d entries; expected scalar (1) or ' ...
+               'per-attribute (A = %d).'], n, A);
+    end
+    if any(orders < 0) || any(orders ~= round(orders))
         error('differenceEvents:badDiffOrders', ...
               'All entries of diffOrders must be non-negative integers.');
     end
 end
 
-
-% =========================================================================
-%  localDifferenceWeights — weight transformation
-% =========================================================================
 
 function wOut = localDifferenceWeights(w, A, ordersPerAttr, nEvents, nPrime, circular)
 %LOCALDIFFERENCEWEIGHTS Transform weights under per-attribute orders.
@@ -485,47 +383,5 @@ function out = localRollingProduct(W, width, circular)
         for i = 1:nOut
             out(:, i) = prod(W(:, i:i + width - 1), 2);
         end
-    end
-end
-
-
-function [groupOfAttr, attrsOfGroup, G] = localCanonicaliseGroups(groups, A)
-    % Return:
-    %   groupOfAttr  — 1 x A vector of 1-indexed group labels.
-    %   attrsOfGroup — 1 x G cell, attrsOfGroup{g} is the column
-    %                  vector of attribute indices in group g.
-    %   G            — number of groups.
-    if isempty(groups)
-        groupOfAttr = 1:A;
-    elseif iscell(groups)
-        G = numel(groups);
-        groupOfAttr = zeros(1, A);
-        for g = 1:G
-            idx = groups{g};
-            if any(idx < 1) || any(idx > A) || any(groupOfAttr(idx) ~= 0)
-                error('differenceEvents:badGroups', ...
-                      'Invalid cell-form groups specification.');
-            end
-            groupOfAttr(idx) = g;
-        end
-        if any(groupOfAttr == 0)
-            error('differenceEvents:badGroups', ...
-                  'Every attribute must appear in exactly one group.');
-        end
-    elseif isnumeric(groups) && numel(groups) == A
-        groupOfAttr = double(groups(:).');
-        if any(groupOfAttr < 1) || any(groupOfAttr ~= round(groupOfAttr))
-            error('differenceEvents:badGroups', ...
-                  'Numeric groups must be positive integers.');
-        end
-    else
-        error('differenceEvents:badGroupsShape', ...
-              ['groups must be [], a length-A numeric vector, or a ' ...
-               'cell of index lists.']);
-    end
-    G = max(groupOfAttr);
-    attrsOfGroup = cell(1, G);
-    for g = 1:G
-        attrsOfGroup{g} = find(groupOfAttr == g);
     end
 end

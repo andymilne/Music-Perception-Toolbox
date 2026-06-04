@@ -124,10 +124,10 @@ function [count, magnitude] = continuity(seq, x, sigma, nvArgs)
     %     exactly. ---
     seqRow = seq(:).';
     if isempty(wVec)
-        [pD, ~, ~] = differenceEvents({seqRow}, [], [], 1);
+        [pD, ~, ~] = differenceEvents({seqRow}, [], 1);
         diffWeights = [];
     else
-        [pD, wD, ~] = differenceEvents({seqRow}, {wVec(:).'}, [], 1);
+        [pD, wD, ~] = differenceEvents({seqRow}, {wVec(:).'}, 1);
         diffWeights = wD{1}(:);  % (N-1) x 1
     end
     ctxIntervals = pD{1}(:);  % (N-1) x 1

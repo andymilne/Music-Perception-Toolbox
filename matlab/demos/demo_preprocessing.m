@@ -102,12 +102,14 @@ fprintf(['  spec{1}: r = [%d %d], sym = [%d %d], rel = [%d %d], ' ...
 
 fprintf('=== 4. translateAttributes (T) ===\n');
 
-% Translate pitch (group 1) by +5 semitones; leave time alone.
-% Cell form keeps it a single translation: {scalar_group1, scalar_group2}.
-% A length-G numeric vector would instead be read as a 2-position sweep
-% (broadcast across attributes) under the orientation grammar.
+% Translate pitch (attribute 1) by +5 semitones; leave time alone.
+% offsets is a 1 x A cell, one entry per attribute. A scalar entry
+% broadcasts to every slot of that attribute as a single translation
+% (M = 1), so {5, 0} shifts pitch by 5 and time by 0. (Orientation
+% disambiguates the richer forms: a row vector is a transposition
+% sweep, a column a per-slot offset, a matrix per-slot x sweep.)
 muPitch = 5;
-pT = translateAttributes(pAttr, groups, {muPitch, 0}, isRel, isPer, periods);
+pT = translateAttributes(pAttr, w, {muPitch, 0});
 
 fprintf('  mu (per group) = {%g, %g}   (group 1: pitch; group 2: time)\n', muPitch, 0);
 fprintf('  T(pitch)       = [%g %g %g]   (G->C, F#->B, E->A)\n', pT{1});
@@ -170,7 +172,7 @@ fprintf('=== 7. D o T == D ===\n');
 % as differencing the original: translation is wiped out by the
 % difference operator (T o D, by contrast, adds mu to every
 % difference).
-pT_for_D            = translateAttributes(pAttr, groups, {muPitch, 0}, isRel, isPer, periods);
+pT_for_D            = translateAttributes(pAttr, w, {muPitch, 0});
 [pDT, wDT, sDT]     = differenceEvents(pT_for_D, w, [1 0]);
 
 fprintf('  D(T(pitch))    = [%g %g]\n', pDT{1});
@@ -191,7 +193,7 @@ mu_pitch = 5;
 c_pitch  = 67;
 width_w  = 2.0;
 gamma_w  = 0.3;
-pT_path  = translateAttributes(pAttr, groups, {mu_pitch, 0}, isRel, isPer, periods);
+pT_path  = translateAttributes(pAttr, w, {mu_pitch, 0});
 [~, wPath1, ~] = weightEvents(pT_path, w, groups,                                1, 1,                                c_pitch, gamma_w,                                false, 0, 'sd', width_w,                                'deleteInput', false);
 
 % Path 2: W centred at c - mu = 62 BEFORE T (T leaves weights

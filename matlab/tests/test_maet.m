@@ -824,359 +824,15 @@ results{end,2}   = throwsErrorWithId( ...
 % gamma so the convolution branch is exercised.
 p_tw = {[60 62 64]};
 mu_tw = 5; c_tw = 64; width_tw = 3; gamma_tw = 0.3;
-p_after_t = translateAttributes(p_tw, [], mu_tw, false, false, 0);
+p_after_t = translateAttributes(p_tw, [], {mu_tw});
 [~, w_after_t, ~] = weightEvents(p_after_t, [], [], 1, 1, c_tw, gamma_tw, false, 0, 'sd', width_tw, 'deleteInput', false);
 [~, w_first, ~]   = weightEvents(p_tw, [], [], 1, 1, c_tw - mu_tw, gamma_tw, false, 0, 'sd', width_tw, 'deleteInput', false);
 results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
-% -- translateAttributes: zero shift identity (scalar broadcast) --
-
-p_t = {[60 62 64], [0 1 2]};
-out = translateAttributes(p_t, [1 2], 0, [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: zero shift returns input values';
-results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
-
-% -- translateAttributes: all-skipped via empty cells is identity --
-
-out = translateAttributes(p_t, [1 2], {[], []}, [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: empty cells skip all groups (identity)';
-results{end,2}   = isequal(out{1}, p_t{1}) && isequal(out{2}, p_t{2});
-
-% -- translateAttributes: does not mutate input --
-
-p_orig = [60 62 64];
-p_in   = {p_orig};
-translateAttributes(p_in, [], 5, false, false, 0);   % discard output
-results{end+1,1} = 'translateAttributes: does not mutate input matrix';
-results{end,2}   = isequal(p_in{1}, p_orig);
-
-% -- translateAttributes: non-periodic absolute shift --
-
-out = translateAttributes({[60 62 64]}, [], 5, false, false, 0);
-results{end+1,1} = 'translateAttributes: non-periodic adds mu to every value';
-results{end,2}   = isequal(out{1}, [65 67 69]);
-
-% -- translateAttributes: periodic shift does not wrap --
-
-out = translateAttributes({[10 11 0]}, [], 3, false, true, 12);
-results{end+1,1} = 'translateAttributes: periodic shift leaves values unwrapped';
-results{end,2}   = isequal(out{1}, [13 14 3]);
-
-% -- translateAttributes: periodic negative mu does not wrap --
-
-out = translateAttributes({[1 2]}, [], -3, false, true, 12);
-results{end+1,1} = 'translateAttributes: negative mu on periodic group stays unwrapped';
-results{end,2}   = isequal(out{1}, [-2 -1]);
-
-% -- translateAttributes: period ignored when isPer is false --
-
-out = translateAttributes({[10 11]}, [], 5, false, false, 12);
-% Non-periodic: no wrap, values become 15, 16 (not 3, 4).
-results{end+1,1} = 'translateAttributes: period ignored when isPer is false';
-results{end,2}   = isequal(out{1}, [15 16]);
-
-% -- translateAttributes: K_a > 1 (multi-slot attribute) --
-
-out = translateAttributes({[60 64 67; 63 67 70]}, [], 5, false, false, 0);
-results{end+1,1} = 'translateAttributes: K_a > 1 shifts every slot uniformly';
-results{end,2}   = isequal(out{1}, [65 69 72; 68 72 75]);
-
-% -- translateAttributes: relative group emits no-op warning and passes through --
-
-lastwarn('');   % clear the warning buffer
-out = translateAttributes({[60 64 67]}, [], 5, true, false, 0);
-[~, warnId] = lastwarn;
-results{end+1,1} = 'translateAttributes: relative group emits noOpRelative warning';
-results{end,2}   = strcmp(warnId, 'translateAttributes:noOpRelative');
-results{end+1,1} = 'translateAttributes: relative group passes through unchanged';
-results{end,2}   = isequal(out{1}, [60 64 67]);
-
-% -- translateAttributes: cell form skips a group via empty entry --
-
-p_tg = {[60 64], [0 1]};
-out = translateAttributes(p_tg, [1 2], {5, []}, [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: empty cell skips group, scalar shifts other';
-results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0 1]);
-
-% -- translateAttributes: multi-group simultaneous via cell form --
-
-out = translateAttributes(p_tg, [1 2], {5, 0.5}, [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: multi-group simultaneous via cell';
-results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [0.5 1.5]);
-
-% -- translateAttributes: per-attribute single translation via A-by-1 column --
-% Two attributes (singleton groups), distinct offsets per attribute,
-% single translation. A-by-1 column is matrix-mode (length-1 outer cell).
-out = translateAttributes(p_tg, [1 2], [5; 0.5], [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: A-by-1 column gives per-attribute single translation';
-results{end,2}   = numel(out) == 1 && isequal(out{1}{1}, [65 69]) && isequal(out{1}{2}, [0.5 1.5]);
-
-% -- translateAttributes: multiple attributes sharing one group --
-
-p_share = {[60 64], [67 71]};
-out = translateAttributes(p_share, [1 1], 5, false, false, 0);
-results{end+1,1} = 'translateAttributes: multi-attribute shared group both shift';
-results{end,2}   = isequal(out{1}, [65 69]) && isequal(out{2}, [72 76]);
-
-% -- translateAttributes: per-attribute within a single group via cell n_g-by-1 column --
-out = translateAttributes(p_share, [1 1], {[5; -3]}, false, false, 0);
-results{end+1,1} = 'translateAttributes: cell n_g-by-1 column gives per-attribute within group';
-results{end,2}   = numel(out) == 1 && isequal(out{1}{1}, [65 69]) && isequal(out{1}{2}, [64 68]);
-
-% -- translateAttributes: composition (non-periodic) --
-
-p_c = {[60 62 64]};
-once  = translateAttributes(p_c, [], 5, false, false, 0);
-twice = translateAttributes(once, [], 3, false, false, 0);
-direct = translateAttributes(p_c, [], 8, false, false, 0);
-results{end+1,1} = 'translateAttributes: composition is additive (non-periodic)';
-results{end,2}   = isequal(twice{1}, direct{1});
-
-% -- translateAttributes: composition (periodic) --
-
-p_cp = {[10 11]};
-once  = translateAttributes(p_cp, [], 7, false, true, 12);
-twice = translateAttributes(once, [], 9, false, true, 12);
-% 10 + 7 + 9 = 26;  11 + 7 + 9 = 27.  No wrap (periodic kernel handles it downstream).
-results{end+1,1} = 'translateAttributes: composition is additive on periodic groups (no wrap)';
-results{end,2}   = isequal(twice{1}, [26 27]);
-
-% -- translateAttributes: self-IP invariant under translation (non-periodic) --
-
-p_si = {[60 64 67]};
-M_si = buildExpTens(p_si, [], 0.15, 1, false, false, 0, 'verbose', false);
-ip_self = cosSimExpTens(M_si, M_si, 'verbose', false);
-si_ok = true;
-for mu = [-3.0 1.5 7.0]
-    p_mu = translateAttributes(p_si, [], mu, false, false, 0);
-    M_mu = buildExpTens(p_mu, [], 0.15, 1, false, false, 0, 'verbose', false);
-    ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
-    if abs(ip_mu - ip_self) > 1e-12 * max(1, abs(ip_self))
-        si_ok = false;
-        break;
-    end
-end
-results{end+1,1} = 'translateAttributes: <f^mu, f^mu> = <f, f> non-periodic';
-results{end,2}   = si_ok;
-
-% -- translateAttributes: self-IP invariant under translation (periodic) --
-
-p_sp = {[0 4 7]};
-M_sp = buildExpTens(p_sp, [], 0.15, 1, false, true, 12, 'verbose', false);
-ip_sp_self = cosSimExpTens(M_sp, M_sp, 'verbose', false);
-sp_ok = true;
-for mu = [-7.0 1.5 6.0 15.0]
-    p_mu = translateAttributes(p_sp, [], mu, false, true, 12);
-    M_mu = buildExpTens(p_mu, [], 0.15, 1, false, true, 12, 'verbose', false);
-    ip_mu = cosSimExpTens(M_mu, M_mu, 'verbose', false);
-    if abs(ip_mu - ip_sp_self) > 1e-12 * max(1, abs(ip_sp_self))
-        sp_ok = false;
-        break;
-    end
-end
-results{end+1,1} = 'translateAttributes: <f^mu, f^mu> = <f, f> periodic';
-results{end,2}   = sp_ok;
-
-% -- translateAttributes: cos-sim sweep recovers transposition peak --
-
-p_q = {[60 64 67]};       % C major
-p_c = {[62 66 69]};       % D major (= +2 st)
-M_q = buildExpTens(p_q, [], 0.15, 1, false, false, 0, 'verbose', false);
-best_mu = NaN;
-best_s  = -Inf;
-for mu = -12:0.25:12
-    p_c_mu = translateAttributes(p_c, [], mu, false, false, 0);
-    M_c_mu = buildExpTens(p_c_mu, [], 0.15, 1, false, false, 0, 'verbose', false);
-    s = cosSimExpTens(M_q, M_c_mu, 'verbose', false);
-    if s > best_s
-        best_s = s;
-        best_mu = mu;
-    end
-end
-results{end+1,1} = 'translateAttributes: sweep peak at expected offset (-2 st)';
-results{end,2}   = abs(best_mu - (-2.0)) < 0.01;
-results{end+1,1} = 'translateAttributes: sweep peak similarity is 1';
-results{end,2}   = best_s > 1.0 - 1e-9;
-
-% -- translateAttributes: numeric G-form (per-group, broadcast within group) --
-
-% Three attributes, two groups: attrs 1 and 2 in group 1, attr 3 in group 2.
-% A = 3, G = 2 (so A ~= G, G-form is unambiguous).
-p_g = {[60 64], [67 71], [0 1]};
-groups_g = [1 1 2];
-% G-by-1 column: group 1 by +5, group 2 by -2. Returns matrix-mode
-% (1-by-1 wrapper around length-A cell), consistent with A-by-1.
-out_g = translateAttributes(p_g, groups_g, [5; -2], ...
-                            [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: G-by-1 column broadcasts within each group';
-results{end,2}   = isequal(out_g{1}{1}, [65 69]) && ...
-                   isequal(out_g{1}{2}, [72 76]) && ...
-                   isequal(out_g{1}{3}, [-2 -1]);
-
-% G-by-M matrix: group 1 sweeps (5, 7); group 2 sweeps (-2, 0).
-out_gm = translateAttributes(p_g, groups_g, [5 7; -2 0], ...
-                             [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: G-by-M matrix returns 1-by-M cell';
-results{end,2}   = iscell(out_gm) && numel(out_gm) == 2;
-results{end+1,1} = 'translateAttributes: G-by-M sweep m=1 matches group offsets';
-results{end,2}   = isequal(out_gm{1}{1}, [65 69]) && ...
-                   isequal(out_gm{1}{2}, [72 76]) && ...
-                   isequal(out_gm{1}{3}, [-2 -1]);
-results{end+1,1} = 'translateAttributes: G-by-M sweep m=2 matches group offsets';
-results{end,2}   = isequal(out_gm{2}{1}, [67 71]) && ...
-                   isequal(out_gm{2}{2}, [74 78]) && ...
-                   isequal(out_gm{2}{3}, [0 1]);
-
-% A == G case: when each attribute is its own group, the A-by-1 shape
-% is read as per-attribute via the A-row branch, which returns matrix-
-% mode output (a 1-by-1 cell wrapper around the length-A attribute
-% cell, consistent with the A-by-M convention).
-p_ag = {60, 0};
-groups_ag = [1 2];   % A = G = 2
-out_ag = translateAttributes(p_ag, groups_ag, [5; -2], ...
-                             [false false], [false false], [0 0]);
-results{end+1,1} = 'translateAttributes: A == G column is read as per-attribute';
-results{end,2}   = isequal(out_ag{1}{1}, 65) && isequal(out_ag{1}{2}, -2);
-
-% -- translateAttributes: error cases --
-
-% 2-D row count neither 1 nor A is rejected. Here A = 2, row count 3.
-results{end+1,1} = 'translateAttributes: 2-D with wrong row count (neither 1 nor A) errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2], [3 4]}, [], zeros(3, 5), ...
-                         [false false], [false false], [0 0]), ...
-    'translateAttributes:wrongOffsetsShape');
-
-% Cell of wrong length (not 1-by-G) is rejected.
-results{end+1,1} = 'translateAttributes: cell of wrong length (not 1-by-G) errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2], [3 4]}, [], {5}, ...
-                         [false false], [false false], [0 0]), ...
-    'translateAttributes:wrongOffsetsShape');
-
-results{end+1,1} = 'translateAttributes: wrong-length isRel errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2]}, [], 5, [false false], false, 0), ...
-    'translateAttributes:wrongIsRelLength');
-
-results{end+1,1} = 'translateAttributes: wrong-length isPer errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2]}, [], 5, false, [false false], 0), ...
-    'translateAttributes:wrongIsPerLength');
-
-results{end+1,1} = 'translateAttributes: wrong-length periods errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2]}, [], 5, false, false, [0 12]), ...
-    'translateAttributes:wrongPeriodsLength');
-
-results{end+1,1} = 'translateAttributes: infinite offset errors';
-results{end,2}   = throwsErrorWithId( ...
-    @() translateAttributes({[1 2]}, [], Inf, false, false, 0), ...
-    'translateAttributes:nonFiniteOffset');
-
-% -- translateAttributes: matrix-form offsets (sweep) --
-
-% (a) Matrix shape (G, M) returns a 1-by-M cell of 1-by-A cells.
-p_sweep_in = {[60 64 67]};
-offs_mat   = [0 100 200];   % G=1, M=3 (1xM row vector unambiguous as matrix form)
-out_sweep  = translateAttributes(p_sweep_in, [1], offs_mat, false, false, 0);
-ok = iscell(out_sweep) && numel(out_sweep) == 3 ...
-     && iscell(out_sweep{1}) && numel(out_sweep{1}) == 1 ...
-     && isequal(out_sweep{1}{1}, [60 64 67]) ...
-     && isequal(out_sweep{2}{1}, [160 164 167]) ...
-     && isequal(out_sweep{3}{1}, [260 264 267]);
-results{end+1,1} = 'translateAttributes: matrix form returns 1-by-M cell of 1-by-A cells';
-results{end,2}   = ok;
-
-% (b) A-by-1 column-vector input is per-attribute single translation
-% (matrix-mode, length-1 outer cell wrapper). With A = G = 2 here,
-% rows index attributes; values land directly on each attribute.
-p_g2     = {[1 2], [10 20]};
-offs_g2  = [5; 7];   % 2-by-1 (A-by-1) column
-out_g2   = translateAttributes(p_g2, [1 2], offs_g2, ...
-                            [false false], [false false], [0 0]);
-ok = iscell(out_g2) && numel(out_g2) == 1 ...
-     && iscell(out_g2{1}) && numel(out_g2{1}) == 2 ...
-     && isequal(out_g2{1}{1}, [6 7]) ...
-     && isequal(out_g2{1}{2}, [17 27]);
-results{end+1,1} = 'translateAttributes: A-by-1 column gives per-attribute single translation (matrix-mode)';
-results{end,2}   = ok;
-
-% (c) Per-column equivalence with per-attribute single-translation calls.
-% A = G = 2 here, so the A-by-M matrix form's per-column slice (A-by-1
-% column) is the equivalent per-attribute single translation. Both
-% calls are matrix-mode; compare sweep2{m}{a} against one_m{1}{a}.
-p_pe      = {[60 64 67], [0 1 2]};
-groups_pe = [1 2];
-isRel_pe  = [false false];
-isPer_pe  = [true  false];
-period_pe = [1200  0];
-offs_mat2 = [0   100  200  -50; ...
-             0    0.5   1    -0.25];   % 2-by-4 (A-by-M) matrix
-sweep2 = translateAttributes(p_pe, groups_pe, offs_mat2, ...
-                          isRel_pe, isPer_pe, period_pe);
-allMatch = true;
-for m = 1:size(offs_mat2, 2)
-    % A-by-1 column slice → per-attribute single translation (matrix-mode).
-    one_m = translateAttributes(p_pe, groups_pe, offs_mat2(:, m), ...
-                             isRel_pe, isPer_pe, period_pe);
-    for a = 1:numel(p_pe)
-        if ~isequal(sweep2{m}{a}, one_m{1}{a})
-            allMatch = false; break;
-        end
-    end
-end
-results{end+1,1} = 'translateAttributes: per-column equals per-attribute single-translation calls';
-results{end,2}   = allMatch;
-
-% (d) NaN entries per column skip translation column-by-column.
-offs_nan = [10   NaN  30; ...
-             NaN  5    NaN];
-out_nan = translateAttributes(p_pe, groups_pe, offs_nan, ...
-                           isRel_pe, isPer_pe, period_pe);
-ok = isequal(out_nan{1}{1}, [70 74 77]) ...    % col 1: g1 by +10
-     && isequal(out_nan{1}{2}, [0 1 2]) ...    %         g2 untouched (NaN)
-     && isequal(out_nan{2}{1}, [60 64 67]) ... % col 2: g1 untouched (NaN)
-     && isequal(out_nan{2}{2}, [5 6 7]) ...    %         g2 by +5
-     && isequal(out_nan{3}{1}, [90 94 97]) ... % col 3: g1 by +30
-     && isequal(out_nan{3}{2}, [0 1 2]);       %         g2 untouched (NaN)
-results{end+1,1} = 'translateAttributes: matrix NaN entries skip per column';
-results{end,2}   = ok;
-
-% (e) Matrix form on periodic group leaves values unwrapped per column.
-p_per      = {[10 1190]};
-out_per    = translateAttributes(p_per, [1], [100 1100], false, true, 1200);
-ok = isequal(out_per{1}{1}, [110 1290]) ...    % col 1: +100, unwrapped
-     && isequal(out_per{2}{1}, [1110 2290]);   % col 2: +1100, unwrapped
-results{end+1,1} = 'translateAttributes: matrix periodic stays unwrapped per column';
-results{end,2}   = ok;
-
-% (f) Relative group warns at most once across multiple columns.
-p_rel       = {[60 64 67], [0 1 2]};
-offs_rel    = [10 20 30; 0 0.5 1.0];   % all columns finite on relative row
-isRel_rel   = [true false];
-prevWarn    = warning('off', 'translateAttributes:noOpRelative'); %#ok<WNOFF>
-warning('off', 'all');                 % clear all
-lastwarn('');                          % clear last warning
-warning('on', 'translateAttributes:noOpRelative');
-% Capture warning count via a custom helper-free pattern: count by
-% checking lastwarn after each call. We can also rely on the fact
-% that a single warning per call is the contract; assert that
-% lastwarn after the call matches the relative-group message exactly
-% once and that no per-column repetition occurs (smoke-test only).
-out_rel = translateAttributes(p_rel, [1 2], offs_rel, isRel_rel, ...
-                           [false false], [0 0]);
-[~, lastId] = lastwarn();
-warning(prevWarn);
-ok = strcmp(lastId, 'translateAttributes:noOpRelative') ...
-     && numel(out_rel) == 3 ...
-     && isequal(out_rel{1}{1}, p_rel{1}) ...   % relative untouched
-     && isequal(out_rel{1}{2}, [0 1 2]) ...
-     && isequal(out_rel{2}{2}, [0.5 1.5 2.5]) ...
-     && isequal(out_rel{3}{2}, [1 2 3]);
-results{end+1,1} = 'translateAttributes: relative-row warns at most once across columns';
-results{end,2}   = ok;
+% translateAttributes moved onto the (pAttr, w, specs) carrier (3c-iv-d);
+% its tests now live in tests/test_translate.m. The old groups / isRel /
+% isPer / period positional contract has been removed.
 
 % -- cosSimExpTens raw-MA scalar-vs-list mode --
 
@@ -1197,9 +853,8 @@ results{end+1,1} = 'cosSimExpTens raw-MA scalar dispatch returns numeric scalar'
 results{end,2}   = isnumeric(s_scalar) && isscalar(s_scalar) && isfinite(s_scalar);
 
 % (b) Scalar-vs-list broadcast: matrix-form translateAttributes feed.
-offs_rma  = [-100  0   100  200; 0 1 2 1];
-qry_swept = translateAttributes(p_qry, groups_ma, offs_rma, ...
-                             isRel_ma, isPer_ma, period_ma);
+offs_rma  = {[-100 0 100 200], [0 1 2 1]};
+qry_swept = translateAttributes(p_qry, [], offs_rma);
 s_list = cosSimExpTens(p_ref, [], qry_swept, [], ...
     sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);
@@ -1230,10 +885,8 @@ results{end+1,1} = 'cosSimExpTens raw-MA list symmetric in operand order';
 results{end,2}   = max(abs(s_list_num - s_rev_num)) < 1e-12;
 
 % (e) List-vs-list rejected.
-qry_swept_2 = translateAttributes(p_qry, groups_ma, [0 100; 0 0], ...
-                               isRel_ma, isPer_ma, period_ma);
-ref_swept   = translateAttributes(p_ref, groups_ma, [0 50; 0 0], ...
-                               isRel_ma, isPer_ma, period_ma);
+qry_swept_2 = translateAttributes(p_qry, [], {[0 100], [0 0]});
+ref_swept   = translateAttributes(p_ref, [], {[0 50], [0 0]});
 results{end+1,1} = 'cosSimExpTens raw-MA list-vs-list rejected';
 results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(ref_swept, [], qry_swept_2, [], ...
@@ -1242,9 +895,8 @@ results{end,2}   = throwsErrorWithId( ...
     'cosSimExpTens:listVsListNotSupported');
 
 % (f) Self-sweep peaks at zero offset.
-offs_self = [-200 -100 0 100 200; 0 0 0 0 0];
-ref_self  = translateAttributes(p_ref, groups_ma, offs_self, ...
-                             isRel_ma, isPer_ma, period_ma);
+offs_self = {[-200 -100 0 100 200], [0 0 0 0 0]};
+ref_self  = translateAttributes(p_ref, [], offs_self);
 s_self    = cosSimExpTens(p_ref, [], ref_self, [], ...
     sigma_ma, r_ma, isRel_ma, isPer_ma, period_ma, ...
     'verbose', false);

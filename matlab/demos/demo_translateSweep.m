@@ -15,10 +15,8 @@
 % cosSimExpTens (raw-MA scalar-vs-list form, with the translated p_attr
 % list as one operand and the reference pAttr as the other). The build
 % step is internalised: the reference is built once, each translated
-% query once. The sweep can be specified in either of two equivalent
-% forms --- a single A-by-M numeric matrix or a 1-by-G cell with one
-% group's sweep per cell --- and Section 3 shows both with a parity
-% check.
+% query once. The sweep is specified as a 1-by-A offsets cell, one row
+% of M candidate shifts per attribute; Section 3 builds it.
 %
 % Compare demo_maetWindowing (post-tensor sliding) and
 % demo_windowingReference (reference-point options for
@@ -84,8 +82,8 @@ timeGrid  = -1:0.25:5;
 
 [Pmesh, Tmesh] = meshgrid(pitchGrid, timeGrid);
 M = numel(Pmesh);
-% Pmesh and Tmesh are used in Section 3 to build the sweep in either
-% of the two equivalent offset forms.
+% Pmesh and Tmesh are flattened in Section 3 into the per-attribute
+% rows of the offsets cell.
 
 fprintf('  pitch grid: %d transpositions over one octave (100-cent steps)\n', ...
         numel(pitchGrid));
@@ -95,45 +93,21 @@ fprintf('  total sweep positions: M = %d\n', M);
 fprintf('\n');
 
 %% ===================================================================
-%  3. Pre-tensor translation: two equivalent offset forms
+%  3. Pre-tensor translation: build the swept query
 %  ===================================================================
 
-fprintf('=== 3. translateAttributes (two equivalent offset forms) ===\n');
+fprintf('=== 3. translateAttributes (offset sweep) ===\n');
 
-% Form A: numeric matrix. Rows index attributes, columns index sweep
-% positions. With A = 2 singleton groups here, row 1 is the pitch
-% attribute and row 2 is the time attribute.
-offsetsMat        = zeros(2, M);
-offsetsMat(1, :)  = Pmesh(:).';   % pitch shifts (attribute 1)
-offsetsMat(2, :)  = Tmesh(:).';   % time  shifts (attribute 2)
+% offsets is a 1-by-A cell, one entry per attribute. Each entry here is
+% a 1-by-M row, which the orientation grammar reads as a per-sweep
+% global shift: M candidate offsets broadcast across the attribute's
+% slots (trivial here, as each attribute is single-slot, K_a = 1). The
+% M sweep columns are shared across attributes, so column m of every
+% entry together defines the m-th translated copy. Reads naturally as
+% "sweep pitch by these values; sweep time by these values".
+offsetsCell   = {Pmesh(:).', Tmesh(:).'};
+qryPAttrSwept = translateAttributes(qryPAttr, [], offsetsCell);
 
-qryPAttrSweptMat = translateAttributes(qryPAttr, groups, offsetsMat, ...
-                                    isRel, isPer, periods);
-
-% Form B: 1-by-G cell, with one group's sweep per cell. Each entry is
-% a 1-by-M row, which the orientation grammar reads as "broadcast
-% within group, M-position sweep" --- here that coincides with per-
-% attribute because each group is a singleton. Reads naturally as
-% "sweep pitch (group 1) by these values; sweep time (group 2) by
-% these values".
-offsetsCell = {Pmesh(:).', Tmesh(:).'};
-
-qryPAttrSweptCell = translateAttributes(qryPAttr, groups, offsetsCell, ...
-                                     isRel, isPer, periods);
-
-% Parity check: the two forms must produce identical translated values.
-diffMaxForms = 0;
-for m = 1:M
-    for a = 1:numel(qryPAttr)
-        d = max(abs(qryPAttrSweptMat{m}{a}(:) - qryPAttrSweptCell{m}{a}(:)));
-        if d > diffMaxForms, diffMaxForms = d; end
-    end
-end
-fprintf('  matrix form vs cell form: max |diff| = %.2e\n', diffMaxForms);
-assert(diffMaxForms == 0, 'Matrix form and cell form disagree.');
-
-% Proceed with the matrix-form output for the downstream computation.
-qryPAttrSwept = qryPAttrSweptMat;
 fprintf('  qryPAttrSwept: %s, length %d\n', class(qryPAttrSwept), ...
         numel(qryPAttrSwept));
 fprintf('  each entry is a 1-by-%d cell of K_a-by-N value matrices\n', ...

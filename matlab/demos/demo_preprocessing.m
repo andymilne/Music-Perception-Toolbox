@@ -84,7 +84,7 @@ fprintf('=== 3. bindEvents (B) ===\n');
 % the source r/isRel/isSym). A' = A = 2. Trailing-drop alignment gives
 % N' = N - max(L) + 1 = 2.
 bindOrders      = [2 2];
-[pB, wB, specB] = bindEvents(pAttr, w, bindOrders, [1 1], isRel, [true true]);
+[pB, wB, specB] = bindEvents(pAttr, w, bindOrders);
 
 fprintf('  bindOrders = [2 2]\n');
 fprintf('  A'' = %d (each source attribute -> one nested attribute)\n', numel(pB));
@@ -144,9 +144,9 @@ fprintf('=== 6. B o D == D o B (pipeline commutation) ===\n');
 % differencing is defined.
 %   D then B: difference each attribute (order 1), then bind 2-grams.
 [pD1, wD1, sD1] = differenceEvents(pAttr, w, [1 1]);
-[pDB, wDB, sDB] = bindEvents(pD1, wD1, [2 2], [1 1], isRel, [true true]);
+[pDB, wDB, sDB] = bindEvents(pD1, wD1, [2 2], 'specs', sD1);
 %   B then D: bind 2-grams, then difference each nested attribute slot-wise.
-[pB1, wB1, sB1] = bindEvents(pAttr, w, [2 2], [1 1], isRel, [true true]);
+[pB1, wB1, sB1] = bindEvents(pAttr, w, [2 2]);
 [pBD, wBD, sBD] = differenceEvents(pB1, wB1, [1 1], 'specs', sB1);
 
 valsAgree = isequal(pDB{1}, pBD{1}) && isequal(pDB{2}, pBD{2});

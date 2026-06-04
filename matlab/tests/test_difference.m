@@ -96,7 +96,7 @@ results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
 % --- Nested-D: difference a bound attribute -------------------------
 
 raw = [0 2 5 9 14];
-[pb, wb, specs] = bindEvents({raw}, [], 2, 1, false, true);   % nested, N'=4
+[pb, wb, specs] = bindEvents({raw}, [], 2);   % nested, N'=4
 [pnd, ~, snd] = differenceEvents(pb, wb, 1, 'specs', specs);
 results{end+1,1} = 'diff: nested-D slot-wise, spec passthrough';
 results{end,2}   = isequal(size(pnd{1}), [2 3]) ...
@@ -104,7 +104,7 @@ results{end,2}   = isequal(size(pnd{1}), [2 3]) ...
                    && isequal(snd{1}.r, specs{1}.r);
 
 % A bag outer level (symOuter = true) cannot be differenced.
-[pb2, wb2, specs2] = bindEvents({raw}, [], 2, 1, false, true, 'symOuter', true);
+[pb2, wb2, specs2] = bindEvents({raw}, [], 2, 'symOuter', true);
 results{end+1,1} = 'diff: nested symmetric-outer rejected';
 results{end,2}   = throwsError(@() differenceEvents(pb2, wb2, 1, 'specs', specs2));
 
@@ -114,8 +114,8 @@ results{end,2}   = throwsError(@() differenceEvents(pb2, wb2, 1, 'specs', specs2
 P = [0 3 7 12 18];
 L = 2;
 [pD, wD, sD]    = differenceEvents({P}, [], 1);
-[pDB, wDB, sDB] = bindEvents(pD, wD, L, 1, false, true);
-[pB, wB, sB]    = bindEvents({P}, [], L, 1, false, true);
+[pDB, wDB, sDB] = bindEvents(pD, wD, L, 'specs', sD);
+[pB, wB, sB]    = bindEvents({P}, [], L);
 [pBD, wBD, sBD] = differenceEvents(pB, wB, 1, 'specs', sB);
 results{end+1,1} = 'diff: B o D == D o B (values + specs)';
 results{end,2}   = isequal(pDB{1}, pBD{1}) ...

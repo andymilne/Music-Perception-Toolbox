@@ -1,23 +1,24 @@
-function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, r, isRel, isSym, nvArgs)
+function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %BINDEVENTS Bind sliding windows of consecutive events into nested attributes.
 %
-%   [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, r, isRel, isSym, ...)
-%   is a cross-event preprocessing helper. For each input attribute a, a
-%   sliding window of width L_a (bindOrders) is laid across the event axis
-%   and the L_a consecutive events are nested into a single output
-%   attribute (toolbox spec §6.1/§6.5): the bound events form an ordered
-%   outer level (symOuter = 0 by default, lossless), each event's own
-%   value multiset is the inner level (inheriting the original attribute's
-%   r/isRel/isSym). This replaces the old separate-attribute emission.
+%   [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, ...)
+%   is a cross-event preprocessing helper on the (pAttr, w, specs) carrier.
+%   For each input attribute a, a sliding window of width L_a (bindOrders)
+%   is laid across the event axis and the L_a consecutive events are nested
+%   into a single output attribute (toolbox spec §6.1/§6.5): the bound
+%   events form an ordered outer level (symOuter = 0 by default, lossless),
+%   each event's own value multiset is the inner level.
 %
-%   The output is a specs cell ready for buildExpTens(..., 'specs', specs).
-%   The inner level inherits r/isRel/isSym (hence they are required); the
-%   outer level defaults to r = L_a (read the whole bound window),
-%   sym = 0, rel = 0. L_a = 1 is the no-op: a flat passthrough (one-level
-%   spec), not a degenerate nest. With the defaults and rel = [isRel, 0],
-%   the outer r = L_a reading reproduces the old separate-attribute tensor
-%   join (§6.5). The genuinely new lever is relOuter = 1 on an absolute
-%   attribute, giving the global-transposition quotient rel = [0, 1].
+%   The inner level's geometry (r/rel/sym) is read from the incoming
+%   carrier specs --- the attribute's existing spec becomes the inner
+%   level. specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
+%   rel = 0, sym = 1). The outer level defaults to r = L_a (read the whole
+%   bound window), sym = 0, rel = 0. L_a = 1 is the no-op: the incoming
+%   (flat) spec passes through unchanged. With the defaults and
+%   rel = [relIn, 0], the outer r = L_a reading reproduces the old
+%   separate-attribute tensor join (§6.5). The genuinely new lever is
+%   relOuter = 1 on an absolute attribute, giving the global-transposition
+%   quotient rel = [0, 1].
 %
 %   Event-axis alignment. The common output event count is
 %   N' = N - max_a L_a + 1 (non-circular) or N (circular); attributes with
@@ -30,15 +31,18 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, r, isRel
 %                    as buildExpTens; bound slot weights are the windowed-
 %                    and-stacked input weights.
 %       bindOrders - Scalar or 1 x A window widths L_a >= 1 (1 = no-op).
-%       r,isRel,isSym - Scalar or 1 x A original per-attribute geometry;
-%                    the inner level inherits these.
 %
 %   Name-value pairs
 %       'circular'   - false (default) or true (wrap window; N' = N).
+%       'specs'      - [] (synthesise flat via flatSpecs) or a 1 x A cell of
+%                      per-attribute specs supplying the inner geometry. Each
+%                      incoming spec must be flat (nested input is not yet
+%                      supported).
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
 %       'symOuter'   - outer-level [sym] (default false; bag reading if true).
 %       'relOuter'   - outer-level [rel] (default false).
-%       'name'       - [] , char, or 1 x A names stamped onto each spec.
+%       'name'       - [] , char, or 1 x A names; overrides any name carried
+%                      on the incoming spec, otherwise inherited.
 %       'levelNames' - [] or 1 x 2 {inner outer} level names per nested spec.
 %
 %   Outputs
@@ -46,18 +50,17 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, r, isRel
 %                    value matrix; for L_a = 1 the trailing-aligned K_a x N'.
 %       wBound     - Transformed weights aligned to the value layout.
 %       specs      - 1 x A cell of structs: nested {tags,r,sym,rel,...}
-%                    for L_a >= 2, flat {r,rel,sym,...} for L_a = 1.
+%                    for L_a >= 2, the incoming flat {r,rel,sym,...} for
+%                    L_a = 1.
 %
-%   See also BUILDEXPTENS, DIFFERENCEEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
+%   See also BUILDEXPTENS, DIFFERENCEEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 
 arguments
     pAttr
     w
     bindOrders
-    r
-    isRel
-    isSym
     nvArgs.circular (1, 1) logical = false
+    nvArgs.specs = []
     nvArgs.rOuter = []
     nvArgs.symOuter = false
     nvArgs.relOuter = false
@@ -101,11 +104,29 @@ for a = 2:A
     end
 end
 
-% --- Parse bindOrders (scalar or 1 x A) and broadcast geometry ---
+% --- Parse bindOrders (scalar or 1 x A) ---
 orders = localCanonicaliseBindOrders(bindOrders, A);
-rIn   = localBcastGeom(r,      A, 'r',      false);
-relIn = localBcastGeom(isRel,  A, 'isRel',  true);
-symIn = localBcastGeom(isSym,  A, 'isSym',  true);
+
+% --- Inner geometry from the carrier specs ---
+if isempty(nvArgs.specs)
+    specsIn = flatSpecs(pAttr);
+else
+    specsIn = nvArgs.specs;
+    if ~iscell(specsIn) || numel(specsIn) ~= A
+        error('bindEvents:specsLength', ...
+              'specs must be a length-A (%d) cell, one per attribute.', A);
+    end
+end
+for a = 1:A
+    if isstruct(specsIn{a}) && isfield(specsIn{a}, 'tags')
+        error('bindEvents:nestedInput', ...
+              ['attribute %d: bindEvents binds flat attributes; binding an ' ...
+               'already-nested attribute (L >= 3 deep nesting) is not yet ' ...
+               'supported.'], a);
+    end
+end
+
+% --- Outer-level overrides ---
 if isempty(nvArgs.rOuter)
     rOut = double(orders);
 else
@@ -145,10 +166,20 @@ for a = 1:A
     L_a = double(orders(a));
     K_a = K(a);
     Marr = pAttr{a};
+    sIn = specsIn{a};
+    rInA   = double(localSpecField(sIn, 'r',   1));
+    relInA = logical(localSpecField(sIn, 'rel', false));
+    symInA = logical(localSpecField(sIn, 'sym', true));
+    nameInA = localSpecField(sIn, 'name', []);
+    if ~isempty(namesAttr{a})
+        nm = namesAttr{a};
+    else
+        nm = nameInA;
+    end
     if L_a == 1
         pAttrBound{a} = Marr(:, localLagIndex(0, nPrime, nEvents, nvArgs.circular));
-        spec = struct('r', rIn(a), 'rel', relIn(a), 'sym', symIn(a));
-        if ~isempty(namesAttr{a}); spec.name = namesAttr{a}; end
+        spec = sIn;                       % passthrough the incoming flat spec
+        if ~isempty(nm); spec.name = nm; end
         specs{a} = spec;
     else
         blocks = cell(1, L_a);
@@ -158,9 +189,9 @@ for a = 1:A
         end
         pAttrBound{a} = vertcat(blocks{:});
         tags = repelem(0:(L_a - 1), K_a);
-        spec = struct('tags', tags, 'r', [rIn(a) rOut(a)], ...
-                      'sym', [symIn(a) symOut(a)], 'rel', [relIn(a) relOut(a)]);
-        if ~isempty(namesAttr{a}); spec.name = namesAttr{a}; end
+        spec = struct('tags', tags, 'r', [rInA rOut(a)], ...
+                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
+        if ~isempty(nm); spec.name = nm; end
         if ~isempty(levelNames); spec.names = levelNames; end
         specs{a} = spec;
     end
@@ -181,6 +212,16 @@ function idx = localLagIndex(ell, nPrime, nEvents, isCircular)
         idx = mod((0:nPrime - 1) + ell, nEvents) + 1;
     else
         idx = (ell + 1):(ell + nPrime);
+    end
+end
+
+
+function v = localSpecField(s, f, d)
+    % Read field f from spec struct s, defaulting to d if absent/empty.
+    if isstruct(s) && isfield(s, f) && ~isempty(s.(f))
+        v = s.(f);
+    else
+        v = d;
     end
 end
 

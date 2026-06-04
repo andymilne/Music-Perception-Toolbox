@@ -483,11 +483,9 @@ def bind_events(
     p_attr,
     w,
     bind_orders,
-    r,
-    is_rel,
-    is_sym,
     *,
     circular: bool = False,
+    specs=None,
     r_outer=None,
     sym_outer=False,
     rel_outer=False,
@@ -496,25 +494,24 @@ def bind_events(
 ) -> tuple[list[np.ndarray], object, list]:
     """Bind sliding windows of consecutive events into nested attributes.
 
-    Cross-event preprocessing. For each input attribute *a*, a sliding
-    window of width ``L_a`` (``bind_orders``) is laid across the event
-    axis and the ``L_a`` consecutive events are nested into a single
-    output attribute (toolbox spec §6.1): the bound events form an
-    **ordered outer level** (event order; ``sym_outer = 0`` by default,
-    lossless), and each event's own value multiset is the **inner
-    level**. This replaces the old separate-attribute emission with one
-    nested attribute per input attribute (§6.5).
+    Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
+    carrier. For each input attribute *a*, a sliding window of width
+    ``L_a`` (``bind_orders``) is laid across the event axis and the
+    ``L_a`` consecutive events are nested into a single output attribute
+    (toolbox spec §6.1): the bound events form an **ordered outer level**
+    (event order; ``sym_outer = 0`` by default, lossless), and each
+    event's own value multiset is the **inner level**.
 
-    The output is a ``specs`` list ready for ``build_exp_tens(...,
-    specs=...)``. Level-structured geometry lives in the spec; the inner
-    level **inherits** the original attribute's ``r``/``is_rel``/
-    ``is_sym`` (that is why they are required arguments), and the outer
-    level defaults to ``r = L_a`` (read the whole bound window),
-    ``sym = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: a flat
-    passthrough (a one-level spec), not a degenerate nest.
+    The inner level's geometry (``r``/``rel``/``sym``) is read from the
+    incoming carrier ``specs`` --- the attribute's existing spec becomes
+    the inner level. ``specs = None`` synthesises flat specs
+    (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``sym = 1``).
+    The outer level defaults to ``r = L_a`` (read the whole bound
+    window), ``sym = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: the
+    incoming (flat) spec passes through unchanged.
 
-    With the defaults and ``rel = [is_rel, 0]``, the outer ``r = L_a``
-    reading is the tensor product of the events' inner densities — it
+    With the defaults and ``rel = [rel_in, 0]``, the outer ``r = L_a``
+    reading is the tensor product of the events' inner densities --- it
     reproduces the old separate-attribute binding (§6.5). The genuinely
     new lever is ``rel_outer = 1`` on an absolute attribute, giving the
     global-transposition quotient ``rel = [0, 1]``.
@@ -536,22 +533,24 @@ def bind_events(
         the rolling product.
     bind_orders : scalar or length-A array-like
         Per-attribute window widths ``L_a >= 1`` (``L_a = 1`` no-op).
-    r, is_rel, is_sym : scalar or length-A array-like
-        The original per-attribute geometry; the inner level inherits
-        these. ``is_rel``/``is_sym`` are bool, ``r`` is a positive int.
     circular : bool, keyword-only
         Wrap the window around the event axis (``N' = N``).
+    specs : None or length-A list, keyword-only
+        The carrier specs supplying the inner-level geometry. ``None``
+        synthesises flat specs. Each incoming spec must be flat; binding
+        an already-nested attribute (``L >= 3`` deep nesting) is not yet
+        supported.
     r_outer : None, scalar, or length-A, keyword-only
         Outer-level ``r`` (how many bound events to read). ``None``
         defaults to ``L_a`` (the whole window).
     sym_outer, rel_outer : bool / scalar / length-A, keyword-only
         Outer-level ``[sym]`` and ``[rel]``. Default ``0``/``0``.
     name : None, str, or length-A, keyword-only
-        Optional per-attribute name(s), stamped onto each spec.
+        Optional per-attribute name(s). Overrides any ``name`` carried
+        on the incoming spec; otherwise the incoming name is preserved.
     level_names : None or length-2 list, keyword-only
         Optional ``[inner, outer]`` level names, stamped onto each
-        nested spec's ``names`` field (legibility; functional rel-by-
-        name resolution is a later step).
+        nested spec's ``names`` field.
 
     Returns
     -------
@@ -563,13 +562,11 @@ def bind_events(
         Transformed weights aligned to the value layout.
     specs : list of dict
         Length-A. A nested spec ``{tags, r, sym, rel, name?, names?}``
-        for ``L_a >= 2``; a flat spec ``{r, rel, sym, name?}`` for
-        ``L_a = 1``. Feed to ``build_exp_tens(p_attr_bound, w_bound,
-        specs=specs, sigma=..., is_per=..., period=...)``.
+        for ``L_a >= 2``; the incoming flat spec for ``L_a = 1``.
 
     See Also
     --------
-    build_exp_tens, difference_events, translate_attributes
+    build_exp_tens, difference_events, flat_specs, translate_attributes
     """
     if not isinstance(p_attr, (list, tuple)):
         raise TypeError(
@@ -600,9 +597,25 @@ def bind_events(
     K = [M.shape[0] for M in p_attr]
 
     orders = _canonicalise_bind_orders(bind_orders, A)
-    r_in = _bcast_geom(r, A, "r", cast=int)
-    rel_in = _bcast_geom(is_rel, A, "is_rel", cast=bool)
-    sym_in = _bcast_geom(is_sym, A, "is_sym", cast=bool)
+
+    # --- Inner geometry from the carrier specs ------------------------
+    if specs is None:
+        specs_in = flat_specs(p_attr)
+    else:
+        if not isinstance(specs, (list, tuple)) or len(specs) != A:
+            raise ValueError(
+                f"specs must be a length-A ({A}) list, one per attribute."
+            )
+        specs_in = list(specs)
+    for a, s in enumerate(specs_in):
+        if isinstance(s, dict) and "tags" in s:
+            raise ValueError(
+                f"attribute {a}: bind_events binds flat attributes; binding "
+                f"an already-nested attribute (L >= 3 deep nesting) is not "
+                f"yet supported."
+            )
+
+    # --- Outer-level overrides ----------------------------------------
     if r_outer is None:
         r_out = [int(orders[a]) for a in range(A)]
     else:
@@ -638,38 +651,44 @@ def bind_events(
         return np.arange(ell, ell + n_prime)
 
     p_attr_bound = []
-    specs = []
+    specs_out = []
     for a in range(A):
         L_a = int(orders[a])
         K_a = K[a]
         M = p_attr[a]
+        s_in = specs_in[a] if isinstance(specs_in[a], dict) else {}
+        r_in_a = int(s_in.get("r", 1))
+        rel_in_a = bool(s_in.get("rel", False))
+        sym_in_a = bool(s_in.get("sym", True))
+        name_in_a = s_in.get("name")
+        nm = names_attr[a] if names_attr[a] is not None else name_in_a
         if L_a == 1:
+            # No-op: the incoming flat spec passes through (name override).
             p_attr_bound.append(M[:, _lag_index(0)])
-            spec = {"r": int(r_in[a]), "rel": bool(rel_in[a]),
-                    "sym": bool(sym_in[a])}
-            if names_attr[a] is not None:
-                spec["name"] = names_attr[a]
-            specs.append(spec)
+            spec = dict(s_in)
+            if nm is not None:
+                spec["name"] = nm
+            specs_out.append(spec)
         else:
             blocks = [M[:, _lag_index(ell)] for ell in range(L_a)]
             p_attr_bound.append(np.vstack(blocks))
             tags = np.repeat(np.arange(L_a, dtype=np.intp), K_a)
             spec = {
                 "tags": tags,
-                "r": [int(r_in[a]), int(r_out[a])],
-                "sym": [bool(sym_in[a]), bool(sym_out[a])],
-                "rel": [int(rel_in[a]), int(rel_out[a])],
+                "r": [r_in_a, int(r_out[a])],
+                "sym": [sym_in_a, bool(sym_out[a])],
+                "rel": [int(rel_in_a), int(rel_out[a])],
             }
-            if names_attr[a] is not None:
-                spec["name"] = names_attr[a]
+            if nm is not None:
+                spec["name"] = nm
             if level_names is not None:
                 spec["names"] = list(level_names)
-            specs.append(spec)
+            specs_out.append(spec)
 
     w_bound = _bind_weights_nested(
         w, A, orders, K, n_events, n_prime, circular,
     )
-    return p_attr_bound, w_bound, specs
+    return p_attr_bound, w_bound, specs_out
 
 
 def _canonicalise_bind_orders(bind_orders, A):

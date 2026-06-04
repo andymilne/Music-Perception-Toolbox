@@ -92,9 +92,7 @@ print("=== 3. bind_events (B) ===")
 # the source r/is_rel/is_sym). A' = A = 2. Trailing-drop alignment gives
 # N' = N - max(L) + 1 = 2.
 bind_orders = [2, 2]
-pB, wB, specB = mpt.bind_events(
-    p_attr, w, bind_orders, [1, 1], is_rel, [True, True],
-)
+pB, wB, specB = mpt.bind_events(p_attr, w, bind_orders)
 
 print(f"  bind_orders = {bind_orders}")
 print(f"  A' = {len(pB)} (each source attribute -> one nested attribute)")
@@ -161,9 +159,9 @@ print("=== 6. B o D == D o B (pipeline commutation) ===")
 # difference is defined.
 #   D then B: difference each attribute (order 1), then bind 2-grams.
 pD1, wD1, sD1 = mpt.difference_events(p_attr, w, [1, 1])
-pDB, wDB, sDB = mpt.bind_events(pD1, wD1, [2, 2], [1, 1], is_rel, [True, True])
+pDB, wDB, sDB = mpt.bind_events(pD1, wD1, [2, 2], specs=sD1)
 #   B then D: bind 2-grams, then difference each nested attribute slot-wise.
-pB1, wB1, sB1 = mpt.bind_events(p_attr, w, [2, 2], [1, 1], is_rel, [True, True])
+pB1, wB1, sB1 = mpt.bind_events(p_attr, w, [2, 2])
 pBD, wBD, sBD = mpt.difference_events(pB1, wB1, [1, 1], specs=sB1)
 
 vals_agree = all(np.allclose(pDB[a], pBD[a], equal_nan=True) for a in range(2))

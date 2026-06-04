@@ -110,7 +110,7 @@ def test_nan_propagates_as_absent_slot():
 
 def test_nested_difference_slotwise_spec_passthrough():
     raw = np.array([[0.0, 2.0, 5.0, 9.0, 14.0]])   # K=1, N=5
-    pb, wb, specs = bind_events([raw], None, 2, [1], [False], [True])  # N'=4
+    pb, wb, specs = bind_events([raw], None, 2)  # N'=4
     pnd, _, snd = difference_events(pb, wb, 1, specs=specs)
     assert pnd[0].shape == (2, 3)                  # (L*K, N'-1)
     assert list(snd[0]["tags"]) == [0, 1]          # spec unchanged
@@ -120,8 +120,7 @@ def test_nested_difference_slotwise_spec_passthrough():
 def test_nested_symmetric_outer_rejected():
     """A bag outer level (sym_outer=1) cannot be differenced."""
     raw = np.array([[0.0, 2.0, 5.0, 9.0, 14.0]])
-    pb, wb, specs = bind_events([raw], None, 2, [1], [False], [True],
-                                sym_outer=True)
+    pb, wb, specs = bind_events([raw], None, 2, sym_outer=True)
     with pytest.raises(ValueError):
         difference_events(pb, wb, 1, specs=specs)
 
@@ -132,8 +131,8 @@ def test_bind_difference_commute_values_and_specs():
     P = np.array([[0.0, 3.0, 7.0, 12.0, 18.0]])    # K=1, N=5
     L = 2
     pD, wD, sD = difference_events([P], None, 1)
-    pDB, wDB, sDB = bind_events(pD, wD, L, [1], [False], [True])
-    pB, wB, sB = bind_events([P], None, L, [1], [False], [True])
+    pDB, wDB, sDB = bind_events(pD, wD, L, specs=sD)
+    pB, wB, sB = bind_events([P], None, L)
     pBD, wBD, sBD = difference_events(pB, wB, 1, specs=sB)
     np.testing.assert_allclose(pDB[0], pBD[0], equal_nan=True)
     for key in ("tags", "r", "sym", "rel"):
@@ -144,9 +143,9 @@ def test_bind_difference_commute_density_identical():
     """The two routes build eval-identical densities."""
     P = np.array([[0.0, 3.0, 7.0, 12.0, 18.0]])
     L = 2
-    pD, wD, _ = difference_events([P], None, 1)
-    pDB, wDB, sDB = bind_events(pD, wD, L, [1], [False], [True])
-    pB, wB, sB = bind_events([P], None, L, [1], [False], [True])
+    pD, wD, sD = difference_events([P], None, 1)
+    pDB, wDB, sDB = bind_events(pD, wD, L, specs=sD)
+    pB, wB, sB = bind_events([P], None, L)
     pBD, wBD, sBD = difference_events(pB, wB, 1, specs=sB)
     d1 = build_exp_tens(pDB, wDB, specs=sDB, sigma=[30.0], is_per=[False],
                         period=[0.0], verbose=False)

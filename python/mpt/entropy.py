@@ -2059,7 +2059,7 @@ def n_tuple_entropy(
 
     # --- Bind n consecutive cyclic step sizes ---
     p_bound, w_bound, specs = bind_events(
-        [diffs_row], None, n, [1], [False], [True], circular=True,
+        [diffs_row], None, n, circular=True,
     )
 
     # --- Resolve sigma per the sigma_space flag ---

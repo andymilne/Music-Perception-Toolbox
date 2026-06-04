@@ -126,9 +126,9 @@ fprintf('=== 5. weightEvents (W) ===\n');
 % event (t = 6) with standard deviation 1 quarter-note and gamma = 0
 % (pure Gaussian). The factor lands back on the time slot itself
 % (target = 2), which is the in-place weighting use case.
-[~, wOut, ~] = weightEvents(pAttr, w, groups,                              2,                              2,                              6,                              0,                              false, 0, 'sd', 1,                              'deleteInput', false);
+[~, wOut, ~] = weightEvents(pAttr, w, 2, 2, 6, 0, 'sd', 1, 'deleteInput', false);
 
-fprintf('  inputAttr = 2 (time); targetAttr = 2; centre = 6; width = 1; shape (gamma) = 0\n');
+fprintf('  inputAttr = 2 (time); targetAttr = 2; centre = 6; sd = 1; shape (gamma) = 0\n');
 fprintf('  wOut{1} (pitch, untouched): [%s]\n', mat2str(wOut{1}));
 fprintf('  wOut{2} (time, windowed):   [%g %g %g]\n', wOut{2});
 fprintf('  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2/2).)\n\n');
@@ -194,11 +194,11 @@ c_pitch  = 67;
 width_w  = 2.0;
 gamma_w  = 0.3;
 pT_path  = translateAttributes(pAttr, w, {mu_pitch, 0});
-[~, wPath1, ~] = weightEvents(pT_path, w, groups,                                1, 1,                                c_pitch, gamma_w,                                false, 0, 'sd', width_w,                                'deleteInput', false);
+[~, wPath1, ~] = weightEvents(pT_path, w, 1, 1, c_pitch, gamma_w, 'sd', width_w, 'deleteInput', false);
 
 % Path 2: W centred at c - mu = 62 BEFORE T (T leaves weights
 % untouched).
-[~, wPath2, ~] = weightEvents(pAttr, w, groups,                                1, 1,                                c_pitch - mu_pitch, gamma_w,                                false, 0, 'sd', width_w,                                'deleteInput', false);
+[~, wPath2, ~] = weightEvents(pAttr, w, 1, 1, c_pitch - mu_pitch, gamma_w, 'sd', width_w, 'deleteInput', false);
 
 fprintf('  T then W (centre c = %g):\n    wPath1{1} = [%g %g %g]\n', c_pitch, wPath1{1});
 fprintf('  W (centre c - mu = %g) before T:\n    wPath2{1} = [%g %g %g]\n', ...

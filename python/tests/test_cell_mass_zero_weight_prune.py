@@ -53,7 +53,7 @@ def test_weight_events_requires_sd_or_width():
     p_attr, w = _trivial_two_attr_inputs()
     with pytest.raises(TypeError, match="exactly one of `sd` or `width`"):
         weight_events(
-            p_attr, w, [0, 1],
+            p_attr, w,
             input_attr=1, target_attr=0,
             centre=0.5, shape=0.0,
             is_per=False, period=0.0,
@@ -66,7 +66,7 @@ def test_weight_events_rejects_both_sd_and_width():
     p_attr, w = _trivial_two_attr_inputs()
     with pytest.raises(TypeError, match="exactly one of `sd` or `width`"):
         weight_events(
-            p_attr, w, [0, 1],
+            p_attr, w,
             input_attr=1, target_attr=0,
             centre=0.5, shape=0.0,
             is_per=False, period=0.0,
@@ -85,14 +85,14 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
 
     # Rectangle (shape = 1)
     _, w_sd, _ = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=1.0,
         is_per=False, period=0.0,
         sd=s, delete_input=True,
     )
     _, w_width, _ = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=1.0,
         is_per=False, period=0.0,
@@ -102,14 +102,14 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
 
     # Gaussian (shape = 0)
     _, w_sd_g, _ = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=0.0,
         is_per=False, period=0.0,
         sd=s, delete_input=True,
     )
     _, w_width_g, _ = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=2.0, shape=0.0,
         is_per=False, period=0.0,
@@ -133,7 +133,7 @@ def test_weight_events_rect_width_is_full_support():
     w = [np.ones((1, n)), np.ones((1, n))]
 
     _, w_out, _ = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=0.0, shape=1.0,
         is_per=False, period=0.0,
@@ -149,7 +149,7 @@ def test_weight_events_sd_rejects_nonpositive():
     for bad in [0.0, -1.0]:
         with pytest.raises(ValueError, match="sd must be finite and > 0"):
             weight_events(
-                p_attr, w, [0, 1],
+                p_attr, w,
                 input_attr=1, target_attr=0,
                 centre=0.5, shape=0.0,
                 is_per=False, period=0.0,
@@ -162,7 +162,7 @@ def test_weight_events_width_rejects_nonpositive():
     for bad in [0.0, -1.0]:
         with pytest.raises(ValueError, match="width must be finite and > 0"):
             weight_events(
-                p_attr, w, [0, 1],
+                p_attr, w,
                 input_attr=1, target_attr=0,
                 centre=0.5, shape=0.0,
                 is_per=False, period=0.0,
@@ -220,7 +220,7 @@ def test_differential_entropy_bounded_after_weight_events_truncation():
     c = float(times[n_events // 2])
 
     p_w, w_w, g_w = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
@@ -257,7 +257,7 @@ def test_differential_entropy_matches_manual_prune():
     c = float(times[n_events // 2])
 
     p_w, w_w, g_w = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
@@ -296,7 +296,7 @@ def test_shannon_grid_matches_manual_prune():
     c = float(times[n_events // 2])
 
     p_w, w_w, g_w = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,

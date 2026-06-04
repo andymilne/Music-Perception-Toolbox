@@ -1,13 +1,12 @@
-function [pAttrOut, wOut, groupsOut] = weightEvents( ...
-    pAttr, w, groups, inputAttr, targetAttr, ...
-    centre, shape, isPer, period, opts)
+function [pAttrOut, wOut, specsOut] = weightEvents( ...
+    pAttr, w, inputAttr, targetAttr, centre, shape, nvArgs)
 %WEIGHTEVENTS Apply a per-event weight via an input-to-target window factor.
 %
-%   [pAttrOut, wOut, groupsOut] = weightEvents(pAttr, w, groups, ...
-%       inputAttr, targetAttr, centre, shape, isPer, period, ...
+%   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
+%       inputAttr, targetAttr, centre, shape, ...
 %       'sd', s,     'deleteInput', tf)
-%   [pAttrOut, wOut, groupsOut] = weightEvents(pAttr, w, groups, ...
-%       inputAttr, targetAttr, centre, shape, isPer, period, ...
+%   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
+%       inputAttr, targetAttr, centre, shape, ...
 %       'width', L,  'deleteInput', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor
 %   input. It reads the K=1 value at every event from inputAttr,
@@ -43,7 +42,7 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %
 %   When deleteInput=true and inputAttr differs from targetAttr, the
 %   input attribute is removed from the returned pAttrOut / wOut /
-%   groupsOut after the factor has been transferred to the target.
+%   specsOut after the factor has been transferred to the target.
 %   This is the canonical windowed-entropy / windowed-mass workflow:
 %   the input attribute provides the scaffolding for the window and
 %   is no longer needed downstream. When deleteInput=false, the input
@@ -67,7 +66,7 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %                  i.e., total support 2*s*sqrt(3) (= 'width' when
 %                  the caller supplied 'width').
 %
-%   For a periodic input group (isPer = true), the difference
+%   For a periodic input attribute (isPer = true), the difference
 %   delta = v - centre is wrapped to [-P/2, P/2] before applying h;
 %   the stored values in pAttr are not modified.
 %
@@ -90,10 +89,6 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %     w            Existing weights. [], scalar, or 1 x A cell of
 %                  scalar/(1, N)/(K_a, N) entries. None / [] means no
 %                  existing weight (factor goes in directly).
-%     groups       Group assignment for the input attributes. [], 1xA
-%                  numeric vector of group indices, or cell-array of
-%                  attribute-index lists per group (canonical-form
-%                  matches buildExpTens).
 %     inputAttr    Scalar integer in [1, A]. The attribute whose K = 1
 %                  value supplies the window argument. Must have K = 1.
 %     targetAttr   Scalar integer in [1, A]. The attribute whose
@@ -101,18 +96,26 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %                  inputAttr.
 %     centre       Scalar finite double. Window centre c.
 %     shape        Scalar double in [0, 1]. Shape parameter gamma.
-%     isPer        Scalar logical. If true, the input attribute is
-%                  periodic — delta is wrapped to [-period/2, period/2]
-%                  before applying h.
-%     period       Scalar positive double (only used when isPer).
 %
 %   Name-Value options:
+%     specs        Carrier specs: [] (synthesise flat via flatSpecs) or
+%                  a 1 x A cell, one spec per attribute. Threaded
+%                  through unchanged except that deleteInput=true drops
+%                  the input attribute's entry. Not otherwise consulted;
+%                  the window is computed from the input attribute's
+%                  values, centre, shape, sd/width, and (for a periodic
+%                  input) isPer/period.
 %     sd           Scalar positive double. Window standard deviation.
 %                  Exactly one of 'sd' or 'width' must be supplied.
 %     width        Scalar positive double. Full support of the
 %                  rectangle at shape = 1; internally translated to
 %                  sd = width / (2 * sqrt(3)). Exactly one of 'sd' or
 %                  'width' must be supplied.
+%     isPer        (1,1) logical, default false. If true, the input
+%                  attribute is periodic — delta is wrapped to
+%                  [-period/2, period/2] before applying h.
+%     period       (1,1) double, default 0. Only used when isPer=true
+%                  (must then be > 0).
 %     deleteInput  (1,1) logical, REQUIRED (no default; the choice is
 %                  destructive enough to be explicit at every call).
 %
@@ -121,7 +124,9 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
 %                  Length A if deleteInput=false, A - 1 otherwise.
 %     wOut         1 x A_out cell of weights. The targetAttr slot (in
 %                  the output indexing) carries the windowed weights.
-%     groupsOut    1 x A_out numeric vector of canonical group indices.
+%     specsOut     1 x A_out cell of carrier specs for the output
+%                  attribute list (the input attribute's spec removed
+%                  when deleteInput=true).
 %
 %   See also BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 %            MPTDEFAULTS.
@@ -129,17 +134,24 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     arguments
         pAttr cell
         w
-        groups
         inputAttr (1,1) double {mustBeInteger, mustBePositive}
         targetAttr (1,1) double {mustBeInteger, mustBePositive}
         centre (1,1) double
         shape (1,1) double
-        isPer (1,1) logical
-        period (1,1) double
-        opts.sd (1,1) double = NaN
-        opts.width (1,1) double = NaN
-        opts.deleteInput (1,1) logical
+        nvArgs.specs = []
+        nvArgs.sd (1,1) double = NaN
+        nvArgs.width (1,1) double = NaN
+        nvArgs.isPer (1,1) logical = false
+        nvArgs.period (1,1) double = 0
+        nvArgs.deleteInput (1,1) logical
     end
+
+    % isPer/period/deleteInput as locals (the rest of the body reads them
+    % by these names). deleteInput has no default: omitting it errors when
+    % the field is accessed, keeping the destructive choice explicit.
+    isPer       = nvArgs.isPer;
+    period      = nvArgs.period;
+    deleteInput = nvArgs.deleteInput;
 
     % --- Normalise pAttr ---
     A = numel(pAttr);
@@ -172,8 +184,16 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
         end
     end
 
-    % --- Canonicalise groups ---
-    groupOfAttr = localCanonicaliseGroups(groups, A);
+    % --- Carrier specs: synthesise flat if absent, else validate length ---
+    if isempty(nvArgs.specs)
+        specsIn = flatSpecs(pAttr);
+    else
+        specsIn = nvArgs.specs;
+        if ~iscell(specsIn) || numel(specsIn) ~= A
+            error('weightEvents:badSpecsLength', ...
+                  'specs must be a length-A (%d) cell, one per attribute.', A);
+        end
+    end
 
     % --- Validate inputAttr ---
     if inputAttr > A
@@ -194,7 +214,6 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     end
 
     % --- Validate deleteInput ---
-    deleteInput = opts.deleteInput;
     if deleteInput && inputAttr == targetAttr
         error('weightEvents:deleteInputIncoherent', ...
               ['deleteInput=true is incoherent when inputAttr == ' ...
@@ -205,30 +224,30 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
     end
 
     % --- Validate sd/width XOR, centre, shape, period ---
-    % Exactly one of opts.sd or opts.width must be supplied
+    % Exactly one of nvArgs.sd or nvArgs.width must be supplied
     % (both default to NaN, so use isnan as the "absent" sentinel).
-    sdSpec    = ~isnan(opts.sd);
-    widthSpec = ~isnan(opts.width);
+    sdSpec    = ~isnan(nvArgs.sd);
+    widthSpec = ~isnan(nvArgs.width);
     if sdSpec == widthSpec
         error('weightEvents:sdWidthXor', ...
               ['weightEvents requires exactly one of ''sd'' or ' ...
                '''width'' (Name-Value). ''sd'' is the window standard ' ...
                'deviation; ''width'' is the full support of the ' ...
                'rectangle at shape=1, equivalent to sd * 2 * sqrt(3). ' ...
-               'Got sd=%g, width=%g.'], opts.sd, opts.width);
+               'Got sd=%g, width=%g.'], nvArgs.sd, nvArgs.width);
     end
     if sdSpec
-        sd = opts.sd;
+        sd = nvArgs.sd;
         if ~isfinite(sd) || sd <= 0
             error('weightEvents:badSd', ...
                   'sd must be finite and > 0; got %g.', sd);
         end
     else
-        if ~isfinite(opts.width) || opts.width <= 0
+        if ~isfinite(nvArgs.width) || nvArgs.width <= 0
             error('weightEvents:badWidth', ...
-                  'width must be finite and > 0; got %g.', opts.width);
+                  'width must be finite and > 0; got %g.', nvArgs.width);
         end
-        sd = opts.width / (2 * sqrt(3));
+        sd = nvArgs.width / (2 * sqrt(3));
     end
     if ~isfinite(centre)
         error('weightEvents:badCentre', ...
@@ -276,19 +295,10 @@ function [pAttrOut, wOut, groupsOut] = weightEvents( ...
         keep = setdiff(1:A, inputAttr);
         pAttrOut = pAttr(keep);
         wOut = wOut(keep);
-        % Compact group numbering: if the input's group becomes empty
-        % (input was its sole member), drop that group index and
-        % decrement higher labels.
-        gInput = groupOfAttr(inputAttr);
-        keptGroups = groupOfAttr(keep);
-        if sum(groupOfAttr == gInput) == 1
-            keptGroups(keptGroups > gInput) = ...
-                keptGroups(keptGroups > gInput) - 1;
-        end
-        groupsOut = keptGroups;
+        specsOut = specsIn(keep);
     else
         pAttrOut = pAttr;
-        groupsOut = groupOfAttr;
+        specsOut = specsIn;
     end
 end
 
@@ -394,61 +404,4 @@ function wNew = localMultiplyWeights(wExisting, factor, K_target)
           ['Existing weight shape [%s] is incompatible with target ' ...
            'shape [%d, %d] (factor is (1, %d)).'], ...
           num2str(size(arr)), K_target, size(factor, 2), size(factor, 2));
-end
-
-
-% =========================================================================
-%  localCanonicaliseGroups
-% =========================================================================
-
-function groupOfAttr = localCanonicaliseGroups(groupsIn, A)
-%LOCALCANONICALISEGROUPS  Canonical 1 x A vector of group indices.
-%
-%   Accepts [] (each attribute its own group), a 1 x A numeric vector
-%   (already canonical, relabelled to contiguous 1..G), or a
-%   cell-array of attribute-index lists (one per group).
-    if isempty(groupsIn)
-        groupOfAttr = 1:A;
-        return;
-    end
-    if isnumeric(groupsIn)
-        gv = double(groupsIn(:).');
-        if numel(gv) ~= A
-            error('weightEvents:badGroupsLength', ...
-                  'groups vector must have length A = %d; got %d.', ...
-                  A, numel(gv));
-        end
-        % Relabel contiguous 1..G in order of first appearance.
-        [~, ~, ic] = unique(gv, 'stable');
-        groupOfAttr = ic(:).';
-        return;
-    end
-    if iscell(groupsIn)
-        G_in = numel(groupsIn);
-        groupOfAttr = zeros(1, A);
-        for g = 1:G_in
-            idx = groupsIn{g};
-            idx = idx(:).';
-            for a = idx
-                if a < 1 || a > A
-                    error('weightEvents:badGroupIdx', ...
-                          ['Group %d references attribute %d, out of ' ...
-                           'range [1, %d].'], g, a, A);
-                end
-                if groupOfAttr(a) ~= 0
-                    error('weightEvents:duplicateGroupAttr', ...
-                          'Attribute %d is listed in more than one group.', a);
-                end
-                groupOfAttr(a) = g;
-            end
-        end
-        if any(groupOfAttr == 0)
-            missing = find(groupOfAttr == 0, 1);
-            error('weightEvents:missingGroupAttr', ...
-                  'Attribute %d is not assigned to any group.', missing);
-        end
-        return;
-    end
-    error('weightEvents:badGroupsType', ...
-          'groups must be [], a numeric vector, or a cell array.');
 end

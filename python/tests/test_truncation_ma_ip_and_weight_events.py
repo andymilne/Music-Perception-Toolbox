@@ -275,7 +275,7 @@ def test_weight_events_default_inf_no_truncation():
     p_attr, w_init, groups, times = _make_we_inputs(N=21)
     mpt.set_default(truncation_sigmas=float('inf'))
     _, w_out, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
         delete_input=True,
     )
@@ -288,7 +288,7 @@ def test_weight_events_truncation_gaussian():
     p_attr, w_init, groups, times = _make_we_inputs(N=21)
     mpt.set_default(truncation_sigmas=3.0)
     _, w_out, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
         delete_input=True,
     )
@@ -314,7 +314,7 @@ def test_weight_events_truncation_rectangle():
     k = 1.0   # truncation cutoff at 1*width, rectangle support at sqrt(3) ~= 1.73*width
     mpt.set_default(truncation_sigmas=k)
     _, w_out, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=1.0, is_per=False, period=0.0,
         delete_input=True,
     )
@@ -332,13 +332,13 @@ def test_weight_events_truncation_general_shape():
     width, gamma, k = 1.0, 0.5, 3.0
     mpt.set_default(truncation_sigmas=float('inf'))
     _, w_ref, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
         delete_input=True,
     )
     mpt.set_default(truncation_sigmas=k)
     _, w_trunc, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=width, shape=gamma, is_per=False, period=0.0,
         delete_input=True,
     )
@@ -363,7 +363,7 @@ def test_weight_events_truncation_periodic_after_wrap():
     groups = [0, 1]
     mpt.set_default(truncation_sigmas=3.0)
     _, w_out, _ = weight_events(
-        p_attr, w_init, groups, input_attr=1, target_attr=0,
+        p_attr, w_init, input_attr=1, target_attr=0,
         centre=0.0, sd=1.0, shape=0.0,
         is_per=True, period=10.0,
         delete_input=True,
@@ -532,7 +532,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     try:
         mpt.set_default(truncation_sigmas=2.0)
         _, w, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -637,7 +637,7 @@ def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
     try:
         mpt.set_default(truncation_sigmas=2.0)
         _, w, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=1,
             centre=5.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,

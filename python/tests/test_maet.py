@@ -872,7 +872,7 @@ class TestMAET:
         """gamma = 0 limit: pure Gaussian with std = width."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
         _, w_out, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=0.0,
             is_per=False, period=0.0,
@@ -888,7 +888,7 @@ class TestMAET:
         """gamma = 1 limit: pure rectangle with half-width = width * sqrt(3)."""
         p = [np.array([[60.0, 62.0, 64.0, 67.0, 72.0]])]
         _, w_out, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=1.0,
             is_per=False, period=0.0,
@@ -905,7 +905,7 @@ class TestMAET:
         p = [np.array([[5.0]])]   # single event at the centre
         for g in [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]:
             _, w_out, _ = mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=5.0, sd=2.0, shape=g,
                 is_per=False, period=0.0,
@@ -924,7 +924,7 @@ class TestMAET:
         width = 4.0
         for g in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]:
             _, w_out, _ = mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=0.0, sd=width, shape=g,
                 is_per=False, period=0.0,
@@ -939,20 +939,22 @@ class TestMAET:
             )
 
     def test_weight_returns_three_tuple(self):
-        """Output is a 3-tuple (p_attr_out, w_out, groups_out)."""
+        """Output is a 3-tuple (p_attr_out, w_out, specs_out)."""
         p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
         out = mpt.weight_events(
-            p, None, [0, 1],
+            p, None,
             input_attr=0, target_attr=0,
             centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=False,
         )
         assert isinstance(out, tuple) and len(out) == 3
-        p_out, w_out, g_out = out
+        p_out, w_out, s_out = out
         assert isinstance(p_out, list) and len(p_out) == 2
         assert isinstance(w_out, list) and len(w_out) == 2
-        assert isinstance(g_out, np.ndarray) and g_out.shape == (2,)
+        # Third element is the carrier specs: one dict per output attribute.
+        assert isinstance(s_out, list) and len(s_out) == 2
+        assert all(isinstance(sp, dict) for sp in s_out)
 
     def test_weight_non_input_attributes_pass_through(self):
         """Attributes that are neither input nor target keep their incoming
@@ -962,7 +964,7 @@ class TestMAET:
              np.array([[100.0, 200.0, 300.0]])]
         w_in = [None, None, 0.5]
         _, w_out, _ = mpt.weight_events(
-            p, w_in, None,
+            p, w_in,
             input_attr=0, target_attr=1,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -977,7 +979,7 @@ class TestMAET:
         p = [np.array([[60.0, 64.0, 67.0]]),    # pitch (target)
              np.array([[0.0, 1.0, 2.0]])]        # time (input)
         _, w_out, _ = mpt.weight_events(
-            p, None, [0, 1],
+            p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
             is_per=False, period=0.0,
@@ -1000,7 +1002,7 @@ class TestMAET:
         # Pre-existing weight on pitch with full (3, 2) shape, all 1s.
         w_in = [np.ones((3, 2)), None]
         _, w_out, _ = mpt.weight_events(
-            p, w_in, [0, 1],
+            p, w_in,
             input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -1018,7 +1020,7 @@ class TestMAET:
         applying the shape function. Values themselves stay raw."""
         p = [np.array([[10.0, 11.0, 0.0, 1.0, 2.0]])]   # raw
         _, w_out, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=0,
             centre=0.0, sd=2.0, shape=0.0,
             is_per=True, period=12.0,
@@ -1033,7 +1035,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0, 3.0]])]
         w_in = 0.5
         _, w_out, _ = mpt.weight_events(
-            p, w_in, None,
+            p, w_in,
             input_attr=0, target_attr=0,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -1052,7 +1054,7 @@ class TestMAET:
         # First call: time-window into pitch; keep input for the next call
         # (which expects all three attributes still present).
         p1, w1, g1 = mpt.weight_events(
-            p, None, [0, 1, 2],
+            p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -1060,7 +1062,7 @@ class TestMAET:
         )
         # Second call: beat-window into pitch.
         _, w2, _ = mpt.weight_events(
-            p1, w1, g1,
+            p1, w1,
             input_attr=2, target_attr=0,
             centre=0.5, sd=0.5, shape=0.0,
             is_per=False, period=0.0,
@@ -1079,7 +1081,7 @@ class TestMAET:
         p = [np.array([[60.0, 64.0, 67.0]]),
              np.array([[0.0, 1.0, 2.0]])]
         p_out, w_out, g_out = mpt.weight_events(
-            p, None, [0, 1],
+            p, None,
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
@@ -1090,39 +1092,52 @@ class TestMAET:
         # The remaining attribute is the original pitch (attr 0).
         np.testing.assert_array_equal(p_out[0], p[0])
 
-    def test_weight_delete_input_group_compaction_when_sole(self):
-        """When the input attribute is the sole member of its group,
-        deleting it removes that group and decrements higher group labels."""
-        # 3 attrs in 3 groups: [0, 1, 2]. Input = attr 1 (sole in group 1).
+    def test_weight_delete_input_index_when_input_after_target(self):
+        """delete_input with input_attr > target_attr: the input attribute's
+        value, weight, and spec are dropped, and the target keeps its output
+        index (nothing before it shifts)."""
+        # 3 attrs; input = attr 1, target = attr 0 (input after target).
         p = [np.array([[1.0, 2.0]]),
              np.array([[3.0, 4.0]]),
              np.array([[5.0, 6.0]])]
-        _, _, g_out = mpt.weight_events(
-            p, None, [0, 1, 2],
+        p_out, w_out, s_out = mpt.weight_events(
+            p, None,
             input_attr=1, target_attr=0,
             centre=3.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=True,
         )
-        # Group 1 (sole member, deleted) is gone; group 2 renumbers to 1.
-        np.testing.assert_array_equal(g_out, np.array([0, 1]))
+        # Input attr 1 removed: originals 0 and 2 remain at output indices 0, 1.
+        assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
+        np.testing.assert_array_equal(p_out[0], p[0])
+        np.testing.assert_array_equal(p_out[1], p[2])
+        # Factor (from input attr 1's values) lands on the target at index 0.
+        factor = np.exp(-((np.array([3.0, 4.0]) - 3.5) ** 2) / 2.0)
+        np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), factor)
 
-    def test_weight_delete_input_group_retained_when_not_sole(self):
-        """When the input attribute's group has other members, that group
-        survives and numbering only loses the input's row."""
-        # 3 attrs in 2 groups: [0, 0, 1]. Input = attr 0 (group 0 also has attr 1).
+    def test_weight_delete_input_index_when_input_before_target(self):
+        """delete_input with input_attr < target_attr: the input attribute is
+        dropped and the target shifts down one output index, carrying the
+        windowed factor with it."""
+        # 3 attrs; input = attr 0, target = attr 2 (input before target).
         p = [np.array([[1.0, 2.0]]),
              np.array([[3.0, 4.0]]),
              np.array([[5.0, 6.0]])]
-        _, _, g_out = mpt.weight_events(
-            p, None, [0, 0, 1],
+        p_out, w_out, s_out = mpt.weight_events(
+            p, None,
             input_attr=0, target_attr=2,
             centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
             delete_input=True,
         )
-        # Group 0 still has attr 1 (now at index 0); attr 2 (group 1) → index 1, group 1.
-        np.testing.assert_array_equal(g_out, np.array([0, 1]))
+        # Input attr 0 removed: originals 1 and 2 remain at output indices 0, 1.
+        assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
+        np.testing.assert_array_equal(p_out[0], p[1])
+        np.testing.assert_array_equal(p_out[1], p[2])
+        # Target (original attr 2) is now at output index 1 and carries the
+        # factor computed from input attr 0's values.
+        factor = np.exp(-((np.array([1.0, 2.0]) - 1.5) ** 2) / 2.0)
+        np.testing.assert_allclose(np.asarray(w_out[1]).ravel(), factor)
 
     def test_weight_delete_input_with_input_eq_target_errors(self):
         """delete_input=True with input_attr == target_attr is incoherent
@@ -1130,7 +1145,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="delete_input"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
@@ -1142,7 +1157,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(TypeError, match="delete_input"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
@@ -1155,7 +1170,7 @@ class TestMAET:
                        [64.0, 65.0]])]   # K = 2
         with pytest.raises(ValueError, match="K = 1"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=62.0, sd=2.0, shape=0.0,
                 is_per=False, period=0.0,
@@ -1167,7 +1182,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="sd"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=0.0, shape=0.5,
                 is_per=False, period=0.0,
@@ -1178,7 +1193,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="sd"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=-1.0, shape=0.5,
                 is_per=False, period=0.0,
@@ -1190,7 +1205,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="shape"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=1.5,
                 is_per=False, period=0.0,
@@ -1198,7 +1213,7 @@ class TestMAET:
             )
         with pytest.raises(ValueError, match="shape"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=-0.1,
                 is_per=False, period=0.0,
@@ -1209,7 +1224,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="input_attr"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=2, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
@@ -1220,7 +1235,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="target_attr"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=3,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
@@ -1231,7 +1246,7 @@ class TestMAET:
         p = [np.array([[1.0, 2.0]])]
         with pytest.raises(ValueError, match="period"):
             mpt.weight_events(
-                p, None, None,
+                p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=True, period=0.0,
@@ -1246,18 +1261,16 @@ class TestMAET:
         c = 64.0
         width = 3.0
         gamma = 0.3   # intermediate (non-trivial convolution)
-        p_t = mpt.translate_attributes(
-            p, [0], {0: mu}, [False], [False], [0.0],
-        )
+        p_t, _, _ = mpt.translate_attributes(p, None, [mu])
         _, w_after_t, _ = mpt.weight_events(
-            p_t, None, None,
+            p_t, None,
             input_attr=0, target_attr=0,
             centre=c, sd=width, shape=gamma,
             is_per=False, period=0.0,
             delete_input=False,
         )
         _, w_first, _ = mpt.weight_events(
-            p, None, None,
+            p, None,
             input_attr=0, target_attr=0,
             centre=c - mu, sd=width, shape=gamma,
             is_per=False, period=0.0,
@@ -1267,884 +1280,11 @@ class TestMAET:
             np.asarray(w_first[0]), np.asarray(w_after_t[0]),
         )
 
-    # --- translate_attributes ------------------------------------------
-
-    def test_translate_zero_is_identity(self):
-        """Translating by zero returns an unchanged copy of every
-        attribute matrix."""
-        p = [np.array([[60.0, 62.0, 64.0]]),
-             np.array([[0.0, 1.0, 2.0]])]
-        groups = [0, 1]
-        out = mpt.translate_attributes(
-            p, groups, {0: 0.0, 1: 0.0},
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        for a in range(2):
-            np.testing.assert_array_equal(out[a], p[a])
-
-    def test_translate_empty_offsets_is_identity(self):
-        """Empty offsets dict returns a copy of every attribute matrix."""
-        p = [np.array([[60.0, 62.0, 64.0]])]
-        out = mpt.translate_attributes(p, [0], {}, [False], [False], [0.0])
-        np.testing.assert_array_equal(out[0], p[0])
-        # Result must be a copy, not the same object.
-        assert out[0] is not p[0]
-
-    def test_translate_does_not_mutate_input(self):
-        """The input attribute matrices are not modified in place."""
-        p_orig = np.array([[60.0, 62.0, 64.0]])
-        p = [p_orig.copy()]
-        _ = mpt.translate_attributes(
-            p, [0], {0: 5.0}, [False], [False], [0.0],
-        )
-        np.testing.assert_array_equal(p[0], p_orig)
-
-    def test_translate_nonperiodic_absolute(self):
-        """Non-periodic absolute shift adds mu to every value."""
-        p = [np.array([[60.0, 62.0, 64.0]])]
-        out = mpt.translate_attributes(
-            p, [0], {0: 5.0}, [False], [False], [0.0],
-        )
-        expected = np.array([[65.0, 67.0, 69.0]])
-        np.testing.assert_allclose(out[0], expected)
-
-    def test_translate_periodic_does_not_wrap(self):
-        """Translation outputs unwrapped values, even on periodic
-        groups; the periodic kernel in build_exp_tens handles wrapping
-        downstream."""
-        p = [np.array([[10.0, 11.0, 0.0]])]
-        out = mpt.translate_attributes(
-            p, [0], {0: 3.0}, [False], [True], [12.0],
-        )
-        expected = np.array([[13.0, 14.0, 3.0]])
-        np.testing.assert_allclose(out[0], expected)
-
-    def test_translate_periodic_negative_mu_does_not_wrap(self):
-        """Negative offsets on periodic groups stay unwrapped."""
-        p = [np.array([[1.0, 2.0]])]
-        out = mpt.translate_attributes(
-            p, [0], {0: -3.0}, [False], [True], [12.0],
-        )
-        expected = np.array([[-2.0, -1.0]])
-        np.testing.assert_allclose(out[0], expected)
-
-    def test_translate_period_ignored_when_is_per_false(self):
-        """A finite periods entry is ignored when is_per is False —
-        matches build_exp_tens convention, where periods may be
-        declared as the natural period of a group's domain even when
-        the group is being treated non-periodically for a particular
-        analysis."""
-        p = [np.array([[10.0, 11.0]])]
-        out = mpt.translate_attributes(
-            p, [0], {0: 5.0}, [False], [False], [12.0],
-        )
-        # Non-periodic: no wrap, values become 15, 16.
-        expected = np.array([[15.0, 16.0]])
-        np.testing.assert_allclose(out[0], expected)
-
-    def test_translate_k_a_greater_than_one(self):
-        """Multi-slot attribute (K_a > 1) shifts every slot's every
-        value by the same mu (unlike windowing, where per-event scalar
-        weights are not available when K_a > 1)."""
-        p = [np.array([[60.0, 64.0, 67.0],
-                       [63.0, 67.0, 70.0]])]
-        out = mpt.translate_attributes(
-            p, [0], {0: 5.0}, [False], [False], [0.0],
-        )
-        expected = np.array([[65.0, 69.0, 72.0],
-                             [68.0, 72.0, 75.0]])
-        np.testing.assert_allclose(out[0], expected)
-
-    def test_translate_relative_emits_warning_and_no_op(self):
-        """Translating a relative group emits TranslateAttributesNoOpWarning
-        and leaves the group unchanged."""
-        p = [np.array([[60.0, 64.0, 67.0]])]
-        with pytest.warns(mpt.TranslateAttributesNoOpWarning):
-            out = mpt.translate_attributes(
-                p, [0], {0: 5.0}, [True], [False], [0.0],
-            )
-        np.testing.assert_array_equal(out[0], p[0])
-
-    def test_translate_skips_groups_not_in_offsets(self):
-        """Groups absent from the offsets dict are left unchanged."""
-        p = [np.array([[60.0, 64.0]]),       # group 0 (pitch)
-             np.array([[0.0, 1.0]])]         # group 1 (time)
-        out = mpt.translate_attributes(
-            p, [0, 1], {0: 5.0},
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
-        np.testing.assert_array_equal(out[1], p[1])
-
-    def test_translate_multi_group_simultaneous(self):
-        """Translating multiple groups at once shifts each
-        independently by its own mu."""
-        p = [np.array([[60.0, 64.0]]),
-             np.array([[0.0, 1.0]])]
-        out = mpt.translate_attributes(
-            p, [0, 1], {0: 5.0, 1: 0.5},
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[1], [[0.5, 1.5]])
-
-    def test_translate_multi_attribute_shared_group(self):
-        """Multiple attributes sharing one group all shift by the
-        same mu in one call."""
-        p = [np.array([[60.0, 64.0]]),       # voice 1
-             np.array([[67.0, 71.0]])]       # voice 2 -- same group
-        groups = [0, 0]
-        out = mpt.translate_attributes(
-            p, groups, {0: 5.0}, [False], [False], [0.0],
-        )
-        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
-
-    def test_translate_composition(self):
-        """translate(translate(p, mu), nu) == translate(p, mu + nu)
-        on non-periodic groups."""
-        p = [np.array([[60.0, 62.0, 64.0]])]
-        once = mpt.translate_attributes(
-            p, [0], {0: 5.0}, [False], [False], [0.0],
-        )
-        twice = mpt.translate_attributes(
-            once, [0], {0: 3.0}, [False], [False], [0.0],
-        )
-        direct = mpt.translate_attributes(
-            p, [0], {0: 8.0}, [False], [False], [0.0],
-        )
-        np.testing.assert_allclose(twice[0], direct[0])
-
-    def test_translate_composition_periodic(self):
-        """Composition is plain addition on periodic groups; values
-        stay unwrapped (the periodic kernel handles wrap downstream)."""
-        p = [np.array([[10.0, 11.0]])]
-        once = mpt.translate_attributes(
-            p, [0], {0: 7.0}, [False], [True], [12.0],
-        )
-        twice = mpt.translate_attributes(
-            once, [0], {0: 9.0}, [False], [True], [12.0],
-        )
-        # 10 + 7 + 9 = 26;  11 + 7 + 9 = 27.  No wrap.
-        np.testing.assert_allclose(twice[0], [[26.0, 27.0]])
-
-    def test_translate_self_ip_invariance(self):
-        """<f^mu, f^mu> = <f, f> for non-periodic absolute groups
-        (translation preserves the un-normalised inner product)."""
-        p = [np.array([[60.0, 64.0, 67.0]])]
-        groups = [0]
-        sigma, r = [0.15], [1]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        M = mpt.build_exp_tens(
-            p, None, sigma, r, is_rel, is_per, periods,
-            verbose=False,
-        )
-        for mu in (-3.0, 1.5, 7.0):
-            p_mu = mpt.translate_attributes(
-                p, groups, {0: mu}, is_rel, is_per, periods,
-            )
-            M_mu = mpt.build_exp_tens(
-                p_mu, None, sigma, r, is_rel, is_per, periods,
-                verbose=False,
-            )
-            ip_self = mpt.cos_sim_exp_tens(M, M, verbose=False)
-            ip_mu_self = mpt.cos_sim_exp_tens(M_mu, M_mu, verbose=False)
-            np.testing.assert_allclose(ip_mu_self, ip_self, rtol=1e-12)
-
-    def test_translate_self_ip_invariance_periodic(self):
-        """Self-IP is also invariant under translation on periodic
-        groups (periodic kernel commutes with rigid shifts)."""
-        p = [np.array([[0.0, 4.0, 7.0]])]
-        groups = [0]
-        sigma, r = [0.15], [1]
-        is_rel, is_per, periods = [False], [True], [12.0]
-        M = mpt.build_exp_tens(
-            p, None, sigma, r, is_rel, is_per, periods,
-            verbose=False,
-        )
-        for mu in (-7.0, 1.5, 6.0, 15.0):
-            p_mu = mpt.translate_attributes(
-                p, groups, {0: mu}, is_rel, is_per, periods,
-            )
-            M_mu = mpt.build_exp_tens(
-                p_mu, None, sigma, r, is_rel, is_per, periods,
-                verbose=False,
-            )
-            np.testing.assert_allclose(
-                mpt.cos_sim_exp_tens(M_mu, M_mu, verbose=False),
-                mpt.cos_sim_exp_tens(M, M, verbose=False),
-                rtol=1e-12,
-            )
-
-    def test_translate_recovers_transposition_peak(self):
-        """The cos-sim sweep over mu peaks at the true transposition
-        offset, with peak value 1 (within numerical tolerance)."""
-        # C major triad as query; D major triad (= +2 st) as context.
-        p_q = [np.array([[60.0, 64.0, 67.0]])]
-        p_c = [np.array([[62.0, 66.0, 69.0]])]
-        groups = [0]
-        sigma, r = [0.15], [1]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        M_q = mpt.build_exp_tens(
-            p_q, None, sigma, r, is_rel, is_per, periods,
-            verbose=False,
-        )
-        best_mu, best_s = None, -np.inf
-        for mu in np.arange(-12.0, 12.01, 0.25):
-            p_c_mu = mpt.translate_attributes(
-                p_c, groups, {0: mu}, is_rel, is_per, periods,
-            )
-            M_c_mu = mpt.build_exp_tens(
-                p_c_mu, None, sigma, r, is_rel, is_per, periods,
-                verbose=False,
-            )
-            s = mpt.cos_sim_exp_tens(M_q, M_c_mu, verbose=False)
-            if s > best_s:
-                best_s, best_mu = s, mu
-        assert abs(best_mu - (-2.0)) < 0.01
-        assert best_s > 1.0 - 1e-9
-
-    def test_translate_bad_group_index_raises(self):
-        """Group indices outside [0, G) raise ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="group index"):
-            mpt.translate_attributes(
-                p, [0], {5: 1.0}, [False], [False], [0.0],
-            )
-
-    def test_translate_non_finite_offset_raises(self):
-        """A non-finite offset (NaN or inf) raises ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="must be finite"):
-            mpt.translate_attributes(
-                p, [0], {0: float("nan")},
-                [False], [False], [0.0],
-            )
-        with pytest.raises(ValueError, match="must be finite"):
-            mpt.translate_attributes(
-                p, [0], {0: float("inf")},
-                [False], [False], [0.0],
-            )
-
-    def test_translate_wrong_length_is_rel_raises(self):
-        """is_rel of wrong length raises ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="is_rel"):
-            mpt.translate_attributes(
-                p, [0], {0: 1.0},
-                [False, False], [False], [0.0],
-            )
-
-    def test_translate_wrong_length_is_per_raises(self):
-        """is_per of wrong length raises ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="is_per"):
-            mpt.translate_attributes(
-                p, [0], {0: 1.0},
-                [False], [False, False], [0.0],
-            )
-
-    def test_translate_wrong_length_periods_raises(self):
-        """periods of wrong length raises ValueError."""
-        p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="periods"):
-            mpt.translate_attributes(
-                p, [0], {0: 1.0},
-                [False], [False], [0.0, 12.0],
-            )
-
-    def test_translate_non_dict_offsets_raises(self):
-        """Invalid numeric-form offsets shapes raise ValueError. Under
-        the orientation grammar (rows = attributes, columns = sweep),
-        only ndim > 2 and 2-D shapes whose row count is neither 1 nor
-        A are rejected; scalar and 1-D inputs are valid (broadcast)."""
-        p = [np.array([[1.0, 2.0]]), np.array([[3.0, 4.0]])]
-        # 3-D array is never valid.
-        with pytest.raises(ValueError, match="ndim"):
-            mpt.translate_attributes(
-                p, [0, 1], np.zeros((2, 3, 1)),
-                [False, False], [False, False], [0.0, 0.0],
-            )
-        # 2-D array with row count neither 1 nor A.
-        # A = 2 here, row count 3 is invalid.
-        with pytest.raises(ValueError, match="row count"):
-            mpt.translate_attributes(
-                p, [0, 1], np.zeros((3, 5)),
-                [False, False], [False, False], [0.0, 0.0],
-            )
-
-    # --- translate_attributes numeric G-form (per-group, broadcast) ----------
-
-    def test_translate_numeric_g_column_per_group(self):
-        """A (G, 1) column gives each group its own offset, broadcast
-        within group. Returns matrix-mode (length-1 outer list),
-        consistent with (A, 1)."""
-        # Three attributes; two in group 0, one in group 1. A=3, G=2.
-        p = [np.array([[60.0, 64.0]]),     # group 0
-             np.array([[67.0, 71.0]]),     # group 0
-             np.array([[0.0, 1.0]])]       # group 1
-        groups = [0, 0, 1]
-        # G-vector: group 0 offsets by 5, group 1 by -2.
-        offsets = np.array([[5.0], [-2.0]])  # (G=2, 1)
-        out = mpt.translate_attributes(
-            p, groups, offsets,
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        # Matrix mode: out is a length-1 list of length-A lists.
-        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
-        np.testing.assert_allclose(out[0][2], [[-2.0, -1.0]])
-
-    def test_translate_numeric_g_matrix_per_group_sweep(self):
-        """A (G, M) matrix gives each group its own M-position sweep,
-        broadcast within group."""
-        p = [np.array([[60.0, 64.0]]),     # group 0
-             np.array([[67.0, 71.0]]),     # group 0
-             np.array([[0.0, 1.0]])]       # group 1
-        groups = [0, 0, 1]
-        # G x M: group 0 sweeps (5, 7); group 1 sweeps (-2, 0).
-        offsets = np.array([[5.0, 7.0], [-2.0, 0.0]])
-        out = mpt.translate_attributes(
-            p, groups, offsets,
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        # Sweep returns list of M length-A lists.
-        assert len(out) == 2
-        # m=0: group 0 by +5, group 1 by -2
-        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
-        np.testing.assert_allclose(out[0][2], [[-2.0, -1.0]])
-        # m=1: group 0 by +7, group 1 by 0
-        np.testing.assert_allclose(out[1][0], [[67.0, 71.0]])
-        np.testing.assert_allclose(out[1][1], [[74.0, 78.0]])
-        np.testing.assert_allclose(out[1][2], [[0.0, 1.0]])
-
-    def test_translate_numeric_g_equals_a_takes_per_attribute(self):
-        """When A == G (every attribute its own group), the shape
-        (A, M) = (G, M) is ambiguous; per-attribute interpretation
-        applies. The two readings give identical output anyway."""
-        p = [np.array([[60.0]]), np.array([[0.0]])]
-        groups = [0, 1]   # A = G = 2
-        offsets = np.array([[5.0], [-2.0]])  # could be A-form or G-form
-        out = mpt.translate_attributes(
-            p, groups, offsets,
-            [False, False], [False, False], [0.0, 0.0],
-        )
-        # Should treat as per-attribute (which equals per-group here).
-        np.testing.assert_allclose(out[0][0], [[65.0]])
-        np.testing.assert_allclose(out[0][1], [[-2.0]])
-
-    # --- translate_attributes polymorphic dict (per-attribute) --------------
-
-    def test_translate_dict_scalar_broadcasts_within_group(self):
-        """Dict scalar value broadcasts across every attribute in
-        the group (no sweep)."""
-        # Two attributes in one group; one scalar offset applies to both.
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]   # both attributes in group 0
-        is_rel, is_per, periods = [False], [False], [0.0]
-        out = mpt.translate_attributes(
-            p, groups, {0: 5.0}, is_rel, is_per, periods,
-        )
-        np.testing.assert_allclose(out[0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[1], [[72.0, 76.0]])
-
-    def test_translate_dict_2d_n_gx1_per_attribute(self):
-        """Dict 2-D (n_g, 1) column gives each attribute its own
-        offset within the group (single translation, per-attribute).
-        Returns a matrix-mode output (length-1 outer wrapper) because
-        the 2-D shape was explicit."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]   # both attributes in group 0
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # attr 0 shifts by 5, attr 1 by -3, single translation.
-        out = mpt.translate_attributes(
-            p, groups, {0: np.array([[5.0], [-3.0]])},
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 1
-        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[0][1], [[64.0, 68.0]])
-
-    def test_translate_dict_2d_per_attr_equivalent_to_scalar_when_uniform(self):
-        """A 2-D (n_g, 1) dict value of all-equal entries gives the
-        same translated values as the matching scalar broadcast."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        out_scalar = mpt.translate_attributes(
-            p, groups, {0: 5.0}, is_rel, is_per, periods,
-        )
-        out_col = mpt.translate_attributes(
-            p, groups, {0: np.array([[5.0], [5.0]])},
-            is_rel, is_per, periods,
-        )
-        # scalar form is vector-mode; column form is matrix-mode
-        # (length-1 outer wrapper). Compare the underlying arrays.
-        np.testing.assert_allclose(out_scalar[0], out_col[0][0])
-        np.testing.assert_allclose(out_scalar[1], out_col[0][1])
-
-    def test_translate_dict_1d_length_ng_is_broadcast_sweep(self):
-        """A 1-D length-n_g value is a broadcast sweep with M = n_g
-        positions (not a per-attribute single translation). Under
-        the orientation convention, 1-D is always a row vector."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # 1-D length-2 is broadcast across both attributes, M=2 sweep.
-        out = mpt.translate_attributes(
-            p, groups, {0: np.array([5.0, -3.0])},
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 2
-        # col 0: both attributes shift by 5.
-        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[0][1], [[72.0, 76.0]])
-        # col 1: both attributes shift by -3.
-        np.testing.assert_allclose(out[1][0], [[57.0, 61.0]])
-        np.testing.assert_allclose(out[1][1], [[64.0, 68.0]])
-
-    def test_translate_dict_2d_1xM_broadcast_sweep(self):
-        """Dict 2-D (1, M) value: broadcast within group, sweep with
-        M positions."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # M = 3 sweep, broadcast within group: every position shifts both
-        # attributes by the same offset.
-        out = mpt.translate_attributes(
-            p, groups, {0: np.array([[0.0, 5.0, 10.0]])},
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 3
-        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
-        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
-        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
-        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
-
-    def test_translate_dict_2d_per_attribute_sweep(self):
-        """Dict 2-D (n_g, M) value: per-attribute sweep with M
-        positions; each attribute gets its own sweep grid."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # attr 0 sweeps [0, 5, 10]; attr 1 sweeps [1, 2, 3].
-        offs = np.array([[0.0, 5.0, 10.0],
-                         [1.0, 2.0, 3.0]])
-        out = mpt.translate_attributes(
-            p, groups, {0: offs}, is_rel, is_per, periods,
-        )
-        assert len(out) == 3
-        # col 0: attr 0 by 0, attr 1 by 1.
-        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
-        np.testing.assert_allclose(out[0][1], [[68.0, 72.0]])
-        # col 2: attr 0 by 10, attr 1 by 3.
-        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
-        np.testing.assert_allclose(out[2][1], [[70.0, 74.0]])
-
-    def test_translate_dict_2d_wrong_rows_raises(self):
-        """2-D dict value with row count != 1 and != n_g raises."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        with pytest.raises(ValueError, match="row count"):
-            mpt.translate_attributes(
-                p, groups, {0: np.zeros((3, 4))},
-                is_rel, is_per, periods,
-            )
-
-    def test_translate_dict_M_disagreement_raises(self):
-        """Two 2-D dict entries with different M dimensions raise."""
-        p_g0 = np.array([[60.0, 64.0]])
-        p_g1 = np.array([[0.0, 1.0]])
-        groups = [0, 1]
-        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
-        with pytest.raises(ValueError, match="sweep dimension"):
-            mpt.translate_attributes(
-                [p_g0, p_g1], groups,
-                {0: np.array([[1.0, 2.0, 3.0]]),
-                 1: np.array([[10.0, 20.0]])},
-                is_rel, is_per, periods,
-            )
-
-    def test_translate_dict_mixed_scalar_and_swept(self):
-        """A scalar dict value broadcasts across the sweep when
-        another entry establishes M; the scalar group gets the same
-        offset at every sweep position."""
-        p_g0 = np.array([[60.0, 64.0]])
-        p_g1 = np.array([[0.0, 1.0]])
-        groups = [0, 1]
-        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
-        out = mpt.translate_attributes(
-            [p_g0, p_g1], groups,
-            {0: 100.0, 1: np.array([[0.0, 0.5, 1.0]])},
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 3   # matrix mode triggered by group 1's 2-D entry
-        for m in range(3):
-            np.testing.assert_allclose(out[m][0], [[160.0, 164.0]])
-        np.testing.assert_allclose(out[0][1], [[0.0, 1.0]])
-        np.testing.assert_allclose(out[1][1], [[0.5, 1.5]])
-        np.testing.assert_allclose(out[2][1], [[1.0, 2.0]])
-
-    def test_translate_dict_per_attribute_nan_skips_attribute(self):
-        """A NaN entry in a 2-D (n_g, 1) per-attribute column skips
-        that attribute."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # attr 0 translated by 5, attr 1 untouched.
-        out = mpt.translate_attributes(
-            p, groups, {0: np.array([[5.0], [float("nan")]])},
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 1
-        np.testing.assert_allclose(out[0][0], [[65.0, 69.0]])
-        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
-
-    def test_translate_dict_relative_group_per_attribute_warns(self):
-        """Per-attribute offsets on a relative group still trigger
-        the one-per-call no-op warning and pass through unchanged."""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [True], [False], [0.0]
-        with pytest.warns(mpt.TranslateAttributesNoOpWarning):
-            out = mpt.translate_attributes(
-                p, groups, {0: np.array([[5.0], [-3.0]])},
-                is_rel, is_per, periods,
-            )
-        assert len(out) == 1
-        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
-        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
-
-    def test_translate_top_level_AxM_per_attribute_sweep(self):
-        """Top-level (A, M) numeric matrix sweeps each attribute on
-        its own row, independent of group structure. A multi-attribute
-        group's attributes can therefore receive distinct sweep grids
-        without using the dict form."""
-        # Single group with two attributes (n_g = 2 = A).
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # A = 2, M = 3. Row 0 sweeps attr 0; row 1 sweeps attr 1.
-        offs = np.array([[0.0, 5.0, 10.0],
-                         [1.0, 2.0, 3.0]])
-        out = mpt.translate_attributes(
-            p, groups, offs, is_rel, is_per, periods,
-        )
-        assert len(out) == 3
-        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
-        np.testing.assert_allclose(out[0][1], [[68.0, 72.0]])
-        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
-        np.testing.assert_allclose(out[2][1], [[70.0, 74.0]])
-
-    def test_translate_top_level_1xM_broadcast_sweep(self):
-        """Top-level (1, M) numeric row broadcasts the sweep across
-        every attribute, regardless of group structure."""
-        # Two groups, three attributes total.
-        p = [np.array([[60.0, 64.0]]),
-             np.array([[67.0, 71.0]]),
-             np.array([[0.0, 1.0]])]
-        groups = [[0, 1], [2]]
-        is_rel, is_per, periods = [False, False], [False, False], [0.0, 0.0]
-        offs = np.array([[0.0, 5.0, 10.0]])   # (1, 3) row vector
-        out = mpt.translate_attributes(
-            p, groups, offs, is_rel, is_per, periods,
-        )
-        assert len(out) == 3
-        # col 2: every attribute shifted by 10.
-        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
-        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
-        np.testing.assert_allclose(out[2][2], [[10.0, 11.0]])
-
-    def test_translate_top_level_1D_is_broadcast_sweep(self):
-        """A 1-D length-M array at the top level is interpreted as a
-        (1, M) row vector under the orientation grammar: broadcast
-        across all attributes, M-position sweep. (Per-attribute
-        single translation requires 2-D (A, 1) shape.)"""
-        p = [np.array([[60.0, 64.0]]), np.array([[67.0, 71.0]])]
-        groups = [[0, 1]]
-        is_rel, is_per, periods = [False], [False], [0.0]
-        # 1-D length-3: broadcast sweep with M=3.
-        out = mpt.translate_attributes(
-            p, groups, np.array([0.0, 5.0, 10.0]),
-            is_rel, is_per, periods,
-        )
-        assert len(out) == 3
-        np.testing.assert_allclose(out[0][0], [[60.0, 64.0]])
-        np.testing.assert_allclose(out[0][1], [[67.0, 71.0]])
-        np.testing.assert_allclose(out[2][0], [[70.0, 74.0]])
-        np.testing.assert_allclose(out[2][1], [[77.0, 81.0]])
-
-    # --- translate_attributes matrix form (sweep) ----------------------------
-        """Matrix offsets of shape (G, M) return a length-M list of
-        length-A lists. M = 1 still keeps the outer wrapper."""
-        p = [np.array([[60.0, 64.0, 67.0]])]
-        groups, is_rel, is_per, periods = [0], [False], [False], [0.0]
-        offs = np.array([[0.0, 100.0, 200.0]])  # (G=1, M=3)
-        out = mpt.translate_attributes(p, groups, offs, is_rel, is_per, periods)
-        assert isinstance(out, list) and len(out) == 3
-        for col in out:
-            assert isinstance(col, list) and len(col) == 1
-            assert col[0].shape == (1, 3)
-        # M = 1 case: outer wrapper retained.
-        offs_one = np.array([[50.0]])
-        out_one = mpt.translate_attributes(p, groups, offs_one, is_rel, is_per, periods)
-        assert isinstance(out_one, list) and len(out_one) == 1
-        assert isinstance(out_one[0], list) and len(out_one[0]) == 1
-
-    def test_translate_matrix_per_column_equivalence(self):
-        """Each column of an (A, M) per-attribute matrix gives the
-        same translated values as a single per-attribute call with
-        the corresponding (A, 1) column."""
-        p = [np.array([[60.0, 64., 67.]]), np.array([[0., 1., 2.]])]
-        # A = 2 here (two singleton groups), so (A, M) is the
-        # per-attribute matrix form under the orientation grammar.
-        groups, is_rel, is_per = [0, 1], [False, False], [True, False]
-        periods = [1200.0, 0.0]
-        offs_mat = np.array([
-            [0.0,   100.0, 200.0,   -50.0],
-            [0.0,   0.5,   1.0,     -0.25],
-        ])
-        sweep = mpt.translate_attributes(
-            p, groups, offs_mat, is_rel, is_per, periods,
-        )
-        for m in range(offs_mat.shape[1]):
-            # (A, 1) column → per-attribute single translation
-            # (matrix-mode output, length-1 outer wrapper).
-            one = mpt.translate_attributes(
-                p, groups, offs_mat[:, m:m+1], is_rel, is_per, periods,
-            )
-            for a in range(2):
-                np.testing.assert_allclose(sweep[m][a], one[0][a])
-
-    def test_translate_matrix_nan_per_column(self):
-        """NaN entries in matrix offsets skip translation on that
-        column's group, even when other columns translate the same
-        group."""
-        p = [np.array([[60.0, 64.0]]), np.array([[0.0, 1.0]])]
-        groups, is_rel, is_per = [0, 1], [False, False], [False, False]
-        periods = [0.0, 0.0]
-        offs_mat = np.array([
-            [10.0, np.nan, 30.0],
-            [np.nan, 5.0,  np.nan],
-        ])
-        out = mpt.translate_attributes(p, groups, offs_mat,
-                                   is_rel, is_per, periods)
-        # col 0: group 0 by +10, group 1 untouched
-        np.testing.assert_allclose(out[0][0], np.array([[70.0, 74.0]]))
-        np.testing.assert_allclose(out[0][1], np.array([[0.0, 1.0]]))
-        # col 1: group 0 untouched, group 1 by +5
-        np.testing.assert_allclose(out[1][0], np.array([[60.0, 64.0]]))
-        np.testing.assert_allclose(out[1][1], np.array([[5.0, 6.0]]))
-        # col 2: group 0 by +30, group 1 untouched
-        np.testing.assert_allclose(out[2][0], np.array([[90.0, 94.0]]))
-        np.testing.assert_allclose(out[2][1], np.array([[0.0, 1.0]]))
-
-    def test_translate_matrix_periodic_does_not_wrap(self):
-        """Matrix form on a periodic group leaves values unwrapped
-        per column; the periodic kernel handles wrap downstream."""
-        p = [np.array([[10.0, 1190.0]])]
-        groups, is_rel, is_per = [0], [False], [True]
-        periods = [1200.0]
-        offs_mat = np.array([[100.0, 1100.0]])
-        out = mpt.translate_attributes(p, groups, offs_mat,
-                                   is_rel, is_per, periods)
-        # col 0: 10 + 100 = 110; 1190 + 100 = 1290 (unwrapped)
-        np.testing.assert_allclose(out[0][0], np.array([[110.0, 1290.0]]))
-        # col 1: 10 + 1100 = 1110; 1190 + 1100 = 2290 (unwrapped)
-        np.testing.assert_allclose(out[1][0], np.array([[1110.0, 2290.0]]))
-
-    def test_translate_matrix_relative_warns_once(self):
-        """A relative group with any finite offset across columns
-        triggers exactly one warning, not one per column."""
-        p = [np.array([[60.0, 64.0, 67.0]]),
-             np.array([[0.0, 1.0, 2.0]])]
-        groups = [0, 1]
-        is_rel = [True, False]
-        is_per = [False, False]
-        periods = [0.0, 0.0]
-        offs_mat = np.array([
-            [10.0, 20.0, 30.0],   # relative group: every column finite
-            [0.0,  0.5,  1.0],
-        ])
-        with warnings.catch_warnings(record=True) as w_list:
-            warnings.simplefilter("always")
-            out = mpt.translate_attributes(
-                p, groups, offs_mat, is_rel, is_per, periods,
-            )
-        rel_warnings = [w for w in w_list
-                        if "is_rel=True" in str(w.message)]
-        assert len(rel_warnings) == 1
-        # Relative group passes through unchanged on every column.
-        for col in out:
-            np.testing.assert_allclose(col[0], p[0])
-        # Absolute group is translated normally per column.
-        for m, mu in enumerate([0.0, 0.5, 1.0]):
-            np.testing.assert_allclose(out[m][1], p[1] + mu)
-
-    def test_translate_matrix_dict_and_array_vector_parity(self):
-        """The three vector-form inputs (dict, 1-D ndarray, single
-        column of a 2-D ndarray) give identical results."""
-        p = [np.array([[60.0, 64.0, 67.0]])]
-        groups, is_rel, is_per, periods = [0], [False], [False], [0.0]
-        r_dict = mpt.translate_attributes(p, groups, {0: 100.0},
-                                      is_rel, is_per, periods)
-        r_vec  = mpt.translate_attributes(p, groups, np.array([100.0]),
-                                      is_rel, is_per, periods)
-        r_mat  = mpt.translate_attributes(p, groups, np.array([[100.0]]),
-                                      is_rel, is_per, periods)
-        np.testing.assert_allclose(r_dict[0], r_vec[0])
-        np.testing.assert_allclose(r_mat[0][0], r_vec[0])
-
-    # --- cos_sim_exp_tens raw-MA list mode --------------------------------
-
-    def _ma_inputs(self):
-        """Common 2-attribute (pitch, time) inputs used by raw-MA tests."""
-        ref_pAttr = [
-            np.array([[60., 62., 64., 65., 67., 69., 71.]]) * 100.0,
-            np.array([[0., 1., 2., 3., 4., 5., 6.]]),
-        ]
-        qry_pAttr = [
-            np.array([[60., 64., 67.]]) * 100.0,
-            np.array([[0., 1., 2.]]),
-        ]
-        params = dict(
-            sigma=[50., 0.3], r=[1, 1], groups=[0, 1],
-            is_rel=[False, False], is_per=[True, False],
-            periods=[1200., 0.],
-        )
-        return ref_pAttr, qry_pAttr, params
-
-    def test_raw_ma_list_scalar_dispatch_unchanged(self):
-        """A single MA p_attr on each side still scalar-dispatches."""
-        ref_pAttr, qry_pAttr, p = self._ma_inputs()
-        s = mpt.cos_sim_exp_tens(
-            ref_pAttr, None, qry_pAttr, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        assert np.isscalar(s) or (isinstance(s, np.ndarray) and s.ndim == 0)
-
-    def test_raw_ma_list_broadcast_returns_ndarray(self):
-        """Scalar-vs-list raw-MA returns a length-M ndarray."""
-        ref_pAttr, qry_pAttr, p = self._ma_inputs()
-        offs = np.array([[0., 100., 200., -50.],
-                         [0., 1., 2., 3.]])
-        qry_swept = mpt.translate_attributes(
-            qry_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        S = mpt.cos_sim_exp_tens(
-            ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        assert isinstance(S, np.ndarray)
-        assert S.shape == (4,)
-        assert np.all(np.isfinite(S))
-
-    def test_raw_ma_list_parity_with_manual_build_loop(self):
-        """Internalised build matches the explicit per-entry loop."""
-        ref_pAttr, qry_pAttr, p = self._ma_inputs()
-        offs = np.array([[-100., 0., 100., 200., 700.],
-                         [0., 1., 2., 1., 3.]])
-        qry_swept = mpt.translate_attributes(
-            qry_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        S = mpt.cos_sim_exp_tens(
-            ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        dens_ref = mpt.build_exp_tens(
-            ref_pAttr, None, p['sigma'], p['r'], 
-            p['is_rel'], p['is_per'], p['periods'], verbose=False,
-        )
-        S_manual = np.array([
-            mpt.cos_sim_exp_tens(
-                dens_ref,
-                mpt.build_exp_tens(
-                    pa, None, p['sigma'], p['r'], 
-                    p['is_rel'], p['is_per'], p['periods'],
-                    verbose=False,
-                ),
-                verbose=False,
-            )
-            for pa in qry_swept
-        ])
-        np.testing.assert_allclose(S, S_manual, atol=1e-12)
-
-    def test_raw_ma_list_symmetric_in_operand_order(self):
-        """Cosine is symmetric; passing the list as first or second
-        operand gives the same profile."""
-        ref_pAttr, qry_pAttr, p = self._ma_inputs()
-        offs = np.array([[0., 100., 200.],
-                         [0., 0., 0.]])
-        qry_swept = mpt.translate_attributes(
-            qry_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        S_ref_first = mpt.cos_sim_exp_tens(
-            ref_pAttr, None, qry_swept, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        S_list_first = mpt.cos_sim_exp_tens(
-            qry_swept, None, ref_pAttr, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        np.testing.assert_allclose(S_ref_first, S_list_first, atol=1e-12)
-
-    def test_raw_ma_list_vs_list_rejected(self):
-        """List-vs-list raw-MA is rejected with a clear message."""
-        ref_pAttr, qry_pAttr, p = self._ma_inputs()
-        offs = np.array([[0., 100.],
-                         [0., 0.]])
-        list1 = mpt.translate_attributes(
-            ref_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        list2 = mpt.translate_attributes(
-            qry_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        with pytest.raises(TypeError, match="list-vs-list"):
-            mpt.cos_sim_exp_tens(
-                list1, None, list2, None,
-                p['sigma'], p['r'],
-                p['is_rel'], p['is_per'], p['periods'],
-                verbose=False,
-            )
-
-    def test_raw_ma_list_consumes_translate_attributes_output(self):
-        """End-to-end: translate_attributes → cos_sim_exp_tens raw-MA list
-        finds the self-match peak at offset 0."""
-        ref_pAttr, _, p = self._ma_inputs()
-        # Sweep the reference against itself: peak should be at mu = 0
-        # for both pitch and time.
-        pitch_offs = np.array([-200., -100., 0., 100., 200.])
-        time_offs  = np.zeros_like(pitch_offs)
-        offs = np.vstack([pitch_offs, time_offs])
-        ref_swept = mpt.translate_attributes(
-            ref_pAttr, p['groups'], offs,
-            p['is_rel'], p['is_per'], p['periods'],
-        )
-        S = mpt.cos_sim_exp_tens(
-            ref_pAttr, None, ref_swept, None,
-            p['sigma'], p['r'],
-            p['is_rel'], p['is_per'], p['periods'],
-            verbose=False,
-        )
-        assert int(np.argmax(S)) == 2  # offset 0 is the third entry
-        assert S[2] == pytest.approx(1.0, abs=1e-9)
+    # --- translate_attributes -------------------------------------------
+    # translate_attributes moved onto the (p_attr, w, specs) carrier
+    # (3c-iv-d): per-attribute per-slot offsets, is_rel read from specs,
+    # groups/dict offset forms removed. Its tests live in
+    # tests/test_translate.py.
 
     # --- windowTensor / windowedSimilarity ------------------------------
 

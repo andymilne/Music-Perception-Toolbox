@@ -253,7 +253,7 @@ def _windowed_ma_inputs(n_events: int, seed: int):
     w = [np.ones((1, n_events)), np.ones((1, n_events))]
     c = float(times[n_events // 2])
     p_w, w_w, g_w = weight_events(
-        p_attr, w, [0, 1],
+        p_attr, w,
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,

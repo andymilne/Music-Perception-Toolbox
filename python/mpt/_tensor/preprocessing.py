@@ -811,16 +811,16 @@ def _scalarize(x, name, *, dtype):
 def weight_events(
     p_attr,
     w,
-    groups,
     input_attr,
     target_attr,
     centre,
     shape,
-    is_per,
-    period,
     *,
+    specs=None,
     sd=None,
     width=None,
+    is_per=False,
+    period=0.0,
     delete_input,
 ) -> tuple:
     r"""Apply a per-event weight via an input-to-target window factor.
@@ -860,7 +860,7 @@ def weight_events(
 
     When ``delete_input=True`` and ``input_attr`` differs from
     ``target_attr``, the input attribute is removed from the returned
-    ``p_attr_out`` / ``w_out`` / ``groups_out`` after the factor has
+    ``p_attr_out`` / ``w_out`` / ``specs_out`` after the factor has
     been transferred to the target. This is the canonical windowed-
     entropy / windowed-mass workflow: the input attribute provides the
     scaffolding for the window and is no longer needed downstream.
@@ -918,10 +918,14 @@ def weight_events(
         Existing weights. ``None``, scalar, or length-``A`` list of
         per-attribute weights (each ``None``, scalar, 1-D row, or
         ``(K_a, N)`` matrix). Same convention as :func:`build_exp_tens`.
-    groups : array-like, list-of-lists, or None
-        Group assignment. Either a length-``A`` vector of group indices
-        (contiguous 0..G-1), a cell-of-lists partition, or ``None`` for
-        singleton groups.
+    specs : None or length-A list of dict, keyword-only
+        Carrier specs (per-attribute level geometry). ``None``
+        synthesises flat specs via :func:`flat_specs`. Threaded through
+        unchanged, except that ``delete_input=True`` drops the input
+        attribute's entry. ``weight_events`` does not otherwise consult
+        the specs; the window is computed from the input attribute's
+        values, ``centre``, ``shape``, ``sd``/``width``, and (for a
+        periodic input) ``is_per``/``period``.
     input_attr : int
         Index of the attribute supplying the window's values. Must
         satisfy ``0 <= input_attr < A`` and the attribute's
@@ -937,12 +941,12 @@ def weight_events(
         Shape parameter :math:`\gamma \in [0, 1]`. ``0`` is pure
         Gaussian; ``1`` is pure rectangle; intermediate values
         interpolate via the fixed-variance convolution family.
-    is_per : bool
-        Whether the input attribute's group is periodic. If ``True``,
+    is_per : bool, keyword-only, default False
+        Whether the input attribute is periodic. If ``True``,
         :math:`\delta = v - \text{centre}` is wrapped to
         :math:`[-P/2, P/2]` before evaluating :math:`h`.
-    period : float
-        Period of the input attribute's group. Used only when
+    period : float, keyword-only, default 0.0
+        Period of the input attribute. Used only when
         ``is_per=True`` (must then be ``> 0``); ignored otherwise.
     sd : float, keyword-only
         Window standard deviation, ``> 0``, in the input attribute's
@@ -955,10 +959,8 @@ def weight_events(
     delete_input : bool, keyword-only, REQUIRED
         Whether to remove the input attribute from the output. If
         ``True`` and ``input_attr != target_attr``, drops the input
-        attribute from ``p_attr_out``, ``w_out``, and ``groups_out``;
-        if the input was the sole member of its group, that group is
-        removed and higher group indices are decremented to keep the
-        group numbering contiguous. ``delete_input=True`` paired with
+        attribute's value matrix, weight, and spec from the returned
+        triple. ``delete_input=True`` paired with
         ``input_attr == target_attr`` raises ``ValueError``. There is
         no default; callers must specify explicitly.
 
@@ -971,9 +973,10 @@ def weight_events(
         Per-attribute weights, length matching ``p_attr_out``. The
         slot at ``target_attr`` (in the output indexing) carries the
         windowed weights.
-    groups_out : (len(p_attr_out),) ndarray of int
-        Group assignment for the output attribute list. Contiguous
-        ``0..G_out - 1``.
+    specs_out : list of dict
+        The carrier specs for the output attribute list. Same as the
+        input specs (synthesised flat if ``specs`` was ``None``), with
+        the input attribute's entry removed when ``delete_input=True``.
 
     See Also
     --------
@@ -1009,8 +1012,15 @@ def weight_events(
                 f"N={M.shape[1]}."
             )
 
-    # --- Canonicalise groups (returns group_of_attr vector) ---
-    group_of_attr, _, _ = _canonicalise_groups(groups, A)
+    # --- Carrier specs: synthesise flat if absent, else validate length ---
+    if specs is None:
+        specs_in = flat_specs(p_attr)
+    else:
+        if not isinstance(specs, (list, tuple)) or len(specs) != A:
+            raise ValueError(
+                f"specs must be a length-A ({A}) list, one per attribute."
+            )
+        specs_in = list(specs)
 
     # --- Validate input_attr ---
     if isinstance(input_attr, (bool, np.bool_)):
@@ -1140,24 +1150,13 @@ def weight_events(
         keep = [a for a in range(A) if a != input_attr_int]
         p_attr_out = [p_attr[a] for a in keep]
         w_out_kept = [w_out[a] for a in keep]
-        # Compact group numbering: if the input's group becomes empty
-        # (input was its sole member), drop that group index and
-        # decrement higher labels.
-        g_input = int(group_of_attr[input_attr_int])
-        kept_groups = np.array(
-            [int(group_of_attr[a]) for a in keep], dtype=np.intp,
-        )
-        if int(np.sum(group_of_attr == g_input)) == 1:
-            kept_groups = np.where(
-                kept_groups > g_input, kept_groups - 1, kept_groups,
-            )
-        groups_out = kept_groups
+        specs_out = [specs_in[a] for a in keep]
     else:
         p_attr_out = list(p_attr)
         w_out_kept = list(w_out)
-        groups_out = np.asarray(group_of_attr, dtype=np.intp).copy()
+        specs_out = list(specs_in)
 
-    return p_attr_out, w_out_kept, groups_out
+    return p_attr_out, w_out_kept, specs_out
 
 
 def _evaluate_shape(delta, width, gamma):
@@ -1251,207 +1250,96 @@ def _multiply_weights(w_existing, factor, attr_idx):
 # ===================================================================
 
 
-def translate_attributes(
-    p_attr,
-    groups,
-    offsets,
-    is_rel,
-    is_per,
-    periods,
-) -> list[np.ndarray] | list[list[np.ndarray]]:
-    """Translate selected attributes' values by a chosen offset.
+def translate_attributes(p_attr, w, offsets, *, specs=None):
+    """Translate attributes' values by per-slot offsets (carrier form).
 
-    Per-attribute preprocessing for multi-attribute tensor input. Takes
-    the ``p_attr`` list one would otherwise feed to
-    :func:`build_exp_tens` and returns a transformed ``p_attr_translated``
-    list with the same shape conventions, in which selected attributes'
-    values have been shifted by a chosen offset. The output feeds
-    directly into :func:`build_exp_tens` without any further massaging.
+    Per-attribute preprocessing on the ``(p_attr, w, specs)`` carrier.
+    Selected attributes' values are shifted by a chosen offset and the
+    transformed triple feeds straight into :func:`build_exp_tens` (or a
+    further pre-MAET step). Weights and specs pass through unchanged;
+    only the values move.
 
-    Sliding-comparison context. ``translate_attributes`` is the pre-tensor
-    route to a sliding comparison along one or more attribute-group
-    axes: for each candidate offset ``mu`` on a sweep grid, translate
-    the events and compute a similarity against an un-shifted reference.
-    The post-tensor counterpart is :func:`windowed_similarity`. Both
-    answer related "slide along an axis" questions but with different
-    operational properties; see the USER_GUIDE §3.1 discussion.
+    **Slot-axis alignment (read this first).** Everything hangs off one
+    axis: the **slot axis** of an attribute, whose length is ``K_total``
+    (the number of leaf values in one event/super-event). In the value
+    matrix the slot axis is the **rows** (``K_total x N``: slots down,
+    sequence positions across). The spec's ``tags`` label that same axis
+    (one entry per row). An offset is likewise per-slot: one value per
+    row, held **constant across the sequence (column) axis** --- that
+    constancy is what makes ``D(T(p)) == D(p)``. A scalar broadcasts to
+    every slot (a global transposition).
 
-    Two offset-input forms are accepted: a single numeric block (for
-    uniform broadcast or fully per-attribute layouts), or a dict
-    keyed by group (for mixed-per-group layouts, e.g. broadcast on
-    one group and per-attribute on another in the same call).
+    Offsets are supplied as a **length-A list**, one entry per attribute,
+    each entry one of:
 
-    **Numeric form.** ``offsets`` is a scalar or ndarray, with rows
-    indexing attributes and columns indexing sweep positions. Row
-    count must be 1 (broadcast across all attributes) or ``A``
-    (per-attribute). Within-group broadcast is expressed by setting
-    that group's rows equal.
+    - ``None`` --- do not translate this attribute.
+    - scalar or 1-D length 1 --- broadcast to all ``K_total`` slots.
+    - 1-D length ``K_total`` --- per-slot (typed as a plain vector; it is
+      aligned to the rows internally, no transpose needed).
+    - 2-D ``(1, M)`` --- a per-sweep global shift: one scalar per sweep
+      index, broadcast across slots.
+    - 2-D ``(K_total, M)`` --- per-slot by sweep index: slots down, sweep
+      index across (the only meaningful 2-D layout; the second axis is an
+      enumeration of the ``M`` candidate offsets, unrelated to events).
 
-    - 0-D scalar or 1-D length-1: broadcast across all attributes,
-      single translation. Returns a length-``A`` list.
-    - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
-      across all attributes, ``M``-position sweep. Returns a
-      length-``M`` list of length-``A`` lists.
-    - 2-D ``(A, M)``: per-attribute, ``M``-position sweep (``M = 1``
-      acceptable for a single per-attribute translation). Returns a
-      length-``M`` list of length-``A`` lists. Also handles ``A == G``
-      (per-attribute and per-group equivalent).
-    - 2-D ``(G, M)`` with ``G != A``: per-group, broadcast within
-      group; ``M``-position sweep (``M = 1`` acceptable, returns a
-      length-1 outer list — matrix mode, consistent with ``(A, M)``).
-      Each group's row is replicated across its attributes.
-    - 2-D with rows not in ``{1, A, G}``: ValueError.
+    ``NaN`` entries skip the corresponding slot (left untranslated);
+    ``+/-inf`` is rejected. All 2-D entries must agree on ``M`` (scalar,
+    1-D, and single-column entries broadcast across the call's ``M``).
 
-    **Dict form.** ``offsets`` is ``{group_index: value}`` (0-indexed
-    groups). Each value follows the same orientation convention, with
-    ``n_g`` (the number of attributes in group ``g``) playing the role
-    of ``A``:
+    **Sweep.** When any entry implies ``M > 1`` the call is a batched
+    sweep: it returns ``M`` translated copies --- a length-``M`` list of
+    length-``A`` value-lists --- each a separate pre-MAET input to build
+    and compare (the canonical sliding-transposition cosine use), sharing
+    one ``w`` and one ``specs``. With ``M = 1`` it returns a single
+    length-``A`` value-list.
 
-    - 0-D scalar or 1-D length-1: broadcast within group, no sweep.
-    - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
-      within group, ``M``-position sweep.
-    - 2-D ``(n_g, M)``: per-attribute within group, ``M``-sweep.
-    - 2-D with rows not in ``{1, n_g}``: ValueError.
-
-    Groups omitted from the dict are not translated. All swept
-    entries across the call (top-level columns or dict entries with
-    ``M > 1``) must agree on ``M``; scalar and 1-column entries
-    broadcast across the sweep. When any entry implies a sweep, the
-    output is a length-``M`` list of length-``A`` lists; otherwise a
-    single length-``A`` list.
-
-    NaN entries in any numeric block skip the corresponding
-    ``(attribute, column)`` cell. ``±inf`` is rejected.
-
-    Semantics by group geometry (apply per offset column in matrix form):
-
-    - **Absolute non-periodic** (``is_per[g] = False``): every value of
-      every attribute in group ``g`` is replaced by ``value + mu``.
-      ``periods[g]`` is ignored regardless of its sign.
-    - **Absolute periodic** (``is_per[g] = True`` with
-      ``is_rel[g] = False`` and ``periods[g] > 0``): every value is
-      replaced by ``value + mu``, unwrapped. The wrapped periodic
-      Gaussian kernel of :func:`build_exp_tens` is invariant under any
-      additive shift by a multiple of ``P``, so no canonical wrap of
-      the translated values is required --- the kernel handles
-      periodicity downstream.
-    - **Relative** (``is_rel[g] = True``): a uniform shift of every
-      value cancels in every within-tuple difference, so translation
-      on a relative group is a structural no-op. The group is left
-      unchanged. A :class:`TranslateAttributesNoOpWarning` is emitted at
-      most once per call, even when the matrix form has many columns
-      with finite entries on the relative-group row.
-
-    Weights are unaffected by translation and are not part of this
-    function's signature; the caller passes the same ``w`` to
-    :func:`build_exp_tens` after translation that they would have
-    passed without it.
+    **Relative attributes.** ``is_rel`` is read per-attribute from
+    ``specs`` (no separate argument). A *uniform* shift cancels in every
+    within-tuple difference, so on an attribute whose **outermost level
+    is relative** a uniform finite offset is a structural no-op: that
+    column is left unchanged and a single
+    :class:`TranslateAttributesNoOpWarning` is emitted per call. A
+    *non-uniform* (per-slot) offset is **not** a no-op even on a relative
+    attribute --- it shifts the within-tuple differences --- so it
+    applies. ``is_per``/``period`` are not consulted here (translation
+    emits unwrapped values; the periodic kernel in
+    :func:`build_exp_tens` wraps downstream), and stay separate scalar
+    geometry passed to build.
 
     Parameters
     ----------
     p_attr : list/tuple of array-like
-        Length-A list of ``K_a x N`` per-attribute value matrices. Same
-        convention as :func:`build_exp_tens`. A 1-D input is taken as
-        a ``1 x N`` row.
-    groups : array-like, list-of-lists, or None
-        Group assignment, same convention as :func:`build_exp_tens` and
-        :func:`difference_events`. ``None`` treats each attribute as its
-        own singleton group.
-    offsets : scalar, ndarray, or dict[int, scalar or array_like]
-        Numeric form (single block, rows = attributes, columns =
-        sweep) or dict form (keyed by group, polymorphic per-group
-        values). See the "Two offset-input forms" block above.
-    is_rel : array-like of bool
-        Length-G vector of relative-mode flags, same convention as
-        :func:`build_exp_tens`. Groups with ``is_rel[g] = True`` that
-        have at least one finite offset entry emit a single
-        :class:`TranslateAttributesNoOpWarning` and pass through unchanged
-        on every column.
-    is_per : array-like of bool
-        Length-G vector of periodic-mode flags, same convention as
-        :func:`build_exp_tens`. Accepted for signature parallelism with
-        the rest of the MAET pipeline; not consulted by
-        ``translate_attributes`` itself, since translation outputs
-        unwrapped values and the periodic kernel in
-        :func:`build_exp_tens` handles wrapping downstream.
-    periods : array-like of float
-        Length-G vector of periods, same convention as
-        :func:`build_exp_tens`. Accepted for signature parallelism;
-        not consulted by ``translate_attributes`` itself.
+        Length-A list of ``K_total x N`` per-attribute value matrices
+        (a 1-D entry is taken as a ``1 x N`` row).
+    w : None, scalar, or length-A list
+        Weights. Passed through unchanged (translation does not touch
+        weights); returned as-is for clean carrier chaining.
+    offsets : length-A list
+        Per-attribute offsets; see the layouts above.
+    specs : None or length-A list, keyword-only
+        Carrier specs supplying per-attribute ``is_rel`` (outermost
+        level) and slot structure. ``None`` synthesises flat specs.
 
     Returns
     -------
-    list of np.ndarray, or list of list of np.ndarray
-        For vector-form offsets: a length-A list of ``K_a × N``
-        ndarrays. For matrix-form offsets: a length-M list of such
-        lists, one per offset column. The input ``p_attr`` is not
-        mutated.
-
-    Raises
-    ------
-    ValueError
-        If ``offsets`` has the wrong shape (not a length-G vector or
-        ``(G, M)`` matrix, and not a dict), if ``is_rel``, ``is_per``,
-        or ``periods`` has the wrong length, or if any offset entry is
-        ``±inf``.
+    p_out : list of ndarray, or list of list of ndarray
+        Single translation (``M = 1``): a length-A list of ``K_total x N``
+        arrays. Sweep (``M > 1``): a length-M list of such lists.
+    w : same as input
+    specs : list of dict
+        The carrier specs, unchanged (or synthesised).
 
     Warns
     -----
     TranslateAttributesNoOpWarning
-        When the offsets specify a finite translation on a group with
-        ``is_rel[g] = True``. At most one warning is emitted per call,
-        regardless of how many columns or relative groups are involved.
+        When a uniform finite offset is applied to an attribute whose
+        outermost level is relative (at most once per call).
 
     See Also
     --------
-    difference_events : Replace event sequences with k-th differences.
-    bind_events : Slide a length-n window over events to form n-attribute
-        super-events.
-    build_exp_tens : Consumes the output of this function.
-    cos_sim_exp_tens : Raw-MA list mode consumes the matrix-form output
-        directly.
-    windowed_similarity : Post-tensor counterpart for sliding comparisons.
-
-    Examples
-    --------
-    Transpose a chord progression by 6 semitones for a sliding-cosine
-    sweep, with a single absolute non-periodic pitch group::
-
-        >>> import numpy as np
-        >>> from mpt import (
-        ...     translate_attributes, build_exp_tens, cos_sim_exp_tens,
-        ... )
-        >>> p_q = [np.array([[60., 64., 67.], [63., 64., 67.]])]
-        >>> p_c = [np.array([[62., 66., 69.], [65., 66., 69.]])]
-        >>> groups = [0]
-        >>> is_rel, is_per, periods = [False], [False], [0.0]
-        >>> best = -np.inf
-        >>> for mu in np.arange(-12., 12.01, 0.25):
-        ...     p_c_mu = translate_attributes(
-        ...         p_c, groups, {0: mu}, is_rel, is_per, periods,
-        ...     )
-        ...     M_q = build_exp_tens(
-        ...         p_q, None, [0.15], [1], groups,
-        ...         is_rel, is_per, periods, verbose=False,
-        ...     )
-        ...     M_c_mu = build_exp_tens(
-        ...         p_c_mu, None, [0.15], [1], groups,
-        ...         is_rel, is_per, periods, verbose=False,
-        ...     )
-        ...     best = max(best, cos_sim_exp_tens(M_q, M_c_mu, verbose=False))
-        >>> bool(best > 0.99)
-        True
-
-    Sweep all transpositions in a single call using the matrix form::
-
-        >>> mu_grid = np.arange(-12., 12.01, 0.25).reshape(1, -1)  # (G, M)
-        >>> p_c_sweep = translate_attributes(
-        ...     p_c, groups, mu_grid, is_rel, is_per, periods,
-        ... )  # list of length M, each entry a length-A list
-        >>> len(p_c_sweep) == mu_grid.shape[1]
-        True
+    difference_events, bind_events, flat_specs, build_exp_tens,
+    windowed_similarity
     """
-    # ---- normalise / validate p_attr ----
     if not isinstance(p_attr, (list, tuple)):
         raise ValueError(
             "p_attr must be a list/tuple of attribute value matrices."
@@ -1459,7 +1347,7 @@ def translate_attributes(
     A = len(p_attr)
     if A == 0:
         raise ValueError("p_attr must contain at least one attribute.")
-    p_attr_arrays = []
+    p_arr = []
     for a, M in enumerate(p_attr):
         Marr = np.asarray(M, dtype=np.float64)
         if Marr.ndim == 1:
@@ -1468,320 +1356,159 @@ def translate_attributes(
             raise ValueError(
                 f"Attribute {a} must be 1-D or 2-D; got ndim={Marr.ndim}."
             )
-        p_attr_arrays.append(Marr)
-
-    n_events = p_attr_arrays[0].shape[1]
-    for a, M in enumerate(p_attr_arrays):
+        p_arr.append(Marr)
+    n_events = p_arr[0].shape[1]
+    for a, M in enumerate(p_arr):
         if M.shape[1] != n_events:
             raise ValueError(
                 f"All attributes must share the same event count N. "
                 f"Attribute 0 has N={n_events}; attribute {a} has "
                 f"N={M.shape[1]}."
             )
+    K = [M.shape[0] for M in p_arr]            # K_total (rows) per attribute
 
-    # ---- canonicalise groups ----
-    group_of_attr, attrs_of_group, G = _canonicalise_groups(groups, A)
-
-    # ---- validate is_rel, is_per, periods ----
-    is_rel_arr = np.asarray(is_rel, dtype=bool).ravel()
-    if is_rel_arr.size != G:
-        raise ValueError(
-            f"is_rel must have length G = {G} (number of groups); "
-            f"got length {is_rel_arr.size}."
-        )
-    is_per_arr = np.asarray(is_per, dtype=bool).ravel()
-    if is_per_arr.size != G:
-        raise ValueError(
-            f"is_per must have length G = {G}; got length "
-            f"{is_per_arr.size}."
-        )
-    periods_arr = np.asarray(periods, dtype=np.float64).ravel()
-    if periods_arr.size != G:
-        raise ValueError(
-            f"periods must have length G = {G}; got length "
-            f"{periods_arr.size}."
-        )
-
-    # ---- normalise offsets to (A, M) per-attribute array, with NaN ----
-    # ---- meaning "do not translate this attribute on this column". ----
-    # ---- matrix_mode True means a sweep (return list of M lists); ----
-    # ---- False means a single translation (return list of A). ----
-    matrix_mode, offsets_per_attr = _normalise_offsets(
-        offsets, A, G, attrs_of_group,
-    )
-
-    # ---- Identify relative groups carrying any finite per-attribute ----
-    # ---- offset; emit at most one no-op warning per call, and zero ----
-    # ---- out the rows so the hot loop's NaN check handles the skip. ----
-    finite_mask = np.isfinite(offsets_per_attr)
-    warned_relative = False
-    for g in range(G):
-        if not is_rel_arr[g]:
-            continue
-        attrs = attrs_of_group[g]
-        if not any(np.any(finite_mask[a]) for a in attrs):
-            continue
-        if not warned_relative:
-            warnings.warn(
-                f"Group {g} has is_rel=True; translation is a "
-                f"structural no-op on relative groups (a uniform shift "
-                f"of all values cancels in every within-tuple "
-                f"difference). The group is left unchanged on every "
-                f"offset column.",
-                TranslateAttributesNoOpWarning,
-                stacklevel=2,
+    if specs is None:
+        specs_out = flat_specs(p_arr)
+    else:
+        if not isinstance(specs, (list, tuple)) or len(specs) != A:
+            raise ValueError(
+                f"specs must be a length-A ({A}) list, one per attribute."
             )
-            warned_relative = True
-        for a in attrs:
-            offsets_per_attr[a, :] = np.nan
+        specs_out = list(specs)
 
-    # ---- apply translation, column by column ----
-    M_cols = offsets_per_attr.shape[1]
+    matrix_mode, M_sweep, blocks = _normalise_translate_offsets(offsets, K, A)
+
+    # --- Relative no-op: a uniform finite shift on an outermost-relative
+    # --- attribute is a structural no-op; skip that column, warn once. ---
+    warned = False
+    for a in range(A):
+        if not _outermost_relative(specs_out[a]):
+            continue
+        col = blocks[a]
+        for m in range(M_sweep):
+            cm = col[:, m]
+            finite = np.isfinite(cm)
+            if finite.all() and finite.size and np.allclose(cm, cm.flat[0]):
+                blocks[a][:, m] = np.nan
+                warned = True
+    if warned:
+        warnings.warn(
+            "A uniform finite offset was applied to an attribute whose "
+            "outermost level is relative; a uniform shift cancels in "
+            "every within-tuple difference, so it is a structural no-op "
+            "and that column is left unchanged. (A non-uniform per-slot "
+            "offset would apply, as it shifts the relative structure.)",
+            TranslateAttributesNoOpWarning,
+            stacklevel=2,
+        )
+
+    # --- Apply: value + per-slot offset, broadcast across events; NaN ---
+    # --- slots are left untranslated. ---
     cols_out: list[list[np.ndarray]] = []
-    for m in range(M_cols):
-        col_translated: list[np.ndarray] = []
-        for a, Marr in enumerate(p_attr_arrays):
-            mu = offsets_per_attr[a, m]
-            if np.isnan(mu):
-                col_translated.append(Marr.copy())
-                continue
-            col_translated.append(Marr + float(mu))
-        cols_out.append(col_translated)
+    for m in range(M_sweep):
+        col_list: list[np.ndarray] = []
+        for a in range(A):
+            Marr = p_arr[a]
+            off = blocks[a][:, m]
+            finite = np.isfinite(off)
+            if not finite.any():
+                col_list.append(Marr.copy())
+            else:
+                add = np.where(finite, off, 0.0).reshape(-1, 1)
+                col_list.append(Marr + add)
+        cols_out.append(col_list)
 
     if matrix_mode:
-        return cols_out         # length-M list of length-A lists
-    return cols_out[0]          # length-A list (single translation)
+        return cols_out, w, specs_out       # length-M list of length-A lists
+    return cols_out[0], w, specs_out         # single length-A list
 
 
-def _normalise_offsets(
-    offsets,
-    A: int,
-    G: int,
-    attrs_of_group: list[np.ndarray],
-) -> tuple[bool, np.ndarray]:
-    """Coerce the public offsets input to an ``(A, M)`` per-attribute
-    ndarray with NaN-skip.
+def _normalise_translate_offsets(offsets, K, A):
+    """Coerce a length-A offsets list to per-attribute ``(K_a, M)`` blocks.
 
-    Returns ``(matrix_mode, offsets_per_attr)``. ``matrix_mode`` is
-    True when the user passed a 2-D numeric shape, a 1-D sweep, or a
-    dict containing any 2-D value (output is wrapped as a length-``M``
-    list of length-``A`` lists). False when the user passed a scalar
-    or a dict of only scalar/1-D-length-1 entries (output is a
-    length-``A`` list).
-
-    Two top-level forms:
-
-    1. **Numeric** (scalar or ndarray). Rows index attributes; columns
-       index sweep positions. Row count must be exactly 1 (broadcast
-       across all attributes) or ``A`` (per-attribute).
-
-       - 0-D scalar or 1-D length-1: broadcast across all attributes,
-         no sweep. Output ``(A, 1)``, ``matrix_mode = False``.
-       - 1-D length-``M`` (``M > 1``): broadcast across all attributes,
-         ``M``-position sweep. Equivalent to a 2-D ``(1, M)`` row.
-       - 2-D ``(1, M)``: broadcast across all attributes, ``M``-position
-         sweep (``matrix_mode = True`` regardless of ``M``).
-       - 2-D ``(A, M)``: per-attribute, ``M``-position sweep
-         (``matrix_mode = True`` regardless of ``M``).
-       - 2-D with rows not in ``{1, A}``: ValueError.
-
-    2. **Dict**, keyed by group index; per-group values follow an
-       analogous orientation convention with ``n_g`` (number of
-       attributes in group ``g``) playing the role of ``A``. Each
-       per-group value is one of:
-
-       - 0-D scalar or 1-D length-1: broadcast within group, no sweep.
-       - 1-D length-``M`` (``M > 1``) or 2-D ``(1, M)``: broadcast
-         within group, ``M``-position sweep.
-       - 2-D ``(n_g, M)``: per-attribute within group, ``M``-sweep.
-       - 2-D with rows not in ``{1, n_g}``: ValueError.
-
-       Groups omitted from the dict are not translated. All entries
-       (across both top-level and dict cases) carrying ``M > 1`` must
-       agree on ``M``; scalar and 1-column entries broadcast across
-       the sweep.
-
-    NaN entries in any numeric block skip that ``(attribute, column)``
-    cell; ``±inf`` is rejected.
+    Each block is a float array with ``NaN`` marking slots to skip; a
+    scalar/1-D/single-column entry is broadcast across the common sweep
+    width ``M``. Returns ``(matrix_mode, M, blocks)``.
     """
-    if isinstance(offsets, dict):
-        return _normalise_offsets_dict(offsets, A, G, attrs_of_group)
-
-    arr = np.asarray(offsets, dtype=np.float64)
-
-    # 0-D scalar (or 1-D length 1): broadcast no-sweep
-    if arr.ndim == 0 or (arr.ndim == 1 and arr.size == 1):
-        mu = float(arr.ravel()[0])
-        if not np.isfinite(mu):
-            raise ValueError(
-                f"Scalar offset must be finite; got {mu!r}."
-            )
-        result = np.full((A, 1), mu, dtype=np.float64)
-        return False, result
-
-    # 1-D length > 1: broadcast sweep, treated as (1, M)
-    if arr.ndim == 1:
-        if np.any(np.isinf(arr)):
-            raise ValueError(
-                "offsets entries must be finite (or NaN to skip a cell)."
-            )
-        M = arr.size
-        result = np.tile(arr.reshape(1, M), (A, 1))
-        return True, result
-
-    # 2-D: row count must be 1 (broadcast), A (per-attribute), or G (per-group)
-    if arr.ndim == 2:
-        if np.any(np.isinf(arr)):
-            raise ValueError(
-                "offsets entries must be finite (or NaN to skip a cell)."
-            )
-        n_rows, M = arr.shape
-        if n_rows == 1:
-            result = np.tile(arr, (A, 1))
-            return True, result
-        if n_rows == A:
-            # Per-attribute (also handles A == G case, equivalent to per-group there).
-            return True, arr.astype(np.float64, copy=True)
-        if n_rows == G:
-            # Per-group, broadcast within group. Expand to per-attribute
-            # by replicating each group's row across its attributes.
-            # Always returns matrix mode (M-position wrapper) for
-            # consistency with the (A, M) and dict-form (n_g, M)
-            # conventions: any 2-D input with n_rows > 1 is a per-axis
-            # spec and gets a sweep wrapper. The A == G case is handled
-            # above (per-attribute interpretation; identical numeric
-            # output, same matrix-mode wrapping).
-            result = np.zeros((A, M), dtype=np.float64)
-            for g in range(G):
-                attrs = attrs_of_group[g]
-                result[attrs, :] = arr[g, :]
-            return True, result
+    if not isinstance(offsets, (list, tuple)) or len(offsets) != A:
         raise ValueError(
-            f"offsets is a 2-D array with shape {arr.shape}; row "
-            f"count must be 1 (broadcast across all attributes), "
-            f"A = {A} (per-attribute), or G = {G} (per-group, "
-            f"broadcast within group). For mixed-per-group layouts, "
-            f"use the dict form."
+            f"offsets must be a length-A ({A}) list, one entry per "
+            f"attribute (scalar, per-slot vector, (1, M) or (K_total, M) "
+            f"block, or None)."
         )
-
-    raise ValueError(
-        f"offsets must be a scalar, a 1-D or 2-D ndarray, or a dict; "
-        f"got an array with ndim = {arr.ndim}."
-    )
-
-
-def _normalise_offsets_dict(
-    offsets_dict: dict,
-    A: int,
-    G: int,
-    attrs_of_group: list[np.ndarray],
-) -> tuple[bool, np.ndarray]:
-    """Process the polymorphic dict form into a per-attribute (A, M) array."""
-    # ---- First pass: validate keys, determine sweep dimension M ----
+    raw = []
     M = 1
-    matrix_mode = False
-    parsed: list[tuple[int, np.ndarray]] = []
-    for gkey, val in offsets_dict.items():
-        try:
-            gi = int(gkey)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"offsets keys must be integer group indices; got {gkey!r}."
-            ) from None
-        if gi < 0 or gi >= G:
-            raise ValueError(
-                f"offsets contains group index {gi}, which is out of "
-                f"range for G = {G} groups."
-            )
-        val_arr = np.asarray(val, dtype=np.float64)
-        # Determine whether this entry establishes M and whether it
-        # flips matrix_mode. Any 2-D entry forces matrix_mode = True;
-        # a 1-D length > 1 entry also implies a sweep.
-        if val_arr.ndim == 2:
-            matrix_mode = True
-            this_M = val_arr.shape[1]
-            if this_M > 1:
-                if M == 1:
-                    M = this_M
-                elif this_M != M:
-                    raise ValueError(
-                        f"offsets[{gi}] has shape {val_arr.shape}; "
-                        f"sweep dimension {this_M} does not match "
-                        f"the {M} sweep positions established by "
-                        f"other entries."
-                    )
-        elif val_arr.ndim == 1 and val_arr.size > 1:
-            matrix_mode = True
-            this_M = val_arr.size
-            if M == 1:
-                M = this_M
-            elif this_M != M:
-                raise ValueError(
-                    f"offsets[{gi}] is a 1-D array of length "
-                    f"{this_M}; this does not match the {M} sweep "
-                    f"positions established by other entries."
-                )
-        parsed.append((gi, val_arr))
-
-    # ---- Second pass: distribute values to per-attribute (A, M) ----
-    result = np.full((A, M), np.nan, dtype=np.float64)
-    for gi, val_arr in parsed:
-        attrs = attrs_of_group[gi]
-        n_g = len(attrs)
-
-        # 0-D scalar (or 1-D length 1): broadcast within group, no sweep
-        if val_arr.ndim == 0 or (val_arr.ndim == 1 and val_arr.size == 1):
-            mu = float(val_arr.ravel()[0])
-            if not np.isfinite(mu):
-                raise ValueError(
-                    f"offsets[{gi}]: scalar offset must be finite "
-                    f"(use omission from the dict to skip a group); "
-                    f"got {mu!r}."
-                )
-            for a in attrs:
-                result[a, :] = mu
+    for a, o in enumerate(offsets):
+        if o is None:
+            raw.append(None)
             continue
-
-        # 1-D length > 1: broadcast within group, sweep
-        if val_arr.ndim == 1:
-            if np.any(np.isinf(val_arr)):
-                raise ValueError(
-                    f"offsets[{gi}]: entries must be finite (or NaN "
-                    f"to skip a column)."
-                )
-            for a in attrs:
-                result[a, :] = val_arr
-            continue
-
-        # 2-D: row count must be 1 (broadcast within group) or n_g
-        if val_arr.ndim == 2:
-            if np.any(np.isinf(val_arr)):
-                raise ValueError(
-                    f"offsets[{gi}]: entries must be finite (or NaN "
-                    f"to skip an (attribute, column) cell)."
-                )
-            n_rows = val_arr.shape[0]
-            if n_rows == 1:
-                for a in attrs:
-                    result[a, :] = val_arr[0]
-                continue
-            if n_rows == n_g:
-                for i, a in enumerate(attrs):
-                    result[a, :] = val_arr[i]
-                continue
+        arr = np.asarray(o, dtype=np.float64)
+        if np.any(np.isinf(arr)):
             raise ValueError(
-                f"offsets[{gi}] is 2-D with shape {val_arr.shape}; "
-                f"row count must be 1 (broadcast within group) or "
-                f"{n_g} (per-attribute, matching the number of "
-                f"attributes in group {gi})."
+                f"offsets[{a}] contains +/-inf; entries must be finite or "
+                f"NaN (NaN skips a slot)."
             )
+        if arr.ndim == 0:
+            raw.append(arr.reshape(1, 1))
+        elif arr.ndim == 1:
+            if arr.size not in (1, K[a]):
+                raise ValueError(
+                    f"offsets[{a}] is a 1-D length-{arr.size} vector; "
+                    f"expected length 1 or K_total = {K[a]}."
+                )
+            raw.append(arr.reshape(-1, 1))
+        elif arr.ndim == 2:
+            if arr.shape[0] not in (1, K[a]):
+                raise ValueError(
+                    f"offsets[{a}] has {arr.shape[0]} rows; expected 1 or "
+                    f"K_total = {K[a]} (slots down)."
+                )
+            raw.append(arr)
+            M = max(M, arr.shape[1])
+        else:
+            raise ValueError(
+                f"offsets[{a}] must be None, scalar, 1-D, or 2-D; got "
+                f"ndim = {arr.ndim}."
+            )
+    matrix_mode = M > 1
+    blocks = []
+    for a, r in enumerate(raw):
+        if r is None:
+            blocks.append(np.full((K[a], M), np.nan))
+            continue
+        rows, cols = r.shape
+        if rows == 1 and K[a] > 1:
+            r = np.repeat(r, K[a], axis=0)
+        if cols == 1 and M > 1:
+            r = np.repeat(r, M, axis=1)
+        elif cols not in (1, M):
+            raise ValueError(
+                f"offsets[{a}] has {cols} sweep columns; expected 1 or "
+                f"M = {M} (all swept entries must agree on M)."
+            )
+        blocks.append(r)
+    return matrix_mode, M, blocks
 
-        raise ValueError(
-            f"offsets[{gi}] must be a scalar, a 1-D array, or a 2-D "
-            f"array; got an array with ndim = {val_arr.ndim}."
-        )
 
-    return matrix_mode, result# ===================================================================
+def _outermost_relative(spec):
+    """Whether the attribute's outermost level is relative.
+
+    A uniform global shift cancels exactly when the outermost (global)
+    reading is relative: flat ``rel`` truthy, nested ``rel`` vector with a
+    truthy last entry, or the ``rel = "outermost"`` selector.
+    """
+    if not isinstance(spec, dict):
+        return False
+    if "tags" in spec:
+        rel = spec.get("rel")
+        if isinstance(rel, str):
+            return rel == "outermost"
+        if isinstance(rel, (list, tuple, np.ndarray)):
+            flat = np.ravel(rel)
+            return bool(flat[-1]) if flat.size else False
+        return bool(rel) if rel is not None else False
+    return bool(spec.get("rel", False))
+# ===================================================================
 #  simplex_vertices
 # ===================================================================
 

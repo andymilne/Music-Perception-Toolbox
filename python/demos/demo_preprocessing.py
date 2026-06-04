@@ -108,13 +108,13 @@ print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
 
 print("=== 4. translate_attributes (T) ===")
 
-# Translate pitch (group 0) by +5 semitones; leave time alone.
-# Dict form keeps it a single translation: {group: scalar}.
-# A length-G list would instead be read as a 2-position sweep
-# (broadcast across attributes) under the orientation grammar.
+# Translate pitch (attribute 0) by +5 semitones; leave time alone.
+# Offsets are a per-attribute list: a scalar broadcasts across the
+# attribute's slots (here K=1 each). is_rel is read from specs
+# (synthesised flat: both absolute), so neither is a no-op.
 mu_pitch = 5.0
-mu = {0: mu_pitch, 1: 0.0}
-pT = mpt.translate_attributes(p_attr, groups, mu, is_rel, is_per, periods)
+mu = [mu_pitch, 0.0]
+pT, _, _ = mpt.translate_attributes(p_attr, w, mu)
 
 print(f"  mu (per group) = {{0: {mu_pitch}, 1: 0.0}}   (group 0: pitch; group 1: time)")
 print(f"  T(pitch)       = {pT[0].ravel().tolist()}   (G->C, F#->B, E->A)")
@@ -129,21 +129,20 @@ print("=== 5. weight_events (W) ===")
 
 # Apply a window on the time axis (input attribute 1) centred at the
 # penult event (t = 6) with standard deviation 1 quarter-note and
-# gamma = 0 (pure Gaussian).
-w_out = mpt.weight_events(
-    p_attr, w, groups,
-    input_attrs=[1],
-    centre=[6.0],
-    width=[1.0],
-    shape=[0.0],         # gamma = 0 -> pure Gaussian
-    is_per=[False],
-    periods=[0.0],
+# gamma = 0 (pure Gaussian). The factor lands back on the time slot
+# (target attribute 1), the in-place weighting case, and the input is
+# kept (delete_input=False).
+p_w, w_w, s_w = mpt.weight_events(
+    p_attr, w,
+    input_attr=1, target_attr=1,
+    centre=6.0, sd=1.0, shape=0.0,    # gamma = 0 -> pure Gaussian
+    delete_input=False,
 )
 
-print(f"  input_attrs = [1] (time); centre = [6]; width = [1]; shape = [0] (Gaussian)")
-print(f"  w_out[0] (pitch, untouched): {w_out[0]}")
-print(f"  w_out[1] (time, windowed):   "
-      f"{[round(v, 4) for v in w_out[1].ravel().tolist()]}")
+print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 1; shape = 0 (Gaussian)")
+print(f"  w_w[0] (pitch, untouched): {w_w[0]}")
+print(f"  w_w[1] (time, windowed):   "
+      f"{[round(v, 4) for v in np.asarray(w_w[1]).ravel().tolist()]}")
 print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
 
 
@@ -186,7 +185,7 @@ print("=== 7. D o T == D ===")
 # as differencing the original: translation is wiped out by the
 # difference operator (T o D, by contrast, adds mu to every
 # difference).
-pT_for_D = mpt.translate_attributes(p_attr, groups, mu, is_rel, is_per, periods)
+pT_for_D, _, _ = mpt.translate_attributes(p_attr, w, mu)
 pDT, wDT, sDT = mpt.difference_events(pT_for_D, w, [1, 0])
 
 print(f"  D(T(pitch)) = {pDT[0].ravel().tolist()}")
@@ -206,28 +205,31 @@ print("=== 8. T o W centre shift ===")
 c_pitch  = 67.0
 width_w  = 2.0
 gamma_w  = 0.3
-pT_path  = mpt.translate_attributes(
-    p_attr, groups, {0: mu_pitch, 1: 0.0}, is_rel, is_per, periods,
+pT_path, _, _ = mpt.translate_attributes(
+    p_attr, w, [mu_pitch, 0.0],
 )
-w_path1 = mpt.weight_events(
-    pT_path, w, groups,
-    input_attrs=[0], centre=[c_pitch], width=[width_w], shape=[gamma_w],
-    is_per=[False], periods=[0.0],
+_, w_path1, _ = mpt.weight_events(
+    pT_path, w,
+    input_attr=0, target_attr=0, centre=c_pitch, sd=width_w, shape=gamma_w,
+    delete_input=False,
 )
 
 # Path 2: W centred at c - mu = 62 BEFORE T (T leaves weights
 # untouched).
-w_path2 = mpt.weight_events(
-    p_attr, w, groups,
-    input_attrs=[0], centre=[c_pitch - mu_pitch], width=[width_w], shape=[gamma_w],
-    is_per=[False], periods=[0.0],
+_, w_path2, _ = mpt.weight_events(
+    p_attr, w,
+    input_attr=0, target_attr=0, centre=c_pitch - mu_pitch, sd=width_w,
+    shape=gamma_w, delete_input=False,
 )
 
 print(f"  T then W (centre c = {c_pitch}):")
-print(f"    w_path1[0] = {[round(v, 4) for v in w_path1[0].ravel().tolist()]}")
+print(f"    w_path1[0] = "
+      f"{[round(v, 4) for v in np.asarray(w_path1[0]).ravel().tolist()]}")
 print(f"  W (centre c - mu = {c_pitch - mu_pitch}) before T:")
-print(f"    w_path2[0] = {[round(v, 4) for v in w_path2[0].ravel().tolist()]}")
-print(f"  difference max = {float(np.max(np.abs(w_path1[0] - w_path2[0])))}  "
+print(f"    w_path2[0] = "
+      f"{[round(v, 4) for v in np.asarray(w_path2[0]).ravel().tolist()]}")
+print("  difference max = "
+      f"{float(np.max(np.abs(np.asarray(w_path1[0]) - np.asarray(w_path2[0]))))}  "
       "(zero --- centre-shift rule holds)")
 
 # ===================================================================
@@ -246,7 +248,7 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 #        index pre-computation, weight products) is paid once.
 #
 #   (ii) call the raw multi-attribute form of each function directly,
-#        passing (p_attr, w, sigma, r, groups, is_rel, is_per, periods)
+#        passing (p_attr, w, sigma, r, is_rel, is_per, periods)
 #        as positional arguments. The function builds the density
 #        internally and returns the answer; no struct is exposed.
 #        Convenient for single-shot uses and keeps the call shape
@@ -263,31 +265,31 @@ r     = [1, 1]        # single-slot attributes (K_a = 1) in both groups
 
 # --- 9a. entropy_exp_tens (raw MA form) ---
 # Signature:
-#   H = entropy_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods, ...)
+#   H = entropy_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, ...)
 H_orig = mpt.entropy_exp_tens(
-    p_attr, w, sigma, r, groups, is_rel, is_per, periods,
-    method="renyi2", normalize=False, verbose=False,
+    p_attr, w, sigma, r, is_rel, is_per, periods,
+    method="renyi2", verbose=False,
 )
-print(f"  entropy_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods)")
+print(f"  entropy_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods)")
 print(f"    = {H_orig:.4f}  (Renyi-2)")
 
 # --- 9b. eval_exp_tens at the penult event (pitch = 66, t = 6) ---
-# Query points are (A, M_q) with one column per query and row a
-# giving attribute a's value(s). Single query here, so a (2, 1)
-# column.
-Xq = np.array([[66.0], [6.0]])
+# Query points are supplied as a length-A list, one (K_a, M_q) matrix
+# per attribute. Single query here, so a (1, 1) column for each of the
+# two attributes: pitch = 66, t = 6.
+Xq = [np.array([[66.0]]), np.array([[6.0]])]
 val_at_penult = mpt.eval_exp_tens(
-    p_attr, w, sigma, r, groups, is_rel, is_per, periods, Xq,
+    p_attr, w, sigma, r, is_rel, is_per, periods, Xq,
     verbose=False,
 )
-print(f"  eval_exp_tens(p_attr, w, sigma, r, groups, is_rel, is_per, periods, Xq)")
+print(f"  eval_exp_tens(p_attr, w, sigma, r, is_rel, is_per, periods, Xq)")
 print(f"    = {float(val_at_penult[0]):.4f}")
 print("  (Density peak near an actual event; the value reflects the")
 print("   contribution from event 2 at (66, 6) plus tails from its neighbours.)")
 
 # --- 9c. cos_sim_exp_tens on two pre-MAETs (raw MA form) ---
 # Signature:
-#   s = cos_sim_exp_tens(p_X, w_X, p_Y, w_Y, sigma, r, groups,
+#   s = cos_sim_exp_tens(p_X, w_X, p_Y, w_Y, sigma, r,
 #                        is_rel, is_per, periods, ...)
 # Compare the original chorale fragment against the transposed copy
 # (Section 4). Group 0's PC kernel is narrow (sigma = 0.5 semitones),
@@ -295,10 +297,10 @@ print("   contribution from event 2 at (66, 6) plus tails from its neighbours.)"
 # original PC, and the similarity collapses to 0. Pre-MAET D in step
 # 9d below recovers it.
 sim_T = mpt.cos_sim_exp_tens(
-    p_attr, w, pT, w, sigma, r, groups, is_rel, is_per, periods,
+    p_attr, w, pT, w, sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
-print(f"  cos_sim_exp_tens(p_attr, w, pT, w, sigma, r, groups, is_rel, is_per, periods)")
+print(f"  cos_sim_exp_tens(p_attr, w, pT, w, sigma, r, is_rel, is_per, periods)")
 print(f"    = {float(sim_T):.4f}")
 
 # --- 9d. cos_sim of the differenced pair: D(T) == D identity in action ---
@@ -310,7 +312,7 @@ print(f"    = {float(sim_T):.4f}")
 pDT_again, wDT_again, sDT_again = mpt.difference_events(pT, w, [1, 0])
 sim_diffed = mpt.cos_sim_exp_tens(
     pD, wD, pDT_again, wDT_again,
-    sigma, r, gD, is_rel, is_per, periods,
+    sigma, r, is_rel, is_per, periods,
     verbose=False,
 )
 print(f"  cos_sim_exp_tens(pD, wD, pD(T), wD(T), ...)")
@@ -327,22 +329,22 @@ print("\n=== 10. Dens form: build once, query many; parity with route (ii) ===")
 # pre-computation, weight products --- is paid; subsequent
 # entropy/eval/cos_sim calls just consume the struct.
 dens_orig = mpt.build_exp_tens(
-    p_attr, w, sigma, r, groups, is_rel, is_per, periods, verbose=False,
+    p_attr, w, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 dens_T = mpt.build_exp_tens(
-    pT, w, sigma, r, groups, is_rel, is_per, periods, verbose=False,
+    pT, w, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 dens_D = mpt.build_exp_tens(
-    pD, wD, sigma, r, gD, is_rel, is_per, periods, verbose=False,
+    pD, wD, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 pDT_4, wDT_4, sDT_4 = mpt.difference_events(pT, w, [1, 0])
 dens_DT = mpt.build_exp_tens(
-    pDT_4, wDT_4, sigma, r, gDT_4, is_rel, is_per, periods, verbose=False,
+    pDT_4, wDT_4, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 
 # --- 10a. entropy_exp_tens on the struct; same answer as 9a. ---
 H_orig_dens = mpt.entropy_exp_tens(
-    dens_orig, method="renyi2", normalize=False, verbose=False,
+    dens_orig, method="renyi2", verbose=False,
 )
 delta_a = abs(float(H_orig_dens) - float(H_orig))
 print("  entropy_exp_tens(dens_orig)")

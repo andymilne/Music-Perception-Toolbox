@@ -314,22 +314,23 @@ def test_renyi2_ma_windowed_bounded_time():
 # Fully dead density
 # ---------------------------------------------------------------------
 
-def test_all_dead_ma_renyi2_is_zero():
+def test_all_dead_ma_renyi2_is_nan():
+    # A zero-mass density (every event pruned) has undefined collision
+    # entropy; renyi2 returns NaN rather than raising or reporting 0.
     p_pitch = np.array([[60., 62., 64.]])
     p_time = np.array([[0., 1., 2.]])
     dens = _ma_density([p_pitch, p_time],
                        [np.zeros((1, 3)), np.ones((1, 3))])
     assert int(dens.live_events.sum()) == 0
     assert dens.pruned().n == 0
-    assert entropy_exp_tens(dens, method='renyi2', verbose=False) == 0.0
+    assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))
 
 
-def test_all_dead_sa_renyi2_raises():
-    """An entirely zero-mass SA density is genuinely degenerate; the
-    prune surfaces it as the existing non-positive-mass error rather
-    than masking it.
+def test_all_dead_sa_renyi2_is_nan():
+    """An entirely zero-mass SA density is genuinely degenerate; renyi2
+    returns NaN (collision entropy of zero mass is undefined) rather than
+    raising, so sweep-style callers need not wrap each call.
     """
     dens = _sa_density([60., 62., 64.], [0., 0., 0.])
     assert int(dens.live_events.sum()) == 0
-    with pytest.raises(FloatingPointError):
-        entropy_exp_tens(dens, method='renyi2', verbose=False)
+    assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))

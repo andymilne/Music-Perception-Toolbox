@@ -1395,6 +1395,26 @@ def _resolve_density(p_or_dens, args, spectrum):
 # -------------------------------------------------------------------
 
 
+def _renyi2_finalise(ip_xx, Z, base):
+    """Return ``H_2 = -log_b(ip_xx / Z**2)``, or NaN for a degenerate
+    (zero-mass / non-finite) density.
+
+    A zero-mass density (every weight zero, or a window with no event in
+    support) has ``<T,T> = 0`` and ``Z = 0`` exactly, so its collision
+    entropy is undefined. Returning NaN rather than raising is friendlier
+    for sweep-style callers: a windowed sweep already wants NaN at
+    out-of-support centres, and the caller need not wrap each evaluation
+    in ``try``/``except``. (Finite-precision catastrophic cancellation in
+    a self-inner-product is not produced analytically and has not been
+    observed; if a genuine cancellation regime ever surfaces it would
+    also land here as NaN rather than a wrong number.)
+    """
+    if (not np.isfinite(ip_xx)) or ip_xx <= 0.0 \
+            or (not np.isfinite(Z)) or Z <= 0.0:
+        return float("nan")
+    return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
+
+
 def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     """Analytical Rényi-2 entropy of a SA expectation tensor.
 
@@ -1425,16 +1445,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
         I_a, Z_a = _renyi2_per_attr_numerical(da_dens, 0)
         ip_xx = float(I_a[0, 0])
         Z = float(Z_a[0])
-        if not np.isfinite(ip_xx) or ip_xx <= 0:
-            raise FloatingPointError(
-                f"Computed <T,T>={ip_xx} for the ordered density is "
-                "non-positive or non-finite."
-            )
-        if not np.isfinite(Z) or Z <= 0:
-            raise FloatingPointError(
-                f"Computed Z={Z} is non-positive or non-finite."
-            )
-        return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
+        return _renyi2_finalise(ip_xx, Z, base)
     from ._mobius import total_mass_abs, total_mass_rel
 
     dens = dens.pruned()
@@ -1459,15 +1470,7 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
         K = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
         ip_xx = float(sigma * np.sqrt(np.pi) * (w[:, None] * w[None, :] * K).sum())
         Z = total_mass_abs(p, w, sigma, r)
-        if not np.isfinite(ip_xx) or ip_xx <= 0:
-            raise FloatingPointError(
-                f"Computed <T,T>={ip_xx} is non-positive or non-finite."
-            )
-        if not np.isfinite(Z) or Z <= 0:
-            raise FloatingPointError(
-                f"Computed Z={Z} is non-positive or non-finite."
-            )
-        return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
+        return _renyi2_finalise(ip_xx, Z, base)
 
     # r >= 2: Möbius machinery. Empirical sweeps across all 7 regimes
     # (precision_audit/ + sweep_self_ip.py) show the Möbius-method self-IP is
@@ -1489,27 +1492,13 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
             p, w, p, w, sigma, r, is_per, period,
         )
 
-    if not np.isfinite(ip_xx) or ip_xx <= 0:
-        raise FloatingPointError(
-            f"Computed <T,T>={ip_xx} via the Möbius method is "
-            "non-positive or non-finite. The input density may be "
-            "degenerate (all weights zero), or the parameters may lie "
-            "in a regime where the alternating Möbius sum has lost all "
-            "significant digits. Try a less extreme σ/P ratio, smaller "
-            "r, or larger K-r margin."
-        )
-
     # Z via closed-form Möbius total mass.
     if is_rel:
         Z = total_mass_rel(p, w, sigma, r)
     else:
         Z = total_mass_abs(p, w, sigma, r)
-    if not np.isfinite(Z) or Z <= 0:
-        raise FloatingPointError(
-            f"Computed Z={Z} is non-positive or non-finite."
-        )
 
-    return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
+    return _renyi2_finalise(ip_xx, Z, base)
 
 
 def _renyi2_per_attr_numerical(dens, a):
@@ -1628,8 +1617,14 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     dens = dens_or_windowed.pruned()
     A = dens.n_attrs
     N = dens.n
-    if A == 0 or N == 0:
+    if A == 0:
         return 0.0
+    if N == 0:
+        # Every event pruned away: a zero-mass density (e.g. a windowed
+        # sweep centre with no event in support). Collision entropy is
+        # undefined; return NaN rather than 0, matching the SA path and
+        # the value a windowed sweep wants at out-of-support centres.
+        return float("nan")
 
     # Per-attribute inner matrices compose as
     # <T,T> = sum_{n,m} prod_a I_a[n,m] and Z = sum_n prod_a Z_a^(n).
@@ -1680,24 +1675,10 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
         Z_per_event_attr[:, a] = Z_a
     ip_xx = float(P_xx.sum())
 
-    if not np.isfinite(ip_xx) or ip_xx <= 0:
-        raise FloatingPointError(
-            f"Computed <T,T>={ip_xx} via the Möbius method is "
-            "non-positive or non-finite. The input density may be "
-            "degenerate, or the parameters may lie in a regime where "
-            "the per-attribute alternating sum has lost all significant "
-            "digits. Try a less extreme σ/P ratio, smaller r, or larger "
-            "K-r margin."
-        )
-
     # ---- Z = Σ_n Π_a Z_a^(n) ----
     Z = float(np.prod(Z_per_event_attr, axis=1).sum())
-    if not np.isfinite(Z) or Z <= 0:
-        raise FloatingPointError(
-            f"Computed Z={Z} is non-positive or non-finite."
-        )
 
-    return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
+    return _renyi2_finalise(ip_xx, Z, base)
 
 
 def _looks_like_ma_p(p) -> bool:

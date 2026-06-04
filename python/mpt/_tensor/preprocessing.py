@@ -1229,7 +1229,21 @@ def _evaluate_shape(delta, width, gamma):
         return np.exp(-(delta ** 2) / (2.0 * width ** 2))
     if gamma == 1.0:
         phi = width * np.sqrt(3.0)
-        return (np.abs(delta) <= phi).astype(np.float64)
+        # Half-open support [-phi, phi): lower edge included, upper edge
+        # excluded. A closed interval over-counts even widths (each window
+        # spans an odd number of pulses, so widths 1..5 collapse to pulse
+        # counts 1, 3, 3, 5, 5) and, at a between-pulse centre, can drop
+        # both flanking edge pulses, leaving a zero-mass density. The
+        # half-open rule gives exactly N pulses for full support N*IOI at
+        # every N. The tolerance keeps the edge test robust to floating-
+        # point error, so a pulse landing exactly on an edge cannot flip
+        # membership.
+        delta = np.asarray(delta, dtype=np.float64)
+        scale = max(abs(phi), 1.0)
+        if delta.size:
+            scale = max(scale, float(np.max(np.abs(delta))))
+        tol = 1e-9 * scale
+        return ((delta >= -phi - tol) & (delta < phi - tol)).astype(np.float64)
     phi = width * np.sqrt(3.0 * gamma)
     xi = width * np.sqrt(1.0 - gamma)
     scale = xi * np.sqrt(2.0)

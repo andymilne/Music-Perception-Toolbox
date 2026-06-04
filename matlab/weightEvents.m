@@ -319,9 +319,19 @@ function h = localEvaluateShape(delta, sd, gamma)
         return;
     end
     if gamma == 1
-        % Pure rectangle, half-width = sd * sqrt(3).
+        % Pure rectangle, half-width phi = sd * sqrt(3). Half-open support
+        % [-phi, phi): lower edge included, upper edge excluded, so a
+        % regular pulse grid yields exactly N pulses for full support
+        % N*IOI at every N (a closed interval over-counts even widths and
+        % can leave a between-pulse centre empty). The tolerance keeps the
+        % edge test robust to floating-point error.
         phi = sd * sqrt(3);
-        h = double(abs(delta) <= phi);
+        scale = max(abs(phi), 1);
+        if ~isempty(delta)
+            scale = max(scale, max(abs(delta(:))));
+        end
+        tol = 1e-9 * scale;
+        h = double((delta >= -phi - tol) & (delta < phi - tol));
         return;
     end
     phi   = sd * sqrt(3 * gamma);

@@ -775,13 +775,43 @@ wid_xy  = sd_xy * 2 * sqrt(3);
 results{end+1,1} = 'weightEvents: sd and width yield identical output under conversion';
 results{end,2}   = max(abs(w_sd_xy{1} - w_wid_xy{1})) < 1e-12;
 
-% width form: rect of full support L covers [-L/2, L/2]; events just past zeroed.
+% width form: rect of full support L covers half-open [-L/2, L/2); the
+% lower edge -L/2 is kept, the upper edge +L/2 is excluded, events just
+% past are zeroed (a closed interval over-counts).
 L_rect = 1.0;
 eps_rect = 1e-6;
 t_rect = [-L_rect/2, -L_rect/4, 0, L_rect/4, L_rect/2, L_rect/2 + eps_rect];
 [~, w_rect, ~] = weightEvents({t_rect}, [], 1, 1, 0, 1, 'width', L_rect, 'deleteInput', false);
-results{end+1,1} = 'weightEvents: width gives rectangle of total support width';
-results{end,2}   = all(w_rect{1}(1:5) == 1) && w_rect{1}(6) == 0;
+results{end+1,1} = 'weightEvents: width gives half-open rectangle of total support width';
+results{end,2}   = all(w_rect{1}(1:4) == 1) && w_rect{1}(5) == 0 && w_rect{1}(6) == 0;
+
+% #20: half-open rect window keeps exactly N pulses for full support N on a
+% unit grid (a closed interval would give 1, 3, 3, 5, 5 for widths 1..5).
+t_grid = 0:8;                       % IOI = 1
+rectCounts = zeros(1, 5);
+for Wn = 1:5
+    [~, w_g, ~] = weightEvents({t_grid, t_grid}, [], 2, 1, 4, 1, ...
+                               'width', Wn, 'deleteInput', false);
+    rectCounts(Wn) = nnz(w_g{1});
+end
+results{end+1,1} = 'weightEvents: half-open rect width N keeps N pulses (on-pulse centre)';
+results{end,2}   = isequal(rectCounts, [1 2 3 4 5]);
+
+% Between-pulse centre keeps one pulse (lower edge), not zero or two.
+[~, w_bp, ~] = weightEvents({t_grid, t_grid}, [], 2, 1, 3.5, 1, ...
+                            'width', 1, 'deleteInput', false);
+results{end+1,1} = 'weightEvents: half-open rect between-pulse centre keeps 1 pulse';
+results{end,2}   = (nnz(w_bp{1}) == 1);
+
+% #21: an out-of-support rectangular window gives a zero-mass density, and
+% renyi2 returns NaN rather than erroring.
+[pa_z, wa_z, ~] = weightEvents({[60 62 64], [0 1 2]}, [], 2, 1, 100, 1, ...
+                               'width', 1, 'deleteInput', false);
+dens_z = buildExpTens(pa_z, wa_z, [1 1], [1 1], [false false], ...
+                      [false false], [0 0]);
+H_z = entropyExpTens(dens_z, 'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'weightEvents+renyi2: out-of-support window yields NaN';
+results{end,2}   = isnan(H_z);
 
 % Error cases (per-validation IDs in MATLAB).
 results{end+1,1} = 'weightEvents: zero sd errors (badSd id)';

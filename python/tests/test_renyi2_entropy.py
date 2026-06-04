@@ -282,19 +282,19 @@ def test_renyi2_inequality_with_shannon():
 # ---- Fallback to pairwise self-IP --------------------------------
 
 
-def test_renyi2_sa_raises_on_orbit_negative(monkeypatch):
-    """If the orbit self-IP returns a non-positive value (sign-flip
-    from FP cancellation), the SA Rényi-2 path raises FloatingPointError.
+def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
+    """If the orbit self-IP returns a non-positive value (sign-flip from
+    FP cancellation), the SA Rényi-2 path returns NaN.
 
     Rationale: empirical sweeps across all 7 standard regimes
-    (sweep_self_ip.py) found no real-world case where orbit produces
-    a corrupt self-IP, so corruption indicates either degenerate input
-    or a parameter regime far outside what the orbit machinery can
-    handle. The pairwise fallback explored in earlier drafts was
-    abandoned because orbit and pairwise use different normalisation
-    conventions (the fallback gave a different answer rather than
-    recovering the correct value). Failing loudly is safer than
-    silent fallback to a value the caller cannot interpret.
+    (sweep_self_ip.py) found no real-world case where orbit produces a
+    corrupt self-IP, so a non-positive self-IP indicates either a
+    degenerate (zero-mass) density or a parameter regime far outside what
+    the orbit machinery can handle. Either way the collision entropy is
+    undefined, so the finite-and-positive guard returns NaN rather than a
+    value the caller cannot interpret. (A second-method numerical fallback
+    is deliberately out of scope; orbit and pairwise use different
+    normalisation conventions in rel mode.)
     """
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
@@ -306,12 +306,11 @@ def test_renyi2_sa_raises_on_orbit_negative(monkeypatch):
     monkeypatch.setattr(
         ent_mod, '_orbit_inner_abs', lambda *a, **k: -1.0,
     )
-    with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(T, method='renyi2')
+    assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 
 
-def test_renyi2_sa_raises_on_orbit_nonfinite(monkeypatch):
-    """If the orbit self-IP returns NaN or inf, raise FloatingPointError."""
+def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
+    """If the orbit self-IP returns NaN or inf, the SA path returns NaN."""
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
     P = 1200.0
@@ -322,13 +321,13 @@ def test_renyi2_sa_raises_on_orbit_nonfinite(monkeypatch):
     monkeypatch.setattr(
         ent_mod, '_orbit_inner_abs', lambda *a, **k: float('nan'),
     )
-    with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(T, method='renyi2')
+    assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 
 
-def test_renyi2_ma_raises_on_orbit_negative(monkeypatch):
-    """MA path: if a corrupt per-attribute matrix yields negative
-    summed ip_xx, raise FloatingPointError. No silent fallback."""
+def test_renyi2_ma_nan_on_orbit_negative(monkeypatch):
+    """MA path: if a corrupt per-attribute matrix yields negative summed
+    ip_xx, the path returns NaN (finite-and-positive guard); no silent
+    fallback to a differently-normalised method."""
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
     P = 1200.0
@@ -351,5 +350,4 @@ def test_renyi2_ma_raises_on_orbit_negative(monkeypatch):
         return I
     monkeypatch.setattr(ent_mod, '_ma_per_attr_inner_matrix', fake_matrix)
 
-    with pytest.raises(FloatingPointError, match="non-positive or non-finite"):
-        entropy_exp_tens(dens, method='renyi2')
+    assert np.isnan(entropy_exp_tens(dens, method='renyi2'))

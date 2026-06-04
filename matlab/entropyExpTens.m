@@ -1785,6 +1785,27 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 end
 
 
+function H = localRenyi2Finalise(ip_xx, Z, base)
+%LOCALRENYI2FINALISE  Return H_2 = -log_b(ip_xx / Z^2), or NaN for a
+%degenerate (zero-mass / non-finite) density.
+%
+%   A zero-mass density (every weight zero, or a window with no event in
+%   support) has <T,T> = 0 and Z = 0 exactly, so its collision entropy is
+%   undefined. Returning NaN rather than erroring is friendlier for
+%   sweep-style callers: a windowed sweep already wants NaN at
+%   out-of-support centres, and the caller need not wrap each evaluation in
+%   try/catch. (Finite-precision catastrophic cancellation in a self-inner-
+%   product is not produced analytically and has not been observed; were a
+%   genuine cancellation regime ever to surface it would also land here as
+%   NaN rather than a wrong number.)
+    if ~isfinite(ip_xx) || ip_xx <= 0 || ~isfinite(Z) || Z <= 0
+        H = NaN;
+        return;
+    end
+    H = -log(ip_xx / (Z * Z)) / log(base);
+end
+
+
 function H = localRenyi2SA(dens, base)
 %LOCALRENYI2SA  Analytical Rényi-2 entropy of a SA expectation tensor.
 %
@@ -1810,18 +1831,7 @@ function H = localRenyi2SA(dens, base)
         da = buildExpTens({p(:)}, {w(:)}, sigma, r, isRel, isPer, period, ...
                           false, 'lazy', false, 'verbose', false);
         [I_a, Z_a] = localRenyi2PerAttrNumerical(da, 1);
-        ip_xx = I_a(1, 1);
-        Z = Z_a(1);
-        if ~isfinite(ip_xx) || ip_xx <= 0
-            error('entropyExpTens:renyi2NonPositiveIP', ...
-                ['Computed <T,T>=%g for the ordered density is ' ...
-                 'non-positive or non-finite.'], ip_xx);
-        end
-        if ~isfinite(Z) || Z <= 0
-            error('entropyExpTens:renyi2NonPositiveZ', ...
-                'Computed Z=%g is non-positive or non-finite.', Z);
-        end
-        H = -log(ip_xx / (Z * Z)) / log(base);
+        H = localRenyi2Finalise(I_a(1, 1), Z_a(1), base);
         return;
     end
 
@@ -1870,21 +1880,7 @@ function H = localRenyi2SA(dens, base)
         end
     end
 
-    if ~isfinite(ip_xx) || ip_xx <= 0
-        error('entropyExpTens:renyi2NonPositiveIP', ...
-            ['Computed <T,T>=%g via the orbit-Möbius path is non-positive ' ...
-             'or non-finite. The input density may be degenerate (all ' ...
-             'weights zero), or the parameters may lie in a regime where ' ...
-             'the alternating Möbius sum has lost all significant digits. ' ...
-             'Try a less extreme sigma/period ratio, smaller r, or ' ...
-             'larger K-r margin.'], ip_xx);
-    end
-    if ~isfinite(Z) || Z <= 0
-        error('entropyExpTens:renyi2NonPositiveZ', ...
-            'Computed Z=%g is non-positive or non-finite.', Z);
-    end
-
-    H = -log(ip_xx / (Z * Z)) / log(base);
+    H = localRenyi2Finalise(ip_xx, Z, base);
 end
 
 
@@ -1910,8 +1906,16 @@ function H = localRenyi2MA(dens, base)
     dens = internal.prunedExpTens(dens);
     A = dens.nAttrs;
     N = dens.N;
-    if A == 0 || N == 0
+    if A == 0
         H = 0;
+        return;
+    end
+    if N == 0
+        % Every event pruned away: a zero-mass density (e.g. a windowed
+        % sweep centre with no event in support). Collision entropy is
+        % undefined; return NaN rather than 0, matching the SA path and
+        % the value a windowed sweep wants at out-of-support centres.
+        H = NaN;
         return;
     end
 
@@ -1982,24 +1986,9 @@ function H = localRenyi2MA(dens, base)
     end
     ip_xx = sum(P_xx(:));
 
-    if ~isfinite(ip_xx) || ip_xx <= 0
-        error('entropyExpTens:renyi2NonPositiveIP', ...
-            ['Computed <T,T>=%g via the orbit-Möbius path is non-positive ' ...
-             'or non-finite. The input density may be degenerate, or the ' ...
-             'parameters may lie in a regime where the per-attribute ' ...
-             'alternating sum has lost all significant digits. Try a ' ...
-             'less extreme sigma/period ratio, smaller r, or larger ' ...
-             'K-r margin.'], ip_xx);
-    end
-
     Z = sum(prod(Z_per_event_attr, 2));
 
-    if ~isfinite(Z) || Z <= 0
-        error('entropyExpTens:renyi2NonPositiveZ', ...
-            'Computed Z=%g is non-positive or non-finite.', Z);
-    end
-
-    H = -log(ip_xx / (Z * Z)) / log(base);
+    H = localRenyi2Finalise(ip_xx, Z, base);
 end
 
 

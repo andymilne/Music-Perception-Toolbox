@@ -119,9 +119,11 @@ def test_weight_events_sd_and_width_yield_same_density_under_conversion():
 
 
 def test_weight_events_rect_width_is_full_support():
-    """At shape=1, ``width=L`` gives a rectangle covering ``[-L/2, +L/2]``
-    around the centre: events at exactly ``+/- L/2`` are kept; events
-    just beyond are zeroed.
+    """At shape=1, ``width=L`` gives a half-open rectangle ``[-L/2, +L/2)``
+    around the centre: the lower edge ``-L/2`` is kept, the upper edge
+    ``+L/2`` is excluded, and events just beyond are zeroed. The half-open
+    rule gives exactly ``N`` pulses for full support ``N*IOI`` on a regular
+    grid (a closed interval over-counts).
     """
     # Place events at -L/2, -L/4, 0, +L/4, +L/2, and just past +L/2.
     L = 1.0
@@ -139,8 +141,10 @@ def test_weight_events_rect_width_is_full_support():
         is_per=False, period=0.0,
         width=L, delete_input=True,
     )
-    # First five events should have weight 1; the sixth (just past L/2) is 0.
-    np.testing.assert_allclose(w_out[0][0, :5], 1.0)
+    # Lower edge and interior (indices 0-3) kept; upper edge +L/2 (index 4)
+    # and just-past (index 5) excluded.
+    np.testing.assert_allclose(w_out[0][0, :4], 1.0)
+    assert w_out[0][0, 4] == 0.0
     assert w_out[0][0, 5] == 0.0
 
 

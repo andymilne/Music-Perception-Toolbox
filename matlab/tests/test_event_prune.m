@@ -229,22 +229,17 @@ densDeadMA = buildExpTens({[60 62 64], [0 1 2]}, {zeros(1,3), ones(1,3)}, ...
 results{end+1,1} = 'all-dead MA prune yields N = 0';
 results{end,2}   = (internal.prunedExpTens(densDeadMA).N == 0);
 H_dead_ma = entropyExpTens(densDeadMA, 'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'all-dead MA renyi2 is 0';
-results{end,2}   = (H_dead_ma == 0);
+results{end+1,1} = 'all-dead MA renyi2 is NaN';
+results{end,2}   = isnan(H_dead_ma);
 
-% An entirely zero-mass SA density is genuinely degenerate: the prune
-% surfaces it as an error / non-finite value rather than masking it.
+% An entirely zero-mass SA density is genuinely degenerate: collision
+% entropy of zero mass is undefined, so renyi2 returns NaN (matching the
+% MA path and the value a windowed sweep wants at out-of-support centres)
+% rather than erroring.
 densDeadSA = buildExpTens([60 62 64], [0 0 0], 0.5, 1, false, false, 0);
-threw_dead = false;
-H_dead_sa = NaN;
-try
-    H_dead_sa = entropyExpTens(densDeadSA, 'method', 'renyi2', ...
-                               'verbose', false);
-catch
-    threw_dead = true;
-end
-results{end+1,1} = 'all-dead SA renyi2 errors or is non-finite';
-results{end,2}   = threw_dead || ~isfinite(H_dead_sa);
+H_dead_sa = entropyExpTens(densDeadSA, 'method', 'renyi2', 'verbose', false);
+results{end+1,1} = 'all-dead SA renyi2 is NaN';
+results{end,2}   = isnan(H_dead_sa);
 
 
 if standalone_ep

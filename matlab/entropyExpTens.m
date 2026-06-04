@@ -1902,14 +1902,25 @@ function H = localRenyi2MA(dens, base)
         return;
     end
 
-    % Orbit (Möbius) IP presumes symmetrisation per attribute. Any
-    % ordered attribute (isSym = false) at r > 1 needs the direct
-    % un-orbited sum, not yet implemented. r = 1 attributes are exempt
-    % ([sym] vacuous).
+    % Orbit (Möbius) IP presumes symmetrisation per attribute for *flat*
+    % attributes. An ordered (isSym = false) flat attribute at r > 1 needs
+    % the direct un-orbited sum, not yet implemented. Nested attributes are
+    % exempt: they flow through the numerical block-metric path below,
+    % which honours each level's [sym] in the enumeration. r = 1 flat
+    % attributes are exempt ([sym] vacuous).
+    nested = {};
+    if isfield(dens, 'nested'); nested = dens.nested; end
+    isNested = false(1, A);
+    for a = 1:A
+        if numel(nested) >= a && ~isempty(nested{a}) && isstruct(nested{a}) ...
+                && isfield(nested{a}, 'tags')
+            isNested(a) = true;
+        end
+    end
     if isfield(dens, 'isSym')
         isSymVec = logical(dens.isSym(:).');
         rVec = dens.r(:).';
-        if any(~isSymVec & (rVec > 1))
+        if any(~isNested & ~isSymVec & (rVec > 1))
             error('entropyExpTens:renyi2OrderedNotSupported', ...
                 ['method=''renyi2'' does not yet support isSym = false ' ...
                  '(ordered) attributes at r > 1; the analytic collision ' ...
@@ -1922,24 +1933,44 @@ function H = localRenyi2MA(dens, base)
     internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
         sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A), 0, false);
 
-    % --- <T, T> via per-attribute orbit IP ---
+    % --- <T, T> and Z, per attribute ---
     % Per-(n,m) cancellation ratios were shown empirically to fire
-    % spuriously for self-IPs in typical musical regimes (off-diagonal
-    % entries can be noisy while the diagonal entries — which dominate
-    % the sum — are clean). We rely on a post-hoc finite/positive check
-    % rather than a ratio fallback.
+    % spuriously for self-IPs in typical musical regimes; we rely on a
+    % post-hoc finite/positive check rather than a ratio fallback. Nested
+    % attributes take the numerical block-metric inner matrix
+    % (localRenyi2PerAttrNested); flat attributes take the Möbius
+    % per-attribute matrix and closed-form SA total mass.
     P_xx = ones(N, N);
+    Z_per_event_attr = zeros(N, A);
     for a = 1:A
-        r_a = dens.r(a);
-        sigma_g = dens.sigma(a);
-        isRel_g = dens.isRel(a);
-        isPer_g = dens.isPer(a);
-        period_g = dens.period(a);
-        Pa = dens.pAttr{a};
-        Wa = dens.w{a};
-        I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
-            sigma_g, r_a, isRel_g, isPer_g, period_g);
+        if isNested(a)
+            [I_xx, Z_a] = localRenyi2PerAttrNested(dens, a);
+        else
+            r_a = dens.r(a);
+            sigma_g = dens.sigma(a);
+            isRel_g = dens.isRel(a);
+            isPer_g = dens.isPer(a);
+            period_g = dens.period(a);
+            Pa = dens.pAttr{a};
+            Wa = dens.w{a};
+            I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
+                sigma_g, r_a, isRel_g, isPer_g, period_g);
+            Z_a = zeros(N, 1);
+            for n = 1:N
+                pn = Pa(:, n);
+                wn = Wa(:, n);
+                valid = ~(isnan(pn) | isnan(wn));
+                pn = pn(valid);
+                wn = wn(valid);
+                if isRel_g
+                    Z_a(n) = mobius.totalMassRel(pn, wn, sigma_g, r_a);
+                else
+                    Z_a(n) = mobius.totalMassAbs(pn, wn, sigma_g, r_a);
+                end
+            end
+        end
         P_xx = P_xx .* I_xx;
+        Z_per_event_attr(:, a) = Z_a;
     end
     ip_xx = sum(P_xx(:));
 
@@ -1953,32 +1984,6 @@ function H = localRenyi2MA(dens, base)
              'K-r margin.'], ip_xx);
     end
 
-    % --- Z = sum_n prod_a Z_a^{(n)} ---
-    % Each per-event-per-attribute factor is the SA total mass computed
-    % on that event's slot vector. NaN slots (ragged events) are dropped
-    % before calling totalMass*; the periodic mode handles wrap inside
-    % the helper.
-    Z_per_event_attr = zeros(N, A);
-    for a = 1:A
-        r_a = dens.r(a);
-        sigma_g = dens.sigma(a);
-        isRel_g = dens.isRel(a);
-        Pa = dens.pAttr{a};   % (K_a, N)
-        Wa = dens.w{a};       % (K_a, N)
-        for n = 1:N
-            pn = Pa(:, n);
-            wn = Wa(:, n);
-            valid = ~(isnan(pn) | isnan(wn));
-            pn = pn(valid);
-            wn = wn(valid);
-            if isRel_g
-                Z_an = mobius.totalMassRel(pn, wn, sigma_g, r_a);
-            else
-                Z_an = mobius.totalMassAbs(pn, wn, sigma_g, r_a);
-            end
-            Z_per_event_attr(n, a) = Z_an;
-        end
-    end
     Z = sum(prod(Z_per_event_attr, 2));
 
     if ~isfinite(Z) || Z <= 0
@@ -1987,4 +1992,124 @@ function H = localRenyi2MA(dens, base)
     end
 
     H = -log(ip_xx / (Z * Z)) / log(base);
+end
+
+
+function [I_a, Z_a] = localRenyi2PerAttrNested(dens, a)
+%LOCALRENYI2PERATTRNESTED  Per-attribute (event, event) inner matrix and
+%per-event total mass for a *nested* attribute, computed numerically via
+%the nested tuple enumeration and block-diagonal co-transposition metric.
+%
+%   Returns I_a (N x N), where I_a(n,m) = integral k_a^n(x) k_a^m(x), and
+%   Z_a (N x 1), where Z_a(n) = integral k_a^n. These compose with the
+%   flat-attribute matrices in the MA Rényi-2 factorisation. The flat
+%   Möbius matrix would re-derive the full S_{D_a} orbit (wrong symmetry
+%   and infeasible); the nested density's tuples and block metric are
+%   correct at any depth. For two kernels of common metric M and width
+%   sigma the Gaussian overlap is
+%   (pi sigma^2)^{d/2}/sqrt(det M) * exp(-Q_M(c_t - c_s)/(4 sigma^2)) and
+%   the single-kernel mass is (2 pi sigma^2)^{d/2}/sqrt(det M).
+    spec = dens.nested{a};
+    sig  = dens.sigma(a);
+    isper = dens.isPer(a);
+    per  = dens.period(a);
+    da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
+                      'sigma', sig, 'isPer', isper, 'period', per, ...
+                      'lazy', false, 'verbose', false);
+    C   = da.Centres{1};         % (d_a x nJ) reduced centres
+    wj  = da.wJ(:);              % (nJ x 1)
+    eoj = da.eventOfJ(:);        % (nJ x 1) 1-based event index
+    d_a = size(C, 1);
+    nj  = numel(wj);
+    N   = dens.N;
+
+    blockSize = 0;
+    if isfield(spec, 'proj') && (strcmp(spec.proj, 'inner') ...
+            || strcmp(spec.proj, 'intermediate'))
+        u = spec.relUnit;
+        blockSize = prod(spec.r(1:u));
+    end
+    isRel = da.isRel(1);
+    r_a   = da.r(1);
+    if blockSize >= 2
+        detM = (1 / blockSize) ^ (r_a / blockSize);
+    elseif isRel && r_a >= 2
+        detM = 1 / r_a;
+    else
+        detM = 1;
+    end
+    vol  = (2 * pi * sig^2) ^ (d_a / 2) / sqrt(detM);   % single-kernel mass
+    pref = (pi * sig^2) ^ (d_a / 2) / sqrt(detM);       % overlap prefactor
+
+    I_a = zeros(N, N);
+    Z_a = zeros(N, 1);
+    if nj > 0
+        Q = localBlockMetricQ(C, blockSize, isRel, r_a, isper, per);  % nJ x nJ
+        O = pref .* exp(-Q ./ (4 * sig^2));
+        WO = (wj * wj.') .* O;
+        G = zeros(N, nj);
+        G(sub2ind([N, nj], eoj.', 1:nj)) = 1;
+        I_a = G * WO * G.';
+        Z_a = vol .* (G * wj);
+    end
+end
+
+
+function Q = localBlockMetricQ(C, blockSize, isRel, r_a, isPer, per)
+%LOCALBLOCKMETRICQ  Pairwise block-diagonal co-transposition quadratic
+%form on reduced centres. Mirrors the reduced-convention block metric used
+%in evalExpTens (qInnerBlocksReducedLocal) and the whole-tuple _compute_Q,
+%but operates on the (nJ x nJ) pairwise difference tensor.
+    d_a = size(C, 1);
+    nj  = size(C, 2);
+    % D(k,i,j) = C(k,i) - C(k,j).
+    D = reshape(C, d_a, nj, 1) - reshape(C, d_a, 1, nj);
+    Q = zeros(nj, nj);
+    if blockSize >= 2
+        blk = blockSize - 1;          % reduced rows per block
+        nBlocks = d_a / blk;
+        for b = 1:nBlocks
+            rows = (b - 1) * blk + (1:blk);
+            Db = D(rows, :, :);
+            if isPer
+                slot0 = Db - per .* floor(Db ./ per + 0.5);
+                Qb = reshape(sum(slot0 .^ 2, 1), nj, nj);
+                for i = 1:blk
+                    for j = i + 1:blk
+                        delta = reshape(Db(i, :, :) - Db(j, :, :), nj, nj);
+                        delta = delta - per .* floor(delta ./ per + 0.5);
+                        Qb = Qb + delta .^ 2;
+                    end
+                end
+                Qb = Qb / blockSize;
+            else
+                Qb = reshape(sum(Db .^ 2, 1), nj, nj) ...
+                   - reshape(sum(Db, 1) .^ 2, nj, nj) / blockSize;
+            end
+            Q = Q + Qb;
+        end
+    elseif isRel && r_a >= 2
+        % Whole-tuple reduced relative quotient (outer unit).
+        if isPer
+            slot0 = D - per .* floor(D ./ per + 0.5);
+            Q = reshape(sum(slot0 .^ 2, 1), nj, nj);
+            for i = 1:d_a
+                for j = i + 1:d_a
+                    delta = reshape(D(i, :, :) - D(j, :, :), nj, nj);
+                    delta = delta - per .* floor(delta ./ per + 0.5);
+                    Q = Q + delta .^ 2;
+                end
+            end
+            Q = Q / r_a;
+        else
+            Q = reshape(sum(D .^ 2, 1), nj, nj) ...
+              - reshape(sum(D, 1) .^ 2, nj, nj) / r_a;
+        end
+    else
+        % Absolute.
+        if isPer
+            D = D - per .* floor(D ./ per + 0.5);
+        end
+        Q = reshape(sum(D .^ 2, 1), nj, nj);
+    end
 end

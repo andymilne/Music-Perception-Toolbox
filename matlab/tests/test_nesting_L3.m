@@ -109,6 +109,31 @@ results{end+1,1} = 'L3: unit dims increase 4 < 6 < 7 < 8';
 results{end,2}   = isequal([dIn.dim, dMid.dim, dO.dim, dA.dim], [4 6 7 8]);
 
 
+% --- renyi2 entropy at L = 3 (nested block-metric inner matrix) ---
+% Was a MemoryError via the flat S_8 = 40320 orbit; now the per-attribute
+% inner matrix is built numerically from the nested tuples and block
+% metric. Values are golden against the Python implementation (base 2).
+hIn  = entropyExpTens(dIn,  'method', 'renyi2', 'verbose', false);
+hMid = entropyExpTens(dMid, 'method', 'renyi2', 'verbose', false);
+hOut = entropyExpTens(dO,   'method', 'renyi2', 'verbose', false);
+hAbs = entropyExpTens(dA,   'method', 'renyi2', 'verbose', false);
+
+results{end+1,1} = 'L3: renyi2 finite for all four projections';
+results{end,2}   = all(isfinite([hIn, hMid, hOut, hAbs]));
+
+results{end+1,1} = 'L3: renyi2 decreases with finer quotient';
+results{end,2}   = (hIn < hMid) && (hMid < hOut) && (hOut < hAbs);
+
+results{end+1,1} = 'L3: renyi2 matches Python golden (inner)';
+results{end,2}   = abs(hIn  - 28.956146) < 1e-3;
+results{end+1,1} = 'L3: renyi2 matches Python golden (intermediate)';
+results{end,2}   = abs(hMid - 42.498901) < 1e-3;
+results{end+1,1} = 'L3: renyi2 matches Python golden (outer)';
+results{end,2}   = abs(hOut - 48.731539) < 1e-3;
+results{end+1,1} = 'L3: renyi2 matches Python golden (absolute)';
+results{end,2}   = abs(hAbs - 53.964178) < 1e-3;
+
+
 % --- Representation validation ---
 specVecTags = struct('tags', zeros(1, 8), 'r', [2 2 2], ...
                      'sym', [true true false]);

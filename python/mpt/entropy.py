@@ -1493,6 +1493,83 @@ def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
     return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
 
 
+def _renyi2_per_attr_nested(dens, a):
+    """Per-attribute (event, event) inner matrix and per-event total mass
+    for a *nested* attribute, computed numerically via the nested tuple
+    enumeration and block-diagonal co-transposition metric.
+
+    Returns ``(I_a, Z_a)`` where ``I_a[n, m] = integral k_a^n(x) k_a^m(x)``
+    over event *n*'s and event *m*'s attribute-*a* kernels, and
+    ``Z_a[n] = integral k_a^n`` is event *n*'s total mass. These compose
+    with the flat-attribute matrices in the MA Rényi-2 factorisation
+    ``integral p^2 = sum_{n,m} prod_a I_a[n,m]`` and
+    ``Z = sum_n prod_a Z_a[n]``.
+
+    The flat Möbius per-attribute matrix assumes a single symmetric
+    ``r_a``-tuple over the slots and re-derives the full S_{r_a} orbit;
+    for a nested attribute ``r_a = prod(r_levels)`` and that orbit is both
+    wrong (the symmetry is the structured nested one) and infeasible. The
+    numerical reading here builds the attribute's nested density, whose
+    tuples and block metric are correct at any depth, and forms the
+    overlap integrals in closed form: for two kernels of common metric
+    ``M`` and width ``sigma`` the Gaussian overlap is
+    ``(pi sigma^2)^{d/2} / sqrt(det M) * exp(-Q_M(c_t - c_s) / (4 sigma^2))``
+    and the single-kernel mass is ``(2 pi sigma^2)^{d/2} / sqrt(det M)``.
+    """
+    from ._tensor.build import build_exp_tens
+    from ._tensor.dispatch import (
+        _compute_Q_inner_blocks, _compute_Q, _inner_r_vec,
+    )
+
+    spec = dens.nested[a]
+    sigma = float(dens.sigma[a])
+    is_per = bool(dens.is_per[a])
+    period = float(dens.period[a])
+    da = build_exp_tens(
+        [dens.p_attr[a]], [dens.w[a]], specs=[spec],
+        sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
+    )
+    centres = da.centres[0]            # (d_a, n_j) reduced centres
+    w_j = da.w_j                       # (n_j,)
+    event_of_j = da.event_of_j         # (n_j,) -> event index 0..N-1
+    d_a = centres.shape[0]
+    n_j = w_j.shape[0]
+    N = int(dens.n)
+
+    block_size = int(_inner_r_vec(da)[0])   # s_u (inner/intermediate) or 0
+    is_rel = bool(da.is_rel[0])
+    r_a = int(da.r[0])
+    if block_size >= 2:
+        det_m = (1.0 / block_size) ** (r_a // block_size)
+    elif is_rel and r_a >= 2:
+        det_m = 1.0 / r_a
+    else:
+        det_m = 1.0
+    vol = (2 * np.pi * sigma ** 2) ** (d_a / 2) / np.sqrt(det_m)   # mass
+    pref = (np.pi * sigma ** 2) ** (d_a / 2) / np.sqrt(det_m)      # overlap
+
+    I_a = np.zeros((N, N), dtype=np.float64)
+    Z_a = np.zeros(N, dtype=np.float64)
+    if n_j > 0:
+        # Pairwise block-metric quadratic form on the reduced centres.
+        D = centres[:, :, None] - centres[:, None, :]   # (d_a, n_j, n_j)
+        if block_size >= 2:
+            Q = _compute_Q_inner_blocks(
+                D, block_size, is_per, period, reduced=True)
+        else:
+            if is_per and not is_rel:
+                D = D - period * np.floor(D / period + 0.5)
+            Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
+        overlap = pref * np.exp(-Q / (4 * sigma ** 2))   # (n_j, n_j)
+        wo = (w_j[:, None] * w_j[None, :]) * overlap
+        # Aggregate tuples into their events (G is the N x n_j incidence).
+        G = np.zeros((N, n_j), dtype=np.float64)
+        G[event_of_j, np.arange(n_j)] = 1.0
+        I_a = G @ wo @ G.T
+        Z_a = vol * (G @ w_j)
+    return I_a, Z_a
+
+
 def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     """Analytical Rényi-2 entropy of an MA expectation tensor.
 
@@ -1520,13 +1597,17 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     if A == 0 or N == 0:
         return 0.0
 
-    # Orbit (Möbius) IP presumes symmetrisation per attribute. Any
-    # ordered attribute ([sym] = 0) at r > 1 needs the direct un-orbited
-    # sum, not yet implemented. r = 1 attributes are exempt ([sym]
-    # vacuous).
+    # Orbit (Möbius) IP presumes symmetrisation per attribute for *flat*
+    # attributes. An ordered ([sym] = 0) flat attribute at r > 1 needs the
+    # direct un-orbited sum, not yet implemented. Nested attributes are
+    # exempt: they flow through the numerical block-metric path below,
+    # which honours each level's [sym] in the enumeration. r = 1 flat
+    # attributes are exempt ([sym] vacuous).
     is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
     r_vec = np.asarray(dens.r)
-    if np.any((~is_sym) & (r_vec > 1)):
+    nested = getattr(dens, "nested", [None] * A)
+    flat_mask = np.array([nested[a] is None for a in range(A)])
+    if np.any(flat_mask & (~is_sym) & (r_vec > 1)):
         raise NotImplementedError(
             "method='renyi2' does not yet support [sym]=0 (ordered) "
             "attributes at r > 1; the analytic collision inner product "
@@ -1542,19 +1623,34 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     # a post-hoc finite/positive check. The Bulger fallback was
     # abandoned for the same convention-mismatch reason as in the
     # SA path.
+    #
+    # Nested attributes take the numerical block-metric inner matrix
+    # (:func:`_renyi2_per_attr_nested`); flat attributes take the Möbius
+    # per-attribute matrix and closed-form SA total mass.
     P_xx = np.ones((N, N), dtype=np.float64)
+    Z_per_event_attr = np.empty((N, A), dtype=np.float64)
     for a in range(A):
-        r_a = int(dens.r[a])
-        sigma = float(dens.sigma[a])
-        is_rel = bool(dens.is_rel[a])
-        is_per = bool(dens.is_per[a])
-        period = float(dens.period[a])
-        Pa = dens.p_attr[a]
-        Wa = dens.w[a]
-        I_xx = _ma_per_attr_inner_matrix(
-            Pa, Wa, Pa, Wa, sigma, r_a, is_rel, is_per, period,
-        )
+        if nested[a] is not None:
+            I_xx, Z_a = _renyi2_per_attr_nested(dens, a)
+        else:
+            r_a = int(dens.r[a])
+            sigma = float(dens.sigma[a])
+            is_rel = bool(dens.is_rel[a])
+            is_per = bool(dens.is_per[a])
+            period = float(dens.period[a])
+            Pa = dens.p_attr[a]
+            Wa = dens.w[a]
+            I_xx = _ma_per_attr_inner_matrix(
+                Pa, Wa, Pa, Wa, sigma, r_a, is_rel, is_per, period,
+            )
+            Z_a = np.empty(N, dtype=np.float64)
+            for n in range(N):
+                if is_rel:
+                    Z_a[n] = total_mass_rel(Pa[:, n], Wa[:, n], sigma, r_a)
+                else:
+                    Z_a[n] = total_mass_abs(Pa[:, n], Wa[:, n], sigma, r_a)
         P_xx *= I_xx
+        Z_per_event_attr[:, a] = Z_a
     ip_xx = float(P_xx.sum())
 
     if not np.isfinite(ip_xx) or ip_xx <= 0:
@@ -1568,22 +1664,6 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
         )
 
     # ---- Z = Σ_n Π_a Z_a^(n) ----
-    # Each per-event-per-attribute factor is the SA total mass
-    # computed on that event's slot vector. The (Möbius) per-slot
-    # σ_a factors carry over without modification.
-    Z_per_event_attr = np.empty((N, A), dtype=np.float64)
-    for a in range(A):
-        r_a = int(dens.r[a])
-        sigma = float(dens.sigma[a])
-        is_rel = bool(dens.is_rel[a])
-        Pa = dens.p_attr[a]   # (K_a, N)
-        Wa = dens.w[a]        # (K_a, N)
-        for n in range(N):
-            if is_rel:
-                Z_an = total_mass_rel(Pa[:, n], Wa[:, n], sigma, r_a)
-            else:
-                Z_an = total_mass_abs(Pa[:, n], Wa[:, n], sigma, r_a)
-            Z_per_event_attr[n, a] = Z_an
     Z = float(np.prod(Z_per_event_attr, axis=1).sum())
     if not np.isfinite(Z) or Z <= 0:
         raise FloatingPointError(

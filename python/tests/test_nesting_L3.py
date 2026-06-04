@@ -103,15 +103,44 @@ def test_L3_absolute_not_transposition_invariant():
     assert float(cos_sim_exp_tens(d, dT, verbose=False)) < 0.999
 
 
-@pytest.mark.xfail(reason="renyi2/Mobius entropy re-derives the full S_dim "
-                          "orbit instead of the tag-restricted nested orbit "
-                          "at L>=3; entropy-orbit generalisation is a later "
-                          "step. Cosine (pairwise IP) already works.",
-                   raises=MemoryError, strict=False)
-def test_L3_entropy_runs():
-    d = build_exp_tens(_P3, None, specs=_spec(None), **_KW)
-    h = float(entropy_exp_tens(d, method='renyi2', verbose=False))
-    assert np.isfinite(h)
+def test_L3_renyi2_runs_all_projections():
+    """renyi2 at L=3 is finite for every projection (was a MemoryError via
+    the flat S_dim orbit; now uses the nested block-metric inner matrix)."""
+    for rel in (None, [1, 0, 0], [0, 1, 0], [0, 0, 1]):
+        d = build_exp_tens(_P3, None, specs=_spec(rel), **_KW)
+        h = float(entropy_exp_tens(d, method="renyi2", verbose=False))
+        assert np.isfinite(h)
+
+
+def test_L3_renyi2_decreases_with_finer_quotient():
+    """More co-transposition quotienting -> lower-dimensional density ->
+    lower Rényi-2 entropy: inner < intermediate < outer < absolute."""
+    h = [float(entropy_exp_tens(build_exp_tens(_P3, None, specs=_spec(rel),
+                                               **_KW),
+                                method="renyi2", verbose=False))
+         for rel in ([1, 0, 0], [0, 1, 0], [0, 0, 1], None)]
+    assert h[0] < h[1] < h[2] < h[3]
+
+
+def test_L3_renyi2_matches_grid_integral():
+    """Analytical nested Rényi-2 matches a brute-force grid ∫p̃² (inner
+    projection, dim 4 -> tractable grid)."""
+    d = build_exp_tens(_P3, None, specs=_spec([1, 0, 0]), **_KW)
+    h_analytic = float(entropy_exp_tens(d, method="renyi2", base=np.e,
+                                        verbose=False))
+    # Grid over the reduced space.
+    c = d.centres[0]
+    dim = d.dim
+    sig = _KW["sigma"][0]
+    axes = [np.linspace(c[k].min() - 5 * sig, c[k].max() + 5 * sig, 28)
+            for k in range(dim)]
+    mesh = np.meshgrid(*axes, indexing="ij")
+    X = np.vstack([m.ravel() for m in mesh])
+    vals = mpt.eval_exp_tens(d, X, verbose=False)
+    dv = float(np.prod([axes[k][1] - axes[k][0] for k in range(dim)]))
+    z = vals.sum() * dv
+    h_grid = -np.log(((vals / z) ** 2).sum() * dv)
+    assert h_analytic == pytest.approx(float(h_grid), abs=2e-2)
 
 
 # --- inner / intermediate per-group reduction at L = 3 ---------------

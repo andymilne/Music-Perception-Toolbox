@@ -12,7 +12,9 @@ Covers the predictions of the sym-flag specification §10:
   exact orbit-sum relation between the two readings.
 * OPT-completeness: ``[sym] = 0`` with ``[rel] = 1`` reaches the
   ordered transposition-invariant spaces, distinguishing an ordered
-  interval from its inversion (which ``[sym] = 1`` cannot).
+  interval from its inversion (which ``[sym] = 1`` cannot) --- both the
+  line ``R^{n-1}`` and, with ``[per] = 1``, the torus ``T^{n-1}``. The
+  three Sym/Ord confirmations are also checked under ``[per] = 1``.
 * Cross-cardinality comparability at fixed ``r``: a triad and a seventh
   chord overlap is well posed, and a doubling reweights without
   equalising (anti-C).
@@ -213,6 +215,109 @@ class TestOrderedTranspositionInvariant:
         assert s_sym == pytest.approx(1.0, abs=1e-9)
         # Ordered: +4 and -4 are far apart at this sigma.
         assert s_ord < 0.5
+
+
+# ---------------------------------------------------------------------
+#  Periodic + ordered ([per] = 1 with [sym] = 0): the second of the two
+#  ordered transposition-invariant spaces (the torus T^{n-1}), and the
+#  [per] = 1 arm of the r-sweep confirmations.
+# ---------------------------------------------------------------------
+
+class TestPeriodicOrdered:
+    """``[sym] = 0`` with ``[per] = 1``. The three Sym/Ord confirmations
+    are periodicity-independent in structure (wrapping is componentwise
+    on the kernel, not on the orbit), so they must hold unchanged on the
+    torus; and ``[sym] = 0`` with ``[rel] = 1`` periodic reaches the
+    ordered transposition-invariant torus ``T^{n-1}``, distinguishing an
+    ordered interval from its inversion that the symmetric reading
+    conflates."""
+
+    P = 12.0
+
+    def test_periodic_rel_dim_drops_by_one(self):
+        """[rel] = 1 drops one dimension on the torus too: ordered,
+        relative, periodic at r = 2 has effective dimension 1 (T^{n-1})."""
+        d = build_exp_tens([0.0, 4.0, 7.0], None, 1.0, 2, True, True, self.P,
+                           False, verbose=False)
+        assert d.dim == 1
+
+    def test_periodic_ordered_interval_vs_inversion(self):
+        """On a period-12 torus, [sym] = 0 + [rel] = 1 distinguishes the
+        ascending interval +4 from the descending -4 (== +8 mod 12);
+        [sym] = 1 symmetrises the pair, so the two orbits {4, 8} coincide.
+        This is the periodic twin of the R^{n-1} test above (T^{n-1})."""
+        up = [0.0, 4.0]       # +4
+        down = [0.0, -4.0]    # -4 == +8 (mod 12)
+        kw = dict(verbose=False)
+        s_sym = cos_sim_exp_tens(
+            build_exp_tens(up, None, 0.5, 2, True, True, self.P, True, **kw),
+            build_exp_tens(down, None, 0.5, 2, True, True, self.P, True, **kw),
+            **kw,
+        )
+        s_ord = cos_sim_exp_tens(
+            build_exp_tens(up, None, 0.5, 2, True, True, self.P, False, **kw),
+            build_exp_tens(down, None, 0.5, 2, True, True, self.P, False, **kw),
+            **kw,
+        )
+        # Symmetric: the two intervals read identically on the circle.
+        assert s_sym == pytest.approx(1.0, abs=1e-9)
+        # Ordered: +4 and +8 are distinct points on the period-12 circle.
+        assert s_ord < 0.5
+
+    def test_periodic_wrapping_active_in_ordered_mode(self):
+        """[per] = 1 wraps the value axis in the ordered path: an ordered
+        absolute density of [0, 4] equals that of [0, 16] (16 == 4 mod 12),
+        whereas without periodicity the two are distinct. Confirms the
+        flag is genuinely engaged for [sym] = 0, not bypassed."""
+        kw = dict(verbose=False)
+        s_wrap = cos_sim_exp_tens(
+            build_exp_tens([0.0, 4.0], None, 0.5, 2, False, True, self.P,
+                           False, **kw),
+            build_exp_tens([0.0, 16.0], None, 0.5, 2, False, True, self.P,
+                           False, **kw),
+            **kw,
+        )
+        s_nowrap = cos_sim_exp_tens(
+            build_exp_tens([0.0, 4.0], None, 0.5, 2, False, False, 0.0,
+                           False, **kw),
+            build_exp_tens([0.0, 16.0], None, 0.5, 2, False, False, 0.0,
+                           False, **kw),
+            **kw,
+        )
+        assert s_wrap == pytest.approx(1.0, abs=1e-9)
+        assert s_nowrap < 0.5
+
+    def test_periodic_r_eq_k_single_vs_orbit(self):
+        """r = K confirmation under [per] = 1: ordered deposits the single
+        whole tuple (one kernel); symmetric deposits the full S_K orbit
+        (K! = 6 kernels). Periodicity does not change the orbit count."""
+        p = [0.0, 4.0, 7.0]
+        d_ord = build_exp_tens(p, None, 1.0, 3, False, True, self.P, False,
+                               verbose=False)
+        d_sym = build_exp_tens(p, None, 1.0, 3, False, True, self.P, True,
+                               verbose=False)
+        assert d_ord.u_perm.shape[1] == 1
+        assert d_sym.u_perm.shape[1] == 6
+
+    def test_periodic_r1_coincides(self):
+        """r = 1 confirmation under [per] = 1: the flag is vacuous, so the
+        ordered and symmetric periodic densities are identical pointwise."""
+        p = [0.0, 4.0, 7.0]
+        d_ord = build_exp_tens(p, None, 1.0, 1, False, True, self.P, False,
+                               verbose=False)
+        d_sym = build_exp_tens(p, None, 1.0, 1, False, True, self.P, True,
+                               verbose=False)
+        x = np.array([[0.0, 1.0, 4.0, 7.0, 11.0]])
+        v_ord = eval_exp_tens(d_ord, x, verbose=False)
+        v_sym = eval_exp_tens(d_sym, x, verbose=False)
+        assert np.allclose(v_ord, v_sym, atol=1e-12)
+
+    def test_periodic_ordered_self_similarity_is_one(self):
+        p = [0.0, 4.0, 7.0]
+        d = build_exp_tens(p, None, 30.0, 2, True, True, self.P, False,
+                           verbose=False)
+        assert cos_sim_exp_tens(d, d, verbose=False) == pytest.approx(
+            1.0, abs=1e-9)
 
 
 # ---------------------------------------------------------------------

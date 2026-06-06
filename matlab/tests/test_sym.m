@@ -10,7 +10,9 @@
 %     verified by the exact orbit-sum relation at r = 2.
 %   * OPT-completeness: isSym = false with isRel = true reaches the
 %     ordered transposition-invariant spaces (an ordered interval is
-%     distinguished from its inversion; isSym = true cannot).
+%     distinguished from its inversion; isSym = true cannot) --- both the
+%     line R^{n-1} and, with isPer = true, the torus T^{n-1}. The three
+%     Sym/Ord confirmations are also checked under isPer = true.
 %   * Cross-cardinality comparability at fixed r; doubling reweights
 %     without equalising (anti-C).
 %   * Default value is symmetric; ordered self-similarity is 1.
@@ -167,6 +169,72 @@ s_ord_oi = cosSimExpTens( ...
     'verbose', false);
 results{end+1,1} = 'sym: ordered interval vs inversion (sym=1 same, sym=0 differ)';
 results{end,2}   = abs(s_sym_oi - 1) < 1e-9 && s_ord_oi < 0.5;
+
+
+% ---------------------------------------------------------------------
+%  Periodic + ordered (isPer = true with isSym = false): the second of
+%  the two ordered transposition-invariant spaces (the torus T^{n-1}),
+%  and the isPer = true arm of the r-sweep confirmations.
+% ---------------------------------------------------------------------
+
+Pp = 12;
+
+% isRel drops one dimension on the torus too (T^{n-1}).
+dRelP = buildExpTens(p3, [], 1, 2, true, true, Pp, false, 'verbose', false);
+results{end+1,1} = 'sym: periodic isRel drops dim by one (T^{n-1})';
+results{end,2}   = dRelP.dim == 1;
+
+% Ordered relative on a period-12 torus distinguishes +4 from -4 (==+8);
+% symmetric symmetrises the pair so the two orbits {4, 8} coincide.
+upP   = [0 4];     % +4
+downP = [0 -4];    % -4 == +8 (mod 12)
+s_sym_poi = cosSimExpTens( ...
+    buildExpTens(upP,   [], 0.5, 2, true, true, Pp, true, 'verbose', false), ...
+    buildExpTens(downP, [], 0.5, 2, true, true, Pp, true, 'verbose', false), ...
+    'verbose', false);
+s_ord_poi = cosSimExpTens( ...
+    buildExpTens(upP,   [], 0.5, 2, true, true, Pp, false, 'verbose', false), ...
+    buildExpTens(downP, [], 0.5, 2, true, true, Pp, false, 'verbose', false), ...
+    'verbose', false);
+results{end+1,1} = 'sym: periodic ordered interval vs inversion (T^{n-1})';
+results{end,2}   = abs(s_sym_poi - 1) < 1e-9 && s_ord_poi < 0.5;
+
+% isPer wraps the value axis in the ordered path: [0 4] equals [0 16]
+% (16 == 4 mod 12) when periodic, but is distinct when not.
+s_wrap = cosSimExpTens( ...
+    buildExpTens([0 4],  [], 0.5, 2, false, true, Pp, false, 'verbose', false), ...
+    buildExpTens([0 16], [], 0.5, 2, false, true, Pp, false, 'verbose', false), ...
+    'verbose', false);
+s_nowrap = cosSimExpTens( ...
+    buildExpTens([0 4],  [], 0.5, 2, false, false, 0, false, 'verbose', false), ...
+    buildExpTens([0 16], [], 0.5, 2, false, false, 0, false, 'verbose', false), ...
+    'verbose', false);
+results{end+1,1} = 'sym: periodic wrapping active in ordered mode';
+results{end,2}   = abs(s_wrap - 1) < 1e-9 && s_nowrap < 0.5;
+
+% r = K under isPer: ordered deposits one whole tuple, symmetric the
+% full S_K orbit (K! = 6). Periodicity does not change the orbit count.
+dKpo = internal.ensureExpTensExpensive( ...
+    buildExpTens(p3, [], 1, 3, false, true, Pp, false, 'verbose', false));
+dKps = internal.ensureExpTensExpensive( ...
+    buildExpTens(p3, [], 1, 3, false, true, Pp, true, 'verbose', false));
+results{end+1,1} = 'sym: periodic r = K single ordered tuple vs S_K orbit';
+results{end,2}   = size(dKpo.U_perm, 2) == 1 && size(dKps.U_perm, 2) == 6;
+
+% r = 1 under isPer: the flag is vacuous, so ordered and symmetric
+% periodic densities are identical pointwise.
+xgp   = linspace(-3, 14, 60);
+d1po  = buildExpTens(p3, [], 1, 1, false, true, Pp, false, 'verbose', false);
+d1ps  = buildExpTens(p3, [], 1, 1, false, true, Pp, true,  'verbose', false);
+v1po  = evalExpTens(d1po, xgp, 'verbose', false);
+v1ps  = evalExpTens(d1ps, xgp, 'verbose', false);
+results{end+1,1} = 'sym: periodic r = 1 ordered and symmetric coincide';
+results{end,2}   = max(abs(v1po(:) - v1ps(:))) < 1e-12;
+
+% Self-similarity of a periodic ordered relative density is exactly 1.
+dSelfP = buildExpTens(p3, [], 30, 2, true, true, Pp, false, 'verbose', false);
+results{end+1,1} = 'sym: periodic ordered relative self-similarity is 1';
+results{end,2}   = abs(cosSimExpTens(dSelfP, dSelfP, 'verbose', false) - 1) < 1e-9;
 
 
 % ---------------------------------------------------------------------

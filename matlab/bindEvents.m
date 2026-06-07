@@ -10,8 +10,8 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   each event's own value multiset is the inner level.
 %
 %   The inner level's geometry (r/rel/sym) is read from the incoming
-%   carrier specs --- the attribute's existing spec becomes the inner
-%   level. specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
+%   carrier specs --- the attribute's existing spec supplies the inner
+%   level(s). specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
 %   rel = 0, sym = 1). The outer level defaults to r = L_a (read the whole
 %   bound window), sym = 0, rel = 0. L_a = 1 is the no-op: the incoming
 %   (flat) spec passes through unchanged. With the defaults and
@@ -35,23 +35,35 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   Name-value pairs
 %       'circular'   - false (default) or true (wrap window; N' = N).
 %       'specs'      - [] (synthesise flat via flatSpecs) or a 1 x A cell of
-%                      per-attribute specs supplying the inner geometry. Each
-%                      incoming spec must be flat (nested input is not yet
-%                      supported).
+%                      per-attribute specs supplying the inner geometry. An
+%                      incoming spec may be flat or already nested: a flat
+%                      spec becomes the inner level of a new two-level
+%                      attribute, while an already-nested spec is deepened ---
+%                      a new outermost level (rOuter/symOuter/relOuter) is
+%                      appended above the existing nesting, and tags, r, sym,
+%                      and rel each extend by one entry. Repeated binds nest
+%                      to arbitrary depth, but each call must be given the
+%                      specs returned by the previous one: passing [] on an
+%                      already-bound carrier re-synthesises flat specs,
+%                      silently discarding the existing nesting and producing
+%                      a shallower result.
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
 %       'symOuter'   - outer-level [sym] (default false; bag reading if true).
 %       'relOuter'   - outer-level [rel] (default false).
 %       'name'       - [] , char, or 1 x A names; overrides any name carried
 %                      on the incoming spec, otherwise inherited.
 %       'levelNames' - [] or 1 x 2 {inner outer} level names per nested spec.
+%                      Applies only when the incoming spec is flat; supplying
+%                      it while deepening an already-nested attribute is
+%                      rejected (per-level names carry through from the input).
 %
 %   Outputs
 %       pAttrBound - 1 x A cell. For L_a >= 2 a stacked (L_a*K_a) x N'
 %                    value matrix; for L_a = 1 the trailing-aligned K_a x N'.
 %       wBound     - Transformed weights aligned to the value layout.
 %       specs      - 1 x A cell of structs: nested {tags,r,sym,rel,...}
-%                    for L_a >= 2, the incoming flat {r,rel,sym,...} for
-%                    L_a = 1.
+%                    for L_a >= 2, the incoming spec unchanged (flat or
+%                    nested) for L_a = 1.
 %
 %   See also BUILDEXPTENS, DIFFERENCEEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 

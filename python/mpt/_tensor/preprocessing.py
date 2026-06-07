@@ -502,8 +502,8 @@ def bind_events(
     event's own value multiset is the **inner level**.
 
     The inner level's geometry (``r``/``rel``/``sym``) is read from the
-    incoming carrier ``specs`` --- the attribute's existing spec becomes
-    the inner level. ``specs = None`` synthesises flat specs
+    incoming carrier ``specs`` --- the attribute's existing spec supplies
+    the inner level(s). ``specs = None`` synthesises flat specs
     (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``sym = 1``).
     The outer level defaults to ``r = L_a`` (read the whole bound
     window), ``sym = 0``, ``rel = 0``. ``L_a = 1`` is the no-op: the
@@ -535,10 +535,18 @@ def bind_events(
     circular : bool, keyword-only
         Wrap the window around the event axis (``N' = N``).
     specs : None or length-A list, keyword-only
-        The carrier specs supplying the inner-level geometry. ``None``
-        synthesises flat specs. Each incoming spec must be flat; binding
-        an already-nested attribute (``L >= 3`` deep nesting) is not yet
-        supported.
+        The carrier specs supplying the inner geometry. ``None``
+        synthesises flat specs. An incoming spec may be flat or already
+        nested: a flat spec becomes the inner level of a new two-level
+        attribute, while an already-nested spec is deepened --- a new
+        outermost level (``r_outer``/``sym_outer``/``rel_outer``) is
+        appended above the existing nesting, and ``tags``, ``r``,
+        ``sym``, and ``rel`` each extend by one entry. Repeated binds
+        nest to arbitrary depth, but each call must be given the
+        ``specs`` returned by the previous one: passing ``None`` (or
+        omitting ``specs``) on an already-bound carrier re-synthesises
+        flat specs, silently discarding the existing nesting and
+        producing a shallower result.
     r_outer : None, scalar, or length-A, keyword-only
         Outer-level ``r`` (how many bound events to read). ``None``
         defaults to ``L_a`` (the whole window).
@@ -549,7 +557,10 @@ def bind_events(
         on the incoming spec; otherwise the incoming name is preserved.
     level_names : None or length-2 list, keyword-only
         Optional ``[inner, outer]`` level names, stamped onto each
-        nested spec's ``names`` field.
+        nested spec's ``names`` field. Applies only when the incoming
+        spec is flat (the flat-to-two-level case); supplying it while
+        deepening an already-nested attribute is rejected, since the
+        per-level names carry through from the incoming spec.
 
     Returns
     -------
@@ -561,7 +572,8 @@ def bind_events(
         Transformed weights aligned to the value layout.
     specs : list of dict
         Length-A. A nested spec ``{tags, r, sym, rel, name?, names?}``
-        for ``L_a >= 2``; the incoming flat spec for ``L_a = 1``.
+        for ``L_a >= 2``; the incoming spec unchanged (flat or nested)
+        for ``L_a = 1``.
 
     See Also
     --------

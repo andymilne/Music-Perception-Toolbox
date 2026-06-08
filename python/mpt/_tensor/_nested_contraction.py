@@ -173,17 +173,24 @@ def _tuple_sides(n, r, sym):
     return _tuple_indices(n, r, sym)
 
 
-def _combine_node(M, node):
-    """Symmetric-level combine, orbit-reduced when flagged; same scale as
-    ``_combine`` (the r!-cancelled perm x comb form). Handles rectangular
-    blocks (gx != gy), which arise for ragged sibling subtrees."""
+def _combine_pair(M, r, sym, use_orbit):
+    """Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
+    Y-side comb tuples over gy (the r!-cancelled perm x comb form, same scale
+    as ``_combine``). gx and gy are read from the block, so unequal X/Y spans
+    -- ragged siblings *or* two densities whose nested cardinalities differ --
+    are handled directly. ``r``/``sym`` are the (shared) per-level parameters;
+    ``use_orbit`` requests the Moebius reduction (both sides orbit-eligible),
+    matching the per-size tuple sourcing of the enumerated path.
+
+    For a square block with gx == gy this reproduces the old ``_combine_node``
+    exactly (``_tuple_sides`` returns the same cached arrays the recipe stored),
+    so the X == Y cosine path is unchanged."""
+    if use_orbit:
+        empty = np.empty((0, r), dtype=np.intp)
+        return _combine_orbit(M, r, empty, empty)
     gx, gy = M.shape[1], M.shape[2]
-    if node.use_orbit:
-        return _combine_orbit(M, node.r, node.xtup, node.ytup)
-    if gx == gy == _node_span(node):
-        return _combine(M, node.xtup, node.ytup)        # uniform: stored tuples
-    xtup = _tuple_sides(gx, node.r, node.sym)[0]         # ragged: per-size tuples
-    ytup = _tuple_sides(gy, node.r, node.sym)[1]
+    xtup = _tuple_sides(gx, r, sym)[0]
+    ytup = _tuple_sides(gy, r, sym)[1]
     return _combine(M, xtup, ytup)
 
 
@@ -216,12 +223,18 @@ def _combine_orbit(M, r, xtup, ytup):
 
 # ----------------------------------------------------------------------
 #  Bottom-up, batched contraction (vectorised over the quadrature batch
-#  AND over sibling pairs). For the cosine xn is yn (both sides share the
-#  nested structure), so the tree is walked once. An r0=1 leaf level
-#  collapses to a single weighted block-sum (einsum); every higher level
-#  batches its g^2 combines into one call. Ragged levels (siblings with
-#  differing child counts or structure) fall back to a per-pair loop,
-#  preserving correctness.
+#  AND over sibling pairs). The X and Y trees are walked in lockstep: the
+#  rectangular leaf kernel K has shape (Q, nX, nY), so the X axis is indexed
+#  by X-side slots and the Y axis by Y-side slots. When the two densities
+#  share an identical nested structure (the XX, YY, and equal-cardinality XY
+#  cases) the X and Y node lists coincide and every step reduces to the
+#  earlier single-tree code. When their leaf cardinalities differ (e.g. a
+#  4-pitch prototype against an 8-pitch window), the spans gx and gy differ
+#  per level and the per-size tuple sourcing in ``_combine_pair`` handles it.
+#  An r0=1 leaf level collapses to a single weighted block-sum (einsum);
+#  every higher level batches its gx*gy combines into one call. Ragged levels
+#  (siblings with differing child counts or structure) fall back to a
+#  per-pair loop, preserving correctness.
 # ----------------------------------------------------------------------
 def _siblings_uniform(nodes):
     rep = nodes[0]
@@ -234,66 +247,91 @@ def _siblings_uniform(nodes):
     return True, span
 
 
-def _leaf_overlaps(nodes, K):
-    """(Q, g, g) pairwise overlaps among g leaf siblings."""
-    g = len(nodes)
-    Q, n = K.shape[0], K.shape[1]
-    if nodes[0].r == 1:
-        # r0 = 1: M[a,b] = sum_{i in Sa, j in Sb} K[:, i, j] (weights folded).
-        G = np.zeros((g, n), dtype=K.dtype)
-        for a, nd in enumerate(nodes):
-            G[a, nd.slots] = 1.0
-        return np.einsum('ai,qij,bj->qab', G, K, G, optimize=True)
-    uniform, m = _siblings_uniform(nodes)
-    if uniform:
-        blocks = np.empty((g, g, Q, m, m), dtype=K.dtype)
-        for a in range(g):
-            sa = K[:, nodes[a].slots]
-            for b in range(g):
-                blocks[a, b] = sa[:, :, nodes[b].slots]
-        vals = _combine_node(blocks.reshape(g * g * Q, m, m), nodes[0])
-        return vals.reshape(g, g, Q).transpose(2, 0, 1)
-    M = np.empty((Q, g, g), dtype=K.dtype)
-    for a in range(g):
-        sa = K[:, nodes[a].slots]
-        for b in range(g):
-            M[:, a, b] = _combine_node(sa[:, :, nodes[b].slots], nodes[a])
+def _leaf_overlaps(xnodes, ynodes, K):
+    """(Q, gx, gy) pairwise overlaps among leaf siblings, X-side vs Y-side."""
+    gx, gy = len(xnodes), len(ynodes)
+    Q, nX, nY = K.shape
+    r, sym = xnodes[0].r, xnodes[0].sym
+    if r == 1:
+        # r0 = 1: M[a,b] = sum_{i in Sxa, j in Syb} K[:, i, j] (weights folded).
+        Gx = np.zeros((gx, nX), dtype=K.dtype)
+        for a, nd in enumerate(xnodes):
+            Gx[a, nd.slots] = 1.0
+        Gy = np.zeros((gy, nY), dtype=K.dtype)
+        for b, nd in enumerate(ynodes):
+            Gy[b, nd.slots] = 1.0
+        return np.einsum('ai,qij,bj->qab', Gx, K, Gy, optimize=True)
+    ux, mx = _siblings_uniform(xnodes)
+    uy, my = _siblings_uniform(ynodes)
+    if ux and uy:
+        blocks = np.empty((gx, gy, Q, mx, my), dtype=K.dtype)
+        for a in range(gx):
+            sa = K[:, xnodes[a].slots]
+            for b in range(gy):
+                blocks[a, b] = sa[:, :, ynodes[b].slots]
+        use_orbit = xnodes[0].use_orbit and ynodes[0].use_orbit
+        vals = _combine_pair(blocks.reshape(gx * gy * Q, mx, my),
+                             r, sym, use_orbit)
+        return vals.reshape(gx, gy, Q).transpose(2, 0, 1)
+    M = np.empty((Q, gx, gy), dtype=K.dtype)
+    for a in range(gx):
+        sa = K[:, xnodes[a].slots]
+        for b in range(gy):
+            uo = xnodes[a].use_orbit and ynodes[b].use_orbit
+            M[:, a, b] = _combine_pair(sa[:, :, ynodes[b].slots], r, sym, uo)
     return M
 
 
-def _subtree_overlaps(nodes, K):
-    """(Q, g, g) pairwise overlaps among g sibling subtrees."""
-    if nodes[0].level == 0:
-        return _leaf_overlaps(nodes, K)
-    g = len(nodes)
+def _subtree_overlaps(xnodes, ynodes, K):
+    """(Q, gx, gy) pairwise overlaps among sibling subtrees, X-side vs Y."""
+    if xnodes[0].level == 0:
+        return _leaf_overlaps(xnodes, ynodes, K)
+    gx, gy = len(xnodes), len(ynodes)
     Q = K.shape[0]
-    sizes = [len(nd.children) for nd in nodes]
-    offs = np.cumsum([0] + sizes)
-    flat = [c for nd in nodes for c in nd.children]
-    Mc = _subtree_overlaps(flat, K)                 # (Q, Gc, Gc)
-    uniform, gc = _siblings_uniform(nodes)
-    if uniform:
-        blocks = np.empty((g, g, Q, gc, gc), dtype=K.dtype)
-        for a in range(g):
-            ra = slice(offs[a], offs[a] + gc)
-            for b in range(g):
-                blocks[a, b] = Mc[:, ra, offs[b]:offs[b] + gc]
-        vals = _combine_node(blocks.reshape(g * g * Q, gc, gc), nodes[0])
-        return vals.reshape(g, g, Q).transpose(2, 0, 1)
-    M = np.empty((Q, g, g), dtype=K.dtype)
-    for a in range(g):
-        ra = slice(offs[a], offs[a + 1])
-        for b in range(g):
-            M[:, a, b] = _combine_node(
-                Mc[:, ra, offs[b]:offs[b + 1]], nodes[a])
+    r, sym = xnodes[0].r, xnodes[0].sym
+    xsizes = [len(nd.children) for nd in xnodes]
+    xoffs = np.cumsum([0] + xsizes)
+    ysizes = [len(nd.children) for nd in ynodes]
+    yoffs = np.cumsum([0] + ysizes)
+    xflat = [c for nd in xnodes for c in nd.children]
+    yflat = [c for nd in ynodes for c in nd.children]
+    Mc = _subtree_overlaps(xflat, yflat, K)         # (Q, Gcx, Gcy)
+    ux, gcx = _siblings_uniform(xnodes)
+    uy, gcy = _siblings_uniform(ynodes)
+    if ux and uy:
+        blocks = np.empty((gx, gy, Q, gcx, gcy), dtype=K.dtype)
+        for a in range(gx):
+            ra = slice(xoffs[a], xoffs[a] + gcx)
+            for b in range(gy):
+                blocks[a, b] = Mc[:, ra, yoffs[b]:yoffs[b] + gcy]
+        use_orbit = xnodes[0].use_orbit and ynodes[0].use_orbit
+        vals = _combine_pair(blocks.reshape(gx * gy * Q, gcx, gcy),
+                             r, sym, use_orbit)
+        return vals.reshape(gx, gy, Q).transpose(2, 0, 1)
+    M = np.empty((Q, gx, gy), dtype=K.dtype)
+    for a in range(gx):
+        ra = slice(xoffs[a], xoffs[a + 1])
+        for b in range(gy):
+            uo = xnodes[a].use_orbit and ynodes[b].use_orbit
+            M[:, a, b] = _combine_pair(
+                Mc[:, ra, yoffs[b]:yoffs[b + 1]], r, sym, uo)
     return M
 
 
 def _contract(xn: _Node, yn: _Node, K):
-    """Overlap (Q,) of the nested structure under kernel ``K`` (xn is yn)."""
+    """Overlap (Q,) of two nested structures under rectangular kernel ``K``.
+
+    ``K`` is (Q, nX, nY); the X axis is indexed by ``xn`` slots, the Y axis by
+    ``yn`` slots. For the XX / YY inner products (and equal-cardinality XY)
+    ``xn`` and ``yn`` are the same recipe and this is the original single-tree
+    walk; when the densities' nested cardinalities differ the two trees share
+    topology but have differing leaf spans, handled per level."""
     if xn.level == 0:
-        return _combine_node(K[:, xn.slots][:, :, xn.slots], xn)
-    return _combine_node(_subtree_overlaps(xn.children, K), xn)
+        block = K[:, xn.slots][:, :, yn.slots]
+        return _combine_pair(block, xn.r, xn.sym,
+                             xn.use_orbit and yn.use_orbit)
+    Mc = _subtree_overlaps(xn.children, yn.children, K)
+    return _combine_pair(Mc, xn.r, xn.sym, xn.use_orbit and yn.use_orbit)
 
 
 # ----------------------------------------------------------------------
@@ -312,15 +350,15 @@ def _trunc(K, sigma, truncation_sigmas):
     return K
 
 
-def _ip_absolute(recipe, vX, vY, wX, wY, sigma, is_per, period,
+def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
                  truncation_sigmas):
     d = vX[:, None] - vY[None, :]
     if is_per:
         d = _wrap(d, period)
-    K = np.exp(-d ** 2 / (4.0 * sigma ** 2))[None, :, :]   # (1, n, n)
+    K = np.exp(-d ** 2 / (4.0 * sigma ** 2))[None, :, :]   # (1, nX, nY)
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
-    return float(_contract(recipe, recipe, K)[0])
+    return float(_contract(recipe_x, recipe_y, K)[0])
 
 
 def auto_ntau(period, sigma, tol):
@@ -335,49 +373,53 @@ def auto_ntau(period, sigma, tol):
     return int(max(64, math.ceil(base * margin)))
 
 
-def _ip_rel_periodic(recipe, vX, vY, wX, wY, sigma, period,
+def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
                      truncation_sigmas, ntau):
     taus = np.linspace(0.0, period, ntau, endpoint=False)
-    d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])  # n,n,T
+    d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])  # nX,nY,T
     d = _wrap(d, period)
-    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)        # T,n,n
+    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)        # T,nX,nY
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
-    return float(_contract(recipe, recipe, K).mean())
+    return float(_contract(recipe_x, recipe_y, K).mean())
 
 
-def cos_sim_nested(recipe, vX, vY, sigma, *, wX=None, wY=None, is_rel,
-                   is_per, period, r_total=None, truncation_sigmas=None,
+def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
+                   is_rel, is_per, period, r_total=None, truncation_sigmas=None,
                    ntau=None):
     """Cosine similarity via the contraction for one nested attribute.
 
+    ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
+    density's (defaults to ``recipe_x`` when both sides share the structure).
     Absolute and relative-non-periodic factorise exactly; relative-periodic
     uses the transposition-average surrogate.
     """
+    if recipe_y is None:
+        recipe_y = recipe_x
     n = vX.shape[0]
     if wX is None:
         wX = np.ones(n)
     if wY is None:
-        wY = np.ones(n)
+        wY = np.ones(vY.shape[0])
     if is_rel and is_per:
         if ntau is None:
             tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2),
                       1e-12)
             ntau = auto_ntau(period, sigma, tol)
-        ip = lambda a, b, wa, wb: _ip_rel_periodic(
-            recipe, a, b, wa, wb, sigma, period, truncation_sigmas, ntau)
+        ip = lambda rx, ry, a, b, wa, wb: _ip_rel_periodic(
+            rx, ry, a, b, wa, wb, sigma, period, truncation_sigmas, ntau)
     elif (not is_rel):
-        ip = lambda a, b, wa, wb: _ip_absolute(
-            recipe, a, b, wa, wb, sigma, is_per, period, truncation_sigmas)
+        ip = lambda rx, ry, a, b, wa, wb: _ip_absolute(
+            rx, ry, a, b, wa, wb, sigma, is_per, period, truncation_sigmas)
     else:  # relative, non-periodic
         tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
         taus = auto_taus_line(np.concatenate([vX, vY]),
                               np.concatenate([vX, vY]), sigma, tol)
-        ip = lambda a, b, wa, wb: _ip_rel_nonper(
-            recipe, a, b, wa, wb, sigma, truncation_sigmas, taus)
-    xy = ip(vX, vY, wX, wY)
-    xx = ip(vX, vX, wX, wX)
-    yy = ip(vY, vY, wY, wY)
+        ip = lambda rx, ry, a, b, wa, wb: _ip_rel_nonper(
+            rx, ry, a, b, wa, wb, sigma, truncation_sigmas, taus)
+    xy = ip(recipe_x, recipe_y, vX, vY, wX, wY)
+    xx = ip(recipe_x, recipe_x, vX, vX, wX, wX)
+    yy = ip(recipe_y, recipe_y, vY, vY, wY, wY)
     return xy / math.sqrt(xx * yy)
 
 
@@ -398,12 +440,13 @@ def auto_taus_line(vX, vY, sigma, tol):
     return np.linspace(-hi, hi, n)
 
 
-def _ip_rel_nonper(recipe, vX, vY, wX, wY, sigma, truncation_sigmas, taus):
+def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                   truncation_sigmas, taus):
     d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
-    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)   # (T, n, n)
+    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)   # (T, nX, nY)
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
-    return float(_contract(recipe, recipe, K).sum())   # common dtau cancels
+    return float(_contract(recipe_x, recipe_y, K).sum())  # common dtau cancels
 
 
 # ----------------------------------------------------------------------
@@ -521,7 +564,7 @@ def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
     helper consumes.
     """
     if not is_rel:
-        return {"mode": "abs"}
+        return {"mode": "abs", "is_per": bool(is_per)}
     tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
     if is_per:
         ntau = auto_ntau(period, sigma, tol)
@@ -534,15 +577,21 @@ def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
     return {"mode": "relnonper", "taus": np.linspace(-hi, hi, n)}
 
 
-def nested_ip(recipe, vX, vY, wX, wY, sigma, period, truncation_sigmas, quad):
-    """Bare inner product for one event-pair, on the shared quadrature."""
+def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
+              truncation_sigmas, quad):
+    """Bare inner product for one event-pair, on the shared quadrature.
+
+    ``recipe_x`` indexes the X (``vX``) axis of the rectangular kernel,
+    ``recipe_y`` the Y (``vY``) axis; pass the same recipe for both when the
+    two densities share their nested structure.
+    """
     mode = quad["mode"]
     if mode == "abs":
-        # is_per folded into the kernel by the caller's value wrapping? No:
-        # absolute periodic wrap is applied here via period when finite.
-        return _ip_absolute(recipe, vX, vY, wX, wY, sigma,
-                            math.isfinite(period) and period > 0, period,
-                            truncation_sigmas)
+        # Periodicity comes from the density's [per] flag (threaded through the
+        # quadrature dict), not from whether ``period`` happens to be finite:
+        # an absolute non-periodic attribute may still carry a finite period.
+        return _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                            bool(quad["is_per"]), period, truncation_sigmas)
     if mode == "relper":
         taus = quad["taus"]
         d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
@@ -550,7 +599,7 @@ def nested_ip(recipe, vX, vY, wX, wY, sigma, period, truncation_sigmas, quad):
         K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)
         K = K * (wX[None, :, None] * wY[None, None, :])
         _trunc(K, sigma, truncation_sigmas)
-        return float(_contract(recipe, recipe, K).sum())
+        return float(_contract(recipe_x, recipe_y, K).sum())
     # relnonper
-    return _ip_rel_nonper(recipe, vX, vY, wX, wY, sigma, truncation_sigmas,
-                          quad["taus"])
+    return _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                          truncation_sigmas, quad["taus"])

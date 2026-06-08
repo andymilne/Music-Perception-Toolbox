@@ -60,10 +60,22 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 
     rLevels   = double(specX.r(:)).';
     symLevels = logical(specX.sym(:)).';
-    tags      = double(specX.tags);
-    if size(tags, 2) == 1 && numel(rLevels) > 2
-        tags = reshape(tags, size(tags, 1), []);   % defensive (L=2 only is 1-col)
+    % tags: rows index slots, columns the inner tag levels (L-1 of them). A
+    % MATLAB literal tag vector is a row, whereas buildRecipe takes the slot
+    % count from dimension 1 (matching the Python 1-D convention), so orient
+    % single-level (L=2) tags as a column and undo any transposed matrix.
+    tagsX = orientTags(double(specX.tags), size(PX, 1), numel(rLevels));
+    tagsY = orientTags(double(specY.tags), size(PY, 1), numel(rLevels));
+    % The two densities must agree on the per-level read-arities and [sym]
+    % flags (same nested attribute); only the leaf cardinalities (tags shape)
+    % may differ -- a 4-pitch prototype against an 8-pitch window, say.
+    if ~isequal(rLevels, double(specY.r(:)).') ...
+            || ~isequal(symLevels, logical(specY.sym(:)).')
+        declineContractIfForced(force, ...
+            'the two nested attributes differ in [r]/[sym]');
+        return;
     end
+    sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
     isRel  = logical(densX.isRel(1));
     isPer  = logical(densX.isPer(1));
     period = double(densX.period(1));
@@ -74,7 +86,15 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
         ts = double(truncationSigmas);
     end
 
-    recipe = buildRecipe(rLevels, symLevels, tags, isRel, isPer);
+    % One recipe per side: the X recipe indexes the X axis of the rectangular
+    % leaf kernel, the Y recipe the Y axis. They coincide when the densities
+    % share a nesting structure (the common case, incl. all XX/YY products).
+    recipeX = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
+    if sameStruct
+        recipeY = recipeX;
+    else
+        recipeY = buildRecipe(rLevels, symLevels, tagsY, isRel, isPer);
+    end
 
     nX = size(PX, 2);
     nY = size(PY, 2);
@@ -82,12 +102,23 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
     vmax = max(max(PX(:)), max(PY(:)));
 
     % Speed dispatch (integer/float counts; identical to Python).
-    [mPerm, mComb] = tupleCounts(rLevels, symLevels, tags);
+    [mPerm, mComb] = tupleCounts(rLevels, symLevels, tagsX);
+    work = recipeWork(recipeX);
+    if ~sameStruct
+        [mpY, mcY] = tupleCounts(rLevels, symLevels, tagsY);
+        mPerm = max(mPerm, mpY);
+        mComb = max(mComb, mcY);
+        work = max(work, recipeWork(recipeY));
+    end
     Q = quadNodes(isRel, isPer, sigma, period, vmin, vmax, ts);
     pairTerms = nX * nY + nX * nX + nY * nY;
     costEnum     = pairTerms * mPerm * mComb;
-    costContract = pairTerms * Q * recipeWork(recipe);
-    if costContract >= costEnum && ~force
+    costContract = pairTerms * Q * work;
+    % The enumeration handles only matching nested cardinalities, so the cost
+    % race (and its enumeration fallback) applies only when both sides share a
+    % structure. When the cardinalities differ the contraction is the sole
+    % correct route and is always taken.
+    if sameStruct && costContract >= costEnum && ~force
         return;   % enumeration is the faster route (auto only)
     end
 
@@ -115,18 +146,19 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 
     quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts);
 
-    ipxy = tripSum(recipe, PX, WX, PY, WY, sigma, period, ts, quad, false);
-    ipxx = tripSum(recipe, PX, WX, PX, WX, sigma, period, ts, quad, true);
-    ipyy = tripSum(recipe, PY, WY, PY, WY, sigma, period, ts, quad, true);
+    ipxy = tripSum(recipeX, recipeY, PX, WX, PY, WY, sigma, period, ts, quad, false);
+    ipxx = tripSum(recipeX, recipeX, PX, WX, PX, WX, sigma, period, ts, quad, true);
+    ipyy = tripSum(recipeY, recipeY, PY, WY, PY, WY, sigma, period, ts, quad, true);
     triple = struct('xy', ipxy, 'xx', ipxx, 'yy', ipyy);
 end
 
 
 % ----------------------------------------------------------------------
-function s = tripSum(recipe, PA, WA, PB, WB, sigma, period, ts, quad, sym)
+function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, sym)
     % sym=true (self inner products): <e_i,e_j> = <e_j,e_i>, so evaluate
-    % only the upper triangle and double the off-diagonal terms.
-    if nargin < 10; sym = false; end
+    % only the upper triangle and double the off-diagonal terms. recipeA /
+    % recipeB index the PA / PB axes of the rectangular kernel.
+    if nargin < 11; sym = false; end
     s = 0.0;
     nA = size(PA, 2);
     nB = size(PB, 2);
@@ -135,7 +167,7 @@ function s = tripSum(recipe, PA, WA, PB, WB, sigma, period, ts, quad, sym)
         wi = WA(:, i);
         if sym; j0 = i; else; j0 = 1; end
         for j = j0:nB
-            v = nestedIp(recipe, ai, PB(:, j), wi, WB(:, j), ...
+            v = nestedIp(recipeA, recipeB, ai, PB(:, j), wi, WB(:, j), ...
                          sigma, period, ts, quad);
             if sym && j ~= i
                 s = s + 2.0 * v;
@@ -272,11 +304,16 @@ end
 % ----------------------------------------------------------------------
 function v = contractNode(xn, yn, K)
     % Bottom-up, batched over the quadrature (dim 1) AND over sibling pairs.
-    % xn is yn for the cosine, so the tree is walked once.
+    % K is (Q, nX, nY): the X axis is indexed by xn slots, the Y axis by yn
+    % slots. For XX/YY (and equal-cardinality XY) xn and yn coincide and this
+    % is the original single-tree walk; differing leaf spans are handled per
+    % level by combinePair's per-size tuple sourcing.
     if xn.level == 0
-        v = combineNode(K(:, xn.slots, xn.slots), xn);
+        block = K(:, xn.slots, yn.slots);
+        v = combinePair(block, xn.r, xn.sym, xn.useOrbit && yn.useOrbit);
     else
-        v = combineNode(subtreeOverlaps(xn.children, K), xn);
+        Mc = subtreeOverlaps(xn.children, yn.children, K);
+        v = combinePair(Mc, xn.r, xn.sym, xn.useOrbit && yn.useOrbit);
     end
 end
 
@@ -304,105 +341,135 @@ function tf = siblingsUniform(nodes)
 end
 
 
-function M = leafOverlaps(nodes, K)
-    % (Q, g, g) pairwise overlaps among g leaf siblings.
-    g = numel(nodes);
+function M = leafOverlaps(xnodes, ynodes, K)
+    % (Q, gx, gy) pairwise overlaps among leaf siblings, X-side vs Y-side.
+    gx = numel(xnodes);
+    gy = numel(ynodes);
     Q = size(K, 1);
-    n = size(K, 2);
-    if nodes{1}.r == 1
-        % r0 = 1: M(q,a,b) = sum_{i in Sa, j in Sb} K(q,i,j) (weights folded).
-        G = zeros(g, n);
-        for a = 1:g
-            G(a, nodes{a}.slots) = 1.0;
+    nX = size(K, 2);
+    nY = size(K, 3);
+    r = xnodes{1}.r;
+    sym = xnodes{1}.sym;
+    if r == 1
+        % r0 = 1: M(q,a,b) = sum_{i in Sxa, j in Syb} K(q,i,j) (weights folded).
+        Gx = zeros(gx, nX);
+        for a = 1:gx
+            Gx(a, xnodes{a}.slots) = 1.0;
         end
-        KG = reshape(reshape(K, [Q * n, n]) * G.', [Q, n, g]);   % (q,i,b)
-        KGp = reshape(permute(KG, [2, 1, 3]), [n, Q * g]);        % (i, q*b)
-        MG = G * KGp;                                             % (a, q*b)
-        M = permute(reshape(MG, [g, Q, g]), [2, 1, 3]);          % (Q,g,g)
+        Gy = zeros(gy, nY);
+        for b = 1:gy
+            Gy(b, ynodes{b}.slots) = 1.0;
+        end
+        KG = reshape(reshape(K, [Q * nX, nY]) * Gy.', [Q, nX, gy]);  % (q,i,b)
+        KGp = reshape(permute(KG, [2, 1, 3]), [nX, Q * gy]);          % (i, q*b)
+        MG = Gx * KGp;                                                % (a, q*b)
+        M = permute(reshape(MG, [gx, Q, gy]), [2, 1, 3]);            % (Q,gx,gy)
         return;
     end
-    if siblingsUniform(nodes)
-        m = numel(nodes{1}.slots);
-        blocks = zeros(g, g, Q, m, m);
-        for a = 1:g
-            sa = K(:, nodes{a}.slots, :);
-            for b = 1:g
-                blocks(a, b, :, :, :) = reshape(sa(:, :, nodes{b}.slots), ...
-                                                [1, 1, Q, m, m]);
+    ux = siblingsUniform(xnodes);
+    uy = siblingsUniform(ynodes);
+    if ux && uy
+        mx = numel(xnodes{1}.slots);
+        my = numel(ynodes{1}.slots);
+        blocks = zeros(gx, gy, Q, mx, my);
+        for a = 1:gx
+            sa = K(:, xnodes{a}.slots, :);
+            for b = 1:gy
+                blocks(a, b, :, :, :) = reshape(sa(:, :, ynodes{b}.slots), ...
+                                                [1, 1, Q, mx, my]);
             end
         end
-        vals = combineNode(reshape(blocks, [g * g * Q, m, m]), nodes{1});
-        M = permute(reshape(vals, [g, g, Q]), [3, 1, 2]);
+        useOrbit = xnodes{1}.useOrbit && ynodes{1}.useOrbit;
+        vals = combinePair(reshape(blocks, [gx * gy * Q, mx, my]), ...
+                           r, sym, useOrbit);
+        M = permute(reshape(vals, [gx, gy, Q]), [3, 1, 2]);
         return;
     end
-    M = zeros(Q, g, g);
-    for a = 1:g
-        for b = 1:g
-            M(:, a, b) = combineNode(K(:, nodes{a}.slots, nodes{b}.slots), ...
-                                     nodes{a});
+    M = zeros(Q, gx, gy);
+    for a = 1:gx
+        for b = 1:gy
+            uo = xnodes{a}.useOrbit && ynodes{b}.useOrbit;
+            M(:, a, b) = combinePair(K(:, xnodes{a}.slots, ynodes{b}.slots), ...
+                                     r, sym, uo);
         end
     end
 end
 
 
-function M = subtreeOverlaps(nodes, K)
-    % (Q, g, g) pairwise overlaps among g sibling subtrees.
-    if nodes{1}.level == 0
-        M = leafOverlaps(nodes, K);
+function M = subtreeOverlaps(xnodes, ynodes, K)
+    % (Q, gx, gy) pairwise overlaps among sibling subtrees, X-side vs Y-side.
+    if xnodes{1}.level == 0
+        M = leafOverlaps(xnodes, ynodes, K);
         return;
     end
-    g = numel(nodes);
+    gx = numel(xnodes);
+    gy = numel(ynodes);
     Q = size(K, 1);
-    sizes = zeros(1, g);
-    flat = {};
-    for k = 1:g
-        sizes(k) = numel(nodes{k}.children);
-        flat = [flat, nodes{k}.children];   %#ok<AGROW>
+    r = xnodes{1}.r;
+    sym = xnodes{1}.sym;
+    xsizes = zeros(1, gx);
+    xflat = {};
+    for k = 1:gx
+        xsizes(k) = numel(xnodes{k}.children);
+        xflat = [xflat, xnodes{k}.children];   %#ok<AGROW>
     end
-    offs = [0, cumsum(sizes)];
-    Mc = subtreeOverlaps(flat, K);          % (Q, Gc, Gc)
-    if siblingsUniform(nodes)
-        gc = sizes(1);
-        blocks = zeros(g, g, Q, gc, gc);
-        for a = 1:g
-            ra = offs(a) + 1 : offs(a) + gc;
-            for b = 1:g
-                cb = offs(b) + 1 : offs(b) + gc;
+    ysizes = zeros(1, gy);
+    yflat = {};
+    for k = 1:gy
+        ysizes(k) = numel(ynodes{k}.children);
+        yflat = [yflat, ynodes{k}.children];   %#ok<AGROW>
+    end
+    xoffs = [0, cumsum(xsizes)];
+    yoffs = [0, cumsum(ysizes)];
+    Mc = subtreeOverlaps(xflat, yflat, K);          % (Q, Gcx, Gcy)
+    ux = siblingsUniform(xnodes);
+    uy = siblingsUniform(ynodes);
+    if ux && uy
+        gcx = xsizes(1);
+        gcy = ysizes(1);
+        blocks = zeros(gx, gy, Q, gcx, gcy);
+        for a = 1:gx
+            ra = xoffs(a) + 1 : xoffs(a) + gcx;
+            for b = 1:gy
+                cb = yoffs(b) + 1 : yoffs(b) + gcy;
                 blocks(a, b, :, :, :) = reshape(Mc(:, ra, cb), ...
-                                                [1, 1, Q, gc, gc]);
+                                                [1, 1, Q, gcx, gcy]);
             end
         end
-        vals = combineNode(reshape(blocks, [g * g * Q, gc, gc]), nodes{1});
-        M = permute(reshape(vals, [g, g, Q]), [3, 1, 2]);
+        useOrbit = xnodes{1}.useOrbit && ynodes{1}.useOrbit;
+        vals = combinePair(reshape(blocks, [gx * gy * Q, gcx, gcy]), ...
+                           r, sym, useOrbit);
+        M = permute(reshape(vals, [gx, gy, Q]), [3, 1, 2]);
         return;
     end
-    M = zeros(Q, g, g);
-    for a = 1:g
-        ra = offs(a) + 1 : offs(a + 1);
-        for b = 1:g
-            cb = offs(b) + 1 : offs(b + 1);
-            M(:, a, b) = combineNode(Mc(:, ra, cb), nodes{a});
+    M = zeros(Q, gx, gy);
+    for a = 1:gx
+        ra = xoffs(a) + 1 : xoffs(a + 1);
+        for b = 1:gy
+            cb = yoffs(b) + 1 : yoffs(b + 1);
+            uo = xnodes{a}.useOrbit && ynodes{b}.useOrbit;
+            M(:, a, b) = combinePair(Mc(:, ra, cb), r, sym, uo);
         end
     end
 end
 
 
-function v = combineNode(M, node)
-    % Symmetric-level combine, orbit-reduced when flagged; same scale as
-    % combine (the r!-cancelled perm x comb form). Handles rectangular
-    % blocks (gx ~= gy), which arise for ragged sibling subtrees.
+function v = combinePair(M, r, sym, useOrbit)
+    % Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
+    % Y-side comb tuples over gy (the r!-cancelled perm x comb form, same
+    % scale as combine). gx and gy are read from the block, so unequal X/Y
+    % spans -- ragged siblings *or* two densities whose nested cardinalities
+    % differ -- are handled directly. For a square block with gx == gy this
+    % reproduces the old combineNode exactly, so the X == Y path is unchanged.
+    if useOrbit
+        empt = zeros(0, r);
+        v = combineOrbit(M, r, empt, empt);
+        return;
+    end
     gx = size(M, 2);
     gy = size(M, 3);
-    if node.useOrbit
-        v = combineOrbit(M, node.r, node.xtup, node.ytup);
-        return;
-    end
-    if gx == gy && gx == nodeSpan(node)
-        v = combine(M, node.xtup, node.ytup);          % uniform: stored tuples
-        return;
-    end
-    [xt, ~] = tupleIndices(gx, node.r, node.sym);       % ragged: per-size tuples
-    [~, yt] = tupleIndices(gy, node.r, node.sym);
+    [xt, ~] = tupleIndices(gx, r, sym);
+    [~, yt] = tupleIndices(gy, r, sym);
     v = combine(M, xt, yt);
 end
 
@@ -453,39 +520,43 @@ end
 % ----------------------------------------------------------------------
 %  Leaf-kernel batches + per-event-pair bare inner product
 % ----------------------------------------------------------------------
-function ipv = nestedIp(recipe, vX, vY, wX, wY, sigma, period, ts, quad)
-    n = numel(vX);
+function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, quad)
+    nX = numel(vX);
+    nY = numel(vY);
     switch quad.mode
         case 'abs'
-            isPerAbs = isfinite(period) && period > 0;
-            d = reshape(vX, [1, n, 1]) - reshape(vY, [1, 1, n]);   % 1 x n x n
-            if isPerAbs
+            % Periodicity comes from the density's [per] flag (carried in the
+            % quadrature struct), not from whether period happens to be
+            % finite: an absolute non-periodic attribute may carry a finite
+            % period.
+            d = reshape(vX, [1, nX, 1]) - reshape(vY, [1, 1, nY]);   % 1 x nX x nY
+            if quad.isPer
                 d = d - period * round(d / period);
             end
             K = exp(-d.^2 / (4 * sigma^2));
-            K = K .* (reshape(wX, [1, n, 1]) .* reshape(wY, [1, 1, n]));
+            K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
-            v = contractNode(recipe, recipe, K);
+            v = contractNode(recipeX, recipeY, K);
             ipv = v(1);
         case 'relper'
             taus = quad.taus(:);
             T = numel(taus);
-            d = reshape(vX, [1, n, 1]) ...
-                - (reshape(vY, [1, 1, n]) + reshape(taus, [T, 1, 1]));  % T x n x n
+            d = reshape(vX, [1, nX, 1]) ...
+                - (reshape(vY, [1, 1, nY]) + reshape(taus, [T, 1, 1]));  % T x nX x nY
             d = d - period * round(d / period);
             K = exp(-d.^2 / (4 * sigma^2));
-            K = K .* (reshape(wX, [1, n, 1]) .* reshape(wY, [1, 1, n]));
+            K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
-            ipv = sum(contractNode(recipe, recipe, K));   % common dtau cancels
+            ipv = sum(contractNode(recipeX, recipeY, K));   % common dtau cancels
         case 'relnonper'
             taus = quad.taus(:);
             T = numel(taus);
-            d = reshape(vX, [1, n, 1]) ...
-                - (reshape(vY, [1, 1, n]) + reshape(taus, [T, 1, 1]));
+            d = reshape(vX, [1, nX, 1]) ...
+                - (reshape(vY, [1, 1, nY]) + reshape(taus, [T, 1, 1]));
             K = exp(-d.^2 / (4 * sigma^2));               % no wrap
-            K = K .* (reshape(wX, [1, n, 1]) .* reshape(wY, [1, 1, n]));
+            K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
-            ipv = sum(contractNode(recipe, recipe, K));
+            ipv = sum(contractNode(recipeX, recipeY, K));
     end
 end
 
@@ -511,7 +582,7 @@ end
 
 function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts)
     if ~isRel
-        quad = struct('mode', 'abs');
+        quad = struct('mode', 'abs', 'isPer', logical(isPer));
         return;
     end
     if isfinite(ts)
@@ -632,5 +703,22 @@ function w = recipeWork(node)
         for c = 1:g
             w = w + recipeWork(node.children{c});
         end
+    end
+end
+
+
+function tg = orientTags(tg, nSlots, L)
+    % Orient a tag array so slots index dimension 1 and the L-1 inner tag
+    % levels index dimension 2 (the convention buildRecipe expects, matching
+    % the Python 1-D tags). A single-level (L == 2) spec is a vector -- a
+    % MATLAB literal makes it a row -- so reshape it to a column; an already
+    % oriented matrix is left as is, a transposed one is corrected.
+    if isvector(tg)
+        tg = tg(:);
+    elseif size(tg, 1) ~= nSlots && size(tg, 2) == nSlots
+        tg = tg.';
+    end
+    if size(tg, 1) ~= nSlots && L >= 2   %#ok<BDLGI> defensive: keep slots on dim 1
+        tg = reshape(tg, nSlots, []);
     end
 end

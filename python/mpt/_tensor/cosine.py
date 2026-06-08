@@ -2228,7 +2228,8 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     if dens_x.n_attrs != 1 or dens_y.n_attrs != 1:
         return _decline("the contraction supports a single attribute only")
     spec = dens_x.nested[0]
-    if spec is None or dens_y.nested[0] is None:
+    spec_y = dens_y.nested[0]
+    if spec is None or spec_y is None:
         return _decline("both densities must carry the same nested attribute")
     if int(_inner_r_vec(dens_x)[0]) != 0 or int(_inner_r_vec(dens_y)[0]) != 0:
         return _decline("an inner/intermediate [rel] unit is not yet covered")
@@ -2247,7 +2248,17 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     r_levels = np.asarray(spec["r"]).ravel()
     sym_levels = np.asarray(spec["sym"]).ravel()
-    tags = np.asarray(spec["tags"])
+    tags_x = np.asarray(spec["tags"])
+    tags_y = np.asarray(spec_y["tags"])
+    # The two densities must agree on the per-level read-arities and [sym]
+    # flags (same nested attribute); only the leaf cardinalities (tags shape)
+    # may differ -- a 4-pitch prototype against an 8-pitch window, say.
+    if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
+            or not np.array_equal(sym_levels,
+                                  np.asarray(spec_y["sym"]).ravel())):
+        return _decline("the two nested attributes differ in [r]/[sym]")
+    same_struct = (tags_x.shape == tags_y.shape
+                   and bool(np.array_equal(tags_x, tags_y)))
     is_rel = bool(dens_x.is_rel[0])
     is_per = bool(dens_x.is_per[0])
     period = float(dens_x.period[0])
@@ -2258,17 +2269,32 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     n_y = PY.shape[1]
     vmin = float(min(PX.min(), PY.min()))
     vmax = float(max(PX.max(), PY.max()))
-    recipe = build_recipe(r_levels, sym_levels, tags, is_rel, is_per)
+    # One recipe per side: the X recipe indexes the X axis of the rectangular
+    # leaf kernel, the Y recipe the Y axis. They coincide when the densities
+    # share a nesting structure (the common case, incl. all XX/YY products).
+    recipe_x = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
+    recipe_y = (recipe_x if same_struct
+                else build_recipe(r_levels, sym_levels, tags_y, is_rel, is_per))
 
     # Speed dispatch (deterministic integer/float counts -> identical in
     # both languages). Enumeration ~ event-pairs * M_perm * M_comb;
     # contraction ~ event-pairs * quadrature-nodes * tree combine-work.
-    m_perm, m_comb = tuple_counts(r_levels, sym_levels, tags)
+    m_perm, m_comb = tuple_counts(r_levels, sym_levels, tags_x)
+    work = recipe_work(recipe_x)
+    if not same_struct:
+        mp_y, mc_y = tuple_counts(r_levels, sym_levels, tags_y)
+        m_perm = max(m_perm, mp_y)
+        m_comb = max(m_comb, mc_y)
+        work = max(work, recipe_work(recipe_y))
     Q = quad_nodes(is_rel, is_per, sigma, period, vmin, vmax, ts)
     pair_terms = n_x * n_y + n_x * n_x + n_y * n_y
     cost_enum = pair_terms * m_perm * m_comb
-    cost_contract = pair_terms * Q * recipe_work(recipe)
-    if cost_contract >= cost_enum and not force:
+    cost_contract = pair_terms * Q * work
+    # The enumeration handles only matching nested cardinalities, so the cost
+    # race (and its enumeration fallback) applies only when both sides share a
+    # structure. When the cardinalities differ the contraction is the sole
+    # correct route and is always taken.
+    if same_struct and cost_contract >= cost_enum and not force:
         return None  # enumeration is the faster route (auto only)
 
     if is_rel and is_per:
@@ -2289,23 +2315,24 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
 
-    def trip(pa, wa, na, pb, wb, nb, symmetric=False):
+    def trip(pa, ra, wa, na, pb, rb, wb, nb, symmetric=False):
         # symmetric=True (self inner products): <e_i, e_j> = <e_j, e_i>, so
         # evaluate only the upper triangle and double the off-diagonal terms.
+        # ra / rb are the recipes indexing the pa / pb axes of the kernel.
         s = 0.0
         for i in range(na):
             ai = pa[:, i]
             wi = wa[:, i]
             j0 = i if symmetric else 0
             for j in range(j0, nb):
-                v = nested_ip(recipe, ai, pb[:, j], wi, wb[:, j],
+                v = nested_ip(ra, rb, ai, pb[:, j], wi, wb[:, j],
                               sigma, period, ts, quad)
                 s += v if (not symmetric or j == i) else 2.0 * v
         return s
 
-    ip_xy = trip(PX, WX, n_x, PY, WY, n_y)
-    ip_xx = trip(PX, WX, n_x, PX, WX, n_x, symmetric=True)
-    ip_yy = trip(PY, WY, n_y, PY, WY, n_y, symmetric=True)
+    ip_xy = trip(PX, recipe_x, WX, n_x, PY, recipe_y, WY, n_y)
+    ip_xx = trip(PX, recipe_x, WX, n_x, PX, recipe_x, WX, n_x, symmetric=True)
+    ip_yy = trip(PY, recipe_y, WY, n_y, PY, recipe_y, WY, n_y, symmetric=True)
     return ip_xy, ip_xx, ip_yy
 
 

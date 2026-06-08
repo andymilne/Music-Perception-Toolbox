@@ -1497,12 +1497,23 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                  && any(~cellfun(@isempty, dens_x.nested))) ...
              || (isfield(dens_y, 'nested') && iscell(dens_y.nested) ...
                  && any(~cellfun(@isempty, dens_y.nested)));
+    contractTriple = [];
     if nestedAny
+        if strcmp(method, 'auto')
+            contractTriple = internal.nestedContract( ...
+                dens_x, dens_y, normalize, truncationSigmas);
+        end
         chosen = 'bulger';
     end
 
     ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
     ranOrbit = false;
+    if ~isempty(contractTriple)
+        ip_xy = contractTriple.xy;
+        ip_xx = contractTriple.xx;
+        ip_yy = contractTriple.yy;
+        ranOrbit = true;   % skip both the orbit and the pairwise enumeration
+    end
 
     if strcmp(chosen, 'mobius')
         [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...

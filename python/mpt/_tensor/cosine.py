@@ -1009,7 +1009,7 @@ def _cos_sim_exp_tens_sa(
 
     if method not in ("auto", "bulger", "direct", "mobius"):
         raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct'; "
+            f"method must be one of 'auto', 'bulger', 'direct', 'mobius'; "
             f"got {method!r}."
         )
 
@@ -1155,7 +1155,7 @@ def _cos_sim_exp_tens_ma(
 
     if method not in ("auto", "bulger", "direct", "mobius"):
         raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct'; "
+            f"method must be one of 'auto', 'bulger', 'direct', 'mobius'; "
             f"got {method!r}."
         )
 
@@ -1229,6 +1229,11 @@ def _cos_sim_exp_tens_ma(
         or (nested_y is not None and any(s is not None for s in nested_y))
     )
     if nested_any:
+        if method == "auto":
+            triple = _try_nested_contract(
+                dens_x, dens_y, normalize=normalize, verbose=verbose)
+            if triple is not None:
+                return _finalise_normalisation(*triple, normalize)
         chosen = "bulger"
 
     if chosen == "mobius":
@@ -2185,6 +2190,102 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
 
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
+
+
+def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
+    """Fast tree-contraction of a single nested attribute's inner product.
+
+    Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
+    attribute, outer/no ``[rel]``, no NaN-padding, cosine normalisation --
+    and the contraction is estimated cheaper than the enumeration; otherwise
+    ``None``, and the caller routes to the exact enumeration. Absolute and
+    relative-non-periodic are exact; relative-periodic uses the
+    transposition-average surrogate and warns when ``sigma/period`` exceeds
+    the ``truncation_sigmas``-implied tolerance.
+    """
+    import math as _m
+    from .._defaults import get_default
+
+    if normalize != "cosine":
+        return None
+    if dens_x.n_attrs != 1 or dens_y.n_attrs != 1:
+        return None
+    spec = dens_x.nested[0]
+    if spec is None or dens_y.nested[0] is None:
+        return None
+    if int(_inner_r_vec(dens_x)[0]) != 0 or int(_inner_r_vec(dens_y)[0]) != 0:
+        return None  # inner [rel] unit not covered by the contraction yet
+
+    PX = np.asarray(dens_x.p_attr[0], dtype=np.float64)
+    PY = np.asarray(dens_y.p_attr[0], dtype=np.float64)
+    if np.isnan(PX).any() or np.isnan(PY).any():
+        return None  # variable-K per event: exact enumeration only
+    WX = np.asarray(dens_x.w[0], dtype=np.float64)
+    WY = np.asarray(dens_y.w[0], dtype=np.float64)
+
+    from ._nested_contraction import (
+        build_recipe, tuple_counts, recipe_work, quad_nodes,
+        make_quadrature, nested_ip,
+    )
+
+    r_levels = np.asarray(spec["r"]).ravel()
+    sym_levels = np.asarray(spec["sym"]).ravel()
+    tags = np.asarray(spec["tags"])
+    is_rel = bool(dens_x.is_rel[0])
+    is_per = bool(dens_x.is_per[0])
+    period = float(dens_x.period[0])
+    sigma = float(dens_x.sigma[0])
+    ts = get_default("truncation_sigmas")
+
+    n_x = PX.shape[1]
+    n_y = PY.shape[1]
+    vmin = float(min(PX.min(), PY.min()))
+    vmax = float(max(PX.max(), PY.max()))
+    recipe = build_recipe(r_levels, sym_levels, tags)
+
+    # Speed dispatch (deterministic integer/float counts -> identical in
+    # both languages). Enumeration ~ event-pairs * M_perm * M_comb;
+    # contraction ~ event-pairs * quadrature-nodes * tree combine-work.
+    m_perm, m_comb = tuple_counts(r_levels, sym_levels, tags)
+    Q = quad_nodes(is_rel, is_per, sigma, period, vmin, vmax, ts)
+    pair_terms = n_x * n_y + n_x * n_x + n_y * n_y
+    cost_enum = pair_terms * m_perm * m_comb
+    cost_contract = pair_terms * Q * recipe_work(recipe)
+    if cost_contract >= cost_enum:
+        return None  # enumeration is the faster route
+
+    if is_rel and is_per:
+        tol = (max(_m.exp(-0.5 * ts ** 2), 1e-12)
+               if _m.isfinite(ts) else 1e-12)
+        sop_max = (0.85 / (4.0 * _m.sqrt(_m.log(1.0 / tol)))
+                   if tol < 1.0 else _m.inf)
+        if sigma / period > sop_max:
+            warnings.warn(
+                f"Nested relative-periodic similarity at sigma/period = "
+                f"{sigma / period:.3f} exceeds the surrogate accuracy "
+                f"threshold {sop_max:.3f} implied by truncation_sigmas "
+                f"(tolerance {tol:.1e}); the transposition-average value "
+                f"may depart from the exact inner product. Pass "
+                f"method='bulger' for the exact enumeration.",
+                stacklevel=2,
+            )
+
+    quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
+
+    def trip(pa, wa, na, pb, wb, nb):
+        s = 0.0
+        for i in range(na):
+            ai = pa[:, i]
+            wi = wa[:, i]
+            for j in range(nb):
+                s += nested_ip(recipe, ai, pb[:, j], wi, wb[:, j],
+                               sigma, period, ts, quad)
+        return s
+
+    ip_xy = trip(PX, WX, n_x, PY, WY, n_y)
+    ip_xx = trip(PX, WX, n_x, PX, WX, n_x)
+    ip_yy = trip(PY, WY, n_y, PY, WY, n_y)
+    return ip_xy, ip_xx, ip_yy
 
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):

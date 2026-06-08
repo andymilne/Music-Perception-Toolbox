@@ -150,7 +150,8 @@ function s = cosSimExpTens(varargin)
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
-%     'method'  — 'auto' (default), 'bulger', 'mobius', or 'direct'.
+%     'method'  — 'auto' (default), 'bulger', 'mobius', 'direct', or
+%                 'contract' (force the nested tree-contraction).
 %                 Inner-product decomposition. 'auto' selects via a
 %                 per-call cost model (with a timing-probe fallback for
 %                 indeterminate SA cases) between Bulger's method
@@ -260,10 +261,12 @@ while i <= numel(varargin)
                 continue;
             case 'method'
                 method = lower(char(varargin{i + 1}));
-                if ~ismember(method, {'auto', 'bulger', 'mobius'})
+                if ~ismember(method, ...
+                        {'auto', 'bulger', 'mobius', 'contract'})
                     error('cosSimExpTens:badMethod', ...
                           ['''method'' must be ''auto'', ''bulger'', ' ...
-                           'or ''mobius''; got ''%s''.'], method);
+                           '''mobius'', or ''contract''; got ''%s''.'], ...
+                          method);
                 end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
@@ -1467,9 +1470,28 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         end
     end
 
-    % --- Method dispatch ---
-    chosen = localSelectMAInnerProductMethod( ...
-        rVec, isRelG, sigmaG, isPerG, periodG, method, verbose);
+    % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
+    kVec = zeros(1, A);
+    for a = 1:A
+        kVec(a) = size(dens_x.pAttr{a}, 1);
+    end
+    anyPer = false; anyRelNonper = false; anyRelPer = false; sigmaOverPMax = 0;
+    for a = 1:A
+        if isPerG(a); anyPer = true; end
+        if isRelG(a)
+            if isPerG(a)
+                anyRelPer = true;
+                if periodG(a) > 0
+                    sigmaOverPMax = max(sigmaOverPMax, sigmaG(a) / periodG(a));
+                end
+            else
+                anyRelNonper = true;
+            end
+        end
+    end
+    chosen = internal.selectMaInnerProductMethod( ...
+        rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
+        sigmaOverPMax, method, verbose);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
@@ -1497,11 +1519,17 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                  && any(~cellfun(@isempty, dens_x.nested))) ...
              || (isfield(dens_y, 'nested') && iscell(dens_y.nested) ...
                  && any(~cellfun(@isempty, dens_y.nested)));
+    if strcmp(method, 'contract') && ~nestedAny
+        error('cosSimExpTens:contractUnavailable', ...
+            ['method=''contract'' applies to a nested attribute only; ' ...
+             'use ''auto'' or ''bulger'' for non-nested densities.']);
+    end
     contractTriple = [];
     if nestedAny
-        if strcmp(method, 'auto')
+        if any(strcmp(method, {'auto', 'contract'}))
             contractTriple = internal.nestedContract( ...
-                dens_x, dens_y, normalize, truncationSigmas);
+                dens_x, dens_y, normalize, truncationSigmas, ...
+                strcmp(method, 'contract'));
         end
         chosen = 'bulger';
     end
@@ -1721,87 +1749,6 @@ end
 %  MA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
-function chosen = localSelectMAInnerProductMethod(rVec, isRelG, sigmaG, ...
-                                                    isPerG, periodG, ...
-                                                    userMethod, verbose)
-%LOCALSELECTMAINNERPRODUCTMETHOD  Choose the IP method for MA cosSimExpTens.
-%
-%   Simple heuristic (no cost model; benchmark-driven recalibration
-%   pending at Commit 7):
-%     1. userMethod ~= 'auto' overrides everything.
-%     2. r_max <= 1 -> Bulger (Möbius method undefined).
-%     3. r_max > 8 (above _ORBIT_R_MAX_SHIPPED) -> Bulger (no shipped
-%        orbit table; user-build cost-preview warning otherwise).
-%     4. Periodic-relative beyond sigma/period > 0.03 anywhere -> warn,
-%        Bulger. Same convention guard as the SA dispatcher.
-%     5. Any rel group at all -> Bulger's method. The Möbius relative-mode
-%        evaluator for MA is un-vectorised (per-event-pair loop);
-%        Bulger dominates in typical regimes. Users wanting the Möbius
-%        relative-mode evaluator opt in explicitly.
-%     6. r_max < 3 -> Bulger (the Möbius method at r=2 carries
-%        |Omega_2|=4 overhead with the same K^2 asymptotic as Bulger).
-%     7. Otherwise -> mobius.
-%
-%   has_nan is NOT a fallback: the MA Möbius-method wrapper handles
-%   ragged K_{a,n} natively. Per-event-pair classification: events
-%   with K_eff - r >= 2 (the Möbius-method precision margin) flow
-%   through the vectorised batched Möbius evaluator; pairs involving
-%   any K_eff - r < 2 event flow through direct r-tuple enumeration
-%   (no Möbius alternating sum, hence no cancellation). See
-%   mobius.maPerAttrInnerMatrix.
-
-    if ~strcmp(userMethod, 'auto')
-        chosen = userMethod;
-        return;
-    end
-
-    r_max = max(rVec);
-    if r_max <= 1
-        chosen = 'bulger';
-        return;
-    end
-    if r_max > 8   % _ORBIT_R_MAX_SHIPPED
-        chosen = 'bulger';
-        return;
-    end
-
-    % sigma/period guard (rel + per attributes only).
-    sigmaOverP_max = 0;
-    for a = 1:numel(sigmaG)
-        if isRelG(a) && isPerG(a) && periodG(a) > 0
-            ratio = sigmaG(a) / periodG(a);
-            if ratio > sigmaOverP_max
-                sigmaOverP_max = ratio;
-            end
-        end
-    end
-    if sigmaOverP_max > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-        if verbose
-            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
-                    ['Maximum sigma/period = %.3f across periodic-relative ' ...
-                     'attributes exceeds the Möbius-method threshold (0.03); ' ...
-                     'falling back to Bulger''s method (the pairwise-wrap ' ...
-                     'form). Pass ''method'', ''bulger'' explicitly to ' ...
-                     'silence this warning.'], sigmaOverP_max);
-        end
-        chosen = 'bulger';
-        return;
-    end
-
-    % Any rel group -> Bulger's method (the Möbius relative-mode
-    % evaluator is not vectorised).
-    if any(isRelG)
-        chosen = 'bulger';
-        return;
-    end
-
-    if r_max < 3
-        chosen = 'bulger';
-        return;
-    end
-
-    chosen = 'mobius';
-end
 
 
 function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...

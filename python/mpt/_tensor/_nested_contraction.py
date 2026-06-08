@@ -19,6 +19,7 @@ across all quadrature nodes.
 """
 from __future__ import annotations
 
+import functools
 import math
 from functools import lru_cache
 from itertools import combinations, permutations
@@ -51,18 +52,43 @@ def _tuple_indices(n: int, r: int, sym: bool):
     return xtup, ytup
 
 
-class _Node:
-    __slots__ = ("level", "slots", "children", "xtup", "ytup")
+def _perm_count(g, r):
+    # C(g, r) * r!  = number of ordered r-tuples of distinct items from g.
+    if r > g or r < 0:
+        return 0
+    n = 1
+    for i in range(r):
+        n *= (g - i)
+    return n
 
-    def __init__(self, level, slots, children, xtup, ytup):
+
+def _orbit_eligible(g, r, sym, is_rel, is_per):
+    if not sym or not (2 <= r <= _ORBIT_MAX_R):
+        return False
+    if not _flat_orbit_precision_ok([r], [g]):
+        return False                       # K (=g) too close to r: cancellation
+    if r <= 6:
+        return bool(_flat_orbit_beats_enum(r, g, is_rel, is_per))
+    return True                            # r in 7..R_MAX: enumeration infeasible
+
+
+class _Node:
+    __slots__ = ("level", "slots", "children", "xtup", "ytup", "r", "sym",
+                 "use_orbit")
+
+    def __init__(self, level, slots, children, xtup, ytup, r, sym,
+                 use_orbit=False):
         self.level = level          # tree level (0 = leaf / finest group)
         self.slots = slots          # global slot indices spanned by node
         self.children = children    # list[_Node] (empty at leaf)
         self.xtup = xtup            # (T, r) X-side tuple indices
         self.ytup = ytup            # (T, r) Y-side tuple indices
+        self.r = r                  # this level's read-arity
+        self.sym = sym              # this level's [sym] flag
+        self.use_orbit = use_orbit  # True: orbit-reduce this level (skip xtup)
 
 
-def build_recipe(r_levels, sym_levels, tags):
+def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
     """Build the contraction tree once.
 
     ``r_levels`` / ``sym_levels`` are per-level (length L, level 0 = finest).
@@ -81,8 +107,12 @@ def build_recipe(r_levels, sym_levels, tags):
         slots = np.asarray(slots, dtype=np.intp)
         if level == 0:
             r0 = int(r_levels[0])
-            xt, yt = _tuple_indices(len(slots), r0, bool(sym_levels[0]))
-            return _Node(0, slots, [], xt, yt)
+            sy0 = bool(sym_levels[0])
+            if _orbit_eligible(len(slots), r0, sy0, is_rel, is_per):
+                empty = np.empty((0, r0), dtype=np.intp)
+                return _Node(0, slots, [], empty, empty, r0, sy0, True)
+            xt, yt = _tuple_indices(len(slots), r0, sy0)
+            return _Node(0, slots, [], xt, yt, r0, sy0, False)
         col = level - 1
         keys = tags2[slots, col]
         children = []
@@ -90,8 +120,12 @@ def build_recipe(r_levels, sym_levels, tags):
             sub = slots[keys == k]
             children.append(build(level - 1, sub))
         rl = int(r_levels[level])
-        xt, yt = _tuple_indices(len(children), rl, bool(sym_levels[level]))
-        return _Node(level, slots, children, xt, yt)
+        syl = bool(sym_levels[level])
+        if _orbit_eligible(len(children), rl, syl, is_rel, is_per):
+            empty = np.empty((0, rl), dtype=np.intp)
+            return _Node(level, slots, children, empty, empty, rl, syl, True)
+        xt, yt = _tuple_indices(len(children), rl, syl)
+        return _Node(level, slots, children, xt, yt, rl, syl, False)
 
     return build(L - 1, np.arange(K_total, dtype=np.intp))
 
@@ -111,19 +145,155 @@ def _combine(M, xtup, ytup):
     return P.sum(axis=(1, 2))
 
 
-def _contract(xn: _Node, yn: _Node, K):
-    """Overlap (Q,) between xn's slots (X side) and yn's slots (Y side)."""
-    if xn.level == 0:
-        sub = K[:, xn.slots][:, :, yn.slots]            # (Q, m, m)
-        return _combine(sub, xn.xtup, yn.ytup)
-    g = len(xn.children)
-    Q = K.shape[0]
+# Use the orbit (Möbius) reduction at a symmetric level once r is large
+# enough that |Omega_r| beats r! (r! crosses the orbit-entry count near r=5).
+# The orbit-vs-enumeration choice at each symmetric level reuses the flat
+# path's calibrated policy (dispatch._orbit_beats_pairwise_per_attr K-vs-r
+# crossover + _orbit_safe_for_precision K>=r+2 guard), applied per level with
+# K = g (the level's child/slot count). For r in 7..R_MAX (no flat K-threshold
+# entry, and where enumeration's C(g,r)*r! is infeasible anyway) orbit is the
+# only viable route, so it is used whenever precision-safe.
+from .dispatch import (
+    _orbit_beats_pairwise_per_attr as _flat_orbit_beats_enum,
+    _orbit_safe_for_precision as _flat_orbit_precision_ok,
+    _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R,
+)
+# Below this alternating-sum cancellation ratio the orbit value has lost too
+# many digits; fall back to the enumerated combine for that quadrature node.
+_ORBIT_CANCEL_FLOOR = 1e-10
+
+
+def _node_span(node):
+    return len(node.slots) if node.level == 0 else len(node.children)
+
+
+@functools.lru_cache(maxsize=None)
+def _tuple_sides(n, r, sym):
+    """Cached (perm-side, comb-side) tuple indices for a size-n level."""
+    return _tuple_indices(n, r, sym)
+
+
+def _combine_node(M, node):
+    """Symmetric-level combine, orbit-reduced when flagged; same scale as
+    ``_combine`` (the r!-cancelled perm x comb form). Handles rectangular
+    blocks (gx != gy), which arise for ragged sibling subtrees."""
+    gx, gy = M.shape[1], M.shape[2]
+    if node.use_orbit:
+        return _combine_orbit(M, node.r, node.xtup, node.ytup)
+    if gx == gy == _node_span(node):
+        return _combine(M, node.xtup, node.ytup)        # uniform: stored tuples
+    xtup = _tuple_sides(gx, node.r, node.sym)[0]         # ragged: per-size tuples
+    ytup = _tuple_sides(gy, node.r, node.sym)[1]
+    return _combine(M, xtup, ytup)
+
+
+def _combine_orbit(M, r, xtup, ytup):
+    """(B,) = Sum_{cX,cY} perm(M[cX,cY]) via the partition-lattice orbit
+    reduction (= inner_product_orbit_grid / r!), vectorised over the leading
+    batch, with a cancellation guard that reverts to the enumerated combine
+    for any element that loses digits. Supports rectangular M (gx != gy)."""
+    from .._mobius import inner_product_orbit_grid
+    gx, gy = M.shape[1], M.shape[2]
+    wx = np.ones(gx, dtype=M.dtype)
+    wy = np.ones(gy, dtype=M.dtype)
+    fr = float(math.factorial(r))
+    vals, ratios = inner_product_orbit_grid(
+        M, wx, wy, r, prefactor=1.0, return_cancellation_ratio=True)
+    out = vals / fr
+    bad = ratios < _ORBIT_CANCEL_FLOOR
+    if np.any(bad):
+        if xtup.shape[0] > 0:            # enumerated fallback is feasible
+            idx = np.nonzero(bad)[0]
+            out[idx] = _combine(M[idx], xtup, ytup)
+        else:
+            import warnings
+            warnings.warn(
+                "Nested orbit reduction lost precision to alternating-sum "
+                "cancellation at a symmetric level where enumeration is "
+                "infeasible; the value may be inaccurate.", stacklevel=2)
+    return out
+
+
+# ----------------------------------------------------------------------
+#  Bottom-up, batched contraction (vectorised over the quadrature batch
+#  AND over sibling pairs). For the cosine xn is yn (both sides share the
+#  nested structure), so the tree is walked once. An r0=1 leaf level
+#  collapses to a single weighted block-sum (einsum); every higher level
+#  batches its g^2 combines into one call. Ragged levels (siblings with
+#  differing child counts or structure) fall back to a per-pair loop,
+#  preserving correctness.
+# ----------------------------------------------------------------------
+def _siblings_uniform(nodes):
+    rep = nodes[0]
+    span = (len(rep.slots) if rep.level == 0 else len(rep.children))
+    for nd in nodes:
+        s = len(nd.slots) if nd.level == 0 else len(nd.children)
+        if (s != span or nd.r != rep.r or nd.sym != rep.sym
+                or nd.use_orbit != rep.use_orbit):
+            return False, span
+    return True, span
+
+
+def _leaf_overlaps(nodes, K):
+    """(Q, g, g) pairwise overlaps among g leaf siblings."""
+    g = len(nodes)
+    Q, n = K.shape[0], K.shape[1]
+    if nodes[0].r == 1:
+        # r0 = 1: M[a,b] = sum_{i in Sa, j in Sb} K[:, i, j] (weights folded).
+        G = np.zeros((g, n), dtype=K.dtype)
+        for a, nd in enumerate(nodes):
+            G[a, nd.slots] = 1.0
+        return np.einsum('ai,qij,bj->qab', G, K, G, optimize=True)
+    uniform, m = _siblings_uniform(nodes)
+    if uniform:
+        blocks = np.empty((g, g, Q, m, m), dtype=K.dtype)
+        for a in range(g):
+            sa = K[:, nodes[a].slots]
+            for b in range(g):
+                blocks[a, b] = sa[:, :, nodes[b].slots]
+        vals = _combine_node(blocks.reshape(g * g * Q, m, m), nodes[0])
+        return vals.reshape(g, g, Q).transpose(2, 0, 1)
     M = np.empty((Q, g, g), dtype=K.dtype)
     for a in range(g):
-        xa = xn.children[a]
+        sa = K[:, nodes[a].slots]
         for b in range(g):
-            M[:, a, b] = _contract(xa, yn.children[b], K)
-    return _combine(M, xn.xtup, yn.ytup)
+            M[:, a, b] = _combine_node(sa[:, :, nodes[b].slots], nodes[a])
+    return M
+
+
+def _subtree_overlaps(nodes, K):
+    """(Q, g, g) pairwise overlaps among g sibling subtrees."""
+    if nodes[0].level == 0:
+        return _leaf_overlaps(nodes, K)
+    g = len(nodes)
+    Q = K.shape[0]
+    sizes = [len(nd.children) for nd in nodes]
+    offs = np.cumsum([0] + sizes)
+    flat = [c for nd in nodes for c in nd.children]
+    Mc = _subtree_overlaps(flat, K)                 # (Q, Gc, Gc)
+    uniform, gc = _siblings_uniform(nodes)
+    if uniform:
+        blocks = np.empty((g, g, Q, gc, gc), dtype=K.dtype)
+        for a in range(g):
+            ra = slice(offs[a], offs[a] + gc)
+            for b in range(g):
+                blocks[a, b] = Mc[:, ra, offs[b]:offs[b] + gc]
+        vals = _combine_node(blocks.reshape(g * g * Q, gc, gc), nodes[0])
+        return vals.reshape(g, g, Q).transpose(2, 0, 1)
+    M = np.empty((Q, g, g), dtype=K.dtype)
+    for a in range(g):
+        ra = slice(offs[a], offs[a + 1])
+        for b in range(g):
+            M[:, a, b] = _combine_node(
+                Mc[:, ra, offs[b]:offs[b + 1]], nodes[a])
+    return M
+
+
+def _contract(xn: _Node, yn: _Node, K):
+    """Overlap (Q,) of the nested structure under kernel ``K`` (xn is yn)."""
+    if xn.level == 0:
+        return _combine_node(K[:, xn.slots][:, :, xn.slots], xn)
+    return _combine_node(_subtree_overlaps(xn.children, K), xn)
 
 
 # ----------------------------------------------------------------------
@@ -302,17 +472,27 @@ def tuple_counts(r_levels, sym_levels, tags):
 
 
 def recipe_work(recipe: _Node):
-    """Approximate combine flop count of one contraction over the tree."""
+    """Approximate combine flop count of one contraction over the tree.
+
+    Orbit-eligible symmetric levels (5 <= r <= 8) are costed at the orbit
+    reduction's |Omega_r| * g^2 rather than the enumerated r! * C(g,r)^2,
+    so the dispatch reflects the actual route taken at each level.
+    """
+    from .._mobius import get_orbit_table
+
+    def node_combine_cost(node):
+        if node.use_orbit:
+            g = len(node.slots) if node.level == 0 else len(node.children)
+            return len(get_orbit_table(node.r)) * g * g * max(1, node.r)
+        return node.xtup.shape[0] * node.ytup.shape[0] * max(1, node.r)
+
     def w(node):
-        if node.level == 0:
-            return node.xtup.shape[0] * node.ytup.shape[0] * \
-                max(1, node.xtup.shape[1])
-        tot = node.xtup.shape[0] * node.ytup.shape[0] * \
-            max(1, node.xtup.shape[1])
-        g = len(node.children)
-        tot += g * g  # child-pair assembly
-        for c in node.children:
-            tot += w(c)
+        tot = node_combine_cost(node)
+        if node.level != 0:
+            g = len(node.children)
+            tot += g * g
+            for c in node.children:
+                tot += w(c)
         return tot
     return int(w(recipe))
 

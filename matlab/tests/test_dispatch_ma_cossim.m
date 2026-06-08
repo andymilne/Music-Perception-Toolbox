@@ -89,14 +89,15 @@ s_pwi_per = cosSimExpTens(dxp, dyp, 'method', 'bulger', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: r=4 abs per Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_orb_per - s_pwi_per) < 1e-8;
 
-%% ---- Rel groups: auto routes to Bulger (no warning) ----
+%% ---- Single-attribute rel+per: cost model routes to Bulger (no warning) ----
 
 rng(55, 'twister');
 period_r = 1200;
 PxR = sort(period_r * rand(8, 3));   WxR = ones(8, 3);
 PyR = sort(period_r * rand(8, 3));   WyR = ones(8, 3);
-% sigma/period = 30/1200 = 0.025, just under 0.03 threshold -> no warning,
-% but rel-group rule still routes to Bulger.
+% sigma/period = 30/1200 = 0.025, just under 0.03 threshold -> no warning.
+% At A=1 the rel-periodic Möbius u-grid integration cost exceeds Bulger's,
+% so the cost model selects Bulger (auto == Bulger exactly).
 dxR = buildExpTens({PxR}, {WxR}, 30, 3, true, true, period_r, ...
     'verbose', false);
 dyR = buildExpTens({PyR}, {WyR}, 30, 3, true, true, period_r, ...
@@ -132,17 +133,38 @@ warning(w_state);
 results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per emits fallback warning';
 results{end,2}   = strcmp(lastID, 'cosSimExpTens:mobiusSigmaOverPFallback');
 
-%% ---- r_max < 3 auto routes to Bulger ----
+%% ---- r=2 auto routes by the cost model (parity with Python) ----
 
-% Same setup as the r=3 abs case but r=2 throughout.
+% The old hard rule "r_max < 3 -> Bulger" is gone; r=2 now routes by the
+% same cost model Python uses. With K=6, N=4 and two attributes, Bulger's
+% prod_a r_a! * C(K_a, r_a)^2 compounding overtakes the additive Möbius
+% cost, so the model selects the Möbius method: auto equals forced Möbius
+% exactly and Bulger to floating point.
 dx2 = buildExpTens({PxA, PxB}, {WxA, WxB}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
 dy2 = buildExpTens({PyA, PyB}, {WyA, WyB}, [30 30], [2 2], ...
     [false false], [false false], [0 0], 'verbose', false);
 s_auto2  = cosSimExpTens(dx2, dy2, 'verbose', false);
+s_orb2   = cosSimExpTens(dx2, dy2, 'method', 'mobius', 'verbose', false);
 s_pwise2 = cosSimExpTens(dx2, dy2, 'method', 'bulger', 'verbose', false);
-results{end+1,1} = 'dispatch.MA cossim: r=2 auto = Bulger (exact)';
-results{end,2}   = isequal(s_auto2, s_pwise2);
+results{end+1,1} = 'dispatch.MA cossim: r=2 large-K auto routes to Möbius (cost model)';
+results{end,2}   = isequal(s_auto2, s_orb2);
+results{end+1,1} = 'dispatch.MA cossim: r=2 auto (Möbius) matches Bulger (1e-10)';
+results{end,2}   = abs(s_auto2 - s_pwise2) < 1e-10;
+
+% Small N at r=2: the orbit overhead is not amortised, so the cost model
+% selects Bulger and auto equals Bulger exactly (same code path).
+rng(57, 'twister');
+PxS = sort(2000 * rand(4, 1));   WxS = ones(4, 1);
+PyS = sort(2000 * rand(4, 1));   WyS = ones(4, 1);
+dxs = buildExpTens({PxS, PxS}, {WxS, WxS}, [30 30], [2 2], ...
+    [false false], [false false], [0 0], 'verbose', false);
+dys = buildExpTens({PyS, PyS}, {WyS, WyS}, [30 30], [2 2], ...
+    [false false], [false false], [0 0], 'verbose', false);
+s_autoS  = cosSimExpTens(dxs, dys, 'verbose', false);
+s_pwiseS = cosSimExpTens(dxs, dys, 'method', 'bulger', 'verbose', false);
+results{end+1,1} = 'dispatch.MA cossim: r=2 small-N auto = Bulger (exact)';
+results{end,2}   = isequal(s_autoS, s_pwiseS);
 
 % ---- r_max > _ORBIT_R_MAX_SHIPPED auto routes to Bulger ----
 % v2.2.0 verified this at r=7 by running cosSimExpTens end-to-end and

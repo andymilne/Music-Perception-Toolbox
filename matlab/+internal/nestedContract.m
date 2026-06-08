@@ -1,4 +1,4 @@
-function triple = nestedContract(densX, densY, normalize, truncationSigmas)
+function triple = nestedContract(densX, densY, normalize, truncationSigmas, force)
 %NESTEDCONTRACT Fast tree-contraction of a single nested attribute's IP.
 %   triple = internal.nestedContract(densX, densY, normalize, truncationSigmas)
 %
@@ -17,23 +17,42 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas)
 %   take the same route; reduction order differs, so values agree to
 %   floating-point (not bit-for-bit), as for the surrogate generally.
 
+    if nargin < 5 || isempty(force); force = false; end
     triple = [];
-    if ~strcmp(normalize, 'cosine'); return; end
-    if densX.nAttrs ~= 1 || densY.nAttrs ~= 1; return; end
+    if ~strcmp(normalize, 'cosine')
+        declineContractIfForced(force, ...
+            'the contraction implements cosine normalisation only');
+        return;
+    end
+    if densX.nAttrs ~= 1 || densY.nAttrs ~= 1
+        declineContractIfForced(force, ...
+            'the contraction supports a single attribute only');
+        return;
+    end
     if ~isfield(densX, 'nested') || ~iscell(densX.nested) ...
             || ~isfield(densY, 'nested') || ~iscell(densY.nested)
+        declineContractIfForced(force, ...
+            'both densities must carry the same nested attribute');
         return;
     end
     specX = densX.nested{1};
     specY = densY.nested{1};
-    if isempty(specX) || isempty(specY); return; end
+    if isempty(specX) || isempty(specY)
+        declineContractIfForced(force, ...
+            'both densities must carry the same nested attribute');
+        return;
+    end
     if localInnerR(specX) ~= 0 || localInnerR(specY) ~= 0
+        declineContractIfForced(force, ...
+            'an inner/intermediate [rel] unit is not yet covered');
         return;   % inner [rel] unit not covered by the contraction yet
     end
 
     PX = double(densX.pAttr{1});
     PY = double(densY.pAttr{1});
     if any(isnan(PX(:))) || any(isnan(PY(:)))
+        declineContractIfForced(force, ...
+            'variable-K (NaN-padded) events are not covered');
         return;   % variable-K per event: exact enumeration only
     end
     WX = double(densX.w{1});
@@ -55,7 +74,7 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas)
         ts = double(truncationSigmas);
     end
 
-    recipe = buildRecipe(rLevels, symLevels, tags);
+    recipe = buildRecipe(rLevels, symLevels, tags, isRel, isPer);
 
     nX = size(PX, 2);
     nY = size(PY, 2);
@@ -68,8 +87,8 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas)
     pairTerms = nX * nY + nX * nX + nY * nY;
     costEnum     = pairTerms * mPerm * mComb;
     costContract = pairTerms * Q * recipeWork(recipe);
-    if costContract >= costEnum
-        return;   % enumeration is the faster route
+    if costContract >= costEnum && ~force
+        return;   % enumeration is the faster route (auto only)
     end
 
     if isRel && isPer
@@ -96,28 +115,45 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas)
 
     quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts);
 
-    ipxy = tripSum(recipe, PX, WX, PY, WY, sigma, period, ts, quad);
-    ipxx = tripSum(recipe, PX, WX, PX, WX, sigma, period, ts, quad);
-    ipyy = tripSum(recipe, PY, WY, PY, WY, sigma, period, ts, quad);
+    ipxy = tripSum(recipe, PX, WX, PY, WY, sigma, period, ts, quad, false);
+    ipxx = tripSum(recipe, PX, WX, PX, WX, sigma, period, ts, quad, true);
+    ipyy = tripSum(recipe, PY, WY, PY, WY, sigma, period, ts, quad, true);
     triple = struct('xy', ipxy, 'xx', ipxx, 'yy', ipyy);
 end
 
 
 % ----------------------------------------------------------------------
-function s = tripSum(recipe, PA, WA, PB, WB, sigma, period, ts, quad)
+function s = tripSum(recipe, PA, WA, PB, WB, sigma, period, ts, quad, sym)
+    % sym=true (self inner products): <e_i,e_j> = <e_j,e_i>, so evaluate
+    % only the upper triangle and double the off-diagonal terms.
+    if nargin < 10; sym = false; end
     s = 0.0;
     nA = size(PA, 2);
     nB = size(PB, 2);
     for i = 1:nA
         ai = PA(:, i);
         wi = WA(:, i);
-        for j = 1:nB
-            s = s + nestedIp(recipe, ai, PB(:, j), wi, WB(:, j), ...
-                             sigma, period, ts, quad);
+        if sym; j0 = i; else; j0 = 1; end
+        for j = j0:nB
+            v = nestedIp(recipe, ai, PB(:, j), wi, WB(:, j), ...
+                         sigma, period, ts, quad);
+            if sym && j ~= i
+                s = s + 2.0 * v;
+            else
+                s = s + v;
+            end
         end
     end
 end
 
+
+function declineContractIfForced(force, reason)
+    if force
+        error('cosSimExpTens:contractUnavailable', ...
+            ['method=''contract'' is not available here: %s. Use ' ...
+             'method=''auto'' or method=''bulger''.'], reason);
+    end
+end
 
 function r = localInnerR(spec)
     r = 0;
@@ -132,20 +168,28 @@ end
 % ----------------------------------------------------------------------
 %  Recipe: tag tree + permutation/combination index arrays (built once)
 % ----------------------------------------------------------------------
-function recipe = buildRecipe(rLevels, symLevels, tags)
+function recipe = buildRecipe(rLevels, symLevels, tags, isRel, isPer)
     L = numel(rLevels);
     Ktot = size(tags, 1);
-    recipe = buildNode(L - 1, (1:Ktot).', rLevels, symLevels, tags);
+    recipe = buildNode(L - 1, (1:Ktot).', rLevels, symLevels, tags, ...
+                       isRel, isPer);
 end
 
 
-function node = buildNode(level, slots, rLevels, symLevels, tags)
+function node = buildNode(level, slots, rLevels, symLevels, tags, isRel, isPer)
     slots = slots(:);
     if level == 0
         r0 = rLevels(1);
-        [xt, yt] = tupleIndices(numel(slots), r0, symLevels(1));
+        sy0 = symLevels(1);
+        useOrb = orbitEligible(numel(slots), r0, sy0, isRel, isPer);
+        if useOrb
+            xt = zeros(0, r0); yt = zeros(0, r0);   % lazy: orbit needs no tuples
+        else
+            [xt, yt] = tupleIndices(numel(slots), r0, sy0);
+        end
         node = struct('level', 0, 'slots', slots, 'children', {{}}, ...
-                      'xtup', xt, 'ytup', yt);
+                      'xtup', xt, 'ytup', yt, 'r', r0, 'sym', sy0, ...
+                      'useOrbit', useOrb);
         return;
     end
     col = level;                       % 1-based tag column (Python col=level-1)
@@ -154,12 +198,42 @@ function node = buildNode(level, slots, rLevels, symLevels, tags)
     children = cell(1, numel(uk));
     for c = 1:numel(uk)
         sub = slots(keys == uk(c));
-        children{c} = buildNode(level - 1, sub, rLevels, symLevels, tags);
+        children{c} = buildNode(level - 1, sub, rLevels, symLevels, tags, ...
+                                isRel, isPer);
     end
     rl = rLevels(level + 1);           % Python r_levels[level]
-    [xt, yt] = tupleIndices(numel(children), rl, symLevels(level + 1));
+    syl = symLevels(level + 1);
+    useOrb = orbitEligible(numel(children), rl, syl, isRel, isPer);
+    if useOrb
+        xt = zeros(0, rl); yt = zeros(0, rl);
+    else
+        [xt, yt] = tupleIndices(numel(children), rl, syl);
+    end
     node = struct('level', level, 'slots', slots, 'children', {children}, ...
-                  'xtup', xt, 'ytup', yt);
+                  'xtup', xt, 'ytup', yt, 'r', rl, 'sym', syl, ...
+                  'useOrbit', useOrb);
+end
+
+
+function tf = orbitEligible(g, r, sym, isRel, isPer)
+    % Per-level orbit-vs-enumeration choice, reusing the shared flat policy
+    % (internal.orbitBeatsPairwisePerAttr K-vs-r crossover +
+    % internal.orbitSafeForPrecision g>=r+2 guard), applied with K = g. For
+    % r in 7..8 (no K-threshold entry; enumeration's C(g,r)*r! infeasible)
+    % orbit is the only viable route when precision-safe.
+    ORBIT_R_MAX_SHIPPED = 8;     % match Python _ORBIT_R_MAX_SHIPPED
+    tf = false;
+    if ~sym || r < 2 || r > ORBIT_R_MAX_SHIPPED
+        return;
+    end
+    if ~internal.orbitSafeForPrecision(r, g)   % precision guard (g >= r+2)
+        return;
+    end
+    if r <= 6
+        tf = internal.orbitBeatsPairwisePerAttr(r, g, isRel, isPer);
+    else
+        tf = true;                % r in 7..8: enumeration infeasible
+    end
 end
 
 
@@ -197,21 +271,165 @@ end
 %  Contraction (vectorised over the quadrature batch, dim 1)
 % ----------------------------------------------------------------------
 function v = contractNode(xn, yn, K)
+    % Bottom-up, batched over the quadrature (dim 1) AND over sibling pairs.
+    % xn is yn for the cosine, so the tree is walked once.
     if xn.level == 0
-        sub = K(:, xn.slots, yn.slots);            % Q x m x m
-        v = combine(sub, xn.xtup, yn.ytup);
+        v = combineNode(K(:, xn.slots, xn.slots), xn);
     else
-        g = numel(xn.children);
-        Q = size(K, 1);
-        M = zeros(Q, g, g);
+        v = combineNode(subtreeOverlaps(xn.children, K), xn);
+    end
+end
+
+
+function s = nodeSpan(node)
+    if node.level == 0
+        s = numel(node.slots);
+    else
+        s = numel(node.children);
+    end
+end
+
+
+function tf = siblingsUniform(nodes)
+    rep = nodes{1};
+    span = nodeSpan(rep);
+    tf = true;
+    for k = 1:numel(nodes)
+        nd = nodes{k};
+        if nodeSpan(nd) ~= span || nd.r ~= rep.r || nd.sym ~= rep.sym ...
+                || nd.useOrbit ~= rep.useOrbit
+            tf = false; return;
+        end
+    end
+end
+
+
+function M = leafOverlaps(nodes, K)
+    % (Q, g, g) pairwise overlaps among g leaf siblings.
+    g = numel(nodes);
+    Q = size(K, 1);
+    n = size(K, 2);
+    if nodes{1}.r == 1
+        % r0 = 1: M(q,a,b) = sum_{i in Sa, j in Sb} K(q,i,j) (weights folded).
+        G = zeros(g, n);
         for a = 1:g
-            xa = xn.children{a};
+            G(a, nodes{a}.slots) = 1.0;
+        end
+        KG = reshape(reshape(K, [Q * n, n]) * G.', [Q, n, g]);   % (q,i,b)
+        KGp = reshape(permute(KG, [2, 1, 3]), [n, Q * g]);        % (i, q*b)
+        MG = G * KGp;                                             % (a, q*b)
+        M = permute(reshape(MG, [g, Q, g]), [2, 1, 3]);          % (Q,g,g)
+        return;
+    end
+    if siblingsUniform(nodes)
+        m = numel(nodes{1}.slots);
+        blocks = zeros(g, g, Q, m, m);
+        for a = 1:g
+            sa = K(:, nodes{a}.slots, :);
             for b = 1:g
-                M(:, a, b) = contractNode(xa, yn.children{b}, K);
+                blocks(a, b, :, :, :) = reshape(sa(:, :, nodes{b}.slots), ...
+                                                [1, 1, Q, m, m]);
             end
         end
-        v = combine(M, xn.xtup, yn.ytup);
+        vals = combineNode(reshape(blocks, [g * g * Q, m, m]), nodes{1});
+        M = permute(reshape(vals, [g, g, Q]), [3, 1, 2]);
+        return;
     end
+    M = zeros(Q, g, g);
+    for a = 1:g
+        for b = 1:g
+            M(:, a, b) = combineNode(K(:, nodes{a}.slots, nodes{b}.slots), ...
+                                     nodes{a});
+        end
+    end
+end
+
+
+function M = subtreeOverlaps(nodes, K)
+    % (Q, g, g) pairwise overlaps among g sibling subtrees.
+    if nodes{1}.level == 0
+        M = leafOverlaps(nodes, K);
+        return;
+    end
+    g = numel(nodes);
+    Q = size(K, 1);
+    sizes = zeros(1, g);
+    flat = {};
+    for k = 1:g
+        sizes(k) = numel(nodes{k}.children);
+        flat = [flat, nodes{k}.children];   %#ok<AGROW>
+    end
+    offs = [0, cumsum(sizes)];
+    Mc = subtreeOverlaps(flat, K);          % (Q, Gc, Gc)
+    if siblingsUniform(nodes)
+        gc = sizes(1);
+        blocks = zeros(g, g, Q, gc, gc);
+        for a = 1:g
+            ra = offs(a) + 1 : offs(a) + gc;
+            for b = 1:g
+                cb = offs(b) + 1 : offs(b) + gc;
+                blocks(a, b, :, :, :) = reshape(Mc(:, ra, cb), ...
+                                                [1, 1, Q, gc, gc]);
+            end
+        end
+        vals = combineNode(reshape(blocks, [g * g * Q, gc, gc]), nodes{1});
+        M = permute(reshape(vals, [g, g, Q]), [3, 1, 2]);
+        return;
+    end
+    M = zeros(Q, g, g);
+    for a = 1:g
+        ra = offs(a) + 1 : offs(a + 1);
+        for b = 1:g
+            cb = offs(b) + 1 : offs(b + 1);
+            M(:, a, b) = combineNode(Mc(:, ra, cb), nodes{a});
+        end
+    end
+end
+
+
+function v = combineNode(M, node)
+    % Symmetric-level combine, orbit-reduced when flagged; same scale as
+    % combine (the r!-cancelled perm x comb form). Handles rectangular
+    % blocks (gx ~= gy), which arise for ragged sibling subtrees.
+    gx = size(M, 2);
+    gy = size(M, 3);
+    if node.useOrbit
+        v = combineOrbit(M, node.r, node.xtup, node.ytup);
+        return;
+    end
+    if gx == gy && gx == nodeSpan(node)
+        v = combine(M, node.xtup, node.ytup);          % uniform: stored tuples
+        return;
+    end
+    [xt, ~] = tupleIndices(gx, node.r, node.sym);       % ragged: per-size tuples
+    [~, yt] = tupleIndices(gy, node.r, node.sym);
+    v = combine(M, xt, yt);
+end
+
+
+function v = combineOrbit(M, r, xtup, ytup)
+    % (B,) = Sum_{cX,cY} perm(M[cX,cY]) via the partition-lattice orbit
+    % reduction (= innerProductOrbitGrid / r!), vectorised over the leading
+    % batch, with a cancellation guard reverting to enumeration where
+    % feasible. Supports rectangular M (gx ~= gy).
+    gx = size(M, 2);
+    gy = size(M, 3);
+    [vals, ratios] = mobius.innerProductOrbitGrid(M, ones(gx, 1), ...
+        ones(gy, 1), r, 'prefactor', 1.0, 'returnCancellationRatio', true);
+    vals = vals(:) / factorial(r);
+    bad = ratios(:) < 1e-10;            % _ORBIT_CANCEL_FLOOR
+    if any(bad)
+        if size(xtup, 1) > 0
+            idx = find(bad);
+            vals(idx) = combine(M(idx, :, :), xtup, ytup);
+        else
+            warning('mpt:nestedOrbitCancellation', ...
+                ['Nested orbit reduction lost precision to alternating-sum ' ...
+                 'cancellation at a symmetric level where enumeration is ' ...
+                 'infeasible; the value may be inaccurate.']);
+        end
+    end
+    v = vals;
 end
 
 
@@ -223,11 +441,11 @@ function v = combine(M, xtup, ytup)
         return;
     end
     r = size(xtup, 2);
-    P = M(:, xtup(:, 1), ytup(:, 1));              % Q x Tx x Ty
+    P = M(:, xtup(:, 1), ytup(:, 1));              % B x Tx x Ty
     for t = 2:r
         P = P .* M(:, xtup(:, t), ytup(:, t));
     end
-    v = sum(sum(P, 3), 2);                          % Q x 1
+    v = sum(sum(P, 3), 2);                          % B x 1
     v = v(:);
 end
 
@@ -398,7 +616,16 @@ end
 
 
 function w = recipeWork(node)
-    w = size(node.xtup, 1) * size(node.ytup, 1) * max(1, size(node.xtup, 2));
+    % Orbit-eligible symmetric levels are costed at the orbit reduction's
+    % |Omega_r| * g^2 * r rather than the enumerated r! * C(g,r)^2, so the
+    % dispatch reflects the route actually taken at each level (mirrors the
+    % Python recipe_work).
+    if node.useOrbit
+        g = nodeSpan(node);
+        w = numel(mobius.getOrbitTable(node.r)) * g * g * max(1, node.r);
+    else
+        w = size(node.xtup, 1) * size(node.ytup, 1) * max(1, node.r);
+    end
     if node.level ~= 0
         g = numel(node.children);
         w = w + g * g;

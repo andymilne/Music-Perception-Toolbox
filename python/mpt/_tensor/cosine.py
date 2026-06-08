@@ -1007,10 +1007,10 @@ def _cos_sim_exp_tens_sa(
     if dens_x.sigma != dens_y.sigma:
         raise ValueError("Both densities must have the same sigma.")
 
-    if method not in ("auto", "bulger", "direct", "mobius"):
+    if method not in ("auto", "bulger", "direct", "mobius", "contract"):
         raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct', 'mobius'; "
-            f"got {method!r}."
+            f"method must be one of 'auto', 'bulger', 'direct', 'mobius', "
+            f"'contract'; got {method!r}."
         )
 
     r = dens_x.r
@@ -1153,10 +1153,10 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic attributes."
         )
 
-    if method not in ("auto", "bulger", "direct", "mobius"):
+    if method not in ("auto", "bulger", "direct", "mobius", "contract"):
         raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct', 'mobius'; "
-            f"got {method!r}."
+            f"method must be one of 'auto', 'bulger', 'direct', 'mobius', "
+            f"'contract'; got {method!r}."
         )
 
     # --- Dispatcher ---
@@ -1228,12 +1228,20 @@ def _cos_sim_exp_tens_ma(
         (nested_x is not None and any(s is not None for s in nested_x))
         or (nested_y is not None and any(s is not None for s in nested_y))
     )
+    if method == "contract" and not nested_any:
+        raise ValueError(
+            "method='contract' applies to a nested attribute only; use "
+            "'auto' or 'bulger' for non-nested densities."
+        )
     if nested_any:
-        if method == "auto":
+        if method in ("auto", "contract"):
             triple = _try_nested_contract(
-                dens_x, dens_y, normalize=normalize, verbose=verbose)
+                dens_x, dens_y, normalize=normalize, verbose=verbose,
+                force=(method == "contract"))
             if triple is not None:
                 return _finalise_normalisation(*triple, normalize)
+            # When forced, _try_nested_contract raises on any uncovered case,
+            # so a None here means method == "auto" chose enumeration.
         chosen = "bulger"
 
     if chosen == "mobius":
@@ -2192,7 +2200,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
 
 
 
-def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
+def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     """Fast tree-contraction of a single nested attribute's inner product.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
@@ -2206,20 +2214,29 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
     import math as _m
     from .._defaults import get_default
 
+    def _decline(reason):
+        if force:
+            raise ValueError(
+                f"method='contract' is not available here: {reason}. "
+                f"Use method='auto' (which falls back automatically) or "
+                f"method='bulger'."
+            )
+        return None
+
     if normalize != "cosine":
-        return None
+        return _decline("the contraction implements cosine normalisation only")
     if dens_x.n_attrs != 1 or dens_y.n_attrs != 1:
-        return None
+        return _decline("the contraction supports a single attribute only")
     spec = dens_x.nested[0]
     if spec is None or dens_y.nested[0] is None:
-        return None
+        return _decline("both densities must carry the same nested attribute")
     if int(_inner_r_vec(dens_x)[0]) != 0 or int(_inner_r_vec(dens_y)[0]) != 0:
-        return None  # inner [rel] unit not covered by the contraction yet
+        return _decline("an inner/intermediate [rel] unit is not yet covered")
 
     PX = np.asarray(dens_x.p_attr[0], dtype=np.float64)
     PY = np.asarray(dens_y.p_attr[0], dtype=np.float64)
     if np.isnan(PX).any() or np.isnan(PY).any():
-        return None  # variable-K per event: exact enumeration only
+        return _decline("variable-K (NaN-padded) events are not covered")
     WX = np.asarray(dens_x.w[0], dtype=np.float64)
     WY = np.asarray(dens_y.w[0], dtype=np.float64)
 
@@ -2241,7 +2258,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
     n_y = PY.shape[1]
     vmin = float(min(PX.min(), PY.min()))
     vmax = float(max(PX.max(), PY.max()))
-    recipe = build_recipe(r_levels, sym_levels, tags)
+    recipe = build_recipe(r_levels, sym_levels, tags, is_rel, is_per)
 
     # Speed dispatch (deterministic integer/float counts -> identical in
     # both languages). Enumeration ~ event-pairs * M_perm * M_comb;
@@ -2251,8 +2268,8 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
     pair_terms = n_x * n_y + n_x * n_x + n_y * n_y
     cost_enum = pair_terms * m_perm * m_comb
     cost_contract = pair_terms * Q * recipe_work(recipe)
-    if cost_contract >= cost_enum:
-        return None  # enumeration is the faster route
+    if cost_contract >= cost_enum and not force:
+        return None  # enumeration is the faster route (auto only)
 
     if is_rel and is_per:
         tol = (max(_m.exp(-0.5 * ts ** 2), 1e-12)
@@ -2272,19 +2289,23 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose):
 
     quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
 
-    def trip(pa, wa, na, pb, wb, nb):
+    def trip(pa, wa, na, pb, wb, nb, symmetric=False):
+        # symmetric=True (self inner products): <e_i, e_j> = <e_j, e_i>, so
+        # evaluate only the upper triangle and double the off-diagonal terms.
         s = 0.0
         for i in range(na):
             ai = pa[:, i]
             wi = wa[:, i]
-            for j in range(nb):
-                s += nested_ip(recipe, ai, pb[:, j], wi, wb[:, j],
-                               sigma, period, ts, quad)
+            j0 = i if symmetric else 0
+            for j in range(j0, nb):
+                v = nested_ip(recipe, ai, pb[:, j], wi, wb[:, j],
+                              sigma, period, ts, quad)
+                s += v if (not symmetric or j == i) else 2.0 * v
         return s
 
     ip_xy = trip(PX, WX, n_x, PY, WY, n_y)
-    ip_xx = trip(PX, WX, n_x, PX, WX, n_x)
-    ip_yy = trip(PY, WY, n_y, PY, WY, n_y)
+    ip_xx = trip(PX, WX, n_x, PX, WX, n_x, symmetric=True)
+    ip_yy = trip(PY, WY, n_y, PY, WY, n_y, symmetric=True)
     return ip_xy, ip_xx, ip_yy
 
 

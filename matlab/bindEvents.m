@@ -20,10 +20,12 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   relOuter = 1 on an absolute attribute, giving the global-transposition
 %   quotient rel = [0, 1].
 %
-%   Event-axis alignment. The common output event count is
-%   N' = N - max_a L_a + 1 (non-circular) or N (circular); attributes with
-%   L_a < max_a L_a keep their leading N' windows (composes with
-%   differenceEvents).
+%   Event-axis alignment. At the default stride = 1 the common output event
+%   count is N' = N - max_a L_a + 1 (non-circular) or N (circular);
+%   attributes with L_a < max_a L_a keep their leading N' windows (composes
+%   with differenceEvents). A stride > 1 hops the windows (see the stride
+%   name-value), shrinking N'; the difference-composition identity then holds
+%   at stride = 1 only.
 %
 %   Inputs
 %       pAttr      - 1 x A cell of K_a x N per-attribute value matrices.
@@ -34,6 +36,15 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %
 %   Name-value pairs
 %       'circular'   - false (default) or true (wrap window; N' = N).
+%       'stride'     - Hop between consecutive bound windows along the event
+%                      axis (default 1, the fully overlapping slide).
+%                      Super-event i reads events [i*stride, i*stride + L_a),
+%                      so stride = L_a gives non-overlapping blocks. A single
+%                      scalar applies to all attributes (the hop is a property
+%                      of the shared event axis). N' = floor((N - max_a L_a) /
+%                      stride) + 1 (non-circular); for circular = true, N must
+%                      be divisible by stride and N' = N / stride. The bind/
+%                      difference composition identity holds at stride = 1.
 %       'specs'      - [] (synthesise flat via flatSpecs) or a 1 x A cell of
 %                      per-attribute specs supplying the inner geometry. An
 %                      incoming spec may be flat or already nested: a flat
@@ -72,6 +83,7 @@ arguments
     w
     bindOrders
     nvArgs.circular (1, 1) logical = false
+    nvArgs.stride (1, 1) double {mustBeInteger, mustBePositive} = 1
     nvArgs.specs = []
     nvArgs.rOuter = []
     nvArgs.symOuter = false
@@ -157,14 +169,20 @@ end
 % --- Output sizes ---
 maxOrder = max(orders);
 if nvArgs.circular
-    nPrime = nEvents;
+    if nvArgs.stride > 1 && mod(nEvents, nvArgs.stride) ~= 0
+        error('bindEvents:strideDivisibility', ...
+              ['Circular binding with stride = %d requires the event ' ...
+               'count N = %d to be divisible by stride.'], ...
+              nvArgs.stride, nEvents);
+    end
+    nPrime = nEvents / nvArgs.stride;
     if maxOrder > nEvents
         error('bindEvents:windowTooLarge', ...
               'Circular window size max L = %d exceeds event count N = %d.', ...
               double(maxOrder), nEvents);
     end
 else
-    nPrime = nEvents - double(maxOrder) + 1;
+    nPrime = floor((nEvents - double(maxOrder)) / nvArgs.stride) + 1;
     if nPrime < 1
         error('bindEvents:windowTooLarge', ...
               ['Bind orders too high for the input event count: max L = ' ...
@@ -188,7 +206,7 @@ for a = 1:A
         nm = nameInA;
     end
     if L_a == 1
-        pAttrBound{a} = Marr(:, localLagIndex(0, nPrime, nEvents, nvArgs.circular));
+        pAttrBound{a} = Marr(:, localLagIndex(0, nPrime, nEvents, nvArgs.circular, nvArgs.stride));
         spec = sIn;                       % passthrough (flat or nested)
         if ~isempty(nm); spec.name = nm; end
         specs{a} = spec;
@@ -196,7 +214,7 @@ for a = 1:A
     end
     blocks = cell(1, L_a);
     for ell = 0:(L_a - 1)
-        idx = localLagIndex(ell, nPrime, nEvents, nvArgs.circular);
+        idx = localLagIndex(ell, nPrime, nEvents, nvArgs.circular, nvArgs.stride);
         blocks{ell + 1} = Marr(:, idx);
     end
     pAttrBound{a} = vertcat(blocks{:});
@@ -232,7 +250,7 @@ for a = 1:A
 end
 
 % --- Transform weights ---
-wBound = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, nvArgs.circular);
+wBound = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, nvArgs.circular, nvArgs.stride);
 
 end
 
@@ -241,11 +259,11 @@ end
 %  Helpers
 % =========================================================================
 
-function idx = localLagIndex(ell, nPrime, nEvents, isCircular)
+function idx = localLagIndex(ell, nPrime, nEvents, isCircular, stride)
     if isCircular
-        idx = mod((0:nPrime - 1) + ell, nEvents) + 1;
+        idx = mod((0:nPrime - 1) * stride + ell, nEvents) + 1;
     else
-        idx = (ell + 1):(ell + nPrime);
+        idx = (0:nPrime - 1) * stride + ell + 1;
     end
 end
 
@@ -326,7 +344,7 @@ function orders = localCanonicaliseBindOrders(bindOrders, A)
 end
 
 
-function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircular)
+function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircular, stride)
 %LOCALBINDWEIGHTSNESTED  Transform weights to match the nested value layout.
 %
 %  For L_a >= 2 the per-event weight slices are windowed and stacked into a
@@ -378,11 +396,11 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
             W = repmat(W, K_a, 1);
         end
         if L_a == 1
-            wOut{a} = W(:, localLagIndex(0, nPrime, nEvents, isCircular));
+            wOut{a} = W(:, localLagIndex(0, nPrime, nEvents, isCircular, stride));
         else
             blocks = cell(1, L_a);
             for ell = 0:(L_a - 1)
-                idx = localLagIndex(ell, nPrime, nEvents, isCircular);
+                idx = localLagIndex(ell, nPrime, nEvents, isCircular, stride);
                 blocks{ell + 1} = W(:, idx);
             end
             wOut{a} = vertcat(blocks{:});

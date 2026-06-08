@@ -2225,8 +2225,15 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     if normalize != "cosine":
         return _decline("the contraction implements cosine normalisation only")
-    if dens_x.n_attrs != 1 or dens_y.n_attrs != 1:
-        return _decline("the contraction supports a single attribute only")
+    if dens_x.n_attrs != dens_y.n_attrs:
+        return _decline("the two densities have different attribute counts")
+    if dens_x.n_attrs != 1:
+        # Nested attribute(s) tensored with further attributes: the cosine
+        # factorises per event-pair across attributes (JMM Eq 3.4), so the
+        # nested factor goes through the contraction and the rest through the
+        # per-attribute MA matrices, instead of enumerating the joint tuple.
+        return _try_nested_contract_ma(
+            dens_x, dens_y, normalize=normalize, verbose=verbose, force=force)
     spec = dens_x.nested[0]
     spec_y = dens_y.nested[0]
     if spec is None or spec_y is None:
@@ -2334,6 +2341,160 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     ip_xx = trip(PX, recipe_x, WX, n_x, PX, recipe_x, WX, n_x, symmetric=True)
     ip_yy = trip(PY, recipe_y, WY, n_y, PY, recipe_y, WY, n_y, symmetric=True)
     return ip_xy, ip_xx, ip_yy
+
+
+def _nested_attr_inner_matrix(recipe_a, recipe_b, Pa, Pb, Wa, Wb,
+                              sigma, period, ts, quad, *, symmetric):
+    """(N_a, N_b) per-event-pair inner matrix for one nested attribute, via
+    the tree contraction. ``Pa``/``Pb`` are (slots_per_event, N); ``Wa``/``Wb``
+    the matching slot weights. ``symmetric`` exploits ``<e_i,e_j> = <e_j,e_i>``
+    for the self matrices. The per-attribute prefactor is constant across the
+    matrix (and identical to the self matrices'), so it cancels in the cosine
+    when the attribute matrices are multiplied and summed."""
+    from ._nested_contraction import nested_ip
+    na = Pa.shape[1]
+    nb = Pb.shape[1]
+    M = np.empty((na, nb), dtype=np.float64)
+    for i in range(na):
+        ai, wi = Pa[:, i], Wa[:, i]
+        j0 = i if symmetric else 0
+        for j in range(j0, nb):
+            v = nested_ip(recipe_a, recipe_b, ai, Pb[:, j], wi, Wb[:, j],
+                          sigma, period, ts, quad)
+            M[i, j] = v
+            if symmetric and j != i:
+                M[j, i] = v
+    return M
+
+
+def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
+    """MA cosine when one or more attributes are nested and the rest plain.
+
+    The MAET cross-event inner product factorises per event-pair across
+    attributes (JMM Eq 3.4): ``<X,Y> = Σ_{i,j} Π_a I_a(i,j)``. Each attribute
+    contributes an (N_x, N_y) per-event-pair inner matrix -- nested attributes
+    through the tree contraction (:func:`_nested_attr_inner_matrix`), plain
+    attributes through :func:`_ma_per_attr_inner_matrix` -- and the matrices
+    multiply element-wise then sum, mirroring :func:`_cos_sim_exp_tens_ma_orbit`
+    but routing each nested factor through the contraction rather than the
+    joint-tuple enumeration. Per-attribute prefactors are constant and cancel
+    in the cosine, so mixing the two matrix conventions is exact.
+
+    Returns the (ip_xy, ip_xx, ip_yy) triple, or ``None`` (route to the exact
+    enumeration) when a nested factor is no cheaper than its enumeration and
+    every nested factor shares its structure across the two densities.
+    """
+    import math as _m
+    from .._defaults import get_default
+    from ._nested_contraction import build_recipe, make_quadrature
+
+    def _decline(reason):
+        if force:
+            raise ValueError(
+                f"method='contract' is not available here: {reason}. "
+                f"Use method='auto' (which falls back automatically) or "
+                f"method='bulger'."
+            )
+        return None
+
+    if normalize != "cosine":
+        return _decline("the contraction implements cosine normalisation only")
+    A = int(dens_x.n_attrs)
+    nested_x = getattr(dens_x, "nested", None) or [None] * A
+    nested_y = getattr(dens_y, "nested", None) or [None] * A
+    inner_rx = _inner_r_vec(dens_x)
+    inner_ry = _inner_r_vec(dens_y)
+    ts = get_default("truncation_sigmas")
+
+    N_x = int(dens_x.n)
+    N_y = int(dens_y.n)
+    P_xy = np.ones((N_x, N_y), dtype=np.float64)
+    P_xx = np.ones((N_x, N_x), dtype=np.float64)
+    P_yy = np.ones((N_y, N_y), dtype=np.float64)
+
+    def _w_of(dens, a, P):
+        w = dens.w[a]
+        return np.ones_like(P) if w is None else np.asarray(w, dtype=np.float64)
+
+    for a in range(A):
+        is_nested = (nested_x[a] is not None) or (nested_y[a] is not None)
+        sigma = float(dens_x.sigma[a])
+        is_rel = bool(dens_x.is_rel[a])
+        is_per = bool(dens_x.is_per[a])
+        period = float(dens_x.period[a])
+        r_a = int(dens_x.r[a])
+
+        if not is_nested:
+            Pxa, Pya = dens_x.p_attr[a], dens_y.p_attr[a]
+            Wxa, Wya = dens_x.w[a], dens_y.w[a]
+            P_xy *= _ma_per_attr_inner_matrix(
+                Pxa, Wxa, Pya, Wya, sigma, r_a, is_rel, is_per, period)
+            P_xx *= _ma_per_attr_inner_matrix(
+                Pxa, Wxa, Pxa, Wxa, sigma, r_a, is_rel, is_per, period)
+            P_yy *= _ma_per_attr_inner_matrix(
+                Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period)
+            continue
+
+        if nested_x[a] is None or nested_y[a] is None:
+            return _decline("an attribute is nested on only one side")
+        if int(inner_rx[a]) != 0 or int(inner_ry[a]) != 0:
+            return _decline("an inner/intermediate [rel] unit is not yet covered")
+        spec_x = nested_x[a]
+        spec_y = nested_y[a]
+        PXa = np.asarray(dens_x.p_attr[a], dtype=np.float64)
+        PYa = np.asarray(dens_y.p_attr[a], dtype=np.float64)
+        if np.isnan(PXa).any() or np.isnan(PYa).any():
+            return _decline("variable-K (NaN-padded) events are not covered")
+        r_levels = np.asarray(spec_x["r"]).ravel()
+        sym_levels = np.asarray(spec_x["sym"]).ravel()
+        if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
+                or not np.array_equal(sym_levels,
+                                      np.asarray(spec_y["sym"]).ravel())):
+            return _decline("the two nested attributes differ in [r]/[sym]")
+        tags_x = np.asarray(spec_x["tags"])
+        tags_y = np.asarray(spec_y["tags"])
+        same_struct = (tags_x.shape == tags_y.shape
+                       and bool(np.array_equal(tags_x, tags_y)))
+        WXa = _w_of(dens_x, a, PXa)
+        WYa = _w_of(dens_y, a, PYa)
+        recipe_x = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
+        recipe_y = (recipe_x if same_struct
+                    else build_recipe(r_levels, sym_levels, tags_y,
+                                      is_rel, is_per))
+        vmin = float(min(PXa.min(), PYa.min()))
+        vmax = float(max(PXa.max(), PYa.max()))
+        if is_rel and is_per:
+            tol = (max(_m.exp(-0.5 * ts ** 2), 1e-12)
+                   if _m.isfinite(ts) else 1e-12)
+            sop_max = (0.85 / (4.0 * _m.sqrt(_m.log(1.0 / tol)))
+                       if tol < 1.0 else _m.inf)
+            if sigma / period > sop_max:
+                warnings.warn(
+                    f"Nested relative-periodic similarity at sigma/period = "
+                    f"{sigma / period:.3f} exceeds the surrogate accuracy "
+                    f"threshold {sop_max:.3f} implied by truncation_sigmas "
+                    f"(tolerance {tol:.1e}); the transposition-average value "
+                    f"may depart from the exact inner product. Pass "
+                    f"method='bulger' for the exact enumeration.",
+                    stacklevel=2,
+                )
+        quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
+        P_xy *= _nested_attr_inner_matrix(
+            recipe_x, recipe_y, PXa, PYa, WXa, WYa, sigma, period, ts, quad,
+            symmetric=False)
+        P_xx *= _nested_attr_inner_matrix(
+            recipe_x, recipe_x, PXa, PXa, WXa, WXa, sigma, period, ts, quad,
+            symmetric=True)
+        P_yy *= _nested_attr_inner_matrix(
+            recipe_y, recipe_y, PYa, PYa, WYa, WYa, sigma, period, ts, quad,
+            symmetric=True)
+
+    # The joint-tuple enumeration (bulger) mis-shapes a nested attribute's
+    # per-event tuples in the MA tensor build, so a nested multi-attribute
+    # density must not fall back to it. The contraction is competitive at any
+    # size here (the nested factor dominates and the plain factors are the
+    # fast per-attribute matrices), so always return the contracted triple.
+    return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):

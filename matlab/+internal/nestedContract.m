@@ -24,9 +24,19 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
             'the contraction implements cosine normalisation only');
         return;
     end
-    if densX.nAttrs ~= 1 || densY.nAttrs ~= 1
+    if densX.nAttrs ~= densY.nAttrs
         declineContractIfForced(force, ...
-            'the contraction supports a single attribute only');
+            'the two densities have different attribute counts');
+        return;
+    end
+    if densX.nAttrs ~= 1
+        % Nested attribute(s) tensored with further attributes: the cosine
+        % factorises per event-pair across attributes (JMM Eq 3.4), so each
+        % nested factor goes through the contraction and each plain factor
+        % through the per-attribute MA matrix, instead of enumerating the
+        % joint tuple.
+        triple = nestedContractMA(densX, densY, normalize, ...
+                                  truncationSigmas, force);
         return;
     end
     if ~isfield(densX, 'nested') || ~iscell(densX.nested) ...
@@ -174,6 +184,149 @@ function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, 
             else
                 s = s + v;
             end
+        end
+    end
+end
+
+
+% ----------------------------------------------------------------------
+%  Multi-attribute: nested factor(s) via the contraction, plain factors via
+%  the per-attribute MA matrix; combine per event-pair (JMM Eq 3.4).
+% ----------------------------------------------------------------------
+function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, force)
+    triple = [];
+    if ~strcmp(normalize, 'cosine')
+        declineContractIfForced(force, ...
+            'the contraction implements cosine normalisation only');
+        return;
+    end
+    A = densX.nAttrs;
+    if isempty(truncationSigmas)
+        ts = mptDefaults('truncationSigmas');
+    else
+        ts = double(truncationSigmas);
+    end
+    N_x = densX.N;
+    N_y = densY.N;
+    P_xy = ones(N_x, N_y);
+    P_xx = ones(N_x, N_x);
+    P_yy = ones(N_y, N_y);
+
+    for a = 1:A
+        isNestedX = isfield(densX, 'nested') && iscell(densX.nested) ...
+            && numel(densX.nested) >= a && ~isempty(densX.nested{a});
+        isNestedY = isfield(densY, 'nested') && iscell(densY.nested) ...
+            && numel(densY.nested) >= a && ~isempty(densY.nested{a});
+        sigma  = densX.sigma(a);
+        isRel  = logical(densX.isRel(a));
+        isPer  = logical(densX.isPer(a));
+        period = densX.period(a);
+        r_a    = densX.r(a);
+
+        if ~isNestedX && ~isNestedY
+            % Plain attribute: reuse the per-attribute MA matrix machinery.
+            Px = densX.pAttr{a}; Wx = densX.w{a};
+            Py = densY.pAttr{a}; Wy = densY.w{a};
+            I_xy = mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
+                sigma, r_a, isRel, isPer, period, 'truncationSigmas', ts);
+            I_xx = mobius.maPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
+                sigma, r_a, isRel, isPer, period, 'truncationSigmas', ts);
+            I_yy = mobius.maPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
+                sigma, r_a, isRel, isPer, period, 'truncationSigmas', ts);
+            P_xy = P_xy .* I_xy;
+            P_xx = P_xx .* I_xx;
+            P_yy = P_yy .* I_yy;
+            continue;
+        end
+
+        if isNestedX ~= isNestedY
+            declineContractIfForced(force, ...
+                'an attribute is nested on only one side');
+            return;
+        end
+        specX = densX.nested{a};
+        specY = densY.nested{a};
+        if localInnerR(specX) ~= 0 || localInnerR(specY) ~= 0
+            declineContractIfForced(force, ...
+                'an inner/intermediate [rel] unit is not yet covered');
+            return;
+        end
+        PXa = double(densX.pAttr{a});
+        PYa = double(densY.pAttr{a});
+        if any(isnan(PXa(:))) || any(isnan(PYa(:)))
+            declineContractIfForced(force, ...
+                'variable-K (NaN-padded) events are not covered');
+            return;
+        end
+        rLevels   = double(specX.r(:)).';
+        symLevels = logical(specX.sym(:)).';
+        if ~isequal(rLevels, double(specY.r(:)).') ...
+                || ~isequal(symLevels, logical(specY.sym(:)).')
+            declineContractIfForced(force, ...
+                'the two nested attributes differ in [r]/[sym]');
+            return;
+        end
+        tagsX = orientTags(double(specX.tags), size(PXa, 1), numel(rLevels));
+        tagsY = orientTags(double(specY.tags), size(PYa, 1), numel(rLevels));
+        sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
+        WXa = densX.w{a}; if isempty(WXa); WXa = ones(size(PXa)); end
+        WYa = densY.w{a}; if isempty(WYa); WYa = ones(size(PYa)); end
+        recipeX = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
+        if sameStruct
+            recipeY = recipeX;
+        else
+            recipeY = buildRecipe(rLevels, symLevels, tagsY, isRel, isPer);
+        end
+        vmin = min(min(PXa(:)), min(PYa(:)));
+        vmax = max(max(PXa(:)), max(PYa(:)));
+        if isRel && isPer
+            if isfinite(ts); tol = max(exp(-0.5 * ts^2), 1e-12); else; tol = 1e-12; end
+            if tol < 1; sopMax = 0.85 / (4 * sqrt(log(1 / tol))); else; sopMax = Inf; end
+            if sigma / period > sopMax
+                warning('mpt:nestedSurrogateResolution', ...
+                    ['Nested relative-periodic similarity at sigma/period = ' ...
+                     '%.3f exceeds the surrogate accuracy threshold %.3f ' ...
+                     'implied by truncationSigmas (tolerance %.1e); the ' ...
+                     'transposition-average value may depart from the exact ' ...
+                     'inner product. Pass method=''bulger'' for the exact ' ...
+                     'enumeration.'], sigma / period, sopMax, tol);
+            end
+        end
+        quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts);
+        P_xy = P_xy .* nestedAttrInnerMatrix(recipeX, recipeY, ...
+            PXa, PYa, WXa, WYa, sigma, period, ts, quad, false);
+        P_xx = P_xx .* nestedAttrInnerMatrix(recipeX, recipeX, ...
+            PXa, PXa, WXa, WXa, sigma, period, ts, quad, true);
+        P_yy = P_yy .* nestedAttrInnerMatrix(recipeY, recipeY, ...
+            PYa, PYa, WYa, WYa, sigma, period, ts, quad, true);
+    end
+
+    % The joint-tuple enumeration (bulger) mis-shapes a nested attribute's
+    % per-event tuples in the MA tensor build, so a nested multi-attribute
+    % density must not fall back to it. The contraction is competitive at any
+    % size here (the nested factor dominates and the plain factors are the
+    % fast per-attribute matrices), so always return the contracted triple.
+    triple = struct('xy', sum(P_xy(:)), 'xx', sum(P_xx(:)), 'yy', sum(P_yy(:)));
+end
+
+
+function M = nestedAttrInnerMatrix(recipeA, recipeB, Pa, Pb, Wa, Wb, ...
+                                   sigma, period, ts, quad, symmetric)
+    % (N_a, N_b) per-event-pair inner matrix for one nested attribute via the
+    % tree contraction. symmetric exploits <e_i,e_j> = <e_j,e_i> for the self
+    % matrices. The per-attribute prefactor is constant and cancels in the
+    % cosine when the attribute matrices are multiplied and summed.
+    na = size(Pa, 2);
+    nb = size(Pb, 2);
+    M = zeros(na, nb);
+    for i = 1:na
+        ai = Pa(:, i); wi = Wa(:, i);
+        if symmetric; j0 = i; else; j0 = 1; end
+        for j = j0:nb
+            v = nestedIp(recipeA, recipeB, ai, Pb(:, j), wi, Wb(:, j), ...
+                         sigma, period, ts, quad);
+            M(i, j) = v;
+            if symmetric && j ~= i; M(j, i) = v; end
         end
     end
 end

@@ -1,23 +1,28 @@
-%% test_nested_ma_contraction.m — multi-attribute nested contraction:
-%  a nested attribute tensored with one or more plain attributes.
+%% test_nested_ma_contraction.m — multi-attribute nested contraction, and
+%  the nested-tuple enumeration used by the Bulger path.
 %
-%  Mirror of the Python test_nested_ma_contraction.py. The fast tree
-%  contraction previously handled only a single-attribute density; tensoring
-%  any further attribute (e.g. an inversion flag) made it decline, and the
-%  multi-attribute case routed to the joint-tuple enumeration --- which both
-%  blows up combinatorially at inner r >= 2 and (in the MA tensor build)
-%  mis-shapes a nested attribute's per-event tuples. The MA path now routes
-%  each nested factor through the contraction and each plain factor through
-%  mobius.maPerAttrInnerMatrix, combining them per event-pair (JMM Eq 3.4):
-%      <X,Y> = sum_{i,j} prod_a I_a(i,j).
-%  Per-attribute prefactors are constant and cancel in the cosine, so mixing
-%  the two matrix conventions is exact.
+%  Mirror of the Python test_nested_ma_contraction.py. Two things are guarded:
 %
-%  Reference values are the Python method='contract' results for identical
-%  constructions, themselves verified equal to the exact Python Bulger
-%  enumeration. (Bulger is not used as the MATLAB reference here: its MA
-%  tensor build mis-shapes nested tuples, so method='bulger' on a nested
-%  multi-attribute density is unsupported.)
+%  1. MULTI-ATTRIBUTE ROUTING. The fast tree contraction previously handled
+%     only a single-attribute density; tensoring any further attribute (e.g.
+%     an inversion flag) made it decline. The MA path now routes each nested
+%     factor through the contraction and each plain factor through
+%     mobius.maPerAttrInnerMatrix, combining them per event-pair (JMM Eq 3.4):
+%         <X,Y> = sum_{i,j} prod_a I_a(i,j).
+%     Per-attribute prefactors are constant and cancel in the cosine, so
+%     mixing the two matrix conventions is exact.
+%
+%  2. NESTED-TUPLE ENUMERATION (the Bulger / eager build). The leaf
+%     enumeration mapped combination positions to slot indices with
+%     rowset(nchoosek(1:k, r0)); at r0 = 1 the (k x 1) position column
+%     followed the row vector rowset's orientation, collapsing k single-slot
+%     combinations into one k-slot combination. Any nesting level with r = 1
+%     and k > 1 (e.g. one note read per chord) was mis-enumerated --- a crash
+%     in the MA tensor build, wrong tuples in the single-attribute build.
+%
+%  Reference values are the Python results for identical constructions; the
+%  contraction and the (now-correct) Bulger enumeration must agree with them
+%  and with each other.
 
 if ~exist('results', 'var')
     results = {};
@@ -29,7 +34,8 @@ else
     standalone = false;
 end
 
-GTOL = 1e-5;     % cross-language vs the Python contract goldens
+ATOL = 1e-9;     % contract vs bulger within MATLAB
+GTOL = 1e-5;     % cross-language vs the Python goldens
 
 C = 0; E = 4; G = 7; Eb = 3;
 IVI  = {[C E G], [G 11 2], [C E G]};
@@ -37,39 +43,50 @@ ivi  = {[C Eb G], [G 11 2], [C Eb G]};
 IVI2 = {[C E G C E G], [G 11 2 G 11 2], [C E G C E G]};
 mel  = {[2 5 9], [9 1 4], [2 5 9]};
 
-% --- single-event: flags match (-> harmonic match) and differ (-> ~0) ---
+% --- single-attribute nested: contract == bulger == Python, both arities.
+%     The r=1 case is the direct guard for the leaf enumeration fix. ---
+ref_sa = containers.Map({1, 2}, {0.667053, 0.111164});
+Xsa = {[C E G], [G 11 2], [C E G]};
+Ysa = {[C Eb G], [G 11 2], [C Eb G]};
+for ri = [1 2]
+    X = sadens(Xsa, ri);
+    Y = sadens(Ysa, ri);
+    cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
+    cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+    results{end+1, 1} = sprintf('nested-ma: SA ri=%d contract==bulger==Python', ri); %#ok<*SAGROW>
+    results{end, 2}   = abs(cC - cB) < ATOL && abs(cC - ref_sa(ri)) < GTOL;
+end
+
+% --- MA (nested + flag): flags match (-> harmonic match) and differ (~0) ---
 for ri = [1 2]
     X = madens({IVI}, 0.5, ri);
-    cMatch = cosSimExpTens(X, madens({IVI}, 0.5, ri), 'method', 'contract', 'verbose', false);
-    cDiff  = cosSimExpTens(X, madens({ivi}, -0.5, ri), 'method', 'contract', 'verbose', false);
-    results{end+1, 1} = sprintf('nested-ma: 1ev flags match ri=%d (=1)', ri); %#ok<*SAGROW>
-    results{end, 2}   = abs(cMatch - 1.0) < GTOL;
+    [cMc, cMb] = bothMethods(X, madens({IVI}, 0.5, ri));
+    [cDc, cDb] = bothMethods(X, madens({ivi}, -0.5, ri));
+    results{end+1, 1} = sprintf('nested-ma: 1ev flags match ri=%d (=1)', ri);
+    results{end, 2}   = abs(cMc - 1) < GTOL && abs(cMb - 1) < GTOL && abs(cMc - cMb) < ATOL;
     results{end+1, 1} = sprintf('nested-ma: 1ev flags differ ri=%d (~0)', ri);
-    results{end, 2}   = abs(cDiff) < 1e-4;
+    results{end, 2}   = abs(cDc) < 1e-4 && abs(cDb) < 1e-4 && abs(cDc - cDb) < ATOL;
 end
 
-% --- single-event, unequal nested cardinality (3 vs 6) plus the flag ---
-ref_uneq = [1.0, 0.837924];
-for k = 1:2
-    ri = k;
-    X = madens({IVI}, 0.5, ri);
-    Y = madens({IVI2}, 0.5, ri);
-    c  = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
-    cR = cosSimExpTens(Y, X, 'method', 'contract', 'verbose', false);
-    results{end+1, 1} = sprintf('nested-ma: 1ev UNEQ 3v6 ri=%d == Python golden', ri);
-    results{end, 2}   = abs(c - ref_uneq(k)) < GTOL && abs(c - cR) < 1e-9;
+% --- MA, unequal nested cardinality (3 vs 6) plus the flag ---
+ref_uneq = containers.Map({1, 2}, {1.0, 0.837924});
+for ri = [1 2]
+    [cC, cB] = bothMethods(madens({IVI}, 0.5, ri), madens({IVI2}, 0.5, ri));
+    results{end+1, 1} = sprintf('nested-ma: 1ev UNEQ 3v6 ri=%d', ri);
+    results{end, 2}   = abs(cC - ref_uneq(ri)) < GTOL && abs(cB - ref_uneq(ri)) < GTOL ...
+                     && abs(cC - cB) < ATOL;
 end
 
-% --- multi-event (2 events per side): per-event-pair matrix combination ---
-ref_multi = [0.645572, 0.527059];
-for k = 1:2
-    ri = k;
+% --- MA, multi-event (2 events per side): per-event-pair combination ---
+ref_multi = containers.Map({1, 2}, {0.645572, 0.527059});
+for ri = [1 2]
     X = madens({IVI, ivi}, [0.5 -0.5], ri);
     Y = madens({IVI, mel}, [0.5 0.5], ri);
-    c    = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
+    [cC, cB] = bothMethods(X, Y);
     cSelf = cosSimExpTens(X, X, 'method', 'contract', 'verbose', false);
-    results{end+1, 1} = sprintf('nested-ma: 2ev multi-event ri=%d == Python golden, self=1', ri);
-    results{end, 2}   = abs(c - ref_multi(k)) < GTOL && abs(cSelf - 1.0) < GTOL;
+    results{end+1, 1} = sprintf('nested-ma: 2ev multi-event ri=%d, self=1', ri);
+    results{end, 2}   = abs(cC - ref_multi(ri)) < GTOL && abs(cB - ref_multi(ri)) < GTOL ...
+                     && abs(cC - cB) < ATOL && abs(cSelf - 1) < GTOL;
 end
 
 
@@ -93,13 +110,32 @@ end
 
 
 % ----------------------------------------------------------------------
+function [cC, cB] = bothMethods(X, Y)
+    cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
+    cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
+end
+
+
+function d = sadens(chords, rIn)
+    % Single nested harmonic attribute (outer relative, periodic).
+    SIG = 0.15; P = 12.0;
+    nCh = numel(chords); nSlot = numel(chords{1});
+    tags = [];
+    for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nSlot)]; end
+    p0 = [];
+    for c = 1:nCh; p0 = [p0, chords{c}]; end
+    sp = struct('tags', tags, 'r', [rIn nCh], 'sym', [true false], 'rel', [0 1]);
+    d = buildExpTens({p0(:)}, {[]}, 'specs', {sp}, 'sigma', SIG, ...
+                     'isPer', true, 'period', P, 'verbose', false);
+end
+
+
 function d = madens(events, flags, rIn)
-    % Two-attribute density: a nested harmonic attribute (outer relative,
-    % periodic) tensored with a 1-D non-periodic flag attribute. events is a
-    % cell over events, each a cell of chords (pitch-class row vectors).
+    % Nested harmonic attribute (outer relative, periodic) tensored with a
+    % 1-D non-periodic flag attribute. events is a cell over events, each a
+    % cell of chords (pitch-class row vectors).
     SIG = 0.15; SF = 0.1; P = 12.0;
-    nCh = numel(events{1});
-    nSlot = numel(events{1}{1});
+    nCh = numel(events{1}); nSlot = numel(events{1}{1});
     tags = [];
     for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nSlot)]; end
     N = numel(events);

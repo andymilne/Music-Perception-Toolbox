@@ -1167,7 +1167,14 @@ function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
         elseif r0 == k
             combRows = rowset;                        % single combination
         else
-            combRows = rowset(nchoosek(1:k, r0));     % nC x r0 row indices
+            % nchoosek(1:k, r0) is (nCk x r0); map positions to slot row
+            % indices via rowset. reshape guards the r0 = 1 case: there the
+            % index is a column vector and plain v(idx) would follow the row
+            % vector rowset's orientation, collapsing nCk combinations of one
+            % into a single combination of nCk. Forcing the (nCk x r0) shape
+            % keeps each row a distinct combination.
+            combPos = nchoosek(1:k, r0);              % nCk x r0 position rows
+            combRows = reshape(rowset(combPos), size(combPos));
         end
         if symFlags(1)
             combRows = localExpandPerms(combRows);

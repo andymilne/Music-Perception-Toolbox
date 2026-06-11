@@ -2204,8 +2204,8 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     """Fast tree-contraction of a single nested attribute's inner product.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
-    attribute, outer/no ``[rel]``, no NaN-padding, cosine or one-sided
-    normalisation -- and the contraction is estimated cheaper than the
+    attribute, outer/no ``[rel]``, cosine or one-sided normalisation,
+    NaN-padded (variable-K) slots included -- and the contraction is estimated cheaper than the
     enumeration; otherwise
     ``None``, and the caller routes to the exact enumeration. Absolute and
     relative-non-periodic are exact; relative-periodic uses the
@@ -2244,10 +2244,23 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     PX = np.asarray(dens_x.p_attr[0], dtype=np.float64)
     PY = np.asarray(dens_y.p_attr[0], dtype=np.float64)
-    if np.isnan(PX).any() or np.isnan(PY).any():
-        return _decline("variable-K (NaN-padded) events are not covered")
-    WX = np.asarray(dens_x.w[0], dtype=np.float64)
-    WY = np.asarray(dens_y.w[0], dtype=np.float64)
+    WX = (np.ones_like(PX) if dens_x.w[0] is None
+          else np.asarray(dens_x.w[0], dtype=np.float64))
+    WY = (np.ones_like(PY) if dens_y.w[0] is None
+          else np.asarray(dens_y.w[0], dtype=np.float64))
+    # Variable-K (NaN-padded) slots: a padded slot is exactly equivalent to
+    # a zero-weight slot at any finite value (every tuple touching it
+    # carries zero weight), so the contraction covers it by filling each
+    # padded slot with an in-range value at weight zero -- the same
+    # NaN -> zero-weight idiom as _ma_per_attr_inner_matrix.
+    _mX = np.isnan(PX)
+    _mY = np.isnan(PY)
+    if _mX.any() or _mY.any():
+        _fill = float(min(np.nanmin(PX), np.nanmin(PY)))
+        PX = np.where(_mX, _fill, PX)
+        WX = np.where(_mX | np.isnan(WX), 0.0, WX)
+        PY = np.where(_mY, _fill, PY)
+        WY = np.where(_mY | np.isnan(WY), 0.0, WY)
 
     from ._nested_contraction import (
         build_recipe, tuple_counts, recipe_work, quad_nodes,
@@ -2444,8 +2457,6 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
         spec_y = nested_y[a]
         PXa = np.asarray(dens_x.p_attr[a], dtype=np.float64)
         PYa = np.asarray(dens_y.p_attr[a], dtype=np.float64)
-        if np.isnan(PXa).any() or np.isnan(PYa).any():
-            return _decline("variable-K (NaN-padded) events are not covered")
         r_levels = np.asarray(spec_x["r"]).ravel()
         sym_levels = np.asarray(spec_x["sym"]).ravel()
         if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
@@ -2458,6 +2469,16 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
                        and bool(np.array_equal(tags_x, tags_y)))
         WXa = _w_of(dens_x, a, PXa)
         WYa = _w_of(dens_y, a, PYa)
+        # Variable-K (NaN-padded) slots: fill with an in-range value at
+        # weight zero (exactly equivalent; see _try_nested_contract).
+        _mXa = np.isnan(PXa)
+        _mYa = np.isnan(PYa)
+        if _mXa.any() or _mYa.any():
+            _fill = float(min(np.nanmin(PXa), np.nanmin(PYa)))
+            PXa = np.where(_mXa, _fill, PXa)
+            WXa = np.where(_mXa | np.isnan(WXa), 0.0, WXa)
+            PYa = np.where(_mYa, _fill, PYa)
+            WYa = np.where(_mYa | np.isnan(WYa), 0.0, WYa)
         recipe_x = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
         recipe_y = (recipe_x if same_struct
                     else build_recipe(r_levels, sym_levels, tags_y,

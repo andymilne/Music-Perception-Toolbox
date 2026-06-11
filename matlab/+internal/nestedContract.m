@@ -4,8 +4,8 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 %
 %   Returns a struct with fields xy, xx, yy (the bare inner-product triple)
 %   when the case is covered -- exactly one nested attribute, outer or no
-%   [rel] (inner_r == 0), no NaN-padding, cosine or one-sided normalisation
-%   -- AND the
+%   [rel] (inner_r == 0), cosine or one-sided normalisation, NaN-padded
+%   (variable-K) slots included -- AND the
 %   contraction is estimated cheaper than the enumeration; otherwise [] and
 %   the caller routes to the exact Bulger enumeration.
 %
@@ -61,13 +61,22 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 
     PX = double(densX.pAttr{1});
     PY = double(densY.pAttr{1});
-    if any(isnan(PX(:))) || any(isnan(PY(:)))
-        declineContractIfForced(force, ...
-            'variable-K (NaN-padded) events are not covered');
-        return;   % variable-K per event: exact enumeration only
+    WX = densX.w{1}; if isempty(WX); WX = ones(size(PX)); end
+    WY = densY.w{1}; if isempty(WY); WY = ones(size(PY)); end
+    WX = double(WX);
+    WY = double(WY);
+    % Variable-K (NaN-padded) slots: a padded slot is exactly equivalent
+    % to a zero-weight slot at any finite value (every tuple touching it
+    % carries zero weight), so the contraction covers it by filling each
+    % padded slot with an in-range value at weight zero -- the same
+    % NaN -> zero-weight idiom as mobius.maPerAttrInnerMatrix.
+    mX = isnan(PX);
+    mY = isnan(PY);
+    if any(mX(:)) || any(mY(:))
+        fillVal = min(min(PX(:), [], 'omitnan'), min(PY(:), [], 'omitnan'));
+        PX(mX) = fillVal;  WX(mX | isnan(WX)) = 0;
+        PY(mY) = fillVal;  WY(mY | isnan(WY)) = 0;
     end
-    WX = double(densX.w{1});
-    WY = double(densY.w{1});
 
     rLevels   = double(specX.r(:)).';
     symLevels = logical(specX.sym(:)).';
@@ -254,11 +263,6 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
         end
         PXa = double(densX.pAttr{a});
         PYa = double(densY.pAttr{a});
-        if any(isnan(PXa(:))) || any(isnan(PYa(:)))
-            declineContractIfForced(force, ...
-                'variable-K (NaN-padded) events are not covered');
-            return;
-        end
         rLevels   = double(specX.r(:)).';
         symLevels = logical(specX.sym(:)).';
         if ~isequal(rLevels, double(specY.r(:)).') ...
@@ -272,6 +276,18 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
         sameStruct = isequal(size(tagsX), size(tagsY)) && isequal(tagsX, tagsY);
         WXa = densX.w{a}; if isempty(WXa); WXa = ones(size(PXa)); end
         WYa = densY.w{a}; if isempty(WYa); WYa = ones(size(PYa)); end
+        WXa = double(WXa);
+        WYa = double(WYa);
+        % Variable-K (NaN-padded) slots: fill with an in-range value at
+        % weight zero (exactly equivalent; see the single-attribute path).
+        mXa = isnan(PXa);
+        mYa = isnan(PYa);
+        if any(mXa(:)) || any(mYa(:))
+            fillVal = min(min(PXa(:), [], 'omitnan'), ...
+                min(PYa(:), [], 'omitnan'));
+            PXa(mXa) = fillVal;  WXa(mXa | isnan(WXa)) = 0;
+            PYa(mYa) = fillVal;  WYa(mYa | isnan(WYa)) = 0;
+        end
         recipeX = buildRecipe(rLevels, symLevels, tagsX, isRel, isPer);
         if sameStruct
             recipeY = recipeX;

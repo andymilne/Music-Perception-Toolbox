@@ -2204,8 +2204,9 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     """Fast tree-contraction of a single nested attribute's inner product.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
-    attribute, outer/no ``[rel]``, no NaN-padding, cosine normalisation --
-    and the contraction is estimated cheaper than the enumeration; otherwise
+    attribute, outer/no ``[rel]``, no NaN-padding, cosine or one-sided
+    normalisation -- and the contraction is estimated cheaper than the
+    enumeration; otherwise
     ``None``, and the caller routes to the exact enumeration. Absolute and
     relative-non-periodic are exact; relative-periodic uses the
     transposition-average surrogate and warns when ``sigma/period`` exceeds
@@ -2223,8 +2224,8 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
             )
         return None
 
-    if normalize != "cosine":
-        return _decline("the contraction implements cosine normalisation only")
+    if normalize not in ("cosine", "oneSidedDenom"):
+        return _decline(f"unsupported normalisation {normalize!r}")
     if dens_x.n_attrs != dens_y.n_attrs:
         return _decline("the two densities have different attribute counts")
     if dens_x.n_attrs != 1:
@@ -2397,8 +2398,8 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
             )
         return None
 
-    if normalize != "cosine":
-        return _decline("the contraction implements cosine normalisation only")
+    if normalize not in ("cosine", "oneSidedDenom"):
+        return _decline(f"unsupported normalisation {normalize!r}")
     A = int(dens_x.n_attrs)
     nested_x = getattr(dens_x, "nested", None) or [None] * A
     nested_y = getattr(dens_y, "nested", None) or [None] * A

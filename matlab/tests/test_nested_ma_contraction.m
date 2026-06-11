@@ -89,6 +89,32 @@ for ri = [1 2]
                      && abs(cC - cB) < ATOL && abs(cSelf - 1) < GTOL;
 end
 
+% --- one-sided normalisation must route through the contraction too ---
+%     Regression: before the fix, method='contract' + 'oneSidedDenom' errored
+%     and 'auto' fell back to the joint-tuple enumeration. The contraction
+%     returns the bare (xy, xx, yy) triple and the denominator is chosen
+%     downstream, so it is correct for either normalisation. Doubled chords
+%     (IVI2) against the single voicing (IVI), flags matching, give a clean
+%     magnitude golden (Python: 8 at rIn=1, 64 at rIn=2; SA and MA alike).
+ref_os = containers.Map({1, 2}, {8.0, 64.0});
+for ri = [1 2]
+    g = ref_os(ri); aTol = ATOL * max(1, g); gTol = GTOL * max(1, g);
+    % single nested attribute (internal.nestedContract)
+    Xs = sadens(IVI2, ri); Ys = sadens(IVI, ri);
+    osC = cosSimExpTens(Xs, Ys, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
+    osB = cosSimExpTens(Xs, Ys, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
+    osA = cosSimExpTens(Xs, Ys, 'normalize', 'oneSidedDenom', 'verbose', false);
+    results{end+1, 1} = sprintf('nested-ma: SA one-sided ri=%d contract==bulger==auto==Python', ri);
+    results{end, 2}   = abs(osC - osB) < aTol && abs(osA - osB) < aTol && abs(osB - g) < gTol;
+    % nested (x) flag (internal.nestedContractMA)
+    Xm = madens({IVI2}, 0.5, ri); Ym = madens({IVI}, 0.5, ri);
+    omC = cosSimExpTens(Xm, Ym, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
+    omB = cosSimExpTens(Xm, Ym, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
+    omA = cosSimExpTens(Xm, Ym, 'normalize', 'oneSidedDenom', 'verbose', false);
+    results{end+1, 1} = sprintf('nested-ma: MA one-sided ri=%d contract==bulger==auto==Python', ri);
+    results{end, 2}   = abs(omC - omB) < aTol && abs(omA - omB) < aTol && abs(omB - g) < gTol;
+end
+
 
 if standalone
     nPass = sum([results{:, 2}]);

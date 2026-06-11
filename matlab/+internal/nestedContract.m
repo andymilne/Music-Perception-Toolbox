@@ -4,7 +4,8 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 %
 %   Returns a struct with fields xy, xx, yy (the bare inner-product triple)
 %   when the case is covered -- exactly one nested attribute, outer or no
-%   [rel] (inner_r == 0), no NaN-padding, cosine normalisation -- AND the
+%   [rel] (inner_r == 0), no NaN-padding, cosine or one-sided normalisation
+%   -- AND the
 %   contraction is estimated cheaper than the enumeration; otherwise [] and
 %   the caller routes to the exact Bulger enumeration.
 %
@@ -19,9 +20,9 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 
     if nargin < 5 || isempty(force); force = false; end
     triple = [];
-    if ~strcmp(normalize, 'cosine')
+    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom'}))
         declineContractIfForced(force, ...
-            'the contraction implements cosine normalisation only');
+            sprintf('unsupported normalisation ''%s''', normalize));
         return;
     end
     if densX.nAttrs ~= densY.nAttrs
@@ -195,9 +196,9 @@ end
 % ----------------------------------------------------------------------
 function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, force)
     triple = [];
-    if ~strcmp(normalize, 'cosine')
+    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom'}))
         declineContractIfForced(force, ...
-            'the contraction implements cosine normalisation only');
+            sprintf('unsupported normalisation ''%s''', normalize));
         return;
     end
     A = densX.nAttrs;

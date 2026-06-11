@@ -115,3 +115,59 @@ def test_ma_nested_factorises_into_harmonic_times_flag():
                               verbose=False)
     s_flag = math.exp(-(0.5 - 0.5) ** 2 / (4 * SF ** 2))   # = 1
     assert joint == pytest.approx(s_harm * s_flag, abs=1e-9)
+
+
+# ---------------------------------------------------------------------
+# Regression: the nested contraction must also serve one-sided
+# normalisation, not cosine alone. Before the fix both gates declined any
+# non-cosine normalisation, so method='contract' + 'oneSidedDenom' raised and
+# method='auto' fell back to the joint-tuple enumeration (the combinatorial
+# blow-up the contraction exists to avoid). The contraction returns the bare
+# (xy, xx, yy) triple and the denominator is chosen downstream, so it is
+# correct for either normalisation.
+# ---------------------------------------------------------------------
+
+
+def _dens_sa(events, r_in, rel_out=1):
+    """Single nested harmonic attribute (no flag): the single-attribute gate."""
+    n_chords = len(events[0])
+    n_slots = len(events[0][0])
+    tags = np.concatenate([np.full(n_slots, k) for k in range(n_chords)])
+    cols = [np.array([v for ch in ev for v in ch], float) for ev in events]
+    p_harm = np.stack(cols, axis=1)
+    specs = [{"tags": tags, "r": [r_in, n_chords], "sym": [True, False],
+              "rel": [0, rel_out]}]
+    return build_exp_tens([p_harm], None, specs=specs, sigma=[SIG],
+                          is_per=[True], period=[P], verbose=False)
+
+
+@pytest.mark.parametrize("r_in", [1, 2])
+def test_one_sided_contraction_matches_bulger_sa(r_in):
+    # Single nested attribute. method='contract' previously raised for
+    # 'oneSidedDenom'; it must now run and equal the exact enumeration, and
+    # the auto dispatch must pick the contraction and agree.
+    X = _dens_sa([_IVI2], r_in)        # doubled chords: the costly enumeration case
+    Y = _dens_sa([_IVI], r_in)
+    contract = cos_sim_exp_tens(X, Y, method="contract",
+                                normalize="oneSidedDenom", verbose=False)
+    bulger = cos_sim_exp_tens(X, Y, method="bulger",
+                              normalize="oneSidedDenom", verbose=False)
+    auto = cos_sim_exp_tens(X, Y, normalize="oneSidedDenom", verbose=False)
+    assert contract == pytest.approx(bulger, abs=1e-9)
+    assert auto == pytest.approx(bulger, abs=1e-9)
+    assert np.isfinite(bulger) and bulger > 0.0
+
+
+@pytest.mark.parametrize("r_in", [1, 2])
+def test_one_sided_contraction_matches_bulger_ma(r_in):
+    # Multi-attribute (nested (x) flag): the second gate.
+    X = _dens([_IVI2], [0.5], r_in)
+    Y = _dens([_IVI], [0.5], r_in)
+    contract = cos_sim_exp_tens(X, Y, method="contract",
+                                normalize="oneSidedDenom", verbose=False)
+    bulger = cos_sim_exp_tens(X, Y, method="bulger",
+                              normalize="oneSidedDenom", verbose=False)
+    auto = cos_sim_exp_tens(X, Y, normalize="oneSidedDenom", verbose=False)
+    assert contract == pytest.approx(bulger, abs=1e-9)
+    assert auto == pytest.approx(bulger, abs=1e-9)
+    assert np.isfinite(bulger) and bulger > 0.0

@@ -1,4 +1,5 @@
-%DEMO_PREPROCESSING  Pre-MAET preprocessing operations and their compositions.
+%% demo_preprocessing.m
+% Pre-MAET preprocessing operations and their compositions.
 %
 % Demonstrates the four per-event preprocessing helpers in MPT,
 % applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,

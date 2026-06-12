@@ -1,5 +1,6 @@
-%DEMO_TRANSLATESWEEP Pre-tensor sliding-comparison sweep with
-% translateAttributes and the raw-MA list mode of cosSimExpTens.
+%% demo_translateSweep.m 
+% Pre-tensor sliding-comparison sweep with translateAttributes and the 
+% raw-MA list mode of cosSimExpTens.
 %
 % Scenario: a 3-note motif (C E G) hidden inside a 7-note melody
 % (D E F C E G A, one note per second). The motif appears exactly at

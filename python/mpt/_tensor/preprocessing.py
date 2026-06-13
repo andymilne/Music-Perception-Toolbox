@@ -484,7 +484,7 @@ def bind_events(
     bind_orders,
     *,
     circular: bool = False,
-    stride: int = 1,
+    step: int = 1,
     specs=None,
     r_outer=None,
     sym_outer=False,
@@ -516,13 +516,13 @@ def bind_events(
     new lever is ``rel_outer = 1`` on an absolute attribute, giving the
     global-transposition quotient ``rel = [0, 1]``.
 
-    Event-axis alignment. At the default ``stride = 1`` the common
+    Event-axis alignment. At the default ``step = 1`` the common
     output event count is ``N' = N - max_a L_a + 1`` (non-circular) or
     ``N`` (circular); attributes with ``L_a < max_a L_a`` keep their
     leading ``N'`` windows, so D-then-B equals B-then-D with
-    :func:`difference_events`. A ``stride > 1`` hops the windows (see the
-    ``stride`` parameter), shrinking ``N'``; the difference-composition
-    identity then holds at ``stride = 1`` only.
+    :func:`difference_events`. A ``step > 1`` hops the windows (see the
+    ``step`` parameter), shrinking ``N'``; the difference-composition
+    identity then holds at ``step = 1`` only.
 
     Parameters
     ----------
@@ -537,17 +537,17 @@ def bind_events(
         Per-attribute window widths ``L_a >= 1`` (``L_a = 1`` no-op).
     circular : bool, keyword-only
         Wrap the window around the event axis (``N' = N``).
-    stride : int, keyword-only
+    step : int, keyword-only
         Hop between consecutive bound windows along the event axis
         (default ``1``, the fully overlapping slide). Super-event ``i``
-        reads events ``[i*stride, i*stride + L_a)``, so ``stride = L_a``
+        reads events ``[i*step, i*step + L_a)``, so ``step = L_a``
         gives non-overlapping blocks (e.g. eighths into beats). A single
         scalar applies to all attributes: the hop is a property of the
         shared event axis, not per-attribute. ``N' = (N - max_a L_a) //
-        stride + 1`` (non-circular); for ``circular = True`` the event
-        count ``N`` must be divisible by ``stride`` and ``N' = N //
-        stride``. The bind/difference composition identity holds at
-        ``stride = 1`` only.
+        step + 1`` (non-circular); for ``circular = True`` the event
+        count ``N`` must be divisible by ``step`` and ``N' = N //
+        step``. The bind/difference composition identity holds at
+        ``step = 1`` only.
     specs : None or length-A list, keyword-only
         The carrier specs supplying the inner geometry. ``None``
         synthesises flat specs. An incoming spec may be flat or already
@@ -623,18 +623,18 @@ def bind_events(
 
     orders = _canonicalise_bind_orders(bind_orders, A)
 
-    stride_arr = np.asarray(stride)
-    if stride_arr.ndim != 0:
+    step_arr = np.asarray(step)
+    if step_arr.ndim != 0:
         raise ValueError(
-            "stride must be a scalar; a single hop applies to all "
+            "step must be a scalar; a single hop applies to all "
             "attributes (the hop is a property of the shared event axis)."
         )
-    if stride_arr.dtype.kind not in "iuf" or float(stride_arr) != int(stride_arr):
-        raise TypeError("stride must be an integer.")
-    stride = int(stride_arr)
-    if stride < 1:
+    if step_arr.dtype.kind not in "iuf" or float(step_arr) != int(step_arr):
+        raise TypeError("step must be an integer.")
+    step = int(step_arr)
+    if step < 1:
         raise ValueError(
-            "stride must be >= 1 (1 is the fully overlapping slide)."
+            "step must be >= 1 (1 is the fully overlapping slide)."
         )
 
     # --- Inner geometry from the carrier specs ------------------------
@@ -670,19 +670,19 @@ def bind_events(
 
     max_order = int(orders.max()) if A > 0 else 0
     if circular:
-        if stride > 1 and n_events % stride != 0:
+        if step > 1 and n_events % step != 0:
             raise ValueError(
-                f"Circular binding with stride = {stride} requires the "
-                f"event count N = {n_events} to be divisible by stride."
+                f"Circular binding with step = {step} requires the "
+                f"event count N = {n_events} to be divisible by step."
             )
-        n_prime = n_events // stride
+        n_prime = n_events // step
         if max_order > n_events:
             raise ValueError(
                 f"Circular window size max L = {max_order} exceeds event "
                 f"count N = {n_events}."
             )
     else:
-        n_prime = (n_events - max_order) // stride + 1
+        n_prime = (n_events - max_order) // step + 1
         if n_prime < 1:
             raise ValueError(
                 f"Bind orders too high for the input event count: max L = "
@@ -691,8 +691,8 @@ def bind_events(
 
     def _lag_index(ell):
         if circular:
-            return (np.arange(n_prime) * stride + ell) % n_events
-        return np.arange(n_prime) * stride + ell
+            return (np.arange(n_prime) * step + ell) % n_events
+        return np.arange(n_prime) * step + ell
 
     p_attr_bound = []
     specs_out = []
@@ -757,7 +757,7 @@ def bind_events(
         specs_out.append(spec)
 
     w_bound = _bind_weights_nested(
-        w, A, orders, K, n_events, n_prime, circular, stride,
+        w, A, orders, K, n_events, n_prime, circular, step,
     )
     return p_attr_bound, w_bound, specs_out
 
@@ -802,7 +802,7 @@ def _validate_bind_orders(orders):
         )
 
 
-def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, stride=1):
+def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, step=1):
     """Transform weights to match the nested value layout.
 
     For ``L_a >= 2`` the per-event weight slices are windowed and
@@ -828,8 +828,8 @@ def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, stride=1)
 
     def _lag_index(ell):
         if circular:
-            return (np.arange(n_prime) * stride + ell) % n_events
-        return np.arange(n_prime) * stride + ell
+            return (np.arange(n_prime) * step + ell) % n_events
+        return np.arange(n_prime) * step + ell
 
     w_bound = []
     for a, wa in enumerate(w):

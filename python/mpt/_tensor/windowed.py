@@ -164,12 +164,18 @@ def windowed_similarity(
     if target == axis:
         raise ValueError("target_attr must differ from window_attr")
 
-    # Context window width defaults to the query's extent on the axis.
+    # Context window. A ``None`` shape translates the context whole; a
+    # concrete shape windows it. The width (used as the sweep-step default
+    # and, when windowing, as the window support) defaults to the query's
+    # extent on the axis. The shape is resolved only when windowing, so the
+    # translate path never passes ``None`` through ``_resolve_shape``.
     cw_shape_raw, cw_width = context_window
+    translate_context = cw_shape_raw is None
     if cw_width is None:
         qv = _axis_values(p_query, axis)
         cw_width = float(qv.max() - qv.min()) if qv.size else 0.0
-    cw_shape = _resolve_shape(cw_shape_raw)
+    if not translate_context:
+        cw_shape = _resolve_shape(cw_shape_raw)
 
     ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
                                    default_step=cw_width)
@@ -204,7 +210,7 @@ def windowed_similarity(
             raise ValueError("query_centres must be None, 1-D, or 2-D")
 
     def place_context(centre):
-        if context_window[0] is None:
+        if translate_context:
             return _translate_to(p_context, w_context, axis, centre)
         return _window_at(p_context, w_context, axis, target, centre,
                           cw_shape, cw_width, delete_input=False)

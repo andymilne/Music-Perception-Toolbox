@@ -151,3 +151,23 @@ def test_centres_and_generative_mutually_exclusive(carrier, query):
         windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                             [False, False], [False, False], [0.0, 0.0], centres,
                             step=1.0, window_attr=1, verbose=False)
+
+
+def test_similarity_translate_context(carrier, query):
+    """context_window=(None, ...) translates the context whole (no shape
+    resolution); regression for the translate-context path."""
+    p_attr, centres = carrier
+    mu_c = float(p_attr[1].mean()); mu_q = float(query[1].mean())
+    # inline: translate context to each centre, query to same centre, score
+    ref = np.empty(len(centres))
+    for i, c in enumerate(centres):
+        pc, wc, _ = translate_attributes(p_attr, None, [None, np.array([[c - mu_c]])])
+        pq, wq, _ = translate_attributes(query, None, [None, np.array([[c - mu_q]])])
+        ref[i] = cos_sim_exp_tens(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
+                                  [False, False], [False, False], [0.0, 0.0],
+                                  normalize="oneSidedDenom", verbose=False)
+    got = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
+                              [False, False], [False, False], [0.0, 0.0], centres,
+                              context_window=(None, None), normalize="oneSidedDenom",
+                              window_attr=1, verbose=False)
+    assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)

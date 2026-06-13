@@ -215,69 +215,69 @@ def test_n_tuple_entropy_still_works():
 
 
 # ---------------------------------------------------------------------------
-#  stride: hop between consecutive bound windows along the event axis
+#  step: hop between consecutive bound windows along the event axis
 # ---------------------------------------------------------------------------
 
-def test_stride_default_is_overlapping_slide():
-    """stride=1 (default) is the fully overlapping slide: N' = N - L + 1."""
+def test_step_default_is_overlapping_slide():
+    """step=1 (default) is the fully overlapping slide: N' = N - L + 1."""
     p = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])]
     pb, _, _ = bind_events(p, None, 2)
-    pb1, _, _ = bind_events(p, None, 2, stride=1)
+    pb1, _, _ = bind_events(p, None, 2, step=1)
     assert np.array_equal(np.asarray(pb[0]), np.asarray(pb1[0]))
     assert np.asarray(pb[0]).shape == (2, 5)
 
 
-def test_stride_nonoverlapping_blocks():
-    """stride=L gives non-overlapping blocks, matching the ::stride subsample
+def test_step_nonoverlapping_blocks():
+    """step=L gives non-overlapping blocks, matching the ::step subsample
     of the overlapping slide."""
     p = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])]
-    pb2, _, _ = bind_events(p, None, 2, stride=2)
+    pb2, _, _ = bind_events(p, None, 2, step=2)
     assert np.array_equal(np.asarray(pb2[0]), np.array([[0, 2, 4], [1, 3, 5]]))
     pb1, _, _ = bind_events(p, None, 2)
     assert np.array_equal(np.asarray(pb2[0]), np.asarray(pb1[0])[:, ::2])
 
 
-def test_stride_weights_hop_with_windows():
+def test_step_weights_hop_with_windows():
     p = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])]
     w = [np.array([[1.0, 0.5, 1.0, 0.5, 1.0, 0.5]])]
-    _, wb, _ = bind_events(p, w, 2, stride=2)
+    _, wb, _ = bind_events(p, w, 2, step=2)
     assert np.array_equal(np.asarray(wb[0]),
                           np.array([[1.0, 1.0, 1.0], [0.5, 0.5, 0.5]]))
 
 
-def test_stride_multiattr_common_hop():
+def test_step_multiattr_common_hop():
     pA = np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])
     pB = np.array([[10.0, 11.0, 12.0, 13.0, 14.0, 15.0]])
-    pb, _, _ = bind_events([pA, pB], None, [2, 2], stride=2)
+    pb, _, _ = bind_events([pA, pB], None, [2, 2], step=2)
     assert np.asarray(pb[0]).shape == (2, 3)
     assert np.asarray(pb[1]).shape == (2, 3)
 
 
-def test_stride_circular_requires_divisibility():
+def test_step_circular_requires_divisibility():
     p6 = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]])]
-    pb, _, _ = bind_events(p6, None, 2, circular=True, stride=2)
-    assert np.asarray(pb[0]).shape[1] == 3            # N' = N / stride
+    pb, _, _ = bind_events(p6, None, 2, circular=True, step=2)
+    assert np.asarray(pb[0]).shape[1] == 3            # N' = N / step
     p5 = [np.array([[0.0, 1.0, 2.0, 3.0, 4.0]])]
     with pytest.raises(ValueError):
-        bind_events(p5, None, 2, circular=True, stride=2)
+        bind_events(p5, None, 2, circular=True, step=2)
 
 
-def test_stride_validation():
+def test_step_validation():
     p = [np.array([[0.0, 1.0, 2.0, 3.0]])]
     with pytest.raises(ValueError):
-        bind_events(p, None, 2, stride=0)
+        bind_events(p, None, 2, step=0)
     with pytest.raises(TypeError):
-        bind_events(p, None, 2, stride=2.5)
+        bind_events(p, None, 2, step=2.5)
     with pytest.raises(ValueError):
-        bind_events(p, None, 2, stride=np.array([2, 2]))
+        bind_events(p, None, 2, step=np.array([2, 2]))
 
 
-def test_stride_two_stage_metrical_grouping():
-    """eighths -> beats (L=2, stride=2) -> cadence (L=3, stride=1) builds the
+def test_step_two_stage_metrical_grouping():
+    """eighths -> beats (L=2, step=2) -> cadence (L=3, step=1) builds the
     three-level metrical structure with no manual subsample."""
     e = [np.array([[0.0, 2.0, 7.0, 7.0, 0.0, 0.0]])]
     w = [np.array([[1.0, 0.5, 1.0, 0.5, 1.0, 0.5]])]
-    pb, wb, s = bind_events(e, w, 2, stride=2, sym_outer=True)
+    pb, wb, s = bind_events(e, w, 2, step=2, sym_outer=True)
     assert np.asarray(pb[0]).shape == (2, 3)          # 3 clean beats
     pb, wb, s = bind_events(pb, wb, 3, sym_outer=False, specs=s)
     assert s[0]["r"] == [1, 2, 3]

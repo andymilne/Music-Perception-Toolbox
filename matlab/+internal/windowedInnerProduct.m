@@ -9,7 +9,7 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
 %
 %   Single-scalar windowed similarity between a MaetDensity densQ and
 %   a WindowedMaetDensity wmd (in either argument order). This is the
-%   inner step used by windowedSimilarity at each offset of its sweep,
+%   inner step used by windowedTensorSimilarity at each offset of its sweep,
 %   and the only place the closed-form windowed inner product is
 %   implemented.
 %
@@ -43,7 +43,7 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
 %
 %   Direct user access to this function is intentionally not provided
 %   (the entry is the +internal/ package, not a top-level name). User
-%   code computes windowed similarities through windowedSimilarity,
+%   code computes windowed similarities through windowedTensorSimilarity,
 %   which handles both the scalar (single-offset) and sweep
 %   (multi-offset) cases uniformly.
 %
@@ -51,7 +51,7 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
 %   --------------------------------------------------
 %   When called as ``internal.windowedInnerProduct(dens, [], false)``
 %   (second argument empty), returns the unwindowed L2 norm squared
-%   of ``dens``: <dens, dens>_unwindowed. Used by windowedSimilarity
+%   of ``dens``: <dens, dens>_unwindowed. Used by windowedTensorSimilarity
 %   to compute the query's self inner product ONCE per sweep rather
 %   than redundantly inside each per-offset call.
 %
@@ -63,7 +63,7 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
 %   ``normalize`` (default ``'oneSidedDenom'``) selects the
 %   denominator as described above.
 %
-%   See also windowedSimilarity, windowTensor.
+%   See also windowedTensorSimilarity, windowTensor.
 
     if nargin < 5 || isempty(normalize)
         normalize = 'oneSidedDenom';
@@ -84,7 +84,7 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
     if a_win && b_win
         error('internal:windowedInnerProduct:twoSidedWindowing', ...
               ['Two-sided windowing (both operands windowed) is not ' ...
-               'supported. Use windowedSimilarity for profile sweeps.']);
+               'supported. Use windowedTensorSimilarity for profile sweeps.']);
     end
 
     % Canonicalise: put the windowed operand on the 'c' (context) side.

@@ -37,7 +37,9 @@ from .tensor import (
     weight_events,
     TranslateAttributesNoOpWarning,
     window_tensor,
+    windowed_tensor_similarity,
     windowed_similarity,
+    windowed_entropy,
 )
 
 # --- Circular measures ---
@@ -107,7 +109,9 @@ __all__ = [
     "weight_events",
     "TranslateAttributesNoOpWarning",
     "window_tensor",
+    "windowed_tensor_similarity",
     "windowed_similarity",
+    "windowed_entropy",
     "WindowedMaetDensity",
     # circular
     "dft_circular",

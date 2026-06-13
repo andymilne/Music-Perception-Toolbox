@@ -1,5 +1,5 @@
 """Tests for the ``normalize`` NV exposed on both ``cos_sim_exp_tens``
-and ``windowed_similarity``.
+and ``windowed_tensor_similarity``.
 
 Covers:
   * Default-mode behaviour matches the legacy formula on each function.
@@ -8,7 +8,7 @@ Covers:
   * British spelling alias and case-insensitive value matching.
   * Mutual-exclusion of ``normalize`` and ``normalise``.
   * Bad-value error.
-  * On ``windowed_similarity``, ``'cosine'`` is bounded above by 1 at
+  * On ``windowed_tensor_similarity``, ``'cosine'`` is bounded above by 1 at
     full self-match and accepts mix=0 and mix=1 but raises on
     intermediate mix.
   * Cross-language parity is left to the MATLAB suite; this file
@@ -103,7 +103,7 @@ class TestCosSimNormalize:
 
 
 # ---------------------------------------------------------------------
-# windowed_similarity
+# windowed_tensor_similarity
 # ---------------------------------------------------------------------
 
 
@@ -126,16 +126,16 @@ class TestWindowedNormalize:
 
     def test_default_is_one_sided_denom(self):
         dC, dQ, spec, offsets = self._setup()
-        p_default = mpt.windowed_similarity(dC, dQ, spec, offsets,
+        p_default = mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                             verbose=False)
-        p_explicit = mpt.windowed_similarity(dC, dQ, spec, offsets,
+        p_explicit = mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                              normalize='oneSidedDenom',
                                              verbose=False)
         np.testing.assert_allclose(p_default, p_explicit, atol=1e-12)
 
     def test_cosine_bounded_by_one_at_self_match(self):
         dC, dQ, spec, offsets = self._setup()
-        p_cos = mpt.windowed_similarity(dC, dQ, spec, offsets,
+        p_cos = mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                         normalize='cosine', verbose=False)
         # |s_cosine| <= 1 across all offsets.
         assert np.all(np.abs(p_cos) <= 1 + 1e-10)
@@ -143,7 +143,7 @@ class TestWindowedNormalize:
     def test_cosine_at_mix_one_boxcar(self):
         dC, dQ, _, offsets = self._setup()
         spec_box = {'size': np.array([3.0]), 'mix': np.array([1.0])}
-        p_box = mpt.windowed_similarity(dC, dQ, spec_box, offsets,
+        p_box = mpt.windowed_tensor_similarity(dC, dQ, spec_box, offsets,
                                         normalize='cosine', verbose=False)
         assert np.all(np.abs(p_box) <= 1 + 1e-10)
 
@@ -151,7 +151,7 @@ class TestWindowedNormalize:
         dC, dQ, _, offsets = self._setup()
         spec_mid = {'size': np.array([3.0]), 'mix': np.array([0.5])}
         with pytest.raises(ValueError, match=r"(?i)strict shape-only cosine"):
-            mpt.windowed_similarity(dC, dQ, spec_mid, offsets,
+            mpt.windowed_tensor_similarity(dC, dQ, spec_mid, offsets,
                                     normalize='cosine', verbose=False)
 
     def test_one_sided_accepts_intermediate_mix(self):
@@ -161,7 +161,7 @@ class TestWindowedNormalize:
         dC, dQ, _, offsets = self._setup()
         spec_mid = {'size': np.array([3.0]), 'mix': np.array([0.5])}
         # Should not raise.
-        p_mid = mpt.windowed_similarity(dC, dQ, spec_mid, offsets,
+        p_mid = mpt.windowed_tensor_similarity(dC, dQ, spec_mid, offsets,
                                         normalize='oneSidedDenom',
                                         verbose=False)
         assert p_mid.shape == (5,)
@@ -169,21 +169,21 @@ class TestWindowedNormalize:
 
     def test_british_alias(self):
         dC, dQ, spec, offsets = self._setup()
-        p_us = mpt.windowed_similarity(dC, dQ, spec, offsets,
+        p_us = mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                        normalize='cosine', verbose=False)
-        p_gb = mpt.windowed_similarity(dC, dQ, spec, offsets,
+        p_gb = mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                        normalise='cosine', verbose=False)
         np.testing.assert_allclose(p_us, p_gb, atol=1e-12)
 
     def test_mutual_exclusion(self):
         dC, dQ, spec, offsets = self._setup()
         with pytest.raises(TypeError, match="not both"):
-            mpt.windowed_similarity(dC, dQ, spec, offsets,
+            mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                     normalize='cosine', normalise='cosine',
                                     verbose=False)
 
     def test_bad_value_raises(self):
         dC, dQ, spec, offsets = self._setup()
         with pytest.raises(ValueError, match="normalize"):
-            mpt.windowed_similarity(dC, dQ, spec, offsets,
+            mpt.windowed_tensor_similarity(dC, dQ, spec, offsets,
                                     normalize='bogus', verbose=False)

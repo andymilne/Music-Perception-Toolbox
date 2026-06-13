@@ -35,7 +35,11 @@ from ._tensor.preprocessing import (
 )
 from ._tensor.windowing import (
     window_tensor,
+    windowed_tensor_similarity,
+)
+from ._tensor.windowed import (
     windowed_similarity,
+    windowed_entropy,
 )
 
 # --- Developer-facing names re-exported for back-compat ---

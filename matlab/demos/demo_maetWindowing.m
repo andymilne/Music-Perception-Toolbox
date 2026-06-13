@@ -43,10 +43,10 @@
 %  windows both groups simultaneously, fixing the time offset at the M4
 %  centroid and sweeping pitch. Offsets are measured from each query's
 %  unweighted centroid to the window centre (the default reference used
-%  by windowedSimilarity), so offset zero sits on the query's own geometric
+%  by windowedTensorSimilarity), so offset zero sits on the query's own geometric
 %  centre.
 %
-%  Reference-point choice. windowedSimilarity offers two reference-point
+%  Reference-point choice. windowedTensorSimilarity offers two reference-point
 %  options for the cross-correlation: the default (unweighted column
 %  mean of the query's tuple centres) and a user-supplied fixed
 %  reference. This demo uses the default throughout. Which method is
@@ -56,7 +56,7 @@
 %  slot-value, and slot-weight sweeps of both harmonic and non-harmonic
 %  queries.
 %
-%  Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedSimilarity,
+%  Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedTensorSimilarity,
 %        differenceEvents, addSpectra, convertPitch.
 
 %% === User-tweakable parameters ===
@@ -224,10 +224,10 @@ offsets_2d = [zeros(1, N_SWEEP); offset_sweep];
 
 fprintf('Computing windowed similarity profiles (rows 1-4) ...\n');
 
-profile_raw    = windowedSimilarity(dens_ctx_raw, dens_q_raw,    spec_time_only, offsets_2d, 'verbose', false);
-profile_diff   = windowedSimilarity(dens_ctx_diff, dens_q_diff,   spec_time_only, offsets_2d, 'verbose', false);
-profile_spec   = windowedSimilarity(dens_ctx_spec, dens_q_spec,   spec_time_only, offsets_2d, 'verbose', false);
-profile_spec_d = windowedSimilarity(dens_ctx_spec_d, dens_q_spec_d, spec_time_only, offsets_2d, 'verbose', false);
+profile_raw    = windowedTensorSimilarity(dens_ctx_raw, dens_q_raw,    spec_time_only, offsets_2d, 'verbose', false);
+profile_diff   = windowedTensorSimilarity(dens_ctx_diff, dens_q_diff,   spec_time_only, offsets_2d, 'verbose', false);
+profile_spec   = windowedTensorSimilarity(dens_ctx_spec, dens_q_spec,   spec_time_only, offsets_2d, 'verbose', false);
+profile_spec_d = windowedTensorSimilarity(dens_ctx_spec_d, dens_q_spec_d, spec_time_only, offsets_2d, 'verbose', false);
 
 %% === Pitch sweep at M4 (row 5) ===
 
@@ -242,7 +242,7 @@ N_PITCH_SWEEP = numel(pitch_offset_sweep);
 offsets_pitch_2d = [pitch_offset_sweep; M4_TIME_OFFSET * ones(1, N_PITCH_SWEEP)];
 
 fprintf('Computing pitch-windowed profile at M4 ...\n');
-profile_pitch = windowedSimilarity(dens_ctx_spec, dens_q_spec, spec_both, ...
+profile_pitch = windowedTensorSimilarity(dens_ctx_spec, dens_q_spec, spec_both, ...
     offsets_pitch_2d, 'verbose', false);
 
 %% === 2-D pitch x time sweeps (second figure) ===
@@ -263,7 +263,7 @@ offsets_pt_2d = [PP_2D(:).'; TT_2D(:).'];
 fprintf('Computing 2-D pitch x time sweep (%d x %d = %d points, harmonic query) ...\n', ...
     N_PITCH_2D, N_TIME_2D, size(offsets_pt_2d, 2));
 tic;
-profile_pt_flat = windowedSimilarity(dens_ctx_spec, dens_q_spec, spec_both, ...
+profile_pt_flat = windowedTensorSimilarity(dens_ctx_spec, dens_q_spec, spec_both, ...
     offsets_pt_2d, 'verbose', false);
 fprintf('  done in %.1f s\n', toc);
 profile_pt = reshape(profile_pt_flat, N_TIME_2D, N_PITCH_2D);
@@ -271,7 +271,7 @@ profile_pt = reshape(profile_pt_flat, N_TIME_2D, N_PITCH_2D);
 fprintf('Computing 2-D pitch x time sweep (query partials stretched, beta = %g) ...\n', ...
     STRETCH_BETA);
 tic;
-profile_pt_stretch_flat = windowedSimilarity(dens_ctx_spec, dens_q_stretch, ...
+profile_pt_stretch_flat = windowedTensorSimilarity(dens_ctx_spec, dens_q_stretch, ...
     spec_both, offsets_pt_2d, 'verbose', false);
 fprintf('  done in %.1f s\n', toc);
 profile_pt_stretch = reshape(profile_pt_stretch_flat, N_TIME_2D, N_PITCH_2D);

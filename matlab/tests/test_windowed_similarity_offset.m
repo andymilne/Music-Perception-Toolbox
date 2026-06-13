@@ -1,7 +1,7 @@
-%% test_windowed_similarity_offset.m — windowedSimilarity cross-correlation semantics (offset API)
+%% test_windowed_similarity_offset.m — windowedTensorSimilarity cross-correlation semantics (offset API)
 %
 %  Tests for the windowed cross-correlation semantics in
-%  windowedSimilarity. Mirror of Python's TestWindowedCrossCorrelation
+%  windowedTensorSimilarity. Mirror of Python's TestWindowedCrossCorrelation
 %  class.
 %
 %  Standalone-runnable; appends to `results` when called from
@@ -36,7 +36,7 @@ function prof = cc_sweep(q, c, s, m, omin, omax, n)
     offsets = zeros(2, n);
     offsets(2, :) = offs;   % pitch offset = 0 (pitch group unwindowed)
     spec = struct('size', [Inf, s], 'mix', [0, m]);
-    prof = windowedSimilarity(c, q, spec, offsets, 'verbose', false);
+    prof = windowedTensorSimilarity(c, q, spec, offsets, 'verbose', false);
 end %#ok<DEFNU>
 
 % 1. Peak at offset equal to single-event context time (mu_q = 0).
@@ -45,7 +45,7 @@ ct = mkPT(60, 5);
 offs_cc = linspace(0, 10, 41);
 prof1 = cc_sweep(q, ct, 2.0, 0.0, 0, 10, 41);
 [~, ipk] = max(prof1);
-results{end+1,1} = 'windowedSimilarity cross-corr: peak at single-event offset';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: peak at single-event offset';
 results{end,2}   = abs(offs_cc(ipk) - 5) < 0.3 && max(prof1) > 0.5;
 
 % 2. Peak invariance across Gaussian window sizes.
@@ -56,7 +56,7 @@ for k = 1:numel(szs)
     [~, ip] = max(pf);
     peak_off(k) = offs_cc(ip);
 end
-results{end+1,1} = 'windowedSimilarity cross-corr: peak invariant over size (Gaussian)';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: peak invariant over size (Gaussian)';
 results{end,2}   = all(abs(peak_off - 5) < 0.3);
 
 % 3. Peak invariance across (mix) range.
@@ -67,7 +67,7 @@ for k = 1:numel(mixes)
     [~, ip] = max(pf);
     peak_off(k) = offs_cc(ip);
 end
-results{end+1,1} = 'windowedSimilarity cross-corr: peak invariant over mix';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: peak invariant over mix';
 results{end,2}   = all(abs(peak_off - 5) < 0.3);
 
 % 4. Multi-event query peak at centroid offset.
@@ -77,11 +77,11 @@ c2 = mkPT([60 64], [5 6]);
 offs_fine = linspace(0, 10, 101);
 offsets_fine = zeros(2, 101);
 offsets_fine(2, :) = offs_fine;
-prof4 = windowedSimilarity(c2, q2, ...
+prof4 = windowedTensorSimilarity(c2, q2, ...
     struct('size', [Inf 2], 'mix', [0 0]), ...
     offsets_fine, 'verbose', false);
 [~, ipk] = max(prof4);
-results{end+1,1} = 'windowedSimilarity cross-corr: multi-event peak at centroid offset';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: multi-event peak at centroid offset';
 results{end,2}   = abs(offs_fine(ipk) - 5.0) < 0.2;
 
 % 5. Two recurrences of the motif produce two equal peaks.
@@ -90,14 +90,14 @@ c2b = mkPT([60 64 60 64], [2 3 5 6]);
 offs_finer = linspace(0, 10, 201);
 offsets_finer = zeros(2, 201);
 offsets_finer(2, :) = offs_finer;
-prof5 = windowedSimilarity(c2b, q2, ...
+prof5 = windowedTensorSimilarity(c2b, q2, ...
     struct('size', [Inf 2], 'mix', [0 0]), ...
     offsets_finer, 'verbose', false);
 lm = (prof5(2:end-1) > prof5(1:end-2)) & ...
      (prof5(2:end-1) > prof5(3:end))  & ...
      (prof5(2:end-1) > 0.5 * max(prof5));
 pk_idx = find(lm) + 1;
-results{end+1,1} = 'windowedSimilarity cross-corr: two motif recurrences -> two peaks';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: two motif recurrences -> two peaks';
 results{end,2}   = (numel(pk_idx) == 2) ...
                    && all(abs(sort(offs_finer(pk_idx)) - [2.0 5.0]) < 0.15) ...
                    && abs(prof5(pk_idx(1)) - prof5(pk_idx(2))) < 1e-3;
@@ -122,11 +122,11 @@ offs_dy = linspace(0, 10, 101);
 %     = (2 - 1) + (1 - 0) = 2 rows.
 offsets_dy = zeros(2, 101);
 offsets_dy(2, :) = offs_dy;
-p_d1 = windowedSimilarity(c_dy1, q_dy, spec_dy, offsets_dy, 'verbose', false);
-p_d2 = windowedSimilarity(c_dy2, q_dy, spec_dy, offsets_dy, 'verbose', false);
+p_d1 = windowedTensorSimilarity(c_dy1, q_dy, spec_dy, offsets_dy, 'verbose', false);
+p_d2 = windowedTensorSimilarity(c_dy2, q_dy, spec_dy, offsets_dy, 'verbose', false);
 [~, i1] = max(p_d1);
 [~, i2] = max(p_d2);
-results{end+1,1} = ['windowedSimilarity cross-corr: isRel dyad peak ' ...
+results{end+1,1} = ['windowedTensorSimilarity cross-corr: isRel dyad peak ' ...
                     'invariant under pitch translation'];
 results{end,2}   = (i1 == i2) && abs(offs_dy(i1) - 5) < 0.3;
 
@@ -134,14 +134,14 @@ results{end,2}   = (i1 == i2) && abs(offs_dy(i1) - 5) < 0.3;
 %    path untouched).
 d_id = mkPT([60 64 67], [0 1 2]);
 s_id = cosSimExpTens(d_id, d_id, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity cross-corr: unwindowed cos_sim identical == 1';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: unwindowed cos_sim identical == 1';
 results{end,2}   = abs(s_id - 1) < 1e-10;
 
 % 8. Unwindowed cos_sim on distinct MA densities stays in (0, 1).
 d_a = mkPT([60 64 67], [0 1 2]);
 d_b = mkPT([60 65 67], [0 1 2]);
 s_ab = cosSimExpTens(d_a, d_b, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity cross-corr: unwindowed cos_sim distinct in (0,1)';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: unwindowed cos_sim distinct in (0,1)';
 results{end,2}   = s_ab > 0 && s_ab < 1;
 
 % 9. Pitch mismatch suppresses the matched-offset peak.
@@ -149,7 +149,7 @@ c_miss  = mkPT(72, 5);
 c_match = mkPT(60, 5);
 p_miss  = cc_sweep(q, c_miss, 2.0, 0.0, 0, 10, 41);
 p_match = cc_sweep(q, c_match, 2.0, 0.0, 0, 10, 41);
-results{end+1,1} = 'windowedSimilarity cross-corr: pitch mismatch suppresses peak';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: pitch mismatch suppresses peak';
 results{end,2}   = max(p_miss) < 0.01 * max(p_match);
 
 % 10. Peak height increases monotonically with window size and approaches
@@ -160,10 +160,10 @@ for k = 1:numel(szs_h)
     pf = cc_sweep(q, ct, szs_h(k), 0.0, 4, 6, 201);
     pk_h(k) = max(pf);
 end
-results{end+1,1} = 'windowedSimilarity cross-corr: peak height increases with size';
+results{end+1,1} = 'windowedTensorSimilarity cross-corr: peak height increases with size';
 results{end,2}   = all(diff(pk_h) > 0) && pk_h(end) > 0.99;
 
-% --- v2.1 unified dispatch: windowedSimilarity list mode ----
+% --- v2.1 unified dispatch: windowedTensorSimilarity list mode ----
 
 % Build a tiny pair of MaetDensity queries and contexts for list-mode
 % testing. We reuse the shape from the earlier section: a single-event
@@ -185,98 +185,98 @@ offs_list(2, :) = linspace(-0.5, 3.5, M_list);
 spec_list = struct('size', [Inf, 0.3], 'mix', [0, 0]);
 
 % Pairwise mode: equal-length lists give cell of profiles
-prof_pair = windowedSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
+prof_pair = windowedTensorSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity list pairwise: returns 1-by-n cell';
+results{end+1,1} = 'windowedTensorSimilarity list pairwise: returns 1-by-n cell';
 results{end,2}   = iscell(prof_pair) && isequal(size(prof_pair), [1, 2]);
 
-prof_a_scalar = windowedSimilarity(cList_a, qList_a, spec_list, offs_list, ...
+prof_a_scalar = windowedTensorSimilarity(cList_a, qList_a, spec_list, offs_list, ...
     'verbose', false);
-prof_b_scalar = windowedSimilarity(cList_b, qList_b, spec_list, offs_list, ...
+prof_b_scalar = windowedTensorSimilarity(cList_b, qList_b, spec_list, offs_list, ...
     'verbose', false);
-results{end+1,1} = 'windowedSimilarity list pairwise: matches scalar dispatch element-wise';
+results{end+1,1} = 'windowedTensorSimilarity list pairwise: matches scalar dispatch element-wise';
 results{end,2}   = max(abs(prof_pair{1} - prof_a_scalar)) < 1e-12 ...
                    && max(abs(prof_pair{2} - prof_b_scalar)) < 1e-12;
 
 % Cartesian mode: different-length lists or explicit 'mode' = 'cartesian'
-prof_cart = windowedSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
+prof_cart = windowedTensorSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false, 'mode', 'cartesian');
-results{end+1,1} = 'windowedSimilarity list cartesian: returns nC-by-nQ cell';
+results{end+1,1} = 'windowedTensorSimilarity list cartesian: returns nC-by-nQ cell';
 results{end,2}   = iscell(prof_cart) && isequal(size(prof_cart), [2, 2]);
 
-prof_ab_scalar = windowedSimilarity(cList_b, qList_a, spec_list, offs_list, ...
+prof_ab_scalar = windowedTensorSimilarity(cList_b, qList_a, spec_list, offs_list, ...
     'verbose', false);
-results{end+1,1} = 'windowedSimilarity list cartesian: matches scalar dispatch (i,j)';
+results{end+1,1} = 'windowedTensorSimilarity list cartesian: matches scalar dispatch (i,j)';
 % New convention: prof_cart{i, j} pairs context i with query j; the
 % scalar call above is (context = cList_b, query = qList_a) = (i=2, j=1).
 results{end,2}   = max(abs(prof_cart{2, 1} - prof_ab_scalar)) < 1e-12;
 
 % Auto mode: equal lengths -> pairwise
-prof_auto_p = windowedSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
+prof_auto_p = windowedTensorSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false, 'mode', 'auto');
-results{end+1,1} = 'windowedSimilarity list auto: equal lengths -> pairwise cell';
+results{end+1,1} = 'windowedTensorSimilarity list auto: equal lengths -> pairwise cell';
 results{end,2}   = iscell(prof_auto_p) && isequal(size(prof_auto_p), [1, 2]);
 
 % Auto mode: unequal lengths -> cartesian
-prof_auto_c = windowedSimilarity({cList_a, cList_b}, {qList_a}, ...
+prof_auto_c = windowedTensorSimilarity({cList_a, cList_b}, {qList_a}, ...
     spec_list, offs_list, 'verbose', false, 'mode', 'auto');
-results{end+1,1} = 'windowedSimilarity list auto: unequal lengths -> cartesian';
+results{end+1,1} = 'windowedTensorSimilarity list auto: unequal lengths -> cartesian';
 % New convention: cartesian output is (nC, nQ); here nC=2, nQ=1.
 results{end,2}   = iscell(prof_auto_c) && isequal(size(prof_auto_c), [2, 1]);
 
 % Pairwise with mismatched lengths errors
-results{end+1,1} = 'windowedSimilarity list pairwise: length mismatch errors';
+results{end+1,1} = 'windowedTensorSimilarity list pairwise: length mismatch errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() windowedSimilarity({cList_a}, {qList_a, qList_b}, spec_list, offs_list, ...
+    @() windowedTensorSimilarity({cList_a}, {qList_a, qList_b}, spec_list, offs_list, ...
         'verbose', false, 'mode', 'bulger'), ...
-    'windowedSimilarity:listLengthMismatch');
+    'windowedTensorSimilarity:listLengthMismatch');
 
 % Length-1 list returns length-1 cell (no collapse to scalar)
-prof_one = windowedSimilarity({cList_a}, {qList_a}, spec_list, offs_list, ...
+prof_one = windowedTensorSimilarity({cList_a}, {qList_a}, spec_list, offs_list, ...
     'verbose', false);
-results{end+1,1} = 'windowedSimilarity list: length-1 returns length-1 cell';
+results{end+1,1} = 'windowedTensorSimilarity list: length-1 returns length-1 cell';
 results{end,2}   = iscell(prof_one) && isequal(size(prof_one), [1, 1]);
 
 % Scalar query + list context (broadcast query)
-prof_qScalar = windowedSimilarity({cList_a, cList_b}, qList_a, ...
+prof_qScalar = windowedTensorSimilarity({cList_a, cList_b}, qList_a, ...
     spec_list, offs_list, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity list: scalar query + list context';
+results{end+1,1} = 'windowedTensorSimilarity list: scalar query + list context';
 results{end,2}   = iscell(prof_qScalar) && numel(prof_qScalar) == 2;
 
 % List query + scalar context (broadcast context)
-prof_cScalar = windowedSimilarity(cList_a, {qList_a, qList_b}, ...
+prof_cScalar = windowedTensorSimilarity(cList_a, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity list: list query + scalar context';
+results{end+1,1} = 'windowedTensorSimilarity list: list query + scalar context';
 results{end,2}   = iscell(prof_cScalar) && numel(prof_cScalar) == 2;
 
 % Per-query reference (cell-of-cells form)
 % qList_a has 2 attributes (pitch, time), so each per-query reference
 % is a 1-by-2 cell of attribute-dimension vectors.
 ref_per_a = {{[62], [0]}, {[64], [0]}};   % length-2 cell of length-2 cells
-prof_perRef = windowedSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
+prof_perRef = windowedTensorSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false, ...
     'reference', ref_per_a, 'mode', 'bulger');
-prof_a_perRef_scalar = windowedSimilarity(cList_a, qList_a, spec_list, offs_list, ...
+prof_a_perRef_scalar = windowedTensorSimilarity(cList_a, qList_a, spec_list, offs_list, ...
     'verbose', false, 'reference', {[62], [0]});
-results{end+1,1} = 'windowedSimilarity list: per-query reference forwarded correctly';
+results{end+1,1} = 'windowedTensorSimilarity list: per-query reference forwarded correctly';
 results{end,2}   = max(abs(prof_perRef{1} - prof_a_perRef_scalar)) < 1e-12;
 
 % Shared reference (single length-A cell broadcast to all queries)
 ref_shared = {[62], [0]};   % length-2 cell of vectors -> shared
-prof_sharedRef = windowedSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
+prof_sharedRef = windowedTensorSimilarity({cList_a, cList_b}, {qList_a, qList_b}, ...
     spec_list, offs_list, 'verbose', false, ...
     'reference', ref_shared, 'mode', 'bulger');
-prof_b_sharedRef_scalar = windowedSimilarity(cList_b, qList_b, spec_list, offs_list, ...
+prof_b_sharedRef_scalar = windowedTensorSimilarity(cList_b, qList_b, spec_list, offs_list, ...
     'verbose', false, 'reference', ref_shared);
-results{end+1,1} = 'windowedSimilarity list: shared reference broadcast';
+results{end+1,1} = 'windowedTensorSimilarity list: shared reference broadcast';
 results{end,2}   = max(abs(prof_sharedRef{2} - prof_b_sharedRef_scalar)) < 1e-12;
 
 % Bad mode errors
-results{end+1,1} = 'windowedSimilarity: bad mode value errors';
+results{end+1,1} = 'windowedTensorSimilarity: bad mode value errors';
 results{end,2}   = throwsErrorWithId( ...
-    @() windowedSimilarity(cList_a, qList_a, spec_list, offs_list, ...
+    @() windowedTensorSimilarity(cList_a, qList_a, spec_list, offs_list, ...
         'verbose', false, 'mode', 'bogus'), ...
-    'windowedSimilarity:badMode');
+    'windowedTensorSimilarity:badMode');
 
 
 

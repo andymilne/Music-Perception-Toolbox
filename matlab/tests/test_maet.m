@@ -1052,7 +1052,7 @@ H_narrow = entropyExpTens(wmd_ew, 'xMin', [0, -1], 'xMax', [1200, 4], ...
 results{end+1,1} = 'windowTensor: narrower window => lower entropy';
 results{end,2}   = H_narrow < H_base;
 
-% -- windowedSimilarity: profile peaks at matching event offset --
+% -- windowedTensorSimilarity: profile peaks at matching event offset --
 
 pitch_narrow = [60 62 64 65];
 time_narrow  = [0  1  2  3];
@@ -1070,45 +1070,45 @@ offs_sw = linspace(-0.5, 3.5, M_sweep);
 offsets_sw = zeros(2, M_sweep);
 offsets_sw(2, :) = offs_sw;
 spec_sw = struct('size', [Inf, 0.3], 'mix', [0, 0]);
-profile = windowedSimilarity(ctx_narrow, q_sw, spec_sw, offsets_sw, ...
+profile = windowedTensorSimilarity(ctx_narrow, q_sw, spec_sw, offsets_sw, ...
     'verbose', false);
 [~, peak_idx] = max(profile);
 peak_off = offs_sw(peak_idx);
 % Query centroid is at t=0, so offset 1 corresponds to the pitch-62
 % context event at absolute t=1.
-results{end+1,1} = 'windowedSimilarity: profile peaks at matching event offset';
+results{end+1,1} = 'windowedTensorSimilarity: profile peaks at matching event offset';
 results{end,2}   = abs(peak_off - 1.0) < 0.3;
 
-% -- windowedSimilarity: returns length-M profile --
+% -- windowedTensorSimilarity: returns length-M profile --
 
 offsets_vec = zeros(2, 7);
 offsets_vec(2, :) = linspace(0, 1, 7);
 spec_lm = struct('size', [Inf, 0.5], 'mix', [0, 0]);
-prof_lm = windowedSimilarity(dens_w, dens_w, spec_lm, offsets_vec, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity: output is 1 x M';
+prof_lm = windowedTensorSimilarity(dens_w, dens_w, spec_lm, offsets_vec, 'verbose', false);
+results{end+1,1} = 'windowedTensorSimilarity: output is 1 x M';
 results{end,2}   = isequal(size(prof_lm), [1, 7]);
 
-% -- windowedSimilarity: truncationSigmas / kernelPrecision threaded --
+% -- windowedTensorSimilarity: truncationSigmas / kernelPrecision threaded --
 % v2.2.x: replaces the v2.2.0 mptDefaults stop-gap. Explicit Inf
 % truncation + double precision must produce identical results to
 % the default call; tight finite truncation must match the default
 % to numerical precision.
-prof_default_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+prof_default_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
     offsets_vec, 'verbose', false);
-prof_inf_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+prof_inf_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
     offsets_vec, 'truncationSigmas', Inf, ...
     'kernelPrecision', 'double', 'verbose', false);
-results{end+1,1} = 'windowedSimilarity: explicit Inf/double matches default';
+results{end+1,1} = 'windowedTensorSimilarity: explicit Inf/double matches default';
 results{end,2}   = isequal(prof_default_thread, prof_inf_thread);
 
-prof_trunc_thread = windowedSimilarity(dens_w, dens_w, spec_lm, ...
+prof_trunc_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
     offsets_vec, 'truncationSigmas', 6, 'verbose', false);
-results{end+1,1} = 'windowedSimilarity: truncationSigmas=6 matches default to 1e-12';
+results{end+1,1} = 'windowedTensorSimilarity: truncationSigmas=6 matches default to 1e-12';
 results{end,2}   = all(abs(prof_default_thread - prof_trunc_thread) < 1e-12);
 
 clear prof_default_thread prof_inf_thread prof_trunc_thread
 
-% -- windowedSimilarity: reference=[] (default) matches omitted reference --
+% -- windowedTensorSimilarity: reference=[] (default) matches omitted reference --
 %
 % Explicit empty reference must reproduce the default path byte-for-byte.
 q_ref     = dens_w;
@@ -1116,14 +1116,14 @@ ctx_ref   = dens_w;
 offs_ref  = zeros(2, 11);
 offs_ref(2, :) = linspace(-0.5, 1.5, 11);
 spec_ref  = struct('size', [Inf, 0.3], 'mix', [0, 0]);
-prof_default  = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
+prof_default  = windowedTensorSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
                                'verbose', false);
-prof_explicit = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
+prof_explicit = windowedTensorSimilarity(ctx_ref, q_ref, spec_ref, offs_ref, ...
                                'reference', [], 'verbose', false);
-results{end+1,1} = 'windowedSimilarity: reference=[] == default';
+results{end+1,1} = 'windowedTensorSimilarity: reference=[] == default';
 results{end,2}   = max(abs(prof_default - prof_explicit)) < 1e-12;
 
-% -- windowedSimilarity: supplied reference shifts the profile --
+% -- windowedTensorSimilarity: supplied reference shifts the profile --
 %
 % Set the time-attribute reference to (default + 0.2 s); the resulting
 % profile at offset o must equal the default profile at offset o + 0.2
@@ -1135,9 +1135,9 @@ M_sh      = 21;
 offs_sh   = zeros(2, M_sh);
 off_t_sh  = linspace(-1.0, 3.0, M_sh);
 offs_sh(2, :) = off_t_sh;
-prof_d  = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
+prof_d  = windowedTensorSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
                          'verbose', false);
-prof_sh = windowedSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
+prof_sh = windowedTensorSimilarity(ctx_ref, q_ref, spec_ref, offs_sh, ...
                          'reference', ref_shift, 'verbose', false);
 % Check: prof_sh(m) should equal prof_d at offset off_t_sh(m) + 0.2
 ok_shift = true;
@@ -1151,45 +1151,45 @@ for m_idx = 1:M_sh
         end
     end
 end
-results{end+1,1} = 'windowedSimilarity: reference shifts profile by offset';
+results{end+1,1} = 'windowedTensorSimilarity: reference shifts profile by offset';
 results{end,2}   = ok_shift;
 
-% -- windowedSimilarity: bad reference shape errors --
-results{end+1,1} = 'windowedSimilarity: reference wrong cell count errors';
-results{end,2}   = throwsError(@() windowedSimilarity(ctx_ref, q_ref, ...
+% -- windowedTensorSimilarity: bad reference shape errors --
+results{end+1,1} = 'windowedTensorSimilarity: reference wrong cell count errors';
+results{end,2}   = throwsError(@() windowedTensorSimilarity(ctx_ref, q_ref, ...
     spec_ref, offs_ref, 'reference', {muA_pitch}, 'verbose', false));
 
-results{end+1,1} = 'windowedSimilarity: reference wrong length errors';
-results{end,2}   = throwsError(@() windowedSimilarity(ctx_ref, q_ref, ...
+results{end+1,1} = 'windowedTensorSimilarity: reference wrong length errors';
+results{end,2}   = throwsError(@() windowedTensorSimilarity(ctx_ref, q_ref, ...
     spec_ref, offs_ref, 'reference', {muA_pitch, [0; 0]}, 'verbose', false));
 
-% -- windowedSimilarity: periodic windowing (wrapped-Gaussian) --
+% -- windowedTensorSimilarity: periodic windowing (wrapped-Gaussian) --
 %
 % For periodic groups, the window is the wrapped Gaussian (or wrapped
 % rect-conv-Gaussian for mix > 0): the sum of line-case window
 % functions at all periodic images of the centre. The toolbox sums
 % these adaptively until the latest image-pair's contribution falls
 % below 1e-12 of the running maximum. The
-% windowedSimilarity:periodicWindowApprox warning of pre-v2.2 has
+% windowedTensorSimilarity:periodicWindowApprox warning of pre-v2.2 has
 % been removed because there is no longer an approximation to warn
 % about. See User Guide §3.1 "Post-tensor windowing".
 
 offs_off = [zeros(1, 5); linspace(0, 1, 5)];
 
 % (a) A periodic windowed group must not emit
-% windowedSimilarity:periodicWindowApprox (the warning class has
+% windowedTensorSimilarity:periodicWindowApprox (the warning class has
 % been removed).
 spec_small = struct('size', [5, 0.3], 'mix', [0, 0]);
-W = warning('error', 'windowedSimilarity:periodicWindowApprox');
+W = warning('error', 'windowedTensorSimilarity:periodicWindowApprox');
 no_warn_periodic = true;
 try
-    windowedSimilarity(dens_w, dens_w, spec_small, offs_off, 'verbose', false);
+    windowedTensorSimilarity(dens_w, dens_w, spec_small, offs_off, 'verbose', false);
 catch ME
     no_warn_periodic = ~strcmp(ME.identifier, ...
-        'windowedSimilarity:periodicWindowApprox');
+        'windowedTensorSimilarity:periodicWindowApprox');
 end
 warning(W);
-results{end+1,1} = 'windowedSimilarity: no periodic-approx warning (v2.2)';
+results{end+1,1} = 'windowedTensorSimilarity: no periodic-approx warning (v2.2)';
 results{end,2}   = no_warn_periodic;
 
 % (b) eval_exp_tens on a windowed periodic density returns identical

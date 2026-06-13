@@ -49,7 +49,7 @@
 %    (c) three overlaid profile curves at representative sigma_reg
 %        values.
 %
-%  Uses: buildExpTens, windowedSimilarity, convertPitch.
+%  Uses: buildExpTens, windowedTensorSimilarity, convertPitch.
 
 clear; clc; close all;
 
@@ -137,10 +137,10 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
 %   of cross-correlation windowed-similarity profiles.
 
     % Acquire a top-level dispatch scope for the duration of the
-    % per-sigma_reg loop. Each iteration calls windowedSimilarity as
+    % per-sigma_reg loop. Each iteration calls windowedTensorSimilarity as
     % an independent top-level entry; without this guard, each entry
     % would reset the dispatch-announce throttle, re-emitting the
-    % same "windowedSimilarity: chose 'direct' path." message per
+    % same "windowedTensorSimilarity: chose 'direct' path." message per
     % iteration. Holding a scope guard here keeps every iteration
     % nested at depth >= 1, so the throttle deduplicates announces
     % across the sweep. See internal.dispatchScope.
@@ -158,7 +158,7 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
         sr = sigma_reg_values(i);
         dq = build2Group(q_cents, q_t, sigma_pc, sr, sigma_time);
         dc = build2Group(c_cents, c_t, sigma_pc, sr, sigma_time);
-        prof(i, :) = windowedSimilarity(dc, dq, windowSpec, offsets_3d, ...
+        prof(i, :) = windowedTensorSimilarity(dc, dq, windowSpec, offsets_3d, ...
             'verbose', false);
     end
 end

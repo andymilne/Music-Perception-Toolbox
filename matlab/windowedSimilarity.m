@@ -1,501 +1,257 @@
-function profile = windowedSimilarity(densContext, densQuery, windowSpec, offsets, varargin)
-%WINDOWEDSIMILARITY  Sliding-window similarity profile (cross-correlation).
+function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
+        sigma, r, isRel, isPer, period, centres, nv)
+%WINDOWEDSIMILARITY  Sliding pre-MAET similarity profile (cross-correlation).
 %
-%   profile = windowedSimilarity(densContext, densQuery, windowSpec, offsets)
-%   returns a 1 x M profile of windowed similarities. For each offset
-%   column, the context density is windowed with windowSpec at the
-%   corresponding centre, and its windowed inner product against
-%   densQuery (unwindowed) is finalised by a normaliser selected via
-%   the 'normalize' name-value option (default 'oneSidedDenom').
+%   out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
+%             sigma, r, isRel, isPer, period, centres, ...)
+%   slides a window along one attribute axis of the *pre-MAET* context
+%   carrier and scores it, at each sweep centre, against the query. Both
+%   operands are carriers (1-by-A cells of K_a-by-N value matrices), as
+%   passed to buildExpTens; the window acts on event weights via
+%   weightEvents before any tensor is built. This is the pre-MAET
+%   companion of windowedTensorSimilarity (which windows the built tensor).
 %
-%   The two operands play asymmetric roles:
-%     * densContext is the operand that the window multiplies. As the
-%       sweep proceeds, the window shifts to each centre defined by
-%       the offsets matrix, selecting different regions of densContext
-%       at each step.
-%     * densQuery is the unwindowed operand whose self inner product
-%       appears in the denominator. The query supplies the
-%       "comparison template" against which each windowed context
-%       region is scored.
+%   At each sweep centre the context is placed by 'contextWindow' and the
+%   query by 'queryWindow'. With the defaults the context is windowed by a
+%   rectangle of the query's extent and the query is translated to the same
+%   centre (the locked template sweep). A window of [] translates that
+%   operand whole; {shape, width} windows it (shape in [0,1], 0 Gaussian,
+%   1 rectangular, or 'gaussian'/'rect'; width the rectangular full
+%   support, variance-matched for other shapes).
 %
-%   profile = windowedSimilarity(densContext, {d_q_1, ..., d_q_n}, ...)
-%   profile = windowedSimilarity({d_c_1, ..., d_c_m}, densQuery, ...)
-%   profile = windowedSimilarity({d_c_1, ...}, {d_q_1, ...}, ...)
-%   List mode. Either or both density inputs may be a cell array of
-%   MaetDensity structs. Returns a cell array of 1-by-M profiles.
-%   Modes (controlled via the 'mode' name-value option):
-%     'bulger'    — n_c == n_q required; pair element-by-element.
-%                   Returns a 1-by-n cell.
-%     'cartesian' — Cross every context with every query.
-%                   Returns an n_c-by-n_q cell.
-%     'auto'      — pairwise if lengths match, cartesian otherwise
-%                   (default).
-%   Shape rule: a length-1 list returns a length-1 cell (never
-%   collapses to a scalar profile).
+%   Sweep geometry. Pass an explicit 'centres' vector, OR the generative
+%   'start'/'stop'/'step' (mutually exclusive; both errors). 'step'
+%   defaults to the context-window width; 'start'/'stop' default to the
+%   data extent on the window axis.
 %
-%   Normalisation: 'oneSidedDenom' versus 'cosine'
-%   ----------------------------------------------
-%   The numerator at each sweep position is the windowed inner product
-%   ip_qc = <h * dens_c, dens_q>. The denominator depends on
-%   'normalize':
+%   Decoupling and output shape. The output shape follows 'queryCentres',
+%   with the context broadcast along its trailing axis:
+%     queryCentres = []            -> locked, 1-by-A row (query at each
+%                                     context centre).
+%     queryCentres a length-A vec  -> element-wise paired, 1-by-A row.
+%     queryCentres an A-by-T matrix-> grid out(a,t) with the context at
+%                                     ctxCentres(a) and the query at
+%                                     queryCentres(a,t) (e.g. a lag sweep:
+%                                     queryCentres = ctx(:) - tau).
 %
-%     'oneSidedDenom' (default) — divide by the unwindowed query self
-%         inner product, <dens_q, dens_q>. The result is magnitude-
-%         aware: self-similarity at full window coverage equals 1,
-%         silent regions of the context score near zero, and a region
-%         where the windowed context has more matching mass than the
-%         query holds in total may score above 1. This is the
-%         intended reading for sliding-motif analysis -- a dense
-%         local match should outscore a sparse one.
+%   Name-value arguments:
+%     'start','stop','step'  - generative sweep (see above).
+%     'queryCentres'         - [] | length-A vector | A-by-T matrix.
+%     'contextWindow'        - {shape, width}; [] shape translates the
+%                              context; width [] defaults to query extent.
+%                              Default {1, []} (rectangle of query extent).
+%     'queryWindow'          - [] (translate the query) | {shape, width}.
+%                              Default [].
+%     'targetAttr'           - 1-based attribute carrying the window
+%                              factor (must differ from the window axis).
+%                              Default: first non-axis attribute.
+%     'normalize'            - 'oneSidedDenom' (default) | 'cosine'.
+%     'windowAttr'           - 1-based window axis. Default: last attribute.
+%     'verbose'              - logical, default false.
 %
-%     'cosine' — divide by sqrt(<h * dens_c, h * dens_c> *
-%         <dens_q, dens_q>). The result is the strict shape-only
-%         cosine, bounded in [-1, 1] and invariant to a positive
-%         scalar on either operand. Closed-form across the (size,
-%         mix) family only for pure-Gaussian (mix = 0) and pure-
-%         boxcar (mix = 1) windows; intermediate mix raises and
-%         directs the user to 'oneSidedDenom'.
+%   The query-translation path batches all trailing-axis placements into a
+%   single translateAttributes call and one cosSimExpTens scalar-vs-list
+%   call per context centre, matching the Python implementation.
 %
-%   Reference-point semantics
-%   -------------------------
-%   Offsets are measured from a reference point to the window centre
-%   on each windowed attribute. Two options are provided:
-%
-%     * Default ('reference' not given or empty): the reference on
-%       each attribute is the unweighted column mean of the query's
-%       tuple centres. A purely geometric property of the tuple
-%       centres, independent of the tuple weights.
-%
-%     * User-supplied ('reference' given as a 1 x A cell array): one
-%       vector per query attribute, of length equal to that
-%       attribute's dimension. The reference does not depend on the
-%       query.
-%
-%   The peak offset under either option equals P* - ref, where P* is
-%   the window centre (in context coordinates) at which the profile
-%   peaks. Peak offsets under the default therefore track the
-%   quantity P* - mu_q across between-query variation; peak offsets
-%   under a fixed reference track P* directly.
-%
-%   The choice matters most when a pitch attribute has more than one
-%   slot per event (chords with exchangeable voices, or partials
-%   added by addSpectra), because queries can then vary in slot
-%   count, slot values, and slot weights. For slot-weight sweeps the
-%   two options coincide. For slot-value sweeps (e.g., stretching
-%   partials), the default's peak offset drifts while a fixed
-%   reference's stays put. For slot-count sweeps, the default's
-%   peak offset is stable only for harmonic queries -- those whose
-%   slots lie at (or close to) integer-harmonic values
-%   f_e + 1200*log2(n) cents. See User Guide §3.1 "Post-tensor
-%   windowing" and the demo_windowingReference demo for analysis
-%   and worked examples.
-%
-%   In both cases, a peak at offset delta means the context has
-%   similarity-relevant structure at reference + delta.
-%
-%   Periodic attributes
-%   -------------------
-%   For periodic attributes, the window is the wrapped Gaussian (or
-%   wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
-%   window functions at all periodic images of the centre. The
-%   toolbox sums these contributions adaptively, truncating when the
-%   latest image-pair's contribution falls below the floating-point
-%   threshold (1e-12 for double, 1e-7 for kernelPrecision='single').
-%   For multi-D absolute periodic attributes, the image sum factorises
-%   per axis (linear in dimension). For multi-D relative periodic
-%   attributes, image summation is deferred to a future release and the
-%   existing line-case formula is used (matching the pre-2.2
-%   behaviour). See User Guide §3.1 "Post-tensor windowing".
-%
-%   Inputs
-%       densContext - MaetDensity to be windowed (positional arg 1).
-%       densQuery   - MaetDensity, unwindowed (positional arg 2).
-%       windowSpec  - Window spec struct (see windowTensor). Only the
-%                     'size' and 'mix' fields are read; any 'centre'
-%                     field is ignored (offsets are used instead).
-%       offsets     - dim x M matrix of per-sweep offsets in effective
-%                     space, using the attribute-concatenated flat
-%                     convention of windowTensor. M is the number of
-%                     sweep positions. A 1-D vector is accepted when
-%                     dim == 1.
-%
-%   Name-value arguments
-%       'reference' - 1 x A cell array, one entry per query attribute,
-%                     each a column vector of length equal to that
-%                     attribute's dimension. Overrides the default
-%                     unweighted-centroid reference. Default: [] (use
-%                     unweighted centroid).
-%
-%                     In list mode, 'reference' may also be a
-%                     length-n_q cell-of-cells, with each entry itself
-%                     a 1 x A cell of per-attribute vectors specifying
-%                     the reference for the corresponding query.
-%                     Disambiguation: the input is treated as per-query
-%                     iff its length equals n_q AND its first entry is
-%                     itself a cell. Otherwise it is broadcast as a
-%                     shared reference across all queries.
-%       'mode'      - List-mode pairing. 'bulger', 'cartesian',
-%                     or 'auto' (default). Ignored when both inputs are
-%                     scalar densities.
-%       'normalize' / 'normalise' — 'oneSidedDenom' (default) or
-%                     'cosine'. Selects the denominator applied to the
-%                     windowed inner product (see "Normalisation"
-%                     section above). Either spelling of the keyword
-%                     is accepted; matching on the value is case-
-%                     insensitive.
-%       'verbose'   - Default true.
-%       'truncationSigmas' - Numeric scalar or []. Override the
-%                     toolbox-wide mptDefaults('truncationSigmas')
-%                     setting for this call. Passes through to the
-%                     kernel evaluator on the centres path; skips
-%                     Gaussian contributions whose centre-to-query
-%                     distance exceeds k*sigma. [] (default) means
-%                     use the global default (factory: Inf).
-%       'kernelPrecision' - 'double', 'single', or [] for the global
-%                     default. Override the toolbox-wide
-%                     kernelPrecision setting for this call. 'single'
-%                     casts the kernel matrix to float32 for a ~2x
-%                     speedup at ~7 sig fig precision.
-%
-%   Output
-%       profile     - 1 x M vector of windowed similarities.
-%
-%   See also windowTensor, cosSimExpTens.
+%   See also WINDOWEDENTROPY, WINDOWEDTENSORSIMILARITY, WEIGHTEVENTS,
+%   TRANSLATEATTRIBUTES, COSSIMEXPTENS.
 
-    % Top-level call guard: see internal.dispatchScope.
-    guard = internal.dispatchScope(); %#ok<NASGU>
+arguments
+    pContext (1,:) cell
+    wContext
+    pQuery   (1,:) cell
+    wQuery
+    sigma
+    r
+    isRel
+    isPer
+    period
+    centres = []
+    nv.start = []
+    nv.stop = []
+    nv.step = []
+    nv.queryCentres = []
+    nv.contextWindow = {1.0, []}
+    nv.queryWindow = []
+    nv.targetAttr = []
+    nv.normalize (1,:) char = 'oneSidedDenom'
+    nv.windowAttr = []
+    nv.verbose (1,1) logical = false
+end
 
-    verbose = true;
-    reference = [];
-    mode = 'auto';
-    normalize = 'oneSidedDenom';
-    truncationSigmas = [];
-    kernelPrecision = [];
-    for i = 1:2:numel(varargin)
-        switch lower(varargin{i})
-            case 'verbose'
-                verbose = logical(varargin{i + 1});
-            case 'reference'
-                reference = varargin{i + 1};
-            case 'mode'
-                mode = lower(char(varargin{i + 1}));
-                if ~any(strcmp(mode, {'bulger', 'cartesian', 'auto'}))
-                    error('windowedSimilarity:badMode', ...
-                        ['''mode'' must be ''bulger'', ''cartesian'', or ' ...
-                         '''auto''; got ''%s''.'], mode);
-                end
-            case {'normalize', 'normalise'}
-                % Accept both American and British spellings of the
-                % keyword; case-insensitive matching on the value.
-                val = char(varargin{i + 1});
-                if strcmpi(val, 'cosine')
-                    normalize = 'cosine';
-                elseif strcmpi(val, 'oneSidedDenom')
-                    normalize = 'oneSidedDenom';
-                else
-                    error('windowedSimilarity:badNormalize', ...
-                          ['''normalize'' must be ''cosine'' or ' ...
-                           '''oneSidedDenom''; got ''%s''.'], val);
-                end
-            case 'truncationsigmas'
-                truncationSigmas = varargin{i + 1};
-            case 'kernelprecision'
-                kernelPrecision = varargin{i + 1};
-            otherwise
-                error('windowedSimilarity:badNVpair', ...
-                      'Unknown name-value pair: %s.', varargin{i});
+A = numel(pContext);
+if isempty(nv.windowAttr), axisIdx = A; else, axisIdx = nv.windowAttr; end
+if axisIdx < 1 || axisIdx > A
+    error('windowedSimilarity:badWindowAttr', ...
+        'windowAttr %d out of range for %d attributes.', axisIdx, A);
+end
+if isempty(nv.targetAttr)
+    if axisIdx ~= 1
+        target = 1;
+    elseif A > 1
+        target = 2;
+    else
+        target = 1;
+    end
+else
+    target = nv.targetAttr;
+end
+if target == axisIdx
+    error('windowedSimilarity:badTarget', ...
+        'targetAttr must differ from windowAttr.');
+end
+
+% --- context window spec -------------------------------------------------
+cwShapeRaw = nv.contextWindow{1};
+cwWidth    = nv.contextWindow{2};
+translateContext = isempty(cwShapeRaw);
+if ~translateContext
+    cwShape = local_resolve_shape(cwShapeRaw);
+end
+if isempty(cwWidth)
+    qv = local_axis_values(pQuery, axisIdx);
+    if isempty(qv), cwWidth = 0; else, cwWidth = max(qv) - min(qv); end
+end
+
+% --- sweep centres (context, leading axis) -------------------------------
+ctxCentres = local_resolve_centres(pContext, axisIdx, centres, ...
+    nv.start, nv.stop, nv.step, cwWidth);
+nA = numel(ctxCentres);
+
+% --- per-row query centres and output shape ------------------------------
+if isempty(nv.queryCentres)
+    qMat = ctxCentres(:);          % nA x 1, locked
+    twoD = false;
+else
+    qc = nv.queryCentres;
+    if isvector(qc)
+        if numel(qc) ~= nA
+            error('windowedSimilarity:badQueryCentres', ...
+                ['1-D queryCentres must match the context length A=%d; ' ...
+                 'got %d. For a grid pass an A-by-T matrix.'], nA, numel(qc));
         end
+        qMat = qc(:);
+        twoD = false;
+    else
+        if size(qc, 1) ~= nA
+            error('windowedSimilarity:badQueryCentres', ...
+                ['2-D queryCentres must have first dimension == context ' ...
+                 'length A=%d; got %dx%d.'], nA, size(qc,1), size(qc,2));
+        end
+        qMat = qc;
+        twoD = true;
+    end
+end
+T = size(qMat, 2);
+
+% --- query placement set-up ----------------------------------------------
+translateQuery = isempty(nv.queryWindow);
+if translateQuery
+    muQ = mean(pQuery{axisIdx}(:));
+else
+    qwShape = local_resolve_shape(nv.queryWindow{1});
+    qwWidth = nv.queryWindow{2};
+end
+if translateContext
+    muC = mean(pContext{axisIdx}(:));
+end
+
+out = zeros(nA, T);
+for a = 1:nA
+    % place the context once for this row
+    if translateContext
+        offs = cell(1, A);
+        offs{axisIdx} = ctxCentres(a) - muC;
+        [pc, wc] = translateAttributes(pContext, wContext, offs);
+    else
+        [pc, wc] = weightEvents(pContext, wContext, axisIdx, target, ...
+            ctxCentres(a), cwShape, 'width', cwWidth, 'deleteInput', false);
     end
 
-    % truncationSigmas and kernelPrecision are accepted for API
-    % compatibility but currently unused: the closed-form windowed
-    % inner product (internal.windowedInnerProduct) does not yet
-    % expose kernel-precision or truncation controls. In list mode
-    % they continue to be forwarded to recursive windowedSimilarity
-    % calls so the API contract on the recursive form is unchanged.
+    row = qMat(a, :);              % 1 x T query centres for this context
 
-    % --- LIST mode ------------------------------------------
-    % Either or both of densContext, densQuery may be a cell array of
-    % MaetDensity structs, in which case the function returns a cell
-    % array of profiles. Modes:
-    %   'bulger'    — n_c == n_q required; pair element-by-element.
-    %                 Returns a 1-by-n cell of 1-by-M profiles.
-    %   'cartesian' — Cross every context with every query.
-    %                 Returns an n_c-by-n_q cell of 1-by-M profiles.
-    %   'auto'      — pairwise if n_c == n_q, otherwise cartesian.
-    % Shape rule: a length-1 list returns a length-1 cell (never
-    % collapses to a scalar profile).
-    isContextList = iscell(densContext);
-    isQueryList   = iscell(densQuery);
-    if isContextList || isQueryList
-        profile = localWindowedSimilarityList( ...
-            densContext, densQuery, windowSpec, offsets, ...
-            reference, mode, normalize, ...
-            truncationSigmas, kernelPrecision, verbose);
-        return;
-    end
-
-    if ~strcmp(mode, 'auto')
-        % 'mode' was explicitly set, but neither operand is a list.
-        % Honour the request only by ignoring it (scalar inputs have no
-        % combinatoric structure). No need to error; this preserves the
-        % scalar single-pair contract.
-    end
-
-    if ~isstruct(densQuery) || ~isfield(densQuery, 'tag') || ...
-            ~strcmp(densQuery.tag, 'MaetDensity')
-        error('windowedSimilarity:badQuery', ...
-              'densQuery must be a MaetDensity.');
-    end
-    if ~isstruct(densContext) || ~isfield(densContext, 'tag') || ...
-            ~strcmp(densContext.tag, 'MaetDensity')
-        error('windowedSimilarity:badContext', ...
-              'densContext must be a MaetDensity.');
-    end
-
-    % Ensure both densities have per-tuple fields populated. Cheap
-    % no-op if they came from buildExpTens with 'lazy', false.
-    densQuery   = internal.ensureExpTensExpensive(densQuery);
-    densContext = internal.ensureExpTensExpensive(densContext);
-
-    dim_c = densContext.dim;
-    offsets = double(offsets);
-    if isvector(offsets) && dim_c == 1
-        offsets = offsets(:).';
-    end
-    if size(offsets, 1) ~= dim_c
-        error('windowedSimilarity:offsetsShape', ...
-              'offsets must have %d rows (dim of densContext); got %d.', ...
-              dim_c, size(offsets, 1));
-    end
-    M = size(offsets, 2);
-
-    % --- Reference point, per attribute -----------------------------
-    A = densQuery.nAttrs;
-    dimPerAttr_q = densQuery.dimPerAttr;
-    refPerA = cell(1, A);
-    if isempty(reference)
-        % Default: unweighted column mean of Centres{a}.
-        for a = 1:A
-            refPerA{a} = mean(densQuery.Centres{a}, 2);
+    if translateQuery
+        % one translate produces all T shifted copies; one cosSim scores
+        % the single context against the batch.
+        offs = cell(1, A);
+        offs{axisIdx} = row - muQ;             % 1 x T row -> M copies
+        qSwept = translateAttributes(pQuery, wQuery, offs);
+        if T == 1
+            out(a, 1) = cosSimExpTens(pc, wc, qSwept, wQuery, ...
+                sigma, r, isRel, isPer, period, ...
+                'normalize', nv.normalize, 'verbose', false);
+        else
+            sCell = cosSimExpTens(pc, wc, qSwept, wQuery, ...
+                sigma, r, isRel, isPer, period, ...
+                'normalize', nv.normalize, 'verbose', false);
+            out(a, :) = cell2mat(sCell(:).');
         end
     else
-        if ~iscell(reference) || numel(reference) ~= A
-            error('windowedSimilarity:badReference', ...
-                  'reference must be a 1 x %d cell array.', A);
+        for t = 1:T
+            [pq, wq] = weightEvents(pQuery, wQuery, axisIdx, target, ...
+                row(t), qwShape, 'width', qwWidth, 'deleteInput', false);
+            out(a, t) = cosSimExpTens(pc, wc, pq, wq, ...
+                sigma, r, isRel, isPer, period, ...
+                'normalize', nv.normalize, 'verbose', false);
         end
-        for a = 1:A
-            r = double(reference{a});
-            r = r(:);
-            if numel(r) ~= dimPerAttr_q(a)
-                error('windowedSimilarity:badReferenceLength', ...
-                      'reference{%d} must have length %d; got %d.', ...
-                      a, dimPerAttr_q(a), numel(r));
-            end
-            refPerA{a} = r;
-        end
-    end
-
-    % --- Strip any user-supplied 'centre' field; offsets replace it --
-    baseSpec = windowSpec;
-    if isfield(baseSpec, 'centre')
-        baseSpec = rmfield(baseSpec, 'centre');
-    end
-
-    % --- Dispatch announce ---
-    % windowedSimilarity uses a single algorithmic path: the closed-form
-    % windowed inner product (no Bulger / Möbius / centres choice to
-    % make). The announce reads 'chose direct path' to surface the
-    % method to the user; throttled to once per top-level call.
-    internal.maybeShowDispatchMsg('windowedSimilarity', 'direct', ...
-        'closed-form windowed inner product (single algorithmic path)', ...
-        0, false);
-
-    % --- Pre-compute the unwindowed L2 norm of the query (denominator) ---
-    % The unwindowed query self inner product <dens_q, dens_q> appears
-    % in the denominator under both 'oneSidedDenom' (where it IS the
-    % denominator) and 'cosine' (where it is one factor of the
-    % geometric mean). It depends only on densQuery, not on the
-    % window offset, so we compute it once and cache it across the
-    % sweep, letting every per-offset call to
-    % internal.windowedInnerProduct skip the redundant work.
-    ipQQcache = internal.windowedInnerProduct(densQuery, [], false);
-
-    % --- Up-front time estimate + adaptive progress stride ---
-    % Calibrate empirically (warm-up + timed sample) and extrapolate to
-    % the full M-point sweep, matching the pattern used by the other
-    % batched helpers (cosSimExpTens batched-raw, entropyExpTens, etc.).
-    % Threshold 10 s via internal.printBatchedEstimate; gated on
-    % verbose. For M = 1 the calibration is skipped entirely (nothing
-    % to estimate or count down).
-    progStride = 1;
-    showProgress = false;
-    if verbose && M >= 2
-        nCal = min(5, M);
-        sampleIdx = unique(round(linspace(1, M, nCal)));
-
-        % Warm-up: one iteration of the loop body to absorb one-time
-        % setup (cache populate, etc.) before the timed sample.
-        centre_cell_w = cell(1, A);
-        off_ptr = 0;
-        for a = 1:A
-            da = dimPerAttr_q(a);
-            centre_cell_w{a} = refPerA{a} + ...
-                offsets(off_ptr + 1 : off_ptr + da, sampleIdx(1));
-            off_ptr = off_ptr + da;
-        end
-        spec_w = baseSpec;
-        spec_w.centre = centre_cell_w;
-        wmd_w = windowTensor(densContext, spec_w);
-        internal.windowedInnerProduct(densQuery, wmd_w, false, ...
-            ipQQcache, normalize);
-
-        % Timed calibration sample over the same indices.
-        tCalStart = tic;
-        for cs = 1:numel(sampleIdx)
-            centre_cell_s = cell(1, A);
-            off_ptr = 0;
-            for a = 1:A
-                da = dimPerAttr_q(a);
-                centre_cell_s{a} = refPerA{a} + ...
-                    offsets(off_ptr + 1 : off_ptr + da, sampleIdx(cs));
-                off_ptr = off_ptr + da;
-            end
-            spec_s = baseSpec;
-            spec_s.centre = centre_cell_s;
-            wmd_s = windowTensor(densContext, spec_s);
-            internal.windowedInnerProduct(densQuery, wmd_s, false, ...
-                ipQQcache, normalize);
-        end
-        tCalTotal  = toc(tCalStart);
-        tPerPoint  = tCalTotal / numel(sampleIdx);
-        estTotal   = tCalTotal + tPerPoint * M;
-        internal.printBatchedEstimate('windowedSimilarity', M, estTotal);
-        progStride = internal.progressStride(tPerPoint);
-        showProgress = estTotal >= 5;
-    end
-
-    profile = zeros(1, M);
-    for m = 1:M
-        % Per-attribute absolute centre = reference + per-attribute slice
-        % of this sweep's offset vector.
-        centre_cell = cell(1, A);
-        off_ptr = 0;
-        for a = 1:A
-            da = dimPerAttr_q(a);
-            centre_cell{a} = refPerA{a} + offsets(off_ptr + 1 : off_ptr + da, m);
-            off_ptr = off_ptr + da;
-        end
-        spec_m = baseSpec;
-        spec_m.centre = centre_cell;
-        wmd = windowTensor(densContext, spec_m);
-        profile(m) = internal.windowedInnerProduct(densQuery, wmd, false, ...
-            ipQQcache, normalize);
-
-        if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
-            fprintf('  %d / %d points computed.\n', m, M);
-        end
-    end
-
-    if verbose
-        fprintf('windowedSimilarity: done.\n');
     end
 end
 
+if ~twoD
+    out = out(:).';                % 1 x nA row for locked / paired sweeps
+end
+end
 
-function profile = localWindowedSimilarityList( ...
-    densContext, densQuery, windowSpec, offsets, ...
-    reference, mode, normalize, ...
-    truncationSigmas, kernelPrecision, verbose)
-%LOCALWINDOWEDSIMILARITYLIST  Polymorphic list dispatch.
-%
-%   Iterates over context and query lists, calling windowedSimilarity
-%   recursively for each pair. The recursive call uses the same
-%   positional convention as the public entry: context first, query
-%   second.
-%
-%   ``normalize``, ``truncationSigmas`` and ``kernelPrecision`` are
-%   forwarded to each recursive call so per-call kwargs reach the
-%   per-offset ``internal.windowedInnerProduct`` consumers without
-%   going through ``mptDefaults`` global state.
 
-    % Wrap singletons so the loops below can index uniformly.
-    if iscell(densContext)
-        C = densContext;
-    else
-        C = {densContext};
-    end
-    if iscell(densQuery)
-        Q = densQuery;
-    else
-        Q = {densQuery};
-    end
-    nC = numel(C);
-    nQ = numel(Q);
-
-    % Resolve mode.
-    if strcmp(mode, 'auto')
-        if nC == nQ
-            modeR = 'bulger';
-        else
-            modeR = 'cartesian';
+% ======================================================================
+%  local helpers
+% ======================================================================
+function g = local_resolve_shape(shape)
+    if ischar(shape) || isstring(shape)
+        key = lower(char(shape));
+        switch key
+            case {'rect','rectangular','box'}, g = 1.0;
+            case {'gaussian','gauss','normal'}, g = 0.0;
+            otherwise
+                error('windowedSimilarity:badShape', ...
+                    ['Unknown window shape ''%s''; pass a number in [0,1] ' ...
+                     '(0 Gaussian, 1 rectangular) or ''gaussian''/''rect''.'], key);
         end
     else
-        modeR = mode;
+        g = double(shape);
+        if ~(g >= 0 && g <= 1)
+            error('windowedSimilarity:badShape', ...
+                'Window shape must be in [0,1]; got %g.', g);
+        end
     end
-    if strcmp(modeR, 'bulger') && nC ~= nQ
-        error('windowedSimilarity:listLengthMismatch', ...
-              ['windowedSimilarity (list mode, pairwise): context and ' ...
-               'query must have the same length, got %d and %d.'], nC, nQ);
-    end
+end
 
-    % Resolve reference per-query. Three forms:
-    %   1) [] (auto-centroid per query)
-    %   2) length-A cell (shared across queries; broadcast)
-    %   3) length-nQ cell-of-cells (per-query references; each entry
-    %      itself a 1-by-A cell of per-attribute vectors)
-    perQueryRef = false;
-    if iscell(reference) && numel(reference) == nQ && nQ >= 1
-        % Disambiguate by looking at the first entry: if it's itself a
-        % cell, treat as per-query. Otherwise treat as a shared length-A
-        % cell that happens to have nQ entries (rare).
-        if ~isempty(reference) && iscell(reference{1})
-            perQueryRef = true;
-        end
-    end
+function v = local_axis_values(pAttr, axisIdx)
+    M = pAttr{axisIdx};
+    v = M(:);
+    v = v(isfinite(v));
+end
 
-    if strcmp(modeR, 'bulger')
-        % Pairwise: paired indices.
-        profile = cell(1, nC);
-        for k = 1:nC
-            if perQueryRef
-                refK = reference{k};
-            else
-                refK = reference;
-            end
-            profile{k} = windowedSimilarity(C{k}, Q{k}, windowSpec, offsets, ...
-                'verbose', verbose, 'reference', refK, ...
-                'normalize', normalize, ...
-                'truncationSigmas', truncationSigmas, ...
-                'kernelPrecision', kernelPrecision);
+function c = local_resolve_centres(pAttr, axisIdx, centres, startV, stopV, stepV, defStep)
+    if ~isempty(centres)
+        if ~isempty(startV) || ~isempty(stopV) || ~isempty(stepV)
+            error('windowedSimilarity:sweepArgs', ...
+                'Pass either centres or start/stop/step, not both.');
         end
-    else
-        % Cartesian: row i = context i, column j = query j.
-        profile = cell(nC, nQ);
-        for i = 1:nC
-            for j = 1:nQ
-                if perQueryRef
-                    refIJ = reference{j};
-                else
-                    refIJ = reference;
-                end
-                profile{i, j} = windowedSimilarity( ...
-                    C{i}, Q{j}, windowSpec, offsets, ...
-                    'verbose', verbose, 'reference', refIJ, ...
-                    'normalize', normalize, ...
-                    'truncationSigmas', truncationSigmas, ...
-                    'kernelPrecision', kernelPrecision);
-            end
-        end
+        c = centres(:).';
+        return;
     end
+    v = local_axis_values(pAttr, axisIdx);
+    if isempty(v)
+        error('windowedSimilarity:noRange', ...
+            'Cannot derive a sweep range: window axis has no finite values.');
+    end
+    if isempty(startV), lo = min(v); else, lo = startV; end
+    if isempty(stopV),  hi = max(v); else, hi = stopV;  end
+    if isempty(stepV),  st = defStep; else, st = stepV; end
+    if ~(st > 0)
+        error('windowedSimilarity:badStep', 'step must be positive.');
+    end
+    n = floor((hi - lo) / st + 1e-9) + 1;
+    c = lo + st * (0:max(n - 1, 0));
 end

@@ -1452,7 +1452,7 @@ class TestMAET:
         assert H_narrow < H_base
 
     def test_windowed_similarity_profile(self):
-        """windowed_similarity returns a length-M profile that peaks at the
+        """windowed_tensor_similarity returns a length-M profile that peaks at the
         offset where the context has a pitch matching the query."""
         ctx = mpt.build_exp_tens(
             [np.array([[60.0, 62.0, 64.0, 65.0]]),
@@ -1476,17 +1476,17 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = offs
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        profile = mpt.windowed_similarity(ctx, q, spec, offsets, verbose=False)
+        profile = mpt.windowed_tensor_similarity(ctx, q, spec, offsets, verbose=False)
         peak_idx = np.argmax(profile)
         assert abs(offs[peak_idx] - 1.0) < 0.3
 
     def test_windowed_similarity_vector_length(self):
-        """windowed_similarity output has length M."""
+        """windowed_tensor_similarity output has length M."""
         dens = self._make_time_pitch_dens([(60, 0), (62, 1)])
         offsets = np.zeros((2, 7))
         offsets[1, :] = np.linspace(0, 1, 7)
         spec = {"size": [np.inf, 0.5], "mix": [0.0, 0.0]}
-        profile = mpt.windowed_similarity(dens, dens, spec, offsets,
+        profile = mpt.windowed_tensor_similarity(dens, dens, spec, offsets,
                                          verbose=False)
         assert profile.shape == (7,)
 
@@ -1504,9 +1504,9 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = np.linspace(-0.5, 3.5, M)
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        prof_default  = mpt.windowed_similarity(ctx, q, spec, offsets,
+        prof_default  = mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                              verbose=False)
-        prof_explicit = mpt.windowed_similarity(ctx, q, spec, offsets,
+        prof_explicit = mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                              reference=None,
                                              verbose=False)
         assert np.allclose(prof_default, prof_explicit)
@@ -1516,7 +1516,7 @@ class TestMAET:
         offset between the new reference and the default (unweighted
         centroid), over the span of the sweep.
 
-        Concretely: calling windowed_similarity with reference = mu_default
+        Concretely: calling windowed_tensor_similarity with reference = mu_default
         + shift should produce the same profile values at every sweep
         column as the default call shifted by -shift in offset space.
         """
@@ -1535,9 +1535,9 @@ class TestMAET:
         offsets = np.zeros((2, M))
         offsets[1, :] = offs_time
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
-        prof_default = mpt.windowed_similarity(ctx, q, spec, offsets,
+        prof_default = mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                             verbose=False)
-        prof_shifted = mpt.windowed_similarity(ctx, q, spec, offsets,
+        prof_shifted = mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                             reference=ref_shifted,
                                             verbose=False)
         # At sweep column m (offset o), the default places the window
@@ -1560,12 +1560,12 @@ class TestMAET:
         spec = {"size": [np.inf, 0.3], "mix": [0.0, 0.0]}
         # Too few entries (1 instead of 2)
         with pytest.raises(ValueError, match="reference"):
-            mpt.windowed_similarity(ctx, q, spec, offsets,
+            mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                   reference=[np.array([0.0])],
                                   verbose=False)
         # Correct number of entries but wrong inner length
         with pytest.raises(ValueError, match="reference"):
-            mpt.windowed_similarity(ctx, q, spec, offsets,
+            mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                   reference=[np.array([0.0, 0.0]),
                                              np.array([0.0])],
                                   verbose=False)
@@ -1592,7 +1592,7 @@ class TestMAET:
         spec = {"size": [40.0, 0.3], "mix": [0.0, 0.0]}
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            _ = mpt.windowed_similarity(ctx, q, spec, offsets,
+            _ = mpt.windowed_tensor_similarity(ctx, q, spec, offsets,
                                         verbose=False)
         # No "approximation" or "line-case" themed warnings.
         bad = [w for w in caught

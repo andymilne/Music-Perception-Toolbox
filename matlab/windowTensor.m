@@ -38,7 +38,7 @@ function wmd = windowTensor(dens, windowSpec)
 %   Output
 %       wmd - WindowedMaetDensity struct (tagged 'WindowedMaetDensity').
 %
-%   See also buildExpTens, evalExpTens, cosSimExpTens, windowedSimilarity.
+%   See also buildExpTens, evalExpTens, cosSimExpTens, windowedTensorSimilarity.
 
     if ~isstruct(dens) || ~isfield(dens, 'tag') || ...
             ~strcmp(dens.tag, 'MaetDensity')

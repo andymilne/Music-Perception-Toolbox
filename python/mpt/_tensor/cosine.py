@@ -68,7 +68,7 @@ from .dispatch import (
 
 # -------------------------------------------------------------------
 #  Normalisation helpers (shared by cos_sim_exp_tens and
-#  windowed_similarity, which expose the same ``normalize`` keyword
+#  windowed_tensor_similarity, which expose the same ``normalize`` keyword
 #  with the same set of values).
 # -------------------------------------------------------------------
 
@@ -213,7 +213,7 @@ def cos_sim_exp_tens(*args,
         single-attribute pairs only; pairs involving ``MaetDensity``
         bypass dedup transparently. (``WindowedMaetDensity`` operands
         are rejected at the top of the function — use
-        :func:`windowed_similarity` instead.)
+        :func:`windowed_tensor_similarity` instead.)
     spectrum : list/tuple, optional
         Per-row spectral augmentation parameters passed to
         :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
@@ -675,13 +675,13 @@ def _cos_sim_pair_core(
     ``truncation_sigmas`` and ``kernel_precision`` through to the SA
     path (the MA path awaits its own helper-routing stage).
     ``WindowedMaetDensity`` operands are rejected here; user code
-    reaches the windowed inner product via :func:`windowed_similarity`.
+    reaches the windowed inner product via :func:`windowed_tensor_similarity`.
     """
     if isinstance(dens_x, WindowedMaetDensity) or \
             isinstance(dens_y, WindowedMaetDensity):
         raise TypeError(
             "cos_sim_exp_tens does not accept WindowedMaetDensity "
-            "operands. Use windowed_similarity(dens_context, "
+            "operands. Use windowed_tensor_similarity(dens_context, "
             "dens_query, window_spec, offsets) — pass a single-column "
             "offsets array for the scalar single-offset case, or a "
             "(dim, M) array for the M-offset sweep."

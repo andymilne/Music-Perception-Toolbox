@@ -6,7 +6,7 @@ This module hosts the windowing layer of the MAET pipeline:
   window specification (size, mix, optional centre), returning a
   :class:`WindowedMaetDensity`. No math is done at construction time;
   windowing is applied lazily.
-* :func:`windowed_similarity` --- sweep a query density's centroid
+* :func:`windowed_tensor_similarity` --- sweep a query density's centroid
   across a context density via offset positions, returning a 1xM
   windowed-similarity profile (or list of profiles for list-mode
   input).
@@ -335,13 +335,13 @@ def _wrapped_window_factor_1d(u, a, b, period, image_tol,
 
 
 # -------------------------------------------------------------------
-#  windowed_similarity and closed-form pair-factor evaluator
+#  windowed_tensor_similarity and closed-form pair-factor evaluator
 # -------------------------------------------------------------------
 
 
 def _resolve_windowed_similarity_reference(reference, q_list):
     """Resolve the polymorphic ``reference`` argument of
-    :func:`windowed_similarity` to a list (length ``n_q``) of per-query
+    :func:`windowed_tensor_similarity` to a list (length ``n_q``) of per-query
     reference lists (each of length ``n_attrs``, with each entry a 1-D
     array of length ``dim_per_attr[a]``).
 
@@ -471,13 +471,13 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
     base_spec = {k: v for k, v in window_spec.items() if k != "centre"}
 
     # --- Dispatch announce ---
-    # windowed_similarity uses a single algorithmic path: the closed-form
+    # windowed_tensor_similarity uses a single algorithmic path: the closed-form
     # windowed inner product (no Bulger / Möbius / centres choice to
     # make). The announce reads 'chose direct path' to surface the
     # method to the user; throttled to once per top-level call.
     from .._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
-        "windowed_similarity", "direct",
+        "windowed_tensor_similarity", "direct",
         "closed-form windowed inner product (single algorithmic path)",
         0.0, False,
     )
@@ -538,7 +538,7 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
         t_per_point = t_cal_total / len(sample_idx)
         est_total = t_cal_total + t_per_point * M
         maybe_print_batched_estimate(
-            "windowed_similarity", M, est_total,
+            "windowed_tensor_similarity", M, est_total,
         )
         prog_stride = progress_stride(t_per_point)
         show_progress = est_total >= 5
@@ -565,13 +565,13 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
             print(f"  {m + 1} / {M} points computed.")
 
     if verbose:
-        print("windowed_similarity: done.")
+        print("windowed_tensor_similarity: done.")
 
     return profile
 
 
 @_with_dispatch_scope
-def windowed_similarity(dens_context, dens_query, window_spec, offsets, *,
+def windowed_tensor_similarity(dens_context, dens_query, window_spec, offsets, *,
                         reference=None, mode: str = "auto",
                         normalize: str | None = None,
                         normalise: str | None = None,
@@ -723,7 +723,7 @@ def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
                               truncation_sigmas: float | None = None,
                               kernel_precision: str | None = None,
                               verbose: bool = True):
-    """Body of :func:`windowed_similarity`.
+    """Body of :func:`windowed_tensor_similarity`.
 
     ``normalize``, ``truncation_sigmas`` and ``kernel_precision`` are
     forwarded through to each per-offset :func:`_windowed_inner_product`
@@ -890,10 +890,10 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
 
     Currently supports one-sided windowing (exactly one of dens_a,
     dens_b is a WindowedMaetDensity). Two-sided is not needed for the
-    windowed_similarity use case.
+    windowed_tensor_similarity use case.
 
     Internal optimisation: when called repeatedly with the same
-    (dens_q, dens_c) pair (as :func:`windowed_similarity` does for
+    (dens_q, dens_c) pair (as :func:`windowed_tensor_similarity` does for
     each offset in its sweep), the unwindowed query self inner
     product depends only on ``dens_q`` and can be computed once
     outside the loop. Callers may pass it as
@@ -904,7 +904,7 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
     if a_win and b_win:
         raise NotImplementedError(
             "Two-sided windowing (both operands windowed) is not "
-            "supported. Use windowed_similarity for profile sweeps."
+            "supported. Use windowed_tensor_similarity for profile sweeps."
         )
 
     if a_win:
@@ -1137,7 +1137,7 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
     # =====================================================================
     # Cross-correlation translation (windowed case only).
     #
-    # When windowed_c is not None, windowed_similarity asks for the cosine
+    # When windowed_c is not None, windowed_tensor_similarity asks for the cosine
     # similarity between the unwindowed query (dens_x) and the windowed
     # context (dens_y, with window spec wmd) interpreted as a CROSS-
     # CORRELATION: at sweep centre c in a windowed group g, the query is

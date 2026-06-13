@@ -7,7 +7,7 @@ function dens = ensureExpTensExpensive(dens)
 %   no-op pass-through.
 %
 %   This is the helper used by consumer entry points (cosSimExpTens,
-%   evalExpTens, windowedSimilarity, etc.) on density inputs.
+%   evalExpTens, windowedTensorSimilarity, etc.) on density inputs.
 %   buildExpTens defaults to 'lazy', true, returning a skinny density
 %   that exposes only cheap fields (p/pAttr, w, sigma, r, isRel,
 %   isPer, period, dim, etc.). Orbit-method consumers operate

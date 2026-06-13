@@ -9,7 +9,7 @@ Module layout:
   build.py          build_exp_tens (SA + MA paths).
   preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
-  windowing.py      window_tensor, windowed_similarity, windowed IP.
+  windowing.py      window_tensor, windowed_tensor_similarity, windowed IP.
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
   eval.py           eval_exp_tens (SA centres / orbit / fast, MA).
@@ -44,9 +44,13 @@ from .preprocessing import (
 
 from .windowing import (
     window_tensor,
-    windowed_similarity,
+    windowed_tensor_similarity,
     _evaluate_window_on_query,
     _windowed_inner_product,
+)
+from .windowed import (
+    windowed_similarity,
+    windowed_entropy,
 )
 
 from .canonical import (
@@ -95,5 +99,7 @@ __all__ = [
     "weight_events",
     # Windowing (public)
     "window_tensor",
+    "windowed_tensor_similarity",
     "windowed_similarity",
+    "windowed_entropy",
 ]

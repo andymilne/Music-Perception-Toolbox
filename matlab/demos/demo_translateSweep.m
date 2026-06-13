@@ -21,7 +21,7 @@
 %
 % Compare demo_maetWindowing (post-tensor sliding) and
 % demo_windowingReference (reference-point options for
-% windowedSimilarity). The pre-tensor route used here returns a strict
+% windowedTensorSimilarity). The pre-tensor route used here returns a strict
 % cosine similarity (bounded in [0, 1] for non-negative weights) and
 % does not require choosing a window family; the post-tensor route
 % returns a magnitude-aware windowed similarity and decouples locality

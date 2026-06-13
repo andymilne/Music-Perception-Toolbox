@@ -1,7 +1,7 @@
 %% demo_windowingReference.m
 %  MAET post-tensor windowing: choice of reference point for the offset axis.
 %
-%  windowedSimilarity returns a windowed-similarity profile as a function of
+%  windowedTensorSimilarity returns a windowed-similarity profile as a function of
 %  a user-supplied offset delta on each windowed attribute. The offset
 %  is measured from a reference point to the window centre. Two
 %  reference-point options are provided:
@@ -69,7 +69,7 @@
 %           query. Partial-alignment branch reads as +700 across the
 %           sweep; peak amplitude reflects degree of harmonicity match.
 %
-%  Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedSimilarity,
+%  Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedTensorSimilarity,
 %        addSpectra, convertPitch.
 
 %% === User-editable parameters ===
@@ -138,7 +138,7 @@ fig1 = figure('Name', 'Figure 1: scenarios', 'Position', [100 100 1100 800], ...
               'Color', 'w');
 set(fig1, 'DefaultAxesXColor', 'k', 'DefaultAxesYColor', 'k');
 
-% List-mode windowedSimilarity: pass a cell array of queries (one per
+% List-mode windowedTensorSimilarity: pass a cell array of queries (one per
 % scenario) and a single context. Each call returns an n_scn-by-1
 % cell of 1-by-numel(OFFSET_GRID) profiles, one per query. The
 % offsets matrix is shared across queries: row 1 is the pitch
@@ -154,9 +154,9 @@ for i = 1:n_scn
 end
 
 offsets_off = [OFFSET_GRID; M4_TIME * ones(1, numel(OFFSET_GRID))];
-p_D_cells = windowedSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
+p_D_cells = windowedTensorSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
     'verbose', false);
-p_F_cells = windowedSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
+p_F_cells = windowedTensorSimilarity(dens_c, dq_list_scn, spec, offsets_off, ...
     'reference', REF_HARM, 'verbose', false);
 
 profs = cell(n_scn, 3);  % {mu, p_D, p_F}
@@ -222,7 +222,7 @@ sweeps = { ...
 };
 
 % Each sweep is processed independently: build that sweep's query
-% list, make three list-mode windowedSimilarity calls (one per
+% list, make three list-mode windowedTensorSimilarity calls (one per
 % reference choice), and extract the peaks. The offsets matrices
 % and ref_abs are set up once and reused across all sweeps.
 %
@@ -244,7 +244,7 @@ ref_abs = { 0, T_REF };
 
 % Per sweep:
 %   - build a cell array of query densities (one per sweep step);
-%   - three list-mode windowedSimilarity calls return nS-by-1 cell
+%   - three list-mode windowedTensorSimilarity calls return nS-by-1 cell
 %     arrays of profiles, one entry per query;
 %     * default reference (per-query auto-centroid)  -> P_D
 %     * REF_HARM (shared, length-2 cell)             -> P_F
@@ -265,11 +265,11 @@ for s = 1:nSweeps
         mus(i) = mean(dq_list{i}.Centres{1});
     end
 
-    P_D_cells   = windowedSimilarity(dens_c, dq_list, spec, offsets_off, ...
+    P_D_cells   = windowedTensorSimilarity(dens_c, dq_list, spec, offsets_off, ...
         'verbose', false);
-    P_F_cells   = windowedSimilarity(dens_c, dq_list, spec, offsets_off, ...
+    P_F_cells   = windowedTensorSimilarity(dens_c, dq_list, spec, offsets_off, ...
         'reference', REF_HARM, 'verbose', false);
-    p_abs_cells = windowedSimilarity(dens_c, dq_list, spec, offsets_abs, ...
+    p_abs_cells = windowedTensorSimilarity(dens_c, dq_list, spec, offsets_abs, ...
         'reference', ref_abs, 'verbose', false);
 
     % Stack the per-query 1-by-M profiles into an nS-by-M matrix, with
@@ -394,7 +394,7 @@ for i = 1:nB
     dq_list_fig4{i} = build_query(q_p, q_t, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF, ...
         BETA_FIG4(i), PITCH_SIGMA_CENTS, TIME_SIGMA_SEC);
 end
-p_cells = windowedSimilarity(dens_c, dq_list_fig4, spec, offsets_off, ...
+p_cells = windowedTensorSimilarity(dens_c, dq_list_fig4, spec, offsets_off, ...
     'reference', REF_HARM, 'verbose', false);
 % Stack per-query 1-by-M profiles into an nB-by-M matrix (see note above).
 P_cal = vertcat(p_cells{:});

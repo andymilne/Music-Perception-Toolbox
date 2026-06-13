@@ -398,7 +398,7 @@ end
 % As of v2.2, cosSimExpTens does not accept WindowedMaetDensity
 % operands. The windowed inner product is a magnitude-aware similarity
 % (not a strict cosine similarity in [0, 1]) and is therefore not
-% within cosSimExpTens's contract. Use windowedSimilarity for both
+% within cosSimExpTens's contract. Use windowedTensorSimilarity for both
 % single-offset and multi-offset windowed-similarity calls.
 if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
         && isfield(varargin{1}, 'tag') && isfield(varargin{2}, 'tag') ...
@@ -406,7 +406,7 @@ if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
          || strcmp(varargin{2}.tag, 'WindowedMaetDensity'))
     error('cosSimExpTens:windowedNotSupported', ...
           ['cosSimExpTens does not accept WindowedMaetDensity ' ...
-           'operands. Use windowedSimilarity(densQuery, densContext, ' ...
+           'operands. Use windowedTensorSimilarity(densQuery, densContext, ' ...
            'windowSpec, offsets) --- pass a single-column offsets ' ...
            'vector for the scalar single-offset case, or a dim x M ' ...
            'matrix for the M-offset sweep.']);
@@ -783,7 +783,7 @@ end
     %      and cell-array kwargs construction overhead per call.
     %
     %  This preserves the cost profile of the inline / chunked path for default-mode callers
-    %  (e.g. cosSimExpTens in per-pair tight loops like windowedSimilarity)
+    %  (e.g. cosSimExpTens in per-pair tight loops like windowedTensorSimilarity)
     %  while enabling the helper's features whenever the user opts in.
     % -----------------------------------------------------------------
     function ipval = ipCore(U, wU, nJ, V, wV, nK)
@@ -1829,7 +1829,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
 %   appropriate scalar form (MA or SA) based on the entries'
 %   tags. Mixed-kind pairs are not prevented at this level; compatibility
 %   is checked downstream. `WindowedMaetDensity` entries are rejected
-%   at the top of cosSimExpTens (use windowedSimilarity instead).
+%   at the top of cosSimExpTens (use windowedTensorSimilarity instead).
 %
 %   The ``normalize`` argument is forwarded to each per-pair
 %   cosSimExpTens call so every list entry uses the same denominator.

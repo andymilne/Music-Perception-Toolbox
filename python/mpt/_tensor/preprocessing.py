@@ -491,6 +491,8 @@ def bind_events(
     rel_outer=False,
     name=None,
     level_names=None,
+    group_by=None,
+    group_atol: float = 0.0,
 ) -> tuple[list[np.ndarray], object, list]:
     """Bind sliding windows of consecutive events into nested attributes.
 
@@ -620,6 +622,13 @@ def bind_events(
                 f"N={M.shape[1]}."
             )
     K = [M.shape[0] for M in p_attr]
+
+    if group_by is not None:
+        return _bind_events_run_length(
+            p_attr, w, K, A, n_events, group_by, group_atol, specs,
+            r_outer, sym_outer, rel_outer, name, level_names,
+            bind_orders, circular, step,
+        )
 
     orders = _canonicalise_bind_orders(bind_orders, A)
 
@@ -759,6 +768,152 @@ def bind_events(
     w_bound = _bind_weights_nested(
         w, A, orders, K, n_events, n_prime, circular, step,
     )
+    return p_attr_bound, w_bound, specs_out
+
+
+
+def _run_length_groups(vals, atol):
+    """Consecutive-run boundaries on a 1-D value array.
+
+    Returns a list of 1-D index arrays, one per maximal run of (near-)equal
+    adjacent values. With ``atol == 0`` the comparison is exact; otherwise a
+    new run starts where ``|v[i] - v[i-1]| > atol``.
+    """
+    n = vals.size
+    if n == 0:
+        return []
+    if atol == 0.0:
+        changes = vals[1:] != vals[:-1]
+    else:
+        changes = np.abs(vals[1:] - vals[:-1]) > atol
+    starts = np.concatenate(([0], np.nonzero(changes)[0] + 1, [n]))
+    return [np.arange(starts[i], starts[i + 1], dtype=np.intp)
+            for i in range(starts.size - 1)]
+
+
+def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
+                            specs, r_outer, sym_outer, rel_outer, name,
+                            level_names, bind_orders, circular, step):
+    """Run-length (bind-by-attribute) binding.
+
+    Consecutive events sharing a constant value on attribute ``group_by``
+    are gathered into one super-event; a new group begins wherever that
+    value changes. Group sizes vary, so the outer level is ragged: each
+    super-event is padded to the maximum group size with NaN slots carrying
+    zero weight (the padded-slot-at-zero-weight convention the nested inner
+    product already consumes). The inner level preserves each attribute's
+    existing per-attribute parameters; the outer read arity ``r_outer``
+    defaults to the smallest group size --- the largest arity at which every
+    group is feasible, so all groups contribute uniform ``r_outer``-tuples
+    into one density.
+    """
+    if bind_orders is not None:
+        raise ValueError(
+            "bind_orders and group_by are mutually exclusive: run-length "
+            "binding reads the group sizes from the data, so pass "
+            "bind_orders=None when group_by is given."
+        )
+    if circular:
+        raise NotImplementedError(
+            "Circular run-length binding is not yet supported; pass "
+            "circular=False."
+        )
+    if step != 1:
+        raise ValueError(
+            "step has no meaning for run-length binding (groups are read "
+            "from the data, not hopped); leave step at its default."
+        )
+    if not isinstance(group_by, (int, np.integer)) or not (0 <= group_by < A):
+        raise ValueError(
+            f"group_by must be an attribute index in [0, {A}); got {group_by}."
+        )
+    if K[group_by] != 1:
+        raise ValueError(
+            f"group_by attribute {group_by} must have K = 1 (one value per "
+            f"event); got K = {K[group_by]}. Constancy of a multi-slot value "
+            f"is ambiguous."
+        )
+
+    if specs is None:
+        specs_in = flat_specs(p_attr)
+    else:
+        if not isinstance(specs, (list, tuple)) or len(specs) != A:
+            raise ValueError(
+                f"specs must be a length-A ({A}) list, one per attribute."
+            )
+        specs_in = list(specs)
+    for a, s in enumerate(specs_in):
+        if isinstance(s, dict) and "tags" in s:
+            raise NotImplementedError(
+                f"attribute {a}: run-length binding of an already-nested "
+                f"attribute is not yet supported (flat inputs only)."
+            )
+
+    groups = _run_length_groups(p_attr[group_by][0], float(group_atol))
+    n_prime = len(groups)
+    if n_prime == 0:
+        raise ValueError("group_by produced no groups (empty event axis).")
+    sizes = np.array([g.size for g in groups], dtype=np.intp)
+    L_max = int(sizes.max())
+    L_min = int(sizes.min())
+
+    if r_outer is None:
+        r_out = [L_min for _ in range(A)]
+    else:
+        r_out = _bcast_geom(r_outer, A, "r_outer", cast=int)
+    sym_out = _bcast_geom(sym_outer, A, "sym_outer", cast=bool)
+    rel_out = _bcast_geom(rel_outer, A, "rel_outer", cast=bool)
+    names_attr = _bcast_names(name, A)
+    if level_names is not None and len(level_names) != 2:
+        raise ValueError(
+            "level_names must be a length-2 [inner, outer] list (two-level "
+            "binding)."
+        )
+
+    # Per outer slot, the source event index for each group and a validity
+    # mask (False where the group is shorter than the slot).
+    src = np.zeros((L_max, n_prime), dtype=np.intp)
+    valid = np.zeros((L_max, n_prime), dtype=bool)
+    for j, g in enumerate(groups):
+        src[:g.size, j] = g
+        valid[:g.size, j] = True
+
+    p_attr_bound = []
+    w_bound = []
+    specs_out = []
+    for a in range(A):
+        M = p_attr[a]
+        Wa = (None if w is None
+              else (w[a] if isinstance(w, (list, tuple)) else w))
+        K_a = K[a]
+        blocks = []
+        wblocks = []
+        for ell in range(L_max):
+            cols = M[:, src[ell]]                       # (K_a, n_prime)
+            blocks.append(np.where(valid[ell][None, :], cols, np.nan))
+            if Wa is None:
+                wblocks.append(np.where(valid[ell][None, :], 1.0, 0.0))
+            else:
+                wblocks.append(np.where(valid[ell][None, :],
+                                        Wa[:, src[ell]], 0.0))
+        p_attr_bound.append(np.vstack(blocks))          # (L_max*K_a, n_prime)
+        w_bound.append(np.vstack(wblocks))
+
+        new_col = np.repeat(np.arange(L_max, dtype=np.intp), K_a)
+        s_in = specs_in[a] if isinstance(specs_in[a], dict) else {}
+        spec = {
+            "tags": new_col,
+            "r": [int(s_in.get("r", 1)), int(r_out[a])],
+            "sym": [bool(s_in.get("sym", True)), bool(sym_out[a])],
+            "rel": [int(bool(s_in.get("rel", False))), int(rel_out[a])],
+        }
+        if level_names is not None:
+            spec["names"] = list(level_names)
+        nm = names_attr[a] if names_attr[a] is not None else s_in.get("name")
+        if nm is not None:
+            spec["name"] = nm
+        specs_out.append(spec)
+
     return p_attr_bound, w_bound, specs_out
 
 

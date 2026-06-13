@@ -90,6 +90,8 @@ arguments
     nvArgs.relOuter = false
     nvArgs.name = []
     nvArgs.levelNames = []
+    nvArgs.groupBy = []
+    nvArgs.groupAtol (1, 1) double = 0
 end
 
 % --- Normalise pAttr to a cell of 2-D double matrices ---
@@ -129,6 +131,12 @@ for a = 2:A
 end
 
 % --- Parse bindOrders (scalar or 1 x A) ---
+if ~isempty(nvArgs.groupBy)
+    [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
+        pAttr, w, K, A, nEvents, bindOrders, nvArgs);
+    return
+end
+
 orders = localCanonicaliseBindOrders(bindOrders, A);
 
 % --- Inner geometry from the carrier specs ---
@@ -431,4 +439,148 @@ function tf = localWeightHasEventDep(wa, N, attrIdx)
           ['Attribute %d weight has shape [%s]; expected [], scalar, ' ...
            '[K_a 1] column, [1 %d] row, or [K_a %d] matrix.'], ...
           attrIdx, num2str(sz), N, N);
+end
+
+
+function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
+        pAttr, w, K, A, nEvents, bindOrders, nvArgs)
+%LOCALBINDEVENTSRUNLENGTH  Run-length (bind-by-attribute) binding.
+%   Consecutive events sharing a constant value on attribute groupBy are
+%   gathered into one super-event; a new group begins where the value
+%   changes. Group sizes vary, so the outer level is ragged: each
+%   super-event is padded to the maximum group size with NaN slots carrying
+%   zero weight. The inner level preserves each attribute's parameters; the
+%   outer read arity rOuter defaults to the smallest group size. Mirror of
+%   Python _bind_events_run_length.
+    groupBy  = nvArgs.groupBy;
+    groupAtol = nvArgs.groupAtol;
+    if ~isempty(bindOrders)
+        error('bindEvents:bindOrdersWithGroupBy', ...
+            ['bindOrders and groupBy are mutually exclusive: run-length ' ...
+             'binding reads the group sizes from the data, so pass ' ...
+             'bindOrders = [] when groupBy is given.']);
+    end
+    if nvArgs.circular
+        error('bindEvents:runLengthCircular', ...
+            'Circular run-length binding is not yet supported; pass circular = false.');
+    end
+    if nvArgs.step ~= 1
+        error('bindEvents:runLengthStep', ...
+            ['step has no meaning for run-length binding (groups are read ' ...
+             'from the data, not hopped); leave step at its default.']);
+    end
+    if ~(isscalar(groupBy) && groupBy == round(groupBy) ...
+            && groupBy >= 1 && groupBy <= A)
+        error('bindEvents:badGroupBy', ...
+            'groupBy must be an attribute index in 1..%d.', A);
+    end
+    if K(groupBy) ~= 1
+        error('bindEvents:groupByCardinality', ...
+            ['groupBy attribute %d must have K = 1 (one value per event); ' ...
+             'got K = %d. Constancy of a multi-slot value is ambiguous.'], ...
+            groupBy, K(groupBy));
+    end
+
+    if isempty(nvArgs.specs)
+        specsIn = flatSpecs(pAttr);
+    else
+        specsIn = nvArgs.specs;
+        if ~iscell(specsIn) || numel(specsIn) ~= A
+            error('bindEvents:badSpecs', ...
+                'specs must be a 1 x A (%d) cell, one per attribute.', A);
+        end
+    end
+    for a = 1:A
+        if isstruct(specsIn{a}) && isfield(specsIn{a}, 'tags')
+            error('bindEvents:runLengthNested', ...
+                ['attribute %d: run-length binding of an already-nested ' ...
+                 'attribute is not yet supported (flat inputs only).'], a);
+        end
+    end
+
+    % --- consecutive runs on the grouping attribute ---
+    gVals = pAttr{groupBy}(1, :);
+    if nEvents == 0
+        error('bindEvents:runLengthEmpty', 'groupBy produced no groups.');
+    end
+    if groupAtol == 0
+        changes = gVals(2:end) ~= gVals(1:end-1);
+    else
+        changes = abs(gVals(2:end) - gVals(1:end-1)) > groupAtol;
+    end
+    starts = [1, find(changes) + 1, nEvents + 1];
+    nPrime = numel(starts) - 1;
+    sizes = zeros(1, nPrime);
+    src = ones(0, nPrime);                 %#ok<NASGU> placeholder
+    for j = 1:nPrime
+        sizes(j) = starts(j + 1) - starts(j);
+    end
+    Lmax = max(sizes);
+    Lmin = min(sizes);
+
+    % source event index per (outer slot, group) and a validity mask
+    src = ones(Lmax, nPrime);
+    valid = false(Lmax, nPrime);
+    for j = 1:nPrime
+        s = sizes(j);
+        idx = starts(j):(starts(j + 1) - 1);
+        src(1:s, j) = idx(:);
+        valid(1:s, j) = true;
+    end
+
+    % --- outer-level overrides ---
+    if isempty(nvArgs.rOuter)
+        rOut = repmat(Lmin, 1, A);
+    else
+        rOut = localBcastGeom(nvArgs.rOuter, A, 'rOuter', false);
+    end
+    symOut = localBcastGeom(nvArgs.symOuter, A, 'symOuter', true);
+    relOut = localBcastGeom(nvArgs.relOuter, A, 'relOuter', true);
+    namesAttr = localBcastNames(nvArgs.name, A);
+    levelNames = nvArgs.levelNames;
+    if ~isempty(levelNames) && numel(levelNames) ~= 2
+        error('bindEvents:levelNames', ...
+            'levelNames must be a 1 x 2 {inner outer} cell (two-level binding).');
+    end
+
+    pAttrBound = cell(1, A);
+    wBound = cell(1, A);
+    specs = cell(1, A);
+    for a = 1:A
+        Marr = pAttr{a};
+        K_a = K(a);
+        blocks = cell(1, Lmax);
+        wblocks = cell(1, Lmax);
+        for ell = 1:Lmax
+            vmask = valid(ell, :);                 % 1 x nPrime
+            cols = Marr(:, src(ell, :));           % K_a x nPrime
+            cols(:, ~vmask) = NaN;
+            blocks{ell} = cols;
+            if isempty(w)
+                wb = double(repmat(vmask, K_a, 1));
+            else
+                wa = w{a};
+                wb = wa(:, src(ell, :));
+                wb(:, ~vmask) = 0;
+            end
+            wblocks{ell} = wb;
+        end
+        pAttrBound{a} = vertcat(blocks{:});
+        wBound{a} = vertcat(wblocks{:});
+
+        newColRow = repelem(0:(Lmax - 1), K_a);
+        sIn = specsIn{a};
+        rInA   = double(localSpecField(sIn, 'r',   1));
+        relInA = logical(localSpecField(sIn, 'rel', false));
+        symInA = logical(localSpecField(sIn, 'sym', true));
+        spec = struct('tags', newColRow, 'r', [rInA rOut(a)], ...
+                      'sym', [symInA symOut(a)], 'rel', [relInA relOut(a)]);
+        if ~isempty(levelNames); spec.names = levelNames; end
+        if ~isempty(namesAttr{a})
+            spec.name = namesAttr{a};
+        elseif ~isempty(localSpecField(sIn, 'name', []))
+            spec.name = localSpecField(sIn, 'name', []);
+        end
+        specs{a} = spec;
+    end
 end

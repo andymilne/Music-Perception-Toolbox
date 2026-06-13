@@ -1512,9 +1512,14 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         end
     end
 
-    % Nested attributes use a custom enumeration (and, for the inner unit,
-    % a block-diagonal metric) that the orbit / Möbius re-enumeration does
-    % not represent. Force the centres-based pairwise path.
+    % Nested attributes are not handled by the flat orbit/Möbius entry
+    % point: that path would have to flatten the levels into one slot set,
+    % but the inner unit's metric is block-diagonal (slots couple only
+    % within an aligned inner unit), which the flat re-enumeration cannot
+    % represent. Route instead to the hierarchical contraction, which
+    % contracts the tag tree level by level and itself selects the orbit
+    % (Möbius) reduction or permutation/combination enumeration per level;
+    % it is not enumeration-only.
     nestedAny = (isfield(dens_x, 'nested') && iscell(dens_x.nested) ...
                  && any(~cellfun(@isempty, dens_x.nested))) ...
              || (isfield(dens_y, 'nested') && iscell(dens_y.nested) ...

@@ -16,6 +16,12 @@ leaf-kernel batch and the node reduction differ:
 The recipe (tag tree + per-node permutation/combination index arrays) is
 built once and reused across the three inner products (XY, XX, YY) and
 across all quadrature nodes.
+
+Each symmetric level independently uses the orbit (Möbius) reduction when
+its read-arity makes the orbit cheaper than r! enumeration, and explicit
+permutation/combination enumeration otherwise (the per-level choice mirrors
+the flat path's calibrated policy). The contraction therefore composes with
+both the Bulger and Möbius decompositions rather than replacing them.
 """
 from __future__ import annotations
 

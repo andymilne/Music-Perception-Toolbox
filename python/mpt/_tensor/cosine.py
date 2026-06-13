@@ -1218,10 +1218,14 @@ def _cos_sim_exp_tens_ma(
     if ordered_any:
         chosen = "bulger"
 
-    # Nested attributes use a custom enumeration (and, for the inner unit,
-    # a block-diagonal metric) that the orbit / Möbius re-enumeration does
-    # not represent. Force the centres-based pairwise path, which reads the
-    # stored per-attribute centres directly.
+    # Nested attributes are not handled by the flat orbit/Möbius entry
+    # point: that path would have to flatten the levels into one slot set,
+    # but the inner unit's metric is block-diagonal (slots couple only
+    # within an aligned inner unit), which the flat re-enumeration cannot
+    # represent. Route instead to the hierarchical contraction, which
+    # contracts the tag tree level by level and itself selects the orbit
+    # (Möbius) reduction or permutation/combination enumeration per level
+    # (see _nested_contraction.build_recipe); it is not enumeration-only.
     nested_x = getattr(dens_x, "nested", None)
     nested_y = getattr(dens_y, "nested", None)
     nested_any = (
@@ -1241,7 +1245,7 @@ def _cos_sim_exp_tens_ma(
             if triple is not None:
                 return _finalise_normalisation(*triple, normalize)
             # When forced, _try_nested_contract raises on any uncovered case,
-            # so a None here means method == "auto" chose enumeration.
+            # so a None here means method == "auto" chose the centres path.
         chosen = "bulger"
 
     if chosen == "mobius":

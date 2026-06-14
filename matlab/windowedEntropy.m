@@ -36,6 +36,13 @@ function H = windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period, centres, 
 %     'windowAttr'           - 1-based window axis. Default: last attribute.
 %     'marginalise'          - axes to integrate out (only the window axis
 %                              supported; r = 1 required). Default [].
+%     'specs'                - [] (flat carrier) or a 1-by-A cell of carrier
+%                              specs (as returned by bindEvents). When given,
+%                              the per-attribute geometry is read from specs
+%                              and the positional r/isRel supply only the
+%                              window-axis order used by the marginalisation
+%                              guard; sigma/isPer/period still supply kernel
+%                              widths and periodicity. Default [].
 %     'verbose'              - logical, default false.
 %
 %   See also WINDOWEDSIMILARITY, WEIGHTEVENTS, BUILDEXPTENS, ENTROPYEXPTENS.
@@ -58,6 +65,7 @@ arguments
     nv.targetAttr = []
     nv.windowAttr = []
     nv.marginalise = []
+    nv.specs = []
     nv.verbose (1,1) logical = false
 end
 
@@ -118,11 +126,18 @@ relK = isRel(keep); perK = isPer(keep); pdK = period(keep);
 ctr = local_resolve_centres(pAttr, axisIdx, centres, ...
     nv.start, nv.stop, nv.step, wWidth);
 
+nested = ~isempty(nv.specs);
 H = zeros(1, numel(ctr));
 for i = 1:numel(ctr)
-    [pw, ww] = weightEvents(pAttr, w, axisIdx, target, ctr(i), wShape, ...
-        'width', wWidth, 'deleteInput', deleteAxis);
-    dens = buildExpTens(pw, ww, sigK, rK, relK, perK, pdK, 'verbose', false);
+    [pw, ww, sw] = weightEvents(pAttr, w, axisIdx, target, ctr(i), wShape, ...
+        'width', wWidth, 'deleteInput', deleteAxis, 'specs', nv.specs);
+    if nested
+        % geometry rides in the (axis-pruned) specs; r/isRel unused
+        dens = buildExpTens(pw, ww, 'sigma', sigK, 'isPer', perK, ...
+            'period', pdK, 'specs', sw, 'verbose', false);
+    else
+        dens = buildExpTens(pw, ww, sigK, rK, relK, perK, pdK, 'verbose', false);
+    end
     H(i) = entropyExpTens(dens, 'method', nv.method, 'base', nv.base, ...
         'verbose', false);
 end

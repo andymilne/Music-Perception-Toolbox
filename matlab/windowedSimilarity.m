@@ -47,6 +47,15 @@ function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
 %                              Default: first non-axis attribute.
 %     'normalize'            - 'oneSidedDenom' (default) | 'cosine'.
 %     'windowAttr'           - 1-based window axis. Default: last attribute.
+%     'specs'                - [] (flat carrier) or a 1-by-A cell of carrier
+%                              specs, as returned by bindEvents and consumed
+%                              by buildExpTens. When given, the per-attribute
+%                              geometry (r, sym, rel, and any nested levels)
+%                              is read from specs and the positional r/isRel
+%                              are unused; sigma/isPer/period still supply the
+%                              kernel widths and periodicity that specs does
+%                              not carry. With [] the carrier is flat and the
+%                              result is identical to before. Default [].
 %     'verbose'              - logical, default false.
 %
 %   The query-translation path batches all trailing-axis placements into a
@@ -76,6 +85,7 @@ arguments
     nv.targetAttr = []
     nv.normalize (1,:) char = 'oneSidedDenom'
     nv.windowAttr = []
+    nv.specs = []
     nv.verbose (1,1) logical = false
 end
 
@@ -100,6 +110,7 @@ if target == axisIdx
     error('windowedSimilarity:badTarget', ...
         'targetAttr must differ from windowAttr.');
 end
+nested = ~isempty(nv.specs);   % nested carrier: geometry rides in specs
 
 % --- context window spec -------------------------------------------------
 cwShapeRaw = nv.contextWindow{1};
@@ -158,14 +169,22 @@ end
 
 out = zeros(nA, T);
 for a = 1:nA
-    % place the context once for this row
+    % place the context once for this row (threading specs through)
     if translateContext
         offs = cell(1, A);
         offs{axisIdx} = ctxCentres(a) - muC;
-        [pc, wc] = translateAttributes(pContext, wContext, offs);
+        [pc, wc, sc] = translateAttributes(pContext, wContext, offs, ...
+            'specs', nv.specs);
     else
-        [pc, wc] = weightEvents(pContext, wContext, axisIdx, target, ...
-            ctxCentres(a), cwShape, 'width', cwWidth, 'deleteInput', false);
+        [pc, wc, sc] = weightEvents(pContext, wContext, axisIdx, target, ...
+            ctxCentres(a), cwShape, 'width', cwWidth, 'deleteInput', false, ...
+            'specs', nv.specs);
+    end
+    % nested: build the windowed-context density once per centre; the
+    % geometry rides in specs, so the positional r/isRel are unused.
+    if nested
+        dc = buildExpTens(pc, wc, 'sigma', sigma, 'isPer', isPer, ...
+            'period', period, 'specs', sc, 'verbose', false);
     end
 
     row = qMat(a, :);              % 1 x T query centres for this context
@@ -175,24 +194,53 @@ for a = 1:nA
         % the single context against the batch.
         offs = cell(1, A);
         offs{axisIdx} = row - muQ;             % 1 x T row -> M copies
-        qSwept = translateAttributes(pQuery, wQuery, offs);
-        if T == 1
-            out(a, 1) = cosSimExpTens(pc, wc, qSwept, wQuery, ...
-                sigma, r, isRel, isPer, period, ...
-                'normalize', nv.normalize, 'verbose', false);
+        [qSwept, ~, sq] = translateAttributes(pQuery, wQuery, offs, ...
+            'specs', nv.specs);
+        if nested
+            if T == 1
+                dq = buildExpTens(qSwept, wQuery, 'sigma', sigma, ...
+                    'isPer', isPer, 'period', period, 'specs', sq, ...
+                    'verbose', false);
+                out(a, 1) = cosSimExpTens(dc, dq, ...
+                    'normalize', nv.normalize, 'verbose', false);
+            else
+                dqCell = cell(1, T);
+                for t = 1:T
+                    dqCell{t} = buildExpTens(qSwept{t}, wQuery, ...
+                        'sigma', sigma, 'isPer', isPer, 'period', period, ...
+                        'specs', sq, 'verbose', false);
+                end
+                sCell = cosSimExpTens(dc, dqCell, ...
+                    'normalize', nv.normalize, 'verbose', false);
+                out(a, :) = cell2mat(sCell(:).');
+            end
         else
-            sCell = cosSimExpTens(pc, wc, qSwept, wQuery, ...
-                sigma, r, isRel, isPer, period, ...
-                'normalize', nv.normalize, 'verbose', false);
-            out(a, :) = cell2mat(sCell(:).');
+            if T == 1
+                out(a, 1) = cosSimExpTens(pc, wc, qSwept, wQuery, ...
+                    sigma, r, isRel, isPer, period, ...
+                    'normalize', nv.normalize, 'verbose', false);
+            else
+                sCell = cosSimExpTens(pc, wc, qSwept, wQuery, ...
+                    sigma, r, isRel, isPer, period, ...
+                    'normalize', nv.normalize, 'verbose', false);
+                out(a, :) = cell2mat(sCell(:).');
+            end
         end
     else
         for t = 1:T
-            [pq, wq] = weightEvents(pQuery, wQuery, axisIdx, target, ...
-                row(t), qwShape, 'width', qwWidth, 'deleteInput', false);
-            out(a, t) = cosSimExpTens(pc, wc, pq, wq, ...
-                sigma, r, isRel, isPer, period, ...
-                'normalize', nv.normalize, 'verbose', false);
+            [pq, wq, sqq] = weightEvents(pQuery, wQuery, axisIdx, target, ...
+                row(t), qwShape, 'width', qwWidth, 'deleteInput', false, ...
+                'specs', nv.specs);
+            if nested
+                dq = buildExpTens(pq, wq, 'sigma', sigma, 'isPer', isPer, ...
+                    'period', period, 'specs', sqq, 'verbose', false);
+                out(a, t) = cosSimExpTens(dc, dq, ...
+                    'normalize', nv.normalize, 'verbose', false);
+            else
+                out(a, t) = cosSimExpTens(pc, wc, pq, wq, ...
+                    sigma, r, isRel, isPer, period, ...
+                    'normalize', nv.normalize, 'verbose', false);
+            end
         end
     end
 end

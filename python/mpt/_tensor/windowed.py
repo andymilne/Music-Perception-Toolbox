@@ -93,23 +93,40 @@ def _resolve_centres(p_attr, axis, centres, start, stop, step, default_step):
     return lo + st * np.arange(max(n, 1))
 
 
-def _translate_to(p_attr, w, axis, centre):
-    """Translate the carrier on `axis` so the axis mean lands at `centre`."""
+def _translate_to(p_attr, w, axis, centre, specs=None):
+    """Translate the carrier on `axis` so the axis mean lands at `centre`.
+
+    Returns ``(p_attr, w, specs)``; the third value is the carrier's specs
+    threaded through :func:`translate_attributes` unchanged (translation does
+    not alter nesting). It is ``None``-derived (flat) when ``specs is None``.
+    """
     mu = float(np.nanmean(np.asarray(p_attr[axis], dtype=float)))
     offsets = [None] * len(p_attr)
     offsets[axis] = np.array([[centre - mu]], dtype=float)
-    pt, wt, _ = translate_attributes(p_attr, w, offsets)
-    return pt, wt
+    pt, wt, st = translate_attributes(p_attr, w, offsets, specs=specs)
+    return pt, wt, st
 
 
 def _window_at(p_attr, w, axis, target, centre, shape, width, *,
-               delete_input):
-    pt, wt, _ = weight_events(
+               delete_input, specs=None):
+    """Window the carrier at `centre`; returns ``(p_attr, w, specs)`` with the
+    threaded-through (and, under ``delete_input``, axis-pruned) specs."""
+    pt, wt, st = weight_events(
         p_attr, w, axis, target, float(centre), shape,
         width=width, is_per=False, period=0.0,
-        delete_input=delete_input,
+        delete_input=delete_input, specs=specs,
     )
-    return pt, wt
+    return pt, wt, st
+
+
+def _as_query_batch(pqs):
+    """Normalise :func:`translate_attributes`' query output to a list of
+    carriers. A batched translate (T > 1) returns a length-T list of
+    length-A carriers (``pqs[0]`` is itself a list); a single translate
+    returns one length-A carrier (``pqs[0]`` is an array)."""
+    if pqs and isinstance(pqs[0], (list, tuple)):
+        return list(pqs)
+    return [pqs]
 
 
 def _similarity_finalise(ctx_transformed, query_transformed, sigma, r,
@@ -141,6 +158,7 @@ def windowed_similarity(
     normalize="oneSidedDenom",
     window_attr=-1,
     truncation_sigmas=None,
+    specs=None,
     verbose=True,
 ):
     """Sliding pre-MAET similarity profile (cross-correlation).
@@ -152,6 +170,17 @@ def windowed_similarity(
     template sweep). Pass `query_centres` to decouple the query's placement
     from the context's (e.g. a lag sweep). A `window` of ``None`` translates
     that operand whole; ``(shape, width)`` windows it.
+
+    Nested carriers. Pass `specs` (a length-A list, exactly as returned by
+    :func:`bind_events` and consumed by :func:`build_exp_tens`) to score
+    nested attributes -- bound super-events, spectral inner multisets, the
+    ``rel = 1`` transposition quotient, and so on. The per-attribute
+    geometry (`r`, `sym`, `rel`, including any nested levels) is then read
+    from `specs`; the positional `r`/`is_rel` are unused and `sigma`,
+    `is_per`, `period` continue to supply the kernel widths and periodicity
+    that `specs` does not carry. With ``specs=None`` (the default) the carrier
+    is flat and every result is bit-identical to before -- the nesting is
+    purely additive.
     """
     p_context = list(p_context)
     p_query = list(p_query)
@@ -209,11 +238,13 @@ def windowed_similarity(
         else:
             raise ValueError("query_centres must be None, 1-D, or 2-D")
 
+    nested = specs is not None
+
     def place_context(centre):
         if translate_context:
-            return _translate_to(p_context, w_context, axis, centre)
+            return _translate_to(p_context, w_context, axis, centre, specs=specs)
         return _window_at(p_context, w_context, axis, target, centre,
-                          cw_shape, cw_width, delete_input=False)
+                          cw_shape, cw_width, delete_input=False, specs=specs)
 
     translate_query = query_window is None
     if not translate_query:
@@ -225,26 +256,48 @@ def windowed_similarity(
 
     out = np.empty((A, q_rows.shape[1]), dtype=float)
     for a in range(A):
-        pc, wc = place_context(ctx_centres[a])
+        pc, wc, sc = place_context(ctx_centres[a])
+        # Nested: build the windowed-context density once per centre; the
+        # geometry rides in `specs`, so the positional r/is_rel are unused.
+        dc = (build_exp_tens(pc, wc, sigma=sigma, is_per=is_per, period=period,
+                             specs=sc, verbose=False) if nested else None)
         row = q_rows[a]
         if translate_query:
             # One translate produces all T shifted query copies; one
             # cos_sim scores the single context against the batch.
             offsets = [None] * n_attr
             offsets[axis] = (row - mu_q).reshape(1, row.size)
-            pqs, wqs, _ = translate_attributes(p_query, w_query, offsets)
-            vals = cos_sim_exp_tens(
-                pc, wc, pqs, wqs, sigma, r, is_rel, is_per, period,
-                normalize=normalize, truncation_sigmas=truncation_sigmas,
-                verbose=False)
+            pqs, wqs, sqs = translate_attributes(p_query, w_query, offsets,
+                                                 specs=specs)
+            if nested:
+                dq = [build_exp_tens(qc, wqs, sigma=sigma, is_per=is_per,
+                                     period=period, specs=sqs, verbose=False)
+                      for qc in _as_query_batch(pqs)]
+                vals = cos_sim_exp_tens(
+                    dc, dq if len(dq) != 1 else dq[0],
+                    normalize=normalize, truncation_sigmas=truncation_sigmas,
+                    verbose=False)
+            else:
+                vals = cos_sim_exp_tens(
+                    pc, wc, pqs, wqs, sigma, r, is_rel, is_per, period,
+                    normalize=normalize, truncation_sigmas=truncation_sigmas,
+                    verbose=False)
             out[a, :] = np.atleast_1d(np.asarray(vals, dtype=float)).ravel()
         else:
             for t, qcen in enumerate(row):
-                pq, wq = _window_at(p_query, w_query, axis, target, qcen,
-                                    qw_shape, qw_width, delete_input=False)
-                out[a, t] = _similarity_finalise(
-                    (pc, wc), (pq, wq), sigma, r, is_rel, is_per, period,
-                    normalize, truncation_sigmas)
+                pq, wq, sq = _window_at(p_query, w_query, axis, target, qcen,
+                                        qw_shape, qw_width, delete_input=False,
+                                        specs=specs)
+                if nested:
+                    dq = build_exp_tens(pq, wq, sigma=sigma, is_per=is_per,
+                                        period=period, specs=sq, verbose=False)
+                    out[a, t] = float(cos_sim_exp_tens(
+                        dc, dq, normalize=normalize,
+                        truncation_sigmas=truncation_sigmas, verbose=False))
+                else:
+                    out[a, t] = _similarity_finalise(
+                        (pc, wc), (pq, wq), sigma, r, is_rel, is_per, period,
+                        normalize, truncation_sigmas)
     return out.reshape(out_shape)
 
 
@@ -258,6 +311,7 @@ def windowed_entropy(
     window_attr=-1,
     marginalise=None,
     truncation_sigmas=None,
+    specs=None,
     base=2.0,
     verbose=True,
 ):
@@ -270,6 +324,13 @@ def windowed_entropy(
     ``r = 1`` attribute (absolute or periodic), for which deletion from the
     carrier equals marginalisation of the density. The window `width` has no
     default (there is no query to borrow from) and must be supplied.
+
+    Nested carriers. Pass `specs` (a length-A list, as returned by
+    :func:`bind_events`) to take the entropy of a density over nested
+    attributes; the per-attribute geometry (`r`, `sym`, `rel`, nested
+    levels) is then read from `specs` and the positional `r`/`is_rel` supply
+    only the window-axis order used by the marginalisation guard. With
+    ``specs=None`` the carrier is flat and every result is unchanged.
     """
     p = list(p)
     n_attr = len(p)
@@ -319,12 +380,18 @@ def windowed_entropy(
     # Lazy import to avoid a build-time cycle (entropy imports from _tensor).
     from ..entropy import entropy_exp_tens
 
+    nested = specs is not None
     H = np.empty(ctr.shape[0], dtype=float)
     for i, c in enumerate(ctr):
-        pw, ww = _window_at(p, w, axis, target, c, w_shape, w_width,
-                            delete_input=delete_axis)
-        dens = build_exp_tens(pw, ww, sig_k, r_k, rel_k, per_k, pd_k,
-                              verbose=False)
+        pw, ww, sw = _window_at(p, w, axis, target, c, w_shape, w_width,
+                                delete_input=delete_axis, specs=specs)
+        if nested:
+            # Geometry rides in the (axis-pruned) specs; r/is_rel unused.
+            dens = build_exp_tens(pw, ww, sigma=sig_k, is_per=per_k,
+                                  period=pd_k, specs=sw, verbose=False)
+        else:
+            dens = build_exp_tens(pw, ww, sig_k, r_k, rel_k, per_k, pd_k,
+                                  verbose=False)
         H[i] = float(entropy_exp_tens(dens, method=method, base=base,
                                       verbose=False))
     return H

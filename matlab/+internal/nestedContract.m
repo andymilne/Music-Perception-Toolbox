@@ -834,13 +834,6 @@ end
 % ----------------------------------------------------------------------
 %  Quadrature (shared across event-pairs and the IP triple)
 % ----------------------------------------------------------------------
-function n = autoNtau(period, sigma, tol)
-    base = 2 * pi * period / sigma;
-    margin = 1 + 0.5 * max(0, -log10(max(tol, 1e-16))) / 12;
-    n = max(64, ceil(base * margin));
-end
-
-
 function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts)
     if ~isRel
         quad = struct('mode', 'abs', 'isPer', logical(isPer));
@@ -852,7 +845,7 @@ function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts)
         tol = 1e-12;
     end
     if isPer
-        ntau = autoNtau(period, sigma, tol);
+        ntau = internal.autoNtauDefault(period, sigma);
         t = linspace(0, period, ntau + 1);
         quad = struct('mode', 'relper', 'taus', t(1:end - 1));  % endpoint=false
     else
@@ -876,7 +869,7 @@ function Q = quadNodes(isRel, isPer, sigma, period, vmin, vmax, ts)
         tol = 1e-12;
     end
     if isPer
-        Q = autoNtau(period, sigma, tol);
+        Q = internal.autoNtauDefault(period, sigma);
     else
         spread = vmax - vmin;
         pad = (6 + 0.5 * max(0, -log10(max(tol, 1e-16)))) * sigma;

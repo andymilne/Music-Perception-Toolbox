@@ -50,7 +50,7 @@ results{end, 2}   = abs(sA - GOLDEN_A) < RTOL * abs(GOLDEN_A) + ATOL;
 
 sB = cosSimExpTens(p1, w, p2, w, 80, 3, true, true, 1200, ...
     'method', 'mobius', 'verbose', false);
-GOLDEN_B = 0.98878587374986;
+GOLDEN_B = 0.98878587398645;
 results{end+1, 1} = 'cross-language golden B: SA cosSim rel r=3 per Möbius';
 results{end, 2}   = abs(sB - GOLDEN_B) < RTOL * abs(GOLDEN_B) + ATOL;
 

@@ -163,20 +163,22 @@ p_x = (0:5)' * 200;
 w_x = ones(6, 1);
 p_y = (0:5)' * 200 + 50;
 w_y = ones(6, 1);
-% sigma/period = 60/1200 = 0.05 > 0.03 threshold
-warnState = warning('on', 'cosSimExpTens:mobiusSigmaOverPFallback');
+% sigma/period = 60/1200 = 0.05 > 0.03 threshold. The faster SA path here is
+% the all-image (Möbius) form, so auto takes it and warns; the result matches
+% explicit Möbius and differs from single-wrap Bulger above the threshold.
+warnState = warning('on', 'cosSimExpTens:relPerAllImage');
 lastwarn('');
 s_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
     'verbose', true);
 [wmsg, wid] = lastwarn;
 warning(warnState);
-results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 fires fallback warning';
-results{end,2}   = strcmp(wid, 'cosSimExpTens:mobiusSigmaOverPFallback');
-% Result must still be correct (matches explicit Bulger).
-s_pair_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
-    'method', 'bulger', 'verbose', false);
-results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 result matches Bulger';
-results{end,2}   = abs(s_warn - s_pair_warn) < 1e-12;
+results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 fires all-image warning';
+results{end,2}   = strcmp(wid, 'cosSimExpTens:relPerAllImage');
+% Auto took the all-image path, so it matches explicit Möbius (not Bulger).
+s_mob_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
+    'method', 'mobius', 'verbose', false);
+results{end+1,1} = 'dispatch.SA: rel+per sigma/P=0.05 result matches Möbius';
+results{end,2}   = abs(s_warn - s_mob_warn) < 1e-12;
 
 %% ---- Cross-cancellation guard fires fallback ----
 

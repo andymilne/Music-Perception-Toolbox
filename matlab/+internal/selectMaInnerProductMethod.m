@@ -4,9 +4,10 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
 %   Mirror of Python dispatch._select_ma_inner_product_method. Routing
 %   rules, in order: (1) userMethod override; (2) r_max <= 1 -> Bulger;
 %   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger; (4) K-vs-r precision guard
-%   (orbitSafeForPrecision) -> Bulger; (5) rel+per with sigma/P beyond the
-%   integration-exact regime -> warn, Bulger; (6) otherwise predict both
-%   wall times (ms) and pick the smaller (ties favour Bulger). Constants
+%   (orbitSafeForPrecision) -> Bulger; (5) predict both wall times (ms) and
+%   take the faster path (ties favour Bulger); when that path is the all-image
+%   Möbius method and rel+per sigma/P exceeds 0.03, warn that it differs from
+%   the canonical single-wrap measure and point to method='bulger'. Constants
 %   are the Python-calibrated values, so the route is identical to Python.
     if nargin < 11; verbose = true; end
     if ~strcmp(userMethod, 'auto')
@@ -27,17 +28,12 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     if A > 0 && ~internal.orbitSafeForPrecision(rVec, kVec)
         chosen = 'bulger'; return;     % K-vs-r precision guard
     end
-    if anyRelPer && sigmaOverPMax > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-        if verbose
-            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
-                ['Maximum sigma/period = %.3f across periodic-relative ' ...
-                 'attributes exceeds the Möbius-method threshold (0.03); ' ...
-                 'falling back to Bulger''s method (the pairwise-wrap ' ...
-                 'form). Pass ''method'', ''bulger'' explicitly to ' ...
-                 'silence this warning.'], sigmaOverPMax);
-        end
-        chosen = 'bulger'; return;
-    end
+    % Relative-periodic measure note: the Möbius method computes the all-image
+    % (transposition-integral) form, Bulger's the single-wrap (minimum-image)
+    % form; they diverge above sigma/P = 0.03. The dispatch always takes the
+    % faster path (cost model below); when that path is the all-image Möbius
+    % method and sigma/P is above the threshold it warns and points to
+    % method='bulger' for the canonical single-wrap measure.
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny);
     pwCost = pwSize * pwPerEntryMs(anyPer);
     orbitCost = predictOrbitCostMs(r_max, A, Nx, Ny, kVec, ...
@@ -45,6 +41,9 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     if pwCost <= orbitCost
         chosen = 'bulger';
     else
+        if anyRelPer && sigmaOverPMax > 0.03 && verbose   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+            internal.warnRelPerAllImage(sigmaOverPMax);
+        end
         chosen = 'mobius';
     end
 end

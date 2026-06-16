@@ -10,9 +10,12 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %   integrating the orbit-evaluated kernel against u via
 %   MOBIUS.INNERPRODUCTORBITGRID.
 %
-%   Grid density is samplesPerSigma = 10 points per sigma; the
-%   truncation in the non-periodic case extends 8*sigma beyond the
-%   natural overlap.
+%   In the periodic case the node count comes from
+%   INTERNAL.AUTONTAUDEFAULT, the single shared source used by the flat
+%   and nested relative-periodic paths so the same level returns the same
+%   value whichever path computes it. In the non-periodic case the line
+%   grid has samplesPerSigma = 10 points per sigma and the truncation
+%   extends 8*sigma beyond the natural overlap.
 %
 %   Inputs:
 %     P_A, W_A   (n_a, 1) source positions and weights for density A.
@@ -52,7 +55,7 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
     n_a = numel(p_a); n_b = numel(p_b);
 
     if isPer
-        N_u = max(64, ceil(period / sigma * samplesPerSigma));
+        N_u = internal.autoNtauDefault(period, sigma);
         u_grid = (0:N_u-1)' * (period / N_u);
         du = period / N_u;
     else

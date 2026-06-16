@@ -995,12 +995,10 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
 %     5. K-vs-r precision guard: the Möbius method's alternating partition
 %        sum can suffer catastrophic cancellation when n_min is too close
 %        to r. Margin is 2 (i.e., n_min - r >= 2 required).
-%     6. Periodic-relative beyond sigma/period > 0.03: the Möbius method
-%        computes the JMM Eq. 3.4 integral form; Bulger's method computes
-%        the single-nearest-image-wrap form. They diverge in this regime.
-%        For backward compatibility the toolbox treats Bulger's
-%        pairwise-wrap form as canonical; warn and fall back unless the
-%        user explicitly asked for 'mobius'.
+%     6. Periodic-relative beyond sigma/period > 0.03: the all-image (Möbius)
+%        form is the faster SA path, so it is taken; because it differs from
+%        the canonical single-wrap (Bulger) measure above this sigma/period,
+%        warn and point to method='bulger' for the single-wrap measure.
 
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
@@ -1022,17 +1020,8 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
         chosen = 'bulger';
         return;
     end
-    if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-        if verbose
-            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
-                    ['sigma/period = %.3f exceeds the Möbius-method ' ...
-                     'threshold (0.03) for periodic-relative mode; ' ...
-                     'falling back to Bulger''s method (the pairwise-' ...
-                     'wrap form). Pass ''method'', ''bulger'' explicitly ' ...
-                     'to silence this warning.'], sigmaOverP);
-        end
-        chosen = 'bulger';
-        return;
+    if isRel && isPer && sigmaOverP > 0.03 && verbose   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+        internal.warnRelPerAllImage(sigmaOverP);
     end
     chosen = 'mobius';
 end
@@ -1113,21 +1102,13 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         routingReason = sprintf('min(K_x, K_y) - r = %d < 2', n_min - r);
         return;
     end
-    if isRel && isPer && sigmaOverP > 0.03   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-        if verbose
-            warning('cosSimExpTens:mobiusSigmaOverPFallback', ...
-                    ['sigma/period = %.3f exceeds the Möbius-method ' ...
-                     'threshold (0.03) for periodic-relative mode; ' ...
-                     'falling back to Bulger''s method (the pairwise-' ...
-                     'wrap form). Pass ''method'', ''bulger'' explicitly ' ...
-                     'to silence this warning.'], sigmaOverP);
-        end
-        chosen = 'bulger';
-        probed = false;
-        estSec = 0;
-        routingReason = 'sigma/period > 0.03 (rel-per Möbius fallback)';
-        return;
-    end
+    % Relative-periodic measure note: 'mobius' is the all-image
+    % (transposition-integral) form, 'bulger' the single-wrap (minimum-image)
+    % form; they diverge above sigma/P = 0.03. The dispatch takes the faster
+    % path (pre-screen / probe below); when that path is the all-image Möbius
+    % method and sigma/P is above the threshold it warns at the return point
+    % and points to method='bulger' for the canonical single-wrap measure.
+    relPerAbove = isRel && isPer && sigmaOverP > 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
 
     % ---- Analytical cost models ----
     pairwiseFull = localFallingFactorial(K_x, r) ...
@@ -1137,6 +1118,9 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
 
     % ---- Analytical pre-screen ----
     if orbitFull * PRESCREEN_IP_DOMINANCE < pairwiseFull
+        if relPerAbove && verbose
+            internal.warnRelPerAllImage(sigmaOverP);
+        end
         chosen = 'mobius';
         probed = false;
         estSec = 0;
@@ -1181,6 +1165,9 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         chosen = 'bulger';
         estSec = tPairwiseEst;
     else
+        if relPerAbove && verbose
+            internal.warnRelPerAllImage(sigmaOverP);
+        end
         chosen = 'mobius';
         estSec = tOrbitEst;
     end

@@ -1,8 +1,18 @@
 function tf = orbitBeatsPairwisePerAttr(r, K, isRel, isPer)
-%ORBITBEATSPAIRWISEPERATTR  Per-attribute K-vs-r Möbius/Bulger crossover.
-%   Mirror of Python dispatch._orbit_beats_pairwise_per_attr. A legacy
-%   crossover heuristic (the cost-model dispatcher is preferred for the
-%   flat MA path); the per-level nested orbit choice reuses it with K = g.
+%ORBITBEATSPAIRWISEPERATTR  Per-level orbit-vs-enumeration decision for one
+%   symmetric attribute or nesting level, from the mode-aware K thresholds.
+%   Mirror of Python dispatch._orbit_beats_pairwise_per_attr.
+%
+%   This is the live predicate for the per-level decision in the nested
+%   contraction (internal.nestedContract): it runs once per level, so it uses
+%   a cheap mode-aware threshold rather than a probe. The flat multi-attribute
+%   and single-attribute inner-product paths instead make a whole-call decision
+%   through the cost model and probe (internal.selectMaInnerProductMethod and
+%   localSelectAndEstimateSAIP in cosSimExpTens), which also weigh N. The two
+%   mechanisms are matched to their contexts, not redundant: the per-level
+%   predicate cannot afford a probe, and its thresholds encode the
+%   relative-periodic u-grid overhead that an op-count comparison would miss.
+%   tf = true means orbit (Möbius) is the cheaper route here.
     ORBIT_R_MAX_SHIPPED = 8;    % match Python _ORBIT_R_MAX_SHIPPED
     if r == 1 || r > ORBIT_R_MAX_SHIPPED
         tf = false;

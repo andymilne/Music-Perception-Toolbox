@@ -7,7 +7,7 @@
 %      regimes (r >= 3, abs and rel modes, periodic and non-periodic).
 %    - Auto routing: rel groups always Bulger; r_max < 3 always
 %      Bulger; r_max >= 3 abs routes to the Möbius method.
-%    - sigma/period > 0.03 in rel+per groups falls back to Bulger
+%    - sigma/period > 0.03 in rel+per groups: faster all-image form + warning
 %      with a warning.
 %    - K_{a,n}-vs-r margin: ragged K (NaN-padded events) handled
 %      transparently via zero-pad inside the Möbius-method wrapper.
@@ -114,24 +114,29 @@ s_orb_rel = cosSimExpTens(dxR, dyR, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: explicit Möbius on rel groups matches Bulger (1e-6)';
 results{end,2}   = abs(s_orb_rel - s_pwise_rel) < 1e-6;
 
-%% ---- sigma/period > 0.03 fallback warning ----
+%% ---- sigma/period > 0.03 all-image warning ----
 
 rng(57, 'twister');
 period_w = 100;
-PxW = sort(period_w * rand(8, 2));   WxW = ones(8, 2);
-PyW = sort(period_w * rand(8, 2));   WyW = ones(8, 2);
+% K = 12 (rows), not 8: under the faster-path-plus-warn policy the warning
+% fires only when the cost model actually takes the all-image (Möbius) path.
+% At sigma/P = 0.30 that needs the pairwise C(K,r)^2 work to be large enough;
+% K = 8 routes to Bulger (single-wrap, the faster path there) and is silent,
+% whereas K = 12 makes the all-image orbit the faster path.
+PxW = sort(period_w * rand(12, 4));   WxW = ones(12, 4);
+PyW = sort(period_w * rand(12, 4));   WyW = ones(12, 4);
 dxW = buildExpTens({PxW}, {WxW}, 30, 3, true, true, period_w, ...
-    'verbose', false);  % sigma/P = 0.30 -> well above 0.03
+    'verbose', false);  % sigma/P = 0.30 -> well above 0.03, all-image path
 dyW = buildExpTens({PyW}, {WyW}, 30, 3, true, true, period_w, ...
     'verbose', false);
 
-w_state = warning('on', 'cosSimExpTens:mobiusSigmaOverPFallback');
+w_state = warning('on', 'cosSimExpTens:relPerAllImage');
 lastwarn('');
 s_warn = cosSimExpTens(dxW, dyW, 'verbose', true);  %#ok<NASGU>
 [~, lastID] = lastwarn;
 warning(w_state);
-results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per emits fallback warning';
-results{end,2}   = strcmp(lastID, 'cosSimExpTens:mobiusSigmaOverPFallback');
+results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per emits all-image warning';
+results{end,2}   = strcmp(lastID, 'cosSimExpTens:relPerAllImage');
 
 %% ---- r=2 auto routes by the cost model (parity with Python) ----
 

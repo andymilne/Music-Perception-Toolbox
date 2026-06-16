@@ -126,10 +126,27 @@ def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A2_heavy_K():
 
 
 def test_ma_dispatcher_warns_above_perrel_threshold():
-    """Periodic-relative σ/P > threshold triggers warning + fallback."""
-    with pytest.warns(UserWarning, match=r"Maximum σ/P = .* exceeds"):
+    """Periodic-relative σ/P > threshold: the dispatch takes the faster path.
+
+    When that path is the all-image (Möbius) form -- at large K/N where the
+    orbit cost model wins -- it warns and points to method='bulger' for the
+    canonical single-wrap measure. When the faster path is the single-wrap
+    pairwise (Bulger) form -- at small K/N -- it is taken silently, since
+    below that size there is no measure change to warn about.
+    """
+    # Large problem: orbit/all-image is the faster path → Möbius, with warning.
+    with pytest.warns(UserWarning, match=r"all-image"):
         chosen = _select_ma_inner_product_method(
-            **_disp_kwargs(any_rel_per=True, sigma_over_P_max=0.05),
+            **_disp_kwargs(K=12, N_x=12, N_y=12, any_per=True,
+                           any_rel_per=True, sigma_over_P_max=0.05),
+        )
+    assert chosen == 'mobius'
+    # Small problem: single-wrap pairwise is the faster path → Bulger, silent.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        chosen = _select_ma_inner_product_method(
+            **_disp_kwargs(K=6, N_x=6, N_y=6, any_per=True,
+                           any_rel_per=True, sigma_over_P_max=0.05),
         )
     assert chosen == 'bulger'
 

@@ -93,14 +93,21 @@ def test_perrel_below_threshold_routes_orbit(sop):
 
 
 @pytest.mark.parametrize("sop", [0.031, 0.05, 0.1, 0.2])
-def test_perrel_above_threshold_routes_pairwise_with_warning(sop):
-    """Periodic-relative beyond σ/P threshold falls back to pairwise + warns."""
-    with pytest.warns(UserWarning, match=r"σ/P = .* exceeds the Möbius-method threshold"):
+def test_perrel_above_threshold_routes_fastest_with_warning(sop):
+    """Periodic-relative beyond σ/P threshold takes the faster all-image
+    (Möbius) path and warns that it differs from the single-wrap measure.
+
+    The dispatch no longer vetoes the all-image form above the threshold: it
+    takes whichever path is faster (here, for r=3 with n=12, the all-image
+    Möbius form) and warns, directing users to method='bulger' for the
+    canonical single-wrap measure.
+    """
+    with pytest.warns(UserWarning, match=r"all-image"):
         chosen = _select_sa_inner_product_method(
             r=3, n_max=12, is_rel=True, is_per=True,
             sigma_over_P=sop, user_method='auto',
         )
-    assert chosen == 'bulger'
+    assert chosen == 'mobius'
 
 
 def test_perrel_threshold_warning_only_when_relevant():

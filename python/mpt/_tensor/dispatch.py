@@ -370,24 +370,13 @@ def _select_ma_inner_product_method(
     # into the cosine denominator.
     if A > 0 and not _orbit_safe_for_precision(r_vec, k_vec):
         return 'bulger'
-    # Periodic-relative beyond σ/P threshold: in this regime the Möbius
-    # method computes the JMM Eq. 3.4 integral form, while Bulger's
-    # method computes the single-nearest-image-wrap form.
-    # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility the toolbox treats Bulger's
-    # pairwise-wrap form as canonical; the Möbius method is therefore
-    # disabled above the threshold. Users who want the JMM-exact integral
-    # explicitly may pass method='mobius'.
-    if any_rel_per and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-        warnings.warn(
-            f"Maximum σ/P = {sigma_over_P_max:.3f} across periodic-relative "
-            f"groups exceeds the Möbius-method threshold "
-            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}); falling back to Bulger's "
-            f"method (the pairwise-wrap form). Pass method='bulger' "
-            f"explicitly to silence this warning."
-        )
-        return 'bulger'
-
+    # Relative-periodic measure note: the Möbius method computes the all-image
+    # (JMM Eq. 3.4 transposition-integral) form; Bulger's method computes the
+    # single-wrap (minimum-image) form. They diverge by O((σ/P)^∞) above
+    # σ/P ≈ 0.03. The dispatch always takes the faster path (cost model below);
+    # when that path is the all-image Möbius method and σ/P is above the
+    # threshold (so the two measures differ), it warns and points to
+    # method='bulger' for the canonical single-wrap measure.
     pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
     pw_cost_ms = pw_size * _pw_per_entry_ms(any_per)
     orbit_cost_ms = _predict_orbit_cost_ms(
@@ -395,6 +384,8 @@ def _select_ma_inner_product_method(
     )
     if pw_cost_ms <= orbit_cost_ms:
         return 'bulger'
+    if any_rel_per and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        _warn_rel_per_all_image(sigma_over_P_max)
     return 'mobius'
 
 
@@ -588,6 +579,33 @@ _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
 _ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which the periodic-relative Möbius method deviates
 
+
+def _warn_rel_per_all_image(sigma_over_P):
+    """Warn that the dispatch took the faster all-image form of the
+    relative-periodic inner product, which above the σ/P threshold differs from
+    the canonical single-wrap measure.
+
+    Emitted by every relative-periodic path -- flat single-attribute, flat
+    multi-attribute, and the nested contraction -- so the message is identical
+    wherever the substitution happens. It fires only when the all-image
+    (transposition-integral) form has actually been selected as the faster path
+    *and* σ/P exceeds the threshold where the two measures materially diverge;
+    below the threshold the two agree and no warning is raised.
+    """
+    warnings.warn(
+        f"σ/P = {sigma_over_P:.3f} exceeds {_ORBIT_SIGMA_OVER_P_THRESHOLD}: the "
+        f"faster all-image (transposition-integral) form of the "
+        f"relative-periodic inner product has been used. Above this σ/P it "
+        f"differs from the canonical single-wrap (minimum-image) measure "
+        f"(the two agree below it). To compute the single-wrap measure "
+        f"instead, pass method='bulger', which enumerates the full symmetric "
+        f"orbit this fast path avoids; that enumeration can be substantially "
+        f"slower, and infeasible for a large or compounded symmetric level "
+        f"(precisely the case that made the all-image form the faster path "
+        f"here).",
+        stacklevel=3,
+    )
+
 _ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for the Möbius method (precision guard)
 
 # Rationale (May 2026 audit): the Möbius method expresses the
@@ -675,22 +693,14 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
     n_for_guard = n_min if n_min is not None else n_max
     if not _orbit_safe_for_precision([r], [n_for_guard]):
         return 'bulger'
-    # Periodic-relative beyond σ/P threshold: in this regime the Möbius
-    # method computes the JMM Eq. 3.4 integral form, while Bulger's
-    # method computes the single-nearest-image-wrap form.
-    # The two diverge by O((σ/P)^∞) starting around σ/P ≈ 0.03. For
-    # backward compatibility the toolbox treats Bulger's
-    # pairwise-wrap form as canonical; the Möbius method is therefore
-    # disabled above the threshold. Users who want the JMM-exact integral
-    # explicitly may pass method='mobius'.
+    # Relative-periodic measure note: the Möbius method computes the all-image
+    # (JMM Eq. 3.4 transposition-integral) form; Bulger's method computes the
+    # single-wrap (minimum-image) form. They diverge by O((σ/P)^∞) above
+    # σ/P ≈ 0.03. The Möbius method is the faster SA path here, so the dispatch
+    # takes it; when σ/P is above the threshold (so the two measures differ) it
+    # warns and points to method='bulger' for the canonical single-wrap measure.
     if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-        warnings.warn(
-            f"σ/P = {sigma_over_P:.3f} exceeds the Möbius-method threshold "
-            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
-            f"falling back to Bulger's method (the pairwise-wrap form). "
-            f"Pass method='bulger' explicitly to silence this warning."
-        )
-        return 'bulger'
+        _warn_rel_per_all_image(sigma_over_P)
     return 'mobius'
 
 
@@ -1258,14 +1268,15 @@ def _select_and_estimate_sa_ip(
         return "bulger", False, 0.0, f"r = {r} > {_ORBIT_R_MAX_SHIPPED} (Möbius infeasible)"
     if not _orbit_safe_for_precision([r], [n_min]):
         return "bulger", False, 0.0, f"min(K_x, K_y) - r = {n_min - r} < 2"
-    if is_rel and is_per and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-        warnings.warn(
-            f"σ/P = {sigma_over_P:.3f} exceeds the Möbius-method threshold "
-            f"({_ORBIT_SIGMA_OVER_P_THRESHOLD}) for relative-periodic mode; "
-            f"falling back to Bulger's method (the pairwise-wrap form). Pass method='bulger' "
-            f"explicitly to silence this warning."
-        )
-        return "bulger", False, 0.0, "sigma/period > 0.03 (rel-per Möbius fallback)"
+    # Relative-periodic measure note: 'mobius' is the all-image
+    # (transposition-integral) form, 'bulger' the single-wrap (minimum-image)
+    # form; they diverge by O((σ/P)^∞) above σ/P ≈ 0.03. The dispatch takes the
+    # faster path (cost pre-screen / probe below); when that path is the
+    # all-image Möbius method and σ/P is above the threshold (so the measures
+    # differ) it warns at the return point and points to method='bulger' for
+    # the canonical single-wrap measure.
+    _rel_per_above = (is_rel and is_per
+                      and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD)
     if r > _ORBIT_R_MAX_FEASIBLE:
         return "bulger", False, 0.0, f"r = {r} > {_ORBIT_R_MAX_FEASIBLE} (Möbius infeasible)"
 
@@ -1276,6 +1287,8 @@ def _select_and_estimate_sa_ip(
 
     # ---- Analytical pre-screen ----
     if orbit_full * _PRESCREEN_IP_DOMINANCE < pairwise_full:
+        if _rel_per_above:
+            _warn_rel_per_all_image(sigma_over_P)
         return "mobius", False, 0.0, "cost pre-screen"
     if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
         return "bulger", False, 0.0, "cost pre-screen"
@@ -1316,4 +1329,6 @@ def _select_and_estimate_sa_ip(
 
     if t_pairwise_est <= t_orbit_est:
         return "bulger", True, t_pairwise_est, "probe"
+    if _rel_per_above:
+        _warn_rel_per_all_image(sigma_over_P)
     return "mobius", True, t_orbit_est, "probe"

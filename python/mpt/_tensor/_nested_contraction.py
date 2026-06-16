@@ -3,15 +3,26 @@
 Replaces the O((K^leaves)^2) full enumeration in the nested cosine path
 with a bottom-up contraction over the tag tree. The contraction reproduces
 the exact closed-form inner product (TISMIR preprint Sec 2.6, Eq 7) for the
-factorisable cases, and a transposition-average surrogate for the one case
-that does not factorise (relative + periodic, Eq 6).
+factorisable cases, and the all-image transposition average over the period
+(Eq 6) for the one case that does not factorise per slot, relative-periodic.
 
 A single contraction kernel serves all modes; only the per-quadrature-node
 leaf-kernel batch and the node reduction differ:
 
-  - absolute (any periodicity): one node, no quadrature -- exact.
-  - relative periodic (outer): transposition-average over tau in [0, P) --
-    surrogate, exact below a sigma/period threshold (warned elsewhere).
+  - absolute (any periodicity): one node, no quadrature -- exact. The kernel
+    is a one-body product across slots, so each level reduces independently.
+  - relative non-periodic: a translation integral over the line, exact to the
+    quadrature; the same measure as the analytic relative quadratic.
+  - relative periodic: a transposition average over tau in [0, P). This is the
+    all-image torus-quotient measure. It is a *different* measure from the
+    minimum-image pairwise-wrap that the flat per-attribute path (and the
+    nested centres path) computes; the two coincide for sigma << period and
+    diverge as sigma approaches the period. Only in this all-image form does
+    the relative-periodic kernel factor per slot (each tau node is a one-body
+    product), which is what makes the per-level orbit reduction available --
+    the minimum-image kernel is an irreducible pairwise (two-body) quadratic,
+    so it admits no such per-level reduction. The trapezoidal tau-grid is exact
+    to quadrature accuracy below a sigma/period threshold (warned elsewhere).
 
 The recipe (tag tree + per-node permutation/combination index arrays) is
 built once and reused across the three inner products (XY, XX, YY) and
@@ -379,8 +390,30 @@ def auto_ntau(period, sigma, tol):
     return int(max(64, math.ceil(base * margin)))
 
 
+def auto_ntau_default(period, sigma):
+    """Transposition-average node count with ``tol`` taken from the global
+    ``truncation_sigmas`` default.
+
+    This is the single source of the all-image (relative-periodic) node count
+    for every path that evaluates it -- the flat single-attribute and
+    multi-attribute Möbius integrators and the nested contraction -- so their
+    transposition grids coincide exactly and the same level returns the same
+    value whether reached flat or nested.
+    """
+    from .._defaults import get_default
+    ts = get_default("truncation_sigmas")
+    ts_eff = math.inf if ts is None else float(ts)
+    tol = max(math.exp(-0.5 * ts_eff ** 2), 1e-12)
+    return auto_ntau(period, sigma, tol)
+
+
 def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
                      truncation_sigmas, ntau):
+    """One event-pair relative-periodic inner product: the all-image
+    transposition average over tau in [0, P) (the torus-quotient measure, not
+    the minimum-image pairwise-wrap of the centres path). Each tau node is a
+    one-body product, so the contraction's per-level orbit reduction applies;
+    the mean over nodes is the trapezoidal estimate of the period average."""
     taus = np.linspace(0.0, period, ntau, endpoint=False)
     d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])  # nX,nY,T
     d = _wrap(d, period)
@@ -397,8 +430,11 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
 
     ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
     density's (defaults to ``recipe_x`` when both sides share the structure).
-    Absolute and relative-non-periodic factorise exactly; relative-periodic
-    uses the transposition-average surrogate.
+    Absolute and relative-non-periodic factorise per slot and are computed
+    exactly (to the line quadrature for relative-non-periodic); relative-
+    periodic uses the all-image transposition average over the period -- the
+    torus-quotient measure, which differs from the minimum-image pairwise-wrap
+    of the flat and centres paths (they coincide for sigma << period).
     """
     if recipe_y is None:
         recipe_y = recipe_x
@@ -409,9 +445,7 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
         wY = np.ones(vY.shape[0])
     if is_rel and is_per:
         if ntau is None:
-            tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2),
-                      1e-12)
-            ntau = auto_ntau(period, sigma, tol)
+            ntau = auto_ntau_default(period, sigma)
         ip = lambda rx, ry, a, b, wa, wb: _ip_rel_periodic(
             rx, ry, a, b, wa, wb, sigma, period, truncation_sigmas, ntau)
     elif (not is_rel):
@@ -540,6 +574,92 @@ def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
         return fast
     return _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
                                   truncation_sigmas, taus)
+
+
+def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
+                       is_per, period, truncation_sigmas, *, taus=None,
+                       periodic_taus=True, taus_reduce="mean",
+                       mem_budget=16_000_000):
+    """(N_x, N_y) per-attribute inner matrix via the per-level contraction,
+    vectorised over the whole event-pair grid.
+
+    This is the matrix form of :func:`nested_ip`: instead of looping the
+    event-pair grid in Python, the grid is folded into the leading batch axis
+    of :func:`_contract`, so every (i, j) entry is reduced per level -- the
+    orbit (Möbius) reduction at symmetric levels, enumeration at ordered ones,
+    selected by :func:`build_recipe` -- exactly as the flat per-attribute
+    matrix reduces a single level, and with the same memory profile (only the
+    small per-event slot kernel and the per-level intermediates are formed,
+    never the materialised tuple set).
+
+    ``PX``/``PY`` are ``(K, N)`` slot arrays; ``WX``/``WY`` the matching
+    weights or ``None``. NaN-padded (variable-K) slots are carried as
+    zero-weight. The mode is set by ``taus``:
+
+    - ``taus=None`` -- the absolute (``is_per=False``) or absolute-periodic
+      (``is_per=True``) inner product, a one-body product per slot.
+    - ``taus`` given with ``periodic_taus=True``, ``taus_reduce='mean'`` -- the
+      relative-periodic transposition average over the period (the all-image
+      torus measure, which is what makes the per-level orbit reduction
+      available for relative-periodic).
+    - ``taus`` given with ``periodic_taus=False``, ``taus_reduce='sum'`` -- the
+      relative-non-periodic translation integral over the line (the constant
+      step cancels in the cosine, so the raw sum is returned). This equals the
+      analytic relative quadratic to the grid accuracy and, unlike the centres
+      path, never materialises the tuple set -- the win for spectrally
+      augmented cells, where the inner partial level reduces by einsum.
+
+    The transposition / translation nodes share the batch axis with the event
+    pairs and are reduced per pair after the contraction. ``mem_budget`` caps
+    the per-chunk leaf-kernel size.
+    """
+    PX = np.asarray(PX, dtype=np.float64)
+    PY = np.asarray(PY, dtype=np.float64)
+    nX, Nx = PX.shape
+    nY, Ny = PY.shape
+    WX = np.ones((nX, Nx)) if WX is None else np.asarray(WX, dtype=np.float64)
+    WY = np.ones((nY, Ny)) if WY is None else np.asarray(WY, dtype=np.float64)
+    if np.isnan(PX).any() or np.isnan(PY).any():
+        fill = float(min(np.nanmin(PX), np.nanmin(PY)))
+        mX, mY = np.isnan(PX), np.isnan(PY)
+        PX = np.where(mX, fill, PX)
+        WX = np.where(mX | np.isnan(WX), 0.0, WX)
+        PY = np.where(mY, fill, PY)
+        WY = np.where(mY | np.isnan(WY), 0.0, WY)
+    inv = 1.0 / (4.0 * sigma ** 2)
+    T = 0 if taus is None else int(len(taus))
+    m_idx = np.repeat(np.arange(Nx), Ny)
+    n_idx = np.tile(np.arange(Ny), Nx)
+    B = Nx * Ny
+    per = max(T, 1) * nX * nY
+    chunk = max(1, min(B, int(mem_budget // max(per, 1))))
+    out = np.empty(B, dtype=np.float64)
+    for s in range(0, B, chunk):
+        e = min(s + chunk, B)
+        mi, ni = m_idx[s:e], n_idx[s:e]
+        vx, vy = PX[:, mi], PY[:, ni]               # (nX, nb), (nY, nb)
+        wx, wy = WX[:, mi], WY[:, ni]
+        if taus is None:
+            d = vx.T[:, :, None] - vy.T[:, None, :]  # (nb, nX, nY)
+            if is_per:
+                d = _wrap(d, period)
+            K = np.exp(-(d ** 2) * inv)
+            K = K * (wx.T[:, :, None] * wy.T[:, None, :])
+            _trunc(K, sigma, truncation_sigmas)
+            out[s:e] = _contract(recipe_x, recipe_y, K)
+        else:
+            d = (vx.T[:, :, None, None]
+                 - (vy.T[:, None, :, None] + taus[None, None, None, :]))
+            if periodic_taus:
+                d = _wrap(d, period)
+            K = np.exp(-(d ** 2) * inv)
+            K = K * (wx.T[:, :, None, None] * wy.T[:, None, :, None])
+            nb = e - s
+            K = K.transpose(0, 3, 1, 2).reshape(nb * T, nX, nY)
+            _trunc(K, sigma, truncation_sigmas)
+            vals = _contract(recipe_x, recipe_y, K).reshape(nb, T)
+            out[s:e] = vals.mean(1) if taus_reduce == "mean" else vals.sum(1)
+    return out.reshape(Nx, Ny)
 
 
 # ----------------------------------------------------------------------

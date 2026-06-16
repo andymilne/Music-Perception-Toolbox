@@ -24,6 +24,7 @@ See USER_GUIDE §4 ("Method selection") and :doc:`/ARCHITECTURE` §4
 """
 from __future__ import annotations
 
+import math
 import warnings
 from itertools import permutations
 from math import factorial
@@ -63,6 +64,7 @@ from .dispatch import (
     _ORBIT_K_MINUS_R_MIN,
     _ORBIT_R_MAX_SHIPPED,
     _ORBIT_SIGMA_OVER_P_THRESHOLD,
+    _warn_rel_per_all_image,
 )
 
 
@@ -2029,7 +2031,7 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 
 
 def _ma_per_attr_inner_matrix_rel_per(
-    Px, Wx, Py, Wy, sigma, r, period, samples_per_sigma=5,
+    Px, Wx, Py, Wy, sigma, r, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
 ):
     """Vectorised relative-periodic case of ``_ma_per_attr_inner_matrix``.
@@ -2040,13 +2042,13 @@ def _ma_per_attr_inner_matrix_rel_per(
     ``N_pairs · N_u · K^2 · 8`` bytes plus a similar-sized intermediate
     diffs tensor; chunked along u to stay under a 1 GB ceiling.
 
-    ``samples_per_sigma=5`` is a deliberate trade-off: the Gaussian
-    integrand is smooth at the σ scale, so trapezoidal convergence is
-    geometric and 5 samples/σ delivers cosine agreement well below
-    1e-9 relative on representative MAET parameter ranges. The SA
-    relative path uses 10 because per-call cost is small there; for
-    MA the integration is run N_pairs = N_x · N_y times in parallel,
-    so halving the grid roughly halves wall-clock cost.
+    The transposition average over ``[0, P)`` is a uniform periodic Riemann
+    sum; the node count comes from :func:`auto_ntau_default`, the single shared
+    source used by the flat single-attribute, flat multi-attribute, and nested
+    relative-periodic paths, so the same level returns the same value whether
+    reached flat or nested. The integrand is smooth at the σ scale, so the
+    trapezoidal rule converges geometrically and the cosine agrees well below
+    1e-9 relative on representative MAET parameter ranges.
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case ratio across the (N_pairs · N_u) batched Möbius-method cells.
@@ -2058,6 +2060,7 @@ def _ma_per_attr_inner_matrix_rel_per(
     """
     from .._mobius import inner_product_orbit_pw_batched
     from .._defaults import get_default
+    from ._nested_contraction import auto_ntau_default
 
     if truncation_sigmas is None:
         truncation_sigmas = get_default('truncation_sigmas')
@@ -2065,7 +2068,7 @@ def _ma_per_attr_inner_matrix_rel_per(
     K, N_x = Px.shape
     _, N_y = Py.shape
 
-    N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
+    N_u = auto_ntau_default(period, sigma)
     u_grid = np.linspace(0.0, period, N_u, endpoint=False)
     du = period / N_u
 
@@ -2204,21 +2207,297 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
 
 
 
+def _closed_form_attr_centres(dens, a):
+    """Materialised tuple-centres and metric parameters for attribute ``a``,
+    rebuilt in isolation as a single-attribute density.
+
+    The attribute's expectation tensor is a finite Gaussian mixture over its
+    materialised perm-side tuple-centres (the same reduction the entropy
+    reading uses), so its inner product with another attribute is the pairwise
+    Gaussian overlap of those centres. This is exact for the absolute and
+    absolute-periodic readings, the analytic relative quadratic (also exact)
+    for relative-non-periodic, and the minimum-image pairwise-wrap for
+    relative-periodic -- a deliberate measure choice, not the all-image torus
+    inner product the tau-grid contraction computes (consistent with the flat
+    per-attribute matrix; see the note in
+    :func:`_closed_form_attr_matrix_from`).
+
+    Returns ``(centres, w_j, event_of_j, inner_block_size, is_per, period,
+    r_a, is_rel, sigma, n_events)``. Variable-K (NaN-padded) slots are carried
+    by the rebuild, which drops every tuple touching a padded slot to zero
+    weight.
+    """
+    from .build import build_exp_tens as _bld
+    nested = getattr(dens, "nested", None)
+    spec = nested[a] if nested is not None else None
+    sigma = float(dens.sigma[a])
+    is_per = bool(dens.is_per[a])
+    period = float(dens.period[a])
+    if spec is not None:
+        da = _bld([dens.p_attr[a]], [dens.w[a]], specs=[spec],
+                  sigma=[sigma], is_per=[is_per], period=[period],
+                  verbose=False)
+    else:
+        is_sym_vec = np.asarray(
+            getattr(dens, "is_sym", np.ones(int(dens.n_attrs), dtype=bool))
+        ).ravel()
+        da = _bld([dens.p_attr[a]], [dens.w[a]], [sigma], [int(dens.r[a])],
+                  [bool(dens.is_rel[a])], [is_per], [period],
+                  [bool(is_sym_vec[a])], verbose=False)
+    return (da.centres[0], da.w_j, da.event_of_j, int(_inner_r_vec(da)[0]),
+            is_per, period, int(da.r[0]), bool(da.is_rel[0]), sigma,
+            int(da.n))
+
+
+def _closed_form_attr_matrix_from(cx, cy):
+    """(N_x, N_y) per-attribute inner matrix from precomputed tuple-centres.
+
+    The full pairwise centre-overlap is formed as one ``(n_jx, n_jy)`` array
+    and aggregated to events by two incidence matmuls, vectorising the
+    event-pair grid that the per-event-pair contraction loops scalar-wise. The
+    constant per-attribute Gaussian prefactor is dropped: it is identical
+    across this matrix and the self matrices, so it cancels in the cosine and
+    one-sided ratios.
+
+    Relative-periodic uses the minimum-image pairwise-wrap metric of
+    :func:`_compute_Q` (exactly period-shift invariant, and matching the flat
+    per-attribute path). This is the toolbox's defined relative-periodic
+    measure. It does not equal the all-image transposition average (the torus
+    inner product), which the tau-grid contraction computes; the two coincide
+    for sigma << period and diverge as sigma approaches the period. Because the
+    minimum-image kernel couples all slots within a tuple (a pairwise quadratic
+    form), it does not factor per level, so the per-level orbit (Möbius)
+    reduction is unavailable here and a symmetric level is enumerated over its
+    full orbit. When that enumeration becomes the dominant cost, the dispatch
+    in :func:`_nested_attr_matrix_dispatch` routes the attribute to the
+    all-image tau-grid contraction instead -- a deliberate measure change,
+    documented there.
+    """
+    (Cx, Wx, Ex, bs, is_per, period, r_a, is_rel, sigma, Nx) = cx
+    (Cy, Wy, Ey, _bs, _ip, _pe, _ra, _ir, _sg, Ny) = cy
+    Wx = np.ones(Cx.shape[1]) if Wx is None else np.asarray(Wx, float).ravel()
+    Wy = np.ones(Cy.shape[1]) if Wy is None else np.asarray(Wy, float).ravel()
+    d = Cx.shape[0]
+    njx, njy = Cx.shape[1], Cy.shape[1]
+    Ex = np.asarray(Ex)
+    Ey = np.asarray(Ey)
+    # Y-side incidence (njy, Ny): njy is a contraction axis, summed by event.
+    GY = np.zeros((njy, Ny))
+    GY[np.arange(njy), Ey] = 1.0
+    inv4s2 = 1.0 / (4.0 * sigma ** 2)
+    # Chunk the X-tuple axis so the pairwise difference array never exceeds a
+    # fixed budget: the full (njx, njy) overlap is materialised only one
+    # |chunk| x njy block at a time, which keeps the materialised-centre path
+    # within memory for large-K factors while the per-event aggregation stays
+    # exact. For the common small-tuple case (one chunk) this is identical to
+    # the unchunked form.
+    chunk = max(1, min(njx, int(16_000_000 // max(njy * max(d, 1), 1))))
+    M = np.zeros((Nx, Ny))
+    for s in range(0, njx, chunk):
+        e = min(s + chunk, njx)
+        D = Cx[:, s:e, None] - Cy[:, None, :]
+        if bs >= 2:
+            Q = _compute_Q_inner_blocks(D, bs, is_per, period, reduced=True)
+        else:
+            if is_per and not is_rel:
+                D = D - period * np.floor(D / period + 0.5)
+            Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
+        ov = (Wx[s:e, None] * Wy[None, :]) * np.exp(-Q * inv4s2)
+        np.add.at(M, Ex[s:e], ov @ GY)
+    return M
+
+
+def _attr_value_range(dens_x, dens_y, a):
+    """(vmin, vmax) over both densities' slot values for attribute ``a``,
+    ignoring NaN padding -- the span the relative-non-periodic translation grid
+    must cover."""
+    px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
+    py = np.asarray(dens_y.p_attr[a], dtype=np.float64)
+    return float(min(np.nanmin(px), np.nanmin(py))), \
+        float(max(np.nanmax(px), np.nanmax(py)))
+
+
+def _rel_contract_cheaper(spec_x, spec_y, sigma, period, is_per, vmin, vmax):
+    """True when a relative attribute's per-level contraction is cheaper than
+    its materialised-centres path.
+
+    The relative kernel couples all slots within a tuple, so the centres path
+    must materialise every tuple -- including each symmetric level's full orbit,
+    and every selection at an ``r = 1`` level compounded across the ordered
+    positions above it (the spectral-cell case: one partial per note across the
+    cell). The contraction sidesteps this: each transposition/translation node
+    is a one-body product, so a symmetric level reduces by the orbit (Möbius)
+    and an ``r = 1`` level by an einsum, never materialising the tuple set. This
+    compares the costs directly -- materialised pairwise tuples (centres)
+    against quadrature nodes times per-level contraction work -- using the
+    analytic :func:`tuple_counts` and :func:`recipe_work`, deterministic in both
+    languages.
+
+    For relative-non-periodic the two routes compute the same measure (the
+    translation grid converges to the analytic relative quadratic), so this is a
+    pure speed choice. For relative-periodic the contraction is the all-image
+    tau-grid, a different measure from the minimum-image centres path (they
+    coincide for sigma << period); the caller documents that switch.
+    """
+    from ._nested_contraction import (
+        tuple_counts, build_recipe, recipe_work, quad_nodes)
+    from .._defaults import get_default
+    r_levels = np.asarray(spec_x["r"]).ravel()
+    sym_levels = np.asarray(spec_x["sym"]).ravel()
+    tags_x = np.asarray(spec_x["tags"])
+    tags_y = np.asarray(spec_y["tags"])
+    m_perm_x = float(tuple_counts(r_levels, sym_levels, tags_x)[0])
+    m_perm_y = float(tuple_counts(r_levels, sym_levels, tags_y)[0])
+    centres_cost = m_perm_x * m_perm_y
+    ts = get_default("truncation_sigmas")
+    n_tau = quad_nodes(True, is_per, sigma, period, vmin, vmax, ts)
+    rx = build_recipe(r_levels, sym_levels, tags_x, True, is_per)
+    same = (tags_x.shape == tags_y.shape
+            and bool(np.array_equal(tags_x, tags_y)))
+    ry = rx if same else build_recipe(r_levels, sym_levels, tags_y, True,
+                                      is_per)
+    contract_cost = float(n_tau) * float(max(recipe_work(rx), recipe_work(ry)))
+    return contract_cost < centres_cost
+
+
+def _nested_attr_plan(dens_x, dens_y, a):
+    """Route plus the *shared* quadrature grid for a nested attribute, decided
+    once from the (x, y) pair.
+
+    Returning the grid here -- rather than recomputing it inside each of xy, xx
+    and yy -- is what makes the cosine normalise exactly: the relative grids are
+    value-dependent, so a per-call grid would discretise the three inner
+    products differently and the ratio would drift off 1 (breaking, e.g.,
+    transposition invariance). One grid spanning both densities is used for all
+    three. See :func:`_nested_attr_route` for the route meanings.
+    """
+    route = _nested_attr_route(dens_x, dens_y, a)
+    if route in ("centres", "contract"):
+        return route, None
+    from ._nested_contraction import (auto_ntau, auto_ntau_default,
+                                       auto_taus_line)
+    from .._defaults import get_default
+    sigma = float(dens_x.sigma[a])
+    period = float(dens_x.period[a])
+    ts = get_default("truncation_sigmas")
+    ts_eff = math.inf if ts is None else float(ts)
+    tol = max(math.exp(-0.5 * ts_eff ** 2), 1e-12)
+    if route == "taugrid":
+        # The taugrid route is the faster all-image form; warn when it
+        # materially differs from the canonical single-wrap measure (the same
+        # warning the flat path raises), pointing to method='bulger'.
+        if period > 0 and sigma / period > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+            _warn_rel_per_all_image(sigma / period)
+        # Period-only grid; node count from the shared helper so the flat and
+        # nested all-image grids coincide exactly.
+        return route, np.linspace(0.0, period, auto_ntau_default(period, sigma),
+                                  endpoint=False)
+    # contract_relnonper: one line grid spanning both densities' values.
+    px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
+    py = np.asarray(dens_y.p_attr[a], dtype=np.float64)
+    allv = np.concatenate([px[np.isfinite(px)].ravel(),
+                           py[np.isfinite(py)].ravel()])
+    return route, auto_taus_line(allv, allv, sigma, tol)
+
+
+def _nested_attr_route(dens_x, dens_y, a):
+    """Per-attribute route for a nested attribute, decided once so xy, xx and
+    yy share a single measure.
+
+    - ``'contract'`` -- absolute and absolute-periodic: the kernel is a
+      one-body product across slots, so the event-pair-vectorised per-level
+      contraction applies the orbit (Möbius) reduction at symmetric levels and
+      enumeration at ordered ones, mirroring the flat per-attribute matrix and
+      never materialising the tuple set.
+    - ``'centres'`` -- relative modes when the materialised-centres path is the
+      cheaper route; for relative-non-periodic this is its exact analytic
+      quadratic, for relative-periodic the minimum-image measure.
+    - ``'contract_relnonper'`` -- relative-non-periodic when the translation-grid
+      contraction is cheaper (large ``r = 1`` or symmetric levels, e.g. spectral
+      cells). Same measure as the centres quadratic, to grid accuracy; a pure
+      speed choice.
+    - ``'taugrid'`` -- relative-periodic when the all-image tau-grid contraction
+      is cheaper than the minimum-image centres path (see
+      :func:`_rel_contract_cheaper`). This is the one place the toolbox's
+      relative-periodic measure depends on the dispatch: it computes the
+      all-image transposition average rather than minimum-image (the two
+      coincide for sigma << period), accepted because no structurally cheap
+      minimum-image route exists once the centres materialisation dominates.
+    """
+    is_rel = bool(dens_x.is_rel[a])
+    is_per = bool(dens_x.is_per[a])
+    if not is_rel:
+        return "contract"
+    spec_x = dens_x.nested[a]
+    spec_y = dens_y.nested[a]
+    sigma = float(dens_x.sigma[a])
+    period = float(dens_x.period[a])
+    vmin, vmax = ((0.0, period) if is_per
+                  else _attr_value_range(dens_x, dens_y, a))
+    if _rel_contract_cheaper(spec_x, spec_y, sigma, period, is_per, vmin, vmax):
+        return "taugrid" if is_per else "contract_relnonper"
+    return "centres"
+
+
+def _nested_attr_matrix(dens_x, dens_y, a, route, taus):
+    """(N_x, N_y) per-attribute inner matrix for a nested attribute, on the
+    given ``route`` and shared ``taus`` from :func:`_nested_attr_plan` (passed
+    in so xy, xx and yy share one measure and one grid)."""
+    if route == "centres":
+        cx = _closed_form_attr_centres(dens_x, a)
+        cy = _closed_form_attr_centres(dens_y, a)
+        return _closed_form_attr_matrix_from(cx, cy)
+    from ._nested_contraction import build_recipe, nested_attr_matrix
+    from .._defaults import get_default
+    is_rel = bool(dens_x.is_rel[a])
+    is_per = bool(dens_x.is_per[a])
+    sigma = float(dens_x.sigma[a])
+    period = float(dens_x.period[a])
+    spec_x = dens_x.nested[a]
+    spec_y = dens_y.nested[a]
+    r_levels = np.asarray(spec_x["r"]).ravel()
+    sym_levels = np.asarray(spec_x["sym"]).ravel()
+    ts = get_default("truncation_sigmas")
+    tags_x = np.asarray(spec_x["tags"])
+    tags_y = np.asarray(spec_y["tags"])
+    rx = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
+    same = (tags_x.shape == tags_y.shape
+            and bool(np.array_equal(tags_x, tags_y)))
+    ry = rx if same else build_recipe(r_levels, sym_levels, tags_y,
+                                      is_rel, is_per)
+    PX = np.asarray(dens_x.p_attr[a], dtype=np.float64)
+    PY = np.asarray(dens_y.p_attr[a], dtype=np.float64)
+    if route == "taugrid":
+        return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
+                                  sigma, is_per, period, ts, taus=taus,
+                                  periodic_taus=True, taus_reduce="mean")
+    if route == "contract_relnonper":
+        return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
+                                  sigma, False, period, ts, taus=taus,
+                                  periodic_taus=False, taus_reduce="sum")
+    # 'contract': absolute / absolute-periodic
+    return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
+                              sigma, is_per, period, ts, taus=None)
+
+
 def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
-    """Fast tree-contraction of a single nested attribute's inner product.
+    """Closed-form inner product of a single nested attribute.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
     attribute, outer/no ``[rel]``, cosine or one-sided normalisation,
-    NaN-padded (variable-K) slots included -- and the contraction is estimated cheaper than the
-    enumeration; otherwise
-    ``None``, and the caller routes to the exact enumeration. Absolute and
-    relative-non-periodic are exact; relative-periodic uses the
-    transposition-average surrogate and warns when ``sigma/period`` exceeds
-    the ``truncation_sigmas``-implied tolerance.
+    NaN-padded (variable-K) slots included -- via the per-level dispatch of
+    :func:`_nested_attr_plan` / :func:`_nested_attr_matrix`; otherwise ``None``,
+    and the caller routes to the exact enumeration. The route, decided once so
+    xy, xx and yy share one measure, is the cheaper of the event-pair
+    contraction and the materialised centres: absolute and absolute-periodic go
+    to the contraction (exact, per-level Möbius/Bulger); relative-non-periodic
+    to the centres analytic quadratic or, when cheaper, the translation-grid
+    contraction (same measure, to grid accuracy); relative-periodic to the
+    minimum-image centres or, when the centres materialisation dominates, the
+    all-image tau-grid contraction -- the one route that changes the measure
+    (all-image rather than minimum-image; identical for sigma << period). Every
+    route costs no more than the equivalent flat attribute.
     """
-    import math as _m
-    from .._defaults import get_default
-
     def _decline(reason):
         if force:
             raise ValueError(
@@ -2246,166 +2525,53 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     if int(_inner_r_vec(dens_x)[0]) != 0 or int(_inner_r_vec(dens_y)[0]) != 0:
         return _decline("an inner/intermediate [rel] unit is not yet covered")
 
-    PX = np.asarray(dens_x.p_attr[0], dtype=np.float64)
-    PY = np.asarray(dens_y.p_attr[0], dtype=np.float64)
-    WX = (np.ones_like(PX) if dens_x.w[0] is None
-          else np.asarray(dens_x.w[0], dtype=np.float64))
-    WY = (np.ones_like(PY) if dens_y.w[0] is None
-          else np.asarray(dens_y.w[0], dtype=np.float64))
-    # Variable-K (NaN-padded) slots: a padded slot is exactly equivalent to
-    # a zero-weight slot at any finite value (every tuple touching it
-    # carries zero weight), so the contraction covers it by filling each
-    # padded slot with an in-range value at weight zero -- the same
-    # NaN -> zero-weight idiom as _ma_per_attr_inner_matrix.
-    _mX = np.isnan(PX)
-    _mY = np.isnan(PY)
-    if _mX.any() or _mY.any():
-        _fill = float(min(np.nanmin(PX), np.nanmin(PY)))
-        PX = np.where(_mX, _fill, PX)
-        WX = np.where(_mX | np.isnan(WX), 0.0, WX)
-        PY = np.where(_mY, _fill, PY)
-        WY = np.where(_mY | np.isnan(WY), 0.0, WY)
-
-    from ._nested_contraction import (
-        build_recipe, tuple_counts, recipe_work, quad_nodes,
-        make_quadrature, nested_ip,
-    )
-
     r_levels = np.asarray(spec["r"]).ravel()
     sym_levels = np.asarray(spec["sym"]).ravel()
-    tags_x = np.asarray(spec["tags"])
-    tags_y = np.asarray(spec_y["tags"])
     # The two densities must agree on the per-level read-arities and [sym]
-    # flags (same nested attribute); only the leaf cardinalities (tags shape)
-    # may differ -- a 4-pitch prototype against an 8-pitch window, say.
+    # flags (same nested attribute); only the leaf cardinalities may differ
+    # -- a 4-pitch prototype against an 8-pitch window, say.
     if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
             or not np.array_equal(sym_levels,
                                   np.asarray(spec_y["sym"]).ravel())):
         return _decline("the two nested attributes differ in [r]/[sym]")
-    same_struct = (tags_x.shape == tags_y.shape
-                   and bool(np.array_equal(tags_x, tags_y)))
-    is_rel = bool(dens_x.is_rel[0])
-    is_per = bool(dens_x.is_per[0])
-    period = float(dens_x.period[0])
-    sigma = float(dens_x.sigma[0])
-    ts = get_default("truncation_sigmas")
 
-    n_x = PX.shape[1]
-    n_y = PY.shape[1]
-    vmin = float(min(PX.min(), PY.min()))
-    vmax = float(max(PX.max(), PY.max()))
-    # One recipe per side: the X recipe indexes the X axis of the rectangular
-    # leaf kernel, the Y recipe the Y axis. They coincide when the densities
-    # share a nesting structure (the common case, incl. all XX/YY products).
-    recipe_x = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
-    recipe_y = (recipe_x if same_struct
-                else build_recipe(r_levels, sym_levels, tags_y, is_rel, is_per))
-
-    # Speed dispatch (deterministic integer/float counts -> identical in
-    # both languages). Enumeration ~ event-pairs * M_perm * M_comb;
-    # contraction ~ event-pairs * quadrature-nodes * tree combine-work.
-    m_perm, m_comb = tuple_counts(r_levels, sym_levels, tags_x)
-    work = recipe_work(recipe_x)
-    if not same_struct:
-        mp_y, mc_y = tuple_counts(r_levels, sym_levels, tags_y)
-        m_perm = max(m_perm, mp_y)
-        m_comb = max(m_comb, mc_y)
-        work = max(work, recipe_work(recipe_y))
-    Q = quad_nodes(is_rel, is_per, sigma, period, vmin, vmax, ts)
-    pair_terms = n_x * n_y + n_x * n_x + n_y * n_y
-    cost_enum = pair_terms * m_perm * m_comb
-    cost_contract = pair_terms * Q * work
-    # The enumeration handles only matching nested cardinalities, so the cost
-    # race (and its enumeration fallback) applies only when both sides share a
-    # structure. When the cardinalities differ the contraction is the sole
-    # correct route and is always taken.
-    if same_struct and cost_contract >= cost_enum and not force:
-        return None  # enumeration is the faster route (auto only)
-
-    if is_rel and is_per:
-        tol = (max(_m.exp(-0.5 * ts ** 2), 1e-12)
-               if _m.isfinite(ts) else 1e-12)
-        sop_max = (0.85 / (4.0 * _m.sqrt(_m.log(1.0 / tol)))
-                   if tol < 1.0 else _m.inf)
-        if sigma / period > sop_max:
-            warnings.warn(
-                f"Nested relative-periodic similarity at sigma/period = "
-                f"{sigma / period:.3f} exceeds the surrogate accuracy "
-                f"threshold {sop_max:.3f} implied by truncation_sigmas "
-                f"(tolerance {tol:.1e}); the transposition-average value "
-                f"may depart from the exact inner product. Pass "
-                f"method='bulger' for the exact enumeration.",
-                stacklevel=2,
-            )
-
-    quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
-
-    def trip(pa, ra, wa, na, pb, rb, wb, nb, symmetric=False):
-        # symmetric=True (self inner products): <e_i, e_j> = <e_j, e_i>, so
-        # evaluate only the upper triangle and double the off-diagonal terms.
-        # ra / rb are the recipes indexing the pa / pb axes of the kernel.
-        s = 0.0
-        for i in range(na):
-            ai = pa[:, i]
-            wi = wa[:, i]
-            j0 = i if symmetric else 0
-            for j in range(j0, nb):
-                v = nested_ip(ra, rb, ai, pb[:, j], wi, wb[:, j],
-                              sigma, period, ts, quad)
-                s += v if (not symmetric or j == i) else 2.0 * v
-        return s
-
-    ip_xy = trip(PX, recipe_x, WX, n_x, PY, recipe_y, WY, n_y)
-    ip_xx = trip(PX, recipe_x, WX, n_x, PX, recipe_x, WX, n_x, symmetric=True)
-    ip_yy = trip(PY, recipe_y, WY, n_y, PY, recipe_y, WY, n_y, symmetric=True)
+    # Per-level dispatch (see _nested_attr_route / _nested_attr_matrix):
+    # absolute and absolute-periodic reduce through the event-pair-vectorised
+    # per-level Möbius/Bulger contraction; relative-non-periodic and
+    # minimum-image relative-periodic through the materialised centres; a large
+    # compounded symmetric relative-periodic level falls back to the all-image
+    # tau-grid. The route is decided once so xy, xx and yy share one measure.
+    route, taus = _nested_attr_plan(dens_x, dens_y, 0)
+    ip_xy = float(_nested_attr_matrix(dens_x, dens_y, 0, route, taus).sum())
+    ip_xx = float(_nested_attr_matrix(dens_x, dens_x, 0, route, taus).sum())
+    ip_yy = float(_nested_attr_matrix(dens_y, dens_y, 0, route, taus).sum())
     return ip_xy, ip_xx, ip_yy
 
 
-def _nested_attr_inner_matrix(recipe_a, recipe_b, Pa, Pb, Wa, Wb,
-                              sigma, period, ts, quad, *, symmetric):
-    """(N_a, N_b) per-event-pair inner matrix for one nested attribute, via
-    the tree contraction. ``Pa``/``Pb`` are (slots_per_event, N); ``Wa``/``Wb``
-    the matching slot weights. ``symmetric`` exploits ``<e_i,e_j> = <e_j,e_i>``
-    for the self matrices. The per-attribute prefactor is constant across the
-    matrix (and identical to the self matrices'), so it cancels in the cosine
-    when the attribute matrices are multiplied and summed."""
-    from ._nested_contraction import nested_ip
-    na = Pa.shape[1]
-    nb = Pb.shape[1]
-    M = np.empty((na, nb), dtype=np.float64)
-    for i in range(na):
-        ai, wi = Pa[:, i], Wa[:, i]
-        j0 = i if symmetric else 0
-        for j in range(j0, nb):
-            v = nested_ip(recipe_a, recipe_b, ai, Pb[:, j], wi, Wb[:, j],
-                          sigma, period, ts, quad)
-            M[i, j] = v
-            if symmetric and j != i:
-                M[j, i] = v
-    return M
-
-
 def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
-    """MA cosine when one or more attributes are nested and the rest plain.
+    """MA cosine when one or more attributes are nested or ordered.
 
     The MAET cross-event inner product factorises per event-pair across
     attributes (JMM Eq 3.4): ``<X,Y> = Σ_{i,j} Π_a I_a(i,j)``. Each attribute
-    contributes an (N_x, N_y) per-event-pair inner matrix -- nested attributes
-    through the tree contraction (:func:`_nested_attr_inner_matrix`), plain
-    attributes through :func:`_ma_per_attr_inner_matrix` -- and the matrices
-    multiply element-wise then sum, mirroring :func:`_cos_sim_exp_tens_ma_orbit`
-    but routing each nested factor through the contraction rather than the
-    joint-tuple enumeration. Per-attribute prefactors are constant and cancel
-    in the cosine, so mixing the two matrix conventions is exact.
+    contributes an (N_x, N_y) per-event-pair inner matrix. A nested attribute
+    goes through the per-level dispatch (:func:`_nested_attr_plan` /
+    :func:`_nested_attr_matrix`): the event-pair contraction for absolute and
+    absolute-periodic and for the cost-selected relative grids, the
+    materialised centres otherwise -- with the route decided once so its xy, xx
+    and yy share one measure (see the relative-periodic minimum-image vs
+    all-image note there). An ordered-flat attribute (``[sym]=0``, r>1, not
+    nested) goes through the centres path
+    (:func:`_closed_form_attr_matrix_from`): a single ordered level has no
+    symmetric orbit to reduce, and routing it through the orbit/Möbius matrix
+    would wrongly symmetrise it (summing its full ``S_r`` orbit). Flat-symmetric
+    and r=1 attributes go through the orbit/Möbius per-attribute matrix
+    (:func:`_ma_per_attr_inner_matrix`). The matrices multiply element-wise then
+    sum, mirroring :func:`_cos_sim_exp_tens_ma_orbit`. Per-attribute prefactors
+    are constant and cancel, so mixing the matrix conventions is exact.
 
     Returns the (ip_xy, ip_xx, ip_yy) triple, or ``None`` (route to the exact
-    enumeration) when a nested factor is no cheaper than its enumeration and
-    every nested factor shares its structure across the two densities.
+    enumeration) for an uncovered nested case.
     """
-    import math as _m
-    from .._defaults import get_default
-    from ._nested_contraction import build_recipe, make_quadrature
-
     def _decline(reason):
         if force:
             raise ValueError(
@@ -2422,7 +2588,8 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     nested_y = getattr(dens_y, "nested", None) or [None] * A
     inner_rx = _inner_r_vec(dens_x)
     inner_ry = _inner_r_vec(dens_y)
-    ts = get_default("truncation_sigmas")
+    is_sym_x = np.asarray(
+        getattr(dens_x, "is_sym", np.ones(A, dtype=bool))).ravel()
 
     N_x = int(dens_x.n)
     N_y = int(dens_y.n)
@@ -2430,19 +2597,19 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     P_xx = np.ones((N_x, N_x), dtype=np.float64)
     P_yy = np.ones((N_y, N_y), dtype=np.float64)
 
-    def _w_of(dens, a, P):
-        w = dens.w[a]
-        return np.ones_like(P) if w is None else np.asarray(w, dtype=np.float64)
-
     for a in range(A):
         is_nested = (nested_x[a] is not None) or (nested_y[a] is not None)
-        sigma = float(dens_x.sigma[a])
-        is_rel = bool(dens_x.is_rel[a])
-        is_per = bool(dens_x.is_per[a])
-        period = float(dens_x.period[a])
         r_a = int(dens_x.r[a])
+        ordered_flat = ((not is_nested) and (not bool(is_sym_x[a]))
+                        and (r_a > 1))
 
-        if not is_nested:
+        if not (is_nested or ordered_flat):
+            # Flat-symmetric or r=1: the orbit/Möbius per-attribute matrix,
+            # which correctly symmetrises these readings.
+            sigma = float(dens_x.sigma[a])
+            is_rel = bool(dens_x.is_rel[a])
+            is_per = bool(dens_x.is_per[a])
+            period = float(dens_x.period[a])
             Pxa, Pya = dens_x.p_attr[a], dens_y.p_attr[a]
             Wxa, Wya = dens_x.w[a], dens_y.w[a]
             P_xy *= _ma_per_attr_inner_matrix(
@@ -2453,73 +2620,45 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
                 Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period)
             continue
 
-        if nested_x[a] is None or nested_y[a] is None:
-            return _decline("an attribute is nested on only one side")
-        if int(inner_rx[a]) != 0 or int(inner_ry[a]) != 0:
-            return _decline("an inner/intermediate [rel] unit is not yet covered")
-        spec_x = nested_x[a]
-        spec_y = nested_y[a]
-        PXa = np.asarray(dens_x.p_attr[a], dtype=np.float64)
-        PYa = np.asarray(dens_y.p_attr[a], dtype=np.float64)
-        r_levels = np.asarray(spec_x["r"]).ravel()
-        sym_levels = np.asarray(spec_x["sym"]).ravel()
-        if (not np.array_equal(r_levels, np.asarray(spec_y["r"]).ravel())
-                or not np.array_equal(sym_levels,
-                                      np.asarray(spec_y["sym"]).ravel())):
-            return _decline("the two nested attributes differ in [r]/[sym]")
-        tags_x = np.asarray(spec_x["tags"])
-        tags_y = np.asarray(spec_y["tags"])
-        same_struct = (tags_x.shape == tags_y.shape
-                       and bool(np.array_equal(tags_x, tags_y)))
-        WXa = _w_of(dens_x, a, PXa)
-        WYa = _w_of(dens_y, a, PYa)
-        # Variable-K (NaN-padded) slots: fill with an in-range value at
-        # weight zero (exactly equivalent; see _try_nested_contract).
-        _mXa = np.isnan(PXa)
-        _mYa = np.isnan(PYa)
-        if _mXa.any() or _mYa.any():
-            _fill = float(min(np.nanmin(PXa), np.nanmin(PYa)))
-            PXa = np.where(_mXa, _fill, PXa)
-            WXa = np.where(_mXa | np.isnan(WXa), 0.0, WXa)
-            PYa = np.where(_mYa, _fill, PYa)
-            WYa = np.where(_mYa | np.isnan(WYa), 0.0, WYa)
-        recipe_x = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
-        recipe_y = (recipe_x if same_struct
-                    else build_recipe(r_levels, sym_levels, tags_y,
-                                      is_rel, is_per))
-        vmin = float(min(PXa.min(), PYa.min()))
-        vmax = float(max(PXa.max(), PYa.max()))
-        if is_rel and is_per:
-            tol = (max(_m.exp(-0.5 * ts ** 2), 1e-12)
-                   if _m.isfinite(ts) else 1e-12)
-            sop_max = (0.85 / (4.0 * _m.sqrt(_m.log(1.0 / tol)))
-                       if tol < 1.0 else _m.inf)
-            if sigma / period > sop_max:
-                warnings.warn(
-                    f"Nested relative-periodic similarity at sigma/period = "
-                    f"{sigma / period:.3f} exceeds the surrogate accuracy "
-                    f"threshold {sop_max:.3f} implied by truncation_sigmas "
-                    f"(tolerance {tol:.1e}); the transposition-average value "
-                    f"may depart from the exact inner product. Pass "
-                    f"method='bulger' for the exact enumeration.",
-                    stacklevel=2,
-                )
-        quad = make_quadrature(is_rel, is_per, sigma, period, vmin, vmax, ts)
-        P_xy *= _nested_attr_inner_matrix(
-            recipe_x, recipe_y, PXa, PYa, WXa, WYa, sigma, period, ts, quad,
-            symmetric=False)
-        P_xx *= _nested_attr_inner_matrix(
-            recipe_x, recipe_x, PXa, PXa, WXa, WXa, sigma, period, ts, quad,
-            symmetric=True)
-        P_yy *= _nested_attr_inner_matrix(
-            recipe_y, recipe_y, PYa, PYa, WYa, WYa, sigma, period, ts, quad,
-            symmetric=True)
+        if is_nested:
+            if nested_x[a] is None or nested_y[a] is None:
+                return _decline("an attribute is nested on only one side")
+            if int(inner_rx[a]) != 0 or int(inner_ry[a]) != 0:
+                return _decline(
+                    "an inner/intermediate [rel] unit is not yet covered")
+            r_levels = np.asarray(nested_x[a]["r"]).ravel()
+            sym_levels = np.asarray(nested_x[a]["sym"]).ravel()
+            if (not np.array_equal(
+                    r_levels, np.asarray(nested_y[a]["r"]).ravel())
+                    or not np.array_equal(
+                        sym_levels, np.asarray(nested_y[a]["sym"]).ravel())):
+                return _decline("the two nested attributes differ in [r]/[sym]")
+            # Nested: the mode-aware per-level dispatch (contraction for
+            # absolute/abs-periodic and the large-symmetric rel-periodic
+            # tau-grid; centres for relative-non-periodic and minimum-image
+            # rel-periodic). Route decided once so xy, xx and yy share one
+            # measure.
+            route, taus = _nested_attr_plan(dens_x, dens_y, a)
+            P_xy *= _nested_attr_matrix(dens_x, dens_y, a, route, taus)
+            P_xx *= _nested_attr_matrix(dens_x, dens_x, a, route, taus)
+            P_yy *= _nested_attr_matrix(dens_y, dens_y, a, route, taus)
+            continue
+
+        # Ordered flat ([sym]=0, r>1, not nested): the materialised centres,
+        # which honour the ordered reading (no symmetrisation -- the orbit
+        # matrix would wrongly symmetrise) and use the minimum-image
+        # pairwise-wrap for relative-periodic. A single ordered level has no
+        # symmetric orbit to reduce, so there is no per-level Möbius to gain.
+        cx = _closed_form_attr_centres(dens_x, a)
+        cy = _closed_form_attr_centres(dens_y, a)
+        P_xy *= _closed_form_attr_matrix_from(cx, cy)
+        P_xx *= _closed_form_attr_matrix_from(cx, cx)
+        P_yy *= _closed_form_attr_matrix_from(cy, cy)
 
     # The joint-tuple enumeration (bulger) mis-shapes a nested attribute's
     # per-event tuples in the MA tensor build, so a nested multi-attribute
-    # density must not fall back to it. The contraction is competitive at any
-    # size here (the nested factor dominates and the plain factors are the
-    # fast per-attribute matrices), so always return the contracted triple.
+    # density must not fall back to it. Every per-attribute route here costs no
+    # more than the equivalent flat attribute, so always return the triple.
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
 
@@ -2885,8 +3024,12 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     Marginalises a translation u over either ``[0, P)`` (periodic) or a
     Gaussian-supported window around the alignment of A and B
     (non-periodic), and integrates the Möbius-evaluated kernel against u.
-    The grid density is ``samples_per_sigma`` points per σ; the
-    truncation in the non-periodic case extends 8σ beyond the natural
+    In the periodic case the node count comes from
+    :func:`auto_ntau_default`, the single shared source used by the flat
+    and nested relative-periodic paths so the same level returns the same
+    value whichever path computes it. In the non-periodic case the line
+    grid has ``samples_per_sigma`` points per σ and the
+    truncation extends 8σ beyond the natural
     overlap window. (The earlier 4σ default truncated tails of the
     Möbius integrand at ~5e-10 — small per kernel value, but
     enough to corrupt the auto-inner products at ~1e-6 relative
@@ -2903,12 +3046,13 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     """
     from .._mobius import inner_product_orbit_grid
     from .._defaults import get_default
+    from ._nested_contraction import auto_ntau_default
 
     if truncation_sigmas is None:
         truncation_sigmas = get_default('truncation_sigmas')
 
     if is_per:
-        N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
+        N_u = auto_ntau_default(period, sigma)
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
         diffs = (p_a[None, :, None] - p_b[None, None, :]

@@ -720,14 +720,105 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
             ipv = sum(contractNode(recipeX, recipeY, K));   % common dtau cancels
         case 'relnonper'
             taus = quad.taus(:);
-            T = numel(taus);
-            d = reshape(vX, [1, nX, 1]) ...
-                - (reshape(vY, [1, 1, nY]) + reshape(taus, [T, 1, 1]));
-            K = exp(-d.^2 / (4 * sigma^2));               % no wrap
-            K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
-            K = truncK(K, ts);
-            ipv = sum(contractNode(recipeX, recipeY, K));
+            ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
+                                      sigma, ts, taus);
+            if isempty(ipv)
+                T = numel(taus);
+                d = reshape(vX, [1, nX, 1]) ...
+                    - (reshape(vY, [1, 1, nY]) + reshape(taus, [T, 1, 1]));
+                K = exp(-d.^2 / (4 * sigma^2));               % no wrap
+                K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
+                K = truncK(K, ts);
+                ipv = sum(contractNode(recipeX, recipeY, K));
+            end
     end
+end
+
+
+function tpl = slotSharedLeafTemplate(node, v, w)
+%SLOTSHAREDLEAFTEMPLATE Detect a spectral-augmentation leaf (mirror of the
+%   Python _slot_shared_leaf_template): a two-level node whose children are all
+%   r == 1 leaves sharing one partial template (a common offset and weight
+%   profile, translated per child by a single carrier). Returns a struct with
+%   fields carriers/off/wt, or [] when the node is not of this form.
+    tpl = [];
+    if node.level ~= 1 || isempty(node.children)
+        return;
+    end
+    rep = node.children{1};
+    if rep.level ~= 0 || rep.r ~= 1 || ~isempty(rep.children)
+        return;
+    end
+    s0 = rep.slots(:);
+    width = numel(s0);
+    if width < 2                       % Kp == 1 is a plain fundamental: leave
+        return;                        % it on the generic path (no change)
+    end
+    v0 = v(s0);
+    w0 = w(s0);
+    off = v0 - v0(1);
+    g = numel(node.children);
+    carriers = zeros(g, 1);
+    for a = 1:g
+        ch = node.children{a};
+        if ch.level ~= 0 || ch.r ~= 1 || ~isempty(ch.children)
+            return;
+        end
+        sa = ch.slots(:);
+        if numel(sa) ~= width
+            return;
+        end
+        va = v(sa);
+        if ~isequal(va - va(1), off) || ~isequal(w(sa), w0)
+            return;
+        end
+        carriers(a) = va(1);
+    end
+    tpl = struct('carriers', carriers, 'off', off(:), 'wt', w0(:));
+end
+
+
+function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
+                                   sigma, ts, taus)
+%IPRELNONPERFACTORED Closed-form inner-partial reduction of the relative-non-
+%   periodic inner product for spectrally-augmented ordered cells (mirror of
+%   the Python _ip_rel_nonper_factored). The inner partial index sums into the
+%   template cross-correlation g, and the cell overlap reduces to the carrier
+%   differences: sum_tau prod_a g(carrierX_a - carrierY_a - tau). Returns [] when
+%   the structure is not of this form (then the caller uses the generic path).
+    ipv = [];
+    if recipeX.sym || recipeY.sym
+        return;                        % need ordered cells (outer [sym] = 0)
+    end
+    if recipeX.r ~= numel(recipeX.children) ...
+            || recipeY.r ~= numel(recipeY.children)
+        return;                        % need the whole cell as one ordered tuple
+    end
+    tx = slotSharedLeafTemplate(recipeX, vX, wX);
+    ty = slotSharedLeafTemplate(recipeY, vY, wY);
+    if isempty(tx) || isempty(ty)
+        return;
+    end
+    g = numel(tx.carriers);
+    if g ~= numel(ty.carriers)         % diagonal needs equal cell lengths
+        return;
+    end
+    dpq = tx.off - ty.off.';                          % Kx x Ky
+    wpq = tx.wt * ty.wt.';                            % Kx x Ky
+    Kx = size(dpq, 1);
+    Ky = size(dpq, 2);
+    T = numel(taus);
+    delta = reshape(tx.carriers - ty.carriers, [1, g]) ...
+            - reshape(taus, [T, 1]);                  % T x g
+    arg = reshape(delta, [T, g, 1, 1]) ...
+          + reshape(dpq, [1, 1, Kx, Ky]);             % T x g x Kx x Ky
+    K = exp(-arg.^2 / (4 * sigma^2)) .* reshape(wpq, [1, 1, Kx, Ky]);
+    if ~isempty(ts) && isfinite(ts)
+        floorv = exp(-0.5 * ts^2);     % per-term floor, matching truncK exactly
+        K(K < floorv) = 0;
+    end
+    mDiag = sum(sum(K, 4), 3);                        % T x g
+    ipv = sum(prod(mDiag, 2));         % common dtau cancels in the cosine
 end
 
 

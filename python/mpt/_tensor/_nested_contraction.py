@@ -446,13 +446,100 @@ def auto_taus_line(vX, vY, sigma, tol):
     return np.linspace(-hi, hi, n)
 
 
-def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                   truncation_sigmas, taus):
+def _slot_shared_leaf_template(node, v, w):
+    """Detect a spectral-augmentation leaf: a two-level node whose children are
+    all ``r == 1`` leaves sharing one partial template (a common set of offsets
+    and weights, translated per child by a single carrier value).
+
+    Returns ``(carriers, offsets, weights)`` -- the per-child carrier value, the
+    shared offset profile, and the shared weight profile -- or ``None`` when the
+    node is not of this form. The detection is exact (the offsets and weights of
+    every child must coincide), so any departure falls back to the generic path.
+    """
+    if node.level != 1 or not node.children:
+        return None
+    rep = node.children[0]
+    if rep.level != 0 or int(rep.r) != 1 or rep.children:
+        return None
+    s0 = np.asarray(rep.slots, dtype=np.intp)
+    width = s0.size
+    if width < 2:                      # Kp == 1 is a plain fundamental: leave it
+        return None                    # on the generic path (no numerics change)
+    v0 = v[s0]
+    w0 = w[s0]
+    off = v0 - v0[0]
+    carriers = np.empty(len(node.children), dtype=np.float64)
+    for a, ch in enumerate(node.children):
+        if ch.level != 0 or int(ch.r) != 1 or ch.children:
+            return None
+        sa = np.asarray(ch.slots, dtype=np.intp)
+        if sa.size != width:
+            return None
+        va = v[sa]
+        if not (np.array_equal(va - va[0], off)
+                and np.array_equal(w[sa], w0)):
+            return None
+        carriers[a] = va[0]
+    return carriers, off, w0
+
+
+def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                            truncation_sigmas, taus):
+    """Closed-form inner-partial reduction of the relative-non-periodic inner
+    product for spectrally-augmented ordered cells.
+
+    When each side is an ordered cell (outer ``[sym] = 0`` with read-arity equal
+    to the cell length) whose tones carry a shared partial template, the inner
+    partial index sums analytically into the template cross-correlation
+    ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
+    and the cell overlap reduces to the carrier differences alone:
+    ``sum_tau prod_a g(carrierX_a - carrierY_a - tau)``. This evaluates only the
+    per-position note overlaps, never the full partial-by-partial kernel, and is
+    exact to floating-point summation order. Returns ``None`` when the structure
+    is not of this form (then the caller uses the generic contraction).
+    """
+    if recipe_x.sym or recipe_y.sym:
+        return None                    # need ordered cells (outer [sym] = 0)
+    if (int(recipe_x.r) != len(recipe_x.children)
+            or int(recipe_y.r) != len(recipe_y.children)):
+        return None                    # need the whole cell as one ordered tuple
+    tx = _slot_shared_leaf_template(recipe_x, vX, wX)
+    ty = _slot_shared_leaf_template(recipe_y, vY, wY)
+    if tx is None or ty is None:
+        return None
+    cX, offX, wtX = tx
+    cY, offY, wtY = ty
+    if cX.size != cY.size:             # diagonal needs equal cell lengths
+        return None
+    dpq = offX[:, None] - offY[None, :]                     # (Kx, Ky)
+    wpq = wtX[:, None] * wtY[None, :]
+    delta = (cX - cY)[None, :] - taus[:, None]              # (T, g)
+    K = np.exp(-(delta[..., None, None] + dpq) ** 2
+               / (4.0 * sigma ** 2)) * wpq                  # (T, g, Kx, Ky)
+    if truncation_sigmas is not None and math.isfinite(truncation_sigmas):
+        floor = math.exp(-0.5 * truncation_sigmas ** 2)
+        K[K < floor] = 0.0             # per-term floor, matching _trunc exactly
+    m_diag = K.sum(axis=(-1, -2))                           # (T, g)
+    return float(m_diag.prod(axis=1).sum())   # common dtau cancels in the cosine
+
+
+def _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                           truncation_sigmas, taus):
     d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
     K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)   # (T, nX, nY)
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
     return float(_contract(recipe_x, recipe_y, K).sum())  # common dtau cancels
+
+
+def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                   truncation_sigmas, taus):
+    fast = _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                                   truncation_sigmas, taus)
+    if fast is not None:
+        return fast
+    return _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
+                                  truncation_sigmas, taus)
 
 
 # ----------------------------------------------------------------------

@@ -142,13 +142,21 @@ def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
 
 
 
-# Per-r K thresholds for the Möbius-vs-Bulger crossover, established
-# empirically on representative MAET workloads (N = 8-12, σ = 12,
-# P = 1200, samples_per_sigma = 5). Retained for reference but
-# superseded by the cost-model dispatcher below, which also accounts
-# for N (which the K thresholds alone do not — at N = 2 the abs
-# crossover is K ≥ 14 for r = 2, but at N = 16 it is K ≥ 6, a span a
-# single threshold can't capture).
+# Per-r, per-mode K thresholds for the orbit-vs-enumeration crossover at a
+# single symmetric attribute or nesting level, established empirically on
+# representative MAET workloads (N = 8-12, σ = 12, P = 1200). Mode matters: the
+# relative-periodic orbit path carries a transposition-average u-grid that
+# enumeration avoids, so its crossover sits well above the absolute one, and at
+# r = 2 enumeration always wins (hence the inf entry — a pure op-count
+# comparison, which sees only the orbit-class reduction and not the u-grid
+# cost, would wrongly route every r = 2 rel-per level to orbit). These drive
+# the per-level decision in the nested contraction via
+# _orbit_beats_pairwise_per_attr. The flat multi-attribute and single-attribute
+# inner-product paths make a whole-call decision instead, through the cost
+# model and probe below, which additionally account for N (e.g. the absolute
+# r = 2 crossover ranges from K ≥ 14 at N = 2 to K ≥ 6 at N = 16, a span no
+# single K threshold can capture); the per-level predicate stays
+# threshold-based because it runs once per level with no room for a probe.
 _K_THRESHOLD_ABS = {2: 7, 3: 6, 4: 5, 5: 4, 6: 4}
 
 _K_THRESHOLD_REL_PER = {2: float("inf"), 3: 10, 4: 8, 5: 7, 6: 6}
@@ -222,10 +230,19 @@ _ORBIT_RELNONPER_PER_PAIR_K2_MS = {
 
 
 def _orbit_beats_pairwise_per_attr(r, K, is_rel, is_per):
-    """Per-attribute K-threshold heuristic for Möbius-vs-Bulger crossover (legacy; superseded).
+    """Per-level orbit-vs-enumeration decision for one symmetric attribute or
+    nesting level, from the mode-aware K thresholds above.
 
-    Retained for callers that haven't migrated; the cost-model
-    dispatcher in ``_select_ma_inner_product_method`` is preferred.
+    This is the live predicate for the per-level decision in the nested
+    contraction (``_nested_contraction._orbit_eligible``): it runs once per
+    level, so it uses a cheap mode-aware threshold rather than a probe. The flat
+    multi-attribute and single-attribute inner-product paths instead make a
+    whole-call decision through the cost model and probe (see
+    ``_select_ma_inner_product_method`` and ``_select_and_estimate_sa_ip``),
+    which also weigh N. The two mechanisms are matched to their contexts, not
+    redundant: the per-level predicate cannot afford a probe, and its thresholds
+    encode the relative-periodic u-grid overhead that an op-count comparison
+    would miss. ``True`` means orbit (Möbius) is the cheaper route here.
     """
     if r == 1:
         return False
@@ -639,6 +656,14 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
                                     sigma_over_P, user_method,
                                     n_min=None):
     """Pick the inner-product path for the SA case.
+
+    This is the probe-free SA routing reference: it encodes the same routing
+    rules as the live cosine-path selector ``_select_and_estimate_sa_ip`` (hard
+    guards, then the fastest path with the relative-periodic warning) but
+    without the wall-time probe, so the policy can be exercised directly from
+    the structural inputs. The cosine path itself uses
+    ``_select_and_estimate_sa_ip``; this lighter form is what the dispatcher
+    unit tests assert against.
 
     Parameters
     ----------

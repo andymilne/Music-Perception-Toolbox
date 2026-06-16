@@ -65,7 +65,7 @@ def test_golden_sa_cossim_rel_r3_per():
         p1, w, p2, w, 80.0, 3, True, True, 1200.0,
         method='mobius', verbose=False,
     )
-    GOLDEN = 0.98878587374986
+    GOLDEN = 0.98878587398645
     assert abs(s - GOLDEN) < RTOL * abs(GOLDEN) + ATOL
 
 

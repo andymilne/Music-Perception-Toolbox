@@ -135,13 +135,14 @@ def _raise_if_any_sigma_zero(dens, *, method_name: str) -> None:
 # (every group absolute) --- the cell mass factorizes into a product
 # of per-axis erf differences, summed over tuples.
 #
-# n_tuple_entropy reaches this path by differencing events externally
-# (difference_events + bind_events) and then building an absolute
-# (is_rel=False) MAET, so its sigma is the effective sigma_eff already.
-# Relative-mode direct calls (is_rel=True) fall back to point-evaluation,
-# which is within ~1e-4 of bin-integration on the fine grids those uses
-# require anyway; the full multivariate-normal box treatment is a v2.3
-# item that retires the marginal-matched approximation.
+# n_tuple_entropy reaches this path differently per sigma_space.
+# 'interval' differences events externally (difference_events +
+# bind_events) and builds an absolute (is_rel=False) MAET on the steps,
+# so it uses exact bin-integration. 'position' binds n+1 pitches and
+# builds a relative (is_rel=True) window MAET, whose grid cell masses
+# fall back to point-evaluation, within ~1e-4 of bin-integration on the
+# fine grids these uses require anyway; the full multivariate-normal box
+# treatment for relative mode is a v2.3 item.
 
 _SQRT2 = float(np.sqrt(2.0))
 
@@ -2012,20 +2013,29 @@ def n_tuple_entropy(
     For ``sigma_space = 'position'``:
 
       - Each ``p_k`` is treated as ``N(p_k, sigma**2)``.
-      - Derived steps ``d_k = p_{k+1} - p_k`` have variance
-        ``2 * sigma**2`` per step, with anti-correlation
-        ``-sigma**2`` between adjacent steps (they share an endpoint
-        with opposite signs).
-      - At ``n == 1``, only the marginal step variance matters, and
-        the entropy is identical to ``sigma_space = 'interval'`` with
-        ``sigma_eff = sigma * sqrt(2)``. This case is handled
-        exactly.
-      - At ``n >= 2``, the cross-step anti-correlation in principle
-        shifts the entropy. The current implementation uses the
-        marginal-matched approximation (``sigma_eff = sigma * sqrt(2)``
-        per slot, slots independent). Full cross-slot covariance
-        handling at ``n >= 2`` is planned for a future release; a
-        warning is issued when this approximation is in effect.
+      - Derived steps ``d_k = p_{k+1} - p_k`` then have variance
+        ``2 * sigma**2`` per step, with anti-correlation ``-sigma**2``
+        between adjacent steps (they share an endpoint with opposite
+        signs), i.e. covariance ``sigma**2 * tridiag(2, -1)`` over the
+        ``n`` steps of a tuple.
+      - This full covariance is captured exactly, at every ``n``,
+        without an off-diagonal kernel. Rather than placing a kernel
+        on the steps, the implementation binds ``n + 1`` consecutive
+        pitches and takes the window relative (``[rel] = 1`` at the
+        outer level). Projecting the isotropic positional jitter
+        ``sigma**2 I`` onto the within-window difference space
+        reproduces ``sigma**2 * tridiag(2, -1)`` in step coordinates
+        from isotropic kernels alone.
+      - At ``n == 1`` there is no neighbour to correlate with, so this
+        reduces to a single step of variance ``2 * sigma**2``.
+      - The relative density lives on the within-window difference
+        space (an orthonormal basis of the quotient), so for
+        ``sigma > 0`` the continuous (``differential``, ``renyi2``)
+        and grid (``shannon``, ``normalized``) entropies are reported
+        in those coordinates, not in step coordinates; they differ
+        from ``sigma_space = 'interval'`` by both the sigma semantics
+        and this coordinate convention. At ``sigma == 0`` the
+        coordinate convention is immaterial (see below).
 
     For ``sigma_space = 'interval'``:
 
@@ -2130,67 +2140,60 @@ def n_tuple_entropy(
                 f"(got {n_grid})."
             )
 
-    # --- Cyclic first differences via the framework's circular mode ---
-    # difference_events with circular=True wraps at the sequence
-    # boundary (output position 0 holds p(0) - p(N-1)); the
-    # downstream periodic kernel handles mod-period wrapping at
-    # evaluation time, so no explicit mod is needed here. The
-    # resulting multiset of consecutive-difference n-grams is
-    # invariant under the cyclic rotation that distinguishes this
-    # ordering from the equivalent "diff first, wrap difference at
-    # position N" convention.
+    # --- Step-tuples: cyclic first differences, then bind n consecutive
+    #     steps. These are the returned n-tuples for both modes, and the
+    #     density for sigma_space='interval'. ---
+    # difference_events with circular=True wraps at the sequence boundary
+    # (output position 0 holds p(0) - p(N-1)); the downstream periodic
+    # kernel handles mod-period wrapping at evaluation time, so no explicit
+    # mod is needed here.
     p_row = p.astype(np.float64).reshape(1, -1)
     p_diff_list, _, _ = difference_events(
         [p_row], None, 1, circular=True,
     )
     diffs_row = p_diff_list[0]
-
-    # --- Bind n consecutive cyclic step sizes ---
-    p_bound, w_bound, specs = bind_events(
+    p_step, w_step, step_specs = bind_events(
         [diffs_row], None, n, circular=True,
     )
+    tuples_out = p_step[0].T
 
-    # --- Resolve sigma per the sigma_space flag ---
-    #
-    # 'interval': sigma is per-step uncertainty (legacy step-size mode);
-    #             slots are independent with variance sigma**2 each.
-    #
-    # 'position': sigma is positional uncertainty; each step inherits
-    #             variance 2*sigma**2 (since step = p_{k+1} - p_k).
-    #             The full position model also includes -sigma**2
-    #             anti-correlation between adjacent slots, but this is
-    #             not yet implemented; the marginal-matched
-    #             approximation (sigma_eff = sigma*sqrt(2), slots
-    #             independent) is used at n >= 2. Exact at n = 1.
+    sigma_use = sigma if sigma > 0 else 1e-12
 
-    if sigma_space == "position":
-        sigma_use = sigma * np.sqrt(2.0)
-        if n >= 2 and sigma > 0:
-            warnings.warn(
-                "sigma_space='position' at n >= 2 currently uses a "
-                "marginal-matched approximation; cross-slot anti-"
-                "correlations are not yet captured. Full position-"
-                "aware n-tuple support is planned for a future "
-                "release.",
-                category=UserWarning,
-                stacklevel=2,
-            )
-    else:
-        sigma_use = sigma
-
-    if sigma_use <= 0:
-        sigma_use = 1e-12
-
-    # --- Build MAET ---
-    # The bound events nest into a single attribute (outer r = n reads the
-    # whole window, rel absolute), which reproduces the old tensor join of
-    # n single-step attributes (spec §6.5); sigma/is_per/period are scalar
-    # per-attribute and pass straight through.
-    T = build_exp_tens(
-        p_bound, w_bound,
-        specs=specs, sigma=[sigma_use], is_per=[True], period=[period],
-        verbose=False,
-    )
+    # --- Build the MAET per the sigma_space flag ---
+    if sigma_space == "interval":
+        # sigma is per-step uncertainty: each bound step is an independent
+        # N(d_k, sigma**2). The n bound steps form one absolute ordered
+        # attribute; sigma/is_per/period pass straight through.
+        T = build_exp_tens(
+            p_step, w_step,
+            specs=step_specs, sigma=[sigma_use], is_per=[True],
+            period=[period], verbose=False,
+        )
+    else:  # sigma_space == "position"
+        # sigma is positional uncertainty on each p_k. Bind n+1 consecutive
+        # pitches and take the window relative ([rel]=1 at the outer level):
+        # projecting the isotropic positional jitter sigma**2 I onto the
+        # within-window difference space gives each step variance 2*sigma**2
+        # with -sigma**2 anti-correlation between adjacent steps -- the exact
+        # position model. The relative projection supplies this correlated
+        # covariance from isotropic kernels, so no off-diagonal kernel
+        # covariance is needed. Exact at every n; at sigma = 0 it reduces to
+        # the integer step histogram, matching 'interval' and Milne & Dean
+        # (2016).
+        p_win, w_win, win_specs = bind_events(
+            [p_row], None, n + 1, circular=True,
+        )
+        # Two nesting levels: inner singleton pitch, outer window of n+1
+        # pitches. Take the outer window relative, inner absolute. The inner
+        # singleton's flags are inert (Section "Sigma semantics"), so the
+        # level collapses to a flat ordered relative (n+1)-tuple whose
+        # within-tuple differences are the n consecutive steps.
+        win_specs[0]["rel"] = [0, 1]
+        T = build_exp_tens(
+            p_win, w_win,
+            specs=win_specs, sigma=[sigma_use], is_per=[True],
+            period=[period], verbose=False,
+        )
 
     # --- Entropy on the chosen grid / via the chosen method ---
     # Grid-based methods ('shannon', 'normalized') use the pinned period
@@ -2214,11 +2217,6 @@ def n_tuple_entropy(
         H = entropy_exp_tens(
             T, method="renyi2", base=base,
         )
-
-    # --- Tuples matrix (K, n) for compatibility with the prior API ---
-    # p_bound is one stacked attribute; its columns are the n-grams, so
-    # the (N', n) tuples matrix is its transpose.
-    tuples_out = p_bound[0].T
 
     return H, tuples_out
 

@@ -92,11 +92,11 @@ fprintf('  (matches expected 8 for the shared-reinforcing case)\n');
 %% ===== 4. nTupleEntropy =====
 
 fprintf('\n=== nTupleEntropy on the diatonic ===\n\n');
-fprintf('  At n = 1, sigma_space = ''position'' is exactly equivalent\n');
-fprintf('  to sigma_space = ''interval'' with sigma multiplied by\n');
-fprintf('  sqrt(2) — the marginal-matched relationship that captures\n');
-fprintf('  the variance that one positional jitter induces in\n');
-fprintf('  the derived step sizes.\n\n');
+fprintf('  sigmaSpace = ''position'' is the exact position-uncertainty\n');
+fprintf('  model at every n. The n steps of a tuple carry covariance\n');
+fprintf('  sigma^2 * tridiag(2, -1) (variance 2*sigma^2 per step,\n');
+fprintf('  -sigma^2 between neighbours), captured by binding the n+1\n');
+fprintf('  underlying events and taking the window relative.\n\n');
 
 fprintf('  n = 1:\n');
 fprintf('  %-10s %-18s %-18s\n', 'sigma', 'H (position)', 'H (interval)');
@@ -114,25 +114,23 @@ for s = [0, 0.1, 0.25, 0.5]
     fprintf('  %-10g %-18.6f %-18.6f\n', s, Hp, Hi);
 end
 
-fprintf('\n  Verifying the n=1 exactness relationship:\n');
-sigmaP = 0.5;
-Hp = nTupleEntropy(DIATONIC, PERIOD, 1, 'sigma', sigmaP, ...
-                   'sigmaSpace', 'position');
-Hi_match = nTupleEntropy(DIATONIC, PERIOD, 1, 'sigma', sigmaP*sqrt(2), ...
-                         'sigmaSpace', 'interval');
-fprintf('    H(sigma=%.4f, position) = %.10f\n', sigmaP, Hp);
-fprintf('    H(sigma=%.4f, interval) = %.10f\n', sigmaP*sqrt(2), Hi_match);
-fprintf('    Difference: %.2e (should be ~zero)\n', abs(Hp - Hi_match));
+fprintf('\n  Verifying the sigma = 0 anchor (position and interval\n');
+fprintf('  both reduce to the published integer-step histogram):\n');
+H0p = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0, ...
+                    'sigmaSpace', 'position', 'method', 'shannon');
+H0i = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0, ...
+                    'sigmaSpace', 'interval', 'method', 'shannon');
+fprintf('    H(n=2, sigma=0, position) = %.10f\n', H0p);
+fprintf('    H(n=2, sigma=0, interval) = %.10f\n', H0i);
+fprintf('    Difference: %.2e (should be ~zero)\n', abs(H0p - H0i));
 
-fprintf('\n  At n >= 2, sigma_space = ''position'' falls back to a\n');
-fprintf('  marginal-matched approximation that ignores anti-\n');
-fprintf('  correlations between adjacent step slots. A warning\n');
-fprintf('  fires once per call to make this explicit:\n\n');
+fprintf('\n  At n >= 2, sigmaSpace = ''position'' remains the exact\n');
+fprintf('  correlated model: the shared-event anti-correlation\n');
+fprintf('  between adjacent steps is captured exactly (no\n');
+fprintf('  approximation, no warning):\n\n');
 
-origState = warning('on', 'nTupleEntropy:positionApprox');
 H_n2_pos = nTupleEntropy(DIATONIC, PERIOD, 2, 'sigma', 0.3, ...
                          'sigmaSpace', 'position');
-warning(origState);
 fprintf('    H(diatonic, n=2, sigma=0.3, position) = %.6f\n', H_n2_pos);
 
 fprintf('\nDone.\n');

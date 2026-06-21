@@ -60,18 +60,28 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
 %
 %       For sigmaSpace = 'position':
 %         - Each p_k is treated as N(p_k, sigma^2).
-%         - Derived steps d_k = p_{k+1} - p_k have variance 2 sigma^2
-%           per step, with anti-correlation -sigma^2 between adjacent
-%           steps (they share an endpoint with opposite signs).
-%         - At n = 1, only the marginal step variance matters, and
-%           the entropy is identical to sigmaSpace = 'interval' with
-%           sigma_eff = sigma * sqrt(2). This case is handled exactly.
-%         - At n >= 2, the cross-step anti-correlation in principle
-%           shifts the entropy. The current implementation uses the
-%           marginal-matched approximation (sigma_eff = sigma * sqrt(2)
-%           per slot, slots independent). Full cross-slot covariance
-%           handling at n >= 2 is planned for a future release; a
-%           warning is issued when this approximation is in effect.
+%         - Derived steps d_k = p_{k+1} - p_k then have variance
+%           2 sigma^2 per step, with anti-correlation -sigma^2 between
+%           adjacent steps (they share an endpoint with opposite
+%           signs), i.e. covariance sigma^2 * tridiag(2, -1) over the
+%           n steps of a tuple.
+%         - This full covariance is captured exactly, at every n,
+%           without an off-diagonal kernel: rather than placing a
+%           kernel on the steps, the implementation binds n+1
+%           consecutive pitches and takes the window relative (rel = 1
+%           at the outer level). Projecting the isotropic positional
+%           jitter sigma^2 I onto the within-window difference space
+%           reproduces sigma^2 * tridiag(2, -1) in step coordinates
+%           from isotropic kernels alone. At n = 1 there is no
+%           neighbour to correlate with, so it reduces to a single
+%           step of variance 2 sigma^2.
+%         - The relative density lives on the within-window difference
+%           space (an orthonormal basis of the quotient), so for
+%           sigma > 0 the reported entropies are in those coordinates,
+%           not step coordinates; they differ from sigmaSpace =
+%           'interval' by both the sigma semantics and this coordinate
+%           convention. At sigma = 0 the coordinate convention is
+%           immaterial (see below).
 %
 %       For sigmaSpace = 'interval':
 %         - Each step d_k is treated as N(d_k, sigma^2) independently.
@@ -211,64 +221,57 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
         nGrid = nvArgs.nPointsPerDim;
     end
 
-    % --- Cyclic first differences via the framework's circular mode ---
+    % --- Step-tuples: cyclic first differences, then bind n consecutive
+    %     steps. These are the returned n-tuples for both modes, and the
+    %     density for sigmaSpace = 'interval'. ---
     % differenceEvents with 'circular' = true wraps at the sequence
     % boundary (output position 1 holds p(1) - p(N)); the downstream
-    % periodic kernel handles mod-period wrapping at evaluation time,
-    % so no explicit mod is needed here. The resulting multiset of
-    % consecutive-difference n-grams is invariant under the cyclic
-    % rotation that distinguishes this ordering from the equivalent
-    % "diff first, wrap difference at position N" convention.
+    % periodic kernel handles mod-period wrapping at evaluation time, so
+    % no explicit mod is needed here.
     pRow = p(:).';
     [pDiffCell, ~, ~] = differenceEvents({pRow}, [], 1, ...
                                           'circular', true);
     diffsRow = pDiffCell{1};
+    [pStep, wStep, stepSpecs] = bindEvents({diffsRow}, [], n, ...
+                                           'circular', true);
 
-    % --- Bind n consecutive cyclic step sizes ---
-
-    [pBound, wBound, specs] = bindEvents({diffsRow}, [], n, ...
-                                         'circular', true);
-
-    % --- Resolve sigma per the sigmaSpace flag ---
-    %
-    % 'interval': sigma is per-step uncertainty (legacy step-size mode);
-    %             slots are independent with variance sigma^2 each.
-    %
-    % 'position': sigma is positional uncertainty; each step inherits
-    %             variance 2 sigma^2 (since step = p_{k+1} - p_k with
-    %             two independent positional jitters). The full
-    %             position model also includes -sigma^2 anti-
-    %             correlation between adjacent slots, but this is not
-    %             yet implemented; the marginal-matched approximation
-    %             (sigma_eff = sigma * sqrt(2), slots independent) is
-    %             used at n >= 2. Exact at n = 1.
-
-    if strcmp(nvArgs.sigmaSpace, 'position')
-        sigmaUse = nvArgs.sigma * sqrt(2);
-        if n >= 2 && nvArgs.sigma > 0
-            warning('nTupleEntropy:positionApprox', ...
-                    ['sigmaSpace=''position'' at n >= 2 currently uses ' ...
-                     'a marginal-matched approximation; cross-slot ' ...
-                     'anti-correlations are not yet captured. Full ' ...
-                     'position-aware n-tuple support is planned for a ' ...
-                     'future release. Suppress this warning with ' ...
-                     'warning(''off'', ''nTupleEntropy:positionApprox'').']);
-        end
-    else  % 'interval'
+    if nvArgs.sigma > 0
         sigmaUse = nvArgs.sigma;
-    end
-
-    if sigmaUse <= 0
+    else
         sigmaUse = 1e-12;
     end
 
-    % --- Build MAET ---
-    % The bound events nest into a single attribute (outer r = n reads the
-    % whole window, rel absolute), reproducing the old tensor join of n
-    % single-step attributes (spec §6.5); sigma/isPer/period are scalar.
-
-    T = buildExpTens(pBound, wBound, 'specs', specs, 'sigma', sigmaUse, ...
-                     'isPer', true, 'period', period, 'verbose', false);
+    % --- Build the MAET per the sigmaSpace flag ---
+    if strcmp(nvArgs.sigmaSpace, 'interval')
+        % sigma is per-step uncertainty: each bound step is an
+        % independent N(d_k, sigma^2). The n bound steps form one
+        % absolute ordered attribute; sigma/isPer/period are scalar.
+        T = buildExpTens(pStep, wStep, 'specs', stepSpecs, ...
+                         'sigma', sigmaUse, 'isPer', true, ...
+                         'period', period, 'verbose', false);
+    else  % 'position'
+        % sigma is positional uncertainty on each p_k. Bind n+1
+        % consecutive pitches and take the window relative (rel = 1 at
+        % the outer level): projecting the isotropic positional jitter
+        % sigma^2 I onto the within-window difference space gives each
+        % step variance 2 sigma^2 with -sigma^2 anti-correlation between
+        % adjacent steps -- the exact position model. The relative
+        % projection supplies this correlated covariance from isotropic
+        % kernels, so no off-diagonal kernel covariance is needed. Exact
+        % at every n; at sigma = 0 it reduces to the integer step
+        % histogram, matching 'interval' and Milne & Dean (2016).
+        [pWin, wWin, winSpecs] = bindEvents({pRow}, [], n + 1, ...
+                                            'circular', true);
+        % Two nesting levels (inner singleton pitch, outer window of n+1
+        % pitches). Take the outer window relative, inner absolute. The
+        % inner singleton's flags are inert, so the level collapses to a
+        % flat ordered relative (n+1)-tuple whose within-tuple
+        % differences are the n consecutive steps.
+        winSpecs{1}.rel = [0 1];
+        T = buildExpTens(pWin, wWin, 'specs', winSpecs, ...
+                         'sigma', sigmaUse, 'isPer', true, ...
+                         'period', period, 'verbose', false);
+    end
 
     % --- Entropy on the chosen grid / via the chosen method ---
     % Grid-based methods ('shannon', 'normalized') use the pinned
@@ -296,11 +299,11 @@ function [H, tuples] = nTupleEntropy(p, period, n, nvArgs)
     end
 
     % --- Tuples matrix (N', n) for compatibility with the prior API ---
-    % pBound is one stacked attribute; its columns are the n-grams, so the
+    % pStep is one stacked attribute; its columns are the n-grams, so the
     % tuples matrix is its transpose.
 
     if nargout > 1
-        tuples = pBound{1}.';
+        tuples = pStep{1}.';
     end
 end
 

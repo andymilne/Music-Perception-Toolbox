@@ -142,15 +142,17 @@ H0b = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, 'sigma', 0);
 results{end+1,1} = 'nTupleEntropy: sigma=0 equals default';
 results{end,2}   = abs(H0a - H0b) < 1e-12;
 
-% --- nTupleEntropy: n=1 exactness (position == interval with sigma*sqrt(2)) ---
+% --- nTupleEntropy: sigma=0 position == interval (published anchor) ---
+%
+%  At sigma = 0 both modes reduce to the integer step histogram (the
+%  published Milne & Dean value), so position and interval coincide.
 
-sigmaTest = 0.5;
-HposN1 = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, ...
-                       'sigma', sigmaTest, 'sigmaSpace', 'position');
-HintN1 = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, ...
-                       'sigma', sigmaTest * sqrt(2), 'sigmaSpace', 'interval');
-results{end+1,1} = 'nTupleEntropy: n=1 position(sigma) = interval(sigma*sqrt(2))';
-results{end,2}   = abs(HposN1 - HintN1) < 1e-10;
+Hpos0 = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
+                      'sigma', 0, 'sigmaSpace', 'position', 'method', 'shannon');
+Hint0 = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
+                      'sigma', 0, 'sigmaSpace', 'interval', 'method', 'shannon');
+results{end+1,1} = 'nTupleEntropy: sigma=0 position = interval (n=2)';
+results{end,2}   = abs(Hpos0 - Hint0) < 1e-12;
 
 % --- nTupleEntropy: smoothing increases entropy ---------------------
 
@@ -159,14 +161,14 @@ H_smooth = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, 'sigma', 0.2);
 results{end+1,1} = 'nTupleEntropy: smoothing increases H (n=1, position)';
 results{end,2}   = H_smooth > H_raw;
 
-% --- nTupleEntropy: position with same sigma > interval (because sqrt(2) wider) ---
+% --- nTupleEntropy: position differs from interval at sigma > 0 -----
 
-Hpos = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, ...
+Hpos = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
                      'sigma', 0.3, 'sigmaSpace', 'position');
-Hint = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 1, ...
+Hint = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
                      'sigma', 0.3, 'sigmaSpace', 'interval');
-results{end+1,1} = 'nTupleEntropy: position smoother than interval at same sigma';
-results{end,2}   = Hpos > Hint;
+results{end+1,1} = 'nTupleEntropy: position differs from interval at sigma>0';
+results{end,2}   = abs(Hpos - Hint) > 1e-6;
 
 % --- nTupleEntropy: float positions accepted when sigma > 0 ---------
 
@@ -181,29 +183,18 @@ results{end,2}   = throwsErrorWithId( ...
     @() nTupleEntropy([0.5, 2, 4, 5, 7, 9, 11], 12, 1), ...
     'nTupleEntropy:nonIntegerPositions');
 
-% --- nTupleEntropy: warning at n>=2 with sigmaSpace=position --------
+% --- nTupleEntropy: n>=2 position is exact (no approximation warning) ---
 %
-%  At n>=2 with sigmaSpace='position', the marginal-matched
-%  approximation triggers a warning (suppressible via the
-%  warning ID).
+%  Position mode is now the exact correlated model at all n, so it
+%  must not emit the old marginal-matched approximation warning.
 
-origState = warning('off', 'nTupleEntropy:positionApprox');
-cleanupObj = onCleanup(@() warning(origState));
-lastwarn('');
-H_n2_pos = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
-                         'sigma', 0.3, 'sigmaSpace', 'position');
-results{end+1,1} = 'nTupleEntropy: n=2 position computes (warning suppressed)';
-results{end,2}   = isfinite(H_n2_pos) && H_n2_pos > 0;
-clear cleanupObj;
-
-% Verify the warning fires when not suppressed:
-warning('on', 'nTupleEntropy:positionApprox');
 lastwarn('');
 H_n2_pos = nTupleEntropy([0, 2, 4, 5, 7, 9, 11], 12, 2, ...
                          'sigma', 0.3, 'sigmaSpace', 'position');
 [~, warnId] = lastwarn;
-results{end+1,1} = 'nTupleEntropy: n>=2 position issues approxApprox warning';
-results{end,2}   = strcmp(warnId, 'nTupleEntropy:positionApprox');
+results{end+1,1} = 'nTupleEntropy: n=2 position computes, no approx warning';
+results{end,2}   = isfinite(H_n2_pos) && H_n2_pos > 0 ...
+                   && ~strcmp(warnId, 'nTupleEntropy:positionApprox');
 
 
 %% ---- Standalone summary ----

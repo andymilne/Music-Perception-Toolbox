@@ -21,10 +21,6 @@ controlled by a flag that says what sigma represents:
 The two flags coincide at sigma = 0; only at sigma > 0 does the
 distinction matter.
 """
-import warnings
-
-import numpy as np
-
 from mpt import coherence, n_tuple_entropy, sameness
 from mpt._utils import position_variance
 
@@ -103,11 +99,11 @@ print("  (matches expected 8 for the shared-reinforcing case)")
 # ===== 4. n_tuple_entropy =====
 
 print("\n=== n_tuple_entropy on the diatonic ===\n")
-print("  At n = 1, sigma_space = 'position' is exactly equivalent")
-print("  to sigma_space = 'interval' with sigma multiplied by")
-print("  sqrt(2) — the marginal-matched relationship that captures")
-print("  the variance that one positional jitter induces in")
-print("  the derived step sizes.\n")
+print("  sigma_space = 'position' is the exact position-uncertainty")
+print("  model at every n. The n steps of a tuple carry covariance")
+print("  sigma^2 * tridiag(2, -1) (variance 2*sigma^2 per step,")
+print("  -sigma^2 between neighbours), captured by binding the n+1")
+print("  underlying events and taking the window relative.\n")
 
 print("  n = 1:")
 print(f"  {'sigma':<10} {'H (position)':<18} {'H (interval)':<18}")
@@ -125,29 +121,26 @@ for s in [0, 0.1, 0.25, 0.5]:
         )
     print(f"  {s:<10g} {H_p:<18.6f} {H_i:<18.6f}")
 
-print("\n  Verifying the n=1 exactness relationship:")
-sigma_p = 0.5
-H_p, _ = n_tuple_entropy(
-    DIATONIC, PERIOD, 1, sigma=sigma_p, sigma_space="position"
+print("\n  Verifying the sigma = 0 anchor (position and interval")
+print("  both reduce to the published integer-step histogram):")
+H0_p, _ = n_tuple_entropy(
+    DIATONIC, PERIOD, 2, sigma=0, sigma_space="position", method="shannon"
 )
-H_i_match, _ = n_tuple_entropy(
-    DIATONIC, PERIOD, 1,
-    sigma=sigma_p * np.sqrt(2), sigma_space="interval",
+H0_i, _ = n_tuple_entropy(
+    DIATONIC, PERIOD, 2, sigma=0, sigma_space="interval", method="shannon"
 )
-print(f"    H(sigma={sigma_p:.4f}, position) = {H_p:.10f}")
-print(f"    H(sigma={sigma_p * np.sqrt(2):.4f}, interval) = {H_i_match:.10f}")
-print(f"    Difference: {abs(H_p - H_i_match):.2e} (should be ~zero)")
+print(f"    H(n=2, sigma=0, position) = {H0_p:.10f}")
+print(f"    H(n=2, sigma=0, interval) = {H0_i:.10f}")
+print(f"    Difference: {abs(H0_p - H0_i):.2e} (should be ~zero)")
 
-print("\n  At n >= 2, sigma_space = 'position' falls back to a")
-print("  marginal-matched approximation that ignores anti-")
-print("  correlations between adjacent step slots. A warning")
-print("  fires once per call to make this explicit:\n")
+print("\n  At n >= 2, sigma_space = 'position' remains the exact")
+print("  correlated model: the shared-event anti-correlation")
+print("  between adjacent steps is captured exactly (no")
+print("  approximation, no warning):\n")
 
-with warnings.catch_warnings():
-    warnings.simplefilter("always")
-    H_n2_p, _ = n_tuple_entropy(
-        DIATONIC, PERIOD, 2, sigma=0.3, sigma_space="position"
-    )
+H_n2_p, _ = n_tuple_entropy(
+    DIATONIC, PERIOD, 2, sigma=0.3, sigma_space="position"
+)
 print(f"    H(diatonic, n=2, sigma=0.3, position) = {H_n2_p:.6f}")
 
 print("\nDone.")

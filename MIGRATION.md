@@ -2,7 +2,7 @@
 
 This guide documents migration paths between major versions of the Music Perception Toolbox.
 
-- [v2.1 → v2.2](#v21--v22) — the Möbius method (alongside Bulger's), Rényi-2 entropy, ragged-K hybrid
+- [v2.1 → v2.2](#v21--v22) — the Möbius method (alongside Bulger's), Rényi-2 entropy, ragged-K hybrid, exact `nTupleEntropy` position mode
 - [v2.0 → v2.1](#v20--v21) — soft (`sigma > 0`) structural measures, Argand-DFT Monte Carlo
 - [v1 → v2](#v1--v2) — major rewrite (analytical methods, Python port, restructured core)
 
@@ -113,6 +113,12 @@ The continuous methods (`'differential'`, `'renyi2'`) are rejected at `sigma=0` 
 
 Note that the **default** of `entropy_exp_tens` / `entropyExpTens` is still `method='shannon'` but the semantics of `shannon` have changed: v2.1's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v2.2's `method='shannon'` returns raw $H$. To recover the v2.1 default value pass `method='normalized'` explicitly. The defaults of `n_tuple_entropy` and `spectral_entropy` already give the v2.1 default value without changes (`'normalized'` and `'differential'` respectively; the latter gives the same ordering as the v2.1 normalised Shannon for consonance work, on a different scale).
 
+### `nTupleEntropy` `sigmaSpace = 'position'` now exact at all `n`
+
+v2.1.0 introduced `sigmaSpace = 'position'` (the default) but, at $n \ge 2$, approximated the shared-event correlation between adjacent steps by a marginal-matched widening ($\sigma_{\text{eff}} = \sigma\sqrt{2}$, slots independent), flagged by a one-time warning. v2.2 replaces this with the exact correlated model at every $n$: the `n` steps carry covariance $\sigma^2\,\mathrm{tridiag}(2, -1)$, obtained by binding the $n + 1$ underlying events and taking the window relative. The `marginal-matched` `UserWarning` (Python) and `nTupleEntropy:positionApprox` warning (MATLAB) are removed.
+
+This changes `sigmaSpace = 'position'` output at `sigma > 0` for all `n`: exact rather than approximate at $n \ge 2$, and reported on the relative-quotient grid at $n = 1$, so the v2.1.0 identity `position(\sigma) = interval(\sigma\sqrt{2})` no longer holds. `sigma = 0` is unchanged, and `sigmaSpace = 'interval'` is unchanged at every `sigma`. The approximation is not retained as an option; code that must reproduce v2.1.0's `sigma > 0` position values should pin to v2.1.x.
+
 ### What's new at the surface
 
 - **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.1 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values: `'bulger'` (v2.1 decomposition; IP-only), `'mobius'` (new in v2.2; IP, eval, total mass), `'centres'` (eval only), `'direct'` (small problems). The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
@@ -192,6 +198,8 @@ H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
 The new default reflects the toolbox-wide convention that `sigma` describes uncertainty on the input quantity, which for `nTupleEntropy` is positions. The two semantics coincide at `sigma = 0`, so calls without an explicit `sigma` argument are unaffected.
 
 At `n \ge 2` with `sigmaSpace = 'position'`, a one-time warning fires noting that the current implementation uses the marginal-matched approximation (slots independent at $\sigma_{\text{eff}} = \sigma\sqrt{2}$) and that full position-aware $n \ge 2$ support is planned for a future release. Suppress via the standard MATLAB / Python warning-filter mechanisms (`warning('off', 'nTupleEntropy:positionApprox')`; `warnings.filterwarnings('ignore', message='.*marginal-matched.*')`).
+
+> **Superseded in v2.2.** The `n \ge 2` approximation and its warning described here are removed in v2.2: `sigmaSpace = 'position'` is exact at every `n`. See [v2.1 → v2.2](#v21--v22). The note above applies only to v2.1.x.
 
 ### `sameness` and `coherence` gain optional `sigma`
 

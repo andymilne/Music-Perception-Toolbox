@@ -196,12 +196,10 @@ results{end,2}   = throwsErrorWithId(@() nTupleEntropy(p_diatonic, 12, 2, ...
     'nTupleEntropy:continuousNeedsSigmaPositive');
 
 % --- Continuous methods work at sigma > 0 ---
-warning('off', 'nTupleEntropy:positionApprox');
 H_diff = nTupleEntropy(p_diatonic, 12, 2, 'sigma', 0.5, ...
                        'method', 'differential');
 H_rny = nTupleEntropy(p_diatonic, 12, 2, 'sigma', 0.5, ...
                       'method', 'renyi2');
-warning('on', 'nTupleEntropy:positionApprox');
 results{end+1,1} = 'nTupleEntropy: continuous methods finite at sigma>0';
 results{end,2}   = isfinite(H_diff) && isfinite(H_rny);
 

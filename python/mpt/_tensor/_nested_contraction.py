@@ -557,6 +557,95 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     return float(m_diag.prod(axis=1).sum())   # common dtau cancels in the cosine
 
 
+def _all_shared_templates(recipe, P, W):
+    """Per-event shared-leaf-template detection across one whole side.
+
+    Returns ``(carriers, offsets, weights)`` -- ``carriers`` an ``(N, g)``
+    array of the per-event note carriers, and the single offset and weight
+    profile common to every event -- or ``None`` when any event departs from
+    one shared template (then the caller uses the generic kernel). This is
+    :func:`_slot_shared_leaf_template` applied to every event, with the
+    offsets and weights required identical across events.
+    """
+    N = P.shape[1]
+    first = _slot_shared_leaf_template(recipe, P[:, 0], W[:, 0])
+    if first is None:
+        return None
+    c0, off, wt = first
+    g = c0.size
+    carriers = np.empty((N, g), dtype=np.float64)
+    carriers[0] = c0
+    for i in range(1, N):
+        ti = _slot_shared_leaf_template(recipe, P[:, i], W[:, i])
+        if ti is None:
+            return None
+        ci, offi, wti = ti
+        if (ci.size != g or not np.array_equal(offi, off)
+                or not np.array_equal(wti, wt)):
+            return None
+        carriers[i] = ci
+    return carriers, off, wt
+
+
+def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
+                            truncation_sigmas, taus, mem_budget):
+    """Vectorised ``(N_x, N_y)`` relative-non-periodic inner matrix for
+    ordered cells carrying a shared partial template.
+
+    When every event on each side is an ordered cell (outer ``[sym] = 0``
+    with read-arity equal to the cell length) whose tones share one partial
+    template, the inner partial index sums into the template cross-
+    correlation -- the offsets and weights are common to every event -- and
+    the matrix forms only the per-position note overlaps over the whole
+    event-pair grid, never the full partial-by-partial slot kernel. This is
+    the matrix-form, whole-grid counterpart of
+    :func:`_ip_rel_nonper_factored`, evaluated by the same expression and so
+    equal to it up to floating-point summation order. Returns ``None`` when
+    the structure is not of this form (then the caller uses the generic
+    kernel); a NaN-padded (ragged) cell fails detection and so falls back.
+    """
+    if recipe_x.sym or recipe_y.sym:
+        return None                    # need ordered cells (outer [sym] = 0)
+    if (int(recipe_x.r) != len(recipe_x.children)
+            or int(recipe_y.r) != len(recipe_y.children)):
+        return None                    # need the whole cell as one ordered tuple
+    tx = _all_shared_templates(recipe_x, PX, WX)
+    ty = _all_shared_templates(recipe_y, PY, WY)
+    if tx is None or ty is None:
+        return None
+    cX, offX, wtX = tx                 # cX (Nx, g)
+    cY, offY, wtY = ty                 # cY (Ny, g)
+    g = cX.shape[1]
+    if cY.shape[1] != g:               # diagonal needs equal cell lengths
+        return None
+    dpq = offX[:, None] - offY[None, :]                    # (Kx, Ky)
+    wpq = wtX[:, None] * wtY[None, :]
+    Kx, Ky = dpq.shape
+    T = int(len(taus))
+    Nx, Ny = cX.shape[0], cY.shape[0]
+    floor = (math.exp(-0.5 * truncation_sigmas ** 2)
+             if (truncation_sigmas is not None
+                 and math.isfinite(truncation_sigmas)) else None)
+    m_idx = np.repeat(np.arange(Nx), Ny)
+    n_idx = np.tile(np.arange(Ny), Nx)
+    B = Nx * Ny
+    per = g * max(T, 1) * Kx * Ky
+    chunk = max(1, min(B, int(mem_budget // max(per, 1))))
+    out = np.empty(B, dtype=np.float64)
+    for s0 in range(0, B, chunk):
+        e0 = min(s0 + chunk, B)
+        cx = cX[m_idx[s0:e0]]                              # (nb, g)
+        cy = cY[n_idx[s0:e0]]                              # (nb, g)
+        delta = (cx - cy)[:, :, None] - taus[None, None, :]   # (nb, g, T)
+        K = np.exp(-(delta[..., None, None] + dpq) ** 2
+                   / (4.0 * sigma ** 2)) * wpq             # (nb, g, T, Kx, Ky)
+        if floor is not None:
+            K[K < floor] = 0.0
+        m_diag = K.sum(axis=(-1, -2))                      # (nb, g, T)
+        out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over g, sum over T
+    return out.reshape(Nx, Ny)
+
+
 def _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
                            truncation_sigmas, taus):
     d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
@@ -619,6 +708,15 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     nY, Ny = PY.shape
     WX = np.ones((nX, Nx)) if WX is None else np.asarray(WX, dtype=np.float64)
     WY = np.ones((nY, Ny)) if WY is None else np.asarray(WY, dtype=np.float64)
+    # Relative-non-periodic ordered cells carrying a shared partial template
+    # (spectral augmentation) reduce the inner partial index analytically; the
+    # vectorised template matrix forms only the per-position note overlaps,
+    # never the full slot kernel below. Falls through when not of that form.
+    if taus is not None and not periodic_taus and taus_reduce == "sum":
+        M = _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
+                                    truncation_sigmas, taus, mem_budget)
+        if M is not None:
+            return M
     if np.isnan(PX).any() or np.isnan(PY).any():
         fill = float(min(np.nanmin(PX), np.nanmin(PY)))
         mX, mY = np.isnan(PX), np.isnan(PY)

@@ -462,6 +462,56 @@ def _build_exp_tens_ma(
                 f"{name} must have length {A} (n attributes), got {vec.size}."
             )
 
+    # --- Collapse a vacuous inner nesting level to flat ----------------
+    # A nested attribute whose inner level reads one slot from each of
+    # K_a singleton groups, with the outer level reading every group
+    # (r_levels = (1, K_a)), is mathematically a flat r = K_a attribute:
+    # the inner level is the identity and the outer level forms the one
+    # full K_a-tuple per event. Carried as a nested spec it adds a vacuous
+    # axis to the density and routes the cosine through the general
+    # nested-einsum contraction rather than the direct flat path. Dropping
+    # it gives the same density and the same inner products (to floating-
+    # point floor, ~1e-14: the absolute path is bit-identical, the
+    # relative path drifts at fp level because its co-transposition
+    # reduction sums in a different order on the two paths) and lets both
+    # the build and -- the larger cost -- the cosine take the flat route.
+    # Periodicity rides through unchanged (is_per / period are per-
+    # attribute and untouched). Whole-tuple co-transposition maps onto the
+    # flat is_rel ('outer' -> relative, 'absolute' -> absolute); an
+    # 'inner'/'intermediate' projection reduces within sub-tuples and
+    # never collapses to flat.
+    #
+    # The collapse is restricted to the full-read case r_out == K_a. There
+    # each event contributes exactly one tuple, so the flat path can never
+    # enumerate a combinatorial set of sub-tuples: a partial read of
+    # singleton groups (r_out < K_a) -- including every ragged carrier,
+    # whose variable-length groups are padded to K_a and read with
+    # r_out < K_a -- stays nested so the orbit contraction carries it.
+    # An attribute whose is_rel_vec entry is already set is left nested so
+    # the downstream check below can reject setting [rel] outside the spec.
+    for a in range(A):
+        spec = nested[a]
+        if spec is None:
+            continue
+        if is_rel_vec[a]:                                  # reject below, do not mask
+            continue
+        r_levels_a = np.asarray(spec["r"], dtype=np.intp).ravel()
+        if r_levels_a.size != 2 or int(r_levels_a[0]) != 1:
+            continue
+        if int(r_levels_a[1]) != int(K_a[a]):              # not a full read of all slots
+            continue
+        if spec.get("proj") not in ("absolute", "outer"):
+            continue
+        tags_a = np.asarray(spec["tags"])
+        tags_col = tags_a.ravel() if tags_a.ndim == 1 else tags_a[:, 0]
+        if int(np.unique(tags_col).size) != int(K_a[a]):   # groups not all singletons
+            continue
+        sym_levels_a = np.asarray(spec["sym"], dtype=bool).ravel()
+        nested[a] = None
+        r_vec[a] = int(r_levels_a[1])
+        is_sym_vec[a] = bool(sym_levels_a[1])
+        is_rel_vec[a] = (spec.get("proj") == "outer")
+
     for a in range(A):
         if nested[a] is not None:
             if is_rel_vec[a] and not nested_was_norm[a]:

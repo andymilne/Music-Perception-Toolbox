@@ -642,6 +642,58 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
         end
     end
 
+    % --- Collapse a vacuous inner nesting level to flat ----------------
+    % A nested attribute whose inner level reads one slot from each of
+    % K_a singleton groups, with the outer level reading every group
+    % (r = [1, K_a]), is mathematically a flat r = K_a attribute: the
+    % inner level is the identity and the outer level forms the one full
+    % K_a-tuple per event. Carried as a nested spec it adds a vacuous axis
+    % to the density and routes the cosine through the general nested
+    % contraction rather than the direct flat path. Dropping it gives the
+    % same density and the same inner products (to floating-point floor)
+    % and lets both the build and -- the larger cost -- the cosine take
+    % the flat route. Periodicity rides through unchanged. Whole-tuple
+    % co-transposition maps onto the flat isRel ('outer' -> relative,
+    % 'absolute' -> absolute); an 'inner'/'intermediate' projection
+    % reduces within sub-tuples and never collapses to flat.
+    %
+    % Restricted to the full-read case r_out == K_a. There each event
+    % contributes exactly one tuple, so the flat path can never enumerate
+    % a combinatorial set of sub-tuples: a partial read of singleton
+    % groups (r_out < K_a) -- including every ragged carrier, whose
+    % variable-length groups are padded to K_a and read with r_out < K_a
+    % -- stays nested so the orbit contraction carries it. An attribute
+    % whose isRelVec entry is already set is left nested so the check
+    % below can reject setting [rel] outside the spec.
+    for a = 1:A
+        spec = nested{a};
+        if isempty(spec)
+            continue
+        end
+        if isRelVec(a)                      % reject below, do not mask
+            continue
+        end
+        rLevels = spec.r(:).';
+        if numel(rLevels) ~= 2 || rLevels(1) ~= 1
+            continue
+        end
+        if rLevels(2) ~= Ka(a)              % not a full read of all slots
+            continue
+        end
+        if ~any(strcmp(spec.proj, {'absolute', 'outer'}))
+            continue
+        end
+        tg = spec.tags;
+        if ~isvector(tg) || numel(unique(tg(:))) ~= Ka(a)   % not all singletons
+            continue
+        end
+        symLevels    = spec.sym(:).';
+        nested{a}    = [];
+        rVec(a)      = rLevels(2);
+        isSymVec(a)  = symLevels(2);
+        isRelVec(a)  = strcmp(spec.proj, 'outer');
+    end
+
     % isRel + r_a = 1 degenerate warning (per attribute); nested mapping
     for a = 1:A
         if ~isempty(nested{a})

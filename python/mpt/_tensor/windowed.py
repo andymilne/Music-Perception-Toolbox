@@ -33,6 +33,7 @@ import numpy as np
 from .preprocessing import weight_events, translate_attributes
 from .build import build_exp_tens
 from .cosine import cos_sim_exp_tens
+from .density import _weight_is_live
 
 _SHAPE_ALIASES = {
     "rect": 1.0, "rectangular": 1.0, "box": 1.0,
@@ -107,16 +108,71 @@ def _translate_to(p_attr, w, axis, centre, specs=None):
     return pt, wt, st
 
 
+def _prune_dead_carrier(p_attr, w, specs):
+    """Drop events the window hard-zeroed, before the (heavy) build.
+
+    A windowed carrier carries out-of-window / beyond-truncation events
+    at weight zero (``weight_events`` writes its factor as such). Those
+    events contribute nothing to any inner product or to the density an
+    entropy integrates, so dropping them here -- at the single windowing
+    seam, before ``build_exp_tens`` runs its eager feasibility scan and
+    r-ad enumeration over every column -- is exact and saves the bulk of
+    a sliding sweep's cost, without touching the core build contract or
+    the density-level ``pruned()`` path. The liveness rule is the shared
+    one (``_weight_is_live``): an event is live iff every weighted
+    attribute has a finite, nonzero slot in its column. Skipped when
+    nothing is dead (the un-windowed common case pays only a mask scan)
+    or when everything is dead (an empty window keeps its existing path).
+    """
+    if not p_attr or not isinstance(w, (list, tuple)):
+        return p_attr, w, specs
+    N = int(np.asarray(p_attr[0]).shape[1])
+    if N == 0:
+        return p_attr, w, specs
+    live = np.ones(N, dtype=bool)
+    for W in w:
+        if W is None:
+            continue
+        Wa = np.asarray(W)
+        if Wa.ndim == 1:
+            Wa = Wa.reshape(1, -1)
+        if Wa.ndim != 2 or Wa.shape[1] != N:
+            continue                      # per-slot / scalar: cannot kill an event alone
+        live &= _weight_is_live(Wa).any(axis=0)
+    n_live = int(live.sum())
+    if n_live == N or n_live == 0:
+        return p_attr, w, specs
+    keep = np.nonzero(live)[0]
+    p_out = [np.asarray(P)[:, keep] for P in p_attr]
+    w_out = []
+    for W in w:
+        if W is None:
+            w_out.append(None)
+            continue
+        Wa = np.asarray(W)
+        if Wa.ndim == 2 and Wa.shape[1] == N:
+            w_out.append(Wa[:, keep])
+        elif Wa.ndim == 1 and Wa.shape[0] == N:
+            w_out.append(Wa[keep])
+        else:
+            w_out.append(W)               # per-slot / scalar: unchanged
+    return p_out, w_out, specs            # specs are per-slot -> unchanged
+
+
 def _window_at(p_attr, w, axis, target, centre, shape, width, *,
                delete_input, specs=None):
     """Window the carrier at `centre`; returns ``(p_attr, w, specs)`` with the
-    threaded-through (and, under ``delete_input``, axis-pruned) specs."""
+    threaded-through (and, under ``delete_input``, axis-pruned) specs.
+
+    Events the window hard-zeroes are dropped before return so the build
+    only sees in-window events (see :func:`_prune_dead_carrier`); this is
+    exact and is the single seam every windowing function shares."""
     pt, wt, st = weight_events(
         p_attr, w, axis, target, float(centre), shape,
         width=width, is_per=False, period=0.0,
         delete_input=delete_input, specs=specs,
     )
-    return pt, wt, st
+    return _prune_dead_carrier(pt, wt, st)
 
 
 def _as_query_batch(pqs):

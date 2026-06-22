@@ -179,6 +179,8 @@ for a = 1:nA
         [pc, wc, sc] = weightEvents(pContext, wContext, axisIdx, target, ...
             ctxCentres(a), cwShape, 'width', cwWidth, 'deleteInput', false, ...
             'specs', nv.specs);
+        % Drop events the window hard-zeroed before the (heavy) build.
+        [pc, wc, sc] = internal.pruneDeadCarrier(pc, wc, sc);
     end
     % nested: build the windowed-context density once per centre; the
     % geometry rides in specs, so the positional r/isRel are unused.
@@ -231,6 +233,8 @@ for a = 1:nA
             [pq, wq, sqq] = weightEvents(pQuery, wQuery, axisIdx, target, ...
                 row(t), qwShape, 'width', qwWidth, 'deleteInput', false, ...
                 'specs', nv.specs);
+            % Drop events the window hard-zeroed before the (heavy) build.
+            [pq, wq, sqq] = internal.pruneDeadCarrier(pq, wq, sqq);
             if nested
                 dq = buildExpTens(pq, wq, 'sigma', sigma, 'isPer', isPer, ...
                     'period', period, 'specs', sqq, 'verbose', false);

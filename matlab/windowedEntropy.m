@@ -131,6 +131,8 @@ H = zeros(1, numel(ctr));
 for i = 1:numel(ctr)
     [pw, ww, sw] = weightEvents(pAttr, w, axisIdx, target, ctr(i), wShape, ...
         'width', wWidth, 'deleteInput', deleteAxis, 'specs', nv.specs);
+    % Drop events the window hard-zeroed before the (heavy) build.
+    [pw, ww, sw] = internal.pruneDeadCarrier(pw, ww, sw);
     if nested
         % geometry rides in the (axis-pruned) specs; r/isRel unused
         dens = buildExpTens(pw, ww, 'sigma', sigK, 'isPer', perK, ...

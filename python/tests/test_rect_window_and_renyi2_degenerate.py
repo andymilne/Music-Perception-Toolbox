@@ -21,7 +21,7 @@ def _pulse_count(centre, width, n=9):
     time = np.arange(n, dtype=float).reshape(1, n)
     _, w_out, _ = weight_events(
         [pitch, time], None, input_attr=1, target_attr=0,
-        centre=centre, shape=1.0, width=width, delete_input=False,
+        centre=centre, shape=1.0, width=width, drop_input_attr=False,
     )
     return int(np.count_nonzero(w_out[0][0]))
 
@@ -47,7 +47,7 @@ class TestRectWindowHalfOpen:
         time = np.arange(9, dtype=float).reshape(1, 9)
         _, w_out, _ = weight_events(
             [pitch, time], None, input_attr=1, target_attr=0,
-            centre=4.0, shape=1.0, width=2.0, delete_input=False,
+            centre=4.0, shape=1.0, width=2.0, drop_input_attr=False,
         )
         factor = w_out[0][0]
         assert factor[3] > 0 and factor[4] > 0   # lower edge + interior
@@ -60,7 +60,7 @@ class TestRectWindowHalfOpen:
         time = (0.25 * np.arange(n, dtype=float)).reshape(1, n)
         _, w_out, _ = weight_events(
             [pitch, time], None, input_attr=1, target_attr=0,
-            centre=time[0, 4], shape=1.0, width=1.0, delete_input=False,
+            centre=time[0, 4], shape=1.0, width=1.0, drop_input_attr=False,
         )
         assert int(np.count_nonzero(w_out[0][0])) == 4
 
@@ -69,7 +69,7 @@ class TestRectWindowHalfOpen:
         time = np.arange(5, dtype=float).reshape(1, 5)
         _, w_out, _ = weight_events(
             [pitch, time], None, input_attr=1, target_attr=0,
-            centre=2.0, shape=0.0, sd=1.0, delete_input=False,
+            centre=2.0, shape=0.0, sd=1.0, drop_input_attr=False,
         )
         factor = w_out[0][0]
         assert factor[2] == pytest.approx(1.0)   # peak at centre
@@ -91,7 +91,7 @@ class TestRenyi2ZeroMassNaN:
         # Rectangular window centred far from every event -> zero mass.
         pa, wa, sp = weight_events(
             [pitch, time], None, input_attr=1, target_attr=0,
-            centre=100.0, shape=1.0, width=1.0, delete_input=False,
+            centre=100.0, shape=1.0, width=1.0, drop_input_attr=False,
         )
         dens = mpt.build_exp_tens(
             pa, wa, specs=sp, sigma=[1.0, 1.0],

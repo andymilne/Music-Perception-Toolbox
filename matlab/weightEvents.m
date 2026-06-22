@@ -4,10 +4,10 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %
 %   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
 %       inputAttr, targetAttr, centre, shape, ...
-%       'sd', s,     'deleteInput', tf)
+%       'sd', s,     'dropInputAttr', tf)
 %   [pAttrOut, wOut, specsOut] = weightEvents(pAttr, w, ...
 %       inputAttr, targetAttr, centre, shape, ...
-%       'width', L,  'deleteInput', tf)
+%       'width', L,  'dropInputAttr', tf)
 %   is a per-event preprocessing helper for multi-attribute tensor
 %   input. It reads the K=1 value at every event from inputAttr,
 %   evaluates a window function h centred at centre with shape
@@ -40,13 +40,13 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   effect of the parameter choice is the numerical value the user
 %   types.
 %
-%   When deleteInput=true and inputAttr differs from targetAttr, the
+%   When dropInputAttr=true and inputAttr differs from targetAttr, the
 %   input attribute is removed from the returned pAttrOut / wOut /
 %   specsOut after the factor has been transferred to the target.
 %   This is the canonical windowed-entropy / windowed-mass workflow:
 %   the input attribute provides the scaffolding for the window and
-%   is no longer needed downstream. When deleteInput=false, the input
-%   attribute is preserved unchanged in the output. deleteInput=true
+%   is no longer needed downstream. When dropInputAttr=false, the input
+%   attribute is preserved unchanged in the output. dropInputAttr=true
 %   paired with inputAttr == targetAttr is rejected as incoherent
 %   (deleting the input would discard the factor just written to it).
 %
@@ -100,7 +100,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   Name-Value options:
 %     specs        Carrier specs: [] (synthesise flat via flatSpecs) or
 %                  a 1 x A cell, one spec per attribute. Threaded
-%                  through unchanged except that deleteInput=true drops
+%                  through unchanged except that dropInputAttr=true drops
 %                  the input attribute's entry. Not otherwise consulted;
 %                  the window is computed from the input attribute's
 %                  values, centre, shape, sd/width, and (for a periodic
@@ -116,17 +116,17 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %                  [-period/2, period/2] before applying h.
 %     period       (1,1) double, default 0. Only used when isPer=true
 %                  (must then be > 0).
-%     deleteInput  (1,1) logical, REQUIRED (no default; the choice is
+%     dropInputAttr  (1,1) logical, REQUIRED (no default; the choice is
 %                  destructive enough to be explicit at every call).
 %
 %   Outputs:
 %     pAttrOut     1 x A_out cell of per-attribute value matrices.
-%                  Length A if deleteInput=false, A - 1 otherwise.
+%                  Length A if dropInputAttr=false, A - 1 otherwise.
 %     wOut         1 x A_out cell of weights. The targetAttr slot (in
 %                  the output indexing) carries the windowed weights.
 %     specsOut     1 x A_out cell of carrier specs for the output
 %                  attribute list (the input attribute's spec removed
-%                  when deleteInput=true).
+%                  when dropInputAttr=true).
 %
 %   See also BUILDEXPTENS, DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES,
 %            MPTDEFAULTS.
@@ -143,15 +143,15 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
         nvArgs.width (1,1) double = NaN
         nvArgs.isPer (1,1) logical = false
         nvArgs.period (1,1) double = 0
-        nvArgs.deleteInput (1,1) logical
+        nvArgs.dropInputAttr (1,1) logical
     end
 
-    % isPer/period/deleteInput as locals (the rest of the body reads them
-    % by these names). deleteInput has no default: omitting it errors when
+    % isPer/period/dropInputAttr as locals (the rest of the body reads them
+    % by these names). dropInputAttr has no default: omitting it errors when
     % the field is accessed, keeping the destructive choice explicit.
     isPer       = nvArgs.isPer;
     period      = nvArgs.period;
-    deleteInput = nvArgs.deleteInput;
+    dropInputAttr = nvArgs.dropInputAttr;
 
     % --- Normalise pAttr ---
     A = numel(pAttr);
@@ -213,13 +213,13 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
               'targetAttr must be in 1..%d; got %d.', A, targetAttr);
     end
 
-    % --- Validate deleteInput ---
-    if deleteInput && inputAttr == targetAttr
-        error('weightEvents:deleteInputIncoherent', ...
-              ['deleteInput=true is incoherent when inputAttr == ' ...
+    % --- Validate dropInputAttr ---
+    if dropInputAttr && inputAttr == targetAttr
+        error('weightEvents:dropInputAttrIncoherent', ...
+              ['dropInputAttr=true is incoherent when inputAttr == ' ...
                'targetAttr (=%d): deleting the input would discard ' ...
                'the weight factor just written to it. Set ' ...
-               'deleteInput=false, or choose a different targetAttr.'], ...
+               'dropInputAttr=false, or choose a different targetAttr.'], ...
               inputAttr);
     end
 
@@ -290,8 +290,8 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
     wOut{targetAttr} = localMultiplyWeights( ...
         wOut{targetAttr}, factor, size(pAttr{targetAttr}, 1));
 
-    % --- Build output structures, applying deleteInput if requested ---
-    if deleteInput
+    % --- Build output structures, applying dropInputAttr if requested ---
+    if dropInputAttr
         keep = setdiff(1:A, inputAttr);
         pAttrOut = pAttr(keep);
         wOut = wOut(keep);

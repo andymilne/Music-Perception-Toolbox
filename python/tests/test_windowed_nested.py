@@ -50,7 +50,7 @@ def _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, q_ext):
     for i, c in enumerate(centres):
         pc, wc, sc = weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=q_ext, is_per=False, period=0.0,
-                                   delete_input=False, specs=specs)
+                                   drop_input_attr=False, specs=specs)
         dc = build_exp_tens(pc, wc, sigma=sigma, is_per=is_per, period=period,
                             specs=sc, verbose=False)
         offs = [None, None]
@@ -80,7 +80,7 @@ def test_similarity_nested_locked_matches_handbuilt(spectral):
         [SIG_P, SIG_T], [1, 1], [False, False], [False, False], [0.0, 0.0],
         centres, context_window=("rect", width),
         normalize="oneSidedDenom", window_attr=AXIS, target_attr=TARGET,
-        specs=specs, verbose=False)
+        specs=specs, drop_window_attr=False, verbose=False)
 
     assert got.shape == (len(centres),)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
@@ -102,7 +102,7 @@ def test_similarity_nested_is_transposition_invariant():
                                [False, False], [0.0, 0.0], centres,
                                context_window=("rect", width),
                                window_attr=AXIS, target_attr=TARGET,
-                               specs=specs, verbose=False)
+                               specs=specs, drop_window_attr=False, verbose=False)
     # transpose the query super-event up a tritone; rel=1 => identical profile
     qry_t = [qry[0] + 6.0, qry[1]]
     shifted = windowed_similarity(ctx, w_ctx, qry_t, None,
@@ -110,7 +110,7 @@ def test_similarity_nested_is_transposition_invariant():
                                   [False, False], [0.0, 0.0], centres,
                                   context_window=("rect", width),
                                   window_attr=AXIS, target_attr=TARGET,
-                                  specs=specs, verbose=False)
+                                  specs=specs, drop_window_attr=False, verbose=False)
     assert np.allclose(base, shifted, rtol=1e-9, atol=1e-9)
 
 
@@ -124,7 +124,7 @@ def test_entropy_nested_matches_handbuilt():
     for i, c in enumerate(centres):
         pw, ww, sw = weight_events(ctx, w_ctx, AXIS, TARGET, float(c), 1.0,
                                    width=width, is_per=False, period=0.0,
-                                   delete_input=False, specs=specs)
+                                   drop_input_attr=False, specs=specs)
         dens = build_exp_tens(pw, ww, sigma=sigma, is_per=is_per,
                               period=period, specs=sw, verbose=False)
         ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
@@ -133,7 +133,7 @@ def test_entropy_nested_matches_handbuilt():
                            [False, False], [0.0, 0.0], centres,
                            window=(1.0, width), method="renyi2",
                            window_attr=AXIS, target_attr=TARGET,
-                           specs=specs, verbose=False)
+                           specs=specs, drop_window_attr=False, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
@@ -146,7 +146,7 @@ def test_flat_path_unchanged_when_specs_none():
     p_attr = [pitch, onset]
     query = [np.array([[60., 64., 67.]]), np.array([[0., 0.5, 1.0]])]
     centres = np.linspace(onset.min(), onset.max(), 9)
-    kw = dict(window_attr=1, normalize="oneSidedDenom", verbose=False)
+    kw = dict(window_attr=1, normalize="oneSidedDenom", verbose=False, drop_window_attr=False)
     a = windowed_similarity(p_attr, None, query, None, [0.12, 0.05], [1, 1],
                             [False, False], [False, False], [0.0, 0.0],
                             centres, **kw)

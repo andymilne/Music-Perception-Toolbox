@@ -184,7 +184,7 @@ mptDefaults('truncationSigmas', 3.0);
 centre_qn = times(round(N_events / 2));
 % weightEvents deletes the input (time) attribute, leaving a single
 % pitch attribute whose column is zeroed for far events.
-[p_w, w_w, g_w] = weightEvents(pAttrPre, wPre, 2, 1, centre_qn, 0.0, 'sd', 1.0, 'deleteInput', true);
+[p_w, w_w, g_w] = weightEvents(pAttrPre, wPre, 2, 1, centre_qn, 0.0, 'sd', 1.0, 'dropInputAttr', true);
 
 event_w = sum(w_w{1}, 1);
 n_kept = sum(event_w > 0);
@@ -208,7 +208,7 @@ rng(3, 'twister');
 N_big = 3000;
 pitchesBig = 60 + 24 * rand(1, N_big);
 timesBig   = (0:N_big-1) * 0.25;
-[p_wb, w_wb, g_wb] = weightEvents({pitchesBig, timesBig}, {ones(1, N_big), ones(1, N_big)}, 2, 1, timesBig(round(N_big / 2)), 0.0, 'sd', 1.0, 'deleteInput', true);
+[p_wb, w_wb, g_wb] = weightEvents({pitchesBig, timesBig}, {ones(1, N_big), ones(1, N_big)}, 2, 1, timesBig(round(N_big / 2)), 0.0, 'sd', 1.0, 'dropInputAttr', true);
 t0 = tic;
 H_big = entropyExpTens(p_wb, w_wb, 0.5, 1, false, false, 0.0, ...
     'method', 'renyi2', 'verbose', false);

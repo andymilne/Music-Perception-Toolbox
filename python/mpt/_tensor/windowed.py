@@ -160,9 +160,9 @@ def _prune_dead_carrier(p_attr, w, specs):
 
 
 def _window_at(p_attr, w, axis, target, centre, shape, width, *,
-               delete_input, specs=None):
+               drop_window_attr, specs=None):
     """Window the carrier at `centre`; returns ``(p_attr, w, specs)`` with the
-    threaded-through (and, under ``delete_input``, axis-pruned) specs.
+    threaded-through (and, under ``drop_window_attr``, axis-pruned) specs.
 
     Events the window hard-zeroes are dropped before return so the build
     only sees in-window events (see :func:`_prune_dead_carrier`); this is
@@ -170,7 +170,7 @@ def _window_at(p_attr, w, axis, target, centre, shape, width, *,
     pt, wt, st = weight_events(
         p_attr, w, axis, target, float(centre), shape,
         width=width, is_per=False, period=0.0,
-        delete_input=delete_input, specs=specs,
+        drop_input_attr=drop_window_attr, specs=specs,
     )
     return _prune_dead_carrier(pt, wt, st)
 
@@ -213,6 +213,7 @@ def windowed_similarity(
     target_attr=None,
     normalize="oneSidedDenom",
     window_attr=-1,
+    drop_window_attr,
     truncation_sigmas=None,
     specs=None,
     verbose=True,
@@ -296,11 +297,42 @@ def windowed_similarity(
 
     nested = specs is not None
 
+    if drop_window_attr and n_attr < 2:
+        raise ValueError(
+            "drop_window_attr=True drops the window axis from the comparison, so "
+            "the carrier must have at least two attributes."
+        )
+
+    def _drop_window_axis(p, w, sp):
+        keep = [i for i in range(n_attr) if i != axis]
+        p2 = [p[i] for i in keep]
+        if isinstance(w, (list, tuple)) and len(w) == n_attr:
+            w2 = [w[i] for i in keep]
+        else:
+            w2 = w
+        sp2 = [sp[i] for i in keep] if sp is not None else None
+        return p2, w2, sp2
+
+    def _drop_seq(seq):
+        if (drop_window_attr and isinstance(seq, (list, tuple, np.ndarray))
+                and len(seq) == n_attr):
+            return [seq[i] for i in range(n_attr) if i != axis]
+        return seq
+
+    # When the window axis is dropped it is no longer a compared dimension, so
+    # the per-attribute kernel geometry collapses to the retained attributes.
+    sigma_b, is_per_b, period_b = (_drop_seq(sigma), _drop_seq(is_per),
+                                   _drop_seq(period))
+    r_b, is_rel_b = _drop_seq(r), _drop_seq(is_rel)
+
     def place_context(centre):
         if translate_context:
-            return _translate_to(p_context, w_context, axis, centre, specs=specs)
+            pc, wc, sc = _translate_to(p_context, w_context, axis, centre,
+                                       specs=specs)
+            return _drop_window_axis(pc, wc, sc) if drop_window_attr else (pc, wc, sc)
         return _window_at(p_context, w_context, axis, target, centre,
-                          cw_shape, cw_width, delete_input=False, specs=specs)
+                          cw_shape, cw_width, drop_window_attr=drop_window_attr,
+                          specs=specs)
 
     translate_query = query_window is None
     if not translate_query:
@@ -310,13 +342,36 @@ def windowed_similarity(
     else:
         mu_q = float(np.nanmean(np.asarray(p_query[axis], dtype=float)))
 
+    # With the window axis dropped the query carries no compared placement
+    # along it, so it reduces to a single fixed template built once.
+    dq_fixed = None
+    if drop_window_attr:
+        pq_k, wq_k, sq_k = _drop_window_axis(p_query, w_query, specs)
+        dq_fixed = (build_exp_tens(pq_k, wq_k, sigma=sigma_b, is_per=is_per_b,
+                                   period=period_b, specs=sq_k, verbose=False)
+                    if nested else (pq_k, wq_k))
+
     out = np.empty((A, q_rows.shape[1]), dtype=float)
     for a in range(A):
         pc, wc, sc = place_context(ctx_centres[a])
         # Nested: build the windowed-context density once per centre; the
         # geometry rides in `specs`, so the positional r/is_rel are unused.
-        dc = (build_exp_tens(pc, wc, sigma=sigma, is_per=is_per, period=period,
-                             specs=sc, verbose=False) if nested else None)
+        dc = (build_exp_tens(pc, wc, sigma=sigma_b, is_per=is_per_b,
+                             period=period_b, specs=sc, verbose=False)
+              if nested else None)
+        if drop_window_attr:
+            if nested:
+                val = float(cos_sim_exp_tens(
+                    dc, dq_fixed, normalize=normalize,
+                    truncation_sigmas=truncation_sigmas, verbose=False))
+            else:
+                pq_k, wq_k = dq_fixed
+                val = float(cos_sim_exp_tens(
+                    pc, wc, pq_k, wq_k, sigma_b, r_b, is_rel_b, is_per_b,
+                    period_b, normalize=normalize,
+                    truncation_sigmas=truncation_sigmas, verbose=False))
+            out[a, :] = val
+            continue
         row = q_rows[a]
         if translate_query:
             # One translate produces all T shifted query copies; one
@@ -342,7 +397,7 @@ def windowed_similarity(
         else:
             for t, qcen in enumerate(row):
                 pq, wq, sq = _window_at(p_query, w_query, axis, target, qcen,
-                                        qw_shape, qw_width, delete_input=False,
+                                        qw_shape, qw_width, drop_window_attr=False,
                                         specs=specs)
                 if nested:
                     dq = build_exp_tens(pq, wq, sigma=sigma, is_per=is_per,
@@ -365,6 +420,7 @@ def windowed_entropy(
     method="differential",
     target_attr=None,
     window_attr=-1,
+    drop_window_attr,
     marginalise=None,
     truncation_sigmas=None,
     specs=None,
@@ -374,18 +430,22 @@ def windowed_entropy(
     """Sliding pre-MAET entropy profile.
 
     At each sweep centre the carrier is windowed on `window_attr` and the
-    entropy of the resulting density is recorded. Name axes in `marginalise`
-    (default ``None``) to integrate them out before the entropy is taken;
-    only the window axis may be marginalised at present, and it must be an
-    ``r = 1`` attribute (absolute or periodic), for which deletion from the
-    carrier equals marginalisation of the density. The window `width` has no
+    entropy of the resulting density is recorded. `drop_window_attr` is
+    required and fixes the structural role of the window axis: with ``True``
+    it is a placement coordinate only and is removed from the density (it
+    must then be an ``r = 1`` attribute, for which deletion equals
+    marginalisation); with ``False`` it is retained as a dimension of the
+    density whose entropy is taken. `marginalise` (default ``None``) is the
+    separate, general operation of integrating a *retained* axis out of the
+    density before the entropy is taken; it is not yet implemented, and
+    naming the dropped axis in it is an error. The window `width` has no
     default (there is no query to borrow from) and must be supplied.
 
     Nested carriers. Pass `specs` (a length-A list, as returned by
     :func:`bind_events`) to take the entropy of a density over nested
     attributes; the per-attribute geometry (`r`, `sym`, `rel`, nested
     levels) is then read from `specs` and the positional `r`/`is_rel` supply
-    only the window-axis order used by the marginalisation guard. With
+    only the window-axis order used by the deletion guard. With
     ``specs=None`` the carrier is flat and every result is unchanged.
     """
     p = list(p)
@@ -406,27 +466,37 @@ def windowed_entropy(
             "(window=(shape, width)); there is no query to default it from"
         )
 
-    # Marginalisation: only the window axis, and only if it is r = 1.
+    # The window axis is either dropped (placement only, removed from the
+    # density) or retained as a compared dimension; the caller must state
+    # which. Dropping equals marginalisation only at r = 1.
+    if drop_window_attr and int(np.atleast_1d(r)[axis]) != 1:
+        raise ValueError(
+            "drop_window_attr=True requires the window axis to be an r = 1 "
+            "attribute; for r >= 2 deletion does not equal marginalisation"
+        )
+
+    # `marginalise` is the separate, general integrate-out operation over a
+    # retained axis (not yet implemented). A dropped axis is already gone, so
+    # it cannot also be marginalised.
     marg = set() if marginalise is None else {
         _abs_idx(a, n_attr) for a in np.atleast_1d(marginalise)
     }
-    extra = marg - {axis}
-    if extra:
-        raise NotImplementedError(
-            "windowed_entropy currently marginalises only the window axis; "
-            f"marginalising other axes {sorted(extra)} is not yet supported"
-        )
-    delete_axis = axis in marg
-    if delete_axis and int(np.atleast_1d(r)[axis]) != 1:
+    if drop_window_attr and axis in marg:
         raise ValueError(
-            "marginalising the window axis requires it to be an r = 1 "
-            "attribute; for r >= 2 deletion does not equal marginalisation"
+            "the window axis is dropped (drop_window_attr=True), so it cannot "
+            "also appear in marginalise"
+        )
+    if marg:
+        raise NotImplementedError(
+            "marginalise (integrating a retained axis out of the density) is "
+            f"not yet implemented; got axes {sorted(marg)}"
         )
 
     # Specs for the density built after the (possibly axis-deleting) window.
     def _kept(seq):
         s = list(seq)
-        return [s[k] for k in range(n_attr) if not (delete_axis and k == axis)]
+        return [s[k] for k in range(n_attr)
+                if not (drop_window_attr and k == axis)]
     sig_k, r_k, rel_k, per_k, pd_k = (
         _kept(sigma), _kept(r), _kept(is_rel), _kept(is_per), _kept(period))
 
@@ -440,7 +510,7 @@ def windowed_entropy(
     H = np.empty(ctr.shape[0], dtype=float)
     for i, c in enumerate(ctr):
         pw, ww, sw = _window_at(p, w, axis, target, c, w_shape, w_width,
-                                delete_input=delete_axis, specs=specs)
+                                drop_window_attr=drop_window_attr, specs=specs)
         if nested:
             # Geometry rides in the (axis-pruned) specs; r/is_rel unused.
             dens = build_exp_tens(pw, ww, sigma=sig_k, is_per=per_k,

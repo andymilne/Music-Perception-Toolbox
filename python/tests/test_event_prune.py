@@ -257,7 +257,7 @@ def _windowed_ma_inputs(n_events: int, seed: int):
         input_attr=1, target_attr=0,
         centre=c, shape=0.0,
         is_per=False, period=0.0,
-        sd=1.0, delete_input=True,
+        sd=1.0, drop_input_attr=True,
     )
     return p_w, w_w, g_w
 
@@ -271,7 +271,7 @@ def test_renyi2_ma_windowed_matches_manual_prune():
     n_events = 600
     p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=2)
 
-    # weight_events(delete_input=True) removes the time attribute, so the
+    # weight_events(drop_input_attr=True) removes the time attribute, so the
     # windowed density carries a single attribute (pitch) whose column was
     # zeroed for far events --- the realistic truncation scenario.
     n_live = int((w_w[0].sum(axis=0) > 0).sum())

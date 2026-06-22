@@ -876,7 +876,7 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         expected = np.exp(
             -((np.array([60.0, 62.0, 64.0, 67.0, 72.0]) - 64.0) ** 2)
@@ -892,7 +892,7 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=64.0, sd=3.0, shape=1.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         half = 3.0 * np.sqrt(3.0)
         expected = (
@@ -909,7 +909,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=5.0, sd=2.0, shape=g,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
             assert abs(np.asarray(w_out[0])[0, 0] - 1.0) < 1e-12, (
                 f"peak at gamma={g} was {np.asarray(w_out[0])[0, 0]}, "
@@ -928,7 +928,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=0.0, sd=width, shape=g,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
             h = np.asarray(w_out[0]).ravel()
             dy = y[0, 1] - y[0, 0]
@@ -946,7 +946,7 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         assert isinstance(out, tuple) and len(out) == 3
         p_out, w_out, s_out = out
@@ -968,7 +968,7 @@ class TestMAET:
             input_attr=0, target_attr=1,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         # Attr 2 (not input, not target) keeps its weight unchanged.
         assert w_out[2] == 0.5
@@ -983,7 +983,7 @@ class TestMAET:
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,    # Gaussian on time at t=1
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         expected_factor = np.exp(
             -((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0
@@ -1006,7 +1006,7 @@ class TestMAET:
             input_attr=1, target_attr=0,
             centre=0.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         # The (1, 2) factor broadcasts across the 3 pitch slots, giving (3, 2).
         out0 = np.asarray(w_out[0])
@@ -1024,7 +1024,7 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=0.0, sd=2.0, shape=0.0,
             is_per=True, period=12.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         deltas = np.array([-2.0, -1.0, 0.0, 1.0, 2.0])
         expected = np.exp(-(deltas ** 2) / 8.0).reshape(1, -1)
@@ -1039,7 +1039,7 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=2.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         h = np.exp(-(np.array([1.0, 2.0, 3.0]) - 2.0) ** 2 / 2.0)
         np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), 0.5 * h)
@@ -1058,7 +1058,7 @@ class TestMAET:
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         # Second call: beat-window into pitch.
         _, w2, _ = mpt.weight_events(
@@ -1066,7 +1066,7 @@ class TestMAET:
             input_attr=2, target_attr=0,
             centre=0.5, sd=0.5, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         # Result: pitch slot carries the product of both factors.
         h_time = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
@@ -1075,8 +1075,8 @@ class TestMAET:
             np.asarray(w2[0]).ravel(), h_time * h_beat,
         )
 
-    def test_weight_delete_input_drops_attribute(self):
-        """delete_input=True (with input != target) drops the input attribute
+    def test_weight_drop_input_attr_drops_attribute(self):
+        """drop_input_attr=True (with input != target) drops the input attribute
         from the output structures."""
         p = [np.array([[60.0, 64.0, 67.0]]),
              np.array([[0.0, 1.0, 2.0]])]
@@ -1085,15 +1085,15 @@ class TestMAET:
             input_attr=1, target_attr=0,
             centre=1.0, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=True,
+            drop_input_attr=True,
         )
         assert len(p_out) == 1
         assert len(w_out) == 1
         # The remaining attribute is the original pitch (attr 0).
         np.testing.assert_array_equal(p_out[0], p[0])
 
-    def test_weight_delete_input_index_when_input_after_target(self):
-        """delete_input with input_attr > target_attr: the input attribute's
+    def test_weight_drop_input_attr_index_when_input_after_target(self):
+        """drop_input_attr with input_attr > target_attr: the input attribute's
         value, weight, and spec are dropped, and the target keeps its output
         index (nothing before it shifts)."""
         # 3 attrs; input = attr 1, target = attr 0 (input after target).
@@ -1105,7 +1105,7 @@ class TestMAET:
             input_attr=1, target_attr=0,
             centre=3.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=True,
+            drop_input_attr=True,
         )
         # Input attr 1 removed: originals 0 and 2 remain at output indices 0, 1.
         assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
@@ -1115,8 +1115,8 @@ class TestMAET:
         factor = np.exp(-((np.array([3.0, 4.0]) - 3.5) ** 2) / 2.0)
         np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), factor)
 
-    def test_weight_delete_input_index_when_input_before_target(self):
-        """delete_input with input_attr < target_attr: the input attribute is
+    def test_weight_drop_input_attr_index_when_input_before_target(self):
+        """drop_input_attr with input_attr < target_attr: the input attribute is
         dropped and the target shifts down one output index, carrying the
         windowed factor with it."""
         # 3 attrs; input = attr 0, target = attr 2 (input before target).
@@ -1128,7 +1128,7 @@ class TestMAET:
             input_attr=0, target_attr=2,
             centre=1.5, sd=1.0, shape=0.0,
             is_per=False, period=0.0,
-            delete_input=True,
+            drop_input_attr=True,
         )
         # Input attr 0 removed: originals 1 and 2 remain at output indices 0, 1.
         assert len(p_out) == 2 and len(w_out) == 2 and len(s_out) == 2
@@ -1139,23 +1139,23 @@ class TestMAET:
         factor = np.exp(-((np.array([1.0, 2.0]) - 1.5) ** 2) / 2.0)
         np.testing.assert_allclose(np.asarray(w_out[1]).ravel(), factor)
 
-    def test_weight_delete_input_with_input_eq_target_errors(self):
-        """delete_input=True with input_attr == target_attr is incoherent
+    def test_weight_drop_input_attr_with_input_eq_target_errors(self):
+        """drop_input_attr=True with input_attr == target_attr is incoherent
         and raises ValueError."""
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(ValueError, match="delete_input"):
+        with pytest.raises(ValueError, match="drop_input_attr"):
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
-                delete_input=True,
+                drop_input_attr=True,
             )
 
-    def test_weight_delete_input_required_no_default(self):
-        """delete_input must be specified by the caller; no default."""
+    def test_weight_drop_input_attr_required_no_default(self):
+        """drop_input_attr must be specified by the caller; no default."""
         p = [np.array([[1.0, 2.0]])]
-        with pytest.raises(TypeError, match="delete_input"):
+        with pytest.raises(TypeError, match="drop_input_attr"):
             mpt.weight_events(
                 p, None,
                 input_attr=0, target_attr=0,
@@ -1174,7 +1174,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=62.0, sd=2.0, shape=0.0,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_zero_width_errors(self):
@@ -1186,7 +1186,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=0.0, shape=0.5,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_negative_width_errors(self):
@@ -1197,7 +1197,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=-1.0, shape=0.5,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_shape_out_of_range_errors(self):
@@ -1209,7 +1209,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=1.5,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
         with pytest.raises(ValueError, match="shape"):
             mpt.weight_events(
@@ -1217,7 +1217,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=-0.1,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_input_attr_out_of_range_errors(self):
@@ -1228,7 +1228,7 @@ class TestMAET:
                 input_attr=2, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_target_attr_out_of_range_errors(self):
@@ -1239,7 +1239,7 @@ class TestMAET:
                 input_attr=0, target_attr=3,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=False, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_periodic_requires_positive_period(self):
@@ -1250,7 +1250,7 @@ class TestMAET:
                 input_attr=0, target_attr=0,
                 centre=1.0, sd=1.0, shape=0.0,
                 is_per=True, period=0.0,
-                delete_input=False,
+                drop_input_attr=False,
             )
 
     def test_weight_t_w_centre_shift_commutation(self):
@@ -1267,14 +1267,14 @@ class TestMAET:
             input_attr=0, target_attr=0,
             centre=c, sd=width, shape=gamma,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         _, w_first, _ = mpt.weight_events(
             p, None,
             input_attr=0, target_attr=0,
             centre=c - mu, sd=width, shape=gamma,
             is_per=False, period=0.0,
-            delete_input=False,
+            drop_input_attr=False,
         )
         np.testing.assert_allclose(
             np.asarray(w_first[0]), np.asarray(w_after_t[0]),

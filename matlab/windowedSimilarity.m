@@ -47,6 +47,12 @@ function out = windowedSimilarity(pContext, wContext, pQuery, wQuery, ...
 %                              Default: first non-axis attribute.
 %     'normalize'            - 'oneSidedDenom' (default) | 'cosine'.
 %     'windowAttr'           - 1-based window axis. Default: last attribute.
+%     'dropWindowAttr'       - logical, REQUIRED (no default). true drops the
+%                              window axis from the comparison (placement
+%                              coordinate only; the query reduces to a single
+%                              fixed template and the carrier must have at
+%                              least two attributes); false retains it as a
+%                              compared dimension.
 %     'specs'                - [] (flat carrier) or a 1-by-A cell of carrier
 %                              specs, as returned by bindEvents and consumed
 %                              by buildExpTens. When given, the per-attribute
@@ -87,6 +93,7 @@ arguments
     nv.windowAttr = []
     nv.specs = []
     nv.verbose (1,1) logical = false
+    nv.dropWindowAttr (1,1) logical
 end
 
 A = numel(pContext);
@@ -111,6 +118,28 @@ if target == axisIdx
         'targetAttr must differ from windowAttr.');
 end
 nested = ~isempty(nv.specs);   % nested carrier: geometry rides in specs
+
+% dropWindowAttr has no default: omitting it errors here, matching
+% weightEvents. true means the window axis is a placement coordinate only
+% and is removed from the comparison; false retains it as a compared
+% dimension of the density.
+dropWindowAttr = nv.dropWindowAttr;
+if dropWindowAttr && A < 2
+    error('windowedSimilarity:dropNeedsTwoAttrs', ...
+        ['dropWindowAttr=true drops the window axis from the comparison, ' ...
+         'so the carrier must have at least two attributes.']);
+end
+
+% When the window axis is dropped it is no longer a compared dimension, so
+% the per-attribute kernel geometry collapses to the retained attributes.
+if dropWindowAttr
+    keepIdx = setdiff(1:A, axisIdx);
+    sigmaB = sigma(keepIdx); isPerB = isPer(keepIdx); periodB = period(keepIdx);
+    rB = r(keepIdx); isRelB = isRel(keepIdx);
+else
+    sigmaB = sigma; isPerB = isPer; periodB = period;
+    rB = r; isRelB = isRel;
+end
 
 % --- context window spec -------------------------------------------------
 cwShapeRaw = nv.contextWindow{1};
@@ -167,6 +196,17 @@ if translateContext
     muC = mean(pContext{axisIdx}(:));
 end
 
+% With the window axis dropped the query carries no compared placement along
+% it, so it reduces to a single fixed template built once.
+pqK = []; wqK = []; dqFixed = [];
+if dropWindowAttr
+    [pqK, wqK, sqK] = local_drop_axis(pQuery, wQuery, nv.specs, axisIdx, A);
+    if nested
+        dqFixed = buildExpTens(pqK, wqK, 'sigma', sigmaB, 'isPer', isPerB, ...
+            'period', periodB, 'specs', sqK, 'verbose', false);
+    end
+end
+
 out = zeros(nA, T);
 for a = 1:nA
     % place the context once for this row (threading specs through)
@@ -175,18 +215,35 @@ for a = 1:nA
         offs{axisIdx} = ctxCentres(a) - muC;
         [pc, wc, sc] = translateAttributes(pContext, wContext, offs, ...
             'specs', nv.specs);
+        if dropWindowAttr
+            [pc, wc, sc] = local_drop_axis(pc, wc, sc, axisIdx, A);
+        end
     else
         [pc, wc, sc] = weightEvents(pContext, wContext, axisIdx, target, ...
-            ctxCentres(a), cwShape, 'width', cwWidth, 'deleteInput', false, ...
-            'specs', nv.specs);
+            ctxCentres(a), cwShape, 'width', cwWidth, ...
+            'dropInputAttr', dropWindowAttr, 'specs', nv.specs);
         % Drop events the window hard-zeroed before the (heavy) build.
         [pc, wc, sc] = internal.pruneDeadCarrier(pc, wc, sc);
     end
     % nested: build the windowed-context density once per centre; the
     % geometry rides in specs, so the positional r/isRel are unused.
     if nested
-        dc = buildExpTens(pc, wc, 'sigma', sigma, 'isPer', isPer, ...
-            'period', period, 'specs', sc, 'verbose', false);
+        dc = buildExpTens(pc, wc, 'sigma', sigmaB, 'isPer', isPerB, ...
+            'period', periodB, 'specs', sc, 'verbose', false);
+    end
+
+    % With the window axis dropped the query is a single fixed template, so
+    % one score fills the whole row.
+    if dropWindowAttr
+        if nested
+            out(a, :) = cosSimExpTens(dc, dqFixed, ...
+                'normalize', nv.normalize, 'verbose', false);
+        else
+            out(a, :) = cosSimExpTens(pc, wc, pqK, wqK, ...
+                sigmaB, rB, isRelB, isPerB, periodB, ...
+                'normalize', nv.normalize, 'verbose', false);
+        end
+        continue
     end
 
     row = qMat(a, :);              % 1 x T query centres for this context
@@ -231,7 +288,7 @@ for a = 1:nA
     else
         for t = 1:T
             [pq, wq, sqq] = weightEvents(pQuery, wQuery, axisIdx, target, ...
-                row(t), qwShape, 'width', qwWidth, 'deleteInput', false, ...
+                row(t), qwShape, 'width', qwWidth, 'dropInputAttr', false, ...
                 'specs', nv.specs);
             % Drop events the window hard-zeroed before the (heavy) build.
             [pq, wq, sqq] = internal.pruneDeadCarrier(pq, wq, sqq);
@@ -258,6 +315,22 @@ end
 % ======================================================================
 %  local helpers
 % ======================================================================
+function [p2, w2, sp2] = local_drop_axis(p, w, sp, axisIdx, A)
+%LOCAL_DROP_AXIS  Remove the window axis from a carrier (and its specs).
+    keep = setdiff(1:A, axisIdx);
+    p2 = p(keep);
+    if iscell(w) && numel(w) == A
+        w2 = w(keep);
+    else
+        w2 = w;
+    end
+    if isempty(sp)
+        sp2 = sp;
+    else
+        sp2 = sp(keep);
+    end
+end
+
 function g = local_resolve_shape(shape)
     if ischar(shape) || isstring(shape)
         key = lower(char(shape));

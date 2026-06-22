@@ -1047,7 +1047,7 @@ def weight_events(
     width=None,
     is_per=False,
     period=0.0,
-    delete_input,
+    drop_input_attr,
 ) -> tuple:
     r"""Apply a per-event weight via an input-to-target window factor.
 
@@ -1084,14 +1084,14 @@ def weight_events(
     the only effect of the parameter choice is the numerical value
     the user types.
 
-    When ``delete_input=True`` and ``input_attr`` differs from
+    When ``drop_input_attr=True`` and ``input_attr`` differs from
     ``target_attr``, the input attribute is removed from the returned
     ``p_attr_out`` / ``w_out`` / ``specs_out`` after the factor has
     been transferred to the target. This is the canonical windowed-
     entropy / windowed-mass workflow: the input attribute provides the
     scaffolding for the window and is no longer needed downstream.
-    When ``delete_input=False``, the input attribute is preserved
-    unchanged in the output. ``delete_input=True`` paired with
+    When ``drop_input_attr=False``, the input attribute is preserved
+    unchanged in the output. ``drop_input_attr=True`` paired with
     ``input_attr == target_attr`` is rejected as incoherent (deleting
     the input would discard the factor just written to it).
 
@@ -1147,7 +1147,7 @@ def weight_events(
     specs : None or length-A list of dict, keyword-only
         Carrier specs (per-attribute level geometry). ``None``
         synthesises flat specs via :func:`flat_specs`. Threaded through
-        unchanged, except that ``delete_input=True`` drops the input
+        unchanged, except that ``drop_input_attr=True`` drops the input
         attribute's entry. ``weight_events`` does not otherwise consult
         the specs; the window is computed from the input attribute's
         values, ``centre``, ``shape``, ``sd``/``width``, and (for a
@@ -1182,11 +1182,11 @@ def weight_events(
         the input attribute's units. Internally translated to a
         standard deviation as ``sd = width / (2 sqrt(3))``. Exactly
         one of ``sd`` or ``width`` must be supplied.
-    delete_input : bool, keyword-only, REQUIRED
+    drop_input_attr : bool, keyword-only, REQUIRED
         Whether to remove the input attribute from the output. If
         ``True`` and ``input_attr != target_attr``, drops the input
         attribute's value matrix, weight, and spec from the returned
-        triple. ``delete_input=True`` paired with
+        triple. ``drop_input_attr=True`` paired with
         ``input_attr == target_attr`` raises ``ValueError``. There is
         no default; callers must specify explicitly.
 
@@ -1194,7 +1194,7 @@ def weight_events(
     -------
     p_attr_out : list of (K_a, N) ndarrays
         Per-attribute value matrices. Length ``A`` if
-        ``delete_input=False``, else ``A - 1``.
+        ``drop_input_attr=False``, else ``A - 1``.
     w_out : list
         Per-attribute weights, length matching ``p_attr_out``. The
         slot at ``target_attr`` (in the output indexing) carries the
@@ -1202,7 +1202,7 @@ def weight_events(
     specs_out : list of dict
         The carrier specs for the output attribute list. Same as the
         input specs (synthesised flat if ``specs`` was ``None``), with
-        the input attribute's entry removed when ``delete_input=True``.
+        the input attribute's entry removed when ``drop_input_attr=True``.
 
     See Also
     --------
@@ -1292,20 +1292,20 @@ def weight_events(
             f"target_attr must be in 0..{A - 1}; got {target_attr_int}."
         )
 
-    # --- Validate delete_input (required, no default) ---
-    if not isinstance(delete_input, (bool, np.bool_)):
+    # --- Validate drop_input_attr (required, no default) ---
+    if not isinstance(drop_input_attr, (bool, np.bool_)):
         raise TypeError(
-            "delete_input must be a bool; the keyword is required and has "
+            "drop_input_attr must be a bool; the keyword is required and has "
             "no default."
         )
-    delete_input = bool(delete_input)
+    drop_input_attr = bool(drop_input_attr)
 
-    if delete_input and input_attr_int == target_attr_int:
+    if drop_input_attr and input_attr_int == target_attr_int:
         raise ValueError(
-            f"delete_input=True is incoherent when input_attr == "
+            f"drop_input_attr=True is incoherent when input_attr == "
             f"target_attr (={input_attr_int}): deleting the input would "
             f"discard the weight factor just written to it. Set "
-            f"delete_input=False, or choose a different target_attr."
+            f"drop_input_attr=False, or choose a different target_attr."
         )
 
     # --- Validate centre, sd/width (XOR), shape, is_per, period (scalars) ---
@@ -1371,8 +1371,8 @@ def weight_events(
         w_out[target_attr_int], factor, target_attr_int,
     )
 
-    # --- Build output structures, applying delete_input if requested ---
-    if delete_input:
+    # --- Build output structures, applying drop_input_attr if requested ---
+    if drop_input_attr:
         keep = [a for a in range(A) if a != input_attr_int]
         p_attr_out = [p_attr[a] for a in keep]
         w_out_kept = [w_out[a] for a in keep]

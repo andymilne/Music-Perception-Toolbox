@@ -13,11 +13,14 @@ function H = windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period, centres, 
 %   support (variance-matched for other shapes). Unlike windowedSimilarity
 %   there is no query to default the width from, so a width MUST be given.
 %
-%   Marginalisation. Name axes in 'marginalise' (default []) to integrate
-%   them out before the entropy is taken. Only the window axis may be
-%   marginalised at present, and it must be an r = 1 attribute (absolute or
-%   periodic), for which deletion from the carrier equals marginalisation
-%   of the density; an r >= 2 axis errors.
+%   Window axis role. 'dropWindowAttr' is REQUIRED and fixes the structural
+%   role of the window axis: true removes it from the density (placement
+%   coordinate only; it must then be an r = 1 attribute, for which deletion
+%   equals marginalisation), false retains it as a compared dimension whose
+%   entropy is taken. 'marginalise' (default []) is the separate, general
+%   operation of integrating a *retained* axis out of the density before the
+%   entropy is taken; it is not yet implemented, and naming the dropped axis
+%   in it is an error.
 %
 %   Sweep geometry. Pass an explicit 'centres' vector, OR generative
 %   'start'/'stop'/'step' (mutually exclusive). 'step' defaults to the
@@ -34,13 +37,17 @@ function H = windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period, centres, 
 %                              factor (must differ from the window axis).
 %                              Default: first non-axis attribute.
 %     'windowAttr'           - 1-based window axis. Default: last attribute.
-%     'marginalise'          - axes to integrate out (only the window axis
-%                              supported; r = 1 required). Default [].
+%     'dropWindowAttr'       - logical, REQUIRED (no default). true drops the
+%                              window axis from the density (r = 1 only);
+%                              false retains it as a compared dimension.
+%     'marginalise'          - axes to integrate out of a retained density
+%                              (general operation; not yet implemented).
+%                              Default [].
 %     'specs'                - [] (flat carrier) or a 1-by-A cell of carrier
 %                              specs (as returned by bindEvents). When given,
 %                              the per-attribute geometry is read from specs
 %                              and the positional r/isRel supply only the
-%                              window-axis order used by the marginalisation
+%                              window-axis order used by the deletion
 %                              guard; sigma/isPer/period still supply kernel
 %                              widths and periodicity. Default [].
 %     'verbose'              - logical, default false.
@@ -67,7 +74,13 @@ arguments
     nv.marginalise = []
     nv.specs = []
     nv.verbose (1,1) logical = false
+    nv.dropWindowAttr (1,1) logical
 end
+
+% dropWindowAttr has no default: omitting it errors below when first read,
+% matching weightEvents. The window axis is either dropped (placement only,
+% removed from the density) or retained as a compared dimension.
+dropWindowAttr = nv.dropWindowAttr;
 
 A = numel(pAttr);
 if isempty(nv.windowAttr), axisIdx = A; else, axisIdx = nv.windowAttr; end
@@ -99,23 +112,31 @@ if isempty(wWidth)
          '(window = {shape, width}); there is no query to default it from.']);
 end
 
-% --- marginalisation: only the window axis, and only if r = 1 ------------
-marg = nv.marginalise(:).';
-extra = setdiff(marg, axisIdx);
-if ~isempty(extra)
-    error('windowedEntropy:marginaliseUnsupported', ...
-        ['windowedEntropy currently marginalises only the window axis; ' ...
-         'marginalising other axes is not yet supported.']);
-end
-deleteAxis = any(marg == axisIdx);
-if deleteAxis && r(axisIdx) ~= 1
-    error('windowedEntropy:marginaliseR', ...
-        ['marginalising the window axis requires it to be an r = 1 ' ...
+% --- drop vs marginalise -------------------------------------------------
+% Dropping equals marginalisation only at r = 1.
+if dropWindowAttr && r(axisIdx) ~= 1
+    error('windowedEntropy:dropWindowAttrR', ...
+        ['dropWindowAttr=true requires the window axis to be an r = 1 ' ...
          'attribute; for r >= 2 deletion does not equal marginalisation.']);
 end
 
+% 'marginalise' is the separate, general integrate-out operation over a
+% retained axis (not yet implemented). A dropped axis is already gone, so it
+% cannot also be marginalised.
+marg = nv.marginalise(:).';
+if dropWindowAttr && any(marg == axisIdx)
+    error('windowedEntropy:dropAndMarginalise', ...
+        ['the window axis is dropped (dropWindowAttr=true), so it cannot ' ...
+         'also appear in marginalise.']);
+end
+if ~isempty(marg)
+    error('windowedEntropy:marginaliseNotImplemented', ...
+        ['marginalise (integrating a retained axis out of the density) is ' ...
+         'not yet implemented.']);
+end
+
 % kept-attribute specs for the density built after the window
-if deleteAxis
+if dropWindowAttr
     keep = setdiff(1:A, axisIdx);
 else
     keep = 1:A;
@@ -130,7 +151,7 @@ nested = ~isempty(nv.specs);
 H = zeros(1, numel(ctr));
 for i = 1:numel(ctr)
     [pw, ww, sw] = weightEvents(pAttr, w, axisIdx, target, ctr(i), wShape, ...
-        'width', wWidth, 'deleteInput', deleteAxis, 'specs', nv.specs);
+        'width', wWidth, 'dropInputAttr', dropWindowAttr, 'specs', nv.specs);
     % Drop events the window hard-zeroed before the (heavy) build.
     [pw, ww, sw] = internal.pruneDeadCarrier(pw, ww, sw);
     if nested

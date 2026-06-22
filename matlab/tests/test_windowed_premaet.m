@@ -36,7 +36,7 @@ query  = {[60, 64, 67], [0, 0.5, 1.0]};
 muQ    = mean(query{2});
 qExt   = max(query{2}) - min(query{2});
 
-% ----- 1. entropy, marginalise the time axis (differential & renyi2) -----
+% ----- 1. entropy, drop the time axis (differential & renyi2) -----
 methodsShapes = {'differential', 0.0; 'renyi2', 0.0; 'renyi2', 1.0};
 for k = 1:size(methodsShapes, 1)
     method = methodsShapes{k, 1};
@@ -45,10 +45,10 @@ for k = 1:size(methodsShapes, 1)
     for i = 1:numel(centres)
         if shape == 1.0
             [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
-                'width', WW, 'deleteInput', true);
+                'width', WW, 'dropInputAttr', true);
         else
             [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), shape, ...
-                'sd', SD, 'deleteInput', true);
+                'sd', SD, 'dropInputAttr', true);
         end
         dens = buildExpTens(pw, ww, SIGP, 1, false, false, 0.0, 'verbose', false);
         ref(i) = entropyExpTens(dens, 'method', method, 'verbose', false);
@@ -56,23 +56,23 @@ for k = 1:size(methodsShapes, 1)
     got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], centres, ...
         'window', {shape, WW}, 'method', method, ...
-        'windowAttr', 2, 'marginalise', 2, 'verbose', false);
+        'windowAttr', 2, 'dropWindowAttr', true, 'verbose', false);
     ok = max(abs(got(:) - ref(:))) < tol;
-    results(end+1, :) = {sprintf('windowedEntropy marginalise %s shape=%g', method, shape), ok}; %#ok<SAGROW>
+    results(end+1, :) = {sprintf('windowedEntropy drop window axis %s shape=%g', method, shape), ok}; %#ok<SAGROW>
 end
 
 % ----- 2. entropy, retain the time axis (joint pitch-time renyi2) --------
 ref = zeros(1, numel(centres));
 for i = 1:numel(centres)
     [pw, ww] = weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
-        'width', WW, 'deleteInput', false);
+        'width', WW, 'dropInputAttr', false);
     dens = buildExpTens(pw, ww, [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], 'verbose', false);
     ref(i) = entropyExpTens(dens, 'method', 'renyi2', 'verbose', false);
 end
 got = windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
     [false, false], [0.0, 0.0], centres, ...
-    'window', {1.0, WW}, 'method', 'renyi2', 'windowAttr', 2, 'verbose', false);
+    'window', {1.0, WW}, 'method', 'renyi2', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 results(end+1, :) = {'windowedEntropy joint (retain axis)', ...
     max(abs(got(:) - ref(:))) < tol}; %#ok<SAGROW>
 
@@ -82,7 +82,7 @@ for nm = {'oneSidedDenom', 'cosine'}
     ref = zeros(1, numel(centres));
     for i = 1:numel(centres)
         [pc, wc] = weightEvents(pAttr, [], 2, 1, centres(i), 1.0, ...
-            'width', qExt, 'deleteInput', false);
+            'width', qExt, 'dropInputAttr', false);
         offs = {[], centres(i) - muQ};
         [pq, wq] = translateAttributes(query, [], offs);
         ref(i) = cosSimExpTens(pc, wc, pq, wq, [SIGP, SIGT], [1, 1], ...
@@ -91,7 +91,7 @@ for nm = {'oneSidedDenom', 'cosine'}
     end
     got = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
         [false, false], [false, false], [0.0, 0.0], centres, ...
-        'normalize', normalize, 'windowAttr', 2, 'verbose', false);
+        'normalize', normalize, 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
     ok = isequal(size(got), [1, numel(centres)]) && max(abs(got(:) - ref(:))) < tol;
     results(end+1, :) = {sprintf('windowedSimilarity locked %s', normalize), ok}; %#ok<SAGROW>
 end
@@ -117,7 +117,7 @@ qc2d = anchors(:) - tau(:).';        % nA x nTau absolute query centres
 got = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], anchors, ...
     'queryCentres', qc2d, 'contextWindow', {1.0, 2 * half}, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'verbose', false);
+    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 ok = isequal(size(got), size(ref)) && max(abs(got(:) - ref(:))) < tol;
 results(end+1, :) = {'windowedSimilarity decoupled correlogram (2-D)', ok}; %#ok<SAGROW>
 
@@ -125,11 +125,11 @@ results(end+1, :) = {'windowedSimilarity decoupled correlogram (2-D)', ok}; %#ok
 explicit = onset(1):1.0:onset(end);
 gExp = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], explicit, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'verbose', false);
+    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 gGen = windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
     [false, false], [false, false], [0.0, 0.0], [], ...
     'start', onset(1), 'stop', onset(end), 'step', 1.0, ...
-    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'verbose', false);
+    'normalize', 'oneSidedDenom', 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 ok = isequal(size(gGen), size(gExp)) && max(abs(gGen(:) - gExp(:))) < tol;
 results(end+1, :) = {'windowedSimilarity generative == explicit', ok}; %#ok<SAGROW>
 
@@ -138,17 +138,39 @@ threwR2 = false;
 try
     windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 2], [false, false], ...
         [false, false], [0.0, 0.0], centres, 'window', {1.0, WW}, ...
-        'windowAttr', 2, 'marginalise', 2, 'verbose', false);
+        'windowAttr', 2, 'dropWindowAttr', true, 'verbose', false);
 catch
     threwR2 = true;
 end
-results(end+1, :) = {'windowedEntropy marginalise r>=2 errors', threwR2}; %#ok<SAGROW>
+results(end+1, :) = {'windowedEntropy drop r>=2 errors', threwR2}; %#ok<SAGROW>
+
+threwMarg = false;
+try
+    windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], centres, 'window', {1.0, WW}, ...
+        'windowAttr', 2, 'dropWindowAttr', false, 'marginalise', 1, ...
+        'verbose', false);
+catch
+    threwMarg = true;
+end
+results(end+1, :) = {'windowedEntropy marginalise not implemented', threwMarg}; %#ok<SAGROW>
+
+threwDropMarg = false;
+try
+    windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
+        [false, false], [0.0, 0.0], centres, 'window', {1.0, WW}, ...
+        'windowAttr', 2, 'dropWindowAttr', true, 'marginalise', 2, ...
+        'verbose', false);
+catch
+    threwDropMarg = true;
+end
+results(end+1, :) = {'windowedEntropy drop+marginalise same axis errors', threwDropMarg}; %#ok<SAGROW>
 
 threwWidth = false;
 try
     windowedEntropy(pAttr, [], [SIGP, SIGT], [1, 1], [false, false], ...
         [false, false], [0.0, 0.0], centres, 'window', {1.0, []}, ...
-        'windowAttr', 2, 'verbose', false);
+        'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 catch
     threwWidth = true;
 end
@@ -158,7 +180,7 @@ threwBoth = false;
 try
     windowedSimilarity(pAttr, [], query, [], [SIGP, SIGT], [1, 1], ...
         [false, false], [false, false], [0.0, 0.0], centres, ...
-        'step', 1.0, 'windowAttr', 2, 'verbose', false);
+        'step', 1.0, 'windowAttr', 2, 'dropWindowAttr', false, 'verbose', false);
 catch
     threwBoth = true;
 end

@@ -131,7 +131,7 @@ def test_entropy_nested_matches_handbuilt():
 
     got = windowed_entropy(ctx, w_ctx, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,
-                           window=(1.0, width), method="renyi2",
+                           context_window=(1.0, width), method="renyi2",
                            window_attr=AXIS, target_attr=TARGET,
                            specs=specs, drop_window_attr=False, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)

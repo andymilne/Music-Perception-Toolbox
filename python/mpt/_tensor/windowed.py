@@ -1,39 +1,45 @@
 """Pre-MAET windowed sweeps: ``windowed_similarity`` and ``windowed_entropy``.
 
-Both slide a window along one attribute axis of a *pre-MAET* carrier and
-read out a profile at a sequence of centres, sharing the placement and
-sweep-geometry helpers below. ``windowed_similarity`` loops over context
-centres and scores the context, placed once per centre, against the whole
-trailing-axis batch of query placements in a single call (recovering the
-cross-correlation batching); ``windowed_entropy`` is a plain per-centre
-loop, there being one density and one entropy per centre.
+Both slide a window across one or more attribute axes of a *pre-MAET*
+carrier and read out a profile, sharing one placement-and-window seam.
+``windowed_similarity`` translates a query to each swept position and
+scores it against the locally windowed context; ``windowed_entropy`` has
+no query and reads the entropy of the windowed (and, for any dropped axis,
+axis-reduced) density.
 
-Each operand undergoes, at each sweep step, exactly one placement
-transform on the window axis:
+Each function offers two equivalent argument surfaces:
 
-* ``window is None``  -> the operand is *translated* whole, so its mean on
-  the window axis lands on the centre (template placement, via
-  :func:`translate_attributes`);
-* ``window=(shape, width)`` -> the operand is *windowed* at the centre
-  (selection, via :func:`weight_events`), ``shape`` in ``[0, 1]``
-  (0 Gaussian, 1 rectangular) or the aliases ``'gaussian'`` / ``'rect'``,
-  ``width`` the rectangular full support (variance-matched for other
-  shapes: ``sd = width / (2 sqrt 3)``).
+* **Single axis** (the common case): ``window_attr`` names the swept axis,
+  ``centres`` (or ``start`` / ``stop`` / ``step``) its positions, and
+  ``drop_window_attr`` whether that axis is compared (``False``) or only
+  places the comparison (``True``). ``query_centres`` decouples the query's
+  placement from the window's, which a 2-D ``(A, T)`` array turns into the
+  lagged correlogram surface.
+* **Multiple axes**: ``sweep={axis: positions, ...}`` with a parallel
+  ``drop={axis: bool, ...}`` gives one output dimension per swept axis.
 
-``windowed_similarity`` takes two operands (a context and a query) and
-reads out their finalised inner product; ``windowed_entropy`` takes one
-and reads out its entropy. A future ``windowed_harmonicity`` (or similar)
-would be one more wrapper over the same core.
+A window is centred on the query's ``locate`` value (the multiset centroid
+by default; also ``'start'`` / ``'end'`` / ``'mid'`` or a callable) and, by
+default, is a rectangle of the query's extent; ``context_window`` overrides
+its shape and width. The per-axis window factors multiply onto one
+``target_attr`` and prune the context to the swept box before the build, so
+a single bundled time (or pitch) attribute can be swept, windowed, and
+compared at once, with no separate locating copy.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from .preprocessing import weight_events, translate_attributes
+from .preprocessing import (
+    weight_events, translate_attributes,
+    _evaluate_shape, _multiply_weights, _normalise_weights_to_list,
+)
 from .build import build_exp_tens
 from .cosine import cos_sim_exp_tens
 from .density import _weight_is_live
+
+_SQRT12 = 2.0 * np.sqrt(3.0)
 
 _SHAPE_ALIASES = {
     "rect": 1.0, "rectangular": 1.0, "box": 1.0,
@@ -94,20 +100,6 @@ def _resolve_centres(p_attr, axis, centres, start, stop, step, default_step):
     return lo + st * np.arange(max(n, 1))
 
 
-def _translate_to(p_attr, w, axis, centre, specs=None):
-    """Translate the carrier on `axis` so the axis mean lands at `centre`.
-
-    Returns ``(p_attr, w, specs)``; the third value is the carrier's specs
-    threaded through :func:`translate_attributes` unchanged (translation does
-    not alter nesting). It is ``None``-derived (flat) when ``specs is None``.
-    """
-    mu = float(np.nanmean(np.asarray(p_attr[axis], dtype=float)))
-    offsets = [None] * len(p_attr)
-    offsets[axis] = np.array([[centre - mu]], dtype=float)
-    pt, wt, st = translate_attributes(p_attr, w, offsets, specs=specs)
-    return pt, wt, st
-
-
 def _prune_dead_carrier(p_attr, w, specs):
     """Drop events the window hard-zeroed, before the (heavy) build.
 
@@ -159,365 +151,430 @@ def _prune_dead_carrier(p_attr, w, specs):
     return p_out, w_out, specs            # specs are per-slot -> unchanged
 
 
-def _window_at(p_attr, w, axis, target, centre, shape, width, *,
-               drop_window_attr, specs=None):
-    """Window the carrier at `centre`; returns ``(p_attr, w, specs)`` with the
-    threaded-through (and, under ``drop_window_attr``, axis-pruned) specs.
-
-    Events the window hard-zeroes are dropped before return so the build
-    only sees in-window events (see :func:`_prune_dead_carrier`); this is
-    exact and is the single seam every windowing function shares."""
-    pt, wt, st = weight_events(
-        p_attr, w, axis, target, float(centre), shape,
-        width=width, is_per=False, period=0.0,
-        drop_input_attr=drop_window_attr, specs=specs,
-    )
-    return _prune_dead_carrier(pt, wt, st)
-
-
-def _as_query_batch(pqs):
-    """Normalise :func:`translate_attributes`' query output to a list of
-    carriers. A batched translate (T > 1) returns a length-T list of
-    length-A carriers (``pqs[0]`` is itself a list); a single translate
-    returns one length-A carrier (``pqs[0]`` is an array)."""
-    if pqs and isinstance(pqs[0], (list, tuple)):
-        return list(pqs)
-    return [pqs]
+def _locate_row(M, locate):
+    """Reduce a ``(K, N)`` attribute to the ``(1, N)`` value its window
+    centres on: the multiset centroid by default, else ``'start'`` / ``'end'``
+    / ``'mid'`` / a callable. Raw values for a relative axis (the window
+    selects in absolute position; the comparison is translation-invariant)."""
+    M = np.asarray(M, dtype=float)
+    if callable(locate):
+        return np.asarray(locate(M), dtype=float).reshape(1, -1)
+    if locate == "centroid":
+        return np.nanmean(M, axis=0, keepdims=True)
+    if locate == "start":
+        return M[0:1, :]
+    if locate == "end":
+        return M[-1:, :]
+    if locate == "mid":
+        return 0.5 * (M[0:1, :] + M[-1:, :])
+    raise ValueError(
+        f"locate must be 'centroid', 'start', 'end', 'mid', or a callable; "
+        f"got {locate!r}")
 
 
-def _similarity_finalise(ctx_transformed, query_transformed, sigma, r,
-                         is_rel, is_per, period, normalize, truncation_sigmas):
-    """Finalised windowed similarity for one sweep step. This is the single
-    seam at which the cosine/one-sided continuum (alpha) will later drop in:
-    it currently delegates to the `normalize` keyword of
-    ``cos_sim_exp_tens`` ('oneSidedDenom' = alpha 0, 'cosine' = alpha 1/2);
-    the alpha form will instead form num / (ss_ctx**alpha * ss_q**(1-alpha))
-    from three raw inner products here, leaving every caller unchanged."""
-    pc, wc = ctx_transformed
-    pq, wq = query_transformed
-    return float(cos_sim_exp_tens(
-        pc, wc, pq, wq, sigma, r, is_rel, is_per, period,
-        normalize=normalize, truncation_sigmas=truncation_sigmas,
-        verbose=False,
-    ))
+def _resolve_locate(locate, axis):
+    return locate.get(axis, "centroid") if isinstance(locate, dict) else locate
 
 
-def windowed_similarity(
-    p_context, w_context, p_query, w_query,
-    sigma, r, is_rel, is_per, period,
-    centres=None, *,
-    start=None, stop=None, step=None,
-    query_centres=None,
-    context_window=("rect", None),
-    query_window=None,
-    target_attr=None,
-    normalize="oneSidedDenom",
-    window_attr=-1,
-    drop_window_attr,
-    truncation_sigmas=None,
-    specs=None,
-    verbose=True,
-):
-    """Sliding pre-MAET similarity profile (cross-correlation).
+def _window_factor(loc_row, centre, gamma, sd):
+    """Per-event window factor over a reduced locating row, matching the
+    ``weight_events`` profile and (global-default) truncation exactly."""
+    from .._defaults import get_default
+    delta = loc_row - centre
+    factor = _evaluate_shape(delta, sd, gamma)
+    trunc = get_default("truncation_sigmas")
+    if np.isfinite(trunc):
+        factor = factor.copy()
+        factor[np.abs(delta) > trunc * sd] = 0.0
+    return factor
 
-    At each sweep centre the context is placed by `context_window` and the
-    query by `query_window`, and their finalised inner product is recorded.
-    With the defaults the context is windowed by a rectangle of the query's
-    extent and the query is translated to the same centre (the locked
-    template sweep). Pass `query_centres` to decouple the query's placement
-    from the context's (e.g. a lag sweep). A `window` of ``None`` translates
-    that operand whole; ``(shape, width)`` windows it.
 
-    Nested carriers. Pass `specs` (a length-A list, exactly as returned by
-    :func:`bind_events` and consumed by :func:`build_exp_tens`) to score
-    nested attributes -- bound super-events, spectral inner multisets, the
-    ``rel = 1`` transposition quotient, and so on. The per-attribute
-    geometry (`r`, `sym`, `rel`, including any nested levels) is then read
-    from `specs`; the positional `r`/`is_rel` are unused and `sigma`,
-    `is_per`, `period` continue to supply the kernel widths and periodicity
-    that `specs` does not carry. With ``specs=None`` (the default) the carrier
-    is flat and every result is bit-identical to before -- the nesting is
-    purely additive.
-    """
-    p_context = list(p_context)
-    p_query = list(p_query)
-    n_attr = len(p_context)
-    axis = _abs_idx(window_attr, n_attr)
-    if target_attr is None:
-        target = 0 if axis != 0 else (1 if n_attr > 1 else 0)
+def _query_extent(p_query, axis):
+    v = np.asarray(p_query[axis], dtype=float).ravel()
+    v = v[np.isfinite(v)]
+    return float(v.max() - v.min()) if v.size else 0.0
+
+
+def _resolve_window(spec, query_extent, axis):
+    """``(gamma, sd)`` for one swept axis; default is a rectangle of the
+    query's extent on that axis."""
+    if spec is None:
+        if query_extent <= 0:
+            raise ValueError(
+                f"axis {axis}: the query has zero extent there, so the default "
+                f"window width is undefined; give 'width' or 'sd' in "
+                f"context_window[{axis}].")
+        return 1.0, query_extent / _SQRT12
+    gamma = _resolve_shape(spec.get("shape", "rect"))
+    has_sd, has_w = "sd" in spec, "width" in spec
+    if has_sd == has_w:
+        raise ValueError(
+            f"axis {axis}: give exactly one of 'width' or 'sd' in "
+            f"context_window[{axis}].")
+    sd = float(spec["sd"]) if has_sd else float(spec["width"]) / _SQRT12
+    if not (sd > 0):
+        raise ValueError(f"axis {axis}: window width/sd must be > 0.")
+    return gamma, sd
+
+
+def _axis_is_rel(specs, is_rel, a):
+    if specs is not None:
+        sp = specs[a]
+        if isinstance(sp, dict):
+            rel = sp.get("rel", False)
+            if isinstance(rel, (list, tuple, np.ndarray)):
+                return bool(rel[-1]) if len(rel) else False
+            return bool(rel)
+        return False
+    return bool(is_rel[a]) if a < len(is_rel) else False
+
+
+def _apply_windows(p, w, specs, centres, win, locate, target):
+    w_out = _normalise_weights_to_list(w, len(p))
+    for a, centre in centres.items():
+        loc = _locate_row(p[a], _resolve_locate(locate, a))
+        gamma, sd = win[a]
+        factor = _window_factor(loc, centre, gamma, sd)
+        w_out[target] = _multiply_weights(w_out[target], factor, target)
+    return _prune_dead_carrier(p, w_out, specs)
+
+
+def _drop_axes(p, w, specs, drop_axes):
+    keep = [i for i in range(len(p)) if i not in drop_axes]
+    p2 = [p[i] for i in keep]
+    if isinstance(w, (list, tuple)) and len(w) == len(p):
+        w2 = [w[i] for i in keep]
     else:
-        target = _abs_idx(target_attr, n_attr)
-    if target == axis:
-        raise ValueError("target_attr must differ from window_attr")
+        w2 = w
+    s2 = [specs[i] for i in keep] if specs is not None else None
+    return p2, w2, s2, keep
 
-    # Context window. A ``None`` shape translates the context whole; a
-    # concrete shape windows it. The width (used as the sweep-step default
-    # and, when windowing, as the window support) defaults to the query's
-    # extent on the axis. The shape is resolved only when windowing, so the
-    # translate path never passes ``None`` through ``_resolve_shape``.
-    cw_shape_raw, cw_width = context_window
-    translate_context = cw_shape_raw is None
-    if cw_width is None:
-        qv = _axis_values(p_query, axis)
-        cw_width = float(qv.max() - qv.min()) if qv.size else 0.0
-    if not translate_context:
-        cw_shape = _resolve_shape(cw_shape_raw)
 
+def _sub(seq, keep):
+    if isinstance(seq, (list, tuple, np.ndarray)) and len(seq) >= max(keep) + 1:
+        return [seq[i] for i in keep]
+    return seq
+
+
+def _prep_sweep(p_context, p_query, sweep, drop, context_window, target_attr,
+                require_window=False):
+    n = len(p_context)
+    keys = list(sweep.keys())
+    if not keys:
+        raise ValueError("`sweep` must name at least one attribute to slide.")
+    if set(drop.keys()) != set(keys):
+        raise ValueError("`drop` must have exactly one entry per `sweep` key.")
+    drop_axes = {a for a in keys if drop[a]}
+    kept = [i for i in range(n) if i not in drop_axes]
+    if not kept:
+        raise ValueError(
+            "every attribute is dropped; nothing is left to compare or to take "
+            "the entropy of.")
+    if target_attr is None:
+        target = kept[0]
+    else:
+        target = target_attr if target_attr >= 0 else n + target_attr
+        if target in drop_axes:
+            raise ValueError(
+                f"target_attr={target} is a dropped axis; its weights are "
+                f"removed before the build, so the window factors would be "
+                f"lost. Choose a compared attribute.")
+    cw = context_window if isinstance(context_window, dict) else {}
+    if require_window and any(cw.get(a) is None for a in keys):
+        raise ValueError(
+            "windowed_entropy has no query to size the window; give an explicit "
+            "context_window entry (width or sd) for every swept axis.")
+    win = {a: _resolve_window(cw.get(a), _query_extent(p_query, a), a)
+           for a in keys}
+    grids = [np.asarray(sweep[a], dtype=float).ravel() for a in keys]
+    return keys, drop_axes, target, win, grids
+
+
+def _single_window(context_window, p_query, axis):
+    """(gamma, sd) for the single-axis path from the ``(shape, width)`` tuple;
+    width defaults to the query's extent on the axis."""
+    shape_raw, width = context_window
+    if width is None:
+        width = _query_extent(p_query, axis)
+    if not (width > 0):
+        raise ValueError(
+            f"window width on axis {axis} is zero or undefined; pass "
+            f"context_window=(shape, width) with width > 0.")
+    gamma = _resolve_shape("rect" if shape_raw is None else shape_raw)
+    return gamma, width / _SQRT12
+
+
+def windowed_similarity(p_context, w_context, p_query, w_query,
+                        sigma, r, is_rel, is_per, period,
+                        centres=None, *, start=None, stop=None, step=None,
+                        query_centres=None, context_window=("rect", None),
+                        query_window=None, window_attr=-1, drop_window_attr=None,
+                        sweep=None, drop=None, locate="centroid",
+                        target_attr=None, normalize="oneSidedDenom", specs=None,
+                        verbose=False):
+    r"""Slide a query across a context and measure their similarity at each
+    position (a pre-MAET cross-correlation).
+
+    Two equivalent argument surfaces:
+
+    * **Single axis** (the common case): name the swept axis with
+      ``window_attr`` and its positions with ``centres`` (or ``start`` /
+      ``stop`` / ``step``); ``drop_window_attr`` says whether that axis is
+      compared (``False``) or only places the comparison (``True``). The
+      window is centred on the query's ``locate`` value (the multiset
+      centroid by default) and sized to the query's extent unless
+      ``context_window=(shape, width)`` overrides it. ``query_centres``
+      decouples the query's placement from the window's: ``None`` locks them
+      (ordinary cross-correlation); a 2-D ``(A, T)`` array fixes the window at
+      each ``centres[a]`` while the query slides across ``query_centres[a]``,
+      giving the lagged correlogram surface.
+    * **Multiple axes**: give ``sweep={axis: positions, ...}`` and a parallel
+      ``drop={axis: bool, ...}``; the output gains one dimension per swept
+      axis (Cartesian product), each axis windowed and, by default, query-
+      locked. ``context_window`` is then a per-axis ``dict``.
+
+    ``target_attr`` is the attribute whose weights absorb the window factors
+    (default: the first compared attribute; it may coincide with a swept
+    axis). ``specs`` carries nested geometry from :func:`bind_events`.
+    """
+    if sweep is not None:
+        if drop is None:
+            raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
+        if query_centres is not None or query_window is not None:
+            raise ValueError(
+                "`query_centres`/`query_window` are single-axis arguments; "
+                "the multi-axis `sweep` form locks the query to the sweep.")
+        return _ws_multi(
+            p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
+            period, sweep, drop, context_window if isinstance(context_window, dict)
+            else None, locate, normalize, target_attr, specs)
+    if drop_window_attr is None:
+        raise ValueError(
+            "`drop_window_attr` is required (True places only, False compares).")
+    return _ws_single(
+        p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per, period,
+        centres, start, stop, step, query_centres, context_window, query_window,
+        window_attr, drop_window_attr, locate, target_attr, normalize, specs)
+
+
+def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
+              period, sweep, drop, context_window, locate, normalize,
+              target_attr, specs):
+    p_context, p_query = list(p_context), list(p_query)
+    keys, drop_axes, target, win, grids = _prep_sweep(
+        p_context, p_query, sweep, drop, context_window, target_attr)
+    nested = specs is not None
+    out = np.empty(tuple(g.size for g in grids), dtype=float)
+    for idx in np.ndindex(*out.shape):
+        centres = {keys[j]: float(grids[j][idx[j]]) for j in range(len(keys))}
+        offs = [None] * len(p_query)
+        for a in keys:
+            if a in drop_axes or _axis_is_rel(specs, is_rel, a):
+                continue
+            q_loc = float(np.nanmean(_locate_row(
+                p_query[a], _resolve_locate(locate, a))))
+            offs[a] = np.array([[centres[a] - q_loc]], dtype=float)
+        if any(o is not None for o in offs):
+            pq_t, wq_t, sq_t = translate_attributes(p_query, w_query, offs,
+                                                     specs=specs)
+        else:
+            pq_t, wq_t, sq_t = p_query, w_query, specs
+        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, centres,
+                                          win, locate, target)
+        pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
+        pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
+        sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                              _sub(is_per, keep), _sub(period, keep))
+        if nested:
+            dc = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+                                verbose=False)
+            dq = build_exp_tens(pq, wq, sigma=sg, is_per=pr, period=pd, specs=sq,
+                                verbose=False)
+            out[idx] = float(cos_sim_exp_tens(
+                dc, dq, normalize=normalize,
+                verbose=False))
+        else:
+            out[idx] = float(cos_sim_exp_tens(
+                pc, wc, pq, wq, sg, rr, rl, pr, pd, normalize=normalize,
+                verbose=False))
+    return out
+
+
+def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
+               period, centres, start, stop, step, query_centres, context_window,
+               query_window, window_attr, drop_window_attr, locate, target_attr,
+               normalize, specs):
+    p_context, p_query = list(p_context), list(p_query)
+    n = len(p_context)
+    axis = _abs_idx(window_attr, n)
+    nested = specs is not None
+    gamma, sd = _single_window(context_window, p_query, axis)
+    win = {axis: (gamma, sd)}
+    drop_axes = {axis} if drop_window_attr else set()
+    keep = [i for i in range(n) if i not in drop_axes]
+    if not keep:
+        raise ValueError("dropping the only attribute leaves nothing to compare.")
+    target = (keep[0] if target_attr is None else _abs_idx(target_attr, n))
+    if target in drop_axes:
+        raise ValueError(
+            f"target_attr={target} is the dropped axis; its weights are removed "
+            f"before the build. Choose a compared attribute.")
     ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
-                                   default_step=cw_width)
-    A = ctx_centres.shape[0]
-    # Per-row query centres: row a holds the trailing-axis query placements
-    # scored against the single context placed at ctx_centres[a]. Output
-    # shape follows `query_centres` (context broadcast along its trailing
-    # axis): None -> locked (query at each context centre), 1-D length A ->
-    # element-wise paired, 2-D (A, T) -> grid R[a, t].
+                                   default_step=gamma and sd * _SQRT12 or sd)
+    A = ctx_centres.size
     if query_centres is None:
-        out_shape = (A,)
-        q_rows = ctx_centres.reshape(A, 1)
+        q_rows, out_shape = ctx_centres.reshape(A, 1), (A,)
     else:
         qc = np.asarray(query_centres, dtype=float)
         if qc.ndim == 1:
             if qc.shape[0] != A:
                 raise ValueError(
-                    f"1-D query_centres must match the context length A={A}; "
-                    f"got {qc.shape[0]}. For a grid pass a 2-D (A, T) array."
-                )
-            out_shape = (A,)
-            q_rows = qc.reshape(A, 1)
+                    f"1-D query_centres must have length A={A}; got {qc.shape[0]}.")
+            q_rows, out_shape = qc.reshape(A, 1), (A,)
         elif qc.ndim == 2:
             if qc.shape[0] != A:
                 raise ValueError(
-                    f"2-D query_centres must have first axis == context "
-                    f"length A={A}; got {qc.shape}."
-                )
-            out_shape = qc.shape
-            q_rows = qc
+                    f"2-D query_centres must have first axis A={A}; got {qc.shape}.")
+            q_rows, out_shape = qc, qc.shape
         else:
-            raise ValueError("query_centres must be None, 1-D, or 2-D")
-
-    nested = specs is not None
-
-    if drop_window_attr and n_attr < 2:
-        raise ValueError(
-            "drop_window_attr=True drops the window axis from the comparison, so "
-            "the carrier must have at least two attributes."
-        )
-
-    def _drop_window_axis(p, w, sp):
-        keep = [i for i in range(n_attr) if i != axis]
-        p2 = [p[i] for i in keep]
-        if isinstance(w, (list, tuple)) and len(w) == n_attr:
-            w2 = [w[i] for i in keep]
-        else:
-            w2 = w
-        sp2 = [sp[i] for i in keep] if sp is not None else None
-        return p2, w2, sp2
-
-    def _drop_seq(seq):
-        if (drop_window_attr and isinstance(seq, (list, tuple, np.ndarray))
-                and len(seq) == n_attr):
-            return [seq[i] for i in range(n_attr) if i != axis]
-        return seq
-
-    # When the window axis is dropped it is no longer a compared dimension, so
-    # the per-attribute kernel geometry collapses to the retained attributes.
-    sigma_b, is_per_b, period_b = (_drop_seq(sigma), _drop_seq(is_per),
-                                   _drop_seq(period))
-    r_b, is_rel_b = _drop_seq(r), _drop_seq(is_rel)
-
-    def place_context(centre):
-        if translate_context:
-            pc, wc, sc = _translate_to(p_context, w_context, axis, centre,
-                                       specs=specs)
-            return _drop_window_axis(pc, wc, sc) if drop_window_attr else (pc, wc, sc)
-        return _window_at(p_context, w_context, axis, target, centre,
-                          cw_shape, cw_width, drop_window_attr=drop_window_attr,
-                          specs=specs)
-
-    translate_query = query_window is None
-    if not translate_query:
-        qw_shape = _resolve_shape(query_window[0])
-        qw_width = query_window[1]
-        mu_q = None
-    else:
-        mu_q = float(np.nanmean(np.asarray(p_query[axis], dtype=float)))
-
-    # With the window axis dropped the query carries no compared placement
-    # along it, so it reduces to a single fixed template built once.
-    dq_fixed = None
-    if drop_window_attr:
-        pq_k, wq_k, sq_k = _drop_window_axis(p_query, w_query, specs)
-        dq_fixed = (build_exp_tens(pq_k, wq_k, sigma=sigma_b, is_per=is_per_b,
-                                   period=period_b, specs=sq_k, verbose=False)
-                    if nested else (pq_k, wq_k))
-
+            raise ValueError("query_centres must be None, 1-D, or 2-D.")
+    rel_axis = _axis_is_rel(specs, is_rel, axis)
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                          _sub(is_per, keep), _sub(period, keep))
     out = np.empty((A, q_rows.shape[1]), dtype=float)
     for a in range(A):
-        pc, wc, sc = place_context(ctx_centres[a])
-        # Nested: build the windowed-context density once per centre; the
-        # geometry rides in `specs`, so the positional r/is_rel are unused.
-        dc = (build_exp_tens(pc, wc, sigma=sigma_b, is_per=is_per_b,
-                             period=period_b, specs=sc, verbose=False)
-              if nested else None)
-        if drop_window_attr:
-            if nested:
-                val = float(cos_sim_exp_tens(
-                    dc, dq_fixed, normalize=normalize,
-                    truncation_sigmas=truncation_sigmas, verbose=False))
+        pc_w, wc_w, sc_w = _apply_windows(
+            p_context, w_context, specs, {axis: float(ctx_centres[a])}, win,
+            locate, target)
+        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
+        dc = (build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
+                             verbose=False) if nested else None)
+        for t in range(q_rows.shape[1]):
+            if drop_window_attr or rel_axis:
+                pq_t, wq_t, sq_t = p_query, w_query, specs
             else:
-                pq_k, wq_k = dq_fixed
-                val = float(cos_sim_exp_tens(
-                    pc, wc, pq_k, wq_k, sigma_b, r_b, is_rel_b, is_per_b,
-                    period_b, normalize=normalize,
-                    truncation_sigmas=truncation_sigmas, verbose=False))
-            out[a, :] = val
-            continue
-        row = q_rows[a]
-        if translate_query:
-            # One translate produces all T shifted query copies; one
-            # cos_sim scores the single context against the batch.
-            offsets = [None] * n_attr
-            offsets[axis] = (row - mu_q).reshape(1, row.size)
-            pqs, wqs, sqs = translate_attributes(p_query, w_query, offsets,
-                                                 specs=specs)
+                q_loc = float(np.nanmean(_locate_row(
+                    p_query[axis], _resolve_locate(locate, axis))))
+                offs = [None] * n
+                offs[axis] = np.array([[float(q_rows[a, t]) - q_loc]], dtype=float)
+                pq_t, wq_t, sq_t = translate_attributes(p_query, w_query, offs,
+                                                         specs=specs)
+            pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
             if nested:
-                dq = [build_exp_tens(qc, wqs, sigma=sigma, is_per=is_per,
-                                     period=period, specs=sqs, verbose=False)
-                      for qc in _as_query_batch(pqs)]
-                vals = cos_sim_exp_tens(
-                    dc, dq if len(dq) != 1 else dq[0],
-                    normalize=normalize, truncation_sigmas=truncation_sigmas,
-                    verbose=False)
+                dq = build_exp_tens(pq, wq, sigma=sg, is_per=pr, period=pd,
+                                    specs=sq, verbose=False)
+                out[a, t] = float(cos_sim_exp_tens(
+                    dc, dq, normalize=normalize,
+                    verbose=False))
             else:
-                vals = cos_sim_exp_tens(
-                    pc, wc, pqs, wqs, sigma, r, is_rel, is_per, period,
-                    normalize=normalize, truncation_sigmas=truncation_sigmas,
-                    verbose=False)
-            out[a, :] = np.atleast_1d(np.asarray(vals, dtype=float)).ravel()
-        else:
-            for t, qcen in enumerate(row):
-                pq, wq, sq = _window_at(p_query, w_query, axis, target, qcen,
-                                        qw_shape, qw_width, drop_window_attr=False,
-                                        specs=specs)
-                if nested:
-                    dq = build_exp_tens(pq, wq, sigma=sigma, is_per=is_per,
-                                        period=period, specs=sq, verbose=False)
-                    out[a, t] = float(cos_sim_exp_tens(
-                        dc, dq, normalize=normalize,
-                        truncation_sigmas=truncation_sigmas, verbose=False))
-                else:
-                    out[a, t] = _similarity_finalise(
-                        (pc, wc), (pq, wq), sigma, r, is_rel, is_per, period,
-                        normalize, truncation_sigmas)
+                out[a, t] = float(cos_sim_exp_tens(
+                    pc, wc, pq, wq, sg, rr, rl, pr, pd, normalize=normalize,
+                    verbose=False))
     return out.reshape(out_shape)
 
 
-def windowed_entropy(
-    p, w, sigma, r, is_rel, is_per, period,
-    centres=None, *,
-    start=None, stop=None, step=None,
-    window=("rect", None),
-    method="differential",
-    target_attr=None,
-    window_attr=-1,
-    drop_window_attr,
-    marginalise=None,
-    truncation_sigmas=None,
-    specs=None,
-    base=2.0,
-    verbose=True,
-):
-    """Sliding pre-MAET entropy profile.
+def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
+                     centres=None, *, start=None, stop=None, step=None,
+                     context_window=("rect", None), window_attr=-1,
+                     drop_window_attr=None, sweep=None, drop=None,
+                     locate="centroid", method="differential", base=2.0,
+                     marginalise=None, target_attr=None, specs=None,
+                     verbose=False):
+    r"""Slide a window across a context and read its entropy at each position.
 
-    At each sweep centre the carrier is windowed on `window_attr` and the
-    entropy of the resulting density is recorded. `drop_window_attr` is
-    required and fixes the structural role of the window axis: with ``True``
-    it is a placement coordinate only and is removed from the density (it
-    must then be an ``r = 1`` attribute, for which deletion equals
-    marginalisation); with ``False`` it is retained as a dimension of the
-    density whose entropy is taken. `marginalise` (default ``None``) is the
-    separate, general operation of integrating a *retained* axis out of the
-    density before the entropy is taken; it is not yet implemented, and
-    naming the dropped axis in it is an error. The window `width` has no
-    default (there is no query to borrow from) and must be supplied.
-
-    Nested carriers. Pass `specs` (a length-A list, as returned by
-    :func:`bind_events`) to take the entropy of a density over nested
-    attributes; the per-attribute geometry (`r`, `sym`, `rel`, nested
-    levels) is then read from `specs` and the positional `r`/`is_rel` supply
-    only the window-axis order used by the deletion guard. With
-    ``specs=None`` the carrier is flat and every result is unchanged.
+    Shares the placement, window, ``locate``, and ``drop`` machinery of
+    :func:`windowed_similarity`, with the same single-axis
+    (``window_attr`` + ``centres`` + ``drop_window_attr``) and multi-axis
+    (``sweep`` + ``drop``) surfaces; there is no query, so at each position
+    the windowed (and, for a dropped axis, axis-reduced) density is built and
+    its entropy taken. ``marginalise`` is reserved for integrating a retained
+    axis out of the density and is not yet implemented.
     """
-    p = list(p)
-    n_attr = len(p)
-    axis = _abs_idx(window_attr, n_attr)
-    if target_attr is None:
-        target = 0 if axis != 0 else (1 if n_attr > 1 else 0)
-    else:
-        target = _abs_idx(target_attr, n_attr)
-    if target == axis:
-        raise ValueError("target_attr must differ from window_attr")
-
-    w_shape = _resolve_shape(window[0])
-    w_width = window[1]
-    if w_width is None:
-        raise ValueError(
-            "windowed_entropy requires an explicit window width "
-            "(window=(shape, width)); there is no query to default it from"
-        )
-
-    # The window axis is either dropped (placement only, removed from the
-    # density) or retained as a compared dimension; the caller must state
-    # which. Dropping equals marginalisation only at r = 1.
-    if drop_window_attr and int(np.atleast_1d(r)[axis]) != 1:
-        raise ValueError(
-            "drop_window_attr=True requires the window axis to be an r = 1 "
-            "attribute; for r >= 2 deletion does not equal marginalisation"
-        )
-
-    # `marginalise` is the separate, general integrate-out operation over a
-    # retained axis (not yet implemented). A dropped axis is already gone, so
-    # it cannot also be marginalised.
-    marg = set() if marginalise is None else {
-        _abs_idx(a, n_attr) for a in np.atleast_1d(marginalise)
-    }
-    if drop_window_attr and axis in marg:
-        raise ValueError(
-            "the window axis is dropped (drop_window_attr=True), so it cannot "
-            "also appear in marginalise"
-        )
-    if marg:
+    if marginalise is not None:
         raise NotImplementedError(
             "marginalise (integrating a retained axis out of the density) is "
-            f"not yet implemented; got axes {sorted(marg)}"
-        )
+            "not yet implemented.")
+    if sweep is not None:
+        if drop is None:
+            raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
+        return _we_multi(
+            p_context, w_context, sigma, r, is_rel, is_per, period, sweep, drop,
+            context_window if isinstance(context_window, dict) else None, locate,
+            method, base, target_attr, specs)
+    if drop_window_attr is None:
+        raise ValueError(
+            "`drop_window_attr` is required (True drops the window axis, False "
+            "retains it).")
+    return _we_single(
+        p_context, w_context, sigma, r, is_rel, is_per, period, centres, start,
+        stop, step, context_window, window_attr, drop_window_attr, locate,
+        method, base, target_attr, specs)
 
-    # Specs for the density built after the (possibly axis-deleting) window.
-    def _kept(seq):
-        s = list(seq)
-        return [s[k] for k in range(n_attr)
-                if not (drop_window_attr and k == axis)]
-    sig_k, r_k, rel_k, per_k, pd_k = (
-        _kept(sigma), _kept(r), _kept(is_rel), _kept(is_per), _kept(period))
 
-    ctr = _resolve_centres(p, axis, centres, start, stop, step,
-                           default_step=w_width)
-
-    # Lazy import to avoid a build-time cycle (entropy imports from _tensor).
-    from ..entropy import entropy_exp_tens
-
+def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, sweep,
+              drop, context_window, locate, method, base, target_attr, specs):
+    p_context = list(p_context)
+    keys, drop_axes, target, win, grids = _prep_sweep(
+        p_context, p_context, sweep, drop, context_window, target_attr,
+        require_window=True)
     nested = specs is not None
-    H = np.empty(ctr.shape[0], dtype=float)
-    for i, c in enumerate(ctr):
-        pw, ww, sw = _window_at(p, w, axis, target, c, w_shape, w_width,
-                                drop_window_attr=drop_window_attr, specs=specs)
+    from ..entropy import entropy_exp_tens
+    out = np.empty(tuple(g.size for g in grids), dtype=float)
+    for idx in np.ndindex(*out.shape):
+        centres = {keys[j]: float(grids[j][idx[j]]) for j in range(len(keys))}
+        pc_w, wc_w, sc_w = _apply_windows(p_context, w_context, specs, centres,
+                                          win, locate, target)
+        pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
+        sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                              _sub(is_per, keep), _sub(period, keep))
         if nested:
-            # Geometry rides in the (axis-pruned) specs; r/is_rel unused.
-            dens = build_exp_tens(pw, ww, sigma=sig_k, is_per=per_k,
-                                  period=pd_k, specs=sw, verbose=False)
+            dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
+                                  specs=sc, verbose=False)
         else:
-            dens = build_exp_tens(pw, ww, sig_k, r_k, rel_k, per_k, pd_k,
-                                  verbose=False)
-        H[i] = float(entropy_exp_tens(dens, method=method, base=base,
-                                      verbose=False))
-    return H
+            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, verbose=False)
+        out[idx] = float(entropy_exp_tens(dens, method=method, base=base,
+                                          verbose=False))
+    return out
+
+
+def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, centres,
+               start, stop, step, context_window, window_attr, drop_window_attr,
+               locate, method, base, target_attr, specs):
+    p_context = list(p_context)
+    n = len(p_context)
+    axis = _abs_idx(window_attr, n)
+    nested = specs is not None
+    shape_raw, width = context_window
+    if width is None:
+        raise ValueError(
+            "windowed_entropy has no query to size the window; pass an explicit "
+            "context_window=(shape, width).")
+    if not (width > 0):
+        raise ValueError("context_window width must be > 0.")
+    gamma = _resolve_shape("rect" if shape_raw is None else shape_raw)
+    win = {axis: (gamma, width / _SQRT12)}
+    drop_axes = {axis} if drop_window_attr else set()
+    keep = [i for i in range(n) if i not in drop_axes]
+    if not keep:
+        raise ValueError("dropping the only attribute leaves no density.")
+    target = (keep[0] if target_attr is None else _abs_idx(target_attr, n))
+    if target in drop_axes:
+        raise ValueError(f"target_attr={target} is the dropped axis.")
+    ctx_centres = _resolve_centres(p_context, axis, centres, start, stop, step,
+                                   default_step=width)
+    from ..entropy import entropy_exp_tens
+    sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
+                          _sub(is_per, keep), _sub(period, keep))
+    out = np.empty(ctx_centres.size, dtype=float)
+    for i, c in enumerate(ctx_centres):
+        pc_w, wc_w, sc_w = _apply_windows(
+            p_context, w_context, specs, {axis: float(c)}, win, locate, target)
+        pc, wc, sc, _ = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
+        if nested:
+            dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
+                                  specs=sc, verbose=False)
+        else:
+            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, verbose=False)
+        out[i] = float(entropy_exp_tens(dens, method=method, base=base,
+                                        verbose=False))
+    return out

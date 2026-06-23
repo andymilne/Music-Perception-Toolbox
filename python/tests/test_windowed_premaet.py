@@ -4,7 +4,9 @@ Each new-function result is checked against the equivalent inline pipeline
 (``weight_events`` / ``translate_attributes`` / ``build_exp_tens`` /
 ``entropy_exp_tens`` / ``cos_sim_exp_tens``) it replaces, so the functions
 are pinned to the hand-written composition rather than to remembered
-numbers.
+numbers. Both argument surfaces are exercised: the single-axis form
+(``window_attr`` / ``centres`` / ``drop_window_attr``, plus the decoupled
+``query_centres`` correlogram) and the multi-axis form (``sweep`` / ``drop``).
 """
 
 import numpy as np
@@ -12,7 +14,7 @@ import pytest
 
 from mpt import (
     windowed_similarity, windowed_entropy,
-    weight_events, translate_attributes,
+    weight_events, translate_attributes, bind_events,
     build_exp_tens, entropy_exp_tens, cos_sim_exp_tens,
 )
 
@@ -35,6 +37,9 @@ def query():
     return [np.array([[60., 64., 67.]]), np.array([[0., 0.5, 1.0]])]
 
 
+# --------------------------------------------------------------------------
+# windowed_entropy
+# --------------------------------------------------------------------------
 @pytest.mark.parametrize("method,shape", [
     ("differential", 0.0), ("renyi2", 0.0), ("renyi2", 1.0),
 ])
@@ -49,7 +54,7 @@ def test_entropy_drop_window_axis(carrier, method, shape):
         ref[i] = entropy_exp_tens(dens, method=method, verbose=False)
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,
-                           window=(shape, W_WIDTH), method=method,
+                           context_window=(shape, W_WIDTH), method=method,
                            window_attr=1, drop_window_attr=True, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
 
@@ -65,17 +70,22 @@ def test_entropy_retain_axis(carrier):
         ref[i] = entropy_exp_tens(dens, method="renyi2", verbose=False)
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                            [False, False], [0.0, 0.0], centres,
-                           window=(1.0, W_WIDTH), method="renyi2",
+                           context_window=(1.0, W_WIDTH), method="renyi2",
                            window_attr=1, drop_window_attr=False, verbose=False)
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
-def test_entropy_drop_r_ge_2_rejected(carrier):
+def test_entropy_drop_r_ge_2_now_allowed(carrier):
+    """Dropping a bundled axis is allowed: the centroid `locate` reduces it
+    for the window, then it is removed from the density (deletion is no
+    longer restricted to r = 1)."""
     p_attr, centres = carrier
-    with pytest.raises(ValueError):
-        windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 2], [False, False],
-                         [False, False], [0.0, 0.0], centres,
-                         window=(1.0, W_WIDTH), window_attr=1, drop_window_attr=True, verbose=False)
+    got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 2], [False, False],
+                           [False, False], [0.0, 0.0], centres,
+                           context_window=(1.0, W_WIDTH), window_attr=1,
+                           drop_window_attr=True, verbose=False)
+    assert got.shape == (len(centres),)
+    assert np.all(np.isfinite(got))
 
 
 def test_entropy_marginalise_not_implemented(carrier):
@@ -84,28 +94,24 @@ def test_entropy_marginalise_not_implemented(carrier):
     with pytest.raises(NotImplementedError):
         windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                          [False, False], [0.0, 0.0], centres,
-                         window=(1.0, W_WIDTH), window_attr=1,
+                         context_window=(1.0, W_WIDTH), window_attr=1,
                          drop_window_attr=False, marginalise=0, verbose=False)
 
 
-def test_entropy_drop_and_marginalise_same_axis_rejected(carrier):
-    """A dropped axis is already gone, so it cannot also be marginalised."""
-    p_attr, centres = carrier
-    with pytest.raises(ValueError):
-        windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
-                         [False, False], [0.0, 0.0], centres,
-                         window=(1.0, W_WIDTH), window_attr=1,
-                         drop_window_attr=True, marginalise=1, verbose=False)
-
-
 def test_entropy_requires_width(carrier):
+    """No query means no extent to size a default window from, so an explicit
+    width is required."""
     p_attr, centres = carrier
     with pytest.raises(ValueError):
         windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                          [False, False], [0.0, 0.0], centres,
-                         window=(1.0, None), window_attr=1, drop_window_attr=False, verbose=False)
+                         context_window=(1.0, None), window_attr=1,
+                         drop_window_attr=False, verbose=False)
 
 
+# --------------------------------------------------------------------------
+# windowed_similarity: single-axis surface
+# --------------------------------------------------------------------------
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
 def test_similarity_locked(carrier, query, normalize):
     p_attr, centres = carrier
@@ -126,6 +132,8 @@ def test_similarity_locked(carrier, query, normalize):
 
 
 def test_similarity_decoupled_correlogram(carrier, query):
+    """2-D ``query_centres`` fixes the window at each anchor while the query
+    slides across the lags: the anchor x lag correlogram surface."""
     p_attr, centres = carrier
     pitch, onset = p_attr
     mu_q = float(query[1].mean())
@@ -173,21 +181,53 @@ def test_centres_and_generative_mutually_exclusive(carrier, query):
                             step=1.0, window_attr=1, drop_window_attr=False, verbose=False)
 
 
-def test_similarity_translate_context(carrier, query):
-    """context_window=(None, ...) translates the context whole (no shape
-    resolution); regression for the translate-context path."""
+# --------------------------------------------------------------------------
+# windowed_similarity: multi-axis surface and locate
+# --------------------------------------------------------------------------
+def test_single_axis_equals_one_entry_sweep(carrier, query):
+    """The single-axis surface is exactly the one-entry multi-axis form."""
     p_attr, centres = carrier
-    mu_c = float(p_attr[1].mean()); mu_q = float(query[1].mean())
-    # inline: translate context to each centre, query to same centre, score
-    ref = np.empty(len(centres))
-    for i, c in enumerate(centres):
-        pc, wc, _ = translate_attributes(p_attr, None, [None, np.array([[c - mu_c]])])
-        pq, wq, _ = translate_attributes(query, None, [None, np.array([[c - mu_q]])])
-        ref[i] = cos_sim_exp_tens(pc, wc, pq, wq, [SIG_P, SIG_T], [1, 1],
-                                  [False, False], [False, False], [0.0, 0.0],
-                                  normalize="oneSidedDenom", verbose=False)
-    got = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
-                              [False, False], [False, False], [0.0, 0.0], centres,
-                              context_window=(None, None), normalize="oneSidedDenom",
-                              window_attr=1, drop_window_attr=False, verbose=False)
-    assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
+    single = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
+                                 [False, False], [False, False], [0.0, 0.0], centres,
+                                 normalize="oneSidedDenom", window_attr=1,
+                                 drop_window_attr=False, verbose=False)
+    multi = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
+                                [False, False], [False, False], [0.0, 0.0],
+                                sweep={1: centres}, drop={1: False},
+                                normalize="oneSidedDenom", verbose=False)
+    assert np.allclose(single, multi, rtol=1e-12, atol=1e-12)
+
+
+def test_multi_axis_two_dim_map(carrier, query):
+    """Sweeping pitch (compared) and time (dropped) yields a 2-D map."""
+    p_attr, centres = carrier
+    pitch = p_attr[0]
+    p_centroid = float(query[0].mean())
+    pgrid = p_centroid + np.arange(-4.0, 5.0, 2.0)
+    R = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
+                            [False, False], [False, False], [0.0, 0.0],
+                            sweep={1: centres, 0: pgrid}, drop={1: True, 0: False},
+                            context_window={0: {"shape": "rect", "width": 6.0}},
+                            normalize="oneSidedDenom", verbose=False)
+    assert R.shape == (len(centres), len(pgrid))
+    assert np.all(np.isfinite(R))
+
+
+def test_locate_is_wired():
+    """On an asymmetric bundle, 'centroid' and 'start' place the window (and
+    the query translation) differently, so the self-similarity sweep peaks at
+    different centres and the two arrays must not coincide."""
+    qp = np.array([[60., 64.]]); qo = np.array([[0.0, 0.6]])   # centroid 0.3, start 0.0
+    qb, qw, qs = bind_events([qp, qo], None, [1, 2], step=1, rel_outer=[False, False])
+    centres = np.linspace(-0.4, 0.7, 12)        # keeps both window centres non-empty
+    common = dict(window_attr=1, drop_window_attr=False, context_window=(1.0, 1.5),
+                  normalize="cosine", specs=qs, verbose=False)
+    a = windowed_similarity(qb, qw, qb, qw, [SIG_P, SIG_T], [1, 2], [False, False],
+                            [False, False], [0.0, 0.0], centres, locate="centroid", **common)
+    b = windowed_similarity(qb, qw, qb, qw, [SIG_P, SIG_T], [1, 2], [False, False],
+                            [False, False], [0.0, 0.0], centres, locate="start", **common)
+    assert a.shape == b.shape == (len(centres),)
+    # both attain a clear self-similarity peak, but at different centres
+    assert np.nanmax(a) > 0.9 and np.nanmax(b) > 0.9
+    assert abs(centres[np.nanargmax(a)] - centres[np.nanargmax(b)]) > 0.2
+    assert not np.allclose(a, b, equal_nan=True)

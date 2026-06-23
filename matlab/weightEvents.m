@@ -271,7 +271,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
     if isPer
         delta = delta - period * floor(delta / period + 0.5);
     end
-    factor = localEvaluateShape(delta, sd, shape);   % (1, N)
+    factor = internal.evaluateShape(delta, sd, shape);   % (1, N)
 
     % Truncate: zero factor entries whose distance exceeds
     % truncationSigmas * sd. Uniform convention with the kernel
@@ -286,8 +286,8 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
     end
 
     % --- Normalise w to length-A cell; multiply factor into target slot ---
-    wOut = localNormaliseWeightsToCell(w, A);
-    wOut{targetAttr} = localMultiplyWeights( ...
+    wOut = internal.normaliseWeightsToCell(w, A);
+    wOut{targetAttr} = internal.multiplyWeights( ...
         wOut{targetAttr}, factor, size(pAttr{targetAttr}, 1));
 
     % --- Build output structures, applying dropInputAttr if requested ---
@@ -300,118 +300,4 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
         pAttrOut = pAttr;
         specsOut = specsIn;
     end
-end
-
-
-% =========================================================================
-%  localEvaluateShape -- peak-normalised fixed-variance window family
-% =========================================================================
-
-function h = localEvaluateShape(delta, sd, gamma)
-%LOCALEVALUATESHAPE  Peak-normalised rect * Gaussian convolution
-%(Section 5.2.1 of the MAET manuscript), with derived parameters
-%   phi = sd * sqrt(3 * gamma)   (rectangle half-width)
-%   xi  = sd * sqrt(1 - gamma)   (Gaussian std)
-%so that the total variance is sd^2 across the whole family.
-    if gamma == 0
-        % Pure Gaussian, std = sd.
-        h = exp(-(delta .^ 2) ./ (2 * sd ^ 2));
-        return;
-    end
-    if gamma == 1
-        % Pure rectangle, half-width phi = sd * sqrt(3). Half-open support
-        % [-phi, phi): lower edge included, upper edge excluded, so a
-        % regular pulse grid yields exactly N pulses for full support
-        % N*IOI at every N (a closed interval over-counts even widths and
-        % can leave a between-pulse centre empty). The tolerance keeps the
-        % edge test robust to floating-point error.
-        phi = sd * sqrt(3);
-        scale = max(abs(phi), 1);
-        if ~isempty(delta)
-            scale = max(scale, max(abs(delta(:))));
-        end
-        tol = 1e-9 * scale;
-        h = double((delta >= -phi - tol) & (delta < phi - tol));
-        return;
-    end
-    phi   = sd * sqrt(3 * gamma);
-    xi    = sd * sqrt(1 - gamma);
-    scale = xi * sqrt(2);
-    num   = erf((delta + phi) ./ scale) - erf((delta - phi) ./ scale);
-    peak  = 2 * erf(phi ./ scale);
-    h = num ./ peak;
-end
-
-
-% =========================================================================
-%  localNormaliseWeightsToCell
-% =========================================================================
-
-function wCell = localNormaliseWeightsToCell(w, A)
-%LOCALNORMALISEWEIGHTSTOCELL  Coerce w to a 1 x A cell, preserving entries.
-    wCell = cell(1, A);
-    if isempty(w) && ~iscell(w)
-        for a = 1:A
-            wCell{a} = [];
-        end
-        return;
-    end
-    if isnumeric(w) && isscalar(w)
-        sw = double(w);
-        for a = 1:A
-            wCell{a} = sw;
-        end
-        return;
-    end
-    if iscell(w)
-        if numel(w) ~= A
-            error('weightEvents:badWeightCellLength', ...
-                  'w cell must have length A = %d; got %d.', A, numel(w));
-        end
-        for a = 1:A
-            wCell{a} = w{a};
-        end
-        return;
-    end
-    error('weightEvents:badWeightType', ...
-          ['w must be [], a scalar, or a 1 x A cell of scalar/' ...
-           '(1,N)/(K_a,N) entries.']);
-end
-
-
-% =========================================================================
-%  localMultiplyWeights
-% =========================================================================
-
-function wNew = localMultiplyWeights(wExisting, factor, K_target)
-%LOCALMULTIPLYWEIGHTS  Multiply per-attribute weight by factor ((1, N) row).
-%
-%   factor is (1, N); the target attribute's existing weight may be
-%   [], a scalar, a (1, N) row, or a (K_target, N) matrix. The factor
-%   broadcasts across K_target slots (every slot of every event sees
-%   the same factor).
-    if isempty(wExisting)
-        % factor broadcast to (K_target, N).
-        wNew = repmat(factor, K_target, 1);
-        return;
-    end
-    if isnumeric(wExisting) && isscalar(wExisting)
-        wNew = repmat(double(wExisting) * factor, K_target, 1);
-        return;
-    end
-    arr = double(wExisting);
-    if isequal(size(arr), [1, size(factor, 2)])
-        % (1, N) row: broadcast to K_target after multiplying.
-        wNew = repmat(arr .* factor, K_target, 1);
-        return;
-    end
-    if isequal(size(arr), [K_target, size(factor, 2)])
-        % (K_target, N): per-slot weights, broadcast factor across rows.
-        wNew = arr .* factor;
-        return;
-    end
-    error('weightEvents:badExistingWeightShape', ...
-          ['Existing weight shape [%s] is incompatible with target ' ...
-           'shape [%d, %d] (factor is (1, %d)).'], ...
-          num2str(size(arr)), K_target, size(factor, 2), size(factor, 2));
 end

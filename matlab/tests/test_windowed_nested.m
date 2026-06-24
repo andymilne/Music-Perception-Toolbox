@@ -152,6 +152,38 @@ bRes = windowedSimilarity(pFlat, [], qFlat, [], [0.12 0.05], [1 1], ...
     'dropWindowAttr', false, 'windowAttr', 2, 'normalize', 'oneSidedDenom', 'specs', [], 'verbose', false);
 results(end+1, :) = {'windowedSimilarity specs=[] == flat', isequal(aRes, bRes)}; %#ok<SAGROW>
 
+% ===== 6. empty window scores exactly 0 (plain and spectral) ============
+% Two identical (+3, -3, +5) statements separated by a wide rest, so a
+% centre in the rest catches no super-event. The nested (spectral) path
+% must agree with the plain path: exactly 0, not NaN or an error. Mirror of
+% Python's test_similarity_empty_window_scores_zero.
+eIv  = [0 3 0 5];
+ePit = [60 + eIv, 60 + eIv];
+eOn  = [0 1 2 3, 40 41 42 43];                 % wide rest around t = 20
+eCtr = [0 20 40];                              % 20 falls in the rest
+eNe  = numel(ePit);
+% plain
+[epbP, ewbP, esbP] = bindEvents({ePit, eOn}, [], [4 1], 'step', 1, 'relOuter', true);
+eqP  = {epbP{1}(:, 1), epbP{2}(:, 1)};
+gotEP = windowedSimilarity(epbP, ewbP, eqP, [], SIG, [1 1], [true false], ISP, PER, ...
+    eCtr, 'contextWindow', {1.0, 0.6}, 'windowAttr', AXIS, 'dropWindowAttr', true, ...
+    'normalize', 'oneSidedDenom', 'specs', esbP, 'verbose', false);
+% spectral
+[ePITv, eWPv] = addSpectra(ePit, [], 'harmonic', Kp, 'powerlaw', 1.0, 'units', 12);
+ePITm = reshape(ePITv, eNe, Kp).';
+eWPm  = reshape(eWPv, eNe, Kp).';
+[epbS, ewbS, esbS] = bindEvents({ePITm, eOn}, {eWPm, []}, [4 1], 'step', 1, 'relOuter', true);
+eqS  = {epbS{1}(:, 1), epbS{2}(:, 1)};
+ewqS = {ewbS{1}(:, 1), []};
+gotES = windowedSimilarity(epbS, ewbS, eqS, ewqS, SIG, [1 1], [true false], ISP, PER, ...
+    eCtr, 'contextWindow', {1.0, 0.6}, 'windowAttr', AXIS, 'dropWindowAttr', true, ...
+    'normalize', 'oneSidedDenom', 'specs', esbS, 'verbose', false);
+okEmpty = all(isfinite(gotEP(:))) && all(isfinite(gotES(:))) ...
+    && gotEP(2) == 0 && gotES(2) == 0 ...
+    && gotEP(1) > 0.99 && gotEP(3) > 0.99 ...
+    && gotES(1) > 0.99 && gotES(3) > 0.99;
+results(end+1, :) = {'windowedSimilarity empty window -> 0 (plain & spectral)', okEmpty}; %#ok<SAGROW>
+
 if standalone
     nPass = sum([results{:, 2}]);
     fprintf('test_windowed_nested: %d/%d passed\n', nPass, size(results, 1));

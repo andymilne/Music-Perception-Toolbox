@@ -8,7 +8,7 @@ function dens = prunedExpTens(dens)
 %   O(n) / O(n^2) work. Returns DENS unchanged when nothing is dead, so
 %   the common (un-windowed) path pays only one scan.
 %
-%   Liveness rule (single definition; see LOCALWEIGHTISLIVE):
+%   Liveness rule (single definition; see internal.weightIsLive):
 %     * SA (ExpTensDensity): an element is live iff its weight is finite
 %       and of nonzero magnitude.
 %     * MA (MaetDensity): an event is live iff EVERY attribute has at
@@ -28,7 +28,7 @@ function dens = prunedExpTens(dens)
 
     switch dens.tag
         case 'ExpTensDensity'
-            live = localWeightIsLive(dens.w);
+            live = internal.weightIsLive(dens.w);
             if all(live(:))
                 return;
             end
@@ -48,7 +48,7 @@ function dens = prunedExpTens(dens)
         case 'MaetDensity'
             live = true(1, dens.N);
             for a = 1:dens.nAttrs
-                live = live & any(localWeightIsLive(dens.w{a}), 1);
+                live = live & any(internal.weightIsLive(dens.w{a}), 1);
             end
             if all(live)
                 return;
@@ -81,14 +81,4 @@ function dens = prunedExpTens(dens)
             % WindowedMaetDensity or unknown tag: no event-level prune.
             return;
     end
-end
-
-
-function tf = localWeightIsLive(w)
-%LOCALWEIGHTISLIVE  Mask of weights that contribute (finite and nonzero).
-%   NaN (a structurally absent slot) and 0 (present but zero-weighted,
-%   e.g. hard-zeroed outside a window's truncation support) both fail.
-%   This is the single definition of a "live" weight used by the
-%   event-level prune above.
-    tf = isfinite(w) & abs(w) > 0;
 end

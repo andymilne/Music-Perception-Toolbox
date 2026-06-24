@@ -154,3 +154,37 @@ def test_flat_path_unchanged_when_specs_none():
                             [False, False], [False, False], [0.0, 0.0],
                             centres, specs=None, **kw)
     assert np.array_equal(a, b)
+
+
+@pytest.mark.parametrize("spectral", [False, True])
+def test_similarity_empty_window_scores_zero(spectral):
+    """A time centre whose window catches no super-event scores exactly 0 --
+    not NaN, and not an error. The nested (spectral) path must agree with the
+    flat path here: an empty windowed carrier otherwise reaches the nested
+    contraction's value-range scan, which has no identity over an empty
+    attribute column. This pins the empty-operand guard in the multi-attribute
+    cosine entry."""
+    iv = np.array([0., 3., 0., 5.])                     # the (+3, -3, +5) motif
+    pit = np.concatenate([60. + iv, 60. + iv])          # two identical statements
+    on = np.concatenate([np.arange(4.), 40. + np.arange(4.)])   # a wide rest between
+    N = pit.size
+    if spectral:
+        Kp = 8
+        pp, wp = add_spectra(pit, None, 'harmonic', Kp, 'powerlaw', 1.0, units=12.0)
+        pitch_attr, w_attr = pp.reshape(N, Kp).T, wp.reshape(N, Kp).T
+    else:
+        pitch_attr, w_attr = pit.reshape(1, N), None
+    ctx, w_ctx, specs = bind_events([pitch_attr, on.reshape(1, N)], [w_attr, None],
+                                    [4, 1], step=1, rel_outer=True)
+    qry = [ctx[0][:, 0:1], ctx[1][:, 0:1]]
+    w_qry = [w_ctx[0][:, 0:1] if w_ctx[0] is not None else None, None]
+    centres = np.array([0.0, 20.0, 40.0])               # 20.0 falls in the rest
+    got = np.asarray(windowed_similarity(
+        ctx, w_ctx, qry, w_qry,
+        [SIG_P, SIG_T], [1, 1], [True, False], [False, False], [0.0, 0.0],
+        centres, context_window=("rect", 0.6), window_attr=AXIS,
+        drop_window_attr=True, normalize="oneSidedDenom", specs=specs,
+        verbose=False)).ravel()
+    assert np.all(np.isfinite(got))
+    assert got[1] == 0.0                                # empty window -> exactly zero
+    assert got[0] > 0.99 and got[2] > 0.99              # the statements still match

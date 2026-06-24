@@ -14,9 +14,9 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
 %   buildExpTens runs its eager feasibility scan and r-ad enumeration over
 %   every column -- is exact and saves the bulk of a sliding sweep's cost,
 %   without touching the build itself or the density-level prunedExpTens
-%   path. The liveness rule matches internal.prunedExpTens: an event is
-%   live iff every weighted attribute has a finite, nonzero slot in its
-%   column. Returned unchanged when nothing is dead (the un-windowed
+%   path. The liveness rule is the shared internal.weightIsLive (also used
+%   by internal.prunedExpTens): an event is live iff every weighted
+%   attribute has a finite, nonzero slot in its column. Returned unchanged when nothing is dead (the un-windowed
 %   common case pays only a mask scan) or when everything is dead (an
 %   empty window keeps its existing path). The specs (per-slot tags) are
 %   untouched: event-column pruning leaves the slot layout intact.
@@ -38,7 +38,7 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
         if ~ismatrix(Wa) || size(Wa, 2) ~= N
             continue    % per-slot / scalar: cannot kill an event on its own
         end
-        live = live & any(isfinite(Wa) & abs(Wa) > 0, 1);
+        live = live & any(internal.weightIsLive(Wa), 1);
     end
 
     nLive = nnz(live);

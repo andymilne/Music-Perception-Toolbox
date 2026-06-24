@@ -1136,6 +1136,16 @@ def _cos_sim_exp_tens_ma(
     dens_x = dens_x.pruned()
     dens_y = dens_y.pruned()
 
+    # An empty operand has no events to overlap, so the inner product -- and
+    # hence the similarity -- is zero. A windowed carrier whose window caught
+    # nothing prunes to zero events here; without this guard it reaches the
+    # nested contraction's value-range scan, which has no identity over an
+    # empty attribute column. (The raw single-attribute path is unaffected: it
+    # is reached only without specs, and an empty windowed carrier always
+    # carries specs.)
+    if dens_x.n == 0 or dens_y.n == 0:
+        return 0.0
+
     # --- Structural compatibility ---
     if dens_x.n_attrs != dens_y.n_attrs:
         raise ValueError("Both MaetDensities must have the same n_attrs.")

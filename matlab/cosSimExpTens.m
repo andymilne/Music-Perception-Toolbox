@@ -1407,6 +1407,19 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     % --- Structural compatibility (cheap fields only) ---
     dens_x = internal.prunedExpTens(dens_x);
     dens_y = internal.prunedExpTens(dens_y);
+
+    % An empty operand has no events to overlap, so the inner product -- and
+    % hence the similarity -- is zero. A windowed carrier whose window caught
+    % nothing prunes to zero events here; without this guard it reaches the
+    % nested contraction's value-range scan, which has no identity over an
+    % empty attribute column. (The raw single-attribute path is unaffected: it
+    % is reached only without specs, and an empty windowed carrier always
+    % carries specs.)
+    if dens_x.N == 0 || dens_y.N == 0
+        s = 0.0;
+        return;
+    end
+
     if dens_x.nAttrs ~= dens_y.nAttrs
         error('cosSimExpTens:nAttrsMismatch', ...
             'Both MaetDensities must have the same nAttrs.');

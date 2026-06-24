@@ -112,9 +112,11 @@ def _prune_dead_carrier(p_attr, w, specs):
     a sliding sweep's cost, without touching the core build contract or
     the density-level ``pruned()`` path. The liveness rule is the shared
     one (``_weight_is_live``): an event is live iff every weighted
-    attribute has a finite, nonzero slot in its column. Skipped when
-    nothing is dead (the un-windowed common case pays only a mask scan)
-    or when everything is dead (an empty window keeps its existing path).
+    attribute has a finite, nonzero slot in its column. Skipped only when
+    nothing is dead (the un-windowed common case pays only a mask scan).
+    An all-dead window (one that caught nothing) prunes to zero events, so
+    the build is trivial and the resulting empty density scores zero at the
+    comparison rather than paying a full build over zeroed events.
     """
     if not p_attr or not isinstance(w, (list, tuple)):
         return p_attr, w, specs
@@ -132,7 +134,7 @@ def _prune_dead_carrier(p_attr, w, specs):
             continue                      # per-slot / scalar: cannot kill an event alone
         live &= _weight_is_live(Wa).any(axis=0)
     n_live = int(live.sum())
-    if n_live == N or n_live == 0:
+    if n_live == N:
         return p_attr, w, specs
     keep = np.nonzero(live)[0]
     p_out = [np.asarray(P)[:, keep] for P in p_attr]

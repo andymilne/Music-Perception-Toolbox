@@ -16,10 +16,12 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
 %   without touching the build itself or the density-level prunedExpTens
 %   path. The liveness rule is the shared internal.weightIsLive (also used
 %   by internal.prunedExpTens): an event is live iff every weighted
-%   attribute has a finite, nonzero slot in its column. Returned unchanged when nothing is dead (the un-windowed
-%   common case pays only a mask scan) or when everything is dead (an
-%   empty window keeps its existing path). The specs (per-slot tags) are
-%   untouched: event-column pruning leaves the slot layout intact.
+%   attribute has a finite, nonzero slot in its column. Returned unchanged
+%   when nothing is dead (the un-windowed common case pays only a mask
+%   scan); an all-dead window (one that caught nothing) prunes to zero
+%   events, so the build is trivial and the empty density scores zero at
+%   the comparison. The specs (per-slot tags) are untouched: event-column
+%   pruning leaves the slot layout intact.
 
     if isempty(pAttr) || ~iscell(w)
         return
@@ -42,8 +44,8 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
     end
 
     nLive = nnz(live);
-    if nLive == N || nLive == 0
-        return          % nothing dead, or everything dead -> leave as is
+    if nLive == N
+        return          % nothing dead -> leave as is
     end
 
     keep = find(live);

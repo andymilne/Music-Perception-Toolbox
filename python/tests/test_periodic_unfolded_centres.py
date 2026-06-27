@@ -1,16 +1,20 @@
 """Regression tests for periodic operations on unfolded coordinates.
 
-A family of periodic routines build their result by summing Gaussian
-images across the period: the differential/Shannon grid cell mass
-(:func:`mpt.entropy._phi_diff_axis_periodic`), the wrapped-window factor
-(:func:`mpt._tensor.windowing._wrapped_window_factor_1d`), and the
-windowed inner-product image sum
-(:func:`mpt._tensor.windowing._periodic_image_sum_contribution`). Each
-must reduce its input coordinate modulo the period first. Otherwise a
-coordinate many periods from the canonical ``[0, period)`` window --- for
-example an absolute spectral partial thousands of cents above the grid
---- never contributes, and the routine returns a degenerate,
-input-independent value. These tests lock in the modulo reduction.
+Several periodic routines must remain correct when their input
+coordinates lie far from the canonical ``[0, period)`` window --- for
+example absolute spectral partials thousands of cents above the grid.
+The differential/Shannon grid cell mass
+(:func:`mpt.entropy._phi_diff_axis_periodic`) uses the minimum-image
+Gaussian: it wraps the per-edge offsets to ``[-period/2, period/2)``, so
+it is invariant to whole-period shifts of a centre and matches the
+density of Eq. (1) at every ``sigma/period``. The wrapped-window factor
+(:func:`mpt._tensor.windowing._wrapped_window_factor_1d`) and the windowed
+inner-product image sum
+(:func:`mpt._tensor.windowing._periodic_image_sum_contribution`) sum
+Gaussian images across the period, reducing the offset to its minimum
+image first so the dominant image is reached. These tests lock in both
+the period-invariance and the minimum-image semantics of the entropy
+cell mass.
 """
 import numpy as np
 
@@ -53,6 +57,34 @@ def test_differential_periodic_varies_with_harmony():
     hb = entropy_exp_tens(pb, wb, 10.0, 1, False, True, PERIOD,
                           method="differential", base=np.e, verbose=False)
     assert not np.isclose(he, hb, atol=1e-3)
+
+
+def test_differential_periodic_is_minimum_image():
+    # At non-negligible sigma/period the periodic differential entropy must
+    # track the minimum-image density of Eq. (1), not the wrapped normal.
+    c = np.array([0.0, 400.0, 700.0, 1100.0])
+    w = np.ones(4)
+
+    def fine(mode, s, G=200_000):
+        xs = np.linspace(0.0, PERIOD, G, endpoint=False)
+        if mode == "min":
+            d = xs[None, :] - c[:, None]
+            d = d - PERIOD * np.round(d / PERIOD)
+            f = (w[:, None] * np.exp(-d**2 / (2 * s**2))).sum(0)
+        else:  # wrapped normal: sum periodic images
+            f = sum((w[:, None] * np.exp(
+                -(xs[None, :] - c[:, None] - n * PERIOD)**2 / (2 * s**2))).sum(0)
+                for n in range(-6, 7))
+        f /= f.sum() * (PERIOD / G)
+        return -(f * np.log(f + 1e-300)).sum() * (PERIOD / G)
+
+    s = 300.0  # sigma/period = 0.25, where the two forms visibly differ
+    htb = entropy_exp_tens(c, w, s, 1, False, True, PERIOD,
+                           method="differential", base=np.e, verbose=False)
+    h_min, h_wrap = fine("min", s), fine("wrap", s)
+    assert abs(h_min - h_wrap) > 1e-4          # the two forms really differ here
+    assert abs(htb - h_min) < abs(htb - h_wrap)  # toolbox tracks minimum-image
+    assert abs(htb - h_min) < 1e-3             # and matches it to grid precision
 
 
 def test_wrapped_window_factor_period_invariant():

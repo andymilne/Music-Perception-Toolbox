@@ -1004,33 +1004,30 @@ function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
 end
 
 
-function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, period, truncationSigmas)
-%LOCALPHIDIFFAXISPERIODIC  Periodic per-axis erf-difference cell mass.
+function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, period, truncationSigmas) %#ok<INUSD>
+%LOCALPHIDIFFAXISPERIODIC  Periodic per-axis erf-difference cell mass (minimum-image).
 %
-%   Sums wraps of the Gaussian across the period grid for wraps within
-%   truncationSigmas of every centre. period is the group period;
-%   edgesLo/edgesHi partition one full period.
-%
-%   Centres are reduced modulo period first, so callers may pass
-%   unfolded coordinates (e.g. absolute spectral partials many periods
-%   above the grid); the wrap count is then sized to the Gaussian tail
-%   crossing the [0, period) boundary.
+%   The kernel is the minimum-image Gaussian on the circle of
+%   circumference period: each edge offset is wrapped componentwise to
+%   [-period/2, period/2), the same wrap of the difference used by
+%   evalExpTens and the cosine inner product. A bin straddling a centre's
+%   antipode --- where the wrap flips the edge order --- receives the full
+%   wrap-around mass erf(period / (2 sqrt(2) sigma)). The masses are
+%   renormalized to sum to one by the entropy cores (which divide by their
+%   total), absorbing the sub-unit mass of the truncated circle.
+%   truncationSigmas is accepted for call-signature parity with the
+%   non-periodic path and is unused.
 
     centres = centres(:);
-    centres = mod(centres, period);
     edgesLo = edgesLo(:).';
     edgesHi = edgesHi(:).';
     inv = 1.0 / (sigma * sqrt(2));
-    nWraps = ceil(truncationSigmas * sigma / period) + 1;
-    nJ = numel(centres);
-    nCells = numel(edgesLo);
-    Mat = zeros(nJ, nCells);
-    for w = -nWraps:nWraps
-        shift = double(w) * period;
-        zHi = (edgesHi - centres - shift) * inv;
-        zLo = (edgesLo - centres - shift) * inv;
-        Mat = Mat + 0.5 * (erf(zHi) - erf(zLo));
-    end
+    a = edgesLo - centres;
+    a = a - period * round(a / period);
+    b = edgesHi - centres;
+    b = b - period * round(b / period);
+    Mat = 0.5 * (erf(b * inv) - erf(a * inv));
+    Mat = Mat + (a > b) .* erf((0.5 * period) * inv);
 end
 
 

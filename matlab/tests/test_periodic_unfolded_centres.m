@@ -45,6 +45,26 @@ hB = entropyExpTens(pB, wts, 15, 1, false, true, 1200, ...
 results{end+1,1} = 'periodic differential: varies with content (not degenerate)';
 results{end,2}   = abs(hUnfolded - hB) > 1e-3;
 
+% At non-negligible sigma/period the periodic differential entropy must
+% track the minimum-image density (Eq. 1), not the wrapped normal.
+cMi = [0, 400, 700, 1100];  wMi = ones(1, 4);  sMi = 300;  % sigma/period = 0.25
+G = 200000;  xs = (0:G-1) * (1200 / G);
+dMin = xs - cMi.';  dMin = dMin - 1200 * round(dMin / 1200);
+fMin = sum(exp(-dMin.^2 / (2 * sMi^2)), 1);
+fWrap = zeros(1, G);
+for n = -6:6
+    fWrap = fWrap + sum(exp(-(xs - cMi.' - n * 1200).^2 / (2 * sMi^2)), 1);
+end
+dx = 1200 / G;
+hMin  = -sum((fMin  / sum(fMin)  ) .* log(fMin  / (sum(fMin)  * dx) + 1e-300)) ;
+hWrap = -sum((fWrap / sum(fWrap) ) .* log(fWrap / (sum(fWrap) * dx) + 1e-300)) ;
+hTbMi = entropyExpTens(cMi, wMi, sMi, 1, false, true, 1200, ...
+    'method', 'differential', 'base', exp(1), 'verbose', false);
+results{end+1,1} = 'periodic differential: tracks minimum-image (not wrapped normal)';
+results{end,2}   = abs(hMin - hWrap) > 1e-4 ...
+                   && abs(hTbMi - hMin) < abs(hTbMi - hWrap) ...
+                   && abs(hTbMi - hMin) < 1e-3;
+
 % --- Site 2: wrapped-window factor in evalExpTens. A windowed periodic
 % density must return identical values at periodic-equivalent query points
 % even when the shift is many periods (the near images underflow to 0, so

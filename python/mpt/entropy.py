@@ -174,28 +174,26 @@ def _phi_diff_axis_periodic(centres: np.ndarray, edges_lo: np.ndarray,
                             edges_hi: np.ndarray, sigma: float,
                             period: float,
                             truncation_sigmas: float = 6.0) -> np.ndarray:
-    """Periodic per-axis erf-difference cell mass.
+    """Periodic per-axis erf-difference cell mass (minimum-image).
 
-    Sums wraps of the Gaussian across the period grid for wraps within
-    ``truncation_sigmas`` of every centre. ``period`` is the group
-    period; ``edges_lo``/``edges_hi`` partition one full period.
-
-    Centres are reduced modulo ``period`` first, so callers may pass
-    unfolded coordinates (e.g. absolute spectral partials many periods
-    above the grid); the wrap count is then sized to the Gaussian tail
-    crossing the ``[0, period)`` boundary.
+    The kernel is the minimum-image Gaussian on the circle of
+    circumference ``period``: each edge offset is wrapped componentwise
+    to ``[-period/2, period/2)``, the same wrap of the difference used by
+    ``eval_exp_tens`` and the cosine inner product. A bin straddling a
+    centre's antipode---where the wrap flips the edge order---receives the
+    full wrap-around mass ``erf(period / (2 sqrt(2) sigma))``. The masses
+    are renormalized to sum to one by the entropy cores (which divide by
+    their total), absorbing the sub-unit mass of the truncated circle.
+    ``truncation_sigmas`` is accepted for call-signature parity with the
+    non-periodic path and is unused.
     """
-    centres = np.mod(centres, period)
     inv = 1.0 / (sigma * _SQRT2)
-    n_wraps = int(np.ceil(truncation_sigmas * sigma / period)) + 1
-    n_j = int(centres.size)
-    n_cells = int(edges_lo.size)
-    out = np.zeros((n_j, n_cells), dtype=np.float64)
-    for w in range(-n_wraps, n_wraps + 1):
-        shift = float(w) * period
-        z_hi = (edges_hi[None, :] - centres[:, None] - shift) * inv
-        z_lo = (edges_lo[None, :] - centres[:, None] - shift) * inv
-        out += 0.5 * (_erf(z_hi) - _erf(z_lo))
+    a = edges_lo[None, :] - centres[:, None]
+    a = a - period * np.round(a / period)
+    b = edges_hi[None, :] - centres[:, None]
+    b = b - period * np.round(b / period)
+    out = 0.5 * (_erf(b * inv) - _erf(a * inv))
+    out = out + (a > b) * _erf((0.5 * period) * inv)
     return out
 
 

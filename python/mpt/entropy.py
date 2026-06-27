@@ -179,7 +179,13 @@ def _phi_diff_axis_periodic(centres: np.ndarray, edges_lo: np.ndarray,
     Sums wraps of the Gaussian across the period grid for wraps within
     ``truncation_sigmas`` of every centre. ``period`` is the group
     period; ``edges_lo``/``edges_hi`` partition one full period.
+
+    Centres are reduced modulo ``period`` first, so callers may pass
+    unfolded coordinates (e.g. absolute spectral partials many periods
+    above the grid); the wrap count is then sized to the Gaussian tail
+    crossing the ``[0, period)`` boundary.
     """
+    centres = np.mod(centres, period)
     inv = 1.0 / (sigma * _SQRT2)
     n_wraps = int(np.ceil(truncation_sigmas * sigma / period)) + 1
     n_j = int(centres.size)

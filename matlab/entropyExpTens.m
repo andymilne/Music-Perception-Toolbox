@@ -1010,8 +1010,14 @@ function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, period
 %   Sums wraps of the Gaussian across the period grid for wraps within
 %   truncationSigmas of every centre. period is the group period;
 %   edgesLo/edgesHi partition one full period.
+%
+%   Centres are reduced modulo period first, so callers may pass
+%   unfolded coordinates (e.g. absolute spectral partials many periods
+%   above the grid); the wrap count is then sized to the Gaussian tail
+%   crossing the [0, period) boundary.
 
     centres = centres(:);
+    centres = mod(centres, period);
     edgesLo = edgesLo(:).';
     edgesHi = edgesHi(:).';
     inv = 1.0 / (sigma * sqrt(2));

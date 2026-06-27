@@ -173,6 +173,24 @@ GOLDEN_L = 7.953986161000217;
 results{end+1, 1} = 'cross-language golden L: SA differential r=1 adaptive';
 results{end, 2}   = abs(HL - GOLDEN_L) < 1e-5;
 
+%% ---- Case M: MA differential entropy (adaptive, D==2) ----
+% Two attributes, r=1 each (D==2). Exercises the D==2 leading-axis
+% cell-block streaming in localContractCellAxes. Narrow spans and an
+% explicit truncationSigmas keep the converged grid small, so the value
+% is reproducible at the looser adaptive tolerance.
+
+P0_m = [0, 120, 260];
+P1_m = [0, 80, 170];
+W0_m = [1.0, 0.7, 0.5];
+W1_m = [1.0, 1.0, 1.0];
+HM = entropyExpTens({P0_m, P1_m}, {W0_m, W1_m}, [45, 35], [1, 1], ...
+    [false, false], [false, false], [0, 0], ...
+    'method', 'differential', 'base', 2, ...
+    'truncationSigmas', 3.0, 'verbose', false);
+GOLDEN_M = 16.07500552585256;
+results{end+1, 1} = 'cross-language golden M: MA differential D==2 adaptive';
+results{end, 2}   = abs(HM - GOLDEN_M) < 1e-4;
+
 %% ---- Standalone summary ----
 
 if standalone

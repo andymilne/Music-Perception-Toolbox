@@ -1144,6 +1144,96 @@ function out = localContractTupleAxes(wJ, Mats)
 end
 
 
+function blk = localDiffCellBlock()
+%LOCALDIFFCELLBLOCK  Peak working-set ceiling, in matrix elements, for
+%   the per-axis erf-difference cell-mass evaluation. Mirrors Python's
+%   _DIFF_CELL_BLOCK. A dim==1 differential grid can be refined to a very
+%   fine cell count by the adaptive evaluator; evaluating the leading
+%   axis in cell blocks of this many elements bounds the peak without
+%   changing the result.
+    blk = 8e6;
+end
+
+
+function M = localAxisMat(spec, sel, truncationSigmas)
+%LOCALAXISMAT  Per-axis (nJ x nCells) erf-difference cell-mass matrix for
+%   one axis spec (fields: cents, lo, hi, sigma, isPer, per). sel selects
+%   a subset of cells; pass [] for all cells.
+    if isempty(sel)
+        lo = spec.lo;
+        hi = spec.hi;
+    else
+        lo = spec.lo(sel);
+        hi = spec.hi(sel);
+    end
+    if spec.isPer
+        M = localPhiDiffAxisPeriodic(spec.cents, lo, hi, spec.sigma, ...
+                                     spec.per, truncationSigmas);
+    else
+        M = localPhiDiffAxis(spec.cents, lo, hi, spec.sigma);
+    end
+end
+
+
+function cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas)
+%LOCALCONTRACTCELLAXES  Contract per-axis erf-difference cell masses into
+%   a flat grid, streaming the leading axis in cell blocks. Mirrors
+%   Python's _contract_cell_axes.
+%
+%   axisSpecs is a 1-by-D cell of axis-spec structs (see localAxisMat);
+%   wJ holds the per-tuple weights. Returns a flat column vector of cell
+%   masses, each cell's contribution summed in full over tuples.
+%
+%   The leading axis is streamed in cell blocks for D <= 2. At D == 1 the
+%   adaptive differential evaluator can refine the single axis to a very
+%   fine grid, so its (nJ x nCells) matrix must not be built whole; at
+%   D == 2 the leading axis is the larger grid, the single trailing
+%   matrix staying whole (bounded by grid_limit). For D >= 3 every axis
+%   grid is bounded by grid_limit^(1/D), so the whole-matrix t-chunked
+%   contraction (localContractTupleAxes) is already memory-safe and is
+%   used directly. Blocking the leading axis leaves each cell's full sum
+%   over tuples intact, so the result matches the whole-matrix path.
+
+    D = numel(axisSpecs);
+    nTup = numel(wJ);
+    wJcol = wJ(:);
+
+    if D <= 2
+        spec0 = axisSpecs{1};
+        n0 = numel(spec0.lo);
+        if D == 1
+            tail = [];
+            rest = 1;
+            cellsMat = zeros(n0, 1);
+        else
+            tail = localAxisMat(axisSpecs{2}, [], truncationSigmas);  % (nJ x n_1)
+            rest = size(tail, 2);
+            cellsMat = zeros(n0, rest);
+        end
+        block = max(1, floor(localDiffCellBlock() / max([1, nTup, rest])));
+        for s = 1:block:n0
+            e = min(s + block - 1, n0);
+            head = localAxisMat(spec0, s:e, truncationSigmas);   % (nJ x (e-s+1))
+            if isempty(tail)
+                cellsMat(s:e) = (wJcol.' * head).';
+            else
+                cellsMat(s:e, :) = head.' * (wJcol .* tail);
+            end
+        end
+        cells = cellsMat(:);
+        return;
+    end
+
+    % D >= 3: whole per-axis matrices, t-chunked contraction (its grids
+    % are bounded by grid_limit^(1/D)).
+    Mats = cell(1, D);
+    for d = 1:D
+        Mats{d} = localAxisMat(axisSpecs{d}, [], truncationSigmas);
+    end
+    cells = localContractTupleAxes(wJcol, Mats);
+end
+
+
 function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
 %LOCALCELLMASSESSAABSOLUTE  Cell masses for an ExpTensDensity (SA path).
 %
@@ -1174,22 +1264,22 @@ function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
         C = C(:, mask);
     end
 
-    [lo, hi] = localAxisEdges(ax, isPer, per);
-
     if dim == 0
         cells = sum(wJ);
         return;
     end
 
-    Mats = cell(1, dim);
+    % All effective axes share the same 1-D grid edges (the SA grid is a
+    % single axis repeated across the dim effective dimensions) but a
+    % different centres row. Stream the leading axis in cell blocks for
+    % dim <= 2 via the shared contraction.
+    [lo, hi] = localAxisEdges(ax, isPer, per);
+    axisSpecs = cell(1, dim);
     for d = 1:dim
-        if isPer
-            Mats{d} = localPhiDiffAxisPeriodic(C(d, :), lo, hi, sig, per, truncationSigmas);
-        else
-            Mats{d} = localPhiDiffAxis(C(d, :), lo, hi, sig);
-        end
+        axisSpecs{d} = struct('cents', C(d, :), 'lo', lo, 'hi', hi, ...
+            'sigma', sig, 'isPer', isPer, 'per', per);
     end
-    cells = localContractTupleAxes(wJ, Mats);
+    cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas);
 end
 
 
@@ -1229,7 +1319,9 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
         end
     end
 
-    Mats = {};
+    % Collect per-effective-axis specs; the shared contraction streams
+    % the leading axis in cell blocks for D <= 2.
+    axisSpecs = {};
     axisD = 0;
     for a = 1:A
         da = double(dimPer(a));
@@ -1245,12 +1337,8 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
             axisD = axisD + 1;
             ax = axes{axisD};
             [lo, hi] = localAxisEdges(ax, isPerA, perA);
-            cents = Ca(sub, :);
-            if isPerA
-                Mats{axisD} = localPhiDiffAxisPeriodic(cents, lo, hi, sig, perA, truncationSigmas); %#ok<AGROW>
-            else
-                Mats{axisD} = localPhiDiffAxis(cents, lo, hi, sig); %#ok<AGROW>
-            end
+            axisSpecs{axisD} = struct('cents', Ca(sub, :), 'lo', lo, ...
+                'hi', hi, 'sigma', sig, 'isPer', isPerA, 'per', perA); %#ok<AGROW>
         end
     end
 
@@ -1259,7 +1347,7 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
         cells = sum(wJ);
         return;
     end
-    cells = localContractTupleAxes(wJ, Mats);
+    cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas);
 end
 
 

@@ -250,6 +250,28 @@ def test_golden_sa_differential_r1():
     assert abs(h_hat - GOLDEN) < 1e-5
 
 
+def test_golden_ma_differential_dim2():
+    """Adaptive differential entropy on a two-attribute (D==2) absolute
+    density. Exercises the D==2 leading-axis cell-block streaming in
+    _contract_cell_axes (localContractCellAxes in MATLAB). Narrow spans
+    and an explicit truncation_sigmas keep the converged grid small, so
+    the value is reproducible at the looser adaptive tolerance."""
+    p0 = np.array([[0., 120., 260.]])
+    p1 = np.array([[0., 80., 170.]])
+    w0 = np.array([[1.0, 0.7, 0.5]])
+    w1 = np.array([[1.0, 1.0, 1.0]])
+    T = build_exp_tens(
+        [p0, p1], [w0, w1], [45.0, 35.0], [1, 1],
+        [False, False], [False, False], [0.0, 0.0], verbose=False,
+    )
+    h_hat = entropy_exp_tens(
+        T, method='differential', base=2.0,
+        truncation_sigmas=3.0, verbose=False,
+    )
+    GOLDEN = 16.07500552585256
+    assert abs(h_hat - GOLDEN) < 1e-4
+
+
 if __name__ == '__main__':
     import sys
     print("=" * 60)

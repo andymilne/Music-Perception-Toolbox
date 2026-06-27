@@ -28,6 +28,14 @@ from .tensor import (
 # n_points_per_dim**dim exceeds this, entropy_exp_tens raises a
 # clear error suggesting a lower n_points_per_dim.
 _DEFAULT_GRID_LIMIT = int(1e8)
+# Peak working-set ceiling, in matrix elements, for the per-axis
+# erf-difference cell-mass evaluation. A dim==1 differential grid can be
+# refined to a very fine cell count by the adaptive evaluator; building
+# the full (n_tuples, n_cells) matrix at once then peaks at
+# n_tuples * n_cells elements. Evaluating in cell blocks of this many
+# elements bounds the peak without changing the result (each cell's sum
+# over tuples is computed in full within its block).
+_DIFF_CELL_BLOCK = int(8e6)
 
 
 # ===================================================================
@@ -210,6 +218,64 @@ def _axis_edges(ax: np.ndarray, is_per: bool, period: float):
     return lo, hi
 
 
+def _contract_cell_axes(w_j, axis_specs, truncation_sigmas):
+    """Contract per-axis erf-difference cell masses into a flat grid.
+
+    ``axis_specs`` is a list of ``(cents, lo, hi, sigma, is_per, per)``,
+    one per effective axis; ``w_j`` holds the per-tuple weights. Returns
+    the flat ``(prod n_cells,)`` cell masses in C order, each cell's
+    contribution summed in full over tuples.
+
+    The leading axis is streamed in cell blocks for ``D <= 2``. At
+    ``D == 1`` the adaptive differential evaluator can refine the single
+    axis to a very fine grid, so its ``(n_tuples, n_cells)`` matrix must
+    not be built whole; at ``D == 2`` the leading axis is the larger
+    grid, the single trailing matrix staying whole (bounded by
+    ``grid_limit``). For ``D >= 3`` every per-axis grid is bounded by
+    ``grid_limit ** (1 / D)``, so the whole-matrix einsum is already
+    memory-safe and is used directly (its summation also matches the
+    cross-language reference). Blocking the leading axis leaves each
+    cell's full sum over tuples intact, so the result is identical to
+    the whole-matrix path.
+    """
+    def axis_mat(spec, sl=slice(None)):
+        cents, lo, hi, sig, is_per_a, per_a = spec
+        if is_per_a:
+            return _phi_diff_axis_periodic(
+                cents, lo[sl], hi[sl], sig, per_a, truncation_sigmas)
+        return _phi_diff_axis(cents, lo[sl], hi[sl], sig)
+
+    D = len(axis_specs)
+    n_tup = int(np.asarray(w_j).size)
+
+    if D <= 2:
+        spec0 = axis_specs[0]
+        n0 = int(spec0[1].size)
+        if D == 1:
+            tail = None
+            rest = 1
+            out = np.empty(n0, dtype=float)
+        else:
+            tail = axis_mat(axis_specs[1])
+            rest = int(tail.shape[1])
+            out = np.empty((n0, rest), dtype=float)
+        block = max(1, _DIFF_CELL_BLOCK // max(1, n_tup, rest))
+        for s in range(0, n0, block):
+            e = min(s + block, n0)
+            head = axis_mat(spec0, slice(s, e))
+            if tail is None:
+                out[s:e] = np.einsum("t,ta->a", w_j, head)
+            else:
+                out[s:e, :] = np.einsum("t,ta,tb->ab", w_j, head, tail)
+        return out.ravel()
+
+    Mats = [axis_mat(spec) for spec in axis_specs]
+    letters = "abcdefghijklmnopqrstuvwxyz"[:D]
+    operands = ",".join("t" + L for L in letters)
+    cells = np.einsum(f"t,{operands}->{letters}", w_j, *Mats)
+    return cells.ravel()
+
+
 def _cell_masses_ma_absolute(dens, axes: list,
                              truncation_sigmas: float = 6.0) -> np.ndarray:
     """Cell masses on the Cartesian-product grid built from ``axes``.
@@ -249,7 +315,11 @@ def _cell_masses_ma_absolute(dens, axes: list,
         w_j = w_j[mask]
         centres = [np.asarray(c, dtype=float)[:, mask] for c in centres]
 
-    Mats = []  # one (n_j, n_cells_d) matrix per effective axis
+    # Collect per-effective-axis edge specs without building the full
+    # (n_tuples, n_cells) erf-difference matrices yet, so the leading
+    # axis can be streamed in cell blocks rather than peaking at
+    # n_tuples * n_cells elements.
+    axis_specs = []  # (cents, lo, hi, sig, is_per_a, per_a)
     axis_d = 0
     for a in range(A):
         da = int(dim_per[a])
@@ -260,23 +330,14 @@ def _cell_masses_ma_absolute(dens, axes: list,
         for sub in range(da):
             ax = axes[axis_d]
             lo, hi = _axis_edges(ax, is_per_a, per_a)
-            cents = Ca[sub, :]
-            if is_per_a:
-                Mat = _phi_diff_axis_periodic(
-                    cents, lo, hi, sig, per_a, truncation_sigmas)
-            else:
-                Mat = _phi_diff_axis(cents, lo, hi, sig)
-            Mats.append(Mat)
+            axis_specs.append((Ca[sub, :], lo, hi, sig, is_per_a, per_a))
             axis_d += 1
 
     D = axis_d
     if D == 0:
         return np.array([float(np.sum(w_j))])
 
-    letters = "abcdefghijklmnopqrstuvwxyz"[:D]
-    operands = ",".join("t" + L for L in letters)
-    cells = np.einsum(f"t,{operands}->{letters}", w_j, *Mats)
-    return cells.ravel()
+    return _contract_cell_axes(w_j, axis_specs, truncation_sigmas)
 
 
 def _cell_masses_sa_absolute(T, ax: np.ndarray,
@@ -305,28 +366,16 @@ def _cell_masses_sa_absolute(T, ax: np.ndarray,
         w_j = w_j[mask]
         C = C[:, mask]
 
-    lo, hi = _axis_edges(ax, is_per, per)
-    if is_per:
-        Mat_template = _phi_diff_axis_periodic(
-            C[0, :], lo, hi, sig, per, truncation_sigmas)
-    else:
-        Mat_template = _phi_diff_axis(C[0, :], lo, hi, sig)
-    # We have a per-tuple per-axis matrix for axis 0. For dim>1 each
-    # axis uses the same edges but a different centres row.
-    Mats = [Mat_template]
-    for d in range(1, dim):
-        if is_per:
-            Mats.append(_phi_diff_axis_periodic(
-                C[d, :], lo, hi, sig, per, truncation_sigmas))
-        else:
-            Mats.append(_phi_diff_axis(C[d, :], lo, hi, sig))
-
     if dim == 0:
         return np.array([float(np.sum(w_j))])
-    letters = "abcdefghijklmnopqrstuvwxyz"[:dim]
-    operands = ",".join("t" + L for L in letters)
-    cells = np.einsum(f"t,{operands}->{letters}", w_j, *Mats)
-    return cells.ravel()
+
+    # All effective axes share the same 1-D grid edges (the SA grid is a
+    # single axis repeated across the dim effective dimensions) but a
+    # different centres row. Reuse the shared contraction, which streams
+    # the leading axis in cell blocks for dim <= 2.
+    lo, hi = _axis_edges(ax, is_per, per)
+    axis_specs = [(C[d, :], lo, hi, sig, is_per, per) for d in range(dim)]
+    return _contract_cell_axes(w_j, axis_specs, truncation_sigmas)
 
 
 # ===================================================================

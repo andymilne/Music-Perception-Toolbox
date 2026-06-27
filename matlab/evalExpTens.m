@@ -1724,6 +1724,12 @@ function W = localWrappedWindowFactor1D(u, a_rect, b_conv, period, image_tol)
 %   running max.
 
     n_max_cap = 100;
+    % Reduce to the minimal image so the n=0 term is dominant; an offset
+    % many periods from the centre would otherwise underflow the near
+    % images to 0 and the sum would terminate before the dominant image.
+    if period > 0
+        u = u - period * round(u / period);
+    end
     acc = localWindowFactor1D(u, a_rect, b_conv);
     running_max = max(abs(acc(:)));
     for n = 1:n_max_cap

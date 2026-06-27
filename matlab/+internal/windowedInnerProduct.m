@@ -605,6 +605,10 @@ function log_F = localPeriodicImageSumContribution(cx_sub, cy_sub, ...
             % nJ or nK is 1; reshape to keep 2-D for consistent indexing.
             mu_i = reshape(mu_i, nJ, nK);
         end
+        % Reduce to the minimal image so the n=0 term is dominant; without
+        % this, a midpoint many periods from the centre underflows the near
+        % images to 0 and the sum terminates before the dominant image.
+        mu_i = mu_i - period_g * round(mu_i / period_g);
         acc = localAxisFactor(mu_i, a_rect, b_conv, sigma_t, sigma_t_sq);
         running_max = max(abs(acc(:)));
         converged = false;

@@ -308,6 +308,12 @@ def _wrapped_window_factor_1d(u, a, b, period, image_tol,
     the running max.
     """
     u = np.asarray(u, dtype=np.float64)
+    # Reduce to the minimal image in [-period/2, period/2) so the n=0 term
+    # is the dominant image. Without this, an offset many periods from the
+    # centre underflows the near images to 0, the running max stays 0, and
+    # the sum terminates before reaching the dominant (distant) image.
+    if period > 0.0:
+        u = u - period * np.round(u / period)
     acc = _window_factor_1d(u, a, b)
     running_max = float(np.max(np.abs(acc)))
     for n in range(1, n_max_cap + 1):
@@ -1452,6 +1458,12 @@ def _periodic_image_sum_contribution(
     per_axis_wrapped = np.empty_like(mu_shift)
     for i in range(d_g):
         mu_i = mu_shift[i]
+        # Reduce to the minimal image so the n=0 term is dominant (see
+        # _wrapped_window_factor_1d): a midpoint many periods from the
+        # centre would otherwise underflow the near images to 0 and the
+        # sum would terminate before reaching the dominant image.
+        if period_g > 0.0:
+            mu_i = mu_i - period_g * np.round(mu_i / period_g)
         acc = axis_F(mu_i)
         running_max = float(np.max(np.abs(acc)))
         for n in range(1, n_max_cap + 1):

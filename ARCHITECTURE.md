@@ -88,7 +88,7 @@ Two methods for evaluating the sums coexist:
 
 - **Bulger's method** (carried unchanged from v1) is specific to the inner product. It organises the slot-tuple sum by combinations on one side and permutations on the other, exploiting within-tuple multinomial symmetry. Does not extend to point evaluation or total mass (the asymmetric combinations-vs-permutations organisation requires two sides).
 
-- **The Möbius method** (new in v2.2) applies uniformly to all three quantities via Möbius inversion on the partition lattice. For the inner product, this composes with *orbit collapse* under joint slot-permutation symmetry, reducing $B_r^2$ partition-pairs to $|\Omega_r|$ orbit equivalence classes. Detailed in [§5](#5-the-orbit-table-system).
+- **The Möbius method** (new in v2.2) applies uniformly to all three quantities via Möbius inversion on the partition lattice. For the inner product, this composes with *orbit collapse* under joint slot-permutation symmetry, reducing $B_r^2$ partition-pairs to $|\Omega_r|$ orbit equivalence classes. Detailed in [§5](#5-the-orbit-table-system). One realisation caveat: the Möbius method is grid-free in *absolute* mode, but in *relative* mode it integrates the translation marginal on a u-grid of $N_u$ points (the alternating partition sum only factorises across slots at fixed translation; integrating that product analytically would re-expand into the $O(K^r)$ tuple enumeration the decomposition exists to avoid). The centres/Bulger paths realise the same relative quantity grid-free by carrying the closed-form relative Gaussian per tuple, which is why "no grid discretisation is required" above holds for the *quantities* even though this particular *method* uses one in relative mode. The u-grid's per-node cost is nonetheless $K$-free on the point evaluator's *factored* strategy (non-periodic; new in v2.2): each partition block's integrand factor separates exactly into a variance prefactor times a shifted read-back of one of $r$ tabulated smoothed event distributions, with read-back accuracy tied to `truncation_sigmas`. A cost gate picks between the direct and factored strategies per call. See `eval_orbit_rel` / `_orbit_inner_rel`.
 
 The two methods are alternative decompositions of the same analytical integral; their results agree to floating-point precision in the regimes where both are valid. They are not combined within a single call --- the dispatcher picks one per call. The user-facing `method` knob (`'auto' | 'bulger' | 'mobius' | 'centres' | 'direct'`) controls the choice; defaults to `'auto'`.
 
@@ -318,7 +318,7 @@ The post-hoc non-finite-output check is a separate safety net for any pathology 
 
 The SA inner product is the canonical dispatcher. Three other dispatchers follow the same pattern with different details:
 
-- `_select_sa_eval_method`: centres-array path vs Möbius for point evaluation.
+- `_select_and_estimate_sa`: centres-array path vs Möbius for point evaluation (cost model plus the centres working-set memory guard; also returns the timing-probe estimate).
 - `_select_ma_inner_product_method`: pairwise vs orbit for the MA inner product.
 - `_select_and_estimate_sa` / `_select_and_estimate_sa_ip`: wrapper functions that produce both a chosen method and a cost estimate, the latter used for verbose-mode time-remaining displays.
 
@@ -414,7 +414,7 @@ This distinction matters for development: the eval-side Möbius code (`eval_orbi
 | `inner_product_orbit_grid(K, w_A, w_B, r, ...)` | 1+2 | Inner-product grid evaluation for windowed contributions |
 | `inner_product_orbit_pw_batched(...)` | 1+2 | Batched inner product over MA per-attribute slot variations |
 | `eval_orbit_abs(p, w, X, sigma, r, ...)` | 1 | Point-evaluation in absolute mode |
-| `eval_orbit_rel(p, w, X, sigma, r, ...)` | 1 | Point-evaluation in relative mode (with u-grid vectorisation) |
+| `eval_orbit_rel(p, w, X, sigma, r, ...)` | 1 | Point-evaluation in relative mode (u-grid vectorisation; direct or factored $K$-free integrand strategy via cost gate) |
 | `total_mass_abs(p, w, sigma, r)` | 1 | Total-mass scalar in absolute mode |
 | `total_mass_rel(p, w, sigma, r)` | 1 | Total-mass scalar in relative mode |
 

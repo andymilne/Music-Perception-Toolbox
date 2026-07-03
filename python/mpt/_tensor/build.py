@@ -12,8 +12,12 @@ Both paths share the small set of multi-attribute input-coercion and
 weight-normalisation helpers from :mod:`._tensor.density`. The
 single-attribute path produces an :class:`ExpTensDensity` whose
 expensive per-tuple arrays are lazy by default (see the class
-docstring); the multi-attribute path always materialises its perm/comb
-arrays via :func:`_ma_build_perm_arrays`.
+docstring); the multi-attribute path likewise defers its perm/comb
+arrays, building them via :func:`_ma_build_perm_arrays` on first access
+of any lazy field (a closure invoked at most once per
+:class:`MaetDensity`). Consumers that never touch the joint tuples —
+for instance a cosine similarity routed to the Möbius method — never
+trigger the build.
 
 See USER_GUIDE §3 ("Building densities") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.

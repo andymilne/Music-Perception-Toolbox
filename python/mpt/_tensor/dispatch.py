@@ -387,6 +387,32 @@ def _select_ma_inner_product_method(
     # into the cosine denominator.
     if A > 0 and not _orbit_safe_for_precision(r_vec, k_vec):
         return 'bulger'
+    # ---- Memory-safety guard (explicit invariant) ----
+    # Bulger's MA IP materialises each side's joint perm-side working
+    # set n_J = N · ∏_a r_a!·C(K_a, r_a) (lazy, built on first access);
+    # the Möbius MA IP is n_J-free (per-event, per-attribute additive
+    # work). As in the SA IP path the cost model below already routes
+    # large workloads to Möbius, because its Bulger cost keys on the
+    # tuple-pair size n_J^X·n_J^Y — the square of the per-side working
+    # set — so any density big enough to blow memory is diverted on cost
+    # alone. This guard makes that invariant explicit: if either side's
+    # perm-side working set exceeds the soft budget and Möbius is
+    # convention-safe, take Möbius now. Precision and feasibility are
+    # already ensured above; the per-side count reuses the exact
+    # _predict_pairwise_kernel_size formula (n_J = N · ∏_a r_a!·C).
+    if A > 0 and not (any_rel_per
+                      and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD):
+        per_side_tuples = 1.0
+        dim_sum = 0
+        for a in range(A):
+            r_a = int(r_vec[a]); K_a = int(k_vec[a])
+            per_side_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
+            dim_sum += r_a
+        n_J_max = max(int(N_x), int(N_y)) * per_side_tuples
+        # working-set bytes ≈ n_J · (2·Σr_a) · 8 (perm + centres + index
+        # arrays, mirroring the SA row-factor), capped to avoid overflow.
+        if n_J_max * (2 * max(dim_sum, 1)) * 8 > _CENTRES_WORKING_SET_SOFT_BUDGET:
+            return 'mobius'
     # Relative-periodic measure note: the Möbius method computes the all-image
     # (JMM Eq. 3.4 transposition-integral) form; Bulger's method computes the
     # single-wrap (minimum-image) form. They diverge by O((σ/P)^∞) above
@@ -730,106 +756,6 @@ def _select_sa_inner_product_method(r, n_max, is_rel, is_per,
 
 
 
-def _select_sa_eval_method(r, K, n_q, is_rel, is_per, sigma_over_P,
-                           user_method):
-    """Pick the evaluation method for ``eval_exp_tens`` (SA case).
-
-    The choice is between the centres-array path (build
-    a ``(dim, n_j)`` centres tensor at ``build_exp_tens`` time, then
-    evaluate as a vectorised Gaussian product against the queries) and
-    the Möbius point evaluator (Möbius-decomposed sum over set
-    partitions; ``O(B_r · r · K · n_q)`` per query independent of
-    ``n_j``).
-
-    Cost rule of thumb. The centres path scales as
-    ``O(r · n_j · n_q)`` with ``n_j = K!/(K-r)!``, so it explodes at
-    high r. The Möbius method replaces ``n_j`` with ``B_r · r · K``,
-    where ``B_r`` is the Bell number of ``r`` (5 at r=3, 15 at r=4,
-    52 at r=5, 203 at r=6). Crossover analysis (5 partitions × N work
-    per partition vs N!/(N-r)!) shows the Möbius method is ~22× faster
-    at r=3 N=20, ~100× at r=4. At r=2 the costs are comparable; the
-    centres path is simpler and avoids partition-table dispatch
-    overhead, so default to centres there.
-
-    Precision guard. The Möbius method suffers catastrophic Möbius
-    cancellation when ``K - r < 2`` (same regime as the IP path); fall
-    back to centres.
-
-    Convention. In periodic-relative mode, the centres path computes
-    the pairwise-wrap form (Eq 6 of the preprint), matching
-    ``cosSimExpTens`` Bulger; ``eval_orbit_rel`` integrates the
-    JMM Eq. 3.4 form. The two agree to floating-point precision at
-    typical perceptual σ/P and diverge by O((σ/P)^∞) above σ/P ≈ 0.03
-    (the same regime as the ``cosSimExpTens`` Bulger / Möbius split).
-    The dispatcher always routes rel mode to centres regardless of
-    σ/P because ``eval_orbit_rel`` is much slower at typical r/K, not
-    because of a convention preference.
-
-    Parameters
-    ----------
-    r : int
-        Tensor order.
-    K : int
-        Number of source events (``len(p)``).
-    n_q : int
-        Number of query points.
-    is_rel, is_per : bool
-        Mode flags.
-    sigma_over_P : float
-        ``σ / period``; ignored if not periodic.
-    user_method : str
-        One of ``'auto'``, ``'centres'``, ``'mobius'``. Internal callers
-        may also pass ``'direct'`` as a synonym for ``'centres'``.
-
-    Returns
-    -------
-    str
-        ``'mobius'`` or ``'centres'``.
-    """
-    if user_method in ('centres', 'direct'):
-        return 'centres'
-    if user_method == 'mobius':
-        return 'mobius'
-    if user_method != 'auto':
-        raise ValueError(
-            f"method must be 'auto', 'centres', or 'mobius'; got "
-            f"{user_method!r}."
-        )
-    # r=1: the Möbius machinery reduces to the direct Σ_i w_i K_i sum
-    # (one partition with μ=1). Centres path coincides; pick centres
-    # for code simplicity.
-    if r <= 1:
-        return 'centres'
-    # Relative mode: eval_orbit_rel performs u-grid quadrature with
-    # N_u ~ max(64, P/σ * 10) per query. The per-query cost is
-    # O(B_r · r · K · N_u), much larger than the centres path's
-    # O(n_j) per query at typical σ/P (~0.025 → N_u ≈ 360, vs n_j
-    # of 100s to 1000s for r in {3, 4}). The Möbius relative-mode
-    # evaluator is only ever cheaper at very high r combined with very
-    # large K and large σ — a corner case that's safer to route via
-    # explicit method='mobius'. Default to centres for rel mode.
-    if is_rel:
-        return 'centres'
-    # r=2 with small K: centres is competitive and avoids the
-    # partition-table dispatch overhead.
-    if r == 2 and K <= 8:
-        return 'centres'
-    # Beyond shipped orbit tables: the eval_orbit_* helpers use
-    # set-partition machinery rather than orbit tables, so they work
-    # at any r in principle, but we defer to centres for consistency
-    # with the IP-path policy. At r > _ORBIT_R_MAX_SHIPPED the orbit
-    # table would build on demand, which the cost-preview helper warns
-    # about; the eval dispatcher prefers the always-fast centres path.
-    if r > _ORBIT_R_MAX_SHIPPED:
-        return 'centres'
-    # K-vs-r precision guard. Without K - r >= 2 the Möbius method's
-    # alternating sum can lose all significant digits.
-    if not _orbit_safe_for_precision([r], [K]):
-        return 'centres'
-    return 'mobius'
-
-
-
 # -----------------------------------------------------------------------
 # Unified method-selection + time-estimate probe
 #
@@ -864,6 +790,27 @@ _PROBE_N = 50           # probe sample size
 _CENTRES_PROBE_MEM_BUDGET = 4 * 1024**3
 
 
+# Soft centres working-set budget (bytes). Distinct from the 4 GB hard
+# ceiling above: that ceiling only fires when the centres array alone
+# exceeds it, and it estimates the *final* centres array only. But
+# _build_perm_arrays materialises the full ordered-tuple working set
+# (j_idx, u_perm, and centres each scale as n_j = K!/(K-r)!), so the true
+# peak is several times the centres-array estimate. When that working set
+# is large but still under the hard ceiling, the centres path is feasible
+# on op-count yet allocates hundreds of MB — which the rel-mode cost
+# model, being wall-time oriented, does not see. On memory-constrained
+# machines this thrashes. The Möbius point evaluator is n_j-free (its cost
+# is at most B_r · r · K · N_u per query, and less when its factored
+# strategy engages), so when the centres working set exceeds
+# this soft budget and Möbius is feasible and convention-safe, we route to
+# Möbius to keep peak memory bounded. Set generously so the validated
+# benchmark cells (rel r <= 4 at moderate K, working set < ~10 MB) are
+# never perturbed; it fires only for the large-template regime (e.g.
+# tensor_harmonicity at duplicate >= 4, where a 12-partial template
+# becomes K = 48 partials and n_j ~ 4.7e6).
+_CENTRES_WORKING_SET_SOFT_BUDGET = 256 * 1024**2
+
+
 # Above this r, the Möbius method becomes infeasible: B_r (Bell numbers)
 # explodes from 115,975 at r=10 to 5x10^13 at r=20, and set-partition
 # enumeration itself blows the Python recursion stack. r > this falls back
@@ -885,6 +832,8 @@ _BELL_NUMBERS = {
 #
 #  - Rel-mode pre-screen: routes TO centres when centres clearly wins.
 #    The Möbius relative-mode evaluator does u-grid quadrature with N_u
+#    nodes (per-node cost K per block on its direct strategy; K-free on
+#    its factored strategy, which its internal gate prefers for batches)
 #    sub-evals per query, so its PROBE is expensive (a 50-query probe at
 #    N_u=1000 is ~3 s); a generous margin here avoids unnecessary probe
 #    overhead.
@@ -917,6 +866,31 @@ def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
         n_j *= k
     dim = r - 1 if is_rel else r
     return n_j * max(dim, 1) * 8
+
+
+def _estimate_centres_working_set_bytes(K: int, r: int, is_rel: bool) -> int:
+    """Estimate the *full* centres-path working set in bytes.
+
+    Unlike :func:`_estimate_centres_array_bytes` (which counts only the
+    final ``(dim, n_j)`` centres array, and is pinned by the dispatcher
+    tests), this reflects everything :meth:`ExpTensDensity._build_perm_arrays`
+    holds live at once. The three arrays that scale with
+    ``n_j = K!/(K-r)!`` are ``j_idx`` (``r x n_j`` int), ``u_perm``
+    (``r x n_j`` float) and ``centres`` (``dim x n_j`` float); the
+    ``C(K, r)``-sized comb arrays are smaller and omitted. Total row
+    factor is therefore ``2*r + dim`` (with ``dim = r - 1`` for rel,
+    ``r`` for abs), each element 8 bytes. Used only by the soft memory
+    guard, so a rough but honest over-count of the array estimate is the
+    right bias.
+    """
+    if K < r:
+        return 0
+    n_j = 1
+    for k in range(K - r + 1, K + 1):
+        n_j *= k
+    dim = r - 1 if is_rel else r
+    row_factor = 2 * r + max(dim, 1)
+    return n_j * row_factor * 8
 
 
 
@@ -1032,6 +1006,39 @@ def _select_and_estimate_sa(
             )
         return "mobius", False, 0.0, "centres memory budget exceeded"
 
+    # ---- Rule 4b: soft working-set guard (memory-aware, n_q-independent) ----
+    # The rel-mode cost model is wall-time oriented: it compares op-counts
+    # (centres n_j vs Möbius direct-strategy B_r · r · K · N_u, or its
+    # K-free factored strategy for batched workloads) and is blind to the fact
+    # that the centres path must first *materialise* the full ordered-tuple
+    # working set — j_idx, u_perm and centres, each O(n_j) with
+    # n_j = K!/(K-r)!. In the large-template regime (e.g. tensor_harmonicity
+    # at duplicate >= 4, K = 48) that working set is hundreds of MB even
+    # though it stays under the 4 GB hard ceiling and even though its
+    # op-count can look competitive. The Möbius point evaluator is n_j-free,
+    # so its memory is bounded regardless. This guard mirrors the abs-mode
+    # pre-screen below (it must likewise run BEFORE the tiny-workload
+    # shortcut, so single-chord / small-batch calls are covered) but keys
+    # off memory rather than time: when the centres working set exceeds the
+    # soft budget and Möbius is feasible, route to Möbius to keep peak
+    # memory bounded. Convention guard: in periodic-relative mode the two
+    # methods diverge above sigma/P ~ 0.03, so only divert there when the
+    # convention still agrees; otherwise leave the (memory-heavy but
+    # convention-exact) centres path in place. Precision (K - r >= 2) and
+    # the r <= feasible bound are already ensured by Rules 3 and the hard
+    # ceiling's r-check; Möbius is a valid candidate here.
+    working_set = _estimate_centres_working_set_bytes(K, r, is_rel)
+    if working_set > _CENTRES_WORKING_SET_SOFT_BUDGET and r <= _ORBIT_R_MAX_FEASIBLE:
+        sigma_over_P = (
+            float(dens.sigma) / float(dens.period) if dens.is_per else 0.0
+        )
+        convention_safe = (
+            (not dens.is_per)
+            or sigma_over_P <= _ORBIT_SIGMA_OVER_P_THRESHOLD
+        )
+        if convention_safe:
+            return "mobius", False, 0.0, "centres working-set soft budget"
+
     # ---- Abs-mode pre-screen: route TO the Möbius method when it clearly wins ----
     # For abs mode, centres cost per query is K^r (materialised density
     # has n_j = K^r tuples), and Möbius absolute-mode per-query cost is B_r * r * K
@@ -1061,9 +1068,10 @@ def _select_and_estimate_sa(
     # ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
     # The probe is robust but not free. For rel mode in particular,
     # the Möbius relative-mode evaluator does u-grid quadrature with N_u ≈ max(64, 10·P/σ)
-    # sub-evals per query — its PROBE cost scales as
-    # B_r · r · K · N_u · n_probe, which is prohibitive when N_u is
-    # large. We pre-screen the cost ratio analytically and skip the
+    # sub-evals per query — its PROBE cost scales with
+    # B_r · r · N_u · n_probe (times K on the direct strategy; K-free
+    # plus an amortised tabulation on the factored strategy), which is
+    # prohibitive when N_u is large. We pre-screen the cost ratio analytically and skip the
     # probe if centres clearly wins. The probe still has the final
     # word in the uncertain region.
     if is_rel and r >= 2:
@@ -1089,8 +1097,50 @@ def _select_and_estimate_sa(
             )
         B_r = _BELL_NUMBERS.get(r, 10 ** 9)
         centres_cost = float(K) ** (r - 1)
+        # Möbius per-query cost on the same per-K basis. The direct
+        # strategy costs B_r · r · N_u; the factored strategy
+        # (non-periodic, selected by eval_orbit_rel's internal cost
+        # gate for batched workloads) removes the K factor from the
+        # per-node cost, leaving read-back kernel-equivalents per
+        # (partition-block, node) plus a tabulation amortised over the
+        # queries. Use the cheaper of the two so this pre-screen does
+        # not wrongly route batched rel workloads to centres; the
+        # probe below still has the final word (and, timing the real
+        # Möbius path, adapts automatically to the strategy the gate
+        # picks).
         orbit_cost = float(B_r) * r * N_u_est
-        if centres_cost * _PRESCREEN_CENTRES_DOMINANCE < orbit_cost:
+        if not dens.is_per:
+            from .._mobius import (
+                _FACTORED_READBACK_COST,
+                _factored_spp,
+                _factored_target_eps,
+            )
+            spp = _factored_spp(
+                _factored_target_eps(truncation_sigmas, kernel_precision)
+            )
+            sum_sqrt_m = float(np.sum(np.sqrt(np.arange(1, r + 1))))
+            extent_fine = (u_max - u_min) + (
+                max(0.0, x_max_abs) - min(0.0, x_min_abs)
+            )
+            n_fine_est = extent_fine / sigma * spp * sum_sqrt_m
+            orbit_factored = (
+                _FACTORED_READBACK_COST * float(B_r) * r * N_u_est / K
+                + n_fine_est / max(n_q, 1)
+            )
+            orbit_cost = min(orbit_cost, orbit_factored)
+        # Finite truncation prunes the centres path's kernel work
+        # (often by 10-100x on sparse-support workloads) and does not
+        # prune the factored read-back, so the cost model's error is
+        # one-sided: whenever it says centres is cheaper under
+        # truncation, reality agrees. Require no dominance margin in
+        # that case; keep the 3x margin when truncation is off.
+        trunc = truncation_sigmas
+        if trunc is None:
+            from .._defaults import get_default
+            trunc = get_default("truncation_sigmas")
+        dominance = (1.0 if (trunc is not None and np.isfinite(trunc))
+                     else _PRESCREEN_CENTRES_DOMINANCE)
+        if centres_cost * dominance < orbit_cost:
             return "centres", False, 0.0, "rel-mode pre-screen"
 
     # ---- Probe both paths ----
@@ -1304,6 +1354,26 @@ def _select_and_estimate_sa_ip(
                       and sigma_over_P > _ORBIT_SIGMA_OVER_P_THRESHOLD)
     if r > _ORBIT_R_MAX_FEASIBLE:
         return "bulger", False, 0.0, f"r = {r} > {_ORBIT_R_MAX_FEASIBLE} (Möbius infeasible)"
+
+    # ---- Memory-safety guard (explicit invariant) ----
+    # The Bulger IP materialises each side's O(n_j = K!/(K-r)!) tuple
+    # working set (via build_perm_arrays on both densities) plus the
+    # chunked (n_Jx x n_Jy) kernel matrix. The Möbius IP is n_j-free.
+    # In practice the op-count pre-screen below already diverts every
+    # large-K workload to Möbius, because the IP cost keys on the tuple
+    # *pair* count n_Jx * n_Jy -- the square of the per-side working set
+    # -- so any density big enough to blow memory pushes pairwise_full
+    # far past orbit_full and is routed to Möbius on cost alone (Bulger
+    # is only ever chosen at n_j <= ~120). This guard makes that memory
+    # invariant explicit and regression-proof rather than emergent from
+    # the cost constants: if either side's centres working set exceeds
+    # the soft budget and Möbius is convention-safe, take Möbius now.
+    # Precision (n_min - r >= 2) and feasibility (r <= feasible) are
+    # already ensured by the hard rules above.
+    ws_x = _estimate_centres_working_set_bytes(K_x, r, is_rel)
+    ws_y = _estimate_centres_working_set_bytes(K_y, r, is_rel)
+    if max(ws_x, ws_y) > _CENTRES_WORKING_SET_SOFT_BUDGET and not _rel_per_above:
+        return "mobius", False, 0.0, "centres working-set soft budget"
 
     # ---- Analytical cost models ----
     pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)

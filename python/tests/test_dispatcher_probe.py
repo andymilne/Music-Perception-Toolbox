@@ -147,21 +147,48 @@ class TestRelPreScreen:
         assert chosen == 'centres'
         assert probed is False  # pre-screen caught it
 
-    def test_huge_K_rel_still_probes(self):
-        # At very large K in rel mode, orbit becomes competitive;
-        # pre-screen should let the probe run.
+    def test_huge_K_rel_routes_to_mobius_on_memory(self):
+        # At very large K in rel mode the centres working set
+        # (j_idx + u_perm + centres, each O(n_j = K!/(K-r)!)) runs to
+        # ~1 GB here — far over the soft working-set budget. The
+        # memory-aware guard (Rule 4b) routes to Möbius WITHOUT probing:
+        # probing the centres path would itself materialise the full
+        # n_j working set just to time it, defeating the purpose. This
+        # supersedes the earlier time-only policy (which let the probe
+        # run at huge K); the Möbius point evaluator is n_j-free, so it
+        # keeps peak memory bounded on constrained machines.
         K = 250
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 500))
-        chosen, probed, est, _ = _select_and_estimate_sa(
+        chosen, probed, est, reason = _select_and_estimate_sa(
             dens, x, 500, method='auto',
             truncation_sigmas=6.0, kernel_precision=None,
             verbose=False,
         )
-        # Probe runs; result may be either path depending on actual
-        # measurements, but probe MUST have fired.
-        assert probed is True
+        assert chosen == 'mobius'
+        assert probed is False
+        assert 'working-set' in reason
+
+    def test_moderate_K_rel_still_probes(self):
+        # Just under the soft working-set budget (K=140, r=3, rel →
+        # ~180 MB working set), the memory guard does NOT fire, so the
+        # dispatcher falls through to the time-based rel pre-screen /
+        # probe as before. Guards the boundary: the memory guard must
+        # not swallow the whole large-K rel regime, only the part that
+        # would actually blow memory.
+        K = 140
+        p = np.linspace(0, 1200, K, endpoint=False)
+        dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
+        x = np.random.uniform(0, 1200, (2, 500))
+        chosen, probed, est, reason = _select_and_estimate_sa(
+            dens, x, 500, method='auto',
+            truncation_sigmas=6.0, kernel_precision=None,
+            verbose=False,
+        )
+        # Memory guard did not fire; decision came from the time-based
+        # pre-screen or the probe, not the working-set rule.
+        assert 'working-set' not in reason
 
 
 class TestAbsPreScreen:
@@ -233,23 +260,26 @@ class TestAbsPreScreen:
         assert probed is True
 
     def test_rel_mode_unaffected_by_abs_prescreen(self):
-        # At K=36 r=3 rel non-per sigma=12: centres_cost = 1296,
-        # orbit_cost (rel, N_u_est ~ 2160) = 32400 → rel-mode
-        # pre-screen fires → centres. The abs-mode pre-screen must
-        # NOT spuriously redirect to orbit just because the abs-mode
-        # cost ratio would also favour orbit at this K.
+        # At K=36 r=3 rel non-per sigma=12: centres_cost = 1296 on the
+        # per-K basis, versus a Möbius direct-strategy cost of ~32400
+        # and a factored-strategy cost of ~9100 (at the measured
+        # read-back weight). The rel-mode pre-screen clears its margin
+        # and fires to centres unprobed. The
+        # regression under test is the ABS-mode pre-screen spuriously
+        # redirecting rel workloads to Möbius just because the
+        # abs-mode cost ratio favours it at this K; its signature is
+        # an unprobed 'mobius' choice with the abs-mode reason.
         K = 36
         p = np.linspace(0, 1200, K, endpoint=False)
         dens = build_exp_tens(p, np.ones(K), 12.0, 3, True, False, 0.0)
         x = np.random.uniform(0, 1200, (2, 5000))
-        chosen, probed, est, _ = _select_and_estimate_sa(
+        chosen, probed, est, reason = _select_and_estimate_sa(
             dens, x, 5000, method='auto',
             truncation_sigmas=None, kernel_precision=None,
             verbose=False,
         )
-        # Rel-mode pre-screen should fire → centres.
+        assert reason != 'abs-mode pre-screen'
         assert chosen == 'centres'
-        assert probed is False
 
 
 # -----------------------------------------------------------------------

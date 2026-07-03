@@ -2,11 +2,11 @@
 
 The dispatcher routes between the v2.0 centres-array body and the
 v2.2 orbit-Möbius point evaluator according to ``method`` and the
-cost rules in :func:`mpt.tensor._select_sa_eval_method`. These tests
-verify (a) that auto routing picks the right path under each rule,
-(b) that the three explicit methods produce mutually consistent
-output, and (c) that the precision and convention guards behave as
-documented.
+cost model in :func:`mpt.tensor._select_and_estimate_sa`. These tests
+verify that the three explicit methods produce mutually consistent
+output and that the precision and convention guards behave as
+documented. (Whole-call auto-routing is covered in
+test_dispatcher_probe.py.)
 """
 import numpy as np
 import pytest
@@ -14,7 +14,6 @@ import pytest
 from mpt.tensor import (
     build_exp_tens,
     eval_exp_tens,
-    _select_sa_eval_method,
 )
 
 
@@ -23,70 +22,6 @@ ATOL = 1e-12
 RTOL = 1e-10
 
 
-# -------------------------------------------------------------------
-#  Routing rules
-# -------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "r,K,is_rel,is_per,expected",
-    [
-        # r=1: always centres.
-        (1, 5, False, True, 'centres'),
-        (1, 5, True, True, 'centres'),
-        # r=2 with K<=8: centres (small-K rule).
-        (2, 4, False, True, 'centres'),
-        (2, 8, False, True, 'centres'),
-        # r=2 with K>=9: orbit.
-        (2, 9, False, True, 'mobius'),
-        (2, 20, False, True, 'mobius'),
-        # r=3 abs: orbit when K-r >= 2.
-        (3, 5, False, True, 'mobius'),
-        (3, 5, False, False, 'mobius'),
-        # r=3 abs with K-r=1: centres (precision guard).
-        (3, 4, False, True, 'centres'),
-        # r=4 abs: orbit when K-r >= 2.
-        (4, 6, False, True, 'mobius'),
-        # r=9 (beyond shipped tables): centres.
-        (9, 12, False, True, 'centres'),
-        # Rel mode at any r: centres (cost rule).
-        (3, 6, True, True, 'centres'),
-        (4, 7, True, False, 'centres'),
-    ],
-)
-def test_select_sa_eval_method(r, K, is_rel, is_per, expected):
-    chosen = _select_sa_eval_method(
-        r=r, K=K, n_q=10, is_rel=is_rel, is_per=is_per,
-        sigma_over_P=0.025, user_method='auto',
-    )
-    assert chosen == expected
-
-
-def test_select_sa_eval_method_user_override():
-    """Explicit method= bypasses cost rules."""
-    # Force orbit even at r=2 K=5 (would auto to centres).
-    assert _select_sa_eval_method(
-        r=2, K=5, n_q=10, is_rel=False, is_per=True,
-        sigma_over_P=0.025, user_method='mobius',
-    ) == 'mobius'
-    # Force centres at r=4 K=10 (would auto to orbit).
-    assert _select_sa_eval_method(
-        r=4, K=10, n_q=10, is_rel=False, is_per=True,
-        sigma_over_P=0.025, user_method='centres',
-    ) == 'centres'
-    # 'direct' is treated as a synonym for 'centres'.
-    assert _select_sa_eval_method(
-        r=3, K=8, n_q=10, is_rel=False, is_per=True,
-        sigma_over_P=0.025, user_method='direct',
-    ) == 'centres'
-
-
-def test_select_sa_eval_method_rejects_unknown():
-    with pytest.raises(ValueError, match="method must be"):
-        _select_sa_eval_method(
-            r=3, K=8, n_q=10, is_rel=False, is_per=True,
-            sigma_over_P=0.025, user_method='magic',
-        )
 
 
 # -------------------------------------------------------------------

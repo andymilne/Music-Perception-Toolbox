@@ -117,13 +117,29 @@ def eval_exp_tens(*args,
         only.
     method : {'auto', 'centres', 'mobius'}, default 'auto'
         SA-path evaluation strategy. ``'auto'`` lets the dispatcher
-        choose between the centres-array path (fast
-        at low r) and the Möbius point evaluator (much
-        faster at r >= 3 since it bypasses the ``(dim, n_j)`` centres
-        tensor whose memory and runtime scale as ``K!/(K-r)!``).
+        choose between the centres-array path and the Möbius point
+        evaluator, weighing both wall time and the centres working-set
+        memory (see :func:`mpt.tensor._select_and_estimate_sa`). The
+        Möbius evaluator bypasses the ``(dim, n_j)`` centres tensor
+        (``n_j = K!/(K-r)!``), so it wins decisively at large ``K``
+        where that array explodes. In **absolute** mode it is also
+        faster than centres at ``r >= 3`` outright, being grid-free at
+        ``O(B_r · r · K)`` per query. In **relative** mode it is *not*
+        grid-free — it integrates the translation marginal on a u-grid
+        of ``N_u`` points, at ``O(B_r · r · K · N_u)`` per query on its
+        direct strategy, or ``O(B_r · r · N_u)`` per query (plus an
+        amortised tabulation) on its factored strategy, which removes
+        the ``K`` factor from the integrand by reading back ``r``
+        precomputed smoothed event distributions (non-periodic only;
+        picked by an internal cost gate for batched workloads;
+        read-back accuracy tied to ``truncation_sigmas``). The ``N_u``
+        overhead still makes the centres path (no ``N_u`` factor, cost
+        ``O(K!/(K-r)!)``) cheaper for scalar queries at small ``K``;
+        the dispatcher crosses over to Möbius as ``K`` or the batch
+        size grows.
         ``'centres'`` forces the centres path; ``'mobius'`` forces the
-        Möbius method. Currently a no-op on the MA path (MA always
-        uses centres).
+        Möbius method. Currently a no-op on the MA path (there is no MA
+        Möbius point evaluator yet; MA eval always uses centres).
     verbose : bool, default True
         Print progress.
 
@@ -631,7 +647,8 @@ def _eval_exp_tens_sa(
 
     Routes between the centres-array path and the Möbius
     point evaluator according to ``method`` and the cost model
-    in :func:`_select_sa_eval_method`.
+    in :func:`_select_and_estimate_sa` (which weighs both the
+    wall-time cost model and the centres working-set memory guard).
     """
     x = np.asarray(x, dtype=np.float64)
     if x.ndim == 1:

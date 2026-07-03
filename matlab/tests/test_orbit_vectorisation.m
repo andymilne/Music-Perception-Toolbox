@@ -199,6 +199,81 @@ results{end+1, 1} = 'tensorHarmonicity batched: 50 transp-equiv rows all return 
 results{end, 2} = isequal(size(h_rep), [50, 1]) ...
     && max(abs(h_rep - h_rep(1))) < 1e-12;
 
+%% ---- evalOrbitRel factored strategy: matches direct (default) ----
+
+base = 1200 * log2(1:8)';
+amps = (1 ./ (1:8)').^0.67;
+pT = [base; base + 0.01];
+wT = [amps; amps];
+sigmaT = 15.0;
+
+rng(7);
+for r = [2, 3, 4]
+    cols = zeros(r - 1, 12);
+    for q = 1:12
+        idx = sort(randperm(numel(pT), r));
+        cols(:, q) = pT(idx(2:end)) - pT(idx(1));
+    end
+    vOff = mobius.evalOrbitRel(pT, wT, sigmaT, r, cols, 'factored', 'off');
+    vOn  = mobius.evalOrbitRel(pT, wT, sigmaT, r, cols, 'factored', 'on');
+    relErr = max(abs(vOn - vOff) ./ abs(vOff));
+    results{end+1, 1} = sprintf('evalOrbitRel factored r=%d: matches direct at default truncation (1e-12)', r);
+    results{end, 2} = relErr < 1e-12;
+end
+
+%% ---- evalOrbitRel factored: truncated agreement at eps target ----
+
+r = 4;
+cols = zeros(r - 1, 12);
+for q = 1:12
+    idx = sort(randperm(numel(pT), r));
+    cols(:, q) = pT(idx(2:end)) - pT(idx(1));
+end
+vOff6 = mobius.evalOrbitRel(pT, wT, sigmaT, r, cols, ...
+    'factored', 'off', 'truncationSigmas', 6);
+vOn6 = mobius.evalOrbitRel(pT, wT, sigmaT, r, cols, ...
+    'factored', 'on', 'truncationSigmas', 6);
+results{end+1, 1} = 'evalOrbitRel factored: k=6 agreement inside eps target (1.5e-7)';
+results{end, 2} = max(abs(vOn6 - vOff6) ./ abs(vOff6)) < 1.5e-7;
+
+%% ---- evalOrbitRel factored: tail queries bounded at bulk scale ----
+
+xWide = 50 + 2450 * rand(3, 40);
+vOffW = mobius.evalOrbitRel(pT, wT, sigmaT, 4, xWide, 'factored', 'off');
+vOnW  = mobius.evalOrbitRel(pT, wT, sigmaT, 4, xWide, 'factored', 'on');
+results{end+1, 1} = 'evalOrbitRel factored: deep-tail absolute error < 1e-9 of bulk';
+results{end, 2} = max(abs(vOnW - vOffW)) < 1e-9 * max(abs(vOffW));
+
+%% ---- evalOrbitRel factored: cancellation-ratio parity ----
+
+[vOffR, ratOff] = mobius.evalOrbitRel(pT, wT, sigmaT, 4, cols(:, 1:9), ...
+    'factored', 'off', 'returnCancellationRatio', true);
+[vOnR, ratOn] = mobius.evalOrbitRel(pT, wT, sigmaT, 4, cols(:, 1:9), ...
+    'factored', 'on', 'returnCancellationRatio', true);
+results{end+1, 1} = 'evalOrbitRel factored: values (1e-11) and ratios (1e-6) match direct';
+results{end, 2} = max(abs(vOnR - vOffR) ./ abs(vOffR)) < 1e-11 ...
+    && max(abs(ratOn - ratOff)) < 1e-6;
+
+%% ---- evalOrbitRel factored: periodic mode guarded ----
+
+xPer = mod(cols(:, 1:5), 1200);
+ok = false;
+try
+    mobius.evalOrbitRel(pT, wT, sigmaT, 4, xPer, ...
+        'is_per', true, 'period', 1200, 'factored', 'on');
+catch err
+    ok = contains(err.identifier, 'factoredPeriodic');
+end
+results{end+1, 1} = 'evalOrbitRel factored: ''on'' in periodic mode raises factoredPeriodic';
+results{end, 2} = ok;
+
+vAutoP = mobius.evalOrbitRel(pT, wT, sigmaT, 4, xPer, ...
+    'is_per', true, 'period', 1200);
+vOffP = mobius.evalOrbitRel(pT, wT, sigmaT, 4, xPer, ...
+    'is_per', true, 'period', 1200, 'factored', 'off');
+results{end+1, 1} = 'evalOrbitRel factored: periodic auto is bit-identical to direct';
+results{end, 2} = max(abs(vAutoP - vOffP)) == 0;
+
 %% ---- Standalone summary ----
 
 if standalone

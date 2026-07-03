@@ -611,11 +611,15 @@ function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
 %   Routing rules (in order):
 %     1. userMethod 'centres'/'direct'/'mobius' overrides everything.
 %     2. r <= 1: the Möbius method reduces to the direct sum; centres is simpler.
-%     3. isRel: the Möbius relative-mode evaluator does B_r * r * K * N_u work per query
-%        (where N_u ~ 1000 for typical sigma/period), versus
-%        K^r work per query for centres. For typical music-cog regimes
-%        (K up to ~100, r up to 4) centres wins despite the K^r factor
-%        because N_u is large and B_r * r * K * N_u > K^r. Auto stays
+%     3. isRel: the Möbius relative-mode evaluator does at most
+%        B_r * r * K * N_u work per query (where N_u ~ 1000 for typical
+%        sigma/period) on its direct strategy, and B_r * r * N_u plus an
+%        amortised tabulation on its factored strategy (non-periodic;
+%        chosen by its internal cost gate for batched workloads), versus
+%        K^r work per query for centres. For scalar queries in typical
+%        music-cog regimes (K up to ~100, r up to 4) centres wins
+%        because N_u is large; the factored strategy shifts the
+%        crossover in Möbius's favour for batches. Auto stays
 %        on centres; users wanting the Möbius relative-mode evaluator (e.g. for very large K
 %        where centres memory blows up) opt in explicitly with
 %        method='mobius'.
@@ -901,8 +905,57 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
             B_r = 1e9;
         end
         centresCost = double(K)^(r - 1);
+        % Möbius per-query cost on the same per-K basis. Direct strategy
+        % is B_r * r * N_u; the factored strategy (non-periodic only,
+        % selected by evalOrbitRel's internal cost gate for batched
+        % workloads) removes the K factor from the per-node cost,
+        % leaving read-back kernel-equivalents per (partition-block,
+        % node) plus a tabulation amortised over the queries. Use the
+        % cheaper of the two so this pre-screen does not wrongly route
+        % batched rel workloads to centres; the probe below still has
+        % the final word. Twin of the Python dispatcher
+        % (_select_and_estimate_sa in _tensor/dispatch.py); constants
+        % mirror mobius.evalOrbitRel's local helpers.
         orbitCost = double(B_r) * r * N_u_est;
-        if centresCost * PRESCREEN_CENTRES_DOMINANCE < orbitCost
+        if ~dens.isPer
+            READBACK_COST = 10.0;   % measured; see mobius.evalOrbitRel
+            CALIB_A6 = 1600.0;
+            EPS_FLOOR = 1e-12; EPS_CEIL = 1e-3;
+            k = truncationSigmas;
+            if isempty(k); k = mptDefaults('truncationSigmas'); end
+            if isfinite(k)
+                epsTarget = exp(-0.5 * k * k);
+            else
+                epsTarget = EPS_FLOOR;
+            end
+            epsTarget = min(max(epsTarget, EPS_FLOOR), EPS_CEIL);
+            kp = kernelPrecision;
+            if isempty(kp); kp = mptDefaults('kernelPrecision'); end
+            if strcmp(kp, 'single')
+                epsTarget = max(epsTarget, 1e-7);
+            end
+            spp = min(max(ceil((CALIB_A6 / epsTarget)^(1/6)), 8), 512);
+            sumSqrtM = sum(sqrt(1:r));
+            extentFine = (u_max - u_min) + (max(0, x_max_abs) - min(0, x_min_abs));
+            nFineEst = extentFine / sigma * spp * sumSqrtM;
+            orbitFactored = READBACK_COST * double(B_r) * r * N_u_est / double(K) ...
+                + nFineEst / max(nQ, 1);
+            orbitCost = min(orbitCost, orbitFactored);
+        end
+        % Finite truncation prunes the centres path's kernel work
+        % (often by 10-100x on sparse-support workloads) and does not
+        % prune the factored read-back, so the cost model's error is
+        % one-sided: whenever it says centres is cheaper under
+        % truncation, reality agrees. Require no dominance margin in
+        % that case; keep the 3x margin when truncation is off.
+        kTr = truncationSigmas;
+        if isempty(kTr); kTr = mptDefaults('truncationSigmas'); end
+        if isfinite(kTr)
+            dominance = 1.0;
+        else
+            dominance = PRESCREEN_CENTRES_DOMINANCE;
+        end
+        if centresCost * dominance < orbitCost
             chosen = 'centres';
             routingReason = 'rel-mode pre-screen';
             return;

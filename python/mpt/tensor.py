@@ -83,10 +83,10 @@ from ._tensor.dispatch import (
     _select_and_estimate_sa,
     _select_and_estimate_sa_ip,
     _select_ma_inner_product_method,
-    _select_sa_eval_method,
     _select_sa_inner_product_method,
     # Policy constants (imported by dispatcher tests).
     _CENTRES_PROBE_MEM_BUDGET,
+    _CENTRES_WORKING_SET_SOFT_BUDGET,
     _ORBIT_R_MAX_SHIPPED,
     _ORBIT_SIGMA_OVER_P_THRESHOLD,
     _PRESCREEN_IP_DOMINANCE,

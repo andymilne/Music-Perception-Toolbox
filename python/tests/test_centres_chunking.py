@@ -69,16 +69,25 @@ class TestCentresChunking:
         np.testing.assert_allclose(v_full, v_manual, rtol=1e-13, atol=0)
 
     def test_auto_routing_matches_forced_centres(self):
-        """For K=72 r=3 rel non-per at this sigma/period, the rel-mode
-        pre-screen fires and routes to centres without probing —
-        the same path that demo_triadConsonance uses. Verify that
-        auto routing produces the same chunked output as forced
-        'centres'.
+        """For K=72 r=3 rel PERIODIC at sigma/P = 1/120, the rel-mode
+        pre-screen fires and routes to centres without probing.
+        Verify that auto routing produces the same chunked output as
+        forced 'centres'.
+
+        Periodic rel is the deterministic pre-screen-to-centres route:
+        the factored Möbius strategy is non-periodic only, so the
+        pre-screen compares centres against the direct per-node cost.
+        (Non-periodic rel workloads, which this test used previously,
+        are no longer reliably pre-screened to centres — the factored
+        strategy makes Möbius cost-competitive there, the probe gets
+        the final word, and auto may legitimately return Möbius values
+        that match centres only to ~1e-14 relative rather than
+        bitwise.)
         """
-        K = 72
+        K = 48
         p = np.linspace(0, 1200, K, endpoint=False)
-        dens = build_exp_tens(p, np.ones(K), 12.0, 3,
-                              True, False, 0.0, verbose=False)
+        dens = build_exp_tens(p, np.ones(K), 10.0, 3,
+                              True, True, 1200.0, verbose=False)
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
 
@@ -92,7 +101,7 @@ class TestCentresChunking:
         # order differences at the ~1e-13 relative level. The function-
         # scoped defaults-reset fixture in conftest.py restores the
         # factory state on teardown.
-        mpt.set_default(kernel_chunk_bytes=4_000_000_000)
+        mpt.set_default(kernel_chunk_bytes=200_000_000)
 
         v_auto = eval_exp_tens(dens, x, verbose=False)
         v_centres = eval_exp_tens(dens, x, method='centres', verbose=False)

@@ -857,15 +857,33 @@ def tensor_harmonicity(
 
     Notes
     -----
-    Internal computation routes through the Möbius point
-    evaluator, which evaluates the relative tensor at the chord's
-    interval vector without materialising the
-    ``(r-1, K!/(K-r)!)`` centres array. For a 4-pitch chord with the
-    default 64-partial harmonic template this avoids a centres array
-    of order ``10⁹`` floats; runtime is dominated by the u-grid
-    translation integral and grows as ``B_r · r · K · N_u`` per
-    query. This unblocks ``K > 3`` chord cardinality where the
-    centres path was infeasible.
+    Internal computation is delegated to :func:`~mpt.eval_exp_tens`,
+    whose dispatcher chooses between the centres-array path and the
+    Möbius point evaluator (see :func:`mpt.tensor._select_and_estimate_sa`).
+    The harmonic template has ``K = duplicate × n_partials`` events, so
+    with the default 64-partial template even a triad reaches
+    ``K ≥ 192`` and the centres array (``(r-1, K!/(K-r)!)`` floats,
+    order ``10⁹`` for a 4-pitch chord) is far too large to materialise;
+    the dispatcher's working-set memory guard therefore routes such
+    calls to the Möbius evaluator, which evaluates the relative tensor
+    at the chord's interval vector without building the centres array.
+
+    The Möbius route is *not* grid-free in relative mode: it integrates
+    the absolute tensor over the translation coordinate on a u-grid of
+    ``N_u`` points (the relative tensor is a translation marginal, and
+    the alternating partition sum only factorises across slots at fixed
+    ``u``). Its per-query cost is ``B_r · r · K · N_u`` on the direct
+    strategy, dropping to ``B_r · r · N_u`` (plus an amortised
+    ``O(Σ_m N_fine_m · K)`` tabulation) when the evaluator's factored
+    strategy engages — an exact per-block factorisation of the
+    non-periodic integrand into read-backs of ``r`` precomputed
+    smoothed event distributions, chosen by an internal cost gate for
+    batched workloads, with read-back accuracy tied to
+    ``truncation_sigmas``. This unblocks ``K > 3`` chord cardinality
+    where the centres path was infeasible. Small-template calls (small ``K``, e.g. a low
+    ``duplicate`` with a short custom spectrum) keep the centres path,
+    which is cheaper there — it carries no ``N_u`` factor and its
+    ``n_j`` is small.
 
     References
     ----------

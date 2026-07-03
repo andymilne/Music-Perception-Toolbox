@@ -40,11 +40,11 @@
 % Comment out or remove entries to skip them. The subplot grid adapts
 % automatically to the number of selected measures.
 plotMeasures = {
-    'tmplMax'     % Template harmonicity: hMax (Milne 2013)
-    'tmplEnt'     % Template harmonicity: -hEntropy (Harrison 2020)
+    % 'tmplMax'     % Template harmonicity: hMax (Milne 2013)
+    % 'tmplEnt'     % Template harmonicity: -hEntropy (Harrison 2020)
     'tensor'      % Tensor harmonicity (Smit et al. 2019)
-    'specEnt'     % -Spectral entropy (Milne et al. 2017)
-    'rough'       % -Roughness (Sethares 1993)
+    % 'specEnt'     % -Spectral entropy (Milne et al. 2017)
+    % 'rough'       % -Roughness (Sethares 1993)
 };
 
 % Grid

@@ -1231,6 +1231,150 @@ def eval_orbit_abs(
 # ---------------------------------------------------------------------
 
 
+# --- Factored (K-free) relative-mode evaluation ------------------------
+#
+# The relative tensor is the translation marginal of the absolute tensor,
+#
+#     T_rel(Δ) = (1/Z_t) · ∫ T_abs(u, u + Δ_1, ..., u + Δ_{r-1}) du,
+#
+# and the Möbius partition sum only factorises across slots at fixed u,
+# so the integral is intrinsic to the Möbius realisation (integrating it
+# analytically re-expands the per-partition product of block sums into
+# the O(K^r) tuple enumeration the decomposition exists to avoid). The
+# integral is evaluated on a u-grid; what is NOT intrinsic is the K
+# factor in the integrand. In the non-periodic case each partition
+# block B (with m = |B| slots and query offsets δ_B) factorises exactly:
+#
+#     f_B(u) = exp(-var(δ_B)/(2σ²)) · S_m(u + mean(δ_B)),
+#     S_m(v) = Σ_i w_i^m exp(-m (v - p_i)² / (2σ²)),
+#
+# where S_m is a query-independent smoothed event distribution at width
+# σ/√m. There are only r distinct block sizes, so tabulating S_1..S_r
+# once and reading them back by local quintic (6-point Lagrange)
+# interpolation collapses the per-(partition, query, u-node) cost from
+# O(K) to O(1): per-query cost drops from O(B_r · r · K · N_u) to
+# O(B_r · r · N_u) after a one-time O(Σ_m N_fine_m · K) tabulation.
+#
+# The read-back accuracy is tied to the toolbox-wide kernel-truncation
+# floor: with ``truncation_sigmas = k`` the toolbox already treats
+# relative contributions below exp(-k²/2) as negligible, so the
+# tabulation step is chosen to keep the interpolation error at or below
+# that same floor (clamped to [_FACTORED_EPS_FLOOR, _FACTORED_EPS_CEIL];
+# the default k = inf targets the floor, which sits at the noise level
+# of the u-grid quadrature itself).
+#
+# The identity above is exact only in NON-PERIODIC mode: with per-
+# component wrapping a block whose offsets straddle an image boundary
+# does not separate into var + mean parts, so periodic relative mode
+# always uses the direct per-node evaluation.
+
+#: Floor / ceiling for the factored read-back target accuracy (relative).
+_FACTORED_EPS_FLOOR = 1e-12
+_FACTORED_EPS_CEIL = 1e-3
+
+#: Calibrated constant for the quintic read-back error model
+#: ``err ≈ _FACTORED_CALIB_A6 · spp**-6`` (spp = samples per σ/√m; the
+#: constant includes the empirically measured Möbius cancellation
+#: amplification and a ×10 safety margin; see tests).
+_FACTORED_CALIB_A6 = 1600.0
+
+#: Samples-per-σ_m bounds for the S_m tabulation.
+_FACTORED_SPP_MIN = 8
+_FACTORED_SPP_MAX = 512
+
+#: Cost of one quintic read-back at one (block, u-node, query), in units
+#: of one kernel evaluation (exp + multiply-accumulate). Measured on the
+#: demo_triadConsonance workload shape (K=72, r=3, n_q=7381): ~77 ns per
+#: stencil evaluation (6 gathers + degree-5 weights) versus ~7.7 ns per
+#: vectorised kernel operation.
+_FACTORED_READBACK_COST = 10.0
+
+#: 6-point Lagrange denominators ∏_{k≠j}(j - k) for j = 0..5.
+_L6_DENOM = np.array([-120.0, 24.0, -12.0, 12.0, -24.0, 120.0])
+
+
+def _factored_target_eps(truncation_sigmas, kernel_precision) -> float:
+    """Target relative accuracy of the factored S_m read-back.
+
+    Derived from the kernel-truncation floor ``exp(-k²/2)`` so that a
+    single toolbox-wide knob (``truncation_sigmas``, per call or via
+    ``mpt.set_default``) governs both the kernel floor and the read-back
+    accuracy. ``None`` arguments resolve against the global defaults.
+    """
+    if truncation_sigmas is None:
+        from ._defaults import get_default
+        truncation_sigmas = get_default("truncation_sigmas")
+    if kernel_precision is None:
+        from ._defaults import get_default
+        kernel_precision = get_default("kernel_precision")
+    k = float(truncation_sigmas) if truncation_sigmas is not None else float("inf")
+    if np.isfinite(k):
+        eps = float(np.exp(-0.5 * k * k))
+    else:
+        eps = _FACTORED_EPS_FLOOR
+    eps = min(max(eps, _FACTORED_EPS_FLOOR), _FACTORED_EPS_CEIL)
+    if kernel_precision == "single":
+        # The S_m tabulation itself is only good to ~7 significant
+        # figures under single-precision kernels; a tighter read-back
+        # target would be spurious.
+        eps = max(eps, 1e-7)
+    return eps
+
+
+def _factored_spp(eps: float) -> int:
+    """Samples per σ/√m for the S_m tabulation, from the target eps."""
+    spp = int(np.ceil((_FACTORED_CALIB_A6 / eps) ** (1.0 / 6.0)))
+    return int(np.clip(spp, _FACTORED_SPP_MIN, _FACTORED_SPP_MAX))
+
+
+def _lagrange6_uniform(y: np.ndarray, x0: float, h: float,
+                       pts: np.ndarray) -> np.ndarray:
+    """Quintic (6-point Lagrange) read-back on a uniform grid.
+
+    Evaluates the local degree-5 interpolant of the samples ``y`` on the
+    grid ``x0 + i·h`` at the points ``pts`` (any shape). Fully
+    vectorised; the same closed-form stencil weights are used in the
+    MATLAB twin (``mobius.evalOrbitRel``) for exact cross-language
+    parity. Stencils are clamped at the grid ends; callers pad the grid
+    so that clamping only occurs where ``y`` has decayed below the
+    truncation floor.
+    """
+    n = y.shape[0]
+    if n < 6:
+        raise ValueError(f"read-back grid must have >= 6 nodes; got {n}.")
+    s = (np.asarray(pts, dtype=np.float64) - x0) / h
+    base = np.floor(s).astype(np.intp) - 2
+    np.clip(base, 0, n - 6, out=base)
+    t = s - base                                  # stencil coordinate
+    d = t[..., None] - np.arange(6.0)             # (..., 6)
+    # ∏_{k≠j}(t - k) via prefix/suffix products (no division by d,
+    # which may be exactly zero at grid nodes).
+    pref = np.ones_like(d)
+    pref[..., 1:] = np.cumprod(d[..., :-1], axis=-1)
+    suff = np.ones_like(d)
+    suff[..., :-1] = np.cumprod(d[..., :0:-1], axis=-1)[..., ::-1]
+    wgt = pref * suff / _L6_DENOM
+    idx = base[..., None] + np.arange(6)
+    return np.einsum('...j,...j->...', wgt, y[idx])
+
+
+def _factored_worthwhile(K: int, r: int, n_q: int, N_u: int,
+                         n_fine_total: int) -> bool:
+    """Cost gate: is the factored path cheaper than direct evaluation?
+
+    Direct cost ≈ B_r · r · K · N_u · n_q kernel evaluations; factored
+    cost ≈ K · n_fine_total (tabulation) plus
+    ``_FACTORED_READBACK_COST`` kernel-equivalents per (partition-block,
+    u-node, query). For a single query with modest K the tabulation
+    dominates and direct wins; the factored path wins as n_q or K grow.
+    """
+    B_r = float(len(get_set_partitions_with_mobius(r)))
+    direct = B_r * r * float(K) * float(N_u) * float(n_q)
+    fact = (float(K) * float(n_fine_total)
+            + _FACTORED_READBACK_COST * B_r * r * float(N_u) * float(n_q))
+    return fact < direct
+
+
 def eval_orbit_rel(
     p: np.ndarray,
     w: np.ndarray,
@@ -1244,26 +1388,57 @@ def eval_orbit_rel(
     return_cancellation_ratio: bool = False,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
+    factored: bool | None = None,
 ) -> np.ndarray:
     """Möbius point evaluator for the SA relative-mode tensor.
 
     Computes ``T_rel(x_rel_q)`` for each column of *x_rel* via
-    u-grid quadrature wrapping :func:`eval_orbit_abs`:
+    u-grid quadrature of the translation marginal:
 
         T_rel(Δ) = (1/Z_t) · ∫ T_abs(u, u + Δ_1, ..., u + Δ_{r-1}) du,
 
     where ``Z_t = σ√(2π/r)`` is the translation-mode normaliser
     (verified against grid integration for both periodic and
-    non-periodic cases). The integration grid mirrors
+    non-periodic cases). The quadrature itself is intrinsic to the
+    Möbius realisation of relative mode: the alternating partition sum
+    only factorises across slots at fixed ``u``, and integrating it
+    analytically re-expands into the ``O(K^r)`` tuple enumeration the
+    decomposition exists to avoid. The grid mirrors
     :func:`mpt.tensor._orbit_inner_rel`: periodic uses ``[0, P)``
     sampled at ``samples_per_sigma`` points per σ; non-periodic uses
     a Gaussian-supported window extending 8σ beyond the alignment of
     the source positions and the query trajectory.
 
-    Memory and compute: each u-grid evaluation costs the same as one
-    :func:`eval_orbit_abs` call. For periodic mode at σ/P = 0.025
-    (typical for chord analysis) the grid has ~400 points; runtime
-    scales linearly in this count.
+    Two integrand-evaluation strategies are available:
+
+    - **Direct** — each u-node costs one :func:`eval_orbit_abs`
+      evaluation; per-query cost ``O(B_r · r · K · N_u)``.
+    - **Factored** (non-periodic only) — each partition block's factor
+      separates exactly as ``exp(-var(δ_B)/2σ²) · S_m(u + mean(δ_B))``
+      with ``S_m(v) = Σ_i w_i^m exp(-m (v - p_i)²/2σ²)`` a
+      query-independent smoothed event distribution at width ``σ/√m``.
+      Tabulating ``S_1..S_r`` once and reading them back by local
+      quintic interpolation removes the ``K`` factor from the per-node
+      cost: per-query cost ``O(B_r · r · N_u)`` after a one-time
+      ``O(Σ_m N_fine_m · K)`` tabulation. The read-back accuracy is
+      tied to ``truncation_sigmas``: the tabulation step targets a
+      relative error at the kernel-truncation floor ``exp(-k²/2)``
+      (clamped to ``[1e-12, 1e-3]``; ``inf`` targets ``1e-12``, at the
+      noise level of the u-grid quadrature; under
+      ``kernel_precision='single'`` the target is floored at ``1e-7``).
+
+    By default (``factored=None``) a cost gate picks the cheaper
+    strategy per call (direct for a single query at modest ``K``,
+    factored for batches or large ``K``). Periodic relative mode always
+    uses the direct strategy: with per-component wrapping a block whose
+    offsets straddle an image boundary does not separate into
+    variance and mean parts, so the factorisation identity does not
+    hold on the circle.
+
+    Memory: the direct strategy's intermediate is chunked along the
+    query axis against the ``kernel_chunk_bytes`` budget; the factored
+    strategy's ``(N_u, n_q_chunk)`` read-back blocks are chunked
+    against the same budget.
 
     Parameters
     ----------
@@ -1279,6 +1454,16 @@ def eval_orbit_rel(
         u-grid density in points per σ. The default matches the IP
         rel-mode path; reduce to 5 for speed at the cost of ~1e-9
         relative precision.
+    truncation_sigmas, kernel_precision : optional
+        Kernel-evaluation controls, resolved against the global
+        defaults when ``None``. Besides their usual kernel-floor
+        semantics, they set the factored read-back accuracy target as
+        described above.
+    factored : bool or None, default None
+        ``None`` — cost gate chooses per call. ``True`` — force the
+        factored strategy (raises ``ValueError`` in periodic mode).
+        ``False`` — force the direct strategy. Intended for testing
+        and benchmarking; the gate is the supported default.
 
     Returns
     -------
@@ -1287,7 +1472,9 @@ def eval_orbit_rel(
         ``return_cancellation_ratio=True``, returns
         ``(values, worst_ratios)`` where ``worst_ratios`` is the
         minimum cancellation ratio across u-grid points for each
-        query (a corruption signal).
+        query (a corruption signal). Ratio semantics are identical in
+        both strategies (per-node alternating-sum ratio, worst case
+        over the grid).
     """
     if r < 2:
         # r=1 is degenerate: rel space is 0-dim, T_rel is constant.
@@ -1303,6 +1490,12 @@ def eval_orbit_rel(
         raise ValueError(
             f"x_rel must have shape (r-1, n_q) with r-1={r-1}; "
             f"got {x_rel.shape}."
+        )
+    if factored is True and is_per:
+        raise ValueError(
+            "factored=True is not available in periodic relative mode: "
+            "per-component wrapping breaks the variance/mean block "
+            "factorisation. Use factored=None or factored=False."
         )
 
     n_q = x_rel.shape[1]
@@ -1326,56 +1519,136 @@ def eval_orbit_rel(
         )
         u_grid = np.linspace(u_min, u_max, N_u)
 
-    # Evaluate T_abs at each u-grid point and accumulate, batching the
-    # u-grid loop into a single vectorised call to eval_orbit_abs via
-    # its (r, ...) trailing-dim API. The intermediate
-    # (m, N, N_u, n_q) array can be very large for fine grids; we chunk
-    # along the query axis to bound peak memory.
-    #
-    # Memory budget: heuristic ~1 GB. Per-block intermediate is
-    # O(m · N · N_u · n_q_chunk · 8) bytes, dominated by the largest
-    # block size m_max ≤ r. The chunk size is solved for given r, N,
-    # N_u with a fudge factor for transient allocations during the
-    # per-partition arithmetic.
-    BUDGET_BYTES = kernel_chunk_bytes_resolved()
-    per_chunk_bytes_per_query = 8 * r * N_u * p.shape[0] * 4  # m_max ≤ r, fudge ×4
-    chunk_size = max(1, BUDGET_BYTES // max(per_chunk_bytes_per_query, 1))
-    chunk_size = min(chunk_size, n_q)
-
-    F = np.empty((N_u, n_q), dtype=np.float64)
-    R = np.ones((N_u, n_q), dtype=np.float64) if return_cancellation_ratio else None
-
-    for c0 in range(0, n_q, chunk_size):
-        c1 = min(c0 + chunk_size, n_q)
-        n_q_chunk = c1 - c0
-
-        # Build (r, N_u, n_q_chunk) query stack: row 0 is u
-        # (broadcast across queries), rows 1..r-1 are u + x_rel.
-        x_full = np.empty((r, N_u, n_q_chunk), dtype=np.float64)
-        # Row 0: u_grid broadcast across query axis.
-        x_full[0, :, :] = u_grid[:, None]
-        if r >= 2:
-            # x_rel[:, c0:c1] has shape (r-1, n_q_chunk); broadcast u_grid.
-            x_full[1:, :, :] = u_grid[None, :, None] + x_rel[:, None, c0:c1]
-
-        if return_cancellation_ratio:
-            vals_chunk, ratios_chunk = eval_orbit_abs(
-                p, w, sigma, r, x_full,
-                is_per=is_per, period=period,
-                return_cancellation_ratio=True,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-            )
-            F[:, c0:c1] = vals_chunk
-            R[:, c0:c1] = ratios_chunk
+    # ---- Strategy selection ----
+    K = int(p.shape[0])
+    eps = _factored_target_eps(truncation_sigmas, kernel_precision)
+    spp = _factored_spp(eps)
+    if is_per:
+        use_factored = False
+    else:
+        # Read-back points are u + mean(δ_B) with the block means lying
+        # inside the hull of the full offset rows (slot 0 carries δ=0).
+        dmin = min(0.0, float(x_rel.min(initial=0.0)))
+        dmax = max(0.0, float(x_rel.max(initial=0.0)))
+        n_fine_total = 0
+        for m in range(1, r + 1):
+            h_m = (sigma / np.sqrt(m)) / spp
+            n_fine_total += int(np.ceil((u_max + dmax - u_min - dmin) / h_m)) + 12
+        if factored is None:
+            use_factored = _factored_worthwhile(K, r, n_q, N_u, n_fine_total)
         else:
-            vals_chunk = eval_orbit_abs(
-                p, w, sigma, r, x_full,
-                is_per=is_per, period=period,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
+            use_factored = bool(factored)
+
+    BUDGET_BYTES = kernel_chunk_bytes_resolved()
+
+    if use_factored:
+        # ---- Factored strategy: tabulate S_1..S_r, read back ----
+        from ._kernel import gaussian_kernel_sum
+        kw: dict = {}
+        if truncation_sigmas is not None:
+            kw["truncation_sigmas"] = float(truncation_sigmas)
+        if kernel_precision is not None:
+            kw["kernel_precision"] = kernel_precision
+        tables: dict[int, tuple[float, float, np.ndarray]] = {}
+        for m in range(1, r + 1):
+            sig_m = sigma / np.sqrt(m)
+            h_m = sig_m / spp
+            lo = u_min + dmin - 3.0 * h_m
+            hi = u_max + dmax + 3.0 * h_m
+            n_m = int(np.ceil((hi - lo) / h_m)) + 7
+            grid_m = lo + h_m * np.arange(n_m)
+            wm = w ** m if m > 1 else w
+            vals = gaussian_kernel_sum(
+                p.reshape(1, -1), wm, grid_m.reshape(1, -1),
+                float(sig_m), **kw,
             )
-            F[:, c0:c1] = vals_chunk
+            tables[m] = (lo, h_m, np.asarray(vals, dtype=np.float64).ravel())
+
+        partitions = get_set_partitions_with_mobius(r)
+        inv_2s2 = 1.0 / (2.0 * sigma * sigma)
+        deltas_all = np.vstack([np.zeros((1, n_q)), x_rel])
+
+        # Chunk queries: dominant transient is the (N_u, n_q_chunk, 6)
+        # stencil workspace plus a few (N_u, n_q_chunk) accumulators.
+        per_query_bytes = 8 * N_u * 40
+        chunk_size = max(1, BUDGET_BYTES // max(per_query_bytes, 1))
+        chunk_size = min(chunk_size, n_q)
+
+        F = np.empty((N_u, n_q), dtype=np.float64)
+        R = (np.ones((N_u, n_q), dtype=np.float64)
+             if return_cancellation_ratio else None)
+
+        for c0 in range(0, n_q, chunk_size):
+            c1 = min(c0 + chunk_size, n_q)
+            dl = deltas_all[:, c0:c1]
+            total = np.zeros((N_u, c1 - c0), dtype=np.float64)
+            max_abs = (np.zeros((N_u, c1 - c0), dtype=np.float64)
+                       if return_cancellation_ratio else None)
+            for blocks, mu in partitions:
+                block_prod = np.ones((N_u, c1 - c0), dtype=np.float64)
+                for B in blocks:
+                    Bl = list(B)
+                    m = len(Bl)
+                    dB = dl[Bl, :]
+                    mean_d = dB.mean(axis=0)
+                    var_d = np.sum((dB - mean_d) ** 2, axis=0)
+                    lo, h_m, ym = tables[m]
+                    pts = u_grid[:, None] + mean_d[None, :]
+                    Sm = _lagrange6_uniform(ym, lo, h_m, pts)
+                    block_prod *= np.exp(-var_d * inv_2s2)[None, :] * Sm
+                term = mu * block_prod
+                total += term
+                if return_cancellation_ratio:
+                    np.maximum(max_abs, np.abs(term), out=max_abs)
+            F[:, c0:c1] = total
+            if return_cancellation_ratio:
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    R[:, c0:c1] = np.where(
+                        max_abs > 0, np.abs(total) / max_abs, 1.0,
+                    )
+    else:
+        # ---- Direct strategy: eval_orbit_abs at each u-node ----
+        # The intermediate (m, N, N_u, n_q) array can be very large for
+        # fine grids; chunk along the query axis to bound peak memory.
+        per_chunk_bytes_per_query = 8 * r * N_u * p.shape[0] * 4  # m_max ≤ r, fudge ×4
+        chunk_size = max(1, BUDGET_BYTES // max(per_chunk_bytes_per_query, 1))
+        chunk_size = min(chunk_size, n_q)
+
+        F = np.empty((N_u, n_q), dtype=np.float64)
+        R = (np.ones((N_u, n_q), dtype=np.float64)
+             if return_cancellation_ratio else None)
+
+        for c0 in range(0, n_q, chunk_size):
+            c1 = min(c0 + chunk_size, n_q)
+            n_q_chunk = c1 - c0
+
+            # Build (r, N_u, n_q_chunk) query stack: row 0 is u
+            # (broadcast across queries), rows 1..r-1 are u + x_rel.
+            x_full = np.empty((r, N_u, n_q_chunk), dtype=np.float64)
+            # Row 0: u_grid broadcast across query axis.
+            x_full[0, :, :] = u_grid[:, None]
+            if r >= 2:
+                # x_rel[:, c0:c1] has shape (r-1, n_q_chunk); broadcast u_grid.
+                x_full[1:, :, :] = u_grid[None, :, None] + x_rel[:, None, c0:c1]
+
+            if return_cancellation_ratio:
+                vals_chunk, ratios_chunk = eval_orbit_abs(
+                    p, w, sigma, r, x_full,
+                    is_per=is_per, period=period,
+                    return_cancellation_ratio=True,
+                    truncation_sigmas=truncation_sigmas,
+                    kernel_precision=kernel_precision,
+                )
+                F[:, c0:c1] = vals_chunk
+                R[:, c0:c1] = ratios_chunk
+            else:
+                vals_chunk = eval_orbit_abs(
+                    p, w, sigma, r, x_full,
+                    is_per=is_per, period=period,
+                    truncation_sigmas=truncation_sigmas,
+                    kernel_precision=kernel_precision,
+                )
+                F[:, c0:c1] = vals_chunk
 
     if is_per:
         integral = F.sum(axis=0) * du

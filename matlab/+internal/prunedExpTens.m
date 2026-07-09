@@ -32,6 +32,13 @@ function dens = prunedExpTens(dens)
             if all(live(:))
                 return;
             end
+            if internal.densityHasKernelCov(dens)
+                % r == K on matrix-sigma densities: dropping a value
+                % would change the tuple dimension. The dead value
+                % already zeroes the (single) tuple's weight, so
+                % pruning is a no-op.
+                return;
+            end
             out        = struct();
             out.tag    = 'ExpTensDensity';
             out.p      = dens.p(live);
@@ -75,6 +82,10 @@ function dens = prunedExpTens(dens)
             % Must be carried, or the rebuild flattens the attribute.
             if isfield(dens, 'nested'); out.nested = dens.nested; end
             if isfield(dens, 'names'); out.names = dens.names; end
+            if isfield(dens, 'kernelCov')
+                out.kernelCov = dens.kernelCov;
+                out.kernelChol = dens.kernelChol;
+            end
             dens             = out;
 
         otherwise

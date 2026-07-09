@@ -130,6 +130,12 @@ function dens = buildExpTens(varargin)
             error('buildExpTens:specsMissingScalar', ...
                   'specs requires sigma, isPer, period kwargs (each length-A).');
         end
+        if iscell(sigmaKw) && any(cellfun(@internal.isKernelCov, sigmaKw))
+            error('mpt:aniso:specsUnsupported', ...
+                  ['A matrix-valued kernel covariance is not supported ' ...
+                   'with specs (nested attributes); supply flat ' ...
+                   'attributes via the positional form.']);
+        end
         A = numel(posArgs{1});
         [rVec, isRelVec, isSymVec, nestedList, names] = ...
             localNormaliseSpecs(specs, A);
@@ -147,7 +153,35 @@ function dens = buildExpTens(varargin)
     first = posArgs{1};
 
     if iscell(first)
-        % Multi-attribute path
+        % Multi-attribute path. A sigma supplied as a cell array mixing
+        % scalars and matrices carries per-attribute matrix-valued
+        % kernel covariances: resolve (validate, whiten, sigma -> 1)
+        % before the ordinary build, then attach the covariance
+        % metadata to the returned density.
+        if numel(posArgs) >= 3 && iscell(posArgs{3})
+            sigmaArg = posArgs{3};
+            if any(cellfun(@internal.isKernelCov, sigmaArg))
+                if numel(posArgs) < 7
+                    error('buildExpTens:maArgCount', ...
+                          ['Multi-attribute call expects 7 or 8 ' ...
+                           'positional arguments.']);
+                end
+                isSymArg = [];
+                if numel(posArgs) >= 8, isSymArg = posArgs{8}; end
+                [pW, sigmaNum, covList, cholList] = ...
+                    internal.resolveAnisoSigma(posArgs{1}, sigmaArg, ...
+                        posArgs{4}, posArgs{5}, posArgs{6}, isSymArg, ...
+                        nested);
+                posArgs{1} = pW;
+                posArgs{3} = sigmaNum;
+                dens = localBuildMA(posArgs, verbose, lazy, nested, {});
+                dens.kernelCov = covList;
+                dens.kernelChol = cholList;
+                return
+            end
+            % All-scalar cell sigma: accept, coerce to numeric.
+            posArgs{3} = cellfun(@double, sigmaArg);
+        end
         dens = localBuildMA(posArgs, verbose, lazy, nested, {});
     elseif isnumeric(first)
         % Single-attribute legacy path
@@ -155,6 +189,24 @@ function dens = buildExpTens(varargin)
             error('buildExpTens:nestedSAUnsupported', ...
                   ['nested is only valid for multi-attribute calls ' ...
                    '(first argument a cell array of attribute matrices).']);
+        end
+        if numel(posArgs) >= 3 && internal.isKernelCov(posArgs{3})
+            if numel(posArgs) < 7
+                error('buildExpTens:saArgCount', ...
+                      ['Single-attribute call expects 7 or 8 ' ...
+                       'positional arguments.']);
+            end
+            isSymArg = [];
+            if numel(posArgs) >= 8, isSymArg = posArgs{8}; end
+            [pW, sigmaOne, Sigma, R] = internal.resolveAnisoSigma( ...
+                posArgs{1}, posArgs{3}, posArgs{4}, posArgs{5}, ...
+                posArgs{6}, isSymArg, []);
+            posArgs{1} = pW;
+            posArgs{3} = sigmaOne;
+            dens = localBuildSA(posArgs, verbose, lazy);
+            dens.kernelCov = Sigma;
+            dens.kernelChol = R;
+            return
         end
         dens = localBuildSA(posArgs, verbose, lazy);
     else

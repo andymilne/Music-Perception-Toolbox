@@ -227,6 +227,21 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
     % collapses to a scalar profile).
     isContextList = iscell(densContext);
     isQueryList   = iscell(densQuery);
+
+    % Densities built with a matrix-valued kernel covariance store
+    % whitened coordinates, so windows and offsets (specified in
+    % original coordinates) would be applied in the wrong frame.
+    if localAnyKernelCov(densContext) || localAnyKernelCov(densQuery)
+        error('mpt:aniso:windowedTensorSimilarity', ...
+            ['windowedTensorSimilarity does not support densities ' ...
+             'built with a matrix-valued kernel covariance: their ' ...
+             'stored coordinates are whitened, so windows and ' ...
+             'offsets (specified in original coordinates) would be ' ...
+             'applied in the wrong frame. Use windowedSimilarity, ' ...
+             'whose sweep translates and windows the raw events ' ...
+             'before each density is built.']);
+    end
+
     if isContextList || isQueryList
         profile = localWindowedSimilarityList( ...
             densContext, densQuery, windowSpec, offsets, ...
@@ -497,5 +512,16 @@ function profile = localWindowedSimilarityList( ...
                     'kernelPrecision', kernelPrecision);
             end
         end
+    end
+end
+
+
+function tf = localAnyKernelCov(op)
+%LOCALANYKERNELCOV  True if any density in a scalar-or-cell operand
+%carries a matrix-valued kernel covariance.
+    if iscell(op)
+        tf = any(cellfun(@internal.densityHasKernelCov, op));
+    else
+        tf = internal.densityHasKernelCov(op);
     end
 end

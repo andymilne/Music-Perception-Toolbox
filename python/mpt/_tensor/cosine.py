@@ -381,6 +381,40 @@ def cos_sim_exp_tens(*args,
                 "instead (build each entry with build_exp_tens first)."
             )
 
+        # Matrix-valued kernel covariance: whiten both operands once
+        # (shared geometry, so a single Cholesky factor per attribute)
+        # and fall through to the isotropic machinery with sigma = 1.
+        # No normalization correction is needed: the tuple-independent
+        # prefactor is identical on both sides of every normalization
+        # and cancels.
+        from .aniso import sigma_vec_has_kernel_cov
+        if sigma_vec_has_kernel_cov(args[4]):
+            from .build import _resolve_aniso_ma
+            from .aniso import whiten_p_attr
+            (p1_in, w1_in, p2_in, w2_in) = args[0], args[1], args[2], args[3]
+            sigma_vec_in, r_vec_in = args[4], args[5]
+            is_rel_in, is_per_in = args[6], args[7]
+            is_sym_in = args[9] if len(args) == 10 else None
+            probe = p1_in[0] if a_is_list else p1_in
+            _, sigma_res, _, chol_list = _resolve_aniso_ma(
+                probe, sigma_vec_in, r_vec_in, is_rel_in, is_per_in,
+                is_sym_in, None,
+            )
+            # The resolver validated the constraints and produced the
+            # per-attribute Cholesky factors; whiten every structure
+            # with them (whiten_values rejects row-count mismatches,
+            # which enforces r == K on the remaining operands).
+            if a_is_list:
+                p1_w = [whiten_p_attr(blk, chol_list) for blk in p1_in]
+            else:
+                p1_w = whiten_p_attr(p1_in, chol_list)
+            if b_is_list:
+                p2_w = [whiten_p_attr(blk, chol_list) for blk in p2_in]
+            else:
+                p2_w = whiten_p_attr(p2_in, chol_list)
+            args = (p1_w, w1_in, p2_w, w2_in, sigma_res) + tuple(args[5:])
+            a = args[0]
+
         if not a_is_list and not b_is_list:
             # Single MA scalar-vs-scalar — existing path.
             if len(args) not in (9, 10):
@@ -451,6 +485,35 @@ def cos_sim_exp_tens(*args,
             f"Raw SA inputs must be 1-D (single chord) or 2-D (batched); "
             f"got P1.ndim = {a_arr.ndim}, P2.ndim = {b_arr.ndim}."
         )
+
+    # Matrix-valued kernel covariance: whiten both operands and fall
+    # through to the isotropic machinery with sigma = 1 (prefactors
+    # cancel under either normalization).
+    from .aniso import is_kernel_cov as _is_kc
+    if _is_kc(args[4]):
+        from .aniso import validate_kernel_cov, check_aniso_constraints, \
+            whiten_values
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' is not supported with a matrix-valued kernel "
+                "covariance (spectral augmentation changes the multiset "
+                "size, breaking r == K)."
+            )
+        r_in, is_rel_in, is_per_in = args[5], args[6], args[7]
+        is_sym_in = args[9] if len(args) == 10 else True
+        for nm, arr in (("P1", a_arr), ("P2", b_arr)):
+            K_side = arr.shape[-1]
+            check_aniso_constraints(
+                r=r_in, K=K_side, is_rel=is_rel_in, is_per=is_per_in,
+                is_sym=is_sym_in, name=f"sigma ({nm})",
+            )
+        Sigma_in, R_in = validate_kernel_cov(
+            args[4], dim=int(r_in), name="sigma")
+        a_arr = (whiten_values(R_in, a_arr) if a_arr.ndim == 1
+                 else whiten_values(R_in, a_arr.T).T)
+        b_arr = (whiten_values(R_in, b_arr) if b_arr.ndim == 1
+                 else whiten_values(R_in, b_arr.T).T)
+        args = (a_arr, args[1], b_arr, args[3], 1.0) + tuple(args[5:])
 
     # Batched dispatch fires whenever either operand is 2-D.
     if a_arr.ndim == 2 or b_arr.ndim == 2:
@@ -688,6 +751,15 @@ def _cos_sim_pair_core(
             "offsets array for the scalar single-offset case, or a "
             "(dim, M) array for the M-offset sweep."
         )
+    from .aniso import density_has_kernel_cov, density_kernel_covs_compatible
+    if density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y):
+        if not density_kernel_covs_compatible(dens_x, dens_y):
+            raise ValueError(
+                "The two densities were built with different kernel "
+                "covariances (or one with a matrix-valued sigma and one "
+                "without); inner products require a shared kernel per "
+                "attribute."
+            )
     if isinstance(dens_x, MaetDensity):
         if not isinstance(dens_y, MaetDensity):
             raise TypeError(

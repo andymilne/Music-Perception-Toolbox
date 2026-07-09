@@ -254,6 +254,24 @@ def eval_exp_tens(*args,
                 f"is_rel_vec, is_per_vec, period_vec[, is_sym_vec], x"
                 f"[, normalize]); got {len(args)}."
             )
+        from .aniso import sigma_vec_has_kernel_cov
+        if sigma_vec_has_kernel_cov(sigma_vec):
+            if spectrum is not None:
+                raise TypeError(
+                    "'spectrum' is not supported with a matrix-valued "
+                    "kernel covariance."
+                )
+            from .build import build_exp_tens as _bet
+            dens_a = _bet(
+                p_attr, w_in, sigma_vec, r_vec,
+                is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+                verbose=False,
+            )
+            return _eval_exp_tens_scalar(
+                dens_a, x, normalize, method=method,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision, verbose=verbose,
+            )
         if spectrum is not None:
             raise TypeError(
                 "'spectrum' kwarg is only supported in raw single-attribute "
@@ -299,6 +317,32 @@ def eval_exp_tens(*args,
             f"{type(a).__name__}."
         ) from exc
 
+    from .aniso import is_kernel_cov
+    if is_kernel_cov(sigma):
+        if spectrum is not None:
+            raise TypeError(
+                "'spectrum' is not supported with a matrix-valued "
+                "kernel covariance (spectral augmentation changes the "
+                "multiset size, breaking r == K)."
+            )
+        if a_arr.ndim != 1:
+            raise NotImplementedError(
+                "Raw SA batched (2-D) input is not supported with a "
+                "matrix-valued kernel covariance; carry the tuples as "
+                "events of an ordered multi-attribute form, or build "
+                "per-row density objects."
+            )
+        from .build import build_exp_tens as _bet
+        dens_a = _bet(
+            p, w, sigma, r_, is_rel, is_per, period,
+            (True if is_sym is None else is_sym), verbose=False,
+        )
+        return _eval_exp_tens_scalar(
+            dens_a, x, normalize, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision, verbose=verbose,
+        )
+
     if a_arr.ndim == 1:
         if precision is not None:
             raise TypeError(
@@ -334,7 +378,15 @@ def _eval_exp_tens_scalar(
     Threads ``truncation_sigmas`` / ``kernel_precision`` through to the
     SA centres path; MA centres routing is deferred (Stage 3).
     """
+    from .aniso import density_has_kernel_cov, whiten_query, \
+        density_logdet_sum
     if isinstance(dens, WindowedMaetDensity):
+        if density_has_kernel_cov(dens.dens):
+            raise NotImplementedError(
+                "Matrix-valued kernel covariances are not supported on "
+                "windowed densities; use windowed_similarity, whose "
+                "internal builds accept them."
+            )
         # Evaluate underlying density, multiply elementwise by window.
         underlying = _eval_exp_tens_ma(
             dens.dens, x, normalize,
@@ -346,20 +398,32 @@ def _eval_exp_tens_scalar(
         x_list = _split_query_to_attr_list(dens.dens, x)
         W_vals = _evaluate_window_on_query(dens, x_list)
         return underlying * W_vals
+    _aniso = density_has_kernel_cov(dens)
+    if _aniso:
+        # Whitened coordinates: transform the query once; the internal
+        # sigma is 1. The Gaussian normalization constant acquires
+        # det(Sigma)^{-1/2}, applied after the isotropic machinery.
+        x = whiten_query(dens, x)
     if isinstance(dens, MaetDensity):
-        return _eval_exp_tens_ma(
+        vals = _eval_exp_tens_ma(
             dens, x, normalize,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
         )
+        if _aniso and normalize != "none":
+            vals = vals * np.exp(-0.5 * density_logdet_sum(dens))
+        return vals
     if isinstance(dens, ExpTensDensity):
-        return _eval_exp_tens_sa(
+        vals = _eval_exp_tens_sa(
             dens, x, normalize, method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
         )
+        if _aniso and normalize != "none":
+            vals = vals * np.exp(-0.5 * density_logdet_sum(dens))
+        return vals
     raise TypeError(
         f"dens must be an ExpTensDensity, MaetDensity, or "
         f"WindowedMaetDensity; got {type(dens).__name__}."

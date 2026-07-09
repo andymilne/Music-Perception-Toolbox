@@ -404,3 +404,128 @@ def seq_weights(
         )
 
     return profile * w_arr
+
+
+# =====================================================================
+#  interval_kernel_cov — anisotropic kernel covariance constructor
+# =====================================================================
+
+
+def interval_kernel_cov(r, sd_position=0.0, sd_interval=0.0, sd_shift=0.0):
+    """Kernel covariance for an ordered tuple of consecutive differences.
+
+    Builds the ``r x r`` covariance matrix
+
+        ``Sigma = sd_position**2 * D D^T + sd_interval**2 * I
+                  + sd_shift**2 * ones((r, r))``
+
+    for an ordered attribute whose event tuples are *r* consecutive
+    differences (intervals) of ``r + 1`` underlying positions, where
+    ``D`` is the ``r x (r + 1)`` first-differencing map. The three
+    terms are three independently specified sources of perceptual
+    uncertainty, added because their sources are independent:
+
+    - ``sd_position``: uncertainty on the underlying *positions* from
+      which the differences are formed. Shared endpoints propagate it
+      to the tridiagonal ``sd_position**2 * D D^T`` (``2 sd**2`` on
+      the diagonal, ``-sd**2`` on the first off-diagonals): perturbing
+      one interior position lengthens one interval and shortens its
+      neighbour. This is the exact counterpart of
+      ``sigma_space='position'`` in :func:`~mpt.n_tuple_entropy`.
+    - ``sd_interval``: uncertainty on each *interval* itself,
+      independent across intervals (``sigma_space='interval'``).
+    - ``sd_shift``: graded tolerance for a *common shift* of the whole
+      tuple, the rank-one ridge ``sd_shift**2 * ones``. A common shift
+      of an interval tuple is a transposition when the values are
+      pitch intervals and a tempo change when they are log inter-onset
+      intervals. As ``sd_shift`` grows the kernel's precision tends to
+      the relative-mode projector, so ``is_rel=True`` is the exact
+      (infinite-``sd_shift``) limit; a matrix covariance expresses the
+      graded counterpart.
+
+    In the time reading, the first two terms are the two levels of the
+    Wing & Kristofferson (1973) timing model: motor implementation
+    delays attach to onsets (``sd_position``), central timekeeper
+    variance attaches to intervals (``sd_interval``).
+
+    The covariance is expressed in whatever coordinates the attribute
+    carries: log inter-onset intervals for multiplicative tempo
+    tolerance, semitones (or cents) for pitch steps. All three
+    arguments are standard deviations in those coordinates; they are
+    squared internally.
+
+    Parameters
+    ----------
+    r : int
+        Tuple size (number of consecutive differences); ``r >= 1``.
+    sd_position : float, default 0
+        Standard deviation of independent noise on each underlying
+        position.
+    sd_interval : float, default 0
+        Standard deviation of independent noise on each interval.
+    sd_shift : float, default 0
+        Standard deviation of a common shift of the whole tuple.
+
+    Returns
+    -------
+    (r, r) ndarray
+        The kernel covariance, ready to be passed as the ``sigma``
+        argument of :func:`~mpt.build_exp_tens`,
+        :func:`~mpt.eval_exp_tens`, :func:`~mpt.cos_sim_exp_tens`,
+        :func:`~mpt.entropy_exp_tens`, or
+        :func:`~mpt.windowed_similarity` for an ordered
+        (``is_sym=False``), absolute (``is_rel=False``), non-periodic
+        (``is_per=False``) attribute with ``r == K``.
+
+    Raises
+    ------
+    ValueError
+        If ``r < 1``, any argument is negative, or the resulting
+        matrix is singular (``sd_shift`` alone is rank one, so at
+        least one of ``sd_position`` and ``sd_interval`` must be
+        positive).
+
+    References
+    ----------
+    Wing, A. M., & Kristofferson, A. B. (1973). Response delays and
+    the timing of discrete motor responses. *Perception &
+    Psychophysics*, 14(1), 5-12.
+    """
+    r = int(r)
+    if r < 1:
+        raise ValueError("interval_kernel_cov: r must be a positive integer.")
+    if r == 1:
+        raise ValueError(
+            "interval_kernel_cov: at r = 1 the covariance reduces to a "
+            "scalar variance, which is indistinguishable from a scalar "
+            "sigma in the MATLAB toolbox; pass the equivalent standard "
+            "deviation sqrt(2*sd_position**2 + sd_interval**2 + "
+            "sd_shift**2) as the ordinary sigma argument instead."
+        )
+    for nm, v in (("sd_position", sd_position),
+                  ("sd_interval", sd_interval),
+                  ("sd_shift", sd_shift)):
+        if not np.isfinite(v) or v < 0:
+            raise ValueError(
+                f"interval_kernel_cov: {nm} must be a finite "
+                f"non-negative standard deviation; got {v!r}. For "
+                f"exact common-shift invariance use is_rel=True rather "
+                f"than an infinite sd_shift."
+            )
+    # First-differencing map D: r x (r + 1); D D^T is tridiagonal with
+    # 2 on the diagonal and -1 on the first off-diagonals.
+    ddt = 2.0 * np.eye(r) - np.eye(r, k=1) - np.eye(r, k=-1)
+    Sigma = (float(sd_position) ** 2 * ddt
+             + float(sd_interval) ** 2 * np.eye(r)
+             + float(sd_shift) ** 2 * np.ones((r, r)))
+    # Definiteness check (PSD validation always errors): sd_shift alone
+    # is rank one for r >= 2.
+    try:
+        np.linalg.cholesky(Sigma)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError(
+            "interval_kernel_cov: the resulting covariance is singular. "
+            "sd_shift alone is rank one, so at least one of sd_position "
+            "and sd_interval must be positive."
+        ) from exc
+    return Sigma

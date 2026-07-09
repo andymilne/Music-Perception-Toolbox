@@ -76,7 +76,7 @@ from ._utils import estimate_comp_time
 from .audio import AudioPeaksDetail, audio_peaks
 
 # --- Serial / sequential analysis ---
-from .serial import continuity, seq_weights
+from .serial import continuity, interval_kernel_cov, seq_weights
 
 # --- Global defaults ---
 from ._defaults import (
@@ -141,6 +141,7 @@ __all__ = [
     "AudioPeaksDetail",
     # serial
     "continuity",
+    "interval_kernel_cov",
     "seq_weights",
     # defaults
     "get_default",

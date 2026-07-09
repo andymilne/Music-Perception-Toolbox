@@ -312,10 +312,24 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
             dens = firstArg;
         case 'MaetDensity'
             dens_ma = internal.ensureExpTensExpensive(firstArg);
+            if internal.densityHasKernelCov(dens_ma)
+                X = internal.whitenQuery(dens_ma, X);
+            end
             vals = localEvalMA(dens_ma, X, normalize, verbose, ...
                 truncationSigmas, kernelPrecision);
+            if ~strcmp(normalize, 'none') && ...
+                    internal.densityHasKernelCov(dens_ma)
+                vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
+            end
             return;
         case 'WindowedMaetDensity'
+            if internal.densityHasKernelCov(firstArg.dens)
+                error('mpt:aniso:windowedEval', ...
+                    ['Matrix-valued kernel covariances are not ' ...
+                     'supported on windowed densities; use ' ...
+                     'windowedSimilarity, whose internal builds ' ...
+                     'accept them.']);
+            end
             underlying = localEvalMA( ...
                 internal.ensureExpTensExpensive(firstArg.dens), X, ...
                 normalize, verbose, truncationSigmas, kernelPrecision);
@@ -358,8 +372,14 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         % here. Mirrors the MaetDensity and WindowedMaetDensity
         % struct branches above.
         dens = internal.ensureExpTensExpensive(dens);
+        if internal.densityHasKernelCov(dens)
+            X = internal.whitenQuery(dens, X);
+        end
         vals = localEvalMA(dens, X, normalize, verbose, ...
                            truncationSigmas, kernelPrecision);
+        if ~strcmp(normalize, 'none') && internal.densityHasKernelCov(dens)
+            vals = vals * exp(-0.5 * internal.densityLogdetSum(dens));
+        end
         return;
     end
     error('evalExpTens:badCellContents', ...
@@ -406,6 +426,14 @@ else
 end
 
 % === Validate query points (cheap fields only) ===
+
+% Matrix-valued kernel covariance: the density's values are stored in
+% whitened coordinates with sigma = 1, so the query is transformed
+% once by the same map; the Gaussian normalization constant acquires
+% det(Sigma)^{-1/2}, applied after the normalize block below.
+if internal.densityHasKernelCov(dens)
+    X = internal.whitenQuery(dens, X);
+end
 
 if size(X, 1) ~= dens.dim
     error(['X must have %d rows (each column is a %d-dimensional ' ...
@@ -592,6 +620,13 @@ if ~strcmp(normalize, 'none')
             warning('Sum of weight products is zero; cannot normalize to pdf.');
         end
     end
+end
+
+% Matrix-valued kernel covariance: the whitened machinery supplied the
+% unit-sigma constant; the anisotropic constant differs by
+% det(Sigma)^{-1/2}.
+if ~strcmp(normalize, 'none') && internal.densityHasKernelCov(dens)
+    vals = vals * exp(-0.5 * internal.densityLogdetSum(dens));
 end
 
 

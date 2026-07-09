@@ -258,6 +258,14 @@ def _sub(seq, keep):
     return seq
 
 
+def _check_is_sym_vs_specs(is_sym, specs):
+    if is_sym is not None and specs is not None:
+        raise ValueError(
+            "`is_sym` applies to the flat per-attribute surface; nested "
+            "geometry carries its per-level sym inside `specs`. Pass one "
+            "or the other.")
+
+
 def _prep_sweep(p_context, p_query, sweep, drop, context_window, target_attr,
                 require_window=False):
     n = len(p_context)
@@ -308,7 +316,8 @@ def _single_window(context_window, p_query, axis):
 
 def windowed_similarity(p_context, w_context, p_query, w_query,
                         sigma, r, is_rel, is_per, period,
-                        centres=None, *, start=None, stop=None, step=None,
+                        centres=None, *, is_sym=None,
+                        start=None, stop=None, step=None,
                         query_centres=None, context_window=("rect", None),
                         query_window=None, window_attr=-1, drop_window_attr=None,
                         sweep=None, drop=None, locate="centroid",
@@ -338,6 +347,11 @@ def windowed_similarity(p_context, w_context, p_query, w_query,
     ``target_attr`` is the attribute whose weights absorb the window factors
     (default: the first compared attribute; it may coincide with a swept
     axis). ``specs`` carries nested geometry from :func:`bind_events`.
+    ``is_sym`` is the per-attribute symmetry vector of the flat surface
+    (``None`` keeps the unordered default); required, in particular, for
+    ordered attributes carrying a matrix-valued kernel covariance. It is
+    mutually exclusive with ``specs``, whose nesting carries its own
+    per-level sym.
     """
     if sweep is not None:
         if drop is None:
@@ -348,21 +362,24 @@ def windowed_similarity(p_context, w_context, p_query, w_query,
                 "the multi-axis `sweep` form locks the query to the sweep.")
         return _ws_multi(
             p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-            period, sweep, drop, context_window if isinstance(context_window, dict)
+            period, is_sym, sweep, drop,
+            context_window if isinstance(context_window, dict)
             else None, locate, normalize, target_attr, specs)
     if drop_window_attr is None:
         raise ValueError(
             "`drop_window_attr` is required (True places only, False compares).")
     return _ws_single(
         p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per, period,
-        centres, start, stop, step, query_centres, context_window, query_window,
-        window_attr, drop_window_attr, locate, target_attr, normalize, specs)
+        is_sym, centres, start, stop, step, query_centres, context_window,
+        query_window, window_attr, drop_window_attr, locate, target_attr,
+        normalize, specs)
 
 
 def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-              period, sweep, drop, context_window, locate, normalize,
+              period, is_sym, sweep, drop, context_window, locate, normalize,
               target_attr, specs):
     p_context, p_query = list(p_context), list(p_query)
+    _check_is_sym_vs_specs(is_sym, specs)
     keys, drop_axes, target, win, grids = _prep_sweep(
         p_context, p_query, sweep, drop, context_window, target_attr)
     nested = specs is not None
@@ -387,6 +404,7 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
         pq, wq, sq, _ = _drop_axes(pq_t, wq_t, sq_t, drop_axes)
         sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                               _sub(is_per, keep), _sub(period, keep))
+        sy = None if is_sym is None else _sub(is_sym, keep)
         if nested:
             dc = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd, specs=sc,
                                 verbose=False)
@@ -396,17 +414,19 @@ def _ws_multi(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                 dc, dq, normalize=normalize,
                 verbose=False))
         else:
+            sym_args = () if sy is None else (sy,)
             out[idx] = float(cos_sim_exp_tens(
-                pc, wc, pq, wq, sg, rr, rl, pr, pd, normalize=normalize,
-                verbose=False))
+                pc, wc, pq, wq, sg, rr, rl, pr, pd, *sym_args,
+                normalize=normalize, verbose=False))
     return out
 
 
 def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
-               period, centres, start, stop, step, query_centres, context_window,
-               query_window, window_attr, drop_window_attr, locate, target_attr,
-               normalize, specs):
+               period, is_sym, centres, start, stop, step, query_centres,
+               context_window, query_window, window_attr, drop_window_attr,
+               locate, target_attr, normalize, specs):
     p_context, p_query = list(p_context), list(p_query)
+    _check_is_sym_vs_specs(is_sym, specs)
     n = len(p_context)
     axis = _abs_idx(window_attr, n)
     nested = specs is not None
@@ -443,6 +463,8 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
     rel_axis = _axis_is_rel(specs, is_rel, axis)
     sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                           _sub(is_per, keep), _sub(period, keep))
+    sy = None if is_sym is None else _sub(is_sym, keep)
+    sym_args = () if sy is None else (sy,)
     out = np.empty((A, q_rows.shape[1]), dtype=float)
     for a in range(A):
         pc_w, wc_w, sc_w = _apply_windows(
@@ -470,13 +492,14 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
                     verbose=False))
             else:
                 out[a, t] = float(cos_sim_exp_tens(
-                    pc, wc, pq, wq, sg, rr, rl, pr, pd, normalize=normalize,
-                    verbose=False))
+                    pc, wc, pq, wq, sg, rr, rl, pr, pd, *sym_args,
+                    normalize=normalize, verbose=False))
     return out.reshape(out_shape)
 
 
 def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
-                     centres=None, *, start=None, stop=None, step=None,
+                     centres=None, *, is_sym=None,
+                     start=None, stop=None, step=None,
                      context_window=("rect", None), window_attr=-1,
                      drop_window_attr=None, sweep=None, drop=None,
                      locate="centroid", method="differential", base=2.0,
@@ -500,7 +523,8 @@ def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
         if drop is None:
             raise ValueError("multi-axis `sweep` requires a parallel `drop`.")
         return _we_multi(
-            p_context, w_context, sigma, r, is_rel, is_per, period, sweep, drop,
+            p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+            sweep, drop,
             context_window if isinstance(context_window, dict) else None, locate,
             method, base, target_attr, specs)
     if drop_window_attr is None:
@@ -508,14 +532,16 @@ def windowed_entropy(p_context, w_context, sigma, r, is_rel, is_per, period,
             "`drop_window_attr` is required (True drops the window axis, False "
             "retains it).")
     return _we_single(
-        p_context, w_context, sigma, r, is_rel, is_per, period, centres, start,
-        stop, step, context_window, window_attr, drop_window_attr, locate,
+        p_context, w_context, sigma, r, is_rel, is_per, period, is_sym, centres,
+        start, stop, step, context_window, window_attr, drop_window_attr, locate,
         method, base, target_attr, specs)
 
 
-def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, sweep,
-              drop, context_window, locate, method, base, target_attr, specs):
+def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+              sweep, drop, context_window, locate, method, base, target_attr,
+              specs):
     p_context = list(p_context)
+    _check_is_sym_vs_specs(is_sym, specs)
     keys, drop_axes, target, win, grids = _prep_sweep(
         p_context, p_context, sweep, drop, context_window, target_attr,
         require_window=True)
@@ -529,20 +555,24 @@ def _we_multi(p_context, w_context, sigma, r, is_rel, is_per, period, sweep,
         pc, wc, sc, keep = _drop_axes(pc_w, wc_w, sc_w, drop_axes)
         sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                               _sub(is_per, keep), _sub(period, keep))
+        sy = None if is_sym is None else _sub(is_sym, keep)
         if nested:
             dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
                                   specs=sc, verbose=False)
         else:
-            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, verbose=False)
+            sym_args = () if sy is None else (sy,)
+            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, *sym_args,
+                                  verbose=False)
         out[idx] = float(entropy_exp_tens(dens, method=method, base=base,
                                           verbose=False))
     return out
 
 
-def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, centres,
-               start, stop, step, context_window, window_attr, drop_window_attr,
-               locate, method, base, target_attr, specs):
+def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, is_sym,
+               centres, start, stop, step, context_window, window_attr,
+               drop_window_attr, locate, method, base, target_attr, specs):
     p_context = list(p_context)
+    _check_is_sym_vs_specs(is_sym, specs)
     n = len(p_context)
     axis = _abs_idx(window_attr, n)
     nested = specs is not None
@@ -567,6 +597,8 @@ def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, centres,
     from ..entropy import entropy_exp_tens
     sg, rr, rl, pr, pd = (_sub(sigma, keep), _sub(r, keep), _sub(is_rel, keep),
                           _sub(is_per, keep), _sub(period, keep))
+    sy = None if is_sym is None else _sub(is_sym, keep)
+    sym_args = () if sy is None else (sy,)
     out = np.empty(ctx_centres.size, dtype=float)
     for i, c in enumerate(ctx_centres):
         pc_w, wc_w, sc_w = _apply_windows(
@@ -576,7 +608,8 @@ def _we_single(p_context, w_context, sigma, r, is_rel, is_per, period, centres,
             dens = build_exp_tens(pc, wc, sigma=sg, is_per=pr, period=pd,
                                   specs=sc, verbose=False)
         else:
-            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, verbose=False)
+            dens = build_exp_tens(pc, wc, sg, rr, rl, pr, pd, *sym_args,
+                                  verbose=False)
         out[i] = float(entropy_exp_tens(dens, method=method, base=base,
                                         verbose=False))
     return out

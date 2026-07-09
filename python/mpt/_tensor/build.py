@@ -98,6 +98,76 @@ def _normalise_specs(specs, A):
     return r_vec, is_rel_vec, is_sym_vec, nested_list, names
 
 
+def _resolve_aniso_sa(p, sigma, r, is_rel, is_per, period, is_sym):
+    """Resolve a matrix-valued SA sigma: validate, whiten, return
+    ``(p_whitened, 1.0, Sigma, R)``."""
+    from .aniso import (validate_kernel_cov, check_aniso_constraints,
+                        whiten_values)
+    p_arr = np.asarray(p, dtype=np.float64).ravel()
+    check_aniso_constraints(
+        r=r, K=len(p_arr), is_rel=is_rel, is_per=is_per, is_sym=is_sym,
+        name="sigma",
+    )
+    Sigma, R = validate_kernel_cov(sigma, dim=int(r), name="sigma")
+    p_w = whiten_values(R, p_arr)
+    return p_w, 1.0, Sigma, R
+
+
+def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
+                      is_sym_vec, nested):
+    """Resolve matrix-valued entries of an MA sigma vector.
+
+    Returns ``(p_attr_out, sigma_out, cov_list, chol_list)`` where
+    matrix-sigma attributes have whitened value matrices and sigma 1.0;
+    ``cov_list``/``chol_list`` are length-A with ``None`` for isotropic
+    attributes.
+    """
+    from .aniso import (is_kernel_cov, validate_kernel_cov,
+                        check_aniso_constraints, whiten_values)
+    A = len(p_attr)
+    r_list = list(np.asarray(r_vec, dtype=object).ravel()) \
+        if not isinstance(r_vec, (list, tuple)) else list(r_vec)
+    p_out, sigma_out = list(p_attr), list(sigma_vec)
+    cov_list, chol_list = [None] * A, [None] * A
+    for a in range(A):
+        if not is_kernel_cov(sigma_out[a]):
+            continue
+        if nested is not None and a < len(nested) and nested[a]:
+            raise ValueError(
+                f"sigma[{a}]: a matrix-valued kernel covariance is not "
+                f"supported on nested attributes."
+            )
+        P = np.asarray(p_out[a], dtype=np.float64)
+        if P.ndim == 1:
+            P = P.reshape(1, -1)
+        K_a = P.shape[0]
+        r_a = int(r_list[a]) if np.isscalar(r_list[a]) or isinstance(
+            r_list[a], (int, np.integer, float)) else -1
+        if r_a == -1:
+            raise ValueError(
+                f"sigma[{a}]: a matrix-valued kernel covariance requires "
+                f"a flat (non-nested) tuple size for the attribute."
+            )
+        is_rel_a = list(is_rel_vec)[a] if isinstance(
+            is_rel_vec, (list, tuple, np.ndarray)) else is_rel_vec
+        is_per_a = list(is_per_vec)[a] if isinstance(
+            is_per_vec, (list, tuple, np.ndarray)) else is_per_vec
+        is_sym_a = (True if is_sym_vec is None
+                    else (list(is_sym_vec)[a] if isinstance(
+                        is_sym_vec, (list, tuple, np.ndarray))
+                        else is_sym_vec))
+        check_aniso_constraints(
+            r=r_a, K=K_a, is_rel=is_rel_a, is_per=is_per_a,
+            is_sym=is_sym_a, name=f"sigma[{a}]",
+        )
+        Sigma, R = validate_kernel_cov(
+            sigma_out[a], dim=r_a, name=f"sigma[{a}]")
+        p_out[a] = whiten_values(R, P)
+        sigma_out[a] = 1.0
+        cov_list[a], chol_list[a] = Sigma, R
+    return p_out, sigma_out, cov_list, chol_list
+
+
 def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
                    period=None, nested=None, verbose: bool = True) -> ExpTensDensity | MaetDensity:
     """Precompute an r-ad expectation tensor density object.
@@ -198,6 +268,13 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             raise ValueError(
                 "specs= requires sigma=, is_per=, period= (each length-A)."
             )
+        from .aniso import sigma_vec_has_kernel_cov
+        if sigma_vec_has_kernel_cov(sigma):
+            raise ValueError(
+                "A matrix-valued kernel covariance is not supported with "
+                "specs= (nested attributes); supply flat attributes via "
+                "the positional form."
+            )
         A = len(p)
         r_vec, is_rel_vec, is_sym_vec, nested_list, names = _normalise_specs(
             specs, A)
@@ -225,6 +302,21 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
         sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:5]
         is_sym_vec = args[5] if len(args) == 6 else None
+        from .aniso import sigma_vec_has_kernel_cov
+        if sigma_vec_has_kernel_cov(sigma_vec):
+            p, sigma_vec, cov_list, chol_list = _resolve_aniso_ma(
+                p, sigma_vec, r_vec, is_rel_vec, is_per_vec, is_sym_vec,
+                nested,
+            )
+            dens = _build_exp_tens_ma(
+                p, w, sigma_vec, r_vec,
+                is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+                nested=nested,
+                verbose=verbose,
+            )
+            dens.kernel_cov = cov_list
+            dens.kernel_chol = chol_list
+            return dens
         return _build_exp_tens_ma(
             p, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, is_sym_vec,
@@ -240,6 +332,18 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
         sigma, r, is_rel, is_per, period = args[:5]
         is_sym = args[5] if len(args) == 6 else True
+        from .aniso import is_kernel_cov
+        if is_kernel_cov(sigma):
+            p, sigma, Sigma, R = _resolve_aniso_sa(
+                p, sigma, r, is_rel, is_per, period, is_sym,
+            )
+            dens = _build_exp_tens_sa(
+                p, w, sigma, r, is_rel, is_per, period, is_sym,
+                verbose=verbose,
+            )
+            dens.kernel_cov = Sigma
+            dens.kernel_chol = R
+            return dens
         return _build_exp_tens_sa(
             p, w, sigma, r, is_rel, is_per, period, is_sym,
             verbose=verbose,

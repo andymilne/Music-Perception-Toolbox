@@ -84,6 +84,12 @@ class ExpTensDensity:
     have been built without triggering a build.
     """
 
+    # Anisotropic kernel covariance metadata (set post-construction by
+    # build_exp_tens when a matrix-valued sigma is supplied; the
+    # stored p values are then in whitened coordinates and sigma == 1).
+    kernel_cov = None
+    kernel_chol = None
+
     # Slots are not used because numpy arrays are stored as attributes
     # and the lazy cache adds attributes after construction; keeping
     # the class slot-less avoids surprising failures in extension code
@@ -158,11 +164,19 @@ class ExpTensDensity:
         live = self.live_events
         if live.all():
             return self
-        return ExpTensDensity(
+        if self.kernel_cov is not None:
+            # r == K on matrix-sigma densities: dropping a value would
+            # change the tuple dimension. The dead value already zeroes
+            # the (single) tuple's weight, so pruning is a no-op.
+            return self
+        out = ExpTensDensity(
             p=self.p[live], w=self.w[live], sigma=self.sigma, r=self.r,
             is_rel=self.is_rel, is_per=self.is_per, period=self.period,
             dim=self.dim, is_sym=self.is_sym,
         )
+        out.kernel_cov = self.kernel_cov
+        out.kernel_chol = self.kernel_chol
+        return out
 
     def _build_perm_arrays(self) -> None:
         """Build the per-tuple permutation / combination arrays.
@@ -344,6 +358,15 @@ class MaetDensity:
     ``event_of_k``.
     """
 
+    # Anisotropic kernel covariance metadata (set post-construction by
+    # build_exp_tens when any attribute's sigma is matrix-valued): a
+    # length-A list with None for isotropic attributes and the
+    # covariance / lower Cholesky factor for matrix-sigma attributes.
+    # Matrix-sigma attributes store their p_attr values in whitened
+    # coordinates with sigma == 1.
+    kernel_cov = None
+    kernel_chol = None
+
     def __init__(
         self,
         *,
@@ -461,7 +484,7 @@ class MaetDensity:
                 N=n_k, A=self.n_attrs, nested=self.nested,
             )
 
-        return MaetDensity(
+        out = MaetDensity(
             tag=self.tag, n_attrs=self.n_attrs,
             n=n_k, r=self.r, k=self.k,
             p_attr=p_attr, w=w, sigma=self.sigma, is_rel=self.is_rel,
@@ -471,6 +494,9 @@ class MaetDensity:
             names=self.names,
             _build_lazy=_build_lazy,
         )
+        out.kernel_cov = self.kernel_cov
+        out.kernel_chol = self.kernel_chol
+        return out
 
     def _materialise(self) -> None:
         """Trigger the lazy build. No-op if already materialised."""

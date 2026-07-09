@@ -70,6 +70,17 @@ function dens = ensureExpTensExpensive(dens)
         savedNames = dens.names;
     end
 
+    % Kernel-covariance metadata (matrix-valued sigma densities store
+    % whitened values with sigma = 1; the rebuild is numerically
+    % correct on those but does not carry the metadata, so save and
+    % restore around it).
+    savedCov = []; savedChol = []; hadCov = false;
+    if isfield(dens, 'kernelCov')
+        savedCov = dens.kernelCov;
+        savedChol = dens.kernelChol;
+        hadCov = true;
+    end
+
     switch dens.tag
         case 'ExpTensDensity'
             dens = buildExpTens( ...
@@ -89,5 +100,10 @@ function dens = ensureExpTensExpensive(dens)
         otherwise
             error('ensureExpTensExpensive:badTag', ...
                   'Unknown density tag: %s', dens.tag);
+    end
+
+    if hadCov
+        dens.kernelCov = savedCov;
+        dens.kernelChol = savedChol;
     end
 end

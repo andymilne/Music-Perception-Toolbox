@@ -66,6 +66,13 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
     time; the window is applied lazily by :func:`eval_exp_tens` and
     :func:`cos_sim_exp_tens`. See the MAET specification §4.3.
 
+    Densities built with a matrix-valued kernel covariance are not
+    accepted: their stored coordinates are whitened, so a post-tensor
+    window (specified in the attribute's original coordinates) would
+    be applied in the wrong frame. Use :func:`mpt.windowed_similarity`
+    or :func:`mpt.windowed_entropy`, whose windows reweight the raw
+    events before the density is built.
+
     Parameters
     ----------
     dens : MaetDensity
@@ -98,6 +105,16 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
         )
     if not isinstance(window_spec, dict):
         raise TypeError("window_spec must be a dict.")
+    from .aniso import density_has_kernel_cov
+    if density_has_kernel_cov(dens):
+        raise NotImplementedError(
+            "window_tensor does not support densities built with a "
+            "matrix-valued kernel covariance: their stored coordinates "
+            "are whitened, so a window specified in the attribute's "
+            "original coordinates would be applied in the wrong frame. "
+            "Use windowed_similarity or windowed_entropy, whose windows "
+            "reweight the raw events before the density is built."
+        )
 
     A = dens.n_attrs
     dim_per = dens.dim_per_attr
@@ -740,6 +757,21 @@ def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
     # cosine and eval, which in turn import from windowing's
     # parent package at load time.
     from .dispatch import _normalize_density_input, _resolve_list_list_mode
+    from .aniso import density_has_kernel_cov
+
+    def _any_kernel_cov(op):
+        seq = op if isinstance(op, (list, tuple)) else [op]
+        return any(density_has_kernel_cov(d) for d in seq)
+
+    if _any_kernel_cov(dens_context) or _any_kernel_cov(dens_query):
+        raise NotImplementedError(
+            "windowed_tensor_similarity does not support densities "
+            "built with a matrix-valued kernel covariance: their stored "
+            "coordinates are whitened, so windows and offsets (specified "
+            "in original coordinates) would be applied in the wrong "
+            "frame. Use windowed_similarity, whose sweep translates and "
+            "windows the raw events before each density is built."
+        )
 
     # ------------------------------------------------------------------
     # Normalise context and query inputs.

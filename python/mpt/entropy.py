@@ -834,9 +834,16 @@ def _entropy_exp_tens_renyi2_dispatch(
         "entropy_exp_tens", "mobius", "renyi2",
         est_sec=0.0, is_probed=False,
     )
+    from ._tensor.aniso import density_has_kernel_cov, density_logdet_sum
     if is_sa:
-        return _renyi2_exp_tens_sa(dens, base=base)
-    return _renyi2_exp_tens_ma(dens, base=base)
+        val = _renyi2_exp_tens_sa(dens, base=base)
+    else:
+        val = _renyi2_exp_tens_ma(dens, base=base)
+    if density_has_kernel_cov(dens):
+        # Whitened coordinates: H2(f_x) = H2(f_y) + (1/2) log det(Sigma),
+        # the change-of-variables constant of the linear whitening map.
+        val = val + 0.5 * density_logdet_sum(dens) / np.log(base)
+    return val
 
 
 # ===================================================================
@@ -1114,11 +1121,17 @@ def _entropy_exp_tens_differential_dispatch(
     else:
         ts = float(truncation_sigmas)
 
-    return _differential_adaptive(
+    val = _differential_adaptive(
         dens, is_sa=is_sa, base=base,
         truncation_sigmas=ts, kernel_precision=kernel_precision,
         grid_limit=grid_limit, verbose=verbose,
     )
+    from ._tensor.aniso import density_has_kernel_cov, density_logdet_sum
+    if density_has_kernel_cov(dens):
+        # Whitened coordinates: H(f_x) = H(f_y) + (1/2) log det(Sigma),
+        # the change-of-variables constant of the linear whitening map.
+        val = val + 0.5 * density_logdet_sum(dens) / np.log(base)
+    return val
 
 
 def _entropy_exp_tens_scalar(

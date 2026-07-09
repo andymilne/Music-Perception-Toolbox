@@ -1529,6 +1529,12 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         isPer  = posArgs{6};
         period = posArgs{7};
         if ~isempty(nvArgs.spectrum)
+            if internal.isKernelCov(sigma)
+                error('mpt:aniso:spectrumUnsupported', ...
+                    ['''spectrum'' is not supported with a matrix-valued ' ...
+                     'kernel covariance (spectral augmentation changes ' ...
+                     'the multiset size, breaking r == K).']);
+            end
             if ~iscell(nvArgs.spectrum)
                 error('entropyExpTens:badSpectrum', ...
                     '''spectrum'' value must be a cell array.');
@@ -1553,6 +1559,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
 
     H = localDifferentialAdaptive(dens, isSA, nvArgs.base, ts, ...
                                   nvArgs.gridLimit, nvArgs.verbose);
+    H = localAnisoEntropyCorrection(H, dens, nvArgs.base);
 end
 
 
@@ -1810,10 +1817,12 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
             case 'ExpTensDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
                 H = localRenyi2SA(firstArg, base);
+                H = localAnisoEntropyCorrection(H, firstArg, base);
                 return;
             case 'MaetDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
                 H = localRenyi2MA(firstArg, base);
+                H = localAnisoEntropyCorrection(H, firstArg, base);
                 return;
             case 'WindowedMaetDensity'
                 error('entropyExpTens:renyi2WindowedNotSupported', ...
@@ -1841,6 +1850,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
         H = localRenyi2MA(dens, base);
+        H = localAnisoEntropyCorrection(H, dens, base);
         return;
     end
 
@@ -1860,6 +1870,12 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % Apply spectral enrichment if requested.
     if ~isempty(nvArgs.spectrum)
+        if internal.isKernelCov(sigma)
+            error('mpt:aniso:spectrumUnsupported', ...
+                  ['''spectrum'' is not supported with a matrix-valued ' ...
+                   'kernel covariance (spectral augmentation changes ' ...
+                   'the multiset size, breaking r == K).']);
+        end
         if ~iscell(nvArgs.spectrum)
             error('entropyExpTens:badSpectrum', ...
                   '''spectrum'' value must be a cell array of addSpectra arguments.');
@@ -1873,6 +1889,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                         'verbose', false);
     localRaiseIfAnySigmaZero(dens, 'renyi2');
     H = localRenyi2SA(dens, base);
+    H = localAnisoEntropyCorrection(H, dens, base);
 end
 
 
@@ -1894,6 +1911,23 @@ function H = localRenyi2Finalise(ip_xx, Z, base)
         return;
     end
     H = -log(ip_xx / (Z * Z)) / log(base);
+end
+
+
+function H = localAnisoEntropyCorrection(H, dens, base)
+%LOCALANISOENTROPYCORRECTION  Change-of-variables constant for whitened
+%densities.
+%
+%   A density built with a matrix-valued kernel covariance stores its
+%   values in whitened coordinates, so its continuous entropies are
+%   those of the whitened density; the entropy in the original
+%   coordinates adds (1/2) log det(Sigma), the change-of-variables
+%   constant of the linear whitening map. No-op for ordinary densities
+%   and NaN-transparent.
+
+    if internal.densityHasKernelCov(dens)
+        H = H + 0.5 * internal.densityLogdetSum(dens) / log(base);
+    end
 end
 
 

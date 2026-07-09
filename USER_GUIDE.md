@@ -517,6 +517,31 @@ Three user-controllable defaults govern how the toolbox handles the dense Gaussi
 
 `truncationSigmas` and `kernelPrecision` can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API described in the next section. Per-call kwargs always override globals; globals always override factory defaults. `kernelChunkBytes` is global-only: the chunkers consult it on every call, so a per-call kwarg would be a layering inversion. The factory defaults (`truncationSigmas = Inf`, `kernelPrecision = 'double'`, `kernelChunkBytes = 'auto'`) match v2.1 behaviour to floating-point reduction order — opting in to truncation or single precision is purely additive.
 
+### Matrix-valued kernel covariances (v2.2+)
+
+On a restricted but musically important class of attributes, the per-attribute `sigma` may be a matrix rather than a scalar. A symmetric positive-definite $r \times r$ covariance matrix $\Sigma$ replaces the isotropic $\sigma^2 I$: the Gaussian kernel becomes $\exp(-\delta^{\top} \Sigma^{-1} \delta / 2)$, so different directions in the attribute's tuple space carry different perceptual uncertainty, and correlations between tuple coordinates — such as the anti-correlations consecutive intervals inherit from their shared endpoints — enter the kernel directly. A scalar `sigma` is a standard deviation, as everywhere in the toolbox; a matrix `sigma` is the covariance, in squared units of the attribute's values.
+
+The restrictions, all validated with an immediate error: the attribute must be ordered (`isSym = false`), absolute (`isRel = false`), non-periodic (`isPer = false`), and non-nested, with its tuple the whole multiset ($r = K$) and no NaN pads; `'spectrum'` input is not supported. Exact common-shift invariance (transposition, tempo) remains the province of `isRel = true`: a matrix covariance expresses graded shift tolerance via a large-but-finite variance along the all-ones direction, whose precision tends to the relative-mode projector in the limit, and an infinite entry is rejected rather than approximated.
+
+Matrix `sigma` is accepted by `buildExpTens`, `evalExpTens`, `cosSimExpTens`, `entropyExpTens` (all four methods), `windowedSimilarity`, and `windowedEntropy` (the last two via their `isSym` keyword to reach ordered attributes). Inner products require the same covariance on both operands, per attribute. `windowTensor` and `windowedTensorSimilarity` do not accept densities built with a matrix covariance — post-tensor windows are specified in the attribute's original coordinates while such densities store transformed ones — so sliding analyses go through `windowedSimilarity` / `windowedEntropy`, which window the raw events before each density is built.
+
+The common covariances are built by `intervalKernelCov(r, sdPosition, sdInterval, sdShift)` (Python `interval_kernel_cov(r, sd_position, sd_interval, sd_shift)`), for an ordered tuple of $r$ consecutive differences of $r + 1$ underlying positions:
+
+$$\Sigma = \mathrm{sd\_position}^2 \, D D^{\top} + \mathrm{sd\_interval}^2 \, I + \mathrm{sd\_shift}^2 \, \mathbf{1}\mathbf{1}^{\top},$$
+
+with $D$ the first-differencing map. The three terms are three independently specified sources of uncertainty: on the underlying positions (propagated through shared endpoints to the tridiagonal $D D^{\top}$ — the counterpart of `sigmaSpace = 'position'` in `nTupleEntropy`), on each interval independently (`sigmaSpace = 'interval'`), and on a common shift of the whole tuple — a transposition when the values are pitch intervals, a tempo change when they are log inter-onset intervals. In the time reading the first two are the two levels of the Wing & Kristofferson (1973) timing model. The covariance applies in whatever coordinates the attribute carries (log inter-onset intervals for multiplicative tempo tolerance; semitones or cents for pitch steps); all three arguments are standard deviations in those coordinates. The returned matrix drops directly into the `sigma` argument of the functions above.
+
+```python
+# Sliding rhythm-shape comparison, tempo-tolerant: ordered log-IOI
+# triples, position noise from the shared onsets, graded tempo ridge.
+Sigma = mpt.interval_kernel_cov(3, sd_position=0.03, sd_shift=0.4)
+prof = mpt.windowed_similarity(
+    p_context, w_context, p_query, w_query,
+    [Sigma, sigma_t], [3, 1], [False, False], [False, False], [0.0, 0.0],
+    is_sym=[False, True], centres=onsets, window_attr=1,
+    drop_window_attr=True, context_window=("rect", 2.0))
+```
+
 ### Toolbox defaults API (`mptDefaults` / `mpt.set_default`)
 
 `mptDefaults` (MATLAB) and `mpt.set_default` / `mpt.get_defaults` / `mpt.reset_defaults` / `mpt.show_defaults` (Python) provide the canonical entry points for inspecting and changing toolbox-wide settings. The settings currently controlled are `truncationSigmas`, `kernelPrecision`, `kernelChunkBytes`, and `showHints` (a boolean that gates the one-time performance hint described below).
@@ -1163,9 +1188,12 @@ Utility functions for analyses of event sequences over time. Position-sensitive 
 | MATLAB | Python | Description |
 |:---|:---|:---|
 | `continuity` | `continuity` | Backward same-direction run |
+| `intervalKernelCov` | `interval_kernel_cov` | Kernel covariance for consecutive-difference tuples |
 | `seqWeights` | `seq_weights` | Position-weight vector constructor |
 
 **continuity(seq, x, sigma [, 'w', w] [, 'mode', mode] [, 'theta', theta])** — Expected length and signed magnitude of the backward same-direction run leading up to each query, under Gaussian pitch uncertainty. Returns `[count, magnitude]`: `count` is non-negative, `magnitude` is signed (positive for ascending trends, negative for descending). The ratio `magnitude / count` gives a trend-slope measure. Modes `'strict'` (θ = 0) and `'lenient'` (θ = −1) set the break threshold; an explicit `'theta'` in [−1, +1] overrides. Optional per-event salience weights `w` (`[]` / `None` for all ones, a non-negative scalar, or a length-$N$ non-negative vector) scale each interval's contribution to `count` and `magnitude` by the difference-event salience $w_k \cdot w_{k+1}$ — the same rolling-product rule as `differenceEvents` at order 1. The break threshold acts on the unweighted sign-product, so weights modulate contribution size without shifting the halt condition. Defined only on linearly ordered domains.
+
+**intervalKernelCov(r [, 'sdPosition', sp] [, 'sdInterval', si] [, 'sdShift', ss])** — Kernel covariance for an ordered tuple of $r$ consecutive differences (intervals) of $r + 1$ underlying positions: $\Sigma = sp^2 \, D D^{\top} + si^2 \, I + ss^2 \, \mathbf{1}\mathbf{1}^{\top}$, with $D$ the first-differencing map. All three arguments are standard deviations in the attribute's own coordinates (defaults 0), squared internally; the result is an $r \times r$ symmetric positive-definite matrix that drops directly into the `sigma` argument of the tensor functions (see "Matrix-valued kernel covariances", Section 4). Raises if $r < 2$ (at $r = 1$ the covariance reduces to a scalar variance, indistinguishable from a scalar `sigma`; pass the equivalent standard deviation instead), any argument is negative or non-finite, or the result is singular (`sdShift` alone is rank one).
 
 **seqWeights(w, spec [, 'N', N] [, 'decayRate', d] [, 'alpha', a] [, 't', t])** — Apply a position-weighting profile to an existing weight vector. Constructs a length-N profile from `spec` and returns its pointwise product with `w`. `w` is a length-N vector of per-position weights, `[]` (MATLAB) / `None` (Python) for all ones — requires `'N'`, or a scalar broadcast to length N — requires `'N'`. The output length `N` is inferred from `numel(w)` when `w` is a non-empty, non-scalar vector; it must be supplied explicitly via the `'N'` name-value argument when `w` is empty or scalar. A mismatch between supplied `N` and `numel(w)` raises an error. `spec` is a named specification (`'flat'`, `'primacy'`, `'recency'`, `'exponentialFromStart'`, `'exponentialFromEnd'`, `'uShape'`) or an explicit length-N numeric vector (passthrough with length validation). `'flat'` produces a uniform profile; `'primacy'` and `'recency'` are point masses on the first and last positions. For exponential and uShape specs, `'decayRate'` is the non-negative decay (default 1; zero decay recovers `'flat'`), and `'alpha'` (default 0.5) controls the uShape mixing: `alpha = 1` recovers `'exponentialFromStart'`, `alpha = 0` recovers `'exponentialFromEnd'`. When a strictly-increasing time index `t` is supplied, decay operates over elapsed time from the relevant endpoint; when omitted, unit spacing is used. The returned vector can be passed as the event weights of `buildExpTens` (including in its MAET form, as per-event weights for a time-attributed tensor), or fed into `cosSimExpTens` via `addSpectra` for a position-weighted SPCS computation.
 

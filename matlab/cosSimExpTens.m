@@ -1144,6 +1144,26 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     % and points to method='bulger' for the canonical single-wrap measure.
     relPerAbove = isRel && isPer && sigmaOverP > 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
 
+    % ---- Relative-periodic measure preference (takes precedence over cost) --
+    % Above the sigma/P threshold the Möbius method computes the all-image
+    % transposition average while Bulger's method computes the single-wrap
+    % (minimum-image) form -- these are *different measures*, not two routes to
+    % the same answer. The toolbox's default measure there is the all-image
+    % form, so we must choose Möbius on measure grounds regardless of the cost
+    % comparison below (which assumes both methods compute the same object, as
+    % they do in absolute mode and in relative mode below the threshold). Emit
+    % the warning pointing to method='bulger' for the single-wrap measure.
+    if relPerAbove
+        if verbose
+            internal.warnRelPerAllImage(sigmaOverP);
+        end
+        chosen = 'mobius';
+        probed = false;
+        estSec = 0;
+        routingReason = 'rel-per all-image measure';
+        return;
+    end
+
     % ---- Analytical cost models ----
     pairwiseFull = localFallingFactorial(K_x, r) ...
                  * localFallingFactorial(K_y, r);
@@ -1163,9 +1183,6 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     % paths and is portable across machines), while still short-circuiting the
     % clear-win region.
     if orbitFull * PRESCREEN_IP_MOBIUS_DOMINANCE < pairwiseFull
-        if relPerAbove && verbose
-            internal.warnRelPerAllImage(sigmaOverP);
-        end
         chosen = 'mobius';
         probed = false;
         estSec = 0;
@@ -1210,9 +1227,10 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         chosen = 'bulger';
         estSec = tPairwiseEst;
     else
-        if relPerAbove && verbose
-            internal.warnRelPerAllImage(sigmaOverP);
-        end
+        % Note: rel-per-above-threshold is handled by the measure-preference
+        % guard above (it returns before reaching the probe), so the probe only
+        % runs where Bulger and Möbius compute the same object; no measure
+        % warning here.
         chosen = 'mobius';
         estSec = tOrbitEst;
     end

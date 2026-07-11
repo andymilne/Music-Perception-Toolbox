@@ -1400,6 +1400,19 @@ def _select_and_estimate_sa_ip(
     if max(ws_x, ws_y) > _CENTRES_WORKING_SET_SOFT_BUDGET and not _rel_per_above:
         return "mobius", False, 0.0, "centres working-set soft budget"
 
+    # ---- Relative-periodic measure preference (takes precedence over cost) ----
+    # Above the sigma/P threshold the Möbius method computes the all-image
+    # transposition average while Bulger's method computes the single-wrap
+    # (minimum-image) form -- these are *different measures*, not two routes to
+    # the same answer. The toolbox's default measure there is the all-image
+    # form, so we must choose Möbius on measure grounds regardless of the cost
+    # comparison below (which assumes both methods compute the same object, as
+    # they do in absolute mode and in relative mode below the threshold). Emit
+    # the warning pointing to method='bulger' for the single-wrap measure.
+    if _rel_per_above:
+        _warn_rel_per_all_image(sigma_over_P)
+        return "mobius", False, 0.0, "rel-per all-image measure"
+
     # ---- Analytical cost models ----
     pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
     B_r = float(_BELL_NUMBERS[r])
@@ -1418,8 +1431,6 @@ def _select_and_estimate_sa_ip(
     # cases in the probe's hands (the probe times both paths and is portable
     # across machines), while still short-circuiting the clear-win region.
     if orbit_full * _PRESCREEN_IP_MOBIUS_DOMINANCE < pairwise_full:
-        if _rel_per_above:
-            _warn_rel_per_all_image(sigma_over_P)
         return "mobius", False, 0.0, "cost pre-screen"
     if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
         return "bulger", False, 0.0, "cost pre-screen"
@@ -1460,6 +1471,7 @@ def _select_and_estimate_sa_ip(
 
     if t_pairwise_est <= t_orbit_est:
         return "bulger", True, t_pairwise_est, "probe"
-    if _rel_per_above:
-        _warn_rel_per_all_image(sigma_over_P)
+    # Note: rel-per-above-threshold is handled by the measure-preference guard
+    # above (it returns before reaching the probe), so the probe only runs
+    # where Bulger and Möbius compute the same object; no measure warning here.
     return "mobius", True, t_orbit_est, "probe"

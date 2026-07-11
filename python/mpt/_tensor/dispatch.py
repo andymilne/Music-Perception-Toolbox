@@ -1214,6 +1214,31 @@ _PROBE_K_IP_TARGET = 12
 # constants.
 _PRESCREEN_IP_DOMINANCE = 3.0
 
+# Fixed-overhead term for the Möbius inner-product cost estimate, in units of
+# K^2 (i.e. added to K_x*K_y inside the orbit-cost expression). The Möbius
+# method carries a per-call setup cost (orbit-table lookup, einsum planning,
+# partition iteration) that scales with the partition count B_r but is
+# independent of K; the bare B_r*K_x*K_y operation count omits it and so
+# under-estimates Möbius at small K, making the analytical pre-screen route to
+# Möbius well before it is actually faster than Bulger's method. Adding
+# B_r*_ORBIT_IP_FIXED_OVERHEAD to the orbit cost shifts the analytical
+# equal-cost point to (just below) the empirically measured Bulger/Möbius
+# crossover per r, so the pre-screen no longer fires 'mobius' prematurely; the
+# probe still has the final word in the near-crossover region. Calibrated
+# against measured crossovers K_cross = {r2:14, r3:9, r4:8, r5:8, r6:8}; the
+# value is deliberately conservative (equal-cost K at or below the true
+# crossover for every r) so the pre-screen never claims Möbius early.
+_ORBIT_IP_FIXED_OVERHEAD = 8000.0
+
+# Dominance margin for the *Möbius* side of the analytical inner-product
+# pre-screen. Larger than _PRESCREEN_IP_DOMINANCE so that near-crossover cases
+# (where the analytical model is least reliable) defer to the timing probe
+# rather than committing to Möbius on an under-estimate. The Bulger side keeps
+# the tighter _PRESCREEN_IP_DOMINANCE because over-predicting Bulger is cheap
+# (Bulger's cost is genuinely low in that regime) whereas prematurely choosing
+# Möbius pays its fixed overhead needlessly.
+_PRESCREEN_IP_MOBIUS_DOMINANCE = 10.0
+
 
 
 def _falling_factorial(n: int, k: int) -> float:
@@ -1378,10 +1403,21 @@ def _select_and_estimate_sa_ip(
     # ---- Analytical cost models ----
     pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
     B_r = float(_BELL_NUMBERS[r])
-    orbit_full = B_r * float(K_x) * float(K_y)
+    # Orbit cost = B_r * (K_x*K_y + fixed overhead). The fixed-overhead term
+    # (see _ORBIT_IP_FIXED_OVERHEAD) captures the K-independent Möbius setup
+    # cost that the bare operation count omits; without it the pre-screen
+    # routes to Möbius well before the measured Bulger/Möbius crossover.
+    orbit_full = B_r * (float(K_x) * float(K_y) + _ORBIT_IP_FIXED_OVERHEAD)
 
     # ---- Analytical pre-screen ----
-    if orbit_full * _PRESCREEN_IP_DOMINANCE < pairwise_full:
+    # The Möbius side uses a larger dominance margin than the Bulger side.
+    # Even with the fixed-overhead correction (_ORBIT_IP_FIXED_OVERHEAD) the
+    # analytical orbit cost slightly under-predicts the measured Bulger/Möbius
+    # crossover at higher r, so firing 'mobius' on a bare 3x margin can still
+    # route one K-step early. Requiring a larger margin keeps near-crossover
+    # cases in the probe's hands (the probe times both paths and is portable
+    # across machines), while still short-circuiting the clear-win region.
+    if orbit_full * _PRESCREEN_IP_MOBIUS_DOMINANCE < pairwise_full:
         if _rel_per_above:
             _warn_rel_per_all_image(sigma_over_P)
         return "mobius", False, 0.0, "cost pre-screen"

@@ -95,25 +95,26 @@ class TestPreScreen:
         assert chosen == "mobius"
         assert probed is False
 
-    def test_small_K_at_r_routes_via_prescreen(self):
+    def test_small_K_at_r_routes_to_bulger_via_prescreen(self):
         """At the smallest safe K (K=4, r=2: K-r=2, just clears the
-        Möbius cancellation guard), the IP pre-screen analytical cost
-        models still place the ratio outside the 3× indeterminate
-        band: pairwise_full = ((K)_r)^2 = (4·3)^2 = 144 vs
-        orbit_full = B_2 · K^2 = 32, ratio 4.5 > 3, so the pre-screen
-        routes to mobius without probing. This is the smallest
-        configuration that exercises the IP dispatcher at all (K-r<2
-        forces a Möbius-cancellation-guard short-circuit upstream of
-        the pre-screen). With the current 3× dominance, every safe
-        (K, r) lands outside the indeterminate band, so the IP probe
-        path is unreachable; this test pins the pre-screen routing at
-        the boundary."""
+        Möbius cancellation guard), Bulger's method is measurably
+        faster than the Möbius method (few tuples, so tuple
+        enumeration is cheap while the orbit path pays its fixed
+        setup cost). The orbit cost estimate includes the
+        fixed-overhead term ``B_r * _ORBIT_IP_FIXED_OVERHEAD`` that
+        captures this K-independent setup cost, so the analytical
+        pre-screen correctly routes the small-K region to Bulger's
+        method rather than to the Möbius method. (Before the
+        fixed-overhead correction the bare operation-count model
+        ``B_r * K^2`` under-estimated the Möbius cost and routed here
+        to 'mobius', ~4x slower than Bulger's method at this size.)
+        This test pins the corrected small-K routing at the boundary."""
         dens_x, dens_y = _dens(4, 2), _dens(4, 2, seed=1)
         chosen, probed, est, _ = _select_and_estimate_sa_ip(
             dens_x, dens_y, method="auto",
             truncation_sigmas=None, kernel_precision=None, verbose=False,
         )
-        assert chosen == "mobius"
+        assert chosen == "bulger"
         assert probed is False
 
 

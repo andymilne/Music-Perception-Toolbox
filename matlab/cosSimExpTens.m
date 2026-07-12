@@ -2185,14 +2185,22 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     end
 
     % === Phase 2: Deduplicate individual sets, then pairs ===
+    % 'stable' preserves first-occurrence order, so Phase 4 computes
+    % unique pairs in input-row order (parity with the Python batched
+    % path, which deduplicates via insertion-ordered dict keys).
+    % Without it, unique's lexicographic row sort can drastically
+    % reorder the work: in an EDO sweep the canonical key's second
+    % element is 1200/n, so ascending-key order is *descending* n and
+    % the heaviest pairs run first, which misleads anyone reading the
+    % progress output as if it followed the input rows.
     validIdx = find(valid);
-    [uniqueKeysA, ~, mapA] = unique(keysA(validIdx, :), 'rows');
-    [uniqueKeysB, ~, mapB] = unique(keysB(validIdx, :), 'rows');
+    [uniqueKeysA, ~, mapA] = unique(keysA(validIdx, :), 'rows', 'stable');
+    [uniqueKeysB, ~, mapB] = unique(keysB(validIdx, :), 'rows', 'stable');
     nUniqueA = size(uniqueKeysA, 1);
     nUniqueB = size(uniqueKeysB, 1);
 
     pairKeys = [mapA, mapB];
-    [uniquePairs, ~, pairMap] = unique(pairKeys, 'rows');
+    [uniquePairs, ~, pairMap] = unique(pairKeys, 'rows', 'stable');
     nUniquePairs = size(uniquePairs, 1);
 
     if verbose

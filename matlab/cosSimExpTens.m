@@ -1041,12 +1041,16 @@ end
 %  clear-winner cases without paying probe overhead; otherwise time
 %  both paths on a small subset of each density and pick the faster.
 %
-%  Extrapolation. Pairwise IP cost scales as
-%  falling_factorial(K_x, r) * falling_factorial(K_y, r) (ordered
-%  r-tuple enumeration on each side). Orbit IP cost scales as
-%  B_r * K_x * K_y (kernel matrix construction + per-partition
-%  tensor contraction). The probe uses K_probe = min(K_x, K_y, 12) events from
-%  each side and extrapolates by the appropriate factor.
+%  Extrapolation. Both paths compute three inner products (cross term
+%  plus both self-norms), so the cost models count all three: pairwise
+%  IP cost scales as P_x*P_y + P_x^2 + P_y^2 with P =
+%  falling_factorial(K, r) (ordered r-tuple enumeration on each side);
+%  orbit IP cost scales as B_r * (N_xy*K_x*K_y + N_xx*K_x^2 +
+%  N_yy*K_y^2), where the N factors are the relative-mode
+%  translation-grid sizes (1 in absolute mode). The probe uses
+%  (min(K_x, 12), min(K_y, 12)) events — per side, so an asymmetric
+%  workload is probed with the same asymmetry — and extrapolates by the
+%  ratio of the corresponding op counts.
 % =========================================================================
 
 function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
@@ -1062,17 +1066,23 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
 
     PRESCREEN_IP_DOMINANCE = 3.0;
     % Fixed-overhead term for the Möbius inner-product cost estimate, in units
-    % of K^2 (added to K_x*K_y inside the orbit-cost expression). The Möbius
-    % method carries a per-call setup cost (orbit-table lookup, contraction
-    % planning, partition iteration) that scales with the partition count B_r
-    % but is independent of K; the bare B_r*K_x*K_y operation count omits it and
-    % so under-estimates Möbius at small K, making the analytical pre-screen
-    % route to Möbius well before it is actually faster than Bulger's method.
-    % Adding B_r*ORBIT_IP_FIXED_OVERHEAD to the orbit cost shifts the analytical
-    % equal-cost point to (just below) the empirically measured Bulger/Möbius
-    % crossover per r, so the pre-screen no longer fires 'mobius' prematurely;
-    % the probe still has the final word in the near-crossover region.
-    ORBIT_IP_FIXED_OVERHEAD = 8000.0;
+    % of K^2 (added to the grid-scaled kernel-op count inside the orbit-cost
+    % expression). The Möbius method carries a per-call setup cost (orbit-table
+    % lookup, contraction planning, partition iteration) that scales with the
+    % partition count B_r but is independent of K; the bare operation count
+    % omits it and so under-estimates Möbius at small K, making the analytical
+    % pre-screen route to Möbius well before it is actually faster than
+    % Bulger's method. Adding B_r*ORBIT_IP_FIXED_OVERHEAD to the orbit cost
+    % shifts the analytical equal-cost point to (just below) the empirically
+    % measured Bulger/Möbius crossover per r, so the pre-screen never claims
+    % 'mobius' prematurely; the probe still has the final word in the
+    % near-crossover region. The value is calibrated for the
+    % three-inner-product cost model (cross term plus both self-norms, so
+    % 3*K^2 kernel-op units at symmetric K in absolute mode): it is 3x the
+    % per-IP setup constant calibrated against the measured absolute-mode
+    % crossovers, which keeps the symmetric-K absolute-mode equal-cost point
+    % at those measured values.
+    ORBIT_IP_FIXED_OVERHEAD = 24000.0;
     % Dominance margin for the *Möbius* side of the analytical pre-screen.
     % Larger than PRESCREEN_IP_DOMINANCE so that near-crossover cases (where the
     % analytical model is least reliable) defer to the timing probe rather than
@@ -1157,14 +1167,30 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     end
 
     % ---- Analytical cost models ----
-    pairwiseFull = localFallingFactorial(K_x, r) ...
-                 * localFallingFactorial(K_y, r);
+    % Both paths compute three inner products: the cross term <x, y> and
+    % the two self-norms <x, x> and <y, y>. The self-norm terms must be
+    % counted: the pairwise path's <y, y> costs FF(K_y, r)^2 tuple pairs,
+    % which dominates the cross term's FF(K_x, r)*FF(K_y, r) whenever the
+    % operand sizes are asymmetric (a small reference against a large
+    % candidate set makes <y, y> the whole cost, not a correction).
+    P_x = localFallingFactorial(K_x, r);
+    P_y = localFallingFactorial(K_y, r);
+    pairwiseFull = P_x * P_y + P_x * P_x + P_y * P_y;
     B_r          = BELL_NUMBERS.(sprintf('r%d', r));
-    % Orbit cost = B_r * (K_x*K_y + fixed overhead). The fixed-overhead term
-    % (see ORBIT_IP_FIXED_OVERHEAD) captures the K-independent Möbius setup cost
-    % that the bare operation count omits; without it the pre-screen routes to
-    % Möbius well before the measured Bulger/Möbius crossover.
-    orbitFull    = B_r * (K_x * K_y + ORBIT_IP_FIXED_OVERHEAD);
+    % Orbit cost = B_r * (grid-scaled kernel-op count + fixed overhead).
+    % In relative mode each orbit inner product runs the contraction at
+    % every node of a translation grid, so the kernel-op count carries the
+    % per-inner-product grid size as a multiplicative factor (3332 nodes
+    % for sigma = 3, period = 1200 — three orders of magnitude, not a
+    % correction). In absolute mode the factors are 1. The fixed-overhead
+    % term (see ORBIT_IP_FIXED_OVERHEAD) captures the K-independent Möbius
+    % setup cost that the bare operation count omits; without it the
+    % pre-screen routes to Möbius well before the measured Bulger/Möbius
+    % crossover.
+    [N_xy, N_xx, N_yy] = localOrbitIPGridFactors( ...
+        dens_x.p, dens_y.p, sigma, isRel, isPer, period);
+    orbitVar  = N_xy * K_x * K_y + N_xx * K_x * K_x + N_yy * K_y * K_y;
+    orbitFull = B_r * (orbitVar + ORBIT_IP_FIXED_OVERHEAD);
 
     % ---- Analytical pre-screen ----
     % The Möbius side uses a larger dominance margin than the Bulger side. Even
@@ -1190,24 +1216,47 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     end
 
     % ---- Probe both paths on a subset ----
-    K_probe = min([K_x, K_y, 12]);
-    % K_probe - r >= 2 is guaranteed by the precision rule above.
+    % Per-side probe sizes, so an asymmetric workload (a small reference
+    % against a large candidate set) is probed with the same asymmetry:
+    % probing both sides at the smaller K misrepresents the per-op cost
+    % of the larger side's self-norm, which dominates the pairwise path
+    % at scale. K_probe - r >= 2 is guaranteed per side by the precision
+    % rule above.
+    K_probe_x = min(K_x, 12);
+    K_probe_y = min(K_y, 12);
 
-    tPairwise = localProbeIPPath(dens_x, dens_y, K_probe, 'bulger', ...
-                                  truncationSigmas, kernelPrecision);
-    tOrbit    = localProbeIPPath(dens_x, dens_y, K_probe, 'mobius', ...
-                                  truncationSigmas, kernelPrecision);
+    tPairwise = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
+                                  'bulger', truncationSigmas, kernelPrecision);
+    tOrbit    = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
+                                  'mobius', truncationSigmas, kernelPrecision);
 
     % ---- Extrapolate to full workload ----
-    pairwiseProbe = localFallingFactorial(K_probe, r) ^ 2;
+    % Each factor is the ratio of the full-workload op count to the op
+    % count of what the probe actually measured. The pairwise probe times
+    % one cross inner product at (K_probe_x, K_probe_y); the orbit probe
+    % times all three orbit inner products at those sizes. For the orbit
+    % path the grid factors at probe scale come from the subset pitch
+    % arrays: in periodic-relative mode they equal the full-scale factors
+    % (the grid depends only on sigma and period, so they cancel in the
+    % ratio); in non-periodic relative mode the subset spans set smaller
+    % grids and the ratio carries the difference; in absolute mode all
+    % factors are 1.
+    P_px = localFallingFactorial(K_probe_x, r);
+    P_py = localFallingFactorial(K_probe_y, r);
+    pairwiseProbe = P_px * P_py;
     if pairwiseProbe > 0
         pairwiseFactor = pairwiseFull / pairwiseProbe;
     else
         pairwiseFactor = 1;
     end
-    orbitProbe = K_probe ^ 2;
+    [Np_xy, Np_xx, Np_yy] = localOrbitIPGridFactors( ...
+        dens_x.p(1:K_probe_x), dens_y.p(1:K_probe_y), ...
+        sigma, isRel, isPer, period);
+    orbitProbe = Np_xy * K_probe_x * K_probe_y ...
+               + Np_xx * K_probe_x * K_probe_x ...
+               + Np_yy * K_probe_y * K_probe_y;
     if orbitProbe > 0
-        orbitFactor = (K_x * K_y) / orbitProbe;
+        orbitFactor = orbitVar / orbitProbe;
     else
         orbitFactor = 1;
     end
@@ -1244,6 +1293,44 @@ function ff = localFallingFactorial(n, k)
 end
 
 
+function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
+                                                       isRel, isPer, period)
+%LOCALORBITIPGRIDFACTORS  Translation-grid sizes of the three orbit IPs.
+%
+%   Returns (N_xy, N_xx, N_yy), the grid sizes of the cross term and the
+%   two self-norms. The relative-mode orbit inner product marginalises a
+%   translation u over a grid and runs the orbit contraction at every
+%   grid point, so its kernel-op count carries the grid size as a
+%   multiplicative factor. The three factors mirror the grid-sizing
+%   rules of mobius.orbitInnerRelSA: in periodic mode the grid covers
+%   one period with internal.autoNtauDefault(period, sigma) nodes
+%   (identical for all three inner products); in non-periodic mode the
+%   line grid spans the two operands' spreads plus the 16-sigma
+%   truncation margin at 10 samples per sigma, so each inner product has
+%   its own size. The absolute-mode orbit inner product is grid-free, so
+%   all three factors are 1.
+
+    if ~isRel
+        N_xy = 1; N_xx = 1; N_yy = 1;
+        return;
+    end
+    if isPer
+        n = internal.autoNtauDefault(period, sigma);
+        N_xy = n; N_xx = n; N_yy = n;
+        return;
+    end
+    samplesPerSigma = 10;
+    spread_x = max(p_x) - min(p_x);
+    spread_y = max(p_y) - min(p_y);
+    N_xy = max(64, ceil(max(spread_x + spread_y + 16 * sigma, 1.0) ...
+                        / sigma * samplesPerSigma));
+    N_xx = max(64, ceil(max(2 * spread_x + 16 * sigma, 1.0) ...
+                        / sigma * samplesPerSigma));
+    N_yy = max(64, ceil(max(2 * spread_y + 16 * sigma, 1.0) ...
+                        / sigma * samplesPerSigma));
+end
+
+
 function s = localCosSimFormatTime(t)
 %LOCALCOSSIMFORMATTIME  Short human-readable duration string.
 %
@@ -1262,19 +1349,23 @@ function s = localCosSimFormatTime(t)
 end
 
 
-function t = localProbeIPPath(dens_x, dens_y, K_probe, path, ...
-                               truncationSigmas, kernelPrecision)
+function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
+                               path, truncationSigmas, kernelPrecision)
 %LOCALPROBEIPPATH  Time one cosSimExpTens IP path on a subset.
+%
+%   The probe sizes are per side so an asymmetric workload (a small
+%   reference against a large candidate set) is probed with the same
+%   asymmetry.
 %
 %   Runs the work twice: a warmup pass (discarded) to stabilise CPU
 %   caches and one-shot table loads, then a timed pass. Without the
 %   warmup, the path that ran most recently on the full workload
 %   comes into the probe with hot caches and gets unfairly favoured.
 
-    subX = buildExpTens(dens_x.p(1:K_probe), dens_x.w(1:K_probe), ...
+    subX = buildExpTens(dens_x.p(1:K_probe_x), dens_x.w(1:K_probe_x), ...
         dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
         dens_x.period, 'verbose', false);
-    subY = buildExpTens(dens_y.p(1:K_probe), dens_y.w(1:K_probe), ...
+    subY = buildExpTens(dens_y.p(1:K_probe_y), dens_y.w(1:K_probe_y), ...
         dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
         dens_y.period, 'verbose', false);
 

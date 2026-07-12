@@ -1192,20 +1192,25 @@ def _select_and_estimate_sa(
 # becomes the user-facing time estimate (printed in verbose mode) and
 # auto-adapts to future optimisations of either path.
 #
-# Probe extrapolation. Pairwise IP cost scales as
-# ``falling_factorial(K_x, r) * falling_factorial(K_y, r)`` (ordered
-# r-tuple enumeration on each side). Orbit IP cost scales as
-# ``B_r * K_x * K_y`` (kernel matrix construction + per-partition
-# einsum). The probe uses ``K_probe = min(K_x, K_y, _PROBE_K_IP_TARGET)``
-# events from each side and extrapolates by the appropriate factor.
+# Probe extrapolation. Both paths compute three inner products (cross
+# term plus both self-norms), so the cost models count all three:
+# pairwise cost scales as ``P_x*P_y + P_x^2 + P_y^2`` with
+# ``P = falling_factorial(K, r)`` (ordered r-tuple enumeration on each
+# side); orbit cost scales as ``B_r * (N_xy*K_x*K_y + N_xx*K_x^2 +
+# N_yy*K_y^2)`` where the ``N`` factors are the relative-mode
+# translation-grid sizes (1 in absolute mode). The probe uses
+# ``(min(K_x, target), min(K_y, target))`` events — per side, so an
+# asymmetric workload is probed with the same asymmetry — and
+# extrapolates by the ratio of the corresponding op counts.
 # -----------------------------------------------------------------------
 
-# Target subset size for the IP probe. Small enough that probe cost is
-# negligible, large enough that the K_probe-choose-r tuple count is
-# meaningful (e.g., 12-choose-3 = 220) and the Möbius method's precision
-# guard (n_min - r >= 2) is not contended. ``K_probe`` is capped to
-# ``min(K_x, K_y)`` at call time; the hard precision rule
-# (``n_min - r < 2``) fires upstream so K_probe never drops below r+2.
+# Target per-side subset size for the IP probe. Small enough that probe
+# cost is negligible, large enough that the K_probe-choose-r tuple count
+# is meaningful (e.g., 12-choose-3 = 220) and the Möbius method's
+# precision guard (n_min - r >= 2) is not contended. Each side's probe
+# size is capped to its own K at call time; the hard precision rule
+# (``n_min - r < 2``) fires upstream so neither probe size drops below
+# r+2.
 _PROBE_K_IP_TARGET = 12
 
 
@@ -1215,20 +1220,22 @@ _PROBE_K_IP_TARGET = 12
 _PRESCREEN_IP_DOMINANCE = 3.0
 
 # Fixed-overhead term for the Möbius inner-product cost estimate, in units of
-# K^2 (i.e. added to K_x*K_y inside the orbit-cost expression). The Möbius
-# method carries a per-call setup cost (orbit-table lookup, einsum planning,
-# partition iteration) that scales with the partition count B_r but is
-# independent of K; the bare B_r*K_x*K_y operation count omits it and so
+# K^2 (i.e. added to the grid-scaled kernel-op count inside the orbit-cost
+# expression). The Möbius method carries a per-call setup cost (orbit-table
+# lookup, einsum planning, partition iteration) that scales with the partition
+# count B_r but is independent of K; the bare operation count omits it and so
 # under-estimates Möbius at small K, making the analytical pre-screen route to
 # Möbius well before it is actually faster than Bulger's method. Adding
 # B_r*_ORBIT_IP_FIXED_OVERHEAD to the orbit cost shifts the analytical
 # equal-cost point to (just below) the empirically measured Bulger/Möbius
-# crossover per r, so the pre-screen no longer fires 'mobius' prematurely; the
-# probe still has the final word in the near-crossover region. Calibrated
-# against measured crossovers K_cross = {r2:14, r3:9, r4:8, r5:8, r6:8}; the
-# value is deliberately conservative (equal-cost K at or below the true
-# crossover for every r) so the pre-screen never claims Möbius early.
-_ORBIT_IP_FIXED_OVERHEAD = 8000.0
+# crossover per r, so the pre-screen never claims 'mobius' prematurely; the
+# probe still has the final word in the near-crossover region. The value is
+# calibrated for the three-inner-product cost model (cross term plus both
+# self-norms, so 3*K^2 kernel-op units at symmetric K in absolute mode): it is
+# 3x the per-IP setup constant calibrated against measured absolute-mode
+# crossovers K_cross = {r2:14, r3:9, r4:8, r5:8, r6:8}, which keeps the
+# symmetric-K absolute-mode equal-cost point at those measured values.
+_ORBIT_IP_FIXED_OVERHEAD = 24000.0
 
 # Dominance margin for the *Möbius* side of the analytical inner-product
 # pre-screen. Larger than _PRESCREEN_IP_DOMINANCE so that near-crossover cases
@@ -1252,17 +1259,70 @@ def _falling_factorial(n: int, k: int) -> float:
 
 
 
+def _orbit_ip_grid_factors(
+    p_x: np.ndarray,
+    p_y: np.ndarray,
+    sigma: float,
+    is_rel: bool,
+    is_per: bool,
+    period: float,
+) -> tuple[float, float, float]:
+    """Translation-grid sizes ``(N_xy, N_xx, N_yy)`` of the three orbit
+    inner products (cross term plus both self-norms).
+
+    The relative-mode orbit inner product marginalises a translation u
+    over a grid and runs the orbit contraction at every grid point, so
+    its kernel-op count carries the grid size as a multiplicative
+    factor. The three factors mirror the grid-sizing rules of
+    ``_orbit_inner_rel``: in periodic mode the grid covers one period
+    with ``auto_ntau_default(period, sigma)`` nodes (identical for all
+    three inner products); in non-periodic mode the line grid spans the
+    two operands' spreads plus the 16-sigma truncation margin at 10
+    samples per sigma, so each inner product has its own size. The
+    absolute-mode orbit inner product is grid-free, so all three
+    factors are 1.
+    """
+    if not is_rel:
+        return 1.0, 1.0, 1.0
+    if is_per:
+        # Lazy import to keep dispatch free of a hard dependency on
+        # the nested-contraction module at import time.
+        from ._nested_contraction import auto_ntau_default
+        n = float(auto_ntau_default(period, sigma))
+        return n, n, n
+    samples_per_sigma = 10.0
+
+    def _n_u(p_a: np.ndarray, p_b: np.ndarray) -> float:
+        span = (float(p_a.max()) - float(p_a.min())
+                + float(p_b.max()) - float(p_b.min())
+                + 16.0 * sigma)
+        return float(max(
+            64,
+            int(np.ceil(max(span, 1.0) / sigma * samples_per_sigma)),
+        ))
+
+    return _n_u(p_x, p_y), _n_u(p_x, p_x), _n_u(p_y, p_y)
+
+
+
 def _probe_ip_path(
     dens_x: "ExpTensDensity",
     dens_y: "ExpTensDensity",
-    K_probe: int,
+    K_probe_x: int,
+    K_probe_y: int,
     path: str,
     *,
     truncation_sigmas: float | None,
     kernel_precision: str | None,
 ) -> float:
-    """Time one cos_sim_exp_tens IP path on the first ``K_probe`` events
-    of each density. Returns seconds.
+    """Time one cos_sim_exp_tens IP path on the first ``K_probe_x`` /
+    ``K_probe_y`` events of the respective densities. Returns seconds.
+
+    The probe sizes are per side so an asymmetric workload (a small
+    reference against a large candidate set) is probed with the same
+    asymmetry: probing both sides at the smaller K misrepresents the
+    per-op cost of the larger side's self-norm, which dominates the
+    pairwise path at scale.
 
     Builds fresh subset densities outside the timed window so the
     measurement covers only the IP work itself (kernel-matrix
@@ -1282,13 +1342,13 @@ def _probe_ip_path(
     import time as _time
 
     sub_x = build_exp_tens(
-        dens_x.p[:K_probe], dens_x.w[:K_probe],
+        dens_x.p[:K_probe_x], dens_x.w[:K_probe_x],
         dens_x.sigma, int(dens_x.r),
         bool(dens_x.is_rel), bool(dens_x.is_per), float(dens_x.period),
         verbose=False,
     )
     sub_y = build_exp_tens(
-        dens_y.p[:K_probe], dens_y.w[:K_probe],
+        dens_y.p[:K_probe_y], dens_y.w[:K_probe_y],
         dens_y.sigma, int(dens_y.r),
         bool(dens_y.is_rel), bool(dens_y.is_per), float(dens_y.period),
         verbose=False,
@@ -1334,7 +1394,8 @@ def _select_and_estimate_sa_ip(
 
     Then analytical pre-screen catches clear-winner cases without
     paying probe overhead. Otherwise, both paths are timed on a small
-    subset (``min(K_x, K_y, _PROBE_K_IP_TARGET)``) and extrapolated to
+    subset (``min(K_x, target)`` by ``min(K_y, target)``, per side) and
+    extrapolated to
     the full workload; the faster is picked.
 
     Returns ``(chosen, probed, est_sec, routing_reason)``. routing_reason
@@ -1384,17 +1445,18 @@ def _select_and_estimate_sa_ip(
     # The Bulger IP materialises each side's O(n_j = K!/(K-r)!) tuple
     # working set (via build_perm_arrays on both densities) plus the
     # chunked (n_Jx x n_Jy) kernel matrix. The Möbius IP is n_j-free.
-    # In practice the op-count pre-screen below already diverts every
-    # large-K workload to Möbius, because the IP cost keys on the tuple
-    # *pair* count n_Jx * n_Jy -- the square of the per-side working set
-    # -- so any density big enough to blow memory pushes pairwise_full
-    # far past orbit_full and is routed to Möbius on cost alone (Bulger
-    # is only ever chosen at n_j <= ~120). This guard makes that memory
-    # invariant explicit and regression-proof rather than emergent from
-    # the cost constants: if either side's centres working set exceeds
-    # the soft budget and Möbius is convention-safe, take Möbius now.
-    # Precision (n_min - r >= 2) and feasibility (r <= feasible) are
-    # already ensured by the hard rules above.
+    # In absolute mode the op-count pre-screen below already diverts
+    # every large-K workload to Möbius, because the pairwise cost's
+    # self-norm terms grow as n_j^2 per side while the orbit cost grows
+    # only as K^2. In relative modes the orbit cost carries the
+    # translation-grid factor, so Bulger is legitimately the faster path
+    # up to much larger n_j and the cost comparison alone no longer
+    # bounds the pairwise working set. This guard makes the memory
+    # invariant explicit rather than emergent from the cost constants:
+    # if either side's centres working set exceeds the soft budget and
+    # Möbius is convention-safe, take Möbius now. Precision
+    # (n_min - r >= 2) and feasibility (r <= feasible) are already
+    # ensured by the hard rules above.
     ws_x = _estimate_centres_working_set_bytes(K_x, r, is_rel)
     ws_y = _estimate_centres_working_set_bytes(K_y, r, is_rel)
     if max(ws_x, ws_y) > _CENTRES_WORKING_SET_SOFT_BUDGET and not _rel_per_above:
@@ -1414,13 +1476,33 @@ def _select_and_estimate_sa_ip(
         return "mobius", False, 0.0, "rel-per all-image measure"
 
     # ---- Analytical cost models ----
-    pairwise_full = _falling_factorial(K_x, r) * _falling_factorial(K_y, r)
+    # Both paths compute three inner products: the cross term <x, y> and
+    # the two self-norms <x, x> and <y, y>. The self-norm terms must be
+    # counted: the pairwise path's <y, y> costs FF(K_y, r)^2 tuple pairs,
+    # which dominates the cross term's FF(K_x, r)*FF(K_y, r) whenever the
+    # operand sizes are asymmetric (a small reference against a large
+    # candidate set makes <y, y> the whole cost, not a correction).
+    P_x = _falling_factorial(K_x, r)
+    P_y = _falling_factorial(K_y, r)
+    pairwise_full = P_x * P_y + P_x * P_x + P_y * P_y
     B_r = float(_BELL_NUMBERS[r])
-    # Orbit cost = B_r * (K_x*K_y + fixed overhead). The fixed-overhead term
-    # (see _ORBIT_IP_FIXED_OVERHEAD) captures the K-independent Möbius setup
-    # cost that the bare operation count omits; without it the pre-screen
-    # routes to Möbius well before the measured Bulger/Möbius crossover.
-    orbit_full = B_r * (float(K_x) * float(K_y) + _ORBIT_IP_FIXED_OVERHEAD)
+    # Orbit cost = B_r * (grid-scaled kernel-op count + fixed overhead).
+    # In relative mode each orbit inner product runs the contraction at
+    # every node of a translation grid, so the kernel-op count carries
+    # the per-inner-product grid size as a multiplicative factor (3332
+    # nodes for sigma = 3, period = 1200 — three orders of magnitude, not
+    # a correction). In absolute mode the factors are 1. The
+    # fixed-overhead term (see _ORBIT_IP_FIXED_OVERHEAD) captures the
+    # K-independent Möbius setup cost that the bare operation count
+    # omits; without it the pre-screen routes to Möbius well before the
+    # measured Bulger/Möbius crossover.
+    N_xy, N_xx, N_yy = _orbit_ip_grid_factors(
+        dens_x.p, dens_y.p, sigma, is_rel, is_per, period,
+    )
+    orbit_var = (N_xy * float(K_x) * float(K_y)
+                 + N_xx * float(K_x) * float(K_x)
+                 + N_yy * float(K_y) * float(K_y))
+    orbit_full = B_r * (orbit_var + _ORBIT_IP_FIXED_OVERHEAD)
 
     # ---- Analytical pre-screen ----
     # The Möbius side uses a larger dominance margin than the Bulger side.
@@ -1441,29 +1523,47 @@ def _select_and_estimate_sa_ip(
     from .._mobius import get_set_partitions_with_mobius
     get_set_partitions_with_mobius(r)
 
-    K_probe = min(K_x, K_y, _PROBE_K_IP_TARGET)
-    # K_probe - r >= 2 is guaranteed by the precision hard rule above
-    # (n_min - r >= _ORBIT_K_MINUS_R_MIN), so the orbit probe is safe.
+    K_probe_x = min(K_x, _PROBE_K_IP_TARGET)
+    K_probe_y = min(K_y, _PROBE_K_IP_TARGET)
+    # K_probe - r >= 2 is guaranteed per side by the precision hard rule
+    # above (n_min - r >= _ORBIT_K_MINUS_R_MIN), so the orbit probe is safe.
 
     t_pairwise = _probe_ip_path(
-        dens_x, dens_y, K_probe, "bulger",
+        dens_x, dens_y, K_probe_x, K_probe_y, "bulger",
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
     t_orbit = _probe_ip_path(
-        dens_x, dens_y, K_probe, "mobius",
+        dens_x, dens_y, K_probe_x, K_probe_y, "mobius",
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
 
     # ---- Extrapolate to full workload ----
-    pairwise_probe = _falling_factorial(K_probe, r) ** 2
+    # The probe runs the full three-inner-product computation on
+    # (K_probe_x, K_probe_y) subsets, so the probe-scale op counts are
+    # the same three-term expressions evaluated at the probe sizes. For
+    # the orbit path the grid factors at probe scale come from the
+    # subset pitch arrays: in periodic-relative mode they equal the
+    # full-scale factors (the grid depends only on sigma and period, so
+    # they cancel in the ratio); in non-periodic relative mode the
+    # subset spans set smaller grids and the ratio carries the
+    # difference; in absolute mode all factors are 1.
+    P_px = _falling_factorial(K_probe_x, r)
+    P_py = _falling_factorial(K_probe_y, r)
+    pairwise_probe = P_px * P_py + P_px * P_px + P_py * P_py
     pairwise_factor = (
         pairwise_full / pairwise_probe if pairwise_probe > 0 else 1.0
     )
-    orbit_probe = float(K_probe) ** 2
+    Np_xy, Np_xx, Np_yy = _orbit_ip_grid_factors(
+        dens_x.p[:K_probe_x], dens_y.p[:K_probe_y],
+        sigma, is_rel, is_per, period,
+    )
+    orbit_probe = (Np_xy * float(K_probe_x) * float(K_probe_y)
+                   + Np_xx * float(K_probe_x) * float(K_probe_x)
+                   + Np_yy * float(K_probe_y) * float(K_probe_y))
     orbit_factor = (
-        float(K_x) * float(K_y) / orbit_probe if orbit_probe > 0 else 1.0
+        orbit_var / orbit_probe if orbit_probe > 0 else 1.0
     )
 
     t_pairwise_est = t_pairwise * pairwise_factor

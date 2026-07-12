@@ -50,15 +50,18 @@ some with small onset-timing perturbations as well, plus two foils.
 Each candidate rhythm occupies a 3-interval cell; the stream is scanned
 by its overlapping log-IOI trigrams, each an ordered K = 3 value
 multiset read at r = 3 (the matrix covariance requires r == K), with
-the trigram's start time as a second attribute that only places the
-sliding window (`window_attr`, `drop_window_attr=True`). The trigram
-attribute must be ORDERED (`is_sym=False`): one foil is the motif
-reversed, which has the same interval multiset as the motif and is
-separated from it only by slot order. Note that the trigrams are
-stacked into a flat (3, N) value matrix directly; `bind_events` is not
-used here because it produces a NESTED attribute, which the
-matrix-covariance path rejects by design -- the flat ordered stack is
-the intended carrier.
+an onset time as a second attribute that only places the sliding
+window (`window_attr`, `drop_window_attr=True`); each trigram is timed
+at the onset that completes its first interval, the stamp the
+difference/bind pipeline gives it. The trigram
+attribute must be ORDERED: one foil is the motif reversed, which has
+the same interval multiset as the motif and is separated from it only
+by slot order. The trigrams are built with the toolbox's cross-event
+preprocessing -- `difference_events` (onsets to IOIs), then
+`bind_events` (overlapping windows of three consecutive log-IOIs per
+event). The rel kernel reads each trigram relative to a common shift;
+a second `bind_events` call with `rel_outer=True` produces that
+reading of the same trigrams.
 
 Four sections:
 
@@ -67,7 +70,7 @@ Four sections:
                   each pure kernel puts on three canonical
                   perturbations of the motif.
   3. The search   `windowed_similarity` sweeps over every trigram
-                  under five kernels; the candidate table contrasts
+                  under six kernels; the candidate table contrasts
                   positional (timing) tolerance with tempo tolerance,
                   and both with exact tempo invariance.
   4. The limit    sd_shift -> infinity converges to `is_rel=True`.
@@ -78,7 +81,7 @@ covariance it equals exp(-delta^T Sigma^{-1} delta / 4), where delta is
 the difference between the two trigrams' points.
 
 Two figures are written next to this script: the onset stream with the
-query and the five similarity profiles aligned beneath it
+query and the six similarity profiles aligned beneath it
 (demo_tempo_invariance.png), and the sd_shift sweep converging to the
 is_rel limit (demo_tempo_invariance_limit.png).
 
@@ -127,6 +130,9 @@ CELLS = [
 ]
 
 # The stream: the seven cells in order, separated by 1 s of silence.
+# Because the gaps exceed every within-cell interval, any trigram that
+# straddles a cell boundary reads that 1 s gap as one of its intervals
+# -- realistic near-miss material for the search.
 GAP = 1.0
 onsets = []
 t = 0.0
@@ -136,40 +142,88 @@ for _, iois in CELLS:
     t = cell_onsets[-1] + GAP
 onsets = np.asarray(onsets)
 
-# Overlapping log-IOI trigrams: trigram i reads IOIs (i, i+1, i+2) and
-# is stamped with its start time onsets[i]. Trigrams that straddle a
-# cell boundary contain a 1 s gap interval -- realistic near-miss
-# material for the search.
-log_iois = np.log(np.diff(onsets))
-N_TRI = log_iois.size - 2
-trigrams = np.stack([log_iois[i:i + N_TRI] for i in range(3)])  # (3, N)
-tri_times = onsets[:N_TRI]
-CELL_STARTS = [4 * i for i in range(len(CELLS))]  # trigram index per cell
+# The input to difference_events is a two-attribute pre-MAET both of
+# which are the onset times. difference_events is told to difference
+# the first attribute once and leave the second untouched (the [1, 0]
+# orders): the first becomes the inter-onset intervals (each interval
+# timed at the onset that completes it), while the second stays as the
+# raw onset times. bind_events then lays a sliding window of three
+# consecutive log-IOIs across the event axis (the [3, 1] orders bind
+# the interval attribute in threes and keep the time attribute as a
+# singleton), one bound event per window, each trigram carrying the
+# time of its first interval. The rel kernel needs its trigrams read
+# relative to a common shift; the second bind, with rel_outer=True,
+# produces that reading of the same trigrams.
+p_diff, w_diff, sp_diff = mpt.difference_events(
+    [onsets[None, :], onsets[None, :]], None, [1, 0])
+p_diff[0] = np.log(p_diff[0])
+p_bound, w_bound, sp_bound = mpt.bind_events(p_diff, w_diff, [3, 1],
+                                             specs=sp_diff)
+_, _, sp_bound_rel = mpt.bind_events(p_diff, w_diff, [3, 1],
+                                     specs=sp_diff, rel_outer=True)
+# Two quantities read off the bound carrier feed the search below:
+N_TRI = p_bound[0].shape[1]      # number of trigrams (windows to place)
+tri_times = p_bound[1].ravel()   # window-placing times (the sweep
+                                 # centres); trigram i is timed at
+                                 # onsets[i + 1]
+
+# Presentation only -- no effect on the search, which is blind to cell
+# boundaries. CELL_STARTS is the trigram index at which each cell
+# begins, used to pick each cell's own trigram for the results table,
+# the figure markers, and the near-miss annotation.
+CELL_STARTS = [4 * i for i in range(len(CELLS))]
 
 print("\n=== 1. Material ===\n")
 print(f"  Motif IOIs (s): {D_MOTIF}  (long-short-short)")
 print(f"  Stream: {len(CELLS)} cells x 4 onsets, 1 s gaps -> "
       f"{onsets.size} onsets, {N_TRI} overlapping log-IOI trigrams.")
 print("  Each trigram is one event: an ordered K = 3 value multiset")
-print("  read at r = 3, with its start time as the window-placing")
-print("  attribute.")
+print("  read at r = 3, timed at the onset that completes its first")
+print("  interval (the window-placing attribute).")
 
 
-# ===== 2. The constructor: three terms, three tolerances =====
+# ===== 2. interval_kernel_cov: shaping the kernel covariance =====
 
-print("\n=== 2. interval_kernel_cov: what each term buys ===\n")
+# interval_kernel_cov builds the covariance of the trigram attribute's
+# Gaussian kernel -- the object that sets how much of each kind of
+# departure from the motif the search treats as small. The covariance
+# is a sum of three independently scaled terms, one per source of
+# uncertainty being smoothed over:
+#   sd_position -- jitter in the underlying onset times. Neighbouring
+#     intervals share an onset, so this uncertainty couples them: it
+#     enters as a tridiagonal term (2 sd^2 on the diagonal, -sd^2
+#     between neighbours).
+#   sd_interval -- noise on each interval on its own, uncorrelated
+#     across intervals: a diagonal term.
+#   sd_shift -- a common shift of all three intervals at once, i.e. a
+#     tempo change in these log-IOI coordinates: a rank-one ridge
+#     (sd_shift^2 added to every entry). The larger this ridge, the
+#     freer the common shift becomes, and in the limit the kernel
+#     approaches the relative-mode reading (is_rel=True), which quotients
+#     the shift out exactly. Section 4 traces this convergence.
+# The three cases below turn on one term at a time so each contribution
+# to the covariance is visible on its own.
+print("\n=== 2. interval_kernel_cov: the kernel covariance ===\n")
+print("  interval_kernel_cov builds the covariance of the trigram")
+print("  attribute's Gaussian kernel from three terms, one per source")
+print("  of uncertainty the search smooths over: onset-time jitter")
+print("  (sd_position), per-interval noise (sd_interval), and a common")
+print("  tempo shift (sd_shift). Each case below turns on one term:\n")
 
 S_POS = interval_kernel_cov(3, sd_position=0.05)
 S_INT = interval_kernel_cov(3, sd_interval=0.05 * np.sqrt(2))
 S_RDG = interval_kernel_cov(3, sd_position=0.05, sd_shift=0.25)
 
 np.set_printoptions(precision=4, suppress=True)
-print("  sd_position = 0.05 alone (tridiagonal 2 sd^2 / -sd^2):")
+print("  sd_position = 0.05 alone -- onset-time jitter, coupled across")
+print("  shared onsets (tridiagonal, 2 sd^2 diagonal, -sd^2 off):")
 print("   ", str(S_POS).replace("\n", "\n    "))
-print("  sd_interval = 0.05*sqrt(2) alone (diagonal; chosen to match")
-print("  the tridiagonal's per-interval marginal variance of 0.005):")
+print("  sd_interval = 0.05*sqrt(2) alone -- independent per-interval")
+print("  noise (diagonal; chosen to match the tridiagonal's per-interval")
+print("  marginal variance of 0.005):")
 print("   ", str(S_INT).replace("\n", "\n    "))
-print("  sd_position = 0.05 with sd_shift = 0.25 (rank-one ridge added):")
+print("  sd_position = 0.05 with sd_shift = 0.25 -- onset jitter plus a")
+print("  common-shift ridge (rank-one, added to every entry):")
 print("   ", str(S_RDG).replace("\n", "\n    "))
 
 # Price table: perturb the motif along three canonical directions and
@@ -229,7 +283,7 @@ print("""
 
 print("\n=== 3. Searching the stream for the motif ===\n")
 
-# Five kernels. sd values are in natural-log units: sd_position = 0.10
+# Six kernels. sd values are in natural-log units: sd_position = 0.10
 # tolerates onset jitter of roughly 10% of the local inter-onset
 # interval; sd_shift = 0.25 makes one sd a tempo factor of
 # exp(0.25) ~ 1.28 (or its reciprocal). The rel entry is exact tempo
@@ -238,18 +292,22 @@ print("\n=== 3. Searching the stream for the motif ===\n")
 KERNELS = [
     ("strict", "sd_position = 0.02",
      dict(sigma=interval_kernel_cov(3, sd_position=0.02),
-          is_rel=False)),
+          spec=sp_bound[0])),
     ("timing", "sd_position = 0.10",
      dict(sigma=interval_kernel_cov(3, sd_position=0.10),
-          is_rel=False)),
+          spec=sp_bound[0])),
     ("tempo", "sd_position = 0.02, sd_shift = 0.25",
      dict(sigma=interval_kernel_cov(3, sd_position=0.02, sd_shift=0.25),
-          is_rel=False)),
+          spec=sp_bound[0])),
     ("timing+tempo", "sd_position = 0.10, sd_shift = 0.25",
      dict(sigma=interval_kernel_cov(3, sd_position=0.10, sd_shift=0.25),
-          is_rel=False)),
-    ("rel", "is_rel = True, sigma = 0.10*sqrt(2)",
-     dict(sigma=0.10 * np.sqrt(2), is_rel=True)),
+          spec=sp_bound[0])),
+    ("large-shift", "sd_interval = 0.10*sqrt(2), sd_shift = 100",
+     dict(sigma=interval_kernel_cov(3, sd_interval=0.10 * np.sqrt(2),
+                                    sd_shift=100.0),
+          spec=sp_bound[0])),
+    ("rel", "rel_outer = True, sigma = 0.10*sqrt(2)",
+     dict(sigma=0.10 * np.sqrt(2), spec=sp_bound_rel[0])),
 ]
 print("  strict       : interval_kernel_cov(3, sd_position=0.02)")
 print("  timing       : interval_kernel_cov(3, sd_position=0.10)")
@@ -257,8 +315,13 @@ print("  tempo        : interval_kernel_cov(3, sd_position=0.02, "
       "sd_shift=0.25)")
 print("  timing+tempo : interval_kernel_cov(3, sd_position=0.10, "
       "sd_shift=0.25)")
-print("  rel          : is_rel=True, sigma = 0.10*sqrt(2)  "
+print("  large-shift  : interval_kernel_cov(3, sd_interval=0.10*sqrt(2), "
+      "sd_shift=100)")
+print("  rel          : rel_outer=True bind spec, sigma = 0.10*sqrt(2)  "
       "(exact tempo invariance)")
+print("  The large-shift kernel's within-shape term is matched to the")
+print("  rel kernel's sigma, so its enormous ridge should reproduce the")
+print("  rel column almost exactly (Section 4 gives the limit argument).")
 
 # One windowed_similarity sweep per kernel. The rect window (full
 # width 0.1 s, narrower than the smallest trigram spacing of 0.125 s)
@@ -268,11 +331,8 @@ print("  rel          : is_rel=True, sigma = 0.10*sqrt(2)  "
 # trigram to the query under the kernel. The search itself uses no
 # knowledge of where the cells sit: every event of the stream starts a
 # candidate trigram and receives a window, boundary-straddling
-# trigrams included. CELL_STARTS enters only in the presentation --
-# the table's row selection, the filled markers, and the cell shading
-# are ground-truth annotation for reading the results, not an input to
-# the detection. Window centres are anchored
-# to the trigram start times rather than laid on a uniform grid, so
+# trigrams included. Window centres are anchored
+# to the trigram times rather than laid on a uniform grid, so
 # their spacing follows the stream's own inter-onset intervals --
 # denser where the music is faster, widest across the silences. A
 # uniform grid (available via start/stop/step) would add nothing at
@@ -280,7 +340,7 @@ print("  rel          : is_rel=True, sigma = 0.10*sqrt(2)  "
 # trigram's similarity wherever within its span the window is placed,
 # and a window containing none returns zero, its context density
 # being empty.
-p_context = [trigrams, tri_times[None, :]]
+p_context = p_bound                    # [trigrams, times] as bound
 w_context = [np.ones((3, N_TRI)), np.ones((1, N_TRI))]
 p_query = [X_MOTIF[:, None], np.array([[0.0]])]
 w_query = [np.ones((3, 1)), np.ones((1, 1))]
@@ -289,9 +349,9 @@ profiles = {}
 for kname, _, kw in KERNELS:
     profiles[kname] = mpt.windowed_similarity(
         p_context, w_context, p_query, w_query,
-        [kw["sigma"], 0.25], [3, 1], [kw["is_rel"], False],
+        [kw["sigma"], 0.25], [3, 1], [False, False],
         [False, False], [0.0, 0.0],
-        is_sym=[False, True], centres=tri_times, window_attr=1,
+        specs=[kw["spec"], sp_bound[1]], centres=tri_times, window_attr=1,
         drop_window_attr=True, context_window=("rect", 0.1),
         normalize="oneSidedDenom", verbose=False)
 
@@ -317,15 +377,24 @@ print("""
     log-IOI space a tempo change moves the trigram's point ALONG the
     all-ones diagonal, timing jitter moves it off that line, and the
     kernel prices the two components independently.
-  - jit + faster: needs both currencies at once -- only 'timing+tempo'
-    (0.742) and 'rel' (0.777) admit it. Under 'rel' the two jittered
-    rows are identical: the jittered-and-faster cell is the jittered
-    cell under a pure tempo change (its displacement scales with the
-    tempo), and rel quotients tempo out.
-  - reversed: same interval multiset as the motif; the ordered
-    (is_sym=False) tuple keeps it at zero under every kernel.
+  - jit + faster: needs both currencies at once -- only the kernels
+    carrying both, 'timing+tempo' (0.742), 'large-shift', and 'rel'
+    (0.777 each), admit it. Under 'rel' the two jittered rows are
+    identical: the jittered-and-faster cell is the jittered cell under
+    a pure tempo change (its displacement scales with the tempo), and
+    rel quotients tempo out.
+  - reversed: same interval multiset as the motif; the ordered outer
+    read (sym_outer = False, the bind default) keeps it at zero under
+    every kernel.
   - isochronous: a genuinely different shape; near zero throughout.
+  - large-shift vs rel: the two columns agree at this precision.
+    Graded tolerance with a sufficiently large ridge is numerically
+    indistinguishable from the exact quotient -- the limit Section 4
+    approaches from below, effectively reached.
 """)
+print("  Max |large-shift - rel| across all "
+      f"{N_TRI} trigram positions: "
+      f"{np.max(np.abs(profiles['large-shift'] - profiles['rel'])):.1e}\n")
 
 # The full profile also sweeps the boundary-straddling trigrams. One
 # is instructive: the trigram reading (last interval of the reversed
@@ -340,28 +409,26 @@ print(f"  A boundary near-miss: the trigram at t = "
 print("  after the reversed cell as a 'long', giving a")
 print("  long-short-short of ratio 3:1:1 at a remote tempo. Graded")
 print("  tempo tolerance suppresses what exact invariance admits:")
-for kname in ("tempo", "timing+tempo", "rel"):
+for kname in ("tempo", "timing+tempo", "large-shift", "rel"):
     print(f"    {kname:<13}: {profiles[kname][i_straddle]:.3f}")
 
-# --- Main figure: the stream, the query, and the five profiles ------
+# --- Main figure: the stream, the query, and the six profiles ------
 # Top panel: the onset stream as an event raster, with each cell's
 # span shaded and named, and the query drawn on a second y-level at
 # t = 0..1 s -- the same time scale, sitting directly above the exact
 # copy for visual comparison. Below: one panel per kernel, sharing the
 # time axis, with the cell spans repeated so each peak reads off
-# against its cell. Profiles are drawn as left-aligned stair steps --
-# one tread per windowed position, starting at that position and
-# holding until the next, so tread widths follow the event-anchored
-# window spacing; the final tread runs to the end of the last trigram.
-# Filled markers sit on the cell-start trigrams (the table's
-# rows); small dots are the remaining, mostly boundary-straddling,
-# trigrams. Panel titles carry each kernel's constructor parameters.
+# against its cell. Each profile is drawn as end-aligned stair steps:
+# a trigram's tread spans its first inter-onset interval and its value
+# sits at the right edge (the trigram's stamp), with a dot marking
+# each stamp. Panel titles carry each kernel's constructor parameters.
 cell_spans = [(onsets[4 * i], onsets[4 * i + 3])
               for i in range(len(CELLS))]
 query_onsets = np.concatenate([[0.0], np.cumsum(D_MOTIF)])
 
 fig, axes = plt.subplots(
-    len(KERNELS) + 1, 1, figsize=(12, 9), sharex=True,
+    len(KERNELS) + 1, 1, figsize=(12, 2.4 + 1.35 * len(KERNELS)),
+    sharex=True,
     gridspec_kw=dict(height_ratios=[1.7] + [1] * len(KERNELS),
                      hspace=0.12, left=0.09, right=0.98,
                      top=0.96, bottom=0.06))
@@ -384,24 +451,39 @@ for ax, (kname, plabel, _) in zip(axes[1:], KERNELS):
     for lo, hi in cell_spans:
         ax.axvspan(lo, hi, color='0.55', alpha=0.15, lw=0)
     prof = profiles[kname]
-    ax.step(np.append(tri_times, onsets[-1]), np.append(prof, prof[-1]),
-            where='post', color='C0', lw=1.0)
+    prof = profiles[kname]
+    # End-aligned stair steps: the tread for a trigram spans its first
+    # inter-onset interval -- from the trigram's opening onset to the
+    # onset that stamps it (onsets[i] to onsets[i+1]) -- so the tread
+    # width shows that interval and the value sits at its right edge.
+    # For the boundary trigram this first interval is the 1 s gap, so
+    # the tread widens to cover it. Small dots mark the stamps; the
+    # leading edge is carried back to the opening onset.
+    ax.step(np.insert(tri_times, 0, onsets[0]), np.insert(prof, 0, prof[0]),
+            where='pre', color='C0', lw=1.0)
     ax.plot(tri_times, prof, '.', color='C0', ms=4)
-    ax.plot(tri_times[CELL_STARTS], prof[CELL_STARTS], 'o',
-            color='C0', ms=6, mfc='C0')
     ax.text(0.008, 0.97, f"{kname} ({plabel})", transform=ax.transAxes,
             fontsize=9, fontweight='bold', va='top')
     ax.set_ylim(-0.07, 1.30)
     ax.set_yticks([0, 0.5, 1])
     ax.set_ylabel('similarity', fontsize=9)
-# Annotate the boundary near-miss in the rel panel.
-axes[-1].annotate("gap parses as 'long'",
-                  xy=(tri_times[i_straddle],
-                      profiles['rel'][i_straddle]),
-                  xytext=(tri_times[i_straddle] - 3.4, 0.72),
-                  fontsize=8,
-                  arrowprops=dict(arrowstyle='->', lw=0.8))
+# Annotate the boundary near-miss wherever tempo invariance admits it:
+# the wide gap tread reads as a 'long', so both the large-shift and rel
+# panels score it. Text sits up and to the right of the point so the
+# arrow stays short.
+for kname in ("large-shift", "rel"):
+    ax = axes[[k for k, _, _ in KERNELS].index(kname) + 1]
+    ax.annotate("gap parses as 'long'",
+                xy=(tri_times[i_straddle], profiles[kname][i_straddle]),
+                xytext=(tri_times[i_straddle] - 0.05, 0.66),
+                ha='left', fontsize=8,
+                arrowprops=dict(arrowstyle='->', lw=0.8))
 axes[-1].set_xlabel('time (s)')
+# Span the whole stream: the last onsets carry no trigram (a trigram
+# needs three IOIs ahead of it), so the stair stamps stop before the
+# stream does; set the limit from the onsets, not the stamps, so the
+# raster's tail is not clipped.
+axes[-1].set_xlim(-0.6, onsets[-1] + 0.6)
 
 fig.savefig(FN_FIG_MAIN, dpi=120)
 print(f"\n  wrote {FN_FIG_MAIN}")
@@ -471,7 +553,7 @@ print(f"\n  wrote {FN_FIG_LIMIT}")
 print("""
   The double-speed copy converges to 1 (a pure shift is fully
   absorbed); the jittered-and-faster copy converges to the rel value
-  set by its within-shape (jitter) component alone. Tempo tolerance is
-  the graded dial; tempo invariance is its endpoint.""")
+  set by its within-shape (jitter) component alone. Tempo tolerance
+  varies continuously with sd_shift; tempo invariance is its limit.""")
 
 mpt.set_default(**_prev_defaults)

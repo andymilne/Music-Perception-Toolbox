@@ -130,17 +130,36 @@ function dens = buildExpTens(varargin)
             error('buildExpTens:specsMissingScalar', ...
                   'specs requires sigma, isPer, period kwargs (each length-A).');
         end
-        if iscell(sigmaKw) && any(cellfun(@internal.isKernelCov, sigmaKw))
-            error('mpt:aniso:specsUnsupported', ...
-                  ['A matrix-valued kernel covariance is not supported ' ...
-                   'with specs (nested attributes); supply flat ' ...
-                   'attributes via the positional form.']);
+        hasKc = iscell(sigmaKw) && any(cellfun(@internal.isKernelCov, sigmaKw));
+        if hasKc
+            % Matrix-sigma attributes require flat geometry; degenerate
+            % nested specs (e.g. from bindEvents on flat single-slot
+            % events) are order-isomorphic to flat ordered tuples and
+            % are flattened here; non-degenerate nesting errors.
+            specs = internal.resolveSpecsForKernelCov(specs, sigmaKw);
         end
         A = numel(posArgs{1});
         [rVec, isRelVec, isSymVec, nestedList, names] = ...
             localNormaliseSpecs(specs, A);
+        if hasKc
+            [pW, sigmaNum, covList, cholList] = ...
+                internal.resolveAnisoSigma(posArgs{1}, sigmaKw, rVec, ...
+                    isRelVec, isPerKw, isSymVec, nestedList);
+            synthArgs = {pW, posArgs{2}, sigmaNum, rVec, isRelVec, ...
+                         isPerKw, periodKw, isSymVec};
+            dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names);
+            dens.kernelCov = covList;
+            dens.kernelChol = cholList;
+            return
+        end
         synthArgs = {posArgs{1}, posArgs{2}, sigmaKw, rVec, isRelVec, ...
                      isPerKw, periodKw, isSymVec};
+        if iscell(sigmaKw)
+            % All-scalar cell sigma: accept, coerce to numeric
+            % (mirrors the positional MA path; a cell reaching this
+            % branch contains no matrix entries).
+            synthArgs{3} = cellfun(@double, sigmaKw);
+        end
         dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names);
         return
     end

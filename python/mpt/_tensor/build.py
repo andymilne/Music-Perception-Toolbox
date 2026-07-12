@@ -135,7 +135,8 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
         if nested is not None and a < len(nested) and nested[a]:
             raise ValueError(
                 f"sigma[{a}]: a matrix-valued kernel covariance is not "
-                f"supported on nested attributes."
+                f"supported on nested attributes (degenerate nesting is "
+                f"flattened upstream when passed via specs=)."
             )
         P = np.asarray(p_out[a], dtype=np.float64)
         if P.ndim == 1:
@@ -268,16 +269,30 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             raise ValueError(
                 "specs= requires sigma=, is_per=, period= (each length-A)."
             )
-        from .aniso import sigma_vec_has_kernel_cov
-        if sigma_vec_has_kernel_cov(sigma):
-            raise ValueError(
-                "A matrix-valued kernel covariance is not supported with "
-                "specs= (nested attributes); supply flat attributes via "
-                "the positional form."
-            )
+        from .aniso import sigma_vec_has_kernel_cov, \
+            resolve_specs_for_kernel_cov
+        has_kc = sigma_vec_has_kernel_cov(sigma)
+        if has_kc:
+            # Matrix-sigma attributes require flat geometry; degenerate
+            # nested specs (e.g. from bind_events on flat single-slot
+            # events) are order-isomorphic to flat ordered tuples and
+            # are flattened here; non-degenerate nesting raises.
+            specs = resolve_specs_for_kernel_cov(specs, sigma)
         A = len(p)
         r_vec, is_rel_vec, is_sym_vec, nested_list, names = _normalise_specs(
             specs, A)
+        if has_kc:
+            p, sigma, cov_list, chol_list = _resolve_aniso_ma(
+                p, sigma, r_vec, is_rel_vec, is_per, is_sym_vec,
+                nested_list,
+            )
+            dens = _build_exp_tens_ma(
+                p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
+                nested=nested_list, names=names, verbose=verbose,
+            )
+            dens.kernel_cov = cov_list
+            dens.kernel_chol = chol_list
+            return dens
         return _build_exp_tens_ma(
             p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
             nested=nested_list, names=names, verbose=verbose,

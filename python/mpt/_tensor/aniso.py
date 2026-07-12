@@ -34,7 +34,13 @@ Constraints (validated at build time):
   with the whitening change of coordinates);
 - ``r == K`` (``Sigma`` is the covariance of the whole ordered tuple,
   so each event's tuple must be its full value multiset);
-- the attribute must not be nested.
+- the attribute must not be nested, except degenerately: a two-level
+  spec whose nesting encodes nothing beyond an ordered tuple of
+  scalars (every group a singleton read whole, both levels absolute,
+  ordered outer read of all groups) is order-isomorphic to the flat
+  ordered tuple and is flattened automatically (see
+  :func:`flatten_degenerate_nested_spec`). :func:`bind_events` applied
+  to flat single-slot events produces exactly this degenerate form.
 """
 
 from __future__ import annotations
@@ -74,6 +80,90 @@ def sigma_vec_has_kernel_cov(sigma_vec) -> bool:
     if isinstance(sigma_vec, (list, tuple)):
         return any(is_kernel_cov(s) for s in sigma_vec)
     return False
+
+
+# -------------------------------------------------------------------
+#  Degenerate nesting
+# -------------------------------------------------------------------
+
+
+def flatten_degenerate_nested_spec(spec):
+    """Return the flat spec equivalent to a degenerate nested *spec*,
+    or ``None`` when the spec is not degenerate.
+
+    A two-level nested spec is *degenerate* when its nesting encodes
+    nothing beyond a tuple of scalars: every inner group is a singleton
+    read whole (inner ``r`` = 1; the inner ``sym`` flag is vacuous on a
+    singleton), the inner level is absolute (inner ``rel`` falsy), and
+    the outer level reads all groups (outer ``r`` = the number of
+    groups). The flat equivalent is ``{r: K, sym: sym[outer],
+    rel: rel[outer]}`` over the same ``(K, N)`` value matrix (their
+    densities are identical). :func:`bind_events` applied to flat
+    single-slot events produces exactly this form; the isotropic build
+    recognises the same structure downstream (the singleton-group fast
+    path in ``_build_exp_tens_ma``), but the matrix-covariance path
+    must flatten *before* spec normalisation, since whitening and the
+    ``r == K`` constraint need the true tuple size. Outer ``sym``/
+    ``rel`` are carried through so :func:`check_aniso_constraints` can
+    reject them with its canonical messages.
+    """
+    if not isinstance(spec, dict) or "tags" not in spec:
+        return None
+    tags = np.asarray(spec["tags"])
+    tags = tags.ravel() if tags.ndim == 1 else tags[:, 0]
+    K = tags.size
+    r_lv = list(np.asarray(spec.get("r", []), dtype=object).ravel())
+    sym_lv = list(np.asarray(spec.get("sym", []), dtype=object).ravel())
+    rel_lv = list(np.asarray(spec.get("rel", []), dtype=object).ravel())
+    if len(r_lv) != 2 or len(sym_lv) != 2 or len(rel_lv) != 2:
+        return None
+    if np.unique(tags).size != K:           # every group a singleton
+        return None
+    if int(r_lv[0]) != 1 or int(r_lv[1]) != K:
+        return None                         # each read whole, all read
+    if bool(rel_lv[0]):
+        return None                         # inner level absolute
+    flat = {"r": int(K), "sym": bool(sym_lv[1]), "rel": bool(rel_lv[1])}
+    if spec.get("name") is not None:
+        flat["name"] = spec["name"]
+    return flat
+
+
+def resolve_specs_for_kernel_cov(specs, sigma_vec, name: str = "sigma"):
+    """Flatten degenerate nested specs on matrix-sigma attributes.
+
+    Returns a new specs list in which every attribute carrying a
+    matrix-valued kernel covariance has a flat spec: degenerate nested
+    specs (see :func:`flatten_degenerate_nested_spec`) are replaced by
+    their flat equivalents; a non-degenerate nested spec on a
+    matrix-sigma attribute raises. Attributes with isotropic sigma are
+    left untouched, nested or not. Outer-level ``sym``/``rel`` flags on
+    a flattened spec are rejected downstream by
+    :func:`check_aniso_constraints` exactly as on a flat attribute.
+    """
+    if not isinstance(specs, (list, tuple)):
+        return specs
+    if not isinstance(sigma_vec, (list, tuple)):
+        return list(specs)
+    out = list(specs)
+    for a, s in enumerate(out):
+        if a >= len(sigma_vec) or not is_kernel_cov(sigma_vec[a]):
+            continue
+        if not (isinstance(s, dict) and "tags" in s):
+            continue
+        flat = flatten_degenerate_nested_spec(s)
+        if flat is None:
+            raise ValueError(
+                f"{name}[{a}]: a matrix-valued kernel covariance is "
+                f"supported on a nested attribute only in the degenerate "
+                f"case (two levels, every group a singleton read whole, "
+                f"inner level absolute, outer level reading all groups), "
+                f"which is order-isomorphic to a flat tuple and is "
+                f"flattened automatically. This spec's nesting is not "
+                f"degenerate."
+            )
+        out[a] = flat
+    return out
 
 
 # -------------------------------------------------------------------

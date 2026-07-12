@@ -471,3 +471,126 @@ class TestOrderedTupleEqualsBoundSingletons:
             [s1, s2], [1, 1], [False, False], [False, False],
             [0.0, 0.0], [True, True], verbose=False)
         np.testing.assert_allclose(v_aniso, v_two, rtol=1e-12)
+
+
+class TestDegenerateNestedFlattening:
+    """A matrix-valued kernel covariance on a degenerate nested
+    attribute -- bind_events over flat single-slot events -- is
+    flattened to the equivalent flat ordered tuple (v2.2.1+). The
+    bound and manually stacked flat carriers must agree exactly;
+    non-degenerate nesting is rejected, and outer-level sym/rel on a
+    degenerate spec are rejected by the canonical constraint messages.
+    """
+
+    SIG = interval_kernel_cov(3, sd_position=0.07, sd_shift=0.2)
+
+    def _carriers(self, seed=7, n=12):
+        rng = np.random.default_rng(seed)
+        x = rng.normal(size=(1, n))
+        pb, _, specs = mpt.bind_events([x], None, 3)
+        P = pb[0]
+        flat = {"r": 3, "sym": False, "rel": False}
+        return P, specs[0], flat, rng
+
+    def _build(self, P, spec, sigma):
+        N = P.shape[1]
+        return mpt.build_exp_tens(
+            [P], [np.ones((3, N))], specs=[spec], sigma=[sigma],
+            is_per=[False], period=[0.0], verbose=False)
+
+    def test_bound_equals_flat_eval_matrix_sigma(self):
+        P, nested, flat, rng = self._carriers()
+        d_n = self._build(P, nested, self.SIG)
+        d_f = self._build(P, flat, self.SIG)
+        pts = rng.normal(size=(3, 6))
+        np.testing.assert_allclose(
+            np.asarray(mpt.eval_exp_tens(d_n, pts), dtype=float),
+            np.asarray(mpt.eval_exp_tens(d_f, pts), dtype=float),
+            rtol=1e-12)
+
+    def test_bound_equals_flat_cosine_matrix_sigma(self):
+        P, nested, flat, _ = self._carriers()
+        d_n = self._build(P, nested, self.SIG)
+        d_f = self._build(P, flat, self.SIG)
+        v = mpt.cos_sim_exp_tens(d_n, d_f, verbose=False)
+        np.testing.assert_allclose(float(v), 1.0, rtol=1e-12)
+
+    def test_bound_equals_flat_scalar_sigma_baseline(self):
+        P, nested, flat, rng = self._carriers(seed=11)
+        d_n = self._build(P, nested, 0.3)
+        d_f = self._build(P, flat, 0.3)
+        pts = rng.normal(size=(3, 6))
+        np.testing.assert_allclose(
+            np.asarray(mpt.eval_exp_tens(d_n, pts), dtype=float),
+            np.asarray(mpt.eval_exp_tens(d_f, pts), dtype=float),
+            rtol=1e-12)
+
+    def test_windowed_bound_specs_equals_flat_is_sym(self):
+        # The demo pipeline: difference -> log -> bind, swept with
+        # windowed_similarity via specs=, against the manually stacked
+        # flat surface via is_sym=.
+        onsets = np.array([0.0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0,
+                           4.0, 4.4, 4.6, 4.8])
+        p_d, w_d, sp_d = mpt.difference_events([onsets[None, :]],
+                                               None, [1])
+        p_d[0] = np.log(p_d[0])
+        p_b, w_b, sp_b = mpt.bind_events(p_d, w_d, [3], specs=sp_d)
+        n_tri = p_b[0].shape[1]
+        tri_times = onsets[:n_tri]
+        li = np.log(np.diff(onsets))
+        tri_manual = np.stack([li[i:i + n_tri] for i in range(3)])
+        np.testing.assert_array_equal(p_b[0], tri_manual)
+        q = np.log(np.array([0.5, 0.25, 0.25]))
+        w_ctx = [np.ones((3, n_tri)), np.ones((1, n_tri))]
+        p_q = [q[:, None], np.array([[0.0]])]
+        w_q = [np.ones((3, 1)), np.ones((1, 1))]
+        tsp = {"r": 1, "sym": True, "rel": False}
+        kw = dict(centres=tri_times, window_attr=1,
+                  drop_window_attr=True, context_window=("rect", 0.1),
+                  normalize="oneSidedDenom", verbose=False)
+        a = mpt.windowed_similarity(
+            [p_b[0], tri_times[None, :]], w_ctx, p_q, w_q,
+            [self.SIG, 0.25], [3, 1], [False, False], [False, False],
+            [0.0, 0.0], specs=[sp_b[0], tsp], **kw)
+        b = mpt.windowed_similarity(
+            [tri_manual, tri_times[None, :]], w_ctx, p_q, w_q,
+            [self.SIG, 0.25], [3, 1], [False, False], [False, False],
+            [0.0, 0.0], is_sym=[False, True], **kw)
+        np.testing.assert_allclose(np.asarray(a), np.asarray(b),
+                                   rtol=1e-12, atol=1e-15)
+
+    def test_flat_spec_with_matrix_sigma_in_specs_form(self):
+        # specs= with a matrix sigma on a *flat* spec was previously
+        # blanket-rejected; it must now match the positional form.
+        P, _, flat, _ = self._carriers(seed=5)
+        N = P.shape[1]
+        d_s = self._build(P, flat, self.SIG)
+        d_p = mpt.build_exp_tens(
+            [P], [np.ones((3, N))], [self.SIG], [3], [False], [False],
+            [0.0], [False], verbose=False)
+        v = mpt.cos_sim_exp_tens(d_s, d_p, verbose=False)
+        np.testing.assert_allclose(float(v), 1.0, rtol=1e-12)
+
+    def test_non_degenerate_nested_rejected(self):
+        rng = np.random.default_rng(2)
+        x2 = rng.normal(size=(2, 12))            # K = 2 constituents
+        pb2, _, sp2 = mpt.bind_events([x2], None, 3)
+        with pytest.raises(ValueError, match="not[ ]?degenerate"):
+            mpt.build_exp_tens(
+                [pb2[0]], None, specs=[sp2[0]],
+                sigma=[np.eye(6) * 0.01], is_per=[False],
+                period=[0.0], verbose=False)
+
+    def test_outer_sym_rejected_canonically(self):
+        rng = np.random.default_rng(3)
+        pb, _, sp = mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
+                                    sym_outer=True)
+        with pytest.raises(ValueError, match="ordered multiset"):
+            self._build(pb[0], sp[0], np.eye(3) * 0.01)
+
+    def test_outer_rel_rejected_canonically(self):
+        rng = np.random.default_rng(4)
+        pb, _, sp = mpt.bind_events([rng.normal(size=(1, 12))], None, 3,
+                                    rel_outer=True)
+        with pytest.raises(ValueError, match="is_rel=False"):
+            self._build(pb[0], sp[0], np.eye(3) * 0.01)

@@ -70,7 +70,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %
 %   Outputs
 %       pAttrBound - 1 x A cell. For L_a >= 2 a stacked (L_a*K_a) x N'
-%                    value matrix; for L_a = 1 the trailing-aligned K_a x N'.
+%                    value matrix; for L_a = 1 the leading-aligned K_a x N'.
 %       wBound     - Transformed weights aligned to the value layout.
 %       specs      - 1 x A cell of structs: nested {tags,r,sym,rel,...}
 %                    for L_a >= 2, the incoming spec unchanged (flat or
@@ -358,7 +358,7 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
 %  For L_a >= 2 the per-event weight slices are windowed and stacked into a
 %  (L_a*K_a) x N' column aligned with the value stack (per-event weights
 %  expanded across the K_a slots of their event); for L_a = 1 the weight is
-%  trailing-aligned. Non-event-dependent inputs ([], scalar, K_a x 1
+%  leading-aligned. Non-event-dependent inputs ([], scalar, K_a x 1
 %  column) are inherited / tiled across the bound slots.
 
     if isempty(w) && ~iscell(w)

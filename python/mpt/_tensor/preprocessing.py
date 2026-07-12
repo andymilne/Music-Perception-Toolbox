@@ -583,7 +583,7 @@ def bind_events(
     p_attr_bound : list of ndarray
         Length-A list. For ``L_a >= 2`` a stacked ``(L_a * K_a, N')``
         value matrix (the ``L_a`` lag windows vertically stacked); for
-        ``L_a = 1`` the trailing-aligned ``(K_a, N')`` original.
+        ``L_a = 1`` the leading-aligned ``(K_a, N')`` original.
     w_bound : same general form as *w*
         Transformed weights aligned to the value layout.
     specs : list of dict

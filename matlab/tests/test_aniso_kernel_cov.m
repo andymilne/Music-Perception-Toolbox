@@ -330,6 +330,104 @@ results{end+1,1} = 'aniso: diagonal cov ordered pair == bound singleton attrs';
 results{end,2}   = abs(vA - vT) <= 1e-12;
 
 % =====================================================================
+
+% =====================================================================
+%  Degenerate nested flattening (bindEvents over flat single-slot
+%  events + matrix sigma; v2.2.1+)
+% =====================================================================
+
+rngSeed = RandStream('mt19937ar', 'Seed', 7);
+xDeg = rand(rngSeed, 1, 12);
+[pbD, ~, spD] = bindEvents({xDeg}, [], 3);
+PDeg = pbD{1};
+nDeg = size(PDeg, 2);
+flatDeg = struct('r', 3, 'sym', false, 'rel', false);
+SigDeg = intervalKernelCov(3, 'sdPosition', 0.07, 'sdShift', 0.2);
+
+densNest = buildExpTens({PDeg}, {ones(3, nDeg)}, 'specs', {spD{1}}, ...
+    'sigma', {SigDeg}, 'isPer', false, 'period', 0, 'verbose', false);
+densFlat = buildExpTens({PDeg}, {ones(3, nDeg)}, 'specs', {flatDeg}, ...
+    'sigma', {SigDeg}, 'isPer', false, 'period', 0, 'verbose', false);
+ptsDeg = rand(rngSeed, 3, 6) - 0.5;
+evNest = evalExpTens(densNest, ptsDeg, 'verbose', false);
+evFlat = evalExpTens(densFlat, ptsDeg, 'verbose', false);
+results{end+1,1} = 'aniso: degenerate bound == flat, eval, matrix sigma';
+results{end,2}   = max(abs(evNest(:) - evFlat(:))) <= TOL;
+
+cosNF = cosSimExpTens(densNest, densFlat, 'verbose', false);
+results{end+1,1} = 'aniso: degenerate bound == flat, cosine, matrix sigma';
+results{end,2}   = abs(cosNF - 1) <= TOL;
+
+densNestS = buildExpTens({PDeg}, {ones(3, nDeg)}, 'specs', {spD{1}}, ...
+    'sigma', {0.3}, 'isPer', false, 'period', 0, 'verbose', false);
+densFlatS = buildExpTens({PDeg}, {ones(3, nDeg)}, 'specs', {flatDeg}, ...
+    'sigma', {0.3}, 'isPer', false, 'period', 0, 'verbose', false);
+evNestS = evalExpTens(densNestS, ptsDeg, 'verbose', false);
+evFlatS = evalExpTens(densFlatS, ptsDeg, 'verbose', false);
+results{end+1,1} = 'aniso: degenerate bound == flat, scalar-sigma baseline';
+results{end,2}   = max(abs(evNestS(:) - evFlatS(:))) <= TOL;
+
+% Demo pipeline: difference -> log -> bind, swept via specs, against
+% the manually stacked flat surface via isSym.
+onsW = [0, 0.5, 0.75, 1.0, 2.0, 2.5, 2.75, 3.0, 4.0, 4.4, 4.6, 4.8];
+[pDf, wDf, spDf] = differenceEvents({onsW}, [], 1);
+pDf{1} = log(pDf{1});
+[pBf, wBf, spBf] = bindEvents(pDf, wDf, 3, 'specs', spDf);
+nTriW = size(pBf{1}, 2);
+triTimesW = onsW(1:nTriW);
+liW = log(diff(onsW));
+triManualW = [liW(1:nTriW); liW(2:nTriW+1); liW(3:nTriW+2)];
+results{end+1,1} = 'aniso: bound pipeline values equal manual stacking';
+results{end,2}   = isequal(pBf{1}, triManualW);
+
+qW = log([0.5; 0.25; 0.25]);
+wCtxW = {ones(3, nTriW), ones(1, nTriW)};
+pQW = {qW, 0};
+wQW = {ones(3, 1), 1};
+tspW = struct('r', 1, 'sym', true, 'rel', false);
+profSpecs = windowedSimilarity({pBf{1}, triTimesW}, wCtxW, pQW, wQW, ...
+    {SigDeg, 0.25}, [3, 1], [false, false], [false, false], [0, 0], ...
+    triTimesW, 'specs', {spBf{1}, tspW}, 'windowAttr', 2, ...
+    'dropWindowAttr', true, 'contextWindow', {'rect', 0.1}, ...
+    'normalize', 'oneSidedDenom', 'verbose', false);
+profFlatW = windowedSimilarity({triManualW, triTimesW}, wCtxW, pQW, wQW, ...
+    {SigDeg, 0.25}, [3, 1], [false, false], [false, false], [0, 0], ...
+    triTimesW, 'isSym', [false, true], 'windowAttr', 2, ...
+    'dropWindowAttr', true, 'contextWindow', {'rect', 0.1}, ...
+    'normalize', 'oneSidedDenom', 'verbose', false);
+results{end+1,1} = 'aniso: windowed bound-specs equals flat-isSym profile';
+results{end,2}   = max(abs(profSpecs(:) - profFlatW(:))) <= TOL;
+
+% specs form with a matrix sigma on a *flat* spec (previously
+% blanket-rejected) must match the positional form.
+densPos = buildExpTens({PDeg}, {ones(3, nDeg)}, {SigDeg}, 3, false, ...
+    false, 0, false, 'verbose', false);
+cosSP = cosSimExpTens(densFlat, densPos, 'verbose', false);
+results{end+1,1} = 'aniso: flat spec + matrix sigma via specs == positional';
+results{end,2}   = abs(cosSP - 1) <= TOL;
+
+% Non-degenerate nesting (K = 2 constituents) is rejected.
+x2Deg = rand(rngSeed, 2, 12);
+[pb2D, ~, sp2D] = bindEvents({x2Deg}, [], 3);
+results{end+1,1} = 'aniso: non-degenerate nested rejected';
+results{end,2}   = errorMessageContains(@() buildExpTens({pb2D{1}}, [], ...
+    'specs', {sp2D{1}}, 'sigma', {0.01 * eye(6)}, 'isPer', false, ...
+    'period', 0, 'verbose', false), 'not degenerate');
+
+% Outer-level sym/rel on a degenerate spec hit the canonical messages.
+[pbSy, ~, spSy] = bindEvents({xDeg}, [], 3, 'symOuter', true);
+results{end+1,1} = 'aniso: degenerate spec with symOuter rejected canonically';
+results{end,2}   = errorMessageContains(@() buildExpTens({pbSy{1}}, [], ...
+    'specs', {spSy{1}}, 'sigma', {0.01 * eye(3)}, 'isPer', false, ...
+    'period', 0, 'verbose', false), 'ordered multiset');
+
+[pbRl, ~, spRl] = bindEvents({xDeg}, [], 3, 'relOuter', true);
+results{end+1,1} = 'aniso: degenerate spec with relOuter rejected canonically';
+results{end,2}   = errorMessageContains(@() buildExpTens({pbRl{1}}, [], ...
+    'specs', {spRl{1}}, 'sigma', {0.01 * eye(3)}, 'isPer', false, ...
+    'period', 0, 'verbose', false), 'isRel = false');
+
+
 if standalone
     nFail = sum(~[results{:,2}]);
     fprintf('\ntest_aniso_kernel_cov: %d/%d passed.\n', ...

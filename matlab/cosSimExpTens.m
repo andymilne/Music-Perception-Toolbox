@@ -219,7 +219,8 @@ function s = cosSimExpTens(varargin)
 % Extract optional name-value pairs that may follow the positional
 % args. 'verbose' applies to all dispatch arms; 'method' and
 % 'cancellationThreshold' apply to SA and MA struct/raw-args paths
-% (Möbius dispatch); 'spectrum', 'precision', and 'dedup' are
+% (Möbius dispatch) and are forwarded to the per-pair inner calls of
+% the batched-raw path; 'spectrum', 'precision', and 'dedup' are
 % valid only for the batched-raw path and are forwarded to
 % batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
@@ -604,7 +605,7 @@ elseif nArgs == 9
 
         s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-            isSymRaw, normalize, verbose, ...
+            isSymRaw, method, cancellationThreshold, normalize, verbose, ...
             spectrumGiven, spectrumOpt, ...
             precisionGiven, precisionOpt, ...
             dedupGiven, dedupOpt);
@@ -1968,7 +1969,7 @@ end
 
 
 function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
-    isSym, normalize, verbose, ...
+    isSym, method, cancellationThreshold, normalize, verbose, ...
     spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
@@ -2283,14 +2284,18 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         % inner call's first-time dispatch announce, etc.).
         dA_w = densA{uniquePairs(sampleIdx(1), 1)};
         dB_w = densB{uniquePairs(sampleIdx(1), 2)};
-        cosSimExpTens(dA_w, dB_w, 'normalize', normalize, 'verbose', false);
+        cosSimExpTens(dA_w, dB_w, 'method', method, ...
+                      'cancellationThreshold', cancellationThreshold, ...
+                      'normalize', normalize, 'verbose', false);
 
         % Timed calibration over the sample.
         tCalStart = tic;
         for cs = 1:numel(sampleIdx)
             dA_s = densA{uniquePairs(sampleIdx(cs), 1)};
             dB_s = densB{uniquePairs(sampleIdx(cs), 2)};
-            cosSimExpTens(dA_s, dB_s, 'normalize', normalize, 'verbose', false);
+            cosSimExpTens(dA_s, dB_s, 'method', method, ...
+                          'cancellationThreshold', cancellationThreshold, ...
+                          'normalize', normalize, 'verbose', false);
         end
         tCalTotal = toc(tCalStart);
         tPerPair  = tCalTotal / numel(sampleIdx);
@@ -2306,6 +2311,8 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         dA = densA{uniquePairs(up, 1)};
         dB = densB{uniquePairs(up, 2)};
         uniqueS(up) = cosSimExpTens(dA, dB, ...
+                                    'method', method, ...
+                                    'cancellationThreshold', cancellationThreshold, ...
                                     'normalize', normalize, ...
                                     'verbose', false);
 

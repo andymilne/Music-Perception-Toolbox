@@ -800,17 +800,6 @@ def _eval_exp_tens_sa(
         and (prec_resolved == "double")
     )
 
-    # Fire the kernel-evaluation hint once per session when the centres
-    # path is about to run with default kwargs. Catches the bypass
-    # case too (which skips gaussian_kernel_sum and would otherwise
-    # miss the hint).
-    if chosen == "centres" and use_default_kwargs:
-        from .._defaults import _maybe_show_kernel_eval_hint
-        _maybe_show_kernel_eval_hint(
-            effective_truncation_sigmas=float("inf"),
-            effective_kernel_precision="double",
-        )
-
     if chosen == "mobius":
         vals = _eval_exp_tens_sa_orbit(
             dens, x, n_q,
@@ -963,9 +952,9 @@ def _eval_exp_tens_sa_centres(
 
     Routes through :func:`mpt._kernel.gaussian_kernel_sum` so
     the ``truncation_sigmas`` and ``kernel_precision`` options apply
-    uniformly across centres-path consumers. Default settings
-    (``truncation_sigmas=inf``, ``kernel_precision='double'``) produce
-    FP-bit-identical output to the v2.0/v2.1 implementation in all
+    uniformly across centres-path consumers. At
+    ``truncation_sigmas=inf`` and ``kernel_precision='double'`` the
+    output is FP-bit-identical to the v2.0/v2.1 implementation in all
     modes except periodic+relative, where the path now uses the
     pairwise-wrap form (Eq 6 of the preprint), matching
     ``cos_sim_exp_tens`` Bulger. The v2.0/v2.1 algebraic-with-outer-
@@ -1307,9 +1296,10 @@ def _ma_eval_full(
     Geometry (``sigma``, ``is_rel``, ``is_per``, ``period``) is
     per-attribute, indexed directly by ``a``.
 
-    Default-mode bypass: when ``truncation_sigmas`` is None/Inf and
-    ``kernel_precision`` is None/'double', runs the inline accumulation
-    inline with no cast machinery and no post-filter branching. This
+    Untruncated-double bypass: when the resolved ``truncation_sigmas``
+    is Inf and the resolved ``kernel_precision`` is 'double', runs the
+    inline accumulation inline with no cast machinery and no
+    post-filter branching. This
     keeps default-mode calls at inline cost; the feature kwargs
     only impose their cost when explicitly requested.
     """

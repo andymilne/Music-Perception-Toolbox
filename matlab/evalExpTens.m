@@ -165,7 +165,7 @@ function vals = evalExpTens(varargin)
 %                 call. Centres path only; skips Gaussian contributions
 %                 whose centre-to-query distance exceeds k*sigma
 %                 (kernel floor exp(-k^2/2)). [] (default) means use
-%                 the global default (factory: Inf).
+%                 the global default (factory: 6).
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                 default. Override the toolbox-wide kernelPrecision
 %                 setting for this call. Centres path only; 'single'
@@ -452,9 +452,9 @@ nQ = size(X, 2);
 %     needed) probe.
 %
 % Execution axis (default kwargs vs feature kwargs):
-%   - When truncationSigmas is empty or Inf AND kernelPrecision is
-%     empty or 'double', the inline direct-broadcast path is used.
-%     This is FP-identical to the helper at these settings but avoids
+%   - When the resolved truncationSigmas is Inf AND the resolved
+%     kernelPrecision is 'double', the inline direct-broadcast path is
+%     used. This is FP-identical to the helper at these settings but avoids
 %     the helper's arguments-block validation and cell-array kwargs
 %     construction (~hundreds of microseconds per call in MATLAB).
 %   - Otherwise the helper is invoked.
@@ -517,14 +517,6 @@ else
     precResolved = kernelPrecision;
 end
 useDefaultKwargs = ~isfinite(truncResolved) && strcmp(precResolved, 'double');
-
-% Fire the kernel-evaluation hint once per session when the centres
-% path is about to run with default kwargs. Catches the bypass
-% case (which skips internal.gaussianKernelSum and would otherwise
-% miss the hint).
-if strcmp(chosen, 'centres') && useDefaultKwargs
-    internal.maybeShowKernelEvalHint();
-end
 
 vals = [];
 ranOrbit = false;
@@ -1106,8 +1098,8 @@ function vals = localEvalSACentres(dens, X, nQ, verbose, ...
 %
 %   Routes through internal.gaussianKernelSum so that the
 %   truncationSigmas and kernelPrecision options apply uniformly across
-%   centres-path consumers. Default settings (truncationSigmas = Inf,
-%   kernelPrecision = 'double') produce FP-bit-identical output to the
+%   centres-path consumers. At truncationSigmas = Inf and
+%   kernelPrecision = 'double' the output is FP-bit-identical to the
 %   pre-truncation centres-path implementation.
 
     Centres = dens.Centres;
@@ -1179,9 +1171,9 @@ function vals = localEvalSACentresFast(dens, X, nQ)
 %LOCALEVALSACENTRESFAST  Inline direct broadcast for the centres path.
 %
 %   Skips the internal.gaussianKernelSum helper entirely. Used by the
-%   centres-path dispatcher when default kwargs apply (no truncation,
-%   no precision override). FP-identical to the helper at these
-%   settings.
+%   centres-path dispatcher when the untruncated-double regime applies
+%   (truncationSigmas = Inf, kernelPrecision = 'double'). FP-identical
+%   to the helper at these settings.
 %
 %   Handles all (r, isRel, isPer) combinations:
 %     - abs: Q(D) = sum(D .^ 2)

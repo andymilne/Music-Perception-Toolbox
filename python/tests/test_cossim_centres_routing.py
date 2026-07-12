@@ -106,10 +106,10 @@ class TestCosSimSACentresRouting:
         dens_b = build_exp_tens(chord, np.ones(3), 12.0, 3,
                                 True, False, 0.0)
 
-        reset_defaults()
         t0 = time.perf_counter()
         s_exact = cos_sim_exp_tens(
-            dens_a, dens_b, method='bulger', verbose=False,
+            dens_a, dens_b, method='bulger',
+            truncation_sigmas=np.inf, verbose=False,
         )
         t_exact = time.perf_counter() - t0
 

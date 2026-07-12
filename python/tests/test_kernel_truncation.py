@@ -258,8 +258,11 @@ def test_bad_inputs_raise():
 # ---------------------------------------------------------------------
 
 def test_factory_defaults():
+    # The conftest baseline pins the exact path; reset to observe the
+    # true factory values.
+    mpt.reset_defaults()
     d = mpt.get_defaults()
-    assert d["truncation_sigmas"] == math.inf
+    assert d["truncation_sigmas"] == 6.0
     assert d["kernel_precision"] == "double"
 
 
@@ -283,7 +286,7 @@ def test_reset_defaults():
     mpt.set_default(truncation_sigmas=6, kernel_precision='single')
     mpt.reset_defaults()
     assert mpt.get_defaults() == {
-        "truncation_sigmas": math.inf,
+        "truncation_sigmas": 6.0,
         "kernel_precision": "double",
         "show_hints": True,
         "kernel_chunk_bytes": "auto",
@@ -335,61 +338,8 @@ def test_per_call_overrides_default(small_problem):
 
 
 # ---------------------------------------------------------------------
-# Informational hint (one-shot per session)
+# show_hints flag
 # ---------------------------------------------------------------------
-
-def _fresh_hint_state():
-    """Reset both factory defaults and the session-local hint flag."""
-    from mpt import _defaults as _d
-    mpt.reset_defaults()
-    _d._HINT_FIRED_KERNEL_EVAL = False
-
-
-def test_hint_fires_on_first_call_at_defaults(small_problem, capsys):
-    _fresh_hint_state()
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    out = capsys.readouterr().out
-    assert "mpt tip" in out
-    assert "truncation_sigmas=6" in out
-    assert "kernel_precision='single'" in out
-
-
-def test_hint_fires_only_once(small_problem, capsys):
-    _fresh_hint_state()
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    capsys.readouterr()    # discard first output
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    out = capsys.readouterr().out
-    assert "mpt tip" not in out
-
-
-def test_hint_suppressed_by_per_call_override(small_problem, capsys):
-    _fresh_hint_state()
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=6)
-    out = capsys.readouterr().out
-    assert "mpt tip" not in out
-
-
-def test_hint_suppressed_by_show_hints_false(small_problem, capsys):
-    _fresh_hint_state()
-    mpt.set_default(show_hints=False)
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    out = capsys.readouterr().out
-    assert "mpt tip" not in out
-
-
-def test_hint_suppressed_when_global_default_changed(small_problem, capsys):
-    _fresh_hint_state()
-    mpt.set_default(truncation_sigmas=6)
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    out = capsys.readouterr().out
-    assert "mpt tip" not in out
-
 
 def test_show_hints_factory_default_is_true():
     mpt.reset_defaults()
@@ -399,15 +349,3 @@ def test_show_hints_factory_default_is_true():
 def test_show_hints_validation():
     with pytest.raises(ValueError, match="show_hints"):
         mpt.set_default(show_hints="yes")
-
-
-def test_reset_defaults_clears_hint_flag(small_problem, capsys):
-    """reset_defaults() should re-arm the hint."""
-    _fresh_hint_state()
-    C, wJ, X, sigma = small_problem
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    capsys.readouterr()    # discard
-    mpt.reset_defaults()
-    gaussian_kernel_sum(C, wJ, X, sigma)
-    out = capsys.readouterr().out
-    assert "mpt tip" in out

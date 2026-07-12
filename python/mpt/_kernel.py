@@ -74,7 +74,8 @@ def gaussian_kernel_sum(
         ``(truncation_sigmas * sigma)**2`` are skipped via a grid-bucket
         spatial index. Discarded centres' kernel value is bounded by
         ``exp(-truncation_sigmas**2 / 2)``. If ``None``, uses the
-        toolbox default (factory: ``math.inf`` = off).
+        toolbox default (factory: ``6``; set ``math.inf`` for the exact
+        untruncated result).
     kernel_precision : {'double', 'single'}, optional
         ``'single'`` casts hot-loop arrays to single precision (~2x
         speedup, ~1e-7 relative accuracy). Output is always cast back
@@ -89,16 +90,6 @@ def gaussian_kernel_sum(
         truncation_sigmas = get_default("truncation_sigmas")
     if kernel_precision is None:
         kernel_precision = get_default("kernel_precision")
-    # Fire the kernel-evaluation hint once per session if the effective
-    # call settings match the factory defaults (truncation off, double
-    # precision). Suppresses silently if the user has already opted in
-    # (per call or globally), opted out via show_hints=False, or seen
-    # the hint earlier this session.
-    from ._defaults import _maybe_show_kernel_eval_hint
-    _maybe_show_kernel_eval_hint(
-        effective_truncation_sigmas=truncation_sigmas,
-        effective_kernel_precision=kernel_precision,
-    )
     kernel_precision = kernel_precision.lower()
     if kernel_precision not in ("double", "single"):
         raise ValueError(

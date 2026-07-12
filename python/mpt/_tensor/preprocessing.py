@@ -1131,9 +1131,9 @@ def weight_events(
     are hard-zeroed. The threshold is the same one the IP / evaluation
     kernels use: at that distance a Gaussian window's value is
     :math:`\exp(-\text{truncation\_sigmas}^2 / 2)`. The default global
-    value is :math:`\infty` (no truncation); set
-    ``mpt.set_default(truncation_sigmas=k)`` to enable hard
-    truncation at :math:`k\,s`.
+    value is ``6``; set ``mpt.set_default(truncation_sigmas=math.inf)``
+    for no truncation, or another ``k`` to change the hard-truncation
+    distance at :math:`k\,s`.
 
     Parameters
     ----------

@@ -506,9 +506,8 @@ function H = localEntropySA(T, nvArgs)
     % covariance machinery we fall back to point-evaluation here too.
     if ~logical(T.isRel)
         % truncationSigmas for the bin-integration path: empty means
-        % use the cell-integration default 6.0. (mptDefaults factory
-        % default is Inf which is meaningless for span derivation but
-        % fine here since periodic-wrap counting is capped by it.)
+        % use the cell-integration default 6.0 (which now coincides
+        % with the mptDefaults factory default).
         if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas) ...
                 && isfinite(nvArgs.truncationSigmas)
             ts = double(nvArgs.truncationSigmas);

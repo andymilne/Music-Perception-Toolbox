@@ -37,12 +37,10 @@ function maybeShowDispatchMsg(varargin)
 %
 %   Gating: dispatch messages are NOT gated by per-call verbose.
 %   They are gated by the toolbox-wide showHints flag
-%   (mptDefaults('showHints')), matching the kernel-evaluation
-%   hint's gating model. To fully silence dispatch messages:
+%   (mptDefaults('showHints')). To fully silence dispatch messages:
 %   mptDefaults('showHints', false).
 %
-%   See also: MPTDEFAULTS, INTERNAL.DISPATCHSCOPE,
-%             INTERNAL.MAYBESHOWKERNELEVALHINT.
+%   See also: MPTDEFAULTS, INTERNAL.DISPATCHSCOPE.
 
     persistent seen
     if isempty(seen)

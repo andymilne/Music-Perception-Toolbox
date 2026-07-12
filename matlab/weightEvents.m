@@ -79,9 +79,9 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   'width' / (2 * sqrt(3))) are hard-zeroed. The threshold is the
 %   same one the IP / evaluation kernels use: at that distance a
 %   Gaussian window's value is exp(-truncationSigmas^2 / 2). The
-%   default global value is Inf (no truncation); set
-%   mptDefaults('truncationSigmas', k) to enable hard truncation at
-%   k * s.
+%   default global value is 6; set mptDefaults('truncationSigmas', Inf)
+%   for no truncation, or another k to change the hard-truncation
+%   distance at k * s.
 %
 %   Inputs:
 %     pAttr        1 x A cell of (K_a, N) per-attribute value matrices.

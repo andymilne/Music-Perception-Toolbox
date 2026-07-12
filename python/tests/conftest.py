@@ -16,14 +16,20 @@ user's interactive session state and from cross-test state leakage:
     state into later tests. This fixture guarantees independence
     regardless of test execution order.
 
-Rationale: many sections of the v2.2 suite — mobius vs direct
-enumeration, A<->B-swap symmetry, broadcast vs explicit-tile
-equivalence, MA cell-form vs matrix-form equivalence, cross-language
-goldens — assert agreement at 1e-10 / 1e-12 tolerance under the
-factory defaults (un-truncated kernels at double precision). Under
-``truncation_sigmas`` < ``inf`` or ``kernel_precision='single'``, those
-tolerances fail by construction. This is the Python analogue of the
-MATLAB ``mptTestIsolateDefaults`` helper called at the top of
+Rationale: many sections of the suite — mobius vs direct enumeration,
+A<->B-swap symmetry, broadcast vs explicit-tile equivalence, MA
+cell-form vs matrix-form equivalence, cross-language goldens — assert
+exact algebraic agreement at 1e-10 / 1e-12 tolerance. Those identities
+hold on the *un-truncated* kernel path; the factory default
+``truncation_sigmas=6`` is a deliberate ~6-significant-figure
+approximation that would break such tolerances by construction. The
+function-scoped fixture therefore pins ``truncation_sigmas=inf`` as the
+suite baseline, so goldens and identities are verified at full
+precision (this is where the 1e-12 guarantee is observed). Tests that
+exercise truncation itself (e.g. ``test_kernel_truncation.py``,
+``test_eval_routing.py``) set ``truncation_sigmas`` explicitly per
+call and so are unaffected by the baseline. This is the Python analogue
+of the MATLAB ``mptTestIsolateDefaults`` helper called at the top of
 ``test_mpt.m``.
 
 Some test files (notably ``v22/test_kernel_truncation.py`` and
@@ -35,6 +41,8 @@ cleanup pass could remove the file-level duplicates.
 """
 
 from __future__ import annotations
+
+import math
 
 import pytest
 
@@ -49,23 +57,31 @@ def _mpt_save_user_defaults():
     mpt.reset_defaults()
     if prev:
         mpt.set_default(**prev)
+    # Re-arm the one-time truncation notice so running the suite in a
+    # long-lived interpreter (e.g. Jupyter) does not permanently silence
+    # it for subsequent interactive use.
+    from mpt import _defaults as _mpt_defaults
+    _mpt_defaults._rearm_truncation_notice()
 
 
 @pytest.fixture(autouse=True)
 def _mpt_reset_each_test():
-    """Reset to factory defaults before every test, then silence the
-    one-time hints / dispatch messages.
+    """Reset to factory defaults before every test, then pin the exact
+    kernel path and silence the dispatch messages.
 
-    Tests that want to verify the hint/dispatch console UX call
-    ``mpt.reset_defaults()`` themselves at test entry — that
-    restores the factory ``show_hints=True``, and the hint fires as
-    a user would see it. Tests that don't care about the UX get
-    silent execution by default, regardless of test execution
-    order. This matches the spirit of the existing per-test
-    ``mpt.reset_defaults()`` calls in the dispatch/hint tests while
-    sparing every other test from the historical accident that
-    those messages happened to be throttled across the suite.
+    Tests that want to verify the dispatch console UX call
+    ``mpt.reset_defaults()`` / re-enable ``show_hints`` themselves at
+    test entry. Tests that don't care about the UX get silent execution
+    by default, regardless of test execution order.
     """
     mpt.reset_defaults()
-    mpt.set_default(show_hints=False)
+    # Pin the exact (un-truncated) kernel path as the suite baseline.
+    # The factory default (``truncation_sigmas=6``) is a ~6-sig-fig
+    # approximation; exact-algebra identities and goldens are verified
+    # untruncated, where the 1e-12 guarantee holds. Truncation tests set
+    # ``truncation_sigmas`` explicitly per call and so override this.
+    mpt.set_default(show_hints=False, truncation_sigmas=math.inf)
+    # Keep the one-time truncation-default notice out of test output.
+    from mpt import _defaults as _mpt_defaults
+    _mpt_defaults._suppress_truncation_notice()
     yield

@@ -30,6 +30,9 @@ end
 
 % Reset defaults before testing.
 mptDefaults('reset');
+% reset now yields the factory truncationSigmas = 6; pin Inf so the
+% exact-path comparisons below are untruncated.
+mptDefaults('truncationSigmas', Inf);
 
 % Test data
 rng(0, 'twister');
@@ -150,7 +153,7 @@ results{end, 2} = ok_err;
 mptDefaults('reset');
 d = mptDefaults();
 results{end+1, 1} = 'defaults: factory values';
-results{end, 2} = isinf(d.truncationSigmas) && strcmp(d.kernelPrecision, 'double');
+results{end, 2} = d.truncationSigmas == 6 && strcmp(d.kernelPrecision, 'double');
 
 mptDefaults('truncationSigmas', 6);
 results{end+1, 1} = 'defaults: set and get';
@@ -172,7 +175,7 @@ results{end, 2} = mptDefaults('truncationSigmas') == 4 ...
 mptDefaults('reset');
 d = mptDefaults();
 results{end+1, 1} = 'defaults: reset to factory';
-results{end, 2} = isinf(d.truncationSigmas) && strcmp(d.kernelPrecision, 'double');
+results{end, 2} = d.truncationSigmas == 6 && strcmp(d.kernelPrecision, 'double');
 
 ok_err = false;
 try
@@ -211,9 +214,9 @@ results{end+1, 1} = 'defaults: bad precision raises';
 results{end, 2} = ok_err;
 
 % Helper consults defaults; per-call overrides
-mptDefaults('reset');
+mptDefaults('truncationSigmas', Inf);
 v1 = internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma);
-results{end+1, 1} = 'kernel: uses default truncationSigmas=Inf';
+results{end+1, 1} = 'kernel: uses global truncationSigmas=Inf (exact)';
 results{end, 2} = max(abs(v1 - ref_abs)) < 1e-12 * max(abs(ref_abs));
 
 mptDefaults('truncationSigmas', 6);

@@ -25,7 +25,7 @@ function varargout = mptDefaults(varargin)
 %
 %   Save-and-restore idiom (temporarily change defaults, then restore):
 %
-%     prev = mptDefaults('truncationSigmas', 6, ...
+%     prev = mptDefaults('truncationSigmas', Inf, ...
 %                        'kernelPrecision', 'single');
 %     %  ... do work with the new defaults ...
 %     mptDefaults(prev);     % restore exactly what was active before
@@ -36,8 +36,8 @@ function varargout = mptDefaults(varargin)
 %   Examples:
 %
 %     mptDefaults                                   % see current values
-%     mptDefaults('truncationSigmas', 6)            % enable truncation
-%     mptDefaults('truncationSigmas', 6, ...
+%     mptDefaults('truncationSigmas', Inf)          % exact (untruncated)
+%     mptDefaults('truncationSigmas', Inf, ...
 %                 'kernelPrecision', 'single')      % both at once
 %     prev = mptDefaults('kernelPrecision', 'single');
 %     ...
@@ -102,6 +102,9 @@ function varargout = mptDefaults(varargin)
                 name, strjoin(fieldnames(S), ', '));
         end
         varargout{1} = S.(name);
+        if strcmpi(name, 'truncationSigmas')
+            internal.maybeShowTruncationNotice();
+        end
         return;
     end
 
@@ -127,7 +130,7 @@ end
 
 function S = factoryDefaults()
     S = struct( ...
-        'truncationSigmas', Inf, ...
+        'truncationSigmas', 6, ...
         'kernelPrecision', 'double', ...
         'showHints', true, ...
         'kernelChunkBytes', 'auto' ...
@@ -151,17 +154,18 @@ function printSummary(S)
     end
 
     fprintf('\nCurrent MPT defaults:\n\n');
-    fprintf('  truncationSigmas: %-12s  Gaussian kernel truncation in sigmas.\n', ...
+    fprintf('  truncationSigmas: %-12s  Gaussian kernel truncation radius, in sigmas.\n', ...
             num2str(S.truncationSigmas));
-    fprintf('                                  Inf = exact (default); 6 keeps\n');
-    fprintf('                                  ~8 sig figs and is faster.\n');
+    fprintf('                                  Inf = exact; larger is more accurate, slower.\n');
+    fprintf('                                  Worst-case error vs exact: 4 -> ~1e-3,\n');
+    fprintf('                                  5 -> ~1e-5, 6 (default) -> ~2e-8.\n');
     fprintf('  kernelPrecision : %-12s  Kernel-matrix arithmetic precision.\n', ...
             sprintf('''%s''', S.kernelPrecision));
     fprintf('                                  ''double'' (default) or ''single''.\n');
     fprintf('  showHints       : %-12s  Informational console messages from\n', ...
             hintsStr);
-    fprintf('                                  the toolbox: kernel-eval tip and\n');
-    fprintf('                                  dispatch decisions. true or false.\n');
+    fprintf('                                  the toolbox: dispatch decisions.\n');
+    fprintf('                                  true or false.\n');
     if ischar(S.kernelChunkBytes)
         chunkStr = sprintf('''%s''', S.kernelChunkBytes);
     else

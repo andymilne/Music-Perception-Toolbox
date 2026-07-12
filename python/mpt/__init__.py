@@ -80,6 +80,7 @@ from .serial import continuity, interval_kernel_cov, seq_weights
 
 # --- Global defaults ---
 from ._defaults import (
+    TruncationDefaultWarning,
     get_default,
     get_defaults,
     reset_defaults,
@@ -149,4 +150,5 @@ __all__ = [
     "reset_defaults",
     "set_default",
     "show_defaults",
+    "TruncationDefaultWarning",
 ]

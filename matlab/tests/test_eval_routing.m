@@ -25,6 +25,9 @@ else
 end
 
 mptDefaults('reset');
+% reset now yields the factory truncationSigmas = 6; pin Inf so the
+% "default matches reference" comparisons below are untruncated.
+mptDefaults('truncationSigmas', Inf);
 
 % --- Battery of representative cases ---
 % Each row: {label, K, r, isRel, isPer, period, sigma, nQ}

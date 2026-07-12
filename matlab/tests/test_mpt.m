@@ -117,6 +117,12 @@ v22 = {'test_mobius_combinatorics.m', 'test_mobius_orbit_table.m', ...
 
 testFiles = [core, batched, expTens, harmony, cost, serial, maet, geom, v22];
 for ki = 1:numel(testFiles)
+    % Re-establish the exact-path baseline before each file. Sub-test
+    % bodies call mptDefaults('reset'), which now returns to the factory
+    % truncationSigmas = 6 rather than Inf; without this re-pin, one
+    % file's reset would leave a truncated default that breaks the
+    % exact-algebra comparisons in later files.
+    mptDefaults('truncationSigmas', Inf);
     run(fullfile(testsDir, testFiles{ki}));
 end
 

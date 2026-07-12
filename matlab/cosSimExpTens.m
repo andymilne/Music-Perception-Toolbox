@@ -817,15 +817,6 @@ end
         useDefaultKwargs = ~isfinite(truncResolved) ...
             && strcmp(precResolved, 'double');
 
-        % Fire the kernel-evaluation hint once per session when Bulger's
-        % IP path is about to run with default kwargs. Bulger's path
-        % forms a kernel-matrix-of-r-tuple-pairs that benefits from the
-        % same truncation / single-precision controls as the centres
-        % path.
-        if useDefaultKwargs
-            internal.maybeShowKernelEvalHint();
-        end
-
         if canUseHelper && ~useDefaultKwargs
             ipval = ipViaHelper(U, wU, V, wV);
             return;

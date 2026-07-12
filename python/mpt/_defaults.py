@@ -12,13 +12,13 @@ Usage::
 
     >>> import mpt
     >>> mpt.get_defaults()
-    {'truncation_sigmas': inf, 'kernel_precision': 'double'}
+    {'truncation_sigmas': 6.0, 'kernel_precision': 'double'}
 
-    >>> mpt.set_default(truncation_sigmas=6)
+    >>> mpt.set_default(truncation_sigmas=math.inf)   # exact (untruncated)
     >>> mpt.get_default('truncation_sigmas')
-    6.0
+    inf
 
-    >>> mpt.set_default(truncation_sigmas=6, kernel_precision='single')
+    >>> mpt.set_default(truncation_sigmas=math.inf, kernel_precision='single')
 
     >>> mpt.reset_defaults()
 """
@@ -28,11 +28,12 @@ from __future__ import annotations
 import contextlib
 import math
 import threading
+import warnings
 from typing import Any
 
 # Module-level mutable state. Hidden behind the accessor functions.
 _FACTORY_DEFAULTS: dict[str, Any] = {
-    "truncation_sigmas": math.inf,
+    "truncation_sigmas": 6.0,
     "kernel_precision": "double",
     "show_hints": True,
     "kernel_chunk_bytes": "auto",
@@ -40,9 +41,12 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
 
-# Session-scoped flag: True after the kernel-evaluation hint has fired
-# once in this Python process. Reset by reset_defaults().
-_HINT_FIRED_KERNEL_EVAL: bool = False
+# One-time-per-process flag: True once the truncation-default notice has
+# been printed (or suppressed). Not cleared by reset_defaults; a fresh
+# interpreter (module re-import) re-arms it, so the notice reappears once
+# per session. The test suite calls _suppress_truncation_notice() so it
+# never prints during tests.
+_TRUNCATION_NOTICE_SHOWN: bool = False
 
 # Set of (func_name, chosen) pairs already printed by
 # _maybe_show_dispatch_msg in the current top-level toolbox call. Cleared
@@ -199,14 +203,15 @@ def show_defaults() -> None:
         "",
         "Current MPT defaults:",
         "",
-        f"  truncation_sigmas: {trunc_str:<12}  Gaussian kernel truncation in sigmas.",
-        "                                   inf = exact (default); 6 keeps",
-        "                                   ~8 sig figs and is faster.",
+        f"  truncation_sigmas: {trunc_str:<12}  Gaussian kernel truncation radius, in sigmas.",
+        "                                   inf = exact; larger is more accurate, slower.",
+        "                                   Worst-case error vs exact: 4 -> ~1e-3,",
+        "                                   5 -> ~1e-5, 6 (default) -> ~2e-8.",
         f"  kernel_precision : {prec_str:<12}  Kernel-matrix arithmetic precision.",
         "                                   'double' (default) or 'single'.",
         f"  show_hints       : {hints_str:<12}  Informational console messages from",
-        "                                   the toolbox: kernel-eval tip and",
-        "                                   dispatch decisions. True or False.",
+        "                                   the toolbox: dispatch decisions.",
+        "                                   True or False.",
         "",
         "Usage:",
         "  mpt.set_default(name=value)     set",
@@ -242,7 +247,80 @@ def get_default(name: str) -> Any:
             f"Unknown default {name!r}. "
             f"Valid names: {', '.join(_FACTORY_DEFAULTS)}"
         )
+    if key == "truncation_sigmas":
+        _maybe_show_truncation_notice()
     return _DEFAULTS[key]
+
+
+class TruncationDefaultWarning(UserWarning):
+    """Category for the one-time notice that kernel truncation is on by default.
+
+    Emitted once per process by :func:`_maybe_show_truncation_notice`.
+    Suppress it with, e.g.::
+
+        import warnings, mpt
+        warnings.filterwarnings("ignore", category=mpt.TruncationDefaultWarning)
+
+    (the MATLAB counterpart is ``warning('off', 'mpt:truncationDefault')``).
+    """
+
+
+_TRUNCATION_NOTICE_MESSAGE = (
+    "Kernel evaluation truncates the Gaussian kernel at 6 sigma by "
+    "default, which runs much faster than the exact sum; the speed-up "
+    "grows with tuple size r and multiset size, where the exact sum has "
+    "many kernel centres and becomes expensive. Worst-case error vs the "
+    "exact result is about 2e-8 at 6 sigma (the default), ~1e-5 at 5, "
+    "and ~1e-3 at 4. Set "
+    "mpt.set_default(truncation_sigmas=float('inf')) for the exact "
+    "result. This warning shows only once per session."
+)
+
+
+def _maybe_show_truncation_notice() -> None:
+    """Warn, at most once per process, that kernel truncation is on by default.
+
+    Called from :func:`get_default` whenever the ``truncation_sigmas``
+    default is resolved (i.e. a kernel evaluation runs without an
+    explicit value), so it fires on first use regardless of which public
+    function the script calls. Emitted once, when it has not already
+    fired this process and the truncation default is still at its factory
+    value of 6. Stays silent once the user sets any other value, and
+    throughout the test suite (which pins ``inf`` and calls
+    :func:`_suppress_truncation_notice`).
+
+    It is issued as a :class:`TruncationDefaultWarning` (goes to stderr,
+    suppressible via the warnings machinery) rather than printed to
+    stdout, so it never lands in the middle of a script's own output.
+    It is deliberately not gated by ``show_hints``; ``show_hints``
+    governs only the dispatch-decision messages.
+    """
+    global _TRUNCATION_NOTICE_SHOWN
+    if _TRUNCATION_NOTICE_SHOWN:
+        return
+    if _DEFAULTS.get("truncation_sigmas") != 6:
+        return
+    _TRUNCATION_NOTICE_SHOWN = True
+    warnings.warn(_TRUNCATION_NOTICE_MESSAGE, TruncationDefaultWarning, stacklevel=2)
+
+
+def _suppress_truncation_notice() -> None:
+    """Mark the truncation notice as shown without printing it.
+
+    Used by the test suite so the notice never appears during tests.
+    """
+    global _TRUNCATION_NOTICE_SHOWN
+    _TRUNCATION_NOTICE_SHOWN = True
+
+
+def _rearm_truncation_notice() -> None:
+    """Clear the shown flag so the notice can fire again.
+
+    Used at test-session teardown so running the suite in a long-lived
+    interpreter does not permanently silence the notice.
+    """
+    global _TRUNCATION_NOTICE_SHOWN
+    _TRUNCATION_NOTICE_SHOWN = False
 
 
 def set_default(**kwargs: Any) -> dict[str, Any]:
@@ -277,94 +355,22 @@ def set_default(**kwargs: Any) -> dict[str, Any]:
 def reset_defaults() -> dict[str, Any]:
     """Reset all defaults to their factory values; return the previous values.
 
-    Also clears two session-scoped state objects:
-      - the flag that suppresses repeat firings of informational hints
-        (so the next eligible call will see the hint again);
-      - the set of (function, chosen, routing_reason) triples seen by
-        :func:`_maybe_show_dispatch_msg` in the current top-level call
-        (so each previously-seen routing decision will print again on
-        its next occurrence). Note: under normal use this set is also
-        cleared automatically at the start of each top-level toolbox
-        call by :func:`_dispatch_scope`.
+    Also clears the set of (function, chosen, routing_reason) triples
+    seen by :func:`_maybe_show_dispatch_msg` in the current top-level
+    call (so each previously-seen routing decision will print again on
+    its next occurrence). Note: under normal use this set is also
+    cleared automatically at the start of each top-level toolbox call
+    by :func:`_dispatch_scope`.
     """
-    global _HINT_FIRED_KERNEL_EVAL
     old = dict(_DEFAULTS)
     _DEFAULTS.clear()
     _DEFAULTS.update(_FACTORY_DEFAULTS)
-    _HINT_FIRED_KERNEL_EVAL = False
     _DISPATCH_MSG_SEEN.clear()
     # Flush the kernel_chunk_bytes 'auto' resolution cache so a
     # subsequent call re-queries the OS.
     from ._utils import flush_kernel_chunk_bytes_cache
     flush_kernel_chunk_bytes_cache()
     return old
-
-
-# ---------------------------------------------------------------
-# Informational hints (one-shot per Python process)
-# ---------------------------------------------------------------
-_KERNEL_EVAL_HINT_MESSAGE = (
-    "mpt tip: kernel-matrix construction is running with default settings\n"
-    "(truncation off, double precision). For typical perceptual-modelling\n"
-    "workloads at scale, opting in to k=6 truncation and single-precision\n"
-    "kernel arithmetic typically gives ~3-10x speedup with ~7 significant\n"
-    "figures preserved:\n"
-    "\n"
-    "    mpt.set_default(truncation_sigmas=6, kernel_precision='single')\n"
-    "\n"
-    "Affects functions that build a kernel matrix: eval_exp_tens,\n"
-    "entropy_exp_tens (shannon, normalized, differential),\n"
-    "spectral_entropy (shannon, normalized, differential),\n"
-    "template_harmonicity, virtual_pitches, tensor_harmonicity (via\n"
-    "eval_exp_tens), and cos_sim_exp_tens when routed to Bulger's\n"
-    "method. Also honoured by the Mobius relative-mode evaluator,\n"
-    "where it additionally sets the factored strategy's read-back\n"
-    "accuracy target. Does not affect the Mobius inner-product path\n"
-    "(cos_sim_exp_tens at default workloads, entropy_exp_tens with\n"
-    "'renyi2').\n"
-    "\n"
-    "To silence: mpt.set_default(show_hints=False).\n"
-)
-
-
-def _maybe_show_kernel_eval_hint(
-    *,
-    effective_truncation_sigmas: float | None = None,
-    effective_kernel_precision: str | None = None,
-) -> None:
-    """Print the kernel-evaluation hint at most once per session.
-
-    Parameters
-    ----------
-    effective_truncation_sigmas, effective_kernel_precision : optional
-        The effective values used for the call (after defaults
-        resolution and per-call kwargs). If supplied, the hint fires
-        only when *both* effective values match the factory
-        defaults — i.e., the user hasn't opted in via either route.
-        If not supplied, the global defaults are inspected instead.
-
-    Silently no-ops if any of:
-      - ``show_hints`` is False
-      - the effective values differ from the factory defaults (the user
-        has already opted in to the faster regime, so the hint is
-        redundant)
-      - the hint has already fired this session
-    """
-    global _HINT_FIRED_KERNEL_EVAL
-    if _HINT_FIRED_KERNEL_EVAL:
-        return
-    if not _DEFAULTS.get("show_hints", True):
-        return
-    trunc = (effective_truncation_sigmas if effective_truncation_sigmas is not None
-             else _DEFAULTS["truncation_sigmas"])
-    prec = (effective_kernel_precision if effective_kernel_precision is not None
-            else _DEFAULTS["kernel_precision"])
-    if trunc != math.inf:
-        return
-    if str(prec).lower() != "double":
-        return
-    print(_KERNEL_EVAL_HINT_MESSAGE)
-    _HINT_FIRED_KERNEL_EVAL = True
 
 
 def _format_dispatch_time(t: float) -> str:
@@ -411,8 +417,7 @@ def _maybe_show_dispatch_msg(
 
     Gating: dispatch messages are NOT gated by per-call
     ``verbose``. They are gated by the toolbox-wide ``show_hints``
-    flag (``mpt.set_default(show_hints=...)``), matching the
-    kernel-evaluation hint's gating model. Rationale: internal
+    flag (``mpt.set_default(show_hints=...)``). Rationale: internal
     toolbox callers (e.g. batched-raw paths, entropy evaluations)
     routinely pass ``verbose=False`` to inner calls to prevent
     flooding. With the per-top-level-call throttle in place, flooding

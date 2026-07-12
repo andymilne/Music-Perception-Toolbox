@@ -509,13 +509,13 @@ The two continuous methods (`'differential'`, `'renyi2'`) ignore `n_points_per_d
 
 Three user-controllable defaults govern how the toolbox handles the dense Gaussian kernel matrix in functions that build one. Two of them — `truncationSigmas` and `kernelPrecision` — trade accuracy for speed in the matrix arithmetic; the third — `kernelChunkBytes` — sets the per-chunk byte budget for the memory-aware chunkers that allow large workloads to run without exhausting RAM. The first two apply to the centres path (`evalExpTens`, `entropyExpTens` with `method='shannon'`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) and to Bulger's method on `cosSimExpTens`; they do not affect Möbius-method calls (which bypass kernel-matrix construction entirely). The third applies more broadly — to every chunker in the toolbox, including the Möbius relative-mode evaluator's orbit-matrix chunker.
 
-- **`truncation_sigmas` (Python) / `truncationSigmas` (MATLAB)** — type `float`, default `math.inf` / `Inf` (no truncation, exact v2.1 behaviour). When set to a finite positive value $k$, Gaussian kernel contributions are skipped when the centre-to-query distance exceeds $k\sigma$, equivalently when the kernel value drops below $\exp(-k^2/2)$. $k = 6$ retains ~8 significant figures (kernel-floor $\approx 1.5 \times 10^{-8}$); $k = 4$ retains ~4 significant figures (kernel-floor $\approx 3 \times 10^{-4}$). Implemented as a grid-bucket spatial index that avoids forming the dense kernel matrix for the discarded entries.
+- **`truncation_sigmas` (Python) / `truncationSigmas` (MATLAB)** — type `float`, default `6`. Gaussian kernel contributions are skipped when the centre-to-query distance exceeds $k\sigma$, equivalently when the kernel value drops below $\exp(-k^2/2)$. Truncation perturbs the result by a small absolute amount bounded by that $k\sigma$ tail: the worst-case error versus the exact result is about 1e-3 at $k = 4$, 1e-5 at $k = 5$, 2e-8 at the default $k = 6$, and 1e-10 at $k = 7$, reaching the toolbox's 1e-12 cross-language parity floor by $k = 8$. This is an absolute error — on a cosine similarity directly, and on an evaluated density as a fraction of its scale — and is somewhat larger at high tensor order $r$, where more pairwise coordinates can sit near the truncation boundary at once; the relative error at individual query points deep in the tails is unbounded, but those points carry negligible mass and are never summed, integrated, or compared. Each added sigma shrinks the error by $\exp(-(2k+1)/2)$ at a cost that grows as $k^{r}$ with tensor order, so accuracy is inexpensive. Set `math.inf` / `Inf` for the exact, untruncated result (the reference against which the toolbox's cross-language 1e-12 parity is verified). Implemented as a grid-bucket spatial index that avoids forming the dense kernel matrix for the discarded entries.
 
 - **`kernel_precision` (Python) / `kernelPrecision` (MATLAB)** — accepts `'double'` (default) or `'single'`. With `'single'`, the kernel-matrix arithmetic casts to `float32` for a workload-dependent speedup (typically ~2× on compute-bound problems, less on memory-bandwidth-bound problems) at the cost of approximately 7 significant figures of precision (vs approximately 15 for double). The cast applies only to the kernel matrix; density coordinates and the final accumulation are preserved at full double.
 
 - **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB)** — accepts `'auto'` (default) or a positive integer (bytes). Sets the per-chunk byte budget used by the memory-aware chunkers when a kernel-matrix or orbit-matrix workload would otherwise exceed available RAM in a single allocation. The `'auto'` value resolves at call time to half of currently available physical memory, queried from the operating system: `/proc/meminfo`'s `MemAvailable` on Linux, `vm_stat`'s `free + inactive + speculative` pages on macOS, `memory().PhysicalMemory.Available` on Windows. The half-of-available factor leaves a safety margin against the broadcast difference tensor, its square, and the summed-then-exponentiated intermediate being briefly co-resident during a chunk's evaluation. A 4 GiB fallback is used if all platform queries fail. An explicit positive-integer override is taken as-is. Set a lower value to reduce peak memory pressure (smaller chunks, more loop iterations, no change in result up to floating-point reduction order); set a higher value on a machine where the toolbox should claim more memory than the half-available default.
 
-`truncationSigmas` and `kernelPrecision` can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API described in the next section. Per-call kwargs always override globals; globals always override factory defaults. `kernelChunkBytes` is global-only: the chunkers consult it on every call, so a per-call kwarg would be a layering inversion. The factory defaults (`truncationSigmas = Inf`, `kernelPrecision = 'double'`, `kernelChunkBytes = 'auto'`) match v2.1 behaviour to floating-point reduction order — opting in to truncation or single precision is purely additive.
+`truncationSigmas` and `kernelPrecision` can be set per call (as keyword arguments) or globally via the toolbox-wide defaults API described in the next section. Per-call kwargs always override globals; globals always override factory defaults. `kernelChunkBytes` is global-only: the chunkers consult it on every call, so a per-call kwarg would be a layering inversion. The factory defaults are `truncationSigmas = 6` (fast, worst-case error ~2e-8 versus the exact result; set `Inf` for the exact untruncated result), `kernelPrecision = 'double'`, and `kernelChunkBytes = 'auto'`.
 
 ### Matrix-valued kernel covariances (v2.2+)
 
@@ -544,7 +544,7 @@ prof = mpt.windowed_similarity(
 
 ### Toolbox defaults API (`mptDefaults` / `mpt.set_default`)
 
-`mptDefaults` (MATLAB) and `mpt.set_default` / `mpt.get_defaults` / `mpt.reset_defaults` / `mpt.show_defaults` (Python) provide the canonical entry points for inspecting and changing toolbox-wide settings. The settings currently controlled are `truncationSigmas`, `kernelPrecision`, `kernelChunkBytes`, and `showHints` (a boolean that gates the one-time performance hint described below).
+`mptDefaults` (MATLAB) and `mpt.set_default` / `mpt.get_defaults` / `mpt.reset_defaults` / `mpt.show_defaults` (Python) provide the canonical entry points for inspecting and changing toolbox-wide settings. The settings currently controlled are `truncationSigmas`, `kernelPrecision`, `kernelChunkBytes`, and `showHints` (a boolean that gates the toolbox's informational dispatch-decision messages described below).
 
 **Call forms (MATLAB):**
 
@@ -572,14 +572,14 @@ The setter form returns the previous values precisely so they can be passed back
 
 ```matlab
 % MATLAB
-prev = mptDefaults('truncationSigmas', 6, 'kernelPrecision', 'single');
+prev = mptDefaults('truncationSigmas', Inf, 'kernelPrecision', 'single');
 % ... do work with the new defaults ...
 mptDefaults(prev);                                 % restore
 ```
 
 ```python
 # Python
-prev = mpt.set_default(truncation_sigmas=6, kernel_precision='single')
+prev = mpt.set_default(truncation_sigmas=math.inf, kernel_precision='single')
 # ... do work with the new defaults ...
 mpt.set_default(**prev)                            # restore
 ```
@@ -588,12 +588,12 @@ This is safer than `'reset'` after a block of work, because `'reset'` overwrites
 
 Defaults persist within a single Python process / MATLAB session (not across `clear all` or `import`-reload cycles).
 
-**Informational messages: the `showHints` flag.** The toolbox prints two kinds of informational message that are not gated by per-call `verbose`:
+**Informational messages.** The toolbox prints two kinds of informational message that are not gated by per-call `verbose`:
 
-- A **one-time kernel-evaluation hint** on first kernel-matrix construction at factory defaults, pointing to the `truncationSigmas` / `kernelPrecision` opt-in.
+- A **first-use truncation warning**, issued once per session the first time a kernel evaluation resolves the truncation default at its factory value of 6 (i.e. the user has not set their own `truncationSigmas`). It gives the worst-case error versus the exact result at 4, 5, and 6 sigma (about ~1e-3, ~1e-5, and ~2e-8 respectively) and points to `mptDefaults('truncationSigmas', Inf)` for exact output. It fires from the defaults getter (`mptDefaults('truncationSigmas')` in MATLAB, `get_default('truncation_sigmas')` in Python), through which every kernel-evaluating path resolves the default, so it appears on first use regardless of which function the script calls. It is issued as a warning — identifier `mpt:truncationDefault` in MATLAB, category `mpt.TruncationDefaultWarning` in Python — so it goes to stderr and is suppressible through the usual warning machinery (`warning('off', 'mpt:truncationDefault')`; `warnings.filterwarnings('ignore', category=mpt.TruncationDefaultWarning)`), and it never lands inside a script's own stdout output. It is **not** gated by `showHints` — it always gets its single showing, so a script that sets `showHints = false` to quiet the dispatch messages still sees the warning once. It reappears in a fresh session (`clear all` / restart), and stays silent only after that first showing or once any explicit truncation value is set.
 - **Dispatch decisions** from `evalExpTens`, `cosSimExpTens`, and `windowedSimilarity`: short messages naming the path the dispatcher selected. The unprobed form is just `cosSimExpTens: chose 'bulger' path.`; the probed form (when the dispatcher timed both candidates on a small sample) adds the estimate, e.g. `cosSimExpTens: chose 'bulger' path (estimated 1.5 min); Ctrl+C to cancel.`. `windowedSimilarity` is single-path (always `'direct'` — there is no Bulger or Möbius variant of the windowed inner product to compare against), so its announce always reads `windowedSimilarity: chose 'direct' path.`; the function still acquires the same dispatch-scope guard so that its announce, like the others, fires at most once per top-level user call. All are throttled to once per top-level user call per unique `(function, chosen)` pair: nested toolbox calls within one user call share a seen-set so a batched-raw loop or a list-mode `windowedSimilarity` sweep produces one announce per unique chosen path (not one per item, and not one per routing reason — two different reasons leading to the same chosen path collapse to a single announce). Each new top-level call re-announces. The seen-set is cleared automatically on every top-level toolbox entry, and also explicitly by `mptDefaults('reset')` / `mpt.reset_defaults()`.
 
-Both kinds of message are gated by the `showHints` flag (factory default `true`). Set to `false` for fully silent operation:
+The **dispatch messages** are gated by the `showHints` flag (factory default `true`); the first-use truncation notice is not (it always shows once). Set `showHints` to `false` to silence the dispatch messages:
 
 ```python
 mpt.set_default(show_hints=False)        # Python

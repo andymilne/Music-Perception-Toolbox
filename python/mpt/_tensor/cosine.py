@@ -3108,9 +3108,18 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     truncation tail to FP noise; 12σ is empirically no improvement.)
 
     With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
-    where ratio is the worst-case (minimum) cancellation ratio across
-    the u-grid points. A point with severe cancellation drives the
-    integration result toward catastrophic loss of significance.
+    where ratio is the mass-aware global cancellation diagnostic
+    ``|sum_u F_u| / sum_u max_orb(|term_orb_u|)``: the magnitude of the
+    integrated alternating sum relative to the integral of the
+    worst-magnitude partition term. This bounds the relative error of
+    the integral (absolute error ≈ eps × denominator × du), which is
+    the quantity the acceptance threshold protects. A pointwise
+    worst-case over the u-grid is the wrong aggregate here: at sharp
+    σ, translation bands where only one event pair falls inside the
+    kernel support have a true integrand of exactly zero produced by
+    exact cancellation of nonzero orbit terms, so a pointwise ratio at
+    such a band is ~0 while the band contributes nothing to the
+    integral.
 
     ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
     to the global default.
@@ -3141,8 +3150,9 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                  + u_grid[:, None, None])
     K_u = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
     if return_cancellation_ratio:
-        F, ratios = inner_product_orbit_grid(
-            K_u, w_a, w_b, r, return_cancellation_ratio=True,
+        F, _, term_mass = inner_product_orbit_grid(
+            K_u, w_a, w_b, r,
+            return_cancellation_ratio=True, return_term_mass=True,
         )
     else:
         F = inner_product_orbit_grid(K_u, w_a, w_b, r)
@@ -3153,10 +3163,11 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     c = sigma * np.sqrt(2 * np.pi / r)
     value = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
     if return_cancellation_ratio:
-        # Worst case across u-grid is the relevant signal — even one
-        # bad point could dominate the integration if it sits near a
-        # peak of the integrand.
-        ratio = float(np.min(ratios))
+        denom = float(term_mass.sum())
+        if denom > 0:
+            ratio = float(abs(F.sum()) / denom)
+        else:
+            ratio = 1.0
         return value, ratio
     return value
 

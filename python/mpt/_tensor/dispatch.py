@@ -1201,7 +1201,11 @@ def _select_and_estimate_sa(
 # translation-grid sizes (1 in absolute mode). The probe uses
 # ``(min(K_x, target), min(K_y, target))`` events — per side, so an
 # asymmetric workload is probed with the same asymmetry — and
-# extrapolates by the ratio of the corresponding op counts.
+# extrapolates by the ratio of the corresponding op counts. The
+# pairwise estimate removes its fixed per-call cost with a two-point
+# fit before scaling, and the probe decision requires the orbit
+# estimate to beat the pairwise estimate by
+# ``_PROBE_IP_MOBIUS_DECISION_MARGIN``.
 # -----------------------------------------------------------------------
 
 # Target per-side subset size for the IP probe. Small enough that probe
@@ -1212,6 +1216,16 @@ def _select_and_estimate_sa(
 # (``n_min - r < 2``) fires upstream so neither probe size drops below
 # r+2.
 _PROBE_K_IP_TARGET = 12
+
+_PROBE_IP_MOBIUS_DECISION_MARGIN = 1.4
+"""Margin the orbit probe estimate must beat the pairwise probe estimate
+by before the probe routes to the Möbius method. The orbit probe's
+working set is cache-resident while the full-size rel-mode path is
+memory-bound, so the probe systematically under-measures the full-scale
+per-op cost by ~1.3x; the pairwise estimate carries no matching bias
+(its fixed per-call cost is removed by the two-point fit). Near-tie
+estimates therefore route to the pairwise path, the cheap-to-mispick
+side, mirroring the asymmetric pre-screen margins."""
 
 
 # Pre-screen: skip the probe if one path's analytical cost dominates
@@ -1259,6 +1273,22 @@ def _falling_factorial(n: int, k: int) -> float:
 
 
 
+_ORBIT_GRID_OP_UNIT_COST = 1.6
+"""Per-op cost of a translation-grid orbit kernel op relative to a pairwise
+kernel op, measured on the Python implementation (grid einsum contraction
+~28 ns/op against flat pairwise kernel evaluation ~17 ns/op in its
+cache-resident regime). The pairwise and orbit cost models below count
+kernel ops in a shared unit; without this factor the rel-mode orbit cost
+is under-priced by the same ratio and the modelled equal-cost point sits
+below the measured one. The pairwise reference is its cache-resident
+per-op cost — at large centres working sets the pairwise path degrades
+well beyond this, so pricing against the resident regime biases
+near-crossover routing toward the pairwise path, the cheap-to-mispick
+side. Applied to the relative-mode grid factors only: the absolute-mode
+orbit cost calibration (_ORBIT_IP_FIXED_OVERHEAD against measured
+absolute-mode crossovers) predates no such factor and is left untouched."""
+
+
 def _orbit_ip_grid_factors(
     p_x: np.ndarray,
     p_y: np.ndarray,
@@ -1267,7 +1297,7 @@ def _orbit_ip_grid_factors(
     is_per: bool,
     period: float,
 ) -> tuple[float, float, float]:
-    """Translation-grid sizes ``(N_xy, N_xx, N_yy)`` of the three orbit
+    """Cost-model grid weights ``(N_xy, N_xx, N_yy)`` of the three orbit
     inner products (cross term plus both self-norms).
 
     The relative-mode orbit inner product marginalises a translation u
@@ -1281,6 +1311,13 @@ def _orbit_ip_grid_factors(
     samples per sigma, so each inner product has its own size. The
     absolute-mode orbit inner product is grid-free, so all three
     factors are 1.
+
+    In relative mode each grid size is scaled by
+    ``_ORBIT_GRID_OP_UNIT_COST`` so that the orbit and pairwise cost
+    models price their kernel ops in a shared unit. Both the full-size
+    and probe-size cost expressions call this helper, so the scaling
+    cancels in the probe's extrapolation ratio: it moves the analytical
+    pre-screen boundaries only.
     """
     if not is_rel:
         return 1.0, 1.0, 1.0
@@ -1288,7 +1325,7 @@ def _orbit_ip_grid_factors(
         # Lazy import to keep dispatch free of a hard dependency on
         # the nested-contraction module at import time.
         from ._nested_contraction import auto_ntau_default
-        n = float(auto_ntau_default(period, sigma))
+        n = float(auto_ntau_default(period, sigma)) * _ORBIT_GRID_OP_UNIT_COST
         return n, n, n
     samples_per_sigma = 10.0
 
@@ -1299,7 +1336,7 @@ def _orbit_ip_grid_factors(
         return float(max(
             64,
             int(np.ceil(max(span, 1.0) / sigma * samples_per_sigma)),
-        ))
+        )) * _ORBIT_GRID_OP_UNIT_COST
 
     return _n_u(p_x, p_y), _n_u(p_x, p_x), _n_u(p_y, p_y)
 
@@ -1555,6 +1592,43 @@ def _select_and_estimate_sa_ip(
     pairwise_factor = (
         pairwise_full / pairwise_probe if pairwise_probe > 0 else 1.0
     )
+
+    # Two-point fixed-cost removal for the pairwise estimate. A probe
+    # at the target sizes measures mostly fixed per-call cost (its op
+    # count is small relative to the per-call setup), so scaling the
+    # raw timing by the op-count ratio inflates the estimate by that
+    # fixed share times the ratio — a factor of 2–3 at large
+    # extrapolation ratios, all of it biasing the decision toward the
+    # Möbius method. A second probe at a smaller subset separates the
+    # two components: fit t = a + b*ops through the two points, carry
+    # the fixed part a unscaled, and scale only the variable part b.
+    # Skipped when the extrapolation ratio is small (raw scaling is
+    # then accurate) or when a meaningfully smaller second point is
+    # unavailable.
+    if pairwise_factor > 2.0:
+        K2_x = max(r + 2, K_probe_x // 2)
+        K2_y = max(r + 2, K_probe_y // 2)
+        P2_x = _falling_factorial(K2_x, r)
+        P2_y = _falling_factorial(K2_y, r)
+        pairwise_probe_2 = P2_x * P2_y + P2_x * P2_x + P2_y * P2_y
+        if pairwise_probe_2 < 0.7 * pairwise_probe:
+            t_pairwise_2 = _probe_ip_path(
+                dens_x, dens_y, K2_x, K2_y, "bulger",
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+            )
+            b = max(
+                (t_pairwise - t_pairwise_2)
+                / (pairwise_probe - pairwise_probe_2),
+                0.0,
+            )
+            a = max(t_pairwise - b * pairwise_probe, 0.0)
+            t_pairwise_est = a + b * pairwise_full
+        else:
+            t_pairwise_est = t_pairwise * pairwise_factor
+    else:
+        t_pairwise_est = t_pairwise * pairwise_factor
+
     Np_xy, Np_xx, Np_yy = _orbit_ip_grid_factors(
         dens_x.p[:K_probe_x], dens_y.p[:K_probe_y],
         sigma, is_rel, is_per, period,
@@ -1566,10 +1640,9 @@ def _select_and_estimate_sa_ip(
         orbit_var / orbit_probe if orbit_probe > 0 else 1.0
     )
 
-    t_pairwise_est = t_pairwise * pairwise_factor
     t_orbit_est = t_orbit * orbit_factor
 
-    if t_pairwise_est <= t_orbit_est:
+    if t_pairwise_est <= t_orbit_est * _PROBE_IP_MOBIUS_DECISION_MARGIN:
         return "bulger", True, t_pairwise_est, "probe"
     # Note: rel-per-above-threshold is handled by the measure-preference guard
     # above (it returns before reaching the probe), so the probe only runs

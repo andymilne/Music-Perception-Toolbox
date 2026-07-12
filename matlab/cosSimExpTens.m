@@ -1050,7 +1050,10 @@ end
 %  translation-grid sizes (1 in absolute mode). The probe uses
 %  (min(K_x, 12), min(K_y, 12)) events — per side, so an asymmetric
 %  workload is probed with the same asymmetry — and extrapolates by the
-%  ratio of the corresponding op counts.
+%  ratio of the corresponding op counts. The pairwise estimate removes
+%  its fixed per-call cost with a two-point fit before scaling, and the
+%  probe decision requires the orbit estimate to beat the pairwise
+%  estimate by PROBE_IP_MOBIUS_DECISION_MARGIN.
 % =========================================================================
 
 function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
@@ -1091,6 +1094,16 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     % (its cost is genuinely low in that regime) whereas prematurely choosing
     % Möbius pays its fixed overhead needlessly.
     PRESCREEN_IP_MOBIUS_DOMINANCE = 10.0;
+    % Margin the orbit probe estimate must beat the pairwise probe estimate
+    % by before the probe routes to the Möbius method. The orbit probe's
+    % working set is cache-resident while the full-size rel-mode path is
+    % memory-bound, so the probe systematically under-measures the
+    % full-scale per-op cost; the pairwise estimate carries no matching
+    % bias (its fixed per-call cost is removed by the two-point fit
+    % below). Near-tie estimates therefore route to the pairwise path,
+    % the cheap-to-mispick side, mirroring the asymmetric pre-screen
+    % margins.
+    PROBE_IP_MOBIUS_DECISION_MARGIN = 1.4;
     BELL_NUMBERS = struct('r2', 2, 'r3', 5, 'r4', 15, 'r5', 52, ...
                           'r6', 203, 'r7', 877, 'r8', 4140);
 
@@ -1249,6 +1262,41 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     else
         pairwiseFactor = 1;
     end
+
+    % Two-point fixed-cost removal for the pairwise estimate. A probe at
+    % the target sizes measures mostly fixed per-call cost (its op count
+    % is small relative to the per-call setup), so scaling the raw
+    % timing by the op-count ratio inflates the estimate by that fixed
+    % share times the ratio -- a factor of 2-3 at large extrapolation
+    % ratios, all of it biasing the decision toward the Möbius method. A
+    % second probe at a smaller subset separates the two components: fit
+    % t = a + b*ops through the two points, carry the fixed part
+    % unscaled, and scale only the variable part b. The probe times one
+    % cross inner product, so its fitted fixed cost is per inner
+    % product; the full pairwise path computes three, hence the 3*a
+    % term. Skipped when the extrapolation ratio is small (raw scaling
+    % is then accurate) or when a meaningfully smaller second point is
+    % unavailable.
+    twoPointDone = false;
+    if pairwiseFactor > 2
+        K2_x = max(r + 2, floor(K_probe_x / 2));
+        K2_y = max(r + 2, floor(K_probe_y / 2));
+        pairwiseProbe2 = localFallingFactorial(K2_x, r) ...
+                       * localFallingFactorial(K2_y, r);
+        if pairwiseProbe2 < 0.7 * pairwiseProbe
+            tPairwise2 = localProbeIPPath(dens_x, dens_y, K2_x, K2_y, ...
+                'bulger', truncationSigmas, kernelPrecision);
+            b = max((tPairwise - tPairwise2) ...
+                    / (pairwiseProbe - pairwiseProbe2), 0);
+            a = max(tPairwise - b * pairwiseProbe, 0);
+            tPairwiseEst = 3 * a + b * pairwiseFull;
+            twoPointDone = true;
+        end
+    end
+    if ~twoPointDone
+        tPairwiseEst = tPairwise * pairwiseFactor;
+    end
+
     [Np_xy, Np_xx, Np_yy] = localOrbitIPGridFactors( ...
         dens_x.p(1:K_probe_x), dens_y.p(1:K_probe_y), ...
         sigma, isRel, isPer, period);
@@ -1261,10 +1309,9 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         orbitFactor = 1;
     end
 
-    tPairwiseEst = tPairwise * pairwiseFactor;
-    tOrbitEst    = tOrbit * orbitFactor;
+    tOrbitEst = tOrbit * orbitFactor;
 
-    if tPairwiseEst <= tOrbitEst
+    if tPairwiseEst <= tOrbitEst * PROBE_IP_MOBIUS_DECISION_MARGIN
         chosen = 'bulger';
         estSec = tPairwiseEst;
     else
@@ -1295,27 +1342,49 @@ end
 
 function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
                                                        isRel, isPer, period)
-%LOCALORBITIPGRIDFACTORS  Translation-grid sizes of the three orbit IPs.
+%LOCALORBITIPGRIDFACTORS  Cost-model grid weights of the three orbit IPs.
 %
-%   Returns (N_xy, N_xx, N_yy), the grid sizes of the cross term and the
-%   two self-norms. The relative-mode orbit inner product marginalises a
-%   translation u over a grid and runs the orbit contraction at every
-%   grid point, so its kernel-op count carries the grid size as a
-%   multiplicative factor. The three factors mirror the grid-sizing
-%   rules of mobius.orbitInnerRelSA: in periodic mode the grid covers
-%   one period with internal.autoNtauDefault(period, sigma) nodes
-%   (identical for all three inner products); in non-periodic mode the
-%   line grid spans the two operands' spreads plus the 16-sigma
+%   Returns (N_xy, N_xx, N_yy), the grid weights of the cross term and
+%   the two self-norms. The relative-mode orbit inner product
+%   marginalises a translation u over a grid and runs the orbit
+%   contraction at every grid point, so its kernel-op count carries the
+%   grid size as a multiplicative factor. The three factors mirror the
+%   grid-sizing rules of mobius.orbitInnerRelSA: in periodic mode the
+%   grid covers one period with internal.autoNtauDefault(period, sigma)
+%   nodes (identical for all three inner products); in non-periodic mode
+%   the line grid spans the two operands' spreads plus the 16-sigma
 %   truncation margin at 10 samples per sigma, so each inner product has
 %   its own size. The absolute-mode orbit inner product is grid-free, so
 %   all three factors are 1.
+%
+%   In relative mode each grid size is scaled by
+%   ORBIT_GRID_OP_UNIT_COST, the per-op cost of a translation-grid
+%   orbit kernel op relative to a pairwise kernel op, so the orbit and
+%   pairwise cost models price their kernel ops in a shared unit;
+%   without it the rel-mode orbit cost is under-priced by that ratio
+%   and the modelled equal-cost point sits below the measured one. The
+%   pairwise reference is its cache-resident per-op cost -- at large
+%   centres working sets the pairwise path degrades well beyond this,
+%   so pricing against the resident regime biases near-crossover
+%   routing toward the pairwise path, the cheap-to-mispick side. The
+%   constant is calibrated on the Python implementation; the MATLAB
+%   Möbius (recipe) path is faster relative to its pairwise path, so
+%   the shared value biases in the same safe direction here, and
+%   near-crossover routing defers to the probe either way. Both the
+%   full-size and probe-size cost expressions call this helper, so the
+%   scaling cancels in the probe's extrapolation ratio: it moves the
+%   analytical pre-screen boundaries only. The absolute-mode orbit cost
+%   calibration (ORBIT_IP_FIXED_OVERHEAD against measured absolute-mode
+%   crossovers) predates no such factor and is left untouched.
+
+    ORBIT_GRID_OP_UNIT_COST = 1.6;
 
     if ~isRel
         N_xy = 1; N_xx = 1; N_yy = 1;
         return;
     end
     if isPer
-        n = internal.autoNtauDefault(period, sigma);
+        n = internal.autoNtauDefault(period, sigma) * ORBIT_GRID_OP_UNIT_COST;
         N_xy = n; N_xx = n; N_yy = n;
         return;
     end
@@ -1323,11 +1392,11 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
     spread_x = max(p_x) - min(p_x);
     spread_y = max(p_y) - min(p_y);
     N_xy = max(64, ceil(max(spread_x + spread_y + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma));
+                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
     N_xx = max(64, ceil(max(2 * spread_x + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma));
+                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
     N_yy = max(64, ceil(max(2 * spread_y + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma));
+                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
 end
 
 

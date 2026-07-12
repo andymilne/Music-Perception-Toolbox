@@ -33,7 +33,20 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
 %
 %   Outputs:
 %     VAL        scalar inner product.
-%     RATIO      worst per-u-slice cancellation ratio in (0, 1].
+%     RATIO      mass-aware global cancellation diagnostic in (0, 1]:
+%                |sum(F)| / sum(termMass), the magnitude of the
+%                integrated alternating sum relative to the integral of
+%                the worst-magnitude partition term. This bounds the
+%                relative error of the integral (absolute error ~
+%                eps * denominator * du), which is the quantity the
+%                acceptance threshold protects. A pointwise worst case
+%                over the u-grid is the wrong aggregate here: at sharp
+%                sigma, translation bands where only one event pair
+%                falls inside the kernel support have a true integrand
+%                of exactly zero produced by exact cancellation of
+%                nonzero orbit terms, so a pointwise ratio at such a
+%                band is ~0 while the band contributes nothing to the
+%                integral.
 %
 %   See also MOBIUS.INNERPRODUCTORBITGRID, MOBIUS.ORBITINNERABSSA,
 %            INTERNAL.TRUNCKERNELEXP.
@@ -74,7 +87,7 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
     end
     K_u = internal.truncKernelExp(diffs.^2, sigma, opts.truncationSigmas);
 
-    [F, ratios] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
+    [F, ~, termMass] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
         'returnCancellationRatio', true);
 
     if isPer
@@ -84,5 +97,10 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
     end
     c = sigma * sqrt(2 * pi / r);
     val = (sigma * sqrt(pi))^r * integral / c^2;
-    ratio = min(ratios);
+    denom = sum(termMass);
+    if denom > 0
+        ratio = abs(sum(F)) / denom;
+    else
+        ratio = 1;
+    end
 end

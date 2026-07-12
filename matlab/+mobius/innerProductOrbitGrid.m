@@ -1,4 +1,4 @@
-function [vals, ratios] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
+function [vals, ratios, termMass] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
 %MOBIUS.INNERPRODUCTORBITGRID  Distinct-index IP on a grid of u-shifts.
 %
 %   VALS = MOBIUS.INNERPRODUCTORBITGRID(K_U, W_A, W_B, R) evaluates the
@@ -13,6 +13,16 @@ function [vals, ratios] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
 %   [VALS, RATIOS] = MOBIUS.INNERPRODUCTORBITGRID(..., 'returnCancellationRatio', true)
 %   additionally returns per-grid-point cancellation ratios. See
 %   MOBIUS.INNERPRODUCTORBIT for interpretation.
+%
+%   [VALS, RATIOS, TERMMASS] = MOBIUS.INNERPRODUCTORBITGRID(...,
+%   'returnCancellationRatio', true) additionally returns the
+%   per-grid-point worst-term magnitudes prefactor * max_orb|term|,
+%   length-N_u. Callers that integrate VALS over the grid use this to
+%   form a mass-aware global cancellation diagnostic
+%   |sum(VALS)| / sum(TERMMASS): a grid point where the alternating sum
+%   cancels exactly to a true zero contributes nothing to the numerator
+%   or the integral, so — unlike the pointwise minimum of RATIOS — the
+%   global diagnostic is not driven to zero by zero-mass points.
 %
 %   Inputs:
 %     K_U  (N_u, n_A, n_B) double — stack of kernels per u-grid point.
@@ -81,7 +91,9 @@ function [vals, ratios] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
         ratios = ones(N_u, 1);
         nz = maxAbsTerm > 0;
         ratios(nz) = abs(total(nz)) ./ maxAbsTerm(nz);
+        termMass = opts.prefactor * maxAbsTerm;
     else
         ratios = [];
+        termMass = [];
     end
 end

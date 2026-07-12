@@ -763,6 +763,7 @@ def inner_product_orbit_grid(
     *,
     prefactor: float = 1.0,
     return_cancellation_ratio: bool = False,
+    return_term_mass: bool = False,
 ) -> np.ndarray:
     """Evaluate distinct-index inner product on a grid of u-shifts.
 
@@ -778,6 +779,17 @@ def inner_product_orbit_grid(
         If True, additionally return per-grid-point cancellation ratios
         ``|sum_u| / max_orb(|term_orb_u|)``, shape (N_u,). See
         :func:`inner_product_orbit` for interpretation.
+    return_term_mass : bool, default False
+        If True (requires ``return_cancellation_ratio=True``),
+        additionally return the per-grid-point worst-term magnitudes
+        ``prefactor * max_orb(|term_orb_u|)``, shape (N_u,). Callers
+        that integrate the values over the grid use this to form a
+        mass-aware global cancellation diagnostic
+        ``|sum_u values_u| / sum_u term_mass_u``: a grid point where
+        the alternating sum cancels exactly to a true zero contributes
+        nothing to the numerator or the integral, so — unlike the
+        pointwise minimum of ``ratios`` — the global diagnostic is not
+        driven to zero by zero-mass points.
 
     Returns
     -------
@@ -786,7 +798,8 @@ def inner_product_orbit_grid(
         trapezoidally integrated and divided by appropriate prefactors
         to recover the relative-mode inner product. If
         ``return_cancellation_ratio`` is True, returns a 2-tuple
-        ``(values, ratios)``.
+        ``(values, ratios)``; with ``return_term_mass`` also True, a
+        3-tuple ``(values, ratios, term_mass)``.
     """
     table = get_orbit_table(r)
     N_u = K_u.shape[0]
@@ -816,6 +829,8 @@ def inner_product_orbit_grid(
                 np.abs(total) / max_abs_term,
                 1.0,
             )
+        if return_term_mass:
+            return values, ratios, prefactor * max_abs_term
         return values, ratios
     return values
 

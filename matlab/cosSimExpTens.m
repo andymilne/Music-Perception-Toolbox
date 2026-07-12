@@ -1362,22 +1362,27 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   orbit kernel op relative to a pairwise kernel op, so the orbit and
 %   pairwise cost models price their kernel ops in a shared unit;
 %   without it the rel-mode orbit cost is under-priced by that ratio
-%   and the modelled equal-cost point sits below the measured one. The
-%   pairwise reference is its cache-resident per-op cost -- at large
-%   centres working sets the pairwise path degrades well beyond this,
-%   so pricing against the resident regime biases near-crossover
-%   routing toward the pairwise path, the cheap-to-mispick side. The
-%   constant is calibrated on the Python implementation; the MATLAB
-%   Möbius (recipe) path is faster relative to its pairwise path, so
-%   the shared value biases in the same safe direction here, and
-%   near-crossover routing defers to the probe either way. Both the
-%   full-size and probe-size cost expressions call this helper, so the
-%   scaling cancels in the probe's extrapolation ratio: it moves the
-%   analytical pre-screen boundaries only. The absolute-mode orbit cost
-%   calibration (ORBIT_IP_FIXED_OVERHEAD against measured absolute-mode
-%   crossovers) predates no such factor and is left untouched.
+%   and the modelled equal-cost point sits below the measured one.
+%
+%   The constant is per-implementation: this is the MATLAB value,
+%   calibrated from bench_ip_unit_cost.m (tests/) measurements of the
+%   memory-resident contraction regime on the EDO-approximation
+%   workload (K_x = 5, sigma = 6, period = 1200): orbit contraction
+%   ~27 ns per kernel op against pairwise ~3.6 ns. The slabbed
+%   translation grid in mobius.orbitInnerRelSA keeps the contraction
+%   in that regime at every K, so the ratio is flat in K. Rerun the
+%   bench to recalibrate on new hardware. (The Python sibling constant
+%   in _tensor/dispatch.py is calibrated the same way on the Python
+%   implementation.)
+%
+%   Both the full-size and probe-size cost expressions call this
+%   helper, so the scaling cancels in the probe's extrapolation ratio:
+%   it moves the analytical pre-screen boundaries only. The
+%   absolute-mode orbit cost calibration (ORBIT_IP_FIXED_OVERHEAD
+%   against measured absolute-mode crossovers) predates no such factor
+%   and is left untouched.
 
-    ORBIT_GRID_OP_UNIT_COST = 1.6;
+    ORBIT_GRID_OP_UNIT_COST = 7.5;
 
     if ~isRel
         N_xy = 1; N_xx = 1; N_yy = 1;

@@ -1036,6 +1036,16 @@ def _cos_sim_raw_ma_broadcast(
 # -------------------------------------------------------------------
 
 
+_ORBIT_GRID_SLAB_ELEMS = 1 << 19
+"""Maximum kernel entries per translation-grid slab in the rel-mode
+orbit inner product (~4 MB of doubles). The contraction makes several
+permute and power copies of each slab, so the live working set is a
+small multiple of this; the value keeps it memory-resident on typical
+hardware, where the contraction's per-op cost is flat in K. Slab count
+grows only the loop overhead, which is negligible against the per-slab
+contraction work."""
+
+
 _ORBIT_CANCELLATION_RATIO_MIN = 1e-10
 """Minimum acceptable cancellation ratio in the Möbius method's alternating partition sum.
 
@@ -3123,6 +3133,18 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
 
     ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
     to the global default.
+
+    The translation grid is processed in slabs of at most
+    ``_ORBIT_GRID_SLAB_ELEMS`` kernel entries. The kernel stack for a
+    slab, together with the per-orbit permute and power copies the
+    contraction makes of it, then stays memory-resident, so the
+    per-op cost of the contraction is flat in K rather than degrading
+    once the full (N_u, K_a, K_b) stack outgrows cache; and the peak
+    memory footprint is bounded by the slab size rather than growing
+    as N_u * K_a * K_b. The integral, the global cancellation ratio's
+    numerator and denominator, and (non-periodic) the endpoint
+    correction all accumulate across slabs, so the slabbing changes
+    only summation order.
     """
     from .._mobius import inner_product_orbit_grid
     from .._defaults import get_default
@@ -3135,9 +3157,6 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
         N_u = auto_ntau_default(period, sigma)
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
-        diffs = (p_a[None, :, None] - p_b[None, None, :]
-                 + u_grid[:, None, None])
-        diffs = diffs - period * np.floor(diffs / period + 0.5)
     else:
         u_min = p_b.min() - p_a.max() - 8.0 * sigma
         u_max = p_b.max() - p_a.min() + 8.0 * sigma
@@ -3146,26 +3165,48 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
             int(np.ceil(max(u_max - u_min, 1.0) / sigma * samples_per_sigma)),
         )
         u_grid = np.linspace(u_min, u_max, N_u)
+        du = (u_max - u_min) / (N_u - 1)
+
+    K_a = int(p_a.shape[0])
+    K_b = int(p_b.shape[0])
+    slab_n = max(1, _ORBIT_GRID_SLAB_ELEMS // max(K_a * K_b, 1))
+
+    F_sum = 0.0
+    F_first = 0.0
+    F_last = 0.0
+    term_mass_sum = 0.0
+    for start in range(0, N_u, slab_n):
+        u_s = u_grid[start:start + slab_n]
         diffs = (p_a[None, :, None] - p_b[None, None, :]
-                 + u_grid[:, None, None])
-    K_u = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-    if return_cancellation_ratio:
-        F, _, term_mass = inner_product_orbit_grid(
-            K_u, w_a, w_b, r,
-            return_cancellation_ratio=True, return_term_mass=True,
-        )
-    else:
-        F = inner_product_orbit_grid(K_u, w_a, w_b, r)
+                 + u_s[:, None, None])
+        if is_per:
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K_u = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+        if return_cancellation_ratio:
+            F, _, term_mass = inner_product_orbit_grid(
+                K_u, w_a, w_b, r,
+                return_cancellation_ratio=True, return_term_mass=True,
+            )
+            term_mass_sum += float(term_mass.sum())
+        else:
+            F = inner_product_orbit_grid(K_u, w_a, w_b, r)
+        F_sum += float(F.sum())
+        if start == 0:
+            F_first = float(F[0])
+        if start + slab_n >= N_u:
+            F_last = float(F[-1])
+
     if is_per:
-        integral = float(F.sum() * du)
+        integral = F_sum * du
     else:
-        integral = float(np.trapezoid(F, u_grid))
+        # Trapezoidal rule on the uniform line grid: du * (sum - half
+        # the endpoints), accumulated across slabs.
+        integral = du * (F_sum - 0.5 * (F_first + F_last))
     c = sigma * np.sqrt(2 * np.pi / r)
     value = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
     if return_cancellation_ratio:
-        denom = float(term_mass.sum())
-        if denom > 0:
-            ratio = float(abs(F.sum()) / denom)
+        if term_mass_sum > 0:
+            ratio = float(abs(F_sum) / term_mass_sum)
         else:
             ratio = 1.0
         return value, ratio

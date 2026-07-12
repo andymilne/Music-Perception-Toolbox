@@ -78,28 +78,61 @@ function [val, ratio] = orbitInnerRelSA(p_a, w_a, p_b, w_b, sigma, r, ...
         u_grid = linspace(u_min, u_max, N_u)';
     end
 
-    % Build N_u x n_a x n_b stack of differences and Gaussian kernels.
-    diffs = reshape(u_grid, N_u, 1, 1) ...
-          + reshape(p_a, 1, n_a, 1) ...
-          - reshape(p_b, 1, 1, n_b);
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
+    % The translation grid is processed in slabs of at most
+    % ORBIT_GRID_SLAB_ELEMS kernel entries (~4 MB of doubles). The
+    % kernel stack for a slab, together with the per-orbit permute and
+    % power copies the contraction makes of it, then stays
+    % memory-resident, so the per-op cost of the contraction is flat in
+    % K rather than degrading once the full (N_u, n_a, n_b) stack
+    % outgrows cache; and the peak memory footprint is bounded by the
+    % slab size rather than growing as N_u * n_a * n_b. The integral,
+    % the global cancellation ratio's numerator and denominator, and
+    % (non-periodic) the endpoint correction all accumulate across
+    % slabs, so the slabbing changes only summation order.
+    ORBIT_GRID_SLAB_ELEMS = 2^19;
+    slabN = max(1, floor(ORBIT_GRID_SLAB_ELEMS / max(n_a * n_b, 1)));
+
+    F_sum = 0;
+    F_first = 0;
+    F_last = 0;
+    termMassSum = 0;
+    for slabStart = 1:slabN:N_u
+        slabEnd = min(slabStart + slabN - 1, N_u);
+        u_s = u_grid(slabStart:slabEnd);
+        nS = numel(u_s);
+        diffs = reshape(u_s, nS, 1, 1) ...
+              + reshape(p_a, 1, n_a, 1) ...
+              - reshape(p_b, 1, 1, n_b);
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        K_u = internal.truncKernelExp(diffs.^2, sigma, opts.truncationSigmas);
+
+        [F, ~, termMass] = mobius.innerProductOrbitGrid(K_u, ...
+            w_a(:), w_b(:), r, 'returnCancellationRatio', true);
+
+        F_sum = F_sum + sum(F);
+        termMassSum = termMassSum + sum(termMass);
+        if slabStart == 1
+            F_first = F(1);
+        end
+        if slabEnd == N_u
+            F_last = F(end);
+        end
     end
-    K_u = internal.truncKernelExp(diffs.^2, sigma, opts.truncationSigmas);
-
-    [F, ~, termMass] = mobius.innerProductOrbitGrid(K_u, w_a(:), w_b(:), r, ...
-        'returnCancellationRatio', true);
 
     if isPer
-        integral = sum(F) * du;
+        integral = F_sum * du;
     else
-        integral = trapz(u_grid, F);
+        % Trapezoidal rule on the uniform line grid: du * (sum - half
+        % the endpoints), accumulated across slabs.
+        du = (u_grid(end) - u_grid(1)) / (N_u - 1);
+        integral = du * (F_sum - 0.5 * (F_first + F_last));
     end
     c = sigma * sqrt(2 * pi / r);
     val = (sigma * sqrt(pi))^r * integral / c^2;
-    denom = sum(termMass);
-    if denom > 0
-        ratio = abs(sum(F)) / denom;
+    if termMassSum > 0
+        ratio = abs(F_sum) / termMassSum;
     else
         ratio = 1;
     end

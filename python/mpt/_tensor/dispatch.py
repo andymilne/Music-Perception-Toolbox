@@ -1273,20 +1273,24 @@ def _falling_factorial(n: int, k: int) -> float:
 
 
 
-_ORBIT_GRID_OP_UNIT_COST = 1.6
+_ORBIT_GRID_OP_UNIT_COST = 0.7
 """Per-op cost of a translation-grid orbit kernel op relative to a pairwise
-kernel op, measured on the Python implementation (grid einsum contraction
-~28 ns/op against flat pairwise kernel evaluation ~17 ns/op in its
-cache-resident regime). The pairwise and orbit cost models below count
-kernel ops in a shared unit; without this factor the rel-mode orbit cost
-is under-priced by the same ratio and the modelled equal-cost point sits
-below the measured one. The pairwise reference is its cache-resident
-per-op cost — at large centres working sets the pairwise path degrades
-well beyond this, so pricing against the resident regime biases
-near-crossover routing toward the pairwise path, the cheap-to-mispick
-side. Applied to the relative-mode grid factors only: the absolute-mode
-orbit cost calibration (_ORBIT_IP_FIXED_OVERHEAD against measured
-absolute-mode crossovers) predates no such factor and is left untouched."""
+kernel op, measured on the Python implementation (slabbed grid einsum
+contraction ~9-12 ns/op against pairwise kernel evaluation ~17-21 ns/op
+in its cache-resident regime). The pairwise and orbit cost models below
+count kernel ops in a shared unit; this factor prices the rel-mode
+orbit ops so the modelled equal-cost point matches the measured one.
+The value sits at the small-K end of the measured ratio range (the
+ratio falls slightly with K, and the pairwise reference is its
+cache-resident per-op cost, which large working sets degrade well
+beyond), so near-crossover routing biases toward the pairwise path,
+the cheap-to-mispick side. Applied to the relative-mode grid factors
+only: the absolute-mode orbit cost calibration
+(_ORBIT_IP_FIXED_OVERHEAD against measured absolute-mode crossovers)
+predates no such factor and is left untouched. The constant is
+per-implementation: the MATLAB sibling in cosSimExpTens.m is
+calibrated the same way on the MATLAB paths via
+tests/bench_ip_unit_cost.m."""
 
 
 def _orbit_ip_grid_factors(

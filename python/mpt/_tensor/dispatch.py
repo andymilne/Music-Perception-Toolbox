@@ -1220,6 +1220,18 @@ _PROBE_K_IP_TARGET = 12
 _PROBE_MIN_SAMPLE_SEC = 0.008
 _PROBE_MAX_REPS = 64
 
+
+_PROBE_TIME_CACHE: dict = {}
+"""Per-session cache of probe timings, keyed by the probe's structural
+parameters (path, r, probe sizes, mode flags, sigma, period,
+truncation, precision). Within a batched sweep every pair probes at
+identical structure, so re-measuring per pair adds cost without
+information — and where the probed path is intrinsically slow (an
+uncalibrated order routing via the probe), the repeated measurement
+would dominate the sweep. Pitch values differ across cache hits; probe
+timings depend on them only through kernel sparsity, which is
+immaterial at routing precision."""
+
 _PROBE_IP_MOBIUS_DECISION_MARGIN = 1.4
 """Margin the orbit probe estimate must beat the pairwise probe estimate
 by before the probe routes to the Möbius method. The orbit probe's
@@ -1276,24 +1288,46 @@ def _falling_factorial(n: int, k: int) -> float:
 
 
 
-_ORBIT_GRID_OP_UNIT_COST = 0.7
-"""Per-op cost of a translation-grid orbit kernel op relative to a pairwise
-kernel op, measured on the Python implementation (slabbed grid einsum
-contraction ~9-12 ns/op against pairwise kernel evaluation ~17-21 ns/op
-in its cache-resident regime). The pairwise and orbit cost models below
-count kernel ops in a shared unit; this factor prices the rel-mode
-orbit ops so the modelled equal-cost point matches the measured one.
-The value sits at the small-K end of the measured ratio range (the
-ratio falls slightly with K, and the pairwise reference is its
+_ORBIT_GRID_OP_UNIT_COST = {2: 0.7, 3: 1.7, 4: 1.7, 5: 20.0}
+"""Per-op cost of a translation-grid orbit kernel op relative to a
+pairwise kernel op, per tensor order r, measured on the Python
+implementation (slabbed grid einsum contraction against pairwise
+kernel evaluation; the orbit side is ~9-18 ns/op and flat in both K
+and r, while the pairwise side's per-op cost varies with r — ~17-21
+ns at r = 2, ~8-9 at r = 3, ~4-17 at r = 4, ~1 at r = 5 — which is
+what makes the ratio r-dependent; r = 4 and 5 measured with a K_x = 8
+reference, tests/bench_ip_dispatch.m). The pairwise and orbit cost models
+below count kernel ops in a shared unit; this factor prices the
+rel-mode orbit ops so the modelled equal-cost point matches the
+measured one. The per-orbit contraction work per kernel op varies with
+r beyond what the Bell-number factor captures, so the calibration is
+per-r. Each value sits at the small-K end of its measured ratio range
+(the ratio falls slightly with K, and the pairwise reference is its
 cache-resident per-op cost, which large working sets degrade well
 beyond), so near-crossover routing biases toward the pairwise path,
-the cheap-to-mispick side. Applied to the relative-mode grid factors
-only: the absolute-mode orbit cost calibration
-(_ORBIT_IP_FIXED_OVERHEAD against measured absolute-mode crossovers)
-predates no such factor and is left untouched. The constant is
-per-implementation: the MATLAB sibling in cosSimExpTens.m is
-calibrated the same way on the MATLAB paths via
-tests/bench_ip_unit_cost.m."""
+the cheap-to-mispick side.
+
+Orders without a calibrated entry use a unit factor of 1.0 (the raw
+grid size) and — see :func:`_select_and_estimate_sa_ip` — withhold the
+Möbius-side pre-screen, so routing at those orders defers to the
+timing probe rather than trusting an uncalibrated model to commit to
+the expensive-to-mispick path.
+
+Applied to the relative-mode grid factors only: the absolute-mode
+orbit cost calibration (_ORBIT_IP_FIXED_OVERHEAD against measured
+absolute-mode crossovers) predates no such factor and is left
+untouched. The values are per-implementation: the MATLAB sibling in
+cosSimExpTens.m is calibrated the same way on the MATLAB paths via
+tests/bench_ip_dispatch.m."""
+
+
+def _orbit_grid_unit_cost(r: int) -> tuple[float, bool]:
+    """Unit-cost factor for tensor order ``r`` and whether it is a
+    calibrated value (uncalibrated orders return ``(1.0, False)``)."""
+    cost = _ORBIT_GRID_OP_UNIT_COST.get(int(r))
+    if cost is None:
+        return 1.0, False
+    return float(cost), True
 
 
 def _orbit_ip_grid_factors(
@@ -1303,6 +1337,7 @@ def _orbit_ip_grid_factors(
     is_rel: bool,
     is_per: bool,
     period: float,
+    r: int,
 ) -> tuple[float, float, float]:
     """Cost-model grid weights ``(N_xy, N_xx, N_yy)`` of the three orbit
     inner products (cross term plus both self-norms).
@@ -1319,20 +1354,22 @@ def _orbit_ip_grid_factors(
     absolute-mode orbit inner product is grid-free, so all three
     factors are 1.
 
-    In relative mode each grid size is scaled by
-    ``_ORBIT_GRID_OP_UNIT_COST`` so that the orbit and pairwise cost
-    models price their kernel ops in a shared unit. Both the full-size
-    and probe-size cost expressions call this helper, so the scaling
-    cancels in the probe's extrapolation ratio: it moves the analytical
-    pre-screen boundaries only.
+    In relative mode each grid size is scaled by the per-r
+    ``_ORBIT_GRID_OP_UNIT_COST`` entry so that the orbit and pairwise
+    cost models price their kernel ops in a shared unit (unit factor
+    1.0 for uncalibrated orders). Both the full-size and probe-size
+    cost expressions call this helper, so the scaling cancels in the
+    probe's extrapolation ratio: it moves the analytical pre-screen
+    boundaries only.
     """
     if not is_rel:
         return 1.0, 1.0, 1.0
+    unit_cost, _ = _orbit_grid_unit_cost(r)
     if is_per:
         # Lazy import to keep dispatch free of a hard dependency on
         # the nested-contraction module at import time.
         from ._nested_contraction import auto_ntau_default
-        n = float(auto_ntau_default(period, sigma)) * _ORBIT_GRID_OP_UNIT_COST
+        n = float(auto_ntau_default(period, sigma)) * unit_cost
         return n, n, n
     samples_per_sigma = 10.0
 
@@ -1343,7 +1380,7 @@ def _orbit_ip_grid_factors(
         return float(max(
             64,
             int(np.ceil(max(span, 1.0) / sigma * samples_per_sigma)),
-        )) * _ORBIT_GRID_OP_UNIT_COST
+        )) * unit_cost
 
     return _n_u(p_x, p_y), _n_u(p_x, p_x), _n_u(p_y, p_y)
 
@@ -1396,6 +1433,16 @@ def _probe_ip_path(
 
     import time as _time
 
+    cache_key = (
+        path, int(dens_x.r), int(K_probe_x), int(K_probe_y),
+        bool(dens_x.is_rel), bool(dens_x.is_per),
+        round(float(dens_x.sigma), 9), round(float(dens_x.period), 9),
+        truncation_sigmas, kernel_precision,
+    )
+    cached = _PROBE_TIME_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     sub_x = build_exp_tens(
         dens_x.p[:K_probe_x], dens_x.w[:K_probe_x],
         dens_x.sigma, int(dens_x.r),
@@ -1430,7 +1477,9 @@ def _probe_ip_path(
         reps += 1
         elapsed = _time.perf_counter() - t0
         if elapsed >= _PROBE_MIN_SAMPLE_SEC or reps >= _PROBE_MAX_REPS:
-            return elapsed / reps
+            t = elapsed / reps
+            _PROBE_TIME_CACHE[cache_key] = t
+            return t
 
 
 
@@ -1557,7 +1606,7 @@ def _select_and_estimate_sa_ip(
     # omits; without it the pre-screen routes to Möbius well before the
     # measured Bulger/Möbius crossover.
     N_xy, N_xx, N_yy = _orbit_ip_grid_factors(
-        dens_x.p, dens_y.p, sigma, is_rel, is_per, period,
+        dens_x.p, dens_y.p, sigma, is_rel, is_per, period, r,
     )
     orbit_var = (N_xy * float(K_x) * float(K_y)
                  + N_xx * float(K_x) * float(K_x)
@@ -1572,7 +1621,17 @@ def _select_and_estimate_sa_ip(
     # route one K-step early. Requiring a larger margin keeps near-crossover
     # cases in the probe's hands (the probe times both paths and is portable
     # across machines), while still short-circuiting the clear-win region.
-    if orbit_full * _PRESCREEN_IP_MOBIUS_DOMINANCE < pairwise_full:
+    # The Möbius-side pre-screen commits to the expensive-to-mispick
+    # path without probing, so in relative mode it requires a
+    # calibrated per-r unit cost: at uncalibrated orders the orbit
+    # cost model is unit-priced and cannot be trusted to fire
+    # 'mobius' analytically — those workloads fall through to the
+    # probe, which measures the actual paths. The Bulger-side
+    # pre-screen needs no such gate: with an unscaled (under-priced)
+    # orbit cost it fires strictly less often, never more.
+    _, unit_calibrated = _orbit_grid_unit_cost(r)
+    if ((unit_calibrated or not is_rel)
+            and orbit_full * _PRESCREEN_IP_MOBIUS_DOMINANCE < pairwise_full):
         return "mobius", False, 0.0, "cost pre-screen"
     if pairwise_full * _PRESCREEN_IP_DOMINANCE < orbit_full:
         return "bulger", False, 0.0, "cost pre-screen"
@@ -1654,7 +1713,7 @@ def _select_and_estimate_sa_ip(
 
     Np_xy, Np_xx, Np_yy = _orbit_ip_grid_factors(
         dens_x.p[:K_probe_x], dens_y.p[:K_probe_y],
-        sigma, is_rel, is_per, period,
+        sigma, is_rel, is_per, period, r,
     )
     orbit_probe = (Np_xy * float(K_probe_x) * float(K_probe_y)
                    + Np_xx * float(K_probe_x) * float(K_probe_x)

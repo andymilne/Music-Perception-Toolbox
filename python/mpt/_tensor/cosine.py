@@ -1288,6 +1288,30 @@ def _cos_sim_exp_tens_ma(
         [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
     ) if A > 0 else np.zeros(0, dtype=np.intp)
 
+    # Per-attribute vectors for the Möbius-side cost model: which
+    # attributes are relative, and each one's translation-grid node
+    # estimate (matching the grid rules of the batched rel helper; 1
+    # for absolute attributes, where no grid exists).
+    from ._nested_contraction import auto_ntau_default
+    rel_vec = np.array([bool(is_rel[a]) for a in range(A)], dtype=bool)
+    nu_vec = np.ones(max(A, 1))[:A]
+    for a in range(A):
+        if not rel_vec[a] or int(r_vec[a]) < 2:
+            continue
+        if bool(is_per[a]):
+            nu_vec[a] = auto_ntau_default(
+                float(period[a]), float(sigma[a]))
+        else:
+            Pxa = dens_x.p_attr[a]
+            Pya = dens_y.p_attr[a]
+            span = (float(np.nanmax(Pxa) - np.nanmin(Pxa))
+                    + float(np.nanmax(Pya) - np.nanmin(Pya))
+                    + 16.0 * float(sigma[a]))
+            nu_vec[a] = max(
+                64,
+                int(np.ceil(max(span, 1.0) / float(sigma[a]) * 10.0)),
+            )
+
     chosen = _select_ma_inner_product_method(
         r_vec=r_vec, k_vec=k_vec, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
@@ -1296,6 +1320,7 @@ def _cos_sim_exp_tens_ma(
         any_rel_per=any_rel_per,
         sigma_over_P_max=sop_max,
         user_method=method,
+        rel_vec=rel_vec, nu_vec=nu_vec,
     )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
@@ -1648,7 +1673,7 @@ def _ma_per_attr_inner_matrix(
     ``truncation_sigmas`` is honoured in every kernel-evaluation
     branch (r=1 abs, r>=2 abs safe, r>=2 abs unsafe via
     :func:`_batched_direct_enum_abs_sa`, and rel-per via
-    :func:`_ma_per_attr_inner_matrix_rel_per`): kernel entries whose
+    :func:`_ma_per_attr_inner_matrix_rel`): kernel entries whose
     underlying squared distance exceeds the truncation cutoff are
     zeroed without evaluating ``np.exp``. ``None`` resolves to the
     global default ``mpt.get_default('truncation_sigmas')``.
@@ -1756,36 +1781,14 @@ def _ma_per_attr_inner_matrix(
             return result, 1.0
         return result
 
-    # --- r >= 2 rel: per-pair loop, zero-pad (rare regime) ---
+    # --- r >= 2 rel: batched translation-grid integration, zero-pad ---
     if is_rel:
         Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
-        if is_per:
-            return _ma_per_attr_inner_matrix_rel_per(
-                Px_, Wx_, Py_, Wy_, sigma, r, period,
-                return_cancellation_ratio=return_cancellation_ratio,
-                truncation_sigmas=truncation_sigmas,
-            )
-        out = np.empty((N_x, N_y), dtype=np.float64)
-        worst_ratio = 1.0
-        for n_X in range(N_x):
-            for n_Y in range(N_y):
-                if return_cancellation_ratio:
-                    v, ratio = _orbit_inner_rel(
-                        Px_[:, n_X], Wx_[:, n_X], Py_[:, n_Y], Wy_[:, n_Y],
-                        sigma, r, False, period,
-                        return_cancellation_ratio=True,
-                    )
-                    out[n_X, n_Y] = v
-                    if ratio < worst_ratio:
-                        worst_ratio = ratio
-                else:
-                    out[n_X, n_Y] = _orbit_inner_rel(
-                        Px_[:, n_X], Wx_[:, n_X], Py_[:, n_Y], Wy_[:, n_Y],
-                        sigma, r, False, period,
-                    )
-        if return_cancellation_ratio:
-            return out, worst_ratio
-        return out
+        return _ma_per_attr_inner_matrix_rel(
+            Px_, Wx_, Py_, Wy_, sigma, r, is_per, period,
+            return_cancellation_ratio=return_cancellation_ratio,
+            truncation_sigmas=truncation_sigmas,
+        )
 
     # --- r >= 2 abs: hybrid safe/unsafe partition ---
 
@@ -2122,35 +2125,56 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 
 
 
-def _ma_per_attr_inner_matrix_rel_per(
-    Px, Wx, Py, Wy, sigma, r, period,
+def _ma_per_attr_inner_matrix_rel(
+    Px, Wx, Py, Wy, sigma, r, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
 ):
-    """Vectorised relative-periodic case of ``_ma_per_attr_inner_matrix``.
+    """Batched relative-mode case of ``_ma_per_attr_inner_matrix``
+    (periodic and non-periodic), all (event_X, event_Y) pairs at once.
 
-    Builds an (N_pairs · N_u, K, K) kernel tensor and runs a single
-    batched Möbius-method call across both axes; the trapezoidal weights are
-    applied after reshaping back to (N_pairs, N_u). Memory peak is
-    ``N_pairs · N_u · K^2 · 8`` bytes plus a similar-sized intermediate
-    diffs tensor; chunked along u to stay under a 1 GB ceiling.
+    Every pair's inner product marginalises a translation u over a
+    grid. In periodic mode the grid is the shared uniform grid over
+    ``[0, P)`` with ``auto_ntau_default(period, sigma)`` nodes — the
+    single node-count source shared with the flat single-attribute and
+    nested relative-periodic paths, so the same level returns the same
+    value whether reached flat or nested. In non-periodic mode each
+    pair uses a grid of the same shape *centred on its own mean
+    offset*: by translation invariance the integrand for pair
+    (n_X, n_Y) depends on u only through u + (mean_Y - mean_X), so
+    shifting each pair's window by that offset lets all pairs share
+    one grid whose extent is the maximum within-pair spread plus a
+    margin, rather than the global span of the data. The margin is
+    ``max(8, truncation_sigmas + 2)`` sigmas per side, so the
+    integrand is truncated-kernel zero at the window edges and the
+    plain Riemann sum equals the trapezoidal rule to machine
+    precision.
 
-    The transposition average over ``[0, P)`` is a uniform periodic Riemann
-    sum; the node count comes from :func:`auto_ntau_default`, the single shared
-    source used by the flat single-attribute, flat multi-attribute, and nested
-    relative-periodic paths, so the same level returns the same value whether
-    reached flat or nested. The integrand is smooth at the σ scale, so the
-    trapezoidal rule converges geometrically and the cosine agrees well below
-    1e-9 relative on representative MAET parameter ranges.
+    The pair-and-grid batch is processed in slabs of at most
+    ``_ORBIT_GRID_SLAB_ELEMS`` kernel entries, built directly in the
+    contraction's (batch, K, K) layout — no transposition copies — so
+    the working set stays memory-resident and the per-op cost of the
+    batched Möbius contraction is flat in N and K (mirroring the
+    single-attribute slabbing in ``_orbit_inner_rel``).
+
+    Ragged (NaN-padded) events arrive zero-padded: a zero-weight slot
+    contributes a zero factor to every Möbius term in which its axis
+    value appears, so the result is exact for the K_eff events.
+    Events with K_eff - r below the precision margin in this regime
+    may lose precision in the alternating sum; ``method='auto'``
+    routing accounts for this via the dispatcher's precision guard.
 
     With ``return_cancellation_ratio=True``, additionally returns the
-    worst-case ratio across the (N_pairs · N_u) batched Möbius-method cells.
+    worst-case ratio across all batched Möbius cells (compatibility
+    with the flat-path API; the MA orchestrator relies on the
+    dispatcher-level post-hoc corruption check instead).
 
-    ``truncation_sigmas`` is honoured on the per-u kernel tensor:
-    entries whose squared (period-wrapped) distance exceeds the
-    cutoff are zeroed without evaluating ``np.exp``. ``None``
-    resolves to the global default ``mpt.get_default('truncation_sigmas')``.
+    ``truncation_sigmas`` is honoured on the per-u kernel tensor;
+    ``None`` resolves to ``mpt.get_default('truncation_sigmas')``.
     """
-    from .._mobius import inner_product_orbit_pw_batched
+    from .._mobius import (
+        inner_product_orbit_grid,
+        inner_product_orbit_pw_batched,
+    )
     from .._defaults import get_default
     from ._nested_contraction import auto_ntau_default
 
@@ -2160,90 +2184,127 @@ def _ma_per_attr_inner_matrix_rel_per(
     K, N_x = Px.shape
     _, N_y = Py.shape
 
-    N_u = auto_ntau_default(period, sigma)
-    u_grid = np.linspace(0.0, period, N_u, endpoint=False)
-    du = period / N_u
+    # Shared-weights fast path: when every event carries the same
+    # weight vector on this attribute (the common case — uniform
+    # weights, no ragged padding), all batch cells share w_A and w_B,
+    # so the cheaper shared-weights grid contraction applies (the
+    # per-batch-weights variant prepends the batch index to every
+    # weight operand of the einsum, which costs ~2-3x per kernel op).
+    shared_w = (np.all(Wx == Wx[:, :1]) and np.all(Wy == Wy[:, :1]))
 
-    # Memory: pair tensor diffs_pair has shape (K, N_x, K, N_y); inner
-    # u-loop's kernel tensor has shape (n_uc, K, N_x_chunk, K, N_y).
-    # Chunk along N_x to keep diffs_pair under budget; the existing
-    # u-chunking nests inside, sized for the per-chunk N_pairs.
-    bytes_per_row = K * K * N_y * 8
-    mem_limit = kernel_chunk_bytes_resolved()
-    # Reserve half the budget for the pair tensor; the u-chunk loop
-    # uses the rest for the kernel tensor.
-    chunk_N_x = max(1, min(N_x, mem_limit // max(2 * bytes_per_row, 1)))
+    if is_per:
+        N_u = auto_ntau_default(period, sigma)
+        u_grid = np.linspace(0.0, period, N_u, endpoint=False)
+        du = period / N_u
+        centres = np.zeros((N_x, N_y), dtype=np.float64)
+    else:
+        # Per-pair centred common grid. Weighted-slot means keep the
+        # centre finite for zero-padded events (all-zero-weight events
+        # contribute nothing regardless of centre).
+        def _col_means(P, W):
+            wsum = W.sum(axis=0)
+            safe = np.where(wsum > 0, wsum, 1.0)
+            return (P * W).sum(axis=0) / safe
 
-    F = np.zeros((N_x * N_y, N_u), dtype=np.float64)
+        mx = _col_means(Px, Wx)
+        my = _col_means(Py, Wy)
+        centres = my[None, :] - mx[:, None]          # (N_x, N_y)
+
+        def _spread(P, W):
+            masked = np.where(W > 0, P, np.nan)
+            lo = np.nanmin(masked, axis=0)
+            hi = np.nanmax(masked, axis=0)
+            s = hi - lo
+            return np.where(np.isfinite(s), s, 0.0)
+
+        margin = max(8.0, float(truncation_sigmas) + 2.0)
+        span = (float(np.max(_spread(Px, Wx)) + np.max(_spread(Py, Wy)))
+                + 2.0 * margin * sigma)
+        N_u = max(
+            64, int(np.ceil(max(span, 1.0) / sigma * 10.0)),
+        )
+        u_grid = np.linspace(-0.5 * span, 0.5 * span, N_u)
+        du = span / (N_u - 1)
+
+    PxT = np.ascontiguousarray(Px.T)                 # (N_x, K)
+    PyT = np.ascontiguousarray(Py.T)                 # (N_y, K)
+    WxT = np.ascontiguousarray(Wx.T)
+    WyT = np.ascontiguousarray(Wy.T)
+
+    integral = np.zeros((N_x, N_y), dtype=np.float64)
     worst_ratio = 1.0
 
-    for n_start in range(0, N_x, chunk_N_x):
-        n_end = min(n_start + chunk_N_x, N_x)
-        nc_x = n_end - n_start
-        Px_chunk = Px[:, n_start:n_end]
-        Wx_chunk = Wx[:, n_start:n_end]
-        N_pairs_chunk = nc_x * N_y
+    # Slab sizing: one u-node across a row-chunk of pairs, widened in u
+    # while the kernel slab stays under the element budget.
+    per_pair = K * K
+    nc_x = max(1, min(N_x, _ORBIT_GRID_SLAB_ELEMS // max(N_y * per_pair, 1)))
+    for n_start in range(0, N_x, nc_x):
+        n_end = min(n_start + nc_x, N_x)
+        nc = n_end - n_start
+        n_pairs = nc * N_y
+        n_uc = max(1, _ORBIT_GRID_SLAB_ELEMS // max(n_pairs * per_pair, 1))
 
-        # Per-pair weights for this chunk (independent of u).
-        w_A_pairs = np.broadcast_to(
-            Wx_chunk.T[:, None, :], (nc_x, N_y, K),
-        ).reshape(N_pairs_chunk, K)
-        w_B_pairs = np.broadcast_to(
-            Wy.T[None, :, :], (nc_x, N_y, K),
-        ).reshape(N_pairs_chunk, K)
+        # Base differences and per-pair centres for this row chunk,
+        # already in (pair-rows, pair-cols, K, K) layout.
+        base = (PxT[n_start:n_end, None, :, None]
+                - PyT[None, :, None, :]
+                + centres[n_start:n_end, :, None, None])
+        if not shared_w:
+            w_A = np.broadcast_to(
+                WxT[n_start:n_end, None, :], (nc, N_y, K),
+            ).reshape(n_pairs, K)
+            w_B = np.broadcast_to(
+                WyT[None, :, :], (nc, N_y, K),
+            ).reshape(n_pairs, K)
 
-        # Pair-wise raw differences for this chunk: (K, nc_x, K, N_y).
-        diffs_pair = Px_chunk[:, :, None, None] - Py[None, None, :, :]
-
-        # Inner: chunk along u.
-        bytes_per_u = N_pairs_chunk * K * K * 8 * 2  # kernel + diffs
-        chunk_u = max(1, min(N_u, mem_limit // max(bytes_per_u, 1)))
-
-        F_chunk = np.zeros((N_pairs_chunk, N_u), dtype=np.float64)
-        for u_start in range(0, N_u, chunk_u):
-            u_end_u = min(u_start + chunk_u, N_u)
-            n_uc = u_end_u - u_start
-            u_slice = u_grid[u_start:u_end_u]
-            # diffs[u, K_i, nc_x, K_j, N_y] = diffs_pair + u
-            diffs = diffs_pair[None, :, :, :, :] + u_slice[:, None, None, None, None]
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        F_sum = np.zeros(n_pairs, dtype=np.float64)
+        for u_start in range(0, N_u, n_uc):
+            u_end = min(u_start + n_uc, N_u)
+            u_s = u_grid[u_start:u_end]
+            nu = u_end - u_start
+            diffs = base[None, :, :, :, :] + u_s[:, None, None, None, None]
+            if is_per:
+                diffs = diffs - period * np.floor(diffs / period + 0.5)
             K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-            # Reorder to (n_uc, nc_x, N_y, K, K) and flatten leading axes.
-            K_uc = np.transpose(K_uc, (0, 2, 4, 1, 3)).reshape(
-                n_uc * N_pairs_chunk, K, K,
-            )
-            # Replicate weights across u-axis for each pair.
-            w_A_uc = np.broadcast_to(
-                w_A_pairs[None, :, :], (n_uc, N_pairs_chunk, K),
-            ).reshape(n_uc * N_pairs_chunk, K)
-            w_B_uc = np.broadcast_to(
-                w_B_pairs[None, :, :], (n_uc, N_pairs_chunk, K),
-            ).reshape(n_uc * N_pairs_chunk, K)
-            if return_cancellation_ratio:
-                flat, ratios = inner_product_orbit_pw_batched(
-                    K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
-                    return_cancellation_ratio=True,
-                )
-                chunk_min = float(np.min(ratios))
-                if chunk_min < worst_ratio:
-                    worst_ratio = chunk_min
+            K_uc = K_uc.reshape(nu * n_pairs, K, K)
+            if shared_w:
+                if return_cancellation_ratio:
+                    flat, ratios = inner_product_orbit_grid(
+                        K_uc, Wx[:, 0], Wy[:, 0], r,
+                        return_cancellation_ratio=True,
+                    )
+                else:
+                    flat = inner_product_orbit_grid(K_uc, Wx[:, 0], Wy[:, 0], r)
+                    ratios = None
             else:
-                flat = inner_product_orbit_pw_batched(
-                    K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
-                )
-            F_chunk[:, u_start:u_end_u] = flat.reshape(n_uc, N_pairs_chunk).T
+                w_A_uc = np.broadcast_to(
+                    w_A[None, :, :], (nu, n_pairs, K),
+                ).reshape(nu * n_pairs, K)
+                w_B_uc = np.broadcast_to(
+                    w_B[None, :, :], (nu, n_pairs, K),
+                ).reshape(nu * n_pairs, K)
+                if return_cancellation_ratio:
+                    flat, ratios = inner_product_orbit_pw_batched(
+                        K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+                        return_cancellation_ratio=True,
+                    )
+                else:
+                    flat = inner_product_orbit_pw_batched(
+                        K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
+                    )
+            if return_cancellation_ratio and ratios is not None:
+                cmin = float(np.min(ratios)) if ratios.size else 1.0
+                if cmin < worst_ratio:
+                    worst_ratio = cmin
+            F_sum += flat.reshape(nu, n_pairs).sum(axis=0)
 
-        # Insert into global F: pair indices for rows [n_start, n_end)
-        # are the contiguous block [n_start * N_y : n_end * N_y).
-        F[n_start * N_y : n_end * N_y, :] = F_chunk
+        integral[n_start:n_end, :] = F_sum.reshape(nc, N_y) * du
 
-    integral = F.sum(axis=1) * du  # periodic Riemann sum
     c = sigma * np.sqrt(2 * np.pi / r)
     out = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
     if return_cancellation_ratio:
-        return out.reshape(N_x, N_y), worst_ratio
-    return out.reshape(N_x, N_y)
-
+        return out, worst_ratio
+    return out
 
 
 def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
@@ -2282,20 +2343,79 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
         Px, Py = dens_x.p_attr[a], dens_y.p_attr[a]
         Wx, Wy = dens_x.w[a], dens_y.w[a]
 
-        I_xy = _ma_per_attr_inner_matrix(
-            Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
-        )
-        I_xx = _ma_per_attr_inner_matrix(
-            Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
-        )
-        I_yy = _ma_per_attr_inner_matrix(
-            Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
-        )
+        if _ma_rel_attr_prefers_centres(
+            Px, Py, sigma, r_a, is_rel, is_per, period,
+        ):
+            # Relative attribute at small K: the pairwise closed form
+            # over materialised tuple-centres ((r!·C(K, r))² kernel ops
+            # per event pair) undercuts the translation-grid
+            # contraction (N_u·K² ops per pair) by orders of
+            # magnitude, and below the σ/P measure threshold the
+            # minimum-image and all-image readings coincide. The
+            # per-attribute constant prefactor dropped by the closed
+            # form multiplies all three matrices of this attribute
+            # identically, so it cancels in every supported
+            # normalisation. Centres bundles are built once per
+            # density and shared by the cross and self matrices.
+            cx = _closed_form_attr_centres(dens_x, a)
+            cy = _closed_form_attr_centres(dens_y, a)
+            I_xy = _closed_form_attr_matrix_from(cx, cy)
+            I_xx = _closed_form_attr_matrix_from(cx, cx)
+            I_yy = _closed_form_attr_matrix_from(cy, cy)
+        else:
+            I_xy = _ma_per_attr_inner_matrix(
+                Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
+            )
+            I_xx = _ma_per_attr_inner_matrix(
+                Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
+            )
+            I_yy = _ma_per_attr_inner_matrix(
+                Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
+            )
         P_xy *= I_xy
         P_xx *= I_xx
         P_yy *= I_yy
 
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
+
+
+def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
+    """True when a relative attribute's inner matrices should use the
+    pairwise closed form over tuple-centres rather than the
+    translation-grid contraction.
+
+    The centres route costs (r_a!·C(K, r_a))² kernel ops per event
+    pair; the grid route costs N_u·K² (N_u from the shared node-count
+    source in periodic mode, or the centred-window rule in
+    non-periodic mode). The centres route is chosen when it is
+    cheaper AND measure-safe: it computes the minimum-image
+    relative-periodic reading (the toolbox's defined measure), which
+    coincides with the grid route's all-image reading only below the
+    σ/P threshold — above it the grid route is kept so an explicit
+    ``method='mobius'`` opt-in preserves the all-image measure. The
+    non-periodic closed form is exact, so it is always measure-safe.
+    """
+    import math
+    from .dispatch import _ORBIT_SIGMA_OVER_P_THRESHOLD
+    from ._nested_contraction import auto_ntau_default
+
+    if not is_rel or r_a < 2:
+        return False
+    if is_per and (sigma / period) > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        return False
+    K = int(Px.shape[0])
+    if K < r_a:
+        return False
+    centres_pair_ops = (math.factorial(r_a) * math.comb(K, r_a)) ** 2
+    if is_per:
+        n_u = auto_ntau_default(period, sigma)
+    else:
+        span = (float(np.nanmax(Px) - np.nanmin(Px))
+                + float(np.nanmax(Py) - np.nanmin(Py))
+                + 16.0 * sigma)
+        n_u = max(64, int(np.ceil(max(span, 1.0) / sigma * 10.0)))
+    grid_pair_ops = n_u * K * K
+    return centres_pair_ops < grid_pair_ops
 
 
 

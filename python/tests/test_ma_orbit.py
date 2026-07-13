@@ -101,11 +101,15 @@ def test_ma_dispatcher_routes_pairwise_when_r_too_large():
 
 
 def test_ma_dispatcher_routes_pairwise_for_rel_nonper_at_A1():
-    """rel + nonper at A=1: orbit's per-pair loop is much slower than
-    pairwise across the entire feasible (N, K, r) range we benchmarked
-    (50–1000× slowdown). The cost model routes to pairwise."""
-    # A=1 r=2 K=12 N=12 rel_nonper: orbit_pred ≈ 1·(5+144·144·0.25) =
-    # 5189 ms; pw_pred ≈ N²·factorial(2)·C(12,2)²·1e-4 ≈ 1.2 ms.
+    """rel + nonper at A=1: with a single attribute the Möbius
+    per-attribute factorisation buys nothing (there is nothing to
+    factor across), so the choice is pairwise's one joint kernel
+    against three per-attribute matrices on the Möbius side — measured
+    at roughly a 2× advantage to pairwise at this point (r=3, K=12,
+    N=12: ~6 s vs ~12 s). The cost model routes to pairwise."""
+    # pw_pred = N²·r!·C(12,3)²·1.4e-4 ≈ 5.9e3 ms; orbit_pred =
+    # 5 + 3·N²·min(centres, grid)·per-op ≈ 6.2e3 ms (legacy-default
+    # grid nodes) — an honest near-tie resolved to the pairwise side.
     assert _select_ma_inner_product_method(
         **_disp_kwargs(K=12, N_x=12, N_y=12, A=1, any_rel_nonper=True),
     ) == 'bulger'

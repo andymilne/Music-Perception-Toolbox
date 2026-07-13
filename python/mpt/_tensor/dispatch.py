@@ -177,15 +177,27 @@ _K_THRESHOLD_REL_PER = {2: float("inf"), 3: 10, 4: 8, 5: 7, 6: 6}
 # periodic branches build a wrapped-difference tensor, which empirically
 # costs ~2.0–2.3 × the non-periodic branch (modular arithmetic plus
 # index-array growth). Verified across both abs and rel modes.
-_PW_PER_ENTRY_MS_NONPER = 1.0e-4
+# Bulger's method: per-entry cost of the joint tuple-pair kernel in
+# the cost model's n_J·n_K units (perm side × comb side; the r!
+# asymmetry between the two sides is absorbed into the constant, so
+# it rises mildly with r). Measured on the Python implementation at
+# representative scale (K = 12, n_J·n_K = 1.4e7-4.2e7): r = 2
+# ~110 ns, r = 3 ~145 ns non-periodic; the periodic wrap adds
+# ~10-20 % (not the multiples an earlier small-workload calibration
+# suggested). Values sit at the lower end of the measured band so
+# near-crossover routing under-prices Bulger's method — the
+# cheap-to-mispick side. Orders above 3 reuse the r = 3 value.
+_PW_PER_ENTRY_MS_NONPER = {2: 1.0e-4, 3: 1.4e-4}
 
-_PW_PER_ENTRY_MS_PER = 7.0e-4   # p75 of measured per-entry cost (per bucket)
+_PW_PER_ENTRY_MS_PER = {2: 1.1e-4, 3: 1.6e-4}
 
 
 
-def _pw_per_entry_ms(any_per):
-    """Pick the per-entry cost for Bulger's method based on whether any group wraps."""
-    return _PW_PER_ENTRY_MS_PER if any_per else _PW_PER_ENTRY_MS_NONPER
+def _pw_per_entry_ms(any_per, r_max=3):
+    """Per-entry cost for Bulger's method: wrap mode and tensor order."""
+    table = _PW_PER_ENTRY_MS_PER if any_per else _PW_PER_ENTRY_MS_NONPER
+    r_key = min(max(int(r_max), 2), max(table))
+    return table[r_key]
 
 
 
@@ -207,25 +219,37 @@ _ORBIT_ABS_PER_ATTR_MS = {
 # A · N_x · N_y · K_max² · |Ω_r|.
 _ORBIT_RELPER_BASE_MS = 5.0
 
-_ORBIT_RELPER_PER_PAIR_K2_MS = {
-    2: 0.06, 3: 0.40, 4: 1.0, 5: 5.0, 6: 20.0,
-    7: 60.0, 8: 200.0,
-}
+# Möbius method (relative modes): each relative attribute's
+# (event_X, event_Y) inner matrices are computed by whichever of two
+# routes is cheaper per event pair (see
+# cosine._ma_rel_attr_prefers_centres): the pairwise closed form over
+# materialised tuple-centres at (r_a!·C(K_a, r_a))² kernel ops per
+# pair, or the slab-batched translation-grid contraction at
+# N_u·K_a² ops per pair. The cost model prices both with measured
+# per-op constants and takes the same minimum the orchestrator takes;
+# three matrices (cross plus both self-norms) per attribute. Constants
+# measured on the Python implementation (rel-per, K = 4-5, r = 2-3,
+# N = 20-120): centres ~87 ns per centre-pair op; grid contraction
+# ~27 ns per kernel op (slab-resident).
+_ORBIT_REL_BASE_MS = 5.0
+_ORBIT_REL_CENTRES_OP_MS = {2: 4.0e-5, 3: 9.0e-5}
+_ORBIT_REL_GRID_OP_MS = {2: 3.0e-5, 3: 5.0e-5}
 
 
-# Möbius method (relative-aperiodic): the implementation here is a
-# per-(n_X, n_Y) Python loop (not batched across event pairs), so the
-# per-pair-K² constant is roughly 4 × the rel-periodic constant. At
-# A = 1 this Möbius branch is almost always slower than Bulger's method;
-# at A ≥ 2 it wins comfortably once K is moderate, because Bulger's
-# method grows as ∏_a C(K_a, r_a)² which compounds across attributes
-# whereas the Möbius method adds linearly.
-_ORBIT_RELNONPER_BASE_MS = 5.0
+def _orbit_rel_op_ms(table, r_a):
+    """Per-op cost for a relative-attribute Möbius route at order r_a.
 
-_ORBIT_RELNONPER_PER_PAIR_K2_MS = {
-    2: 0.25, 3: 1.05, 4: 3.30, 5: 12.0, 6: 50.0,
-    7: 150.0, 8: 500.0,
-}
+    Measured entries cover r = 2, 3 (centres ~35 and ~87 ns; grid ~27
+    and ~48 ns, each set at the upper end of its measured band so the
+    Möbius side is over-priced near crossovers — routing bias toward
+    Bulger's method, the cheap-to-mispick side). Orders above the
+    table extrapolate by doubling per order, conservative in the same
+    direction."""
+    r_key = min(max(int(r_a), 2), max(table))
+    val = table[r_key]
+    if r_a > max(table):
+        val *= 2.0 ** (int(r_a) - max(table))
+    return val
 
 
 
@@ -278,29 +302,47 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y):
 
 
 def _predict_orbit_cost_ms(
-    r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
+    r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec, centres_ok=True,
 ):
     """Predicted Möbius-method MA wall time in milliseconds.
 
-    Routes to the appropriate per-r constant based on the group mode:
-    rel-aperiodic uses the per-pair Python-loop constants (largest);
-    rel-periodic uses the u-grid-integration constants; absolute uses
-    the vectorised batch constants. A scaling is linear (verified at
-    r = 2, 3 to within ~5 %; slightly sub-linear at r = 4 but linear-A
-    over-predicts conservatively, biasing the dispatcher toward
-    Bulger's method in close calls at r = 4 — and at r = 4 Bulger's
-    side explodes so quickly that this never matters in the OOM zone).
+    Per-attribute sum. Absolute attributes with r_a >= 2 cost the
+    vectorised-batch constant for their order (r_a = 1 attributes are
+    a single direct kernel sum, absorbed into the base). Relative
+    attributes cost three (N_x, N_y)-shaped matrices at the cheaper of
+    the two per-pair routes the orchestrator itself chooses between:
+    the tuple-centres closed form ((r_a!·C(K_a, r_a))² ops per pair)
+    or the slab-batched translation-grid contraction (nu_a·K_a² ops
+    per pair, with nu_a the caller's per-attribute grid node
+    estimate). A-linearity of the absolute constants is verified at
+    r = 2, 3 to within ~5 % and slightly sub-linear at r = 4, where
+    linear-A over-predicts conservatively, biasing the dispatcher
+    toward Bulger's method in close calls.
     """
-    K_max = int(np.max(k_vec)) if A > 0 else 1
-    if any_rel_nonper:
-        c = _ORBIT_RELNONPER_PER_PAIR_K2_MS[r_max]
-        return float(A * (_ORBIT_RELNONPER_BASE_MS
-                          + N_x * N_y * K_max * K_max * c))
-    if any_rel_per:
-        c = _ORBIT_RELPER_PER_PAIR_K2_MS[r_max]
-        return float(A * (_ORBIT_RELPER_BASE_MS
-                          + N_x * N_y * K_max * K_max * c))
-    return float(A * _ORBIT_ABS_PER_ATTR_MS[r_max])
+    total = _ORBIT_REL_BASE_MS if np.any(rel_vec) else 0.0
+    pairs = float(N_x) * float(N_y)
+    for a in range(A):
+        r_a = int(r_vec[a])
+        K_a = int(k_vec[a])
+        if bool(rel_vec[a]) and r_a >= 2:
+            # The centres route is measure-blocked above the sigma/P
+            # threshold (the orchestrator keeps the all-image grid
+            # there), so above it the grid route is priced alone.
+            grid_ops = float(nu_vec[a]) * K_a * K_a
+            per_pair = grid_ops * _orbit_rel_op_ms(
+                _ORBIT_REL_GRID_OP_MS, r_a)
+            if centres_ok:
+                centres_ops = float(
+                    factorial(r_a) * _math_comb(K_a, r_a)) ** 2
+                per_pair = min(
+                    per_pair,
+                    centres_ops * _orbit_rel_op_ms(
+                        _ORBIT_REL_CENTRES_OP_MS, r_a),
+                )
+            total += 3.0 * pairs * per_pair
+        elif r_a >= 2:
+            total += float(_ORBIT_ABS_PER_ATTR_MS[r_a])
+    return float(total)
 
 
 
@@ -310,6 +352,7 @@ def _select_ma_inner_product_method(
     N_x, N_y,
     any_per, any_rel_nonper, any_rel_per,
     sigma_over_P_max, user_method,
+    rel_vec=None, nu_vec=None,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
@@ -341,15 +384,15 @@ def _select_ma_inner_product_method(
     - abs + per: cost model with `_PW_PER_ENTRY_MS_PER` (wrap on δ
       tensor adds ~2 × Bulger overhead) and same Möbius constants
       (Möbius cost is mode-independent in benchmark, ±5 %).
-    - rel + per: cost model with `_PW_PER_ENTRY_MS_PER` and
-      `_ORBIT_RELPER_PER_PAIR_K2_MS` (Möbius u-grid integration
-      scales with N_x · N_y · K_max² · |Ω_r|).
-    - rel + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
-      `_ORBIT_RELNONPER_PER_PAIR_K2_MS` (Möbius per-pair Python loop;
-      ~4 × the rel-per per-K² constant). At A = 1 the cost model
-      reliably routes to Bulger's method; at A ≥ 2 it routes to the
-      Möbius method once Bulger's ∏_a C(K_a, r_a)² compounding
-      overtakes the Möbius method's additive A · K_max² growth.
+    - rel (per and nonper): per-attribute cost model pricing each
+      relative attribute at the cheaper of its two Möbius routes
+      (tuple-centres closed form vs slab-batched translation-grid
+      contraction; see `_predict_orbit_cost_ms`), against Bulger's
+      `_PW_PER_ENTRY_MS_*`. The Möbius method's per-attribute
+      factorisation grows additively across attributes where Bulger's
+      ∏_a r_a!·C(K_a, r_a)² compounds, so multi-attribute relative
+      densities route to the Möbius method once that compounding
+      bites.
 
     Parameters
     ----------
@@ -421,9 +464,26 @@ def _select_ma_inner_product_method(
     # threshold (so the two measures differ), it warns and points to
     # method='bulger' for the canonical single-wrap measure.
     pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
-    pw_cost_ms = pw_size * _pw_per_entry_ms(any_per)
+    pw_cost_ms = pw_size * _pw_per_entry_ms(any_per, r_max)
+    # Aggregate-only callers (the legacy selector API) supply no
+    # per-attribute vectors; reconstruct conservative defaults. Marking
+    # every r_a >= 2 attribute as relative whenever either rel flag is
+    # set over-prices the Möbius side, biasing near-crossover routing
+    # toward Bulger's method — the cheap-to-mispick side; the
+    # representative grid size matters only where the grid route is
+    # already the cheaper Möbius branch (large K), where routing is
+    # decided by orders of magnitude, not the node count.
+    if rel_vec is None:
+        any_rel = any_rel_nonper or any_rel_per
+        rel_vec = np.array(
+            [any_rel and int(r_vec[a]) >= 2 for a in range(A)],
+            dtype=bool,
+        )
+    if nu_vec is None:
+        nu_vec = np.full(max(A, 1), 2000.0)[:A]
     orbit_cost_ms = _predict_orbit_cost_ms(
-        r_max, A, N_x, N_y, k_vec, any_rel_nonper, any_rel_per,
+        r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec,
+        centres_ok=(sigma_over_P_max <= _ORBIT_SIGMA_OVER_P_THRESHOLD),
     )
     if pw_cost_ms <= orbit_cost_ms:
         return 'bulger'

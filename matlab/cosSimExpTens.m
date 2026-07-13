@@ -1821,9 +1821,24 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             end
         end
     end
+    % Per-attribute vectors for the Möbius-side cost model: which
+    % attributes are relative, and each one's translation-grid node
+    % estimate. Periodic attributes use the shared node-count source;
+    % non-periodic attributes use a representative default (their true
+    % node count is span-dependent; the span plumbing arrives with the
+    % tuple-centres route port).
+    relVecSel = false(1, A);
+    nuVecSel = 2000 * ones(1, max(A, 1));
+    nuVecSel = nuVecSel(1:A);
+    for a = 1:A
+        relVecSel(a) = logical(isRelG(a));
+        if isRelG(a) && rVec(a) >= 2 && isPerG(a)
+            nuVecSel(a) = internal.autoNtauDefault(periodG(a), sigmaG(a));
+        end
+    end
     chosen = internal.selectMaInnerProductMethod( ...
         rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
-        sigmaOverPMax, method, verbose);
+        sigmaOverPMax, method, verbose, relVecSel, nuVecSel);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent

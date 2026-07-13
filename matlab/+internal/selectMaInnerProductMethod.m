@@ -1,15 +1,43 @@
 function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
-        anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, verbose)
+        anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
+        verbose, relVec, nuVec)
 %SELECTMAINNERPRODUCTMETHOD  Pick the MA inner-product method (cost model).
 %   Mirror of Python dispatch._select_ma_inner_product_method. Routing
 %   rules, in order: (1) userMethod override; (2) r_max <= 1 -> Bulger;
 %   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger; (4) K-vs-r precision guard
-%   (orbitSafeForPrecision) -> Bulger; (5) predict both wall times (ms) and
-%   take the faster path (ties favour Bulger); when that path is the all-image
-%   Möbius method and rel+per sigma/P exceeds 0.03, warn that it differs from
-%   the canonical single-wrap measure and point to method='bulger'. Constants
-%   are the Python-calibrated values, so the route is identical to Python.
+%   (orbitSafeForPrecision; the guard exempts r_a = 1 attributes) ->
+%   Bulger; (5) predict both wall times (ms) and take the faster path
+%   (ties favour Bulger); when that path is the all-image Möbius method
+%   and rel+per sigma/P exceeds 0.03, warn that it differs from the
+%   canonical single-wrap measure and point to method='bulger'.
+%
+%   The Möbius side is priced per attribute: absolute r_a >= 2
+%   attributes cost the vectorised-batch constant for their order;
+%   relative attributes cost three (Nx, Ny) matrices at the batched
+%   translation-grid contraction's nu_a * K_a^2 ops per event pair
+%   (MOBIUS.MAPERATTRINNERMATRIX). The Python implementation
+%   additionally routes small-K relative attributes through a
+%   tuple-centres closed form and prices that route too; MATLAB has no
+%   centres route yet, so its model prices the grid alone — routing
+%   may therefore differ between the languages at small-K relative
+%   workloads while values agree.
+%
+%   RELVEC (logical, per attribute) and NUVEC (grid node estimates,
+%   per attribute) are optional; omitted, every r_a >= 2 attribute is
+%   treated as relative whenever either rel flag is set (over-pricing
+%   the Möbius side -> near-crossover bias toward Bulger's method,
+%   the cheap-to-mispick side) with a representative node count.
+%
+%   Constants are provisional Python-shape values pending MATLAB
+%   calibration from matlab/tests/bench_ma_dispatch.m.
     if nargin < 11; verbose = true; end
+    if nargin < 12 || isempty(relVec)
+        relVec = (anyRelNonper || anyRelPer) & (rVec(:).' >= 2);
+    end
+    if nargin < 13 || isempty(nuVec)
+        nuVec = 2000 * ones(1, max(A, 1));
+        nuVec = nuVec(1:A);
+    end
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
         return;
@@ -35,9 +63,8 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     % method and sigma/P is above the threshold it warns and points to
     % method='bulger' for the canonical single-wrap measure.
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny);
-    pwCost = pwSize * pwPerEntryMs(anyPer);
-    orbitCost = predictOrbitCostMs(r_max, A, Nx, Ny, kVec, ...
-                                   anyRelNonper, anyRelPer);
+    pwCost = pwSize * pwPerEntryMs(anyPer, r_max);
+    orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, nuVec);
     if pwCost <= orbitCost
         chosen = 'bulger';
     else
@@ -49,12 +76,18 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
 end
 
 
-function ms = pwPerEntryMs(anyPer)
+function ms = pwPerEntryMs(anyPer, r_max)
+    % Per-entry cost of Bulger's joint tuple-pair kernel in n_J . n_K
+    % units, per tensor order (the r! side asymmetry is absorbed into
+    % the constant, so it rises mildly with r). Provisional values from
+    % the Python calibration at representative scale; MATLAB values to
+    % be set from bench_ma_dispatch.
     if anyPer
-        ms = 7.0e-4;   % _PW_PER_ENTRY_MS_PER
+        table = [NaN, 1.1e-4, 1.6e-4];   % r = 2, 3
     else
-        ms = 1.0e-4;   % _PW_PER_ENTRY_MS_NONPER
+        table = [NaN, 1.0e-4, 1.4e-4];
     end
+    ms = table(min(max(r_max, 2), numel(table)));
 end
 
 
@@ -75,24 +108,31 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny)
 end
 
 
-function ms = predictOrbitCostMs(r_max, A, Nx, Ny, kVec, anyRelNonper, anyRelPer)
-    if A > 0
-        Kmax = max(kVec);
-    else
-        Kmax = 1;
+function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, nuVec)
+    % Per-attribute sum, mirroring the Python predictor except that
+    % relative attributes are priced at the batched grid contraction
+    % alone (nu_a * K_a^2 ops per pair, three matrices) because MATLAB
+    % has no tuple-centres route. Constants provisional pending
+    % bench_ma_dispatch calibration.
+    ABS = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0]; % r = 2..8
+    GRID_OP = [NaN, 3.0e-5, 5.0e-5];                            % r = 2, 3
+    REL_BASE = 5.0;
+    ms = 0;
+    if any(relVec)
+        ms = REL_BASE;
     end
-    % Index r = 2..8 (entry 1 unused). Python-calibrated constants.
-    ABS       = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
-    RELPER    = [NaN, 0.06, 0.40, 1.0, 5.0, 20.0, 60.0, 200.0];
-    RELNONPER = [NaN, 0.25, 1.05, 3.30, 12.0, 50.0, 150.0, 500.0];
-    if anyRelNonper
-        c = RELNONPER(r_max);
-        ms = A * (5.0 + Nx * Ny * Kmax * Kmax * c);   % _ORBIT_RELNONPER_BASE_MS
-    elseif anyRelPer
-        c = RELPER(r_max);
-        ms = A * (5.0 + Nx * Ny * Kmax * Kmax * c);   % _ORBIT_RELPER_BASE_MS
-    else
-        ms = A * ABS(r_max);
+    pairs = Nx * Ny;
+    for a = 1:A
+        ra = rVec(a); Ka = kVec(a);
+        if relVec(a) && ra >= 2
+            gridOp = GRID_OP(min(max(ra, 2), numel(GRID_OP)));
+            if ra > 3    % beyond tabulated orders: double per order
+                gridOp = gridOp * 2^(ra - 3);
+            end
+            ms = ms + 3 * pairs * nuVec(a) * Ka * Ka * gridOp;
+        elseif ra >= 2
+            ms = ms + ABS(ra);
+        end
     end
 end
 

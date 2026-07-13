@@ -24,10 +24,13 @@
 %      dispatcher is a pure cost model (no probes), so this measures
 %      only mispick cost and should sit near zero.
 %
-%  The relative-mode Möbius rows use small N and a TIME_CAP: the MA
-%  relative Möbius evaluator materialises its translation grid across
-%  all event pairs at once, so it is slow and memory-hungry at large
-%  N. 'auto' is expected to route those rows to Bulger's method.
+%  The relative-mode Möbius rows use small N and a TIME_CAP: the
+%  batched translation-grid contraction is slab-bounded (no memory
+%  blowups) but still costs N_u * K^2 kernel ops per event pair, so
+%  at small K Bulger's per-pair closed form generally wins and 'auto'
+%  is expected to route those rows to Bulger's method. Möbius wins
+%  the relative modes at large K, where Bulger's r-tuple enumeration
+%  compounds, or when the joint working set would exhaust memory.
 %
 %  Run from anywhere with the toolbox on the path.
 
@@ -146,5 +149,7 @@ end
 
 fprintf(['\nPass criteria: auto~ matches the smaller of t_bul/t_mob in\n' ...
          'every row (few-ms near-ties excepted); |ds| <= ~1e-9; ovh ~ 0.\n' ...
-         'In the rel modes auto is expected to choose bulger while the\n' ...
-         'MA relative Möbius evaluator remains unslabbed.\n']);
+         'At these small-K sizes auto is expected to choose bulger in\n' ...
+         'the rel modes and mobius in the abs modes at moderate N.\n' ...
+         'Per-r medians from the abs rows calibrate the MATLAB entries\n' ...
+         'in internal.selectMaInnerProductMethod.\n']);

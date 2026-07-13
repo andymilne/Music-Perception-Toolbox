@@ -2515,7 +2515,13 @@ def _closed_form_attr_matrix_from(cx, cy):
                 D = D - period * np.floor(D / period + 0.5)
             Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
         ov = (Wx[s:e, None] * Wy[None, :]) * np.exp(-Q * inv4s2)
-        np.add.at(M, Ex[s:e], ov @ GY)
+        # X-side incidence matmul (mirror of the MATLAB implementation):
+        # scatter-adds row-by-row are far slower than aggregating the
+        # chunk with a second incidence product.
+        nc = e - s
+        GX = np.zeros((Nx, nc))
+        GX[Ex[s:e], np.arange(nc)] = 1.0
+        M += GX @ (ov @ GY)
     return M
 
 

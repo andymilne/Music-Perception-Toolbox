@@ -13,14 +13,15 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
 %
 %   The Möbius side is priced per attribute: absolute r_a >= 2
 %   attributes cost the vectorised-batch constant for their order;
-%   relative attributes cost three (Nx, Ny) matrices at the batched
-%   translation-grid contraction's nu_a * K_a^2 ops per event pair
-%   (MOBIUS.MAPERATTRINNERMATRIX). The Python implementation
-%   additionally routes small-K relative attributes through a
-%   tuple-centres closed form and prices that route too; MATLAB has no
-%   centres route yet, so its model prices the grid alone — routing
-%   may therefore differ between the languages at small-K relative
-%   workloads while values agree.
+%   relative attributes cost three (Nx, Ny) matrices at the cheaper
+%   of the two per-pair routes the orchestrator itself chooses
+%   between — the tuple-centres closed form
+%   (MOBIUS.CLOSEDFORMATTRMATRIXFROM, (r_a!*C(K_a, r_a))^2 ops per
+%   pair) or the batched translation-grid contraction
+%   (MOBIUS.MAPERATTRINNERMATRIX, nu_a * K_a^2 ops per pair). The
+%   centres route is measure-blocked above the sigma/P threshold (the
+%   orchestrator keeps the all-image grid there), so above it the
+%   grid route is priced alone.
 %
 %   RELVEC (logical, per attribute) and NUVEC (grid node estimates,
 %   per attribute) are optional; omitted, every r_a >= 2 attribute is
@@ -64,7 +65,9 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     % method='bulger' for the canonical single-wrap measure.
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny);
     pwCost = pwSize * pwPerEntryMs(anyPer, r_max);
-    orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, nuVec);
+    centresOk = sigmaOverPMax <= 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+    orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
+                                   nuVec, centresOk);
     if pwCost <= orbitCost
         chosen = 'bulger';
     else
@@ -108,14 +111,20 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny)
 end
 
 
-function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, nuVec)
-    % Per-attribute sum, mirroring the Python predictor except that
-    % relative attributes are priced at the batched grid contraction
-    % alone (nu_a * K_a^2 ops per pair, three matrices) because MATLAB
-    % has no tuple-centres route. Constants provisional pending
-    % bench_ma_dispatch calibration.
-    ABS = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0]; % r = 2..8
-    GRID_OP = [NaN, 3.0e-5, 5.0e-5];                            % r = 2, 3
+function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
+                                  nuVec, centresOk)
+    % Per-attribute sum, mirror of Python _predict_orbit_cost_ms:
+    % relative attributes are priced at the cheaper of the
+    % tuple-centres closed form and the batched grid contraction
+    % (three matrices each), with the centres term blocked above the
+    % sigma/P threshold. Constants provisional pending
+    % bench_ma_dispatch calibration; measured entries cover r = 2, 3,
+    % doubling per order above (over-pricing the Möbius side —
+    % routing bias toward Bulger's method, the cheap-to-mispick
+    % side).
+    ABS        = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
+    GRID_OP    = [NaN, 3.0e-5, 5.0e-5];    % r = 2, 3
+    CENTRES_OP = [NaN, 4.0e-5, 9.0e-5];    % r = 2, 3
     REL_BASE = 5.0;
     ms = 0;
     if any(relVec)
@@ -129,7 +138,16 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, nuVec)
             if ra > 3    % beyond tabulated orders: double per order
                 gridOp = gridOp * 2^(ra - 3);
             end
-            ms = ms + 3 * pairs * nuVec(a) * Ka * Ka * gridOp;
+            perPair = nuVec(a) * Ka * Ka * gridOp;
+            if centresOk && Ka >= ra
+                centresOp = CENTRES_OP(min(max(ra, 2), numel(CENTRES_OP)));
+                if ra > 3
+                    centresOp = centresOp * 2^(ra - 3);
+                end
+                centresOps = (factorial(ra) * combCount(Ka, ra))^2;
+                perPair = min(perPair, centresOps * centresOp);
+            end
+            ms = ms + 3 * pairs * perPair;
         elseif ra >= 2
             ms = ms + ABS(ra);
         end

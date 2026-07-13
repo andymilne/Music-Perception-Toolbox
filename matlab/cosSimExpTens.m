@@ -1201,7 +1201,7 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     % pre-screen routes to Möbius well before the measured Bulger/Möbius
     % crossover.
     [N_xy, N_xx, N_yy] = localOrbitIPGridFactors( ...
-        dens_x.p, dens_y.p, sigma, isRel, isPer, period);
+        dens_x.p, dens_y.p, sigma, isRel, isPer, period, r);
     orbitVar  = N_xy * K_x * K_y + N_xx * K_x * K_x + N_yy * K_y * K_y;
     orbitFull = B_r * (orbitVar + ORBIT_IP_FIXED_OVERHEAD);
 
@@ -1213,7 +1213,17 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     % keeps near-crossover cases in the probe's hands (the probe times both
     % paths and is portable across machines), while still short-circuiting the
     % clear-win region.
-    if orbitFull * PRESCREEN_IP_MOBIUS_DOMINANCE < pairwiseFull
+    % The Möbius-side pre-screen commits to the expensive-to-mispick
+    % path without probing, so in relative mode it requires a
+    % calibrated per-r unit cost: at uncalibrated orders the orbit
+    % cost model is unit-priced and cannot be trusted to fire 'mobius'
+    % analytically -- those workloads fall through to the probe, which
+    % measures the actual paths. The Bulger-side pre-screen needs no
+    % such gate: with an unscaled (under-priced) orbit cost it fires
+    % strictly less often, never more.
+    [~, unitCalibrated] = localOrbitGridUnitCost(r);
+    if (unitCalibrated || ~isRel) ...
+            && orbitFull * PRESCREEN_IP_MOBIUS_DOMINANCE < pairwiseFull
         chosen = 'mobius';
         probed = false;
         estSec = 0;
@@ -1299,7 +1309,7 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
 
     [Np_xy, Np_xx, Np_yy] = localOrbitIPGridFactors( ...
         dens_x.p(1:K_probe_x), dens_y.p(1:K_probe_y), ...
-        sigma, isRel, isPer, period);
+        sigma, isRel, isPer, period, r);
     orbitProbe = Np_xy * K_probe_x * K_probe_y ...
                + Np_xx * K_probe_x * K_probe_x ...
                + Np_yy * K_probe_y * K_probe_y;
@@ -1341,7 +1351,7 @@ end
 
 
 function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
-                                                       isRel, isPer, period)
+                                                       isRel, isPer, period, r)
 %LOCALORBITIPGRIDFACTORS  Cost-model grid weights of the three orbit IPs.
 %
 %   Returns (N_xy, N_xx, N_yy), the grid weights of the cross term and
@@ -1357,22 +1367,15 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   its own size. The absolute-mode orbit inner product is grid-free, so
 %   all three factors are 1.
 %
-%   In relative mode each grid size is scaled by
-%   ORBIT_GRID_OP_UNIT_COST, the per-op cost of a translation-grid
+%   In relative mode each grid size is scaled by the per-r unit cost
+%   from localOrbitGridUnitCost, the per-op cost of a translation-grid
 %   orbit kernel op relative to a pairwise kernel op, so the orbit and
 %   pairwise cost models price their kernel ops in a shared unit;
 %   without it the rel-mode orbit cost is under-priced by that ratio
 %   and the modelled equal-cost point sits below the measured one.
-%
-%   The constant is per-implementation: this is the MATLAB value,
-%   calibrated from bench_ip_dispatch.m (tests/) measurements on the
-%   EDO-approximation workload (K_x = 5, sigma = 6, period = 1200)
-%   with the slabbed translation grid in mobius.orbitInnerRelSA, which
-%   keeps the contraction memory-resident at every K: orbit
-%   contraction 24-35 ns per kernel op against pairwise 2.2-4.5 ns,
-%   median ratio 14. Rerun the bench to recalibrate on new hardware.
-%   (The Python sibling constant in _tensor/dispatch.py is calibrated
-%   the same way on the Python implementation.)
+%   Orders without a calibrated entry use a unit factor of 1 (the raw
+%   grid size); the dispatcher additionally withholds the Möbius-side
+%   pre-screen at those orders.
 %
 %   Both the full-size and probe-size cost expressions call this
 %   helper, so the scaling cancels in the probe's extrapolation ratio:
@@ -1381,14 +1384,14 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   against measured absolute-mode crossovers) predates no such factor
 %   and is left untouched.
 
-    ORBIT_GRID_OP_UNIT_COST = 14;
+    unitCost = localOrbitGridUnitCost(r);
 
     if ~isRel
         N_xy = 1; N_xx = 1; N_yy = 1;
         return;
     end
     if isPer
-        n = internal.autoNtauDefault(period, sigma) * ORBIT_GRID_OP_UNIT_COST;
+        n = internal.autoNtauDefault(period, sigma) * unitCost;
         N_xy = n; N_xx = n; N_yy = n;
         return;
     end
@@ -1396,11 +1399,54 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
     spread_x = max(p_x) - min(p_x);
     spread_y = max(p_y) - min(p_y);
     N_xy = max(64, ceil(max(spread_x + spread_y + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
+                        / sigma * samplesPerSigma)) * unitCost;
     N_xx = max(64, ceil(max(2 * spread_x + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
+                        / sigma * samplesPerSigma)) * unitCost;
     N_yy = max(64, ceil(max(2 * spread_y + 16 * sigma, 1.0) ...
-                        / sigma * samplesPerSigma)) * ORBIT_GRID_OP_UNIT_COST;
+                        / sigma * samplesPerSigma)) * unitCost;
+end
+
+
+function [c, calibrated] = localOrbitGridUnitCost(r)
+%LOCALORBITGRIDUNITCOST  Per-r rel-mode orbit kernel-op unit cost.
+%
+%   Per-op cost of a translation-grid orbit kernel op relative to a
+%   pairwise kernel op at tensor order r, with CALIBRATED indicating a
+%   measured value. The calibration is per-r because the pairwise
+%   path's per-op cost in the shared kernel-op unit falls with r,
+%   while the orbit contraction's stays flat (rank-minimising recipe
+%   order, mobius.buildContractRecipe; slabbed translation grid,
+%   mobius.orbitInnerRelSA). Values are per-implementation: these are
+%   the MATLAB values, calibrated from bench_ip_dispatch.m (tests/)
+%   measurements on the EDO-approximation workload (K_x = 8,
+%   sigma = 6, period = 1200): orbit contraction 3.5-18 ns per kernel
+%   op, flat in both K and r; pairwise 2.2-3.6 ns at r = 2 falling to
+%   ~0.2 ns at r = 5; per-r median ratios 1.6, 5.4, 26, 83. Rerun the
+%   bench to recalibrate on new hardware or to add entries for further
+%   r. (The Python sibling table in _tensor/dispatch.py is calibrated
+%   the same way on the Python implementation.)
+%
+%   Uncalibrated orders return c = 1 (raw grid size) and
+%   calibrated = false; the dispatcher withholds the Möbius-side
+%   pre-screen at those orders so routing defers to the timing probe.
+
+    switch r
+        case 2
+            c = 1.6;
+            calibrated = true;
+        case 3
+            c = 5.4;
+            calibrated = true;
+        case 4
+            c = 26;
+            calibrated = true;
+        case 5
+            c = 83;
+            calibrated = true;
+        otherwise
+            c = 1;
+            calibrated = false;
+    end
 end
 
 
@@ -1445,15 +1491,44 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
 %   meaningful; for probes whose single run already exceeds the floor,
 %   the loop exits after one repetition and costs nothing extra.
 
+    PROBE_MIN_SAMPLE_SEC = 0.008;
+    PROBE_MAX_REPS = 64;
+
+    % Per-session cache of probe timings, keyed by the probe's
+    % structural parameters (path, r, probe sizes, mode flags, sigma,
+    % period, truncation, precision). Within a batched sweep every pair
+    % probes at identical structure, so re-measuring per pair adds cost
+    % without information -- and where the probed path is intrinsically
+    % slow (an uncalibrated order routing via the probe), the repeated
+    % measurement would dominate the sweep. Pitch values differ across
+    % cache hits; probe timings depend on them only through kernel
+    % sparsity, which is immaterial at routing precision. Cleared by
+    % `clear functions`.
+    persistent probeCache
+    if isempty(probeCache)
+        probeCache = containers.Map('KeyType', 'char', 'ValueType', 'double');
+    end
+    if isempty(kernelPrecision)
+        precStr = '';
+    else
+        precStr = char(kernelPrecision);
+    end
+    cacheKey = sprintf('%s|r%d|%d|%d|%d|%d|%.9g|%.9g|%.9g|%s', ...
+        path, double(dens_x.r), K_probe_x, K_probe_y, ...
+        double(dens_x.isRel), double(dens_x.isPer), ...
+        double(dens_x.sigma), double(dens_x.period), ...
+        double(truncationSigmas), precStr);
+    if isKey(probeCache, cacheKey)
+        t = probeCache(cacheKey);
+        return;
+    end
+
     subX = buildExpTens(dens_x.p(1:K_probe_x), dens_x.w(1:K_probe_x), ...
         dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
         dens_x.period, 'verbose', false);
     subY = buildExpTens(dens_y.p(1:K_probe_y), dens_y.w(1:K_probe_y), ...
         dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
         dens_y.period, 'verbose', false);
-
-    PROBE_MIN_SAMPLE_SEC = 0.008;
-    PROBE_MAX_REPS = 64;
 
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
@@ -1470,6 +1545,7 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
             end
         end
         t = elapsed / reps;
+        probeCache(cacheKey) = t;
     else
         subX = internal.ensureExpTensExpensive(subX);
         subY = internal.ensureExpTensExpensive(subY);
@@ -1487,6 +1563,7 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
             end
         end
         t = elapsed / reps;
+        probeCache(cacheKey) = t;
     end
 end
 

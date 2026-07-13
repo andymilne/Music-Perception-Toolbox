@@ -192,13 +192,15 @@ end
 
 
 % =========================================================================
-%  Backward-compat augmentation: old pre-built tables (shipped before
-%  the recipe fields existed) get their recipes computed and attached
-%  on first load. Recipe building is fast (abstract enumeration only,
-%  no actual numeric work), so the cost is bounded and paid once per
-%  session; subsequent loads use the in-memory cache directly. Tables
-%  freshly built by mobius.buildOrbitTable already have recipes
-%  embedded and pass through unchanged.
+%  Recipe augmentation and versioning: cached tables (pre-built .mat
+%  files, user-tier files, in-memory entries) carry recipes from
+%  whichever builder produced them. Recipes are (re)built on first
+%  load when the fields are missing entirely, or when their embedded
+%  version predates mobius.recipeVersion() -- so improvements to the
+%  builder's contraction ordering take effect without regenerating the
+%  shipped table files. Recipe building is fast (abstract enumeration
+%  only, no actual numeric work), so the cost is bounded and paid once
+%  per session; subsequent loads use the in-memory cache directly.
 % =========================================================================
 
 function table = ensureRecipes(table)
@@ -209,10 +211,12 @@ function table = ensureRecipes(table)
                 || ~isfield(table, 'recipeGrid') ...
                 || ~isfield(table, 'recipeBatched');
     if ~needsAugment
-        % Field is present; check the first orbit's recipe is non-empty
-        % (so we don't silently re-augment a freshly-built table).
+        % Fields are present; keep them only if the first orbit's
+        % recipe is non-empty and carries the current builder version.
         first = table(1);
-        if isfield(first.recipeIP, 'steps')
+        if isfield(first.recipeIP, 'steps') ...
+                && isfield(first.recipeIP, 'version') ...
+                && first.recipeIP.version >= mobius.recipeVersion()
             return
         end
     end

@@ -45,11 +45,27 @@ function recipe = buildContractRecipe(opAxes, freeAxes)
 %     .nLhsSolo      number of axes unique to operand at .lo.
 %     .nRhsSolo      number of axes unique to operand at .hi.
 %
-%   Algorithm: identical to MOBIUS.CONTRACT's greedy pair-picker
-%   (most-shared-axes first, tiebreak by smaller estimated merge size)
-%   but using abstract-axis information only. Operand "size" for the
-%   tiebreak proxy is the count of unique axis labels (since actual
-%   sizes are not known at table-build time).
+%   Algorithm: two-phase greedy over abstract axis labels. Phase one
+%   absorbs any operand whose axis set is a subset of another's
+%   (weight vectors into their kernel copies, and dominated
+%   intermediates) -- such merges cannot grow the intermediate rank.
+%   Phase two picks the pair whose merged result has the fewest
+%   non-free axes, tie-broken by contracting more axes, then by fewer
+%   combined input axes, then by lowest operand indices for
+%   determinism. Bounding the intermediate rank is the objective that
+%   matters: each retained non-free axis is a factor of that axis's
+%   runtime extent in the intermediate's size, so a picker that merges
+%   two kernel operands while their weight vectors are still
+%   unabsorbed materialises rank-3-and-higher non-free intermediates
+%   whose pages dwarf the kernel stack and turn the contraction
+%   memory-bound. Under this picker no orbit up to r = 6 exceeds
+%   non-free rank 2 in any intermediate, for any of the three recipe
+%   kinds (verified by exhaustive search against the orbit tables at
+%   r <= 4 and by enumeration at r = 5, 6).
+%
+%   Recipes carry a VERSION field (MOBIUS.RECIPEVERSION); consumers of
+%   cached tables rebuild recipes whose version predates the current
+%   builder.
 %
 %   See also MOBIUS.EXECUTERECIPE, MOBIUS.CONTRACT, MOBIUS.BUILDORBITTABLE.
 
@@ -68,7 +84,8 @@ function recipe = buildContractRecipe(opAxes, freeAxes)
         recipe = struct('steps', steps, ...
                          'finalSumDims', [], ...
                          'finalPerm', [], ...
-                         'isScalar', isempty(freeAxes));
+                         'isScalar', isempty(freeAxes), ...
+                         'version', mobius.recipeVersion());
         return;
     end
     if N == 1
@@ -82,7 +99,7 @@ function recipe = buildContractRecipe(opAxes, freeAxes)
     curAxes = opAxes(:);
 
     while numel(curAxes) > 1
-        [iBest, jBest] = pickBestPairAbstract(curAxes);
+        [iBest, jBest] = pickBestPairAbstract(curAxes, freeAxes);
 
         % Other operands' axes (excluding the pair).
         others = setdiff(1:numel(curAxes), [iBest, jBest]);
@@ -170,29 +187,56 @@ function recipe = makeFinalRecipe(steps, finalAxes, freeAxes)
         'steps', steps, ...
         'finalSumDims', sort(contractDims, 'descend'), ...
         'finalPerm', finalPerm, ...
-        'isScalar', isempty(freeAxes));
+        'isScalar', isempty(freeAxes), ...
+        'version', mobius.recipeVersion());
 end
 
 
-function [iBest, jBest] = pickBestPairAbstract(curAxes)
+function [iBest, jBest] = pickBestPairAbstract(curAxes, freeAxes)
     N = numel(curAxes);
-    iBest = 1; jBest = 2;
-    bestSharedCount = -1;
-    bestMergeSize = inf;
+
+    % Phase one: absorb subset operands. A merge where one operand's
+    % axes are a subset of the other's cannot grow the intermediate
+    % rank, so such pairs are always taken first.
     for i = 1:N - 1
         for j = i + 1:N
-            shared = intersect(curAxes{i}, curAxes{j});
-            ns = numel(shared);
-            if ns > bestSharedCount
-                bestSharedCount = ns;
-                bestMergeSize = numel(curAxes{i}) + numel(curAxes{j});
+            if all(ismember(curAxes{i}, curAxes{j})) ...
+                    || all(ismember(curAxes{j}, curAxes{i}))
                 iBest = i; jBest = j;
-            elseif ns == bestSharedCount
-                ms = numel(curAxes{i}) + numel(curAxes{j});
-                if ms < bestMergeSize
-                    bestMergeSize = ms;
-                    iBest = i; jBest = j;
+                return;
+            end
+        end
+    end
+
+    % Phase two: minimal-result-rank greedy. Rank counts non-free axes
+    % of the merged result (each is a factor of that axis's runtime
+    % extent in the intermediate's size); ties broken by contracting
+    % more axes, then by fewer combined input axes, then by lowest
+    % indices.
+    iBest = 1; jBest = 2;
+    bestRank = inf; bestContract = -1; bestInSize = inf;
+    for i = 1:N - 1
+        for j = i + 1:N
+            otherAxes = [];
+            for kk = 1:N
+                if kk ~= i && kk ~= j
+                    otherAxes = [otherAxes, curAxes{kk}]; %#ok<AGROW>
                 end
+            end
+            otherAxes = unique(otherAxes);
+            shared = intersect(curAxes{i}, curAxes{j});
+            contractAxes = setdiff(shared, [otherAxes, freeAxes]);
+            resultAxes = setdiff(union(curAxes{i}, curAxes{j}), contractAxes);
+            resRank = numel(setdiff(resultAxes, freeAxes));
+            nc = numel(contractAxes);
+            inSize = numel(curAxes{i}) + numel(curAxes{j});
+            better = resRank < bestRank ...
+                || (resRank == bestRank && nc > bestContract) ...
+                || (resRank == bestRank && nc == bestContract ...
+                    && inSize < bestInSize);
+            if better
+                bestRank = resRank; bestContract = nc; bestInSize = inSize;
+                iBest = i; jBest = j;
             end
         end
     end

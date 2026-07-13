@@ -666,15 +666,24 @@ _ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for the Möbius me
 
 
 def _orbit_safe_for_precision(r_vec, k_vec):
-    """Return True if every attribute satisfies K_a >= r_a + margin.
+    """Return True if every r_a >= 2 attribute satisfies K_a >= r_a + margin.
 
     Used by both the SA and MA dispatchers to refuse the Möbius method
     when its Möbius cancellation could swamp the answer. See the
     `_ORBIT_K_MINUS_R_MIN` rationale block above.
+
+    The margin applies only to attributes with r_a >= 2: the Möbius
+    alternating sum over set partitions is trivial at r_a = 1 (a single
+    partition, no signs), so an r_a = 1 attribute carries no
+    cancellation risk regardless of its K_a. Scalar attributes
+    (K_a = 1, r_a = 1) are the canonical multi-attribute pattern — an
+    onset or duration alongside pitch content — and must not veto the
+    Möbius method for the density.
     """
     r_arr = np.atleast_1d(np.asarray(r_vec, dtype=np.intp))
     k_arr = np.atleast_1d(np.asarray(k_vec, dtype=np.intp))
-    return bool(np.all(k_arr - r_arr >= _ORBIT_K_MINUS_R_MIN))
+    mask = r_arr >= 2
+    return bool(np.all(k_arr[mask] - r_arr[mask] >= _ORBIT_K_MINUS_R_MIN))
 
 
 

@@ -1,89 +1,170 @@
 %% bench_ip_dispatch.m
 %  Times 'bulger', 'mobius', and 'auto' on single EDO-approximation
-%  pairs (JI reference vs n-EDO, r = 2, rel-per, sigma = 6). Reports:
+%  pairs (JI harmonic reference vs n-EDO, rel-per, sigma = 6) across
+%  tensor orders r = 2..5. Reports, per (r, n) cell:
 %
 %    * c_pw, c_orb, ratio — per-op costs of the two paths and their
 %      unit-cost ratio. With the slabbed translation grid, c_orb should
-%      be roughly flat across n; the median ratio is the value for
-%      ORBIT_GRID_OP_UNIT_COST in localOrbitIPGridFactors
-%      (cosSimExpTens.m). If mobius never beats bulger for n <= 102,
-%      the constant should be large enough that the bulger pre-screen
-%      covers that whole range.
+%      be roughly flat across n; the per-r median ratio is the value
+%      for that r's entry in localOrbitGridUnitCost (cosSimExpTens.m).
+%      Orders without a calibrated entry route via the timing probe.
 %
-%    * probe overhead — t_auto minus the faster of the two forced
-%      methods. Nonzero only where 'auto' probes (neither pre-screen
-%      fires); measures the full per-pair probe cost including subset
-%      density builds and warm-up passes.
+%    * auto~ — which forced method the 'auto' timing sits closer to
+%      (an inference; with 'showHints' on, the dispatch messages name
+%      the choice directly).
 %
-%  Run from anywhere with the toolbox on the path. Takes ~1 minute.
+%    * probe_ovh — t_auto minus the faster forced method. Where 'auto'
+%      pre-screens this is ~0; where it probes, it measures the
+%      one-time probe cost (probe timings are cached per session, so
+%      within a batched sweep this cost is paid once, not per pair).
+%
+%  The reference uses eight prime harmonics (K_x = 8) rather than the
+%  demo's five: the dispatcher's precision guard requires
+%  min(K_x, K_y) - r >= 2, so K_x = 8 keeps the Möbius method
+%  available up to r = 6. Per-op costs are insensitive to the
+%  reference size.
+%
+%  A per-path time cap skips larger n for a path once a single run
+%  exceeds TIME_CAP seconds (reported as NaN), so the bench stays
+%  bounded on machines where one path is very slow at high r. The
+%  Möbius timing is additionally wrapped in try/catch so a missing
+%  orbit table for some r reports rather than aborts.
+%
+%  Run from anywhere with the toolbox on the path.
 
-refPitches = [0, log2(3), log2(5), log2(7), log2(11)] * 1200;
+refPitches = log2([1, 3, 5, 7, 11, 13, 17, 19]) * 1200;
 sigma  = 6;
-r      = 2;
 isRel  = 1;
 isPer  = 1;
 period = 1200;
 
-nList  = [40, 60, 80, 95, 100];
-nReps  = 3;
+rList     = [2, 3, 4, 5];
+nListPerR = {[40, 60, 80, 100], [15, 20, 30, 40], ...
+             [10, 12, 15, 18], [8, 9, 10, 12]};
+bellPerR  = [2, 5, 15, 52];
+nReps     = 3;
+TIME_CAP  = 60;   % seconds; per-path, per-r skip threshold
 
 K_x = numel(refPitches);
 N_u = internal.autoNtauDefault(period, sigma);
-B_r = 2;
 ff  = @(K, k) prod(K:-1:(K - k + 1)) * (K >= k);
 
-fprintf('bench_ip_dispatch: sigma = %g, N_u = %d, K_x = %d\n\n', ...
-    sigma, N_u, K_x);
-fprintf('%6s %10s %10s %10s %10s %10s %7s %11s\n', ...
-    'n-EDO', 't_bul(s)', 't_mob(s)', 't_auto(s)', ...
-    'c_pw(ns)', 'c_orb(ns)', 'ratio', 'probe_ovh');
+fprintf('bench_ip_dispatch: sigma = %g, N_u = %d, K_x = %d, cap = %ds\n', ...
+    sigma, N_u, K_x, TIME_CAP);
 
-ratios = zeros(1, numel(nList));
-for i = 1:numel(nList)
-    n = nList(i);
-    edoPitches = (0:n-1) * (1200 / n);
+for ri = 1:numel(rList)
+    r     = rList(ri);
+    nList = nListPerR{ri};
+    B_r   = bellPerR(ri);
 
-    tB = zeros(1, nReps); tM = zeros(1, nReps); tA = zeros(1, nReps);
-    % Warm-up all three.
-    cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'bulger');
-    cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'mobius');
-    cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period);
-    for k = 1:nReps
-        tStart = tic;
+    fprintf('\n--- r = %d ---\n', r);
+    fprintf('%6s %10s %10s %10s %10s %10s %8s %8s %11s\n', ...
+        'n-EDO', 't_bul(s)', 't_mob(s)', 't_auto(s)', ...
+        'c_pw(ns)', 'c_orb(ns)', 'ratio', 'auto~', 'probe_ovh');
+
+    ratios  = NaN(1, numel(nList));
+    skipBul = false;
+    skipMob = false;
+    for i = 1:numel(nList)
+        n = nList(i);
+        edoPitches = (0:n-1) * (1200 / n);
+
+        % --- forced bulger ---
+        if skipBul
+            tBul = NaN;
+        else
+            tStart = tic;   % warmup doubles as the cap check
+            cosSimExpTens(refPitches, [], edoPitches, [], ...
+                sigma, r, isRel, isPer, period, 'method', 'bulger');
+            tWarm = toc(tStart);
+            if tWarm > TIME_CAP
+                tBul = tWarm;
+                skipBul = true;
+            else
+                tB = zeros(1, nReps);
+                for k = 1:nReps
+                    tStart = tic;
+                    cosSimExpTens(refPitches, [], edoPitches, [], ...
+                        sigma, r, isRel, isPer, period, 'method', 'bulger');
+                    tB(k) = toc(tStart);
+                end
+                tBul = median(tB);
+            end
+        end
+
+        % --- forced mobius ---
+        if skipMob
+            tMob = NaN;
+        else
+            try
+                tStart = tic;
+                cosSimExpTens(refPitches, [], edoPitches, [], ...
+                    sigma, r, isRel, isPer, period, 'method', 'mobius');
+                tWarm = toc(tStart);
+                if tWarm > TIME_CAP
+                    tMob = tWarm;
+                    skipMob = true;
+                else
+                    tM = zeros(1, nReps);
+                    for k = 1:nReps
+                        tStart = tic;
+                        cosSimExpTens(refPitches, [], edoPitches, [], ...
+                            sigma, r, isRel, isPer, period, ...
+                            'method', 'mobius');
+                        tM(k) = toc(tStart);
+                    end
+                    tMob = median(tM);
+                end
+            catch err
+                fprintf('  mobius unavailable at r = %d: %s\n', ...
+                    r, err.message);
+                tMob = NaN;
+                skipMob = true;
+            end
+        end
+
+        % --- auto (single rep after warmup) ---
         cosSimExpTens(refPitches, [], edoPitches, [], ...
-            sigma, r, isRel, isPer, period, 'method', 'bulger');
-        tB(k) = toc(tStart);
-        tStart = tic;
-        cosSimExpTens(refPitches, [], edoPitches, [], ...
-            sigma, r, isRel, isPer, period, 'method', 'mobius');
-        tM(k) = toc(tStart);
+            sigma, r, isRel, isPer, period);
         tStart = tic;
         cosSimExpTens(refPitches, [], edoPitches, [], ...
             sigma, r, isRel, isPer, period);
-        tA(k) = toc(tStart);
+        tAuto = toc(tStart);
+
+        % --- per-op costs ---
+        P_x = ff(K_x, r);
+        P_y = ff(n, r);
+        pwOps  = P_x * P_y + P_x^2 + P_y^2;
+        orbOps = B_r * N_u * (K_x * n + K_x^2 + n^2);
+        c_pw  = tBul / pwOps  * 1e9;
+        c_orb = tMob / orbOps * 1e9;
+        ratios(i) = c_orb / c_pw;
+
+        if isnan(tBul) || isnan(tMob)
+            autoPick = '?';
+        elseif abs(tAuto - tBul) <= abs(tAuto - tMob)
+            autoPick = 'bulger';
+        else
+            autoPick = 'mobius';
+        end
+        probeOvh = tAuto - min(tBul, tMob);
+
+        fprintf('%6d %10.3f %10.3f %10.3f %10.2f %10.2f %8.2f %8s %11.3f\n', ...
+            n, tBul, tMob, tAuto, c_pw, c_orb, ratios(i), ...
+            autoPick, probeOvh);
     end
-    tBul = median(tB); tMob = median(tM); tAuto = median(tA);
 
-    P_x = ff(K_x, r);
-    P_y = ff(n, r);
-    pwOps  = P_x * P_y + P_x^2 + P_y^2;
-    orbOps = B_r * N_u * (K_x * n + K_x^2 + n^2);
-
-    c_pw  = tBul / pwOps  * 1e9;
-    c_orb = tMob / orbOps * 1e9;
-    ratios(i) = c_orb / c_pw;
-    probeOvh  = tAuto - min(tBul, tMob);
-
-    fprintf('%6d %10.3f %10.3f %10.3f %10.2f %10.2f %7.2f %11.3f\n', ...
-        n, tBul, tMob, tAuto, c_pw, c_orb, ratios(i), probeOvh);
+    okRatios = ratios(~isnan(ratios));
+    if ~isempty(okRatios)
+        fprintf('Median unit-cost ratio at r = %d: %.1f\n', ...
+            r, median(okRatios));
+    else
+        fprintf('No complete ratio measurements at r = %d.\n', r);
+    end
 end
 
-fprintf(['\nMedian unit-cost ratio: %.1f (current ORBIT_GRID_OP_UNIT_COST' ...
-         ' = 7.5).\n'], median(ratios));
-fprintf(['If t_mob > t_bul at every n here, mobius does not win in this\n' ...
-         'range on this machine and the constant should be raised until\n' ...
-         'the bulger pre-screen covers it; if probe_ovh dominates the\n' ...
-         'auto/bulger gap instead, the probe cost is the target.\n']);
+fprintf(['\nPer-r medians calibrate localOrbitGridUnitCost in\n' ...
+         'cosSimExpTens.m; uncalibrated orders route via the (cached)\n' ...
+         'probe. Where t_mob < t_bul, the Möbius method wins outright\n' ...
+         'at that size; pairwise cost grows as n^(2r), so the\n' ...
+         'crossover moves to smaller n as r rises.\n']);

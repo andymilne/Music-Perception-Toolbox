@@ -1217,6 +1217,9 @@ def _select_and_estimate_sa(
 # r+2.
 _PROBE_K_IP_TARGET = 12
 
+_PROBE_MIN_SAMPLE_SEC = 0.008
+_PROBE_MAX_REPS = 64
+
 _PROBE_IP_MOBIUS_DECISION_MARGIN = 1.4
 """Margin the orbit probe estimate must beat the pairwise probe estimate
 by before the probe routes to the Möbius method. The orbit probe's
@@ -1370,10 +1373,21 @@ def _probe_ip_path(
     construction + einsums for the Möbius method, or ordered-tuple
     enumeration + dot product for Bulger's method).
 
-    Runs the work twice: a warmup pass (discarded) to stabilise CPU
-    caches and one-shot table loads, then a timed pass. Without the
-    warmup, the path that ran most recently on the full workload comes
-    into the probe with hot caches and gets unfairly favoured.
+    Runs a warmup pass (discarded) to stabilise CPU caches and
+    one-shot table loads — without it, the path that ran most recently
+    on the full workload comes into the probe with hot caches and gets
+    unfairly favoured — then repeats the timed work until at least
+    ``_PROBE_MIN_SAMPLE_SEC`` has elapsed (capped at
+    ``_PROBE_MAX_REPS`` repetitions) and returns the mean per-run
+    time. A single timed pass is not enough: on fast hardware a probe
+    subset's real work can be microseconds inside ~1 ms of per-call
+    overhead and timer noise, and the two-point pairwise fit divides a
+    difference of two such timings — sub-millisecond noise there is
+    amplified by the op-count extrapolation ratio into estimates wrong
+    by orders of magnitude. Repetition until the sample is above noise
+    makes the fitted slope meaningful; for probes whose single run
+    already exceeds the floor, the loop exits after one repetition and
+    costs nothing extra.
     """
     # Lazy imports to break the dispatch <-> cosine and
     # dispatch <-> build cycles (dispatch is imported by both).
@@ -1408,10 +1422,15 @@ def _probe_ip_path(
     # Warmup pass (discarded).
     _run()
 
-    # Timed pass.
+    # Timed passes: repeat until the sample is above timer noise.
+    reps = 0
     t0 = _time.perf_counter()
-    _run()
-    return _time.perf_counter() - t0
+    while True:
+        _run()
+        reps += 1
+        elapsed = _time.perf_counter() - t0
+        if elapsed >= _PROBE_MIN_SAMPLE_SEC or reps >= _PROBE_MAX_REPS:
+            return elapsed / reps
 
 
 

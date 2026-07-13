@@ -1365,15 +1365,14 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   and the modelled equal-cost point sits below the measured one.
 %
 %   The constant is per-implementation: this is the MATLAB value,
-%   calibrated from bench_ip_unit_cost.m (tests/) measurements of the
-%   memory-resident contraction regime on the EDO-approximation
-%   workload (K_x = 5, sigma = 6, period = 1200): orbit contraction
-%   ~27 ns per kernel op against pairwise ~3.6 ns. The slabbed
-%   translation grid in mobius.orbitInnerRelSA keeps the contraction
-%   in that regime at every K, so the ratio is flat in K. Rerun the
-%   bench to recalibrate on new hardware. (The Python sibling constant
-%   in _tensor/dispatch.py is calibrated the same way on the Python
-%   implementation.)
+%   calibrated from bench_ip_dispatch.m (tests/) measurements on the
+%   EDO-approximation workload (K_x = 5, sigma = 6, period = 1200)
+%   with the slabbed translation grid in mobius.orbitInnerRelSA, which
+%   keeps the contraction memory-resident at every K: orbit
+%   contraction 24-35 ns per kernel op against pairwise 2.2-4.5 ns,
+%   median ratio 14. Rerun the bench to recalibrate on new hardware.
+%   (The Python sibling constant in _tensor/dispatch.py is calibrated
+%   the same way on the Python implementation.)
 %
 %   Both the full-size and probe-size cost expressions call this
 %   helper, so the scaling cancels in the probe's extrapolation ratio:
@@ -1382,7 +1381,7 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   against measured absolute-mode crossovers) predates no such factor
 %   and is left untouched.
 
-    ORBIT_GRID_OP_UNIT_COST = 7.5;
+    ORBIT_GRID_OP_UNIT_COST = 14;
 
     if ~isRel
         N_xy = 1; N_xx = 1; N_yy = 1;
@@ -1431,10 +1430,20 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
 %   reference against a large candidate set) is probed with the same
 %   asymmetry.
 %
-%   Runs the work twice: a warmup pass (discarded) to stabilise CPU
-%   caches and one-shot table loads, then a timed pass. Without the
-%   warmup, the path that ran most recently on the full workload
-%   comes into the probe with hot caches and gets unfairly favoured.
+%   Runs a warmup pass (discarded) to stabilise CPU caches and one-shot
+%   table loads -- without it, the path that ran most recently on the
+%   full workload comes into the probe with hot caches and gets
+%   unfairly favoured -- then repeats the timed work until at least
+%   PROBE_MIN_SAMPLE_SEC has elapsed (capped at PROBE_MAX_REPS
+%   repetitions) and returns the mean per-run time. A single timed pass
+%   is not enough: on fast hardware a probe subset's real work can be
+%   microseconds inside ~1 ms of per-call overhead and timer noise, and
+%   the two-point pairwise fit divides a difference of two such
+%   timings -- sub-millisecond noise there is amplified by the op-count
+%   extrapolation ratio into estimates wrong by orders of magnitude.
+%   Repetition until the sample is above noise makes the fitted slope
+%   meaningful; for probes whose single run already exceeds the floor,
+%   the loop exits after one repetition and costs nothing extra.
 
     subX = buildExpTens(dens_x.p(1:K_probe_x), dens_x.w(1:K_probe_x), ...
         dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
@@ -1443,22 +1452,41 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
         dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
         dens_y.period, 'verbose', false);
 
+    PROBE_MIN_SAMPLE_SEC = 0.008;
+    PROBE_MAX_REPS = 64;
+
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
         [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
-        % Timed pass.
+        % Timed passes: repeat until the sample is above timer noise.
+        reps = 0;
         tStart = tic;
-        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
-        t = toc(tStart);
+        while true
+            [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
+            reps = reps + 1;
+            elapsed = toc(tStart);
+            if elapsed >= PROBE_MIN_SAMPLE_SEC || reps >= PROBE_MAX_REPS
+                break;
+            end
+        end
+        t = elapsed / reps;
     else
         subX = internal.ensureExpTensExpensive(subX);
         subY = internal.ensureExpTensExpensive(subY);
         % Warmup pass (discarded).
         localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
-        % Timed pass.
+        % Timed passes: repeat until the sample is above timer noise.
+        reps = 0;
         tStart = tic;
-        localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
-        t = toc(tStart);
+        while true
+            localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
+            reps = reps + 1;
+            elapsed = toc(tStart);
+            if elapsed >= PROBE_MIN_SAMPLE_SEC || reps >= PROBE_MAX_REPS
+                break;
+            end
+        end
+        t = elapsed / reps;
     end
 end
 

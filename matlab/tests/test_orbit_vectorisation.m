@@ -201,6 +201,15 @@ results{end, 2} = isequal(size(h_rep), [50, 1]) ...
 
 %% ---- evalOrbitRel factored strategy: matches direct (default) ----
 
+% These assertions compare the factored and direct strategies at the
+% default (Inf) truncation. Inf now resolves to the 1e-12 accuracy
+% floor, at which the direct path truncates marginally different tuples
+% than the factored tabulation, shifting the (cancellation-ratio)
+% diagnostic by ~1e-3 even though the values still agree to ~1e-14. To
+% assert exact path-parity, widen the floor to 1e-300 (effectively
+% exhaustive) for this section, then restore.
+ov_prevEps = internal.accuracyFloor('setEps', 1e-300);
+
 base = 1200 * log2(1:8)';
 amps = (1 ./ (1:8)').^0.67;
 pT = [base; base + 0.01];
@@ -253,6 +262,10 @@ results{end, 2} = max(abs(vOnW - vOffW)) < 1e-9 * max(abs(vOffW));
 results{end+1, 1} = 'evalOrbitRel factored: values (1e-11) and ratios (1e-6) match direct';
 results{end, 2} = max(abs(vOnR - vOffR) ./ abs(vOffR)) < 1e-11 ...
     && max(abs(ratOn - ratOff)) < 1e-6;
+
+% Restore the accuracy floor (paired with the setEps above); subsequent
+% sections use explicit per-call truncation and must see the normal floor.
+internal.accuracyFloor('setEps', ov_prevEps);
 
 %% ---- evalOrbitRel factored: periodic mode guarded ----
 

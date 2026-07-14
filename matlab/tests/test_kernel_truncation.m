@@ -33,6 +33,15 @@ mptDefaults('reset');
 % reset now yields the factory truncationSigmas = 6; pin Inf so the
 % exact-path comparisons below are untruncated.
 mptDefaults('truncationSigmas', Inf);
+% Inf now resolves to the 1e-12 accuracy-floor width (~7.43 sigma), not
+% literally exhaustive summation. The bit-parity assertions below
+% ("exact matches reference", "Inf is exact") need genuinely exact
+% behaviour, so widen the floor to 1e-300 (~37 sigma, effectively
+% exhaustive) for the duration of this test. This is the golden-value
+% regeneration override; it is restored explicitly at the end of the
+% file (and via onCleanup if the script exits early).
+kt_prevEps = internal.accuracyFloor('setEps', 1e-300);
+kt_epsCleanup = onCleanup(@() internal.accuracyFloor('setEps', kt_prevEps)); %#ok<NASGU>
 
 % Test data
 rng(0, 'twister');
@@ -312,6 +321,13 @@ function v = local_ref_kernel_sum(C, wJ, X, sigma, isRel, r, isPer, period)
     end
     E = reshape(exp(-Q(:) / (2 * sigma^2)), nJ, nQ);
     v = wJ' * E;
+end
+
+% Restore the accuracy-floor override (paired with the setEps at the
+% top). Explicit clear fires the onCleanup restore deterministically,
+% so the widened floor cannot leak into subsequent test files.
+if exist('kt_epsCleanup', 'var')
+    clear kt_epsCleanup
 end
 
 % Restore caller's pre-test defaults eagerly when run

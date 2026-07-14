@@ -108,6 +108,14 @@ results{end,2}   = max(abs(I_hybrid_safe(:) - I_ref_safe(:))) < 1e-10 * max(abs(
 
 %% ---- All-unsafe: hybrid uses direct enum on every pair ----
 
+% Compared at 1e-13 rtol (near bit-parity). Under the default (Inf)
+% truncation, which now resolves to the 1e-12 accuracy floor, the
+% hybrid and the direct-enum reference can drop marginally different
+% far-tail contributions and diverge at ~1e-12, above this tolerance.
+% Widen the floor to 1e-300 (effectively exhaustive) so the two are
+% compared exactly, then restore.
+hyb_prevEps = internal.accuracyFloor('setEps', 1e-300);
+
 % Two events, both with K_eff = 3 (= r, so K_eff - r = 0 < 2 -> unsafe).
 P_unsafe = [0 100; 4 200; 7 300];   % (3, 2), all events K_eff = 3
 W_unsafe = ones(3, 2);
@@ -131,6 +139,9 @@ end
 results{end+1,1} = 'maPerAttrInnerMatrix all-unsafe: hybrid matches direct-enum (1e-13 rtol)';
 results{end,2}   = all(abs(I_hybrid_unsafe(:) - I_ref_unsafe(:)) <= ...
                         1e-13 * abs(I_ref_unsafe(:)) + 1e-12);
+
+% Restore the accuracy floor (paired with the setEps above).
+internal.accuracyFloor('setEps', hyb_prevEps);
 
 % --- v2.2.x: K-grouped batched direct-enum primitive correctness ---
 % The localBatchedDirectEnumAbsSA local function (not exported) is

@@ -63,6 +63,12 @@ results{end+1,1} = 'MA rel-per centres route ragged: mobius matches bulger (1e-8
 results{end,2}   = abs(sMob - sBul) < 1e-8;
 
 % --- Unit: centres matrix == grid matrix up to one constant ---
+% The centres and grid paths agree up to a constant factor only when
+% both are computed exactly; at the default (Inf) truncation, now the
+% 1e-12 accuracy floor, the grid path's kernel truncates marginally
+% and perturbs the ratio's constancy past 1e-6. Widen the floor to
+% 1e-300 for this unit check, then restore.
+mrc_prevEps = internal.accuracyFloor('setEps', 1e-300);
 dx = makeMa(8, 4, 2, true, true, 17);
 dy = makeMa(8, 4, 2, true, true, 28);
 a = 2;   % the pitch attribute (attribute 1 is the scalar onset)
@@ -75,6 +81,9 @@ I_grid = mobius.maPerAttrInnerMatrix( ...
 ratio = I_centres ./ I_grid;
 results{end+1,1} = 'MA rel centres matrix: constant ratio to grid matrix (1e-6)';
 results{end,2}   = (max(ratio(:)) / min(ratio(:)) - 1) < 1e-6;
+
+% Restore the accuracy floor (paired with the setEps above).
+internal.accuracyFloor('setEps', mrc_prevEps);
 
 % --- Predicate behaviour ---
 PxSmall = rand(4, 10) * 1200;

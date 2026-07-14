@@ -92,6 +92,12 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
     x = reshape(x, r, n_q_total);
 
     N = numel(p);
+    % Resolve Inf to the accuracy-floor width so the absolute orbit
+    % truncates at the 1e-12 parity floor rather than summing exactly
+    % into the far tail (uniform with Python and the kernel path).
+    opts.truncationSigmas = internal.accuracyFloor('resolve', ...
+                                                   opts.truncationSigmas);
+
     inv_2s2 = 1.0 / (2 * sigma^2);
 
     % Per-block factoring (non-periodic):

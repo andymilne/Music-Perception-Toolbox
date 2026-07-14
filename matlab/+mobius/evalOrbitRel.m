@@ -335,16 +335,19 @@ end
 function eps_target = factoredTargetEps(truncationSigmas, kernelPrecision)
 %FACTOREDTARGETEPS  Read-back accuracy target from the truncation floor.
 %   Twin of _factored_target_eps: eps = exp(-k^2/2) clamped to
-%   [1e-12, 1e-3]; Inf targets 1e-12; 'single' kernels floor at 1e-7.
-    EPS_FLOOR = 1e-12;
+%   [floor, 1e-3]; Inf targets the dynamic accuracy floor; 'single'
+%   kernels floor at 1e-7. The floor is read from
+%   internal.accuracyFloor so a golden-regeneration override widens the
+%   read-back accuracy here too, matching Python.
     EPS_CEIL = 1e-3;
+    floorEps = internal.accuracyFloor('eps');
     k = truncationSigmas;
     if isfinite(k)
         eps_target = exp(-0.5 * k * k);
     else
-        eps_target = EPS_FLOOR;
+        eps_target = floorEps;
     end
-    eps_target = min(max(eps_target, EPS_FLOOR), EPS_CEIL);
+    eps_target = min(max(eps_target, floorEps), EPS_CEIL);
     if strcmp(kernelPrecision, 'single')
         eps_target = max(eps_target, 1e-7);
     end

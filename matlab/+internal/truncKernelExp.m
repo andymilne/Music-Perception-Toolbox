@@ -21,15 +21,14 @@ function out = truncKernelExp(expArg, sigma, truncationSigmas)
 %   because the r-D kernel is prod_a G(d_a; sigma * sqrt(2)) =
 %   exp(-sum_a d_a^2 / (4 sigma^2)).
 %
-%   When TRUNCATIONSIGMAS is non-finite (Inf), the full exponential
-%   is computed and no masking work is done.
+%   TRUNCATIONSIGMAS is resolved through the accuracy floor: the Inf
+%   ("exact") sentinel becomes the finite width at which the kernel
+%   falls below the 1e-12 parity floor, so truncation always applies
+%   (uniform with Python and every other truncation path).
 %
-%   See also INTERNAL.TRUNCLOGKERNELEXP, MPTDEFAULTS.
+%   See also INTERNAL.TRUNCLOGKERNELEXP, INTERNAL.ACCURACYFLOOR.
 
-    if ~isfinite(truncationSigmas)
-        out = exp(-expArg / (4 * sigma^2));
-        return;
-    end
+    truncationSigmas = internal.accuracyFloor('resolve', truncationSigmas);
     cutoff = 2 * (truncationSigmas * sigma)^2;
     mask = expArg <= cutoff;
     out = zeros(size(expArg));

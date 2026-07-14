@@ -92,7 +92,15 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
             'periodic mode requires opts.period > 0.');
     end
 
-    % Decide path. Truncation is currently exact-only on periodic mode.
+    % Resolve the truncation knob through the accuracy floor: Inf (the
+    % "exact" sentinel) becomes the finite width at which the kernel
+    % falls below the 1e-12 parity floor, uniform with Python. Periodic
+    % mode still takes the exact wrapped path regardless (its wrapped
+    % sum is not a tail-truncatable ball), matching Python.
+    opts.truncationSigmas = internal.accuracyFloor('resolve', ...
+                                                   opts.truncationSigmas);
+
+    % Decide path. Truncation is exact-only on periodic mode.
     useTruncation = isfinite(opts.truncationSigmas) ...
                  && opts.truncationSigmas > 0 ...
                  && ~opts.isPer ...

@@ -16,15 +16,13 @@ function out = truncLogKernelExp(logKernel, truncationSigmas)
 %   log-kernel case where per-attribute sigma values differ (so a
 %   single quadratic-form cutoff doesn't apply).
 %
-%   When TRUNCATIONSIGMAS is non-finite (Inf), the full exponential
-%   is computed and no masking work is done.
+%   TRUNCATIONSIGMAS is resolved through the accuracy floor: the Inf
+%   ("exact") sentinel becomes the finite parity-floor width, so
+%   truncation always applies (uniform with Python).
 %
-%   See also INTERNAL.TRUNCKERNELEXP, MPTDEFAULTS.
+%   See also INTERNAL.TRUNCKERNELEXP, INTERNAL.ACCURACYFLOOR.
 
-    if ~isfinite(truncationSigmas)
-        out = exp(logKernel);
-        return;
-    end
+    truncationSigmas = internal.accuracyFloor('resolve', truncationSigmas);
     threshold = -0.5 * truncationSigmas^2;
     mask = logKernel >= threshold;
     out = zeros(size(logKernel));

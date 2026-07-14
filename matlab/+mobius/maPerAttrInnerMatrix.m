@@ -65,7 +65,9 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     is exact for any K >= R (no Möbius alternating sum).
 %
 %   - r >= 2 rel: batched translation-grid integration with zero-pad
-%     (all event pairs at once, slab-bounded; see LOCALR2RELBATCHED).
+%     (all event pairs at once, slab-bounded; MOBIUS.RELINNERBATCHED,
+%     the single relative-mode evaluator, of which the
+%     single-collection form is the N = 1 specialisation).
 %     Auto dispatch routes most small-K rel groups to
 %     Bulger globally; this path runs only on explicit
 %     method='mobius' opt-in. Events with K_eff - R below the precision
@@ -134,8 +136,8 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 
     % --- r >= 2 rel: batched translation-grid integration, zero-pad ---
     if isRel
-        I = localR2RelBatched(Px, Wx, Py, Wy, sigma, r, isPer, period, ...
-            truncationSigmas);
+        I = mobius.relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
+            isPer, period, 'truncationSigmas', truncationSigmas);
         return;
     end
 
@@ -238,152 +240,6 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
         end
     end
     I = I * sigma * sqrt(pi);
-end
-
-
-function I = localR2RelBatched(Px, Wx, Py, Wy, sigma, r, isPer, period, ...
-                                  truncationSigmas)
-%LOCALR2RELBATCHED  r>=2 rel: batched translation-grid integration.
-%
-%   Every (event_X, event_Y) pair's relative inner product
-%   marginalises a translation u over a grid. Periodic mode uses the
-%   shared uniform grid over [0, P) with INTERNAL.AUTONTAUDEFAULT
-%   nodes — the single node-count source shared with the flat and
-%   nested relative-periodic paths. Non-periodic mode gives each pair
-%   a grid of the same shape centred on its own mean offset: by
-%   translation invariance the pair integrand depends on u only
-%   through u + (mean_Y - mean_X), so shifting each pair's window by
-%   that offset lets all pairs share one grid whose extent is the
-%   maximum within-pair spread plus a margin of
-%   max(8, truncationSigmas + 2) sigmas per side. The integrand is
-%   truncated-kernel zero at the window edges, so the plain Riemann
-%   sum equals the trapezoidal rule to machine precision.
-%
-%   The pair-and-grid batch is processed in slabs of at most
-%   SLAB_ELEMS kernel entries, built directly in the batch-first
-%   (batch, Kx, Ky) layout of MOBIUS.INNERPRODUCTORBITPWBATCHED — no
-%   permute copies — so the working set stays memory-resident and the
-%   per-op contraction cost is flat in N and K (mirroring the Python
-%   _ma_per_attr_inner_matrix_rel and the single-attribute slabbing in
-%   MOBIUS.ORBITINNERRELSA). When every event carries the same weight
-%   vector (uniform weights, no ragged padding) the cheaper
-%   shared-weights MOBIUS.INNERPRODUCTORBITGRID contraction applies.
-%
-%   Zero-padded (NaN) slots carry zero weight, contributing a zero
-%   factor to every Möbius term touching them, so the result is exact
-%   for the K_eff events.
-
-    SLAB_ELEMS = 2^19;   % mirror of Python _ORBIT_GRID_SLAB_ELEMS
-
-    [K, Nx] = size(Px);
-    [~, Ny] = size(Py);
-
-    nanX = isnan(Px) | isnan(Wx);
-    if any(nanX(:))
-        Px(nanX) = 0;
-        Wx(nanX) = 0;
-    end
-    nanY = isnan(Py) | isnan(Wy);
-    if any(nanY(:))
-        Py(nanY) = 0;
-        Wy(nanY) = 0;
-    end
-
-    sharedW = all(all(Wx == Wx(:, 1))) && all(all(Wy == Wy(:, 1)));
-
-    if isPer
-        N_u = internal.autoNtauDefault(period, sigma);
-        uGrid = (0:N_u-1) * (period / N_u);
-        du = period / N_u;
-        centres = zeros(Nx, Ny);
-    else
-        wsx = sum(Wx, 1);
-        wsy = sum(Wy, 1);
-        mx = sum(Px .* Wx, 1) ./ max(wsx, realmin);
-        my = sum(Py .* Wy, 1) ./ max(wsy, realmin);
-        centres = my - mx.';                       % (Nx, Ny)
-
-        spreadX = localWeightedSpread(Px, Wx);
-        spreadY = localWeightedSpread(Py, Wy);
-        margin = max(8, truncationSigmas + 2);
-        span = max(spreadX) + max(spreadY) + 2 * margin * sigma;
-        N_u = max(64, ceil(max(span, 1.0) / sigma * 10));
-        uGrid = linspace(-0.5 * span, 0.5 * span, N_u);
-        du = span / (N_u - 1);
-    end
-
-    PxT = Px.';                                    % (Nx, K)
-    PyT = Py.';                                    % (Ny, K)
-
-    I = zeros(Nx, Ny);
-    perPair = K * K;
-    ncx = max(1, min(Nx, floor(SLAB_ELEMS / max(Ny * perPair, 1))));
-
-    for nStart = 1:ncx:Nx
-        nEnd = min(nStart + ncx - 1, Nx);
-        idxX = nStart:nEnd;
-        nc = numel(idxX);
-        nPairs = nc * Ny;
-        n_uc = max(1, floor(SLAB_ELEMS / max(nPairs * perPair, 1)));
-
-        % Base differences with per-pair centres, dims
-        % (u, ix, iy, kx, ky) so the leading-dim reshape to
-        % (batch, Kx, Ky) needs no permute.
-        baseD = reshape(PxT(idxX, :), [1, nc, 1, K, 1]) ...
-              - reshape(PyT, [1, 1, Ny, 1, K]) ...
-              + reshape(centres(idxX, :), [1, nc, Ny, 1, 1]);
-
-        if ~sharedW
-            wA = reshape(repmat(reshape(Wx(:, idxX).', [nc, 1, K]), ...
-                                 1, Ny, 1), [nPairs, K]);
-            wB = reshape(repmat(reshape(Wy.', [1, Ny, K]), ...
-                                 nc, 1, 1), [nPairs, K]);
-        end
-
-        F_sum = zeros(nPairs, 1);
-        for uStart = 1:n_uc:N_u
-            uEnd = min(uStart + n_uc - 1, N_u);
-            u_s = uGrid(uStart:uEnd);
-            nu = numel(u_s);
-
-            diffs = baseD + reshape(u_s, [nu, 1, 1, 1, 1]);
-            if isPer
-                diffs = diffs - period * floor(diffs / period + 0.5);
-            end
-            K_uc = internal.truncKernelExp(diffs.^2, sigma, ...
-                                           truncationSigmas);
-            K_uc = reshape(K_uc, [nu * nPairs, K, K]);
-
-            if sharedW
-                flat = mobius.innerProductOrbitGrid( ...
-                    K_uc, Wx(:, 1), Wy(:, 1), r);
-            else
-                wA_uc = reshape(repmat(reshape(wA, [1, nPairs, K]), ...
-                                        nu, 1, 1), [nu * nPairs, K]);
-                wB_uc = reshape(repmat(reshape(wB, [1, nPairs, K]), ...
-                                        nu, 1, 1), [nu * nPairs, K]);
-                flat = mobius.innerProductOrbitPwBatched( ...
-                    K_uc, wA_uc, wB_uc, r);
-            end
-            F_sum = F_sum + reshape( ...
-                sum(reshape(flat, [nu, nPairs]), 1), [nPairs, 1]);
-        end
-
-        integralChunk = reshape(F_sum, [nc, Ny]) * du;
-        I(idxX, :) = integralChunk;
-    end
-
-    c = sigma * sqrt(2 * pi / r);
-    I = (sigma * sqrt(pi))^r * I / c^2;
-end
-
-
-function s = localWeightedSpread(P, W)
-%LOCALWEIGHTEDSPREAD  Per-event max-minus-min over positive-weight slots.
-    masked = P;
-    masked(W <= 0) = NaN;
-    s = max(masked, [], 1, 'omitnan') - min(masked, [], 1, 'omitnan');
-    s(~isfinite(s)) = 0;
 end
 
 

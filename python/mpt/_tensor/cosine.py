@@ -1304,9 +1304,11 @@ def _cos_sim_exp_tens_ma(
         else:
             Pxa = dens_x.p_attr[a]
             Pya = dens_y.p_attr[a]
+            from .._defaults import get_default as _gd
+            _margin = _rel_window_margin(_gd('truncation_sigmas'))
             span = (float(np.nanmax(Pxa) - np.nanmin(Pxa))
                     + float(np.nanmax(Pya) - np.nanmin(Pya))
-                    + 16.0 * float(sigma[a]))
+                    + 2.0 * _margin * float(sigma[a]))
             nu_vec[a] = max(
                 64,
                 int(np.ceil(max(span, 1.0) / float(sigma[a]) * 10.0)),
@@ -2128,6 +2130,7 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 def _ma_per_attr_inner_matrix_rel(
     Px, Wx, Py, Wy, sigma, r, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
+    samples_per_sigma=10,
 ):
     """Batched relative-mode case of ``_ma_per_attr_inner_matrix``
     (periodic and non-periodic), all (event_X, event_Y) pairs at once.
@@ -2142,12 +2145,12 @@ def _ma_per_attr_inner_matrix_rel(
     offset*: by translation invariance the integrand for pair
     (n_X, n_Y) depends on u only through u + (mean_Y - mean_X), so
     shifting each pair's window by that offset lets all pairs share
-    one grid whose extent is the maximum within-pair spread plus a
-    margin, rather than the global span of the data. The margin is
-    ``max(8, truncation_sigmas + 2)`` sigmas per side, so the
-    integrand is truncated-kernel zero at the window edges and the
-    plain Riemann sum equals the trapezoidal rule to machine
-    precision.
+    one grid whose extent is the maximum within-pair spread plus the
+    margin of :func:`_rel_window_margin` per side, rather than the
+    global span of the data. That margin places every kernel entry
+    strictly outside the truncation radius at the window edges, so the
+    endpoint integrand is exactly zero for any finite truncation and
+    the plain Riemann sum equals the trapezoidal rule exactly.
 
     The pair-and-grid batch is processed in slabs of at most
     ``_ORBIT_GRID_SLAB_ELEMS`` kernel entries, built directly in the
@@ -2164,9 +2167,16 @@ def _ma_per_attr_inner_matrix_rel(
     routing accounts for this via the dispatcher's precision guard.
 
     With ``return_cancellation_ratio=True``, additionally returns the
-    worst-case ratio across all batched Möbius cells (compatibility
-    with the flat-path API; the MA orchestrator relies on the
-    dispatcher-level post-hoc corruption check instead).
+    minimum across event pairs of the per-pair mass-aware cancellation
+    diagnostic ``|sum_u F_u| / sum_u max_orb(|term_orb_u|)`` — the
+    magnitude of each pair's integrated alternating sum relative to
+    the integral of its worst-magnitude partition term, which bounds
+    the relative error of that pair's integral. A pointwise worst-case
+    over individual (pair, u) cells is the wrong aggregate: at sharp
+    sigma, translation bands where the true integrand is exactly zero
+    arise from exact cancellation of nonzero orbit terms, and such a
+    band's pointwise ratio is ~0 while contributing nothing to any
+    integral. Pairs with zero accumulated term mass report 1.0.
 
     ``truncation_sigmas`` is honoured on the per-u kernel tensor;
     ``None`` resolves to ``mpt.get_default('truncation_sigmas')``.
@@ -2217,11 +2227,12 @@ def _ma_per_attr_inner_matrix_rel(
             s = hi - lo
             return np.where(np.isfinite(s), s, 0.0)
 
-        margin = max(8.0, float(truncation_sigmas) + 2.0)
+        margin = _rel_window_margin(truncation_sigmas)
         span = (float(np.max(_spread(Px, Wx)) + np.max(_spread(Py, Wy)))
                 + 2.0 * margin * sigma)
         N_u = max(
-            64, int(np.ceil(max(span, 1.0) / sigma * 10.0)),
+            64,
+            int(np.ceil(max(span, 1.0) / sigma * samples_per_sigma)),
         )
         u_grid = np.linspace(-0.5 * span, 0.5 * span, N_u)
         du = span / (N_u - 1)
@@ -2232,7 +2243,7 @@ def _ma_per_attr_inner_matrix_rel(
     WyT = np.ascontiguousarray(Wy.T)
 
     integral = np.zeros((N_x, N_y), dtype=np.float64)
-    worst_ratio = 1.0
+    worst_ratio = 1.0   # min over pairs of the per-pair mass-aware ratio
 
     # Slab sizing: one u-node across a row-chunk of pairs, widened in u
     # while the kernel slab stays under the element budget.
@@ -2245,10 +2256,13 @@ def _ma_per_attr_inner_matrix_rel(
         n_uc = max(1, _ORBIT_GRID_SLAB_ELEMS // max(n_pairs * per_pair, 1))
 
         # Base differences and per-pair centres for this row chunk,
-        # already in (pair-rows, pair-cols, K, K) layout.
+        # flattened to (pairs, K, K) so the u broadcast below is 4-D
+        # with no singleton axes (cheaper numpy staging than the
+        # equivalent 5-D form).
         base = (PxT[n_start:n_end, None, :, None]
                 - PyT[None, :, None, :]
-                + centres[n_start:n_end, :, None, None])
+                + centres[n_start:n_end, :, None, None]
+                ).reshape(n_pairs, K, K)
         if not shared_w:
             w_A = np.broadcast_to(
                 WxT[n_start:n_end, None, :], (nc, N_y, K),
@@ -2258,24 +2272,26 @@ def _ma_per_attr_inner_matrix_rel(
             ).reshape(n_pairs, K)
 
         F_sum = np.zeros(n_pairs, dtype=np.float64)
+        mass_sum = np.zeros(n_pairs, dtype=np.float64)
         for u_start in range(0, N_u, n_uc):
             u_end = min(u_start + n_uc, N_u)
             u_s = u_grid[u_start:u_end]
             nu = u_end - u_start
-            diffs = base[None, :, :, :, :] + u_s[:, None, None, None, None]
+            diffs = base[None, :, :, :] + u_s[:, None, None, None]
             if is_per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
             K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
             K_uc = K_uc.reshape(nu * n_pairs, K, K)
             if shared_w:
                 if return_cancellation_ratio:
-                    flat, ratios = inner_product_orbit_grid(
+                    flat, _, mass = inner_product_orbit_grid(
                         K_uc, Wx[:, 0], Wy[:, 0], r,
                         return_cancellation_ratio=True,
+                        return_term_mass=True,
                     )
                 else:
                     flat = inner_product_orbit_grid(K_uc, Wx[:, 0], Wy[:, 0], r)
-                    ratios = None
+                    mass = None
             else:
                 w_A_uc = np.broadcast_to(
                     w_A[None, :, :], (nu, n_pairs, K),
@@ -2284,20 +2300,28 @@ def _ma_per_attr_inner_matrix_rel(
                     w_B[None, :, :], (nu, n_pairs, K),
                 ).reshape(nu * n_pairs, K)
                 if return_cancellation_ratio:
-                    flat, ratios = inner_product_orbit_pw_batched(
+                    flat, _, mass = inner_product_orbit_pw_batched(
                         K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
                         return_cancellation_ratio=True,
+                        return_term_mass=True,
                     )
                 else:
                     flat = inner_product_orbit_pw_batched(
                         K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
                     )
-            if return_cancellation_ratio and ratios is not None:
-                cmin = float(np.min(ratios)) if ratios.size else 1.0
-                if cmin < worst_ratio:
-                    worst_ratio = cmin
+                    mass = None
+            if mass is not None:
+                mass_sum += mass.reshape(nu, n_pairs).sum(axis=0)
             F_sum += flat.reshape(nu, n_pairs).sum(axis=0)
 
+        if return_cancellation_ratio:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                pair_ratios = np.where(
+                    mass_sum > 0, np.abs(F_sum) / mass_sum, 1.0,
+                )
+            cmin = float(np.min(pair_ratios)) if pair_ratios.size else 1.0
+            if cmin < worst_ratio:
+                worst_ratio = cmin
         integral[n_start:n_end, :] = F_sum.reshape(nc, N_y) * du
 
     c = sigma * np.sqrt(2 * np.pi / r)
@@ -2379,6 +2403,42 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
 
+def _rel_window_margin(truncation_sigmas):
+    """Margin, in sigmas per side, of the non-periodic relative
+    translation window.
+
+    The inner-product kernel is G(d; sigma*sqrt(2)) (a convolution of
+    two sigma-kernels), and the toolbox truncation zeroes entries whose
+    kernel value falls below exp(-t^2 / 2), i.e. at distances beyond
+    sqrt(2)*t*sigma.
+
+    The margin's contract is subordination to the kernel-truncation
+    contract: the toolbox's accuracy guarantee is stated in
+    truncation-sigmas terms (t = 6 accepts ~2e-8 worst-case error;
+    t = 8 sits below the 1e-12 cross-language parity floor), so the
+    window need only keep its own error comfortably below the kernel
+    error the caller has already accepted. A margin of 8 achieves that
+    for every t: each kernel factor is at least e^-16 down at the
+    window edge, an r-tuple term needs r such factors, so the window
+    tail is bounded near 1e-14 relative independent of t (and measures
+    at ~1e-27 in practice). The rule is therefore
+    ``min(sqrt(2)*t + 0.1, 8)``: for t below ~5.59 the integrand's
+    compact support (which ends exactly sqrt(2)*t*sigma beyond the
+    extreme pair difference) fits inside the cap, so the cheaper exact
+    window is taken — the endpoint integrand vanishes identically and
+    the plain Riemann sum equals the trapezoidal rule exactly (the
+    0.1-sigma clearance is needed because the extreme pair sits
+    exactly at margin*sigma at the endpoint and the truncation mask is
+    inclusive; it exceeds the floating-point wobble of the span
+    arithmetic by ~12 orders of magnitude). For larger or disabled t
+    the margin caps at the empirically validated 8, where the window
+    error is subdominant to the kernel contract at every t.
+    """
+    if truncation_sigmas is None or not np.isfinite(truncation_sigmas):
+        return 8.0
+    return min(np.sqrt(2.0) * float(truncation_sigmas) + 0.1, 8.0)
+
+
 def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     """True when a relative attribute's inner matrices should use the
     pairwise closed form over tuple-centres rather than the
@@ -2410,9 +2470,11 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     if is_per:
         n_u = auto_ntau_default(period, sigma)
     else:
+        from .._defaults import get_default
+        margin = _rel_window_margin(get_default('truncation_sigmas'))
         span = (float(np.nanmax(Px) - np.nanmin(Px))
                 + float(np.nanmax(Py) - np.nanmin(Py))
-                + 16.0 * sigma)
+                + 2.0 * margin * sigma)
         n_u = max(64, int(np.ceil(max(span, 1.0) / sigma * 10.0)))
     grid_pair_ops = n_u * K * K
     return centres_pair_ops < grid_pair_ops
@@ -3226,118 +3288,38 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      samples_per_sigma=10, *,
                      return_cancellation_ratio=False,
                      truncation_sigmas=None):
-    """<T_A, T_B> in relative mode via Möbius machinery + translation grid.
+    """<T_A, T_B> in relative mode: the single-collection (N = 1)
+    specialisation of :func:`_ma_per_attr_inner_matrix_rel`.
 
-    Marginalises a translation u over either ``[0, P)`` (periodic) or a
-    Gaussian-supported window around the alignment of A and B
-    (non-periodic), and integrates the Möbius-evaluated kernel against u.
-    In the periodic case the node count comes from
-    :func:`auto_ntau_default`, the single shared source used by the flat
-    and nested relative-periodic paths so the same level returns the same
-    value whichever path computes it. In the non-periodic case the line
-    grid has ``samples_per_sigma`` points per σ and the
-    truncation extends 8σ beyond the natural
-    overlap window. (The earlier 4σ default truncated tails of the
-    Möbius integrand at ~5e-10 — small per kernel value, but
-    enough to corrupt the auto-inner products at ~1e-6 relative
-    precision once Möbius cancellation amplified them. 8σ pushes the
-    truncation tail to FP noise; 12σ is empirically no improvement.)
+    All conventions are the batched core's: the shared ``[0, P)``
+    grid with :func:`auto_ntau_default` nodes in periodic mode; in
+    non-periodic mode a window of width
+    ``spread_a + spread_b + 2 * _rel_window_margin(t) * sigma``
+    centred on the weighted-mean offset, with ``samples_per_sigma``
+    nodes per sigma, evaluated by plain Riemann sum (the margin places
+    every kernel entry strictly outside the truncation radius at the
+    window edges, so the endpoint integrand is exactly zero and the
+    Riemann sum equals the trapezoidal rule exactly);
+    slab-bounded contraction; and, when requested, the mass-aware
+    cancellation diagnostic
+    ``|sum_u F_u| / sum_u max_orb(|term_orb_u|)``.
 
-    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
-    where ratio is the mass-aware global cancellation diagnostic
-    ``|sum_u F_u| / sum_u max_orb(|term_orb_u|)``: the magnitude of the
-    integrated alternating sum relative to the integral of the
-    worst-magnitude partition term. This bounds the relative error of
-    the integral (absolute error ≈ eps × denominator × du), which is
-    the quantity the acceptance threshold protects. A pointwise
-    worst-case over the u-grid is the wrong aggregate here: at sharp
-    σ, translation bands where only one event pair falls inside the
-    kernel support have a true integrand of exactly zero produced by
-    exact cancellation of nonzero orbit terms, so a pointwise ratio at
-    such a band is ~0 while the band contributes nothing to the
-    integral.
-
-    ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
-    to the global default.
-
-    The translation grid is processed in slabs of at most
-    ``_ORBIT_GRID_SLAB_ELEMS`` kernel entries. The kernel stack for a
-    slab, together with the per-orbit permute and power copies the
-    contraction makes of it, then stays memory-resident, so the
-    per-op cost of the contraction is flat in K rather than degrading
-    once the full (N_u, K_a, K_b) stack outgrows cache; and the peak
-    memory footprint is bounded by the slab size rather than growing
-    as N_u * K_a * K_b. The integral, the global cancellation ratio's
-    numerator and denominator, and (non-periodic) the endpoint
-    correction all accumulate across slabs, so the slabbing changes
-    only summation order.
+    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``.
     """
-    from .._mobius import inner_product_orbit_grid
-    from .._defaults import get_default
-    from ._nested_contraction import auto_ntau_default
-
-    if truncation_sigmas is None:
-        truncation_sigmas = get_default('truncation_sigmas')
-
-    if is_per:
-        N_u = auto_ntau_default(period, sigma)
-        u_grid = np.linspace(0.0, period, N_u, endpoint=False)
-        du = period / N_u
-    else:
-        u_min = p_b.min() - p_a.max() - 8.0 * sigma
-        u_max = p_b.max() - p_a.min() + 8.0 * sigma
-        N_u = max(
-            64,
-            int(np.ceil(max(u_max - u_min, 1.0) / sigma * samples_per_sigma)),
-        )
-        u_grid = np.linspace(u_min, u_max, N_u)
-        du = (u_max - u_min) / (N_u - 1)
-
-    K_a = int(p_a.shape[0])
-    K_b = int(p_b.shape[0])
-    slab_n = max(1, _ORBIT_GRID_SLAB_ELEMS // max(K_a * K_b, 1))
-
-    F_sum = 0.0
-    F_first = 0.0
-    F_last = 0.0
-    term_mass_sum = 0.0
-    for start in range(0, N_u, slab_n):
-        u_s = u_grid[start:start + slab_n]
-        diffs = (p_a[None, :, None] - p_b[None, None, :]
-                 + u_s[:, None, None])
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_u = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-        if return_cancellation_ratio:
-            F, _, term_mass = inner_product_orbit_grid(
-                K_u, w_a, w_b, r,
-                return_cancellation_ratio=True, return_term_mass=True,
-            )
-            term_mass_sum += float(term_mass.sum())
-        else:
-            F = inner_product_orbit_grid(K_u, w_a, w_b, r)
-        F_sum += float(F.sum())
-        if start == 0:
-            F_first = float(F[0])
-        if start + slab_n >= N_u:
-            F_last = float(F[-1])
-
-    if is_per:
-        integral = F_sum * du
-    else:
-        # Trapezoidal rule on the uniform line grid: du * (sum - half
-        # the endpoints), accumulated across slabs.
-        integral = du * (F_sum - 0.5 * (F_first + F_last))
-    c = sigma * np.sqrt(2 * np.pi / r)
-    value = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
+    Pa = np.asarray(p_a, dtype=np.float64).reshape(-1, 1)
+    Pb = np.asarray(p_b, dtype=np.float64).reshape(-1, 1)
+    Wa = np.asarray(w_a, dtype=np.float64).reshape(-1, 1)
+    Wb = np.asarray(w_b, dtype=np.float64).reshape(-1, 1)
+    out = _ma_per_attr_inner_matrix_rel(
+        Pa, Wa, Pb, Wb, sigma, r, is_per, period,
+        return_cancellation_ratio=return_cancellation_ratio,
+        truncation_sigmas=truncation_sigmas,
+        samples_per_sigma=samples_per_sigma,
+    )
     if return_cancellation_ratio:
-        if term_mass_sum > 0:
-            ratio = float(abs(F_sum) / term_mass_sum)
-        else:
-            ratio = 1.0
-        return value, ratio
-    return value
-
+        I, ratio = out
+        return float(I[0, 0]), float(ratio)
+    return float(out[0, 0])
 
 
 def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):

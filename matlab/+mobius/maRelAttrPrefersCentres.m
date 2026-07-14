@@ -36,9 +36,10 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
     if isPer
         n_u = internal.autoNtauDefault(period, sigma);
     else
+        margin = internal.relWindowMargin(mptDefaults('truncationSigmas'));
         span = (max(Px(:), [], 'omitnan') - min(Px(:), [], 'omitnan')) ...
              + (max(Py(:), [], 'omitnan') - min(Py(:), [], 'omitnan')) ...
-             + 16 * sigma;
+             + 2 * margin * sigma;
         n_u = max(64, ceil(max(span, 1.0) / sigma * 10));
     end
     gridPairOps = n_u * K * K;

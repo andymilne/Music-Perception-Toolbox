@@ -843,6 +843,7 @@ def inner_product_orbit_pw_batched(
     *,
     prefactor: float = 1.0,
     return_cancellation_ratio: bool = False,
+    return_term_mass: bool = False,
 ) -> np.ndarray:
     """Per-grid-point weights variant of :func:`inner_product_orbit_grid`.
 
@@ -875,7 +876,9 @@ def inner_product_orbit_pw_batched(
     ndarray, shape (N,)
         The orbit-Möbius inner product evaluated at each batch index.
         If ``return_cancellation_ratio`` is True, returns a 2-tuple
-        ``(values, ratios)``.
+        ``(values, ratios)``; with ``return_term_mass`` also True, a
+        3-tuple ``(values, ratios, term_mass)`` (mirror of
+        :func:`inner_product_orbit_grid`).
 
     Notes
     -----
@@ -916,6 +919,8 @@ def inner_product_orbit_pw_batched(
                 np.abs(total) / max_abs_term,
                 1.0,
             )
+        if return_term_mass:
+            return values, ratios, prefactor * max_abs_term
         return values, ratios
     return values
 

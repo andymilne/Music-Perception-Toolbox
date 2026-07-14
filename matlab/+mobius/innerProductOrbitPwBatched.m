@@ -1,4 +1,4 @@
-function [vals, ratios] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g, r, opts)
+function [vals, ratios, termMass] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g, r, opts)
 %MOBIUS.INNERPRODUCTORBITPWBATCHED  Per-grid-point weights orbit IP.
 %
 %   VALS = MOBIUS.INNERPRODUCTORBITPWBATCHED(K_G, W_A_G, W_B_G, R)
@@ -86,5 +86,11 @@ function [vals, ratios] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g, r, opts)
         ratios(nz) = abs(total(nz)) ./ maxAbsTerm(nz);
     else
         ratios = [];
+    end
+    if nargout > 2
+        % Mirror of the Python primitive's return_term_mass: the
+        % per-cell integral of the worst-magnitude partition term,
+        % the denominator of the mass-aware cancellation diagnostic.
+        termMass = opts.prefactor * maxAbsTerm;
     end
 end

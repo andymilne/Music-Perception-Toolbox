@@ -38,11 +38,17 @@ function [chosen, routingReason] = selectMaEval(dens, verbose)
     ORBIT_R_MAX_FEASIBLE = 10;
     ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03;
     % Calibratable crossover margin favouring the factored Möbius path.
-    % PROVISIONAL Python-shape value (2.0) pending MATLAB calibration from
-    % tests/bench_ma_dispatch.m; the raw op-count understates Möbius's
-    % advantage, and Möbius is failure-safe (bounded cost) so near-ties
-    % break toward it.
-    MA_CENTRES_DOMINANCE = 2.0;
+    % CALIBRATED FROM MATLAB TIMINGS (bench_ma_eval_dispatch.m), and
+    % deliberately NOT the Python value (2.0): MATLAB's factored path
+    % carries a higher fixed per-call overhead (each evalOrbitAbs/Rel
+    % call, the u-grid quadrature), so the centres path wins at small
+    % shapes where Python's Möbius still won. The measured crossover sits
+    % at op-count ratio orbit/joint ~ 0.15-0.20 (Möbius wins below ~0.14,
+    % centres wins above ~0.21), so Möbius is chosen only when its cost
+    % is well below the joint tuple count. This is the opposite bias to
+    % Python and is exactly the per-language calibration the harness
+    % exists to establish.
+    MA_CENTRES_DOMINANCE = 0.17;
     BELL = [1 2 5 15 52 203 877 4140 21147 115975];  % B_1..B_10
 
     A       = double(dens.nAttrs);

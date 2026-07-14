@@ -316,7 +316,7 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                 X = internal.whitenQuery(dens_ma, X);
             end
             vals = localEvalMA(dens_ma, X, normalize, verbose, ...
-                truncationSigmas, kernelPrecision);
+                truncationSigmas, kernelPrecision, method);
             if ~strcmp(normalize, 'none') && ...
                     internal.densityHasKernelCov(dens_ma)
                 vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
@@ -1299,13 +1299,18 @@ end
 
 
 function vals = localEvalMA(dens, X, normalize, verbose, ...
-        truncationSigmas, kernelPrecision)
+        truncationSigmas, kernelPrecision, method)
 %LOCALEVALMA  Evaluate a MaetDensity at query points.
 %
 %   Accepts X as either a 1 x A cell of per-attribute query matrices
 %   (each dim_a x nQ), or a single dim x nQ matrix with attribute rows
 %   stacked in attribute order. A 1-D input is coerced to 1 x nQ and is
 %   valid only when the total dim equals 1.
+%
+%   Dispatches between the joint-centres accumulator (below) and the
+%   factored Möbius evaluator MOBIUS.EVALMAORBIT via
+%   INTERNAL.SELECTMAEVAL, unless METHOD forces a route. The factored
+%   path shares the same normalisation as the centres path.
 %
 %   The truncationSigmas and kernelPrecision kwargs control numerical
 %   mode of the inner Q-accumulator. Single precision casts
@@ -1318,6 +1323,9 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     end
     if nargin < 6
         kernelPrecision = [];
+    end
+    if nargin < 7 || isempty(method)
+        method = 'auto';
     end
 
     A          = dens.nAttrs;
@@ -1424,6 +1432,47 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         return;
     end
 
+    % --- Path dispatch: factored Möbius vs joint-centres accumulator ---
+    % User overrides are honoured; 'auto' consults the cost model. The
+    % factored evaluator (mobius.evalMaOrbit) returns the raw density,
+    % which the shared normalisation block below scales identically to
+    % the centres path, so the two routes agree up to that normalisation.
+    if strcmp(method, 'centres') || strcmp(method, 'direct')
+        maChosen = 'centres';
+        maReason = 'user override';
+    elseif strcmp(method, 'mobius')
+        maChosen = 'mobius';
+        maReason = 'user override';
+    else
+        [maChosen, maReason] = internal.selectMaEval(dens, verbose);
+    end
+    internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, ...
+        maReason, [], false);
+
+    if strcmp(maChosen, 'mobius')
+        % Reconstruct the joint (D, nQ) query from the per-attribute
+        % blocks and evaluate the factored orbit form.
+        Xjoint = zeros(dim, nQ);
+        rs = 1;
+        for a = 1:A
+            re = rs + dimPerAttr(a) - 1;
+            Xjoint(rs:re, :) = Xc{a};
+            rs = re + 1;
+        end
+        vArgs = {};
+        if ~isempty(truncationSigmas)
+            vArgs = [vArgs, {'truncationSigmas', truncationSigmas}];
+        end
+        if ~isempty(kernelPrecision)
+            vArgs = [vArgs, {'kernelPrecision', kernelPrecision}];
+        end
+        valsRaw = mobius.evalMaOrbit(dens, Xjoint, vArgs{:});
+        vals = valsRaw(:).';   % row, matching the centres path shape
+        vals = localMaNormalise(vals, dens, normalize, ...
+            dimPerAttr, innerR, sigmaG, wJ, A);
+        return;
+    end
+
     % --- Estimated computation time (use total dim as a conservative proxy) ---
     nPairs = double(N_J) * double(nQ);
     estimateCompTime(nPairs, dim, 'evalExpTens (MAET)', verbose);
@@ -1459,36 +1508,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 
     % --- Normalisation ---
 
-    if strcmp(normalize, 'gaussian') || strcmp(normalize, 'pdf')
-        gaussConst = 1;
-        for a = 1:A
-            da = dimPerAttr(a);
-            if innerR(a) >= 2
-                % Block-diagonal co-transposition metric: G_u blocks, each
-                % the relative quotient of an s_u-tuple (det 1/s_u), so the
-                % reduced determinant is (1/s_u)^G_u.
-                Gu = r_(a) / innerR(a);
-                detM_a = (1 / innerR(a))^Gu;
-            elseif isRelG(a) && r_(a) >= 2
-                detM_a = 1 / r_(a);
-            else
-                detM_a = 1;
-            end
-            gaussConst = gaussConst * ...
-                (2 * pi * sigmaG(a)^2)^(-da / 2) * sqrt(detM_a);
-        end
-        vals = vals * gaussConst;
-
-        if strcmp(normalize, 'pdf')
-            sumW = sum(wJ);
-            if sumW > 0
-                vals = vals / sumW;
-            else
-                warning('evalExpTens:zeroSumW', ...
-                        'Sum of weight products is zero; cannot normalise to pdf.');
-            end
-        end
-    end
+    vals = localMaNormalise(vals, dens, normalize, ...
+        dimPerAttr, innerR, sigmaG, wJ, A);
 
     % =====================================================================
     %  Inner helper: full MAET evaluation (single chunk)
@@ -1954,5 +1975,45 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
         end
         vals(k, :) = evalExpTens(pK, wK, sigma, r, isRel, isPer, period, ...
             X, normalize, 'verbose', verbose);
+    end
+end
+
+
+function vals = localMaNormalise(vals, dens, normalize, ...
+        dimPerAttr, innerR, sigmaG, wJ, A)
+%LOCALMANORMALISE  Shared MA normalisation for the centres and factored paths.
+%   Applies the per-attribute Gaussian constant (with the co-transposition
+%   block-diagonal metric determinant) for 'gaussian'/'pdf', then divides
+%   by the total weight-product mass for 'pdf'. Identical for both the
+%   joint-centres accumulator and the factored Möbius evaluator, so the
+%   two routes agree up to this scaling. Twin of python _ma_eval_normalize.
+    if ~(strcmp(normalize, 'gaussian') || strcmp(normalize, 'pdf'))
+        return;
+    end
+    r_    = dens.r;
+    isRelG = dens.isRel;
+    gaussConst = 1;
+    for a = 1:A
+        da = dimPerAttr(a);
+        if innerR(a) >= 2
+            Gu = r_(a) / innerR(a);
+            detM_a = (1 / innerR(a))^Gu;
+        elseif isRelG(a) && r_(a) >= 2
+            detM_a = 1 / r_(a);
+        else
+            detM_a = 1;
+        end
+        gaussConst = gaussConst * ...
+            (2 * pi * sigmaG(a)^2)^(-da / 2) * sqrt(detM_a);
+    end
+    vals = vals * gaussConst;
+    if strcmp(normalize, 'pdf')
+        sumW = sum(wJ);
+        if sumW > 0
+            vals = vals / sumW;
+        else
+            warning('evalExpTens:zeroSumW', ...
+                    'Sum of weight products is zero; cannot normalise to pdf.');
+        end
     end
 end

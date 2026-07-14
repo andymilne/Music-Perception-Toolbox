@@ -1138,6 +1138,8 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         return;
     end
     if r > 8   % _ORBIT_R_MAX_SHIPPED
+        internal.guardForcedBulgerFeasible(K_x, K_y, r, ...
+            sprintf('r = %d > 8 (Möbius infeasible)', r));
         chosen = 'bulger';
         probed = false;
         estSec = 0;
@@ -1145,6 +1147,8 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
         return;
     end
     if (n_min - r) < 2   % _ORBIT_K_MINUS_R_MIN
+        internal.guardForcedBulgerFeasible(K_x, K_y, r, ...
+            sprintf('min(K_x, K_y) - r = %d < 2 (Möbius precision)', n_min - r));
         chosen = 'bulger';
         probed = false;
         estSec = 0;

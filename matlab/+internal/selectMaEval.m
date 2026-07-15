@@ -38,17 +38,22 @@ function [chosen, routingReason] = selectMaEval(dens, verbose)
     ORBIT_R_MAX_FEASIBLE = 10;
     ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03;
     % Calibratable crossover margin favouring the factored Möbius path.
-    % CALIBRATED FROM MATLAB TIMINGS (bench_ma_eval_dispatch.m), and
-    % deliberately NOT the Python value (2.0): MATLAB's factored path
-    % carries a higher fixed per-call overhead (each evalOrbitAbs/Rel
-    % call, the u-grid quadrature), so the centres path wins at small
-    % shapes where Python's Möbius still won. The measured crossover sits
-    % at op-count ratio orbit/joint ~ 0.15-0.20 (Möbius wins below ~0.14,
-    % centres wins above ~0.21), so Möbius is chosen only when its cost
-    % is well below the joint tuple count. This is the opposite bias to
-    % Python and is exactly the per-language calibration the harness
-    % exists to establish.
-    MA_CENTRES_DOMINANCE = 0.17;
+    % CALIBRATED FROM STEADY-STATE MATLAB TIMINGS (bench_ma_eval_dispatch.m
+    % run repeatedly in one session, no clear all, so the orbit-table and
+    % file caches are warm --- the state a real user's session reaches
+    % after first use). Warm, MATLAB matches Python: the factored path
+    % wins every absolute cell on the measured grid, and the small-K
+    % relative cells (where the u-grid quadrature genuinely costs) are
+    % routed to centres by the N_u factor in orbit_cost below, not by
+    % this constant. Any value >= 1.0 gives zero mispicks; 2.0 matches
+    % Python and sits with margin in the zero-mispick region.
+    %
+    % Cold-start timings (first run after clear all) are NOT
+    % representative: they over-report Möbius cost by 2-4x from one-time
+    % cache warming and suggest a spuriously low crossover (~0.17). Any
+    % recalibration must warm the caches first (run the bench a few times
+    % and read the last), or it will mis-set this constant.
+    MA_CENTRES_DOMINANCE = 2.0;
     BELL = [1 2 5 15 52 203 877 4140 21147 115975];  % B_1..B_10
 
     A       = double(dens.nAttrs);

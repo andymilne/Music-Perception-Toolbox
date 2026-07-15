@@ -312,6 +312,13 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
     % (mirrors Python's is_sa_shaped / sa_view routing).
     if internal.isSaShaped(firstArg)
         dens = internal.saView(internal.ensureExpTensExpensive(firstArg));
+        % A single-collection density accepts the multi-attribute cell
+        % query form {X} as well as a bare matrix X; unwrap the single
+        % attribute so the SA dimension check and evaluation see the
+        % matrix (Python's SA path accepts both forms identically).
+        if iscell(X) && isscalar(X)
+            X = X{1};
+        end
         % fall through to the single-collection dispatch below.
     else
     switch firstArg.tag
@@ -424,6 +431,9 @@ elseif isnumeric(firstArg)
     % Build skinny: Möbius branch may not need heavy fields.
     dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
                         isPer_arg, J_arg, symArgs{:}, 'verbose', verbose);
+    % The vector build returns a single-collection MaetDensity; the SA
+    % dispatch below reads the SA field names, so view it.
+    dens = internal.saView(dens);
     % Fall through to SA dispatch.
 
 % --- 4. Else: usage error ---

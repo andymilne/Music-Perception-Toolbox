@@ -83,10 +83,15 @@ function dens = ensureExpTensExpensive(dens)
 
     switch dens.tag
         case 'ExpTensDensity'
-            dens = buildExpTens( ...
+            % A single-collection (SA) view / legacy struct: rebuild the
+            % expensive fields via the vector build (which returns a
+            % MaetDensity at A = 1), then re-view so the result keeps the
+            % single-collection layout the caller expects (SA in, SA out).
+            rebuilt = buildExpTens( ...
                 dens.p, dens.w, dens.sigma, dens.r, ...
                 dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
                 'lazy', false, 'verbose', false);
+            dens = internal.saView(rebuilt);
 
         case 'MaetDensity'
             dens = buildExpTens( ...

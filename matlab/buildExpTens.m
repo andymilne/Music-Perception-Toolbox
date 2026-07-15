@@ -413,32 +413,16 @@ function dens = localBuildSA(posArgs, verbose, lazy)
         end
     end
 
-    dim = r - isRel;
-
-    % --- Pack skinny struct (cheap fields only) ---
-    dens = struct();
-    dens.tag    = 'ExpTensDensity';
-    dens.p      = p;
-    dens.w      = w;
-    dens.sigma  = sigma;
-    dens.r      = r;
-    dens.isRel  = isRel;
-    dens.isPer  = isPer;
-    dens.period = period;
-    dens.isSym  = isSym;
-    dens.dim    = dim;
-
-    if lazy
-        if verbose
-            fprintf(['buildExpTens: skinny density (%d values, r = %d); ' ...
-                     'per-tuple fields populated lazily on first consumer use.\n'], ...
-                    numel(p), r);
-        end
-        return
-    end
-
-    % --- Populate expensive fields (eager mode) ---
-    dens = localFillSAExpensive(dens, verbose);
+    % --- Build as a single-attribute MaetDensity (A = 1) ---
+    % A single-attribute density is a MaetDensity at the A = N = 1
+    % corner: package the scalar parameters as one-attribute cell /
+    % vector inputs and delegate to the multi-attribute build, so there
+    % is one density type and one materialisation path. Single-collection
+    % consumers read the SA field names through internal.saView. The
+    % r = 1 unique-collapse and degenerate-rel warning above have already
+    % been applied to p and w.
+    saPosArgs = {{p}, {w}, sigma, r, isRel, isPer, period, isSym};
+    dens = localBuildMA(saPosArgs, verbose, lazy, {[]}, {});
 end
 
 

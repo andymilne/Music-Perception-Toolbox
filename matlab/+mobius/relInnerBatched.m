@@ -68,8 +68,8 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 
     SLAB_ELEMS = 2^19;   % mirror of Python _ORBIT_GRID_SLAB_ELEMS
 
-    [K, Nx] = size(Px);
-    [~, Ny] = size(Py);
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
 
     nanX = isnan(Px) | isnan(Wx);
     if any(nanX(:))
@@ -105,11 +105,11 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         du = span / (N_u - 1);
     end
 
-    PxT = Px.';                                    % (Nx, K)
-    PyT = Py.';                                    % (Ny, K)
+    PxT = Px.';                                    % (Nx, Kx)
+    PyT = Py.';                                    % (Ny, Ky)
 
     I = zeros(Nx, Ny);
-    perPair = K * K;
+    perPair = Kx * Ky;
     ncx = max(1, min(Nx, floor(SLAB_ELEMS / max(Ny * perPair, 1))));
 
     for nStart = 1:ncx:Nx
@@ -120,22 +120,23 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         n_uc = max(1, floor(SLAB_ELEMS / max(nPairs * perPair, 1)));
 
         % Base differences with per-pair centres, built in
-        % (u, ix, iy, kx, ky) dims and flattened to (1, pairs, K, K)
+        % (u, ix, iy, kx, ky) dims and flattened to (1, pairs, Kx, Ky)
         % so the u broadcast below is 4-D with no singleton axes
         % (mirror of the Python staging; the (ix, iy) merge is a free
         % column-major reshape and downstream page ordering is
-        % unchanged).
+        % unchanged). The two collections may differ in size, so the
+        % A-side carries Kx pitches on axis 4 and the B-side Ky on axis 5.
         baseD = reshape( ...
-            reshape(PxT(idxX, :), [1, nc, 1, K, 1]) ...
-          - reshape(PyT, [1, 1, Ny, 1, K]) ...
+            reshape(PxT(idxX, :), [1, nc, 1, Kx, 1]) ...
+          - reshape(PyT, [1, 1, Ny, 1, Ky]) ...
           + reshape(centres(idxX, :), [1, nc, Ny, 1, 1]), ...
-            [1, nPairs, K, K]);
+            [1, nPairs, Kx, Ky]);
 
         if ~sharedW
-            wA = reshape(repmat(reshape(Wx(:, idxX).', [nc, 1, K]), ...
-                                 1, Ny, 1), [nPairs, K]);
-            wB = reshape(repmat(reshape(Wy.', [1, Ny, K]), ...
-                                 nc, 1, 1), [nPairs, K]);
+            wA = reshape(repmat(reshape(Wx(:, idxX).', [nc, 1, Kx]), ...
+                                 1, Ny, 1), [nPairs, Kx]);
+            wB = reshape(repmat(reshape(Wy.', [1, Ny, Ky]), ...
+                                 nc, 1, 1), [nPairs, Ky]);
         end
 
         F_sum = zeros(nPairs, 1);
@@ -151,7 +152,7 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
             end
             K_uc = internal.truncKernelExp(diffs.^2, sigma, ...
                                            truncationSigmas);
-            K_uc = reshape(K_uc, [nu * nPairs, K, K]);
+            K_uc = reshape(K_uc, [nu * nPairs, Kx, Ky]);
 
             if sharedW
                 if wantRatio
@@ -164,10 +165,10 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
                     mass = [];
                 end
             else
-                wA_uc = reshape(repmat(reshape(wA, [1, nPairs, K]), ...
-                                        nu, 1, 1), [nu * nPairs, K]);
-                wB_uc = reshape(repmat(reshape(wB, [1, nPairs, K]), ...
-                                        nu, 1, 1), [nu * nPairs, K]);
+                wA_uc = reshape(repmat(reshape(wA, [1, nPairs, Kx]), ...
+                                        nu, 1, 1), [nu * nPairs, Kx]);
+                wB_uc = reshape(repmat(reshape(wB, [1, nPairs, Ky]), ...
+                                        nu, 1, 1), [nu * nPairs, Ky]);
                 if wantRatio
                     [flat, ~, mass] = mobius.innerProductOrbitPwBatched( ...
                         K_uc, wA_uc, wB_uc, r, ...

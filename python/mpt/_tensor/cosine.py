@@ -50,6 +50,8 @@ from .density import (
     MaetDensity,
     WindowedMaetDensity,
     _nchoosek_indices,
+    sa_view,
+    is_sa_shaped,
 )
 from .dispatch import (
     _compute_Q,
@@ -369,6 +371,14 @@ def cos_sim_exp_tens(*args,
         # output of translate_attributes produces.
         a_is_list = isinstance(a[0], (list, tuple))
         b = args[2] if len(args) >= 3 else None
+        if b is not None and not _looks_like_multi_attr(b):
+            raise TypeError(
+                "Raw operands must use the same input form: the first "
+                "operand is multi-attribute (a list of per-attribute "
+                "matrices) but the second is a flat vector. Use the same "
+                "form for both, or build each density explicitly with "
+                "build_exp_tens."
+            )
         b_is_list = (
             _looks_like_multi_attr(b)
             and isinstance(b[0], (list, tuple))
@@ -604,6 +614,7 @@ def _compute_pair_results_with_dedup_sa(
     pair_canon_idx: list[int] = []
     unique_pair_list: list = []
 
+    pairs = [(sa_view(a), sa_view(b)) for a, b in pairs]
     for a, b in pairs:
         key_a, key_b, _, _, _, _ = _pair_canonical_key(
             a.p, a.w, b.p, b.w,
@@ -760,6 +771,20 @@ def _cos_sim_pair_core(
                 "without); inner products require a shared kernel per "
                 "attribute."
             )
+    # Single-collection corner (both operands A = N = 1, flat): route
+    # through the single-collection pipeline, whose probe-based
+    # dispatch and validation-with-fallback serve this shape;
+    # shape-gated, not type-gated.
+    if is_sa_shaped(dens_x) and is_sa_shaped(dens_y):
+        return _cos_sim_exp_tens_sa(
+            sa_view(dens_x), sa_view(dens_y),
+            method=method,
+            normalize=normalize,
+            cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            verbose=verbose,
+        )
     if isinstance(dens_x, MaetDensity):
         if not isinstance(dens_y, MaetDensity):
             raise TypeError(
@@ -1078,6 +1103,11 @@ def _cos_sim_exp_tens_sa(
     the Möbius method is selected and the result agrees with v2.1 to
     floating-point precision.
     """
+    # Single-collection view: evaluation below reads one layout
+    # regardless of which density class arrived (idempotent for
+    # ExpTensDensity).
+    dens_x = sa_view(dens_x)
+    dens_y = sa_view(dens_y)
     dens_x = dens_x.pruned()
     dens_y = dens_y.pruned()
     if dens_x.r != dens_y.r:
@@ -1588,11 +1618,14 @@ def _trunc_kernel_exp(exp_arg, sigma, truncation_sigmas):
     because the r-D kernel is ``Π_a G(d_a; σ√2) = exp(-Σ_a d_a² /
     (4 σ²))``.
 
-    When ``truncation_sigmas`` is ``None`` or non-finite, the full
-    exponential is computed and no masking work is done.
+    When ``truncation_sigmas`` is ``None`` it resolves against the
+    global default. The "exact" sentinel ``math.inf`` resolves to the
+    finite accuracy-floor width (:func:`mpt._defaults.accuracy_floor_sigmas`,
+    default 1e-12), uniformly with every other truncation path, so
+    truncation always applies.
     """
-    if truncation_sigmas is None or not np.isfinite(truncation_sigmas):
-        return np.exp(-exp_arg / (4 * sigma ** 2))
+    from .._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     cutoff = 2.0 * (truncation_sigmas * sigma) ** 2
     mask = exp_arg <= cutoff
     out = np.zeros_like(exp_arg)
@@ -1617,11 +1650,13 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas):
     cleanly to the MA log-kernel case where per-attribute σ values
     differ (so a single quadratic-form cutoff doesn't apply).
 
-    When ``truncation_sigmas`` is ``None`` or non-finite, the full
-    exponential is computed and no masking work is done.
+    When ``truncation_sigmas`` is ``None`` it resolves against the
+    global default. The "exact" sentinel ``math.inf`` resolves to the
+    finite accuracy-floor width, uniformly with every other truncation
+    path, so truncation always applies.
     """
-    if truncation_sigmas is None or not np.isfinite(truncation_sigmas):
-        return np.exp(log_kernel)
+    from .._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     threshold = -0.5 * truncation_sigmas ** 2
     mask = log_kernel >= threshold
     out = np.zeros_like(log_kernel)
@@ -2191,8 +2226,8 @@ def _ma_per_attr_inner_matrix_rel(
     if truncation_sigmas is None:
         truncation_sigmas = get_default('truncation_sigmas')
 
-    K, N_x = Px.shape
-    _, N_y = Py.shape
+    K_x, N_x = Px.shape
+    K_y, N_y = Py.shape
 
     # Shared-weights fast path: when every event carries the same
     # weight vector on this attribute (the common case — uniform
@@ -2237,8 +2272,8 @@ def _ma_per_attr_inner_matrix_rel(
         u_grid = np.linspace(-0.5 * span, 0.5 * span, N_u)
         du = span / (N_u - 1)
 
-    PxT = np.ascontiguousarray(Px.T)                 # (N_x, K)
-    PyT = np.ascontiguousarray(Py.T)                 # (N_y, K)
+    PxT = np.ascontiguousarray(Px.T)                 # (N_x, K_x)
+    PyT = np.ascontiguousarray(Py.T)                 # (N_y, K_y)
     WxT = np.ascontiguousarray(Wx.T)
     WyT = np.ascontiguousarray(Wy.T)
 
@@ -2247,7 +2282,7 @@ def _ma_per_attr_inner_matrix_rel(
 
     # Slab sizing: one u-node across a row-chunk of pairs, widened in u
     # while the kernel slab stays under the element budget.
-    per_pair = K * K
+    per_pair = K_x * K_y
     nc_x = max(1, min(N_x, _ORBIT_GRID_SLAB_ELEMS // max(N_y * per_pair, 1)))
     for n_start in range(0, N_x, nc_x):
         n_end = min(n_start + nc_x, N_x)
@@ -2256,20 +2291,21 @@ def _ma_per_attr_inner_matrix_rel(
         n_uc = max(1, _ORBIT_GRID_SLAB_ELEMS // max(n_pairs * per_pair, 1))
 
         # Base differences and per-pair centres for this row chunk,
-        # flattened to (pairs, K, K) so the u broadcast below is 4-D
+        # flattened to (pairs, K_x, K_y) so the u broadcast below is 4-D
         # with no singleton axes (cheaper numpy staging than the
-        # equivalent 5-D form).
+        # equivalent 5-D form). The two collections may differ in size,
+        # so the A-side carries K_x pitches and the B-side K_y.
         base = (PxT[n_start:n_end, None, :, None]
                 - PyT[None, :, None, :]
                 + centres[n_start:n_end, :, None, None]
-                ).reshape(n_pairs, K, K)
+                ).reshape(n_pairs, K_x, K_y)
         if not shared_w:
             w_A = np.broadcast_to(
-                WxT[n_start:n_end, None, :], (nc, N_y, K),
-            ).reshape(n_pairs, K)
+                WxT[n_start:n_end, None, :], (nc, N_y, K_x),
+            ).reshape(n_pairs, K_x)
             w_B = np.broadcast_to(
-                WyT[None, :, :], (nc, N_y, K),
-            ).reshape(n_pairs, K)
+                WyT[None, :, :], (nc, N_y, K_y),
+            ).reshape(n_pairs, K_y)
 
         F_sum = np.zeros(n_pairs, dtype=np.float64)
         mass_sum = np.zeros(n_pairs, dtype=np.float64)
@@ -2281,7 +2317,7 @@ def _ma_per_attr_inner_matrix_rel(
             if is_per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
             K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-            K_uc = K_uc.reshape(nu * n_pairs, K, K)
+            K_uc = K_uc.reshape(nu * n_pairs, K_x, K_y)
             if shared_w:
                 if return_cancellation_ratio:
                     flat, _, mass = inner_product_orbit_grid(
@@ -2294,11 +2330,11 @@ def _ma_per_attr_inner_matrix_rel(
                     mass = None
             else:
                 w_A_uc = np.broadcast_to(
-                    w_A[None, :, :], (nu, n_pairs, K),
-                ).reshape(nu * n_pairs, K)
+                    w_A[None, :, :], (nu, n_pairs, K_x),
+                ).reshape(nu * n_pairs, K_x)
                 w_B_uc = np.broadcast_to(
-                    w_B[None, :, :], (nu, n_pairs, K),
-                ).reshape(nu * n_pairs, K)
+                    w_B[None, :, :], (nu, n_pairs, K_y),
+                ).reshape(nu * n_pairs, K_y)
                 if return_cancellation_ratio:
                     flat, _, mass = inner_product_orbit_pw_batched(
                         K_uc, w_A_uc, w_B_uc, r, prefactor=1.0,
@@ -3331,6 +3367,8 @@ def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
     Möbius alternating sum has lost most of its significant digits and
     the dispatcher should fall back to Bulger's method.
     """
+    dens_x = sa_view(dens_x)
+    dens_y = sa_view(dens_y)
     sigma = dens_x.sigma
     r = dens_x.r
     is_rel = dens_x.is_rel
@@ -3382,6 +3420,8 @@ def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True,
     ``_ip_core`` so the helper-accelerated path is reached for the
     abs and rel-non-periodic modes.
     """
+    dens_x = sa_view(dens_x)
+    dens_y = sa_view(dens_y)
     r = dens_x.r
     sigma = dens_x.sigma
     is_rel = dens_x.is_rel

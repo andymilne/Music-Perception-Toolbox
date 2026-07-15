@@ -306,9 +306,17 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
         error(USAGE_MSG);
     end
     X = varargin{2};
+    % Single-collection corner is shape-gated, not type-gated: an
+    % A = N = 1 MaetDensity is served by the specialized single-
+    % collection pipeline, reading its fields through internal.saView
+    % (mirrors Python's is_sa_shaped / sa_view routing).
+    if internal.isSaShaped(firstArg)
+        dens = internal.saView(internal.ensureExpTensExpensive(firstArg));
+        % fall through to the single-collection dispatch below.
+    else
     switch firstArg.tag
         case 'ExpTensDensity'
-            % SA dens: fall through to SA dispatch below.
+            % Legacy SA dens: fall through to SA dispatch below.
             dens = firstArg;
         case 'MaetDensity'
             dens_ma = internal.ensureExpTensExpensive(firstArg);
@@ -340,6 +348,7 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
             error('evalExpTens:unknownTag', ...
                 'Unknown density struct tag: %s.', firstArg.tag);
     end
+    end  % isSaShaped if/else
 
 % --- 2. Cell first operand: LIST or MA raw, by inner type ---
 elseif iscell(firstArg) && ~isempty(firstArg)
@@ -1884,8 +1893,7 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
         % SA, treat as per-density. Otherwise broadcast.
         allSA = true;
         for i = 1:n
-            if ~isstruct(densCell{i}) || ~isfield(densCell{i}, 'tag') ...
-                    || ~strcmp(densCell{i}.tag, 'ExpTensDensity')
+            if ~internal.isSaShaped(densCell{i})
                 allSA = false;
                 break;
             end

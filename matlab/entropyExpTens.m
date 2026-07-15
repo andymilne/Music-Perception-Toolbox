@@ -329,6 +329,12 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                   ['When a precomputed density struct is passed, no ' ...
                    'further positional arguments may be provided.']);
         end
+        if internal.isSaShaped(firstArg)
+            localRequireExplicitGrid(nvArgs.nPointsPerDim);
+            H = localEntropySA(internal.saView( ...
+                internal.ensureExpTensExpensive(firstArg)), nvArgs);
+            return;
+        end
         switch firstArg.tag
             case 'ExpTensDensity'
                 localRequireExplicitGrid(nvArgs.nPointsPerDim);

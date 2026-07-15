@@ -20,9 +20,21 @@ function v = saView(dens)
 %
 %   See also BUILDEXPTENS, INTERNAL.ENSUREEXPTENSEXPENSIVE.
 
-    if ~isfield(dens, 'tag') || ~strcmp(dens.tag, 'MaetDensity')
+    if ~isstruct(dens) || ~isfield(dens, 'tag')
+        error('mpt:saView:badInput', ...
+            'saView requires a tagged density struct.');
+    end
+    % Idempotent: an ExpTensDensity (legacy skinny SA struct or an
+    % existing view) is already the single-collection layout, so return
+    % it unchanged. Only a MaetDensity needs wrapping. (Mirrors Python
+    % sa_view, which returns ExpTensDensity / existing views unchanged.)
+    if strcmp(dens.tag, 'ExpTensDensity')
+        v = dens;
+        return;
+    end
+    if ~strcmp(dens.tag, 'MaetDensity')
         error('mpt:saView:notMaet', ...
-            'saView requires a MaetDensity; got %s.', ...
+            'saView requires a MaetDensity or ExpTensDensity; got %s.', ...
             iTagOf(dens));
     end
     if double(dens.nAttrs) ~= 1
@@ -59,6 +71,15 @@ function v = saView(dens)
     v = iCopyTuple(v, dens, 'wJ',      false);
     v = iCopyTuple(v, dens, 'nJ',      false);
     v = iCopyTuple(v, dens, 'nK',      false);
+    v = iCopyTuple(v, dens, 'eventOfJ', false);
+    v = iCopyTuple(v, dens, 'eventOfK', false);
+
+    % SA aliases: the single-attribute cosine path reads w_perm / nJ_perm,
+    % which the old SA build set equal to wJ / nJ (the perm-side weight
+    % products and count). The multi-attribute build names them wJ / nJ
+    % only, so surface the aliases here.
+    if isfield(v, 'wJ'); v.w_perm  = v.wJ; end
+    if isfield(v, 'nJ'); v.nJ_perm = v.nJ; end
 
     % --- kernel covariance passthrough (anisotropic densities) ---
     if isfield(dens, 'kernelCov');  v.kernelCov  = dens.kernelCov;  end

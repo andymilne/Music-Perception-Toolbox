@@ -460,9 +460,20 @@ if nArgs == 2
             error('cosSimExpTens:untaggedStruct', ...
                 'Both density structs must carry a ''tag'' field.');
         end
+        % Single-collection corner (both operands A = N = 1, flat):
+        % shape-gated, not type-gated. Serve via the specialized
+        % single-collection pipeline reading fields through saView
+        % (mirrors Python's is_sa_shaped / sa_view routing).
+        if internal.isSaShaped(a) && internal.isSaShaped(b)
+            dens_x = internal.prunedExpTens(internal.saView( ...
+                internal.ensureExpTensExpensive(a)));
+            dens_y = internal.prunedExpTens(internal.saView( ...
+                internal.ensureExpTensExpensive(b)));
+            % fall through to the single-collection validation + dispatch.
+        else
         switch [a.tag '|' b.tag]
             case 'ExpTensDensity|ExpTensDensity'
-                % SA dens: validate compatibility below, then fall through.
+                % Legacy SA dens: validate compatibility below, then fall through.
                 dens_x = internal.prunedExpTens(a);
                 dens_y = internal.prunedExpTens(b);
             case 'MaetDensity|MaetDensity'
@@ -476,6 +487,7 @@ if nArgs == 2
                      '(ExpTensDensity vs ExpTensDensity, or MaetDensity vs ' ...
                      'MaetDensity). Got %s and %s.'], a.tag, b.tag);
         end
+        end  % isSaShaped if/else
     elseif iscell(a) || iscell(b)
         % LIST: cell-of-struct on either side (scalar struct may be
         % broadcast against the cell). Inner-element validation occurs

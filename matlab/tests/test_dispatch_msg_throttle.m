@@ -9,8 +9,9 @@ function test_dispatch_msg_throttle()
 %        leading to the same chosen path collapse to a single announce).
 %     3. Prints all occurrences afresh after a 'reset' call.
 %     4. Uses the documented print format: "<func>: chose '<chosen>'
-%        path." for unprobed messages and adds "(estimated X s); Ctrl+C
-%        to cancel." for probed messages.
+%        path." --- the message announces the routing DECISION only and
+%        never carries a time estimate (estimates are emitted separately
+%        by estimateCompTime under the per-call verbose flag).
 %
 %   The throttle is the basis for the user-facing behaviour where a
 %   tight loop produces one informational message per unique dispatch
@@ -26,8 +27,8 @@ function test_dispatch_msg_throttle()
 
     % --- Test 1: first call fires, second identical call is silent.
     %     New print format: "foo: chose 'bulger' path." (no reason).
-    out1 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
-    out2 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
+    out1 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
+    out2 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
     results{end+1, 1} = 'first call fires with documented format';
     results{end, 2} = ~isempty(strtrim(out1)) ...
                     && contains(out1, 'foo') && contains(out1, 'bulger') ...
@@ -38,39 +39,47 @@ function test_dispatch_msg_throttle()
 
     % --- Test 2: differing reason is silent (same (funcName, chosen)
     %     already in seen-set; reason is NOT part of the throttle key).
-    out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'K - r < 2', 0, false);");
+    out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'K - r < 2');");
     results{end+1, 1} = 'differing reason collapses to same throttle key';
     results{end, 2} = isempty(strtrim(out3));
 
     % --- Test 3: differing function name fires fresh.
-    out4 = evalc("internal.maybeShowDispatchMsg('bar', 'bulger', 'r = 1', 0, false);");
+    out4 = evalc("internal.maybeShowDispatchMsg('bar', 'bulger', 'r = 1');");
     results{end+1, 1} = 'differing function name fires fresh';
     results{end, 2} = ~isempty(strtrim(out4)) && contains(out4, 'bar');
 
     % --- Test 4: differing chosen method fires fresh.
-    out5 = evalc("internal.maybeShowDispatchMsg('foo', 'mobius', 'r = 1', 0, false);");
+    out5 = evalc("internal.maybeShowDispatchMsg('foo', 'mobius', 'r = 1');");
     results{end+1, 1} = 'differing chosen method fires fresh';
     results{end, 2} = ~isempty(strtrim(out5)) && contains(out5, 'mobius');
 
-    % --- Test 5: probed-form message includes time estimate.
+    % --- Test 5: the dispatch message announces the DECISION only and
+    %     never carries a time estimate. Time estimates are a separate
+    %     concern emitted by estimateCompTime under the per-call verbose
+    %     flag, so the announce must contain neither 'estimated' nor the
+    %     'Ctrl+C' cancellation hint.
     internal.maybeShowDispatchMsg('reset');
-    out6 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'probe', 4.5, true);");
-    results{end+1, 1} = 'probed form includes time estimate and Ctrl+C hint';
-    results{end, 2} = contains(out6, 'estimated') && contains(out6, 'Ctrl');
+    out6 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'probe');");
+    results{end+1, 1} = 'dispatch message is decision-only (no estimate, no Ctrl+C)';
+    results{end, 2} = ~isempty(strtrim(out6)) ...
+                    && contains(out6, 'foo') && contains(out6, 'bulger') ...
+                    && contains(out6, 'path') ...
+                    && ~contains(out6, 'estimated') ...
+                    && ~contains(out6, 'Ctrl');
 
     % --- Test 6: after reset, the previously-seen tuple fires again.
-    out7 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
+    out7 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
     internal.maybeShowDispatchMsg('reset');
-    out8 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
+    out8 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
     results{end+1, 1} = 'reset clears seen-set';
     % out7 was already cached from Test 1, so should be silent; out8 after
     % reset should fire.
     results{end, 2} = isempty(strtrim(out7)) && ~isempty(strtrim(out8));
 
     % --- Test 7: mptDefaults('reset') also clears the throttle.
-    out9 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
+    out9 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
     mptDefaults('reset');
-    out10 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1', 0, false);");
+    out10 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 1');");
     results{end+1, 1} = 'mptDefaults(''reset'') clears the throttle';
     results{end, 2} = isempty(strtrim(out9)) && ~isempty(strtrim(out10));
 

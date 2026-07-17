@@ -1,27 +1,25 @@
 function maybeShowDispatchMsg(varargin)
-%INTERNAL.MAYBESHOWDISPATCHMSG  Print a dispatch message at most once per top-level call.
+%INTERNAL.MAYBESHOWDISPATCHMSG  Print a dispatch decision at most once per top-level call.
 %
-%   internal.maybeShowDispatchMsg(funcName, chosen, routingReason, ...
-%                                 estSec, isProbed)
+%   internal.maybeShowDispatchMsg(funcName, chosen, routingReason)
 %       Print a dispatch-decision message for the (funcName, chosen)
 %       pair, but only if that exact pair has not already been printed
-%       in the current top-level user call.
-%
-%       When isProbed is true, the message includes the empirical
-%       extrapolated estimate from the probe:
-%           "<funcName>: chose '<chosen>' path (estimated X s);
-%            Ctrl+C to cancel."
-%
-%       When isProbed is false, the message is just the path:
+%       in the current top-level user call:
 %           "<funcName>: chose '<chosen>' path."
+%
 %       The routingReason argument is still accepted (callers continue
-%       to pass it, since it remains useful for downstream debugging
-%       and for the probed-form estimate string), but is not part of
-%       the throttle key — within a single top-level call, two
-%       different routing reasons that lead to the same chosen path
-%       collapse to one announce. The visible distinction that matters
-%       is which path ran, not why; throttling on what the user sees
-%       avoids apparent duplicates.
+%       to pass it, since it remains useful for downstream debugging),
+%       but is not part of the throttle key --- within a single
+%       top-level call, two different routing reasons that lead to the
+%       same chosen path collapse to one announce. The visible
+%       distinction that matters is which path ran, not why; throttling
+%       on what the user sees avoids apparent duplicates.
+%
+%       This function announces the routing DECISION only. Time
+%       estimates ("estimated X s; Ctrl+C to cancel") are a separate
+%       concern emitted by estimateCompTime under the per-call verbose
+%       flag, so the two never double-report a single dispatch. See the
+%       verbose-vs-showHints split below.
 %
 %   internal.maybeShowDispatchMsg('reset')
 %       Clear the seen-set so that all dispatch messages will fire
@@ -35,12 +33,13 @@ function maybeShowDispatchMsg(varargin)
 %   call so that the user sees the announce again. The reset is
 %   driven by INTERNAL.DISPATCHSCOPE's depth counter.
 %
-%   Gating: dispatch messages are NOT gated by per-call verbose.
-%   They are gated by the toolbox-wide showHints flag
-%   (mptDefaults('showHints')). To fully silence dispatch messages:
-%   mptDefaults('showHints', false).
+%   Gating: dispatch DECISIONS are gated by the toolbox-wide showHints
+%   flag (mptDefaults('showHints')), NOT by per-call verbose. Time
+%   ESTIMATES are gated by per-call verbose (via estimateCompTime).
+%   To fully silence dispatch decisions: mptDefaults('showHints',
+%   false).
 %
-%   See also: MPTDEFAULTS, INTERNAL.DISPATCHSCOPE.
+%   See also: MPTDEFAULTS, INTERNAL.DISPATCHSCOPE, ESTIMATECOMPTIME.
 
     persistent seen
     if isempty(seen)
@@ -54,10 +53,10 @@ function maybeShowDispatchMsg(varargin)
         return;
     end
 
-    if nargin ~= 5
+    if nargin ~= 3
         error('internal:maybeShowDispatchMsg:badArgs', ...
             ['Call form is internal.maybeShowDispatchMsg(funcName, ' ...
-             'chosen, routingReason, estSec, isProbed) or ' ...
+             'chosen, routingReason) or ' ...
              'internal.maybeShowDispatchMsg(''reset'').']);
     end
 
@@ -69,9 +68,7 @@ function maybeShowDispatchMsg(varargin)
 
     funcName      = char(varargin{1});
     chosen        = char(varargin{2});
-    routingReason = char(varargin{3});
-    estSec        = double(varargin{4});
-    isProbed      = logical(varargin{5});
+    routingReason = char(varargin{3}); %#ok<NASGU>  kept for debugging
 
     key = sprintf('%s|%s', funcName, chosen);
     if isKey(seen, key)
@@ -79,24 +76,5 @@ function maybeShowDispatchMsg(varargin)
     end
     seen(key) = true;
 
-    if isProbed
-        fprintf('%s: chose ''%s'' path (estimated %s); Ctrl+C to cancel.\n', ...
-                funcName, chosen, localFormatTime(estSec));
-    else
-        fprintf('%s: chose ''%s'' path.\n', funcName, chosen);
-    end
-end
-
-
-function s = localFormatTime(t)
-%LOCALFORMATTIME  Short human-readable duration string.
-    if t < 1
-        s = sprintf('%.0f ms', t * 1000);
-    elseif t < 60
-        s = sprintf('%.1f s', t);
-    elseif t < 3600
-        s = sprintf('%.1f min', t / 60);
-    else
-        s = sprintf('%.1f hr', t / 3600);
-    end
+    fprintf('%s: chose ''%s'' path.\n', funcName, chosen);
 end

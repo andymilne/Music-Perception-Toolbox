@@ -1993,7 +1993,7 @@ function H = localRenyi2SA(dens, base)
         %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j exp(-(p_i-p_j)^2/(4 sigma^2))
         % (with wrapped differences in periodic mode).
         internal.maybeShowDispatchMsg('entropyExpTens', 'pairwise', ...
-            sprintf('renyi2, r=1 abs (direct pairwise sum)'), 0, false);
+            sprintf('renyi2, r=1 abs (direct pairwise sum)'));
         p = p(:); w = w(:);
         diffs = p - p.';
         if isPer
@@ -2014,7 +2014,7 @@ function H = localRenyi2SA(dens, base)
         % so the fallback gave a different (also wrong) answer rather
         % than recovering the correct value.
         internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
-            sprintf('renyi2, r=%d (orbit-Möbius IP)', r), 0, false);
+            sprintf('renyi2, r=%d (orbit-Möbius IP)', r));
         if isRel
             ip_xx = mobius.orbitInnerRelSA(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassRel(p, w, sigma, r);
@@ -2089,7 +2089,7 @@ function H = localRenyi2MA(dens, base)
     rVec = dens.r(:).';
 
     internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
-        sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A), 0, false);
+        sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A));
 
     % --- <T, T> and Z, per attribute ---
     % Per-(n,m) cancellation ratios were shown empirically to fire

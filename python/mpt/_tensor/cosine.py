@@ -1256,7 +1256,7 @@ def _cos_sim_exp_tens_ma(
     # probe, so no time estimate accompanies the message.
     from .._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
-        "cos_sim_exp_tens", chosen, "ma_select", 0.0, False,
+        "cos_sim_exp_tens", chosen, "ma_select",
     )
 
     if chosen == "mobius":

@@ -560,23 +560,10 @@ def reset_defaults() -> dict[str, Any]:
     return old
 
 
-def _format_dispatch_time(t: float) -> str:
-    """Short human-readable duration for dispatch messages."""
-    if t < 1.0:
-        return f"{t * 1000:.0f} ms"
-    if t < 60.0:
-        return f"{t:.1f} s"
-    if t < 3600.0:
-        return f"{t / 60:.1f} min"
-    return f"{t / 3600:.1f} hr"
-
-
 def _maybe_show_dispatch_msg(
     func_name: str,
     chosen: str,
     routing_reason: str,
-    est_sec: float,
-    is_probed: bool,
 ) -> None:
     """Print a dispatch-decision message at most once per top-level call.
 
@@ -586,13 +573,7 @@ def _maybe_show_dispatch_msg(
     by :func:`_dispatch_scope`, and also explicitly by
     :func:`reset_defaults`.
 
-    When ``is_probed`` is True, the message includes the empirical
-    extrapolated time estimate:
-
-        ``<func_name>: chose '<chosen>' path (estimated X s);
-         Ctrl+C to cancel.``
-
-    When ``is_probed`` is False, the message reports only the path:
+    The message reports the routing decision only:
 
         ``<func_name>: chose '<chosen>' path.``
 
@@ -602,7 +583,12 @@ def _maybe_show_dispatch_msg(
     text itself --- the user-facing distinction that matters is which
     path ran, not why.
 
-    Gating: dispatch messages are NOT gated by per-call
+    This function announces the routing DECISION only. Time estimates
+    (``"estimated X s; Ctrl+C to cancel"``) are a separate concern
+    emitted by :func:`estimate_comp_time` under the per-call ``verbose``
+    flag, so the two never double-report a single dispatch.
+
+    Gating: dispatch decisions are NOT gated by per-call
     ``verbose``. They are gated by the toolbox-wide ``show_hints``
     flag (``mpt.set_default(show_hints=...)``). Rationale: internal
     toolbox callers (e.g. batched-raw paths, entropy evaluations)
@@ -624,11 +610,4 @@ def _maybe_show_dispatch_msg(
     if key in _DISPATCH_MSG_SEEN:
         return
     _DISPATCH_MSG_SEEN.add(key)
-    if is_probed:
-        print(
-            f"{func_name}: chose '{chosen}' path "
-            f"(estimated {_format_dispatch_time(est_sec)}); "
-            f"Ctrl+C to cancel."
-        )
-    else:
-        print(f"{func_name}: chose '{chosen}' path.")
+    print(f"{func_name}: chose '{chosen}' path.")

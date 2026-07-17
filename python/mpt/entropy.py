@@ -800,7 +800,6 @@ def _entropy_exp_tens_renyi2_dispatch(
     from ._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
         "entropy_exp_tens", "mobius", "renyi2",
-        est_sec=0.0, is_probed=False,
     )
     from ._tensor.aniso import density_has_kernel_cov, density_logdet_sum
     val = _renyi2_exp_tens_ma(dens, base=base)

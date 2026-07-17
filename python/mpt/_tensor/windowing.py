@@ -43,7 +43,6 @@ import numpy as np
 from .._utils import maybe_print_batched_estimate, validate_weights
 from .._defaults import _with_dispatch_scope
 from .density import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
 )
@@ -502,7 +501,6 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
     _maybe_show_dispatch_msg(
         "windowed_tensor_similarity", "direct",
         "closed-form windowed inner product (single algorithmic path)",
-        0.0, False,
     )
 
     # --- Up-front time estimate + adaptive progress stride ---
@@ -779,7 +777,7 @@ def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
     c_scalar, c_list = _normalize_density_input(dens_context, name="dens_context")
     q_scalar, q_list = _normalize_density_input(dens_query, name="dens_query")
 
-    # Validate every density is a plain MaetDensity (not Windowed, not SA).
+    # Validate every density is a plain MaetDensity (not Windowed, not single-multiset).
     for label, scalar_flag, densities in (
         ("dens_context", c_scalar, c_list),
         ("dens_query", q_scalar, q_list),
@@ -789,7 +787,7 @@ def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
                 idx = "" if scalar_flag else f"[{i}]"
                 raise TypeError(
                     f"{label}{idx} must be a MaetDensity (not "
-                    f"WindowedMaetDensity, not ExpTensDensity); got "
+                    f"WindowedMaetDensity); got "
                     f"{type(d).__name__}."
                 )
 

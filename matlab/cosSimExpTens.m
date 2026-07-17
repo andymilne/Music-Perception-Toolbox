@@ -677,9 +677,11 @@ end
 % Probe-based dispatcher: hard rules + analytical pre-screen decide
 % most cases without probe overhead; when neither dominates, both
 % paths are timed on a small subset and the faster is picked. The
-% probe's extrapolated timing also drives the verbose dispatch message.
+% probe yields the routing decision; its extrapolated timing
+% (probed/estSec) is retained for debugging but no longer feeds the
+% decision-only dispatch message.
 [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
-    dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose);
+    dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
 
 % Ordered (isSym = false) densities are not symmetrised, so the orbit
 % (Möbius) inner product --- which reconstructs the full S_r orbit from
@@ -693,12 +695,15 @@ if (xOrdered || yOrdered) && dens_x.r > 1
     routingReason = 'ordered density (sym=0) requires centres path';
 end
 
-% Dispatch messages bypass per-call verbose; they're gated by the
-% toolbox-wide showHints flag and throttled to once per top-level user
-% call per unique (funcName, chosen, reason) triple (via
-% +internal/dispatchScope).
-internal.maybeShowDispatchMsg('cosSimExpTens', chosen, ...
-    routingReason, estSec, probed);
+% Dispatch messages announce the routing DECISION only; they bypass
+% per-call verbose, are gated by the toolbox-wide showHints flag, and
+% are throttled to once per top-level user call per unique (funcName,
+% chosen) pair (via +internal/dispatchScope). The time estimate is a
+% separate concern emitted by estimateCompTime under verbose on the
+% pairwise branch below, so the two never double-report. The probe's
+% estSec/probed outputs remain available for debugging but no longer
+% feed the message.
+internal.maybeShowDispatchMsg('cosSimExpTens', chosen, routingReason);
 
 ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;

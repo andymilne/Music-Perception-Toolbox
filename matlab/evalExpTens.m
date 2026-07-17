@@ -482,18 +482,22 @@ elseif strcmp(method, 'auto')
         else
             hardRuleReason = sprintf('K - r = %d < 2', K_src - dens.r);
         end
-        % Dispatch messages bypass per-call verbose; they're gated by
-        % the toolbox-wide showHints flag and throttled to once per
-        % top-level user call per unique (funcName, chosen, reason)
-        % triple (via +internal/dispatchScope).
+        % Dispatch messages announce the routing DECISION only; they
+        % bypass per-call verbose, are gated by the toolbox-wide
+        % showHints flag, and are throttled to once per top-level user
+        % call per unique (funcName, chosen) pair (via
+        % +internal/dispatchScope). Time estimates are a separate
+        % concern emitted by estimateCompTime under verbose.
         internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
-            hardRuleReason, 0, false);
+            hardRuleReason);
     else
         % Discretionary case — dispatcher decides via prescreen / probe.
+        % The probe's estSec/probed outputs remain available for
+        % debugging but no longer feed the decision-only message.
         [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
-            dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose);
+            dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
         internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
-            routingReason, estSec, probed);
+            routingReason);
     end
 else
     error('evalExpTens:badMethod', ...
@@ -1443,7 +1447,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         [maChosen, maReason] = internal.selectMaEval(dens, verbose);
     end
     internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, ...
-        maReason, [], false);
+        maReason);
 
     if strcmp(maChosen, 'mobius')
         % Reconstruct the joint (D, nQ) query from the per-attribute

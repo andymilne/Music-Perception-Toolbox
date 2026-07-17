@@ -31,7 +31,7 @@ function test_dispatch_scope()
     % Build a reusable triple-emitting command and a top-level-call
     % command as char arrays.  The triple-call body always emits one
     % unprobed dispatch message for ('foo', 'bulger', 'r=1').
-    emit = 'internal.maybeShowDispatchMsg(''foo'', ''bulger'', ''r=1'', 0, false);';
+    emit = 'internal.maybeShowDispatchMsg(''foo'', ''bulger'', ''r=1'');';
 
     % --- Test 1: depth starts at 0, increments on entry, returns to 0
     %     when the guard goes out of scope.

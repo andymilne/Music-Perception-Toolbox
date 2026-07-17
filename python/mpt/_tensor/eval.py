@@ -850,10 +850,11 @@ def _eval_exp_tens_ma(
     chosen, routing_reason = _select_ma_eval(dens, n_q_hint, method=method)
     # Dispatch messages are gated by show_hints, not per-call verbose, so
     # users see the routing decision even from internal callers that pass
-    # verbose=False (matching the single-multiset path). The estimate
-    # and probed flags are None/False: the MA cost model is probe-free.
+    # verbose=False (matching the single-multiset path). The MA cost
+    # model is probe-free, and the dispatch message reports the
+    # decision only, so no estimate accompanies it.
     _maybe_show_dispatch_msg(
-        "eval_exp_tens (MAET)", chosen, routing_reason, None, False,
+        "eval_exp_tens (MAET)", chosen, routing_reason,
     )
     if chosen == "mobius":
         from ._ma_eval_orbit import eval_ma_orbit

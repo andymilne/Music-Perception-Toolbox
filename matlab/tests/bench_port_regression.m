@@ -34,6 +34,19 @@ function bench_port_regression
     N_REPS   = 5;
     N_WARMUP = 2;
 
+    % Silence dispatch decisions and the truncation notice for the
+    % duration of the bench. The nested/orbit rows call cosSimExpTens in
+    % a tight inner loop, and with showHints on each call fires a
+    % 'chose ... path.' fprintf INSIDE the timed region --- on a
+    % sub-10-ms unit that print jitter is a real source of run-to-run
+    % variance that has nothing to do with the kernel/dispatch code the
+    % bench exists to measure. showHints gates dispatch messages (not
+    % per-call verbose), so this is the switch that removes them.
+    % Restored via onCleanup so an early exit or Ctrl+C cannot leave the
+    % session muted.
+    benchPrevShowHints = mptDefaults('showHints', false);
+    benchHintsCleanup = onCleanup(@() mptDefaults(benchPrevShowHints)); %#ok<NASGU>
+
     fprintf('stage,bench,r,K,extra,t_median_ms\n');
 
     % --- eval: relative, dim = 3 (the Python bottleneck) ---

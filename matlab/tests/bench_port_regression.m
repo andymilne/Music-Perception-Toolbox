@@ -45,14 +45,20 @@ function bench_port_regression
     fprintf('baseline,eval_abs_dim4,4,6,res41,%.4f\n', t);
 
     % --- nested contraction: rel-periodic IP (truncation floor site) ---
+    % These per-call workloads run at 1-10 ms, below MATLAB's reliable
+    % timing floor, so each is repeated innerReps(r) times per timed unit
+    % (~150 ms) and the median is divided back down to per-call ms. This
+    % makes the row a trustworthy regression tripwire rather than noise.
     for r = [2, 3, 4]
-        t = timed(@() nestedContractRelPer(r), N_REPS, N_WARMUP) * 1000;
+        ni = innerReps(r);
+        t = timed(@() nestedContractRelPer(r, ni), N_REPS, N_WARMUP) * 1000 / ni;
         fprintf('baseline,nested_contract_relper,%d,8,-,%.4f\n', r, t);
     end
 
     % --- orbit cosine: rel-periodic across r (dispatch calibration) ---
     for r = [2, 3, 4]
-        t = timed(@() cosSimOrbitRelPer(r), N_REPS, N_WARMUP) * 1000;
+        ni = innerReps(r);
+        t = timed(@() cosSimOrbitRelPer(r, ni), N_REPS, N_WARMUP) * 1000 / ni;
         fprintf('baseline,cossim_orbit_relper,%d,8,-,%.4f\n', r, t);
     end
 end
@@ -65,43 +71,72 @@ end
 function evalRelDim3()
     rng(0, 'twister');
     p = sort(1200 * rand(1, 6));
-    dens = buildExpTens(p, [], 60, 4, 1, 0, 0);   % r=4 rel non-per -> dim 3
+    dens = buildExpTens(p, [], 60, 4, 1, 0, 0, 'verbose', false);   % r=4 rel non-per -> dim 3
     ax = linspace(0, 1200, 121);
     [G1, G2, G3] = ndgrid(ax, ax, ax);
     X = [G1(:), G2(:), G3(:)].';                  % 3 x 1.77M
-    evalExpTens(dens, X, 'gaussian');
+    evalExpTens(dens, X, 'gaussian', 'verbose', false);
 end
 
 
 function evalAbsDim4()
     rng(1, 'twister');
     p = sort(1200 * rand(1, 6));
-    dens = buildExpTens(p, [], 60, 4, 0, 0, 0);   % r=4 abs -> dim 4
+    dens = buildExpTens(p, [], 60, 4, 0, 0, 0, 'verbose', false);   % r=4 abs -> dim 4
     ax = linspace(0, 1200, 41);
     [G1, G2, G3, G4] = ndgrid(ax, ax, ax, ax);
     X = [G1(:), G2(:), G3(:), G4(:)].';           % 4 x 2.83M
-    evalExpTens(dens, X, 'gaussian');
+    evalExpTens(dens, X, 'gaussian', 'verbose', false);
 end
 
 
-function nestedContractRelPer(r)
+function nestedContractRelPer(r, nInner)
+    % Build the two collections once, outside the timed inner loop, so the
+    % measurement is dominated by the repeated cosine call rather than the
+    % (cheap) rand/sort/mod setup. The inner loop runs the call nInner
+    % times so the timed unit is ~150 ms even at r = 2 (~1 ms/call),
+    % averaging out MATLAB's sub-10-ms timing noise (JIT, cache, frequency
+    % scaling). The caller divides the measured time by nInner to report
+    % per-call ms, keeping the table comparable to single-call baselines.
     rng(2 + r, 'twister');
     K = 8;
     pA = sort(1200 * rand(1, K));
     pB = mod(pA + 37.3, 1200);
     % rel-periodic cosine routes through the nested/orbit contraction;
     % force the pairwise path so the nestedContract truncation site is hit.
-    cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200, 'method', 'bulger');
+    for i = 1:nInner
+        cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200, ...
+                      'method', 'bulger', 'verbose', false);
+    end
 end
 
 
-function cosSimOrbitRelPer(r)
+function cosSimOrbitRelPer(r, nInner)
     rng(20 + r, 'twister');
     K = 8;
     pA = sort(1200 * rand(1, K));
     pB = mod(pA + 41.7, 1200);
     % default dispatch: exercises selectMaInnerProductMethod calibration.
-    cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200);
+    for i = 1:nInner
+        cosSimExpTens(pA, [], pB, [], 30, r, 1, 1, 1200, 'verbose', false);
+    end
+end
+
+
+function n = innerReps(r)
+    %INNERREPS  Repetitions to bring a sub-10-ms workload up to ~150 ms.
+    %   Sized from observed per-call times (~1 ms at r=2, ~4 ms at r=3,
+    %   ~10 ms at r=4). Only the affected nested/orbit rows use this; the
+    %   seconds-scale eval rows are already stable and are timed as single
+    %   calls.
+    switch r
+        case 2
+            n = 150;
+        case 3
+            n = 40;
+        otherwise
+            n = 15;
+    end
 end
 
 

@@ -687,7 +687,7 @@ def inner_product_orbit(
     K : ndarray, shape (n_A, n_B)
         Pairwise kernel matrix. Conventionally
         ``K[a, b] = exp(-Q(p_A[a] - p_B[b]) / (4*sigma**2))`` for the
-        single-attribute case, with appropriate Q-form for the active mode.
+        single-multiset case, with appropriate Q-form for the active mode.
         For periodic mode, the differences should already be wrapped.
     w_A, w_B : ndarray
         Source weights for A and B.
@@ -695,7 +695,7 @@ def inner_product_orbit(
         Tensor order.
     prefactor : float
         Tuple-independent prefactor (e.g. ``(sigma * sqrt(pi))**r`` for the
-        single-attribute case). Multiplied through at the end. Defaults to 1
+        single-multiset case). Multiplied through at the end. Defaults to 1
         if the caller wants the raw orbit-sum quantity.
     return_cancellation_ratio : bool, default False
         If True, additionally return the alternating-sum cancellation
@@ -1058,7 +1058,7 @@ def eval_orbit_abs(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
 ) -> np.ndarray:
-    """Möbius point evaluator for the SA absolute-mode tensor.
+    """Möbius point evaluator for the single-multiset absolute-mode tensor.
 
     Computes ``T_abs(x_q)`` for each column of *x* without
     materialising the ``(r, n_distinct_tuples)`` centres array. Uses
@@ -1152,13 +1152,10 @@ def eval_orbit_abs(
     # means "use the global default", so a user who set
     # ``set_default(truncation_sigmas=6)`` should see the orbit path
     # apply truncation even when the kwarg is omitted at the call.
-    # (Same principle as :func:`_eval_exp_tens_sa`'s execution-axis
-    # check.)
-    if truncation_sigmas is None:
-        from ._defaults import get_default
-        trunc_resolved = get_default("truncation_sigmas")
-    else:
-        trunc_resolved = truncation_sigmas
+    # (Same principle as the resolver call at :func:`eval_exp_tens`'s
+    # entry.)
+    from ._defaults import resolve_truncation_sigmas
+    trunc_resolved = resolve_truncation_sigmas(truncation_sigmas)
 
     # Per-block factoring (non-periodic):
     #   Q_B(x_B, p) = var(x_B) + m * (mean(x_B) - p)^2
@@ -1167,12 +1164,10 @@ def eval_orbit_abs(
     # exp(-var/2sigma^2). Routing through gaussian_kernel_sum then
     # applies truncation via the vectorised 1-D path. The periodic
     # block does not factor cleanly and stays on the direct broadcast
-    # path below. Only invoke the helper when truncation is actually
-    # requested — in default mode the inline direct broadcast is the
-    # inline-direct cost profile.
-    use_helper = (not is_per) and (
-        trunc_resolved is not None and np.isfinite(trunc_resolved)
-    )
+    # path below. ``trunc_resolved`` is always finite now (inf resolves
+    # to the accuracy-floor width), so the helper applies whenever the
+    # mode is non-periodic.
+    use_helper = not is_per
     if use_helper:
         from ._kernel import gaussian_kernel_sum
 
@@ -1279,7 +1274,7 @@ def eval_orbit_abs(
 # floor: with ``truncation_sigmas = k`` the toolbox already treats
 # relative contributions below exp(-k²/2) as negligible, so the
 # tabulation step is chosen to keep the interpolation error at or below
-# that same floor (clamped to [_FACTORED_EPS_FLOOR, _FACTORED_EPS_CEIL];
+# that same floor (clamped to [accuracy_floor_eps(), _FACTORED_EPS_CEIL];
 # the default k = inf targets the floor, which sits at the noise level
 # of the u-grid quadrature itself).
 #
@@ -1288,8 +1283,10 @@ def eval_orbit_abs(
 # does not separate into var + mean parts, so periodic relative mode
 # always uses the direct per-node evaluation.
 
-#: Floor / ceiling for the factored read-back target accuracy (relative).
-_FACTORED_EPS_FLOOR = 1e-12
+#: Ceiling for the factored read-back target accuracy (relative). The
+#: floor is the toolbox-wide accuracy floor read dynamically via
+#: :func:`mpt._defaults.accuracy_floor_eps` (honouring any override), so
+#: the single accuracy floor governs every path.
 _FACTORED_EPS_CEIL = 1e-3
 
 #: Calibrated constant for the quintic read-back error model
@@ -1321,18 +1318,15 @@ def _factored_target_eps(truncation_sigmas, kernel_precision) -> float:
     ``mpt.set_default``) governs both the kernel floor and the read-back
     accuracy. ``None`` arguments resolve against the global defaults.
     """
-    if truncation_sigmas is None:
-        from ._defaults import get_default
-        truncation_sigmas = get_default("truncation_sigmas")
     if kernel_precision is None:
         from ._defaults import get_default
         kernel_precision = get_default("kernel_precision")
-    k = float(truncation_sigmas) if truncation_sigmas is not None else float("inf")
-    if np.isfinite(k):
-        eps = float(np.exp(-0.5 * k * k))
-    else:
-        eps = _FACTORED_EPS_FLOOR
-    eps = min(max(eps, _FACTORED_EPS_FLOOR), _FACTORED_EPS_CEIL)
+    from ._defaults import truncation_floor, accuracy_floor_eps
+    # The read-back target is the kernel-truncation floor exp(-k^2/2) at
+    # the resolved width (None -> default, inf -> the accuracy floor), so
+    # one knob governs both the kernel floor and this accuracy.
+    eps = truncation_floor(truncation_sigmas)
+    eps = min(max(eps, accuracy_floor_eps()), _FACTORED_EPS_CEIL)
     if kernel_precision == "single":
         # The S_m tabulation itself is only good to ~7 significant
         # figures under single-precision kernels; a tighter read-back
@@ -1410,7 +1404,7 @@ def eval_orbit_rel(
     kernel_precision: str | None = None,
     factored: bool | None = None,
 ) -> np.ndarray:
-    """Möbius point evaluator for the SA relative-mode tensor.
+    """Möbius point evaluator for the single-multiset relative-mode tensor.
 
     Computes ``T_rel(x_rel_q)`` for each column of *x_rel* via
     u-grid quadrature of the translation marginal:

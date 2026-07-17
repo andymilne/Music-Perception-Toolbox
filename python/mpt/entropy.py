@@ -10,8 +10,8 @@ from scipy.special import erf as _erf
 from ._utils import maybe_print_batched_estimate
 from ._defaults import _with_dispatch_scope
 from .spectra import add_spectra
+from ._tensor.density import is_single_multiset
 from .tensor import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
     bind_events,
@@ -114,7 +114,7 @@ def _raise_if_any_sigma_zero(dens, *, method_name: str) -> None:
     The discrete forms ('shannon', 'normalized') handle sigma=0
     correctly (delta masses sit exactly in their cells) and are not
     guarded here. Reads sigma from any density-object form
-    (ExpTensDensity, MaetDensity, WindowedMaetDensity).
+    (MaetDensity, WindowedMaetDensity).
     """
     if isinstance(dens, WindowedMaetDensity):
         sigma = dens.dens.sigma
@@ -344,50 +344,6 @@ def _cell_masses_ma_absolute(dens, axes: list,
     return _contract_cell_axes(w_j, axis_specs, truncation_sigmas)
 
 
-def _cell_masses_sa_absolute(T, ax: np.ndarray,
-                             truncation_sigmas: float = 6.0) -> np.ndarray:
-    """Cell masses for an ``ExpTensDensity`` (single-attribute path).
-
-    Parallels ``_cell_masses_ma_absolute`` for the SA case: builds the
-    Cartesian-product grid implicitly from a single 1-D axis ``ax``
-    repeated across the ``T.dim`` effective dimensions, returns flat
-    cell masses. Restricted to ``is_rel=False`` densities.
-    """
-    if bool(T.is_rel):
-        raise ValueError(
-            "_cell_masses_sa_absolute: is_rel=True not supported by this path."
-        )
-    dim = int(T.dim)
-    sig = float(T.sigma)
-    is_per = bool(T.is_per)
-    per = float(T.period) if is_per else 0.0
-    C = np.asarray(T.centres, dtype=float)  # (r, n_j) == (dim, n_j) when is_rel=False
-    w_j = np.asarray(T.w_j, dtype=float)
-
-    # Auto-prune zero-weight tuples (see _cell_masses_ma_absolute).
-    mask = w_j > 0
-    if not bool(np.all(mask)):
-        w_j = w_j[mask]
-        C = C[:, mask]
-
-    if dim == 0:
-        return np.array([float(np.sum(w_j))])
-
-    # All effective axes share the same 1-D grid edges (the SA grid is a
-    # single axis repeated across the dim effective dimensions) but a
-    # different centres row. Reuse the shared contraction, which streams
-    # the leading axis in cell blocks for dim <= 2.
-    lo, hi = _axis_edges(ax, is_per, per)
-    axis_specs = [(C[d, :], lo, hi, sig, is_per, per) for d in range(dim)]
-    return _contract_cell_axes(w_j, axis_specs, truncation_sigmas)
-
-
-# ===================================================================
-#  entropy_exp_tens
-# ===================================================================
-
-
-@_with_dispatch_scope
 def entropy_exp_tens(
     p_or_dens,
     *args,
@@ -428,7 +384,7 @@ def entropy_exp_tens(
       integration via per-axis Φ-difference contractions
       (``is_rel=False``) or point-evaluation (``is_rel=True``). Supports
       the full polymorphic-input dispatch (single density, list of
-      densities, raw scalar/batched SA, raw MA).
+      densities, raw scalar/batched single-multiset, raw MA).
 
     - ``method='normalized'`` (alias ``'normalised'``): the Pielou-style
       ratio ``H / log_b(N)`` in ``[0, 1]``. Same grid as ``'shannon'``.
@@ -453,7 +409,7 @@ def entropy_exp_tens(
     (no toolbox-wide default).
 
     Input forms (Shannon and normalized support all; differential and
-    Rényi-2 support only scalar forms — pre-built density, raw SA
+    Rényi-2 support only scalar forms — pre-built density, raw single-multiset
     scalar, raw MA scalar — and raise ``NotImplementedError`` on list
     or batched forms):
 
@@ -464,12 +420,12 @@ def entropy_exp_tens(
     - ``entropy_exp_tens([d1, d2, …])`` — list of densities
       (Shannon/normalized only). Returns ``(M,)`` ndarray.
 
-    **Raw single-attribute scalar input**:
+    **Raw single-multiset scalar input**:
 
     - ``entropy_exp_tens(p, w, sigma, r, is_rel, is_per, period)``.
       Returns a Python float. Optional ``spectrum``.
 
-    **Raw single-attribute batched input** (Shannon/normalized only):
+    **Raw single-multiset batched input** (Shannon/normalized only):
 
     - ``entropy_exp_tens(P, W, sigma, r, is_rel, is_per, period)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
@@ -486,16 +442,16 @@ def entropy_exp_tens(
     p_or_dens : various
         See input forms above.
     *args : tuple
-        Raw-args tail. Empty for density input; 6 trailing for raw SA;
+        Raw-args tail. Empty for density input; 6 trailing for raw single-multiset;
         7 trailing for raw MA.
     spectrum : list or None
-        Arguments for :func:`~mpt.spectra.add_spectra`. Raw SA only.
+        Arguments for :func:`~mpt.spectra.add_spectra`. Raw single-multiset only.
     method : {'differential', 'shannon', 'normalized', 'renyi2'}, default 'shannon'
         Entropy variant. See the introduction above. ``'normalised'``
         is accepted as an alias for ``'normalized'``.
     precision : int, optional
         Round canonical values to this many decimal places, to absorb
-        FP noise when deduplicating. Raw SA batched only
+        FP noise when deduplicating. Raw single-multiset batched only
         (Shannon / normalized).
     dedup : bool, default True
         Deduplicate structurally-identical chords. List/batch only
@@ -508,7 +464,7 @@ def entropy_exp_tens(
         default of 1200 has been dropped, since the right grid
         resolution is density- and sigma-dependent.
     x_min, x_max
-        Shannon / normalized, non-periodic only: grid bounds. SA scalar;
+        Shannon / normalized, non-periodic only: grid bounds. single-multiset scalar;
         MA scalar (broadcast) or length-G vector.
     grid_limit : int
         Ceiling on total grid size before allocation.
@@ -621,14 +577,14 @@ def _entropy_exp_tens_shannon_dispatch(
     normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
     truncation_sigmas, kernel_precision, verbose,
 ):
-    """Resolve input form and route to SA / MA helper, Shannon path.
+    """Resolve input form and route to single-multiset / multi-attribute helper, Shannon path.
 
     Shannon entropy of the density evaluated on a Cartesian-product
     grid; supports the full input surface (precomputed density object,
-    list of densities, MA raw args, SA raw args, SA batched 2-D matrix).
+    list of densities, MA raw args, single-multiset raw args, single-multiset batched 2-D matrix).
     """
     # --- Density inputs first (scalar or list) ---
-    if isinstance(p_or_dens, (ExpTensDensity, MaetDensity, WindowedMaetDensity)):
+    if isinstance(p_or_dens, (MaetDensity, WindowedMaetDensity)):
         if len(args) > 0:
             raise TypeError(
                 f"Precomputed density takes no further positional args; "
@@ -654,7 +610,7 @@ def _entropy_exp_tens_shannon_dispatch(
         if len(p_or_dens) == 0:
             intends_density_list = True
         elif isinstance(
-            p_or_dens[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+            p_or_dens[0], (MaetDensity, WindowedMaetDensity)
         ):
             intends_density_list = True
     elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
@@ -691,12 +647,12 @@ def _entropy_exp_tens_shannon_dispatch(
             )
         if spectrum is not None:
             raise TypeError(
-                "'spectrum' kwarg is only valid in raw single-attribute "
+                "'spectrum' kwarg is only valid in raw single-multiset "
                 "input mode."
             )
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
+                "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         w, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:6]
         is_sym_vec = args[6] if len(args) == 7 else None
@@ -713,10 +669,10 @@ def _entropy_exp_tens_shannon_dispatch(
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
         )
 
-    # SA raw args. Distinguish scalar (1-D) from batched (2-D) by shape.
+    # Single-multiset raw args. Distinguish scalar (1-D) from batched (2-D) by shape.
     if len(args) not in (6, 7):
         raise ValueError(
-            f"Single-attribute raw call expects 7 or 8 positional arguments "
+            f"Single-multiset raw call expects 7 or 8 positional arguments "
             f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); "
             f"got {1 + len(args)}."
         )
@@ -736,18 +692,30 @@ def _entropy_exp_tens_shannon_dispatch(
     if p_arr.ndim == 1:
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid for raw SA batched input."
+                "'precision' kwarg is only valid for raw single-multiset batched input."
             )
         _require_explicit_grid(n_points_per_dim)
-        return _entropy_exp_tens_sa(
-            p_or_dens, w, sigma, r, is_rel, is_per, period, is_sym,
-            spectrum=spectrum, normalize=normalize, base=base,
+        # Single-multiset raw arrays: build the density (applying any
+        # spectrum) and route through the multi-attribute entropy path,
+        # which serves the single-multiset corner as its A = 1 case.
+        p1 = np.asarray(p_or_dens, dtype=np.float64).ravel()
+        w1 = np.ones_like(p1) if w is None else np.asarray(w, dtype=np.float64)
+        if spectrum is not None:
+            p1, w1 = add_spectra(p1, w1, *spectrum)
+        dens1 = build_exp_tens(
+            p1, w1, sigma, r, is_rel, is_per, period,
+            True if is_sym is None else is_sym, verbose=False,
+        )
+        return _entropy_exp_tens_ma(
+            dens1, normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
-            x_min=x_min, x_max=x_max,
+            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
     if p_arr.ndim == 2:
         _require_explicit_grid(n_points_per_dim)
-        return _entropy_exp_tens_raw_sa_batch(
+        return _entropy_exp_tens_raw_single_multiset_batch(
             p_arr, w, sigma, r, is_rel, is_per, period, is_sym,
             spectrum=spectrum, precision=precision,
             dedup=dedup,
@@ -758,7 +726,7 @@ def _entropy_exp_tens_shannon_dispatch(
         )
     raise TypeError(
         f"First argument has unsupported shape {p_arr.shape}; "
-        f"raw SA input must be 1-D (single chord) or 2-D (batched)."
+        f"raw single-multiset input must be 1-D (single chord) or 2-D (batched)."
     )
 
 
@@ -771,11 +739,11 @@ def _entropy_exp_tens_renyi2_dispatch(
     p_or_dens, args, *,
     spectrum, precision, dedup, base,
 ):
-    """Resolve input form and route to SA / MA helper, Rényi-2 path.
+    """Resolve input form and route to single-multiset / multi-attribute helper, Rényi-2 path.
 
     Analytical Rényi-2 (collision) entropy via the orbit-Möbius
     inner-product machinery. Restricted to single-density input
-    (scalar density object, raw scalar SA, or raw scalar MA). List
+    (scalar density object, raw scalar single-multiset, or raw scalar MA). List
     and batched input forms raise ``NotImplementedError``. Windowed
     MA is also not yet supported.
     """
@@ -783,7 +751,7 @@ def _entropy_exp_tens_renyi2_dispatch(
     if isinstance(p_or_dens, (list, tuple)):
         if len(p_or_dens) > 0 and isinstance(
             p_or_dens[0],
-            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+            (MaetDensity, WindowedMaetDensity),
         ):
             raise NotImplementedError(
                 "method='renyi2' does not yet support list input. "
@@ -794,17 +762,17 @@ def _entropy_exp_tens_renyi2_dispatch(
             "method='renyi2' does not yet support list input. "
             "Apply it to each density individually."
         )
-    # Reject 2-D raw SA input (batched) explicitly.
+    # Reject 2-D raw single-multiset input (batched) explicitly.
     if (not isinstance(
             p_or_dens,
-            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+            (MaetDensity, WindowedMaetDensity),
         )
         and not _looks_like_ma_p(p_or_dens)):
         try:
             p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
             if p_arr_check.ndim == 2:
                 raise NotImplementedError(
-                    "method='renyi2' does not yet support raw SA "
+                    "method='renyi2' does not yet support raw single-multiset "
                     "batched (2-D) input. Pass each chord row "
                     "individually, or pre-build densities."
                 )
@@ -815,7 +783,7 @@ def _entropy_exp_tens_renyi2_dispatch(
             "'precision' and 'dedup' kwargs are only valid for "
             "method='shannon'."
         )
-    dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+    dens = _resolve_density(p_or_dens, args, spectrum)
 
     # Policy: the analytical Rényi-2 is the differential (continuous)
     # Rényi-2, -log <f,f>, which diverges at sigma=0 (the self-IP of a
@@ -835,10 +803,7 @@ def _entropy_exp_tens_renyi2_dispatch(
         est_sec=0.0, is_probed=False,
     )
     from ._tensor.aniso import density_has_kernel_cov, density_logdet_sum
-    if is_sa:
-        val = _renyi2_exp_tens_sa(dens, base=base)
-    else:
-        val = _renyi2_exp_tens_ma(dens, base=base)
+    val = _renyi2_exp_tens_ma(dens, base=base)
     if density_has_kernel_cov(dens):
         # Whitened coordinates: H2(f_x) = H2(f_y) + (1/2) log det(Sigma),
         # the change-of-variables constant of the linear whitening map.
@@ -859,47 +824,6 @@ def _entropy_exp_tens_renyi2_dispatch(
 # stop decreasing (numerical-floor guard), or `grid_limit` is hit.
 
 
-def _diff_spans_sa(T, ts: float):
-    """Auto-spans for an ExpTensDensity (single attribute).
-
-    Returns
-    -------
-    x_min, x_max : float
-        Span bounds (only meaningful for non-periodic).
-    n0 : int
-        Initial N per axis (~2 samples per sigma).
-    dim : int
-        Effective dimension (= T.dim).
-    per_axis_W : list of float
-        Width per axis (period if periodic, x_max - x_min otherwise).
-    per_axis_per : list of bool
-        Periodicity flag per axis.
-    """
-    sig = float(T.sigma)
-    is_per = bool(T.is_per)
-    per = float(T.period)
-    dim = int(T.dim)
-
-    if is_per:
-        x_min = float("nan")  # not consumed by the periodic grid construction
-        x_max = float("nan")
-        W = per
-    else:
-        # ExpTensDensity centres: (dim, n_j) when is_rel=False
-        centres = np.asarray(T.centres, dtype=float)
-        c_flat = centres.ravel()
-        c_min = float(c_flat.min())
-        c_max = float(c_flat.max())
-        x_min = c_min - ts * sig
-        x_max = c_max + ts * sig
-        W = x_max - x_min
-
-    per_axis_W = [W] * dim
-    per_axis_per = [is_per] * dim
-    n0 = max(4, int(np.ceil(2.0 * W / sig)))
-    return x_min, x_max, n0, dim, per_axis_W, per_axis_per
-
-
 def _diff_spans_ma(dens, ts: float):
     """Auto-spans for a MaetDensity.
 
@@ -914,6 +838,16 @@ def _diff_spans_ma(dens, ts: float):
     is_per_g = np.asarray(dens.is_per).astype(bool)  # (A,)
     period_g = np.asarray(dens.period).astype(float)
     centres = dens.centres  # length-A list
+    # Zero-weight tuples contribute nothing to the density, so they
+    # must not enlarge the span either --- otherwise the auto-prune
+    # inside :func:`_cell_masses_ma_absolute` (which drops them from
+    # the cell integrand) and manual upstream pruning would disagree
+    # at the discretisation of any narrower ``ts``. The eval-side
+    # auto-prune already uses this convention. Restricting the span
+    # to nonzero-weight positions makes the auto/manual invariance
+    # exact at every truncation width.
+    w_j = np.asarray(dens.w_j).astype(float)
+    live_mask = w_j > 0.0
 
     x_min_g = np.full(A, float("nan"))
     x_max_g = np.full(A, float("nan"))
@@ -924,7 +858,11 @@ def _diff_spans_ma(dens, ts: float):
         if bool(is_per_g[a]):
             W_g = float(period_g[a])
         else:
-            c_flat = np.asarray(centres[a], dtype=float).ravel()
+            Ca = np.asarray(centres[a], dtype=float)  # (dim_a, n_j)
+            if Ca.size and bool(live_mask.any()):
+                c_flat = Ca[:, live_mask].ravel()
+            else:
+                c_flat = Ca.ravel()
             if c_flat.size:
                 c_min = float(c_flat.min())
                 c_max = float(c_flat.max())
@@ -952,7 +890,7 @@ def _diff_spans_ma(dens, ts: float):
 
 
 def _differential_adaptive(
-    dens, *, is_sa: bool, base: float,
+    dens, *, base: float,
     truncation_sigmas: float, kernel_precision,
     grid_limit: int, verbose: bool,
 ) -> float:
@@ -964,21 +902,16 @@ def _differential_adaptive(
     sigma-anchored tolerance, the floor is reached, or grid_limit hits.
     """
     import math
+    # truncation_sigmas is resolved to a finite width at the dispatcher
+    # entry (:func:`_entropy_exp_tens_differential_dispatch`), so it is
+    # always a finite positive float here and drives the span, the
+    # convergence tolerance, and the downstream kernel truncation from a
+    # single source. ``math.inf`` never reaches this function.
     ts = float(truncation_sigmas)
-    # truncation_sigmas controls kernel truncation, where +inf is valid
-    # ("no truncation"). The differential span and tolerance anchoring
-    # need a finite extent, so cap any non-finite ts at the sensible
-    # default 6.0 -- this matches the _cell_masses_ma_absolute internal
-    # default and keeps span/tolerance well-defined when the user (or
-    # mpt.get_default('truncation_sigmas')) is set to inf.
-    ts_span = ts if math.isfinite(ts) else 6.0
-    tol = max(math.exp(-0.5 * ts_span * ts_span), 1e-12)
+    tol = max(math.exp(-0.5 * ts * ts), 1e-12)
     max_iter = 10
 
-    if is_sa:
-        x_min, x_max, n0, dim, per_axis_W, per_axis_per = _diff_spans_sa(dens, ts_span)
-    else:
-        x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per = _diff_spans_ma(dens, ts_span)
+    x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per = _diff_spans_ma(dens, ts)
 
     N = max(int(n0), 4)
     h_history = []   # list of h_hat values, in iteration order
@@ -1005,21 +938,13 @@ def _differential_adaptive(
                     )
                 break
 
-        if is_sa:
-            H_disc = _entropy_exp_tens_sa(
-                dens, None, None, None, None, None, None,
-                spectrum=None, normalize=False, base=base,
-                n_points_per_dim=N, x_min=x_min, x_max=x_max,
-                truncation_sigmas=ts, kernel_precision=kernel_precision,
-            )
-        else:
-            H_disc = _entropy_exp_tens_ma(
-                dens, normalize=False, base=base,
-                n_points_per_dim=N,
-                x_min=x_min_g, x_max=x_max_g,
-                grid_limit=grid_limit,
-                truncation_sigmas=ts, kernel_precision=kernel_precision,
-            )
+        H_disc = _entropy_exp_tens_ma(
+            dens, normalize=False, base=base,
+            n_points_per_dim=N,
+            x_min=x_min_g, x_max=x_max_g,
+            grid_limit=grid_limit,
+            truncation_sigmas=ts, kernel_precision=kernel_precision,
+        )
 
         # Sum log_base(delta_d) over axes.
         log_cell_vol = 0.0
@@ -1072,7 +997,7 @@ def _entropy_exp_tens_differential_dispatch(
     if isinstance(p_or_dens, (list, tuple)):
         if len(p_or_dens) > 0 and isinstance(
             p_or_dens[0],
-            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+            (MaetDensity, WindowedMaetDensity),
         ):
             raise NotImplementedError(
                 "method='differential' does not yet support list input. "
@@ -1083,17 +1008,17 @@ def _entropy_exp_tens_differential_dispatch(
             "method='differential' does not yet support list input. "
             "Apply it to each density individually."
         )
-    # Reject 2-D raw SA input (batched).
+    # Reject 2-D raw single-multiset input (batched).
     if (not isinstance(
             p_or_dens,
-            (ExpTensDensity, MaetDensity, WindowedMaetDensity),
+            (MaetDensity, WindowedMaetDensity),
         )
         and not _looks_like_ma_p(p_or_dens)):
         try:
             p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
             if p_arr_check.ndim == 2:
                 raise NotImplementedError(
-                    "method='differential' does not yet support raw SA "
+                    "method='differential' does not yet support raw single-multiset "
                     "batched (2-D) input. Pass each chord row "
                     "individually, or pre-build densities."
                 )
@@ -1105,7 +1030,7 @@ def _entropy_exp_tens_differential_dispatch(
             "method='shannon'."
         )
 
-    dens, is_sa = _resolve_density(p_or_dens, args, spectrum)
+    dens = _resolve_density(p_or_dens, args, spectrum)
     _raise_if_any_sigma_zero(dens, method_name="differential")
 
     if isinstance(dens, WindowedMaetDensity):
@@ -1116,13 +1041,16 @@ def _entropy_exp_tens_differential_dispatch(
             "grid for windowed densities."
         )
 
-    if truncation_sigmas is None:
-        ts = 6.0  # match _cell_masses_ma_absolute internal default
-    else:
-        ts = float(truncation_sigmas)
+    # Resolve to a finite width uniformly with the eval/cosine/Möbius
+    # paths: ``None`` -> global default; ``math.inf`` -> the finite
+    # accuracy-floor width. The differential span and tolerance
+    # anchoring below then have a well-defined finite radius without
+    # any local isfinite guard.
+    from ._defaults import resolve_truncation_sigmas
+    ts = resolve_truncation_sigmas(truncation_sigmas)
 
     val = _differential_adaptive(
-        dens, is_sa=is_sa, base=base,
+        dens, base=base,
         truncation_sigmas=ts, kernel_precision=kernel_precision,
         grid_limit=grid_limit, verbose=verbose,
     )
@@ -1159,16 +1087,8 @@ def _entropy_exp_tens_scalar(
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
             **eval_kw,
         )
-    if isinstance(dens, ExpTensDensity):
-        return _entropy_exp_tens_sa(
-            dens, None, None, None, None, None, None,
-            spectrum=None, normalize=normalize, base=base,
-            n_points_per_dim=n_points_per_dim,
-            x_min=x_min, x_max=x_max,
-            **eval_kw,
-        )
     raise TypeError(
-        f"dens must be an ExpTensDensity, MaetDensity, or "
+        f"dens must be a MaetDensity or "
         f"WindowedMaetDensity; got {type(dens).__name__}."
     )
 
@@ -1179,7 +1099,7 @@ def _entropy_exp_tens_density_list(
 ):
     """List-of-densities entropy dispatch.
 
-    With ``dedup=True``, structurally-identical SA densities are
+    With ``dedup=True``, structurally-identical single-multiset densities are
     computed once (canonical-form dedup); MA densities bypass dedup.
     Returns ``(M,)``.
     """
@@ -1191,15 +1111,17 @@ def _entropy_exp_tens_density_list(
     if m == 0:
         return np.empty((0,), dtype=np.float64)
 
-    use_dedup = dedup and all(isinstance(d, ExpTensDensity) for d in dens_list)
+    use_dedup = dedup and all(is_single_multiset(d) for d in dens_list)
     out = np.empty(m, dtype=np.float64)
 
     if use_dedup:
         result_cache: dict = {}
         for i, d in enumerate(dens_list):
             key, _, _ = _chord_canonical_key(
-                d.p, d.w, sigma=d.sigma, r=d.r,
-                is_rel=d.is_rel, is_per=d.is_per, period=d.period,
+                d.p_attr[0][:, 0], d.w[0][:, 0],
+                sigma=float(d.sigma[0]), r=int(d.r[0]),
+                is_rel=bool(d.is_rel[0]), is_per=bool(d.is_per[0]),
+                period=float(d.period[0]),
             )
             if key not in result_cache:
                 result_cache[key] = _entropy_exp_tens_scalar(
@@ -1211,7 +1133,7 @@ def _entropy_exp_tens_density_list(
     else:
         for i, d in enumerate(dens_list):
             if not isinstance(
-                d, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+                d, (MaetDensity, WindowedMaetDensity)
             ):
                 raise TypeError(
                     f"Density list element {i} must be a density object; "
@@ -1225,13 +1147,13 @@ def _entropy_exp_tens_density_list(
     return out
 
 
-def _entropy_exp_tens_raw_sa_batch(
+def _entropy_exp_tens_raw_single_multiset_batch(
     P, W, sigma, r, is_rel, is_per, period, is_sym=None,
     *, spectrum, precision, dedup,
     normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
     verbose=True,
 ):
-    """Raw SA batched entropy dispatch.
+    """Raw single-multiset batched entropy dispatch.
 
     Per-row chord-level dedup of density construction (via canonical
     keys); each unique density's entropy is computed once. Returns
@@ -1389,9 +1311,9 @@ def _entropy_exp_tens_raw_sa_batch(
 
 def _resolve_density(p_or_dens, args, spectrum):
     """Coerce the ``entropy_exp_tens`` first argument plus tail args
-    into either an :class:`ExpTensDensity` (SA) or a
+    into a
     :class:`MaetDensity` / :class:`WindowedMaetDensity` (MA),
-    independent of the entropy estimator. Returns ``(dens, is_sa)``.
+    independent of the entropy estimator. Returns the resolved ``dens``.
 
     Centralises the build_exp_tens / spectrum / passthrough logic so
     that both the Shannon and renyi2 branches see a uniform input.
@@ -1405,19 +1327,13 @@ def _resolve_density(p_or_dens, args, spectrum):
             raise TypeError(
                 "Precomputed WindowedMaetDensity takes no further positional args."
             )
-        return p_or_dens, False
+        return p_or_dens
     if isinstance(p_or_dens, MaetDensity):
         if len(args) > 0:
             raise TypeError(
                 "Precomputed MaetDensity takes no further positional args."
             )
-        return p_or_dens, False
-    if isinstance(p_or_dens, ExpTensDensity):
-        if len(args) > 0:
-            raise TypeError(
-                "Precomputed ExpTensDensity takes no further positional args."
-            )
-        return p_or_dens, True
+        return p_or_dens
 
     # --- Raw args: dispatch on type of p ---
     # Positional order: ..., period[, is_sym]. 6 trailing args omit
@@ -1436,12 +1352,12 @@ def _resolve_density(p_or_dens, args, spectrum):
             is_rel_vec, is_per_vec, period_vec, is_sym_vec,
             verbose=False,
         )
-        return dens, False
+        return dens
 
-    # SA raw args.
+    # Single-multiset raw args.
     if len(args) not in (6, 7):
         raise ValueError(
-            f"Single-attribute raw call expects 7 or 8 positional arguments "
+            f"Single-multiset raw call expects 7 or 8 positional arguments "
             f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); "
             f"got {1 + len(args)}."
         )
@@ -1454,7 +1370,10 @@ def _resolve_density(p_or_dens, args, spectrum):
         p, w, sigma, r, is_rel, is_per, period,
         True if is_sym is None else is_sym, verbose=False,
     )
-    return dens, True
+    # The build returns a MaetDensity at A = 1; route through the
+    # multi-attribute entropy path (which handles the single-multiset
+    # corner as its general case at A = 1).
+    return dens
 
 
 # -------------------------------------------------------------------
@@ -1480,92 +1399,6 @@ def _renyi2_finalise(ip_xx, Z, base):
             or (not np.isfinite(Z)) or Z <= 0.0:
         return float("nan")
     return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
-
-
-def _renyi2_exp_tens_sa(dens, *, base: float) -> float:
-    """Analytical Rényi-2 entropy of a SA expectation tensor.
-
-    Computes ``H_2 = -log_b(<T,T> / Z²)`` where ``<T,T>`` is evaluated
-    via the Möbius inner-product machinery (or a direct
-    pairwise formula at ``r = 1`` where the orbit table is undefined)
-    and ``Z = ∫T(x)dx`` via the closed-form total-mass formulae in
-    :mod:`mpt._mobius`.
-    """
-    # An ordered ([sym] = 0) density at r > 1 has no orbit, so the Möbius
-    # collision inner product (which presumes symmetrisation) does not
-    # apply. Compute it numerically via the direct double sum of Gaussian
-    # overlaps over the C(K, r) ordered tuples, reusing the shared
-    # per-attribute machinery on a single-attribute, single-event density.
-    # r = 1 is exempt ([sym] vacuous; ordered and symmetric coincide) and
-    # falls through to the closed-form path below.
-    if (not bool(getattr(dens, "is_sym", True))) and int(dens.r) > 1:
-        from ._tensor.build import build_exp_tens
-
-        dens_p = dens.pruned()
-        p2 = np.asarray(dens_p.p, dtype=np.float64).reshape(-1, 1)
-        w2 = np.asarray(dens_p.w, dtype=np.float64).reshape(-1, 1)
-        da_dens = build_exp_tens(
-            [p2], [w2], [float(dens_p.sigma)], [int(dens_p.r)],
-            [bool(dens_p.is_rel)], [bool(dens_p.is_per)],
-            [float(dens_p.period)], [False], verbose=False,
-        )
-        I_a, Z_a = _renyi2_per_attr_numerical(da_dens, 0)
-        ip_xx = float(I_a[0, 0])
-        Z = float(Z_a[0])
-        return _renyi2_finalise(ip_xx, Z, base)
-    from ._mobius import total_mass_abs, total_mass_rel
-
-    dens = dens.pruned()
-    p, w = dens.p, dens.w
-    sigma, r = dens.sigma, dens.r
-    is_rel, is_per, period = dens.is_rel, dens.is_per, dens.period
-
-    # r=1 rel is degenerate: the relative density lives on a 0-D space
-    # (one position has no internal relative structure); H_2 is
-    # undefined as a continuous quantity. Return 0 by convention,
-    # matching the MA path's dim==0 short circuit.
-    if r == 1 and is_rel:
-        return 0.0
-
-    if r == 1:
-        # Direct r=1 abs path: T = Σ_i w_i G_σ(x - p_i), so
-        #   <T,T> = σ√π · Σ_{i,j} w_i w_j exp(-(p_i-p_j)²/(4σ²))
-        # (with wrapped differences in periodic mode).
-        diffs = p[:, None] - p[None, :]
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
-        ip_xx = float(sigma * np.sqrt(np.pi) * (w[:, None] * w[None, :] * K).sum())
-        Z = total_mass_abs(p, w, sigma, r)
-        return _renyi2_finalise(ip_xx, Z, base)
-
-    # r >= 2: Möbius machinery. Empirical sweeps across all 7 regimes
-    # (precision_audit/ + sweep_self_ip.py) show the Möbius-method self-IP is
-    # robust at every tested musical sigma; the per-orbit-class
-    # cancellation ratio in abs mode dips to ~0.13 in the worst tested
-    # case, well above the 1e-10 corruption threshold. We therefore
-    # rely on a post-hoc finite/positive check rather than a ratio-
-    # based fallback. The Bulger fallback explored earlier was
-    # abandoned: the Möbius method and Bulger's method use different
-    # normalisation conventions in rel mode, so the fallback gave a
-    # different (also wrong) answer rather than recovering the correct
-    # value.
-    if is_rel:
-        ip_xx = _orbit_inner_rel(
-            p, w, p, w, sigma, r, is_per, period,
-        )
-    else:
-        ip_xx = _orbit_inner_abs(
-            p, w, p, w, sigma, r, is_per, period,
-        )
-
-    # Z via closed-form Möbius total mass.
-    if is_rel:
-        Z = total_mass_rel(p, w, sigma, r)
-    else:
-        Z = total_mass_abs(p, w, sigma, r)
-
-    return _renyi2_finalise(ip_xx, Z, base)
 
 
 def _renyi2_per_attr_numerical(dens, a):
@@ -1595,6 +1428,7 @@ def _renyi2_per_attr_numerical(dens, a):
     from ._tensor.build import build_exp_tens
     from ._tensor.dispatch import (
         _compute_Q_inner_blocks, _compute_Q, _inner_r_vec,
+        _quadratic_form_det, _gaussian_mass_const,
     )
 
     nested = getattr(dens, "nested", None)
@@ -1629,14 +1463,9 @@ def _renyi2_per_attr_numerical(dens, a):
     block_size = int(_inner_r_vec(da)[0])   # s_u (inner/intermediate) or 0
     is_rel = bool(da.is_rel[0])
     r_a = int(da.r[0])
-    if block_size >= 2:
-        det_m = (1.0 / block_size) ** (r_a // block_size)
-    elif is_rel and r_a >= 2:
-        det_m = 1.0 / r_a
-    else:
-        det_m = 1.0
-    vol = (2 * np.pi * sigma ** 2) ** (d_a / 2) / np.sqrt(det_m)   # mass
-    pref = (np.pi * sigma ** 2) ** (d_a / 2) / np.sqrt(det_m)      # overlap
+    det_m = _quadratic_form_det(r_a, block_size, is_rel)
+    vol = _gaussian_mass_const(sigma, d_a, det_m)              # mass
+    pref = _gaussian_mass_const(sigma, d_a, det_m, half=True)  # overlap
 
     I_a = np.zeros((N, N), dtype=np.float64)
     Z_a = np.zeros(N, dtype=np.float64)
@@ -1667,7 +1496,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     ``<T,T> = Σ_{n,m} Π_a I_a[n,m]``, with the per-attribute matrix
     coming from the same machinery the cosine path uses, and
     ``Z = Σ_n Π_a Z_a^(n)`` where each ``Z_a^(n)`` is the closed-form
-    SA total mass evaluated on event ``n``'s attribute-``a`` slot
+    Single-multiset total mass evaluated on event ``n``'s attribute-``a`` slot
     pitches and weights.
 
     Windowed densities are not yet supported on this path; raises
@@ -1689,7 +1518,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     if N == 0:
         # Every event pruned away: a zero-mass density (e.g. a windowed
         # sweep centre with no event in support). Collision entropy is
-        # undefined; return NaN rather than 0, matching the SA path and
+        # undefined; return NaN rather than 0, matching the single-multiset path and
         # the value a windowed sweep wants at out-of-support centres.
         return float("nan")
 
@@ -1710,7 +1539,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     # are clean, so the sum Σ P_xx[n,m] is correct even when some entries
     # are noisy. We therefore rely solely on a post-hoc finite/positive
     # check. The Bulger fallback was abandoned for the same convention-
-    # mismatch reason as in the SA path.
+    # mismatch reason as in the single-multiset path.
     is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
     r_vec = np.asarray(dens.r)
     nested = getattr(dens, "nested", [None] * A)
@@ -1750,109 +1579,21 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
 
 def _looks_like_ma_p(p) -> bool:
     """Return True if p is a list/tuple of attribute matrices, i.e. the
-    MA raw-args input form (as opposed to a 1-D SA pitch vector)."""
+    MA raw-args input form (as opposed to a 1-D single-multiset pitch vector)."""
     if isinstance(p, np.ndarray):
-        return False  # an ndarray is always SA input
+        return False  # an ndarray is always single-multiset input
     if not isinstance(p, (list, tuple)):
         return False
     if len(p) == 0:
         return False
     first = p[0]
-    # SA: p is a list/tuple of numbers (e.g., [0, 4, 7]).
+    # Single-multiset: p is a list/tuple of numbers (e.g., [0, 4, 7]).
     if np.isscalar(first):
         return False
     # MA: first is an array-like (matrix) with rows (slots) and cols (events).
     return True
 
 
-# -------------------------------------------------------------------
-#  _entropy_exp_tens_sa  (single-attribute legacy path)
-# -------------------------------------------------------------------
-
-
-def _entropy_exp_tens_sa(
-    p_or_dens, w, sigma, r, is_rel, is_per, period, is_sym=None,
-    *,
-    spectrum, normalize, base,
-    n_points_per_dim, x_min, x_max,
-    truncation_sigmas=None, kernel_precision=None,
-) -> float:
-    """Single-attribute Shannon entropy."""
-    if isinstance(p_or_dens, ExpTensDensity):
-        T = p_or_dens
-        is_per = T.is_per
-        period = T.period
-    else:
-        p = np.asarray(p_or_dens, dtype=np.float64).ravel()
-        if (sigma is None or r is None or is_rel is None
-                or is_per is None or period is None):
-            raise ValueError(
-                "When p is not a precomputed density, the structural "
-                "arguments (sigma, r, is_rel, is_per, period) are required. "
-                "(w may be None for uniform weights.)"
-            )
-        if w is None:
-            w = np.ones_like(p)
-        if spectrum is not None:
-            p, w = add_spectra(p, w, *spectrum)
-        T = build_exp_tens(
-            p, w, sigma, r, is_rel, is_per, period,
-            True if is_sym is None else is_sym, verbose=False,
-        )
-
-    # Construct query points. For dim == 1 the grid is a single 1-D
-    # linspace; for dim > 1 it is a Cartesian product, mirroring the
-    # MA path.
-    dim = int(T.dim)
-    if is_per:
-        ax = np.linspace(0, period, n_points_per_dim + 1)[:-1]
-    else:
-        x_min_s = float(np.asarray(x_min).item()) if np.ndim(x_min) == 0 else float("nan")
-        x_max_s = float(np.asarray(x_max).item()) if np.ndim(x_max) == 0 else float("nan")
-        if np.isnan(x_min_s) or np.isnan(x_max_s):
-            raise ValueError("x_min and x_max must be specified when is_per is False.")
-        if x_min_s >= x_max_s:
-            raise ValueError("x_min must be less than x_max.")
-        ax = np.linspace(x_min_s, x_max_s, n_points_per_dim)
-
-    if dim == 1:
-        x = ax
-    else:
-        mesh = np.meshgrid(*([ax] * dim), indexing="ij")
-        x = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
-
-    # Absolute-mode densities use bin-integration (analytic cell mass
-    # via per-axis erf differences); relative-mode falls back to
-    # point-evaluation pending v2.3 covariance work.
-    if not bool(T.is_rel):
-        ts = (6.0 if truncation_sigmas is None
-              else float(truncation_sigmas))
-        t = _cell_masses_sa_absolute(T, ax, truncation_sigmas=ts)
-    else:
-        t = eval_exp_tens(
-            T, x, verbose=False,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-
-    total = np.sum(t)
-    if total == 0:
-        return 0.0
-
-    q = t / total
-    N = q.size
-    q = q[q > 0]
-
-    H = float(-np.sum(q * np.log(q) / np.log(base)))
-
-    if normalize:
-        H /= np.log(N) / np.log(base)
-
-    return H
-
-
-# -------------------------------------------------------------------
-#  _entropy_exp_tens_ma  (multi-attribute path)
 # -------------------------------------------------------------------
 
 

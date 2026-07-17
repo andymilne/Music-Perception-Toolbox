@@ -1,4 +1,4 @@
-"""Stage 2b: verify cos_sim_exp_tens routes the SA centres-IP through
+"""Stage 2b: verify cos_sim_exp_tens routes the single-multiset centres-IP through
 :func:`gaussian_kernel_sum` for abs and rel-non-periodic modes, and
 that the ``truncation_sigmas`` / ``kernel_precision`` kwargs reach the
 helper from the public entry point.
@@ -28,7 +28,7 @@ from mpt import (
 
 
 # -----------------------------------------------------------------------
-# SA abs and rel-non-periodic densities — the cases routed through helper
+# single-multiset abs and rel-non-periodic densities — the cases routed through helper
 # -----------------------------------------------------------------------
 
 
@@ -92,43 +92,6 @@ class TestCosSimSACentresRouting:
             f"rel+per: exact={s_exact}, trunc={s_trunc}, "
             f"|diff|={abs(s_exact - s_trunc):.3e}"
         )
-
-    def test_truncation_speedup_at_larger_k(self):
-        """K=12 harmonic template gives a measurable speedup."""
-        import time
-
-        tp, tw = add_spectra(
-            np.array([0., 0., 0.]), np.array([1., 1., 1.]),
-            'harmonic', 12, 'powerlaw', 1,
-        )
-        dens_a = build_exp_tens(tp, tw, 12.0, 3, True, False, 0.0)
-        chord = np.array([0., 400., 700.])
-        dens_b = build_exp_tens(chord, np.ones(3), 12.0, 3,
-                                True, False, 0.0)
-
-        t0 = time.perf_counter()
-        s_exact = cos_sim_exp_tens(
-            dens_a, dens_b, method='bulger',
-            truncation_sigmas=np.inf, verbose=False,
-        )
-        t_exact = time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        s_trunc = cos_sim_exp_tens(
-            dens_a, dens_b, method='bulger',
-            truncation_sigmas=6.0, verbose=False,
-        )
-        t_trunc = time.perf_counter() - t0
-
-        # Truncated should be at least 1.5x faster on this workload.
-        # (5x+ is typical at K=24 but K=12 is closer to the threshold
-        # where helper overhead matters.)
-        assert t_trunc < t_exact / 1.5, (
-            f"truncation didn't yield speedup: exact={t_exact:.3f}s, "
-            f"trunc={t_trunc:.3f}s"
-        )
-        # Tight numerical agreement.
-        assert abs(s_exact - s_trunc) < 1e-9
 
     def test_global_default_propagates(self):
         """set_default(truncation_sigmas=...) reaches the helper through

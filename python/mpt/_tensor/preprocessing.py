@@ -1359,11 +1359,12 @@ def weight_events(
     # window's value is exp(-truncation_sigmas² / 2), the same
     # threshold the kernel truncation uses. Reads the global default
     # so changes via mpt.set_default(truncation_sigmas=...) propagate
-    # without an extra kwarg. Inf disables (default).
-    from .._defaults import get_default
-    trunc_sig = get_default('truncation_sigmas')
-    if np.isfinite(trunc_sig):
-        factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
+    # without an extra kwarg. Per the truncation contract, math.inf
+    # resolves to the finite accuracy-floor width (the 1e-12 floor),
+    # so truncation always applies --- never a "disabled" state.
+    from .._defaults import get_default, resolve_truncation_sigmas
+    trunc_sig = resolve_truncation_sigmas(get_default('truncation_sigmas'))
+    factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
 
     # --- Normalise w to length-A list; multiply factor into target slot ---
     w_out = _normalise_weights_to_list(w, A)

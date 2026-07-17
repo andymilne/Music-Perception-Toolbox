@@ -359,10 +359,15 @@ def _wrap(d, period):
 
 
 def _trunc(K, sigma, truncation_sigmas):
-    """Apply the exp(-truncation_sigmas^2 / 2) kernel cutoff in place."""
-    if truncation_sigmas is None or not math.isfinite(truncation_sigmas):
-        return K
-    floor = math.exp(-0.5 * truncation_sigmas ** 2)
+    """Zero kernel entries below the truncation floor exp(-k^2/2).
+
+    The floor is resolved through :func:`mpt._defaults.truncation_floor`,
+    so None takes the default and math.inf takes the finite
+    accuracy-floor width (the 1e-12 floor) --- truncation always
+    applies, uniformly with every other path.
+    """
+    from .._defaults import truncation_floor
+    floor = truncation_floor(truncation_sigmas)
     K[K < floor] = 0.0
     return K
 
@@ -395,15 +400,18 @@ def auto_ntau_default(period, sigma):
     ``truncation_sigmas`` default.
 
     This is the single source of the all-image (relative-periodic) node count
-    for every path that evaluates it -- the flat single-attribute and
+    for every path that evaluates it -- the flat single-multiset and
     multi-attribute Möbius integrators and the nested contraction -- so their
     transposition grids coincide exactly and the same level returns the same
     value whether reached flat or nested.
     """
-    from .._defaults import get_default
+    from .._defaults import get_default, truncation_floor
     ts = get_default("truncation_sigmas")
-    ts_eff = math.inf if ts is None else float(ts)
-    tol = max(math.exp(-0.5 * ts_eff ** 2), 1e-12)
+    # ``truncation_floor`` resolves None -> default and inf -> the
+    # accuracy-floor width, so ``tol`` is the same kernel-value floor
+    # every other truncation path uses --- and honours
+    # :func:`accuracy_floor_context` when goldens are being regenerated.
+    tol = truncation_floor(ts)
     return auto_ntau(period, sigma, tol)
 
 
@@ -550,9 +558,9 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     delta = (cX - cY)[None, :] - taus[:, None]              # (T, g)
     K = np.exp(-(delta[..., None, None] + dpq) ** 2
                / (4.0 * sigma ** 2)) * wpq                  # (T, g, Kx, Ky)
-    if truncation_sigmas is not None and math.isfinite(truncation_sigmas):
-        floor = math.exp(-0.5 * truncation_sigmas ** 2)
-        K[K < floor] = 0.0             # per-term floor, matching _trunc exactly
+    from .._defaults import truncation_floor
+    floor = truncation_floor(truncation_sigmas)
+    K[K < floor] = 0.0             # per-term floor, matching _trunc exactly
     m_diag = K.sum(axis=(-1, -2))                           # (T, g)
     return float(m_diag.prod(axis=1).sum())   # common dtau cancels in the cosine
 
@@ -623,9 +631,8 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     Kx, Ky = dpq.shape
     T = int(len(taus))
     Nx, Ny = cX.shape[0], cY.shape[0]
-    floor = (math.exp(-0.5 * truncation_sigmas ** 2)
-             if (truncation_sigmas is not None
-                 and math.isfinite(truncation_sigmas)) else None)
+    from .._defaults import truncation_floor
+    floor = truncation_floor(truncation_sigmas)
     m_idx = np.repeat(np.arange(Nx), Ny)
     n_idx = np.tile(np.arange(Ny), Nx)
     B = Nx * Ny
@@ -639,8 +646,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
         delta = (cx - cy)[:, :, None] - taus[None, None, :]   # (nb, g, T)
         K = np.exp(-(delta[..., None, None] + dpq) ** 2
                    / (4.0 * sigma ** 2)) * wpq             # (nb, g, T, Kx, Ky)
-        if floor is not None:
-            K[K < floor] = 0.0
+        K[K < floor] = 0.0
         m_diag = K.sum(axis=(-1, -2))                      # (nb, g, T)
         out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over g, sum over T
     return out.reshape(Nx, Ny)

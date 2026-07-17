@@ -229,14 +229,18 @@ class TestDifferentialConvergence:
         # truncation-noise floor); ts=4 may differ at the few-decimal level
         assert abs(h_ts8 - h_ts6) < 1e-4
 
-    def test_truncation_sigmas_inf_is_handled(self):
-        """truncation_sigmas=math.inf is valid for kernel evaluation
-        ('no truncation') but would give an infinite span if used
-        directly for span derivation. The adaptive evaluator caps the
-        span-derivation ts internally so an infinite kernel-truncation
-        setting still produces a finite h_hat. This is the case that
-        bites spectral_entropy via the default mpt.get_default(
-        'truncation_sigmas') value."""
+    def test_truncation_sigmas_inf_resolves_to_accuracy_floor(self):
+        """``truncation_sigmas=math.inf`` resolves to the finite
+        accuracy-floor width (~7.43 sigma, the 1e-12 floor) uniformly
+        with every other truncation path, including the differential
+        span and tolerance anchoring. In particular the result must
+        equal ``truncation_sigmas=accuracy_floor_sigmas()`` bit-for-bit
+        (both traverse the same code path once resolution is applied),
+        and must differ from ``truncation_sigmas=6.0`` by the ~6-sigma
+        truncation-error scale (~2e-8). This pins the contract at the
+        entry the dispatcher exposes to ``spectral_entropy`` and the
+        rest of the toolbox."""
+        from mpt._defaults import accuracy_floor_sigmas
         dens = build_exp_tens(
             np.array([6000., 6300., 6700.]), np.ones(3),
             20.0, 1, False, False, 0.0, verbose=False,
@@ -244,13 +248,19 @@ class TestDifferentialConvergence:
         h_inf = entropy_exp_tens(
             dens, method='differential', truncation_sigmas=math.inf,
             verbose=False)
+        h_floor = entropy_exp_tens(
+            dens, method='differential',
+            truncation_sigmas=accuracy_floor_sigmas(),
+            verbose=False)
         h_ts6 = entropy_exp_tens(
             dens, method='differential', truncation_sigmas=6.0,
             verbose=False)
-        # The internal cap at 6.0 makes ts=inf behave identically to
-        # ts=6 for span/tolerance purposes.
+        # Contract: inf resolves to the accuracy-floor width.
         assert math.isfinite(h_inf)
-        assert math.isclose(h_inf, h_ts6, abs_tol=1e-10)
+        assert h_inf == h_floor
+        # Sanity: 6 sigma is coarser and the two must differ by the
+        # kernel-truncation-error scale at 6 sigma (~2e-8).
+        assert abs(h_inf - h_ts6) > 1e-9
 
 
 # ----------------------------------------------------------------------
@@ -360,8 +370,8 @@ class TestSpectralEntropyMethod:
 # entropy_exp_tens supports five input forms:
 #   (a) scalar density object (ExpTensDensity / MaetDensity)
 #   (b) list of density objects
-#   (c) raw SA scalar (p, w, sigma, r, is_rel, is_per, period)
-#   (d) raw SA batched (P, W, sigma, r, is_rel, is_per, period)
+#   (c) raw single-multiset scalar (p, w, sigma, r, is_rel, is_per, period)
+#   (d) raw single-multiset batched (P, W, sigma, r, is_rel, is_per, period)
 #   (e) raw MA scalar (p_attr, w, sigma_vec, r_vec, groups, ...)
 #
 # The discrete methods ('shannon', 'normalized') support all five.
@@ -371,7 +381,7 @@ class TestSpectralEntropyMethod:
 
 
 @pytest.fixture
-def sa_inputs():
+def single_multiset_inputs():
     """Single-attribute scalar raw input for non-periodic r=1."""
     return dict(
         p=np.array([100., 200., 300.]),
@@ -381,37 +391,37 @@ def sa_inputs():
 
 
 @pytest.fixture
-def sa_dens(sa_inputs):
+def single_multiset_dens(single_multiset_inputs):
     return build_exp_tens(
-        sa_inputs["p"], sa_inputs["w"],
-        sa_inputs["sigma"], sa_inputs["r"],
-        sa_inputs["is_rel"], sa_inputs["is_per"], sa_inputs["period"],
+        single_multiset_inputs["p"], single_multiset_inputs["w"],
+        single_multiset_inputs["sigma"], single_multiset_inputs["r"],
+        single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
         verbose=False,
     )
 
 
 @pytest.fixture
-def sa_dens_list(sa_inputs):
-    """List of three SA densities (slightly different centres)."""
+def single_multiset_dens_list(single_multiset_inputs):
+    """List of three single-multiset densities (slightly different centres)."""
     out = []
     for shift in (0., 50., 100.):
         out.append(build_exp_tens(
-            sa_inputs["p"] + shift, sa_inputs["w"],
-            sa_inputs["sigma"], sa_inputs["r"],
-            sa_inputs["is_rel"], sa_inputs["is_per"], sa_inputs["period"],
+            single_multiset_inputs["p"] + shift, single_multiset_inputs["w"],
+            single_multiset_inputs["sigma"], single_multiset_inputs["r"],
+            single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"], single_multiset_inputs["period"],
             verbose=False,
         ))
     return out
 
 
 @pytest.fixture
-def sa_batched(sa_inputs):
-    """Batched SA: 4 rows of 3 pitches each."""
+def single_multiset_batched(single_multiset_inputs):
+    """Batched single-multiset: 4 rows of 3 pitches each."""
     P = np.stack([
-        sa_inputs["p"] + 0.,
-        sa_inputs["p"] + 50.,
-        sa_inputs["p"] + 100.,
-        sa_inputs["p"] + 150.,
+        single_multiset_inputs["p"] + 0.,
+        single_multiset_inputs["p"] + 50.,
+        single_multiset_inputs["p"] + 100.,
+        single_multiset_inputs["p"] + 150.,
     ])
     W = np.ones_like(P)
     return dict(P=P, W=W, sigma=20.0, r=1, is_rel=False, is_per=False, period=0.0)
@@ -437,36 +447,36 @@ def ma_dens():
 class TestShannonInputForms:
     """``method='shannon'`` supports all five input forms."""
 
-    def test_scalar_density(self, sa_dens):
+    def test_scalar_density(self, single_multiset_dens):
         h = entropy_exp_tens(
-            sa_dens, method='shannon', n_points_per_dim=200,
+            single_multiset_dens, method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_list_of_densities(self, sa_dens_list):
+    def test_list_of_densities(self, single_multiset_dens_list):
         H = entropy_exp_tens(
-            sa_dens_list, method='shannon', n_points_per_dim=200,
+            single_multiset_dens_list, method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(H, np.ndarray) and H.shape == (3,)
         assert np.all(np.isfinite(H))
 
-    def test_raw_sa_scalar(self, sa_inputs):
+    def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_exp_tens(
-            sa_inputs["p"], sa_inputs["w"], sa_inputs["sigma"],
-            sa_inputs["r"], sa_inputs["is_rel"], sa_inputs["is_per"],
-            sa_inputs["period"],
+            single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
+            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["period"],
             method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_raw_sa_batched(self, sa_batched):
+    def test_raw_single_multiset_batched(self, single_multiset_batched):
         H = entropy_exp_tens(
-            sa_batched["P"], sa_batched["W"], sa_batched["sigma"],
-            sa_batched["r"], sa_batched["is_rel"], sa_batched["is_per"],
-            sa_batched["period"],
+            single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
+            single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
+            single_multiset_batched["period"],
             method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -488,36 +498,36 @@ class TestNormalizedInputForms:
     """``method='normalized'`` supports all five input forms and returns
     values in [0, 1]."""
 
-    def test_scalar_density(self, sa_dens):
+    def test_scalar_density(self, single_multiset_dens):
         h = entropy_exp_tens(
-            sa_dens, method='normalized', n_points_per_dim=200,
+            single_multiset_dens, method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and 0.0 <= h <= 1.0
 
-    def test_list_of_densities(self, sa_dens_list):
+    def test_list_of_densities(self, single_multiset_dens_list):
         H = entropy_exp_tens(
-            sa_dens_list, method='normalized', n_points_per_dim=200,
+            single_multiset_dens_list, method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(H, np.ndarray) and H.shape == (3,)
         assert np.all((H >= 0.0) & (H <= 1.0))
 
-    def test_raw_sa_scalar(self, sa_inputs):
+    def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_exp_tens(
-            sa_inputs["p"], sa_inputs["w"], sa_inputs["sigma"],
-            sa_inputs["r"], sa_inputs["is_rel"], sa_inputs["is_per"],
-            sa_inputs["period"],
+            single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
+            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["period"],
             method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
         assert isinstance(h, float) and 0.0 <= h <= 1.0
 
-    def test_raw_sa_batched(self, sa_batched):
+    def test_raw_single_multiset_batched(self, single_multiset_batched):
         H = entropy_exp_tens(
-            sa_batched["P"], sa_batched["W"], sa_batched["sigma"],
-            sa_batched["r"], sa_batched["is_rel"], sa_batched["is_per"],
-            sa_batched["period"],
+            single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
+            single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
+            single_multiset_batched["period"],
             method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -536,15 +546,15 @@ class TestDifferentialInputForms:
     """``method='differential'`` supports scalar forms; list and batched
     raise NotImplementedError."""
 
-    def test_scalar_density(self, sa_dens):
-        h = entropy_exp_tens(sa_dens, method='differential', verbose=False)
+    def test_scalar_density(self, single_multiset_dens):
+        h = entropy_exp_tens(single_multiset_dens, method='differential', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_raw_sa_scalar(self, sa_inputs):
+    def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_exp_tens(
-            sa_inputs["p"], sa_inputs["w"], sa_inputs["sigma"],
-            sa_inputs["r"], sa_inputs["is_rel"], sa_inputs["is_per"],
-            sa_inputs["period"],
+            single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
+            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["period"],
             method='differential', verbose=False,
         )
         assert isinstance(h, float) and math.isfinite(h)
@@ -553,16 +563,16 @@ class TestDifferentialInputForms:
         h = entropy_exp_tens(ma_dens, method='differential', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_list_rejected(self, sa_dens_list):
+    def test_list_rejected(self, single_multiset_dens_list):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(sa_dens_list, method='differential', verbose=False)
+            entropy_exp_tens(single_multiset_dens_list, method='differential', verbose=False)
 
-    def test_batched_rejected(self, sa_batched):
+    def test_batched_rejected(self, single_multiset_batched):
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(
-                sa_batched["P"], sa_batched["W"], sa_batched["sigma"],
-                sa_batched["r"], sa_batched["is_rel"], sa_batched["is_per"],
-                sa_batched["period"],
+                single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
+                single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
+                single_multiset_batched["period"],
                 method='differential', verbose=False,
             )
 
@@ -571,15 +581,15 @@ class TestRenyi2InputForms:
     """``method='renyi2'`` supports scalar forms; list and batched
     raise NotImplementedError."""
 
-    def test_scalar_density(self, sa_dens):
-        h = entropy_exp_tens(sa_dens, method='renyi2', verbose=False)
+    def test_scalar_density(self, single_multiset_dens):
+        h = entropy_exp_tens(single_multiset_dens, method='renyi2', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_raw_sa_scalar(self, sa_inputs):
+    def test_raw_single_multiset_scalar(self, single_multiset_inputs):
         h = entropy_exp_tens(
-            sa_inputs["p"], sa_inputs["w"], sa_inputs["sigma"],
-            sa_inputs["r"], sa_inputs["is_rel"], sa_inputs["is_per"],
-            sa_inputs["period"],
+            single_multiset_inputs["p"], single_multiset_inputs["w"], single_multiset_inputs["sigma"],
+            single_multiset_inputs["r"], single_multiset_inputs["is_rel"], single_multiset_inputs["is_per"],
+            single_multiset_inputs["period"],
             method='renyi2', verbose=False,
         )
         assert isinstance(h, float) and math.isfinite(h)
@@ -588,16 +598,16 @@ class TestRenyi2InputForms:
         h = entropy_exp_tens(ma_dens, method='renyi2', verbose=False)
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_list_rejected(self, sa_dens_list):
+    def test_list_rejected(self, single_multiset_dens_list):
         with pytest.raises(NotImplementedError):
-            entropy_exp_tens(sa_dens_list, method='renyi2', verbose=False)
+            entropy_exp_tens(single_multiset_dens_list, method='renyi2', verbose=False)
 
-    def test_batched_rejected(self, sa_batched):
+    def test_batched_rejected(self, single_multiset_batched):
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(
-                sa_batched["P"], sa_batched["W"], sa_batched["sigma"],
-                sa_batched["r"], sa_batched["is_rel"], sa_batched["is_per"],
-                sa_batched["period"],
+                single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
+                single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
+                single_multiset_batched["period"],
                 method='renyi2', verbose=False,
             )
 

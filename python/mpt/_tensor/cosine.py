@@ -46,12 +46,10 @@ from ..spectra import add_spectra
 from .build import _looks_like_multi_attr, build_exp_tens
 from .canonical import _pair_canonical_key
 from .density import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
     _nchoosek_indices,
-    sa_view,
-    is_sa_shaped,
+    is_single_multiset,
 )
 from .dispatch import (
     _compute_Q,
@@ -60,7 +58,6 @@ from .dispatch import (
     _normalize_density_input,
     _orbit_ips_look_corrupted,
     _resolve_list_list_mode,
-    _select_and_estimate_sa_ip,
     _select_ma_inner_product_method,
     # Orbit-table policy constants used by the Möbius-method router.
     _ORBIT_K_MINUS_R_MIN,
@@ -169,14 +166,14 @@ def cos_sim_exp_tens(*args,
       pairwise for equal lengths) returning ``(M,)``, or
       ``mode='cartesian'`` returning ``(M, N)``.
 
-    **Raw single-attribute scalar input**:
+    **Raw single-multiset scalar input**:
 
     - ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
       where ``p1`` and ``p2`` are 1-D arrays of pitches, ``w1``,
       ``w2`` are matching 1-D weight arrays (or ``None`` for uniform).
       Returns scalar.
 
-    **Raw single-attribute batched input** (replaces ``batch_cos_sim_exp_tens``):
+    **Raw single-multiset batched input** (replaces ``batch_cos_sim_exp_tens``):
 
     - ``cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)``
       where at least one of ``P1``, ``P2`` is a 2-D ``(M, K)`` matrix
@@ -209,25 +206,25 @@ def cos_sim_exp_tens(*args,
     ----------
     *args
         Positional arguments. Length depends on the input form:
-        2 for density modes; 9 for raw SA modes; 10 for raw MA mode.
+        2 for density modes; 9 for raw single-multiset modes; 10 for raw MA mode.
     mode : {'auto', 'pairwise', 'cartesian'}, default 'auto'
         For density list-vs-list. Ignored in scalar and broadcast cases.
     dedup : bool, default True
         Apply canonical-form deduplication. Currently supported for
-        single-attribute pairs only; pairs involving ``MaetDensity``
+        single-multiset pairs only; pairs involving ``MaetDensity``
         bypass dedup transparently. (``WindowedMaetDensity`` operands
         are rejected at the top of the function — use
         :func:`windowed_tensor_similarity` instead.)
     spectrum : list/tuple, optional
         Per-row spectral augmentation parameters passed to
-        :func:`mpt.spectra.add_spectra`. Only valid in raw SA modes
+        :func:`mpt.spectra.add_spectra`. Only valid in raw single-multiset modes
         (scalar or batched).
     precision : int, optional
         Round canonical pitch and weight values to this many decimal
         places, to absorb FP noise when deduplicating. Only valid in
-        raw SA batched mode.
+        raw single-multiset batched mode.
     method : {'auto', 'bulger', 'mobius', 'direct'}, default 'auto'
-        Inner-product method; threaded through to the per-pair SA/MA
+        Inner-product method; threaded through to the per-pair single-multiset/multi-attribute
         core. ``'auto'`` lets the dispatcher pick between Bulger's
         method (the partition-pair decomposition; small r and small K)
         and the Möbius method (large r or large K).
@@ -258,7 +255,7 @@ def cos_sim_exp_tens(*args,
     Returns
     -------
     float or np.ndarray
-        Scalar in scalar-vs-scalar density mode, raw SA scalar mode, and
+        Scalar in scalar-vs-scalar density mode, raw single-multiset scalar mode, and
         raw MA scalar mode. ``ndarray`` in all batched/list modes.
 
     Notes
@@ -277,7 +274,7 @@ def cos_sim_exp_tens(*args,
     build_exp_tens : explicit density construction.
     eval_exp_tens : evaluate a density at query points.
     cos_sim_exp_tens_raw : deprecated; superseded by raw input mode here.
-    batch_cos_sim_exp_tens : deprecated; superseded by raw SA batched input here.
+    batch_cos_sim_exp_tens : deprecated; superseded by raw single-multiset batched input here.
 
     References
     ----------
@@ -306,14 +303,14 @@ def cos_sim_exp_tens(*args,
     # Detect density-input intent based on the first argument.
     # ------------------------------------------------------------------
     is_density_scalar = isinstance(
-        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        a, (MaetDensity, WindowedMaetDensity)
     )
     intends_density_list = False
     if isinstance(a, (list, tuple)):
         if len(a) == 0:
             intends_density_list = True
         elif isinstance(
-            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+            a[0], (MaetDensity, WindowedMaetDensity)
         ):
             intends_density_list = True
     elif isinstance(a, np.ndarray) and a.dtype == object:
@@ -327,11 +324,11 @@ def cos_sim_exp_tens(*args,
             )
         if spectrum is not None:
             raise TypeError(
-                "'spectrum' kwarg is only valid in raw SA input mode."
+                "'spectrum' kwarg is only valid in raw single-multiset input mode."
             )
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
+                "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         return _cos_sim_density_path(
             args[0], args[1],
@@ -351,12 +348,12 @@ def cos_sim_exp_tens(*args,
     if _looks_like_multi_attr(a):
         if spectrum is not None:
             raise TypeError(
-                "'spectrum' kwarg is only supported in raw single-attribute "
+                "'spectrum' kwarg is only supported in raw single-multiset "
                 "input mode."
             )
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
+                "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         if mode != "auto":
             raise TypeError(
@@ -463,11 +460,11 @@ def cos_sim_exp_tens(*args,
         )
 
     # ------------------------------------------------------------------
-    # Raw single-attribute dispatch.
+    # Raw single-multiset dispatch.
     # ------------------------------------------------------------------
     if len(args) not in (9, 10):
         raise TypeError(
-            f"Raw single-attribute input expects 9 or 10 positional "
+            f"Raw single-multiset input expects 9 or 10 positional "
             f"arguments (p1, w1, p2, w2, sigma, r, is_rel, is_per, "
             f"period[, is_sym]); got {len(args)}."
         )
@@ -492,7 +489,7 @@ def cos_sim_exp_tens(*args,
 
     if a_arr.ndim > 2 or b_arr.ndim > 2:
         raise TypeError(
-            f"Raw SA inputs must be 1-D (single chord) or 2-D (batched); "
+            f"Raw single-multiset inputs must be 1-D (single chord) or 2-D (batched); "
             f"got P1.ndim = {a_arr.ndim}, P2.ndim = {b_arr.ndim}."
         )
 
@@ -564,7 +561,7 @@ def cos_sim_exp_tens(*args,
                 f"{M1} and {M2} rows."
             )
 
-        return _cos_sim_raw_sa_batch(
+        return _cos_sim_raw_single_multiset_batch(
             P1, P2, sigma, r_, is_rel, is_per, period, is_sym,
             weights_a=W1, weights_b=W2,
             spectrum=spectrum, precision=precision,
@@ -575,17 +572,17 @@ def cos_sim_exp_tens(*args,
             verbose=verbose,
         )
 
-    # Both operands are 1-D → existing scalar SA path.
+    # Both operands are 1-D → existing scalar single-multiset path.
     if precision is not None:
         raise TypeError(
-            "'precision' kwarg is only valid for raw SA batched input "
+            "'precision' kwarg is only valid for raw single-multiset batched input "
             "(at least one of P1, P2 must be 2-D)."
         )
     if mode != "auto":
         raise TypeError(
             "'mode' kwarg only applies to density list inputs."
         )
-    return _cos_sim_raw_sa_scalar(
+    return _cos_sim_raw_single_multiset_scalar(
         *args, spectrum=spectrum,
         method=method,
         normalize=normalize,
@@ -595,36 +592,47 @@ def cos_sim_exp_tens(*args,
 
 
 
-def _all_sa_pairs(pairs):
-    """Return True iff every (a, b) pair in ``pairs`` is two ExpTensDensity objects."""
+def _all_single_multiset_pairs(pairs):
+    """Return True iff every (a, b) pair consists of two single-multiset
+    densities (A = 1, flat), for which canonical-form dedup applies."""
     for a, b in pairs:
-        if not (isinstance(a, ExpTensDensity) and isinstance(b, ExpTensDensity)):
+        if not (is_single_multiset(a) and is_single_multiset(b)):
             return False
     return True
 
 
 
-def _compute_pair_results_with_dedup_sa(
+def _compute_pair_results_with_dedup(
     pairs, *, method: str, normalize: str = "cosine",
     cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
-    """Compute cos_sim for SA-density pairs with canonical-form dedup."""
+    """Compute cos_sim for single-multiset density pairs with
+    canonical-form dedup. Repeated collections (same canonical chord
+    and shared structural parameters) are evaluated once and reused."""
     pair_key_to_idx: dict = {}
     pair_canon_idx: list[int] = []
     unique_pair_list: list = []
 
-    pairs = [(sa_view(a), sa_view(b)) for a, b in pairs]
+    def _fields(d):
+        return (
+            d.p_attr[0][:, 0], d.w[0][:, 0],
+            float(d.sigma[0]), int(d.r[0]),
+            bool(d.is_rel[0]), bool(d.is_per[0]), float(d.period[0]),
+        )
+
     for a, b in pairs:
+        pa, wa, sig_a, r_a, rel_a, per_a, period_a = _fields(a)
+        pb, wb, sig_b, r_b, rel_b, per_b, period_b = _fields(b)
         key_a, key_b, _, _, _, _ = _pair_canonical_key(
-            a.p, a.w, b.p, b.w,
-            sigma=a.sigma, r=a.r, is_rel=a.is_rel,
-            is_per=a.is_per, period=a.period,
+            pa, wa, pb, wb,
+            sigma=sig_a, r=r_a, is_rel=rel_a,
+            is_per=per_a, period=period_a,
         )
         pk = (
             key_a,
             key_b,
-            (b.sigma, b.r, b.is_rel, b.is_per, b.period),
+            (sig_b, r_b, rel_b, per_b, period_b),
         )
         if pk not in pair_key_to_idx:
             pair_key_to_idx[pk] = len(unique_pair_list)
@@ -639,12 +647,9 @@ def _compute_pair_results_with_dedup_sa(
         )
 
     # Empirical-calibration time estimate. Warm-up plus a timed sample
-    # of K ≤ 5 representative unique pairs, extrapolated over n_unique.
+    # of K <= 5 representative unique pairs, extrapolated over n_unique.
     # Gated on verbose; 10 s silence threshold via
-    # maybe_print_batched_estimate. Parallels MATLAB localCosSimBatchedRaw
-    # Phase 3.5 (cosSimExpTens.m).
-    # Adaptive progress-print state. Defaults: silent. Overridden in
-    # the calibration block when est_total is known.
+    # maybe_print_batched_estimate.
     prog_stride = 1
     show_progress = False
     if verbose and n_unique >= 2:
@@ -656,7 +661,7 @@ def _compute_pair_results_with_dedup_sa(
         ))
         # Warm-up call (absorbs one-time setup).
         a_w, b_w = unique_pair_list[sample_idx[0]]
-        _cos_sim_exp_tens_sa(
+        _cos_sim_pair_core(
             a_w, b_w,
             method=method,
             normalize=normalize,
@@ -668,7 +673,7 @@ def _compute_pair_results_with_dedup_sa(
         t_cal_start = _time.perf_counter()
         for ci in sample_idx:
             a_s, b_s = unique_pair_list[ci]
-            _cos_sim_exp_tens_sa(
+            _cos_sim_pair_core(
                 a_s, b_s,
                 method=method,
                 normalize=normalize,
@@ -686,11 +691,10 @@ def _compute_pair_results_with_dedup_sa(
         prog_stride = progress_stride(t_per_pair)
         show_progress = est_total >= 5
 
-    # Main loop over unique pairs (converted from list comprehension
-    # so we can emit progress, matching MATLAB Phase 4).
+    # Main loop over unique pairs.
     unique_results = []
     for up, (a, b) in enumerate(unique_pair_list):
-        unique_results.append(_cos_sim_exp_tens_sa(
+        unique_results.append(_cos_sim_pair_core(
             a, b,
             method=method,
             normalize=normalize,
@@ -748,7 +752,7 @@ def _cos_sim_pair_core(
 
     Routes to :func:`_cos_sim_exp_tens_sa` or :func:`_cos_sim_exp_tens_ma`,
     threading ``method``, ``normalize``, ``cancellation_threshold``,
-    ``truncation_sigmas`` and ``kernel_precision`` through to the SA
+    ``truncation_sigmas`` and ``kernel_precision`` through to the single-multiset
     path (the MA path awaits its own helper-routing stage).
     ``WindowedMaetDensity`` operands are rejected here; user code
     reaches the windowed inner product via :func:`windowed_tensor_similarity`.
@@ -771,20 +775,6 @@ def _cos_sim_pair_core(
                 "without); inner products require a shared kernel per "
                 "attribute."
             )
-    # Single-collection corner (both operands A = N = 1, flat): route
-    # through the single-collection pipeline, whose probe-based
-    # dispatch and validation-with-fallback serve this shape;
-    # shape-gated, not type-gated.
-    if is_sa_shaped(dens_x) and is_sa_shaped(dens_y):
-        return _cos_sim_exp_tens_sa(
-            sa_view(dens_x), sa_view(dens_y),
-            method=method,
-            normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=verbose,
-        )
     if isinstance(dens_x, MaetDensity):
         if not isinstance(dens_y, MaetDensity):
             raise TypeError(
@@ -796,25 +786,12 @@ def _cos_sim_pair_core(
             method=method,
             normalize=normalize,
             cancellation_threshold=cancellation_threshold,
-            verbose=verbose,
-        )
-    if isinstance(dens_x, ExpTensDensity):
-        if not isinstance(dens_y, ExpTensDensity):
-            raise TypeError(
-                "dens_x is an ExpTensDensity but dens_y is not; both must "
-                "be the same type."
-            )
-        return _cos_sim_exp_tens_sa(
-            dens_x, dens_y,
-            method=method,
-            normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
         )
     raise TypeError(
-        f"Both arguments must be ExpTensDensity, MaetDensity, or "
+        f"Both arguments must be MaetDensity or "
         f"WindowedMaetDensity; got {type(dens_x).__name__} and "
         f"{type(dens_y).__name__}."
     )
@@ -881,8 +858,8 @@ def _cos_sim_density_path(
             pairs = [(a, b) for a in list_x for b in list_y]
             out_shape = (m, n)
 
-    if dedup and _all_sa_pairs(pairs):
-        results = _compute_pair_results_with_dedup_sa(
+    if dedup and _all_single_multiset_pairs(pairs):
+        results = _compute_pair_results_with_dedup(
             pairs,
             method=method,
             normalize=normalize,
@@ -895,7 +872,7 @@ def _cos_sim_density_path(
         if dedup and verbose:
             print(
                 "cos_sim_exp_tens: dedup=True requested but input includes "
-                "non-SA densities; computing without dedup."
+                "multi-attribute densities; computing without dedup."
             )
         results = _compute_pair_results_no_dedup(
             pairs,
@@ -911,7 +888,7 @@ def _cos_sim_density_path(
 
 
 
-def _cos_sim_raw_sa_scalar(
+def _cos_sim_raw_single_multiset_scalar(
     p1, w1, p2, w2,
     sigma, r, is_rel, is_per, period, is_sym=None,
     *,
@@ -921,7 +898,7 @@ def _cos_sim_raw_sa_scalar(
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
-    """Raw single-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
+    """Raw single-multiset scalar dispatch for :func:`cos_sim_exp_tens`."""
     if is_sym is None:
         is_sym = True
     if spectrum is not None:
@@ -1057,7 +1034,7 @@ def _cos_sim_raw_ma_broadcast(
 
 
 # -------------------------------------------------------------------
-#  _cos_sim_exp_tens_sa  (single-attribute legacy path)
+#  _cos_sim_exp_tens_sa  (single-multiset legacy path)
 # -------------------------------------------------------------------
 
 
@@ -1083,142 +1060,6 @@ fires (sharp Gaussians + low K-r margin in absolute modes)."""
 
 
 
-def _cos_sim_exp_tens_sa(
-    dens_x: ExpTensDensity,
-    dens_y: ExpTensDensity,
-    *,
-    method: str = "auto",
-    normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
-    verbose: bool = True,
-) -> float:
-    """Single-attribute cosine similarity.
-
-    A ``method`` keyword routes between Bulger's method
-    — the v1 / v2.1 decomposition with periodic pairwise-wrap form
-    (``_ip_core``) — and the Möbius method. With
-    the default ``method='auto'`` and perceptually typical parameters,
-    the Möbius method is selected and the result agrees with v2.1 to
-    floating-point precision.
-    """
-    # Single-collection view: evaluation below reads one layout
-    # regardless of which density class arrived (idempotent for
-    # ExpTensDensity).
-    dens_x = sa_view(dens_x)
-    dens_y = sa_view(dens_y)
-    dens_x = dens_x.pruned()
-    dens_y = dens_y.pruned()
-    if dens_x.r != dens_y.r:
-        raise ValueError("Both densities must have the same r.")
-    if dens_x.is_rel != dens_y.is_rel:
-        raise ValueError("Both densities must have the same is_rel.")
-    if dens_x.is_per != dens_y.is_per:
-        raise ValueError("Both densities must have the same is_per.")
-    if dens_x.is_per and dens_x.period != dens_y.period:
-        raise ValueError("Both densities must have the same period.")
-    if dens_x.sigma != dens_y.sigma:
-        raise ValueError("Both densities must have the same sigma.")
-
-    if method not in ("auto", "bulger", "direct", "mobius", "contract"):
-        raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct', 'mobius', "
-            f"'contract'; got {method!r}."
-        )
-
-    r = dens_x.r
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
-    period = dens_x.period
-    sigma = dens_x.sigma
-
-    # Early return for degenerate case.
-    if r > min(len(dens_x.p), len(dens_y.p)):
-        return float("nan")
-
-    n_max = max(len(dens_x.p), len(dens_y.p))
-    n_min = min(len(dens_x.p), len(dens_y.p))
-    sigma_over_P = sigma / period if (is_per and period > 0) else 0.0
-    chosen, probed, est_sec, routing_reason = _select_and_estimate_sa_ip(
-        dens_x, dens_y,
-        method=method,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        verbose=verbose,
-    )
-
-    # Ordered ([sym]=0) densities are not symmetrised, so the orbit
-    # (Möbius) inner product — which reconstructs the full S_r orbit
-    # from p/w/r — does not represent them. The pairwise/centres path
-    # reads the actual stored centres and is correct for either reading,
-    # so force it whenever either operand is ordered at r > 1 (r = 1 is
-    # vacuous: ordered and symmetric coincide).
-    if (
-        ((not bool(np.all(dens_x.is_sym)))
-         or (not bool(np.all(dens_y.is_sym))))
-        and r > 1
-    ):
-        chosen = "bulger"
-        routing_reason = "ordered density (sym=0) requires centres path"
-
-    # Dispatch-decision message: bypasses per-call verbose, gated by
-    # the toolbox-wide show_hints flag and throttled once per
-    # (function, chosen, routing_reason) per Python process. The
-    # throttle is cleared by mpt.reset_defaults(). To fully silence:
-    # mpt.set_default(show_hints=False).
-    from .._defaults import _maybe_show_dispatch_msg
-    _maybe_show_dispatch_msg(
-        "cos_sim_exp_tens", chosen, routing_reason, est_sec, probed,
-    )
-
-    if chosen == "mobius":
-        ip_xy, ip_xx, ip_yy, worst_ratio = _cos_sim_exp_tens_sa_orbit(
-            dens_x, dens_y,
-        )
-        # Three layers of Möbius-method result validation, fall back on any:
-        # 1. Cross-cancellation guard: <A,B> small relative to
-        #    sqrt(<A,A><B,B>) — the Möbius estimate may be dominated by
-        #    cancellation between partition terms.
-        denom_geo = np.sqrt(max(ip_xx * ip_yy, 0.0))
-        cross_cancellation = (
-            denom_geo > 0
-            and abs(ip_xy) < cancellation_threshold * denom_geo
-        )
-        # 2. Post-hoc sanity on the IPs themselves (catches the σ→0
-        #    catastrophic-overflow regime: non-finite, sign-corrupt, or
-        #    cosine outside [-1, 1]).
-        ips_corrupted = _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)
-        # 3. Runtime cancellation diagnostic: the alternating Möbius
-        #    sum has lost too many significant digits, even if the
-        #    final values look superficially fine. Catches the quieter
-        #    sharp-Gaussian regime where IPs are finite-looking but
-        #    ~1e-4 to 1e-2 wrong.
-        cancellation_too_severe = (
-            worst_ratio < _ORBIT_CANCELLATION_RATIO_MIN
-        )
-        if cross_cancellation or ips_corrupted or cancellation_too_severe:
-            ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
-                dens_x, dens_y, verbose=verbose,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-            )
-    else:  # 'bulger' or 'direct' — coincide in SA mode
-        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_sa_pairwise(
-            dens_x, dens_y, verbose=verbose,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-
-    return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
-
-
-
-# -------------------------------------------------------------------
-#  _cos_sim_exp_tens_ma  (multi-attribute path)
-# -------------------------------------------------------------------
-
-
 def _cos_sim_exp_tens_ma(
     dens_x: MaetDensity,
     dens_y: MaetDensity,
@@ -1226,6 +1067,8 @@ def _cos_sim_exp_tens_ma(
     method: str = "auto",
     normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas=None,
+    kernel_precision=None,
     verbose: bool = True,
 ) -> float:
     """Multi-attribute cosine similarity.
@@ -1252,7 +1095,7 @@ def _cos_sim_exp_tens_ma(
     # hence the similarity -- is zero. A windowed carrier whose window caught
     # nothing prunes to zero events here; without this guard it reaches the
     # nested contraction's value-range scan, which has no identity over an
-    # empty attribute column. (The raw single-attribute path is unaffected: it
+    # empty attribute column. (The raw single-multiset path is unaffected: it
     # is reached only without specs, and an empty windowed carrier always
     # carries specs.)
     if dens_x.n == 0 or dens_y.n == 0:
@@ -1344,6 +1187,17 @@ def _cos_sim_exp_tens_ma(
                 int(np.ceil(max(span, 1.0) / float(sigma[a]) * 10.0)),
             )
 
+    # Nested densities route through the hierarchical contraction
+    # (_try_nested_contract), not the flat Bulger pairwise path, so the
+    # flat forced-Bulger feasibility guard must not fire for them. Detect
+    # nesting before the selector runs.
+    nested_x = getattr(dens_x, "nested", None)
+    nested_y = getattr(dens_y, "nested", None)
+    nested_any = (
+        (nested_x is not None and any(s is not None for s in nested_x))
+        or (nested_y is not None and any(s is not None for s in nested_y))
+    )
+
     chosen = _select_ma_inner_product_method(
         r_vec=r_vec, k_vec=k_vec, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
@@ -1353,6 +1207,7 @@ def _cos_sim_exp_tens_ma(
         sigma_over_P_max=sop_max,
         user_method=method,
         rel_vec=rel_vec, nu_vec=nu_vec,
+        guard_forced_bulger=not nested_any,
     )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
@@ -1377,12 +1232,6 @@ def _cos_sim_exp_tens_ma(
     # contracts the tag tree level by level and itself selects the orbit
     # (Möbius) reduction or permutation/combination enumeration per level
     # (see _nested_contraction.build_recipe); it is not enumeration-only.
-    nested_x = getattr(dens_x, "nested", None)
-    nested_y = getattr(dens_y, "nested", None)
-    nested_any = (
-        (nested_x is not None and any(s is not None for s in nested_x))
-        or (nested_y is not None and any(s is not None for s in nested_y))
-    )
     if method == "contract" and not nested_any:
         raise ValueError(
             "method='contract' applies to a nested attribute only; use "
@@ -1399,13 +1248,24 @@ def _cos_sim_exp_tens_ma(
             # so a None here means method == "auto" chose the centres path.
         chosen = "bulger"
 
+    # Dispatch-decision message: announce which inner-product path ran,
+    # matching the single-multiset path's behaviour. Gated by the
+    # toolbox-wide show_hints flag and throttled once per
+    # (function, chosen) per top-level call; not gated by per-call
+    # verbose. The multi-attribute selector does not run the empirical
+    # probe, so no time estimate accompanies the message.
+    from .._defaults import _maybe_show_dispatch_msg
+    _maybe_show_dispatch_msg(
+        "cos_sim_exp_tens", chosen, "ma_select", 0.0, False,
+    )
+
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y,
         )
         # Two layers of Möbius-method result validation, fall back on either.
         # The per-entry worst_ratio diagnostic that previously gated
-        # this fallback (analogous to the SA case) was found to fire
+        # this fallback (analogous to the single-multiset case) was found to fire
         # spuriously for self-IP matrices: it reports per-(n,m) entry
         # cancellation in the per-attribute Möbius alternating partition sums, but
         # the cosine consumes only Σ_{n,m} P[n,m], where individual
@@ -1425,10 +1285,14 @@ def _cos_sim_exp_tens_ma(
         if cross_cancellation or ips_corrupted:
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
     else:  # 'bulger' or 'direct' (coincide in MA mode)
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
 
     return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
@@ -1438,7 +1302,7 @@ def _cos_sim_exp_tens_ma(
 def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
-    *, truncation_sigmas=None, inner_r=None,
+    *, truncation_sigmas=None, kernel_precision=None, inner_r=None,
 ):
     """MA inner product with memory-aware chunking along the comb side.
 
@@ -1449,11 +1313,41 @@ def _ip_core_ma(
     ``truncation_sigmas`` is honoured via log-space thresholding on
     the accumulated MA log-kernel; ``None`` resolves to the global
     default ``mpt.get_default('truncation_sigmas')``.
-    """
-    from .._defaults import get_default
 
-    if truncation_sigmas is None:
-        truncation_sigmas = get_default('truncation_sigmas')
+    For a single attribute whose quadratic form the Gaussian
+    kernel-sum helper supports (any absolute mode, or relative
+    non-periodic), and when truncation or single precision is
+    actually requested, the inner product is routed through
+    :func:`_ip_via_helper`. That helper carries a spatial-index
+    truncation that both honours the requested accuracy floor exactly
+    and gives a substantial speedup on harmonic-template-sized
+    collections; the log-kernel accumulation below serves the
+    remaining forms (relative-periodic, multi-attribute, or the
+    exact untruncated double-precision default).
+    """
+    from .._defaults import resolve_truncation_sigmas
+
+    # Resolve None -> global default; inf -> accuracy-floor width. After
+    # resolution, ``truncation_sigmas`` is always a finite positive
+    # float --- truncation always applies, so the single-attribute
+    # spatial-index helper (which honours truncation exactly and gives
+    # a substantial speed-up on harmonic-template-sized collections) is
+    # always the preferred route where it applies.
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
+
+    single_attr_helper_ok = (
+        A == 1
+        and (inner_r is None or int(inner_r[0]) == 0)
+        and not (bool(is_rel[0]) and bool(is_per[0]))
+    )
+    if single_attr_helper_ok:
+        return _ip_via_helper(
+            u_cell[0], w_u, v_cell[0], w_v,
+            int(r_vec[0]), float(sigma[0]),
+            bool(is_rel[0]), bool(is_per[0]), float(period[0]),
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
 
     max_r = int(np.max(r_vec)) if A > 0 else 1
     bytes_per_col = (max_r + 2) * int(n_j) * 8
@@ -1570,7 +1464,7 @@ def _ma_log_kernel(
 #
 #      <T_X, T_Y>_MA = Σ_{n_X, n_Y} Π_a I_a(n_X, n_Y)
 #
-#  where I_a(n_X, n_Y) is an SA-shaped Möbius inner product over
+#  where I_a(n_X, n_Y) is an single-multiset-shaped Möbius inner product over
 #  the K_a slot values of event n_X (X-side) against those of n_Y
 #  (Y-side), with the group's mode parameters. Bulger's method
 #  collapses this into a flat (n_J × n_K) bilinear form that scales
@@ -1585,7 +1479,7 @@ def _ma_log_kernel(
 #  - Per-attribute r_a > _ORBIT_R_MAX_SHIPPED falls back (no orbit
 #    table shipped at that order).
 #
-#  Per-attribute Möbius calls apply the SA convention's
+#  Per-attribute Möbius calls apply the single-multiset convention's
 #  (σ_a √π)^{r_a} prefactor, so the Möbius-method MA bare triple
 #  (ip_xy, ip_xx, ip_yy) differs from Bulger's MA triple by
 #  Π_a (σ_a √π)^{r_a} · r_a! — which cancels in the cosine.
@@ -1624,9 +1518,8 @@ def _trunc_kernel_exp(exp_arg, sigma, truncation_sigmas):
     default 1e-12), uniformly with every other truncation path, so
     truncation always applies.
     """
-    from .._defaults import resolve_truncation_sigmas
-    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
-    cutoff = 2.0 * (truncation_sigmas * sigma) ** 2
+    from .._defaults import truncation_ip_sqdist
+    cutoff = truncation_ip_sqdist(truncation_sigmas, sigma)
     mask = exp_arg <= cutoff
     out = np.zeros_like(exp_arg)
     out[mask] = np.exp(-exp_arg[mask] / (4 * sigma ** 2))
@@ -1689,7 +1582,7 @@ def _ma_per_attr_inner_matrix(
       used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
       through the vectorised batched Möbius method with within-safe-group
       zero-padding. Pairs involving any unsafe event flow through
-      :func:`_inner_product_direct_abs_sa`, which is exact for any
+      :func:`_inner_product_direct_abs`, which is exact for any
       K >= r (no Möbius alternating sum, so no cancellation).
 
     - r >= 2 rel: per-event-pair loop with zero-pad. Auto dispatch
@@ -1709,7 +1602,7 @@ def _ma_per_attr_inner_matrix(
 
     ``truncation_sigmas`` is honoured in every kernel-evaluation
     branch (r=1 abs, r>=2 abs safe, r>=2 abs unsafe via
-    :func:`_batched_direct_enum_abs_sa`, and rel-per via
+    :func:`_batched_direct_enum_abs`, and rel-per via
     :func:`_ma_per_attr_inner_matrix_rel`): kernel entries whose
     underlying squared distance exceeds the truncation cutoff are
     zeroed without evaluating ``np.exp``. ``None`` resolves to the
@@ -1933,7 +1826,7 @@ def _ma_per_attr_inner_matrix(
     # --- Pairs involving any unsafe event: K-grouped batched direct ---
     # All pairs not in (safe_x, safe_y) flow through ordered-r-tuple
     # direct enumeration. Was previously a Python double-loop
-    # (one ``_inner_product_direct_abs_sa`` call per pair); for
+    # (one ``_inner_product_direct_abs`` call per pair); for
     # variable-K_a workloads with many unsafe events this dominated
     # the runtime by 10–100× over the actual computation.
     #
@@ -1985,7 +1878,7 @@ def _ma_fill_direct_enum_groups(
     y_idx[j]) are filled in place.
 
     ``truncation_sigmas`` is forwarded to
-    :func:`_batched_direct_enum_abs_sa`; ``None`` resolves to the
+    :func:`_batched_direct_enum_abs`; ``None`` resolves to the
     global default.
 
     No-op if either side is empty.
@@ -2016,7 +1909,7 @@ def _ma_fill_direct_enum_groups(
             Py_grp, Wy_grp = _pack_nan_top(Py[:, y_grp], Wy[:, y_grp])
             Py_grp = Py_grp[:int(K_y_val), :]
             Wy_grp = Wy_grp[:int(K_y_val), :]
-            sub_ip = _batched_direct_enum_abs_sa(
+            sub_ip = _batched_direct_enum_abs(
                 Px_grp, Wx_grp, Py_grp, Wy_grp,
                 sigma, r, is_per, period,
                 truncation_sigmas=truncation_sigmas,
@@ -2050,7 +1943,7 @@ def _pack_nan_top(P, W):
 
 
 
-def _batched_direct_enum_abs_sa(
+def _batched_direct_enum_abs(
     Px_group, Wx_group, Py_group, Wy_group,
     sigma, r, is_per, period,
     *, truncation_sigmas=None,
@@ -2058,7 +1951,7 @@ def _batched_direct_enum_abs_sa(
     """Batched direct r-tuple enumeration IP for groups at fixed K_x, K_y.
 
     Vectorised replacement for repeated calls to
-    :func:`_inner_product_direct_abs_sa` when every event in
+    :func:`_inner_product_direct_abs` when every event in
     ``Px_group`` has the same ``K_x = K_eff_x`` and every event in
     ``Py_group`` has the same ``K_y = K_eff_y`` (no NaN within the
     first K rows of either side).
@@ -2173,7 +2066,7 @@ def _ma_per_attr_inner_matrix_rel(
     Every pair's inner product marginalises a translation u over a
     grid. In periodic mode the grid is the shared uniform grid over
     ``[0, P)`` with ``auto_ntau_default(period, sigma)`` nodes — the
-    single node-count source shared with the flat single-attribute and
+    single node-count source shared with the flat single-multiset and
     nested relative-periodic paths, so the same level returns the same
     value whether reached flat or nested. In non-periodic mode each
     pair uses a grid of the same shape *centred on its own mean
@@ -2192,7 +2085,7 @@ def _ma_per_attr_inner_matrix_rel(
     contraction's (batch, K, K) layout — no transposition copies — so
     the working set stays memory-resident and the per-op cost of the
     batched Möbius contraction is flat in N and K (mirroring the
-    single-attribute slabbing in ``_orbit_inner_rel``).
+    single-multiset slabbing in ``_orbit_inner_rel``).
 
     Ragged (NaN-padded) events arrive zero-padded: a zero-weight slot
     contributes a zero factor to every Möbius term in which its axis
@@ -2519,7 +2412,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
 
 def _closed_form_attr_centres(dens, a):
     """Materialised tuple-centres and metric parameters for attribute ``a``,
-    rebuilt in isolation as a single-attribute density.
+    rebuilt in isolation as a single-multiset density.
 
     The attribute's expectation tensor is a finite Gaussian mixture over its
     materialised perm-side tuple-centres (the same reduction the entropy
@@ -2692,12 +2585,13 @@ def _nested_attr_plan(dens_x, dens_y, a):
         return route, None
     from ._nested_contraction import (auto_ntau, auto_ntau_default,
                                        auto_taus_line)
-    from .._defaults import get_default
+    from .._defaults import get_default, truncation_floor
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
-    ts = get_default("truncation_sigmas")
-    ts_eff = math.inf if ts is None else float(ts)
-    tol = max(math.exp(-0.5 * ts_eff ** 2), 1e-12)
+    # Same kernel-value floor as every other truncation path
+    # (:func:`truncation_floor` resolves None -> default; inf ->
+    # accuracy-floor width; ``accuracy_floor_context`` honoured).
+    tol = truncation_floor(get_default("truncation_sigmas"))
     if route == "taugrid":
         # The taugrid route is the faster all-image form; warn when it
         # materially differs from the canonical single-wrap measure (the same
@@ -2978,7 +2872,9 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
 
-def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
+def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
+                                  truncation_sigmas=None,
+                                  kernel_precision=None):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the
     Bulger's method (``_ip_core_ma``).
 
@@ -3005,18 +2901,24 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         A, r_vec, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         inner_r=inner_r,
     )
     ip_xx = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
         dens_x.v_comb, dens_x.wv_comb, n_kx,
         A, r_vec, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         inner_r=inner_r,
     )
     ip_yy = _ip_core_ma(
         dens_y.u_perm, dens_y.w_j, n_jy,
         dens_y.v_comb, dens_y.wv_comb, n_ky,
         A, r_vec, sigma, is_rel, is_per, period,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         inner_r=inner_r,
     )
     return ip_xy, ip_xx, ip_yy
@@ -3024,7 +2926,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True):
 
 
 # -------------------------------------------------------------------
-#  cos_sim_exp_tens_raw  (dispatches SA or MA based on input shape)
+#  cos_sim_exp_tens_raw  (dispatches single-multiset or multi-attribute based on input shape)
 # -------------------------------------------------------------------
 
 
@@ -3040,7 +2942,7 @@ def cos_sim_exp_tens_raw(
        The raw-input dispatch has been folded into the unified
        :func:`cos_sim_exp_tens` entry point. Pass raw arrays directly:
 
-       - SA: ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
+       - Single-multiset: ``cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)``
        - MA: ``cos_sim_exp_tens(p_attr1, w1, p_attr2, w2, sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec)``
 
        This shim will be removed in a future release.
@@ -3059,83 +2961,6 @@ def cos_sim_exp_tens_raw(
         cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
-
-
-
-def _ip_core(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
-             truncation_sigmas=None, kernel_precision=None):
-    """Core inner product (perm-side × comb-side).
-
-    Two-axis routing (mirrors :func:`_eval_exp_tens_sa`):
-
-    - **Routing axis** — abs and rel-non-periodic forms have a helper
-      reduction (``sigma_eff = sigma * sqrt(2)``); rel+periodic does
-      not yet and stays on the inline / chunked path.
-    - **Execution axis** — even when the helper is available, route
-      through it only when feature kwargs are explicitly requested
-      (after resolving ``None`` against the global defaults). Default
-      mode runs the ``_ip_full`` / chunked path inline, avoiding
-      the helper's per-call argument validation overhead.
-
-    This preserves the inline-direct cost profile for default-mode callers
-    (e.g. ``cos_sim_exp_tens`` in per-pair tight loops) while
-    enabling the helper's truncation / precision features whenever
-    the user opts in.
-    """
-    # ---- Execution-axis decision: resolve defaults first ----
-    # ``None`` means "consult global default", not "no feature".
-    from .._defaults import get_default
-    trunc_resolved = (
-        truncation_sigmas if truncation_sigmas is not None
-        else get_default("truncation_sigmas")
-    )
-    prec_resolved = (
-        kernel_precision if kernel_precision is not None
-        else get_default("kernel_precision")
-    )
-    use_default_kwargs = (
-        (trunc_resolved is None or not np.isfinite(trunc_resolved))
-        and (prec_resolved == "double")
-    )
-
-    can_use_helper = not (is_rel and is_per)
-
-    # Route through helper only when features are actually requested
-    # AND the helper supports this quadratic form.
-    if can_use_helper and not use_default_kwargs:
-        return _ip_via_helper(
-            U, wU, V, wV, r, sigma, is_rel, is_per, period,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-
-    # Default-mode (or rel+per) path: inline / chunked.
-    bytes_needed = (r + 2) * int(nJ) * int(nK) * 8
-    mem_limit = kernel_chunk_bytes_resolved()
-
-    if bytes_needed <= mem_limit:
-        return _ip_full(
-            U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
-            truncation_sigmas=trunc_resolved,
-        )
-
-    chunk_size = max(1, int(mem_limit / ((r + 2) * int(nJ) * 8)))
-    acc = np.zeros(nJ)
-    for c in range(0, nK, chunk_size):
-        c_end = min(c + chunk_size, nK)
-        idx = slice(c, c_end)
-        n_kc = c_end - c
-
-        Dc = U[:, :, None] - V[:, idx][:, None, :]
-        # See note in _ip_full: outer wrap is only needed when
-        # _compute_Q does not re-wrap pairwise component differences.
-        if is_per and not is_rel:
-            Dc = Dc - period * np.floor(Dc / period + 0.5)
-        Qc = _compute_Q(Dc, r, is_rel, is_per, period)
-        Ec = _trunc_kernel_exp(Qc, sigma, trunc_resolved)
-        acc += Ec @ wV[idx]
-
-    return float(wU @ acc)
 
 
 
@@ -3160,37 +2985,6 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
     sigma_eff = float(sigma) * np.sqrt(2.0)
     g = gaussian_kernel_sum(V, wV.ravel(), U, sigma_eff, **kw)
     return float(np.asarray(g).ravel() @ wU.ravel())
-
-
-
-def _ip_full(U, wU, nJ, V, wV, nK, r, sigma, is_rel, is_per, period,
-             *, truncation_sigmas=None):
-    """Fully vectorized inner product.
-
-    ``truncation_sigmas`` is honoured on the kernel; ``None``
-    resolves to the global default.
-    """
-    from .._defaults import get_default
-
-    if truncation_sigmas is None:
-        truncation_sigmas = get_default('truncation_sigmas')
-
-    D = U[:, :, None] - V[:, None, :]  # (r, nJ, nK)
-
-    # The outer wrap is needed only when _compute_Q does not re-wrap
-    # the pairwise component differences (i.e., for is_per and not
-    # is_rel: Q = sum(D**2), which requires wrapped D components).
-    # For is_rel+is_per, _compute_Q wraps each (D[i]-D[j]) inside
-    # (the pairwise-wrap form of Eq 6); that inner wrap is invariant
-    # under integer-period shifts of the operands, so wrapping D first
-    # is redundant. Skipping it saves ~30-45% of _ip_full time across K.
-    if is_per and not is_rel:
-        D = D - period * np.floor(D / period + 0.5)
-
-    Q = _compute_Q(D, r, is_rel, is_per, period)
-
-    E = _trunc_kernel_exp(Q, sigma, truncation_sigmas)   # (nJ, nK)
-    return float(wU @ (E @ wV))
 
 
 
@@ -3224,19 +3018,18 @@ def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
 
 
 
-def _inner_product_direct_abs_sa(p_x, w_x, p_y, w_y, sigma, r,
+def _inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
                                    is_per, period):
     """<T_X, T_Y> in absolute mode via direct r-tuple enumeration.
 
-    Computes the SA inner product
+    Computes the single-multiset inner product
         <T_X, T_Y> = (sigma * sqrt(pi))**r *
                      sum_{J, K} wJ_x[J] * wJ_y[K] *
                                 exp(-||centres_x[:, J] - centres_y[:, K]||^2
                                     / (4 sigma^2))
     by enumerating ordered r-tuples on each side. No Möbius
     alternating sum is involved, so the result is exact (no
-    catastrophic cancellation) for any K_x, K_y >= r. This is the
-    "unsafe" path of the MA per-attribute IP matrix, used for event
+    catastrophic cancellation) for any K_x, K_y >= r. This is a reference/direct implementation used for event
     pairs where at least one event has K_eff - r below the
     Möbius-method precision margin (`_ORBIT_K_MINUS_R_MIN` = 2).
 
@@ -3287,13 +3080,12 @@ def _inner_product_direct_abs_sa(p_x, w_x, p_y, w_y, sigma, r,
                  np.einsum('i,ij,j->', wJ_x, K_mat, wJ_y))
 
 
-
 def _build_ordered_r_tuples(p, w, r):
-    """Mirror of :class:`SAExpTensDensity` ordered-tuple construction.
+    """Ordered r-tuple construction for a single multiset.
 
     Returns ``(U, wJ)`` where ``U`` is ``(r, nJ)`` of position values
     along ordered r-tuples and ``wJ`` is ``(nJ,)`` of weight products.
-    Used by :func:`_inner_product_direct_abs_sa` and any other helper
+    Used by :func:`_inner_product_direct_abs` and any other helper
     that needs single-event ordered tuples without going through the
     full :func:`build_exp_tens` API.
     """
@@ -3324,7 +3116,7 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      samples_per_sigma=10, *,
                      return_cancellation_ratio=False,
                      truncation_sigmas=None):
-    """<T_A, T_B> in relative mode: the single-collection (N = 1)
+    """<T_A, T_B> in relative mode: the single-multiset (N = 1)
     specialisation of :func:`_ma_per_attr_inner_matrix_rel`.
 
     All conventions are the batched core's: the shared ``[0, P)``
@@ -3358,114 +3150,7 @@ def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     return float(out[0, 0])
 
 
-def _cos_sim_exp_tens_sa_orbit(dens_x, dens_y):
-    """Compute (ip_xy, ip_xx, ip_yy, worst_ratio) for the SA case via
-    Möbius method.
-
-    ``worst_ratio`` is the minimum cancellation ratio across the three
-    inner-product computations. Values below ~1e-10 indicate the
-    Möbius alternating sum has lost most of its significant digits and
-    the dispatcher should fall back to Bulger's method.
-    """
-    dens_x = sa_view(dens_x)
-    dens_y = sa_view(dens_y)
-    sigma = dens_x.sigma
-    r = dens_x.r
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
-    period = dens_x.period
-    p_x, w_x = dens_x.p, dens_x.w
-    p_y, w_y = dens_y.p, dens_y.w
-
-    if is_rel:
-        ip_xy, r_xy = _orbit_inner_rel(
-            p_x, w_x, p_y, w_y, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-        ip_xx, r_xx = _orbit_inner_rel(
-            p_x, w_x, p_x, w_x, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-        ip_yy, r_yy = _orbit_inner_rel(
-            p_y, w_y, p_y, w_y, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-    else:
-        ip_xy, r_xy = _orbit_inner_abs(
-            p_x, w_x, p_y, w_y, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-        ip_xx, r_xx = _orbit_inner_abs(
-            p_x, w_x, p_x, w_x, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-        ip_yy, r_yy = _orbit_inner_abs(
-            p_y, w_y, p_y, w_y, sigma, r, is_per, period,
-            return_cancellation_ratio=True,
-        )
-    return ip_xy, ip_xx, ip_yy, min(r_xy, r_xx, r_yy)
-
-
-
-def _cos_sim_exp_tens_sa_pairwise(dens_x, dens_y, *, verbose: bool = True,
-                                  truncation_sigmas=None,
-                                  kernel_precision=None):
-    """Compute (ip_xy, ip_xx, ip_yy) for the SA case via the
-    Bulger's method (``_ip_core``).
-
-    This is the body of the original ``_cos_sim_exp_tens_sa``
-    factored out so the new dispatcher can route to it cleanly.
-
-    Forwards ``truncation_sigmas`` / ``kernel_precision`` to
-    ``_ip_core`` so the helper-accelerated path is reached for the
-    abs and rel-non-periodic modes.
-    """
-    dens_x = sa_view(dens_x)
-    dens_y = sa_view(dens_y)
-    r = dens_x.r
-    sigma = dens_x.sigma
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
-    period = dens_x.period
-
-    n_jx, n_kx = dens_x.n_j_perm, dens_x.n_k
-    n_jy, n_ky = dens_y.n_j_perm, dens_y.n_k
-
-    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
-    estimate_comp_time(total_pairs, r, "cos_sim_exp_tens", verbose)
-
-    ip_xy = _ip_core(
-        dens_x.u_perm, dens_x.w_perm, n_jx,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        r, sigma, is_rel, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-    ip_xx = _ip_core(
-        dens_x.u_perm, dens_x.w_perm, n_jx,
-        dens_x.v_comb, dens_x.wv_comb, n_kx,
-        r, sigma, is_rel, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-    ip_yy = _ip_core(
-        dens_y.u_perm, dens_y.w_perm, n_jy,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        r, sigma, is_rel, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-    return ip_xy, ip_xx, ip_yy
-
-
-
-# -------------------------------------------------------------------
-#  Raw SA batched dispatch (used by the polymorphic cos_sim_exp_tens
-#  for 2-D pitch-matrix input)
-# -------------------------------------------------------------------
-
-
-def _cos_sim_raw_sa_batch(
+def _cos_sim_raw_single_multiset_batch(
     p_mat_a: np.ndarray,
     p_mat_b: np.ndarray,
     sigma: float,
@@ -3485,7 +3170,7 @@ def _cos_sim_raw_sa_batch(
     cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> np.ndarray:
-    """Raw single-attribute batched dispatch for :func:`cos_sim_exp_tens`.
+    """Raw single-multiset batched dispatch for :func:`cos_sim_exp_tens`.
 
     Computes cosine similarity for many paired weighted multisets
     (*p* represents pitches or positions). Each row of *p_mat_a*
@@ -3515,7 +3200,7 @@ def _cos_sim_raw_sa_batch(
         Apply pair-level canonical-form dedup at Phase 3.
     method : {'auto', 'bulger', 'direct'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
-        SA core via the inner ``cos_sim_exp_tens`` call.
+        single-multiset core via the inner ``cos_sim_exp_tens`` call.
     cancellation_threshold : float, default 1e-12
         Orbit-path cancellation guard threshold.
     verbose : bool
@@ -3726,7 +3411,7 @@ def batch_cos_sim_exp_tens(
           s = cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
 
        Note the argument order: weights now follow each pitch matrix
-       positionally (matching the SA scalar raw form), instead of being
+       positionally (matching the single-multiset scalar raw form), instead of being
        keyword-only. This shim preserves the old keyword-only weight API
        for backward compatibility but issues a ``DeprecationWarning``.
        This shim will be removed in a future release.
@@ -3734,12 +3419,12 @@ def batch_cos_sim_exp_tens(
     warnings.warn(
         "batch_cos_sim_exp_tens is deprecated. Pass 2-D pitch matrices "
         "directly to cos_sim_exp_tens (with weights as positional arguments "
-        "after each pitch matrix, matching the SA scalar raw form). This "
+        "after each pitch matrix, matching the single-multiset scalar raw form). This "
         "shim will be removed in a future release.",
         DeprecationWarning,
         stacklevel=2,
     )
-    return _cos_sim_raw_sa_batch(
+    return _cos_sim_raw_single_multiset_batch(
         p_mat_a, p_mat_b, sigma, r, is_rel, is_per, period,
         weights_a=weights_a, weights_b=weights_b,
         spectrum=spectrum, precision=precision,

@@ -859,7 +859,7 @@ def tensor_harmonicity(
     -----
     Internal computation is delegated to :func:`~mpt.eval_exp_tens`,
     whose dispatcher chooses between the centres-array path and the
-    Möbius point evaluator (see :func:`mpt.tensor._select_and_estimate_sa`).
+    Möbius point evaluator (see :func:`mpt._tensor.dispatch._select_ma_eval`).
     The harmonic template has ``K = duplicate × n_partials`` events, so
     with the default 64-partial template even a triad reaches
     ``K ≥ 192`` and the centres array (``(r-1, K!/(K-r)!)`` floats,
@@ -993,9 +993,10 @@ def _tensor_harmonicity_via_eval(
     if normalize == "none":
         return vals
 
+    from ._tensor.dispatch import _quadratic_form_det, _gaussian_mass_const
     dim = r - 1
-    det_m = 1.0 / r
-    gauss_const = (2 * np.pi * sigma ** 2) ** (-dim / 2) * np.sqrt(det_m)
+    det_m = _quadratic_form_det(r, 0, True)   # flat, relative: 1 / r
+    gauss_const = 1.0 / _gaussian_mass_const(sigma, dim, det_m)
     vals = vals * gauss_const
 
     if normalize == "pdf":

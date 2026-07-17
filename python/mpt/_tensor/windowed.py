@@ -180,14 +180,16 @@ def _resolve_locate(locate, axis):
 
 def _window_factor(loc_row, centre, gamma, sd):
     """Per-event window factor over a reduced locating row, matching the
-    ``weight_events`` profile and (global-default) truncation exactly."""
-    from .._defaults import get_default
+    ``weight_events`` profile and truncation exactly. The global-default
+    truncation width is resolved through the contract helper, so
+    ``mpt.set_default(truncation_sigmas=math.inf)`` truncates at the
+    finite accuracy-floor width (never "disabled")."""
+    from .._defaults import get_default, resolve_truncation_sigmas
     delta = loc_row - centre
     factor = _evaluate_shape(delta, sd, gamma)
-    trunc = get_default("truncation_sigmas")
-    if np.isfinite(trunc):
-        factor = factor.copy()
-        factor[np.abs(delta) > trunc * sd] = 0.0
+    trunc = resolve_truncation_sigmas(get_default("truncation_sigmas"))
+    factor = factor.copy()
+    factor[np.abs(delta) > trunc * sd] = 0.0
     return factor
 
 

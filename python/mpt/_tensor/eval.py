@@ -8,10 +8,10 @@ Public entry points:
 * :func:`eval_exp_tens_raw` --- deprecated shim; raw-array signature
   is now accepted by :func:`eval_exp_tens` directly.
 
-The bulk of the file is the per-method implementations (SA centres
-fast, SA centres chunked, SA orbit, MA centres) and the small set of
+The bulk of the file is the per-method implementations (single-multiset centres
+fast, single-multiset centres chunked, single-multiset orbit, multi-attribute centres) and the small set of
 shape/normalise helpers (``_split_query_to_attr_list``,
-``_eval_exp_tens_sa_normalize``, etc.).
+the normalisation helpers, etc.).
 
 The eval path reaches into :mod:`._tensor.windowing` for the per-query
 window evaluation (:func:`_evaluate_window_on_query`) when the input
@@ -38,9 +38,11 @@ from ..spectra import add_spectra
 
 from .build import _looks_like_multi_attr, build_exp_tens
 from .canonical import _chord_canonical_key
-from .density import ExpTensDensity, MaetDensity, WindowedMaetDensity
+from .density import is_single_multiset
+from .density import MaetDensity, WindowedMaetDensity
 from .dispatch import (_compute_Q, _compute_Q_inner_blocks, _inner_r_vec,
-                       _normalize_density_input, _select_and_estimate_sa)
+                       _normalize_density_input,
+                       _quadratic_form_det, _gaussian_mass_const)
 from .windowing import _evaluate_window_on_query
 
 
@@ -83,13 +85,13 @@ def eval_exp_tens(*args,
       every query point. ``normalize`` (positional or kwarg) applies
       to all rows.
 
-    **Raw single-attribute scalar input**:
+    **Raw single-multiset scalar input**:
 
     - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X)``.
       Returns ``(nQ,)``.
     - ``eval_exp_tens(p, w, sigma, r, is_rel, is_per, period, X, normalize)``.
 
-    **Raw single-attribute batched input**:
+    **Raw single-multiset batched input**:
 
     - ``eval_exp_tens(P, W, sigma, r, is_rel, is_per, period, X)``
       with ``P`` and ``W`` 2-D ``(M, K)`` matrices (rows are chords).
@@ -109,17 +111,17 @@ def eval_exp_tens(*args,
         in original call patterns, or as a keyword.
     dedup : bool, default True
         Deduplicate structurally-identical chords (canonical-form,
-        SA-only). For list/batch input only.
+        single-multiset-only). For list/batch input only.
     spectrum : list/tuple, optional
-        Per-row :func:`add_spectra` parameters. Raw SA modes only.
+        Per-row :func:`add_spectra` parameters. Raw single-multiset modes only.
     precision : int, optional
-        FP-noise tolerance for canonical-form dedup. Raw SA batched
+        FP-noise tolerance for canonical-form dedup. Raw single-multiset batched
         only.
     method : {'auto', 'centres', 'mobius'}, default 'auto'
-        SA-path evaluation strategy. ``'auto'`` lets the dispatcher
+        Single-multiset-path evaluation strategy. ``'auto'`` lets the dispatcher
         choose between the centres-array path and the Möbius point
         evaluator, weighing both wall time and the centres working-set
-        memory (see :func:`mpt.tensor._select_and_estimate_sa`). The
+        memory (see :func:`mpt._tensor.dispatch._select_ma_eval`). The
         Möbius evaluator bypasses the ``(dim, n_j)`` centres tensor
         (``n_j = K!/(K-r)!``), so it wins decisively at large ``K``
         where that array explodes. In **absolute** mode it is also
@@ -146,8 +148,8 @@ def eval_exp_tens(*args,
     Returns
     -------
     np.ndarray
-        Shape ``(nQ,)`` for scalar density / raw SA scalar / raw MA
-        scalar; shape ``(M, nQ)`` for density list / raw SA batched.
+        Shape ``(nQ,)`` for scalar density / raw single-multiset scalar / raw MA
+        scalar; shape ``(M, nQ)`` for density list / raw single-multiset batched.
 
     Notes
     -----
@@ -177,20 +179,31 @@ def eval_exp_tens(*args,
             "eval_exp_tens requires at least 2 positional arguments."
         )
 
+    # Resolve the truncation width once, at the single entry point, so
+    # every downstream path (centres fast, chunked, Möbius, MA) receives
+    # a finite width and truncates identically. Per the toolbox contract
+    # a user-supplied ``inf`` resolves to the finite accuracy-floor width
+    # (the 1e-12 floor), NOT to unbounded/exact summation; genuinely
+    # exhaustive summation is reachable only internally, by widening the
+    # accuracy-floor epsilon via ``accuracy_floor_context`` (as the
+    # golden-value regeneration does). ``None`` takes the global default.
+    from .._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
+
     a = args[0]
 
     # ------------------------------------------------------------------
     # Density input dispatch
     # ------------------------------------------------------------------
     is_density_scalar = isinstance(
-        a, (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+        a, (MaetDensity, WindowedMaetDensity)
     )
     intends_density_list = False
     if isinstance(a, (list, tuple)):
         if len(a) == 0:
             intends_density_list = True
         elif isinstance(
-            a[0], (ExpTensDensity, MaetDensity, WindowedMaetDensity)
+            a[0], (MaetDensity, WindowedMaetDensity)
         ):
             intends_density_list = True
     elif isinstance(a, np.ndarray) and a.dtype == object:
@@ -209,11 +222,11 @@ def eval_exp_tens(*args,
             )
         if spectrum is not None:
             raise TypeError(
-                "'spectrum' kwarg is only valid in raw SA input mode."
+                "'spectrum' kwarg is only valid in raw single-multiset input mode."
             )
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
+                "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         if is_density_scalar:
             return _eval_exp_tens_scalar(
@@ -274,12 +287,12 @@ def eval_exp_tens(*args,
             )
         if spectrum is not None:
             raise TypeError(
-                "'spectrum' kwarg is only supported in raw single-attribute "
+                "'spectrum' kwarg is only supported in raw single-multiset "
                 "input mode."
             )
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid in raw SA batched input mode."
+                "'precision' kwarg is only valid in raw single-multiset batched input mode."
             )
         return _eval_exp_tens_raw_ma_scalar(
             p_attr, w_in, sigma_vec, r_vec,
@@ -288,7 +301,7 @@ def eval_exp_tens(*args,
         )
 
     # ------------------------------------------------------------------
-    # Raw single-attribute dispatch (1-D = scalar, 2-D = batch)
+    # Raw single-multiset dispatch (1-D = scalar, 2-D = batch)
     # ------------------------------------------------------------------
     # Positional geometry order: p, w, sigma, r, is_rel, is_per, period,
     # [is_sym], x [, normalize]. 8 args omit is_sym (defaults symmetric)
@@ -302,7 +315,7 @@ def eval_exp_tens(*args,
         p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize = args
     else:
         raise TypeError(
-            f"Raw single-attribute input expects 8, 9, or 10 positional "
+            f"Raw single-multiset input expects 8, 9, or 10 positional "
             f"arguments (p, w, sigma, r, is_rel, is_per, period"
             f"[, is_sym], x[, normalize]); got {len(args)}."
         )
@@ -327,7 +340,7 @@ def eval_exp_tens(*args,
             )
         if a_arr.ndim != 1:
             raise NotImplementedError(
-                "Raw SA batched (2-D) input is not supported with a "
+                "Raw single-multiset batched (2-D) input is not supported with a "
                 "matrix-valued kernel covariance; carry the tuples as "
                 "events of an ordered multi-attribute form, or build "
                 "per-row density objects."
@@ -346,21 +359,21 @@ def eval_exp_tens(*args,
     if a_arr.ndim == 1:
         if precision is not None:
             raise TypeError(
-                "'precision' kwarg is only valid for raw SA batched input."
+                "'precision' kwarg is only valid for raw single-multiset batched input."
             )
-        return _eval_exp_tens_raw_sa_scalar(
+        return _eval_exp_tens_raw_single_multiset_scalar(
             p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
             spectrum=spectrum, method=method, verbose=verbose,
         )
     if a_arr.ndim == 2:
-        return _eval_exp_tens_raw_sa_batch(
+        return _eval_exp_tens_raw_single_multiset_batch(
             p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
             spectrum=spectrum, precision=precision,
             dedup=dedup, method=method, verbose=verbose,
         )
     raise TypeError(
         f"First argument has unsupported shape {a_arr.shape}; "
-        f"raw SA input must be 1-D (single chord) or 2-D (batched)."
+        f"raw single-multiset input must be 1-D (single chord) or 2-D (batched)."
     )
 
 
@@ -373,10 +386,8 @@ def _eval_exp_tens_scalar(
 ) -> np.ndarray:
     """Density-scalar dispatch for :func:`eval_exp_tens`.
 
-    Threads ``method`` through to :func:`_eval_exp_tens_sa` for SA densities;
-    MA path ignores ``method`` (an MA Möbius method is on the v2.3 roadmap).
     Threads ``truncation_sigmas`` / ``kernel_precision`` through to the
-    SA centres path; MA centres routing is deferred (Stage 3).
+    single-multiset centres path; MA centres routing is deferred (Stage 3).
     """
     from .aniso import density_has_kernel_cov, whiten_query, \
         density_logdet_sum
@@ -404,19 +415,22 @@ def _eval_exp_tens_scalar(
         # sigma is 1. The Gaussian normalization constant acquires
         # det(Sigma)^{-1/2}, applied after the isotropic machinery.
         x = whiten_query(dens, x)
+    # Single-multiset corner (A = N = 1, flat): when the query uses
+    # the single-multiset dialect (a plain array whose row count is
+    # A single-multiset (A=1, N=1) density is just the multi-attribute
+    # density at that corner, and the multi-attribute path now handles it
+    # correctly and quickly: its factored Möbius evaluator reduces to the
+    # single-multiset Möbius evaluator at A=1, and its cost-model
+    # dispatch selects centres or Möbius exactly as the single-multiset
+    # selector would. (An earlier interception routed the corner through
+    # the single-multiset evaluator to avoid a large regression when the
+    # multi-attribute path lacked a Möbius route; that route now exists,
+    # so the interception is no longer needed --- the corner is the
+    # general case at A=1.)
     if isinstance(dens, MaetDensity):
         vals = _eval_exp_tens_ma(
             dens, x, normalize,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=verbose,
-        )
-        if _aniso and normalize != "none":
-            vals = vals * np.exp(-0.5 * density_logdet_sum(dens))
-        return vals
-    if isinstance(dens, ExpTensDensity):
-        vals = _eval_exp_tens_sa(
-            dens, x, normalize, method=method,
+            method=method,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -425,7 +439,7 @@ def _eval_exp_tens_scalar(
             vals = vals * np.exp(-0.5 * density_logdet_sum(dens))
         return vals
     raise TypeError(
-        f"dens must be an ExpTensDensity, MaetDensity, or "
+        f"dens must be a MaetDensity or "
         f"WindowedMaetDensity; got {type(dens).__name__}."
     )
 
@@ -441,7 +455,7 @@ def _eval_exp_tens_density_list(
     """Evaluate a list of densities at shared query ``x``.
 
     Returns ``(M, nQ)``. With ``dedup=True``, structurally-identical
-    SA densities are evaluated once (canonical-form dedup via
+    single-multiset densities are evaluated once (canonical-form dedup via
     :func:`_chord_canonical_key`); MA densities bypass dedup.
     """
     is_scalar, dens_tuple = _normalize_density_input(dens_list, name="dens")
@@ -462,16 +476,19 @@ def _eval_exp_tens_density_list(
         except (TypeError, ValueError):
             return np.empty((0, 0), dtype=np.float64)
 
-    # Optional dedup for SA densities only.
-    use_dedup = dedup and all(isinstance(d, ExpTensDensity) for d in dens_tuple)
+    # Optional dedup for single-multiset densities only. Deduplicates
+    # by canonical chord key so repeated collections are evaluated once.
+    use_dedup = dedup and all(is_single_multiset(d) for d in dens_tuple)
 
     if use_dedup:
         result_cache: dict = {}
         rows = []
         for d in dens_tuple:
             key, _, _ = _chord_canonical_key(
-                d.p, d.w, sigma=d.sigma, r=d.r,
-                is_rel=d.is_rel, is_per=d.is_per, period=d.period,
+                d.p_attr[0][:, 0], d.w[0][:, 0],
+                sigma=float(d.sigma[0]), r=int(d.r[0]),
+                is_rel=bool(d.is_rel[0]), is_per=bool(d.is_per[0]),
+                period=float(d.period[0]),
             )
             if key not in result_cache:
                 result_cache[key] = _eval_exp_tens_scalar(
@@ -490,7 +507,7 @@ def _eval_exp_tens_density_list(
         if dedup and verbose:
             print(
                 "eval_exp_tens: dedup=True requested but input includes "
-                "non-SA densities; computing without dedup."
+                "multi-attribute densities; computing without dedup."
             )
         rows = [
             _eval_exp_tens_scalar(
@@ -506,12 +523,12 @@ def _eval_exp_tens_density_list(
 
 
 
-def _eval_exp_tens_raw_sa_scalar(
+def _eval_exp_tens_raw_single_multiset_scalar(
     p, w, sigma, r, is_rel, is_per, period, is_sym,
     x, normalize: str,
     *, spectrum=None, method: str = "auto", verbose: bool,
 ) -> np.ndarray:
-    """Raw SA scalar dispatch: build density (with optional spectrum), evaluate."""
+    """Raw single-multiset scalar dispatch: build density (with optional spectrum), evaluate."""
     if spectrum is not None:
         p_arr = np.asarray(p, dtype=np.float64)
         w_arr = (np.ones_like(p_arr) if w is None
@@ -527,14 +544,14 @@ def _eval_exp_tens_raw_sa_scalar(
 
 
 
-def _eval_exp_tens_raw_sa_batch(
+def _eval_exp_tens_raw_single_multiset_batch(
     P, W, sigma, r, is_rel, is_per, period, is_sym,
     x, normalize: str,
     *, spectrum=None, precision: int | None = None,
     dedup: bool = True, method: str = "auto",
     verbose: bool,
 ) -> np.ndarray:
-    """Raw SA batched dispatch.
+    """Raw single-multiset batched dispatch.
 
     Per-row chord-level dedup of density construction (via
     :func:`_chord_canonical_key`); evaluates each unique density once
@@ -693,418 +710,6 @@ def _split_query_to_attr_list(dens: MaetDensity, x):
 
 
 # -------------------------------------------------------------------
-#  _eval_exp_tens_sa  (single-attribute legacy path)
-# -------------------------------------------------------------------
-
-
-def _eval_exp_tens_sa(
-    dens: ExpTensDensity,
-    x: np.ndarray,
-    normalize: str = "none",
-    *,
-    method: str = "auto",
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
-    verbose: bool = True,
-) -> np.ndarray:
-    """Single-attribute expectation tensor evaluation (dispatcher).
-
-    Routes between the centres-array path and the Möbius
-    point evaluator according to ``method`` and the cost model
-    in :func:`_select_and_estimate_sa` (which weighs both the
-    wall-time cost model and the centres working-set memory guard).
-    """
-    x = np.asarray(x, dtype=np.float64)
-    if x.ndim == 1:
-        x = x.reshape(1, -1)
-    if x.shape[0] != dens.dim:
-        raise ValueError(
-            f"x must have {dens.dim} rows (each column is a "
-            f"{dens.dim}-D query point)."
-        )
-    n_q = x.shape[1]
-    if n_q == 0:
-        return np.zeros(0, dtype=np.float64)
-
-    K = int(dens.p.shape[0])
-    sigma_over_P = (
-        float(dens.sigma) / float(dens.period) if dens.is_per else 0.0
-    )
-
-    # ---- Routing axis ----
-    # Hard rules and explicit overrides decide inline; only the
-    # discretionary 'auto' case with r >= 2 and K - r >= 2 invokes the
-    # dispatcher. Skipping the dispatcher call shaves measurable
-    # per-call overhead in MATLAB; Python is less sensitive but we
-    # apply the principle uniformly for cross-language parity.
-    routing_reason = "user override"
-    if method == "centres" or method == "direct":
-        chosen = "centres"
-        probed = False
-        est_sec = 0.0
-    elif method == "mobius":
-        chosen = "mobius"
-        probed = False
-        est_sec = 0.0
-    elif method == "auto":
-        r = int(dens.r)
-        if r <= 1 or (K - r) < 2:
-            # Hard rules force centres without a dispatcher call.
-            chosen = "centres"
-            probed = False
-            est_sec = 0.0
-            if r <= 1:
-                routing_reason = f"r = {r}"
-            else:
-                routing_reason = f"K - r = {K - r} < 2"
-        else:
-            chosen, probed, est_sec, routing_reason = _select_and_estimate_sa(
-                dens, x, n_q,
-                method=method,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-                verbose=verbose,
-            )
-    else:
-        raise ValueError(
-            f"method must be 'auto', 'centres', 'direct', or 'mobius'; "
-            f"got '{method}'."
-        )
-
-    # Dispatch-decision message: bypasses per-call verbose, gated by
-    # the toolbox-wide show_hints flag and throttled once per
-    # (function, chosen, routing_reason) per Python process. The
-    # throttle is cleared by mpt.reset_defaults(). To fully silence:
-    # mpt.set_default(show_hints=False).
-    from .._defaults import _maybe_show_dispatch_msg
-    _maybe_show_dispatch_msg(
-        "eval_exp_tens", chosen, routing_reason, est_sec, probed,
-    )
-
-    # ---- Execution axis: detect default-kwargs mode ----
-    # Important: ``None`` means "use the global default", not "no
-    # feature". So we must consult the defaults before deciding
-    # whether the fast path applies — a globally-set finite truncation
-    # or 'single' precision must still route through the helper.
-    from .._defaults import get_default
-    trunc_resolved = (
-        truncation_sigmas if truncation_sigmas is not None
-        else get_default("truncation_sigmas")
-    )
-    prec_resolved = (
-        kernel_precision if kernel_precision is not None
-        else get_default("kernel_precision")
-    )
-    use_default_kwargs = (
-        (trunc_resolved is None or not np.isfinite(trunc_resolved))
-        and (prec_resolved == "double")
-    )
-
-    if chosen == "mobius":
-        vals = _eval_exp_tens_sa_orbit(
-            dens, x, n_q,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=False,
-        )
-        # Post-hoc finiteness check. Mirrors the cosine-path safety
-        # net: if the Möbius alternating partition sum produces non-finite output
-        # (extreme σ → 0 regime), fall back to centres rather than
-        # propagating NaN/Inf into the user's result.
-        if not np.all(np.isfinite(vals)):
-            if verbose:
-                warnings.warn(
-                    "eval_exp_tens Möbius method produced non-finite "
-                    "values; falling back to centres path."
-                )
-            if use_default_kwargs:
-                vals = _eval_exp_tens_sa_centres_fast(dens, x, n_q)
-            else:
-                vals = _eval_exp_tens_sa_centres(
-                    dens, x, n_q,
-                    truncation_sigmas=truncation_sigmas,
-                    kernel_precision=kernel_precision,
-                    verbose=False,
-                )
-    else:  # 'centres'
-        if use_default_kwargs:
-            # inline direct broadcast. FP-identical to
-            # the helper at default settings, but skips the helper's
-            # parameter validation and kwarg construction.
-            vals = _eval_exp_tens_sa_centres_fast(dens, x, n_q)
-        else:
-            vals = _eval_exp_tens_sa_centres(
-                dens, x, n_q,
-                truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision,
-                verbose=False,
-            )
-
-    return _eval_exp_tens_sa_normalize(vals, dens, normalize)
-
-
-
-def _eval_exp_tens_sa_centres_fast(
-    dens: ExpTensDensity, x: np.ndarray, n_q: int,
-    *, prune_zero_weight_events: bool = True,
-) -> np.ndarray:
-    """inline direct broadcast for the centres path.
-
-    Used by :func:`_eval_exp_tens_sa` when default kwargs apply
-    (no truncation, no precision override). FP-identical to the
-    helper-routed :func:`_eval_exp_tens_sa_centres` at default
-    settings, but skips the helper's per-call validation overhead.
-    Handles all (r, is_rel, is_per) combinations.
-
-    Memory-aware ``n_q`` chunking matches the helper's
-    ``_exact_kernel_sum``: peak per-chunk allocation is
-    ``(dim+1) * n_j * n_qc * 8`` bytes for the difference tensor plus
-    per-block intermediates. Without chunking, large workloads
-    (e.g. K=72 r=3 nQ=29161 → ~155 GB peak) hit MATLAB's array-size
-    cap and Python's memory limits.
-
-    When ``prune_zero_weight_events=True`` (default), joint perm-side
-    tuples with ``w_j[j] == 0`` are dropped before evaluation. Same
-    convention as :func:`_eval_exp_tens_ma`.
-    """
-    centres = dens.centres
-    w_j = dens.w_j
-    n_j = int(dens.n_j)
-    sigma = float(dens.sigma)
-    r = int(dens.r)
-    dim = int(dens.dim)
-    is_rel = bool(dens.is_rel)
-    is_per = bool(dens.is_per)
-    period = float(dens.period)
-
-    if n_j == 0 or n_q == 0:
-        return np.zeros(n_q, dtype=np.float64)
-
-    # Auto-prune zero-weight joint tuples (see _eval_exp_tens_ma).
-    if prune_zero_weight_events:
-        keep = w_j != 0
-        if not bool(keep.all()):
-            n_j = int(keep.sum())
-            if n_j == 0:
-                return np.zeros(n_q, dtype=np.float64)
-            w_j = w_j[keep]
-            centres = centres[:, keep]
-
-    bytes_per_scalar = 8  # default-mode is always double
-    # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × bytes_per_scalar:
-    # broadcast difference tensor, its square, and the summed/exponentiated
-    # intermediate are briefly co-resident.
-    bytes_needed = (2 * dim + 2) * n_j * n_q * bytes_per_scalar
-    mem_limit = kernel_chunk_bytes_resolved()
-
-    if bytes_needed <= mem_limit:
-        return _eval_centres_fast_chunk(
-            centres, w_j, x, n_q, dim, n_j, sigma, r, is_rel, is_per, period,
-        )
-
-    chunk_size = max(1, mem_limit // ((2 * dim + 2) * n_j * bytes_per_scalar))
-    vals = np.zeros(n_q, dtype=np.float64)
-    for c0 in range(0, n_q, chunk_size):
-        c1 = min(c0 + chunk_size, n_q)
-        vals[c0:c1] = _eval_centres_fast_chunk(
-            centres, w_j, x[:, c0:c1], c1 - c0, dim, n_j,
-            sigma, r, is_rel, is_per, period,
-        )
-    return vals
-
-
-
-def _eval_centres_fast_chunk(
-    centres, w_j, x, n_qc, dim, n_j, sigma, r, is_rel, is_per, period,
-):
-    """Single-chunk evaluation for the SA centres fast path.
-
-    Builds the (dim, n_j, n_qc) pairwise-difference tensor by
-    broadcasting, applies the periodic wrap where needed, reduces
-    along the spatial dimension via the Q quadratic form,
-    exponentiates, and contracts with the centre weights. For
-    periodic+relative the pairwise-wrap form (Eq 6 of the preprint)
-    is used in line with cosSimExpTens.
-    """
-    D = centres[:, :, None] - x[:, None, :]
-    # Outer wrap is only needed for abs+per. For rel+per, _compute_Q
-    # applies the pairwise wrap inside (Eq 6) to restore exact
-    # transposition invariance on the circle.
-    if is_per and not is_rel:
-        D = D - period * np.floor(D / period + 0.5)
-    Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
-    E = np.exp(-Q / (2 * sigma ** 2))
-    return w_j @ E
-
-
-
-def _eval_exp_tens_sa_centres(
-    dens: ExpTensDensity,
-    x: np.ndarray,
-    n_q: int,
-    *,
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
-    verbose: bool = True,
-    prune_zero_weight_events: bool = True,
-) -> np.ndarray:
-    """Centres-array path for SA evaluation.
-
-    Routes through :func:`mpt._kernel.gaussian_kernel_sum` so
-    the ``truncation_sigmas`` and ``kernel_precision`` options apply
-    uniformly across centres-path consumers. At
-    ``truncation_sigmas=inf`` and ``kernel_precision='double'`` the
-    output is FP-bit-identical to the v2.0/v2.1 implementation in all
-    modes except periodic+relative, where the path now uses the
-    pairwise-wrap form (Eq 6 of the preprint), matching
-    ``cos_sim_exp_tens`` Bulger. The v2.0/v2.1 algebraic-with-outer-
-    wrap form is an inherited v1 approximation in the rel+per case
-    and is no longer used.
-
-    When ``prune_zero_weight_events=True`` (default), joint perm-side
-    tuples with ``w_j[j] == 0`` are dropped before evaluation. Same
-    convention as :func:`_eval_exp_tens_ma`.
-    """
-    centres = dens.centres
-    w_j = dens.w_j
-    n_j = dens.n_j
-    sigma = dens.sigma
-    r = dens.r
-    dim = dens.dim
-    is_rel = dens.is_rel
-    is_per = dens.is_per
-    period = dens.period
-
-    # Auto-prune zero-weight joint tuples (see _eval_exp_tens_ma).
-    if prune_zero_weight_events and n_j > 0:
-        keep = w_j != 0
-        if not bool(keep.all()):
-            n_j = int(keep.sum())
-            if n_j == 0:
-                return np.zeros(n_q, dtype=np.float64)
-            w_j = w_j[keep]
-            centres = centres[:, keep]
-
-    # Forward kwargs to the helper. ``None`` means "consult mpt defaults".
-    kw = {}
-    if is_rel:
-        kw["is_rel"] = True
-        kw["r"] = int(r)
-    if is_per:
-        kw["is_per"] = True
-        kw["period"] = float(period)
-    if truncation_sigmas is not None:
-        kw["truncation_sigmas"] = float(truncation_sigmas)
-    if kernel_precision is not None:
-        kw["kernel_precision"] = kernel_precision
-
-    return gaussian_kernel_sum(centres, w_j, x, float(sigma), **kw)
-
-
-
-def _eval_exp_tens_sa_orbit(
-    dens: ExpTensDensity,
-    x: np.ndarray,
-    n_q: int,
-    *,
-    truncation_sigmas: float | None = None,
-    kernel_precision: str | None = None,
-    verbose: bool = True,
-    prune_zero_weight_events: bool = True,
-) -> np.ndarray:
-    """Orbit-Möbius point evaluator for SA evaluation.
-
-    Dispatches to :func:`mpt._mobius.eval_orbit_abs` (absolute modes)
-    or :func:`mpt._mobius.eval_orbit_rel` (relative modes). Bypasses
-    the ``(dim, n_j, n_q)`` intermediate tensor that would dominate
-    memory in the centres path at high r.
-
-    Forwards ``truncation_sigmas`` /
-    ``kernel_precision`` to the Möbius evaluators. The non-periodic
-    per-block kernel sum routes through ``gaussian_kernel_sum`` with
-    ``sigma_eff = sigma/sqrt(m)``, gaining truncation natively.
-
-    When ``prune_zero_weight_events=True`` (default), events whose
-    weight is exactly zero are dropped from ``p`` / ``w`` before
-    evaluation. Per-event-level prune here (rather than joint-tuple
-    prune as in the centres path) because the orbit path operates on
-    the raw event positions, not the post-build joint tuples. An event
-    with ``w[i] == 0`` contributes zero to every r-tuple that involves
-    it, so dropping is exact.
-    """
-    from .._mobius import eval_orbit_abs, eval_orbit_rel
-
-    p = dens.p
-    w = dens.w
-    sigma = float(dens.sigma)
-    r = int(dens.r)
-    is_rel = bool(dens.is_rel)
-    is_per = bool(dens.is_per)
-    period = float(dens.period)
-
-    # Auto-prune zero-weight events. dens.w may be scalar or per-event;
-    # only the per-event case admits selective drop.
-    if prune_zero_weight_events:
-        w_arr = np.atleast_1d(np.asarray(w, dtype=np.float64))
-        if w_arr.size > 1:
-            keep = w_arr != 0
-            if not bool(keep.all()):
-                if not bool(keep.any()):
-                    return np.zeros(n_q, dtype=np.float64)
-                p = np.asarray(p)
-                p = p[keep] if p.ndim == 1 else p[:, keep]
-                w = w_arr[keep]
-        elif w_arr.size == 1 and w_arr[0] == 0:
-            return np.zeros(n_q, dtype=np.float64)
-
-    if verbose:
-        pass
-
-    if is_rel:
-        return eval_orbit_rel(
-            p, w, sigma, r, x,
-            is_per=is_per, period=period,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-    return eval_orbit_abs(
-        p, w, sigma, r, x,
-        is_per=is_per, period=period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-    )
-
-
-
-def _eval_exp_tens_sa_normalize(
-    vals: np.ndarray,
-    dens: ExpTensDensity,
-    normalize: str,
-) -> np.ndarray:
-    """Apply Gaussian / pdf normalisation to raw SA tensor values."""
-    if normalize == "none":
-        return vals
-    sigma = dens.sigma
-    r = dens.r
-    dim = dens.dim
-    is_rel = dens.is_rel
-    w_j = dens.w_j
-
-    det_m = (1.0 / r) if is_rel else 1.0
-    gauss_const = (2 * np.pi * sigma**2) ** (-dim / 2) * np.sqrt(det_m)
-    vals = vals * gauss_const
-
-    if normalize == "pdf":
-        sum_w = np.sum(w_j)
-        if sum_w > 0:
-            vals = vals / sum_w
-        else:
-            warnings.warn(
-                "Sum of weight products is zero; cannot normalize to pdf."
-            )
-
-    return vals
-
 
 
 # -------------------------------------------------------------------
@@ -1112,11 +717,96 @@ def _eval_exp_tens_sa_normalize(
 # -------------------------------------------------------------------
 
 
+def _ma_join_query(dens: MaetDensity, x) -> np.ndarray:
+    """Return the query as a single ``(D, n_q)`` matrix.
+
+    Accepts either the list form (one ``(dim_per_attr[a], n_q)`` matrix
+    per attribute) or an already-joined ``(D, n_q)`` matrix, validating
+    shapes identically to the joint-centres path, and returns the
+    row-stacked joint matrix the factored evaluator consumes.
+    """
+    A = int(dens.n_attrs)
+    dim = int(dens.dim)
+    dim_per = [int(v) for v in np.atleast_1d(dens.dim_per_attr)]
+    if isinstance(x, (list, tuple)):
+        if len(x) != A:
+            raise ValueError(
+                f"Query list must have length {A} (n attributes); "
+                f"got {len(x)}."
+            )
+        blocks = []
+        n_q = None
+        for a, xa in enumerate(x):
+            xa = np.asarray(xa, dtype=np.float64)
+            if xa.ndim == 1 and dim_per[a] == 1:
+                xa = xa.reshape(1, -1)
+            if xa.ndim != 2 or xa.shape[0] != dim_per[a]:
+                raise ValueError(
+                    f"Query for attribute {a} must have {dim_per[a]} "
+                    f"rows; got shape {xa.shape}."
+                )
+            if n_q is None:
+                n_q = xa.shape[1]
+            elif xa.shape[1] != n_q:
+                raise ValueError(
+                    "All per-attribute query matrices must share the "
+                    f"same number of columns (nQ). Got {n_q} and "
+                    f"{xa.shape[1]}."
+                )
+            blocks.append(xa)
+        return np.vstack(blocks) if blocks else np.zeros((0, 0))
+    xs = np.asarray(x, dtype=np.float64)
+    if xs.ndim == 1 and dim == 1:
+        xs = xs.reshape(1, -1)
+    if xs.ndim != 2 or xs.shape[0] != dim:
+        raise ValueError(
+            f"Single-matrix query must have {dim} rows (total dim); "
+            f"got shape {xs.shape}. For list-form input, wrap the "
+            f"per-attribute query matrices in a length-{A} list/tuple."
+        )
+    return xs
+
+
+def _ma_eval_normalize(dens: MaetDensity, vals: np.ndarray,
+                       normalize: str) -> np.ndarray:
+    """Apply the MA normalisation to raw density values.
+
+    Shared by the joint-centres and factored-Möbius paths so both
+    produce identical normalised output. Multiplies by the per-attribute
+    Gaussian constant (carrying the co-transposition metric determinant)
+    and, for ``'pdf'``, divides by the total weight-product mass.
+    """
+    if normalize == "none":
+        return vals
+    A = int(dens.n_attrs)
+    dim_per = [int(v) for v in np.atleast_1d(dens.dim_per_attr)]
+    r_vec = [int(v) for v in np.atleast_1d(dens.r)]
+    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
+    sigma = np.atleast_1d(dens.sigma)
+    inner_r = _inner_r_vec(dens)
+    gauss_const = 1.0
+    for a in range(A):
+        da = dim_per[a]
+        det_m_a = _quadratic_form_det(r_vec[a], inner_r[a], is_rel[a])
+        gauss_const *= 1.0 / _gaussian_mass_const(sigma[a], da, det_m_a)
+    vals = vals * gauss_const
+    if normalize == "pdf":
+        sum_w = float(np.sum(dens.w_j))
+        if sum_w > 0:
+            vals = vals / sum_w
+        else:
+            warnings.warn(
+                "Sum of weight products is zero; cannot normalize to pdf."
+            )
+    return vals
+
+
 def _eval_exp_tens_ma(
     dens: MaetDensity,
     x,
     normalize: str = "none",
     *,
+    method: str = "auto",
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -1124,17 +814,92 @@ def _eval_exp_tens_ma(
 ) -> np.ndarray:
     """Multi-attribute expectation tensor evaluation.
 
+    Routes between the joint-centres path (materialises the joint tuple
+    set and sums a Gaussian per joint centre) and the factored Möbius
+    evaluator (:func:`mpt._tensor._ma_eval_orbit.eval_ma_orbit`, which
+    never materialises joint centres) according to ``method`` and the
+    cost model in :func:`mpt._tensor.dispatch._select_ma_eval`. Because
+    the MAET density factorises across attributes, the cost model is a
+    pure closed-form comparison (no probe): the joint tuple count grows
+    as a product across attributes while the factored cost grows as a
+    sum, so the factored path wins as soon as more than one attribute
+    carries a non-trivial tuple set.
+
     When ``prune_zero_weight_events=True`` (default), joint perm-side
     tuples whose product weight ``w_j[j] == 0`` are dropped before
-    evaluation. The joint weight already incorporates the per-attribute
-    weight product, so a zero entry indicates that at least one
-    attribute has zero weight at that tuple --- the tuple contributes
-    zero to the density at every query point, so dropping it is exact.
-    Set to ``False`` to bypass (only useful for testing the pre-prune
-    work). The cost saving scales with the fraction of zero-weight
-    tuples, which can be very large after :func:`weight_events` has
-    hard-zeroed factors outside the truncation radius.
+    evaluation on the joint-centres path. The joint weight already
+    incorporates the per-attribute weight product, so a zero entry
+    indicates that at least one attribute has zero weight at that tuple
+    --- the tuple contributes zero to the density at every query point,
+    so dropping it is exact. Set to ``False`` to bypass (only useful for
+    testing the pre-prune work). The cost saving scales with the
+    fraction of zero-weight tuples, which can be very large after
+    :func:`weight_events` has hard-zeroed factors outside the truncation
+    radius.
     """
+    # ---- Path selection (cost model, no probe) ----
+    from .dispatch import _select_ma_eval
+    n_q_hint = 0
+    if isinstance(x, (list, tuple)):
+        if len(x) and hasattr(x[0], "shape"):
+            xa0 = np.asarray(x[0])
+            n_q_hint = xa0.shape[-1] if xa0.ndim >= 1 else 1
+    else:
+        xa = np.asarray(x)
+        n_q_hint = xa.shape[-1] if xa.ndim >= 1 else 1
+    chosen, routing_reason = _select_ma_eval(dens, n_q_hint, method=method)
+    # Dispatch messages are gated by show_hints, not per-call verbose, so
+    # users see the routing decision even from internal callers that pass
+    # verbose=False (matching the single-multiset path). The estimate
+    # and probed flags are None/False: the MA cost model is probe-free.
+    _maybe_show_dispatch_msg(
+        "eval_exp_tens (MAET)", chosen, routing_reason, None, False,
+    )
+    if chosen == "mobius":
+        from ._ma_eval_orbit import eval_ma_orbit
+        # The factored evaluator takes the joint query as a single
+        # (D, n_q) matrix and splits it internally by dim_per_attr.
+        xq = _ma_join_query(dens, x)
+        vals = eval_ma_orbit(
+            dens, xq, truncation_sigmas=truncation_sigmas,
+        )
+        return _ma_eval_normalize(dens, vals, normalize)
+
+    # --- Single-multiset centres fast path -------------------------------
+    # For the single-multiset corner (A = 1, flat) the general per-
+    # attribute _ma_eval_full loop reduces to one attribute, so route
+    # through the tight _eval_core / _eval_full kernel instead (one 3-D
+    # broadcast, one _compute_Q, one exp, one weighted sum), avoiding the
+    # A-loop, attribute-splitting, and per-attribute dispatch overhead.
+    # The kernel applies the *resolved* truncation (None -> the global
+    # default) with the same floor as _ma_eval_full, so this is value-
+    # identical to the general path --- purely a speed choice.
+    if is_single_multiset(dens):
+        # truncation_sigmas is already resolved to a finite width at the
+        # eval entry (inf -> accuracy-floor width per the contract), so
+        # pass it straight through to the fast kernel.
+        c0 = dens.centres[0]
+        wj0 = dens.w_j
+        if prune_zero_weight_events and wj0.size:
+            keep = wj0 != 0
+            if not bool(keep.all()):
+                c0 = c0[:, keep]
+                wj0 = wj0[keep]
+        xs = _split_query_to_attr_list(dens, x)[0]
+        if xs.shape[1] == 0:
+            return np.zeros(0, dtype=np.float64)
+        estimate_comp_time(
+            int(wj0.size) * int(xs.shape[1]), c0.shape[0],
+            "eval_exp_tens (MAET)", verbose,
+        )
+        vals = _eval_core(
+            c0, wj0, int(wj0.size), xs, int(xs.shape[1]), c0.shape[0],
+            float(dens.sigma[0]), int(dens.r[0]),
+            bool(dens.is_rel[0]), bool(dens.is_per[0]), float(dens.period[0]),
+            truncation_sigmas=truncation_sigmas,
+        )
+        return _ma_eval_normalize(dens, vals, normalize)
+
     A           = dens.n_attrs
     n_j         = dens.n_j
     dim         = dens.dim
@@ -1246,37 +1011,8 @@ def _eval_exp_tens_ma(
                 inner_r=inner_r,
             )
 
-    # --- Normalisation ---
-    if normalize != "none":
-        inner_r = _inner_r_vec(dens)
-        gauss_const = 1.0
-        for a in range(A):
-            da = int(dim_per[a])
-            s_u = int(inner_r[a])
-            if s_u >= 2:
-                # Block-diagonal co-transposition metric: G_u blocks, each
-                # the relative quotient of an s_u-tuple (det 1/s_u), so the
-                # reduced metric determinant is (1/s_u)^G_u.
-                G_u = int(r_vec[a]) // s_u
-                det_m_a = (1.0 / float(s_u)) ** G_u
-            elif is_rel[a] and r_vec[a] >= 2:
-                det_m_a = 1.0 / float(r_vec[a])
-            else:
-                det_m_a = 1.0
-            gauss_const *= (2 * np.pi * sigma[a]**2) ** (-da / 2) \
-                           * np.sqrt(det_m_a)
-        vals = vals * gauss_const
-
-        if normalize == "pdf":
-            sum_w = float(np.sum(w_j))
-            if sum_w > 0:
-                vals = vals / sum_w
-            else:
-                warnings.warn(
-                    "Sum of weight products is zero; cannot normalize to pdf."
-                )
-
-    return vals
+    # --- Normalisation (shared with the factored path) ---
+    return _ma_eval_normalize(dens, vals, normalize)
 
 
 
@@ -1303,59 +1039,20 @@ def _ma_eval_full(
     keeps default-mode calls at inline cost; the feature kwargs
     only impose their cost when explicitly requested.
     """
-    # ---- Resolve precision / truncation from defaults ----
-    # ``None`` means "use the global default", not "no feature". A
-    # globally-set finite truncation or 'single' precision must still
-    # take the feature path, not the default-mode bypass below.
+    # ---- Resolve precision from defaults ----
+    # ``truncation_sigmas`` is already resolved to a finite width at
+    # the :func:`eval_exp_tens` entry (None -> global default; inf ->
+    # the accuracy-floor width per the truncation contract), so it is
+    # never None or non-finite on any reachable call and truncation
+    # always applies. The former "default-mode bypass" that ran an
+    # untruncated inline double accumulation for the ``inf`` case is
+    # therefore removed --- it would silently produce untruncated
+    # values in violation of the contract.
     if kernel_precision is None:
         from .._defaults import get_default
         kernel_precision = get_default("kernel_precision")
-    if truncation_sigmas is None:
-        from .._defaults import get_default
-        truncation_sigmas = get_default("truncation_sigmas")
 
-    # ---- Default-mode bypass ----
-    use_default = (
-        kernel_precision == "double"
-        and (truncation_sigmas is None
-             or not np.isfinite(truncation_sigmas))
-    )
-
-    if use_default:
-        # Direct double accumulation, no casts, no
-        # post-filter branching.
-        q_total = np.zeros((int(n_j), int(n_qc)), dtype=np.float64)
-        for a in range(A):
-            da = int(dim_per[a])
-            if da == 0:
-                continue
-            c_a = centres[a]
-            x_a = x_list[a]
-            d_a = c_a[:, :, None] - x_a[:, None, :]
-            r_in = 0 if inner_r is None else int(inner_r[a])
-            if r_in > 0:
-                # Inner [rel] unit: block-diagonal metric over event blocks.
-                # _compute_Q applies the pairwise wrap inside, so no
-                # outer wrap here.
-                q_a = _compute_Q_inner_blocks(
-                    d_a, r_in, bool(is_per[a]), float(period[a]),
-                    reduced=True)
-                q_total = q_total + q_a / (2 * sigma[a] ** 2)
-                continue
-            # Outer wrap only needed for abs+per. For rel+per, _compute_Q
-            # applies the pairwise wrap inside (Eq 6 of the preprint).
-            if is_per[a] and not is_rel[a]:
-                pg = float(period[a])
-                d_a = d_a - pg * np.floor(d_a / pg + 0.5)
-            q_a = _compute_Q(d_a, int(r_vec[a]), bool(is_rel[a]),
-                             bool(is_per[a]), float(period[a]),
-                             reduced=bool(is_rel[a]))
-            q_total = q_total + q_a / (2 * sigma[a] ** 2)
-        e = np.exp(-q_total)
-        return w_j @ e
-
-    # ---- Feature-kwargs path: precision casting and / or
-    # post-filter truncation. ----
+    # ---- Precision casting and post-filter truncation. ----
     dtype = np.float32 if kernel_precision == "single" else np.float64
 
     q_total = np.zeros((int(n_j), int(n_qc)), dtype=dtype)
@@ -1412,9 +1109,10 @@ def _ma_eval_full(
 
 
 def _eval_core(
-    centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period
+    centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
+    *, truncation_sigmas=None,
 ):
-    """Evaluate with automatic memory-aware chunking (SA path)."""
+    """Evaluate with automatic memory-aware chunking (single-multiset path)."""
     # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × 8 (broadcast
     # difference, its square, and the summed/exponentiated intermediate
     # are briefly co-resident).
@@ -1422,7 +1120,8 @@ def _eval_core(
     mem_limit = kernel_chunk_bytes_resolved()
 
     if bytes_needed <= mem_limit:
-        return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period)
+        return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
+                          truncation_sigmas=truncation_sigmas)
 
     chunk_size = max(1, int(mem_limit / ((2 * dim + 2) * int(n_j) * 8)))
     vals = np.zeros(n_q)
@@ -1431,19 +1130,28 @@ def _eval_core(
         idx = slice(c_start, c_end)
         n_qc = c_end - c_start
         vals[idx] = _eval_full(
-            centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, is_rel, is_per, period
+            centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
         )
     return vals
 
 
 
-def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period):
-    """Fully vectorized SA density evaluation.
+def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period,
+               *, truncation_sigmas=None):
+    """Fully vectorized single-multiset density evaluation.
 
     Uses the pairwise-wrap form (Eq 6 of the preprint) for
     periodic+relative, matching cosSimExpTens. The algebraic form
     used by v2.0 / v2.1 in this mode silently differed from the
     inner-product convention; v2.X corrects it.
+
+    ``truncation_sigmas`` applies the same kernel-value floor as the
+    general :func:`_ma_eval_full` path (the kernel is negligible where
+    ``Q/(2 sigma^2) > k^2/2``), so routing a single-multiset density
+    through this fast kernel is value-identical to the general path,
+    not merely close --- the two differ only in per-attribute loop
+    overhead, never in the truncation policy.
     """
     # D shape: (dim, nJ, nQc)
     D = centres[:, :, None] - x_q[:, None, :]
@@ -1454,8 +1162,19 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
 
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
 
-    # E shape: (nJ, nQc)
-    E = np.exp(-Q / (2 * sigma**2))
+    q_total = Q / (2 * sigma**2)
+    use_truncation = (
+        truncation_sigmas is not None
+        and np.isfinite(truncation_sigmas)
+        and truncation_sigmas > 0
+    )
+    if use_truncation:
+        # Same floor as _ma_eval_full: exp(-q_total) is negligible when
+        # q_total > k^2 / 2.
+        q_threshold = float(truncation_sigmas) ** 2 / 2.0
+        E = np.where(q_total <= q_threshold, np.exp(-q_total), 0.0)
+    else:
+        E = np.exp(-q_total)
 
     # Weighted sum: (nJ,) @ (nJ, nQc) → (nQc,)
     return w_j @ E

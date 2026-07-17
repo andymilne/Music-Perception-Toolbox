@@ -41,6 +41,192 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
 
+
+#: The toolbox's tightest meaningful accuracy floor. ``truncation_sigmas
+#: = inf`` is understood as "as accurate as the toolbox targets", namely
+#: relative contributions below this are negligible --- NOT literally
+#: exhaustive summation into the denormal far tail (where the Möbius
+#: decomposition's cancellation error dominates a true value already far
+#: below the floor). This single floor is shared by every truncation
+#: path: the kernel sums, the single- and multi-attribute point
+#: evaluators, and the relative factored read-back
+#: (:func:`mpt._mobius._factored_target_eps`). Read it through
+#: :func:`accuracy_floor_eps` (which honours a temporary override), not
+#: directly, so all paths see the same value.
+_ACCURACY_FLOOR_EPS: float = 1e-12
+
+#: Thread-local override for the accuracy floor, set only within the
+#: :func:`accuracy_floor_context` context manager. ``None`` means "use
+#: the module default :data:`_ACCURACY_FLOOR_EPS`".
+_accuracy_floor_state = threading.local()
+
+
+def accuracy_floor_eps() -> float:
+    """Current accuracy-floor epsilon (honouring any active override).
+
+    Returns the temporary value set by :func:`accuracy_floor_context`
+    when one is active on this thread, otherwise the module default
+    :data:`_ACCURACY_FLOOR_EPS` (1e-12). This is the single read point
+    for the floor; every truncation path resolves ``inf`` against it.
+    """
+    return getattr(_accuracy_floor_state, "eps", None) or _ACCURACY_FLOOR_EPS
+
+
+def accuracy_floor_sigmas() -> float:
+    """Finite truncation width achieving the current accuracy floor.
+
+    A density kernel ``G(d; sigma)`` falls below ``eps`` at
+    ``|d| > k sigma`` with ``k = sqrt(-2 ln eps)``; this returns that
+    ``k`` for the currently active :func:`accuracy_floor_eps`. It is the
+    finite width to which ``truncation_sigmas = inf`` resolves.
+    """
+    return math.sqrt(-2.0 * math.log(accuracy_floor_eps()))
+
+
+# --- Truncation scalar identity -------------------------------------
+# Truncation at k sigmas discards Gaussian contributions whose value
+# has fallen below a single floor, exp(-k^2/2), stated on the
+# normalised value scale and therefore identical for every Gaussian
+# kernel regardless of width. The three helpers below are the one
+# place this floor and its two distance manifestations are written;
+# every truncation path derives its cutoff through them so the
+# density-vs-inner-product width distinction cannot drift between
+# call sites.
+#
+# The two kernels the toolbox truncates have different widths:
+#   - the *density* kernel  G(d; sigma)   = exp(-|d|^2 / (2 sigma^2)),
+#   - the *inner-product* kernel G(d; sigma sqrt 2)
+#                                = exp(-|d|^2 / (4 sigma^2)),
+# the latter arising because an inner product convolves two density
+# kernels. At the shared value floor exp(-k^2/2) the density kernel
+# sits at distance |d| = k sigma, whereas the (sqrt 2 wider)
+# inner-product kernel sits at |d| = sqrt 2 * k sigma, i.e.
+# |d|^2 = 2 (k sigma)^2 --- the factor 2 that distinguishes the two.
+#
+# Each helper resolves its argument through resolve_truncation_sigmas,
+# so the truncation policy is enforced in one place: None takes the
+# global default and math.inf (the user-facing "exact" sentinel)
+# resolves to the finite accuracy-floor width (default ~7.43 sigma, the
+# 1e-12 floor). There is therefore no "nothing discarded" state:
+# truncation always applies at least at the accuracy floor. Genuinely
+# exhaustive summation is reachable only internally, by widening that
+# floor via accuracy_floor_context, never by a user value.
+
+
+def truncation_floor(truncation_sigmas: Any = None) -> float:
+    """Kernel-value floor ``exp(-k^2/2)`` at the resolved truncation width.
+
+    The largest normalised Gaussian value truncation discards --- the
+    same for the density and inner-product kernels, since it is stated
+    on the value scale. The argument is resolved through
+    :func:`resolve_truncation_sigmas`, so ``None`` takes the default
+    and ``math.inf`` takes the finite accuracy-floor width (giving the
+    1e-12 floor). Always returns a finite positive value.
+    """
+    k = resolve_truncation_sigmas(truncation_sigmas)
+    # resolve_truncation_sigmas maps the "exact" sentinel to
+    # accuracy_floor_sigmas(), whose floor is by construction exactly
+    # accuracy_floor_eps(); return that directly rather than through a
+    # log/exp round-trip (which perturbs it in the last ULP).
+    if k == accuracy_floor_sigmas():
+        return accuracy_floor_eps()
+    return math.exp(-0.5 * k * k)
+
+
+def truncation_radius(truncation_sigmas: Any, sigma: float) -> float:
+    """Distance ``k * sigma`` at which the density kernel reaches the floor.
+
+    Beyond ``|d| = k sigma`` the density kernel ``G(d; sigma)`` sits
+    below :func:`truncation_floor`; this is the radius the centres
+    evaluator uses to size its spatial index. The width is resolved as
+    in :func:`truncation_floor`.
+    """
+    k = resolve_truncation_sigmas(truncation_sigmas)
+    return k * sigma
+
+
+def truncation_ip_sqdist(truncation_sigmas: Any, sigma: float) -> float:
+    """Squared distance ``2 (k sigma)^2`` at which the IP kernel reaches the floor.
+
+    Beyond ``|d|^2 = 2 (k sigma)^2`` the inner-product kernel
+    ``G(d; sigma sqrt 2)`` --- value ``exp(-|d|^2 / (4 sigma^2))`` ---
+    sits below :func:`truncation_floor`. The factor 2 relative to
+    :func:`truncation_radius` squared (``(k sigma)^2``) is exactly the
+    ``sqrt 2`` extra width of the inner-product kernel. The width is
+    resolved as in :func:`truncation_floor`.
+    """
+    k = resolve_truncation_sigmas(truncation_sigmas)
+    return 2.0 * (k * sigma) ** 2
+
+
+@contextlib.contextmanager
+def accuracy_floor_context(eps: float):
+    """Temporarily override the accuracy floor on the current thread.
+
+    **Internal / test-only.** This is deliberately *not* a standard
+    user-facing default (it is absent from :func:`set_default`'s
+    validated keys and is not exported at package level), because it
+    changes the meaning of the "exact" (``inf``) sentinel across the
+    whole toolbox and is intended for controlled situations --- chiefly
+    regenerating golden reference values at maximal accuracy.
+
+    Within the ``with`` block, ``truncation_sigmas = inf`` resolves to
+    the width ``sqrt(-2 ln eps)`` instead of the default 1e-12 floor's
+    ~7.43 sigma, and the relative factored read-back targets ``eps``.
+    Set ``eps`` small (e.g. ``1e-300``) for effectively exhaustive,
+    maximal-accuracy evaluation:
+
+        >>> from mpt._defaults import accuracy_floor_context
+        >>> with accuracy_floor_context(1e-300):
+        ...     golden = eval_exp_tens(dens, x, truncation_sigmas=math.inf)
+
+    The override is thread-local and scoped: it never leaks past the
+    ``with`` block, even on exception, and does not affect other
+    threads. Nesting restores the enclosing value on exit.
+
+    Parameters
+    ----------
+    eps : float
+        Temporary accuracy floor in ``(0, 1)``. Smaller means more
+        accurate (wider effective truncation). ``eps -> 0`` approaches
+        exhaustive double-precision summation.
+    """
+    if not (0.0 < eps < 1.0):
+        raise ValueError(
+            f"accuracy-floor eps must be in (0, 1); got {eps!r}."
+        )
+    prev = getattr(_accuracy_floor_state, "eps", None)
+    _accuracy_floor_state.eps = float(eps)
+    try:
+        yield
+    finally:
+        _accuracy_floor_state.eps = prev
+
+
+def resolve_truncation_sigmas(truncation_sigmas: Any = None) -> float:
+    """Resolve the truncation knob to an effective finite width.
+
+    ``None`` resolves against the current default. A non-finite value
+    (``math.inf``, the documented "exact" sentinel) resolves to
+    :func:`accuracy_floor_sigmas`, the finite width at which a density
+    kernel falls below the toolbox accuracy floor
+    (:func:`accuracy_floor_eps`, default 1e-12). This makes ``inf`` mean
+    "accuracy-floor accuracy" uniformly across the absolute and
+    relative, single- and multi-attribute paths, rather than literally
+    exhaustive summation into the denormal far tail. Finite positive
+    values pass through unchanged.
+
+    The floor is overridable for special cases (chiefly golden-value
+    regeneration) via :func:`accuracy_floor_context`; within such a
+    context ``inf`` resolves to that context's (typically wider) width.
+    """
+    if truncation_sigmas is None:
+        truncation_sigmas = _DEFAULTS["truncation_sigmas"]
+    k = float(truncation_sigmas)
+    if not math.isfinite(k):
+        return accuracy_floor_sigmas()
+    return k
+
 # One-time-per-process flag: True once the truncation-default notice has
 # been printed (or suppressed). Not cleared by reset_defaults; a fresh
 # interpreter (module re-import) re-arms it, so the notice reappears once
@@ -267,13 +453,14 @@ class TruncationDefaultWarning(UserWarning):
 
 _TRUNCATION_NOTICE_MESSAGE = (
     "Kernel evaluation truncates the Gaussian kernel at 6 sigma by "
-    "default, which runs much faster than the exact sum; the speed-up "
-    "grows with tuple size r and multiset size, where the exact sum has "
-    "many kernel centres and becomes expensive. Worst-case error vs the "
-    "exact result is about 2e-8 at 6 sigma (the default), ~1e-5 at 5, "
-    "and ~1e-3 at 4. Set "
-    "mpt.set_default(truncation_sigmas=float('inf')) for the exact "
-    "result. This warning shows only once per session."
+    "default, which runs much faster than a wider cutoff; the speed-up "
+    "grows with tuple size r and multiset size, where a wider cutoff has "
+    "many kernel centres and becomes expensive. Worst-case error vs an "
+    "essentially exhaustive sum is about 2e-8 at 6 sigma (the default), "
+    "~1e-5 at 5, and ~1e-3 at 4. Set "
+    "mpt.set_default(truncation_sigmas=float('inf')) for the accuracy "
+    "floor (~7.43 sigma, ~1e-12 error). This warning shows only once "
+    "per session."
 )
 
 

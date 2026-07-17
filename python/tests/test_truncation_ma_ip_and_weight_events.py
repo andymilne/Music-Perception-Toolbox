@@ -32,7 +32,7 @@ import mpt
 from mpt import weight_events
 from mpt._tensor.cosine import (
     _ma_per_attr_inner_matrix,
-    _batched_direct_enum_abs_sa,
+    _batched_direct_enum_abs,
 )
 
 
@@ -162,11 +162,11 @@ def test_r2_abs_unsafe_truncation_parity():
     K, N = 2, 8       # K=2, r=2 -> K-r=0 -> all unsafe
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
-    ip_inf = _batched_direct_enum_abs_sa(
+    ip_inf = _batched_direct_enum_abs(
         Px, Wx, Py, Wy, sigma, r=2, is_per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
-    ip_6 = _batched_direct_enum_abs_sa(
+    ip_6 = _batched_direct_enum_abs(
         Px, Wx, Py, Wy, sigma, r=2, is_per=False, period=0.0,
         truncation_sigmas=6.0,
     )
@@ -269,18 +269,42 @@ def _make_we_inputs(N):
     return p_attr, w_init, groups, times
 
 
-def test_weight_events_default_inf_no_truncation():
-    """Default ``truncation_sigmas=inf`` leaves the factor untouched
-    (matches the analytic Gaussian at every event)."""
-    p_attr, w_init, groups, times = _make_we_inputs(N=21)
-    mpt.set_default(truncation_sigmas=float('inf'))
-    _, w_out, _ = weight_events(
-        p_attr, w_init, input_attr=1, target_attr=0,
-        centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
-        drop_input_attr=True,
-    )
-    expected = np.exp(-times[0] ** 2 / 2.0)
-    np.testing.assert_allclose(w_out[0][0], expected, atol=0.0, rtol=0.0)
+def test_weight_events_default_inf_resolves_to_accuracy_floor():
+    """Under the truncation contract, ``mpt.set_default(truncation_sigmas
+    =math.inf)`` resolves to the finite accuracy-floor width (~7.43
+    sigma, the 1e-12 floor), so :func:`weight_events` still applies a
+    hard-zero cutoff there --- never "disabled". The setting must
+    therefore be bit-identical to setting the default to
+    :func:`mpt._defaults.accuracy_floor_sigmas` explicitly, and must
+    differ from the un-truncated analytic Gaussian at events beyond
+    that width."""
+    from mpt._defaults import accuracy_floor_sigmas
+    p_attr, w_init, groups, times = _make_we_inputs(N=201)  # dense enough to have events past 7.43 * sd
+    prev = mpt.get_default('truncation_sigmas')
+    try:
+        mpt.set_default(truncation_sigmas=float('inf'))
+        _, w_out_inf, _ = weight_events(
+            p_attr, w_init, input_attr=1, target_attr=0,
+            centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
+            drop_input_attr=True,
+        )
+        mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
+        _, w_out_floor, _ = weight_events(
+            p_attr, w_init, input_attr=1, target_attr=0,
+            centre=0.0, sd=1.0, shape=0.0, is_per=False, period=0.0,
+            drop_input_attr=True,
+        )
+    finally:
+        mpt.set_default(truncation_sigmas=prev)
+    # Contract: inf resolves to the accuracy-floor width, so both
+    # settings are bit-identical.
+    np.testing.assert_array_equal(w_out_inf[0], w_out_floor[0])
+    # And the tail beyond the accuracy-floor width must be hard-zeroed
+    # (never the un-truncated analytic Gaussian).
+    delta = times[0]
+    outside = np.abs(delta) > accuracy_floor_sigmas()
+    assert outside.any(), "test needs events past the accuracy-floor cutoff"
+    assert np.all(w_out_inf[0][0][outside] == 0.0)
 
 
 def test_weight_events_truncation_gaussian():
@@ -369,6 +393,34 @@ def test_weight_events_truncation_periodic_after_wrap():
         drop_input_attr=True,
     )
     factor = w_out[0][0]
+
+
+def test_window_factor_default_inf_resolves_to_accuracy_floor():
+    """The windowed-sweep locate factor (:func:`mpt._tensor.windowed
+    ._window_factor`, the sibling of :func:`weight_events` used by
+    :func:`windowed_similarity` / :func:`windowed_entropy`) must honour
+    the same truncation contract: ``mpt.set_default(truncation_sigmas
+    =math.inf)`` resolves to the finite accuracy-floor width, so the
+    factor is bit-identical to setting the default to
+    :func:`accuracy_floor_sigmas` explicitly, and events beyond that
+    width are hard-zeroed."""
+    from mpt._defaults import accuracy_floor_sigmas
+    from mpt._tensor.windowed import _window_factor
+    loc_row = np.linspace(-10.0, 10.0, 201)
+    prev = mpt.get_default('truncation_sigmas')
+    try:
+        mpt.set_default(truncation_sigmas=float('inf'))
+        f_inf = _window_factor(loc_row, centre=0.0, gamma=0.0, sd=1.0)
+        mpt.set_default(truncation_sigmas=accuracy_floor_sigmas())
+        f_floor = _window_factor(loc_row, centre=0.0, gamma=0.0, sd=1.0)
+    finally:
+        mpt.set_default(truncation_sigmas=prev)
+    np.testing.assert_array_equal(f_inf, f_floor)
+    outside = np.abs(loc_row) > accuracy_floor_sigmas()
+    assert outside.any(), "test needs events past the accuracy-floor cutoff"
+    assert np.all(f_inf[outside] == 0.0)
+
+
 # ---------------------------------------------------------------------
 # Auto-pruning of zero-weight events
 # ---------------------------------------------------------------------
@@ -498,7 +550,7 @@ def test_bulger_ma_rel_per_truncation_parity():
     W = rng.uniform(0.1, 1.0, size=K)
     P2 = rng.uniform(0.0, 12.0, size=K)
     W2 = rng.uniform(0.1, 1.0, size=K)
-    # MA = two single-attribute densities cross-correlated; use
+    # MA = two single-multiset densities cross-correlated; use
     # build_exp_tens with two events to keep MA-shaped storage.
     dens_x = build_exp_tens(P, W, 1.0, 2, True, True, 12.0)
     dens_y = build_exp_tens(P2, W2, 1.0, 2, True, True, 12.0)
@@ -657,93 +709,72 @@ def test_eval_ma_auto_prune_propagates_via_entropy_exp_tens():
 
 
 # =========================================================================
-# Auto-pruning in the SA grid eval path
+# Zero-weight-event handling in the eval path
 # =========================================================================
+#
+# A density carrying zero-weight events must evaluate to exactly what the
+# same density with those events removed would give: zero-weight events
+# contribute nothing to the expectation-tensor density. These tests pin
+# that invariant on the public evaluator across the grid (r = 1) and
+# tuple-query (r = 2) regimes, and the all-zero-weights degenerate case.
 
 
-def test_eval_sa_centres_fast_auto_prune_parity():
-    """SA centres-fast path: pruned and unpruned eval agree to FP
-    tolerance. The weighted sum is a `w_j @ E` matrix multiply whose
-    BLAS reduction order can vary with the row count, so the prune
-    and no-prune branches are not guaranteed bit-identical across
-    architectures even though the analytic result is the same."""
-    from mpt._tensor.eval import _eval_exp_tens_sa_centres_fast
-
-    p = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
-    w = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
-    # r=1 so the grid is 1-D (matches the centres-fast path's natural
-    # query shape; r>=2 would require r-tuple queries).
-    dens = mpt.build_exp_tens(p, w, 1.0, 1, False, False, 0.0, verbose=False)
-    assert dens.n_j == 5 and int((dens.w_j != 0).sum()) == 3
-
-    x = np.linspace(0.0, 6.0, 32).reshape(1, -1)
-    vals_pruned   = _eval_exp_tens_sa_centres_fast(
-        dens, x, x.shape[1], prune_zero_weight_events=True)
-    vals_unpruned = _eval_exp_tens_sa_centres_fast(
-        dens, x, x.shape[1], prune_zero_weight_events=False)
-    np.testing.assert_allclose(vals_pruned, vals_unpruned, atol=1e-12)
-
-
-def test_eval_sa_centres_helper_auto_prune_parity():
-    """SA centres helper path (truncation/precision active): pruned and
-    unpruned agree to FP tolerance."""
-    from mpt._tensor.eval import _eval_exp_tens_sa_centres
-
+def test_eval_zero_weight_events_match_removed_grid():
+    """r = 1 grid eval: a density with zero-weight events agrees to FP
+    tolerance with the same density built without those events."""
     p = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     w = np.array([0.0, 1.0, 0.0, 1.0, 1.0])
     dens = mpt.build_exp_tens(p, w, 1.0, 1, False, False, 0.0, verbose=False)
 
+    p_kept = np.array([2.0, 4.0, 5.0])
+    w_kept = np.array([1.0, 1.0, 1.0])
+    dens_kept = mpt.build_exp_tens(
+        p_kept, w_kept, 1.0, 1, False, False, 0.0, verbose=False)
+
     x = np.linspace(0.0, 6.0, 32).reshape(1, -1)
-    vals_pruned   = _eval_exp_tens_sa_centres(
-        dens, x, x.shape[1], prune_zero_weight_events=True)
-    vals_unpruned = _eval_exp_tens_sa_centres(
-        dens, x, x.shape[1], prune_zero_weight_events=False)
-    np.testing.assert_allclose(vals_pruned, vals_unpruned, atol=1e-12)
+    vals = mpt.eval_exp_tens(dens, x, verbose=False)
+    vals_kept = mpt.eval_exp_tens(dens_kept, x, verbose=False)
+    np.testing.assert_allclose(vals, vals_kept, atol=1e-12)
 
 
-def test_eval_sa_orbit_auto_prune_parity():
-    """SA orbit path: per-event prune yields a result that matches the
-    unpruned reference. Queries are r-tuples (orbit-path semantics)."""
-    from mpt._tensor.eval import _eval_exp_tens_sa_orbit
-
+def test_eval_zero_weight_events_match_removed_tuple():
+    """r = 2 tuple-query eval: same invariant with r-tuple queries, so
+    the tuple-enumeration path exercises the zero-weight prune."""
     rng = np.random.default_rng(7)
     p = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     w = np.array([0.0, 1.0, 0.0, 1.0, 1.0, 0.0])   # half the events zero
     dens = mpt.build_exp_tens(p, w, 1.0, 2, False, False, 0.0, verbose=False)
 
-    # Orbit path expects r-tuple queries: x is (r, n_q).
+    p_kept = np.array([2.0, 4.0, 5.0])
+    w_kept = np.array([1.0, 1.0, 1.0])
+    dens_kept = mpt.build_exp_tens(
+        p_kept, w_kept, 1.0, 2, False, False, 0.0, verbose=False)
+
     x = rng.uniform(0.0, 7.0, size=(2, 12))
-    vals_pruned   = _eval_exp_tens_sa_orbit(
-        dens, x, x.shape[1], prune_zero_weight_events=True)
-    vals_unpruned = _eval_exp_tens_sa_orbit(
-        dens, x, x.shape[1], prune_zero_weight_events=False)
-    np.testing.assert_allclose(vals_pruned, vals_unpruned, atol=1e-12)
+    vals = mpt.eval_exp_tens(dens, x, verbose=False)
+    vals_kept = mpt.eval_exp_tens(dens_kept, x, verbose=False)
+    np.testing.assert_allclose(vals, vals_kept, atol=1e-12)
 
 
-def test_eval_sa_orbit_all_zero_weights_returns_zeros():
-    """SA orbit path: all-zero w yields zeros without dispatching to
-    eval_orbit_abs/rel (which would otherwise still return zero but
-    waste the call)."""
-    from mpt._tensor.eval import _eval_exp_tens_sa_orbit
-
+def test_eval_all_zero_weights_returns_zeros_tuple():
+    """r = 2: an all-zero-weight density evaluates to zeros at every
+    query point."""
     p = np.array([1.0, 2.0, 3.0, 4.0])
     w = np.zeros(4)
     dens = mpt.build_exp_tens(p, w, 1.0, 2, False, False, 0.0, verbose=False)
 
     x = np.random.default_rng(0).uniform(0.0, 5.0, size=(2, 8))
-    vals = _eval_exp_tens_sa_orbit(dens, x, x.shape[1])
+    vals = mpt.eval_exp_tens(dens, x, verbose=False)
     np.testing.assert_array_equal(vals, np.zeros(x.shape[1]))
 
 
-def test_eval_sa_centres_all_zero_returns_zeros():
-    """SA centres path: a density whose joint weights are all zero
-    yields zeros at every query point."""
-    from mpt._tensor.eval import _eval_exp_tens_sa_centres_fast
-
+def test_eval_all_zero_weights_returns_zeros_grid():
+    """r = 1: an all-zero-weight density evaluates to zeros at every
+    grid point."""
     p = np.array([1.0, 2.0, 3.0])
     w = np.zeros(3)
     dens = mpt.build_exp_tens(p, w, 1.0, 1, False, False, 0.0, verbose=False)
 
     x = np.linspace(0.0, 4.0, 16).reshape(1, -1)
-    vals = _eval_exp_tens_sa_centres_fast(dens, x, x.shape[1])
+    vals = mpt.eval_exp_tens(dens, x, verbose=False)
     np.testing.assert_array_equal(vals, np.zeros(x.shape[1]))

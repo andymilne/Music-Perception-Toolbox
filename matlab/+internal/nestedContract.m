@@ -100,11 +100,15 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
     isPer  = logical(densX.isPer(1));
     period = double(densX.period(1));
     sigma  = double(densX.sigma(1));
-    if isempty(truncationSigmas)
-        ts = mptDefaults('truncationSigmas');
-    else
-        ts = double(truncationSigmas);
-    end
+    % Resolve the truncation width once, at entry, through the shared
+    % accuracy-floor resolver: [] -> the mptDefaults default, Inf -> the
+    % finite accuracy-floor width (~7.43 sigma, the 1e-12 floor), a finite
+    % value passes through unchanged. Per the toolbox contract Inf means
+    % "accuracy-floor accuracy", NOT unbounded exact summation, so every
+    % downstream isfinite(ts) gate here receives a finite width. (Genuinely
+    % exhaustive summation is reachable only by widening the floor eps via
+    % internal.accuracyFloor('setEps', ...), as golden regeneration does.)
+    ts = internal.accuracyFloor('resolve', truncationSigmas);
 
     % One recipe per side: the X recipe indexes the X axis of the rectangular
     % leaf kernel, the Y recipe the Y axis. They coincide when the densities
@@ -211,11 +215,10 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
         return;
     end
     A = densX.nAttrs;
-    if isempty(truncationSigmas)
-        ts = mptDefaults('truncationSigmas');
-    else
-        ts = double(truncationSigmas);
-    end
+    % Resolve the truncation width through the shared accuracy-floor
+    % resolver (see the entry note above): Inf -> the finite accuracy-floor
+    % width, not unbounded exact summation.
+    ts = internal.accuracyFloor('resolve', truncationSigmas);
     N_x = densX.N;
     N_y = densY.N;
     P_xy = ones(N_x, N_y);

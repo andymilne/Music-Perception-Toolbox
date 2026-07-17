@@ -329,12 +329,6 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                   ['When a precomputed density struct is passed, no ' ...
                    'further positional arguments may be provided.']);
         end
-        if internal.isSaShaped(firstArg)
-            localRequireExplicitGrid(nvArgs.nPointsPerDim);
-            H = localEntropySA(internal.saView( ...
-                internal.ensureExpTensExpensive(firstArg)), nvArgs);
-            return;
-        end
         switch firstArg.tag
             case 'ExpTensDensity'
                 localRequireExplicitGrid(nvArgs.nPointsPerDim);
@@ -445,9 +439,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         symArgs = localSymArgs(nvArgs);
         T = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
                          'verbose', false);
-        % The vector build returns a single-collection MaetDensity; the SA
-        % entropy body reads the SA field names, so view it.
-        H = localEntropySA(internal.saView(T), nvArgs);
+        H = localEntropySA(T, nvArgs);
         return;
     end
 
@@ -465,12 +457,6 @@ end
 % =========================================================================
 
 function H = localEntropySA(T, nvArgs)
-
-    % Normalise the input to the single-collection layout: whether T
-    % arrived as a raw MaetDensity (A = 1), a legacy skinny struct, or an
-    % existing view, saView yields the SA field names this body and its
-    % callees (localCellMassesSAAbsolute etc.) read. Idempotent.
-    T = internal.saView(T);
 
     isPer  = T.isPer;
     period = T.period;
@@ -1706,9 +1692,8 @@ end
 
 
 function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(T, ts)
-%LOCALDIFFSPANSSA  Auto-spans for a single-collection density.
+%LOCALDIFFSPANSSA  Auto-spans for an ExpTensDensity.
 
-    T = internal.saView(T);   % normalise to SA layout (idempotent)
     sig = double(T.sigma);
     isPer = logical(T.isPer);
     per = double(T.period);
@@ -1948,17 +1933,12 @@ end
 function H = localRenyi2SA(dens, base)
 %LOCALRENYI2SA  Analytical Rényi-2 entropy of a SA expectation tensor.
 %
-%   Normalises its input to the single-collection layout via
-%   internal.saView (idempotent) so it reads the SA field names
-%   regardless of how the density was produced.
-%
 %   Computes H_2 = -log_b(<T,T> / Z^2) where <T,T> is evaluated via
 %   the orbit-Möbius inner product machinery (or a direct pairwise
 %   formula at r=1 where the orbit table is undefined) and
 %   Z = integral T(x) dx via the closed-form total-mass formulae in
 %   the +mobius package.
 
-    dens = internal.saView(dens);
     dens = internal.prunedExpTens(dens);
     p = dens.p; w = dens.w;
     sigma = dens.sigma; r = dens.r;

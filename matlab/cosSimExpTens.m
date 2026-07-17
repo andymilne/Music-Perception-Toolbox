@@ -460,20 +460,9 @@ if nArgs == 2
             error('cosSimExpTens:untaggedStruct', ...
                 'Both density structs must carry a ''tag'' field.');
         end
-        % Single-collection corner (both operands A = N = 1, flat):
-        % shape-gated, not type-gated. Serve via the specialized
-        % single-collection pipeline reading fields through saView
-        % (mirrors Python's is_sa_shaped / sa_view routing).
-        if internal.isSaShaped(a) && internal.isSaShaped(b)
-            dens_x = internal.prunedExpTens(internal.saView( ...
-                internal.ensureExpTensExpensive(a)));
-            dens_y = internal.prunedExpTens(internal.saView( ...
-                internal.ensureExpTensExpensive(b)));
-            % fall through to the single-collection validation + dispatch.
-        else
         switch [a.tag '|' b.tag]
             case 'ExpTensDensity|ExpTensDensity'
-                % Legacy SA dens: validate compatibility below, then fall through.
+                % SA dens: validate compatibility below, then fall through.
                 dens_x = internal.prunedExpTens(a);
                 dens_y = internal.prunedExpTens(b);
             case 'MaetDensity|MaetDensity'
@@ -487,7 +476,6 @@ if nArgs == 2
                      '(ExpTensDensity vs ExpTensDensity, or MaetDensity vs ' ...
                      'MaetDensity). Got %s and %s.'], a.tag, b.tag);
         end
-        end  % isSaShaped if/else
     elseif iscell(a) || iscell(b)
         % LIST: cell-of-struct on either side (scalar struct may be
         % broadcast against the cell). Inner-element validation occurs
@@ -640,11 +628,6 @@ elseif nArgs == 9
                           symArgs{:}, 'verbose', verbose);
     dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
                           symArgs{:}, 'verbose', verbose);
-    % The vector build returns a single-collection MaetDensity; the
-    % shared single-collection body below reads the SA field names, so
-    % view it (materialising expensive fields) as for the struct path.
-    dens_x = internal.saView(internal.ensureExpTensExpensive(dens_x));
-    dens_y = internal.saView(internal.ensureExpTensExpensive(dens_y));
 
 else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
@@ -678,11 +661,6 @@ if ~internal.kernelCovsCompatible(dens_x, dens_y)
 end
 
 % --- Common SA cheap-field setup (used by Möbius and Bulger branches) ---
-% Insurance: normalise both operands to the single-collection layout so
-% the shared body reads SA field names regardless of entry path
-% (idempotent; a no-op when already viewed).
-dens_x = internal.saView(dens_x);
-dens_y = internal.saView(dens_y);
 r     = dens_x.r;
 sigma = dens_x.sigma;
 isRel = dens_x.isRel;

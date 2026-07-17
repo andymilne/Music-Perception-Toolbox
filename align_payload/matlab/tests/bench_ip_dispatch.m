@@ -30,6 +30,18 @@
 %  Möbius timing is additionally wrapped in try/catch so a missing
 %  orbit table for some r reports rather than aborts.
 %
+%  A final SYMMETRIC section times K x K pairs (an EDO against a
+%  transposed copy). The asymmetric sections' measurements are
+%  dominated by the large side's self-norm, whose kernel shapes match
+%  a large-by-large cross term, so the constants should transfer:
+%  c_orb should read the same flat value here. c_pw is expected to
+%  degrade at the largest symmetric sizes (all three inner products
+%  are large simultaneously, so the pairwise working set leaves its
+%  resident regime at ~3x smaller K than in the asymmetric sections);
+%  the probe measures the actual pair in that band, so 'auto' should
+%  nevertheless track the faster method — that, not the c_pw value,
+%  is the pass criterion there.
+%
 %  Run from anywhere with the toolbox on the path.
 
 refPitches = log2([1, 3, 5, 7, 11, 13, 17, 19]) * 1200;
@@ -160,6 +172,105 @@ for ri = 1:numel(rList)
             r, median(okRatios));
     else
         fprintf('No complete ratio measurements at r = %d.\n', r);
+    end
+end
+
+%% === Symmetric K x K section ===
+symList  = {[40, 70, 100], [20, 30, 40]};
+symR     = [2, 3];
+symBell  = [2, 5];
+
+for ri = 1:numel(symR)
+    r   = symR(ri);
+    B_r = symBell(ri);
+
+    fprintf('\n--- symmetric K x K, r = %d ---\n', r);
+    fprintf('%9s %10s %10s %10s %10s %10s %8s %8s %11s\n', ...
+        'K x K', 't_bul(s)', 't_mob(s)', 't_auto(s)', ...
+        'c_pw(ns)', 'c_orb(ns)', 'ratio', 'auto~', 'probe_ovh');
+
+    skipBul = false;
+    skipMob = false;
+    for K = symList{ri}
+        pA = (0:K-1) * (1200 / K);
+        pB = mod(pA + 37.3, 1200);
+
+        if skipBul
+            tBul = NaN;
+        else
+            tStart = tic;
+            cosSimExpTens(pA, [], pB, [], ...
+                sigma, r, isRel, isPer, period, 'method', 'bulger');
+            tWarm = toc(tStart);
+            if tWarm > TIME_CAP
+                tBul = tWarm;
+                skipBul = true;
+            else
+                tB = zeros(1, nReps);
+                for k = 1:nReps
+                    tStart = tic;
+                    cosSimExpTens(pA, [], pB, [], ...
+                        sigma, r, isRel, isPer, period, ...
+                        'method', 'bulger');
+                    tB(k) = toc(tStart);
+                end
+                tBul = median(tB);
+            end
+        end
+
+        if skipMob
+            tMob = NaN;
+        else
+            try
+                tStart = tic;
+                cosSimExpTens(pA, [], pB, [], ...
+                    sigma, r, isRel, isPer, period, 'method', 'mobius');
+                tWarm = toc(tStart);
+                if tWarm > TIME_CAP
+                    tMob = tWarm;
+                    skipMob = true;
+                else
+                    tM = zeros(1, nReps);
+                    for k = 1:nReps
+                        tStart = tic;
+                        cosSimExpTens(pA, [], pB, [], ...
+                            sigma, r, isRel, isPer, period, ...
+                            'method', 'mobius');
+                        tM(k) = toc(tStart);
+                    end
+                    tMob = median(tM);
+                end
+            catch err
+                fprintf('  mobius unavailable at r = %d: %s\n', ...
+                    r, err.message);
+                tMob = NaN;
+                skipMob = true;
+            end
+        end
+
+        cosSimExpTens(pA, [], pB, [], sigma, r, isRel, isPer, period);
+        tStart = tic;
+        cosSimExpTens(pA, [], pB, [], sigma, r, isRel, isPer, period);
+        tAuto = toc(tStart);
+
+        P_K = ff(K, r);
+        pwOps  = 3 * P_K^2;
+        orbOps = B_r * N_u * 3 * K^2;
+        c_pw  = tBul / pwOps  * 1e9;
+        c_orb = tMob / orbOps * 1e9;
+
+        if isnan(tBul) || isnan(tMob)
+            autoPick = '?';
+        elseif abs(tAuto - tBul) <= abs(tAuto - tMob)
+            autoPick = 'bulger';
+        else
+            autoPick = 'mobius';
+        end
+        probeOvh = tAuto - min(tBul, tMob);
+
+        fprintf('%4dx%-4d %10.3f %10.3f %10.3f %10.2f %10.2f %8.2f %8s %11.3f\n', ...
+            K, K, tBul, tMob, tAuto, c_pw, c_orb, c_orb / c_pw, ...
+            autoPick, probeOvh);
     end
 end
 

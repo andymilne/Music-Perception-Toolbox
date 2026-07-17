@@ -143,13 +143,21 @@ h_ts8 = entropyExpTens(densSE, 'method', 'differential', ...
 results{end+1,1} = 'differential: ts=6 and ts=8 agree to 1e-4';
 results{end,2}   = isfinite(h_ts6) && isfinite(h_ts8) && abs(h_ts8 - h_ts6) < 1e-4;
 
-% --- truncationSigmas=Inf is handled (the toolbox-wide default for ---
-% --- kernel evaluation; would give an infinite span if used directly ---
-% --- for span derivation. The adaptive evaluator caps internally.    ---
+% --- truncationSigmas=Inf resolves to the accuracy-floor width. Under ---
+% --- the truncation contract Inf (the user-facing "exact" sentinel)   ---
+% --- resolves to the finite accuracy-floor width (~7.43 sigma, the    ---
+% --- 1e-12 floor), including the differential span and tolerance      ---
+% --- anchoring. It must therefore equal truncationSigmas set to the   ---
+% --- accuracy-floor width bit-for-bit, and differ from ts=6.0 by the  ---
+% --- ~6-sigma truncation-error scale (~2e-8).                         ---
 h_tsInf = entropyExpTens(densSE, 'method', 'differential', ...
                           'truncationSigmas', Inf, 'verbose', false);
-results{end+1,1} = 'differential: truncationSigmas=Inf produces finite h_hat';
-results{end,2}   = isfinite(h_tsInf) && abs(h_tsInf - h_ts6) < 1e-10;
+h_tsFloor = entropyExpTens(densSE, 'method', 'differential', ...
+                          'truncationSigmas', internal.accuracyFloor('sigmas'), ...
+                          'verbose', false);
+results{end+1,1} = 'differential: truncationSigmas=Inf resolves to accuracy floor';
+results{end,2}   = isfinite(h_tsInf) && (h_tsInf == h_tsFloor) ...
+                   && abs(h_tsInf - h_ts6) > 1e-9;
 
 % --- 2-D periodic (the prior OOM case before Richardson) ---
 P2 = [1, 2, 4, 5];

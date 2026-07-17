@@ -804,12 +804,13 @@ end
     function ipval = ipCore(U, wU, nJ, V, wV, nK)
         canUseHelper = ~(isRel && isPer);
 
-        % Execution-axis decision: resolve defaults first.
-        if isempty(truncationSigmas)
-            truncResolved = mptDefaults('truncationSigmas');
-        else
-            truncResolved = truncationSigmas;
-        end
+        % Execution-axis decision: resolve defaults first. Per the
+        % truncation contract Inf (the user-facing "exact" sentinel)
+        % resolves to the finite accuracy-floor width, so truncResolved
+        % is always finite and truncation always applies; the
+        % useDefaultKwargs gate below therefore fires only on the
+        % kernel-precision axis.
+        truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
         if isempty(kernelPrecision)
             precResolved = mptDefaults('kernelPrecision');
         else

@@ -279,11 +279,12 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
     % window's value is exp(-truncationSigmas^2 / 2), the same
     % threshold the kernel truncation uses. Reads the global default
     % so changes via mptDefaults('truncationSigmas', ...) propagate
-    % without an extra kwarg. Inf disables (default).
-    truncSig = mptDefaults('truncationSigmas');
-    if isfinite(truncSig)
-        factor(abs(delta) > truncSig * sd) = 0;
-    end
+    % without an extra kwarg. Per the truncation contract, Inf
+    % resolves to the finite accuracy-floor width (the 1e-12 floor),
+    % so truncation always applies --- never a "disabled" state.
+    truncSig = internal.accuracyFloor('resolve', ...
+        mptDefaults('truncationSigmas'));
+    factor(abs(delta) > truncSig * sd) = 0;
 
     % --- Normalise w to length-A cell; multiply factor into target slot ---
     wOut = internal.normaliseWeightsToCell(w, A);

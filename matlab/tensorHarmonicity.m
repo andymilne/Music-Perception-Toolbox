@@ -289,9 +289,8 @@ function vals = localTensorHarmonicityViaEval(tmpl_p, tmpl_w, sigma, r, ...
 
     % Template tensor is rel-mode: dim = r - 1, det_M = 1/r.
     dim = r - 1;
-    detM = 1.0 / r;
-    gaussConst = (2 * pi * sigma^2)^(-dim/2) * sqrt(detM);
-    vals = vals * gaussConst;
+    detM = internal.quadraticFormDet(r, 0, true);
+    vals = vals / internal.gaussianMassConst(sigma, dim, detM);
 
     if strcmp(normalize, 'pdf')
         sumW = sum(tmpl_w);

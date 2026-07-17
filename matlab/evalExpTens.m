@@ -586,15 +586,11 @@ if ~strcmp(normalize, 'none')
     isRel = dens.isRel;
 
     % --- Gaussian normalization ---
-    % Determinant of the quadratic form matrix in the reduced space
-    if isRel
-        detM = 1 / r;  % det(I_(r-1) - 11'/r) = 1/r
-    else
-        detM = 1;       % det(I) = 1
-    end
-
-    gaussConst = (2 * pi * sigma^2)^(-dim / 2) * sqrt(detM);
-    vals = vals * gaussConst;
+    % Single source of the reduced-space determinant and the mass
+    % constant: consumers divide by the mass to normalise, matching
+    % the eval/entropy/harmony convention across the toolbox.
+    detM = internal.quadraticFormDet(r, 0, isRel);
+    vals = vals / internal.gaussianMassConst(sigma, dim, detM);
 
     if strcmp(normalize, 'pdf')
         % --- Mixture weight normalization ---
@@ -1995,16 +1991,8 @@ function vals = localMaNormalise(vals, dens, normalize, ...
     gaussConst = 1;
     for a = 1:A
         da = dimPerAttr(a);
-        if innerR(a) >= 2
-            Gu = r_(a) / innerR(a);
-            detM_a = (1 / innerR(a))^Gu;
-        elseif isRelG(a) && r_(a) >= 2
-            detM_a = 1 / r_(a);
-        else
-            detM_a = 1;
-        end
-        gaussConst = gaussConst * ...
-            (2 * pi * sigmaG(a)^2)^(-da / 2) * sqrt(detM_a);
+        detM_a = internal.quadraticFormDet(r_(a), innerR(a), isRelG(a));
+        gaussConst = gaussConst / internal.gaussianMassConst(sigmaG(a), da, detM_a);
     end
     vals = vals * gaussConst;
     if strcmp(normalize, 'pdf')

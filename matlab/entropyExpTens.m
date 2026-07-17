@@ -505,15 +505,14 @@ function H = localEntropySA(T, nvArgs)
     % covariance in the effective coordinates); pending the v2.3
     % covariance machinery we fall back to point-evaluation here too.
     if ~logical(T.isRel)
-        % truncationSigmas for the bin-integration path: empty means
-        % use the cell-integration default 6.0 (which now coincides
-        % with the mptDefaults factory default).
-        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas) ...
-                && isfinite(nvArgs.truncationSigmas)
-            ts = double(nvArgs.truncationSigmas);
-        else
-            ts = 6.0;
-        end
+        % Bin-integration cell-mass path. truncationSigmas is
+        % plumbed for signature parity with the point-evaluation
+        % branches --- localCellMassesSAAbsolute's per-axis erf
+        % differences are exact and do not truncate --- but is
+        % still resolved via the contract helper so a user Inf
+        % never propagates to the interior. Empty resolves to the
+        % global default; Inf resolves to the accuracy-floor width.
+        ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         Tx = ensureExpTensExpensive(T);
         t = localCellMassesSAAbsolute(Tx, x1, ts);
     else
@@ -657,12 +656,9 @@ function H = localEntropyMA(dens, nvArgs)
     isWindowed = isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity');
     isAbs = ~any(logical(base_dens.isRel));
     if ~isWindowed && isAbs
-        if isfield(nvArgs, 'truncationSigmas') && ~isempty(nvArgs.truncationSigmas) ...
-                && isfinite(nvArgs.truncationSigmas)
-            ts = double(nvArgs.truncationSigmas);
-        else
-            ts = 6.0;
-        end
+        % Bin-integration cell-mass path (see the SA sibling above for
+        % the truncationSigmas contract note).
+        ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         densX = ensureExpTensExpensive(base_dens);
         t = localCellMassesMAAbsolute(densX, axes1D, ts);
     else
@@ -1549,12 +1545,12 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
     % --- sigma > 0 guard ---
     localRaiseIfAnySigmaZero(dens, 'differential');
 
-    % --- truncation_sigmas fallback (match cell-mass internal default) ---
-    if isempty(nvArgs.truncationSigmas)
-        ts = 6.0;
-    else
-        ts = double(nvArgs.truncationSigmas);
-    end
+    % --- Resolve truncationSigmas via the contract helper ---
+    % Empty resolves to the global default; Inf resolves to the finite
+    % accuracy-floor width (~7.43 sigma, the 1e-12 floor). The
+    % differential span and tolerance anchoring downstream then have a
+    % well-defined finite radius without any local isfinite guard.
+    ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
 
     H = localDifferentialAdaptive(dens, isSA, nvArgs.base, ts, ...
                                   nvArgs.gridLimit, nvArgs.verbose);
@@ -1565,24 +1561,18 @@ end
 function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
 %LOCALDIFFERENTIALADAPTIVE  Nested-grid h_hat with Richardson extrapolation.
 
-    % truncation_sigmas controls kernel truncation, where Inf is valid
-    % ("no truncation"). The differential span and tolerance anchoring
-    % need a finite extent, so cap any non-finite ts at the sensible
-    % default 6.0 -- this matches the cell-mass integration's internal
-    % default and keeps span/tolerance well-defined when the user (or
-    % mptDefaults('truncationSigmas')) is set to Inf.
-    if isfinite(ts)
-        tsSpan = ts;
-    else
-        tsSpan = 6.0;
-    end
-    tol = max(exp(-0.5 * tsSpan * tsSpan), 1e-12);
+    % ts is resolved to a finite width at the dispatcher entry
+    % (localEntropyDifferentialDispatch), so it is always a finite
+    % positive scalar here and drives the span, the convergence
+    % tolerance, and the downstream kernel truncation from a single
+    % source. Inf never reaches this function.
+    tol = max(exp(-0.5 * ts * ts), 1e-12);
     maxIter = 10;
 
     if isSA
-        [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(dens, tsSpan);
+        [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(dens, ts);
     else
-        [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, tsSpan);
+        [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, ts);
     end
 
     N = max(n0, 4);
@@ -1704,9 +1694,24 @@ function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(T, ts)
         xMax = NaN;
         W = per;
     else
+        % Zero-weight events contribute nothing to any live tuple, so
+        % they must not enlarge the span (see localDiffSpansMA for the
+        % auto/manual-prune invariance this preserves). Mask the event
+        % pitches by their weights where a weight vector is available.
         c = double(T.p(:));
-        cMin = min(c);
-        cMax = max(c);
+        if isfield(T, 'w') && ~isempty(T.w)
+            wv = double(T.w(:));
+            if numel(wv) == numel(c)
+                c = c(wv > 0);
+            end
+        end
+        if isempty(c)
+            cMin = 0;
+            cMax = 0;
+        else
+            cMin = min(c);
+            cMax = max(c);
+        end
         xMin = cMin - ts * sig;
         xMax = cMax + ts * sig;
         W = xMax - xMin;
@@ -1726,6 +1731,7 @@ function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, 
     isPerG = logical(dens.isPer);
     periodG = double(dens.period);
     pAttr = dens.pAttr;
+    wCell = dens.w;   % 1-by-A cell of K_a x N per-attribute weight matrices
 
     xMinG = nan(1, A);
     xMaxG = nan(1, A);
@@ -1737,7 +1743,21 @@ function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, 
             Wg = periodG(a);
         else
             Pa = double(pAttr{a});
-            cFlat = Pa(:);
+            % Zero-weight slots contribute nothing to any live tuple, so
+            % they must not enlarge the span --- otherwise the auto-prune
+            % inside localCellMassesMAAbsolute (which drops zero-weight
+            % perm-side tuples from the cell integrand) and manual
+            % upstream pruning would discretise differently at a narrower
+            % ts. The per-slot mask w{a} > 0 is the pAttr-side mirror of
+            % that perm-side wJ > 0 prune, so the auto/manual invariance
+            % holds at every truncation width.
+            if a <= numel(wCell) && ~isempty(wCell{a})
+                Wa = double(wCell{a});
+                live = Wa > 0;
+                cFlat = Pa(live);
+            else
+                cFlat = Pa(:);
+            end
             if isempty(cFlat)
                 cMin = 0;
                 cMax = 0;
@@ -2171,15 +2191,9 @@ function [I_a, Z_a] = localRenyi2PerAttrNumerical(dens, a)
     end
     isRel = da.isRel(1);
     r_a   = da.r(1);
-    if blockSize >= 2
-        detM = (1 / blockSize) ^ (r_a / blockSize);
-    elseif isRel && r_a >= 2
-        detM = 1 / r_a;
-    else
-        detM = 1;
-    end
-    vol  = (2 * pi * sig^2) ^ (d_a / 2) / sqrt(detM);   % single-kernel mass
-    pref = (pi * sig^2) ^ (d_a / 2) / sqrt(detM);       % overlap prefactor
+    detM = internal.quadraticFormDet(r_a, blockSize, isRel);
+    vol  = internal.gaussianMassConst(sig, d_a, detM);          % single-kernel mass
+    pref = internal.gaussianMassConst(sig, d_a, detM, true);    % overlap prefactor
 
     I_a = zeros(N, N);
     Z_a = zeros(N, 1);

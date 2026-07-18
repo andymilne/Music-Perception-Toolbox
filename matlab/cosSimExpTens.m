@@ -1023,6 +1023,12 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
 %        the canonical single-wrap (Bulger) measure above this sigma/period,
 %        warn and point to method='bulger' for the single-wrap measure.
 
+    % The Möbius orbit IP is undefined for r < 2; a forced method='mobius'
+    % cannot be honoured at r <= 1 and redirects to Bulger's method (see
+    % localSelectAndEstimateSAIP for the full rationale).
+    if r <= 1 && strcmp(userMethod, 'mobius')
+        userMethod = 'bulger';
+    end
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
         return;
@@ -1140,6 +1146,15 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( .
     routingReason = '';
 
     % ---- Hard rules ----
+    % The Möbius orbit inner product is undefined for r < 2: there is no
+    % alternating orbit sum below a pair, and the shipped orbit tables
+    % start at r = 2. A forced method='mobius' therefore cannot be honoured
+    % at r <= 1 --- redirect it to Bulger's method (the r = 1 IP is a plain
+    % pairwise Gaussian sum, computed exactly there). This matches the MA
+    % path, which has no SA orbit to route into at r = 1.
+    if r <= 1 && strcmp(method, 'mobius')
+        method = 'bulger';
+    end
     if ~strcmp(method, 'auto')
         chosen = method;
         probed = false;

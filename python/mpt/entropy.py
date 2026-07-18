@@ -1116,8 +1116,9 @@ def _entropy_exp_tens_density_list(
     if use_dedup:
         result_cache: dict = {}
         for i, d in enumerate(dens_list):
+            _pd, _wd = d.p_attr[0][:, 0], d.w[0][:, 0]
             key, _, _ = _chord_canonical_key(
-                d.p_attr[0][:, 0], d.w[0][:, 0],
+                _pd, _wd,
                 sigma=float(d.sigma[0]), r=int(d.r[0]),
                 is_rel=bool(d.is_rel[0]), is_per=bool(d.is_per[0]),
                 period=float(d.period[0]),
@@ -1562,10 +1563,20 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
             )
             Z_a = np.empty(N, dtype=np.float64)
             for n in range(N):
+                # Drop NaN-padded slots: in a ragged (unequal-K) event
+                # set, short events are NaN-padded to the tallest column,
+                # and those padding slots carry a placeholder weight that
+                # must not enter the closed-form total mass (the Moebius
+                # sum over slot weights). The per-attribute inner matrix
+                # already excludes them; this keeps Z consistent.
+                col = Pa[:, n]
+                valid = ~np.isnan(col)
+                pv = col[valid]
+                wv = Wa[:, n][valid]
                 if is_rel:
-                    Z_a[n] = total_mass_rel(Pa[:, n], Wa[:, n], sigma, r_a)
+                    Z_a[n] = total_mass_rel(pv, wv, sigma, r_a)
                 else:
-                    Z_a[n] = total_mass_abs(Pa[:, n], Wa[:, n], sigma, r_a)
+                    Z_a[n] = total_mass_abs(pv, wv, sigma, r_a)
         P_xx *= I_xx
         Z_per_event_attr[:, a] = Z_a
     ip_xx = float(P_xx.sum())

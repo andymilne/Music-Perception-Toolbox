@@ -29,7 +29,8 @@ function v = singleMultisetView(dens)
     v = struct();
     v.tag = 'SingleMultisetView';   % self-identifying: a view, not a density
 
-    % --- flat parameters (unwrap the A = 1 slot; scalarise length-1) ---
+    % --- flat parameters (the A = 1 attribute's one multiset;
+    %     scalarise length-1 parameters) ---
     v.p      = dens.pAttr{1}(:);
     v.w      = dens.w{1}(:);
     v.sigma  = dens.sigma(1);

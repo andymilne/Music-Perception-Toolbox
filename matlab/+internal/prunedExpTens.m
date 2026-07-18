@@ -31,17 +31,25 @@ function dens = prunedExpTens(dens)
     switch dens.tag
         case 'MaetDensity'
             if internal.isSingleMultiset(dens)
-                % Single-multiset corner: element-level prune over the
-                % one flat attribute's values. Mirrors the historical
-                % value-level pruning rule (and Python
-                % _SingleMultisetView.pruned()): drop zero-/NaN-weight
-                % values, rebuilding the A = N = 1 density on the live
-                % subset. No-op under a matrix-valued kernel (dropping a
-                % value would change the single tuple's dimension; the
-                % dead value already zeroes its weight).
+                % Single-multiset corner (A = N = 1): the one flat
+                % attribute's values are a single multiset. Prune at the
+                % value level --- drop zero-/NaN-weight values (the build
+                % collapse has already pooled any r = 1 events into this
+                % one, so there is nothing left to pool here). Mirrors
+                % Python _SingleMultisetView.pruned() and the value-level
+                % pruning rule. No-op under a matrix-valued kernel
+                % (dropping a value would change the single tuple's
+                % dimension; the dead value already zeroes its weight).
                 w1 = dens.w{1};
                 live = internal.weightIsLive(w1);
                 live = live(:).';
+                % Nothing dead: the density is already its own pruned
+                % form. Otherwise rebuild on the live subset, dropping
+                % zero-/NaN-weight values (element-level pruning). The
+                % build collapse guarantees the single-multiset corner is
+                % N = 1 here, so a pooled build and a pre-pruned build
+                % reduce to the identical multiset (auto-prune ==
+                % manual-prune, bit for bit).
                 if all(live)
                     return;
                 end

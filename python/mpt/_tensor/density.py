@@ -3,7 +3,6 @@
 This module defines the three density data structures used throughout
 the toolbox:
 
-* :class:`ExpTensDensity` --- single-attribute expectation tensor density
 * :class:`MaetDensity` --- multi-attribute expectation tensor density
 * :class:`WindowedMaetDensity` --- a :class:`MaetDensity` paired with a
   post-tensor windowing spec
@@ -57,276 +56,12 @@ def _weight_is_live(w: np.ndarray) -> np.ndarray:
     return np.isfinite(w) & (np.abs(w) > 0.0)
 
 
-class ExpTensDensity:
-    """Precomputed single-attribute expectation tensor density.
-
-    Stores the source multiset (``p``, ``w``) plus tensor parameters
-    (``sigma``, ``r``, ``is_rel``, ``is_per``, ``period``, ``dim``)
-    eagerly, and constructs the per-tuple permutation/combination
-    arrays (``centres``, ``u_perm``, ``w_perm``, ``w_j``, ``v_comb``,
-    ``wv_comb``, ``n_j``, ``n_j_perm``, ``n_k``) lazily on first
-    access.
-
-    Lazy materialisation matters at high-r/high-K where
-    ``n_j = K!/(K-r)!`` makes the per-tuple arrays prohibitively
-    expensive (e.g., K=256, r=4 → ~9·10⁸ tuples). Consumers that need
-    only ``p``, ``w``, and the scalar parameters — for example,
-    ``eval_exp_tens(method='mobius')``, ``cos_sim_exp_tens(method='mobius')``
-    via the Möbius method's IP path, or ``entropy_exp_tens(method='renyi2')``
-    — read just the eagerly-stored inputs and never trigger the build.
-    Consumers that do need them (the centres path, Bulger's
-    method, or any direct field access) trigger the build on
-    first read; subsequent reads return the cached result. The
-    materialisation is one-shot — once built, the arrays persist on
-    the object and are not rebuilt.
-
-    Use :attr:`materialised` to check whether the per-tuple arrays
-    have been built without triggering a build.
-    """
-
-    # Anisotropic kernel covariance metadata (set post-construction by
-    # build_exp_tens when a matrix-valued sigma is supplied; the
-    # stored p values are then in whitened coordinates and sigma == 1).
-    kernel_cov = None
-    kernel_chol = None
-
-    # Slots are not used because numpy arrays are stored as attributes
-    # and the lazy cache adds attributes after construction; keeping
-    # the class slot-less avoids surprising failures in extension code
-    # that introspects via ``__dict__``.
-
-    def __init__(
-        self,
-        *,
-        p: np.ndarray,
-        w: np.ndarray,
-        sigma: float,
-        r: int,
-        is_rel: bool,
-        is_per: bool,
-        period: float,
-        dim: int,
-        is_sym: bool = True,
-    ) -> None:
-        self.p = p
-        self.w = w
-        self.sigma = sigma
-        self.r = r
-        self.is_rel = is_rel
-        self.is_per = is_per
-        self.period = period
-        self.dim = dim
-        # Per-attribute symmetrisation flag. Default True preserves the
-        # legacy symmetric reading (the source multiset's r-subsets read
-        # as unordered). is_sym = False reads each r-subset in listed
-        # order (the de-reflected density).
-        self.is_sym = bool(is_sym)
-        # Lazy cache: built on first access to any per-tuple field
-        # (``centres``, ``u_perm``, ``w_perm``, ``w_j``, ``v_comb``,
-        # ``wv_comb``, ``n_j``, ``n_j_perm``, ``n_k``). All five
-        # fields populate atomically — one build pass, no partial
-        # state.
-        self._centres = None
-        self._u_perm = None
-        self._w_perm = None
-        self._v_comb = None
-        self._wv_comb = None
-        self._n_j = None
-        self._n_k = None
-
-    @property
-    def materialised(self) -> bool:
-        """``True`` if the per-tuple arrays have been built."""
-        return self._centres is not None
-
-    @property
-    def live_events(self) -> np.ndarray:
-        """Boolean ``(n,)`` mask of source elements that can contribute.
-
-        An element is live iff its weight is finite and nonzero; a
-        zero- or NaN-weight element adds nothing to any inner product
-        or total mass. Cached on first access.
-        """
-        live = getattr(self, "_live_events", None)
-        if live is None:
-            live = _weight_is_live(self.w)
-            self._live_events = live
-        return live
-
-    def pruned(self) -> "ExpTensDensity":
-        """Equivalent density restricted to live elements.
-
-        Dropping zero-/NaN-weight elements leaves every inner product
-        and total mass unchanged (they contribute nothing) while
-        shrinking the work. Returns ``self`` when nothing is dead, so
-        the common (un-windowed) path pays only one mask scan.
-        """
-        live = self.live_events
-        if live.all():
-            return self
-        if self.kernel_cov is not None:
-            # r == K on matrix-sigma densities: dropping a value would
-            # change the tuple dimension. The dead value already zeroes
-            # the (single) tuple's weight, so pruning is a no-op.
-            return self
-        out = ExpTensDensity(
-            p=self.p[live], w=self.w[live], sigma=self.sigma, r=self.r,
-            is_rel=self.is_rel, is_per=self.is_per, period=self.period,
-            dim=self.dim, is_sym=self.is_sym,
-        )
-        out.kernel_cov = self.kernel_cov
-        out.kernel_chol = self.kernel_chol
-        return out
-
-    def _build_perm_arrays(self) -> None:
-        """Build the per-tuple permutation / combination arrays.
-
-        Populates the seven cached fields in one pass. No-op if
-        already materialised. This is the only place that allocates
-        the ``O(K!/(K-r)!)`` intermediate tensors.
-        """
-        if self._centres is not None:
-            return
-
-        p = self.p
-        w = self.w
-        r = self.r
-        n = len(p)
-
-        n_combs = int(_comb(n, r, exact=True))
-
-        # All r-combinations (r x C(n,r))
-        nck = _nchoosek_indices(n, r)
-
-        # is_sym = True (default): symmetrise each combination over its
-        # full S_r orbit (the perm side has r! copies). is_sym = False:
-        # keep each combination in listed order, so the perm side equals
-        # the comb side (the de-reflected, ordered density). r = 1 has
-        # no order to symmetrise, so permutations(range(1)) gives the
-        # single identity either way.
-        if self.is_sym:
-            all_perms = np.array(
-                list(permutations(range(r))), dtype=np.intp,
-            ).T  # r x r!
-        else:
-            all_perms = np.arange(r, dtype=np.intp).reshape(r, 1)  # identity
-        n_perms = all_perms.shape[1]
-        n_j = n_perms * n_combs
-        n_k = n_combs
-
-        # Build ordered r-tuples (perm side)
-        j_idx = np.empty((r, n_j), dtype=np.intp)
-        offset = 0
-        for i in range(n_perms):
-            j_idx[:, offset:offset + n_combs] = nck[all_perms[:, i], :]
-            offset += n_combs
-
-        u_perm = p[j_idx]                      # r x nJ
-        w_perm = np.prod(w[j_idx], axis=0)     # (nJ,)
-
-        # r-combinations (comb side, for cos_sim)
-        v_comb = p[nck]                        # r x nK
-        wv_comb = np.prod(w[nck], axis=0)      # (nK,)
-
-        # Reduce to interval centres if relative
-        if self.is_rel:
-            centres = u_perm[1:, :] - u_perm[0, :]   # (r-1) x nJ
-        else:
-            centres = u_perm.copy()                  # r x nJ
-
-        self._u_perm = u_perm
-        self._w_perm = w_perm
-        self._v_comb = v_comb
-        self._wv_comb = wv_comb
-        self._centres = centres
-        self._n_j = n_j
-        self._n_k = n_k
-
-    # The seven lazy fields. Each property triggers the build on
-    # first access; subsequent reads return the cached array.
-
-    @property
-    def centres(self) -> np.ndarray:
-        """``(dim, n_j)`` array of per-tuple centres (lazy)."""
-        if self._centres is None:
-            self._build_perm_arrays()
-        return self._centres
-
-    @property
-    def u_perm(self) -> np.ndarray:
-        """``(r, n_j)`` array of per-tuple ordered pitch tuples (lazy)."""
-        if self._u_perm is None:
-            self._build_perm_arrays()
-        return self._u_perm
-
-    @property
-    def w_perm(self) -> np.ndarray:
-        """``(n_j,)`` per-tuple weight products, perm side (lazy)."""
-        if self._w_perm is None:
-            self._build_perm_arrays()
-        return self._w_perm
-
-    # Alias for w_perm — the v2.0 dataclass exposed both ``w_j`` and
-    # ``w_perm`` pointing at the same array. Preserved for back-compat.
-    @property
-    def w_j(self) -> np.ndarray:
-        """Alias for :attr:`w_perm` (lazy)."""
-        return self.w_perm
-
-    @property
-    def v_comb(self) -> np.ndarray:
-        """``(r, n_k)`` array of unordered r-combinations (lazy)."""
-        if self._v_comb is None:
-            self._build_perm_arrays()
-        return self._v_comb
-
-    @property
-    def wv_comb(self) -> np.ndarray:
-        """``(n_k,)`` per-combination weight products (lazy)."""
-        if self._wv_comb is None:
-            self._build_perm_arrays()
-        return self._wv_comb
-
-    @property
-    def n_j(self) -> int:
-        """Number of perm-side tuples ``K!/(K-r)!`` (lazy)."""
-        if self._n_j is None:
-            self._build_perm_arrays()
-        return self._n_j
-
-    # Alias for n_j — v2.0 dataclass exposed both names.
-    @property
-    def n_j_perm(self) -> int:
-        """Alias for :attr:`n_j` (lazy)."""
-        return self.n_j
-
-    @property
-    def n_k(self) -> int:
-        """Number of comb-side tuples ``C(K, r)`` (lazy)."""
-        if self._n_k is None:
-            self._build_perm_arrays()
-        return self._n_k
-
-    def __repr__(self) -> str:
-        built = "materialised" if self.materialised else "lazy"
-        return (
-            f"ExpTensDensity(K={len(self.p)}, r={self.r}, "
-            f"sigma={self.sigma}, is_rel={self.is_rel}, "
-            f"is_per={self.is_per}, dim={self.dim}, {built})"
-        )
-
-
-# -------------------------------------------------------------------
-#  MaetDensity  (multi-attribute expectation tensor density)
-# -------------------------------------------------------------------
-
-
 class MaetDensity:
     """Precomputed multi-attribute expectation tensor density (MAET).
 
     Returned by :func:`build_exp_tens` when called in multi-attribute
     form (first argument a list/tuple of attribute matrices). The
-    single-attribute return type is :class:`ExpTensDensity`.
+    single-multiset densities are MaetDensity at A = N = 1.
 
     See the MAET specification (``multi_attribute_tensor_specification.md``)
     §2 and §6, and :func:`build_exp_tens` for argument semantics.
@@ -458,16 +193,30 @@ class MaetDensity:
         return live
 
     def pruned(self) -> "MaetDensity":
-        """Equivalent density restricted to live events.
+        """Equivalent density with dead contributors dropped.
 
-        Dead events contribute nothing to any per-attribute inner
-        product or total mass, so dropping them leaves results
-        unchanged while shrinking the O(n) / O(n^2) work and the
-        per-tuple expansion. Returns ``self`` when nothing is dead.
-        The subset is rebuilt through the same lazy machinery
-        ``build_exp_tens`` uses, so the per-tuple fields stay correct
-        for any consumer that later materialises them.
+        The single-multiset corner (A = N = 1) prunes at the value
+        level --- drop zero-/NaN-weight values --- because its events
+        have already pooled into one and an event-level pass cannot
+        reach a dead value inside the single live event. Every other
+        shape prunes at the event level: dead events contribute nothing
+        to any per-attribute inner product or total mass, so dropping
+        them leaves results unchanged while shrinking the O(n) / O(n^2)
+        work and the per-tuple expansion. This value-/event-level split
+        mirrors the MATLAB ``prunedExpTens`` branches. Returns ``self``
+        when nothing is dead. The subset is rebuilt through the same
+        lazy machinery ``build_exp_tens`` uses, so the per-tuple fields
+        stay correct for any consumer that later materialises them.
         """
+        if is_single_multiset(self):
+            v = single_multiset_view(self)
+            if bool(v.live_events.any()):
+                return v.pruned()._d
+            # Every value dead: a zero-mass density. Fall through to the
+            # event-level path, which drops the one dead event to N = 0;
+            # renyi2's N == 0 guard then returns NaN (collision entropy of
+            # zero mass is undefined), rather than attempting to build an
+            # empty single multiset.
         live = self.live_events
         if live.all():
             return self
@@ -778,3 +527,180 @@ def _cartesian_indices(sizes) -> list:
         out.append(tiled)
     return out
 
+def is_single_multiset(dens):
+    """True when a density is the single-multiset corner (A = N = 1).
+
+    A single flat (non-nested) attribute whose values are one weighted
+    multiset (the ET of Milne 2011). The ``A == 1, r == 1`` case with
+    ``N > 1`` never reaches here as such: :func:`_build_exp_tens_ma`
+    collapses it into one pooled event at build (a tuple is a lone value
+    at r = 1), so every downstream consumer only ever meets the
+    canonical ``N == 1`` form. Evaluation strategy for this corner is
+    shape-gated, not type-gated.
+    """
+    if isinstance(dens, MaetDensity):
+        return (dens.n_attrs == 1 and dens.n == 1
+                and dens.nested[0] is None)
+    return False
+
+
+class _SingleMultisetView:
+    """Single-multiset view of a :class:`MaetDensity`.
+
+    Exposes the flat field names (``p``, ``w``, scalar
+    parameters, and the lazily materialised per-tuple arrays) over a
+    ``MaetDensity`` at the ``A = N = 1`` corner, so single-multiset
+    evaluation code reads one layout. Construct via
+    :func:`single_multiset_view`.
+    """
+
+    __slots__ = ("_d", "__weakref__")
+
+    def __init__(self, d):
+        self._d = d
+
+    # --- flat parameters ---
+    @property
+    def p(self):
+        return self._d.p_attr[0][:, 0]
+
+    @property
+    def w(self):
+        return self._d.w[0][:, 0]
+
+    @property
+    def sigma(self):
+        return float(self._d.sigma[0])
+
+    @property
+    def r(self):
+        return int(self._d.r[0])
+
+    @property
+    def is_rel(self):
+        return bool(self._d.is_rel[0])
+
+    @property
+    def is_per(self):
+        return bool(self._d.is_per[0])
+
+    @property
+    def period(self):
+        return float(self._d.period[0])
+
+    @property
+    def is_sym(self):
+        return bool(self._d.is_sym[0])
+
+    @property
+    def dim(self):
+        return int(self._d.dim_per_attr[0])
+
+    # --- lazily materialised per-tuple arrays (joint == single-
+    #     attribute at this corner; per-attribute lists indexed at 0) ---
+    @property
+    def materialised(self):
+        return self._d.materialised
+
+    @property
+    def centres(self):
+        return self._d.centres[0]
+
+    @property
+    def u_perm(self):
+        return self._d.u_perm[0]
+
+    @property
+    def w_perm(self):
+        return self._d.w_j
+
+    @property
+    def w_j(self):
+        return self._d.w_j
+
+    @property
+    def v_comb(self):
+        return self._d.v_comb[0]
+
+    @property
+    def wv_comb(self):
+        return self._d.wv_comb
+
+    @property
+    def n_j(self):
+        return self._d.n_j
+
+    @property
+    def n_j_perm(self):
+        return self._d.n_j
+
+    @property
+    def n_k(self):
+        return self._d.n_k
+
+    @property
+    def live_events(self):
+        """Boolean ``(K,)`` mask of live values (single-multiset
+        semantics: an element is live iff its weight is finite and
+        nonzero)."""
+        return _weight_is_live(self.w)
+
+    @property
+    def kernel_cov(self):
+        return getattr(self._d, "kernel_cov", None)
+
+    @property
+    def kernel_chol(self):
+        return getattr(self._d, "kernel_chol", None)
+
+    def pruned(self):
+        """Equivalent single-multiset density restricted to live
+        values (mirrors the historical value-level pruning rule: drop
+        zero-/NaN-weight values; no-op under a matrix-valued kernel).
+        """
+        live = self.live_events
+        if live.all():
+            return self
+        if self.kernel_cov is not None:
+            return self
+        from .build import _build_exp_tens_single_multiset
+        out = _build_exp_tens_single_multiset(
+            self.p[live], self.w[live], self.sigma, self.r,
+            self.is_rel, self.is_per, self.period, self.is_sym,
+            verbose=False,
+        )
+        return single_multiset_view(out)
+
+
+def single_multiset_view(dens):
+    """Single-multiset view of a density (idempotent).
+
+    Returns ``dens`` unchanged for an
+    existing view; wraps a :class:`MaetDensity` at the single-
+    collection corner (see :func:`is_single_multiset`) in a
+    :class:`_SingleMultisetView`. Raises for any other shape.
+    """
+    if isinstance(dens, _SingleMultisetView):
+        return dens
+    if is_single_multiset(dens):
+        # Cache the view on the density so repeated wrapping is
+        # identity-stable (batch deduplication pairs operands by
+        # object identity). The cache slot holds only a weak
+        # reference: the view keeps the density alive (callers may
+        # hold just the view), but the density must not keep the view
+        # alive, or every viewed density becomes a reference cycle
+        # whose numpy arrays wait for the cyclic collector instead of
+        # dying by refcount.
+        import weakref
+        ref = getattr(dens, "_single_multiset_view_cache", None)
+        v = ref() if ref is not None else None
+        if v is None:
+            v = _SingleMultisetView(dens)
+            dens._single_multiset_view_cache = weakref.ref(v)
+        return v
+    raise ValueError(
+        "single_multiset_view requires a single-multiset density (one flat "
+        "attribute, one event); got "
+        f"n_attrs={getattr(dens, 'n_attrs', '?')}, "
+        f"n={getattr(dens, 'n', '?')}."
+    )

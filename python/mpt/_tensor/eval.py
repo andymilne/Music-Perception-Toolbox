@@ -484,8 +484,9 @@ def _eval_exp_tens_density_list(
         result_cache: dict = {}
         rows = []
         for d in dens_tuple:
+            _pd, _wd = d.p_attr[0][:, 0], d.w[0][:, 0]
             key, _, _ = _chord_canonical_key(
-                d.p_attr[0][:, 0], d.w[0][:, 0],
+                _pd, _wd,
                 sigma=float(d.sigma[0]), r=int(d.r[0]),
                 is_rel=bool(d.is_rel[0]), is_per=bool(d.is_per[0]),
                 period=float(d.period[0]),

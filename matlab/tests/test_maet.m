@@ -123,6 +123,30 @@ dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, true, true, 1200, ...
     'lazy', false, 'verbose', false);
 results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
 
+% -- Single-multiset collapse: r = 1, N > 1 pools to one multiset at build --
+% A single flat attribute read at r = 1 is one pooled multiset: a tuple is
+% a lone value, so the two events {0,4} and {7,10} pool to {0,4,7,10}. The
+% build collapses this to the canonical N = 1 form, identical to the
+% directly-pooled N = 1 density. r = 2 keeps its event structure (N = 2).
+d_r1N2 = buildExpTens({[0 7; 4 10]}, [], 10, 1, false, false, 0, ...
+    'verbose', false);
+d_pool = buildExpTens([0 4 7 10], [], 10, 1, false, false, 0, ...
+    'verbose', false);
+d_r2N2 = buildExpTens({[0 7; 4 10]}, [], 10, 2, false, false, 0, ...
+    'verbose', false);
+results{end+1,1} = 'single-multiset: r=1, N>1 collapses to N=1';
+results{end,2}   = d_r1N2.N == 1 && internal.isSingleMultiset(d_r1N2) ...
+                && d_r2N2.N == 2 && ~internal.isSingleMultiset(d_r2N2);
+Xq = [-10 0 5 12 20];
+results{end+1,1} = 'single-multiset: r=1, N>1 eval == pooled';
+results{end,2}   = max(abs(evalExpTens(d_r1N2, Xq, 'verbose', false) ...
+                       - evalExpTens(d_pool, Xq, 'verbose', false))) < 1e-12;
+results{end+1,1} = 'single-multiset: r=1, N>1 cosine with pooled == 1';
+results{end,2}   = abs(cosSimExpTens(d_r1N2, d_pool, 'verbose', false) - 1) < 1e-12;
+results{end+1,1} = 'single-multiset: r=1, N>1 renyi2 == pooled';
+results{end,2}   = abs(entropyExpTens(d_r1N2, 'method', 'renyi2', 'verbose', false) ...
+                       - entropyExpTens(d_pool, 'method', 'renyi2', 'verbose', false)) < 1e-12;
+
 % -- Struct basics for pitch + time --
 
 pitchMat = [0 12; 4 15; 7 19];       % 3 x 2

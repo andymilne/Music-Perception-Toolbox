@@ -615,8 +615,9 @@ def _compute_pair_results_with_dedup(
     unique_pair_list: list = []
 
     def _fields(d):
+        pd, wd = d.p_attr[0][:, 0], d.w[0][:, 0]
         return (
-            d.p_attr[0][:, 0], d.w[0][:, 0],
+            pd, wd,
             float(d.sigma[0]), int(d.r[0]),
             bool(d.is_rel[0]), bool(d.is_per[0]), float(d.period[0]),
         )

@@ -3,14 +3,14 @@
 Public entry point :func:`build_exp_tens` precomputes an r-ad
 expectation tensor density object, dispatching on input shape:
 
-* Numeric 1-D array / flat list of numbers -> single-attribute path,
-  returns :class:`ExpTensDensity`.
+* Numeric 1-D array / flat list of numbers -> single-multiset path,
+  returns a :class:`MaetDensity` (at the A = N = 1 corner).
 * Cell-array-like input (list of per-attribute matrices) -> multi-
   attribute path, returns :class:`MaetDensity`.
 
 Both paths share the small set of multi-attribute input-coercion and
 weight-normalisation helpers from :mod:`._tensor.density`. The
-single-attribute path produces an :class:`ExpTensDensity` whose
+single-multiset path produces a :class:`MaetDensity` (A = N = 1) whose
 expensive per-tuple arrays are lazy by default (see the class
 docstring); the multi-attribute path likewise defers its perm/comb
 arrays, building them via :func:`_ma_build_perm_arrays` on first access
@@ -33,7 +33,6 @@ from scipy.special import comb as _comb
 
 from .._utils import validate_weights
 from .density import (
-    ExpTensDensity,
     MaetDensity,
     _broadcast_attr_weight,
     _cartesian_indices,
@@ -98,8 +97,8 @@ def _normalise_specs(specs, A):
     return r_vec, is_rel_vec, is_sym_vec, nested_list, names
 
 
-def _resolve_aniso_sa(p, sigma, r, is_rel, is_per, period, is_sym):
-    """Resolve a matrix-valued SA sigma: validate, whiten, return
+def _resolve_aniso_single_multiset(p, sigma, r, is_rel, is_per, period, is_sym):
+    """Resolve a matrix-valued single-multiset sigma: validate, whiten, return
     ``(p_whitened, 1.0, Sigma, R)``."""
     from .aniso import (validate_kernel_cov, check_aniso_constraints,
                         whiten_values)
@@ -170,18 +169,18 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
 
 
 def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
-                   period=None, nested=None, verbose: bool = True) -> ExpTensDensity | MaetDensity:
+                   period=None, nested=None, verbose: bool = True) -> MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
     Dispatches on the type of the first argument:
 
       - numeric 1-D array, or a flat list/tuple of numbers -> single-
-        attribute path, returns :class:`ExpTensDensity`.
+        collection path, returns a :class:`MaetDensity` (A = N = 1).
       - list/tuple of attribute matrices (each element itself an
         array-like with ``len(...)`` > 0 or a 2-D ndarray) -> multi-
         attribute path, returns :class:`MaetDensity`.
 
-    Single-attribute signature (legacy, unchanged)::
+    Single-multiset signature (legacy, unchanged)::
 
         build_exp_tens(p, w, sigma, r, is_rel, is_per, period, *, verbose=True)
 
@@ -197,7 +196,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     are per-attribute (length *A*); shared geometry is expressed by
     repeating a value across the attributes that should share it.
 
-    Parameters (single-attribute path)
+    Parameters (single-multiset path)
     ----------------------------------
     p : array-like
         Pitch or position values (1-D, length *N*).
@@ -242,12 +241,12 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
 
     Returns
     -------
-    ExpTensDensity or MaetDensity
+    MaetDensity
         Depending on which path is taken.
 
     See Also
     --------
-    ExpTensDensity, MaetDensity, eval_exp_tens, cos_sim_exp_tens
+    MaetDensity, eval_exp_tens, cos_sim_exp_tens
     """
     # --- Canonical specs form (level-structured geometry lives in specs;
     #     scalar sigma/is_per/period are supplied as keywords) ----------
@@ -341,7 +340,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     else:
         if len(args) not in (5, 6):
             raise ValueError(
-                f"Single-attribute call expects 7 or 8 positional arguments "
+                f"Single-multiset call expects 7 or 8 positional arguments "
                 f"(p, w, sigma, r, is_rel, is_per, period[, is_sym]); got "
                 f"{2 + len(args)}."
             )
@@ -349,17 +348,17 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
         is_sym = args[5] if len(args) == 6 else True
         from .aniso import is_kernel_cov
         if is_kernel_cov(sigma):
-            p, sigma, Sigma, R = _resolve_aniso_sa(
+            p, sigma, Sigma, R = _resolve_aniso_single_multiset(
                 p, sigma, r, is_rel, is_per, period, is_sym,
             )
-            dens = _build_exp_tens_sa(
+            dens = _build_exp_tens_single_multiset(
                 p, w, sigma, r, is_rel, is_per, period, is_sym,
                 verbose=verbose,
             )
             dens.kernel_cov = Sigma
             dens.kernel_chol = R
             return dens
-        return _build_exp_tens_sa(
+        return _build_exp_tens_single_multiset(
             p, w, sigma, r, is_rel, is_per, period, is_sym,
             verbose=verbose,
         )
@@ -372,7 +371,7 @@ def _looks_like_multi_attr(p) -> bool:
     MA triggers require a list/tuple whose first element is itself an
     array-like (a list, tuple, or ndarray of length >= 1, or a 2-D
     ndarray). A flat list of scalars like ``[0, 4, 7]`` or a 1-D ndarray
-    is routed to the single-attribute path — matching the original
+    is routed to the single-multiset path — matching the original
     semantics where such inputs denote a single pitch multiset.
     """
     if isinstance(p, np.ndarray):
@@ -657,6 +656,23 @@ def _build_exp_tens_ma(
             )
 
     w_list = _normalise_weights_ma(w, A, K_a, N)
+
+    # --- Single-multiset collapse (MAET-base optimisation) ------------
+    # A single flat attribute read at r = 1 is one pooled multiset: a
+    # tuple is a lone value, so which event a value came from is
+    # irrelevant and cross-event tuples never arise. Collapse the events
+    # into one here, at the base, so every downstream consumer only ever
+    # meets the canonical A = N = 1 form (no N > 1 single-multiset case
+    # to special-case anywhere else). Equal values merge in the per-event
+    # r = 1 path below exactly as for a directly-built single multiset.
+    if A == 1 and int(r_vec[0]) == 1 and N > 1 and nested[0] is None:
+        P = p_attr[0]
+        W = w_list[0]
+        keep = ~np.isnan(P)
+        p_attr = [P[keep].reshape(-1, 1)]
+        w_list = [W[keep].reshape(-1, 1)]
+        N = 1
+        K_a = np.array([p_attr[0].shape[0]], dtype=np.intp)
 
     # Eager per-event / per-attribute non-NaN slot count check. The
     # heavy r-ad enumeration is deferred to first access of a lazy
@@ -1154,11 +1170,11 @@ def _ma_build_perm_arrays(
 
 
 # -------------------------------------------------------------------
-#  _build_exp_tens_sa  (single-attribute legacy path)
+#  _build_exp_tens_single_multiset  (single-multiset legacy path)
 # -------------------------------------------------------------------
 
 
-def _build_exp_tens_sa(
+def _build_exp_tens_single_multiset(
     p: np.ndarray,
     w: np.ndarray | None,
     sigma: float,
@@ -1169,95 +1185,81 @@ def _build_exp_tens_sa(
     is_sym: bool = True,
     *,
     verbose: bool = True,
-) -> ExpTensDensity:
-    """Precompute an r-ad expectation tensor density object.
+) -> MaetDensity:
+    """Single-multiset build: the vector form canonicalised to the
+    one-event, one-attribute multi-attribute build.
 
-    Precomputes the tuple index sets, pitch or position matrices,
-    weight vectors, and (for the relative case) reduced interval
-    centres for the weighted multiset (*p*, *w*). The returned
-    object can be passed to :func:`eval_exp_tens` and
-    :func:`cos_sim_exp_tens` in place of the raw arguments, avoiding
-    redundant recomputation across multiple calls.
-
-    Parameters
-    ----------
-    p : array-like
-        Pitch or position values.
-    w : array-like or None
-        Weights (``None`` or empty for all ones).
-    sigma : float
-        Gaussian kernel standard deviation.
-    r : int
-        Tuple size (≥ 2 when *is_rel* is True).
-    is_rel : bool
-        Transposition-invariant (relative) quadratic form.
-    is_per : bool
-        Periodic wrapping to ``[-period/2, period/2)``.
-    period : float
-        Period for wrapping.
-    verbose : bool
-        Print progress information.
-
-    Returns
-    -------
-    ExpTensDensity
-        Precomputed density object.
-
-    References
-    ----------
-    Milne, A. J., Sethares, W. A., Laney, R., & Sharp, D. B.
-    (2011). Modelling the similarity of pitch collections with
-    expectation tensors. *Journal of Mathematics and Music*,
-    5(1), 1–20.
+    The single-multiset expectation tensor is the ``A = N = 1``
+    symmetric case of the multi-attribute density (one event whose
+    single flat attribute carries the whole collection), so the vector
+    calling convention is pure input canonicalisation: the collection
+    becomes a ``(K, 1)`` attribute matrix and the scalar parameters
+    become length-1 vectors. Every consumer reads the resulting
+    :class:`MaetDensity` either natively (multi-attribute machinery
+    handles the corner directly) or through the single-multiset view
+    (:func:`~.density.single_multiset_view`) where the single-multiset evaluation
+    routes apply.
     """
-    p = np.asarray(p, dtype=np.float64).ravel()
-    w = validate_weights(w, len(p))
-
-    r = int(r)
-    if r < 1 or r != int(r):
-        raise ValueError("r must be a positive integer.")
-    if r > len(p):
-        raise ValueError("r must not exceed the number of values.")
-    if is_rel and r < 2:
-        raise ValueError("For relative densities, r must be at least 2.")
-
-    # For r = 1, the density depends on the source multiset only through its
-    # measure on the pitch line: events with equal pitch contribute additively
-    # to the same Gaussian kernel, so they can be collapsed to a single event
-    # whose weight is the sum of the originals. This is mathematically exact
-    # at r = 1 and reduces downstream work proportionally to the number of
-    # repeated pitches in the input. (For r >= 2, multiplicity in the source
-    # multiset matters for the within-tuple structure, so collapsing would
-    # alter the density and is therefore not applied.)
-    if r == 1 and len(p) > 0:
-        p_unique, inverse = np.unique(p, return_inverse=True)
-        if len(p_unique) < len(p):
-            w_summed = np.zeros(len(p_unique), dtype=np.float64)
-            np.add.at(w_summed, inverse, w)
-            p, w = p_unique, w_summed
-
-    dim = r - int(is_rel)
-    n = len(p)
-
-    if verbose:
-        # Cheap, allocation-free scalar — no longer reports "building
-        # n_j tuples" because the tuple build is deferred to first
-        # access of a per-tuple field.
-        n_j_eager = factorial(r) * int(_comb(n, r, exact=True))
-        print(
-            f"build_exp_tens: SA density with K={n}, r={r} "
-            f"(per-tuple arrays deferred; n_j={n_j_eager} on first "
-            f"access)."
+    p_arr = np.asarray(p, dtype=np.float64).ravel()
+    K = p_arr.size
+    if K == 0:
+        # Degenerate empty collection (e.g. an all-dead pruning or a
+        # window that captures nothing): a valid zero-mass density
+        # with no tuples, matching the historical vector-build
+        # behaviour. Constructed directly because the general
+        # multi-attribute event validation (each event needs at least
+        # r_a valid slots) correctly rejects empty events in the
+        # multi-event setting.
+        dim = int(r) - (1 if is_rel else 0)
+        empty = {
+            'n_j': 0, 'n_k': 0,
+            'centres': [np.zeros((max(dim, 1), 0))],
+            'u_perm': [np.zeros((int(r), 0))],
+            'v_comb': [np.zeros((int(r), 0))],
+            'w_j': np.zeros(0), 'wv_comb': np.zeros(0),
+            'event_of_j': np.zeros(0, dtype=np.int64),
+            'event_of_k': np.zeros(0, dtype=np.int64),
+        }
+        return MaetDensity(
+            tag="MaetDensity", n_attrs=1, n=1,
+            r=np.array([int(r)]), k=np.array([0]),
+            p_attr=[np.zeros((0, 1))],
+            w=[np.zeros((0, 1))],
+            sigma=np.array([float(sigma)]),
+            is_rel=np.array([bool(is_rel)]),
+            is_per=np.array([bool(is_per)]),
+            period=np.array([float(period)]),
+            dim=dim, dim_per_attr=np.array([dim]),
+            is_sym=np.array([bool(is_sym)]),
+            _build_lazy=lambda: empty,
         )
-
-    return ExpTensDensity(
-        p=p,
-        w=w,
-        sigma=sigma,
-        r=r,
-        is_rel=is_rel,
-        is_per=is_per,
-        period=period,
-        dim=dim,
-        is_sym=bool(is_sym),
+    # Historical single-multiset validation, enforced before
+    # canonicalisation so callers keep the established messages.
+    if K > 0 and int(r) > K:
+        # (empty collections are accepted as degenerate densities,
+        # matching the historical behaviour of the vector build)
+        raise ValueError(
+            f"r ({int(r)}) must not exceed the number of values ({K})."
+        )
+    if bool(is_rel) and int(r) < 2:
+        raise ValueError(
+            "r must be at least 2 when is_rel is true (a single "
+            "position has no internal relative structure)."
+        )
+    p_attr = [p_arr.reshape(K, 1)]
+    if w is None:
+        w_attr = None
+    else:
+        w_arr = np.asarray(w, dtype=np.float64)
+        if w_arr.ndim == 0:
+            w_arr = np.full(K, float(w_arr))
+        else:
+            w_arr = w_arr.ravel()
+        w_attr = [w_arr.reshape(-1, 1)]
+    return _build_exp_tens_ma(
+        p_attr, w_attr,
+        [float(sigma)], [int(r)],
+        [bool(is_rel)], [bool(is_per)], [float(period)],
+        [bool(is_sym)],
+        verbose=verbose,
     )

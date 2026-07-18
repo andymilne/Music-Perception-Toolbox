@@ -767,6 +767,28 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
     % Weights: normalise to 1 x A cell of K_a x N matrices
     wCell = localNormaliseWeights(wIn, A, Ka, N);
 
+    % --- Single-multiset collapse (MAET-base optimisation) ------------
+    % A single flat (non-nested) attribute read at r = 1 is one pooled
+    % multiset: a tuple is a lone value, so which event a value came from
+    % is irrelevant and cross-event tuples never arise. Collapse the
+    % events into one here, at the base, so every downstream consumer only
+    % ever meets the canonical A = N = 1 form (no N > 1 single-multiset
+    % case to special-case anywhere else). Equal values merge in the
+    % per-event r = 1 path (localFillMAExpensive) exactly as for a
+    % directly-built single multiset. Mirrors the Python collapse in
+    % _build_exp_tens_ma.
+    if A == 1 && rVec(1) == 1 && N > 1 && isempty(nested{1})
+        P     = pAttr{1};
+        W     = wCell{1};
+        keep  = ~isnan(P);
+        pVals = P(keep);
+        wVals = W(keep);
+        pAttr = {pVals(:)};
+        wCell = {wVals(:)};
+        N     = 1;
+        Ka    = numel(pVals);
+    end
+
     % --- Per-attribute dim profile (cheap; doesn't need tuple enumeration) ---
 
     dimPerAttr = zeros(1, A);

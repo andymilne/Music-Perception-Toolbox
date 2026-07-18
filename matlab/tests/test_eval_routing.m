@@ -4,8 +4,9 @@
 %  v2.2.x refactor of localEvalSACentres (routing through
 %  internal.gaussianKernelSum) is:
 %
-%    - FP-bit-identical to the v2.0/v2.1 reference implementation at
-%      default settings (truncationSigmas=Inf, kernelPrecision='double').
+%    - Within the accuracy-floor truncation bound of the v2.0/v2.1
+%      untruncated reference at default settings (Inf resolves to the
+%      ~7.43 sigma floor; kernelPrecision='double').
 %    - Within bounded relative error at finite truncationSigmas.
 %    - Within ~1e-5 relative at kernelPrecision='single'.
 %
@@ -26,7 +27,9 @@ end
 
 mptDefaults('reset');
 % reset now yields the factory truncationSigmas = 6; pin Inf so the
-% "default matches reference" comparisons below are untruncated.
+% "default matches reference" comparisons below exercise the accuracy-
+% floor width (Inf resolves to ~7.43 sigma), checked within the
+% truncation bound against the untruncated reference.
 mptDefaults('truncationSigmas', Inf);
 
 % --- Battery of representative cases ---
@@ -75,23 +78,28 @@ for ic = 1:size(er_cases, 1)
     % --- Reference: frozen v2.0/v2.1 body ---
     ref = local_ref_eval(dens, X);
 
-    % --- Default settings: matches reference within reduction-order
-    %     tolerance. v2.2 relaxes the v2.1 bit-identity contract to
-    %     reduction-order identity (~1e-13) for periodic configurations,
-    %     since the periodic wrap was retargeted from `mod` to
-    %     `D - period .* floor(D / period + 0.5)` (mathematically
-    %     equivalent everywhere; different FP-op sequence). Non-periodic
-    %     configurations remain bit-identical to the reference.
+    % --- Default / explicit Inf: the reference sums untruncated, but Inf
+    %     now resolves to the accuracy-floor width (~7.43 sigma), so eval
+    %     truncates there. Check against the reference within the same
+    %     truncation bound the finite-k cases use below, at the resolved
+    %     floor width. Reduction-order differences (e.g. the periodic wrap
+    %     retargeted from `mod` to `D - period .* floor(D/period + 0.5)`,
+    %     mathematically equivalent but a different FP-op sequence) sit far
+    %     below this bound.
+    kFloor      = internal.accuracyFloor('resolve', Inf);
+    weight_mass = sum(abs(dens.wJ));
+    floorBound  = max(1e-12, 10 * weight_mass * exp(-kFloor^2 / 2));
+
     v_default = evalExpTens(dens, X, 'method', 'centres', 'verbose', false);
     results{end+1, 1} = sprintf('eval_routing: default matches reference (%s)', label); %#ok<*AGROW>
-    results{end, 2} = local_within_rtol(v_default, ref, 1e-12);
+    results{end, 2} = max(abs(v_default(:) - ref(:))) < floorBound;
 
-    % --- Explicit Inf/double: matches reference within reduction-order tolerance ---
+    % --- Explicit Inf/double: same floor-width truncation bound ---
     v_inf = evalExpTens(dens, X, 'method', 'centres', ...
         'truncationSigmas', Inf, 'kernelPrecision', 'double', ...
         'verbose', false);
     results{end+1, 1} = sprintf('eval_routing: Inf/double matches reference (%s)', label);
-    results{end, 2} = local_within_rtol(v_inf, ref, 1e-12);
+    results{end, 2} = max(abs(v_inf(:) - ref(:))) < floorBound;
 
     % --- truncationSigmas at k=4..6 within cumulative bound ---
     % Non-periodic only: under the truncation contract, periodic mode

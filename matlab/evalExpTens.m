@@ -512,22 +512,15 @@ else
            'or ''mobius''; got ''%s''.'], method);
 end
 
-% ---- Execution axis: detect default-kwargs mode ----
-% Important: empty ([]) means "use the global default", not "no
-% feature". So we must consult mptDefaults before deciding the
-% fast-path — a globally-set finite truncation or 'single' precision
-% must still route through the helper.
-if isempty(truncationSigmas)
-    truncResolved = mptDefaults('truncationSigmas');
-else
-    truncResolved = truncationSigmas;
-end
-if isempty(kernelPrecision)
-    precResolved = mptDefaults('kernelPrecision');
-else
-    precResolved = kernelPrecision;
-end
-useDefaultKwargs = ~isfinite(truncResolved) && strcmp(precResolved, 'double');
+% ---- Execution axis: resolve the truncation width up front ----
+% Mirrors cosSimExpTens: internal.accuracyFloor('resolve', ...) maps the
+% Inf "exact" sentinel to the finite accuracy-floor width (~7.43 sigma at
+% the 1e-12 floor; the resolver honours a temporary epsilon override for
+% arbitrary precision), passes finite widths through unchanged, and
+% consults the global mptDefaults for an empty ([]) knob. Every
+% centres/orbit kernel below therefore receives a finite width and
+% truncates uniformly --- there is no literally-untruncated eval path.
+truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
 
 vals = [];
 ranOrbit = false;
@@ -569,16 +562,12 @@ if ~ranOrbit
         estimateCompTime(double(dens.nJ) * double(nQ), dimEst, ...
             'evalExpTens (MAET)', verbose);
     end
-    if useDefaultKwargs
-        % Inline direct broadcast. FP-identical to the
-        % helper at default settings, but skips the helper's
-        % arguments-block validation and cell-array kwargs.
-        vals = localEvalSACentresFast(dens, X, nQ);
-    else
-        % Feature kwargs requested — route through the full helper.
-        vals = localEvalSACentres(dens, X, nQ, false, ...
-            truncationSigmas, kernelPrecision);
-    end
+    % Single centres kernel: internal.gaussianKernelSum via the helper,
+    % with the resolved finite truncation width. The former inline
+    % untruncated fast path is gone --- with Inf resolved to the accuracy
+    % floor there is no untruncated regime to shortcut.
+    vals = localEvalSACentres(dens, X, nQ, false, ...
+        truncResolved, kernelPrecision);
 end
 
 % === Apply normalization ===
@@ -783,155 +772,6 @@ function vals = localEvalSACentres(dens, X, nQ, verbose, ...
 
     vals = internal.gaussianKernelSum(Centres, wJ, X, sigma, kw{:});
 end
-
-
-% =========================================================================
-%  localEvalSACentresFast — inline direct path for tiny workloads
-%
-%  Skips the internal.gaussianKernelSum helper entirely. Used by the
-%  fast-path bypass at the top of evalExpTens when r <= 1, no
-%  truncation, no precision override, and verbose=false. This restores
-%  the per-call cost profile for per-row scalar consumers like
-%  templateHarmonicity_scalar and spectralEntropy_scalar, where the
-%  helper's per-call overhead (arguments block + validation + cell-array
-%  kwargs building) dominates over the tiny actual compute.
-%
-%  Handles abs and per modes, both r=1 and r=0. is_rel=true with r<=1
-%  is a structural impossibility at this entry point (the dispatcher
-%  hard-rules it out before reaching here). is_per uses sawtooth
-%  reduction; otherwise direct broadcast.
-% =========================================================================
-
-function vals = localEvalSACentresFast(dens, X, nQ)
-%LOCALEVALSACENTRESFAST  Inline direct broadcast for the centres path.
-%
-%   Skips the internal.gaussianKernelSum helper entirely. Used by the
-%   centres-path dispatcher when the untruncated-double regime applies
-%   (truncationSigmas = Inf, kernelPrecision = 'double'). FP-identical
-%   to the helper at these settings.
-%
-%   Handles all (r, isRel, isPer) combinations:
-%     - abs: Q(D) = sum(D .^ 2)
-%     - rel: Q(D) = sum(D .^ 2) - sum(D)^2 / r
-%     - per: D wrapped to (-J/2, J/2] before quadratic-form evaluation.
-%
-%   Avoids the per-call overhead of (a) the unified dispatcher when
-%   hard rules force the route and (b) the helper's arguments-block
-%   validation and cell-array kwargs construction. In MATLAB this
-%   saves ~hundreds of microseconds per evalExpTens call, which is
-%   the dominant cost for per-row scalar consumers like
-%   templateHarmonicity / spectralEntropy in tight loops.
-
-    Centres = dens.Centres;
-    wJ      = dens.wJ;
-    nJ      = dens.nJ;
-    sigma   = dens.sigma;
-    r       = dens.r;
-    dim     = dens.dim;
-    isRel   = dens.isRel;
-    isPer   = dens.isPer;
-    J       = dens.period;
-
-    if nJ == 0 || nQ == 0
-        vals = zeros(1, nQ);
-        return;
-    end
-
-    % --- Auto-prune zero-weight joint perm-side tuples ---
-    % See localEvalMA for the rationale: dens.wJ is the per-attribute
-    % weight product, so a tuple with wJ == 0 contributes zero at every
-    % query point. Strict zero convention matches the IP-path prune.
-    keep = wJ ~= 0;
-    if ~all(keep)
-        nJ = nnz(keep);
-        if nJ == 0
-            vals = zeros(1, nQ);
-            return;
-        end
-        wJ = wJ(keep);
-        Centres = Centres(:, keep);
-    end
-
-    % FP-identical to localExactKernelSum (in internal.gaussianKernelSum):
-    % use D .^ 2 (not D .* D), mod-based periodic wrap (not round-based),
-    % and direct division by (2 * sigma^2) (not multiplication by an
-    % inverse), to preserve ULP-for-ULP equivalence with v2.0/v2.1.
-    %
-    % Memory-aware nQ chunking matches the helper: peak per-chunk
-    % allocation is (dim+1)*nJ*nQc*8 bytes for the difference tensor
-    % plus per-block intermediates. Without chunking, large workloads
-    % (e.g. K=72 r=3 nQ=29161 → 155 GB) hit MATLAB's array-size cap.
-
-    % Peak per-chunk transient ~ (2*dim + 2) * nJ * nQc * 8 (broadcast
-    % difference, its square, and the summed/exponentiated intermediate
-    % are briefly co-resident).
-    bytesPerScalar = 8;  % default-mode is always double
-    bytesNeeded = (2 * dim + 2) * double(nJ) * double(nQ) * bytesPerScalar;
-    memLimit = internal.kernelChunkBytesResolved();
-
-    if bytesNeeded <= memLimit
-        vals = evalChunk(Centres, wJ, X, nQ, dim, nJ, sigma, r, isRel, isPer, J);
-    else
-        chunkSize = max(1, floor(memLimit / ...
-            ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
-        vals = zeros(1, nQ);
-        for c0 = 1:chunkSize:nQ
-            c1 = min(c0 + chunkSize - 1, nQ);
-            idx = c0:c1;
-            vals(idx) = evalChunk(Centres, wJ, X(:, idx), numel(idx), ...
-                dim, nJ, sigma, r, isRel, isPer, J);
-        end
-    end
-end
-
-
-function v = evalChunk(Centres, wJ, X, nQc, dim, nJ, sigma, r, isRel, isPer, J)
-%EVALCHUNK  Single-chunk direct broadcast for localEvalSACentresFast.
-%
-%   Mirrors evalChunk in internal.gaussianKernelSum exactly. For
-%   periodic+relative uses the pairwise-wrap form (Eq 6 of the
-%   preprint) in line with cosSimExpTens; in all other modes
-%   output is FP-bit-identical to v2.0/v2.1.
-
-    D = reshape(Centres, dim, nJ, 1) - reshape(X, dim, 1, nQc);
-    % Outer wrap only needed for abs+per. For rel+per, the pairwise
-    % wrap below subsumes it; component-wise wrapping there would
-    % break exact transposition invariance on the circle.
-    if isPer && ~isRel
-        D = D - J .* floor(D / J + 0.5);
-    end
-    if isRel
-        if isPer
-            % Pairwise-wrap form (Eq 6) on the reduced centres
-            % representation. The implicit slot 0 = 0 contributes
-            % pairs (0, k+1) yielding wrap(D[k])^2 — vectorised in a
-            % single pass over D as a whole — and within-reduced-block
-            % pairs (i+1, j+1) yield wrap(D[i] - D[j])^2.
-            slot0_wrapped = D - J .* floor(D / J + 0.5);
-            Qvec = sum(slot0_wrapped .^ 2, 1);
-            for i = 1:dim
-                for j = i+1:dim
-                    delta = D(i, :, :) - D(j, :, :);
-                    delta = delta - J .* floor(delta / J + 0.5);
-                    Qvec = Qvec + delta.^2;
-                end
-            end
-            Qvec = Qvec / r;
-        else
-            Qvec = sum(D .^ 2, 1) - sum(D, 1) .^ 2 / r;
-        end
-    else
-        Qvec = sum(D .^ 2, 1);
-    end
-    E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQc);
-    v = wJ(:).' * E;
-end
-
-
-% =========================================================================
-%  localEvalMA — multi-attribute (MAET) evaluation
-% =========================================================================
-
 
 function vals = localEvalMA(dens, X, normalize, verbose, ...
         truncationSigmas, kernelPrecision, method)
@@ -1151,82 +991,16 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     % =====================================================================
 
     function v = maetEvalFull(Xchunk, nQc)
-        % Default-mode bypass: when no precision override and no
-        % truncation are requested (after resolving against the global
-        % mptDefaults), run the inline accumulator with no cast
-        % machinery. FP-identical at these settings, but avoids
-        % per-attribute cast() calls and the truncation branching that
-        % would otherwise impose MATLAB function-call overhead per
-        % evalExpTens.
-        %
-        % Empty ([]) means "consult global default", not "no feature".
-        if isempty(truncationSigmas)
-            truncResolved = mptDefaults('truncationSigmas');
-        else
-            truncResolved = truncationSigmas;
-        end
-        if isempty(kernelPrecision)
-            precResolved = mptDefaults('kernelPrecision');
-        else
-            precResolved = kernelPrecision;
-        end
-        useDefault = strcmp(precResolved, 'double') && ~isfinite(truncResolved);
+        % Resolve the truncation width once up front: internal.accuracyFloor
+        % maps the Inf "exact" sentinel to the finite accuracy-floor width
+        % (mirroring the single-multiset path and cosSimExpTens; it honours
+        % a temporary epsilon override for arbitrary precision), consults
+        % the global mptDefaults for an empty ([]) knob, and passes finite
+        % widths through. The post-filter truncation below therefore always
+        % applies --- there is no untruncated fast path.
+        truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
 
-        if useDefault
-            % Direct double accumulation path.
-            Q_total = zeros(N_J, nQc);
-            for a = 1:A
-                da = dimPerAttr(a);
-                if da == 0
-                    continue;
-                end
-                Ca = Centres{a};
-                Xa = Xchunk{a};
-                D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
-                Pg = periodG(a);
-                if innerR(a) > 0
-                    % Inner [rel] unit: block-diagonal metric over event
-                    % blocks (reduced convention). The block helper applies
-                    % the pairwise wrap, so no outer wrap here.
-                    Q_a = qInnerBlocksReducedLocal(D_a, innerR(a), a, Pg);
-                    Q_total = Q_total + Q_a / (2 * sigmaG(a)^2);
-                    continue;
-                end
-                % Outer wrap only needed for abs+per. For rel+per the
-                % pairwise wrap below subsumes it (Eq 6).
-                if isPerG(a) && ~isRelG(a)
-                    D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
-                end
-                if isRelG(a)
-                    if isPerG(a)
-                        % Pairwise-wrap form on reduced centres
-                        % (slot 0 = 0 implicit). Slot-0 vectorised.
-                        slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
-                        Q_a = reshape(sum(slot0_wrapped .^ 2, 1), N_J, nQc);
-                        for i = 1:da
-                            for j = i+1:da
-                                delta = reshape(D_a(i, :, :) - D_a(j, :, :), N_J, nQc);
-                                delta = delta - Pg .* floor(delta / Pg + 0.5);
-                                Q_a = Q_a + delta.^2;
-                            end
-                        end
-                        Q_a = Q_a / r_(a);
-                    else
-                        Q_a = reshape(sum(D_a.^2, 1), N_J, nQc) ...
-                            - reshape(sum(D_a, 1).^2, N_J, nQc) / r_(a);
-                    end
-                else
-                    Q_a = reshape(sum(D_a.^2, 1), N_J, nQc);
-                end
-                Q_total = Q_total + Q_a / (2 * sigmaG(a)^2);
-            end
-            E = exp(-Q_total);
-            v = wJ(:).' * E;
-            return;
-        end
-
-        % Feature-kwargs path — precision casting and / or
-        % post-filter truncation.
+        % Precision: 'single' casts the accumulation; 'double' is a no-op.
         if ~isempty(kernelPrecision) && strcmp(kernelPrecision, 'single')
             qDtype = 'single';
         else
@@ -1278,17 +1052,12 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
         end
 
-        % Post-filter truncation: exp(-Q_total) is negligible beyond
-        % q_total > k^2/2.
-        useTrunc = ~isempty(truncationSigmas) && ...
-                   isfinite(truncationSigmas) && truncationSigmas > 0;
-        if useTrunc
-            qThreshold = double(truncationSigmas)^2 / 2;
-            E = exp(-Q_total);
-            E(Q_total > cast(qThreshold, qDtype)) = 0;
-        else
-            E = exp(-Q_total);
-        end
+        % Post-filter truncation at the resolved width: exp(-Q_total) is
+        % negligible beyond Q_total > k^2/2. truncResolved is always finite
+        % (Inf resolves to the accuracy floor), so truncation always applies.
+        qThreshold = truncResolved^2 / 2;
+        E = exp(-Q_total);
+        E(Q_total > cast(qThreshold, qDtype)) = 0;
 
         wJq = cast(wJ(:).', qDtype);
         v = double(wJq * E);

@@ -909,27 +909,104 @@ function dens = localFillMAExpensive(dens, verbose)
         nested = cell(1, A);
     end
 
-    % --- Single-multiset (A = N = 1, flat) fast fill --------------------
-    % Nothing to Cartesian-product across attributes, nothing to
-    % concatenate across events, so the general per-(n,a) machinery below
-    % is pure overhead at this corner. Enumerate the one attribute directly
-    % (shared localEnumFlatAttr, so the tuples are identical) and assemble
-    % the fields. Mirrors the Python _ma_build_perm_arrays fast path.
-    if A == 1 && N == 1 && isempty(nested{1})
-        valCol = pAttr{1}(:, 1);
-        valid  = find(~isnan(valCol));
-        r_a    = rVec(1);
-        if numel(valid) < r_a
-            error('buildExpTens:insufficientSlots', ...
-                  ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
-                   'but r_a = %d.'], 1, 1, numel(valid), r_a);
+    % --- Single flat attribute (A = 1) fast fill -----------------------
+    % One attribute means nothing to Cartesian-product across attributes,
+    % so the general per-(n,a) machinery below is overhead. Enumerate the
+    % attribute directly (shared localEnumFlatAttr, so the tuples are
+    % identical) and, for N > 1, concatenate the events. When the non-NaN
+    % slot pattern is the same every event and r >= 2 (the build has
+    % already reduced any r = 1, N > 1 case to N = 1), the tuple-index
+    % structure is event-invariant: compute it once and reuse it,
+    % recomputing only the per-event values and weights. Mirrors the
+    % Python _ma_build_perm_arrays A = 1 fast path.
+    if A == 1 && isempty(nested{1})
+        r_a = rVec(1);
+        P   = pAttr{1};
+        W   = wCell{1};
+        if N == 1
+            valCol = P(:, 1);
+            valid  = find(~isnan(valCol));
+            if numel(valid) < r_a
+                error('buildExpTens:insufficientSlots', ...
+                      ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                       'but r_a = %d.'], 1, 1, numel(valid), r_a);
+            end
+            [permMat, combMat, wJ, wvComb] = ...
+                localEnumFlatAttr(valCol, valid, r_a, isSymVec(1), W(:, 1));
+            nJ = size(permMat, 2);
+            nK = size(combMat, 2);
+            U = reshape(valCol(permMat), r_a, nJ);
+            V = reshape(valCol(combMat), r_a, nK);
+            eventOfJ = ones(1, nJ);
+            eventOfK = ones(1, nK);
+        else
+            valid0 = find(~isnan(P(:, 1)));
+            reuse = r_a >= 2 && numel(valid0) >= r_a;
+            if reuse
+                for n = 2:N
+                    if ~isequal(find(~isnan(P(:, n))), valid0)
+                        reuse = false;
+                        break;
+                    end
+                end
+            end
+            if reuse
+                [permMat, combMat] = ...
+                    localEnumFlatAttr(P(:, 1), valid0, r_a, isSymVec(1), W(:, 1));
+                nje = size(permMat, 2);
+                nke = size(combMat, 2);
+                nJ = nje * N;
+                nK = nke * N;
+                U = zeros(r_a, nJ);
+                V = zeros(r_a, nK);
+                wJ = zeros(1, nJ);
+                wvComb = zeros(1, nK);
+                eventOfJ = zeros(1, nJ);
+                eventOfK = zeros(1, nK);
+                for n = 1:N
+                    val = P(:, n);
+                    wc  = W(:, n);
+                    jj = (n - 1) * nje + 1 : n * nje;
+                    kk = (n - 1) * nke + 1 : n * nke;
+                    U(:, jj) = reshape(val(permMat), r_a, nje);
+                    V(:, kk) = reshape(val(combMat), r_a, nke);
+                    wJ(jj)     = prod(reshape(wc(permMat), r_a, []), 1);
+                    wvComb(kk) = prod(reshape(wc(combMat), r_a, []), 1);
+                    eventOfJ(jj) = n;
+                    eventOfK(kk) = n;
+                end
+            else
+                Ub = cell(1, N); Vb = cell(1, N);
+                wJb = cell(1, N); wvb = cell(1, N);
+                eojb = cell(1, N); eokb = cell(1, N);
+                for n = 1:N
+                    val    = P(:, n);
+                    validn = find(~isnan(val));
+                    if numel(validn) < r_a
+                        error('buildExpTens:insufficientSlots', ...
+                              ['Event %d, attribute %d has %d non-NaN ' ...
+                               'slot(s) but r_a = %d.'], n, 1, ...
+                              numel(validn), r_a);
+                    end
+                    [pm, cm, pw, cw] = ...
+                        localEnumFlatAttr(val, validn, r_a, isSymVec(1), W(:, n));
+                    Ub{n}   = reshape(val(pm), r_a, size(pm, 2));
+                    Vb{n}   = reshape(val(cm), r_a, size(cm, 2));
+                    wJb{n}  = pw;
+                    wvb{n}  = cw;
+                    eojb{n} = repmat(n, 1, size(pm, 2));
+                    eokb{n} = repmat(n, 1, size(cm, 2));
+                end
+                U = [Ub{:}];
+                V = [Vb{:}];
+                wJ = [wJb{:}];
+                wvComb = [wvb{:}];
+                eventOfJ = [eojb{:}];
+                eventOfK = [eokb{:}];
+                nJ = size(U, 2);
+                nK = size(V, 2);
+            end
         end
-        [permMat, combMat, permW1, combW1] = ...
-            localEnumFlatAttr(valCol, valid, r_a, isSymVec(1), wCell{1}(:, 1));
-        nJ = size(permMat, 2);
-        nK = size(combMat, 2);
-        U  = reshape(valCol(permMat), r_a, nJ);
-        V  = reshape(valCol(combMat), r_a, nK);
         if isRelVec(1)
             if r_a >= 2
                 C = U(2:r_a, :) - U(1, :);
@@ -944,10 +1021,10 @@ function dens = localFillMAExpensive(dens, verbose)
         dens.Centres  = {C};
         dens.U_perm   = {U};
         dens.V_comb   = {V};
-        dens.wJ       = permW1;
-        dens.wv_comb  = combW1;
-        dens.eventOfJ = ones(1, nJ);
-        dens.eventOfK = ones(1, nK);
+        dens.wJ       = wJ;
+        dens.wv_comb  = wvComb;
+        dens.eventOfJ = eventOfJ;
+        dens.eventOfK = eventOfK;
         return;
     end
 

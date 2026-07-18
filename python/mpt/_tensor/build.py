@@ -1025,28 +1025,93 @@ def _ma_build_perm_arrays(
     if nested is None:
         nested = [None] * A
 
-    # --- Single-multiset (A = N = 1, flat) fast path -----------------
-    # At this corner there is nothing to Cartesian-product across
-    # attributes and nothing to concatenate across events, so the
-    # general per-(n, a) cell machinery below is pure overhead. Enumerate
-    # the one attribute directly (via the shared _enum_flat_attr, so the
-    # tuples are identical) and assemble the fields without the Cartesian
-    # / concatenation loops.
-    if A == 1 and N == 1 and nested[0] is None:
-        val_col = p_attr[0][:, 0]
-        valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
+    # --- Single flat attribute (A = 1) fast path --------------------
+    # One attribute means there is nothing to Cartesian-product across
+    # attributes, so the general per-(n, a) cell machinery is overhead.
+    # Enumerate the attribute directly (shared _enum_flat_attr, so the
+    # tuples are identical) and, for N > 1, concatenate the events. When
+    # the non-NaN slot pattern is the same every event and r >= 2 (no
+    # r = 1 value-collapse, which the build has already reduced to N = 1),
+    # the tuple-index structure is event-invariant: compute it once and
+    # reuse it, recomputing only the per-event values and weights.
+    if A == 1 and nested[0] is None:
         r_a = int(r_vec[0])
-        if valid.size < r_a:
-            raise ValueError(
-                f"Event 0, attribute 0 has {valid.size} non-NaN "
-                f"slot(s) but r_a = {r_a}."
-            )
-        perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
-            val_col, valid, r_a, is_sym_vec[0], w_list[0][:, 0])
-        n_j = perm_mat.shape[1]
-        n_k = comb_mat.shape[1]
-        u0 = val_col[perm_mat]   # r x n_j
-        v0 = val_col[comb_mat]   # r x n_k
+        P = p_attr[0]
+        W = w_list[0]
+        if N == 1:
+            val_col = P[:, 0]
+            valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
+            if valid.size < r_a:
+                raise ValueError(
+                    f"Event 0, attribute 0 has {valid.size} non-NaN "
+                    f"slot(s) but r_a = {r_a}."
+                )
+            perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
+                val_col, valid, r_a, is_sym_vec[0], W[:, 0])
+            n_j = perm_mat.shape[1]
+            n_k = comb_mat.shape[1]
+            u0 = val_col[perm_mat]
+            v0 = val_col[comb_mat]
+            w_j = perm_w
+            wv_comb = comb_w
+            event_of_j = np.zeros(n_j, dtype=np.intp)
+            event_of_k = np.zeros(n_k, dtype=np.intp)
+        else:
+            valid0 = np.nonzero(~np.isnan(P[:, 0]))[0].astype(np.intp)
+            reuse = (r_a >= 2 and valid0.size >= r_a and all(
+                np.array_equal(np.nonzero(~np.isnan(P[:, n]))[0], valid0)
+                for n in range(1, N)))
+            if reuse:
+                perm_mat, comb_mat, _, _ = _enum_flat_attr(
+                    P[:, 0], valid0, r_a, is_sym_vec[0], W[:, 0])
+                nje = perm_mat.shape[1]
+                nke = comb_mat.shape[1]
+                n_j = nje * N
+                n_k = nke * N
+                u0 = np.empty((r_a, n_j), dtype=np.float64)
+                v0 = np.empty((r_a, n_k), dtype=np.float64)
+                w_j = np.empty(n_j, dtype=np.float64)
+                wv_comb = np.empty(n_k, dtype=np.float64)
+                event_of_j = np.empty(n_j, dtype=np.intp)
+                event_of_k = np.empty(n_k, dtype=np.intp)
+                for n in range(N):
+                    val = P[:, n]
+                    wc = W[:, n]
+                    sj = slice(n * nje, (n + 1) * nje)
+                    sk = slice(n * nke, (n + 1) * nke)
+                    u0[:, sj] = val[perm_mat]
+                    v0[:, sk] = val[comb_mat]
+                    w_j[sj] = np.prod(wc[perm_mat], axis=0)
+                    wv_comb[sk] = np.prod(wc[comb_mat], axis=0)
+                    event_of_j[sj] = n
+                    event_of_k[sk] = n
+            else:
+                u_bl, v_bl, wj_bl, wv_bl, eoj_bl, eok_bl = \
+                    [], [], [], [], [], []
+                for n in range(N):
+                    val = P[:, n]
+                    valid = np.nonzero(~np.isnan(val))[0].astype(np.intp)
+                    if valid.size < r_a:
+                        raise ValueError(
+                            f"Event {n}, attribute 0 has {valid.size} "
+                            f"non-NaN slot(s) but r_a = {r_a}."
+                        )
+                    pm, cm, pw, cw = _enum_flat_attr(
+                        val, valid, r_a, is_sym_vec[0], W[:, n])
+                    u_bl.append(val[pm])
+                    v_bl.append(val[cm])
+                    wj_bl.append(pw)
+                    wv_bl.append(cw)
+                    eoj_bl.append(np.full(pm.shape[1], n, dtype=np.intp))
+                    eok_bl.append(np.full(cm.shape[1], n, dtype=np.intp))
+                u0 = np.hstack(u_bl)
+                v0 = np.hstack(v_bl)
+                w_j = np.concatenate(wj_bl)
+                wv_comb = np.concatenate(wv_bl)
+                event_of_j = np.concatenate(eoj_bl)
+                event_of_k = np.concatenate(eok_bl)
+                n_j = u0.shape[1]
+                n_k = v0.shape[1]
         if is_rel_vec[0]:
             c0 = (u0[1:, :] - u0[:1, :]) if r_a >= 2 \
                 else np.empty((0, n_j), dtype=np.float64)
@@ -1054,9 +1119,8 @@ def _ma_build_perm_arrays(
             c0 = u0.copy()
         return dict(
             n_j=n_j, n_k=n_k, centres=[c0], u_perm=[u0], v_comb=[v0],
-            w_j=perm_w, wv_comb=comb_w,
-            event_of_j=np.zeros(n_j, dtype=np.intp),
-            event_of_k=np.zeros(n_k, dtype=np.intp),
+            w_j=w_j, wv_comb=wv_comb,
+            event_of_j=event_of_j, event_of_k=event_of_k,
         )
 
     perm_idx = [[None] * A for _ in range(N)]

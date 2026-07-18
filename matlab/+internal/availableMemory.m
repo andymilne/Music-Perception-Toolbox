@@ -26,6 +26,19 @@ function bytes = availableMemory()
 %
 %   See also memory, internal.kernelChunkBytesResolved.
 
+    % Reading available memory shells out to the OS (vm_stat on macOS,
+    % /proc/meminfo on Linux), so it must not run once per dispatch
+    % decision: a batched cosSimExpTens issues one dispatch decision per
+    % unique pair. Physical availability changes slowly relative to a
+    % batch, so probe at most once per TTL seconds and reuse the cached
+    % value otherwise.
+    persistent cachedBytes probeTic
+    TTL = 2.0;  % seconds
+    if ~isempty(probeTic) && toc(probeTic) < TTL
+        bytes = cachedBytes;
+        return;
+    end
+
     FALLBACK = 4 * 1024^3;  % 4 GiB
     bytes = NaN;
 
@@ -45,6 +58,9 @@ function bytes = availableMemory()
     if ~isfinite(bytes) || bytes <= 0
         bytes = FALLBACK;
     end
+
+    cachedBytes = bytes;
+    probeTic    = tic;
 end
 
 

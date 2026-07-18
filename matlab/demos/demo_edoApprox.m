@@ -26,7 +26,7 @@
 %   4:5:6 major triad: [0, 386.31, 701.96]
 %   5:6:7 subminor triad: [0, 315.64, 582.51]
 %   4:5:6:7 dominant seventh: [0, 386.31, 701.96, 968.83]
-refPitches = [0, log2(3), log2(5), log2(7), log2(11)] * 1200;
+refPitches = [0, log2(3), log2(5)] * 1200;
 refWeights = [];   % weights for reference pitches (empty = all ones;
                    % if specified, must be same length as refPitches)
 refName    = '4:5:6 JI major triad';

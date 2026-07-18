@@ -25,7 +25,7 @@ description and :doc:`/ARCHITECTURE` §2 for the layering.
 from __future__ import annotations
 
 import warnings
-from itertools import permutations
+from itertools import combinations, permutations
 from math import factorial
 
 import numpy as np
@@ -949,6 +949,56 @@ def _canonicalise_nested_rel(rel, L, a):
     return unit, proj
 
 
+def _enum_flat_attr(val_col, valid, r_a, is_sym, w_col_orig):
+    """Per-(event, attribute) r-ad enumeration for one flat attribute.
+
+    Returns ``(perm_mat, comb_mat, perm_w, comb_w)`` for the non-NaN
+    slots ``valid`` of value column ``val_col`` at read-arity ``r_a``.
+    Applies the r = 1 equal-value collapse (summing weights). Shared by
+    the general per-(n, a) fill loop and the A = N = 1 fast path so both
+    produce byte-identical tuples. Caller guarantees ``valid.size >=
+    r_a`` (checked eagerly at build).
+    """
+    collapsed = False
+    if r_a == 1 and valid.size > 1:
+        vals_valid = val_col[valid]
+        _, first_idx, inverse = np.unique(
+            vals_valid, return_index=True, return_inverse=True
+        )
+        if first_idx.size < valid.size:
+            w_col_local = w_col_orig.copy()
+            summed = np.zeros(first_idx.size, dtype=np.float64)
+            np.add.at(summed, inverse, w_col_orig[valid])
+            w_col_local[valid[first_idx]] = summed
+            valid = valid[first_idx]
+            collapsed = True
+
+    comb_list = list(combinations(valid.tolist(), r_a))
+    comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
+
+    if r_a == 1 or not is_sym:
+        perm_mat = comb_mat.copy()
+    else:
+        all_perms = np.array(
+            list(permutations(range(r_a))), dtype=np.intp
+        ).T  # r_a x r_a!
+        n_combs = comb_mat.shape[1]
+        n_perms = all_perms.shape[1]
+        perm_mat = np.empty((r_a, n_combs * n_perms), dtype=np.intp)
+        for pp in range(n_perms):
+            perm_mat[:, pp * n_combs:(pp + 1) * n_combs] = \
+                comb_mat[all_perms[:, pp], :]
+
+    w_col = w_col_local if collapsed else w_col_orig
+    if r_a == 1:
+        perm_w = w_col[perm_mat].ravel()
+        comb_w = w_col[comb_mat].ravel()
+    else:
+        perm_w = np.prod(w_col[perm_mat], axis=0)
+        comb_w = np.prod(w_col[comb_mat], axis=0)
+    return perm_mat, comb_mat, perm_w, comb_w
+
+
 def _ma_build_perm_arrays(
     *,
     p_attr,
@@ -971,10 +1021,43 @@ def _ma_build_perm_arrays(
     Logic is unchanged from the eager build; only when it runs
     has changed.
     """
-    from itertools import combinations as _combinations
 
     if nested is None:
         nested = [None] * A
+
+    # --- Single-multiset (A = N = 1, flat) fast path -----------------
+    # At this corner there is nothing to Cartesian-product across
+    # attributes and nothing to concatenate across events, so the
+    # general per-(n, a) cell machinery below is pure overhead. Enumerate
+    # the one attribute directly (via the shared _enum_flat_attr, so the
+    # tuples are identical) and assemble the fields without the Cartesian
+    # / concatenation loops.
+    if A == 1 and N == 1 and nested[0] is None:
+        val_col = p_attr[0][:, 0]
+        valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
+        r_a = int(r_vec[0])
+        if valid.size < r_a:
+            raise ValueError(
+                f"Event 0, attribute 0 has {valid.size} non-NaN "
+                f"slot(s) but r_a = {r_a}."
+            )
+        perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
+            val_col, valid, r_a, is_sym_vec[0], w_list[0][:, 0])
+        n_j = perm_mat.shape[1]
+        n_k = comb_mat.shape[1]
+        u0 = val_col[perm_mat]   # r x n_j
+        v0 = val_col[comb_mat]   # r x n_k
+        if is_rel_vec[0]:
+            c0 = (u0[1:, :] - u0[:1, :]) if r_a >= 2 \
+                else np.empty((0, n_j), dtype=np.float64)
+        else:
+            c0 = u0.copy()
+        return dict(
+            n_j=n_j, n_k=n_k, centres=[c0], u_perm=[u0], v_comb=[v0],
+            w_j=perm_w, wv_comb=comb_w,
+            event_of_j=np.zeros(n_j, dtype=np.intp),
+            event_of_k=np.zeros(n_k, dtype=np.intp),
+        )
 
     perm_idx = [[None] * A for _ in range(N)]
     comb_idx = [[None] * A for _ in range(N)]
@@ -1014,57 +1097,9 @@ def _ma_build_perm_arrays(
                     f"slot(s) but r_a = {r_a}."
                 )
 
-            collapsed = False
-            if r_a == 1 and K_na > 1:
-                vals_valid = val_col[valid]
-                _, first_idx, inverse = np.unique(
-                    vals_valid, return_index=True, return_inverse=True
-                )
-                if first_idx.size < K_na:
-                    w_col_orig = w_list[a][:, n]
-                    w_col_local = w_col_orig.copy()
-                    summed = np.zeros(first_idx.size, dtype=np.float64)
-                    np.add.at(summed, inverse, w_col_orig[valid])
-                    w_col_local[valid[first_idx]] = summed
-                    valid = valid[first_idx]
-                    K_na = int(valid.size)
-                    collapsed = True
-
-            comb_list = list(_combinations(valid.tolist(), r_a))
-            comb_mat = np.array(comb_list, dtype=np.intp).T  # r_a x C
-
-            # [sym] = 1 (default): symmetrise each combination into its
-            # full S_r orbit (r! permuted copies) -- the perm side is the
-            # symmetrised density. [sym] = 0: keep each combination in
-            # listed order (one ordered kernel per combination), so the
-            # perm side equals the comb side -- the de-reflected density
-            # (upper triangle at r=2, the single ordered tuple at r=K).
-            # r_a == 1 has no order to symmetrise, so both coincide there.
-            if r_a == 1 or not is_sym_vec[a]:
-                perm_mat = comb_mat.copy()
-            else:
-                all_perms = np.array(
-                    list(permutations(range(r_a))), dtype=np.intp
-                ).T  # r_a x r_a!
-                n_combs = comb_mat.shape[1]
-                n_perms = all_perms.shape[1]
-                perm_mat = np.empty(
-                    (r_a, n_combs * n_perms), dtype=np.intp
-                )
-                for pp in range(n_perms):
-                    perm_mat[:, pp * n_combs:(pp + 1) * n_combs] = \
-                        comb_mat[all_perms[:, pp], :]
-
-            perm_idx[n][a] = perm_mat
-            comb_idx[n][a] = comb_mat
-
-            w_col = w_col_local if collapsed else w_list[a][:, n]
-            if r_a == 1:
-                perm_w[n][a] = w_col[perm_mat].ravel()
-                comb_w[n][a] = w_col[comb_mat].ravel()
-            else:
-                perm_w[n][a] = np.prod(w_col[perm_mat], axis=0)
-                comb_w[n][a] = np.prod(w_col[comb_mat], axis=0)
+            (perm_idx[n][a], comb_idx[n][a],
+             perm_w[n][a], comb_w[n][a]) = _enum_flat_attr(
+                val_col, valid, r_a, is_sym_vec[a], w_list[a][:, n])
 
     n_j_per = np.array(
         [int(np.prod([perm_idx[n][a].shape[1] for a in range(A)]))

@@ -909,6 +909,48 @@ function dens = localFillMAExpensive(dens, verbose)
         nested = cell(1, A);
     end
 
+    % --- Single-multiset (A = N = 1, flat) fast fill --------------------
+    % Nothing to Cartesian-product across attributes, nothing to
+    % concatenate across events, so the general per-(n,a) machinery below
+    % is pure overhead at this corner. Enumerate the one attribute directly
+    % (shared localEnumFlatAttr, so the tuples are identical) and assemble
+    % the fields. Mirrors the Python _ma_build_perm_arrays fast path.
+    if A == 1 && N == 1 && isempty(nested{1})
+        valCol = pAttr{1}(:, 1);
+        valid  = find(~isnan(valCol));
+        r_a    = rVec(1);
+        if numel(valid) < r_a
+            error('buildExpTens:insufficientSlots', ...
+                  ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                   'but r_a = %d.'], 1, 1, numel(valid), r_a);
+        end
+        [permMat, combMat, permW1, combW1] = ...
+            localEnumFlatAttr(valCol, valid, r_a, isSymVec(1), wCell{1}(:, 1));
+        nJ = size(permMat, 2);
+        nK = size(combMat, 2);
+        U  = reshape(valCol(permMat), r_a, nJ);
+        V  = reshape(valCol(combMat), r_a, nK);
+        if isRelVec(1)
+            if r_a >= 2
+                C = U(2:r_a, :) - U(1, :);
+            else
+                C = zeros(0, nJ);
+            end
+        else
+            C = U;
+        end
+        dens.nJ       = nJ;
+        dens.nK       = nK;
+        dens.Centres  = {C};
+        dens.U_perm   = {U};
+        dens.V_comb   = {V};
+        dens.wJ       = permW1;
+        dens.wv_comb  = combW1;
+        dens.eventOfJ = ones(1, nJ);
+        dens.eventOfK = ones(1, nK);
+        return;
+    end
+
     % --- Per-event, per-attribute r-ad enumeration ---
 
     permIdx = cell(N, A);     % slot indices, perm side: r_a x P_{n,a}
@@ -952,64 +994,9 @@ function dens = localFillMAExpensive(dens, verbose)
                        'but r_a = %d.'], n, a, K_na, r_a);
             end
 
-            % For attributes with r_a = 1, equal-valued slots within the
-            % same event are exchangeable and can be collapsed (see SA
-            % path comment for full rationale).
-            collapsed = false;
-            wColOrig = wCell{a}(:, n);
-            if r_a == 1 && K_na > 1
-                valsValid = valCol(valid);
-                [uniqueVals, firstIdx, inverse] = ...
-                    unique(valsValid, 'first');
-                if numel(firstIdx) < K_na
-                    wColLocal = wColOrig;
-                    summed = accumarray(inverse, wColOrig(valid), ...
-                                         [numel(uniqueVals), 1]);
-                    wColLocal(valid(firstIdx)) = summed;
-                    valid = valid(firstIdx);
-                    K_na  = numel(valid);
-                    collapsed = true;
-                end
-            end
-            if ~collapsed
-                wColLocal = wColOrig;
-            end
-
-            % Combinations: r_a x C(K_na, r_a)
-            if K_na == r_a
-                combMat = valid(:);
-            else
-                combMat = nchoosek(valid, r_a).';
-            end
-
-            % Permutations: r_a x (r_a! * C(K_na, r_a)) when symmetric.
-            % An ordered attribute (isSym = false) keeps each combination
-            % in listed order, so the perm side equals the comb side.
-            % r_a = 1 has no order to symmetrise either way.
-            if r_a == 1 || ~isSymVec(a)
-                permMat = combMat;
-            else
-                Pm = perms(1:r_a).';
-                nC = size(combMat, 2);
-                nP = size(Pm, 2);
-                permMat = zeros(r_a, nC * nP);
-                for pp = 1:nP
-                    permMat(:, (pp - 1) * nC + 1 : pp * nC) = combMat(Pm(:, pp), :);
-                end
-            end
-
-            permIdx{n, a} = permMat;
-            combIdx{n, a} = combMat;
-
-            % Slot-weight products (per-tuple).
-            wCol = wColLocal;
-            if r_a == 1
-                permW{n, a} = reshape(wCol(permMat), 1, []);
-                combW{n, a} = reshape(wCol(combMat), 1, []);
-            else
-                permW{n, a} = prod(reshape(wCol(permMat), r_a, []), 1);
-                combW{n, a} = prod(reshape(wCol(combMat), r_a, []), 1);
-            end
+            [permIdx{n, a}, combIdx{n, a}, permW{n, a}, combW{n, a}] = ...
+                localEnumFlatAttr(valCol, valid, r_a, isSymVec(a), ...
+                                  wCell{a}(:, n));
         end
     end
 
@@ -1130,6 +1117,68 @@ function dens = localFillMAExpensive(dens, verbose)
     dens.wv_comb  = wv_comb;
     dens.eventOfJ = eventOfJ;
     dens.eventOfK = eventOfK;
+end
+
+
+function [permMat, combMat, permW, combW] = ...
+        localEnumFlatAttr(valCol, valid, r_a, isSym, wColOrig)
+%LOCALENUMFLATATTR  Per-(event, attribute) r-ad enumeration for one flat
+%   attribute. Returns the perm/comb slot-index matrices and their
+%   per-tuple weight products for the non-NaN slots `valid` of value
+%   column `valCol` at read-arity `r_a`. Applies the r = 1 equal-value
+%   collapse (summing weights). Shared by the general per-(n,a) fill loop
+%   and the A = N = 1 fast path so both produce identical tuples. Caller
+%   guarantees numel(valid) >= r_a. Twin of Python _enum_flat_attr.
+    K_na = numel(valid);
+    collapsed = false;
+    if r_a == 1 && K_na > 1
+        valsValid = valCol(valid);
+        [uniqueVals, firstIdx, inverse] = unique(valsValid, 'first');
+        if numel(firstIdx) < K_na
+            wColLocal = wColOrig;
+            summed = accumarray(inverse, wColOrig(valid), ...
+                                 [numel(uniqueVals), 1]);
+            wColLocal(valid(firstIdx)) = summed;
+            valid = valid(firstIdx);
+            K_na  = numel(valid);
+            collapsed = true;
+        end
+    end
+    if ~collapsed
+        wColLocal = wColOrig;
+    end
+
+    % Combinations: r_a x C(K_na, r_a)
+    if K_na == r_a
+        combMat = valid(:);
+    else
+        combMat = nchoosek(valid, r_a).';
+    end
+
+    % Permutations: r_a x (r_a! * C) when symmetric; ordered (isSym = 0)
+    % keeps each combination in listed order (perm side == comb side);
+    % r_a = 1 has no order to symmetrise either way.
+    if r_a == 1 || ~isSym
+        permMat = combMat;
+    else
+        Pm = perms(1:r_a).';
+        nC = size(combMat, 2);
+        nP = size(Pm, 2);
+        permMat = zeros(r_a, nC * nP);
+        for pp = 1:nP
+            permMat(:, (pp - 1) * nC + 1 : pp * nC) = combMat(Pm(:, pp), :);
+        end
+    end
+
+    % Slot-weight products (per-tuple).
+    wCol = wColLocal;
+    if r_a == 1
+        permW = reshape(wCol(permMat), 1, []);
+        combW = reshape(wCol(combMat), 1, []);
+    else
+        permW = prod(reshape(wCol(permMat), r_a, []), 1);
+        combW = prod(reshape(wCol(combMat), r_a, []), 1);
+    end
 end
 
 

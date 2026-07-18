@@ -63,7 +63,8 @@ function H = entropyExpTens(varargin)
 %
 %     H = ENTROPYEXPTENS(T)
 %       Pre-built density form. T is a struct as returned by
-%       buildExpTens. Dispatches on its tag: 'ExpTensDensity' -> SA,
+%       buildExpTens. Dispatches on its tag and shape: a single-multiset
+%       MaetDensity (A = N = 1) -> single-multiset path, a general
 %       'MaetDensity' -> MA, 'WindowedMaetDensity' -> MA (Shannon
 %       only). When a struct is passed, no further positional
 %       arguments are required.
@@ -330,13 +331,13 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                    'further positional arguments may be provided.']);
         end
         switch firstArg.tag
-            case 'ExpTensDensity'
-                localRequireExplicitGrid(nvArgs.nPointsPerDim);
-                H = localEntropySA(firstArg, nvArgs);
-                return;
             case 'MaetDensity'
                 localRequireExplicitGrid(nvArgs.nPointsPerDim);
-                H = localEntropyMA(firstArg, nvArgs);
+                if internal.isSingleMultiset(firstArg)
+                    H = localEntropySA(firstArg, nvArgs);
+                else
+                    H = localEntropyMA(firstArg, nvArgs);
+                end
                 return;
             case 'WindowedMaetDensity'
                 localRequireExplicitGrid(nvArgs.nPointsPerDim);
@@ -437,9 +438,10 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
 
         localRequireExplicitGrid(nvArgs.nPointsPerDim);
         symArgs = localSymArgs(nvArgs);
-        T = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
-                         'verbose', false);
-        H = localEntropySA(T, nvArgs);
+        maet = buildExpTens( ...
+            p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+            'verbose', false);
+        H = localEntropySA(maet, nvArgs);
         return;
     end
 
@@ -456,7 +458,14 @@ end
 %  localEntropySA — single-attribute Shannon entropy
 % =========================================================================
 
-function H = localEntropySA(T, nvArgs)
+function H = localEntropySA(maet, nvArgs)
+%LOCALENTROPYSA  Shannon entropy of the single-multiset (A = N = 1) corner.
+%
+%   Receives the MaetDensity; the flat cell-mass kernel reads the
+%   single-multiset view, while the relative-mode point-evaluation branch
+%   delegates to evalExpTens on the density itself.
+
+    T = internal.singleMultisetView(maet);
 
     isPer  = T.isPer;
     period = T.period;
@@ -513,7 +522,7 @@ function H = localEntropySA(T, nvArgs)
         % never propagates to the interior. Empty resolves to the
         % global default; Inf resolves to the accuracy-floor width.
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
-        Tx = ensureExpTensExpensive(T);
+        Tx = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
         t = localCellMassesSAAbsolute(Tx, x1, ts);
     else
         % Build query matrix. For dim = 1, X is a 1 x nQ row vector. For
@@ -538,7 +547,7 @@ function H = localEntropySA(T, nvArgs)
         if isfield(nvArgs, 'kernelPrecision') && ~isempty(nvArgs.kernelPrecision)
             evalKw = [evalKw, {'kernelPrecision', nvArgs.kernelPrecision}];
         end
-        t = evalExpTens(T, X, evalKw{:});
+        t = evalExpTens(maet, X, evalKw{:});
     end
 
     % Normalize to pmf.
@@ -1233,7 +1242,7 @@ end
 
 
 function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
-%LOCALCELLMASSESSAABSOLUTE  Cell masses for an ExpTensDensity (SA path).
+%LOCALCELLMASSESSAABSOLUTE  Cell masses for the single-multiset corner.
 %
 %   Returns a flat (prod_d n_cells x 1) column vector of integrated
 %   cell masses int_{cell} f dx via per-axis erf differences. Restricted
@@ -1393,8 +1402,8 @@ function localRaiseIfAnySigmaZero(dens, methodName)
 %LOCALRAISEIFANYSIGMAZERO  Reject sigma=0 for continuous methods.
 %
 %   The continuous-form entropies ('differential', 'renyi2') diverge
-%   at sigma=0. Reads sigma from any density-struct form
-%   (ExpTensDensity, MaetDensity, WindowedMaetDensity).
+%   at sigma=0. Reads sigma from any density form (MaetDensity,
+%   WindowedMaetDensity) or the single-multiset view.
 
     if isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity')
         sigma = dens.dens.sigma;
@@ -1481,12 +1490,9 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
                  'further positional arguments may be provided.']);
         end
         switch firstArg.tag
-            case 'ExpTensDensity'
-                dens = firstArg;
-                isSA = true;
             case 'MaetDensity'
                 dens = firstArg;
-                isSA = false;
+                isSA = internal.isSingleMultiset(firstArg);
             case 'WindowedMaetDensity'
                 error('entropyExpTens:differentialWindowedNotSupported', ...
                     ['method=''differential'' with ' ...
@@ -1537,8 +1543,9 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
             [p, w] = addSpectra(p, w, nvArgs.spectrum{:});
         end
         symArgs = localSymArgs(nvArgs);
-        dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
-                            'verbose', false);
+        dens = buildExpTens( ...
+            p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+            'verbose', false);
         isSA = true;
     end
 
@@ -1681,8 +1688,10 @@ function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
 end
 
 
-function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(T, ts)
-%LOCALDIFFSPANSSA  Auto-spans for an ExpTensDensity.
+function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(maet, ts)
+%LOCALDIFFSPANSSA  Auto-spans for the single-multiset (A = N = 1) corner.
+
+    T = internal.singleMultisetView(maet);
 
     sig = double(T.sigma);
     isPer = logical(T.isPer);
@@ -1833,15 +1842,15 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                  'further positional arguments may be provided.']);
         end
         switch firstArg.tag
-            case 'ExpTensDensity'
-                localRaiseIfAnySigmaZero(firstArg, 'renyi2');
-                H = localRenyi2SA(firstArg, base);
-                H = localAnisoEntropyCorrection(H, firstArg, base);
-                return;
             case 'MaetDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
-                H = localRenyi2MA(firstArg, base);
-                H = localAnisoEntropyCorrection(H, firstArg, base);
+                if internal.isSingleMultiset(firstArg)
+                    H = localRenyi2SA(firstArg, base);
+                    H = localAnisoEntropyCorrection(H, firstArg, base);
+                else
+                    H = localRenyi2MA(firstArg, base);
+                    H = localAnisoEntropyCorrection(H, firstArg, base);
+                end
                 return;
             case 'WindowedMaetDensity'
                 error('entropyExpTens:renyi2WindowedNotSupported', ...
@@ -1904,11 +1913,12 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % buildExpTens is cheap in lazy mode; we only read cheap fields.
     symArgs = localSymArgs(nvArgs);
-    dens = buildExpTens(p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
-                        'verbose', false);
-    localRaiseIfAnySigmaZero(dens, 'renyi2');
-    H = localRenyi2SA(dens, base);
-    H = localAnisoEntropyCorrection(H, dens, base);
+    maet = buildExpTens( ...
+        p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
+        'verbose', false);
+    localRaiseIfAnySigmaZero(maet, 'renyi2');
+    H = localRenyi2SA(maet, base);
+    H = localAnisoEntropyCorrection(H, maet, base);
 end
 
 
@@ -1950,8 +1960,8 @@ function H = localAnisoEntropyCorrection(H, dens, base)
 end
 
 
-function H = localRenyi2SA(dens, base)
-%LOCALRENYI2SA  Analytical Rényi-2 entropy of a SA expectation tensor.
+function H = localRenyi2SA(maet, base)
+%LOCALRENYI2SA  Analytical Rényi-2 entropy of the single-multiset corner.
 %
 %   Computes H_2 = -log_b(<T,T> / Z^2) where <T,T> is evaluated via
 %   the orbit-Möbius inner product machinery (or a direct pairwise
@@ -1959,7 +1969,7 @@ function H = localRenyi2SA(dens, base)
 %   Z = integral T(x) dx via the closed-form total-mass formulae in
 %   the +mobius package.
 
-    dens = internal.prunedExpTens(dens);
+    dens = internal.singleMultisetView(internal.prunedExpTens(maet));
     p = dens.p; w = dens.w;
     sigma = dens.sigma; r = dens.r;
     isRel = dens.isRel; isPer = dens.isPer; period = dens.period;

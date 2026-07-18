@@ -288,9 +288,10 @@ firstArg = varargin{1};
 %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
 %        - vector or scalar       -> SA raw
 %   4. Otherwise -> usage error.
-% MA-routed branches (MaetDensity, WindowedMaetDensity, LIST, MA raw,
-% BATCHED-RAW) return early. SA-routed branches (ExpTensDensity, SA
-% raw) set `dens` and `X` and fall through to the shared SA dispatch
+% MA-routed branches (general MaetDensity, WindowedMaetDensity, LIST,
+% MA raw, BATCHED-RAW) return early. Single-multiset branches (a
+% single-multiset MaetDensity, single-multiset raw) set `dens` (a flat
+% view) and `X` and fall through to the shared single-multiset dispatch
 % below. Each detector is positive (no reliance on a preceding check
 % having failed) and self-sufficient.
 % ==================================================================
@@ -307,21 +308,27 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
     end
     X = varargin{2};
     switch firstArg.tag
-        case 'ExpTensDensity'
-            % SA dens: fall through to SA dispatch below.
-            dens = firstArg;
         case 'MaetDensity'
-            dens_ma = internal.ensureExpTensExpensive(firstArg);
-            if internal.densityHasKernelCov(dens_ma)
-                X = internal.whitenQuery(dens_ma, X);
+            if internal.isSingleMultiset(firstArg)
+                % Single-multiset corner (A = N = 1): keep the density,
+                % and present the flat layout to the fast single-multiset
+                % kernels below via the view (the centres branch re-views
+                % after ensuring the density's per-tuple fields).
+                maet = firstArg;
+                dens = internal.singleMultisetView(maet);
+            else
+                dens_ma = internal.ensureExpTensExpensive(firstArg);
+                if internal.densityHasKernelCov(dens_ma)
+                    X = internal.whitenQuery(dens_ma, X);
+                end
+                vals = localEvalMA(dens_ma, X, normalize, verbose, ...
+                    truncationSigmas, kernelPrecision, method);
+                if ~strcmp(normalize, 'none') && ...
+                        internal.densityHasKernelCov(dens_ma)
+                    vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
+                end
+                return;
             end
-            vals = localEvalMA(dens_ma, X, normalize, verbose, ...
-                truncationSigmas, kernelPrecision, method);
-            if ~strcmp(normalize, 'none') && ...
-                    internal.densityHasKernelCov(dens_ma)
-                vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
-            end
-            return;
         case 'WindowedMaetDensity'
             if internal.densityHasKernelCov(firstArg.dens)
                 error('mpt:aniso:windowedEval', ...
@@ -412,10 +419,13 @@ elseif isnumeric(firstArg)
     isPer_arg = varargin{6};
     J_arg     = varargin{7};
     X         = varargin{8};
-    % Build skinny: Möbius branch may not need heavy fields.
-    dens = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
-                        isPer_arg, J_arg, symArgs{:}, 'verbose', verbose);
-    % Fall through to SA dispatch.
+    % Build the A = N = 1 corner; present the flat single-multiset layout
+    % to the fast kernels below via the view. Skinny: the orbit branch may
+    % not need heavy fields; the centres branch re-views after ensuring.
+    maet = buildExpTens(p_arg, w_arg, sigma_arg, r_arg, isRel_arg, ...
+        isPer_arg, J_arg, symArgs{:}, 'verbose', verbose);
+    dens = internal.singleMultisetView(maet);
+    % Fall through to single-multiset dispatch.
 
 % --- 4. Else: usage error ---
 else
@@ -426,6 +436,23 @@ else
 end
 
 % === Validate query points (cheap fields only) ===
+
+% MA query convention: a single-multiset density (A = N = 1) accepts the
+% per-attribute cell query form {X_1} as well as a plain matrix, and (for
+% a 1-D attribute) a bare vector. Normalise to the flat matrix the fast
+% kernels expect, mirroring the general MA path (localEvalMA). Only the
+% single-multiset path reaches here; every general-MA / windowed / MA-raw
+% branch returned early above.
+if iscell(X)
+    if numel(X) ~= 1
+        error('evalExpTens:maQueryCellLength', ...
+              'Query cell must have length 1 (nAttrs); got %d.', numel(X));
+    end
+    X = X{1};
+end
+if isvector(X) && dens.dim == 1
+    X = X(:).';
+end
 
 % Matrix-valued kernel covariance: the density's values are stored in
 % whitened coordinates with sigma = 1, so the query is transformed
@@ -495,7 +522,7 @@ elseif strcmp(method, 'auto')
         % The probe's estSec/probed outputs remain available for
         % debugging but no longer feed the decision-only message.
         [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
-            dens, X, nQ, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
+            dens, maet, X, nQ, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
         internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
             routingReason);
     end
@@ -544,8 +571,9 @@ end
 
 if ~ranOrbit
     % Centres branch (also entered for explicit 'centres'/'direct'
-    % method, and for Möbius-then-fallback).
-    dens = internal.ensureExpTensExpensive(dens);
+    % method, and for Möbius-then-fallback). Heavy fields needed: ensure
+    % them on the density, then re-view for the flat kernel.
+    dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
     if useDefaultKwargs
         % Inline direct broadcast. FP-identical to the
         % helper at default settings, but skips the helper's
@@ -603,7 +631,7 @@ if ~strcmp(normalize, 'none')
         % heavy fields; ensure if not already populated (Möbius branch
         % skipped the ensure).
         if ~isfield(dens, 'wJ')
-            dens = internal.ensureExpTensExpensive(dens);
+            dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
         end
         sumW = sum(dens.wJ);
         if sumW > 0
@@ -739,7 +767,7 @@ function nBytes = localEstimateCentresArrayBytes(K, r, isRel)
 end
 
 
-function t = localProbeEvalPath(dens, xProbe, pathName, ...
+function t = localProbeEvalPath(dens, maet, xProbe, pathName, ...
         truncationSigmas, kernelPrecision)
 %LOCALPROBEEVALPATH  Time a small slice of the chosen eval path.
 %   Returns elapsed seconds. The probe uses the actual code path
@@ -754,7 +782,7 @@ function t = localProbeEvalPath(dens, xProbe, pathName, ...
 %   flip back to the other path on subsequent calls with identical
 %   inputs.
     if strcmp(pathName, 'centres')
-        densMat = internal.ensureExpTensExpensive(dens);
+        densMat = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
         % Warmup pass (discarded).
         localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
             truncationSigmas, kernelPrecision);
@@ -777,7 +805,7 @@ end
 
 
 function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
-        dens, X, nQ, method, truncationSigmas, kernelPrecision, ...
+        dens, maet, X, nQ, method, truncationSigmas, kernelPrecision, ...
         verbose) %#ok<INUSD>
 %LOCALSELECTANDESTIMATESA  Unified dispatcher + time estimate for SA eval.
 %
@@ -1004,9 +1032,9 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
     sampleIdx = round(linspace(1, nQ, nProbe));
     xProbe = X(:, sampleIdx);
 
-    tCentres = localProbeEvalPath(dens, xProbe, 'centres', ...
+    tCentres = localProbeEvalPath(dens, maet, xProbe, 'centres', ...
         truncationSigmas, kernelPrecision);
-    tOrbit = localProbeEvalPath(dens, xProbe, 'mobius', ...
+    tOrbit = localProbeEvalPath(dens, maet, xProbe, 'mobius', ...
         truncationSigmas, kernelPrecision);
 
     if tCentres <= tOrbit
@@ -1880,12 +1908,11 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
     elseif iscell(Xarg) && numel(Xarg) == n
         % All entries are numeric vectors. Could be either per-density
         % (each is a single-attribute query) or a single MA-cell-form X
-        % broadcast. Disambiguate by density type: if all densities are
-        % SA, treat as per-density. Otherwise broadcast.
+        % broadcast. Disambiguate by density shape: if all densities are
+        % single-multiset, treat as per-density. Otherwise broadcast.
         allSA = true;
         for i = 1:n
-            if ~isstruct(densCell{i}) || ~isfield(densCell{i}, 'tag') ...
-                    || ~strcmp(densCell{i}.tag, 'ExpTensDensity')
+            if ~internal.isSingleMultiset(densCell{i})
                 allSA = false;
                 break;
             end

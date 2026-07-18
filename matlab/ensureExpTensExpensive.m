@@ -9,22 +9,19 @@ function dens = ensureExpTensExpensive(dens)
 %   This is the helper used by consumer entry points (cosSimExpTens,
 %   evalExpTens, windowedTensorSimilarity, etc.) on density inputs.
 %   buildExpTens defaults to 'lazy', true, returning a skinny density
-%   that exposes only cheap fields (p/pAttr, w, sigma, r, isRel,
+%   that exposes only cheap fields (pAttr, w, sigma, r, isRel,
 %   isPer, period, dim, etc.). Orbit-method consumers operate
 %   directly on the cheap fields and skip this helper; pairwise/centre
 %   consumers prepend a single call to it.
 %
 %   Cheap fields (always present after buildExpTens):
-%     SA tag 'ExpTensDensity':
-%       p, w, sigma, r, isRel, isPer, period, dim
-%     MA tag 'MaetDensity':
+%     tag 'MaetDensity' (single-multiset is the A = N = 1 corner):
 %       nAttrs, N, r, K, pAttr,
 %       w, sigma, isRel, isPer, period, dim, dimPerAttr
 %
 %   Expensive fields (populated by this helper):
-%     SA: Centres, wJ, nJ, U_perm, w_perm, nJ_perm, V_comb, wv_comb, nK
-%     MA: Centres, U_perm, V_comb, wJ, wv_comb, nJ, nK,
-%         eventOfJ, eventOfK
+%       Centres, U_perm, V_comb, wJ, wv_comb, nJ, nK,
+%       eventOfJ, eventOfK
 %
 %   Idempotence: detection is by the presence of `Centres`. Calling on a
 %   fully-populated density returns it unchanged.
@@ -56,7 +53,7 @@ function dens = ensureExpTensExpensive(dens)
 
     % Forward the per-attribute nesting spec (representation B) so a
     % nested attribute is not silently flattened when its expensive
-    % fields are materialised. Only meaningful for MA densities.
+    % fields are materialised.
     nestedArgs = {};
     if isfield(dens, 'nested') && iscell(dens.nested) ...
             && any(~cellfun(@isempty, dens.nested))
@@ -82,12 +79,6 @@ function dens = ensureExpTensExpensive(dens)
     end
 
     switch dens.tag
-        case 'ExpTensDensity'
-            dens = buildExpTens( ...
-                dens.p, dens.w, dens.sigma, dens.r, ...
-                dens.isRel, dens.isPer, dens.period, symArgs{:}, ...
-                'lazy', false, 'verbose', false);
-
         case 'MaetDensity'
             dens = buildExpTens( ...
                 dens.pAttr, dens.w, dens.sigma, dens.r, ...

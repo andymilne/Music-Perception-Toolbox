@@ -94,6 +94,9 @@ for ic = 1:size(er_cases, 1)
     results{end, 2} = local_within_rtol(v_inf, ref, 1e-12);
 
     % --- truncationSigmas at k=4..6 within cumulative bound ---
+    % Non-periodic only: under the truncation contract, periodic mode
+    % also truncates (inf resolves to the accuracy-floor width), so the
+    % former "periodic ignores truncation" check is obsolete and removed.
     if ~isPer
         for k = [4, 5, 6]
             v_trunc = evalExpTens(dens, X, 'method', 'centres', ...
@@ -105,13 +108,6 @@ for ic = 1:size(er_cases, 1)
                 'eval_routing: truncation k=%d within bound (%s)', k, label);
             results{end, 2} = err < bound;
         end
-    else
-        % Periodic: truncation has no effect (falls through to exact)
-        v_trunc = evalExpTens(dens, X, 'method', 'centres', ...
-            'truncationSigmas', 6, 'verbose', false);
-        results{end+1, 1} = sprintf(...
-            'eval_routing: periodic ignores truncation (%s)', label);
-        results{end, 2} = isequal(v_default, v_trunc);
     end
 
     % --- Single precision within bound ---
@@ -189,7 +185,11 @@ end
 function v = local_ref_eval(dens, X)
 %LOCAL_REF_EVAL  Frozen v2.0/v2.1 evalFull body for parity reference.
 %   Assumes `dens` already has its heavy fields materialised (caller
-%   has invoked internal.ensureExpTensExpensive).
+%   has invoked internal.ensureExpTensExpensive). The frozen body reads
+%   the flat single-multiset layout, so present the density through the
+%   view (single-multiset densities are the A = N = 1 corner of a
+%   MaetDensity).
+    dens = internal.singleMultisetView(dens);
     Centres = dens.Centres;
     wJ      = dens.wJ;
     sigma   = dens.sigma;

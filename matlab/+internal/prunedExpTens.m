@@ -9,50 +9,57 @@ function dens = prunedExpTens(dens)
 %   the common (un-windowed) path pays only one scan.
 %
 %   Liveness rule (single definition; see internal.weightIsLive):
-%     * SA (ExpTensDensity): an element is live iff its weight is finite
-%       and of nonzero magnitude.
-%     * MA (MaetDensity): an event is live iff EVERY attribute has at
-%       least one finite, nonzero weight slot in that event's column. An
-%       all-zero or all-NaN column kills the event (the per-attribute
-%       factors multiply); a partly-zero column does not.
+%     * Single-multiset (MaetDensity at A = N = 1): an element is live
+%       iff its weight is finite and of nonzero magnitude. Dead elements
+%       are dropped from the multiset (element-level prune).
+%     * General MA (MaetDensity): an event is live iff EVERY attribute
+%       has at least one finite, nonzero weight slot in that event's
+%       column. An all-zero or all-NaN column kills the event (the
+%       per-attribute factors multiply); a partly-zero column does not.
 %
-%   The source build (buildExpTens) stays faithful — it keeps every
-%   event. This view is the opt-in performance form consumed by the
-%   inner-product / total-mass paths (Rényi-2 entropy, cosine
+%   The source build (buildExpTens) stays faithful --- it keeps every
+%   event. This reduced form is the opt-in performance density consumed
+%   by the inner-product / total-mass paths (Rényi-2 entropy, cosine
 %   similarity). It is the MATLAB counterpart of the Python density
-%   `pruned()` method.
+%   `pruned()` method (and, for the single-multiset corner, of
+%   _SingleMultisetView.pruned()).
 
     if ~isstruct(dens) || ~isfield(dens, 'tag')
         return;   % not a density struct; nothing to prune
     end
 
     switch dens.tag
-        case 'ExpTensDensity'
-            live = internal.weightIsLive(dens.w);
-            if all(live(:))
-                return;
-            end
-            if internal.densityHasKernelCov(dens)
-                % r == K on matrix-sigma densities: dropping a value
-                % would change the tuple dimension. The dead value
-                % already zeroes the (single) tuple's weight, so
-                % pruning is a no-op.
-                return;
-            end
-            out        = struct();
-            out.tag    = 'ExpTensDensity';
-            out.p      = dens.p(live);
-            out.w      = dens.w(live);
-            out.sigma  = dens.sigma;
-            out.r      = dens.r;
-            out.isRel  = dens.isRel;
-            out.isPer  = dens.isPer;
-            out.period = dens.period;
-            if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
-            out.dim    = dens.dim;
-            dens       = out;
-
         case 'MaetDensity'
+            if internal.isSingleMultiset(dens)
+                % Single-multiset corner: element-level prune over the
+                % one flat attribute's values. Mirrors the historical
+                % value-level pruning rule (and Python
+                % _SingleMultisetView.pruned()): drop zero-/NaN-weight
+                % values, rebuilding the A = N = 1 density on the live
+                % subset. No-op under a matrix-valued kernel (dropping a
+                % value would change the single tuple's dimension; the
+                % dead value already zeroes its weight).
+                w1 = dens.w{1};
+                live = internal.weightIsLive(w1);
+                live = live(:).';
+                if all(live)
+                    return;
+                end
+                if internal.densityHasKernelCov(dens)
+                    return;
+                end
+                p1 = dens.pAttr{1};
+                symArg = {};
+                if isfield(dens, 'isSym') && ~isempty(dens.isSym)
+                    symArg = {dens.isSym(1)};
+                end
+                dens = buildExpTens( ...
+                    p1(live), w1(live), dens.sigma(1), dens.r(1), ...
+                    dens.isRel(1), dens.isPer(1), dens.period(1), ...
+                    symArg{:}, 'lazy', true, 'verbose', false);
+                return;
+            end
+
             live = true(1, dens.N);
             for a = 1:dens.nAttrs
                 live = live & any(internal.weightIsLive(dens.w{a}), 1);

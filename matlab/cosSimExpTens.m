@@ -417,9 +417,10 @@ end
 % Canonical dispatch order (mirrors entropyExpTens and evalExpTens):
 %   nArgs == 2:  precomputed-density forms or LIST.
 %     - both struct -> switch on tag pair:
-%         * (ExpTensDensity, ExpTensDensity) -> SA dens (falls through
-%           to shared SA compatibility validation + SA dispatch below).
-%         * (MaetDensity,   MaetDensity)   -> MA dens (early return).
+%         * (MaetDensity, MaetDensity), both single-multiset -> flat
+%           single-multiset path (falls through to shared compatibility
+%           validation + single-multiset dispatch below).
+%         * (MaetDensity, MaetDensity), general -> MA dens (early return).
 %         * tag mismatch                   -> error.
 %     - either operand iscell                -> LIST (early return).
 %     - otherwise                            -> usage error.
@@ -460,21 +461,27 @@ if nArgs == 2
             error('cosSimExpTens:untaggedStruct', ...
                 'Both density structs must carry a ''tag'' field.');
         end
-        switch [a.tag '|' b.tag]
-            case 'ExpTensDensity|ExpTensDensity'
-                % SA dens: validate compatibility below, then fall through.
-                dens_x = internal.prunedExpTens(a);
-                dens_y = internal.prunedExpTens(b);
-            case 'MaetDensity|MaetDensity'
+        if strcmp(a.tag, 'MaetDensity') && strcmp(b.tag, 'MaetDensity')
+            if internal.isSingleMultiset(a) && internal.isSingleMultiset(b)
+                % Single-multiset corner (A = N = 1): prune element-level
+                % at the density level, then present the flat layout to
+                % the fast kernels below via the view (built here for the
+                % cheap-field reads; the Bulger branch re-views after
+                % ensuring the density's per-tuple fields).
+                maet_x = internal.prunedExpTens(a);
+                maet_y = internal.prunedExpTens(b);
+                dens_x = internal.singleMultisetView(maet_x);
+                dens_y = internal.singleMultisetView(maet_y);
+            else
                 s = localCosSimMA(a, b, method, normalize, ...
                                   cancellationThreshold, verbose, ...
                                   truncationSigmas);
                 return;
-            otherwise
-                error('cosSimExpTens:tagMismatch', ...
-                    ['Both density structs must carry matching tags ' ...
-                     '(ExpTensDensity vs ExpTensDensity, or MaetDensity vs ' ...
-                     'MaetDensity). Got %s and %s.'], a.tag, b.tag);
+            end
+        else
+            error('cosSimExpTens:tagMismatch', ...
+                ['Both density structs must carry the ''MaetDensity'' ' ...
+                 'tag. Got %s and %s.'], a.tag, b.tag);
         end
     elseif iscell(a) || iscell(b)
         % LIST: cell-of-struct on either side (scalar struct may be
@@ -611,9 +618,10 @@ elseif nArgs == 9
             dedupGiven, dedupOpt);
         return;
     end
-    % --- SA raw: numeric vectors. Builds skinny; Bulger branch ensures
-    %     heavy fields on demand inside localCosSimSA. Falls through to
-    %     SA compatibility validation + SA dispatch below.
+    % --- Single-multiset raw: numeric vectors. Builds a MaetDensity at
+    %     the A = N = 1 corner; the flat view presents the single-multiset
+    %     layout to the fast kernels below. Bulger branch re-views after
+    %     ensuring per-tuple fields on the density.
     p1     = varargin{1};
     w1     = varargin{2};
     p2     = varargin{3};
@@ -624,10 +632,12 @@ elseif nArgs == 9
     isPer_arg  = varargin{8};
     J_arg      = varargin{9};
 
-    dens_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          symArgs{:}, 'verbose', verbose);
-    dens_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, J_arg, ...
-                          symArgs{:}, 'verbose', verbose);
+    maet_x = buildExpTens(p1, w1, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
+        J_arg, symArgs{:}, 'verbose', verbose);
+    maet_y = buildExpTens(p2, w2, sigma_arg, r_arg, isRel_arg, isPer_arg, ...
+        J_arg, symArgs{:}, 'verbose', verbose);
+    dens_x = internal.singleMultisetView(maet_x);
+    dens_y = internal.singleMultisetView(maet_y);
 
 else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
@@ -736,9 +746,10 @@ end
 
 if ~ranOrbit
     % Pairwise branch (also entered when 'method', 'bulger' was set,
-    % and when an Möbius-then-fallback occurred). Heavy fields needed.
-    dens_x = internal.ensureExpTensExpensive(dens_x);
-    dens_y = internal.ensureExpTensExpensive(dens_y);
+    % and when an Möbius-then-fallback occurred). Heavy fields needed:
+    % ensure them on the density, then re-view for the flat kernel.
+    dens_x = internal.singleMultisetView(internal.ensureExpTensExpensive(maet_x));
+    dens_y = internal.singleMultisetView(internal.ensureExpTensExpensive(maet_y));
 
     Ux_perm  = dens_x.U_perm;
     wx_perm  = dens_x.w_perm;
@@ -1533,12 +1544,14 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
         return;
     end
 
-    subX = buildExpTens(dens_x.p(1:K_probe_x), dens_x.w(1:K_probe_x), ...
+    maetSubX = buildExpTens(dens_x.p(1:K_probe_x), dens_x.w(1:K_probe_x), ...
         dens_x.sigma, dens_x.r, dens_x.isRel, dens_x.isPer, ...
         dens_x.period, 'verbose', false);
-    subY = buildExpTens(dens_y.p(1:K_probe_y), dens_y.w(1:K_probe_y), ...
+    maetSubY = buildExpTens(dens_y.p(1:K_probe_y), dens_y.w(1:K_probe_y), ...
         dens_y.sigma, dens_y.r, dens_y.isRel, dens_y.isPer, ...
         dens_y.period, 'verbose', false);
+    subX = internal.singleMultisetView(maetSubX);
+    subY = internal.singleMultisetView(maetSubY);
 
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
@@ -1557,8 +1570,8 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
         t = elapsed / reps;
         probeCache(cacheKey) = t;
     else
-        subX = internal.ensureExpTensExpensive(subX);
-        subY = internal.ensureExpTensExpensive(subY);
+        subX = internal.singleMultisetView(internal.ensureExpTensExpensive(maetSubX));
+        subY = internal.singleMultisetView(internal.ensureExpTensExpensive(maetSubY));
         % Warmup pass (discarded).
         localProbePairwiseIP(subX, subY, truncationSigmas, kernelPrecision);
         % Timed passes: repeat until the sample is above timer noise.

@@ -102,13 +102,13 @@ for isRel_ = [false, true]
     results{end,2}   = dens_ma.nJ == dens_sa.nJ;
 
     results{end+1,1} = ['MAET: SA-equivalence U_perm' relTag];
-    results{end,2}   = isequal(dens_ma.U_perm{1}, dens_sa.U_perm);
+    results{end,2}   = isequal(dens_ma.U_perm{1}, dens_sa.U_perm{1});
 
     results{end+1,1} = ['MAET: SA-equivalence V_comb' relTag];
-    results{end,2}   = isequal(dens_ma.V_comb{1}, dens_sa.V_comb);
+    results{end,2}   = isequal(dens_ma.V_comb{1}, dens_sa.V_comb{1});
 
     results{end+1,1} = ['MAET: SA-equivalence Centres' relTag];
-    results{end,2}   = isequal(dens_ma.Centres{1}, dens_sa.Centres);
+    results{end,2}   = isequal(dens_ma.Centres{1}, dens_sa.Centres{1});
 
     results{end+1,1} = ['MAET: SA-equivalence wJ' relTag];
     results{end,2}   = max(abs(dens_ma.wJ - dens_sa.wJ)) < 1e-12;
@@ -505,12 +505,16 @@ results{end+1,1} = 'cosSimExpTens MA: mismatched raw-args kinds error';
 results{end,2}   = throwsError(@() cosSimExpTens( ...
     {pitchA, timeA}, [], [0 4 7], [], 10, 2, true, true, 1200, 'verbose', false));
 
-% -- cosSimExpTens MA: mixed struct types error --
+% -- cosSimExpTens: incompatible attribute structure errors --
+% Under the unified type there is no SA-vs-MA type mix to reject; the
+% genuine incompatibility is a single-multiset (A=1) density paired with
+% a multi-attribute (A=2) density, which cannot share an inner product.
 
-d_sa = buildExpTens([0 4 7], [], 10, 2, false, true, 1200, 'verbose', false);
-d_ma = buildExpTens({[0; 4; 7]}, [], 10, 2, false, true, 1200, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens: mixed SA/MA structs error';
-results{end,2}   = throwsError(@() cosSimExpTens(d_sa, d_ma, 'verbose', false));
+d_single = buildExpTens([0 4 7], [], 10, 2, false, true, 1200, 'verbose', false);
+d_multi  = buildExpTens({[0; 4; 7], [0; 1; 2]}, [], [10 10], [2 1], ...
+    [false false], [true false], [1200 0], 'verbose', false);
+results{end+1,1} = 'cosSimExpTens: single-multiset vs multi-attribute structs error';
+results{end,2}   = throwsError(@() cosSimExpTens(d_single, d_multi, 'verbose', false));
 
 % -- cosSimExpTens MA: parameter-mismatch errors --
 

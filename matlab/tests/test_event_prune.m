@@ -44,11 +44,13 @@ mptDefaults('reset');
 %% Liveness rule, observed through internal.prunedExpTens
 %% -----------------------------------------------------------------
 
-% SA: live iff finite and nonzero. Zeros kill; finite nonzero (incl.
-% negative) survive.
+% Single-multiset: live iff finite and nonzero. Zeros kill; finite
+% nonzero (incl. negative) survive. prunedExpTens returns a MaetDensity
+% (the single density type); the flat single-multiset fields are read
+% through the view, mirroring Python's single_multiset_view(dens).pruned().
 densSA = buildExpTens([60 62 64 66 68], [1 0 0 2 -3], 0.5, 1, ...
                       false, false, 0);
-prSA = internal.prunedExpTens(densSA);
+prSA = internal.singleMultisetView(internal.prunedExpTens(densSA));
 results{end+1,1} = 'SA prune drops zero-weight elements, keeps finite nonzero';
 results{end,2}   = isequal(prSA.p(:).', [60 66 68]) ...
                    && isequal(prSA.w(:).', [1 2 -3]);

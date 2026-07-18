@@ -11,10 +11,18 @@ function dens = buildExpTens(varargin)
 %     dens = buildExpTens(..., 'verbose', false)
 %
 %   The function dispatches on the type of the first argument:
-%     - numeric vector  -> single-attribute path, returns struct with
-%                          tag = 'ExpTensDensity'
+%     - numeric vector  -> single-multiset (single-attribute) path,
+%                          canonicalised to the A = N = 1 corner of the
+%                          multi-attribute build; returns a struct with
+%                          tag = 'MaetDensity'
 %     - cell array      -> multi-attribute path, returns struct with
 %                          tag = 'MaetDensity'
+%
+%   There is one density type. The single-multiset vector calling
+%   convention is input canonicalisation: the collection becomes a
+%   (K, 1) attribute and the scalar parameters become length-1 vectors.
+%   The fast single-multiset kernels operate on this corner via
+%   internal.singleMultisetView.
 %
 %   Inputs (single-attribute path):
 %     p         - Pitch or position values (vector of length N).
@@ -211,8 +219,8 @@ function dens = buildExpTens(varargin)
         end
         if numel(posArgs) >= 3 && internal.isKernelCov(posArgs{3})
             if numel(posArgs) < 7
-                error('buildExpTens:saArgCount', ...
-                      ['Single-attribute call expects 7 or 8 ' ...
+                error('buildExpTens:singleMultisetArgCount', ...
+                      ['Single-multiset call expects 7 or 8 ' ...
                        'positional arguments.']);
             end
             isSymArg = [];
@@ -222,12 +230,15 @@ function dens = buildExpTens(varargin)
                 posArgs{6}, isSymArg, []);
             posArgs{1} = pW;
             posArgs{3} = sigmaOne;
-            dens = localBuildSA(posArgs, verbose, lazy);
-            dens.kernelCov = Sigma;
-            dens.kernelChol = R;
+            dens = localBuildSingleMultiset(posArgs, verbose, lazy);
+            % Store per-attribute (1-cell) to match the MaetDensity
+            % convention; internal.singleMultisetView unwraps for the
+            % flat single-multiset consumers.
+            dens.kernelCov = {Sigma};
+            dens.kernelChol = {R};
             return
         end
-        dens = localBuildSA(posArgs, verbose, lazy);
+        dens = localBuildSingleMultiset(posArgs, verbose, lazy);
     else
         error('buildExpTens:badFirstArg', ...
               ['First argument must be a numeric vector (single-attribute) ' ...
@@ -345,7 +356,13 @@ end
 %  Single-attribute (legacy) path
 % ======================================================================
 
-function dens = localBuildSA(posArgs, verbose, lazy)
+function dens = localBuildSingleMultiset(posArgs, verbose, lazy)
+%LOCALBUILDSINGLEMULTISET  Vector-form build: canonicalise a single
+%   weighted multiset to the A = N = 1 corner of the multi-attribute
+%   build. There is one density type (MaetDensity); the vector calling
+%   convention is pure input canonicalisation --- the collection becomes
+%   a (K, 1) attribute matrix and the scalar parameters become length-1
+%   vectors. Twin of Python _build_exp_tens_single_multiset.
 
     if numel(posArgs) == 7
         [p, w, sigma, r, isRel, isPer, period] = posArgs{:};
@@ -353,14 +370,56 @@ function dens = localBuildSA(posArgs, verbose, lazy)
     elseif numel(posArgs) == 8
         [p, w, sigma, r, isRel, isPer, period, isSym] = posArgs{:};
     else
-        error('buildExpTens:saArgCount', ...
-              ['Single-attribute call expects 7 or 8 positional ' ...
+        error('buildExpTens:singleMultisetArgCount', ...
+              ['Single-multiset call expects 7 or 8 positional ' ...
                'arguments: p, w, sigma, r, isRel, isPer, period[, isSym].']);
     end
     isSym = logical(isSym);
 
     p = p(:);
     w = w(:);
+
+    % Degenerate empty collection (e.g. an all-dead pruning, or a window
+    % that captures nothing): a valid zero-mass density with no tuples,
+    % matching the historical vector-build behaviour. Constructed directly
+    % because the general multi-attribute event validation (each event
+    % needs at least r valid slots) correctly rejects empty events in the
+    % multi-event setting. Placed before the r > K validation so the
+    % empty case is accepted rather than rejected. Twin of the K == 0
+    % branch of Python _build_exp_tens_single_multiset.
+    if isempty(p)
+        isRel = logical(isRel);
+        dim   = r - double(isRel);
+        dens = struct();
+        dens.tag        = 'MaetDensity';
+        dens.nAttrs     = 1;
+        dens.N          = 1;
+        dens.r          = r;
+        dens.K          = 0;
+        dens.pAttr      = {zeros(0, 1)};
+        dens.w          = {zeros(0, 1)};
+        dens.sigma      = sigma;
+        dens.isRel      = isRel;
+        dens.isPer      = logical(isPer);
+        dens.period     = period;
+        dens.isSym      = logical(isSym);
+        dens.dim        = dim;
+        dens.dimPerAttr = dim;
+        dens.nested     = {[]};
+        % Empty per-tuple fields (nJ = nK = 0), matching
+        % localFillMAExpensive shapes so the density is fully materialised
+        % and internal.ensureExpTensExpensive is a no-op on it.
+        dens.nJ         = 0;
+        dens.nK         = 0;
+        dens.Centres    = {zeros(dim, 0)};
+        dens.U_perm     = {zeros(r, 0)};
+        dens.V_comb     = {zeros(r, 0)};
+        dens.wJ         = zeros(1, 0);
+        dens.wv_comb    = zeros(1, 0);
+        dens.eventOfJ   = zeros(1, 0);
+        dens.eventOfK   = zeros(1, 0);
+        return;
+    end
 
     if isempty(w)
         w = ones(numel(p), 1);
@@ -372,6 +431,8 @@ function dens = localBuildSA(posArgs, verbose, lazy)
         w = w * ones(numel(p), 1);
     end
 
+    % Historical single-multiset validation, enforced before
+    % canonicalisation so callers keep the established messages.
     if rem(r, 1) || r < 1
         error('''r'' must be a positive integer.');
     elseif r > numel(p)
@@ -413,98 +474,12 @@ function dens = localBuildSA(posArgs, verbose, lazy)
         end
     end
 
-    dim = r - isRel;
-
-    % --- Pack skinny struct (cheap fields only) ---
-    dens = struct();
-    dens.tag    = 'ExpTensDensity';
-    dens.p      = p;
-    dens.w      = w;
-    dens.sigma  = sigma;
-    dens.r      = r;
-    dens.isRel  = isRel;
-    dens.isPer  = isPer;
-    dens.period = period;
-    dens.isSym  = isSym;
-    dens.dim    = dim;
-
-    if lazy
-        if verbose
-            fprintf(['buildExpTens: skinny density (%d values, r = %d); ' ...
-                     'per-tuple fields populated lazily on first consumer use.\n'], ...
-                    numel(p), r);
-        end
-        return
-    end
-
-    % --- Populate expensive fields (eager mode) ---
-    dens = localFillSAExpensive(dens, verbose);
-end
-
-
-function dens = localFillSAExpensive(dens, verbose)
-%LOCALFILLSAEXPENSIVE  Populate per-tuple SA fields on a skinny dens.
-
-    p     = dens.p;
-    w     = dens.w;
-    r     = dens.r;
-    isRel = dens.isRel;
-    isSym = dens.isSym;
-
-    n      = numel(p);
-    nCombs = nchoosek(n, r);
-
-    % isSym = true (default): symmetrise each combination over its full
-    % S_r orbit (the perm side has r! copies). isSym = false: keep each
-    % combination in listed order, so the perm side equals the comb side
-    % (the de-reflected, ordered density). r = 1 has no order to
-    % symmetrise, so perms(1) gives the single identity either way.
-    if isSym
-        allPerms = perms(1:r)';
-    else
-        allPerms = (1:r)';   % identity only
-    end
-    nPerms = size(allPerms, 2);
-    nJ     = nPerms * nCombs;
-    nK     = nCombs;
-
-    if verbose
-        fprintf('buildExpTens: building %d ordered %d-tuples from %d values.\n', ...
-            nJ, r, n);
-    end
-
-    nck      = nchoosek(1:numel(p), r)';
-
-    Ju     = zeros(r, nJ);
-    offset = 0;
-    for i = 1:nPerms
-        Ju(:, offset + 1 : offset + nCombs) = nck(allPerms(:, i), :);
-        offset = offset + nCombs;
-    end
-
-    U_perm = reshape(p(Ju), r, nJ);
-    w_perm = reshape(prod(reshape(w(Ju), r, nJ), 1), 1, nJ);
-
-    Kv      = nck;
-    V_comb  = reshape(p(Kv), r, nK);
-    wv_comb = reshape(prod(reshape(w(Kv), r, nK), 1), 1, nK);
-
-    if isRel
-        Centres = U_perm(2:r, :) - U_perm(1, :);
-    else
-        Centres = U_perm;
-    end
-
-    dens.Centres = Centres;
-    dens.wJ      = w_perm;
-    dens.nJ      = nJ;
-
-    dens.U_perm  = U_perm;
-    dens.w_perm  = w_perm;
-    dens.nJ_perm = nJ;
-    dens.V_comb  = V_comb;
-    dens.wv_comb = wv_comb;
-    dens.nK      = nK;
+    % Canonicalise to the A = N = 1 multi-attribute build: the collection
+    % is a single flat attribute (K slots, one event), scalar parameters
+    % become length-1 vectors. Every consumer reads the resulting
+    % MaetDensity either natively or through internal.singleMultisetView.
+    maArgs = {{p}, {w}, sigma, r, isRel, isPer, period, isSym};
+    dens = localBuildMA(maArgs, verbose, lazy, {[]}, {});
 end
 
 

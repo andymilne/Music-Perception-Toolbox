@@ -65,7 +65,12 @@ v_direct = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
 results{end+1,1} = 'dispatch.SA eval: ''direct'' alias produces same result as ''centres''';
 results{end,2}   = isequal(v_direct, v_centres);
 
-%% ---- Auto routes to centres for small r=2 ----
+%% ---- Auto agrees with centres for small r=2 ----
+% The cost model routes small-K r=2 (abs) to the Möbius path: its factored
+% cost B_r*r*K undercuts the joint tuple count r!*C(K,r). Auto and centres
+% therefore agree to the Möbius alternating-sum accuracy, not bit-exactly.
+% Twin of the Python dispatcher test (test_eval_dispatcher.py), which
+% asserts allclose(auto, centres) at ATOL=1e-11, RTOL=1e-8.
 
 rng(33, 'twister');
 p2 = sort(2000 * rand(6, 1));
@@ -74,8 +79,8 @@ X2 = [linspace(100, 1900, 4); linspace(500, 1500, 4)];
 v_auto2 = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, 'verbose', false);
 v_cen2  = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: r=2 small-K auto agrees with centres (exact)';
-results{end,2}   = isequal(v_auto2, v_cen2);
+results{end+1,1} = 'dispatch.SA eval: r=2 small-K auto agrees with centres (rtol 1e-8)';
+results{end,2}   = all(abs(v_auto2 - v_cen2) <= 1e-11 + 1e-8 * abs(v_cen2));
 
 %% ---- K-vs-r margin guard ----
 

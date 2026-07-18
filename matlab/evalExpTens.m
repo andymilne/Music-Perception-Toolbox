@@ -494,38 +494,18 @@ nQ = size(X, 2);
 % ---- Routing axis ----
 if strcmp(method, 'centres') || strcmp(method, 'direct')
     chosen = 'centres';
-    probed = false;
 elseif strcmp(method, 'mobius')
     chosen = 'mobius';
-    probed = false;
 elseif strcmp(method, 'auto')
-    K_src = numel(dens.p);
-    if dens.r <= 1 || (K_src - dens.r) < 2
-        % Hard rules force centres without a dispatcher call.
-        chosen = 'centres';
-        probed = false;
-        if dens.r <= 1
-            hardRuleReason = sprintf('r = %d', dens.r);
-        else
-            hardRuleReason = sprintf('K - r = %d < 2', K_src - dens.r);
-        end
-        % Dispatch messages announce the routing DECISION only; they
-        % bypass per-call verbose, are gated by the toolbox-wide
-        % showHints flag, and are throttled to once per top-level user
-        % call per unique (funcName, chosen) pair (via
-        % +internal/dispatchScope). Time estimates are a separate
-        % concern emitted by estimateCompTime under verbose.
-        internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
-            hardRuleReason);
-    else
-        % Discretionary case — dispatcher decides via prescreen / probe.
-        % The probe's estSec/probed outputs remain available for
-        % debugging but no longer feed the decision-only message.
-        [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
-            dens, maet, X, nQ, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
-        internal.maybeShowDispatchMsg('evalExpTens', chosen, ...
-            routingReason);
-    end
+    % Probe-free cost-model path selection. The single-multiset corner is
+    % the A = 1 case of the multi-attribute selector, so route it through
+    % the same internal.selectMaEval (twin of _select_ma_eval) rather than
+    % a parallel copy: one cost model, one place. The dispatch message
+    % announces the routing DECISION only; the time estimate is a separate
+    % concern, emitted by estimateCompTime in the executing centres path
+    % under verbose.
+    [chosen, routingReason] = internal.selectMaEval(maet, verbose);
+    internal.maybeShowDispatchMsg('evalExpTens', chosen, routingReason);
 else
     error('evalExpTens:badMethod', ...
           ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
@@ -574,6 +554,21 @@ if ~ranOrbit
     % method, and for Möbius-then-fallback). Heavy fields needed: ensure
     % them on the density, then re-view for the flat kernel.
     dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
+    % Time estimate: the centres kernel evaluates nJ * nQ (tuple, query)
+    % pairs. Emitted here, in the executing path, rather than in the
+    % dispatcher, so the probe-free selector reports the routing decision
+    % only --- matching the Python path, whose centres branch calls
+    % estimate_comp_time. Gated on verbose so it adds nothing to the
+    % forced-centres tight loops (which run with verbose = false).
+    if verbose
+        if dens.isRel
+            dimEst = max(double(dens.r) - 1, 1);
+        else
+            dimEst = double(dens.r);
+        end
+        estimateCompTime(double(dens.nJ) * double(nQ), dimEst, ...
+            'evalExpTens (MAET)', verbose);
+    end
     if useDefaultKwargs
         % Inline direct broadcast. FP-identical to the
         % helper at default settings, but skips the helper's
@@ -656,399 +651,11 @@ end
 %  SA evaluation dispatch helpers (method='auto'|'centres'|'mobius')
 % =========================================================================
 
-function chosen = localSelectSAEvalMethod(r, K, nQ, isRel, isPer, ...
-                                            sigmaOverP, userMethod) %#ok<INUSD>
-%LOCALSELECTSAEVALMETHOD  Choose the evaluation path for SA evalExpTens.
-%
-%   nQ and sigmaOverP are accepted for signature parity with future cost
-%   models; current logic does not use them.
-%
-%   Routing rules (in order):
-%     1. userMethod 'centres'/'direct'/'mobius' overrides everything.
-%     2. r <= 1: the Möbius method reduces to the direct sum; centres is simpler.
-%     3. isRel: the Möbius relative-mode evaluator does at most
-%        B_r * r * K * N_u work per query (where N_u ~ 1000 for typical
-%        sigma/period) on its direct strategy, and B_r * r * N_u plus an
-%        amortised tabulation on its factored strategy (non-periodic;
-%        chosen by its internal cost gate for batched workloads), versus
-%        K^r work per query for centres. For scalar queries in typical
-%        music-cog regimes (K up to ~100, r up to 4) centres wins
-%        because N_u is large; the factored strategy shifts the
-%        crossover in Möbius's favour for batches. Auto stays
-%        on centres; users wanting the Möbius relative-mode evaluator (e.g. for very large K
-%        where centres memory blows up) opt in explicitly with
-%        method='mobius'.
-%     4. r == 2 and K <= 8: centres is competitive; avoids partition-
-%        table dispatch overhead.
-%     5. r > 8: shipped orbit tables stop at r=8 (build cost warned).
-%     6. K-vs-r precision guard: orbit's Möbius alternating partition sum can
-%        suffer catastrophic cancellation when K is too close to r.
-
-    if strcmp(userMethod, 'centres') || strcmp(userMethod, 'direct')
-        chosen = 'centres';
-        return;
-    end
-    if strcmp(userMethod, 'mobius')
-        chosen = 'mobius';
-        return;
-    end
-    if ~strcmp(userMethod, 'auto')
-        error('evalExpTens:badMethod', ...
-              ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
-               'or ''mobius''; got ''%s''.'], userMethod);
-    end
-    if r <= 1
-        chosen = 'centres';
-        return;
-    end
-    if isRel
-        chosen = 'centres';
-        return;
-    end
-    if r == 2 && K <= 8
-        chosen = 'centres';
-        return;
-    end
-    if r > 8   % _ORBIT_R_MAX_SHIPPED
-        chosen = 'centres';
-        return;
-    end
-    if K - r < 2   % _ORBIT_K_MINUS_R_MIN
-        chosen = 'centres';
-        return;
-    end
-    chosen = 'mobius';
-end
 
 
-% =========================================================================
-%  Unified path-selection + time-estimate probe
-%
-%  The probe-based dispatcher replaces the heuristic rule for the
-%  discretionary cases. Genuinely hard rules (correctness / feasibility)
-%  stay as rules; everything else is decided by timing both paths on a
-%  small probe and picking the faster. The probe time also produces the
-%  user-facing time estimate, so dispatcher and estimator share a single
-%  load-bearing measurement that auto-adapts to any future optimisation.
-% =========================================================================
-
-function s = localFormatTime(t)
-%LOCALFORMATTIME  Short human-readable duration string.
-    if t < 1
-        s = sprintf('%.0f ms', t * 1000);
-    elseif t < 60
-        s = sprintf('%.1f s', t);
-    elseif t < 3600
-        s = sprintf('%.1f min', t / 60);
-    else
-        s = sprintf('%.1f hr', t / 3600);
-    end
-end
 
 
-function nBytes = localEstimateCentresArrayBytes(K, r, isRel)
-%LOCALESTIMATECENTRESARRAYBYTES  Centres-array memory estimate.
-%   Returns K!/(K-r)! * dim * 8, where dim is r-1 for rel mode and
-%   r for abs mode.
-    if K < r
-        nBytes = 0;
-        return;
-    end
-    nJ = 1;
-    for k = (K - r + 1):K
-        nJ = nJ * k;
-    end
-    if isRel
-        dim = max(r - 1, 1);
-    else
-        dim = r;
-    end
-    nBytes = nJ * dim * 8;
-end
 
-
-function t = localProbeEvalPath(dens, maet, xProbe, pathName, ...
-        truncationSigmas, kernelPrecision)
-%LOCALPROBEEVALPATH  Time a small slice of the chosen eval path.
-%   Returns elapsed seconds. The probe uses the actual code path
-%   that will run for the full workload, so future optimisations
-%   are automatically reflected.
-%
-%   Runs the path twice on xProbe: a warmup pass (discarded) to
-%   stabilise CPU caches and one-shot table loads, then a timed
-%   pass. Without the warmup, whichever path ran most recently on
-%   the full workload comes into the probe with hot caches and
-%   gets unfairly favoured; the dispatcher would then deterministically
-%   flip back to the other path on subsequent calls with identical
-%   inputs.
-    if strcmp(pathName, 'centres')
-        densMat = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
-        % Warmup pass (discarded).
-        localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
-            truncationSigmas, kernelPrecision);
-        % Timed pass.
-        tStart = tic;
-        localEvalSACentres(densMat, xProbe, size(xProbe, 2), false, ...
-            truncationSigmas, kernelPrecision);
-        t = toc(tStart);
-    else  % 'mobius'
-        % Warmup pass (discarded).
-        localEvalSAOrbit(dens, xProbe, false, ...
-            truncationSigmas, kernelPrecision);
-        % Timed pass.
-        tStart = tic;
-        localEvalSAOrbit(dens, xProbe, false, ...
-            truncationSigmas, kernelPrecision);
-        t = toc(tStart);
-    end
-end
-
-
-function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSA( ...
-        dens, maet, X, nQ, method, truncationSigmas, kernelPrecision, ...
-        verbose) %#ok<INUSD>
-%LOCALSELECTANDESTIMATESA  Unified dispatcher + time estimate for SA eval.
-%
-%   Hard rules decide first (correctness / feasibility), then the
-%   discretionary case is decided by probing both paths and picking
-%   the faster.
-%
-%   Returns:
-%     chosen        — 'centres' or 'mobius'.
-%     probed        — true if a probe ran (verbose message includes a
-%                     time estimate only then).
-%     estSec        — extrapolated full-workload time in seconds; 0 if
-%                     no probe ran.
-%     routingReason — short string describing why this path was
-%                     chosen (e.g. 'r <= 1', 'rel-mode pre-screen',
-%                     'estimated 4.5 s'). Used by the caller to emit
-%                     a verbose dispatch message.
-
-    % Probing parameters.
-    PROBE_MIN_NQ = 200;
-    PROBE_N = 50;
-    CENTRES_PROBE_MEM_BUDGET = 4 * 1024^3;  % 4 GB
-    % Above this r, the Möbius method becomes infeasible: B_r explodes from 115,975
-    % at r=10 to 5e13 at r=20, and set-partition enumeration becomes
-    % impractical. r > this falls back to centres-only routing.
-    ORBIT_R_MAX_FEASIBLE = 10;
-    % Bell numbers (set-partition counts) for r = 1..10.
-    BELL = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975];
-    % Pre-screens: skip the probe when one path clearly dominates.
-    %  - CENTRES_DOMINANCE (rel mode): route TO centres. Orbit-rel
-    %    does u-grid quadrature with N_u sub-evals per query, so its
-    %    PROBE is prohibitively expensive for the typical case.
-    %  - ORBIT_DOMINANCE (abs mode): route TO the Möbius method. For abs mode,
-    %    centres cost per query is K^r and the Möbius cost is B_r*r*K;
-    %    ratio K^(r-1)/(B_r*r) is ~1000x at K=72 r=3. Must fire
-    %    BEFORE the tiny-workload shortcut so large-K abs workloads
-    %    (pattern-finding and other music-cog tasks at typical
-    %    24-72-partial harmonic templates) get cheap routing at
-    %    any n_q.
-    PRESCREEN_CENTRES_DOMINANCE = 3.0;
-    PRESCREEN_ORBIT_DOMINANCE   = 3.0;
-
-    r = double(dens.r);
-    K = numel(dens.p);
-    isRel = dens.isRel;
-    estSec = 0.0;
-    probed = false;
-    routingReason = '';
-
-    % ---- Rule 1: user override ----
-    if strcmp(method, 'centres') || strcmp(method, 'direct')
-        chosen = 'centres';
-        routingReason = 'user override';
-        return;
-    end
-    if strcmp(method, 'mobius')
-        chosen = 'mobius';
-        routingReason = 'user override';
-        return;
-    end
-    if ~strcmp(method, 'auto')
-        error('evalExpTens:badMethod', ...
-              ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
-               'or ''mobius''; got ''%s''.'], method);
-    end
-
-    % ---- Rule 2: Möbius method degenerate at r <= 1 ----
-    if r <= 1
-        chosen = 'centres';
-        routingReason = sprintf('r = %d', r);
-        return;
-    end
-
-    % ---- Rule 3: Möbius cancellation guard ----
-    if K - r < 2   % _ORBIT_K_MINUS_R_MIN
-        chosen = 'centres';
-        routingReason = sprintf('K - r = %d < 2', K - r);
-        return;
-    end
-
-    % ---- Rule 4: centres memory budget ----
-    centresBytes = localEstimateCentresArrayBytes(K, r, isRel);
-    if centresBytes > CENTRES_PROBE_MEM_BUDGET
-        % Centres infeasible. Orbit is the only candidate, but it has
-        % its own r-limit (B_r explodes).
-        if r > ORBIT_R_MAX_FEASIBLE
-            error('evalExpTens:infeasibleR', ...
-                  ['r=%d requires more than %d GB for the centres ' ...
-                   'array (K=%d), and the Möbius method is infeasible at r > %d ' ...
-                   '(B_r explodes). Reduce r or check inputs.'], ...
-                  r, floor(CENTRES_PROBE_MEM_BUDGET / 1024^3), K, ...
-                  ORBIT_R_MAX_FEASIBLE);
-        end
-        chosen = 'mobius';
-        routingReason = 'centres memory budget exceeded';
-        return;
-    end
-
-    % ---- Abs-mode pre-screen: route TO the Möbius method when it clearly wins ----
-    % For abs mode, centres cost per query is K^r (materialised
-    % density has n_j = K^r tuples), and the Möbius absolute-mode per-query cost is
-    % B_r * r * K. The ratio is K^(r-1) / (B_r * r); for K=72 r=3
-    % it's ~1000x, meaning the tiny-workload shortcut below would
-    % otherwise force centres for n_q<200 even when the Möbius method is 1000x
-    % faster. Must run BEFORE the tiny-workload shortcut so that
-    % large-K abs workloads (pattern-finding and other music-cog
-    % tasks at typical 24-72-partial harmonic templates) get the
-    % cheap routing decision they deserve at any n_q.
-    if ~isRel && r >= 2 && r <= ORBIT_R_MAX_FEASIBLE
-        if r <= numel(BELL)
-            B_r_abs = BELL(r);
-        else
-            B_r_abs = 1e9;
-        end
-        centresCostAbs = double(K)^r;
-        orbitCostAbs = double(B_r_abs) * r * double(K);
-        if orbitCostAbs * PRESCREEN_ORBIT_DOMINANCE < centresCostAbs
-            chosen = 'mobius';
-            routingReason = 'abs-mode pre-screen';
-            return;
-        end
-    end
-
-    % ---- Shortcut: tiny workload, skip probing ----
-    if nQ < PROBE_MIN_NQ
-        chosen = 'centres';
-        routingReason = sprintf('nQ = %d < %d', nQ, PROBE_MIN_NQ);
-        return;
-    end
-
-    % ---- Rel-mode pre-screen: route TO centres when centres clearly wins ----
-    % the Möbius relative-mode evaluator's u-grid quadrature makes its probe expensive at
-    % typical sigma/period; pre-screen using cost ratio.
-    if isRel && r >= 2
-        sigma = dens.sigma;
-        if dens.isPer
-            N_u_est = max(64, ceil(10 * dens.period / sigma));
-        else
-            p_min = min(dens.p);
-            p_max = max(dens.p);
-            x_min_abs = min(X(:));
-            x_max_abs = max(X(:));
-            if isempty(x_min_abs); x_min_abs = 0; end
-            if isempty(x_max_abs); x_max_abs = 0; end
-            u_min = p_min - max(0, x_max_abs) - 8 * sigma;
-            u_max = p_max - min(0, x_min_abs) + 8 * sigma;
-            N_u_est = max(64, ceil(max(u_max - u_min, 1) / sigma * 10));
-        end
-        if r <= numel(BELL)
-            B_r = BELL(r);
-        else
-            B_r = 1e9;
-        end
-        centresCost = double(K)^(r - 1);
-        % Möbius per-query cost on the same per-K basis. Direct strategy
-        % is B_r * r * N_u; the factored strategy (non-periodic only,
-        % selected by evalOrbitRel's internal cost gate for batched
-        % workloads) removes the K factor from the per-node cost,
-        % leaving read-back kernel-equivalents per (partition-block,
-        % node) plus a tabulation amortised over the queries. Use the
-        % cheaper of the two so this pre-screen does not wrongly route
-        % batched rel workloads to centres; the probe below still has
-        % the final word. Twin of the Python dispatcher
-        % (_select_and_estimate_sa in _tensor/dispatch.py); constants
-        % mirror mobius.evalOrbitRel's local helpers.
-        orbitCost = double(B_r) * r * N_u_est;
-        if ~dens.isPer
-            READBACK_COST = 10.0;   % measured; see mobius.evalOrbitRel
-            CALIB_A6 = 1600.0;
-            EPS_FLOOR = 1e-12; EPS_CEIL = 1e-3;
-            k = truncationSigmas;
-            if isempty(k); k = mptDefaults('truncationSigmas'); end
-            if isfinite(k)
-                epsTarget = exp(-0.5 * k * k);
-            else
-                epsTarget = EPS_FLOOR;
-            end
-            epsTarget = min(max(epsTarget, EPS_FLOOR), EPS_CEIL);
-            kp = kernelPrecision;
-            if isempty(kp); kp = mptDefaults('kernelPrecision'); end
-            if strcmp(kp, 'single')
-                epsTarget = max(epsTarget, 1e-7);
-            end
-            spp = min(max(ceil((CALIB_A6 / epsTarget)^(1/6)), 8), 512);
-            sumSqrtM = sum(sqrt(1:r));
-            extentFine = (u_max - u_min) + (max(0, x_max_abs) - min(0, x_min_abs));
-            nFineEst = extentFine / sigma * spp * sumSqrtM;
-            orbitFactored = READBACK_COST * double(B_r) * r * N_u_est / double(K) ...
-                + nFineEst / max(nQ, 1);
-            orbitCost = min(orbitCost, orbitFactored);
-        end
-        % Finite truncation prunes the centres path's kernel work
-        % (often by 10-100x on sparse-support workloads) and does not
-        % prune the factored read-back, so the cost model's error is
-        % one-sided: whenever it says centres is cheaper under
-        % truncation, reality agrees. Require no dominance margin in
-        % that case; keep the 3x margin when truncation is off.
-        kTr = truncationSigmas;
-        if isempty(kTr); kTr = mptDefaults('truncationSigmas'); end
-        if isfinite(kTr)
-            dominance = 1.0;
-        else
-            dominance = PRESCREEN_CENTRES_DOMINANCE;
-        end
-        if centresCost * dominance < orbitCost
-            chosen = 'centres';
-            routingReason = 'rel-mode pre-screen';
-            return;
-        end
-    end
-
-    % ---- Probe both paths ----
-    if r >= 2 && r <= ORBIT_R_MAX_FEASIBLE
-        mobius.getSetPartitionsWithMobius(r);
-    end
-    if r > ORBIT_R_MAX_FEASIBLE
-        chosen = 'centres';
-        routingReason = sprintf('r = %d > %d (Möbius infeasible)', ...
-                                r, ORBIT_R_MAX_FEASIBLE);
-        return;
-    end
-
-    nProbe = min(PROBE_N, nQ);
-    sampleIdx = round(linspace(1, nQ, nProbe));
-    xProbe = X(:, sampleIdx);
-
-    tCentres = localProbeEvalPath(dens, maet, xProbe, 'centres', ...
-        truncationSigmas, kernelPrecision);
-    tOrbit = localProbeEvalPath(dens, maet, xProbe, 'mobius', ...
-        truncationSigmas, kernelPrecision);
-
-    if tCentres <= tOrbit
-        chosen = 'centres';
-        tProbe = tCentres;
-    else
-        chosen = 'mobius';
-        tProbe = tOrbit;
-    end
-
-    estSec = tProbe * (double(nQ) / double(nProbe));
-    probed = true;
-    routingReason = 'probe';   % caller formats as 'estimated X s'
-end
 
 
 function vals = localEvalSAOrbit(dens, X, verbose, ...

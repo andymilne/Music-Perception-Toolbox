@@ -76,27 +76,16 @@ results{end, 2}     = all(isfinite(cc_vFull));
 results{end + 1, 1} = 'centres_chunking: full call matches manual split (rel-tol 1e-13)';
 results{end, 2}     = all(abs(cc_vFull - cc_vManual) <= 1e-13 * abs(cc_vFull));
 
-% --- Same test via auto-routing (the path demo_triadConsonance uses) ---
-%   For K=72 r=3 rel non-per at this sigma/period, the rel-mode
-%   pre-screen does NOT fire (centresCost = K^(r-1) = 5184 vs
-%   orbitCost ~ B_3 * r * N_u_est ~ 32190; pre-screen needs
-%   centresCost * 10 < orbitCost, i.e. 51840 < 32190 — false).
-%   The dispatcher falls through to the timing probe, which picks
-%   centres or orbit depending on which times faster on the sample
-%   chunk. When the probe picks centres, the result is bit-identical
-%   to forced centres; when it picks orbit, the result is the same
-%   value computed via a mathematically-equivalent path, with FP
-%   accumulation differing at ~ULP scale. Either is a correct
-%   auto-routing outcome; the user-visible invariant is mathematical
-%   equivalence, not bit-equality.
-cc_vAuto = evalExpTens(cc_dens, cc_X, 'verbose', false);
-
-results{end + 1, 1} = 'centres_chunking: auto routing matches forced centres (1e-12 rtol)';
-results{end, 2}     = all(abs(cc_vAuto - cc_vFull) <= ...
-                          1e-12 * abs(cc_vFull) + 1e-14);
+% Note: the centres n_q chunking is exercised via method='centres' above,
+% mirroring the Python chunking test (which forces centres throughout).
+% Auto routing is deliberately not asserted here: the cost model routes
+% this K=72 r=3 rel non-per shape to the factored Möbius path, so an auto
+% call would not exercise the centres chunking path this test targets.
+% Auto-vs-centres agreement is a dispatcher concern (test_dispatch_sa_eval,
+% test_eval_orbit), not a chunking one.
 
 clear cc_K cc_p cc_w cc_dens cc_X cc_vFull cc_n cc_mid cc_v1 cc_v2 ...
-      cc_vManual cc_vAuto
+      cc_vManual
 
 % Restore caller's pre-test defaults eagerly when run
 % standalone (fires the helper's onCleanup destructor on

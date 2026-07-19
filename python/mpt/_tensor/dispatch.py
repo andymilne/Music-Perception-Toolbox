@@ -913,21 +913,65 @@ _PRESCREEN_CENTRES_DOMINANCE = 3.0
 
 _PRESCREEN_ORBIT_DOMINANCE = 3.0
 
-#: MA eval crossover margin (factored Möbius vs joint centres). The raw
-#: op-count comparison (factored ``sum_a B_{r_a} r_a K_a`` vs joint
-#: ``prod_a r_a! C(K_a, r_a)``) understates the factored path's
-#: advantage: measured across the A x r x K grid (no-probe
-#: selection-quality harness), factored Möbius is faster in every
-#: feasible cell down to the precision floor, winning even where its
-#: op-count exceeds the joint tuple count by ~1/3 --- its flat setup is
-#: cheap and per-tuple materialisation is not. A margin of 2.0 lets
-#: Möbius be chosen whenever it is at most ~2x the joint op-count, which
-#: the data show it still wins; the joint-centres path is retained only
-#: for the genuine small-shape corner (and by the hard precision and
-#: feasibility rules). The tie-break favours Möbius because it is
-#: failure-safe (bounded cost) whereas the centres path can exhaust
-#: memory by materialising the joint tuple set.
-_MA_CENTRES_DOMINANCE = 2.0
+#: Calibrated constants for the MA eval cost model, in milliseconds.
+#: Fitted to the selection-quality grid (single-attribute, r = 2..4,
+#: K = 6..48, all four mode combinations, n_q = 1 and 200, sigma = 15
+#: and 100 cents over spans of 1200--3600 cents; July 2026 harness).
+#: Absolute values are machine-specific; selection depends only on
+#: their ratios, which are stable across the grid. MATLAB carries its
+#: own constants in ``internal.selectMaEval`` (same functional form,
+#: per-language calibration): its non-periodic centres kernel culls more
+#: aggressively, so there the joint-count growth surfaces in the per-call
+#: term rather than the per-query one, but the form is identical.
+#:
+#: Centres: a per-call materialisation term and a per-query kernel term,
+#: both linear in the joint tuple count. The non-periodic kernel is
+#: bucket-culled, the periodic kernel dense; at the calibration scales
+#: their per-tuple constants are of the same order, so one pair of
+#: constants serves both (the cull's growing advantage at very large
+#: shapes only strengthens a centres pick already made).
+_MA_COST_CENTRES_SETUP_MS = 0.15
+_MA_COST_CENTRES_CALL_PER_JOINT_MS = 4e-5
+_MA_COST_CENTRES_QUERY_PER_JOINT_MS = 4.5e-5
+
+#: Möbius: a per-call setup that scales with the partition count B_r,
+#: and per-query work linear in the distinct-block op count
+#: ``(2^r - 1) r K`` (each distinct block's factor is computed once and
+#: reused across partitions). Relative attributes multiply the
+#: per-query work by the u-grid node count; each node costs the cheaper
+#: of the direct strategy (op-count linear) and, non-periodically, the
+#: factored strategy (K-free after tabulation).
+_MA_COST_MOBIUS_SETUP_MS = 0.30
+_MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.05
+_MA_COST_MOBIUS_QUERY_PER_OP_MS = 5e-7
+#: Relative-mode u-grid node costs, per distinct-block op per query.
+#: Periodic direct nodes cost more per op than non-periodic ones
+#: (per-component wrapping inside the kernel, and no factored
+#: tabulation on the circle); both are calibrated separately.
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 4e-6
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 1e-5
+_MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 3.5e-4
+
+#: u-grid tabulation setup, paid once per call: building the interpolation
+#: table costs K source evaluations over the N_u grid nodes. In Python the
+#: per-query node cost is large and already prices small-n_q calls
+#: near-realistically, so the measured tabulation setup is negligible and
+#: this constant is ~0; MATLAB's lean per-query readback leaves the setup
+#: as the dominant Möbius cost at small n_q, so its twin constant is
+#: nonzero. Same term, per-language magnitude.
+_MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 0.0
+
+#: u-grid nodes per sigma for the relative-mode node-count estimate,
+#: mirroring the evaluators' ``samples_per_sigma`` default.
+_MA_COST_REL_SAMPLES_PER_SIGMA = 10.0
+
+#: Safety factor favouring Möbius at near-ties: Möbius is chosen
+#: whenever its estimate is below the centres estimate times this
+#: factor. The asymmetry is deliberate: Möbius is failure-safe (flat,
+#: bounded cost) while the centres path materialises the joint tuple
+#: set and can exhaust memory, so a near-tie should break toward
+#: Möbius rather than risk the explosive path.
+_MA_MOBIUS_SAFETY = 1.5
 
 
 
@@ -1039,19 +1083,21 @@ def _select_ma_eval(dens, n_q, *, method):
 
     Unlike the single-multiset eval selector, this is a *pure cost
     model with no probe*: the MAET density factorises across attributes
-    (Milne 2026, Eq. maet-density), so the joint-centres tuple count and
-    the per-attribute Möbius cost are both known in closed form from the
-    shape ``(r_a, K_a, N)`` alone, and the crossover between them is
-    sharp. The joint-centres path's cost is dominated by the joint tuple
-    count ``N · prod_a [r_a! · C(K_a, r_a)]`` (each query touches every
-    joint centre), which grows as a *product* across attributes; the
-    factored path's cost is the *sum* across attributes of each
-    attribute's Möbius per-query work, ``N · sum_a B_{r_a} · r_a · K_a``
-    (absolute) or the same times the relative u-grid factor. The
-    product-vs-sum contrast means the factored path wins decisively as
-    soon as more than one attribute has a non-trivial tuple set, and the
-    joint-centres path wins only in the small-shape corner where
-    materialising is cheaper than the partition machinery.
+    (Milne 2026, Eq. maet-density), so both paths' costs are estimated
+    in closed form from the shape ``(r_a, K_a, N)``, the geometry, and
+    the query count. Each estimate is a per-call setup term plus
+    per-query work: the joint-centres path's work is linear in the
+    joint tuple count ``prod_a [r_a! · C(K_a, r_a)]``, which grows as a
+    *product* across attributes; the factored path's work is the *sum*
+    across attributes of the per-attribute distinct-block op count
+    ``(2^{r_a} - 1) · r_a · K_a``, with relative attributes further
+    multiplied by a u-grid node count estimated from the geometry. The
+    constant factors are the module-level ``_MA_COST_*`` calibration.
+    The product-vs-sum contrast means the factored path wins decisively
+    as soon as more than one attribute has a non-trivial tuple set,
+    while single-attribute relative shapes favour the centres path far
+    beyond the absolute-mode crossover, the u-grid multiplying the
+    factored path's per-query cost by hundreds to thousands of nodes.
 
     Hard rules first: a user override is honoured; any attribute whose
     ``K_a - r_a`` is too small for the Möbius cancellation floor, or
@@ -1169,43 +1215,66 @@ def _select_ma_eval(dens, n_q, *, method):
             )
             return "mobius", "rel-per all-image measure"
 
-    # ---- Cost model: joint-centres tuple count (product across
-    # attributes) vs factored Möbius per-attribute cost (sum). ----
+    # ---- Cost model: two closed-form per-call time estimates (ms),
+    # each a per-call setup term plus per-query work scaled by n_q.
+    # Constants are the module-level ``_MA_COST_*`` calibration; the
+    # functional forms mirror the paths' structure. Centres: setup +
+    # materialisation and kernel work linear in the joint tuple count
+    # (product across attributes). Möbius: setup scaling with the
+    # partition count, plus per-query distinct-block work summed across
+    # attributes; relative attributes multiply their per-query work by
+    # a u-grid node count estimated from the geometry (period over
+    # sigma when periodic; source spread over sigma when not --- the
+    # query spread is unknown at selection time, so the source spread
+    # stands in for the full alignment window). ----
+    n_q_eff = float(max(int(n_q), 1))
     joint_tuples = 1.0
-    orbit_cost = 0.0
     for a in range(A):
         r_a, K_a = r_vec[a], k_vec[a]
         if r_a < 1:
             continue
         joint_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
-        B_r = _BELL_NUMBERS.get(r_a, float("inf"))
-        per_attr = float(B_r) * r_a * K_a
-        if is_rel[a] and r_a >= 2:
-            # Relative mode carries the u-grid quadrature: N_u nodes per
-            # query. Mirror the single-multiset rel pre-screen's N_u estimate.
-            if is_per[a]:
-                N_u = max(64, int(np.ceil(10.0 * period[a] / sigma[a])))
-            else:
-                N_u = 128  # representative non-periodic node count
-            per_attr *= N_u
-        orbit_cost += per_attr
 
-    # Centres cost per query is the joint tuple count; the factored
-    # cost is orbit_cost. Both scale linearly in n_q and N, so compare
-    # the per-query-per-event factors directly --- but the two op-counts
-    # carry different constant factors (the centres path pays a
-    # per-tuple Gaussian with materialisation overhead; the Möbius path
-    # a flat partition sum with a fixed setup cost). Empirically (the
-    # no-probe selection-quality harness across the A x r x K grid) the
-    # true crossover sits below the raw op-count equality: Möbius wins
-    # down to joint tuple counts of a few dozen, its flat sub-millisecond
-    # cost beating even tiny centres materialisations. A dominance margin
-    # of _MA_CENTRES_DOMINANCE captures this, and the tie-break direction
-    # is deliberate: Möbius is failure-safe (its cost is bounded
-    # regardless of shape) while the centres path materialises the joint
-    # tuple set and can exhaust memory, so a near-tie should break toward
-    # Möbius rather than risk the explosive path.
-    if orbit_cost < joint_tuples * _MA_CENTRES_DOMINANCE:
+    centres_ms = (
+        _MA_COST_CENTRES_SETUP_MS
+        + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
+        + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * n_q_eff
+    )
+
+    mobius_ms = _MA_COST_MOBIUS_SETUP_MS
+    for a in range(A):
+        r_a, K_a = r_vec[a], k_vec[a]
+        if r_a < 2:
+            continue  # r_a <= 1: a plain kernel sum either way
+        B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
+        ops = float(2 ** r_a - 1) * r_a * K_a
+        mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
+        per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
+        if is_rel[a]:
+            sps = _MA_COST_REL_SAMPLES_PER_SIGMA
+            if is_per[a] and period[a] > 0:
+                n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
+                node_ms = (
+                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS * ops)
+            else:
+                spread = 0.0
+                p_a = getattr(dens, "p_attr", None)
+                if p_a is not None and a < len(p_a) and p_a[a] is not None:
+                    arr = np.asarray(p_a[a], dtype=np.float64)
+                    if arr.size:
+                        spread = float(np.max(arr) - np.min(arr))
+                window = 2.0 * spread + 16.0 * sigma[a]
+                n_u = max(64.0, np.ceil(sps * window / sigma[a]))
+                node_ms = min(
+                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
+                    _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r,
+                )
+            # Tabulation setup is paid once per call, not per query.
+            mobius_ms += _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS * K_a * n_u
+            per_query_ms = n_u * node_ms
+        mobius_ms += per_query_ms * n_q_eff
+
+    if mobius_ms < centres_ms * _MA_MOBIUS_SAFETY:
         return "mobius", "cost model (factored Möbius cheaper)"
     return "centres", "cost model (joint centres cheaper)"
 

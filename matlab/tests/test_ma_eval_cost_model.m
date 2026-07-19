@@ -1,10 +1,11 @@
 %% test_ma_eval_cost_model.m — MA eval dispatch calibration contract
 %
 %  The MA eval selector (internal.selectMaEval) is a pure cost model with
-%  no probe. A per-language dominance constant (MA_CENTRES_DOMINANCE)
-%  absorbs implementation constant factors, settled once per language by
-%  measurement (bench_ma_eval_dispatch.m), not rediscovered at runtime.
-%  This test guarantees the constant stays calibrated.
+%  no probe. A per-language group of calibration constants (the MA_COST_*
+%  group in internal.selectMaEval) absorbs implementation constant
+%  factors, settled once per language by measurement
+%  (bench_ma_eval_calibration.m), not rediscovered at runtime. This test
+%  guarantees the calibration stays current.
 %
 %  The contract is ASYMMETRIC. Picking Möbius when centres would be
 %  marginally faster costs a fraction of a millisecond (the factored path
@@ -50,7 +51,7 @@ for gi = 1:numel(grid)
     dens = buildExpTens(pas, repmat({[]}, A, 1), sig, rv, rel, per, P, ...
         'verbose', false);
     xq = 100 * rand(dens.dim, 200);
-    [chosen, reason] = internal.selectMaEval(dens, false);
+    [chosen, reason] = internal.selectMaEval(dens, 200, false);
 
     if strcmp(chosen, 'mobius')
         ok = true;   % failure-safe route; never harmful
@@ -68,7 +69,7 @@ end
 %% ---- Above sigma/P, all-image Möbius is the preferred default ----
 dens = buildExpTens({100*rand(6,1); 100*rand(6,1)}, {[]; []}, [40 40], ...
     [3 3], [true true], [true true], [1200 1200], 'verbose', false);
-[chosen, ~] = internal.selectMaEval(dens, false);
+[chosen, ~] = internal.selectMaEval(dens, 200, false);
 results{end+1, 1} = 'cost model: rel-per above threshold prefers Möbius';
 results{end, 2} = strcmp(chosen, 'mobius');
 
@@ -80,7 +81,7 @@ if true
     % here is Möbius (above), and that a large shape stays Möbius (safe).
     densBig = buildExpTens({100*rand(40,1); 100*rand(40,1)}, {[]; []}, ...
         [40 40], [3 3], [true true], [true true], [1200 1200], 'verbose', false);
-    [chosenC, reasonC] = internal.selectMaEval(densBig, false); %#ok<ASGLU>
+    [chosenC, reasonC] = internal.selectMaEval(densBig, 200, false); %#ok<ASGLU>
 end
 results{end+1, 1} = 'cost model: rel-per stays Möbius at large shape (no OOM)';
 results{end, 2} = strcmp(chosenC, 'mobius');
@@ -89,13 +90,13 @@ results{end, 2} = strcmp(chosenC, 'mobius');
 % Two attributes, r = 11 > feasibility bound forces centres; K = 20
 % makes the joint centre set ~10^12 tuples, past the memory budget. Use
 % a genuine multi-attribute density so the MA eval selector is exercised
-% (the single-attribute vector path routes through the SA dispatch, not
+% (the single-attribute vector path routes through the single multiset dispatch, not
 % selectMaEval).
 densInf = buildExpTens({100*rand(20,1); 100*rand(20,1)}, {[]; []}, ...
     [6 6], [11 11], [false false], [false false], [0 0], 'verbose', false);
 ok = false;
 try
-    internal.selectMaEval(densInf, false);
+    internal.selectMaEval(densInf, 200, false);
 catch err
     ok = strcmp(err.identifier, 'mpt:dispatch:singleImageInfeasible');
 end

@@ -34,13 +34,13 @@ function vals = evalExpTens(varargin)
 %   = multisets); X is shared across all rows. Returns an nRows-by-nQ
 %   matrix of values. Detection is by P having both dimensions > 1.
 %   Row vectors and column vectors fall through to the existing scalar
-%   SA raw path for backward compatibility.
+%   single multiset raw path for backward compatibility.
 %
 %   Multiset-argument shapes (pick one of three):
-%     p      — Vector of length K. SA raw form (single multiset,
+%     p      — Vector of length K. single multiset raw form (single multiset,
 %              single-attribute).
 %     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
-%              form (rows are independent SA-style multisets,
+%              form (rows are independent single-attribute-style multisets,
 %              processed in lockstep; returns an nRows-by-nQ matrix
 %              with one row per multiset).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
@@ -82,21 +82,21 @@ function vals = evalExpTens(varargin)
 %               — Pitch or position values for the raw forms. Pick the
 %                 shape matching the desired calling convention (see
 %                 "Multiset-argument shapes" above):
-%                   p     vector of length K       (SA raw)
+%                   p     vector of length K       (single multiset raw)
 %                   P     nRows-by-K matrix        (BATCHED-RAW)
 %                   pAttr 1-by-A cell of K_a-by-N  (MA raw)
 %     w / W     — Weights paired with the corresponding p / P / pAttr.
-%                 w is a vector (SA raw and MA raw); W is an nRows-by-K
+%                 w is a vector (single multiset raw and MA raw); W is an nRows-by-K
 %                 matrix (BATCHED-RAW). Pass [] for uniform weights.
-%     sigma     — Gaussian bandwidth. Scalar for SA raw and BATCHED-RAW;
+%     sigma     — Gaussian bandwidth. Scalar for single multiset raw and BATCHED-RAW;
 %                 length-G vector (one per group) for MA raw.
 %     r         — Tuple size (positive integer; r >= 2 if isRel == true).
-%                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
+%                 Scalar for single multiset / BATCHED-RAW; length-G vector for MA.
 %     isRel     — Logical: true for relative (transposition-invariant).
-%                 Scalar for SA / BATCHED-RAW; length-G vector for MA.
-%     isPer     — Logical: true for periodic domain. Scalar for SA /
+%                 Scalar for single multiset / BATCHED-RAW; length-G vector for MA.
+%     isPer     — Logical: true for periodic domain. Scalar for single multiset /
 %                 BATCHED-RAW; length-G vector for MA.
-%     period    — Period of the domain. Scalar for SA / BATCHED-RAW;
+%     period    — Period of the domain. Scalar for single multiset / BATCHED-RAW;
 %                 length-G vector for MA (one per group; ignored where
 %                 isPer == false).
 %     X         — Query points: dim x nQ matrix, where dim = r - isRel.
@@ -286,7 +286,7 @@ firstArg = varargin{1};
 %        - cell-of-numeric -> MA raw (cell of attribute matrices)
 %   3. Numeric first operand:
 %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
-%        - vector or scalar       -> SA raw
+%        - vector or scalar       -> single multiset raw
 %   4. Otherwise -> usage error.
 % MA-routed branches (general MaetDensity, WindowedMaetDensity, LIST,
 % MA raw, BATCHED-RAW) return early. Single-multiset branches (a
@@ -394,7 +394,7 @@ elseif iscell(firstArg) && ~isempty(firstArg)
          'or numeric attribute matrices (MA raw mode); first cell entry is of ' ...
          'class %s.'], class(firstArg{1}));
 
-% --- 3. Numeric first operand: BATCHED-RAW or SA raw, by shape ---
+% --- 3. Numeric first operand: BATCHED-RAW or single multiset raw, by shape ---
 elseif isnumeric(firstArg)
     if size(firstArg, 1) > 1 && size(firstArg, 2) > 1
         % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
@@ -407,7 +407,7 @@ elseif isnumeric(firstArg)
             isSymRaw, normalize, verbose);
         return;
     end
-    % SA raw: numeric vector or scalar.
+    % single multiset raw: numeric vector or scalar.
     if nArgs ~= 8
         error(USAGE_MSG);
     end
@@ -431,7 +431,7 @@ elseif isnumeric(firstArg)
 else
     error('evalExpTens:badFirstArg', ...
         ['First argument must be a density struct, a cell array (LIST or MA ' ...
-         'raw), or a numeric array (SA raw or BATCHED-RAW); got class %s.'], ...
+         'raw), or a numeric array (single multiset raw or BATCHED-RAW); got class %s.'], ...
         class(firstArg));
 end
 
@@ -470,7 +470,7 @@ end
 
 nQ = size(X, 2);
 
-% === SA dispatch — two orthogonal axes ===
+% === single multiset dispatch — two orthogonal axes ===
 %
 % Routing axis (forced vs discretionary):
 %   - Explicit method override or hard rules (r <= 1, K - r < 2) force
@@ -504,7 +504,7 @@ elseif strcmp(method, 'auto')
     % announces the routing DECISION only; the time estimate is a separate
     % concern, emitted by estimateCompTime in the executing centres path
     % under verbose.
-    [chosen, routingReason] = internal.selectMaEval(maet, verbose);
+    [chosen, routingReason] = internal.selectMaEval(maet, nQ, verbose);
     internal.maybeShowDispatchMsg('evalExpTens', chosen, routingReason);
 else
     error('evalExpTens:badMethod', ...
@@ -637,7 +637,7 @@ end
 end
 
 % =========================================================================
-%  SA evaluation dispatch helpers (method='auto'|'centres'|'mobius')
+%  single multiset evaluation dispatch helpers (method='auto'|'centres'|'mobius')
 % =========================================================================
 
 
@@ -649,7 +649,7 @@ end
 
 function vals = localEvalSingleMultisetOrbit(dens, X, verbose, ...
         truncationSigmas, kernelPrecision) %#ok<INUSD>
-%LOCALEVALSINGLEMULTISETORBIT  Orbit-Mobius point evaluator for SA densities.
+%LOCALEVALSINGLEMULTISETORBIT  Orbit-Mobius point evaluator for single multiset densities.
 %
 %   Routes to mobius.evalOrbitAbs (absolute mode) or mobius.evalOrbitRel
 %   (relative mode). Returns a 1-by-nQ row vector, matching the centres
@@ -718,7 +718,7 @@ end
 
 function vals = localEvalSingleMultisetCentres(dens, X, nQ, verbose, ...
         truncationSigmas, kernelPrecision)
-%LOCALEVALSINGLEMULTISETCENTRES  Centres-array path for SA evaluation.
+%LOCALEVALSINGLEMULTISETCENTRES  Centres-array path for single multiset evaluation.
 %
 %   Routes through internal.gaussianKernelSum so that the
 %   truncationSigmas and kernelPrecision options apply uniformly across
@@ -919,7 +919,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         maChosen = 'mobius';
         maReason = 'user override';
     else
-        [maChosen, maReason] = internal.selectMaEval(dens, verbose);
+        [maChosen, maReason] = internal.selectMaEval(dens, nQ, verbose);
     end
     internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, ...
         maReason);

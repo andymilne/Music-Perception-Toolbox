@@ -1,4 +1,4 @@
-%% test_dispatch_sa_eval.m — v2.2 SA method dispatch in evalExpTens
+%% test_dispatch_sa_eval.m — v2.2 single multiset method dispatch in evalExpTens
 %
 %  Tests for the new method keyword introduced in v2.2 (Commit 6b).
 %  Covers:
@@ -37,7 +37,7 @@ try
 catch ME
     ok_badMethod = strcmp(ME.identifier, 'evalExpTens:badMethod');
 end
-results{end+1,1} = 'dispatch.SA eval: bad method string raises evalExpTens:badMethod';
+results{end+1,1} = 'dispatch.single multiset eval: bad method string raises evalExpTens:badMethod';
 results{end,2}   = ok_badMethod;
 
 %% ---- Orbit and centres agree (auto + explicit), abs nonperiodic ----
@@ -54,15 +54,15 @@ v_centres = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
 v_orbit   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'verbose', false);
 
-results{end+1,1} = 'dispatch.SA eval: r=3 abs nonper auto matches centres (within 1e-10)';
+results{end+1,1} = 'dispatch.single multiset eval: r=3 abs nonper auto matches centres (within 1e-10)';
 results{end,2}   = max(abs(v_auto - v_centres)) < 1e-10;
-results{end+1,1} = 'dispatch.SA eval: r=3 abs nonper Möbius matches centres (within 1e-8)';
+results{end+1,1} = 'dispatch.single multiset eval: r=3 abs nonper Möbius matches centres (within 1e-8)';
 results{end,2}   = max(abs(v_orbit - v_centres)) < 1e-8;
 
 % --- 'direct' is a synonym for 'centres' ---
 v_direct = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'direct', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: ''direct'' alias produces same result as ''centres''';
+results{end+1,1} = 'dispatch.single multiset eval: ''direct'' alias produces same result as ''centres''';
 results{end,2}   = isequal(v_direct, v_centres);
 
 %% ---- Auto agrees with centres for small r=2 ----
@@ -79,7 +79,7 @@ X2 = [linspace(100, 1900, 4); linspace(500, 1500, 4)];
 v_auto2 = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, 'verbose', false);
 v_cen2  = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: r=2 small-K auto agrees with centres (rtol 1e-8)';
+results{end+1,1} = 'dispatch.single multiset eval: r=2 small-K auto agrees with centres (rtol 1e-8)';
 results{end,2}   = all(abs(v_auto2 - v_cen2) <= 1e-11 + 1e-8 * abs(v_cen2));
 
 %% ---- K-vs-r margin guard ----
@@ -92,10 +92,16 @@ v_auto_sm    = evalExpTens(p_small, w_small, 50, 3, false, false, 0, X_small, ..
     'verbose', false);
 v_centres_sm = evalExpTens(p_small, w_small, 50, 3, false, false, 0, X_small, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: K-r margin <2 auto agrees with centres (exact)';
+results{end+1,1} = 'dispatch.single multiset eval: K-r margin <2 auto agrees with centres (exact)';
 results{end,2}   = isequal(v_auto_sm, v_centres_sm);
 
-%% ---- Relative mode: auto always picks centres ----
+%% ---- Relative mode below the sigma/P threshold: auto and centres agree ----
+% Below the threshold the single-image (centres) and all-image (Möbius)
+% measures coincide to ~1e-6, so auto dispatches on speed. For this small
+% shape centres is the faster route, so auto takes it and the result is the
+% exact single-image measure --- bit-identical to method='centres'. (A large
+% shape where Möbius were faster would agree only to ~1e-6; see the explicit
+% Möbius check below.)
 
 rng(37, 'twister');
 p_rel = sort(1200 * rand(8, 1));
@@ -105,13 +111,13 @@ v_auto_rel    = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'verbose', false);
 v_centres_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: rel mode auto = centres (exact)';
+results{end+1,1} = 'dispatch.single multiset eval: rel mode auto = centres (exact)';
 results{end,2}   = isequal(v_auto_rel, v_centres_rel);
 
 % --- Explicit Möbius for rel mode runs the relative-mode evaluator and agrees with centres ---
 v_orbit_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'method', 'mobius', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: rel mode explicit Möbius matches centres (1e-6)';
+results{end+1,1} = 'dispatch.single multiset eval: rel mode explicit Möbius matches centres (1e-6)';
 results{end,2}   = max(abs(v_orbit_rel - v_centres_rel)) < 1e-6;
 
 %% ---- r=4 abs periodic: Möbius and centres agree ----
@@ -125,17 +131,17 @@ v_orbit_per = evalExpTens(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
     'method', 'mobius', 'verbose', false);
 v_cen_per   = evalExpTens(p_per, w_per, 30, 4, false, true, 1200, X_per, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: r=4 abs per Möbius matches centres (1e-8)';
+results{end+1,1} = 'dispatch.single multiset eval: r=4 abs per Möbius matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_per - v_cen_per)) < 1e-8;
 
 %% ---- Skinny dens flows transparently ----
 
 dens_skinny = buildExpTens(p, w, sigma, r, false, false, 0, 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: skinny dens has no Centres before dispatch';
+results{end+1,1} = 'dispatch.single multiset eval: skinny dens has no Centres before dispatch';
 results{end,2}   = ~isfield(dens_skinny, 'Centres');
 v_skinny_orbit = evalExpTens(dens_skinny, X, ...
     'method', 'mobius', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: Möbius on skinny dens matches raw-args centres';
+results{end+1,1} = 'dispatch.single multiset eval: Möbius on skinny dens matches raw-args centres';
 results{end,2}   = max(abs(v_skinny_orbit - v_centres)) < 1e-8;
 
 %% ---- Normalization consistency (Möbius vs centres) ----
@@ -145,7 +151,7 @@ v_orbit_g = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'gaussian', 'verbose', false);
 v_cen_g   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'centres', 'gaussian', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: gaussian-normalized Möbius matches centres (1e-8)';
+results{end+1,1} = 'dispatch.single multiset eval: gaussian-normalized Möbius matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_g - v_cen_g)) < 1e-8;
 
 % 'pdf' normalization: divides by sum(wJ); same factor for both paths.
@@ -153,7 +159,7 @@ v_orbit_pdf = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'mobius', 'pdf', 'verbose', false);
 v_cen_pdf   = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
     'method', 'centres', 'pdf', 'verbose', false);
-results{end+1,1} = 'dispatch.SA eval: pdf-normalized orbit matches centres (1e-8)';
+results{end+1,1} = 'dispatch.single multiset eval: pdf-normalized orbit matches centres (1e-8)';
 results{end,2}   = max(abs(v_orbit_pdf - v_cen_pdf)) < 1e-8;
 
 %% ---- Standalone summary ----

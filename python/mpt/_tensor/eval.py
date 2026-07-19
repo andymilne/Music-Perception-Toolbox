@@ -1110,11 +1110,150 @@ def _ma_eval_full(
 
 
 
+def _neighbour_offsets(dim):
+    """3**dim integer offset columns in {-1, 0, 1}**dim, shape (dim, 3**dim)."""
+    return np.indices((3,) * dim).reshape(dim, -1) - 1
+
+
+def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
+    """Bucket-grid spatial cull for the non-periodic single-multiset centres path.
+
+    Twin of MATLAB ``internal.gaussianKernelSum``'s ``localTruncatedKernelSum``.
+    The kernel is negligible beyond a Q-ball of squared radius
+    ``(k_sigma * sigma)**2``, so rather than evaluate every (tuple, query) pair,
+    whiten the coordinates so that ball is a Euclidean sphere (rel:
+    ``Q(D) = |T D|**2`` with ``M = I - 11'/r``; abs: identity), hash the tuple
+    centres into ``k_sigma * sigma`` buckets, and for each query evaluate only the
+    centres in its ``3**dim`` neighbouring buckets. Q is computed on the original
+    coordinates, so the result is identical to the dense path up to the truncation
+    floor --- the culled pairs contribute below the floor by construction.
+    """
+    dim, n_j = centres.shape
+    n_q = x_q.shape[1]
+    v = np.zeros(n_q)
+    if n_j == 0 or n_q == 0:
+        return v
+    inv_2s2 = 1.0 / (2.0 * sigma * sigma)
+    threshold2 = (k_sigma * sigma) ** 2
+
+    # Whitening transform (used only to make the Q-ball a Euclidean sphere for
+    # bucketing; the returned kernel is computed on the original coordinates).
+    if is_rel:
+        e = np.ones(dim)
+        metric = np.eye(dim) - (1.0 / r) * np.outer(e, e)
+        lams, u = np.linalg.eigh(metric)
+        t_white = (u * np.sqrt(np.maximum(lams, 0.0))).T
+    else:
+        t_white = np.eye(dim)
+    ct = t_white @ centres
+    xt = t_white @ x_q
+
+    # Bucket grid over the transformed centres' bounding box.
+    bucket_size = k_sigma * sigma
+    c_min = ct.min(axis=1, keepdims=True)
+    c_max = ct.max(axis=1, keepdims=True)
+    n_buckets = np.maximum(
+        1, np.ceil((c_max - c_min).ravel() / bucket_size).astype(np.int64) + 1
+    )
+    # Guard: a pathologically large bucket grid (high dim, or a spread wide
+    # relative to k_sigma*sigma) would make bucket_map dominate memory while its
+    # buckets sit near-empty, and the cull would save little. Signal the caller
+    # (returning None) to fall back to the dense path in that regime.
+    total_buckets = float(np.prod(n_buckets.astype(np.float64)))
+    if total_buckets > max(8.0 * n_j, 8_388_608.0):     # > 8*nJ or > ~8.4M cells
+        return None
+
+    buck_c = np.clip(
+        np.floor((ct - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
+    )
+    lin_c = np.ravel_multi_index(tuple(buck_c), tuple(n_buckets))
+
+    # Group centres by bucket: sort, find runs, map linear bucket -> run index.
+    perm = np.argsort(lin_c, kind="stable")
+    sorted_lin = lin_c[perm]
+    bounds = np.concatenate(([0], np.nonzero(np.diff(sorted_lin))[0] + 1))
+    run_start = bounds
+    run_end = np.concatenate((bounds[1:], [n_j]))          # exclusive
+    bucket_map = np.full(int(np.prod(n_buckets)), -1, dtype=np.int64)
+    bucket_map[sorted_lin[bounds]] = np.arange(bounds.size)
+
+    buck_x = np.clip(
+        np.floor((xt - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
+    )
+    offsets = _neighbour_offsets(dim)
+    n_off = offsets.shape[1]
+
+    # Query-chunk loop bounds the transient (query, centre) pair workspace;
+    # per-query pair count ~ n_off * (n_j / total buckets).
+    per_query = max(1.0, n_off * n_j / max(float(np.prod(n_buckets)), 1.0))
+    chunk = max(1, int(kernel_chunk_bytes_resolved() / ((2 * dim + 4) * 8 * per_query)))
+    for c0 in range(0, n_q, chunk):
+        c1 = min(c0 + chunk, n_q)
+        n_qc = c1 - c0
+
+        # Expand each query to its 3**dim neighbour buckets.
+        nb = (buck_x[:, c0:c1][:, :, None] + offsets[:, None, :]).reshape(dim, n_qc * n_off)
+        q_of = np.repeat(np.arange(n_qc), n_off)
+        in_bounds = np.all((nb >= 0) & (nb < n_buckets[:, None]), axis=0)
+        if not in_bounds.any():
+            continue
+        nb = nb[:, in_bounds]
+        q_of = q_of[in_bounds]
+
+        run_idx = bucket_map[np.ravel_multi_index(tuple(nb), tuple(n_buckets))]
+        has_run = run_idx >= 0
+        if not has_run.any():
+            continue
+        run_idx = run_idx[has_run]
+        q_of = q_of[has_run]
+
+        # Ragged-expand each (query, run) into (query, centre) pairs via cumsum.
+        lens = run_end[run_idx] - run_start[run_idx]
+        total = int(lens.sum())
+        if total == 0:
+            continue
+        member = np.repeat(np.arange(lens.size), lens)
+        start_pos = np.cumsum(lens) - lens
+        centre = perm[run_start[run_idx[member]] + (np.arange(total) - start_pos[member])]
+        query = q_of[member]
+
+        dq = centres[:, centre] - x_q[:, c0 + query]
+        if is_rel:
+            q_form = (dq * dq).sum(axis=0) - dq.sum(axis=0) ** 2 / r
+        else:
+            q_form = (dq * dq).sum(axis=0)
+        keep = q_form <= threshold2
+        if not keep.any():
+            continue
+        np.add.at(
+            v, c0 + query[keep], w_j[centre[keep]] * np.exp(-q_form[keep] * inv_2s2)
+        )
+    return v
+
+
 def _eval_core(
     centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
     *, truncation_sigmas=None,
 ):
     """Evaluate with automatic memory-aware chunking (single-multiset path)."""
+    # Non-periodic + finite truncation: bucket-grid spatial cull (mirrors MATLAB
+    # internal.gaussianKernelSum). Only tuples within the Q-ball of each query
+    # are evaluated, avoiding the dense n_j x n_q kernel; value-identical to the
+    # dense path up to the truncation floor. Periodic mode stays dense (the
+    # pairwise wrap is not a tail-truncatable ball).
+    if (
+        truncation_sigmas is not None
+        and np.isfinite(truncation_sigmas)
+        and truncation_sigmas > 0
+        and not is_per
+    ):
+        culled = _truncated_kernel_sum_culled(
+            centres, w_j, x, sigma, is_rel, r, float(truncation_sigmas)
+        )
+        if culled is not None:
+            return culled
+        # else: bucket grid would be pathological; fall through to dense.
+
     # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × 8 (broadcast
     # difference, its square, and the summed/exponentiated intermediate
     # are briefly co-resident).

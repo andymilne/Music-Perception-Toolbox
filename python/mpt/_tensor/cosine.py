@@ -436,6 +436,8 @@ def cos_sim_exp_tens(*args,
                 method=method,
                 normalize=normalize,
                 cancellation_threshold=cancellation_threshold,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
                 verbose=verbose,
             )
 
@@ -456,6 +458,8 @@ def cos_sim_exp_tens(*args,
             method=method,
             normalize=normalize,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
 
@@ -569,6 +573,8 @@ def cos_sim_exp_tens(*args,
             method=method,
             normalize=normalize,
             cancellation_threshold=cancellation_threshold,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
 
@@ -587,6 +593,8 @@ def cos_sim_exp_tens(*args,
         method=method,
         normalize=normalize,
         cancellation_threshold=cancellation_threshold,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         verbose=verbose,
     )
 
@@ -897,6 +905,8 @@ def _cos_sim_raw_single_multiset_scalar(
     method: str = "auto",
     normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> float:
     """Raw single-multiset scalar dispatch for :func:`cos_sim_exp_tens`."""
@@ -932,6 +942,8 @@ def _cos_sim_raw_single_multiset_scalar(
         method=method,
         normalize=normalize,
         cancellation_threshold=cancellation_threshold,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         verbose=verbose,
     )
 
@@ -944,6 +956,8 @@ def _cos_sim_raw_ma_scalar(
     method: str = "auto",
     normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> float:
     """Raw multi-attribute scalar dispatch for :func:`cos_sim_exp_tens`."""
@@ -960,6 +974,8 @@ def _cos_sim_raw_ma_scalar(
         method=method,
         normalize=normalize,
         cancellation_threshold=cancellation_threshold,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         verbose=verbose,
     )
 
@@ -973,6 +989,8 @@ def _cos_sim_raw_ma_broadcast(
     method: str = "auto",
     normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Raw multi-attribute scalar-vs-list broadcast.
@@ -1020,6 +1038,8 @@ def _cos_sim_raw_ma_broadcast(
                 method=method,
                 normalize=normalize,
                 cancellation_threshold=cancellation_threshold,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
                 verbose=False,
             )
         else:
@@ -1028,6 +1048,8 @@ def _cos_sim_raw_ma_broadcast(
                 method=method,
                 normalize=normalize,
                 cancellation_threshold=cancellation_threshold,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
                 verbose=False,
             )
     return out
@@ -3169,6 +3191,8 @@ def _cos_sim_raw_single_multiset_batch(
     method: str = "auto",
     normalize: str = "cosine",
     cancellation_threshold: float = 1e-12,
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool = True,
 ) -> np.ndarray:
     """Raw single-multiset batched dispatch for :func:`cos_sim_exp_tens`.
@@ -3361,6 +3385,8 @@ def _cos_sim_raw_single_multiset_batch(
         method=method,
         normalize=normalize,
         cancellation_threshold=cancellation_threshold,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         verbose=verbose,
     )
 

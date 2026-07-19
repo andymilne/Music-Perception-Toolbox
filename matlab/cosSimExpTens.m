@@ -17,7 +17,7 @@ function s = cosSimExpTens(varargin)
 %   List mode. Iterates over paired entries of two cell arrays of
 %   density structs, returning a 1-by-n cell array of similarity values.
 %   Each pair is dispatched to the appropriate scalar form based on its
-%   tag (SA or MA). Shape rule: a length-1 input returns a length-1
+%   tag (single multiset or MA). Shape rule: a length-1 input returns a length-1
 %   cell (no collapse to scalar).
 %
 %   Scalar-vs-list broadcasting. Either operand may be a single
@@ -61,10 +61,10 @@ function s = cosSimExpTens(varargin)
 %
 %   Multiset-argument shapes (each operand takes the same shape on both
 %   sides; subscript 1 / 2 selects which operand):
-%     p1, p2          — Vectors of length K_1, K_2 (may differ). SA raw
+%     p1, p2          — Vectors of length K_1, K_2 (may differ). single multiset raw
 %                       form (single multiset, single-attribute).
 %     P1, P2          — nRows-by-K matrices, both dimensions > 1.
-%                       BATCHED-RAW form (rows are independent SA-style
+%                       BATCHED-RAW form (rows are independent single-attribute-style
 %                       multisets, processed in lockstep; returns an
 %                       nRows-by-1 vector of per-row similarities).
 %     pAttr1, pAttr2  — 1-by-A cells of K_a-by-N matrices. MA raw form
@@ -104,7 +104,7 @@ function s = cosSimExpTens(varargin)
 %              Both structs must share the same r, sigma, isRel, isPer,
 %              and (if periodic) period.
 %
-%   Inputs (SA raw calling convention):
+%   Inputs (single multiset raw calling convention):
 %     p1     — Pitch or position values for the first multiset (vector
 %              of length n_1).
 %     w1     — Weights for the first multiset (vector of length n_1, or
@@ -122,13 +122,13 @@ function s = cosSimExpTens(varargin)
 %
 %   Inputs (BATCHED-RAW calling convention):
 %     P1, P2 — nRows-by-K matrices of pitch or position values (rows
-%              are independent SA-style multisets, paired between P1
+%              are independent single-attribute-style multisets, paired between P1
 %              and P2). At least one of P1, P2 must have both
 %              dimensions > 1; the other may be a length-K vector that
 %              is broadcast against the matrix's rows.
 %     W1, W2 — Weights paired with P1, P2 (same shape, or [] for
 %              uniform). Broadcast in lockstep with their P operand.
-%     sigma, r, isRel, isPer, period — As in the SA raw convention
+%     sigma, r, isRel, isPer, period — As in the single multiset raw convention
 %              (shared across all rows).
 %
 %   Inputs (MA raw calling convention):
@@ -154,7 +154,7 @@ function s = cosSimExpTens(varargin)
 %                 'contract' (force the nested tree-contraction).
 %                 Inner-product decomposition. 'auto' selects via a
 %                 per-call cost model (with a timing-probe fallback for
-%                 indeterminate SA cases) between Bulger's method
+%                 indeterminate single multiset cases) between Bulger's method
 %                 (small r and small K) and the Möbius method (large r
 %                 or large K). 'bulger' / 'mobius' force the named
 %                 method; 'direct' enumerates every ordered r-tuple on
@@ -171,7 +171,7 @@ function s = cosSimExpTens(varargin)
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this
 %                 call. Applies on the centres path (Bulger's method
-%                 on the SA inner product); skips Gaussian
+%                 on the single multiset inner product); skips Gaussian
 %                 contributions whose centre-to-query distance exceeds
 %                 k*sigma (kernel floor exp(-k^2/2)). [] (default)
 %                 means use the global default (factory: Inf). No
@@ -218,7 +218,7 @@ function s = cosSimExpTens(varargin)
 
 % Extract optional name-value pairs that may follow the positional
 % args. 'verbose' applies to all dispatch arms; 'method' and
-% 'cancellationThreshold' apply to SA and MA struct/raw-args paths
+% 'cancellationThreshold' apply to single multiset and MA struct/raw-args paths
 % (Möbius dispatch) and are forwarded to the per-pair inner calls of
 % the batched-raw path; 'spectrum', 'precision', and 'dedup' are
 % valid only for the batched-raw path and are forwarded to
@@ -341,7 +341,7 @@ varargin = varargin(keepMask);
 
 nArgs = numel(varargin);
 
-% Optional shared [sym] geometry flag. The raw forms (SA and MA) carry
+% Optional shared [sym] geometry flag. The raw forms (single multiset and MA) carry
 % one shared geometry (sigma, r, isRel, isPer, period); isSym joins it
 % as an optional trailing positional. Pop it here and normalise nArgs
 % back to 9 so the raw-form dispatch below is unchanged; forward it to
@@ -430,7 +430,7 @@ end
 %     - either operand iscell                -> "use 10 args" error.
 %     - both numeric:
 %         * any operand a 2-D matrix         -> BATCHED-RAW (early return).
-%         * both vectors                     -> SA raw (falls through).
+%         * both vectors                     -> single multiset raw (falls through).
 %
 %   nArgs == 9:  multi-attribute raw form (cells).
 %     - both operands iscell                 -> MA raw (handles single-
@@ -444,8 +444,8 @@ end
 % ==================================================================
 
 USAGE_MSG = ['Usage:\n' ...
-    '  SA struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
-    '  SA raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
+    '  single multiset struct:    cosSimExpTens(dens_x, dens_y [, ''verbose'', tf])\n' ...
+    '  single multiset raw args:  cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period [, ''verbose'', tf])\n' ...
     '  MA struct:    cosSimExpTens(densMA_x, densMA_y [, ''verbose'', tf])\n' ...
     '  MA raw args:  cosSimExpTens(pAttr1, w1, pAttr2, w2, sigmaVec, rVec, isRelVec, isPerVec, periodVec [, ''verbose'', tf])\n' ...
     '  List mode:    cosSimExpTens({d_x_1, ...}, {d_y_1, ...}) -> cell array of values\n' ...
@@ -615,7 +615,8 @@ elseif nArgs == 9
             isSymRaw, method, cancellationThreshold, normalize, verbose, ...
             spectrumGiven, spectrumOpt, ...
             precisionGiven, precisionOpt, ...
-            dedupGiven, dedupOpt);
+            dedupGiven, dedupOpt, ...
+            truncationSigmas, kernelPrecision);
         return;
     end
     % --- Single-multiset raw: numeric vectors. Builds a MaetDensity at
@@ -643,8 +644,8 @@ else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
 end
 
-% --- SA compatibility validation (shared by SA dens-struct and SA raw) ---
-% For SA raw the two densities are built from identical scalar
+% --- single multiset compatibility validation (shared by single multiset dens-struct and single multiset raw) ---
+% For single multiset raw the two densities are built from identical scalar
 % parameters, so these checks are trivially satisfied. They are run
 % unconditionally so the same code path serves both entry forms.
 if dens_x.r ~= dens_y.r
@@ -670,7 +671,7 @@ if ~internal.kernelCovsCompatible(dens_x, dens_y)
          'attribute.']);
 end
 
-% --- Common SA cheap-field setup (used by Möbius and Bulger branches) ---
+% --- Common single multiset cheap-field setup (used by Möbius and Bulger branches) ---
 r     = dens_x.r;
 sigma = dens_x.sigma;
 isRel = dens_x.isRel;
@@ -999,13 +1000,13 @@ end
 end
 
 % =========================================================================
-%  SA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
+%  single multiset Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
 function chosen = localSelectSingleMultisetMethod(r, n_max, isRel, isPer, ...
                                        sigmaOverP, userMethod, n_min, ...
                                        verbose)
-%LOCALSELECTSINGLEMULTISETMETHOD  Choose the inner-product method for SA cosSimExpTens.
+%LOCALSELECTSINGLEMULTISETMETHOD  Choose the inner-product method for single multiset cosSimExpTens.
 %
 %   Routing rules (in order):
 %     1. userMethod ~= 'auto' overrides everything.
@@ -1019,7 +1020,7 @@ function chosen = localSelectSingleMultisetMethod(r, n_max, isRel, isPer, ...
 %        sum can suffer catastrophic cancellation when n_min is too close
 %        to r. Margin is 2 (i.e., n_min - r >= 2 required).
 %     6. Periodic-relative beyond sigma/period > 0.03: the all-image (Möbius)
-%        form is the faster SA path, so it is taken; because it differs from
+%        form is the faster single multiset path, so it is taken; because it differs from
 %        the canonical single-wrap (Bulger) measure above this sigma/period,
 %        warn and point to method='bulger' for the single-wrap measure.
 
@@ -1057,7 +1058,7 @@ end
 
 
 % =========================================================================
-%  SA cos-sim probe-based dispatcher
+%  single multiset cos-sim probe-based dispatcher
 %
 %  Parallels evalExpTens's localSelectAndEstimateSingleMultiset. Hard rules decide
 %  first (correctness / feasibility); analytical pre-screen catches
@@ -1081,7 +1082,7 @@ end
 
 function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleMultisetIP( ...
         dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose)
-%LOCALSELECTANDESTIMATESINGLEMULTISETIP  Probe-based dispatcher for SA cosSimExpTens.
+%LOCALSELECTANDESTIMATESINGLEMULTISETIP  Probe-based dispatcher for single multiset cosSimExpTens.
 %
 %   Returns (chosen, probed, estSec, routingReason). chosen is 'mobius'
 %   or 'bulger'; probed is true iff both paths were actually timed; estSec
@@ -1151,7 +1152,7 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleM
     % start at r = 2. A forced method='mobius' therefore cannot be honoured
     % at r <= 1 --- redirect it to Bulger's method (the r = 1 IP is a plain
     % pairwise Gaussian sum, computed exactly there). This matches the MA
-    % path, which has no SA orbit to route into at r = 1.
+    % path, which has no single multiset orbit to route into at r = 1.
     if r <= 1 && strcmp(method, 'mobius')
         method = 'bulger';
     end
@@ -1668,7 +1669,7 @@ end
 function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens_x, ...
                                                                  dens_y, ...
                                                                  truncationSigmas)
-%LOCALCOSSIMSINGLEMULTISETORBIT  Three SA inner products via the Möbius method.
+%LOCALCOSSIMSINGLEMULTISETORBIT  Three single multiset inner products via the Möbius method.
 %
 %   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
 %   and worstRatio = the minimum cancellation ratio across the three
@@ -1755,7 +1756,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 %
 %   Dispatches between Bulger's method and a per-attribute Möbius
 %   method based on method ('auto' / 'bulger' / 'mobius') and a
-%   simple r-based heuristic. Three-layer guard mirrors the SA
+%   simple r-based heuristic. Three-layer guard mirrors the single multiset
 %   dispatcher (cross-cancellation, corruption, non-finite fallback).
 %
 %   The trailing ``normalize`` argument selects the denominator
@@ -1951,7 +1952,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
                                                     truncationSigmas);
 
-        % Three-layer fallback guard (mirrors SA path).
+        % Three-layer fallback guard (mirrors single multiset path).
         denomGeo = sqrt(max(ip_xx * ip_yy, 0));
         crossCancel = denomGeo > 0 ...
                     && abs(ip_xy) < cancellationThreshold * denomGeo;
@@ -2118,7 +2119,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     function Qa = computeQaMA(D, a, r_a)
-        % Per-attribute quadratic form. Matches the SA computeQ logic:
+        % Per-attribute quadratic form. Matches the single multiset computeQ logic:
         %   - is_rel && is_per: pairwise-differences formula (wraps
         %     each pairwise delta to [-P/2, P/2), restores exact
         %     transposition invariance on the circle).
@@ -2254,7 +2255,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
 %     (struct, cell) — broadcast struct against the cell. Returns 1-by-n.
 %
 %   Each pair dispatches recursively to cosSimExpTens, which selects the
-%   appropriate scalar form (MA or SA) based on the entries'
+%   appropriate scalar form (MA or single multiset) based on the entries'
 %   tags. Mixed-kind pairs are not prevented at this level; compatibility
 %   is checked downstream. `WindowedMaetDensity` entries are rejected
 %   at the top of cosSimExpTens (use windowedTensorSimilarity instead).
@@ -2331,7 +2332,8 @@ end
 
 function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
     isSym, method, cancellationThreshold, normalize, verbose, ...
-    spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt)
+    spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt, ...
+    truncationSigmas, kernelPrecision)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
 %
 %   P1 and P2 are nRows-by-K_? matrices. Returns a length-nRows vector.
@@ -2347,6 +2349,9 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 %     4. Build one density struct per unique individual set.
 %     5. Call cosSimExpTens once per unique (A, B) pair, mapping results
 %        back to all matching rows.
+
+    if nargin < 21, truncationSigmas = []; end
+    if nargin < 22, kernelPrecision  = []; end
 
     if size(P1, 1) ~= size(P2, 1)
         error('cosSimExpTens:batchedRowMismatch', ...
@@ -2667,15 +2672,20 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
     end
 
     % === Phase 4: Compute similarity for each unique pair ===
+    pairKw = {'method', method, ...
+              'cancellationThreshold', cancellationThreshold, ...
+              'normalize', normalize, 'verbose', false};
+    if ~isempty(truncationSigmas)
+        pairKw = [pairKw, {'truncationSigmas', truncationSigmas}];
+    end
+    if ~isempty(kernelPrecision)
+        pairKw = [pairKw, {'kernelPrecision', kernelPrecision}];
+    end
     uniqueS = NaN(nUniquePairs, 1);
     for up = 1:nUniquePairs
         dA = densA{uniquePairs(up, 1)};
         dB = densB{uniquePairs(up, 2)};
-        uniqueS(up) = cosSimExpTens(dA, dB, ...
-                                    'method', method, ...
-                                    'cancellationThreshold', cancellationThreshold, ...
-                                    'normalize', normalize, ...
-                                    'verbose', false);
+        uniqueS(up) = cosSimExpTens(dA, dB, pairKw{:});
 
         if verbose && showProgress ...
                 && (mod(up, progStride) == 0 || up == nUniquePairs)

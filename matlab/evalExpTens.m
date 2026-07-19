@@ -404,7 +404,7 @@ elseif isnumeric(firstArg)
         vals = localEvalBatchedRaw( ...
             varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
-            isSymRaw, normalize, verbose);
+            isSymRaw, normalize, verbose, truncationSigmas, kernelPrecision);
         return;
     end
     % single multiset raw: numeric vector or scalar.
@@ -1316,11 +1316,17 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
 end
 
 
-function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose)
+function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose, truncationSigmas, kernelPrecision)
 %LOCALEVALBATCHEDRAW Batched evaluation from a 2-D pitch matrix.
 %
 %   P is nRows-by-K; X is shared across all rows. Returns an
 %   nRows-by-nQ matrix of values (one row per multiset).
+%
+%   truncationSigmas and kernelPrecision are forwarded to the per-row
+%   evaluation so a caller-supplied kernel width applies uniformly across
+%   every row (an empty value defers to the toolbox default downstream).
+    if nargin < 12, truncationSigmas = []; end
+    if nargin < 13, kernelPrecision  = []; end
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
@@ -1360,6 +1366,14 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
         end
     end
 
+    rowKw = {'verbose', verbose};
+    if ~isempty(truncationSigmas)
+        rowKw = [rowKw, {'truncationSigmas', truncationSigmas}];
+    end
+    if ~isempty(kernelPrecision)
+        rowKw = [rowKw, {'kernelPrecision', kernelPrecision}];
+    end
+
     for k = 1:nRows
         pRow = P(k, :);
         % Drop NaN entries (consistent with batchCosSimExpTens convention).
@@ -1377,7 +1391,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
             continue;
         end
         vals(k, :) = evalExpTens(pK, wK, sigma, r, isRel, isPer, period, ...
-            X, normalize, 'verbose', verbose);
+            X, normalize, rowKw{:});
     end
 end
 

@@ -297,7 +297,8 @@ def eval_exp_tens(*args,
         return _eval_exp_tens_raw_ma_scalar(
             p_attr, w_in, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, is_sym_vec, x, normalize,
-            verbose=verbose,
+            method=method, truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision, verbose=verbose,
         )
 
     # ------------------------------------------------------------------
@@ -363,13 +364,17 @@ def eval_exp_tens(*args,
             )
         return _eval_exp_tens_raw_single_multiset_scalar(
             p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
-            spectrum=spectrum, method=method, verbose=verbose,
+            spectrum=spectrum, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision, verbose=verbose,
         )
     if a_arr.ndim == 2:
         return _eval_exp_tens_raw_single_multiset_batch(
             p, w, sigma, r_, is_rel, is_per, period, is_sym, x, normalize,
             spectrum=spectrum, precision=precision,
-            dedup=dedup, method=method, verbose=verbose,
+            dedup=dedup, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision, verbose=verbose,
         )
     raise TypeError(
         f"First argument has unsupported shape {a_arr.shape}; "
@@ -527,7 +532,10 @@ def _eval_exp_tens_density_list(
 def _eval_exp_tens_raw_single_multiset_scalar(
     p, w, sigma, r, is_rel, is_per, period, is_sym,
     x, normalize: str,
-    *, spectrum=None, method: str = "auto", verbose: bool,
+    *, spectrum=None, method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
+    verbose: bool,
 ) -> np.ndarray:
     """Raw single-multiset scalar dispatch: build density (with optional spectrum), evaluate."""
     if spectrum is not None:
@@ -540,7 +548,9 @@ def _eval_exp_tens_raw_single_multiset_scalar(
         True if is_sym is None else is_sym, verbose=verbose,
     )
     return _eval_exp_tens_scalar(
-        dens, x, normalize, method=method, verbose=verbose,
+        dens, x, normalize, method=method,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision, verbose=verbose,
     )
 
 
@@ -550,6 +560,8 @@ def _eval_exp_tens_raw_single_multiset_batch(
     x, normalize: str,
     *, spectrum=None, precision: int | None = None,
     dedup: bool = True, method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
     verbose: bool,
 ) -> np.ndarray:
     """Raw single-multiset batched dispatch.
@@ -645,7 +657,9 @@ def _eval_exp_tens_raw_single_multiset_batch(
     eval_cache: dict = {}
     for key, dens in dens_cache.items():
         eval_cache[key] = _eval_exp_tens_scalar(
-            dens, x, normalize, method=method, verbose=False,
+            dens, x, normalize, method=method,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision, verbose=False,
         )
 
     # Determine nQ from a representative evaluation.
@@ -665,14 +679,21 @@ def _eval_exp_tens_raw_ma_scalar(
     p_attr, w, sigma_vec, r_vec,
     is_rel_vec, is_per_vec, period_vec, is_sym_vec,
     x, normalize: str,
-    *, verbose: bool,
+    *, method: str = "auto",
+    truncation_sigmas: float | None = None,
+    kernel_precision: str | None = None,
+    verbose: bool,
 ) -> np.ndarray:
     """Raw MA scalar dispatch: build MA density, evaluate."""
     dens = build_exp_tens(
         p_attr, w, sigma_vec, r_vec,
         is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
-    return _eval_exp_tens_scalar(dens, x, normalize, verbose=verbose)
+    return _eval_exp_tens_scalar(
+        dens, x, normalize, method=method,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision, verbose=verbose,
+    )
 
 
 
@@ -839,6 +860,14 @@ def _eval_exp_tens_ma(
     radius.
     """
     # ---- Path selection (cost model, no probe) ----
+    # Defensive resolve: every eval entry resolves the truncation width to
+    # a finite value, but internal callers can reach here directly, so
+    # re-resolve idempotently (finite -> unchanged, inf -> accuracy-floor
+    # width, None -> global default). This guarantees the centres kernels
+    # below always truncate --- None must never fall through as "no
+    # truncation" (i.e. dense summation over every joint tuple).
+    from .._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     from .dispatch import _select_ma_eval
     n_q_hint = 0
     if isinstance(x, (list, tuple)):

@@ -525,7 +525,7 @@ truncResolved = internal.accuracyFloor('resolve', truncationSigmas);
 vals = [];
 ranOrbit = false;
 if strcmp(chosen, 'mobius')
-    vals = localEvalSAOrbit(dens, X, false, truncationSigmas, kernelPrecision);
+    vals = localEvalSingleMultisetOrbit(dens, X, false, truncationSigmas, kernelPrecision);
     % Post-hoc finiteness fallback. Mirrors the cosine-path safety net:
     % if the Möbius alternating partition sum produces non-finite output (extreme
     % sigma -> 0 regime), fall back to centres rather than propagating
@@ -566,7 +566,7 @@ if ~ranOrbit
     % with the resolved finite truncation width. The former inline
     % untruncated fast path is gone --- with Inf resolved to the accuracy
     % floor there is no untruncated regime to shortcut.
-    vals = localEvalSACentres(dens, X, nQ, false, ...
+    vals = localEvalSingleMultisetCentres(dens, X, nQ, false, ...
         truncResolved, kernelPrecision);
 end
 
@@ -647,9 +647,9 @@ end
 
 
 
-function vals = localEvalSAOrbit(dens, X, verbose, ...
+function vals = localEvalSingleMultisetOrbit(dens, X, verbose, ...
         truncationSigmas, kernelPrecision) %#ok<INUSD>
-%LOCALEVALSAORBIT  Orbit-Mobius point evaluator for SA densities.
+%LOCALEVALSINGLEMULTISETORBIT  Orbit-Mobius point evaluator for SA densities.
 %
 %   Routes to mobius.evalOrbitAbs (absolute mode) or mobius.evalOrbitRel
 %   (relative mode). Returns a 1-by-nQ row vector, matching the centres
@@ -716,9 +716,9 @@ function vals = localEvalSAOrbit(dens, X, verbose, ...
 end
 
 
-function vals = localEvalSACentres(dens, X, nQ, verbose, ...
+function vals = localEvalSingleMultisetCentres(dens, X, nQ, verbose, ...
         truncationSigmas, kernelPrecision)
-%LOCALEVALSACENTRES  Centres-array path for SA evaluation.
+%LOCALEVALSINGLEMULTISETCENTRES  Centres-array path for SA evaluation.
 %
 %   Routes through internal.gaussianKernelSum so that the
 %   truncationSigmas and kernelPrecision options apply uniformly across
@@ -1286,14 +1286,14 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
         % (each is a single-attribute query) or a single MA-cell-form X
         % broadcast. Disambiguate by density shape: if all densities are
         % single-multiset, treat as per-density. Otherwise broadcast.
-        allSA = true;
+        allSingleMultiset = true;
         for i = 1:n
             if ~internal.isSingleMultiset(densCell{i})
-                allSA = false;
+                allSingleMultiset = false;
                 break;
             end
         end
-        perDensity = allSA;
+        perDensity = allSingleMultiset;
     else
         perDensity = false;
     end

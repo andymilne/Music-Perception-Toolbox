@@ -1,7 +1,7 @@
 %% test_unequal_k_rel.m — relative-mode cosine between unequal-size collections
 %
 %  Regression for the batched relative orbit inner product
-%  (mobius.relInnerBatched via mobius.orbitInnerRelSA): it previously
+%  (mobius.relInnerBatched via mobius.orbitInnerRelSingleMultiset): it previously
 %  assumed both collections had the same cardinality K, reshaping the
 %  kernel to (pairs, K, K). Comparing a 3-note triad against a larger
 %  scale (the demo_edoApprox workload: 4:5:6 triad vs EDO sets) crashed

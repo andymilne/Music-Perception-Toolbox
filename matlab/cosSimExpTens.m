@@ -690,7 +690,7 @@ end
 % probe yields the routing decision; its extrapolated timing
 % (probed/estSec) is retained for debugging but no longer feeds the
 % decision-only dispatch message.
-[chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
+[chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleMultisetIP( ...
     dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose); %#ok<ASGLU>
 
 % Ordered (isSym = false) densities are not symmetrised, so the orbit
@@ -719,7 +719,7 @@ ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
 
 if strcmp(chosen, 'mobius')
-    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, dens_y, ...
+    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens_x, dens_y, ...
                                                             truncationSigmas);
 
     % Three-layer fallback guard.
@@ -800,7 +800,7 @@ end
     %  Core inner product between one perm-side (U, wU) and one
     %  comb-side (V, wV).
     %
-    %  Two-axis routing (mirrors localSelectAndEstimateSA + the
+    %  Two-axis routing (mirrors localSelectAndEstimateSingleMultiset + the
     %  execution-axis check in evalExpTens):
     %
     %    Routing axis — abs and rel-non-periodic forms have a helper
@@ -1002,10 +1002,10 @@ end
 %  SA Möbius dispatch helpers (method='auto'|'bulger'|'mobius')
 % =========================================================================
 
-function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
+function chosen = localSelectSingleMultisetMethod(r, n_max, isRel, isPer, ...
                                        sigmaOverP, userMethod, n_min, ...
                                        verbose)
-%LOCALSELECTSAMETHOD  Choose the inner-product method for SA cosSimExpTens.
+%LOCALSELECTSINGLEMULTISETMETHOD  Choose the inner-product method for SA cosSimExpTens.
 %
 %   Routing rules (in order):
 %     1. userMethod ~= 'auto' overrides everything.
@@ -1025,7 +1025,7 @@ function chosen = localSelectSAMethod(r, n_max, isRel, isPer, ...
 
     % The Möbius orbit IP is undefined for r < 2; a forced method='mobius'
     % cannot be honoured at r <= 1 and redirects to Bulger's method (see
-    % localSelectAndEstimateSAIP for the full rationale).
+    % localSelectAndEstimateSingleMultisetIP for the full rationale).
     if r <= 1 && strcmp(userMethod, 'mobius')
         userMethod = 'bulger';
     end
@@ -1059,7 +1059,7 @@ end
 % =========================================================================
 %  SA cos-sim probe-based dispatcher
 %
-%  Parallels evalExpTens's localSelectAndEstimateSA. Hard rules decide
+%  Parallels evalExpTens's localSelectAndEstimateSingleMultiset. Hard rules decide
 %  first (correctness / feasibility); analytical pre-screen catches
 %  clear-winner cases without paying probe overhead; otherwise time
 %  both paths on a small subset of each density and pick the faster.
@@ -1079,9 +1079,9 @@ end
 %  estimate by PROBE_IP_MOBIUS_DECISION_MARGIN.
 % =========================================================================
 
-function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSAIP( ...
+function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleMultisetIP( ...
         dens_x, dens_y, method, truncationSigmas, kernelPrecision, verbose)
-%LOCALSELECTANDESTIMATESAIP  Probe-based dispatcher for SA cosSimExpTens.
+%LOCALSELECTANDESTIMATESINGLEMULTISETIP  Probe-based dispatcher for SA cosSimExpTens.
 %
 %   Returns (chosen, probed, estSec, routingReason). chosen is 'mobius'
 %   or 'bulger'; probed is true iff both paths were actually timed; estSec
@@ -1395,7 +1395,7 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
 %   marginalises a translation u over a grid and runs the orbit
 %   contraction at every grid point, so its kernel-op count carries the
 %   grid size as a multiplicative factor. The three factors mirror the
-%   grid-sizing rules of mobius.orbitInnerRelSA: in periodic mode the
+%   grid-sizing rules of mobius.orbitInnerRelSingleMultiset: in periodic mode the
 %   grid covers one period with internal.autoNtauDefault(period, sigma)
 %   nodes (identical for all three inner products); in non-periodic mode
 %   the line grid spans the two operands' spreads plus the 16-sigma
@@ -1452,7 +1452,7 @@ function [c, calibrated] = localOrbitGridUnitCost(r)
 %   path's per-op cost in the shared kernel-op unit falls with r,
 %   while the orbit contraction's stays flat (rank-minimising recipe
 %   order, mobius.buildContractRecipe; slabbed translation grid,
-%   mobius.orbitInnerRelSA). Values are per-implementation: these are
+%   mobius.orbitInnerRelSingleMultiset). Values are per-implementation: these are
 %   the MATLAB values, calibrated from bench_ip_dispatch.m (tests/)
 %   measurements on the EDO-approximation workload (K_x = 8,
 %   sigma = 6, period = 1200): orbit contraction 3.5-18 ns per kernel
@@ -1570,12 +1570,12 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
 
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
-        [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
+        [~, ~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
         % Timed passes: repeat until the sample is above timer noise.
         reps = 0;
         tStart = tic;
         while true
-            [~, ~, ~, ~] = localCosSimSAOrbit(subX, subY, truncationSigmas);
+            [~, ~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
             reps = reps + 1;
             elapsed = toc(tStart);
             if elapsed >= PROBE_MIN_SAMPLE_SEC || reps >= PROBE_MAX_REPS
@@ -1665,10 +1665,10 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
 end
 
 
-function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, ...
+function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens_x, ...
                                                                  dens_y, ...
                                                                  truncationSigmas)
-%LOCALCOSSIMSAORBIT  Three SA inner products via the Möbius method.
+%LOCALCOSSIMSINGLEMULTISETORBIT  Three SA inner products via the Möbius method.
 %
 %   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
 %   and worstRatio = the minimum cancellation ratio across the three
@@ -1693,18 +1693,18 @@ function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSAOrbit(dens_x, ...
     end
 
     if isRel
-        [ip_xy, r_xy] = mobius.orbitInnerRelSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+        [ip_xy, r_xy] = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_xx, r_xx] = mobius.orbitInnerRelSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+        [ip_xx, r_xx] = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_yy, r_yy] = mobius.orbitInnerRelSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+        [ip_yy, r_yy] = mobius.orbitInnerRelSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     else
-        [ip_xy, r_xy] = mobius.orbitInnerAbsSA(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+        [ip_xy, r_xy] = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_xx, r_xx] = mobius.orbitInnerAbsSA(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+        [ip_xx, r_xx] = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_yy, r_yy] = mobius.orbitInnerAbsSA(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+        [ip_yy, r_yy] = mobius.orbitInnerAbsSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     end
     worstRatio = min([r_xy, r_xx, r_yy]);

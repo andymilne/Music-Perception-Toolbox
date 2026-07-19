@@ -61,7 +61,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
 %     through the vectorised batched Möbius method with within-safe-group
 %     zero-padding. Pairs involving any unsafe event flow through the
-%     direct-enumeration helper MOBIUS.INNERPRODUCTDIRECTABSSA, which
+%     direct-enumeration helper MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET, which
 %     is exact for any K >= R (no Möbius alternating sum).
 %
 %   - r >= 2 rel: batched translation-grid integration with zero-pad
@@ -76,8 +76,8 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     Möbius-mode behaviour should either filter events to K_eff >=
 %     R + 2 or use method='auto' (which routes to Bulger's method).
 %
-%   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.INNERPRODUCTDIRECTABSSA,
-%            MOBIUS.ORBITINNERRELSA, INTERNAL.TRUNCKERNELEXP.
+%   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET,
+%            MOBIUS.ORBITINNERRELSINGLEMULTISET, INTERNAL.TRUNCKERNELEXP.
 
     arguments
         Px double
@@ -168,7 +168,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 
     % --- Pairs involving any unsafe event: K-grouped batched direct ---
     % Under v2.2.0 this was a pair-by-pair MATLAB double-loop calling
-    % mobius.innerProductDirectAbsSA per (n_x, n_y); for variable-K_a
+    % mobius.innerProductDirectAbsSingleMultiset per (n_x, n_y); for variable-K_a
     % workloads with many unsafe events that dominated runtime by
     % 10-100x over the actual numerical work.
     %
@@ -316,7 +316,7 @@ function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
 %
 %   Partitions x_idx by K_eff_x value and y_idx by K_eff_y value, then
 %   computes each (K_x_val, K_y_val) sub-block via a single vectorised
-%   tensor contraction in localBatchedDirectEnumAbsSA. Replaces the
+%   tensor contraction in localBatchedDirectEnumAbsSingleMultiset. Replaces the
 %   v2.2.0 per-pair MATLAB double loop.
 
     if isempty(x_idx) || isempty(y_idx)
@@ -344,7 +344,7 @@ function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
             [Py_grp, Wy_grp] = localPackNanTop(Py(:, y_grp), Wy(:, y_grp));
             Py_grp = Py_grp(1:double(Ky_val), :);
             Wy_grp = Wy_grp(1:double(Ky_val), :);
-            sub_ip = localBatchedDirectEnumAbsSA( ...
+            sub_ip = localBatchedDirectEnumAbsSingleMultiset( ...
                 Px_grp, Wx_grp, Py_grp, Wy_grp, ...
                 sigma, r, isPer, period, truncationSigmas);
             I(x_grp, y_grp) = sub_ip;
@@ -378,12 +378,12 @@ function [Pp, Wp] = localPackNanTop(P, W)
 end
 
 
-function I = localBatchedDirectEnumAbsSA(Px, Wx, Py, Wy, sigma, r, ...
+function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, ...
                                           isPer, period, truncationSigmas)
-%LOCALBATCHEDDIRECTENUMABSSA  Batched direct r-tuple enumeration IP.
+%LOCALBATCHEDDIRECTENUMABSSINGLEMULTISET  Batched direct r-tuple enumeration IP.
 %
 %   Vectorised replacement for repeated calls to
-%   mobius.innerProductDirectAbsSA when every event in Px has the
+%   mobius.innerProductDirectAbsSingleMultiset when every event in Px has the
 %   same K_x = K_eff_x and every event in Py has the same
 %   K_y = K_eff_y (no NaN within the first K rows of either side).
 %

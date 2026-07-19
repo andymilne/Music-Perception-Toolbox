@@ -1,7 +1,7 @@
 %% test_dispatcher_ip_probe.m — v2.2.x probe-based SA IP dispatcher
 %
 %  Mirrors python/tests/test_dispatcher_ip_probe.py. The
-%  dispatcher (localSelectAndEstimateSAIP inside cosSimExpTens) decides
+%  dispatcher (localSelectAndEstimateSingleMultisetIP inside cosSimExpTens) decides
 %  between the Möbius method and the Bulger's method. Hard rules decide
 %  first (correctness / feasibility); then an analytical pre-screen
 %  catches clear-winner cases without probe overhead; otherwise both

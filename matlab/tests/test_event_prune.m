@@ -48,12 +48,12 @@ mptDefaults('reset');
 % nonzero (incl. negative) survive. prunedExpTens returns a MaetDensity
 % (the single density type); the flat single-multiset fields are read
 % through the view, mirroring Python's single_multiset_view(dens).pruned().
-densSA = buildExpTens([60 62 64 66 68], [1 0 0 2 -3], 0.5, 1, ...
+densSingleMultiset = buildExpTens([60 62 64 66 68], [1 0 0 2 -3], 0.5, 1, ...
                       false, false, 0);
-prSA = internal.singleMultisetView(internal.prunedExpTens(densSA));
+prSingleMultiset = internal.singleMultisetView(internal.prunedExpTens(densSingleMultiset));
 results{end+1,1} = 'SA prune drops zero-weight elements, keeps finite nonzero';
-results{end,2}   = isequal(prSA.p(:).', [60 66 68]) ...
-                   && isequal(prSA.w(:).', [1 2 -3]);
+results{end,2}   = isequal(prSingleMultiset.p(:).', [60 66 68]) ...
+                   && isequal(prSingleMultiset.w(:).', [1 2 -3]);
 
 % MA: an all-zero column on the pitch attribute (K=2) kills the event;
 % a partly-zero column (one live slot) keeps it.
@@ -86,9 +86,9 @@ results{end,2}   = (prMA2.N == 2) ...
 %% pruned() returns the density unchanged when nothing is dead
 %% -----------------------------------------------------------------
 
-densLiveSA = buildExpTens([60 62 64], [1 1 2], 0.5, 1, false, false, 0);
+densLiveSingleMultiset = buildExpTens([60 62 64], [1 1 2], 0.5, 1, false, false, 0);
 results{end+1,1} = 'SA prune returns density unchanged when all live';
-results{end,2}   = isequaln(internal.prunedExpTens(densLiveSA), densLiveSA);
+results{end,2}   = isequaln(internal.prunedExpTens(densLiveSingleMultiset), densLiveSingleMultiset);
 
 densLiveMA = buildExpTens({[60 62 64], [0 1 2]}, {ones(1,3), ones(1,3)}, ...
                           [0.5 0.15], [1 1], ...
@@ -102,16 +102,16 @@ results{end,2}   = isequaln(internal.prunedExpTens(densLiveMA), densLiveMA);
 %% -----------------------------------------------------------------
 
 % --- SA Rényi-2 ---
-pSA = [60 62 64 66 68 70];
-wSA = [1.0 0.7 1.3 0.9 1.1 0.5];
-deadSA = [2 5];                 % zero these
-wSAd = wSA;  wSAd(deadSA) = 0;
-keepSA = true(1, numel(pSA));  keepSA(deadSA) = false;
+pSingleMultiset = [60 62 64 66 68 70];
+wSingleMultiset = [1.0 0.7 1.3 0.9 1.1 0.5];
+deadSingleMultiset = [2 5];                 % zero these
+wSingleMultisetd = wSingleMultiset;  wSingleMultisetd(deadSingleMultiset) = 0;
+keepSingleMultiset = true(1, numel(pSingleMultiset));  keepSingleMultiset(deadSingleMultiset) = false;
 
-H_sa_with = entropyExpTens(buildExpTens(pSA, wSAd, 0.5, 1, false, false, 0), ...
+H_sa_with = entropyExpTens(buildExpTens(pSingleMultiset, wSingleMultisetd, 0.5, 1, false, false, 0), ...
                            'method', 'renyi2', 'verbose', false);
 H_sa_without = entropyExpTens( ...
-    buildExpTens(pSA(keepSA), wSA(keepSA), 0.5, 1, false, false, 0), ...
+    buildExpTens(pSingleMultiset(keepSingleMultiset), wSingleMultiset(keepSingleMultiset), 0.5, 1, false, false, 0), ...
     'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'SA renyi2 invariant to dead events';
 results{end,2}   = H_sa_with == H_sa_without;
@@ -238,8 +238,8 @@ results{end,2}   = isnan(H_dead_ma);
 % entropy of zero mass is undefined, so renyi2 returns NaN (matching the
 % MA path and the value a windowed sweep wants at out-of-support centres)
 % rather than erroring.
-densDeadSA = buildExpTens([60 62 64], [0 0 0], 0.5, 1, false, false, 0);
-H_dead_sa = entropyExpTens(densDeadSA, 'method', 'renyi2', 'verbose', false);
+densDeadSingleMultiset = buildExpTens([60 62 64], [0 0 0], 0.5, 1, false, false, 0);
+H_dead_sa = entropyExpTens(densDeadSingleMultiset, 'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'all-dead SA renyi2 is NaN';
 results{end,2}   = isnan(H_dead_sa);
 

@@ -7,7 +7,7 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 %   between the two densities' events: every pair's inner product
 %   marginalises a translation u over a grid. This is the single
 %   relative-mode evaluator: the single-collection form (one event per
-%   side) is its N = 1 specialisation via MOBIUS.ORBITINNERRELSA.
+%   side) is its N = 1 specialisation via MOBIUS.ORBITINNERRELSINGLEMULTISET.
 %
 %   Periodic mode uses the shared uniform grid over [0, P) with
 %   INTERNAL.AUTONTAUDEFAULT nodes — the single node-count source

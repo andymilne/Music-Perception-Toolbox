@@ -34,7 +34,7 @@ function bench_orbit_xlang
 
         t_single  = benchOrbitSingle(r, K, N_REPS, N_WARMUP) * 1000;
         t_batched = benchOrbitBatched(r, K, P, N_REPS, N_WARMUP) * 1000;
-        t_cossim  = benchCosSimSAOrbit(r, K, N_REPS, N_WARMUP) * 1000;
+        t_cossim  = benchCosSimSingleMultisetOrbit(r, K, N_REPS, N_WARMUP) * 1000;
 
         fprintf('matlab,inner_product_orbit,%d,%d,1,%.4f\n', ...
                 r, K, t_single);
@@ -103,7 +103,7 @@ function t = benchOrbitBatched(r, K, P, nReps, nWarmup)
 end
 
 
-function t = benchCosSimSAOrbit(r, K, nReps, nWarmup)
+function t = benchCosSimSingleMultisetOrbit(r, K, nReps, nWarmup)
     rng(r * 13 + K, 'twister');
     p1 = sort(2000 * rand(K, 1));
     p2 = sort(2000 * rand(K, 1));

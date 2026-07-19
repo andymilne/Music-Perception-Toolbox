@@ -8,7 +8,7 @@ function n = autoNtauDefault(period, sigma)
 %
 %   This is the single shared source of the relative-periodic node count for
 %   every path that evaluates it -- the flat single-attribute and
-%   multi-attribute Mobius integrators (mobius.orbitInnerRelSA, reused by
+%   multi-attribute Mobius integrators (mobius.orbitInnerRelSingleMultiset, reused by
 %   mobius.maPerAttrInnerMatrix) and the nested contraction
 %   (internal.nestedContract) -- so their transposition grids coincide exactly
 %   and the same level returns the same value whichever path computes it.

@@ -1,7 +1,7 @@
 %% test_cell_mass_zero_weight_prune.m
 %
 %  Regression tests for the auto-prune of zero-weight tuples in
-%  localCellMassesMAAbsolute / localCellMassesSAAbsolute inside
+%  localCellMassesMAAbsolute / localCellMassesSingleMultisetAbsolute inside
 %  entropyExpTens.
 %
 %  The auto-prune mirrors the eval-path prune in evalExpTens. Without

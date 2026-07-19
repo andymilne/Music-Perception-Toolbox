@@ -1,7 +1,7 @@
 %% test_eval_routing.m — v2.2 evalExpTens centres-path routing parity
 %
 %  Mirrors python/tests/test_eval_routing.py. Verifies that the
-%  v2.2.x refactor of localEvalSACentres (routing through
+%  v2.2.x refactor of localEvalSingleMultisetCentres (routing through
 %  internal.gaussianKernelSum) is:
 %
 %    - Within the accuracy-floor truncation bound of the v2.0/v2.1
@@ -62,7 +62,7 @@ for ic = 1:size(er_cases, 1)
         'verbose', false);
     % Populate heavy fields (Centres, wJ) so the test body can read
     % them. Production code calls internal.ensureExpTensExpensive inside the
-    % evalExpTens centres-branch before invoking localEvalSACentres.
+    % evalExpTens centres-branch before invoking localEvalSingleMultisetCentres.
     dens = internal.ensureExpTensExpensive(dens);
     if isRel
         dim = r - 1;

@@ -8,7 +8,7 @@ function tf = orbitBeatsPairwisePerAttr(r, K, isRel, isPer)
 %   a cheap mode-aware threshold rather than a probe. The flat multi-attribute
 %   and single-attribute inner-product paths instead make a whole-call decision
 %   through the cost model and probe (internal.selectMaInnerProductMethod and
-%   localSelectAndEstimateSAIP in cosSimExpTens), which also weigh N. The two
+%   localSelectAndEstimateSingleMultisetIP in cosSimExpTens), which also weigh N. The two
 %   mechanisms are matched to their contexts, not redundant: the per-level
 %   predicate cannot afford a probe, and its thresholds encode the
 %   relative-periodic u-grid overhead that an op-count comparison would miss.

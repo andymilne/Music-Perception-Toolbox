@@ -109,21 +109,21 @@ warning(ws);
 results{end+1,1} = 'entropy.renyi2 SA r=1 rel: degenerate, returns 0';
 results{end,2}   = isequal(H_deg, 0);
 
-%% ---- SA r=3 abs nonper: agrees with mobius.orbitInnerAbsSA ----
+%% ---- SA r=3 abs nonper: agrees with mobius.orbitInnerAbsSingleMultiset ----
 
 p3 = sort(2000 * rand(8, 1));
 w3 = ones(8, 1);
 H_r3 = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 
-ip_ref = mobius.orbitInnerAbsSA(p3, w3, p3, w3, sigma, 3, false, 0);
+ip_ref = mobius.orbitInnerAbsSingleMultiset(p3, w3, p3, w3, sigma, 3, false, 0);
 Z_ref = mobius.totalMassAbs(p3, w3, sigma, 3);
 H_ref3 = -log2(ip_ref / (Z_ref * Z_ref));
 
 results{end+1,1} = 'entropy.renyi2 SA r=3 abs: matches direct orbit IP + total mass (1e-10)';
 results{end,2}   = abs(H_r3 - H_ref3) < 1e-10;
 
-%% ---- SA r=3 rel periodic: agrees with mobius.orbitInnerRelSA ----
+%% ---- SA r=3 rel periodic: agrees with mobius.orbitInnerRelSingleMultiset ----
 
 period_p = 1200;
 pP = sort(period_p * rand(8, 1));
@@ -131,7 +131,7 @@ wP = ones(8, 1);
 H_rel = entropyExpTens(pP, wP, sigma, 3, true, true, period_p, ...
     'method', 'renyi2', 'verbose', false);
 
-ip_rel = mobius.orbitInnerRelSA(pP, wP, pP, wP, sigma, 3, true, period_p);
+ip_rel = mobius.orbitInnerRelSingleMultiset(pP, wP, pP, wP, sigma, 3, true, period_p);
 Z_rel = mobius.totalMassRel(pP, wP, sigma, 3);
 H_rel_ref = -log2(ip_rel / (Z_rel * Z_rel));
 

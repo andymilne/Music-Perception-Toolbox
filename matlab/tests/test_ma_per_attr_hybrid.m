@@ -8,11 +8,11 @@
 %    - Safe-vs-safe pairs flow through the vectorised batched Möbius method
 %      with zero-pad within the safe group.
 %    - Pairs involving any unsafe event flow through
-%      mobius.innerProductDirectAbsSA (direct r-tuple enumeration; no
+%      mobius.innerProductDirectAbsSingleMultiset (direct r-tuple enumeration; no
 %      Möbius alternating sum, so no cancellation).
 %
 %  Tests:
-%    - innerProductDirectAbsSA standalone correctness (matches a
+%    - innerProductDirectAbsSingleMultiset standalone correctness (matches a
 %      hand-rolled centres-array IP).
 %    - All-safe ragged: hybrid produces same matrix as the prior
 %      zero-pad-everything approach (since safe group covers all events).
@@ -39,7 +39,7 @@ else
     standalone = false;
 end
 
-%% ---- innerProductDirectAbsSA correctness ----
+%% ---- innerProductDirectAbsSingleMultiset correctness ----
 
 % Compare direct enumeration to a hand-rolled centres-array IP for a
 % small abs-mode SA case. The hand-rolled version uses buildExpTens to
@@ -52,7 +52,7 @@ p_y = sort(2000 * rand(5, 1));
 w_y = ones(5, 1);
 sigma = 30;
 
-ip_direct = mobius.innerProductDirectAbsSA(p_x, w_x, p_y, w_y, ...
+ip_direct = mobius.innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, ...
     sigma, 3, false, 0);
 
 % Hand-rolled reference via buildExpTens centres
@@ -65,20 +65,20 @@ diffs_ref = reshape(densX.U_perm{1}, 3, densX.nJ, 1) ...
 Q_ref = reshape(sum(diffs_ref.^2, 1), densX.nJ, densY.nJ);
 ip_ref = (sigma * sqrt(pi))^3 * (densX.wJ * exp(-Q_ref / (4*sigma^2)) * densY.wJ.');
 
-results{end+1,1} = 'mobius.innerProductDirectAbsSA: matches centres-array IP (1e-12)';
+results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: matches centres-array IP (1e-12)';
 results{end,2}   = abs(ip_direct - ip_ref) < 1e-12 * abs(ip_ref);
 
 % NaN-tolerance: NaN entries are dropped per side.
 p_x_nan = [p_x; NaN; NaN];   w_x_nan = [w_x; NaN; NaN];
-ip_direct_nan = mobius.innerProductDirectAbsSA(p_x_nan, w_x_nan, p_y, w_y, ...
+ip_direct_nan = mobius.innerProductDirectAbsSingleMultiset(p_x_nan, w_x_nan, p_y, w_y, ...
     sigma, 3, false, 0);
-results{end+1,1} = 'mobius.innerProductDirectAbsSA: NaN-padded input dropped per side';
+results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: NaN-padded input dropped per side';
 results{end,2}   = abs(ip_direct_nan - ip_direct) < 1e-12 * abs(ip_direct);
 
 % K_eff < r returns 0 by convention.
-ip_zero = mobius.innerProductDirectAbsSA([0; 1], [1; 1], [0; 1], [1; 1], ...
+ip_zero = mobius.innerProductDirectAbsSingleMultiset([0; 1], [1; 1], [0; 1], [1; 1], ...
     sigma, 3, false, 0);
-results{end+1,1} = 'mobius.innerProductDirectAbsSA: K_eff < r returns 0';
+results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: K_eff < r returns 0';
 results{end,2}   = ip_zero == 0;
 
 %% ---- All-safe ragged: hybrid equals safe-only Möbius ----
@@ -98,7 +98,7 @@ N_safe = 4;
 I_ref_safe = zeros(N_safe, N_safe);
 for nx = 1:N_safe
     for ny = 1:N_safe
-        I_ref_safe(nx, ny) = mobius.innerProductDirectAbsSA( ...
+        I_ref_safe(nx, ny) = mobius.innerProductDirectAbsSingleMultiset( ...
             P_safe(:, nx), W_safe(:, nx), P_safe(:, ny), W_safe(:, ny), ...
             sigma, r, false, 0);
     end
@@ -126,7 +126,7 @@ I_hybrid_unsafe = mobius.maPerAttrInnerMatrix( ...
 I_ref_unsafe = zeros(2, 2);
 for nx = 1:2
     for ny = 1:2
-        I_ref_unsafe(nx, ny) = mobius.innerProductDirectAbsSA( ...
+        I_ref_unsafe(nx, ny) = mobius.innerProductDirectAbsSingleMultiset( ...
             P_unsafe(:, nx), W_unsafe(:, nx), P_unsafe(:, ny), W_unsafe(:, ny), ...
             sigma, r, false, 0);
     end
@@ -144,7 +144,7 @@ results{end,2}   = all(abs(I_hybrid_unsafe(:) - I_ref_unsafe(:)) <= ...
 internal.accuracyFloor('setEps', hyb_prevEps);
 
 % --- v2.2.x: K-grouped batched direct-enum primitive correctness ---
-% The localBatchedDirectEnumAbsSA local function (not exported) is
+% The localBatchedDirectEnumAbsSingleMultiset local function (not exported) is
 % exercised via the all-unsafe and mixed-K paths above. Here we test
 % the variable-K_eff Möbius-vs-Bulger equivalence explicitly: a
 % density with events at multiple K_eff values must produce the same

@@ -153,7 +153,7 @@ end
 function [chosen, probed, est] = evalExpTens_dispatch(dens, x, nQ, ...
         method, varargin)
     % Invoke the dispatcher directly via the local helper. Because
-    % localSelectAndEstimateSA is a local function in evalExpTens.m,
+    % localSelectAndEstimateSingleMultiset is a local function in evalExpTens.m,
     % we exercise it indirectly through a verbose call and capture
     % the message — or call evalExpTens with extra outputs if we had
     % an API for that. Instead we exercise behaviour via output

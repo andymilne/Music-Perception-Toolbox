@@ -278,16 +278,16 @@ results{end,2}   = ~isempty(warnMsg) && contains(warnMsg, 'degenerate');
 p_sa_v  = [0; 400; 700];
 w_sa_v  = [1; 0.7; 0.5];
 sigma_v = 10; r_v = 2; isPer_v = true; period_v = 1200;
-xSA_abs = [100 500; 300 600];   % dim=2, nQ=2 (absolute r=2)
+xSingleMultiset_abs = [100 500; 300 600];   % dim=2, nQ=2 (absolute r=2)
 
 dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, false, isPer_v, period_v, ...
     'verbose', false);
-vals_sa = evalExpTens(dens_sa, xSA_abs, 'verbose', false);
+vals_sa = evalExpTens(dens_sa, xSingleMultiset_abs, 'verbose', false);
 
 dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, false, isPer_v, ...
     period_v, 'verbose', false);
-vals_ma_cell = evalExpTens(dens_ma, {xSA_abs}, 'verbose', false);
-vals_ma_mat  = evalExpTens(dens_ma,  xSA_abs,  'verbose', false);
+vals_ma_cell = evalExpTens(dens_ma, {xSingleMultiset_abs}, 'verbose', false);
+vals_ma_mat  = evalExpTens(dens_ma,  xSingleMultiset_abs,  'verbose', false);
 
 results{end+1,1} = 'evalExpTens MA: SA-equivalence abs (cell form)';
 results{end,2}   = max(abs(vals_ma_cell - vals_sa)) < 1e-12;
@@ -297,14 +297,14 @@ results{end,2}   = max(abs(vals_ma_mat - vals_sa)) < 1e-12;
 % -- evalExpTens MA path: SA-equivalence (isRel=true, r=3) --
 
 r_v = 3;
-xSA_rel = [400 200; 700 500];    % dim = r-1 = 2, nQ = 2
+xSingleMultiset_rel = [400 200; 700 500];    % dim = r-1 = 2, nQ = 2
 dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, true, isPer_v, period_v, ...
     'verbose', false);
-vals_sa = evalExpTens(dens_sa, xSA_rel, 'verbose', false);
+vals_sa = evalExpTens(dens_sa, xSingleMultiset_rel, 'verbose', false);
 
 dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, true, isPer_v, ...
     period_v, 'verbose', false);
-vals_ma = evalExpTens(dens_ma, {xSA_rel}, 'verbose', false);
+vals_ma = evalExpTens(dens_ma, {xSingleMultiset_rel}, 'verbose', false);
 
 results{end+1,1} = 'evalExpTens MA: SA-equivalence rel';
 results{end,2}   = max(abs(vals_ma - vals_sa)) < 1e-12;
@@ -312,8 +312,8 @@ results{end,2}   = max(abs(vals_ma - vals_sa)) < 1e-12;
 % Normalisation modes
 for modeCell = {'gaussian', 'pdf'}
     mode = modeCell{1};
-    vals_sa_n = evalExpTens(dens_sa, xSA_rel, mode, 'verbose', false);
-    vals_ma_n = evalExpTens(dens_ma, {xSA_rel}, mode, 'verbose', false);
+    vals_sa_n = evalExpTens(dens_sa, xSingleMultiset_rel, mode, 'verbose', false);
+    vals_ma_n = evalExpTens(dens_ma, {xSingleMultiset_rel}, mode, 'verbose', false);
     results{end+1,1} = ['evalExpTens MA: SA-equivalence normalize=' mode]; %#ok<SAGROW>
     results{end,2}   = max(abs(vals_ma_n - vals_sa_n)) < 1e-12;
 end
@@ -1344,7 +1344,7 @@ results{end,2}   = throwsError(@() windowTensor(dens_ma3, ...
 % This block mirrors the Python tests/test_windowed_within_attr_
 % symmetrisation.py: 5 logical tests, expanded by parametrisation to
 % 42 result rows, sharing the local helper functions
-% directWindowedCosineSA and toolboxWindowedCosineSA defined at the
+% directWindowedCosineSingleMultiset and toolboxWindowedCosineSingleMultiset defined at the
 % end of this file.
 
 sigma_sym = 30.0;
@@ -1375,9 +1375,9 @@ for r_sym = [2, 3]
                 case 'non_uniform_large_spread'
                     offset_vec = linspace(-100.0, 100.0, r_sym).';
             end
-            cos_d = directWindowedCosineSA(p_a, w_a, p_b, w_b, ...
+            cos_d = directWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, ...
                 sigma_sym, r_sym, offset_vec, size_v, mix_v);
-            cos_t = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, ...
+            cos_t = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, ...
                 sigma_sym, r_sym, offset_vec, size_v, mix_v);
             results{end+1,1} = sprintf( ...
                 'symmetrisation: toolbox==direct r=%d (s,m)=(%g,%g) %s', ...
@@ -1414,15 +1414,15 @@ for r_sym = [2, 3]
                 case 'non_uniform_large_spread'
                     offset_vec = linspace(-100.0, 100.0, r_sym).';
             end
-            cos_orig = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, ...
+            cos_orig = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, ...
                 sigma_sym, r_sym, offset_vec, size_v, mix_v);
             % Reverse ordering of the context-side values.
-            cos_rev = toolboxWindowedCosineSA(p_a, w_a, ...
+            cos_rev = toolboxWindowedCosineSingleMultiset(p_a, w_a, ...
                 p_b(end:-1:1), w_b(end:-1:1), ...
                 sigma_sym, r_sym, offset_vec, size_v, mix_v);
             % Random shuffle.
             perm_b = randperm(K_sym);
-            cos_shuf = toolboxWindowedCosineSA(p_a, w_a, ...
+            cos_shuf = toolboxWindowedCosineSingleMultiset(p_a, w_a, ...
                 p_b(perm_b), w_b(perm_b), ...
                 sigma_sym, r_sym, offset_vec, size_v, mix_v);
             results{end+1,1} = sprintf( ...
@@ -1456,13 +1456,13 @@ for r_sym = [2, 3]
         p_b = (rand(K_sym, 1) * 2 - 1) * 200;
         w_b = 0.5 + rand(K_sym, 1);
         offset_vec = linspace(-50.0, 50.0, r_sym).';
-        cos_orig = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, ...
+        cos_orig = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, ...
             sigma_sym, r_sym, offset_vec, size_v, mix_v);
         all_perms_3 = perms(1:r_sym);
         ok_all = true;
         for ip_row = 1:size(all_perms_3, 1)
             offset_perm = offset_vec(all_perms_3(ip_row, :));
-            cos_pi = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, ...
+            cos_pi = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, ...
                 sigma_sym, r_sym, offset_perm, size_v, mix_v);
             if abs(cos_orig) < ORTH_FLOOR_SYM
                 if abs(cos_pi) >= ORTH_FLOOR_SYM
@@ -1527,9 +1527,9 @@ K_5 = 5;
 p_a5 = (rand(K_5, 1) * 2 - 1) * 200; w_a5 = 0.5 + rand(K_5, 1);
 p_b5 = (rand(K_5, 1) * 2 - 1) * 200; w_b5 = 0.5 + rand(K_5, 1);
 offset_unif = repmat(25.0, 2, 1);
-cos_t_5 = toolboxWindowedCosineSA(p_a5, w_a5, p_b5, w_b5, ...
+cos_t_5 = toolboxWindowedCosineSingleMultiset(p_a5, w_a5, p_b5, w_b5, ...
     30.0, 2, offset_unif, 5.0, 0.0);
-cos_d_5 = directWindowedCosineSA(p_a5, w_a5, p_b5, w_b5, ...
+cos_d_5 = directWindowedCosineSingleMultiset(p_a5, w_a5, p_b5, w_b5, ...
     30.0, 2, offset_unif, 5.0, 0.0);
 results{end+1,1} = 'symmetrisation: uniform centre toolbox==direct (regression)';
 results{end,2} = abs(cos_t_5 - cos_d_5) <= 1e-12 * max(abs(cos_d_5), abs(cos_t_5));
@@ -1652,9 +1652,9 @@ function ip = directUnwindowedAbs(p, w, sigma, r)
     ip = total * (sigma * sqrt(pi))^r;
 end
 
-function c = directWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
+function c = directWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, size_v, mix_v)
-%DIRECTWINDOWEDCOSINESA  Framework-correct windowed similarity for the SA
+%DIRECTWINDOWEDCOSINESINGLEMULTISET  Framework-correct windowed similarity for the SA
 %case, via direct perm-perm enumeration of the cross-correlation IP,
 %under normaliser (i): divide by <f_a, f_a> (the query's unwindowed
 %self inner product), not by sqrt(<f_a, f_a> * <f_b, f_b>).
@@ -1670,9 +1670,9 @@ function c = directWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
     c = ip_xy / ip_qq;
 end
 
-function c = toolboxWindowedCosineSA(p_a, w_a, p_b, w_b, sigma, r, ...
+function c = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, size_v, mix_v)
-%TOOLBOXWINDOWEDCOSINESA  Toolbox-API windowed cosine for the SA
+%TOOLBOXWINDOWEDCOSINESINGLEMULTISET  Toolbox-API windowed cosine for the SA
 %case, used as the path under test in the symmetrisation suite.
     Pa = p_a(:);  Wa = w_a(:);
     Pb = p_b(:);  Wb = w_b(:);

@@ -334,7 +334,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             case 'MaetDensity'
                 localRequireExplicitGrid(nvArgs.nPointsPerDim);
                 if internal.isSingleMultiset(firstArg)
-                    H = localEntropySA(firstArg, nvArgs);
+                    H = localEntropySingleMultiset(firstArg, nvArgs);
                 else
                     H = localEntropyMA(firstArg, nvArgs);
                 end
@@ -414,7 +414,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         end
         % SA raw: numeric vector or scalar.
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountSA', ...
+            error('entropyExpTens:wrongArgCountSingleMultiset', ...
                   ['Single-attribute raw call expects 7 or 8 positional ' ...
                    'arguments (p, w, sigma, r, isRel, isPer, period' ...
                    '[, isSym]); got %d.'], nPos);
@@ -441,7 +441,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
         maet = buildExpTens( ...
             p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
             'verbose', false);
-        H = localEntropySA(maet, nvArgs);
+        H = localEntropySingleMultiset(maet, nvArgs);
         return;
     end
 
@@ -455,11 +455,11 @@ end
 
 
 % =========================================================================
-%  localEntropySA — single-attribute Shannon entropy
+%  localEntropySingleMultiset — single-attribute Shannon entropy
 % =========================================================================
 
-function H = localEntropySA(maet, nvArgs)
-%LOCALENTROPYSA  Shannon entropy of the single-multiset (A = N = 1) corner.
+function H = localEntropySingleMultiset(maet, nvArgs)
+%LOCALENTROPYSINGLEMULTISET  Shannon entropy of the single-multiset (A = N = 1) corner.
 %
 %   Receives the MaetDensity; the flat cell-mass kernel reads the
 %   single-multiset view, while the relative-mode point-evaluation branch
@@ -516,14 +516,14 @@ function H = localEntropySA(maet, nvArgs)
     if ~logical(T.isRel)
         % Bin-integration cell-mass path. truncationSigmas is
         % plumbed for signature parity with the point-evaluation
-        % branches --- localCellMassesSAAbsolute's per-axis erf
+        % branches --- localCellMassesSingleMultisetAbsolute's per-axis erf
         % differences are exact and do not truncate --- but is
         % still resolved via the contract helper so a user Inf
         % never propagates to the interior. Empty resolves to the
         % global default; Inf resolves to the accuracy-floor width.
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         Tx = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
-        t = localCellMassesSAAbsolute(Tx, x1, ts);
+        t = localCellMassesSingleMultisetAbsolute(Tx, x1, ts);
     else
         % Build query matrix. For dim = 1, X is a 1 x nQ row vector. For
         % dim > 1, take the Cartesian product of dim copies of x1, giving a
@@ -1241,8 +1241,8 @@ function cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas)
 end
 
 
-function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
-%LOCALCELLMASSESSAABSOLUTE  Cell masses for the single-multiset corner.
+function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
+%LOCALCELLMASSESSINGLEMULTISETABSOLUTE  Cell masses for the single-multiset corner.
 %
 %   Returns a flat (prod_d n_cells x 1) column vector of integrated
 %   cell masses int_{cell} f dx via per-axis erf differences. Restricted
@@ -1251,8 +1251,8 @@ function cells = localCellMassesSAAbsolute(T, ax, truncationSigmas)
 %   numerical outputs match across languages.
 
     if logical(T.isRel)
-        error('entropyExpTens:cellMassesSANotAbsolute', ...
-            'localCellMassesSAAbsolute: isRel=true is not supported by this path.');
+        error('entropyExpTens:cellMassesSingleMultisetNotAbsolute', ...
+            'localCellMassesSingleMultisetAbsolute: isRel=true is not supported by this path.');
     end
     dim = double(T.dim);
     sig = double(T.sigma);
@@ -1492,7 +1492,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         switch firstArg.tag
             case 'MaetDensity'
                 dens = firstArg;
-                isSA = internal.isSingleMultiset(firstArg);
+                singleMultisetInput = internal.isSingleMultiset(firstArg);
             case 'WindowedMaetDensity'
                 error('entropyExpTens:differentialWindowedNotSupported', ...
                     ['method=''differential'' with ' ...
@@ -1513,11 +1513,11 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         dens = buildExpTens(posArgs{1}, posArgs{2}, posArgs{3}, posArgs{4}, ...
                             posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
                             'verbose', false);
-        isSA = false;
+        singleMultisetInput = false;
     else
         % SA raw args.
         if nPos ~= 7
-            error('entropyExpTens:wrongArgCountSA', ...
+            error('entropyExpTens:wrongArgCountSingleMultiset', ...
                 ['Single-attribute raw call expects 7 or 8 positional ' ...
                  'arguments (p, w, sigma, r, isRel, isPer, period' ...
                  '[, isSym]); got %d.'], nPos);
@@ -1546,7 +1546,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
         dens = buildExpTens( ...
             p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
             'verbose', false);
-        isSA = true;
+        singleMultisetInput = true;
     end
 
     % --- sigma > 0 guard ---
@@ -1559,13 +1559,13 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
     % well-defined finite radius without any local isfinite guard.
     ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
 
-    H = localDifferentialAdaptive(dens, isSA, nvArgs.base, ts, ...
+    H = localDifferentialAdaptive(dens, singleMultisetInput, nvArgs.base, ts, ...
                                   nvArgs.gridLimit, nvArgs.verbose);
     H = localAnisoEntropyCorrection(H, dens, nvArgs.base);
 end
 
 
-function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
+function H = localDifferentialAdaptive(dens, singleMultisetInput, base, ts, gridLimit, verbose)
 %LOCALDIFFERENTIALADAPTIVE  Nested-grid h_hat with Richardson extrapolation.
 
     % ts is resolved to a finite width at the dispatcher entry
@@ -1576,8 +1576,8 @@ function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
     tol = max(exp(-0.5 * ts * ts), 1e-12);
     maxIter = 10;
 
-    if isSA
-        [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(dens, ts);
+    if singleMultisetInput
+        [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSingleMultiset(dens, ts);
     else
         [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, ts);
     end
@@ -1624,10 +1624,10 @@ function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
             'truncationSigmas',  ts, ...
             'kernelPrecision',   [], ...
             'verbose',           false);
-        if isSA
+        if singleMultisetInput
             nvSub.xMin = xMin;
             nvSub.xMax = xMax;
-            HDisc = localEntropySA(dens, nvSub);
+            HDisc = localEntropySingleMultiset(dens, nvSub);
         else
             nvSub.xMin = xMinG;
             nvSub.xMax = xMaxG;
@@ -1688,8 +1688,8 @@ function H = localDifferentialAdaptive(dens, isSA, base, ts, gridLimit, verbose)
 end
 
 
-function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSA(maet, ts)
-%LOCALDIFFSPANSSA  Auto-spans for the single-multiset (A = N = 1) corner.
+function [xMin, xMax, n0, dim, perAxisW, perAxisPer] = localDiffSpansSingleMultiset(maet, ts)
+%LOCALDIFFSPANSSINGLEMULTISET  Auto-spans for the single-multiset (A = N = 1) corner.
 
     T = internal.singleMultisetView(maet);
 
@@ -1845,7 +1845,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
             case 'MaetDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
                 if internal.isSingleMultiset(firstArg)
-                    H = localRenyi2SA(firstArg, base);
+                    H = localRenyi2SingleMultiset(firstArg, base);
                     H = localAnisoEntropyCorrection(H, firstArg, base);
                 else
                     H = localRenyi2MA(firstArg, base);
@@ -1884,7 +1884,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 
     % --- SA raw args ---
     if nPos ~= 7
-        error('entropyExpTens:wrongArgCountSA', ...
+        error('entropyExpTens:wrongArgCountSingleMultiset', ...
             ['Single-attribute raw call expects 7 or 8 positional arguments ' ...
              '(p, w, sigma, r, isRel, isPer, period[, isSym]); got %d.'], nPos);
     end
@@ -1917,7 +1917,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
         'verbose', false);
     localRaiseIfAnySigmaZero(maet, 'renyi2');
-    H = localRenyi2SA(maet, base);
+    H = localRenyi2SingleMultiset(maet, base);
     H = localAnisoEntropyCorrection(H, maet, base);
 end
 
@@ -1960,8 +1960,8 @@ function H = localAnisoEntropyCorrection(H, dens, base)
 end
 
 
-function H = localRenyi2SA(maet, base)
-%LOCALRENYI2SA  Analytical Rényi-2 entropy of the single-multiset corner.
+function H = localRenyi2SingleMultiset(maet, base)
+%LOCALRENYI2SINGLEMULTISET  Analytical Rényi-2 entropy of the single-multiset corner.
 %
 %   Computes H_2 = -log_b(<T,T> / Z^2) where <T,T> is evaluated via
 %   the orbit-Möbius inner product machinery (or a direct pairwise
@@ -2026,10 +2026,10 @@ function H = localRenyi2SA(maet, base)
         internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
             sprintf('renyi2, r=%d (orbit-Möbius IP)', r));
         if isRel
-            ip_xx = mobius.orbitInnerRelSA(p, w, p, w, sigma, r, isPer, period);
+            ip_xx = mobius.orbitInnerRelSingleMultiset(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassRel(p, w, sigma, r);
         else
-            ip_xx = mobius.orbitInnerAbsSA(p, w, p, w, sigma, r, isPer, period);
+            ip_xx = mobius.orbitInnerAbsSingleMultiset(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassAbs(p, w, sigma, r);
         end
     end

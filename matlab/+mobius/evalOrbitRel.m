@@ -1,5 +1,5 @@
 function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
-%MOBIUS.EVALORBITREL  Möbius point evaluator for SA relative-mode tensor.
+%MOBIUS.EVALORBITREL  Möbius point evaluator for single multiset relative-mode tensor.
 %
 %   VALS = MOBIUS.EVALORBITREL(P, W, SIGMA, R, X_REL) computes T_rel
 %   at each column of X_REL via u-grid quadrature of the translation
@@ -211,13 +211,22 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
             tabY{m} = ym(:);
         end
 
-        partitions = mobius.getSetPartitionsWithMobius(r);
         inv_2s2 = 1.0 / (2 * sigma^2);
         deltasAll = [zeros(1, n_q); x_rel];
 
-        % Chunk queries: dominant transient is the (N_u, nQc, 6)
-        % stencil workspace plus a few (N_u, nQc) accumulators.
-        perQueryBytes = 8 * N_u * 40;
+        % Each block (a subset of the r positions) recurs across the set
+        % partitions --- a singleton, for instance, reappears in every
+        % partition that isolates it --- and the block read-back is the
+        % dominant cost. Evaluate each distinct block's contribution once
+        % per query chunk (here) and reuse it across partitions through the
+        % shared mobius.mobiusPartitionCombine.
+        [uniqueBlocks, partBlockIdx, mus] = mobius.getPartitionBlockStructure(r);
+        nUniqueBlocks = numel(uniqueBlocks);
+
+        % Chunk queries: dominant transient is the (N_u, nQc, 6) stencil
+        % workspace, the per-block contribution cache
+        % (nUniqueBlocks × (N_u, nQc)), and a few accumulators.
+        perQueryBytes = 8 * N_u * (40 + nUniqueBlocks);
         chunkSize = max(1, floor(BUDGET_BYTES / max(perQueryBytes, 1)));
         chunkSize = min(chunkSize, n_q);
 
@@ -231,30 +240,19 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
             idx = c0:c1;
             nQc = numel(idx);
             dl = deltasAll(:, idx);
-            total = zeros(N_u, nQc);
-            if opts.returnCancellationRatio
-                maxAbs = zeros(N_u, nQc);
+            blockContrib = cell(1, nUniqueBlocks);
+            for k = 1:nUniqueBlocks
+                B = uniqueBlocks{k};
+                m = numel(B);
+                dB = dl(B, :);
+                mean_d = sum(dB, 1) / m;
+                var_d = sum((dB - mean_d).^2, 1);
+                pts = u_col + mean_d;                           % (N_u, nQc)
+                Sm = lagrange6Uniform(tabY{m}, tabLo(m), tabH(m), pts);
+                blockContrib{k} = exp(-var_d * inv_2s2) .* Sm;
             end
-            for iPart = 1:numel(partitions)
-                blocks = partitions(iPart).blocks;
-                mu = partitions(iPart).mu;
-                blockProd = ones(N_u, nQc);
-                for b = 1:numel(blocks)
-                    B = blocks{b};
-                    m = numel(B);
-                    dB = dl(B, :);
-                    mean_d = sum(dB, 1) / m;
-                    var_d = sum((dB - mean_d).^2, 1);
-                    pts = u_col + mean_d;                       % (N_u, nQc)
-                    Sm = lagrange6Uniform(tabY{m}, tabLo(m), tabH(m), pts);
-                    blockProd = blockProd .* (exp(-var_d * inv_2s2) .* Sm);
-                end
-                term = mu * blockProd;
-                total = total + term;
-                if opts.returnCancellationRatio
-                    maxAbs = max(maxAbs, abs(term));
-                end
-            end
+            [total, maxAbs] = mobius.mobiusPartitionCombine( ...
+                blockContrib, partBlockIdx, mus, opts.returnCancellationRatio);
             F(:, idx) = total;
             if opts.returnCancellationRatio
                 Rchunk = ones(N_u, nQc);

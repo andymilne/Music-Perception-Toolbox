@@ -1040,6 +1040,80 @@ def get_set_partitions_with_mobius(r: int) -> list[tuple[tuple[tuple[int, ...], 
     return _SET_PARTITION_CACHE[r]
 
 
+_PARTITION_BLOCK_STRUCTURE_CACHE: dict[int, tuple] = {}
+
+
+def get_partition_block_structure(r: int):
+    """Distinct blocks across the set partitions of ``{0, ..., r-1}``, with
+    the map from each partition to its blocks' positions in that distinct
+    list. Cached per ``r``.
+
+    Both Möbius point evaluators --- :func:`eval_orbit_abs` and the factored
+    strategy of :func:`eval_orbit_rel` --- form the set-partition sum
+    ``Σ_π μ(π) ∏_{B∈π} f(B)`` in which a block ``B`` recurs across every
+    partition that contains it, so evaluating each distinct block's factor
+    once and reusing it is a shared acceleration. This accessor supplies the
+    parts that depend only on ``r`` (the distinct-block list and the reuse
+    map); the per-block factor ``f`` is mode-specific and the combine is
+    shared (:func:`mobius_partition_combine`).
+
+    Returns ``(unique_blocks, part_block_idx, mus)``: the distinct blocks in
+    first-appearance order; ``part_block_idx[p]`` the ``unique_blocks``
+    indices of partition ``p``'s blocks, in the partition's block order; and
+    ``mus[p]`` the partition's Möbius weight.
+    """
+    cached = _PARTITION_BLOCK_STRUCTURE_CACHE.get(r)
+    if cached is not None:
+        return cached
+    partitions = get_set_partitions_with_mobius(r)
+    unique_blocks: list = []
+    index: dict = {}
+    part_block_idx: list = []
+    mus: list = []
+    for blocks, mu in partitions:
+        idxs = []
+        for B in blocks:
+            k = index.get(B)
+            if k is None:
+                k = len(unique_blocks)
+                index[B] = k
+                unique_blocks.append(B)
+            idxs.append(k)
+        part_block_idx.append(idxs)
+        mus.append(mu)
+    result = (unique_blocks, part_block_idx, mus)
+    _PARTITION_BLOCK_STRUCTURE_CACHE[r] = result
+    return result
+
+
+def mobius_partition_combine(block_contribs, part_block_idx, mus,
+                             *, track_max=True):
+    """Form the Möbius set-partition sum from precomputed block factors.
+
+    Computes ``Σ_π μ(π) ∏_{B∈π} block_contribs[B]``, where ``block_contribs``
+    is indexed by the distinct-block ordering of
+    :func:`get_partition_block_structure` and ``part_block_idx`` / ``mus`` are
+    its reuse map and Möbius weights. All contributions share a shape (the
+    query axis, of any dimensionality), so this is mode-agnostic: ``(n_q,)``
+    in absolute mode, ``(N_u, n_q)`` per chunk in the relative factored
+    strategy. Returns ``(total, max_abs_term)``; ``max_abs_term`` is the
+    per-query maximum ``|μ(π) ∏ ...|`` over partitions for the
+    alternating-sum cancellation diagnostic, or ``None`` when
+    ``track_max`` is False.
+    """
+    total = np.zeros_like(block_contribs[0])
+    max_abs_term = np.zeros_like(block_contribs[0]) if track_max else None
+    for idxs, mu in zip(part_block_idx, mus):
+        prod = np.ones_like(block_contribs[0])
+        for k in idxs:
+            prod = prod * block_contribs[k]
+        term = mu * prod
+        total += term
+        if track_max:
+            np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
+    return total, max_abs_term
+
+
 # ---------------------------------------------------------------------
 # Point-evaluator (absolute mode)
 # ---------------------------------------------------------------------
@@ -1171,54 +1245,56 @@ def eval_orbit_abs(
     if use_helper:
         from ._kernel import gaussian_kernel_sum
 
-    partitions = get_set_partitions_with_mobius(r)
-    total = np.zeros(n_q_total, dtype=np.float64)
-    max_abs_term = np.zeros(n_q_total, dtype=np.float64)
+    unique_blocks, part_block_idx, mus = get_partition_block_structure(r)
 
-    for blocks, mu in partitions:
-        # Per-partition factor: ∏_l (per-block scalar at each query)
-        block_factor = np.ones(n_q_total, dtype=np.float64)
-        for B in blocks:
-            m = len(B)
-            x_B = x_flat[list(B), :]                  # (m, n_q_total)
-
-            if use_helper:
-                # Factored 1-D path.
-                if m == 1:
-                    mean_x = x_B[0, :]
-                    var_x = np.zeros(n_q_total, dtype=np.float64)
-                else:
-                    mean_x = x_B.mean(axis=0)
-                    var_x = np.sum((x_B - mean_x) ** 2, axis=0)
-                prefactor = np.exp(-var_x * inv_2s2)
-                wm = w ** m if m > 1 else w
-                sigma_eff = sigma / np.sqrt(m)
-                kw: dict = dict(
-                    truncation_sigmas=float(trunc_resolved),
-                )
-                if kernel_precision is not None:
-                    kw["kernel_precision"] = kernel_precision
-                kernel_sum = gaussian_kernel_sum(
-                    p.reshape(1, -1), wm,
-                    mean_x.reshape(1, -1), float(sigma_eff),
-                    **kw,
-                )
-                block_factor *= prefactor * np.asarray(kernel_sum).ravel()
+    # Each block (a subset of the r positions) recurs across the set
+    # partitions, and its factor --- a 1-D Gaussian kernel sum over the N
+    # sources --- is the dominant cost. Evaluate each distinct block's
+    # factor once here; the reuse across partitions and the alternating
+    # sum are shared with the relative evaluator through
+    # :func:`mobius_partition_combine`.
+    block_contribs = []
+    for B in unique_blocks:
+        m = len(B)
+        x_B = x_flat[list(B), :]                      # (m, n_q_total)
+        if use_helper:
+            # Factored 1-D path.
+            if m == 1:
+                mean_x = x_B[0, :]
+                var_x = np.zeros(n_q_total, dtype=np.float64)
             else:
-                # Direct (m, N, n_q) broadcast path (unchanged from the default path).
-                diffs = x_B[:, None, :] - p[None, :, None]
-                if is_per:
-                    diffs = diffs - period * np.floor(diffs / period + 0.5)
-                sq_sum = np.sum(diffs * diffs, axis=0)
-                kernel = np.exp(-sq_sum * inv_2s2)
-                wm = w ** m if m > 1 else w
-                block_factor *= np.einsum(
-                    'i,iq->q', wm, kernel, optimize=True
-                )
+                mean_x = x_B.mean(axis=0)
+                var_x = np.sum((x_B - mean_x) ** 2, axis=0)
+            prefactor = np.exp(-var_x * inv_2s2)
+            wm = w ** m if m > 1 else w
+            sigma_eff = sigma / np.sqrt(m)
+            kw: dict = dict(
+                truncation_sigmas=float(trunc_resolved),
+            )
+            if kernel_precision is not None:
+                kw["kernel_precision"] = kernel_precision
+            kernel_sum = gaussian_kernel_sum(
+                p.reshape(1, -1), wm,
+                mean_x.reshape(1, -1), float(sigma_eff),
+                **kw,
+            )
+            block_contribs.append(prefactor * np.asarray(kernel_sum).ravel())
+        else:
+            # Direct (m, N, n_q) broadcast path (unchanged from the default path).
+            diffs = x_B[:, None, :] - p[None, :, None]
+            if is_per:
+                diffs = diffs - period * np.floor(diffs / period + 0.5)
+            sq_sum = np.sum(diffs * diffs, axis=0)
+            kernel = np.exp(-sq_sum * inv_2s2)
+            wm = w ** m if m > 1 else w
+            block_contribs.append(
+                np.einsum('i,iq->q', wm, kernel, optimize=True)
+            )
 
-        term = mu * block_factor
-        total += term
-        np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
+    total, max_abs_term = mobius_partition_combine(
+        block_contribs, part_block_idx, mus,
+        track_max=return_cancellation_ratio,
+    )
 
     # Restore output shape.
     if out_shape:
@@ -1582,9 +1658,19 @@ def eval_orbit_rel(
         inv_2s2 = 1.0 / (2.0 * sigma * sigma)
         deltas_all = np.vstack([np.zeros((1, n_q)), x_rel])
 
+        # Each block (a subset of the r positions) recurs across the set
+        # partitions --- a singleton, for instance, reappears in every
+        # partition that isolates it --- and the block read-back is the
+        # dominant cost. Evaluate each distinct block's contribution once
+        # per query chunk (here) and reuse it across partitions through the
+        # shared :func:`mobius_partition_combine`.
+        unique_blocks, part_block_idx, mus = get_partition_block_structure(r)
+        n_unique_blocks = len(unique_blocks)
+
         # Chunk queries: dominant transient is the (N_u, n_q_chunk, 6)
-        # stencil workspace plus a few (N_u, n_q_chunk) accumulators.
-        per_query_bytes = 8 * N_u * 40
+        # stencil workspace, the per-block contribution cache
+        # (n_unique_blocks × (N_u, n_q_chunk)), and a few accumulators.
+        per_query_bytes = 8 * N_u * (40 + n_unique_blocks)
         chunk_size = max(1, BUDGET_BYTES // max(per_query_bytes, 1))
         chunk_size = min(chunk_size, n_q)
 
@@ -1595,25 +1681,21 @@ def eval_orbit_rel(
         for c0 in range(0, n_q, chunk_size):
             c1 = min(c0 + chunk_size, n_q)
             dl = deltas_all[:, c0:c1]
-            total = np.zeros((N_u, c1 - c0), dtype=np.float64)
-            max_abs = (np.zeros((N_u, c1 - c0), dtype=np.float64)
-                       if return_cancellation_ratio else None)
-            for blocks, mu in partitions:
-                block_prod = np.ones((N_u, c1 - c0), dtype=np.float64)
-                for B in blocks:
-                    Bl = list(B)
-                    m = len(Bl)
-                    dB = dl[Bl, :]
-                    mean_d = dB.mean(axis=0)
-                    var_d = np.sum((dB - mean_d) ** 2, axis=0)
-                    lo, h_m, ym = tables[m]
-                    pts = u_grid[:, None] + mean_d[None, :]
-                    Sm = _lagrange6_uniform(ym, lo, h_m, pts)
-                    block_prod *= np.exp(-var_d * inv_2s2)[None, :] * Sm
-                term = mu * block_prod
-                total += term
-                if return_cancellation_ratio:
-                    np.maximum(max_abs, np.abs(term), out=max_abs)
+            block_contribs = []
+            for B in unique_blocks:
+                Bl = list(B)
+                m = len(Bl)
+                dB = dl[Bl, :]
+                mean_d = dB.mean(axis=0)
+                var_d = np.sum((dB - mean_d) ** 2, axis=0)
+                lo, h_m, ym = tables[m]
+                pts = u_grid[:, None] + mean_d[None, :]
+                Sm = _lagrange6_uniform(ym, lo, h_m, pts)
+                block_contribs.append(np.exp(-var_d * inv_2s2)[None, :] * Sm)
+            total, max_abs = mobius_partition_combine(
+                block_contribs, part_block_idx, mus,
+                track_max=return_cancellation_ratio,
+            )
             F[:, c0:c1] = total
             if return_cancellation_ratio:
                 with np.errstate(divide='ignore', invalid='ignore'):

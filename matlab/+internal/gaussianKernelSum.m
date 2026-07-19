@@ -452,20 +452,20 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
 %     v       (1, nQ) row vector matching the dtype family of C.
 %
 %   Implementation note (subtle MATLAB indexing rule):
-%     cSorted is a row vector (1, nJ). After sorting, we explicitly
-%     reshape it to a column. This is *required* for correctness, not
-%     defensive: when maxWin == 1, the sparse-path index matrix
-%     idxClipped collapses to a (nQ, 1) column vector. Then
-%     cSorted(idxClipped) follows MATLAB's "vector source, vector
-%     index" rule and returns a result matching the *source*'s
-%     orientation. If cSorted were left as a row, pSlices would come
-%     out as (1, nQ) and the subsequent `xAxis(:) - pSlices` would
-%     outer-broadcast (column - row) to (nQ, nQ), which OOMs at
-%     large nQ. Forcing cSorted to a column makes the sparse path
-%     return (nQ, 1) at maxWin == 1, matching xAxis(:). For
-%     maxWin >= 2, idxClipped is a (nQ, maxWin) non-vector matrix,
-%     and the "matrix index" rule returns (nQ, maxWin) regardless
-%     of cSorted's orientation — so the fix is a no-op there.
+%     The sparse path indexes the sorted centres with a conceptually
+%     (nQ, maxWin) index matrix idxClipped. When either nQ == 1 or
+%     maxWin == 1 that matrix collapses to a vector, and
+%     cSorted(idxClipped) then follows MATLAB's "vector source, vector
+%     index" rule, returning a result in the source's orientation rather
+%     than (nQ, maxWin). Left unguarded this mis-shapes the output: the
+%     single-column corner would outer-broadcast in xAxis(:) - pSlices,
+%     and the single-query corner returns maxWin values for one query.
+%     The sparse path therefore reshapes pSlices and wSlices to
+%     (nQ, maxWin) explicitly, which is exact for every nQ and maxWin
+%     (reshape preserves the column-major element order, so entry (i, j)
+%     stays cSorted(idxClipped(i, j))) and a no-op once both dimensions
+%     exceed one. cSorted and wSorted are still kept as columns for the
+%     dense maxWin >= nJ branch below.
 
     nJ = size(C, 2);
     nQ = size(X, 2);
@@ -509,12 +509,18 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
     mask = idx <= iHigh0(:);
     idxClipped = min(idx, nJ);
 
-    % cSorted (and wSorted) are columns (forced above), so the
-    % "vector source + vector index" case (maxWin == 1) returns a
-    % column matching idxClipped, and the "vector source + matrix
-    % index" case (maxWin >= 2) returns a matrix matching idxClipped.
-    pSlices = cSorted(idxClipped);          % (nQ, maxWin) for all maxWin
-    wSlices = wSorted(idxClipped);
+    % idxClipped is conceptually (nQ, maxWin). MATLAB's indexing returns
+    % a shape that depends on whether idxClipped is a vector: when
+    % nQ == 1 (single query) or maxWin == 1, it collapses to a vector and
+    % cSorted(idxClipped) follows the "vector source + vector index" rule,
+    % returning the source's (column) orientation rather than
+    % (nQ, maxWin). The explicit reshape restores the intended layout in
+    % every case --- a no-op when both nQ >= 2 and maxWin >= 2, and the
+    % correctness fix for the single-query and single-column corners.
+    % (The Python twin needs no analogue: NumPy advanced indexing already
+    % takes the index array's shape.)
+    pSlices = reshape(cSorted(idxClipped), nQ, maxWin);
+    wSlices = reshape(wSorted(idxClipped), nQ, maxWin);
     diffs = xAxis(:) - pSlices;             % (nQ, maxWin)
     kernel = exp(-(diffs .^ 2) * inv2s2);
     kernel(~mask) = 0;

@@ -5,7 +5,7 @@ the inner-product / total-mass paths (``method='renyi2'`` on
 A dead event --- one whose weight is zero or NaN on an attribute, so it
 contributes nothing to any inner product or total mass --- is dropped at
 the density level before the per-attribute IP / mass work, via
-``ExpTensDensity.pruned()`` / ``MaetDensity.pruned()`` (the MATLAB
+``MaetDensity.pruned()`` (the MATLAB
 counterpart is ``internal.prunedExpTens``). This is the sibling, one
 level up, of the cell-mass tuple prune in
 ``test_cell_mass_zero_weight_prune``: that one drops zero-weight tuples
@@ -21,19 +21,19 @@ invisible to a per-attribute prune.
 
 The liveness rule (single predicate: a weight contributes iff finite and
 nonzero):
-  * SA: an element is live iff its weight is finite and nonzero.
+  * Single-multiset: an element is live iff its weight is finite and nonzero.
   * MA: an event is live iff *every* attribute has at least one finite,
     nonzero slot in that event's column (the per-attribute factors
     multiply, so an all-zero or all-NaN column kills the event; a
     partly-zero column does not).
 
 The tests cover:
-1. The liveness rule for SA and MA, including the partly-zero-column
+1. The liveness rule for single-multiset and MA, including the partly-zero-column
    case (must stay live) and the all-zero / all-NaN column case (kills).
 2. ``pruned()`` returns ``self`` when nothing is dead (the common
    un-windowed path pays only a mask scan).
 3. ``pruned()`` drops exactly the dead events and keeps the rest.
-4. Rényi-2 entropy (SA and MA) and cosine similarity (SA and MA) are
+4. Rényi-2 entropy (single-multiset and multi-attribute) and cosine similarity (single-multiset and multi-attribute) are
    numerically unchanged with the dead events present versus removed ---
    the whole point, since dead events contribute exactly zero.
 5. A realistic ``weight_events`` truncation case (MA): auto-prune
@@ -68,7 +68,7 @@ def _quiet_and_restore():
 # Builders
 # ---------------------------------------------------------------------
 
-def _sa_density(p, w):
+def _single_multiset_density(p, w):
     return build_exp_tens(np.asarray(p, float), np.asarray(w, float),
                           0.5, 1, False, False, 0.0, verbose=False)
 
@@ -86,12 +86,16 @@ def _ma_density(p_attr, w, r=(1, 1)):
 # Liveness rule
 # ---------------------------------------------------------------------
 
-def test_sa_live_events_rule():
-    """SA: live iff finite and nonzero; 0 and NaN both fail."""
-    dens = _sa_density([60., 62., 64., 66., 68.],
+def test_single_multiset_live_events_rule():
+    """Single-collection value-level liveness (via the view): live iff
+    finite and nonzero; 0 and NaN both fail. On the density object
+    itself, live_events is per-event (the one event stays live)."""
+    from mpt._tensor.density import single_multiset_view
+    dens = _single_multiset_density([60., 62., 64., 66., 68.],
                        [1.0, 0.0, np.nan, 2.0, -3.0])
     np.testing.assert_array_equal(
-        dens.live_events, np.array([True, False, False, True, True])
+        single_multiset_view(dens).live_events,
+        np.array([True, False, False, True, True]),
     )
 
 
@@ -133,8 +137,8 @@ def test_ma_live_events_all_zero_on_second_attribute_kills():
 # pruned(): self when clean, subset when not
 # ---------------------------------------------------------------------
 
-def test_pruned_returns_self_when_all_live_sa():
-    dens = _sa_density([60., 62., 64.], [1., 1., 2.])
+def test_pruned_returns_self_when_all_live_single_multiset():
+    dens = _single_multiset_density([60., 62., 64.], [1., 1., 2.])
     assert dens.pruned() is dens
 
 
@@ -143,9 +147,12 @@ def test_pruned_returns_self_when_all_live_ma():
     assert dens.pruned() is dens
 
 
-def test_pruned_drops_dead_events_sa():
-    dens = _sa_density([60., 62., 64., 66.], [1., 0., np.nan, 2.])
-    pr = dens.pruned()
+def test_pruned_drops_dead_events_single_multiset():
+    """Value-level pruning at the single-collection corner lives on
+    the view: dead values are dropped from p and w."""
+    from mpt._tensor.density import single_multiset_view
+    dens = _single_multiset_density([60., 62., 64., 66.], [1., 0., np.nan, 2.])
+    pr = single_multiset_view(dens).pruned()
     assert pr is not dens
     np.testing.assert_array_equal(np.asarray(pr.p), [60., 66.])
     np.testing.assert_array_equal(np.asarray(pr.w), [1., 2.])
@@ -167,8 +174,8 @@ def test_pruned_drops_dead_events_ma():
 # Numerical invariance: dead events change nothing
 # ---------------------------------------------------------------------
 
-def test_renyi2_sa_invariant_to_dead_events():
-    """SA Rényi-2 is identical with dead events present vs removed."""
+def test_renyi2_single_multiset_invariant_to_dead_events():
+    """Single-multiset Rényi-2 is identical with dead events present vs removed."""
     p = np.array([60., 62., 64., 66., 68., 70.])
     w = np.array([1.0, 0.7, 1.3, 0.9, 1.1, 0.5])
     dead = np.array([1, 4])                    # zero these out
@@ -177,9 +184,9 @@ def test_renyi2_sa_invariant_to_dead_events():
     keep = np.ones(len(p), bool)
     keep[dead] = False
 
-    h_with = entropy_exp_tens(_sa_density(p, w_dead),
+    h_with = entropy_exp_tens(_single_multiset_density(p, w_dead),
                               method='renyi2', verbose=False)
-    h_without = entropy_exp_tens(_sa_density(p[keep], w[keep]),
+    h_without = entropy_exp_tens(_single_multiset_density(p[keep], w[keep]),
                                  method='renyi2', verbose=False)
     assert h_with == pytest.approx(h_without, rel=0, abs=0.0)
 
@@ -205,14 +212,14 @@ def test_renyi2_ma_invariant_to_dead_events():
     assert h_with == pytest.approx(h_without, rel=0, abs=0.0)
 
 
-def test_cos_sim_sa_invariant_to_dead_events():
+def test_cos_sim_single_multiset_invariant_to_dead_events():
     px = np.array([60., 62., 64., 66., 68.])
     wx = np.array([1.0, 0.0, 1.0, 0.0, 1.0])   # events 1, 3 dead
     keep = wx != 0
-    dy = _sa_density([61., 63., 65.], [1., 1., 1.])
+    dy = _single_multiset_density([61., 63., 65.], [1., 1., 1.])
 
-    s_with = cos_sim_exp_tens(_sa_density(px, wx), dy, verbose=False)
-    s_without = cos_sim_exp_tens(_sa_density(px[keep], wx[keep]), dy,
+    s_with = cos_sim_exp_tens(_single_multiset_density(px, wx), dy, verbose=False)
+    s_without = cos_sim_exp_tens(_single_multiset_density(px[keep], wx[keep]), dy,
                                  verbose=False)
     assert s_with == pytest.approx(s_without, rel=0, abs=0.0)
 
@@ -326,11 +333,11 @@ def test_all_dead_ma_renyi2_is_nan():
     assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))
 
 
-def test_all_dead_sa_renyi2_is_nan():
-    """An entirely zero-mass SA density is genuinely degenerate; renyi2
+def test_all_dead_single_multiset_renyi2_is_nan():
+    """An entirely zero-mass single-multiset density is genuinely degenerate; renyi2
     returns NaN (collision entropy of zero mass is undefined) rather than
     raising, so sweep-style callers need not wrap each call.
     """
-    dens = _sa_density([60., 62., 64.], [0., 0., 0.])
+    dens = _single_multiset_density([60., 62., 64.], [0., 0., 0.])
     assert int(dens.live_events.sum()) == 0
     assert np.isnan(entropy_exp_tens(dens, method='renyi2', verbose=False))

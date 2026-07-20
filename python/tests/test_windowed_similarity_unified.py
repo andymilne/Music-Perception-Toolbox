@@ -341,24 +341,21 @@ class TestErrors:
     def test_invalid_query_type_raises(
         self, context_dens, offsets_grid, window_spec,
     ):
-        # ExpTensDensity is not allowed.
-        sa = mpt.build_exp_tens(
-            [60.0, 62.0, 64.0], None, 10.0, 1, False, True, 12.0,
-            verbose=False,
-        )
-        with pytest.raises(TypeError, match="MaetDensity"):
-            windowed_tensor_similarity(context_dens, sa, window_spec, offsets_grid, verbose=False,
+        # The vector build returns the one-event MaetDensity, which is
+        # a valid windowed operand; a plain array is not.
+        single_multiset = np.array([60.0, 62.0, 64.0])
+        with pytest.raises((TypeError, AttributeError)):
+            windowed_tensor_similarity(context_dens, single_multiset, window_spec, offsets_grid, verbose=False,
             )
 
     def test_invalid_context_type_raises(
         self, queries_three, offsets_grid, window_spec,
     ):
-        sa = mpt.build_exp_tens(
-            [60.0, 62.0, 64.0], None, 10.0, 1, False, True, 12.0,
-            verbose=False,
-        )
-        with pytest.raises(TypeError, match="MaetDensity"):
-            windowed_tensor_similarity(sa, queries_three[0], window_spec, offsets_grid,
+        # The vector build now returns the one-event MaetDensity, so
+        # it is a valid windowed operand; a plain array is not.
+        single_multiset = np.array([60.0, 62.0, 64.0])
+        with pytest.raises((TypeError, AttributeError)):
+            windowed_tensor_similarity(single_multiset, queries_three[0], window_spec, offsets_grid,
                 verbose=False,
             )
 

@@ -759,10 +759,10 @@ def _cos_sim_pair_core(
 ):
     """Internal: dispatch a single pair to the correct core IP routine.
 
-    Routes to :func:`_cos_sim_exp_tens_sa` or :func:`_cos_sim_exp_tens_ma`,
-    threading ``method``, ``normalize``, ``cancellation_threshold``,
-    ``truncation_sigmas`` and ``kernel_precision`` through to the single-multiset
-    path (the MA path awaits its own helper-routing stage).
+    Routes to :func:`_cos_sim_exp_tens_ma`, threading ``method``,
+    ``normalize``, ``cancellation_threshold``,
+    ``truncation_sigmas`` and ``kernel_precision`` through; that routine
+    handles both the single-multiset and multi-attribute cases.
     ``WindowedMaetDensity`` operands are rejected here; user code
     reaches the windowed inner product via :func:`windowed_tensor_similarity`.
     """
@@ -1057,7 +1057,7 @@ def _cos_sim_raw_ma_broadcast(
 
 
 # -------------------------------------------------------------------
-#  _cos_sim_exp_tens_sa  (single-multiset legacy path)
+#  _cos_sim_exp_tens_ma  (multi-attribute inner product; orbit constants)
 # -------------------------------------------------------------------
 
 

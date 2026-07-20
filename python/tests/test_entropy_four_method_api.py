@@ -368,7 +368,7 @@ class TestSpectralEntropyMethod:
 # ----------------------------------------------------------------------
 #
 # entropy_exp_tens supports five input forms:
-#   (a) scalar density object (ExpTensDensity / MaetDensity)
+#   (a) scalar density object (MaetDensity)
 #   (b) list of density objects
 #   (c) raw single-multiset scalar (p, w, sigma, r, is_rel, is_per, period)
 #   (d) raw single-multiset batched (P, W, sigma, r, is_rel, is_per, period)

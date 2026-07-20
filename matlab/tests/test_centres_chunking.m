@@ -1,4 +1,4 @@
-%% test_centres_chunking.m — v2.2 SA centres-path n_q chunking
+%% test_centres_chunking.m — v2.2 single multiset centres-path n_q chunking
 %
 %  Regression test. Catches the OOM that surfaced when
 %  demo_triadConsonance ran at the 10-cent grid: K=72, r=3, rel,
@@ -81,7 +81,7 @@ results{end, 2}     = all(abs(cc_vFull - cc_vManual) <= 1e-13 * abs(cc_vFull));
 % Auto routing is deliberately not asserted here: the cost model routes
 % this K=72 r=3 rel non-per shape to the factored Möbius path, so an auto
 % call would not exercise the centres chunking path this test targets.
-% Auto-vs-centres agreement is a dispatcher concern (test_dispatch_sa_eval,
+% Auto-vs-centres agreement is a dispatcher concern (test_dispatch_sm_eval,
 % test_eval_orbit), not a chunking one.
 
 clear cc_K cc_p cc_w cc_dens cc_X cc_vFull cc_n cc_mid cc_v1 cc_v2 ...

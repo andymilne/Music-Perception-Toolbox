@@ -16,16 +16,16 @@ else
 end
 
 
-% Tests the multi-attribute path of buildExpTens. The SA path is covered
+% Tests the multi-attribute path of buildExpTens. The single multiset path is covered
 % by the Expectation tensors section above; these tests focus on
-% MAET-specific behaviours: SA-equivalence under the degenerate
+% MAET-specific behaviours: single multiset-equivalence under the degenerate
 % (N=1, A=1) mapping, per-attribute enumeration, weight broadcasting,
 % group canonicalisation, NaN padding, and the new error paths.
 
-% -- SA-equivalence: MA with (N=1, A=1, K x 1 column w) reproduces SA --
+% -- single multiset-equivalence: MA with (N=1, A=1, K x 1 column w) reproduces single multiset --
 
-p_sa = [0; 400; 700];
-w_sa = [1; 0.7; 0.5];
+p_sm = [0; 400; 700];
+w_sm = [1; 0.7; 0.5];
 sigma = 10; r_ = 2; isPer_ = true; period_ = 1200;
 
 % --- Lazy/eager parity (v2.2) ---
@@ -34,31 +34,31 @@ sigma = 10; r_ = 2; isPer_ = true; period_ = 1200;
 % populates the per-tuple fields on demand. The eager and ensured-lazy
 % paths must produce structurally identical structs.
 
-dens_eager_sa  = buildExpTens(p_sa, w_sa, sigma, r_, true, isPer_, period_, ...
+dens_eager_sm  = buildExpTens(p_sm, w_sm, sigma, r_, true, isPer_, period_, ...
     'lazy', false, 'verbose', false);
-dens_skinny_sa = buildExpTens(p_sa, w_sa, sigma, r_, true, isPer_, period_, ...
+dens_skinny_sm = buildExpTens(p_sm, w_sm, sigma, r_, true, isPer_, period_, ...
     'verbose', false);
-results{end+1,1} = 'lazy: SA skinny default has only cheap fields';
-results{end,2}   = ~isfield(dens_skinny_sa, 'Centres') ...
-                && ~isfield(dens_skinny_sa, 'U_perm') ...
-                && ~isfield(dens_skinny_sa, 'nJ');
-results{end+1,1} = 'lazy: SA skinny exposes dim';
-results{end,2}   = isfield(dens_skinny_sa, 'dim') ...
-                && dens_skinny_sa.dim == dens_eager_sa.dim;
-dens_filled_sa = internal.ensureExpTensExpensive(dens_skinny_sa);
-results{end+1,1} = 'lazy: SA ensure -> matches eager Centres';
-results{end,2}   = isequal(dens_filled_sa.Centres, dens_eager_sa.Centres);
-results{end+1,1} = 'lazy: SA ensure -> matches eager wJ';
-results{end,2}   = isequal(dens_filled_sa.wJ, dens_eager_sa.wJ);
-results{end+1,1} = 'lazy: SA ensure -> matches eager U_perm';
-results{end,2}   = isequal(dens_filled_sa.U_perm, dens_eager_sa.U_perm);
-results{end+1,1} = 'lazy: SA ensure idempotent';
-dens_twice_sa = internal.ensureExpTensExpensive(dens_filled_sa);
-results{end,2}   = isequal(dens_twice_sa, dens_filled_sa);
+results{end+1,1} = 'lazy: single multiset skinny default has only cheap fields';
+results{end,2}   = ~isfield(dens_skinny_sm, 'Centres') ...
+                && ~isfield(dens_skinny_sm, 'U_perm') ...
+                && ~isfield(dens_skinny_sm, 'nJ');
+results{end+1,1} = 'lazy: single multiset skinny exposes dim';
+results{end,2}   = isfield(dens_skinny_sm, 'dim') ...
+                && dens_skinny_sm.dim == dens_eager_sm.dim;
+dens_filled_sm = internal.ensureExpTensExpensive(dens_skinny_sm);
+results{end+1,1} = 'lazy: single multiset ensure -> matches eager Centres';
+results{end,2}   = isequal(dens_filled_sm.Centres, dens_eager_sm.Centres);
+results{end+1,1} = 'lazy: single multiset ensure -> matches eager wJ';
+results{end,2}   = isequal(dens_filled_sm.wJ, dens_eager_sm.wJ);
+results{end+1,1} = 'lazy: single multiset ensure -> matches eager U_perm';
+results{end,2}   = isequal(dens_filled_sm.U_perm, dens_eager_sm.U_perm);
+results{end+1,1} = 'lazy: single multiset ensure idempotent';
+dens_twice_sm = internal.ensureExpTensExpensive(dens_filled_sm);
+results{end,2}   = isequal(dens_twice_sm, dens_filled_sm);
 
-dens_eager_ma  = buildExpTens({p_sa}, {w_sa}, sigma, r_, true, isPer_, period_, ...
+dens_eager_ma  = buildExpTens({p_sm}, {w_sm}, sigma, r_, true, isPer_, period_, ...
     'lazy', false, 'verbose', false);
-dens_skinny_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, true, isPer_, period_, ...
+dens_skinny_ma = buildExpTens({p_sm}, {w_sm}, sigma, r_, true, isPer_, period_, ...
     'verbose', false);
 results{end+1,1} = 'lazy: MA skinny default has only cheap fields';
 results{end,2}   = ~isfield(dens_skinny_ma, 'Centres') ...
@@ -80,46 +80,46 @@ dens_twice_ma = internal.ensureExpTensExpensive(dens_filled_ma);
 results{end,2}   = isequal(dens_twice_ma, dens_filled_ma);
 
 % Consumers transparently handle skinny input (cosSimExpTens, evalExpTens).
-results{end+1,1} = 'lazy: cosSimExpTens accepts skinny dens (SA self-similarity = 1)';
-s_self = cosSimExpTens(dens_skinny_sa, dens_skinny_sa, 'verbose', false);
+results{end+1,1} = 'lazy: cosSimExpTens accepts skinny dens (single multiset self-similarity = 1)';
+s_self = cosSimExpTens(dens_skinny_sm, dens_skinny_sm, 'verbose', false);
 results{end,2}   = abs(s_self - 1) < 1e-12;
 results{end+1,1} = 'lazy: evalExpTens accepts skinny dens';
-v_skinny = evalExpTens(dens_skinny_sa, [0 100 350], 'verbose', false);
-v_eager  = evalExpTens(dens_eager_sa,  [0 100 350], 'verbose', false);
+v_skinny = evalExpTens(dens_skinny_sm, [0 100 350], 'verbose', false);
+v_eager  = evalExpTens(dens_eager_sm,  [0 100 350], 'verbose', false);
 results{end,2}   = max(abs(v_skinny - v_eager)) < 1e-12;
 
 for isRel_ = [false, true]
-    dens_sa = buildExpTens(p_sa, w_sa, sigma, r_, isRel_, isPer_, period_, ...
+    dens_sm = buildExpTens(p_sm, w_sm, sigma, r_, isRel_, isPer_, period_, ...
         'lazy', false, 'verbose', false);
-    dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, r_, isRel_, isPer_, period_, ...
+    dens_ma = buildExpTens({p_sm}, {w_sm}, sigma, r_, isRel_, isPer_, period_, ...
         'lazy', false, 'verbose', false);
 
     relTag = sprintf(' (isRel=%d)', isRel_);
-    results{end+1,1} = ['MAET: SA-equivalence tag' relTag];
+    results{end+1,1} = ['MAET: single multiset-equivalence tag' relTag];
     results{end,2}   = strcmp(dens_ma.tag, 'MaetDensity'); %#ok<*SAGROW>
 
-    results{end+1,1} = ['MAET: SA-equivalence nJ' relTag];
-    results{end,2}   = dens_ma.nJ == dens_sa.nJ;
+    results{end+1,1} = ['MAET: single multiset-equivalence nJ' relTag];
+    results{end,2}   = dens_ma.nJ == dens_sm.nJ;
 
-    results{end+1,1} = ['MAET: SA-equivalence U_perm' relTag];
-    results{end,2}   = isequal(dens_ma.U_perm{1}, dens_sa.U_perm{1});
+    results{end+1,1} = ['MAET: single multiset-equivalence U_perm' relTag];
+    results{end,2}   = isequal(dens_ma.U_perm{1}, dens_sm.U_perm{1});
 
-    results{end+1,1} = ['MAET: SA-equivalence V_comb' relTag];
-    results{end,2}   = isequal(dens_ma.V_comb{1}, dens_sa.V_comb{1});
+    results{end+1,1} = ['MAET: single multiset-equivalence V_comb' relTag];
+    results{end,2}   = isequal(dens_ma.V_comb{1}, dens_sm.V_comb{1});
 
-    results{end+1,1} = ['MAET: SA-equivalence Centres' relTag];
-    results{end,2}   = isequal(dens_ma.Centres{1}, dens_sa.Centres{1});
+    results{end+1,1} = ['MAET: single multiset-equivalence Centres' relTag];
+    results{end,2}   = isequal(dens_ma.Centres{1}, dens_sm.Centres{1});
 
-    results{end+1,1} = ['MAET: SA-equivalence wJ' relTag];
-    results{end,2}   = max(abs(dens_ma.wJ - dens_sa.wJ)) < 1e-12;
+    results{end+1,1} = ['MAET: single multiset-equivalence wJ' relTag];
+    results{end,2}   = max(abs(dens_ma.wJ - dens_sm.wJ)) < 1e-12;
 
-    results{end+1,1} = ['MAET: SA-equivalence wv_comb' relTag];
-    results{end,2}   = max(abs(dens_ma.wv_comb - dens_sa.wv_comb)) < 1e-12;
+    results{end+1,1} = ['MAET: single multiset-equivalence wv_comb' relTag];
+    results{end,2}   = max(abs(dens_ma.wv_comb - dens_sm.wv_comb)) < 1e-12;
 end
 
 % Dimensionality reduction under isRel=true
 results{end+1,1} = 'MAET: Centres dim reduction (isRel=true, r=2)';
-dens_ma = buildExpTens({p_sa}, {w_sa}, sigma, 2, true, true, 1200, ...
+dens_ma = buildExpTens({p_sm}, {w_sm}, sigma, 2, true, true, 1200, ...
     'lazy', false, 'verbose', false);
 results{end,2}   = isequal(size(dens_ma.Centres{1}), [1, dens_ma.nJ]);
 
@@ -273,49 +273,49 @@ warnMsg = lastwarn;
 results{end+1,1} = 'MAET: isRel + r=1 emits degenerate warning';
 results{end,2}   = ~isempty(warnMsg) && contains(warnMsg, 'degenerate');
 
-% -- evalExpTens MA path: SA-equivalence (isRel=false) --
+% -- evalExpTens MA path: single multiset-equivalence (isRel=false) --
 
-p_sa_v  = [0; 400; 700];
-w_sa_v  = [1; 0.7; 0.5];
+p_sm_v  = [0; 400; 700];
+w_sm_v  = [1; 0.7; 0.5];
 sigma_v = 10; r_v = 2; isPer_v = true; period_v = 1200;
 xSingleMultiset_abs = [100 500; 300 600];   % dim=2, nQ=2 (absolute r=2)
 
-dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, false, isPer_v, period_v, ...
+dens_sm = buildExpTens(p_sm_v, w_sm_v, sigma_v, r_v, false, isPer_v, period_v, ...
     'verbose', false);
-vals_sa = evalExpTens(dens_sa, xSingleMultiset_abs, 'verbose', false);
+vals_sm = evalExpTens(dens_sm, xSingleMultiset_abs, 'verbose', false);
 
-dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, false, isPer_v, ...
+dens_ma = buildExpTens({p_sm_v}, {w_sm_v}, sigma_v, r_v, false, isPer_v, ...
     period_v, 'verbose', false);
 vals_ma_cell = evalExpTens(dens_ma, {xSingleMultiset_abs}, 'verbose', false);
 vals_ma_mat  = evalExpTens(dens_ma,  xSingleMultiset_abs,  'verbose', false);
 
-results{end+1,1} = 'evalExpTens MA: SA-equivalence abs (cell form)';
-results{end,2}   = max(abs(vals_ma_cell - vals_sa)) < 1e-12;
-results{end+1,1} = 'evalExpTens MA: SA-equivalence abs (matrix form)';
-results{end,2}   = max(abs(vals_ma_mat - vals_sa)) < 1e-12;
+results{end+1,1} = 'evalExpTens MA: single multiset-equivalence abs (cell form)';
+results{end,2}   = max(abs(vals_ma_cell - vals_sm)) < 1e-12;
+results{end+1,1} = 'evalExpTens MA: single multiset-equivalence abs (matrix form)';
+results{end,2}   = max(abs(vals_ma_mat - vals_sm)) < 1e-12;
 
-% -- evalExpTens MA path: SA-equivalence (isRel=true, r=3) --
+% -- evalExpTens MA path: single multiset-equivalence (isRel=true, r=3) --
 
 r_v = 3;
 xSingleMultiset_rel = [400 200; 700 500];    % dim = r-1 = 2, nQ = 2
-dens_sa = buildExpTens(p_sa_v, w_sa_v, sigma_v, r_v, true, isPer_v, period_v, ...
+dens_sm = buildExpTens(p_sm_v, w_sm_v, sigma_v, r_v, true, isPer_v, period_v, ...
     'verbose', false);
-vals_sa = evalExpTens(dens_sa, xSingleMultiset_rel, 'verbose', false);
+vals_sm = evalExpTens(dens_sm, xSingleMultiset_rel, 'verbose', false);
 
-dens_ma = buildExpTens({p_sa_v}, {w_sa_v}, sigma_v, r_v, true, isPer_v, ...
+dens_ma = buildExpTens({p_sm_v}, {w_sm_v}, sigma_v, r_v, true, isPer_v, ...
     period_v, 'verbose', false);
 vals_ma = evalExpTens(dens_ma, {xSingleMultiset_rel}, 'verbose', false);
 
-results{end+1,1} = 'evalExpTens MA: SA-equivalence rel';
-results{end,2}   = max(abs(vals_ma - vals_sa)) < 1e-12;
+results{end+1,1} = 'evalExpTens MA: single multiset-equivalence rel';
+results{end,2}   = max(abs(vals_ma - vals_sm)) < 1e-12;
 
 % Normalisation modes
 for modeCell = {'gaussian', 'pdf'}
     mode = modeCell{1};
-    vals_sa_n = evalExpTens(dens_sa, xSingleMultiset_rel, mode, 'verbose', false);
+    vals_sm_n = evalExpTens(dens_sm, xSingleMultiset_rel, mode, 'verbose', false);
     vals_ma_n = evalExpTens(dens_ma, {xSingleMultiset_rel}, mode, 'verbose', false);
-    results{end+1,1} = ['evalExpTens MA: SA-equivalence normalize=' mode]; %#ok<SAGROW>
-    results{end,2}   = max(abs(vals_ma_n - vals_sa_n)) < 1e-12;
+    results{end+1,1} = ['evalExpTens MA: single multiset-equivalence normalize=' mode]; %#ok<SAGROW>
+    results{end,2}   = max(abs(vals_ma_n - vals_sm_n)) < 1e-12;
 end
 
 % -- evalExpTens MA: cell form vs matrix form agree --
@@ -429,7 +429,7 @@ vals_er_norm_raw    = evalExpTens(pAttr_er, w_er, sigma_er, r_er, ...
 results{end+1,1} = 'evalExpTens MA raw: trailing normalize matches struct path';
 results{end,2}   = max(abs(vals_er_norm_raw(:) - vals_er_norm_struct(:))) < 1e-12;
 
-% -- cosSimExpTens MA path: SA-equivalence --
+% -- cosSimExpTens MA path: single multiset-equivalence --
 
 p_a_v  = [0; 400; 700];
 p_b_v  = [0; 300; 700];
@@ -437,33 +437,33 @@ w_a_v  = [1; 0.7; 0.5];
 w_b_v  = [1; 0.6; 0.8];
 
 % Absolute (isRel=false), periodic
-s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 2, false, true, 1200, ...
+s_sm = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 2, false, true, 1200, ...
     'verbose', false);
 da = buildExpTens({p_a_v}, {w_a_v}, 10, 2, false, true, 1200, 'verbose', false);
 db = buildExpTens({p_b_v}, {w_b_v}, 10, 2, false, true, 1200, 'verbose', false);
 s_ma = cosSimExpTens(da, db, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens MA: SA-equivalence abs periodic';
-results{end,2}   = abs(s_ma - s_sa) < 1e-12;
+results{end+1,1} = 'cosSimExpTens MA: single multiset-equivalence abs periodic';
+results{end,2}   = abs(s_ma - s_sm) < 1e-12;
 
 % Relative + periodic (uses pairwise-differences formula per attribute)
 for r_v = [2, 3]
-    s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, r_v, true, true, 1200, ...
+    s_sm = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, r_v, true, true, 1200, ...
         'verbose', false);
     da = buildExpTens({p_a_v}, {w_a_v}, 10, r_v, true, true, 1200, 'verbose', false);
     db = buildExpTens({p_b_v}, {w_b_v}, 10, r_v, true, true, 1200, 'verbose', false);
     s_ma = cosSimExpTens(da, db, 'verbose', false);
-    results{end+1,1} = sprintf('cosSimExpTens MA: SA-equivalence rel periodic r=%d', r_v); %#ok<SAGROW>
-    results{end,2}   = abs(s_ma - s_sa) < 1e-12;
+    results{end+1,1} = sprintf('cosSimExpTens MA: single multiset-equivalence rel periodic r=%d', r_v); %#ok<SAGROW>
+    results{end,2}   = abs(s_ma - s_sm) < 1e-12;
 end
 
 % Relative + non-periodic
-s_sa = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 3, true, false, 0, ...
+s_sm = cosSimExpTens(p_a_v, w_a_v, p_b_v, w_b_v, 10, 3, true, false, 0, ...
     'verbose', false);
 da = buildExpTens({p_a_v}, {w_a_v}, 10, 3, true, false, 0, 'verbose', false);
 db = buildExpTens({p_b_v}, {w_b_v}, 10, 3, true, false, 0, 'verbose', false);
 s_ma = cosSimExpTens(da, db, 'verbose', false);
-results{end+1,1} = 'cosSimExpTens MA: SA-equivalence rel non-periodic';
-results{end,2}   = abs(s_ma - s_sa) < 1e-12;
+results{end+1,1} = 'cosSimExpTens MA: single multiset-equivalence rel non-periodic';
+results{end,2}   = abs(s_ma - s_sm) < 1e-12;
 
 % -- cosSimExpTens MA: self-similarity = 1 --
 
@@ -516,12 +516,12 @@ s_raw = cosSimExpTens({pitchA, timeA}, [], {pitchB, timeB}, [], ...
 results{end+1,1} = 'cosSimExpTens MA: raw-args == struct form';
 results{end,2}   = abs(s_raw - s_ab) < 1e-12;
 
-% -- cosSimExpTens: SA raw-args still works (backward compat check) --
+% -- cosSimExpTens: single multiset raw-args still works (backward compat check) --
 
-s_sa_raw = cosSimExpTens([0 4 7], [], [0 4 7], [], 10, 2, true, true, 1200, ...
+s_sm_raw = cosSimExpTens([0 4 7], [], [0 4 7], [], 10, 2, true, true, 1200, ...
     'verbose', false);
-results{end+1,1} = 'cosSimExpTens: SA raw-args identical = 1';
-results{end,2}   = abs(s_sa_raw - 1) < 1e-12;
+results{end+1,1} = 'cosSimExpTens: single multiset raw-args identical = 1';
+results{end,2}   = abs(s_sm_raw - 1) < 1e-12;
 
 % -- cosSimExpTens MA: mismatched raw-args kinds error --
 
@@ -530,7 +530,7 @@ results{end,2}   = throwsError(@() cosSimExpTens( ...
     {pitchA, timeA}, [], [0 4 7], [], 10, 2, true, true, 1200, 'verbose', false));
 
 % -- cosSimExpTens: incompatible attribute structure errors --
-% Under the unified type there is no SA-vs-MA type mix to reject; the
+% Under the unified type there is no single-attribute-vs-multi-attribute type mix to reject; the
 % genuine incompatibility is a single-multiset (A=1) density paired with
 % a multi-attribute (A=2) density, which cannot share an inner product.
 
@@ -560,25 +560,25 @@ d_p = buildExpTens({pitchA}, [], 10, 2, false, true, 2400, 'verbose', false);
 results{end+1,1} = 'cosSimExpTens MA: mismatched period error';
 results{end,2}   = throwsError(@() cosSimExpTens(d_ref, d_p, 'verbose', false));
 
-% -- entropyExpTens MA: SA-equivalence periodic --
+% -- entropyExpTens MA: single multiset-equivalence periodic --
 
 p_e = [0; 4; 7];
 w_e = [1; 1; 1];
-H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, true, 12, ...
+H_sm = entropyExpTens(p_e.', w_e.', 10, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
 H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, false, true, 12, ...
     'nPointsPerDim', 400, 'verbose', false);
-results{end+1,1} = 'entropyExpTens MA: SA-equivalence periodic';
-results{end,2}   = abs(H_ma - H_sa) < 1e-10;
+results{end+1,1} = 'entropyExpTens MA: single multiset-equivalence periodic';
+results{end,2}   = abs(H_ma - H_sm) < 1e-10;
 
-% -- entropyExpTens MA: SA-equivalence non-periodic --
+% -- entropyExpTens MA: single multiset-equivalence non-periodic --
 
-H_sa = entropyExpTens(p_e.', w_e.', 10, 1, false, false, 0, ...
+H_sm = entropyExpTens(p_e.', w_e.', 10, 1, false, false, 0, ...
     'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
 H_ma = entropyExpTens({p_e}, {w_e}, 10, 1, false, false, 0, ...
     'xMin', -3, 'xMax', 10, 'nPointsPerDim', 400, 'verbose', false);
-results{end+1,1} = 'entropyExpTens MA: SA-equivalence non-periodic';
-results{end,2}   = abs(H_ma - H_sa) < 1e-10;
+results{end+1,1} = 'entropyExpTens MA: single multiset-equivalence non-periodic';
+results{end,2}   = abs(H_ma - H_sm) < 1e-10;
 
 % -- entropyExpTens MA: uniform pitch near 1 --
 
@@ -1654,7 +1654,7 @@ end
 
 function c = directWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, size_v, mix_v)
-%DIRECTWINDOWEDCOSINESINGLEMULTISET  Framework-correct windowed similarity for the SA
+%DIRECTWINDOWEDCOSINESINGLEMULTISET  Framework-correct windowed similarity for the single multiset
 %case, via direct perm-perm enumeration of the cross-correlation IP,
 %under normaliser (i): divide by <f_a, f_a> (the query's unwindowed
 %self inner product), not by sqrt(<f_a, f_a> * <f_b, f_b>).
@@ -1672,7 +1672,7 @@ end
 
 function c = toolboxWindowedCosineSingleMultiset(p_a, w_a, p_b, w_b, sigma, r, ...
         offset_vec, size_v, mix_v)
-%TOOLBOXWINDOWEDCOSINESINGLEMULTISET  Toolbox-API windowed cosine for the SA
+%TOOLBOXWINDOWEDCOSINESINGLEMULTISET  Toolbox-API windowed cosine for the single multiset
 %case, used as the path under test in the symmetrisation suite.
     Pa = p_a(:);  Wa = w_a(:);
     Pb = p_b(:);  Wb = w_b(:);

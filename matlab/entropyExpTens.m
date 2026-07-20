@@ -92,10 +92,10 @@ function H = entropyExpTens(varargin)
 %   Rényi-2 is grid-free and ignores xMin, xMax, and nPointsPerDim.
 %
 %   Multiset-argument shapes (pick one of three):
-%     p      — Vector of length K. SA raw form (single multiset,
+%     p      — Vector of length K. single multiset raw form (single multiset,
 %              single-attribute).
 %     P      — nRows-by-K matrix, both dimensions > 1. BATCHED-RAW
-%              form (rows are independent SA-style multisets,
+%              form (rows are independent single-attribute-style multisets,
 %              processed in lockstep; returns an nRows-by-1 column
 %              vector of per-row entropies).
 %     pAttr  — 1-by-A cell of K_a-by-N matrices. MA raw form
@@ -104,12 +104,12 @@ function H = entropyExpTens(varargin)
 %   2-D batched lift; pAttr is the multi-attribute generalisation.
 %   The same convention is used in evalExpTens and cosSimExpTens.
 %
-%   Inputs (SA raw and BATCHED-RAW paths)
+%   Inputs (single multiset raw and BATCHED-RAW paths)
 %       p       — Pitch or position values (vector of length K) for
-%                 the SA raw form. The corresponding BATCHED-RAW form
+%                 the single multiset raw form. The corresponding BATCHED-RAW form
 %                 takes P (nRows-by-K matrix; each row is one
-%                 SA-style multiset).
-%       w       — Weights. For SA raw: vector of length K, or [] for
+%                 single-attribute-style multiset).
+%       w       — Weights. For single multiset raw: vector of length K, or [] for
 %                 uniform. For BATCHED-RAW: nRows-by-K matrix, or [].
 %                 (In the docstring above, this is denoted W when paired
 %                 with P.)
@@ -132,7 +132,7 @@ function H = entropyExpTens(varargin)
 %       'method'        - One of {'shannon' (default), 'normalized',
 %                         'differential', 'renyi2'} (or the British
 %                         alias 'normalised'). See above.
-%       'spectrum'      - (SA only.) Cell array of arguments passed to
+%       'spectrum'      - (single multiset only.) Cell array of arguments passed to
 %                         addSpectra. If provided, partials are added
 %                         to the multiset before building the tensor.
 %                         For MA, apply addSpectra to the pitch
@@ -144,13 +144,13 @@ function H = entropyExpTens(varargin)
 %                         in v2.2); ignored by 'differential' and
 %                         'renyi2'. Pass an explicit positive integer.
 %       'xMin'          - Discrete methods, non-periodic only.
-%                         SA: scalar. MA: scalar (broadcast to all
+%                         single multiset: scalar. MA: scalar (broadcast to all
 %                         non-periodic attributes) or length-A vector
 %                         (one entry per attribute; periodic-attribute
 %                         entries are ignored). Default: NaN.
 %       'xMax'          - As xMin. Default: NaN.
 %       'gridLimit'     - Ceiling on total grid size before allocation.
-%                         Applies to MA always, and to SA whenever the
+%                         Applies to MA always, and to single multiset whenever the
 %                         density's effective dimension dim > 1 (e.g.
 %                         r = 2 with isRel = false). Default: 1e8.
 %                         Errors with a suggested reduction if exceeded.
@@ -179,7 +179,7 @@ function H = entropyExpTens(varargin)
 %                         messages).
 %
 %   Examples
-%       % Shannon entropy of a 12-EDO chromatic scale (periodic, SA)
+%       % Shannon entropy of a 12-EDO chromatic scale (periodic, single multiset)
 %       H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12);
 %
 %       % Same chord via pre-built density (Shannon)
@@ -298,11 +298,11 @@ end
 % =========================================================================
 
 function H = localEntropyShannonDispatch(posArgs, nvArgs)
-%LOCALENTROPYSHANNONDISPATCH  Resolve input form and route to SA / MA helper.
+%LOCALENTROPYSHANNONDISPATCH  Resolve input form and route to single multiset / MA helper.
 %
 %   Shannon entropy of the density evaluated on a Cartesian-product
 %   grid; supports the full input surface (precomputed density struct,
-%   list of densities, MA raw args, SA raw args, SA batched 2-D
+%   list of densities, MA raw args, single multiset raw args, single-attribute batched 2-D
 %   matrix).
 
     nPos = numel(posArgs);
@@ -316,7 +316,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     %        - cell-of-numeric -> MA raw (cell of attribute matrices)
     %   3. Numeric first operand:
     %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
-    %        - vector or scalar       -> SA raw
+    %        - vector or scalar       -> single multiset raw
     %   4. Otherwise -> usage error.
     % Each detector is positive (no reliance on a preceding check having
     % failed) and self-sufficient: reordering branches does not change
@@ -398,7 +398,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                'first cell entry is of class %s.'], class(firstArg{1}));
     end
 
-    % --- 3. Numeric first operand: BATCHED-RAW or SA raw, by shape. ---
+    % --- 3. Numeric first operand: BATCHED-RAW or single multiset raw, by shape. ---
     if isnumeric(firstArg)
         if size(firstArg, 1) > 1 && size(firstArg, 2) > 1
             % BATCHED-RAW: 2-D matrix with both dims > 1 (rows = multisets).
@@ -412,7 +412,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
             H = localEntropyBatchedRaw(posArgs, nvArgs);
             return;
         end
-        % SA raw: numeric vector or scalar.
+        % single multiset raw: numeric vector or scalar.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSingleMultiset', ...
                   ['Single-attribute raw call expects 7 or 8 positional ' ...
@@ -448,7 +448,7 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
     % --- 4. Else: usage error ---
     error('entropyExpTens:badFirstArg', ...
           ['First argument must be a density struct, a cell array (LIST or ' ...
-           'MA raw), or a numeric array (SA raw or BATCHED-RAW); got class %s.'], ...
+           'MA raw), or a numeric array (single multiset raw or BATCHED-RAW); got class %s.'], ...
           class(firstArg));
 
 end
@@ -497,7 +497,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
         gridSize = nvArgs.nPointsPerDim ^ dim;
         if gridSize > nvArgs.gridLimit
             error('entropyExpTens:gridLimitExceeded', ...
-                  ['SA Cartesian grid (%g points = nPointsPerDim^dim = %d^%d) ' ...
+                  ['single multiset Cartesian grid (%g points = nPointsPerDim^dim = %d^%d) ' ...
                    'exceeds gridLimit (%g). Reduce nPointsPerDim or raise ' ...
                    '''gridLimit''.'], gridSize, nvArgs.nPointsPerDim, dim, nvArgs.gridLimit);
         end
@@ -508,7 +508,7 @@ function H = localEntropySingleMultiset(maet, nvArgs)
     % For absolute-mode densities (isRel=false) the categorical pmf is
     % the genuine bin masses int_{cell} f dx, obtained analytically
     % via per-axis erf differences. This matches Python's
-    % _cell_masses_sa_absolute and gives Python/MATLAB parity on this
+    % _cell_masses_ma_absolute and gives Python/MATLAB parity on this
     % path. For relative-mode densities (isRel=true) the bin integral
     % is a multivariate-normal box probability (off-diagonal kernel
     % covariance in the effective coordinates); pending the v2.3
@@ -665,7 +665,7 @@ function H = localEntropyMA(dens, nvArgs)
     isWindowed = isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity');
     isAbs = ~any(logical(base_dens.isRel));
     if ~isWindowed && isAbs
-        % Bin-integration cell-mass path (see the SA sibling above for
+        % Bin-integration cell-mass path (see the single multiset sibling above for
         % the truncationSigmas contract note).
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         densX = ensureExpTensExpensive(base_dens);
@@ -792,7 +792,7 @@ end
 function H = localEntropyBatchedRaw(posArgs, nvArgs)
 %LOCALENTROPYBATCHEDRAW Per-row entropy from a 2-D pitch matrix.
 %
-%   posArgs follows the SA-raw convention: {P, W, sigma, r, isRel,
+%   posArgs follows the single multiset-raw convention: {P, W, sigma, r, isRel,
 %   isPer, period} with P an nRows-by-K matrix. Returns an nRows-by-1
 %   vector of entropy values; rows with fewer than r valid pitches
 %   are NaN.
@@ -1247,7 +1247,7 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
 %   Returns a flat (prod_d n_cells x 1) column vector of integrated
 %   cell masses int_{cell} f dx via per-axis erf differences. Restricted
 %   to isRel=false; the caller is responsible for routing isRel=true
-%   elsewhere. Mirrors Python's _cell_masses_sa_absolute exactly so
+%   elsewhere. Mirrors Python's _cell_masses_ma_absolute exactly so
 %   numerical outputs match across languages.
 
     if logical(T.isRel)
@@ -1276,7 +1276,7 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
         return;
     end
 
-    % All effective axes share the same 1-D grid edges (the SA grid is a
+    % All effective axes share the same 1-D grid edges (the single multiset grid is a
     % single axis repeated across the dim effective dimensions) but a
     % different centres row. Stream the leading axis in cell blocks for
     % dim <= 2 via the shared contraction.
@@ -1462,7 +1462,7 @@ end
 function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
 %LOCALENTROPYDIFFERENTIALDISPATCH  Adaptive differential entropy dispatch.
 %
-%   Single-density input only (scalar density struct, raw scalar SA,
+%   Single-density input only (scalar density struct, raw scalar single multiset,
 %   or raw scalar MA). List and batched input forms raise informative
 %   errors. WindowedMaetDensity is not yet supported.
 
@@ -1477,7 +1477,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
     end
     if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
         error('entropyExpTens:differentialBatchedNotSupported', ...
-            ['method=''differential'' does not yet support raw SA ' ...
+            ['method=''differential'' does not yet support raw single multiset ' ...
              'batched (2-D) input. Pass each chord row individually, ' ...
              'or pre-build a density struct.']);
     end
@@ -1515,7 +1515,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
                             'verbose', false);
         singleMultisetInput = false;
     else
-        % SA raw args.
+        % single multiset raw args.
         if nPos ~= 7
             error('entropyExpTens:wrongArgCountSingleMultiset', ...
                 ['Single-attribute raw call expects 7 or 8 positional ' ...
@@ -1808,11 +1808,11 @@ end
 % =========================================================================
 
 function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
-%LOCALENTROPYRENYI2DISPATCH  Resolve input form and route to SA / MA helper.
+%LOCALENTROPYRENYI2DISPATCH  Resolve input form and route to single multiset / MA helper.
 %
 %   Analytical Rényi-2 (collision) entropy via the orbit-Möbius
 %   inner-product machinery. Restricted to single-density input
-%   (scalar density struct, raw scalar SA, or raw scalar MA). List
+%   (scalar density struct, raw scalar single multiset, or raw scalar MA). List
 %   and batched input forms raise NotImplementedError-style errors.
 %   Windowed MA is also not yet supported.
 
@@ -1827,7 +1827,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
     end
     if isnumeric(firstArg) && size(firstArg, 1) > 1 && size(firstArg, 2) > 1
         error('entropyExpTens:renyi2BatchedNotSupported', ...
-            ['method=''renyi2'' does not yet support raw SA batched ' ...
+            ['method=''renyi2'' does not yet support raw single-attribute batched ' ...
              '(2-D) input. Pass each chord row individually, or ' ...
              'pre-build a density struct.']);
     end
@@ -1882,7 +1882,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         return;
     end
 
-    % --- SA raw args ---
+    % --- single multiset raw args ---
     if nPos ~= 7
         error('entropyExpTens:wrongArgCountSingleMultiset', ...
             ['Single-attribute raw call expects 7 or 8 positional arguments ' ...
@@ -2046,7 +2046,7 @@ function H = localRenyi2MA(dens, base)
 %   with the per-attribute matrix coming from mobius.maPerAttrInnerMatrix
 %   (the same machinery cosSimExpTens uses), and
 %       Z = sum_n prod_a Z_a^{(n)}
-%   where each Z_a^{(n)} is the closed-form SA total mass evaluated on
+%   where each Z_a^{(n)} is the closed-form single multiset total mass evaluated on
 %   event n's attribute-a slot pitches and weights.
 %
 %   Windowed densities are not supported on this path.
@@ -2067,7 +2067,7 @@ function H = localRenyi2MA(dens, base)
     if N == 0
         % Every event pruned away: a zero-mass density (e.g. a windowed
         % sweep centre with no event in support). Collision entropy is
-        % undefined; return NaN rather than 0, matching the SA path and
+        % undefined; return NaN rather than 0, matching the single multiset path and
         % the value a windowed sweep wants at out-of-support centres.
         H = NaN;
         return;

@@ -44,6 +44,7 @@ from .._utils import (
 from ..spectra import add_spectra
 
 from .build import (
+    _canonicalise_nested_rel,
     _enum_flat_attr,
     _looks_like_multi_attr,
     _nested_enum_indices,
@@ -3013,7 +3014,7 @@ def cos_sim_exp_tens_raw(
 
 
 
-def _ma_ip_per_event_factors(dens, side):
+def _ma_ip_per_event_factors(dens, side, skip=None):
     """Per-attribute, per-event centres and weights for the factored IP.
 
     Returns ``factors[a]`` = list over the density's events of
@@ -3026,17 +3027,23 @@ def _ma_ip_per_event_factors(dens, side):
 
     Each event enumerates its own non-NaN slots, so variable cardinality
     (NaN-padded ``p_attr``) is handled per event without a common-slab
-    zero-pad.
+    zero-pad. Attributes in ``skip`` are left as ``None``: a
+    culled-nested attribute is served from its raw per-event slots
+    without enumerating its (blow-up) tuple set, so pre-enumerating it
+    here would defeat the cull.
     """
     A = dens.n_attrs
     N = dens.n
     r_vec = dens.r
+    skip = set() if skip is None else set(skip)
     is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
     nested = dens.nested if getattr(dens, "nested", None) is not None \
         else [None] * A
     want_perm = (side == "perm")
     factors = [[None] * N for _ in range(A)]
     for a in range(A):
+        if a in skip:
+            continue
         r_a = int(r_vec[a])
         P = dens.p_attr[a]
         W = dens.w[a]
@@ -3059,6 +3066,81 @@ def _ma_ip_per_event_factors(dens, side):
                 idx = perm_mat if want_perm else comb_mat
             factors[a][n] = (val_col[idx], np.prod(w_col[idx], axis=0))
     return factors
+
+
+def _nested_factor_cullable(spec, is_per, a):
+    """True when a nested attribute's IP factor admits the leaf cull.
+
+    Cullable when the attribute is two-level and its co-transposition is
+    absolute or at the innermost (leaf) unit, so the factor separates
+    into a leaf group-vs-group inner product (a flat multiset IP the
+    culled helper computes) contracted over the outer level. A leaf
+    co-transposition needs a non-periodic leaf (the helper does not take
+    the relative-periodic minimum-image form). Outer or intermediate
+    co-transposition, and depth beyond two levels, stay on the dense
+    factor.
+    """
+    r_levels = np.asarray(spec["r"]).ravel()
+    if r_levels.size != 2:
+        return False
+    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), 2, a)
+    if rel_unit is None:
+        return True
+    if rel_unit == 0:
+        return not bool(is_per)
+    return False
+
+
+def _ma_ip_factor_nested_culled(spec, Xval, Xw, Yval, Yw, sigma, is_per,
+                                period, a, *, truncation_sigmas,
+                                kernel_precision):
+    """One two-level nested attribute's IP factor, leaf-culled.
+
+    The block-diagonal metric couples slots only within a co-transposition
+    unit, so the factor separates as a sum over outer group pairings of a
+    product of leaf group-vs-group inner products. Each leaf inner product
+    is a flat multiset IP taken through the culled helper; the outer level
+    then contracts the leaf-IP matrix with the nested cosine's own
+    ``_combine_pair`` (perm x comb, or the Moebius reduction when the
+    outer span makes it cheaper). The value equals the dense block-diagonal
+    factor at the accuracy floor.
+    """
+    from ._nested_contraction import _combine_pair, _orbit_eligible
+    r_levels = [int(x) for x in np.asarray(spec["r"]).ravel()]
+    sym_levels = [bool(x) for x in np.asarray(spec["sym"]).ravel()]
+    r0, r_out = r_levels
+    sym0, sym_out = sym_levels
+    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), 2, a)
+    is_rel_leaf = (rel_unit == 0)
+
+    tags = np.asarray(spec["tags"])
+    tags_col = tags[:, 0] if tags.ndim == 2 else tags.ravel()
+    xv = np.nonzero(~np.isnan(Xval))[0].astype(np.intp)
+    yv = np.nonzero(~np.isnan(Yval))[0].astype(np.intp)
+    xg = sorted(set(int(t) for t in tags_col[xv]))
+    yg = sorted(set(int(t) for t in tags_col[yv]))
+    if len(xg) < r_out or len(yg) < r_out:
+        return 0.0
+
+    y_leaf = []
+    for gy in yg:
+        sl = yv[tags_col[yv] == gy]
+        _, cm, _, cw = _enum_flat_attr(Yval, sl, r0, sym0, Yw)
+        y_leaf.append((Yval[cm], cw))
+    Lmat = np.zeros((len(xg), len(yg)), dtype=np.float64)
+    for i, gx in enumerate(xg):
+        sl = xv[tags_col[xv] == gx]
+        pm, _, pw, _ = _enum_flat_attr(Xval, sl, r0, sym0, Xw)
+        u, wU = Xval[pm], pw
+        for j, (v, wV) in enumerate(y_leaf):
+            Lmat[i, j] = _ip_via_helper(
+                u, wU, v, wV, r0, float(sigma), is_rel_leaf, bool(is_per),
+                float(period), truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision)
+
+    use_orbit = (_orbit_eligible(len(xg), r_out, sym_out, False, False)
+                 and _orbit_eligible(len(yg), r_out, sym_out, False, False))
+    return float(_combine_pair(Lmat[None], r_out, sym_out, use_orbit)[0])
 
 
 def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in):
@@ -3095,8 +3177,11 @@ def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
 
     A flat, non-relative-periodic attribute's factor routes through the
     spatially-culled ``gaussian_kernel_sum`` helper (the same cull the
-    single-attribute centres path uses); a relative-periodic or nested
-    attribute's factor is evaluated densely.
+    single-attribute centres path uses). A two-level nested attribute
+    whose co-transposition is absolute or at the leaf is culled at the
+    leaf and contracted over the outer level. Relative-periodic flat
+    attributes, and nested attributes outside the cullable class, use the
+    dense factor.
     """
     A = dens_perm.n_attrs
     r_vec = dens_perm.r
@@ -3105,13 +3190,25 @@ def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
     is_per = dens_perm.is_per
     period = dens_perm.period
     inner_r = _inner_r_vec(dens_perm)
+    nested = dens_perm.nested if getattr(dens_perm, "nested", None) is not None \
+        else [None] * A
 
-    cullable = [int(inner_r[a]) == 0
-                and not (bool(is_rel[a]) and bool(is_per[a]))
-                for a in range(A)]
+    # Per-attribute route: 'flat' (culled helper), 'nested_cull' (leaf
+    # cull), or 'dense'.
+    kind = [""] * A
+    for a in range(A):
+        spec = nested[a]
+        if spec is None:
+            kind[a] = "dense" if (bool(is_rel[a]) and bool(is_per[a])) \
+                else "flat"
+        elif _nested_factor_cullable(spec, bool(is_per[a]), a):
+            kind[a] = "nested_cull"
+        else:
+            kind[a] = "dense"
+    skip = {a for a in range(A) if kind[a] == "nested_cull"}
 
-    pf = _ma_ip_per_event_factors(dens_perm, "perm")
-    cf = _ma_ip_per_event_factors(dens_comb, "comb")
+    pf = _ma_ip_per_event_factors(dens_perm, "perm", skip=skip)
+    cf = _ma_ip_per_event_factors(dens_comb, "comb", skip=skip)
     Nx = dens_perm.n
     Ny = dens_comb.n
 
@@ -3120,15 +3217,25 @@ def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
         for m in range(Ny):
             prod = 1.0
             for a in range(A):
-                u, wU = pf[a][n]
-                v, wV = cf[a][m]
-                if cullable[a]:
+                if kind[a] == "nested_cull":
+                    factor = _ma_ip_factor_nested_culled(
+                        nested[a],
+                        dens_perm.p_attr[a][:, n], dens_perm.w[a][:, n],
+                        dens_comb.p_attr[a][:, m], dens_comb.w[a][:, m],
+                        float(sigma[a]), bool(is_per[a]), float(period[a]), a,
+                        truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision)
+                elif kind[a] == "flat":
+                    u, wU = pf[a][n]
+                    v, wV = cf[a][m]
                     factor = _ip_via_helper(
                         u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
                         bool(is_rel[a]), bool(is_per[a]), float(period[a]),
                         truncation_sigmas=truncation_sigmas,
                         kernel_precision=kernel_precision)
                 else:
+                    u, wU = pf[a][n]
+                    v, wV = cf[a][m]
                     factor = _ma_ip_factor_dense(
                         u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
                         bool(is_rel[a]), bool(is_per[a]), float(period[a]),
@@ -3146,8 +3253,9 @@ def _ma_factored_ip_supported(dens_x, dens_y):
     The factored path serves every attribute mode except relative-and-
     periodic under the minimum-image convention, whose per-slot factor
     does not admit the culled helper. Ordered ([sym]=0) and nested
-    attributes are supported (the nested factor is evaluated densely
-    within its block-diagonal metric).
+    attributes are supported: a two-level nested attribute with an
+    absolute or leaf co-transposition is culled at the leaf, and any
+    other nested attribute uses the dense block-diagonal factor.
     """
     from .aniso import density_has_kernel_cov
     if density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y):

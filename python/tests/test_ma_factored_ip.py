@@ -81,6 +81,42 @@ def test_factored_nested_dense_factor():
     _match(dx, dy)
 
 
+def test_factored_nested_outer_symmetric():
+    spec = {"tags": np.array([0, 0, 0, 1, 1, 1]), "r": [2, 2],
+            "sym": [True, True]}
+    dx = _b([np.array([[0.], [4.], [7.], [12.], [16.], [19.]])],
+            [40.], [4], [False], [False], [0], nested=[spec])
+    dy = _b([np.array([[0.], [3.], [7.], [12.], [15.], [19.]])],
+            [40.], [4], [False], [False], [0], nested=[spec])
+    _match(dx, dy)
+
+
+def test_factored_nested_three_ordered_groups():
+    spec = {"tags": np.array([0, 0, 1, 1, 2, 2]), "r": [2, 3],
+            "sym": [True, False]}
+    dx = _b([np.array([[0.], [4.], [12.], [16.], [24.], [28.]])],
+            [40.], [6], [False], [False], [0], nested=[spec])
+    dy = _b([np.array([[0.], [3.], [12.], [15.], [24.], [27.]])],
+            [40.], [6], [False], [False], [0], nested=[spec])
+    _match(dx, dy)
+
+
+def test_factored_nested_large_leaf_completes():
+    # Three ordered groups, 24 slots each, leaf r0=2: the dense nested
+    # factor would enumerate ~(24*23)^3 ~ 1.7e8 perm tuples per side, so
+    # its pair matrix is out of reach; the leaf cull reduces this to nine
+    # flat leaf IPs. Verify it runs and self-similarity is 1.
+    rng = np.random.default_rng(3)
+    spec = {"tags": np.array([0] * 24 + [1] * 24 + [2] * 24), "r": [2, 3],
+            "sym": [True, False]}
+    p = np.concatenate([np.sort(rng.uniform(0, 400, 24)),
+                        np.sort(rng.uniform(500, 900, 24)),
+                        np.sort(rng.uniform(1000, 1400, 24))]).reshape(-1, 1)
+    dx = _b([p], [50.], [6], [False], [False], [0], nested=[spec])
+    val = cos_sim_exp_tens(dx, dx, method="factored", verbose=False)
+    assert abs(val - 1.0) < 1e-9
+
+
 def test_factored_self_ip_is_one():
     dx = _b([np.array([[0.], [4.], [7.]]), np.array([[0.], [12.], [24.]])],
             [30., 30.], [2, 2], [False, False], [False, False], [0, 0])

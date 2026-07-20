@@ -317,15 +317,20 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                 maet = firstArg;
                 dens = internal.singleMultisetView(maet);
             else
-                dens_ma = internal.ensureExpTensExpensive(firstArg);
-                if internal.densityHasKernelCov(dens_ma)
-                    X = internal.whitenQuery(dens_ma, X);
-                end
-                vals = localEvalMA(dens_ma, X, normalize, verbose, ...
-                    truncationSigmas, kernelPrecision, method);
-                if ~strcmp(normalize, 'none') && ...
-                        internal.densityHasKernelCov(dens_ma)
-                    vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
+                [handled, vals] = localMaSkinnyDispatch(firstArg, X, ...
+                    normalize, verbose, truncationSigmas, kernelPrecision, ...
+                    method);
+                if ~handled
+                    dens_ma = internal.ensureExpTensExpensive(firstArg);
+                    if internal.densityHasKernelCov(dens_ma)
+                        X = internal.whitenQuery(dens_ma, X);
+                    end
+                    vals = localEvalMA(dens_ma, X, normalize, verbose, ...
+                        truncationSigmas, kernelPrecision, method);
+                    if ~strcmp(normalize, 'none') && ...
+                            internal.densityHasKernelCov(dens_ma)
+                        vals = vals * exp(-0.5 * internal.densityLogdetSum(dens_ma));
+                    end
                 end
                 return;
             end
@@ -337,9 +342,14 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                      'windowedSimilarity, whose internal builds ' ...
                      'accept them.']);
             end
-            underlying = localEvalMA( ...
-                internal.ensureExpTensExpensive(firstArg.dens), X, ...
-                normalize, verbose, truncationSigmas, kernelPrecision);
+            [handled, underlying] = localMaSkinnyDispatch(firstArg.dens, ...
+                X, normalize, verbose, truncationSigmas, kernelPrecision, ...
+                'auto');
+            if ~handled
+                underlying = localEvalMA( ...
+                    internal.ensureExpTensExpensive(firstArg.dens), X, ...
+                    normalize, verbose, truncationSigmas, kernelPrecision);
+            end
             W_vals = localEvaluateWindowOnQuery(firstArg, X);
             vals = underlying .* W_vals;
             return;
@@ -374,18 +384,21 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         dens = buildExpTens(pAttr_arg, w_arg, sigma_arg, r_arg, ...
                             isRel_arg, isPer_arg, period_arg, symArgs{:}, ...
                             'verbose', verbose);
-        % localEvalMA reads heavy fields (e.g. nJ); buildExpTens
-        % returns the skinny struct, so materialise the heavy fields
-        % here. Mirrors the MaetDensity and WindowedMaetDensity
-        % struct branches above.
-        dens = internal.ensureExpTensExpensive(dens);
-        if internal.densityHasKernelCov(dens)
-            X = internal.whitenQuery(dens, X);
-        end
-        vals = localEvalMA(dens, X, normalize, verbose, ...
-                           truncationSigmas, kernelPrecision);
-        if ~strcmp(normalize, 'none') && internal.densityHasKernelCov(dens)
-            vals = vals * exp(-0.5 * internal.densityLogdetSum(dens));
+        % Try the joint-free (skinny) routes first; they read only the
+        % per-attribute fields buildExpTens already returns. Only build
+        % the expensive joint fields when the joint accumulator is needed.
+        [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
+            verbose, truncationSigmas, kernelPrecision, method);
+        if ~handled
+            dens = internal.ensureExpTensExpensive(dens);
+            if internal.densityHasKernelCov(dens)
+                X = internal.whitenQuery(dens, X);
+            end
+            vals = localEvalMA(dens, X, normalize, verbose, ...
+                               truncationSigmas, kernelPrecision, method);
+            if ~strcmp(normalize, 'none') && internal.densityHasKernelCov(dens)
+                vals = vals * exp(-0.5 * internal.densityLogdetSum(dens));
+            end
         end
         return;
     end
@@ -815,22 +828,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     Centres    = dens.Centres;
     wJ         = dens.wJ;
 
-    % Per-attribute co-transposition block size s_u = prod(r(1:u)) where
-    % attribute a is a nested attribute resolved to an inner or
-    % intermediate [rel] unit u (1-based), 0 otherwise (flat, absolute,
-    % and the whole-tuple outer unit ride the ordinary isRel path).
-    % Switches on the block-diagonal metric below.
-    innerR = zeros(1, A);
-    if isfield(dens, 'nested') && iscell(dens.nested)
-        for a = 1:A
-            s = dens.nested{a};
-            if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
-                    && (strcmp(s.proj, 'inner') || strcmp(s.proj, 'intermediate'))
-                u = s.relUnit;                 % 1-based level index
-                innerR(a) = prod(s.r(1:u));    % block size s_u
-            end
-        end
-    end
+    % Per-attribute co-transposition block size (see localComputeInnerR).
+    innerR = localComputeInnerR(dens, A);
 
     % --- Auto-prune zero-weight joint perm-side tuples ---
     % The MaetDensity build expands per-attribute slot combinations into
@@ -853,54 +852,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 
     % --- Normalise query-point input to cell form {X_1, ..., X_A} ---
 
-    if iscell(X)
-        if numel(X) ~= A
-            error('evalExpTens:maQueryCellLength', ...
-                  ['Query cell must have length %d (nAttrs); got %d.'], A, numel(X));
-        end
-        Xc = cell(1, A);
-        nQ = [];
-        for a = 1:A
-            Xa = X{a};
-            % Allow 1-D vectors when dim_a == 1
-            if isvector(Xa) && dimPerAttr(a) == 1
-                Xa = Xa(:).';
-            end
-            if size(Xa, 1) ~= dimPerAttr(a)
-                error('evalExpTens:maQueryAttrRows', ...
-                      ['Query for attribute %d must have %d rows; got %d.'], ...
-                      a, dimPerAttr(a), size(Xa, 1));
-            end
-            if isempty(nQ)
-                nQ = size(Xa, 2);
-            elseif size(Xa, 2) ~= nQ
-                error('evalExpTens:maQueryNQMismatch', ...
-                      ['All per-attribute query matrices must share the same ' ...
-                       'number of columns (nQ). Got %d and %d.'], nQ, size(Xa, 2));
-            end
-            Xc{a} = double(Xa);
-        end
-    else
-        % Single-matrix form
-        Xs = X;
-        if isvector(Xs) && dim == 1
-            Xs = Xs(:).';
-        end
-        if size(Xs, 1) ~= dim
-            error('evalExpTens:maQueryTotalRows', ...
-                  ['Single-matrix query must have %d rows (total dim); got %d. ' ...
-                   'For cell-form input, wrap the per-attribute query matrices ' ...
-                   'in a 1 x %d cell array.'], dim, size(Xs, 1), A);
-        end
-        nQ = size(Xs, 2);
-        Xc = cell(1, A);
-        rowStart = 1;
-        for a = 1:A
-            rowEnd = rowStart + dimPerAttr(a) - 1;
-            Xc{a} = double(Xs(rowStart:rowEnd, :));
-            rowStart = rowEnd + 1;
-        end
-    end
+    [Xc, nQ] = localSplitMaQuery(X, dimPerAttr, dim, A);
 
     if nQ == 0
         vals = zeros(1, 0);
@@ -1086,6 +1038,249 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         Q_a = localQInnerBlocksReduced(D_a, rIn, isPerG(a), Pg);
     end
 
+end
+
+
+function innerR = localComputeInnerR(dens, A)
+%LOCALCOMPUTEINNERR  Per-attribute co-transposition block size s_u =
+%   prod(r(1:u)) where attribute a is a nested attribute resolved to an
+%   inner or intermediate [rel] unit u (1-based), 0 otherwise (flat,
+%   absolute, and the whole-tuple outer unit ride the ordinary isRel
+%   path). Switches on the block-diagonal metric. Shared by localEvalMA,
+%   localMaSkinnyDispatch, and localFactoredSumW.
+    innerR = zeros(1, A);
+    if isfield(dens, 'nested') && iscell(dens.nested)
+        for a = 1:A
+            s = dens.nested{a};
+            if ~isempty(s) && isstruct(s) && isfield(s, 'proj') ...
+                    && (strcmp(s.proj, 'inner') || strcmp(s.proj, 'intermediate'))
+                u = s.relUnit;                 % 1-based level index
+                innerR(a) = prod(s.r(1:u));    % block size s_u
+            end
+        end
+    end
+end
+
+
+function [Xc, nQ] = localSplitMaQuery(X, dimPerAttr, dim, A)
+%LOCALSPLITMAQUERY  Normalise the query-point input to cell form
+%   {X_1, ..., X_A}, accepting either a 1 x A cell of per-attribute
+%   matrices (each dim_a x nQ) or a single dim x nQ matrix with attribute
+%   rows stacked in attribute order. A 1-D input is coerced to 1 x nQ and
+%   is valid only when the relevant dim equals 1. Shared by localEvalMA
+%   and localMaSkinnyDispatch.
+    if iscell(X)
+        if numel(X) ~= A
+            error('evalExpTens:maQueryCellLength', ...
+                  ['Query cell must have length %d (nAttrs); got %d.'], A, numel(X));
+        end
+        Xc = cell(1, A);
+        nQ = [];
+        for a = 1:A
+            Xa = X{a};
+            if isvector(Xa) && dimPerAttr(a) == 1
+                Xa = Xa(:).';
+            end
+            if size(Xa, 1) ~= dimPerAttr(a)
+                error('evalExpTens:maQueryAttrRows', ...
+                      ['Query for attribute %d must have %d rows; got %d.'], ...
+                      a, dimPerAttr(a), size(Xa, 1));
+            end
+            if isempty(nQ)
+                nQ = size(Xa, 2);
+            elseif size(Xa, 2) ~= nQ
+                error('evalExpTens:maQueryNQMismatch', ...
+                      ['All per-attribute query matrices must share the same ' ...
+                       'number of columns (nQ). Got %d and %d.'], nQ, size(Xa, 2));
+            end
+            Xc{a} = double(Xa);
+        end
+    else
+        Xs = X;
+        if isvector(Xs) && dim == 1
+            Xs = Xs(:).';
+        end
+        if size(Xs, 1) ~= dim
+            error('evalExpTens:maQueryTotalRows', ...
+                  ['Single-matrix query must have %d rows (total dim); got %d. ' ...
+                   'For cell-form input, wrap the per-attribute query matrices ' ...
+                   'in a 1 x %d cell array.'], dim, size(Xs, 1), A);
+        end
+        nQ = size(Xs, 2);
+        Xc = cell(1, A);
+        rowStart = 1;
+        for a = 1:A
+            rowEnd = rowStart + dimPerAttr(a) - 1;
+            Xc{a} = double(Xs(rowStart:rowEnd, :));
+            rowStart = rowEnd + 1;
+        end
+    end
+end
+
+
+function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
+        verbose, truncationSigmas, kernelPrecision, method)
+%LOCALMASKINNYDISPATCH  Evaluate an MA density without materialising the
+%   joint tuple set, when a per-attribute route (factored centres or
+%   Möbius) is chosen. Both read only the skinny per-attribute fields, so
+%   this runs before internal.ensureExpTensExpensive and skips the joint
+%   build entirely --- the memory win, and the only route that survives
+%   the huge-joint shapes. Returns handled = false to defer to the joint-
+%   materialising path (localEvalMA) for the cases it cannot serve: a
+%   matrix-valued kernel covariance (needs the whitened joint accumulator)
+%   or a factored centres shape outside localMaEvalFactored's support.
+    handled = false;
+    vals = [];
+    if internal.densityHasKernelCov(dens)
+        return;   % kernel covariance: whitening + joint accumulator path
+    end
+    if nargin < 7 || isempty(method)
+        method = 'auto';
+    end
+
+    A          = dens.nAttrs;
+    dim        = dens.dim;
+    dimPerAttr = dens.dimPerAttr;
+    innerR     = localComputeInnerR(dens, A);
+    [Xc, nQ]   = localSplitMaQuery(X, dimPerAttr, dim, A);
+    if nQ == 0
+        vals = zeros(1, 0);
+        handled = true;
+        return;
+    end
+
+    % Path dispatch (skinny cost model; user override honoured).
+    if strcmp(method, 'centres') || strcmp(method, 'direct')
+        maChosen = 'centres'; maReason = 'user override';
+    elseif strcmp(method, 'mobius')
+        maChosen = 'mobius'; maReason = 'user override';
+    else
+        [maChosen, maReason] = internal.selectMaEval(dens, nQ, verbose);
+    end
+
+    if strcmp(maChosen, 'mobius')
+        internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, maReason);
+        Xjoint = zeros(dim, nQ);
+        rs = 1;
+        for a = 1:A
+            re = rs + dimPerAttr(a) - 1;
+            Xjoint(rs:re, :) = Xc{a};
+            rs = re + 1;
+        end
+        vArgs = {};
+        if ~isempty(truncationSigmas)
+            vArgs = [vArgs, {'truncationSigmas', truncationSigmas}];
+        end
+        if ~isempty(kernelPrecision)
+            vArgs = [vArgs, {'kernelPrecision', kernelPrecision}];
+        end
+        valsRaw = mobius.evalMaOrbit(dens, Xjoint, vArgs{:});
+        vals = localMaNormaliseSkinny(valsRaw(:).', dens, normalize, ...
+            dimPerAttr, innerR, A);
+        handled = true;
+        return;
+    end
+
+    % Centres route: try the factored evaluator (no joint build). If the
+    % shape is unsupported, defer without emitting the dispatch message
+    % (the joint path re-dispatches and emits it there).
+    factored = localMaEvalFactored(dens, Xc, nQ, innerR, ...
+        truncationSigmas, kernelPrecision);
+    if isempty(factored)
+        return;
+    end
+    internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, maReason);
+    vals = localMaNormaliseSkinny(factored, dens, normalize, ...
+        dimPerAttr, innerR, A);
+    handled = true;
+end
+
+
+function sumW = localFactoredSumW(dens, innerR)
+%LOCALFACTOREDSUMW  Total joint weight-product mass sum(wJ), computed
+%   without building the joint: sum(wJ) = sum_events prod_attributes
+%   (sum over that attribute's tuples of the per-tuple weight product).
+%   Zero-weight tuples contribute nothing, so this equals the (pruned)
+%   joint's sum(wJ). Used by localMaNormaliseSkinny for 'pdf'.
+    A      = dens.nAttrs;
+    N      = dens.N;
+    rVec   = dens.r(:).';
+    P      = dens.pAttr;
+    W      = dens.w;
+    isSymV = dens.isSym(:).';
+
+    permCell = cell(1, A);
+    for a = 1:A
+        if rVec(a) < 2
+            permCell{a} = [];   % r = 1: sum of valid-slot weights directly
+            continue;
+        end
+        everValid = find(any(~isnan(P{a}), 2)).';
+        if innerR(a) > 0
+            spec = dens.nested{a};
+            tg = spec.tags;
+            if isvector(tg), tg = tg(:); end
+            permCell{a} = internal.nestedEnumIndices( ...
+                everValid, tg(everValid, :), spec.r(:).', spec.sym(:).');
+        else
+            Ka = size(P{a}, 1);
+            permCell{a} = internal.enumFlatAttr( ...
+                zeros(Ka, 1), everValid, rVec(a), isSymV(a), ones(Ka, 1));
+        end
+    end
+
+    sumW = 0;
+    for n = 1:N
+        prodA = 1;
+        for a = 1:A
+            pCol    = P{a}(:, n);
+            wCol    = W{a}(:, n);
+            absent  = isnan(pCol);
+            wFill   = wCol;  wFill(absent | isnan(wCol)) = 0;
+            if rVec(a) < 2
+                % r = 1: each valid slot is a 1-tuple; the total is
+                % invariant to the equal-value collapse, so sum directly.
+                sA = sum(wFill);
+            else
+                pm     = permCell{a};
+                wTuple = prod(reshape(wFill(pm), size(pm, 1), size(pm, 2)), 1);
+                sA     = sum(wTuple);
+            end
+            prodA = prodA * sA;
+        end
+        sumW = sumW + prodA;
+    end
+end
+
+
+function vals = localMaNormaliseSkinny(vals, dens, normalize, ...
+        dimPerAttr, innerR, A)
+%LOCALMANORMALISESKINNY  MA normalisation for the joint-free (skinny)
+%   routes. Identical to localMaNormalise except the 'pdf' total mass is
+%   computed factored (localFactoredSumW) rather than from the joint wJ,
+%   so no joint tuple set is needed.
+    if ~(strcmp(normalize, 'gaussian') || strcmp(normalize, 'pdf'))
+        return;
+    end
+    r_     = dens.r;
+    isRelG = dens.isRel;
+    sigmaG = dens.sigma;
+    gaussConst = 1;
+    for a = 1:A
+        da = dimPerAttr(a);
+        detM_a = internal.quadraticFormDet(r_(a), innerR(a), isRelG(a));
+        gaussConst = gaussConst / internal.gaussianMassConst(sigmaG(a), da, detM_a);
+    end
+    vals = vals * gaussConst;
+    if strcmp(normalize, 'pdf')
+        sumW = localFactoredSumW(dens, innerR);
+        if sumW > 0
+            vals = vals / sumW;
+        else
+            warning('evalExpTens:zeroSumW', ...
+                    'Sum of weight products is zero; cannot normalise to pdf.');
+        end
+    end
 end
 
 

@@ -63,13 +63,23 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     % (each distinct block's factor is computed once and reused across
     % partitions). Relative attributes multiply the per-query work by the
     % u-grid node count; each node costs the cheaper of the direct
-    % strategy (op-count linear) and, non-periodically, the factored
-    % strategy (K-free after tabulation).
+    % strategy (a fixed per-node floor plus op-count-linear work) and,
+    % non-periodically, the factored strategy (K-free after tabulation).
     MA_COST_MOBIUS_SETUP_MS           = 0.10;
     MA_COST_MOBIUS_SETUP_PER_BELL_MS  = 0.01;
     MA_COST_MOBIUS_QUERY_PER_OP_MS    = 1.3e-6;
     % Relative-mode u-grid node costs. Periodic direct nodes and the two
-    % non-periodic strategies are calibrated separately.
+    % non-periodic strategies are calibrated separately. The non-periodic
+    % direct node carries a fixed per-node floor (the alignment shift and
+    % read-back each node pays) alongside its op-count slope. Here the
+    % factored strategy is the cheaper branch for every practical shape
+    % (r >= 2, K >= 2), so this floor does not affect the current
+    % selection; it is carried for parity with the per-query node model and
+    % to keep the direct estimate floored should a factored recalibration
+    % make it the binding branch. Its magnitude tracks the factored
+    % constant (the analytic floor:factored ratio of the calibrated model)
+    % and would be re-derived by bench_ma_eval_calibration if it ever binds.
+    MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS        = 1.2e-5;
     MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS      = 4e-6;
     MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS  = 9e-7;
     MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS  = 2.1e-5;
@@ -222,7 +232,8 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
                 window = 2.0 * spread + 16.0 * sigmaG(a);
                 N_u = max(64, ceil(sps * window / sigmaG(a)));
                 nodeMs = min( ...
-                    MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops, ...
+                    MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS ...
+                    + MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops, ...
                     MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r);
             end
             % Tabulation setup is paid once per call, not per query.

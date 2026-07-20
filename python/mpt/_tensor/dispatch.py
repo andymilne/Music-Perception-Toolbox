@@ -948,6 +948,13 @@ _MA_COST_MOBIUS_QUERY_PER_OP_MS = 5e-7
 #: Periodic direct nodes cost more per op than non-periodic ones
 #: (per-component wrapping inside the kernel, and no factored
 #: tabulation on the circle); both are calibrated separately.
+#: The non-periodic direct node also carries a fixed per-node cost,
+#: independent of the op count: each u-grid node pays a setup (the
+#: alignment shift and read-back) that dominates at low op counts. The
+#: pure per-op form underprices small-r relative attributes, whose node
+#: cost is floor-bound rather than op-bound, so a base term is carried
+#: alongside the per-op slope.
+_MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 2.0e-4
 _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 4e-6
 _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 1e-5
 _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 3.5e-4
@@ -1266,7 +1273,8 @@ def _select_ma_eval(dens, n_q, *, method):
                 window = 2.0 * spread + 16.0 * sigma[a]
                 n_u = max(64.0, np.ceil(sps * window / sigma[a]))
                 node_ms = min(
-                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
+                    _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS
+                    + _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
                     _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r,
                 )
             # Tabulation setup is paid once per call, not per query.

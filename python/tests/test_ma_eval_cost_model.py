@@ -59,6 +59,21 @@ def _build(sig, r_vec, is_rel, is_per, period, K, N, seed=0):
                           verbose=False)
 
 
+def _build_span(sig, r_vec, is_rel, is_per, period, K, span, seed=0):
+    """Build a single-multiset-per-attribute density spanning ``span``.
+
+    The relative-mode Möbius cost scales with the u-grid node count, which
+    grows with the source spread; only realistic (multi-octave) spans reach
+    the regime where relative Möbius is expensive. The [0, 100] grid above
+    does not, so relative-crossover cells build over ``span`` instead.
+    """
+    g = np.random.default_rng(seed)
+    A = len(sig)
+    pas = [np.sort(g.uniform(0, span, (K, 1)), axis=0) for _ in range(A)]
+    return build_exp_tens(pas, None, sig, r_vec, is_rel, is_per, period,
+                          verbose=False)
+
+
 def _bench(fn, n=5):
     fn()
     ts = []
@@ -197,6 +212,38 @@ def test_ma_cost_model_never_badly_wrong(case):
         f"{slowdown:.1f}x slower than Möbius "
         f"(centres {t_centres*1e3:.2f} ms, Möbius {t_mobius*1e3:.2f} ms). "
         f"The _MA_COST_* calibration constants need revisiting."
+    )
+
+
+@pytest.mark.parametrize("A,r,K,seed,expect", [
+    (3, 2, 5, 0, "centres"),
+    (3, 2, 6, 1, "centres"),   # historical over-pick: at this spread the
+                               # pre-fix estimate under-priced Möbius and
+                               # picked it though centres runs ~2.7x faster
+    (3, 2, 8, 0, "mobius"),
+])
+def test_ma_cost_model_rel_ma_crossover_placed_correctly(A, r, K, seed, expect):
+    """The centres <-> factored-Möbius crossover in relative multi-attribute
+    mode must sit where the measured times cross.
+
+    This guards the direction the asymmetric centres-only contract above
+    cannot: an under-priced Möbius estimate that picks Möbius when centres
+    is several times faster. The relative-Möbius cost is only substantial at
+    realistic (multi-octave) pitch spans --- the u-grid node count scales
+    with the source spread --- so these cells build over a wide span. The
+    K = 6 seed sits in the over-pick zone: without the per-node base cost the
+    estimate picks Möbius though centres runs several times faster. K = 5 and
+    K = 8 pin the two sides of the true crossover so it cannot drift back or
+    over-correct.
+    """
+    sig = [15.0] * A
+    dens = _build_span(sig, [r] * A, [True] * A, [False] * A, [0.] * A,
+                       K, span=3600.0, seed=seed)
+    chosen, reason = _select_ma_eval(dens, 200, method="auto")
+    assert chosen == expect, (
+        f"A{A} rel r{r}K{K}: expected {expect} but cost model chose "
+        f"{chosen} ({reason}); the relative-Möbius node cost calibration "
+        f"has drifted."
     )
 
 

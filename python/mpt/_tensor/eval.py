@@ -29,7 +29,6 @@ import numpy as np
 
 from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
 from .._utils import (
-    estimate_comp_time,
     kernel_chunk_bytes_resolved,
     with_kernel_chunk_bytes_pin,
 )
@@ -886,6 +885,8 @@ def _eval_exp_tens_ma(
     _maybe_show_dispatch_msg(
         "eval_exp_tens (MAET)", chosen, routing_reason,
     )
+    from ._timeest import _maybe_warn_eval_time
+    _maybe_warn_eval_time("eval_exp_tens (MAET)", dens, n_q_hint, chosen)
     if chosen == "mobius":
         from ._ma_eval_orbit import eval_ma_orbit
         # The factored evaluator takes the joint query as a single
@@ -919,10 +920,6 @@ def _eval_exp_tens_ma(
         xs = _split_query_to_attr_list(dens, x)[0]
         if xs.shape[1] == 0:
             return np.zeros(0, dtype=np.float64)
-        estimate_comp_time(
-            int(wj0.size) * int(xs.shape[1]), c0.shape[0],
-            "eval_exp_tens (MAET)", verbose,
-        )
         vals = _eval_core(
             c0, wj0, int(wj0.size), xs, int(xs.shape[1]), c0.shape[0],
             float(dens.sigma[0]), int(dens.r[0]),
@@ -1003,9 +1000,6 @@ def _eval_exp_tens_ma(
 
     if n_q == 0:
         return np.zeros(0, dtype=np.float64)
-
-    n_pairs = int(n_j) * int(n_q)
-    estimate_comp_time(n_pairs, dim, "eval_exp_tens (MAET)", verbose)
 
     # --- Core evaluation with memory-aware chunking ---
     # Peak per-chunk memory is dominated by the largest per-attribute

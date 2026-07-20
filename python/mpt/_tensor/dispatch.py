@@ -933,6 +933,16 @@ _PRESCREEN_ORBIT_DOMINANCE = 3.0
 _MA_COST_CENTRES_SETUP_MS = 0.15
 _MA_COST_CENTRES_CALL_PER_JOINT_MS = 4e-5
 _MA_COST_CENTRES_QUERY_PER_JOINT_MS = 4.5e-5
+# Culling onset for the centres per-query term. The joint-centres path
+# truncates each Gaussian at truncation_sigmas, so per query only the
+# centres within a few sigma of the query contribute. The near-centre
+# fraction scales as sigma / (source spread): wider kernels (or tighter
+# source spreads) reach more centres, saturating at 1. Calibrated
+# against measured culled per-query cost across sigma, K, and spread
+# (worst-case shape error about 2.5x, typically within 1.5x). Applies
+# to the per-query term only --- all joint centres are still
+# materialised, so the setup and call terms are unculled.
+_MA_COST_CENTRES_CULL_C = 15.0
 
 #: Möbius: a per-call setup that scales with the partition count B_r,
 #: and per-query work linear in the distinct-block op count
@@ -1074,6 +1084,103 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel) -> int:
             return 1 << 60
     return n_joint * max(D, 1) * 2 * 8
 
+
+
+def _ma_eval_costs_ms(dens, n_q):
+    """Closed-form ``(centres_ms, mobius_ms)`` cost estimates for a flat
+    multi-attribute density, in milliseconds on the calibration machine.
+
+    Depends only on the density shape ``(r_a, K_a, N)``, the geometry,
+    and the query count ``n_q`` --- no probe, no timing. Shared by the
+    eval path selector :func:`_select_ma_eval` (which compares the two)
+    and by the up-front time estimate (which scales the chosen one by a
+    per-session machine factor). Keeping one implementation guarantees
+    the estimate and the dispatch decision price identical work.
+    """
+    A = int(dens.n_attrs)
+    r_vec = [int(v) for v in np.atleast_1d(dens.r)]
+    k_vec = [int(v) for v in np.atleast_1d(dens.k)]
+    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
+    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
+    period = [float(v) for v in np.atleast_1d(dens.period)]
+
+    n_q_eff = float(max(int(n_q), 1))
+    joint_tuples = 1.0
+    for a in range(A):
+        r_a, K_a = r_vec[a], k_vec[a]
+        if r_a < 1:
+            continue
+        joint_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
+
+    # Per-query culling factor: the single-multiset centres route
+    # (_eval_core) truncates each Gaussian at truncation_sigmas, so per
+    # query only the centres within a few sigma contribute; the
+    # near-centre fraction is min(1, c * sigma / spread), where spread is
+    # the source spread (max - min of the positions). The multi-attribute
+    # full-tensor route does not cull this way --- it evaluates the joint
+    # difference tensor in full --- so culling applies only to the
+    # single-multiset corner, matching the evaluator that runs.
+    from .density import is_single_multiset
+
+    cull = 1.0
+    if is_single_multiset(dens) and sigma[0] > 0:
+        spread_0 = 0.0
+        p_attr = getattr(dens, "p_attr", None)
+        if p_attr is not None and len(p_attr) and p_attr[0] is not None:
+            arr = np.asarray(p_attr[0], dtype=np.float64)
+            if arr.size:
+                spread_0 = float(np.max(arr) - np.min(arr))
+        if spread_0 > 0:
+            cull = min(1.0, _MA_COST_CENTRES_CULL_C * sigma[0] / spread_0)
+
+    centres_ms = (
+        _MA_COST_CENTRES_SETUP_MS
+        + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
+        + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * cull * n_q_eff
+    )
+
+    mobius_ms = _MA_COST_MOBIUS_SETUP_MS
+    for a in range(A):
+        r_a, K_a = r_vec[a], k_vec[a]
+        if r_a < 2:
+            continue  # r_a <= 1: a plain kernel sum either way
+        B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
+        ops = float(2 ** r_a - 1) * r_a * K_a
+        mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
+        per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
+        if is_rel[a]:
+            sps = _MA_COST_REL_SAMPLES_PER_SIGMA
+            if is_per[a] and period[a] > 0:
+                n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
+                node_ms = (
+                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS * ops)
+            else:
+                spread = 0.0
+                p_a = getattr(dens, "p_attr", None)
+                if p_a is not None and a < len(p_a) and p_a[a] is not None:
+                    arr = np.asarray(p_a[a], dtype=np.float64)
+                    if arr.size:
+                        spread = float(np.max(arr) - np.min(arr))
+                window = 2.0 * spread + 16.0 * sigma[a]
+                n_u = max(64.0, np.ceil(sps * window / sigma[a]))
+                node_ms = min(
+                    _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS
+                    + _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
+                    _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r,
+                )
+            # Tabulation setup is paid once per call, not per query.
+            mobius_ms += _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS * K_a * n_u
+            per_query_ms = n_u * node_ms
+        mobius_ms += per_query_ms * n_q_eff
+
+    return centres_ms, mobius_ms
+
+
+def _predict_ma_eval_cost_ms(dens, n_q, chosen):
+    """Predicted cost (ms, calibration machine) of the chosen eval path."""
+    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
+    return mobius_ms if chosen == "mobius" else centres_ms
 
 
 def _select_ma_eval(dens, n_q, *, method):
@@ -1223,64 +1330,14 @@ def _select_ma_eval(dens, n_q, *, method):
             return "mobius", "rel-per all-image measure"
 
     # ---- Cost model: two closed-form per-call time estimates (ms),
-    # each a per-call setup term plus per-query work scaled by n_q.
-    # Constants are the module-level ``_MA_COST_*`` calibration; the
-    # functional forms mirror the paths' structure. Centres: setup +
-    # materialisation and kernel work linear in the joint tuple count
-    # (product across attributes). Möbius: setup scaling with the
-    # partition count, plus per-query distinct-block work summed across
-    # attributes; relative attributes multiply their per-query work by
-    # a u-grid node count estimated from the geometry (period over
-    # sigma when periodic; source spread over sigma when not --- the
-    # query spread is unknown at selection time, so the source spread
-    # stands in for the full alignment window). ----
-    n_q_eff = float(max(int(n_q), 1))
-    joint_tuples = 1.0
-    for a in range(A):
-        r_a, K_a = r_vec[a], k_vec[a]
-        if r_a < 1:
-            continue
-        joint_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
-
-    centres_ms = (
-        _MA_COST_CENTRES_SETUP_MS
-        + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
-        + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * n_q_eff
-    )
-
-    mobius_ms = _MA_COST_MOBIUS_SETUP_MS
-    for a in range(A):
-        r_a, K_a = r_vec[a], k_vec[a]
-        if r_a < 2:
-            continue  # r_a <= 1: a plain kernel sum either way
-        B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
-        ops = float(2 ** r_a - 1) * r_a * K_a
-        mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
-        per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
-        if is_rel[a]:
-            sps = _MA_COST_REL_SAMPLES_PER_SIGMA
-            if is_per[a] and period[a] > 0:
-                n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
-                node_ms = (
-                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS * ops)
-            else:
-                spread = 0.0
-                p_a = getattr(dens, "p_attr", None)
-                if p_a is not None and a < len(p_a) and p_a[a] is not None:
-                    arr = np.asarray(p_a[a], dtype=np.float64)
-                    if arr.size:
-                        spread = float(np.max(arr) - np.min(arr))
-                window = 2.0 * spread + 16.0 * sigma[a]
-                n_u = max(64.0, np.ceil(sps * window / sigma[a]))
-                node_ms = min(
-                    _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS
-                    + _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
-                    _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r,
-                )
-            # Tabulation setup is paid once per call, not per query.
-            mobius_ms += _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS * K_a * n_u
-            per_query_ms = n_u * node_ms
-        mobius_ms += per_query_ms * n_q_eff
+    # each a per-call setup term plus per-query work scaled by n_q. The
+    # functional forms and constants live in :func:`_ma_eval_costs_ms`,
+    # shared with the up-front time estimate so both price identical
+    # work. Centres cost grows with the joint tuple count (product
+    # across attributes); Möbius cost is the summed per-attribute
+    # distinct-block work, with relative attributes multiplied by a
+    # u-grid node count from the geometry. ----
+    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
 
     if mobius_ms < centres_ms * _MA_MOBIUS_SAFETY:
         return "mobius", "cost model (factored Möbius cheaper)"

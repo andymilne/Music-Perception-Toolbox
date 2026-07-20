@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 from scipy.signal import correlate as _sp_correlate
 
-from ._utils import estimate_comp_time, maybe_print_batched_estimate, validate_weights
+from ._utils import maybe_print_batched_estimate, validate_weights
 from ._defaults import _with_dispatch_scope
 from .entropy import entropy_exp_tens
 from .spectra import add_spectra
@@ -172,10 +172,10 @@ def spectral_entropy(
     base : float
         Logarithm base (default 2 = bits).
     verbose : bool
-        If True (default), print an upfront time estimate. Scalar mode
-        prints a kernel-only ``estimate_comp_time`` estimate; batched
-        mode prints an empirical calibration (warm-up plus
-        ``min(10, M)`` sampled rows). Suppressed by ``verbose=False``.
+        If True (default), batched mode prints an empirical calibration
+        (warm-up plus ``min(10, M)`` sampled rows) before evaluating many
+        chords. Scalar mode is a single fast spectrum-grid computation and
+        prints no estimate. Suppressed by ``verbose=False``.
 
     Returns
     -------
@@ -237,14 +237,6 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
         spec_p, spec_w = add_spectra(p, w, *spectrum)
     else:
         spec_p, spec_w = p.copy(), w.copy()
-
-    # Up-front time estimate for grid-based methods only ('shannon',
-    # 'normalized'). 'differential' uses an adaptive grid whose final
-    # resolution is data-dependent; 'renyi2' is analytical (no grid).
-    if method in ("shannon", "normalized"):
-        n_grid = 1200  # explicit grid for the discrete methods
-        n_pairs = int(len(spec_p)) * n_grid
-        estimate_comp_time(n_pairs, 1, "spectral_entropy", verbose)
 
     return _spectral_entropy_delegate(
         spec_p, spec_w, sigma, method, base,
@@ -601,19 +593,6 @@ def _template_harmonicity_scalar(p, w, sigma, spectrum, chord_spectrum,
 
     margin = 4 * sigma
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + resolution, resolution)
-    x_chord_len = len(np.arange(
-        0, np.max(chord_p) + margin + resolution, resolution,
-    ))
-
-    # Time estimate (kernel cost only; convolve and other overheads
-    # not included, so this is a lower bound). Pair count is the sum
-    # of the two eval_exp_tens workloads. dim = 1 since both densities
-    # use r = 1, is_rel = False.
-    n_pairs = (
-        int(len(chord_p)) * x_chord_len
-        + int(len(tmpl_p)) * int(len(x_tmpl))
-    )
-    estimate_comp_time(n_pairs, 1, "template_harmonicity", verbose)
 
     tmpl_dens = build_exp_tens(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,
@@ -1281,19 +1260,6 @@ def _virtual_pitches_scalar(p, w, sigma, spectrum, chord_spectrum, resolution,
     margin = 4 * sigma
     step = resolution
     x_tmpl = np.arange(0, np.max(tmpl_p) + margin + step, step)
-    x_chord_len = len(np.arange(
-        0, np.max(chord_p) + margin + step, step,
-    ))
-
-    # Time estimate (kernel cost only; convolve and other overheads
-    # not included, so this is a lower bound). Pair count is the sum
-    # of the two eval_exp_tens workloads. dim = 1 since both densities
-    # use r = 1, is_rel = False.
-    n_pairs = (
-        int(len(chord_p)) * x_chord_len
-        + int(len(tmpl_p)) * int(len(x_tmpl))
-    )
-    estimate_comp_time(n_pairs, 1, "virtual_pitches", verbose)
 
     tmpl_dens = build_exp_tens(
         tmpl_p, tmpl_w, sigma, 1, False, False, 1200, verbose=False,

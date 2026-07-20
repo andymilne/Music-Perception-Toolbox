@@ -243,6 +243,12 @@ _TRUNCATION_NOTICE_SHOWN: bool = False
 # ``internal.maybeShowDispatchMsg`` + ``internal.dispatchScope`` pair).
 _DISPATCH_MSG_SEEN: set[tuple[str, str]] = set()
 
+# Once-per-top-level-call latch for the up-front evaluation time warning.
+# Reset on the same 0->1 scope transition as the dispatch seen-set, so a
+# single user call emits at most one time warning (from the first
+# evaluation whose estimate crosses the threshold, direct or wrapped).
+_TIME_WARN_EMITTED: list[bool] = [False]
+
 # Thread-local depth counter for the dispatch-scope context manager.
 # Depth 0 outside any toolbox call; depth 1 on the outermost entry to a
 # public toolbox function; depth >1 for nested toolbox calls within that
@@ -277,6 +283,7 @@ def _dispatch_scope():
     depth = getattr(_dispatch_scope_state, "depth", 0)
     if depth == 0:
         _DISPATCH_MSG_SEEN.clear()
+        _TIME_WARN_EMITTED[0] = False
     _dispatch_scope_state.depth = depth + 1
     try:
         yield
@@ -553,6 +560,7 @@ def reset_defaults() -> dict[str, Any]:
     _DEFAULTS.clear()
     _DEFAULTS.update(_FACTORY_DEFAULTS)
     _DISPATCH_MSG_SEEN.clear()
+    _TIME_WARN_EMITTED[0] = False
     # Flush the kernel_chunk_bytes 'auto' resolution cache so a
     # subsequent call re-queries the OS.
     from ._utils import flush_kernel_chunk_bytes_cache
@@ -584,9 +592,12 @@ def _maybe_show_dispatch_msg(
     path ran, not why.
 
     This function announces the routing DECISION only. Time estimates
-    (``"estimated X s; Ctrl+C to cancel"``) are a separate concern
-    emitted by :func:`estimate_comp_time` under the per-call ``verbose``
-    flag, so the two never double-report a single dispatch.
+    (``"estimated X s; Ctrl+C to cancel"``) are a separate concern. On
+    the evaluation path they come from the self-calibrated
+    ``_maybe_warn_eval_time``, emitted at most once per top-level call
+    and gated by ``show_hints``; other paths (cosine similarity, batched
+    estimates) use :func:`estimate_comp_time`. The decision announce and
+    the time estimate never double-report a single dispatch.
 
     Gating: dispatch decisions are NOT gated by per-call
     ``verbose``. They are gated by the toolbox-wide ``show_hints``

@@ -43,7 +43,12 @@ from .._utils import (
 )
 from ..spectra import add_spectra
 
-from .build import _looks_like_multi_attr, build_exp_tens
+from .build import (
+    _enum_flat_attr,
+    _looks_like_multi_attr,
+    _nested_enum_indices,
+    build_exp_tens,
+)
 from .canonical import _pair_canonical_key
 from .density import (
     MaetDensity,
@@ -1143,11 +1148,32 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic attributes."
         )
 
-    if method not in ("auto", "bulger", "direct", "mobius", "contract"):
+    if method not in ("auto", "bulger", "direct", "mobius", "contract",
+                      "factored"):
         raise ValueError(
             f"method must be one of 'auto', 'bulger', 'direct', 'mobius', "
-            f"'contract'; got {method!r}."
+            f"'contract', 'factored'; got {method!r}."
         )
+
+    # Explicit factored-cull route: computes the triple through the
+    # per-attribute / per-event-pair factorisation without materialising
+    # the joint tuple set. Covers every mode except relative-periodic
+    # (minimum-image), whose per-slot factor the culled helper cannot take.
+    if method == "factored":
+        if not _ma_factored_ip_supported(dens_x, dens_y):
+            raise ValueError(
+                "method='factored' does not support relative-and-periodic "
+                "attributes under the minimum-image convention; use 'auto', "
+                "'bulger', or 'mobius'."
+            )
+        from .._defaults import _maybe_show_dispatch_msg
+        _maybe_show_dispatch_msg("cos_sim_exp_tens", "factored", "user")
+        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_factored(
+            dens_x, dens_y, verbose=verbose,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
+        return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
 
     # --- Dispatcher ---
     A = dens_x.n_attrs
@@ -2985,6 +3011,173 @@ def cos_sim_exp_tens_raw(
         verbose=verbose,
     )
 
+
+
+def _ma_ip_per_event_factors(dens, side):
+    """Per-attribute, per-event centres and weights for the factored IP.
+
+    Returns ``factors[a]`` = list over the density's events of
+    ``(centres, w)``, where ``centres`` is the ``(r_a, M)`` array of the
+    attribute's r-ad centres for that event and ``w`` the matching
+    ``(M,)`` weight-product vector. ``side='perm'`` enumerates the
+    permutation side (the X convention), ``side='comb'`` the combination
+    side (the Y convention); the r_a! ratio between them cancels in the
+    cosine, exactly as in the joint build.
+
+    Each event enumerates its own non-NaN slots, so variable cardinality
+    (NaN-padded ``p_attr``) is handled per event without a common-slab
+    zero-pad.
+    """
+    A = dens.n_attrs
+    N = dens.n
+    r_vec = dens.r
+    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
+    nested = dens.nested if getattr(dens, "nested", None) is not None \
+        else [None] * A
+    want_perm = (side == "perm")
+    factors = [[None] * N for _ in range(A)]
+    for a in range(A):
+        r_a = int(r_vec[a])
+        P = dens.p_attr[a]
+        W = dens.w[a]
+        spec = nested[a]
+        for n in range(N):
+            val_col = P[:, n]
+            w_col = W[:, n]
+            valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
+            if spec is not None:
+                tags_valid = np.asarray(spec["tags"])[valid]
+                perm_mat, comb_mat = _nested_enum_indices(
+                    valid, tags_valid,
+                    np.asarray(spec["r"]).ravel(),
+                    np.asarray(spec["sym"]).ravel(),
+                )
+                idx = perm_mat if want_perm else comb_mat
+            else:
+                perm_mat, comb_mat, _, _ = _enum_flat_attr(
+                    val_col, valid, r_a, bool(is_sym[a]), w_col)
+                idx = perm_mat if want_perm else comb_mat
+            factors[a][n] = (val_col[idx], np.prod(w_col[idx], axis=0))
+    return factors
+
+
+def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in):
+    """One attribute's IP factor by dense evaluation.
+
+    Serves the forms the culled helper does not: the relative-periodic
+    pairwise-wrap quadratic and the nested block-diagonal metric
+    (``r_in > 0``).
+    """
+    D = u[:, :, None] - v[:, None, :]                 # (r, M_u, M_v)
+    if r_in > 0:
+        Q = _compute_Q_inner_blocks(D, r_in, bool(is_per), float(period),
+                                    reduced=False)
+    else:
+        if is_per and not is_rel:
+            p = float(period)
+            D = D - p * np.floor(D / p + 0.5)
+        Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
+    K = np.exp(-Q / (4.0 * float(sigma) ** 2))
+    return float(wU @ K @ wV)
+
+
+def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
+                    kernel_precision=None):
+    """One MA inner product ``<perm density, comb density>`` factored
+    over attributes and event pairs, without materialising the joint
+    tuple set.
+
+    Uses the per-attribute inner-product factorisation
+    ``<T_X, T_Y> = sum_{n, m} prod_a I_a(n, m)``: each event pair's joint
+    tuples are the Cartesian product of the per-attribute tuples, so the
+    joint bilinear form distributes into a product of per-attribute
+    factors, and the whole is summed over event pairs.
+
+    A flat, non-relative-periodic attribute's factor routes through the
+    spatially-culled ``gaussian_kernel_sum`` helper (the same cull the
+    single-attribute centres path uses); a relative-periodic or nested
+    attribute's factor is evaluated densely.
+    """
+    A = dens_perm.n_attrs
+    r_vec = dens_perm.r
+    sigma = dens_perm.sigma
+    is_rel = dens_perm.is_rel
+    is_per = dens_perm.is_per
+    period = dens_perm.period
+    inner_r = _inner_r_vec(dens_perm)
+
+    cullable = [int(inner_r[a]) == 0
+                and not (bool(is_rel[a]) and bool(is_per[a]))
+                for a in range(A)]
+
+    pf = _ma_ip_per_event_factors(dens_perm, "perm")
+    cf = _ma_ip_per_event_factors(dens_comb, "comb")
+    Nx = dens_perm.n
+    Ny = dens_comb.n
+
+    ip = 0.0
+    for n in range(Nx):
+        for m in range(Ny):
+            prod = 1.0
+            for a in range(A):
+                u, wU = pf[a][n]
+                v, wV = cf[a][m]
+                if cullable[a]:
+                    factor = _ip_via_helper(
+                        u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
+                        bool(is_rel[a]), bool(is_per[a]), float(period[a]),
+                        truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision)
+                else:
+                    factor = _ma_ip_factor_dense(
+                        u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
+                        bool(is_rel[a]), bool(is_per[a]), float(period[a]),
+                        int(inner_r[a]))
+                prod *= factor
+                if prod == 0.0:
+                    break
+            ip += prod
+    return ip
+
+
+def _ma_factored_ip_supported(dens_x, dens_y):
+    """True when the factored culled IP covers this density pair.
+
+    The factored path serves every attribute mode except relative-and-
+    periodic under the minimum-image convention, whose per-slot factor
+    does not admit the culled helper. Ordered ([sym]=0) and nested
+    attributes are supported (the nested factor is evaluated densely
+    within its block-diagonal metric).
+    """
+    from .aniso import density_has_kernel_cov
+    if density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y):
+        return False
+    A = dens_x.n_attrs
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    return not any(bool(is_rel[a]) and bool(is_per[a]) for a in range(A))
+
+
+def _cos_sim_exp_tens_ma_factored(dens_x, dens_y, *, verbose=True,
+                                  truncation_sigmas=None,
+                                  kernel_precision=None):
+    """Factored-cull twin of :func:`_cos_sim_exp_tens_ma_pairwise`.
+
+    Computes the ``(ip_xy, ip_xx, ip_yy)`` triple through
+    :func:`_ma_ip_factored`, so the joint tuple set is never built. The
+    value equals the pairwise (joint) triple exactly at the accuracy
+    floor; at a finite truncation the two differ only in the cull region
+    (the factored form truncates each attribute independently, enclosing
+    a superset of the joint form's culled pairs).
+    """
+    return (
+        _ma_ip_factored(dens_x, dens_y, truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision),
+        _ma_ip_factored(dens_x, dens_x, truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision),
+        _ma_ip_factored(dens_y, dens_y, truncation_sigmas=truncation_sigmas,
+                        kernel_precision=kernel_precision),
+    )
 
 
 def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,

@@ -380,9 +380,14 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
         centreKept = centreAll(keep);
         queryKept  = queryAll(keep);
         Qkept      = Q(keep);
-        kernelVals = wJ(centreKept) .* exp(-Qkept(:) * inv2s2);
+        % Force columns: for tiny dims (dim = 1, nQ = 1) the index vectors
+        % above can pick up a row orientation, which would broadcast the
+        % product into a matrix and break accumarray. All three have
+        % nnz(keep) elements, so column-forcing is exact.
+        wKept      = wJ(centreKept(:));
+        kernelVals = wKept(:) .* exp(-Qkept(:) * inv2s2);
 
-        vChunk = accumarray(queryKept, kernelVals, [nQc, 1]);
+        vChunk = accumarray(queryKept(:), kernelVals, [nQc, 1]);
         v(qIdx) = v(qIdx) + cast(vChunk, 'like', C).';
     end
 end

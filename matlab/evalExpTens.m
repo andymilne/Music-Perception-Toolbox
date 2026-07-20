@@ -948,6 +948,22 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         return;
     end
 
+    % --- Multi-attribute factored centres path ---
+    % The joint density factors within each event as a product across
+    % attributes, so eval = sum_events prod_attributes S_a^(event). Each
+    % per-attribute factor is evaluated through the culled kernel from the
+    % same per-attribute (pAttr, w) fields the mobius path uses, so the
+    % joint tuple set (the product of per-attribute counts) is not
+    % accumulated. Falls back to the joint accumulator below when
+    % unsupported (any r_a < 2, or a matrix-valued kernel covariance).
+    factored = localMaEvalFactored(dens, Xc, nQ, innerR, ...
+        truncationSigmas, kernelPrecision);
+    if ~isempty(factored)
+        vals = localMaNormalise(factored, dens, normalize, ...
+            dimPerAttr, innerR, sigmaG, wJ, A);
+        return;
+    end
+
     % --- Estimated computation time (use total dim as a conservative proxy) ---
     nPairs = double(N_J) * double(nQ);
     estimateCompTime(nPairs, dim, 'evalExpTens (MAET)', verbose);
@@ -1064,42 +1080,187 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     end
 
     function Q_a = qInnerBlocksReducedLocal(D_a, rIn, a, Pg)
-        % Block-diagonal quadratic form for the inner [rel] co-transposition
-        % unit (reduced / centres convention). D_a is
-        % (rOut*(rIn-1)) x nJ x nQc; each event block is the (rIn-1)-row
-        % slot-0 reduction of an rIn-tuple. Q_a is the sum over blocks of
-        % the per-block flat relative quotient form (the within-event
-        % intervals, tensor-joined across events).
-        nJ_  = size(D_a, 2);
-        nQc_ = size(D_a, 3);
-        Q_a  = zeros(nJ_, nQc_, 'like', D_a);
-        blk  = rIn - 1;
-        if blk <= 0
-            return;   % rIn == 1: trivial (dim 0) inner space
+        % Delegates to the file-scope localQInnerBlocksReduced (shared with
+        % the factored centres path), passing this attribute's periodicity
+        % from the enclosing scope.
+        Q_a = localQInnerBlocksReduced(D_a, rIn, isPerG(a), Pg);
+    end
+
+end
+
+
+function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
+        truncationSigmas, kernelPrecision)
+% LOCALMAEVALFACTORED  Factored multi-attribute centres evaluation.
+%
+%   The joint density is a Cartesian product across attributes within
+%   each event, so its value factors:
+%
+%       eval(q) = sum_events prod_attributes S_a^(event)(q_a)
+%
+%   where S_a^(event) is attribute a's r-ad Gaussian mixture for that
+%   event, evaluated at the split query. Flat factors go through the
+%   culled internal.gaussianKernelSum; nested factors through the dense
+%   block-diagonal form. The joint tuple set --- whose size is the
+%   product of the per-attribute tuple counts --- is never materialised;
+%   the cost is the sum of the per-attribute counts instead.
+%
+%   Absent slots (NaN in a given event) are handled as zero-weight values
+%   on a shared enumeration over the ever-valid slots, so events with
+%   differing valid-slot patterns need no special case.
+%
+%   Returns the raw (un-normalised) values (1 x nQ) --- the caller applies
+%   localMaNormalise, identically to the joint path --- or [] when the
+%   shape is outside this path's support (any r_a < 2, whose event-
+%   dependent equal-value collapse breaks the shared enumeration, or a
+%   matrix-valued kernel covariance), signalling a fall-back to the joint
+%   maetEvalFull route. Twin of Python _ma_eval_factored.
+
+    vals = [];   % fall-back sentinel
+    A    = dens.nAttrs;
+    N    = dens.N;
+    rVec = dens.r(:).';
+    if any(rVec < 2)
+        return;   % r = 1 collapse is event-dependent; use the joint path
+    end
+    if internal.densityHasKernelCov(dens)
+        return;   % matrix-sigma covariance: scalar per-attribute form n/a
+    end
+
+    P       = dens.pAttr;
+    W       = dens.w;
+    isRelV  = dens.isRel(:).';
+    isPerV  = dens.isPer(:).';
+    periodV = dens.period(:).';
+    sigmaV  = dens.sigma(:).';
+    isSymV  = dens.isSym(:).';
+
+    % Per-attribute tuple-index structure, enumerated once over the
+    % ever-valid slots (non-NaN in at least one event). The index pattern
+    % is event-invariant; only the per-event values and weights change.
+    permCell = cell(1, A);
+    for a = 1:A
+        everValid = find(any(~isnan(P{a}), 2)).';
+        if numel(everValid) < rVec(a)
+            return;   % too few slots for a full tuple; joint path errors
         end
-        nBlocks = size(D_a, 1) / blk;
-        for b = 1:nBlocks
-            rows = (b - 1) * blk + (1:blk);
-            Db = D_a(rows, :, :);
-            if isPerG(a)
-                slot0 = Db - Pg .* floor(Db / Pg + 0.5);
-                Qb = reshape(sum(slot0 .^ 2, 1), nJ_, nQc_);
-                for i = 1:blk
-                    for j = i+1:blk
-                        delta = reshape(Db(i, :, :) - Db(j, :, :), nJ_, nQc_);
-                        delta = delta - Pg .* floor(delta / Pg + 0.5);
-                        Qb = Qb + delta .^ 2;
-                    end
-                end
-                Qb = Qb / rIn;
-            else
-                Qb = reshape(sum(Db .^ 2, 1), nJ_, nQc_) ...
-                   - reshape(sum(Db, 1) .^ 2, nJ_, nQc_) / rIn;
+        if innerR(a) > 0
+            spec = dens.nested{a};
+            tg = spec.tags;
+            if isvector(tg)
+                tg = tg(:);
             end
-            Q_a = Q_a + Qb;
+            tagsValid = tg(everValid, :);
+            permCell{a} = internal.nestedEnumIndices( ...
+                everValid, tagsValid, spec.r(:).', spec.sym(:).');
+        else
+            Ka = size(P{a}, 1);
+            permCell{a} = internal.enumFlatAttr( ...
+                zeros(Ka, 1), everValid, rVec(a), isSymV(a), ones(Ka, 1));
         end
     end
 
+    total = zeros(1, nQ);
+    for n = 1:N
+        prodN = ones(1, nQ);
+        for a = 1:A
+            pm      = permCell{a};
+            pCol    = P{a}(:, n);
+            wCol    = W{a}(:, n);
+            absent  = isnan(pCol);
+            % Finite placeholder keeps the kernel finite; zero weight nulls
+            % any tuple touching an absent slot (0 * exp(finite) = 0).
+            pFill = pCol;  pFill(absent) = 0;
+            wFill = wCol;  wFill(absent | isnan(wCol)) = 0;
+            Dtup    = size(pm, 1);
+            M       = size(pm, 2);
+            u       = reshape(pFill(pm), Dtup, M);          % Dtup x M
+            wTuple  = prod(reshape(wFill(pm), Dtup, M), 1);  % 1 x M
+            if innerR(a) > 0
+                % Nested: reduce each inner block by its own first slot,
+                % then a dense block-diagonal quadratic form (nested M is
+                % small, so the cull is not needed here).
+                rIn  = innerR(a);
+                rOut = Dtup / rIn;
+                dc   = rOut * (rIn - 1);
+                c    = zeros(dc, M);
+                for b = 1:rOut
+                    blk  = (b - 1) * rIn + (1:rIn);
+                    ublk = u(blk, :);
+                    c((b - 1) * (rIn - 1) + (1:(rIn - 1)), :) = ...
+                        ublk(2:end, :) - ublk(1, :);
+                end
+                D_a = reshape(c, dc, M, 1) - reshape(Xc{a}, dc, 1, nQ);
+                Q_a = localQInnerBlocksReduced( ...
+                          D_a, rIn, isPerV(a), periodV(a)) ...
+                      / (2 * sigmaV(a)^2);
+                S_a = wTuple * exp(-Q_a);               % 1 x nQ
+            else
+                if isRelV(a)
+                    c = u(2:end, :) - u(1, :);          % (r-1) x M reduced
+                else
+                    c = u;                              % r x M absolute
+                end
+                kw = {};
+                if isRelV(a)
+                    kw = [kw, {'isRel', true, 'r', rVec(a)}];
+                end
+                if isPerV(a)
+                    kw = [kw, {'isPer', true, 'period', periodV(a)}];
+                end
+                if ~isempty(truncationSigmas)
+                    kw = [kw, {'truncationSigmas', truncationSigmas}];
+                end
+                if ~isempty(kernelPrecision)
+                    kw = [kw, {'kernelPrecision', kernelPrecision}];
+                end
+                S_a = internal.gaussianKernelSum( ...
+                          c, wTuple(:), Xc{a}, sigmaV(a), kw{:});
+            end
+            prodN = prodN .* S_a(:).';
+        end
+        total = total + prodN;
+    end
+    vals = total;
+end
+
+
+function Q_a = localQInnerBlocksReduced(D_a, rIn, isPer, Pg)
+% LOCALQINNERBLOCKSREDUCED  Block-diagonal quadratic form for the inner
+%   [rel] co-transposition unit (reduced / centres convention). D_a is
+%   (rOut*(rIn-1)) x nJ x nQc; each event block is the (rIn-1)-row slot-0
+%   reduction of an rIn-tuple. Q_a is the sum over blocks of the per-block
+%   flat relative quotient form (the within-event intervals, tensor-joined
+%   across events). Twin of Python _compute_Q_inner_blocks. Shared by the
+%   joint accumulator (maetEvalFull) and the factored centres path.
+    nJ_  = size(D_a, 2);
+    nQc_ = size(D_a, 3);
+    Q_a  = zeros(nJ_, nQc_, 'like', D_a);
+    blk  = rIn - 1;
+    if blk <= 0
+        return;   % rIn == 1: trivial (dim 0) inner space
+    end
+    nBlocks = size(D_a, 1) / blk;
+    for b = 1:nBlocks
+        rows = (b - 1) * blk + (1:blk);
+        Db = D_a(rows, :, :);
+        if isPer
+            slot0 = Db - Pg .* floor(Db / Pg + 0.5);
+            Qb = reshape(sum(slot0 .^ 2, 1), nJ_, nQc_);
+            for i = 1:blk
+                for j = i+1:blk
+                    delta = reshape(Db(i, :, :) - Db(j, :, :), nJ_, nQc_);
+                    delta = delta - Pg .* floor(delta / Pg + 0.5);
+                    Qb = Qb + delta .^ 2;
+                end
+            end
+            Qb = Qb / rIn;
+        else
+            Qb = reshape(sum(Db .^ 2, 1), nJ_, nQc_) ...
+               - reshape(sum(Db, 1) .^ 2, nJ_, nQc_) / rIn;
+        end
+        Q_a = Q_a + Qb;
+    end
 end
 
 

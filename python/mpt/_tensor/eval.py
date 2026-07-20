@@ -928,6 +928,19 @@ def _eval_exp_tens_ma(
         )
         return _ma_eval_normalize(dens, vals, normalize)
 
+    # --- Multi-attribute factored centres path ---------------------------
+    # The joint density factors within each event as a product across
+    # attributes, so eval = sum_events prod_attributes S_a^(event). Each
+    # per-attribute factor is evaluated through the culled kernel, and the
+    # joint tuple set (product of per-attribute counts) is never built.
+    # Falls back to the joint materialisation below when unsupported.
+    factored = _ma_eval_factored(
+        dens, x, truncation_sigmas=truncation_sigmas,
+        prune_zero_weight_events=prune_zero_weight_events,
+    )
+    if factored is not None:
+        return _ma_eval_normalize(dens, factored, normalize)
+
     A           = dens.n_attrs
     n_j         = dens.n_j
     dim         = dens.dim
@@ -1039,6 +1052,129 @@ def _eval_exp_tens_ma(
     # --- Normalisation (shared with the factored path) ---
     return _ma_eval_normalize(dens, vals, normalize)
 
+
+
+def _ma_eval_factored(
+    dens, x, *, truncation_sigmas=None, prune_zero_weight_events=True,
+):
+    """Factored multi-attribute centres evaluation.
+
+    The joint density is a Cartesian product across attributes within
+    each event, so its value factors::
+
+        eval(q) = sum_events prod_attributes S_a^(event)(q_a)
+
+    where ``S_a^(event)`` is attribute ``a``'s r-ad Gaussian mixture for
+    that event, evaluated at the split query. Each per-attribute factor
+    is computed through the culled single-multiset kernel (:func:`_eval_core`)
+    for flat attributes, or a dense block-diagonal form for nested ones,
+    so the joint tuple set --- whose size is the *product* of the
+    per-attribute tuple counts --- is never materialised; the cost is the
+    *sum* of the per-attribute counts instead.
+
+    Absent slots (NaN in a given event) are handled as zero-weight values
+    on a shared enumeration over the ever-valid slots, so events with
+    differing valid-slot patterns need no special case: a tuple touching a
+    slot absent in its event carries weight zero and contributes nothing.
+
+    Returns the raw (un-normalised) values ``(n_q,)`` --- the caller
+    applies :func:`_ma_eval_normalize`, identically to the joint path ---
+    or ``None`` when the shape is outside this path's support (any
+    ``r_a == 1`` attribute, whose event-dependent equal-value collapse
+    breaks the shared enumeration), signalling a fall-back to the joint
+    :func:`_ma_eval_full` route.
+    """
+    from .._defaults import resolve_truncation_sigmas
+    from .build import _enum_flat_attr, _nested_enum_indices
+
+    A = int(dens.n_attrs)
+    N = int(dens.n)
+    r_vec = [int(v) for v in np.atleast_1d(dens.r)]
+    if any(r_a < 2 for r_a in r_vec):
+        return None  # r = 1 collapse is event-dependent; use the joint path
+    if getattr(dens, "kernel_cov", None) is not None:
+        return None  # matrix-sigma covariance: scalar per-attribute form
+        #              does not apply; use the joint path
+
+    x_list = _split_query_to_attr_list(dens, x)
+    n_q = x_list[0].shape[1] if x_list else 0
+    if n_q == 0:
+        return np.zeros(0, dtype=np.float64)
+
+    P = [np.asarray(p, dtype=np.float64) for p in dens.p_attr]
+    W = [np.asarray(w, dtype=np.float64) for w in dens.w]
+    is_rel = [bool(v) for v in np.atleast_1d(dens.is_rel)]
+    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    period = [float(v) for v in np.atleast_1d(dens.period)]
+    sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
+    is_sym = [bool(v) for v in np.atleast_1d(dens.is_sym)]
+    inner_r = _inner_r_vec(dens)
+    nested = dens.nested
+    ts = resolve_truncation_sigmas(truncation_sigmas)
+
+    # Per-attribute tuple-index structure, enumerated once over the
+    # ever-valid slots (slots non-NaN in at least one event). The index
+    # pattern is event-invariant; only the per-event values and weights
+    # change, so this is built a single time per attribute.
+    perm = []
+    for a in range(A):
+        ever_valid = np.nonzero((~np.isnan(P[a])).any(axis=1))[0].astype(np.intp)
+        if ever_valid.size < r_vec[a]:
+            return None  # too few slots for a full tuple; joint path errors cleanly
+        spec = nested[a]
+        if spec is not None:
+            tags = np.asarray(spec["tags"])[ever_valid]
+            pm, _ = _nested_enum_indices(
+                ever_valid, tags,
+                np.asarray(spec["r"]).ravel(), np.asarray(spec["sym"]).ravel(),
+            )
+        else:
+            pm, _, _, _ = _enum_flat_attr(
+                np.zeros(P[a].shape[0]), ever_valid, r_vec[a], is_sym[a],
+                np.ones(P[a].shape[0]),
+            )
+        perm.append(pm)
+
+    total = np.zeros(n_q, dtype=np.float64)
+    for n in range(N):
+        prod = np.ones(n_q, dtype=np.float64)
+        for a in range(A):
+            pm = perm[a]
+            p_col = P[a][:, n]
+            w_col = W[a][:, n]
+            absent = np.isnan(p_col)
+            # Finite placeholder keeps the kernel finite; zero weight
+            # nulls any tuple touching an absent slot.
+            p_fill = np.where(absent, 0.0, p_col)
+            w_fill = np.where(absent | np.isnan(w_col), 0.0, w_col)
+            u = p_fill[pm]                      # (r_a, M)
+            w_tuple = np.prod(w_fill[pm], axis=0)   # (M,)
+            r_in = int(inner_r[a])
+            if r_in > 0:
+                # Nested: reduce each inner block by its own first slot,
+                # then a dense block-diagonal quadratic form (nested M is
+                # small, so the cull is not needed here).
+                r_out = u.shape[0] // r_in
+                c = np.vstack([
+                    u[b * r_in + 1:(b + 1) * r_in, :] - u[b * r_in:b * r_in + 1, :]
+                    for b in range(r_out)
+                ]) if r_in > 1 else np.empty((0, u.shape[1]))
+                d = c[:, :, None] - x_list[a][:, None, :]
+                q = _compute_Q_inner_blocks(
+                    d, r_in, is_per[a], period[a], reduced=True,
+                ) / (2.0 * sigma[a] ** 2)
+                s_a = (w_tuple[:, None] * np.exp(-q)).sum(axis=0)
+            else:
+                c = (u[1:, :] - u[:1, :]) if is_rel[a] else u
+                s_a = _eval_core(
+                    c, w_tuple, int(w_tuple.size), x_list[a], n_q,
+                    int(c.shape[0]), sigma[a], r_vec[a],
+                    is_rel[a], is_per[a], period[a],
+                    truncation_sigmas=ts,
+                )
+            prod *= s_a
+        total += prod
+    return total
 
 
 def _ma_eval_full(

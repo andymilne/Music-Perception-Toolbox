@@ -39,29 +39,31 @@ _CALIBRATING = False
 # cancel a long call, so a coarse threshold suffices.
 _EVAL_WARN_THRESHOLD_SEC = 10.0
 
-# Reference evaluation shape: a two-attribute relative density that the
-# cost model routes on its own (not a forced path), sized to run in a
-# few tens of milliseconds --- long enough for a stable timing, short
-# enough to be an imperceptible one-off at session start.
+# Reference evaluation shape: a single-multiset relative density on the
+# tight centres kernel, sized to run in a few milliseconds --- long
+# enough for a stable timing, short enough to be an imperceptible one-off
+# at session start.
 _REF_N_Q = 160
 _REF_TIMING_REPEATS = 3
 
 
 def _build_reference():
-    """Build the fixed reference density (deterministic shape and data)."""
+    """Build the fixed reference density (deterministic shape and data).
+
+    A single-multiset (single-attribute) relative density: it runs
+    through the tight ``_eval_core`` centres kernel, whose cost the
+    culling cost model prices consistently, so the measured-over-
+    predicted ratio isolates the machine scale. Multi-attribute shapes
+    are deliberately avoided here --- their factored centres route runs
+    far faster than the joint cost model predicts, which would corrupt
+    the scale.
+    """
     from ..tensor import build_exp_tens
 
-    p0 = np.array(
-        [[0.0, 120.0, 290.0, 410.0, 560.0, 700.0, 830.0, 980.0,
-          1100.0, 1240.0, 1370.0, 1490.0]]
-    ).T
-    p1 = np.array(
-        [[0.0, 100.0, 300.0, 400.0, 550.0, 690.0, 820.0, 970.0,
-          1090.0, 1230.0, 1360.0, 1480.0]]
-    ).T
+    p0 = np.linspace(0.0, 4000.0, 40).reshape(1, -1).T
     return build_exp_tens(
-        [p0, p1], None, [15.0, 15.0], [2, 2],
-        [True, True], [False, False], [0.0, 0.0], verbose=False,
+        [p0], None, [15.0], [2],
+        [True], [False], [0.0], verbose=False,
     )
 
 
@@ -87,7 +89,7 @@ def _session_time_scale():
 
         dens = _build_reference()
         rng = np.random.default_rng(0xC0FFEE)
-        x = rng.uniform(0.0, 1200.0, size=(int(dens.dim), _REF_N_Q))
+        x = rng.uniform(0.0, 4000.0, size=(int(dens.dim), _REF_N_Q))
         chosen, _ = _select_ma_eval(dens, _REF_N_Q, method="auto")
         pred_ms = _predict_ma_eval_cost_ms(dens, _REF_N_Q, chosen)
 

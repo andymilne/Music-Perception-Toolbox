@@ -1199,63 +1199,11 @@ end
 
 function [permMat, combMat, permW, combW] = ...
         localEnumFlatAttr(valCol, valid, r_a, isSym, wColOrig)
-%LOCALENUMFLATATTR  Per-(event, attribute) r-ad enumeration for one flat
-%   attribute. Returns the perm/comb slot-index matrices and their
-%   per-tuple weight products for the non-NaN slots `valid` of value
-%   column `valCol` at read-arity `r_a`. Applies the r = 1 equal-value
-%   collapse (summing weights). Shared by the general per-(n,a) fill loop
-%   and the A = N = 1 fast path so both produce identical tuples. Caller
-%   guarantees numel(valid) >= r_a. Twin of Python _enum_flat_attr.
-    K_na = numel(valid);
-    collapsed = false;
-    if r_a == 1 && K_na > 1
-        valsValid = valCol(valid);
-        [uniqueVals, firstIdx, inverse] = unique(valsValid, 'first');
-        if numel(firstIdx) < K_na
-            wColLocal = wColOrig;
-            summed = accumarray(inverse, wColOrig(valid), ...
-                                 [numel(uniqueVals), 1]);
-            wColLocal(valid(firstIdx)) = summed;
-            valid = valid(firstIdx);
-            K_na  = numel(valid);
-            collapsed = true;
-        end
-    end
-    if ~collapsed
-        wColLocal = wColOrig;
-    end
-
-    % Combinations: r_a x C(K_na, r_a)
-    if K_na == r_a
-        combMat = valid(:);
-    else
-        combMat = nchoosek(valid, r_a).';
-    end
-
-    % Permutations: r_a x (r_a! * C) when symmetric; ordered (isSym = 0)
-    % keeps each combination in listed order (perm side == comb side);
-    % r_a = 1 has no order to symmetrise either way.
-    if r_a == 1 || ~isSym
-        permMat = combMat;
-    else
-        Pm = perms(1:r_a).';
-        nC = size(combMat, 2);
-        nP = size(Pm, 2);
-        permMat = zeros(r_a, nC * nP);
-        for pp = 1:nP
-            permMat(:, (pp - 1) * nC + 1 : pp * nC) = combMat(Pm(:, pp), :);
-        end
-    end
-
-    % Slot-weight products (per-tuple).
-    wCol = wColLocal;
-    if r_a == 1
-        permW = reshape(wCol(permMat), 1, []);
-        combW = reshape(wCol(combMat), 1, []);
-    else
-        permW = prod(reshape(wCol(permMat), r_a, []), 1);
-        combW = prod(reshape(wCol(combMat), r_a, []), 1);
-    end
+%LOCALENUMFLATATTR  Delegates to the shared internal.enumFlatAttr so the
+%   build's per-(n, a) fill loop and evalExpTens's factored centres path
+%   enumerate identical tuples from one source. See internal.enumFlatAttr.
+    [permMat, combMat, permW, combW] = ...
+        internal.enumFlatAttr(valCol, valid, r_a, isSym, wColOrig);
 end
 
 
@@ -1364,124 +1312,12 @@ end
 
 function [permIdx, combIdx] = localNestedEnumIndices( ...
         validSlots, tagsValid, rLevels, symLevels)
-    %LOCALNESTEDENUMINDICES  Tag-scoped nested r-tuple enumeration (rep. B).
-    %   Generalises the two-level enumeration to arbitrary nesting depth by
-    %   recursing outermost-inward through the grouping columns of the tag
-    %   matrix. At L = 2 it reproduces the two-level result exactly.
-    %   validSlots : 1 x Kv slot indices (ascending) non-NaN for this event.
-    %   tagsValid  : Kv x (L-1) per-slot group ids, innermost-grouping first
-    %                (column 1 the finest grouping above the leaf slots,
-    %                column L-1 the outermost). A Kv-vector is the single-
-    %                column (L = 2) case.
-    %   rLevels    : 1 x L read-arities, innermost-outward (rLevels(1) leaf).
-    %   symLevels  : 1 x L per-level symmetrisation.
-    %   Returns permIdx, combIdx: D x M slot-index arrays, D = prod(rLevels).
-    %   permIdx is the symmetrised deposit (each level permuted into its
-    %   orbit when that level's sym is set, else listed order); combIdx is
-    %   the canonical one-per-combination side (combinations at every level)
-    %   used for inner-product pairing. Columns concatenate outermost-group-
-    %   major, innermost-slot-minor.
-    if isvector(tagsValid)
-        tagsValid = tagsValid(:);            % Kv x 1 (L = 2 single column)
-    end
-    rLevels = rLevels(:).';
-    symLevels = logical(symLevels(:).');
-    L = numel(rLevels);
-    D = prod(rLevels);
-    Kv = numel(validSlots);
-    permCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
-                             rLevels, symLevels);
-    combCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
-                             rLevels, false(1, L));
-    if isempty(permCols), permIdx = zeros(D, 0); else, permIdx = [permCols{:}]; end
-    if isempty(combCols), combIdx = zeros(D, 0); else, combIdx = [combCols{:}]; end
-end
-
-
-function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
-                              rLevels, symFlags)
-    %LOCALENUMSIDE  Recursive enumeration. `rowset` are row indices into
-    %   validSlots/tagsValid. Returns a cell row of column vectors, each of
-    %   length prod(rLevels(1:level)) holding emitted slot indices.
-    rowset = rowset(:).';
-    if level == 1
-        r0 = rLevels(1);
-        k = numel(rowset);
-        if r0 > k
-            cols = {};
-            return
-        elseif r0 == k
-            combRows = rowset;                        % single combination
-        else
-            % nchoosek(1:k, r0) is (nCk x r0); map positions to slot row
-            % indices via rowset. reshape guards the r0 = 1 case: there the
-            % index is a column vector and plain v(idx) would follow the row
-            % vector rowset's orientation, collapsing nCk combinations of one
-            % into a single combination of nCk. Forcing the (nCk x r0) shape
-            % keeps each row a distinct combination.
-            combPos = nchoosek(1:k, r0);              % nCk x r0 position rows
-            combRows = reshape(rowset(combPos), size(combPos));
-        end
-        if symFlags(1)
-            combRows = localExpandPerms(combRows);
-        end
-        nC = size(combRows, 1);
-        cols = cell(1, nC);
-        for i = 1:nC
-            cols{i} = validSlots(combRows(i, :)).';   % r0 x 1 slot column
-        end
-        return
-    end
-    col = level - 1;
-    gids = tagsValid(rowset, col).';                  % 1 x k group ids
-    ug = unique(gids);                                % ascending
-    ng = numel(ug);
-    rg = rLevels(level);
-    if rg > ng
-        cols = {};
-        return
-    elseif rg == ng
-        gsel = 1:ng;
-    else
-        gsel = nchoosek(1:ng, rg);                    % nG x rg positions
-    end
-    if symFlags(level)
-        gsel = localExpandPerms(gsel);
-    end
-    cols = {};
-    for s = 1:size(gsel, 1)
-        pickPos = gsel(s, :);
-        perGroup = cell(1, rg);
-        ok = true;
-        for j = 1:rg
-            g = ug(pickPos(j));
-            subrows = rowset(gids == g);
-            perGroup{j} = localEnumSide(subrows, level - 1, validSlots, ...
-                                        tagsValid, rLevels, symFlags);
-            if isempty(perGroup{j})
-                ok = false;
-                break
-            end
-        end
-        if ~ok
-            continue
-        end
-        counts = cellfun(@numel, perGroup);
-        total = prod(counts);
-        for c = 0:total - 1
-            choice = zeros(1, rg);
-            rem = c;
-            for j = rg:-1:1            % last group varies fastest
-                choice(j) = mod(rem, counts(j)) + 1;
-                rem = floor(rem / counts(j));
-            end
-            seg = [];
-            for j = 1:rg
-                seg = [seg; perGroup{j}{choice(j)}];  %#ok<AGROW>
-            end
-            cols{end + 1} = seg;       %#ok<AGROW>
-        end
-    end
+    %LOCALNESTEDENUMINDICES  Delegates to the shared
+    %   internal.nestedEnumIndices so the build's nested fill loop and
+    %   evalExpTens's factored centres path enumerate identical nested
+    %   tuples from one source. See internal.nestedEnumIndices.
+    [permIdx, combIdx] = internal.nestedEnumIndices( ...
+        validSlots, tagsValid, rLevels, symLevels);
 end
 
 
@@ -1512,28 +1348,6 @@ function tf = localNestedFeasible(slots, tagsMat, rLevels, level)
         end
     end
     tf = feasible >= need;
-end
-
-
-function out = localExpandPerms(combs)
-    %LOCALEXPANDPERMS  Expand each row (a combination) into its full
-    %   permutation orbit; stacks rows of width size(combs, 2).
-    if isempty(combs)
-        out = combs;
-        return
-    end
-    r = size(combs, 2);
-    P = perms(1:r);
-    nP = size(P, 1);
-    nC = size(combs, 1);
-    out = zeros(nC * nP, r);
-    row = 0;
-    for i = 1:nC
-        for pp = 1:nP
-            row = row + 1;
-            out(row, :) = combs(i, P(pp, :));
-        end
-    end
 end
 
 

@@ -1,9 +1,8 @@
 APPLY NOTES — bundle: everything uncommitted on top of the SA-line HEAD (75041df).
 
-Your local HEAD is the sparse-orbit commit. Apply over your tree, then `git add -A`:
-identical files produce no diff, so the commit is exactly the genuine work since
-your commit (periodic-mode culling + differential-entropy feasibility budget, plus
-the test adjustments both require).
+Includes all previously delivered work (periodic culling, entropy budget, docs)
+PLUS the accuracy-tied samples-per-sigma increment. Apply over your tree, then
+`git add -A`: identical files produce no diff.
 
 TWO FILES TO DELETE (renamed):
   git rm matlab/tests/test_dispatch_sa_cossim.m

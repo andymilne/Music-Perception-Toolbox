@@ -97,11 +97,9 @@ results{end,2}   = isequal(v_auto_sm, v_centres_sm);
 
 %% ---- Relative mode below the sigma/P threshold: auto and centres agree ----
 % Below the threshold the single-image (centres) and all-image (Möbius)
-% measures coincide to ~1e-6, so auto dispatches on speed. For this small
-% shape centres is the faster route, so auto takes it and the result is the
-% exact single-image measure --- bit-identical to method='centres'. (A large
-% shape where Möbius were faster would agree only to ~1e-6; see the explicit
-% Möbius check below.)
+% measures coincide to ~1e-6, so auto dispatches on speed and either route
+% is a valid pick; the invariant is agreement with the single-image
+% measure to the coincidence bound, not path identity.
 
 rng(37, 'twister');
 p_rel = sort(1200 * rand(8, 1));
@@ -111,8 +109,9 @@ v_auto_rel    = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'verbose', false);
 v_centres_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...
     'method', 'centres', 'verbose', false);
-results{end+1,1} = 'dispatch.single multiset eval: rel mode auto = centres (exact)';
-results{end,2}   = isequal(v_auto_rel, v_centres_rel);
+results{end+1,1} = 'dispatch.single multiset eval: rel mode auto agrees with centres (below threshold)';
+results{end,2}   = max(abs(v_auto_rel(:) - v_centres_rel(:))) ...
+                   < 1e-5 * max(abs(v_centres_rel(:)));
 
 % --- Explicit Möbius for rel mode runs the relative-mode evaluator and agrees with centres ---
 v_orbit_rel = evalExpTens(p_rel, w_rel, 30, 3, true, true, 1200, X_rel, ...

@@ -21,6 +21,8 @@ from mpt._tensor._timeest import (
 )
 from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_CALL_PER_JOINT_MS,
+    _MA_COST_CENTRES_CULL_C,
+    _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS,
     _MA_COST_CENTRES_QUERY_PER_JOINT_MS,
     _MA_COST_CENTRES_SETUP_MS,
     _ma_eval_costs_ms,
@@ -70,12 +72,35 @@ class TestCullingCorrection:
         q_hi = _ma_eval_costs_ms(d_hi, nq)[0] - base
         assert 0 < q_lo < q_hi  # culling grows the query cost with sigma
 
-    def test_multi_attribute_centres_is_unculled(self):
-        # The MA full-tensor path does not cull; its centres cost must
-        # equal the plain setup + materialisation + joint*nq form.
+    def test_multi_attribute_centres_pricing(self):
+        # The MA factored centres route (all r_a >= 2, scalar sigma)
+        # is priced per attribute: SUM of per-attribute tuple counts
+        # through culled kernels plus a per-attribute per-query base,
+        # never the joint product.
         K, nq = 12, 500
-        d = _two_attr(K, 1150.0, 20.0)
-        joint = (2 * (K * (K - 1) // 2)) ** 2
+        spread, sigma = 1150.0, 20.0
+        d = _two_attr(K, spread, sigma)
+        T_a = 2 * (K * (K - 1) // 2)
+        cull = min(1.0, _MA_COST_CENTRES_CULL_C * sigma / spread)
+        expected = _MA_COST_CENTRES_SETUP_MS + 2 * (
+            _MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a
+            + nq * (_MA_COST_CENTRES_FACTORED_QUERY_BASE_MS
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * T_a * cull)
+        )
+        centres_ms, _ = _ma_eval_costs_ms(d, nq)
+        assert centres_ms == pytest.approx(expected, rel=1e-12)
+
+    def test_multi_attribute_joint_fallback_is_unculled(self):
+        # With an r = 1 attribute the factored route is unsupported and
+        # the joint-materialisation fallback runs; its pricing is the
+        # plain setup + materialisation + joint*nq form, undiscounted.
+        K, nq = 12, 500
+        p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)] * 2
+        d = mpt.build_exp_tens(
+            p, None, [20.0, 20.0], [2, 1], [True, False], [False, False],
+            [0.0, 0.0], verbose=False,
+        )
+        joint = (2 * (K * (K - 1) // 2)) * K
         expected = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint

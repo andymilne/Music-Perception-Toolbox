@@ -1,4 +1,4 @@
-"""v2.2.x — SA centres-path n_q chunking regression test.
+"""v2.2.x — single-multiset centres-path n_q chunking regression test.
 
 Catches the OOM that surfaced when demo_triadConsonance ran at the
 10-cent grid: K=72, r=3, rel, non-periodic, n_q=29161 — the
@@ -21,7 +21,7 @@ from mpt import build_exp_tens, eval_exp_tens
 
 
 class TestCentresChunking:
-    """Regression tests for memory-aware n_q chunking in the SA
+    """Regression tests for memory-aware n_q chunking in the single-multiset
     centres fast-path.
     """
 
@@ -69,20 +69,18 @@ class TestCentresChunking:
         np.testing.assert_allclose(v_full, v_manual, rtol=1e-13, atol=0)
 
     def test_auto_routing_matches_forced_centres(self):
-        """For K=72 r=3 rel PERIODIC at sigma/P = 1/120, the rel-mode
-        pre-screen fires and routes to centres without probing.
-        Verify that auto routing produces the same chunked output as
-        forced 'centres'.
+        """For K=48 r=3 rel PERIODIC at sigma/P = 1/120, auto routing
+        must produce the same values as forced 'centres' to within the
+        accuracy floor.
 
-        Periodic rel is the deterministic pre-screen-to-centres route:
-        the factored Möbius strategy is non-periodic only, so the
-        pre-screen compares centres against the direct per-node cost.
-        (Non-periodic rel workloads, which this test used previously,
-        are no longer reliably pre-screened to centres — the factored
-        strategy makes Möbius cost-competitive there, the probe gets
-        the final word, and auto may legitimately return Möbius values
-        that match centres only to ~1e-14 relative rather than
-        bitwise.)
+        Auto is free to route to whichever path the cost model prices
+        cheaper (for this shape the Möbius path is measured several
+        times faster than centres, so auto legitimately returns Möbius
+        values); the invariant is routing-independent correctness, not
+        path identity. Möbius values agree with centres only to the
+        u-grid quadrature accuracy tied to truncation_sigmas (the suite
+        baseline resolves to the 1e-12 floor), so the comparison is a
+        floor-scaled allclose rather than bitwise.
         """
         K = 48
         p = np.linspace(0, 1200, K, endpoint=False)
@@ -91,14 +89,8 @@ class TestCentresChunking:
         rng = np.random.default_rng(42)
         x = rng.uniform(0, 1200, (2, 300))
 
-        # Pin kernel_chunk_bytes to a fixed value so both routing
-        # paths compute their chunk sizes against the same byte budget
-        # and the kernel-sum accumulator runs the same reduction order
-        # on both. With the factory 'auto' default, the budget is
-        # re-resolved per call from current available memory, which can
-        # shift by a few bytes between calls and so make the two paths
-        # pick slightly different chunk sizes — producing reduction-
-        # order differences at the ~1e-13 relative level. The function-
+        # Pin kernel_chunk_bytes to a fixed value so both paths compute
+        # their chunk sizes against the same byte budget. The function-
         # scoped defaults-reset fixture in conftest.py restores the
         # factory state on teardown.
         mpt.set_default(kernel_chunk_bytes=200_000_000)
@@ -106,4 +98,6 @@ class TestCentresChunking:
         v_auto = eval_exp_tens(dens, x, verbose=False)
         v_centres = eval_exp_tens(dens, x, method='centres', verbose=False)
 
-        np.testing.assert_array_equal(v_auto, v_centres)
+        peak = float(np.max(np.abs(v_centres)))
+        np.testing.assert_allclose(v_auto, v_centres,
+                                   rtol=0.0, atol=1e-10 * peak)

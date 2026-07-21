@@ -1676,7 +1676,7 @@ def eval_orbit_rel(
     *,
     is_per: bool = False,
     period: float = 0.0,
-    samples_per_sigma: int = 10,
+    samples_per_sigma: int | None = None,
     return_cancellation_ratio: bool = False,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -1742,10 +1742,12 @@ def eval_orbit_rel(
         is ``(u, u + x_rel_1, ..., u + x_rel_{r-1})``.
     is_per, period, return_cancellation_ratio : as in
         :func:`eval_orbit_abs`.
-    samples_per_sigma : int, default 10
-        u-grid density in points per σ. The default matches the IP
-        rel-mode path; reduce to 5 for speed at the cost of ~1e-9
-        relative precision.
+    samples_per_sigma : int or None, default None
+        u-grid density in points per σ. ``None`` derives the count from
+        ``truncation_sigmas`` and ``r`` via
+        :func:`mpt._defaults.resolve_samples_per_sigma`, so the
+        quadrature error sits at or below the kernel truncation floor.
+        An explicit integer is honoured unchanged.
     truncation_sigmas, kernel_precision : optional
         Kernel-evaluation controls, resolved against the global
         defaults when ``None``. Besides their usual kernel-floor
@@ -1784,6 +1786,11 @@ def eval_orbit_rel(
             f"got {x_rel.shape}."
         )
     n_q = x_rel.shape[1]
+
+    from ._defaults import resolve_samples_per_sigma
+    samples_per_sigma = resolve_samples_per_sigma(
+        samples_per_sigma, r, truncation_sigmas
+    )
 
     # Build u-grid (mirrors _orbit_inner_rel).
     if is_per:

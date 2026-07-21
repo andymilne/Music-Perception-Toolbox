@@ -1432,7 +1432,7 @@ function [N_xy, N_xx, N_yy] = localOrbitIPGridFactors(p_x, p_y, sigma, ...
         N_xy = n; N_xx = n; N_yy = n;
         return;
     end
-    samplesPerSigma = 10;
+    samplesPerSigma = internal.resolveSamplesPerSigma([], r, []);
     spread_x = max(p_x) - min(p_x);
     spread_y = max(p_y) - min(p_y);
     N_xy = max(64, ceil(max(spread_x + spread_y + 16 * sigma, 1.0) ...

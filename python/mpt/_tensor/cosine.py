@@ -2208,7 +2208,7 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 def _ma_per_attr_inner_matrix_rel(
     Px, Wx, Py, Wy, sigma, r, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
-    samples_per_sigma=10,
+    samples_per_sigma=None,
 ):
     """Batched relative-mode case of ``_ma_per_attr_inner_matrix``
     (periodic and non-periodic), all (event_X, event_Y) pairs at once.
@@ -2268,6 +2268,11 @@ def _ma_per_attr_inner_matrix_rel(
 
     if truncation_sigmas is None:
         truncation_sigmas = get_default('truncation_sigmas')
+
+    from .._defaults import resolve_samples_per_sigma
+    samples_per_sigma = resolve_samples_per_sigma(
+        samples_per_sigma, r, truncation_sigmas
+    )
 
     K_x, N_x = Px.shape
     K_y, N_y = Py.shape
@@ -3552,7 +3557,7 @@ def _build_ordered_r_tuples(p, w, r):
 
 
 def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
-                     samples_per_sigma=10, *,
+                     samples_per_sigma=None, *,
                      return_cancellation_ratio=False,
                      truncation_sigmas=None):
     """<T_A, T_B> in relative mode: the single-multiset (N = 1)

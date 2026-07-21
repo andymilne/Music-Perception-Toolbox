@@ -57,6 +57,13 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     MA_COST_CENTRES_SETUP_MS          = 0.15;
     MA_COST_CENTRES_CALL_PER_JOINT_MS = 8e-5;
     MA_COST_CENTRES_QUERY_PER_JOINT_MS = 1.5e-8;
+    % Bucket-grid culling geometry factor for the non-periodic culled
+    % kernels (dimensionless; shared with the Python twin).
+    MA_COST_CENTRES_CULL_C            = 15.0;
+    % Per-attribute per-query overhead of the factored centres route
+    % (bucket lookup and gather). Seeded from the Python fit; re-derive
+    % with bench_ma_eval_calibration on this side if picks look off.
+    MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3;
 
     % Möbius: a per-call setup scaling with the partition count B_r, plus
     % per-query work linear in the distinct-block op count (2^r - 1) r K
@@ -89,9 +96,9 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     % at small nQ, so it is modelled explicitly; Python's larger per-query
     % node cost absorbs it, so its twin constant is ~0.
     MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS     = 3.7e-5;
-    % u-grid nodes per sigma for the relative-mode node-count estimate,
-    % mirroring the evaluators' samples_per_sigma default.
-    MA_COST_REL_SAMPLES_PER_SIGMA     = 10.0;
+    % u-grid nodes per sigma for the relative-mode node-count estimate
+    % are derived per attribute via internal.resolveSamplesPerSigma,
+    % mirroring the evaluators' accuracy-tied resolution.
     % Safety factor favouring Möbius at near-ties: Möbius is chosen
     % whenever its estimate is below the centres estimate times this
     % factor. The asymmetry is deliberate -- Möbius is failure-safe (flat,
@@ -198,9 +205,49 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         end
         jointTuples = jointTuples * factorial(r_a) * localComb(K_a, r_a);
     end
-    centresMs = MA_COST_CENTRES_SETUP_MS ...
-        + MA_COST_CENTRES_CALL_PER_JOINT_MS * jointTuples ...
-        + MA_COST_CENTRES_QUERY_PER_JOINT_MS * jointTuples * nQeff;
+
+    % The factored centres route (all r_a >= 2, scalar sigma) never
+    % materialises the joint tuple set: cost is the SUM of per-attribute
+    % tuple counts through the culled per-attribute kernels, plus a small
+    % per-attribute per-query overhead (bucket lookup and gather). The
+    % joint-materialisation pricing applies only where that route is
+    % unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
+    % localMaEvalFactored's support predicate. Non-periodic attributes
+    % take the bucket-grid culling discount min(1, c*sigma/spread);
+    % periodic ones run dense (the pairwise wrap is not a
+    % tail-truncatable ball).
+    factoredSupported = (A > 1) && all(rVec >= 2) ...
+        && ~internal.densityHasKernelCov(dens);
+    if factoredSupported
+        centresMs = MA_COST_CENTRES_SETUP_MS;
+        for a = 1:A
+            r_a = rVec(a); K_a = kVec(a);
+            T_a = factorial(r_a) * localComb(K_a, r_a);
+            cull_a = 1.0;
+            if ~isPer(a) && sigmaG(a) > 0
+                spread = 0.0;
+                if a <= numel(dens.pAttr) && ~isempty(dens.pAttr{a})
+                    arr = double(dens.pAttr{a}(:));
+                    if ~isempty(arr)
+                        spread = max(arr) - min(arr);
+                    end
+                end
+                if spread > 0
+                    cull_a = min(1.0, ...
+                        MA_COST_CENTRES_CULL_C * sigmaG(a) / spread);
+                end
+            end
+            centresMs = centresMs ...
+                + MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a ...
+                + nQeff * (MA_COST_CENTRES_FACTORED_QUERY_BASE_MS ...
+                           + MA_COST_CENTRES_QUERY_PER_JOINT_MS ...
+                             * T_a * cull_a);
+        end
+    else
+        centresMs = MA_COST_CENTRES_SETUP_MS ...
+            + MA_COST_CENTRES_CALL_PER_JOINT_MS * jointTuples ...
+            + MA_COST_CENTRES_QUERY_PER_JOINT_MS * jointTuples * nQeff;
+    end
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
     for a = 1:A
@@ -217,7 +264,7 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
         perQueryMs = MA_COST_MOBIUS_QUERY_PER_OP_MS * ops;
         if isRel(a)
-            sps = MA_COST_REL_SAMPLES_PER_SIGMA;
+            sps = internal.resolveSamplesPerSigma([], r_a, []);
             if isPer(a) && periodG(a) > 0
                 N_u = max(64, ceil(sps * periodG(a) / sigmaG(a)));
                 nodeMs = MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS * ops;

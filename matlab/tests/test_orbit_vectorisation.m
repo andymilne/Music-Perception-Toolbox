@@ -99,8 +99,11 @@ for cfg = {[2, false], [3, false], [2, true], [3, true]}
     w_t = ones(6, 1);
     x_rel = rand(r_test - 1, 7) * 1200;
 
+    % Pin an explicit samplesPerSigma so the vectorised call and the
+    % manual sequential reference below share one u-grid; the check is
+    % implementation identity on the same grid, not grid choice.
     v_vec = mobius.evalOrbitRel(p_t, w_t, sigma, r_test, x_rel, ...
-        'is_per', is_per, 'period', period);
+        'is_per', is_per, 'period', period, 'samplesPerSigma', 10);
 
     % Manual sequential
     samples_per_sigma = 10;

@@ -49,8 +49,10 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %   periodic mode.
 %
 %   VALS = MOBIUS.EVALORBITREL(..., 'samplesPerSigma', N) overrides the
-%   default u-grid density of 10 points per sigma. Reduce to 5 for
-%   speed at the cost of ~1e-9 relative precision.
+%   u-grid density (points per sigma). By default ([]) the count is
+%   derived from TRUNCATIONSIGMAS and R via
+%   internal.resolveSamplesPerSigma, so the quadrature error sits at or
+%   below the kernel truncation floor.
 %
 %   VALS = MOBIUS.EVALORBITREL(..., 'factored', F) with F one of
 %   'auto' (default; cost gate), 'on' (force factored; errors in
@@ -73,7 +75,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %                             with the implicit reference slot at u.
 %     opts.is_per             logical (default false).
 %     opts.period             double (default 0; consulted only when is_per).
-%     opts.samplesPerSigma    integer >= 1 (default 10).
+%     opts.samplesPerSigma    integer >= 1, or [] to derive (default []).
 %     opts.returnCancellationRatio  logical (default false).
 %     opts.truncationSigmas   positive scalar or Inf (default from mptDefaults).
 %     opts.kernelPrecision    'double' or 'single' (default from mptDefaults).
@@ -98,7 +100,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
         x_rel (:,:) double
         opts.is_per (1,1) logical = false
         opts.period (1,1) double = 0.0
-        opts.samplesPerSigma (1,1) {mustBeInteger, mustBePositive} = 10
+        opts.samplesPerSigma double {mustBeNonnegative} = []
         opts.returnCancellationRatio (1,1) logical = false
         opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
         opts.kernelPrecision (1,:) char ...
@@ -130,6 +132,12 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
             r - 1, size(x_rel, 1), size(x_rel, 2));
     end
     n_q = size(x_rel, 2);
+
+    % Resolve the u-grid density: empty derives the accuracy-tied count
+    % from truncationSigmas and r (see internal.resolveSamplesPerSigma);
+    % an explicit value is honoured unchanged.
+    opts.samplesPerSigma = internal.resolveSamplesPerSigma( ...
+        opts.samplesPerSigma, r, opts.truncationSigmas);
 
     % Build the u-grid (mirrors mpt.tensor._orbit_inner_rel).
     if opts.is_per

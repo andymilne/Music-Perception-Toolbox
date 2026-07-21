@@ -184,6 +184,46 @@ def truncation_radius(truncation_sigmas: Any, sigma: float) -> float:
     return k * sigma
 
 
+def resolve_samples_per_sigma(
+    samples_per_sigma: Any, r: int, truncation_sigmas: Any = None
+) -> int:
+    """Resolve the relative-mode u-grid density to an accuracy-tied count.
+
+    An explicit integer passes through unchanged. ``None`` derives the
+    count from the truncation floor, so the single toolbox accuracy knob
+    (``truncation_sigmas``) governs the translation-integral quadrature
+    as well as the kernel floor.
+
+    Derivation. The relative-mode value is a 1-D integral over the
+    translation ``u``. Every Möbius partition's integrand is a Gaussian
+    mixture in ``u`` of width exactly ``sigma / sqrt(r)``: each block of
+    size ``m`` contributes a factor of width ``sigma / sqrt(m)``, and
+    precisions add across the product (``sum m = r``). The trapezoidal
+    rule on a Gaussian-decaying (or circle-periodic) integrand is
+    spectrally accurate; by Poisson summation the error is the aliased
+    spectrum, ``~exp(-2 pi^2 (w/h)^2)`` for feature width ``w`` and step
+    ``h``. With ``h = sigma / spp`` and ``w = sigma / sqrt(r)`` the
+    error is ``~exp(-2 pi^2 spp^2 / r)``, so accuracy ``eps`` needs
+
+        spp >= sqrt(r * ln(1/eps)) / (pi * sqrt(2)).
+
+    One extra sample absorbs the mixture-mass prefactor (measured to be
+    within ~2x of the bound), and the floor of 2 guards degenerate
+    inputs. At the factory 6-sigma floor this resolves to 3 for
+    r <= 5 and 4 up to r = 12; at the tightest accuracy (inf, the 1e-12
+    floor) to 3-5 over the same range --- versus the former flat 10, a
+    ~2-3x node reduction at identical certified accuracy.
+    """
+    if samples_per_sigma is not None:
+        return int(samples_per_sigma)
+    eps = truncation_floor(truncation_sigmas)
+    r_eff = max(int(r), 1)
+    spp = math.ceil(
+        math.sqrt(r_eff * math.log(1.0 / eps)) / (math.pi * math.sqrt(2.0))
+    )
+    return max(2, spp + 1)
+
+
 def truncation_ip_sqdist(truncation_sigmas: Any, sigma: float) -> float:
     """Squared distance ``2 (k sigma)^2`` at which the IP kernel reaches the floor.
 

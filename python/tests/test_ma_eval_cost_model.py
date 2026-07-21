@@ -217,24 +217,23 @@ def test_ma_cost_model_never_badly_wrong(case):
 
 @pytest.mark.parametrize("A,r,K,seed,expect", [
     (3, 2, 5, 0, "centres"),
-    (3, 2, 6, 1, "centres"),   # historical over-pick: at this spread the
-                               # pre-fix estimate under-priced Möbius and
-                               # picked it though centres runs ~2.7x faster
-    (3, 2, 8, 0, "mobius"),
+    (3, 2, 6, 1, "centres"),
+    (3, 2, 8, 0, "centres"),
+    (3, 3, 12, 1, "centres"),
 ])
 def test_ma_cost_model_rel_ma_crossover_placed_correctly(A, r, K, seed, expect):
-    """The centres <-> factored-Möbius crossover in relative multi-attribute
-    mode must sit where the measured times cross.
+    """The relative multi-attribute eval pick must sit where measured
+    times sit.
 
     This guards the direction the asymmetric centres-only contract above
     cannot: an under-priced Möbius estimate that picks Möbius when centres
-    is several times faster. The relative-Möbius cost is only substantial at
-    realistic (multi-octave) pitch spans --- the u-grid node count scales
-    with the source spread --- so these cells build over a wide span. The
-    K = 6 seed sits in the over-pick zone: without the per-node base cost the
-    estimate picks Möbius though centres runs several times faster. K = 5 and
-    K = 8 pin the two sides of the true crossover so it cannot drift back or
-    over-correct.
+    is several times faster. With the factored centres route (per-attribute
+    culled kernels; cost is the sum, not the product, of per-attribute
+    tuple counts), centres wins throughout this non-periodic relative span
+    --- measured ~1-2 ms against ~270-990 ms for Möbius across these cells
+    --- so every cell pins centres. The Möbius side of the contract is
+    carried by the periodic and infeasible-centres diversions tested
+    elsewhere in this module and in the routing suite.
     """
     sig = [15.0] * A
     dens = _build_span(sig, [r] * A, [True] * A, [False] * A, [0.] * A,

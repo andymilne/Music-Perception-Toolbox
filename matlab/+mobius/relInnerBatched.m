@@ -47,7 +47,10 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 %
 %   Name-value options:
 %     'truncationSigmas'  kernel truncation (default mptDefaults)
-%     'samplesPerSigma'   non-periodic grid nodes per sigma (default 10)
+%     'samplesPerSigma'   non-periodic grid nodes per sigma; [] (the
+%                         default) derives the accuracy-tied count from
+%                         truncationSigmas and r via
+%                         internal.resolveSamplesPerSigma
 
     arguments
         Px double
@@ -59,10 +62,12 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         isPer (1,1) logical
         period (1,1) double
         opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
-        opts.samplesPerSigma (1,1) double {mustBePositive} = 10
+        opts.samplesPerSigma double {mustBeNonnegative} = []
     end
 
     truncationSigmas = opts.truncationSigmas;
+    opts.samplesPerSigma = internal.resolveSamplesPerSigma( ...
+        opts.samplesPerSigma, r, truncationSigmas);
     wantRatio = nargout > 1;
     ratio = 1.0;
 

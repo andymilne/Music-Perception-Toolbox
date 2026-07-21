@@ -933,6 +933,11 @@ _PRESCREEN_ORBIT_DOMINANCE = 3.0
 _MA_COST_CENTRES_SETUP_MS = 0.15
 _MA_COST_CENTRES_CALL_PER_JOINT_MS = 4e-5
 _MA_COST_CENTRES_QUERY_PER_JOINT_MS = 4.5e-5
+
+#: Per-attribute per-query overhead of the factored centres route
+#: (bucket lookup and gather in the culled per-attribute kernel),
+#: fitted to measured wall times of that route.
+_MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3
 # Culling onset for the centres per-query term. The joint-centres path
 # truncates each Gaussian at truncation_sigmas, so per query only the
 # centres within a few sigma of the query contribute. The near-centre
@@ -978,9 +983,10 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 3.5e-4
 #: nonzero. Same term, per-language magnitude.
 _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 0.0
 
-#: u-grid nodes per sigma for the relative-mode node-count estimate,
-#: mirroring the evaluators' ``samples_per_sigma`` default.
-_MA_COST_REL_SAMPLES_PER_SIGMA = 10.0
+#: u-grid nodes per sigma for the relative-mode node-count estimate are
+#: derived per attribute via
+#: :func:`mpt._defaults.resolve_samples_per_sigma`, mirroring the
+#: evaluators' accuracy-tied resolution.
 
 #: Safety factor favouring Möbius at near-ties: Möbius is chosen
 #: whenever its estimate is below the centres estimate times this
@@ -1113,36 +1119,68 @@ def _ma_eval_costs_ms(dens, n_q):
             continue
         joint_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
 
-    # Per-query culling factor: the single-multiset non-periodic centres
-    # route (_eval_core) hashes the tuple centres into a truncation-radius
-    # bucket grid and evaluates only the centres in each query's
-    # neighbouring buckets, so per query the near-centre fraction is
-    # min(1, c * sigma / spread), where spread is the source spread
-    # (max - min of the positions). Two routes do not cull this way and
-    # so take no discount: the multi-attribute full-tensor route (it forms
-    # the joint difference tensor in full and masks the tails), and the
-    # periodic single-multiset route (the pairwise wrap is not a
-    # tail-truncatable ball, so it also runs dense). Culling therefore
-    # applies only to the single-multiset non-periodic corner, matching
-    # the evaluator that runs.
+    # Per-query culling factor for the single-multiset non-periodic centres
+    # route (_eval_core): tuple centres are hashed into a truncation-radius
+    # bucket grid and each query evaluates only its neighbouring buckets,
+    # so the near-centre fraction is min(1, c * sigma / spread). The
+    # multi-attribute factored centres route evaluates each attribute
+    # through the same culled kernel, so the discount applies per
+    # attribute there; the joint-materialisation fallback and the periodic
+    # single-multiset route run dense (the pairwise wrap is not a
+    # tail-truncatable ball) and take no discount.
     from .density import is_single_multiset
+
+    def _attr_spread(a):
+        p_attr = getattr(dens, "p_attr", None)
+        if p_attr is not None and a < len(p_attr) and p_attr[a] is not None:
+            arr = np.asarray(p_attr[a], dtype=np.float64)
+            if arr.size:
+                return float(np.max(arr) - np.min(arr))
+        return 0.0
+
+    def _attr_cull(a):
+        if is_per[a] or sigma[a] <= 0:
+            return 1.0
+        spread = _attr_spread(a)
+        if spread <= 0:
+            return 1.0
+        return min(1.0, _MA_COST_CENTRES_CULL_C * sigma[a] / spread)
 
     cull = 1.0
     if is_single_multiset(dens) and sigma[0] > 0 and not is_per[0]:
-        spread_0 = 0.0
-        p_attr = getattr(dens, "p_attr", None)
-        if p_attr is not None and len(p_attr) and p_attr[0] is not None:
-            arr = np.asarray(p_attr[0], dtype=np.float64)
-            if arr.size:
-                spread_0 = float(np.max(arr) - np.min(arr))
-        if spread_0 > 0:
-            cull = min(1.0, _MA_COST_CENTRES_CULL_C * sigma[0] / spread_0)
+        cull = _attr_cull(0)
 
-    centres_ms = (
-        _MA_COST_CENTRES_SETUP_MS
-        + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
-        + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * cull * n_q_eff
+    # The factored centres route (all r_a >= 2, scalar sigma) never
+    # materialises the joint tuple set: cost is the SUM of per-attribute
+    # tuple counts through the culled per-attribute kernels, plus a small
+    # per-attribute per-query overhead (bucket lookup and gather). The
+    # joint-materialisation pricing applies only where that route is
+    # unsupported (any r_a < 2, or a matrix kernel covariance), mirroring
+    # the support predicate of the evaluator that actually runs.
+    factored_supported = (
+        A > 1
+        and all(r_a >= 2 for r_a in r_vec)
+        and getattr(dens, "kernel_cov", None) is None
     )
+    if factored_supported:
+        centres_ms = _MA_COST_CENTRES_SETUP_MS
+        for a in range(A):
+            r_a, K_a = r_vec[a], k_vec[a]
+            T_a = float(factorial(r_a)) * float(_math_comb(K_a, r_a))
+            centres_ms += (
+                _MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a
+                + n_q_eff * (
+                    _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS
+                    * T_a * _attr_cull(a)
+                )
+            )
+    else:
+        centres_ms = (
+            _MA_COST_CENTRES_SETUP_MS
+            + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
+            + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * cull * n_q_eff
+        )
 
     mobius_ms = _MA_COST_MOBIUS_SETUP_MS
     for a in range(A):
@@ -1154,7 +1192,8 @@ def _ma_eval_costs_ms(dens, n_q):
         mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
         per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
         if is_rel[a]:
-            sps = _MA_COST_REL_SAMPLES_PER_SIGMA
+            from .._defaults import resolve_samples_per_sigma
+            sps = float(resolve_samples_per_sigma(None, r_a, None))
             if is_per[a] and period[a] > 0:
                 n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
                 node_ms = (

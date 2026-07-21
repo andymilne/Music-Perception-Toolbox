@@ -114,33 +114,57 @@ def test_truncated_rel_within_bound(small_problem, k):
     assert rel < bound
 
 
-def test_truncation_inf_is_exact(small_problem):
-    """truncation_sigmas=inf must produce bit-identical output to exact."""
+def test_truncation_inf_floors_to_accuracy_eps(small_problem):
+    """truncation_sigmas=inf resolves to the accuracy-floor width, so it
+    agrees with the exact reference to the accuracy floor (1e-12), and
+    becomes bit-exact under a maximal-accuracy override."""
+    from mpt._defaults import accuracy_floor_context
     C, wJ, X, sigma = small_problem
-    v_inf = gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=math.inf)
     ref = _ref_kernel_sum(C, wJ, X, sigma)
-    # Bit-identical at FP level (same compute path).
-    assert np.max(np.abs(v_inf - ref)) < 1e-12 * np.max(np.abs(ref))
+    # Default: inf means the 1e-12 accuracy floor. Agreement to that
+    # floor where the reference is non-negligible.
+    v_inf = gaussian_kernel_sum(C, wJ, X, sigma, truncation_sigmas=math.inf)
+    scale = np.max(np.abs(ref))
+    assert np.max(np.abs(v_inf - ref)) < 1e-11 * scale
+    # Maximal-accuracy override: inf becomes effectively exhaustive, so
+    # the result matches the untruncated reference to FP round-off.
+    with accuracy_floor_context(1e-300):
+        v_exact = gaussian_kernel_sum(
+            C, wJ, X, sigma, truncation_sigmas=math.inf)
+    assert np.max(np.abs(v_exact - ref)) < 1e-12 * scale
 
 
 # ---------------------------------------------------------------------
 # Periodic mode falls through to exact
 # ---------------------------------------------------------------------
 
-def test_periodic_ignores_truncation_for_now():
+def test_periodic_truncates_on_circle():
+    """Periodic 1-D kernel sums truncate on the circle: the result
+    approximates the exact (un-truncated) sum to the accuracy floor set
+    by ``truncation_sigmas``, and tightens as that floor is lowered."""
     rng = np.random.default_rng(7)
     dim, nJ, nQ = 1, 40, 5
     C = rng.uniform(0, 1200, (dim, nJ))
     wJ = rng.uniform(0.5, 1.5, nJ)
     X = rng.uniform(0, 1200, (dim, nQ))
     sigma = 30.0
-    v_trunc = gaussian_kernel_sum(
+    ref = _ref_kernel_sum(C, wJ, X, sigma, is_per=True, period=1200.0)
+    peak = np.max(np.abs(ref))
+    v6 = gaussian_kernel_sum(
         C, wJ, X, sigma, truncation_sigmas=6,
         is_per=True, period=1200.0,
     )
-    ref = _ref_kernel_sum(C, wJ, X, sigma, is_per=True, period=1200.0)
-    # Periodic mode currently falls through to exact: bit-identical.
-    assert np.max(np.abs(v_trunc - ref)) < 1e-12 * np.max(np.abs(ref))
+    # 6 sigma: circular truncation is active (drops terms beyond the
+    # window, so the result departs from exact) but bounded by the
+    # ~1e-8 floor.
+    err6 = np.max(np.abs(v6 - ref))
+    assert 1e-11 * peak < err6 < 1e-6 * peak
+    v_inf = gaussian_kernel_sum(
+        C, wJ, X, sigma, truncation_sigmas=np.inf,
+        is_per=True, period=1200.0,
+    )
+    # Accuracy floor: matches exact to ~1e-12.
+    assert np.max(np.abs(v_inf - ref)) < 1e-11 * peak
 
 
 # ---------------------------------------------------------------------
@@ -349,3 +373,78 @@ def test_show_hints_factory_default_is_true():
 def test_show_hints_validation():
     with pytest.raises(ValueError, match="show_hints"):
         mpt.set_default(show_hints="yes")
+
+
+# ---------------------------------------------------------------------
+# Centralized truncation-scalar identity
+# ---------------------------------------------------------------------
+#
+# truncation_floor / truncation_radius / truncation_ip_sqdist are the
+# single home for the exp(-k^2/2) value floor and its two distance
+# manifestations. These pin the identity between them and the resolved
+# inf -> accuracy-floor policy, so a drift in any one call site would
+# surface here.
+
+
+def test_truncation_floor_inf_is_accuracy_floor_eps():
+    """The exact sentinel resolves to the finite accuracy-floor width,
+    whose value floor is exactly the accuracy-floor eps (1e-12 by
+    default) --- not "nothing discarded"."""
+    from mpt._defaults import truncation_floor, accuracy_floor_eps
+    assert truncation_floor(math.inf) == accuracy_floor_eps()
+
+
+def test_truncation_floor_none_takes_default():
+    """None resolves to the global default width, not to inf."""
+    from mpt._defaults import truncation_floor
+    mpt.reset_defaults()
+    k = mpt.get_default("truncation_sigmas")
+    assert truncation_floor(None) == math.exp(-0.5 * k * k)
+
+
+def test_truncation_radius_is_k_sigma():
+    """Density-kernel radius: distance k*sigma where G(.;sigma) hits the floor."""
+    from mpt._defaults import truncation_radius
+    assert truncation_radius(6.0, 2.0) == 6.0 * 2.0
+
+
+def test_truncation_ip_sqdist_has_factor_two():
+    """Inner-product kernel (sigma*sqrt2 wide) hits the same value floor at
+    twice the squared distance of the density kernel."""
+    from mpt._defaults import truncation_radius, truncation_ip_sqdist
+    r = truncation_radius(6.0, 2.0)
+    assert truncation_ip_sqdist(6.0, 2.0) == 2.0 * r ** 2
+
+
+def test_ip_sqdist_and_floor_describe_the_same_cutoff():
+    """A pair at exactly the IP-kernel cutoff distance has kernel value
+    equal to the shared floor: this is the identity the two helpers
+    must jointly satisfy."""
+    from mpt._defaults import truncation_floor, truncation_ip_sqdist
+    sigma, k = 3.0, 6.0
+    sqdist = truncation_ip_sqdist(k, sigma)          # |d|^2 at the cutoff
+    ip_kernel_value = math.exp(-sqdist / (4.0 * sigma ** 2))
+    assert abs(ip_kernel_value - truncation_floor(k)) < 1e-15
+
+
+def test_nested_contraction_honours_inf_truncation_floor():
+    """Regression: the nested-contraction inner product must truncate at
+    the 1e-12 floor for the exact sentinel, like every other path ---
+    previously it skipped truncation entirely for inf/None, leaving
+    sub-floor kernel values in the sum."""
+    import numpy as np
+    from mpt._tensor._nested_contraction import _trunc
+    from mpt._defaults import accuracy_floor_eps
+
+    # A kernel tensor with one value straddling the 1e-12 floor.
+    K = np.array([[[1.0, 1e-20]]])
+    _trunc(K, 1.0, math.inf)
+    assert K[0, 0, 1] == 0.0, "inf must floor at the accuracy floor, not skip"
+    # And a value comfortably above the floor is kept.
+    K2 = np.array([[[1.0, 1e-6]]])
+    _trunc(K2, 1.0, math.inf)
+    assert K2[0, 0, 1] == 1e-6
+    # The floor used is exactly the accuracy-floor eps.
+    K3 = np.array([[[accuracy_floor_eps() * 0.9]]])
+    _trunc(K3, 1.0, math.inf)
+    assert K3[0, 0, 0] == 0.0

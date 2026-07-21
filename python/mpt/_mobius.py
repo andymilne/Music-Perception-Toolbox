@@ -1384,9 +1384,19 @@ def eval_orbit_abs(
     # path below. ``trunc_resolved`` is always finite now (inf resolves
     # to the accuracy-floor width), so the helper applies whenever the
     # mode is non-periodic.
-    use_helper = not is_per
-    if use_helper:
-        from ._kernel import gaussian_kernel_sum
+    #
+    # Non-periodic always uses the 1-D variance/mean reduction, whose
+    # source sum is culled by gaussian_kernel_sum. Periodic uses the same
+    # reduction where it survives wrapping --- the block span and the
+    # truncation window both within half the circle --- which is exactly
+    # the regime where the culled (circular) kernel sum applies; elsewhere
+    # it falls back to the exact direct broadcast.
+    from ._kernel import gaussian_kernel_sum
+    if is_per:
+        r_win = np.sqrt(2.0) * float(trunc_resolved) * sigma
+        per_helper_global = period > 2.0 * r_win
+    else:
+        per_helper_global = False
 
     unique_blocks, part_block_idx, mus = get_partition_block_structure(r)
 
@@ -1400,36 +1410,57 @@ def eval_orbit_abs(
     for B in unique_blocks:
         m = len(B)
         x_B = x_flat[list(B), :]                      # (m, n_q_total)
-        if use_helper:
-            # Factored 1-D path.
+        wm = w ** m if m > 1 else w
+        sigma_eff = sigma / np.sqrt(m)
+
+        if not is_per:
             if m == 1:
                 mean_x = x_B[0, :]
                 var_x = np.zeros(n_q_total, dtype=np.float64)
             else:
                 mean_x = x_B.mean(axis=0)
                 var_x = np.sum((x_B - mean_x) ** 2, axis=0)
-            prefactor = np.exp(-var_x * inv_2s2)
-            wm = w ** m if m > 1 else w
-            sigma_eff = sigma / np.sqrt(m)
-            kw: dict = dict(
-                truncation_sigmas=float(trunc_resolved),
-            )
+            use_reduction = True
+        else:
+            # Circular mean/variance relative to the block's reference
+            # slot (translation-invariant offsets), so a block sitting on
+            # the period seam is handled correctly.
+            if m == 1:
+                mean_x = x_B[0, :]
+                var_x = np.zeros(n_q_total, dtype=np.float64)
+                span_ok = True
+            else:
+                off = x_B - x_B[0:1, :]
+                off = off - period * np.floor(off / period + 0.5)
+                mean_off = off.mean(axis=0)
+                var_x = np.sum((off - mean_off) ** 2, axis=0)
+                mean_x = x_B[0, :] + mean_off
+                span = off.max(axis=0) - off.min(axis=0)
+                span_ok = bool(np.all(span < 0.5 * period))
+            use_reduction = per_helper_global and span_ok
+
+        if use_reduction:
+            kw: dict = dict(truncation_sigmas=float(trunc_resolved))
             if kernel_precision is not None:
                 kw["kernel_precision"] = kernel_precision
+            if is_per:
+                kw["is_per"] = True
+                kw["period"] = period
             kernel_sum = gaussian_kernel_sum(
                 p.reshape(1, -1), wm,
                 mean_x.reshape(1, -1), float(sigma_eff),
                 **kw,
             )
-            block_contribs.append(prefactor * np.asarray(kernel_sum).ravel())
+            block_contribs.append(
+                np.exp(-var_x * inv_2s2) * np.asarray(kernel_sum).ravel()
+            )
         else:
-            # Direct (m, N, n_q) broadcast path (unchanged from the default path).
+            # Direct (m, N, n_q) broadcast: exact fallback for the
+            # periodic small-circle / wide-block case.
             diffs = x_B[:, None, :] - p[None, :, None]
-            if is_per:
-                diffs = diffs - period * np.floor(diffs / period + 0.5)
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
             sq_sum = np.sum(diffs * diffs, axis=0)
             kernel = np.exp(-sq_sum * inv_2s2)
-            wm = w ** m if m > 1 else w
             block_contribs.append(
                 np.einsum('i,iq->q', wm, kernel, optimize=True)
             )
@@ -1591,6 +1622,34 @@ def _lagrange6_uniform(y: np.ndarray, x0: float, h: float,
     return np.einsum('...j,...j->...', wgt, y[idx])
 
 
+def _lagrange6_circular(y: np.ndarray, x0: float, h: float,
+                        pts: np.ndarray) -> np.ndarray:
+    """Quintic (6-point Lagrange) read-back on a periodic uniform grid.
+
+    Circular twin of :func:`_lagrange6_uniform`. The samples ``y`` cover
+    exactly one period on the grid ``x0 + i·h``, ``i = 0 .. n-1`` (so
+    ``n·h`` is the period); the interpolant is periodic and the six-node
+    stencil wraps around the ends modulo ``n`` rather than clamping. The
+    same closed-form stencil weights as the non-circular twin are used,
+    so the MATLAB port can share them.
+    """
+    n = y.shape[0]
+    if n < 6:
+        raise ValueError(f"read-back grid must have >= 6 nodes; got {n}.")
+    s = (np.asarray(pts, dtype=np.float64) - x0) / h
+    i0 = np.floor(s).astype(np.intp)
+    base = i0 - 2
+    t = s - i0 + 2.0                              # stencil coordinate in [2, 3)
+    d = t[..., None] - np.arange(6.0)             # (..., 6)
+    pref = np.ones_like(d)
+    pref[..., 1:] = np.cumprod(d[..., :-1], axis=-1)
+    suff = np.ones_like(d)
+    suff[..., :-1] = np.cumprod(d[..., :0:-1], axis=-1)[..., ::-1]
+    wgt = pref * suff / _L6_DENOM
+    idx = np.mod(base[..., None] + np.arange(6), n)   # wrap
+    return np.einsum('...j,...j->...', wgt, y[idx])
+
+
 def _factored_worthwhile(K: int, r: int, n_q: int, N_u: int,
                          n_fine_total: int) -> bool:
     """Cost gate: is the factored path cheaper than direct evaluation?
@@ -1724,13 +1783,6 @@ def eval_orbit_rel(
             f"x_rel must have shape (r-1, n_q) with r-1={r-1}; "
             f"got {x_rel.shape}."
         )
-    if factored is True and is_per:
-        raise ValueError(
-            "factored=True is not available in periodic relative mode: "
-            "per-component wrapping breaks the variance/mean block "
-            "factorisation. Use factored=None or factored=False."
-        )
-
     n_q = x_rel.shape[1]
 
     # Build u-grid (mirrors _orbit_inner_rel).
@@ -1757,7 +1809,40 @@ def eval_orbit_rel(
     eps = _factored_target_eps(truncation_sigmas, kernel_precision)
     spp = _factored_spp(eps)
     if is_per:
-        use_factored = False
+        # Factored-periodic is valid only where the circular variance/mean
+        # block reduction survives wrapping: the truncation window must fit
+        # within half the circle and each query's position span must too,
+        # so no source that matters lies on the wrapped-far side. This is
+        # exactly the regime where culling helps (window < half-circle);
+        # below it, fall back to the direct strategy.
+        from ._defaults import resolve_truncation_sigmas
+        trunc_eff = resolve_truncation_sigmas(truncation_sigmas)
+        r_win = np.sqrt(2.0) * float(trunc_eff) * sigma
+        if r >= 2:
+            pos_lo = np.minimum(0.0, x_rel.min(axis=0))
+            pos_hi = np.maximum(0.0, x_rel.max(axis=0))
+            max_spread = float(np.max(pos_hi - pos_lo))
+        else:
+            max_spread = 0.0
+        factored_per_valid = (period > 2.0 * r_win) and (max_spread < 0.5 * period)
+        if factored is True and not factored_per_valid:
+            raise ValueError(
+                "factored=True is not available for this periodic relative "
+                "case: the truncation window or query span exceeds half the "
+                "period, so the circular variance/mean block factorisation "
+                "wraps. Use factored=None or factored=False."
+            )
+        if factored is None:
+            n_fine_total = 0
+            for m in range(1, r + 1):
+                h_m = (sigma / np.sqrt(m)) / spp
+                n_fine_total += max(6, int(round(period / h_m)))
+            use_factored = (
+                factored_per_valid
+                and _factored_worthwhile(K, r, n_q, N_u, n_fine_total)
+            )
+        else:
+            use_factored = bool(factored) and factored_per_valid
     else:
         # Read-back points are u + mean(δ_B) with the block means lying
         # inside the hull of the full offset rows (slot 0 carries δ=0).
@@ -1785,16 +1870,30 @@ def eval_orbit_rel(
         tables: dict[int, tuple[float, float, np.ndarray]] = {}
         for m in range(1, r + 1):
             sig_m = sigma / np.sqrt(m)
-            h_m = sig_m / spp
-            lo = u_min + dmin - 3.0 * h_m
-            hi = u_max + dmax + 3.0 * h_m
-            n_m = int(np.ceil((hi - lo) / h_m)) + 7
-            grid_m = lo + h_m * np.arange(n_m)
             wm = w ** m if m > 1 else w
-            vals = gaussian_kernel_sum(
-                p.reshape(1, -1), wm, grid_m.reshape(1, -1),
-                float(sig_m), **kw,
-            )
+            if is_per:
+                # Uniform grid over exactly one period; the read-back
+                # wraps its stencil, so no padding is needed. Tabulate the
+                # circular S_m directly (gaussian_kernel_sum's periodic
+                # path is exact over the circle).
+                n_m = max(6, int(round(period / (sig_m / spp))))
+                h_m = period / n_m
+                lo = 0.0
+                grid_m = h_m * np.arange(n_m)
+                vals = gaussian_kernel_sum(
+                    p.reshape(1, -1), wm, grid_m.reshape(1, -1),
+                    float(sig_m), is_per=True, period=period, **kw,
+                )
+            else:
+                h_m = sig_m / spp
+                lo = u_min + dmin - 3.0 * h_m
+                hi = u_max + dmax + 3.0 * h_m
+                n_m = int(np.ceil((hi - lo) / h_m)) + 7
+                grid_m = lo + h_m * np.arange(n_m)
+                vals = gaussian_kernel_sum(
+                    p.reshape(1, -1), wm, grid_m.reshape(1, -1),
+                    float(sig_m), **kw,
+                )
             tables[m] = (lo, h_m, np.asarray(vals, dtype=np.float64).ravel())
 
         partitions = get_set_partitions_with_mobius(r)
@@ -1833,7 +1932,10 @@ def eval_orbit_rel(
                 var_d = np.sum((dB - mean_d) ** 2, axis=0)
                 lo, h_m, ym = tables[m]
                 pts = u_grid[:, None] + mean_d[None, :]
-                Sm = _lagrange6_uniform(ym, lo, h_m, pts)
+                if is_per:
+                    Sm = _lagrange6_circular(ym, lo, h_m, pts)
+                else:
+                    Sm = _lagrange6_uniform(ym, lo, h_m, pts)
                 block_contribs.append(np.exp(-var_d * inv_2s2)[None, :] * Sm)
             total, max_abs = mobius_partition_combine(
                 block_contribs, part_block_idx, mus,

@@ -1,7 +1,7 @@
 """Gaussian-kernel sum helper with optional grid-bucket truncation.
 
-The single centres-path numerical kernel used directly by the SA
-centres evaluator and the SA centres-IP path in :mod:`mpt.tensor`, and
+The single centres-path numerical kernel used directly by the single-multiset
+centres evaluator and the single-multiset centres-IP path in :mod:`mpt.tensor`, and
 by the relative-mode orbit evaluator in :mod:`mpt._mobius`. All other
 centres-path consumers (``entropy_exp_tens``, the harmony measures,
 etc.) reach it indirectly through those entry points. Routing every
@@ -88,6 +88,12 @@ def gaussian_kernel_sum(
     """
     if truncation_sigmas is None:
         truncation_sigmas = get_default("truncation_sigmas")
+    # Resolve the "exact" sentinel (inf) to the finite accuracy-floor
+    # width, uniformly with every other truncation path. After this,
+    # truncation_sigmas is always finite and truncation always applies
+    # (except in periodic mode, handled below).
+    from ._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     if kernel_precision is None:
         kernel_precision = get_default("kernel_precision")
     kernel_precision = kernel_precision.lower()
@@ -130,12 +136,11 @@ def gaussian_kernel_sum(
     use_truncation = (
         math.isfinite(truncation_sigmas)
         and truncation_sigmas > 0
-        and not is_per
         and nJ > 0
         and nQ > 0
     )
 
-    if use_truncation:
+    if use_truncation and not is_per:
         # Dispatch on dimensionality: 1-D abs case has a much
         # tighter vectorised path via sorted-centres + searchsorted.
         # Avoids the per-query Python loop in the general path.
@@ -149,6 +154,23 @@ def gaussian_kernel_sum(
             v = _truncated_kernel_sum(
                 C_w, wJ_w, X_w, sigma_w, is_rel, r,
                 float(truncation_sigmas), inv2s2,
+            )
+    elif use_truncation and is_per and C_w.shape[0] == 1 and not is_rel:
+        # Circular 1-D truncation, valid only when the window is
+        # narrower than the circle; otherwise no savings (and the
+        # replication trick would double count), so fall through to the
+        # exact periodic path.
+        from ._defaults import truncation_radius
+        radius = truncation_radius(float(truncation_sigmas), float(sigma))
+        if 2.0 * radius < float(period):
+            v = _truncated_kernel_sum_1d_circular(
+                C_w, wJ_w, X_w, sigma_w, dtype(period),
+                float(truncation_sigmas), inv2s2,
+            )
+        else:
+            v = _exact_kernel_sum(
+                C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
+                sigma_w,
             )
     else:
         v = _exact_kernel_sum(
@@ -248,8 +270,9 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
     Ct = T @ C                                  # (dim, nJ) transformed
     Xt = T @ X                                  # (dim, nQ) transformed
 
-    threshold2 = (k_sigma * float(sigma)) ** 2
-    bucket_size = k_sigma * float(sigma)
+    from ._defaults import truncation_radius
+    bucket_size = truncation_radius(k_sigma, float(sigma))
+    threshold2 = bucket_size ** 2
 
     cmin = Ct.min(axis=1)
     cmax = Ct.max(axis=1)
@@ -393,7 +416,8 @@ def _truncated_kernel_sum_1d_vectorised(C, wJ, X, sigma, k_sigma, inv2s2):
     if nJ == 0 or nQ == 0:
         return np.zeros(nQ, dtype=C.dtype)
 
-    threshold = float(k_sigma) * float(sigma)
+    from ._defaults import truncation_radius
+    threshold = truncation_radius(k_sigma, float(sigma))
     c_axis = C[0]                          # (nJ,)
     x_axis = X[0]                          # (nQ,)
 
@@ -438,6 +462,58 @@ def _truncated_kernel_sum_1d_vectorised(C, wJ, X, sigma, k_sigma, inv2s2):
     # Apply the in-window mask by zeroing out-of-window contributions.
     kernel = np.where(mask, kernel, 0.0)
 
+    return (kernel * w_slices).sum(axis=1).astype(C.dtype, copy=False)
+
+
+def _truncated_kernel_sum_1d_circular(C, wJ, X, sigma, period, k_sigma,
+                                      inv2s2):
+    """Circular twin of :func:`_truncated_kernel_sum_1d_vectorised`.
+
+    Computes ``sum_i wJ[i] * exp(-wrap(X[q]-C[i])^2/(2σ²))`` on the circle
+    of circumference ``period``, including only centres within
+    ``k_sigma·σ`` (wrapped) of each query. Requires the window to be
+    narrower than the circle (``2·radius < period``); the caller guards
+    this. Centres are replicated at ``c-P, c, c+P`` so a wrapped window
+    maps to a contiguous range of the sorted array, and since the window
+    is narrower than ``P`` at most one copy of any centre falls inside,
+    so there is no double counting. Distances are then plain (the nearest
+    copy already realises the wrapped distance).
+    """
+    nJ = C.shape[1]
+    nQ = X.shape[1]
+    if nJ == 0 or nQ == 0:
+        return np.zeros(nQ, dtype=C.dtype)
+
+    from ._defaults import truncation_radius
+    threshold = truncation_radius(k_sigma, float(sigma))
+
+    c_axis = np.mod(C[0], period)
+    x_axis = np.mod(X[0], period)
+
+    # Triple the centres across one period on each side.
+    c3 = np.concatenate([c_axis - period, c_axis, c_axis + period])
+    w3 = np.tile(wJ, 3)
+    order = np.argsort(c3, kind="stable")
+    c_sorted = c3[order]
+    w_sorted = w3[order]
+
+    i_low = np.searchsorted(c_sorted, x_axis - threshold, side="left")
+    i_high = np.searchsorted(c_sorted, x_axis + threshold, side="right")
+    win = i_high - i_low
+    max_win = int(win.max(initial=0))
+    if max_win == 0:
+        return np.zeros(nQ, dtype=C.dtype)
+
+    offsets = np.arange(max_win, dtype=np.int64)
+    idx = i_low[:, None] + offsets[None, :]
+    mask = idx < i_high[:, None]
+    idx_clipped = np.minimum(idx, c_sorted.shape[0] - 1)
+
+    p_slices = c_sorted[idx_clipped]
+    w_slices = w_sorted[idx_clipped]
+    diffs = x_axis[:, None] - p_slices
+    kernel = np.exp(-(diffs * diffs) * inv2s2)
+    kernel = np.where(mask, kernel, 0.0)
     return (kernel * w_slices).sum(axis=1).astype(C.dtype, copy=False)
 
 

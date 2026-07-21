@@ -27,9 +27,10 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   platforms). Output is always cast back to double. Relative
 %   accuracy degrades to ~1e-7.
 %
-%   Periodic mode (opts.isPer = true) currently falls through to the
-%   exact path regardless of opts.truncationSigmas; periodic-mode
-%   truncation is a follow-up.
+%   Periodic mode (opts.isPer = true), 1-D abs: truncates on the circle
+%   when the window is narrower than half the circumference
+%   (2*truncationSigmas*sigma < period); otherwise, and for the rel or
+%   multi-axis periodic cases, the exact wrapped path is taken.
 %
 %   Inputs:
 %     C       (dim, nJ) double - centres
@@ -94,16 +95,14 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 
     % Resolve the truncation knob through the accuracy floor: Inf (the
     % "exact" sentinel) becomes the finite width at which the kernel
-    % falls below the 1e-12 parity floor, uniform with Python. Periodic
-    % mode still takes the exact wrapped path regardless (its wrapped
-    % sum is not a tail-truncatable ball), matching Python.
+    % falls below the 1e-12 parity floor, uniform with Python.
     opts.truncationSigmas = internal.accuracyFloor('resolve', ...
                                                    opts.truncationSigmas);
 
-    % Decide path. Truncation is exact-only on periodic mode.
+    % Decide path. Non-periodic and periodic 1-D abs modes both truncate;
+    % see the dispatch below.
     useTruncation = isfinite(opts.truncationSigmas) ...
                  && opts.truncationSigmas > 0 ...
-                 && ~opts.isPer ...
                  && nJ > 0 && nQ > 0;
 
     if strcmp(opts.kernelPrecision, 'single')
@@ -121,7 +120,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
     end
     inv2s2 = 1 / (2 * sigma_w^2);
 
-    if useTruncation
+    if useTruncation && ~opts.isPer
         % 1-D abs case: vectorised path via sorted-centres +
         % searchsorted, much faster than the general per-query loop.
         if size(C_w, 1) == 1 && ~opts.isRel
@@ -130,6 +129,19 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         else
             v_w = localTruncatedKernelSum(C_w, wJ_w, X_w, sigma_w, ...
                 opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
+        end
+    elseif useTruncation && opts.isPer && size(C_w, 1) == 1 && ~opts.isRel
+        % Circular 1-D truncation, valid only when the window is narrower
+        % than the circle; otherwise there are no savings (and the
+        % replication trick would double count), so fall through to the
+        % exact periodic path.
+        radius = double(opts.truncationSigmas) * double(sigma_w);
+        if 2.0 * radius < double(period_w)
+            v_w = localTruncatedKernelSum1DCircular(C_w, wJ_w, X_w, ...
+                sigma_w, period_w, opts.truncationSigmas, inv2s2);
+        else
+            v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
+                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w);
         end
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
@@ -524,6 +536,71 @@ function v = localTruncatedKernelSum1D(C, wJ, X, sigma, kSigma, inv2s2)
     % correctness fix for the single-query and single-column corners.
     % (The Python twin needs no analogue: NumPy advanced indexing already
     % takes the index array's shape.)
+    pSlices = reshape(cSorted(idxClipped), nQ, maxWin);
+    wSlices = reshape(wSorted(idxClipped), nQ, maxWin);
+    diffs = xAxis(:) - pSlices;             % (nQ, maxWin)
+    kernel = exp(-(diffs .^ 2) * inv2s2);
+    kernel(~mask) = 0;
+
+    v = sum(kernel .* wSlices, 2).';
+    v = cast(v, 'like', C);
+end
+
+
+function v = localTruncatedKernelSum1DCircular(C, wJ, X, sigma, period, ...
+        kSigma, inv2s2)
+%LOCALTRUNCATEDKERNELSUM1DCIRCULAR  Circular twin of localTruncatedKernelSum1D.
+%
+%   v(q) = sum_i wJ(i) * exp(-wrap(X(q)-C(i))^2/(2*sigma^2)) on the circle
+%   of circumference PERIOD, including only centres within kSigma*sigma
+%   (wrapped) of each query. Requires the window narrower than the circle
+%   (2*radius < period); the caller guards this. Centres are replicated at
+%   c-P, c, c+P so a wrapped window maps to a contiguous range of the
+%   sorted array; since the window is narrower than P at most one copy of
+%   any centre falls inside, so there is no double counting, and distances
+%   are then plain (the nearest copy realises the wrapped distance).
+%   Mirrors the Python _truncated_kernel_sum_1d_circular. The reshape of
+%   pSlices/wSlices guards the single-query and single-column corners
+%   exactly as in localTruncatedKernelSum1D (see its header note).
+
+    nJ = size(C, 2);
+    nQ = size(X, 2);
+    if nJ == 0 || nQ == 0
+        v = zeros(1, nQ, 'like', C);
+        return;
+    end
+
+    threshold = double(kSigma) * double(sigma);
+    P = double(period);
+    cAxis = mod(double(C(1, :)), P);        % (1, nJ)
+    xAxis = mod(double(X(1, :)), P);        % (1, nQ)
+
+    % Triple the centres across one period on each side.
+    c3 = [cAxis - P, cAxis, cAxis + P];     % (1, 3*nJ)
+    w3 = [wJ(:); wJ(:); wJ(:)];             % (3*nJ, 1)
+    [cSorted, order] = sort(c3);            % stable, ascending
+    cSorted = cSorted(:);                   % force COLUMN
+    wSorted = w3(order);
+    wSorted = wSorted(:);                   % match cSorted's orientation
+
+    lo = xAxis - threshold;
+    hi = xAxis + threshold;
+    iLow0 = sum(cSorted < lo, 1);           % (1, nQ), 0-indexed
+    iHigh0 = sum(cSorted <= hi, 1);         % (1, nQ), 0-indexed (one-past-last)
+    winSize = iHigh0 - iLow0;
+    maxWin = max(winSize);
+
+    if maxWin == 0
+        v = zeros(1, nQ, 'like', C);
+        return;
+    end
+
+    nTot = numel(cSorted);                  % 3*nJ
+    offsets = 0:(maxWin - 1);
+    idx = iLow0(:) + offsets + 1;           % 1-indexed for MATLAB
+    mask = idx <= iHigh0(:);
+    idxClipped = min(idx, nTot);
+
     pSlices = reshape(cSorted(idxClipped), nQ, maxWin);
     wSlices = reshape(wSorted(idxClipped), nQ, maxWin);
     diffs = xAxis(:) - pSlices;             % (nQ, maxWin)

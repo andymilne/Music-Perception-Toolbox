@@ -8,7 +8,8 @@
 %    - Truncated path agrees with exact to better than exp(-k^2/2)
 %      relative error.
 %    - Rel-mode quadratic form correctness (with and without truncation).
-%    - Periodic mode falls through to exact regardless of truncationSigmas.
+%    - Periodic 1-D abs truncates on the circle when the window fits
+%      inside it (2*truncationSigmas*sigma < period).
 %    - Single precision degrades to ~1e-7 relative.
 %    - Defaults machinery: factory values, set/get/reset, restore via
 %      prev struct, per-call overrides global.
@@ -89,17 +90,28 @@ v_inf = internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, ...
 results{end+1, 1} = 'kernel: truncationSigmas=Inf is exact';
 results{end, 2} = max(abs(v_inf - ref_abs)) < 1e-12 * max(abs(ref_abs));
 
-% Periodic mode falls through to exact
+% Periodic 1-D abs truncates on the circle when the window fits inside it
+% (2*truncationSigmas*sigma < period). At truncationSigmas=6 the truncated
+% sum sits at the ~exp(-18) floor below the exact periodic sum; at Inf
+% (resolved to the accuracy floor) it sits at the ~exp(-27.6) floor, i.e.
+% effectively exact.
 rng(7, 'twister');
 kt_Cp = 1200 * rand(1, 40);
 kt_wp = 0.5 + rand(40, 1);
 kt_Xp = 1200 * rand(1, 5);
 kt_sigp = 30.0;
-v = internal.gaussianKernelSum(kt_Cp, kt_wp, kt_Xp, kt_sigp, ...
-    'truncationSigmas', 6, 'isPer', true, 'period', 1200);
 ref = local_ref_kernel_sum(kt_Cp, kt_wp, kt_Xp, kt_sigp, false, 0, true, 1200);
-results{end+1, 1} = 'kernel: periodic falls through to exact';
-results{end, 2} = max(abs(v - ref)) < 1e-12 * max(abs(ref));
+peak = max(abs(ref));
+v6 = internal.gaussianKernelSum(kt_Cp, kt_wp, kt_Xp, kt_sigp, ...
+    'truncationSigmas', 6, 'isPer', true, 'period', 1200);
+err6 = max(abs(v6 - ref));
+results{end+1, 1} = 'kernel: periodic 1-D truncates on the circle at 6 sigma';
+results{end, 2} = err6 > 1e-11 * peak && err6 < 1e-6 * peak;
+vInf = internal.gaussianKernelSum(kt_Cp, kt_wp, kt_Xp, kt_sigp, ...
+    'truncationSigmas', Inf, 'isPer', true, 'period', 1200);
+errInf = max(abs(vInf - ref));
+results{end+1, 1} = 'kernel: periodic 1-D at Inf is effectively exact';
+results{end, 2} = errInf < 1e-11 * peak;
 
 % Single precision
 v_single = internal.gaussianKernelSum(kt_C, kt_wJ, kt_X, kt_sigma, ...

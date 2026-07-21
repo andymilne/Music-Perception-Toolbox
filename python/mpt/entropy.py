@@ -7,7 +7,7 @@ import warnings
 import numpy as np
 from scipy.special import erf as _erf
 
-from ._utils import maybe_print_batched_estimate
+from ._utils import kernel_chunk_bytes_resolved, maybe_print_batched_estimate
 from ._defaults import _with_dispatch_scope
 from .spectra import add_spectra
 from ._tensor.density import is_single_multiset
@@ -913,6 +913,27 @@ def _differential_adaptive(
     x_min_g, x_max_g, n0, dim, per_axis_W, per_axis_per = _diff_spans_ma(dens, ts)
 
     N = max(int(n0), 4)
+    # Feasibility ceiling, sized from available memory rather than a fixed
+    # constant. During evaluation the grid holds two persistent arrays --
+    # the coordinate mesh (dim, N**dim) and the density values (N**dim,),
+    # together (dim + 1) * N**dim * 8 bytes -- while a kernel-evaluation
+    # chunk (itself budgeted at ``kernel_chunk_bytes``) runs on top, and
+    # building the mesh (meshgrid, then stack) transiently doubles the
+    # coordinate array. Bound the persistent grid footprint at half the
+    # kernel-chunk budget (a quarter of available memory under the factory
+    # 'auto' setting), so the footprint, a concurrent chunk, and the
+    # build-time transient all fit with headroom. The grid is refined until
+    # the estimate is converged to the requested accuracy (set by
+    # truncation_sigmas); at a tight accuracy in two or more dimensions the
+    # grid needed to *certify* that accuracy can exceed this budget, in
+    # which case the routine refuses before any large allocation and
+    # directs the user to a coarser accuracy or the closed-form estimator,
+    # rather than degrading silently or exhausting memory. Sizing from
+    # ``kernel_chunk_bytes`` tracks the machine and honours a pinned value.
+    _mem_cap_points = max(
+        kernel_chunk_bytes_resolved() // (16 * (dim + 1)), 4 ** max(dim, 1)
+    )
+    eff_grid_limit = min(int(grid_limit), _mem_cap_points)
     h_history = []   # list of h_hat values, in iteration order
     R_history = []   # list of Richardson-extrapolated estimates
     log_b = math.log(base)
@@ -920,22 +941,24 @@ def _differential_adaptive(
     for _iter in range(max_iter):
         if dim > 0:
             total = N ** dim
-            if total > grid_limit:
-                if not h_history:
-                    raise ValueError(
-                        f"method='differential' needs grid_limit >= "
-                        f"{total} for an initial N={N} at dim={dim}; got "
-                        f"grid_limit={grid_limit}. Increase grid_limit, "
-                        f"or use method='renyi2' (closed-form, no grid)."
-                    )
-                if verbose:
-                    warnings.warn(
-                        f"method='differential' hit grid_limit={grid_limit} "
-                        f"at N={N} (dim={dim}); returning h_hat from the "
-                        f"last feasible grid -- may not be fully converged.",
-                        UserWarning, stacklevel=2,
-                    )
-                break
+            if total > eff_grid_limit:
+                # Reaching here means the accuracy has not yet been
+                # certified (that path returns above) and the next grid
+                # would exceed the feasible budget. Refuse and direct.
+                mem_bound = _mem_cap_points <= int(grid_limit)
+                choices = [
+                    "use a lower truncation_sigmas (coarser accuracy needs "
+                    "a smaller grid)",
+                    "or use method='renyi2' (closed form, no grid)",
+                ]
+                if not mem_bound:
+                    choices.insert(0, "raise grid_limit")
+                raise ValueError(
+                    f"method='differential' cannot certify the requested "
+                    f"accuracy (truncation_sigmas={ts:.3g}) in dim={dim}: "
+                    f"convergence needs more than {eff_grid_limit} grid "
+                    f"points. " + "; ".join(choices) + "."
+                )
 
         H_disc = _entropy_exp_tens_ma(
             dens, normalize=False, base=base,

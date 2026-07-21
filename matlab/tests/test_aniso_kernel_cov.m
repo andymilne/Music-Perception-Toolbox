@@ -97,10 +97,13 @@ hS = entropyExpTens(densSca, 'method', 'renyi2', 'base', exp(1), ...
 results{end+1,1} = 'aniso: renyi2 reduces to scalar sigma at Sigma = s^2 I';
 results{end,2}   = abs(hM - hS) <= 1e-9;
 
+% D==3 differential: pin a feasible accuracy on both sides (the tightest
+% accuracy would need an infeasible 3-D grid). Both use the same pin, so
+% the anisotropic-vs-scalar equivalence is compared like with like.
 hM = entropyExpTens(densMat, 'method', 'differential', 'base', exp(1), ...
-    'verbose', false);
+    'truncationSigmas', 4, 'verbose', false);
 hS = entropyExpTens(densSca, 'method', 'differential', 'base', exp(1), ...
-    'verbose', false);
+    'truncationSigmas', 4, 'verbose', false);
 results{end+1,1} = 'aniso: differential reduces to scalar sigma at Sigma = s^2 I';
 results{end,2}   = abs(hM - hS) <= 1e-6 * max(1, abs(hS));
 
@@ -213,8 +216,10 @@ results{end,2}   = abs(gotH2 - wantH2) <= 1e-10;
 SigmaD = [0.04, -0.01; -0.01, 0.09];
 densD = buildExpTens([0; 0.5], ones(2, 1), SigmaD, 2, false, false, 0, ...
     false, 'verbose', false);
+% D==2 differential: this entropy is near zero, so the closed-form check
+% is sensitive and needs a tight (but still feasible) accuracy.
 gotHd = entropyExpTens(densD, 'method', 'differential', 'base', exp(1), ...
-    'verbose', false);
+    'truncationSigmas', 6, 'verbose', false);
 wantHd = log(2 * pi * exp(1)) + 0.5 * log(det(SigmaD));
 results{end+1,1} = 'aniso: differential single-Gaussian closed form incl. log det';
 results{end,2}   = abs(gotHd - wantHd) <= 1e-4 * max(1, abs(wantHd));
@@ -243,7 +248,7 @@ results{end+1,1} = 'aniso: windowed sweep peaks at the shifted match';
 results{end,2}   = numel(prof) == 5 && peakIdx == 3 && prof(3) > 0.9;
 
 % Manual off-peak check: with the time axis dropped, step n is the
-% plain one-sided SA kernel of the anisotropic pairs.
+% plain one-sided single multiset kernel of the anisotropic pairs.
 dOff = shapes(:, 1) - pQry{1};
 wantOff = exp(-0.25 * dOff' * (SigmaP \ dOff));
 results{end+1,1} = 'aniso: windowed off-peak value matches direct kernel';

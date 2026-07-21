@@ -90,6 +90,24 @@ class TestCullingCorrection:
         assert _predict_ma_eval_cost_ms(d, 2000, "centres") == centres_ms
         assert _predict_ma_eval_cost_ms(d, 2000, "mobius") == mobius_ms
 
+    def test_periodic_single_multiset_is_unculled(self):
+        # Periodic single-multiset runs dense (the pairwise wrap is not a
+        # tail-truncatable ball), so it takes no culling discount: its
+        # centres cost must equal the plain unculled form.
+        K, nq = 30, 4000
+        p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)]
+        d = mpt.build_exp_tens(
+            p, None, [22.0], [2], [True], [True], [1200.0], verbose=False,
+        )
+        joint = 2 * (K * (K - 1) // 2)
+        expected = (
+            _MA_COST_CENTRES_SETUP_MS
+            + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
+            + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint * nq
+        )
+        centres_ms, _ = _ma_eval_costs_ms(d, nq)
+        assert centres_ms == pytest.approx(expected, rel=1e-12)
+
 
 class TestEstimateShape:
     def test_positive(self):

@@ -1,4 +1,4 @@
-"""Tests for the SA point-evaluator orbit primitives.
+"""Tests for the single-multiset point-evaluator orbit primitives.
 
 Verifies ``eval_orbit_abs`` and ``eval_orbit_rel`` against:
 1. The centre-array path (``eval_exp_tens``) — precision baseline.
@@ -134,17 +134,40 @@ def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
     clean = ratios > 1e-10
     assert clean.any(), "test setup gave no clean cells; pick saner params"
 
-    rel_err_centres = np.abs(v_centres[clean] - v_direct[clean]) / np.abs(v_direct[clean])
-    rel_err_orbit = np.abs(v_orbit[clean] - v_direct[clean]) / np.abs(v_direct[clean])
+    # The centres path truncates at the accuracy-floor width (inf resolves
+    # to ~7.43 sigma, the 1e-12 floor), so its error against the exhaustive
+    # direct sum is an ABSOLUTE floor of ~1e-12 relative to the peak
+    # density --- not a per-point relative bound. At low-density query
+    # points that same absolute floor shows up as a larger relative error,
+    # so the accuracy-floor measure (abs error / peak) is the correct one.
+    peak = float(np.max(np.abs(v_direct)))
+    abs_err_centres = np.abs(v_centres[clean] - v_direct[clean])
+    # Measured worst case is ~1.4e-12 of peak; 1e-11 gives modest headroom.
+    assert abs_err_centres.max() < 1e-11 * peak, (
+        f"centres path drifted from direct beyond the accuracy floor: "
+        f"max abs err {abs_err_centres.max():.2e}, peak {peak:.2e}"
+    )
 
-    assert rel_err_centres.max() < TOL_FP, (
-        f"centres path drifted from direct: max rel err "
-        f"{rel_err_centres.max():.2e}"
+    # The orbit path floor-truncates at the accuracy-floor width in every
+    # mode (periodic included, v2.2+), so like the centres path its error
+    # against the exhaustive direct sum is a peak-relative absolute floor,
+    # not a per-cell relative bound.
+    abs_err_orbit = np.abs(v_orbit[clean] - v_direct[clean])
+    assert abs_err_orbit.max() < 1e-11 * peak, (
+        f"orbit path drifted from direct beyond the accuracy floor: "
+        f"max abs err {abs_err_orbit.max():.2e}, peak {peak:.2e}"
     )
-    assert rel_err_orbit.max() < TOL_CLEAN, (
-        f"orbit-on-clean path drifted from direct: max rel err "
-        f"{rel_err_orbit.max():.2e}"
-    )
+    # Where the value itself is well above the floor, agreement is tight;
+    # deep-tail cells (healthy cancellation ratio but sub-floor value) are
+    # governed by the absolute floor above, not a relative bound.
+    meaningful = clean & (np.abs(v_direct) > 1e-4 * peak)
+    if meaningful.any():
+        rel_err_orbit = (np.abs(v_orbit[meaningful] - v_direct[meaningful])
+                         / np.abs(v_direct[meaningful]))
+        assert rel_err_orbit.max() < TOL_CLEAN, (
+            f"orbit-on-clean path drifted from direct: max rel err "
+            f"{rel_err_orbit.max():.2e}"
+        )
 
 
 def test_eval_orbit_abs_r1_matches_direct():

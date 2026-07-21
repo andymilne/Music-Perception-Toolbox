@@ -171,8 +171,9 @@ class TestDifferentialConvergence:
         assert math.isclose(h_diff, h_hat_fixed, abs_tol=1e-5)
 
     def test_2d_periodic_converges_without_oom(self):
-        """The 2-D periodic case was the canary for OOM before
-        Richardson extrapolation; it must terminate at a sensible value."""
+        """The 2-D periodic case was the canary for OOM before Richardson
+        extrapolation. At a feasible accuracy the adaptive grid converges
+        to a sensible value without exhausting memory."""
         P2 = np.array([[1., 2., 4., 5.]])
         W2 = np.array([[1., 1., 1., 1.]])
         period = 12.0
@@ -182,14 +183,47 @@ class TestDifferentialConvergence:
             [1, 1], [False, False], [True, True], [period, period],
             verbose=False,
         )
-        h_diff = entropy_exp_tens(dens_ma, method='differential', verbose=False)
-        # Compare to fixed N=500 h_hat
+        # 6 sigma (~1e-8) is certified on a feasible grid; the tightest
+        # accuracy is exercised separately below.
+        h_diff = entropy_exp_tens(
+            dens_ma, method='differential',
+            truncation_sigmas=6.0, verbose=False,
+        )
+        # Compare to fixed N=500 h_hat at the same accuracy.
         H_shan = entropy_exp_tens(
             dens_ma, method='shannon',
-            n_points_per_dim=500, verbose=False,
+            n_points_per_dim=500, truncation_sigmas=6.0, verbose=False,
         )
         h_hat_fixed = H_shan + 2.0 * math.log2(period / 500.0)
         assert math.isclose(h_diff, h_hat_fixed, abs_tol=1e-3)
+
+    def test_2d_periodic_tightest_accuracy_refuses_with_guidance(self):
+        """At the tightest accuracy (truncation_sigmas=inf resolves to the
+        accuracy floor) the 2-D grid needed to *certify* convergence
+        exceeds the memory budget. The routine refuses and directs the
+        user to a coarser accuracy or the closed-form estimator, rather
+        than degrading silently or exhausting memory. A small
+        ``kernel_chunk_bytes`` pins the budget low so the refusal is
+        deterministic regardless of the machine's available memory."""
+        P2 = np.array([[1., 2., 4., 5.]])
+        W2 = np.array([[1., 1., 1., 1.]])
+        period = 12.0
+        sigma_eff = math.sqrt(2)
+        dens_ma = build_exp_tens(
+            [P2, P2], [W2, W2], [sigma_eff, sigma_eff],
+            [1, 1], [False, False], [True, True], [period, period],
+            verbose=False,
+        )
+        prev_kcb = mpt.get_default('kernel_chunk_bytes')
+        try:
+            mpt.set_default(kernel_chunk_bytes=8 * 1024 * 1024)
+            with pytest.raises(ValueError, match="renyi2|truncation_sigmas"):
+                entropy_exp_tens(
+                    dens_ma, method='differential',
+                    truncation_sigmas=np.inf, verbose=False,
+                )
+        finally:
+            mpt.set_default(kernel_chunk_bytes=prev_kcb)
 
     def test_grid_independence_orders_correctly(self):
         """Concentrated vs spread Gaussian mixtures must produce
@@ -560,7 +594,13 @@ class TestDifferentialInputForms:
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_raw_ma_scalar(self, ma_dens):
-        h = entropy_exp_tens(ma_dens, method='differential', verbose=False)
+        # 2-D differential entropy: certifying the tightest accuracy needs
+        # an infeasibly fine grid, so pin a feasible accuracy for this
+        # input-form check (the refusal path is tested separately).
+        h = entropy_exp_tens(
+            ma_dens, method='differential',
+            truncation_sigmas=5.0, verbose=False,
+        )
         assert isinstance(h, float) and math.isfinite(h)
 
     def test_list_rejected(self, single_multiset_dens_list):

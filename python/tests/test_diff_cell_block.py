@@ -29,13 +29,22 @@ import mpt.entropy as E
 from mpt import build_exp_tens, entropy_exp_tens
 
 
-def _h(dens, block):
-    """Differential entropy at a given ``_DIFF_CELL_BLOCK`` setting."""
+def _h(dens, block, ts=5.0):
+    """Differential entropy at a given ``_DIFF_CELL_BLOCK`` setting.
+
+    ``ts`` pins a feasible accuracy: for D >= 2 the tightest accuracy
+    would need an infeasibly fine grid, and the streaming-vs-whole
+    equality this module checks is independent of the absolute accuracy
+    (both sides use the same grid), so any feasible ts exercises it. The
+    value is kept modest so the grid stays small on any machine."""
     saved = E._DIFF_CELL_BLOCK
     try:
         E._DIFF_CELL_BLOCK = int(block)
         return float(
-            entropy_exp_tens(dens, method="differential", base=2.0, verbose=False)
+            entropy_exp_tens(
+                dens, method="differential", base=2.0,
+                truncation_sigmas=ts, verbose=False,
+            )
         )
     finally:
         E._DIFF_CELL_BLOCK = saved

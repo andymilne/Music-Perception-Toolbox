@@ -1,4 +1,4 @@
-%% test_mobius_eval.m — set partitions and SA point evaluators
+%% test_mobius_eval.m — set partitions and single multiset point evaluators
 %
 %  Tests for the v2.2 point-evaluator machinery in matlab/+mobius/:
 %    getSetPartitionsWithMobius, evalOrbitAbs, evalOrbitRel.
@@ -236,6 +236,28 @@ vals1 = mobius.evalOrbitRel(p, w, sigma, r, x_rel, 'is_per', true, 'period', P);
 vals2 = mobius.evalOrbitRel(p, w, sigma, r, x_rel_shifted, 'is_per', true, 'period', P);
 results{end+1, 1} = 'mobius.evalOrbitRel: periodic mode is period-translation invariant';
 results{end, 2}   = max(abs(vals1 - vals2)) < 1e-9 * max(abs(vals1));
+
+
+%% ---- evalOrbitRel periodic: factored culling matches direct ----
+% In the valid regime (truncation window and query span both within half
+% the circle) the factored-periodic strategy --- circular tabulation plus
+% circular Lagrange read-back --- must match the direct strategy to the
+% read-back accuracy tied to truncationSigmas. Exercises the periodic
+% culling path. sigma = 30 keeps the window (~630) below half the period.
+P = 1200;
+rng(9, 'twister');
+n = 7;
+p = sort(P * rand(n, 1));
+w = 0.5 + rand(n, 1);
+sigma = 30.0;
+r = 3;
+x_rel = randn(r - 1, 4) * 40;   % tight spans, well within half the period
+valsFac = mobius.evalOrbitRel(p, w, sigma, r, x_rel, ...
+    'is_per', true, 'period', P, 'factored', 'on');
+valsDir = mobius.evalOrbitRel(p, w, sigma, r, x_rel, ...
+    'is_per', true, 'period', P, 'factored', 'off');
+results{end+1, 1} = 'mobius.evalOrbitRel: periodic factored matches direct (valid regime)';
+results{end, 2}   = max(abs(valsFac - valsDir)) < 1e-7 * max(abs(valsDir));
 
 
 %% ---- standalone summary ----

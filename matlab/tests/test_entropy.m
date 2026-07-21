@@ -1,6 +1,6 @@
-%% test_entropy.m — entropyExpTens — SA Shannon and Rényi-2
+%% test_entropy.m — entropyExpTens — single multiset Shannon and Rényi-2
 %
-%  Tests for SA Shannon and Rényi-2.
+%  Tests for single multiset Shannon and Rényi-2.
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.
@@ -91,24 +91,24 @@ H_short = entropyExpTens(P_h_short, [], 50, 2, false, true, 1200, 'nPointsPerDim
 results{end+1,1} = 'entropyExpTens batched: row with too few pitches returns NaN';
 results{end,2}   = ~isnan(H_short(1)) && isnan(H_short(2));
 
-% --- v2.1 fix: SA entropy with dim > 1 (previously errored) -----------
+% --- v2.1 fix: single multiset entropy with dim > 1 (previously errored) -----------
 
 % r = 2, isRel = false: dim = 2. Build a periodic dyad density and
 % compute its entropy via the new Cartesian grid path.
 H_dim2_per = entropyExpTens([0, 4, 7], [], 100, 2, false, true, 1200, ...
     'method', 'normalized', 'nPointsPerDim', 60, 'verbose', false);
-results{end+1,1} = 'entropyExpTens SA dim=2 periodic: returns finite value';
+results{end+1,1} = 'entropyExpTens single multiset dim=2 periodic: returns finite value';
 results{end,2}   = isfinite(H_dim2_per) && H_dim2_per > 0 && H_dim2_per <= 1;
 
 % Non-periodic with explicit bounds
 H_dim2_nonper = entropyExpTens([0, 400, 700], [], 12, 2, false, false, 1200, ...
     'method', 'normalized', ...
     'xMin', -100, 'xMax', 800, 'nPointsPerDim', 60, 'verbose', false);
-results{end+1,1} = 'entropyExpTens SA dim=2 non-periodic: returns finite value';
+results{end+1,1} = 'entropyExpTens single multiset dim=2 non-periodic: returns finite value';
 results{end,2}   = isfinite(H_dim2_nonper) && H_dim2_nonper > 0 && H_dim2_nonper <= 1;
 
 % gridLimit guard
-results{end+1,1} = 'entropyExpTens SA dim=2: gridLimit guard fires';
+results{end+1,1} = 'entropyExpTens single multiset dim=2: gridLimit guard fires';
 results{end,2}   = throwsErrorWithId( ...
     @() entropyExpTens([0, 400, 700], [], 12, 2, false, true, 1200, ...
         'nPointsPerDim', 1200, 'gridLimit', 1e3, 'verbose', false), ...
@@ -119,6 +119,34 @@ H_uni = entropyExpTens(0:11, [], 100, 1, false, true, 12, 'nPointsPerDim', 1200,
 H_ones = entropyExpTens(0:11, ones(1, 12), 100, 1, false, true, 12, 'nPointsPerDim', 1200, 'verbose', false);
 results{end+1,1} = 'entropyExpTens: w=[] equivalent to ones(1,N)';
 results{end,2}   = abs(H_uni - H_ones) < 1e-14;
+
+
+% ---- Differential entropy: tightest accuracy in >= 2-D refuses ----
+% At the tightest accuracy (truncationSigmas = Inf resolves to the accuracy
+% floor) the 2-D grid needed to certify convergence exceeds the
+% memory-derived feasibility budget, so the routine refuses and directs the
+% user to a coarser accuracy or the closed-form estimator, rather than
+% degrading silently or exhausting memory. A small kernelChunkBytes pins
+% the budget low so the refusal is deterministic regardless of the
+% machine's available memory. Twin of the Python
+% test_2d_periodic_tightest_accuracy_refuses_with_guidance.
+P2 = [1; 2; 4; 5];
+W2 = [1; 1; 1; 1];
+sigEff = sqrt(2);
+densRefuse = buildExpTens({P2; P2}, {W2; W2}, [sigEff sigEff], [1 1], ...
+    [false false], [true true], [12 12], 'verbose', false);
+prevKcb = mptDefaults('kernelChunkBytes');
+mptDefaults('kernelChunkBytes', 8 * 1024 * 1024);
+refused = false;
+try
+    entropyExpTens(densRefuse, 'method', 'differential', ...
+        'truncationSigmas', Inf, 'verbose', false);
+catch ME
+    refused = strcmp(ME.identifier, 'entropyExpTens:differentialGridLimit');
+end
+mptDefaults('kernelChunkBytes', prevKcb);
+results{end+1,1} = 'entropyExpTens differential: tightest 2-D accuracy refuses with guidance';
+results{end,2}   = refused;
 
 
 %% ---- Standalone summary ----

@@ -129,13 +129,6 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
             'x_rel must have size (r-1, n_q) with r-1=%d; got %dx%d.', ...
             r - 1, size(x_rel, 1), size(x_rel, 2));
     end
-    if strcmp(opts.factored, 'on') && opts.is_per
-        error('mobius:evalOrbitRel:factoredPeriodic', ...
-            ['''factored'', ''on'' is not available in periodic ', ...
-             'relative mode: per-component wrapping breaks the ', ...
-             'variance/mean block factorisation. Use ''auto'' or ''off''.']);
-    end
-
     n_q = size(x_rel, 2);
 
     % Build the u-grid (mirrors mpt.tensor._orbit_inner_rel).
@@ -164,7 +157,45 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
     eps_target = factoredTargetEps(opts.truncationSigmas, opts.kernelPrecision);
     spp = factoredSpp(eps_target);
     if opts.is_per
-        useFactored = false;
+        % Factored-periodic is valid only where the circular variance/mean
+        % block reduction survives wrapping: the truncation window must fit
+        % within half the circle and each query's position span must too,
+        % so no source that matters lies on the wrapped-far side. This is
+        % exactly the regime where culling helps (window < half-circle);
+        % below it, fall back to the direct strategy.
+        truncEff = internal.accuracyFloor('resolve', opts.truncationSigmas);
+        rWin = sqrt(2.0) * truncEff * sigma;
+        if r >= 2
+            posLo = min(0, min(x_rel, [], 1));
+            posHi = max(0, max(x_rel, [], 1));
+            maxSpread = max(posHi - posLo);
+        else
+            maxSpread = 0.0;
+        end
+        factoredPerValid = (opts.period > 2.0 * rWin) ...
+                        && (maxSpread < 0.5 * opts.period);
+        if strcmp(opts.factored, 'on') && ~factoredPerValid
+            error('mobius:evalOrbitRel:factoredPeriodic', ...
+                ['''factored'', ''on'' is not available for this ' ...
+                 'periodic relative case: the truncation window or ' ...
+                 'query span exceeds half the period, so the circular ' ...
+                 'variance/mean block factorisation wraps. Use ' ...
+                 '''auto'' or ''off''.']);
+        end
+        switch opts.factored
+            case 'auto'
+                nFineTotal = 0;
+                for m = 1:r
+                    h_m = (sigma / sqrt(m)) / spp;
+                    nFineTotal = nFineTotal + max(6, round(opts.period / h_m));
+                end
+                useFactored = factoredPerValid ...
+                    && factoredWorthwhile(K, r, n_q, N_u, nFineTotal);
+            case 'on'
+                useFactored = factoredPerValid;   % true (raise above if not)
+            otherwise
+                useFactored = false;
+        end
     else
         dmin = min(0, x_min);
         dmax = max(0, x_max);
@@ -194,18 +225,32 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
         tabY = cell(r, 1);
         for m = 1:r
             sigmaEff = sigma / sqrt(m);
-            h_m = sigmaEff / spp;
-            lo = u_min + dmin - 3 * h_m;
-            hi = u_max + dmax + 3 * h_m;
-            n_m = ceil((hi - lo) / h_m) + 7;
-            grid_m = lo + h_m * (0:n_m - 1);
             if m == 1
                 wm = w;
             else
                 wm = w .^ m;
             end
-            ym = internal.gaussianKernelSum( ...
-                p(:).', wm(:), grid_m, sigmaEff, kw{:});
+            if opts.is_per
+                % Uniform grid over exactly one period; the read-back wraps
+                % its stencil, so no padding is needed. Tabulate the
+                % circular S_m directly (gaussianKernelSum's periodic path
+                % is exact over the circle).
+                n_m = max(6, round(opts.period / (sigmaEff / spp)));
+                h_m = opts.period / n_m;
+                lo = 0.0;
+                grid_m = h_m * (0:n_m - 1);
+                kwPer = [kw, {'isPer', true, 'period', opts.period}];
+                ym = internal.gaussianKernelSum( ...
+                    p(:).', wm(:), grid_m, sigmaEff, kwPer{:});
+            else
+                h_m = sigmaEff / spp;
+                lo = u_min + dmin - 3 * h_m;
+                hi = u_max + dmax + 3 * h_m;
+                n_m = ceil((hi - lo) / h_m) + 7;
+                grid_m = lo + h_m * (0:n_m - 1);
+                ym = internal.gaussianKernelSum( ...
+                    p(:).', wm(:), grid_m, sigmaEff, kw{:});
+            end
             tabLo(m) = lo;
             tabH(m) = h_m;
             tabY{m} = ym(:);
@@ -248,7 +293,11 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
                 mean_d = sum(dB, 1) / m;
                 var_d = sum((dB - mean_d).^2, 1);
                 pts = u_col + mean_d;                           % (N_u, nQc)
-                Sm = lagrange6Uniform(tabY{m}, tabLo(m), tabH(m), pts);
+                if opts.is_per
+                    Sm = lagrange6Circular(tabY{m}, tabLo(m), tabH(m), pts);
+                else
+                    Sm = lagrange6Uniform(tabY{m}, tabLo(m), tabH(m), pts);
+                end
                 blockContrib{k} = exp(-var_d * inv_2s2) .* Sm;
             end
             [total, maxAbs] = mobius.mobiusPartitionCombine( ...
@@ -402,5 +451,36 @@ function vals = lagrange6Uniform(y, x0, h, pts)
     denom = reshape([-120, 24, -12, 12, -24, 120], 1, 1, 6);
     wgt = pref .* suff ./ denom;
     idx = base + reshape(0:5, 1, 1, 6) + 1;   % 1-based gather indices
+    vals = sum(wgt .* y(idx), 3);
+end
+
+
+function vals = lagrange6Circular(y, x0, h, pts)
+%LAGRANGE6CIRCULAR  Quintic (6-point Lagrange) read-back on a periodic grid.
+%   Circular twin of lagrange6Uniform. The samples Y cover exactly one
+%   period on the grid x0 + i*h, i = 0..n-1 (so n*h is the period); the
+%   interpolant is periodic and the six-node stencil wraps around the ends
+%   modulo n rather than clamping. Identical closed-form stencil weights,
+%   for exact cross-language parity with _lagrange6_circular. Query points
+%   may lie anywhere on the line; they map onto the circle through the
+%   wrap.
+    n = numel(y);
+    if n < 6
+        error('mobius:evalOrbitRel:readbackGrid', ...
+            'read-back grid must have >= 6 nodes; got %d.', n);
+    end
+    s = (pts - x0) / h;
+    i0 = floor(s);
+    base = i0 - 2;                            % zero-based stencil start
+    t = s - i0 + 2.0;                         % stencil coordinate in [2, 3)
+    d = t - reshape(0:5, 1, 1, 6);            % (..., 6)
+    % prod_{k~=j}(t - k) via prefix/suffix products (no division by d).
+    pref = ones(size(d));
+    pref(:, :, 2:end) = cumprod(d(:, :, 1:end - 1), 3);
+    suff = ones(size(d));
+    suff(:, :, 1:end - 1) = flip(cumprod(flip(d(:, :, 2:end), 3), 3), 3);
+    denom = reshape([-120, 24, -12, 12, -24, 120], 1, 1, 6);
+    wgt = pref .* suff ./ denom;
+    idx = mod(base + reshape(0:5, 1, 1, 6), n) + 1;   % wrap mod n, 1-based
     vals = sum(wgt .* y(idx), 3);
 end

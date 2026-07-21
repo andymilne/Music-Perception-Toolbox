@@ -167,9 +167,11 @@ sigmaEff = sqrt(2);
 densMA = buildExpTens({P2, P2}, {W2, W2}, [sigmaEff sigmaEff], ...
                        [1, 1], [false false], [true true], [period period], ...
                        'verbose', false);
-hDiffMA = entropyExpTens(densMA, 'method', 'differential', 'verbose', false);
+hDiffMA = entropyExpTens(densMA, 'method', 'differential', ...
+                          'truncationSigmas', 6, 'verbose', false);
 H_shanMA = entropyExpTens(densMA, 'method', 'shannon', ...
-                           'nPointsPerDim', 500, 'verbose', false);
+                           'nPointsPerDim', 500, ...
+                           'truncationSigmas', 6, 'verbose', false);
 h_hat_ref_MA = H_shanMA + 2.0 * log2(period / 500.0);
 results{end+1,1} = 'differential 2D: adaptive matches N=500 reference';
 results{end,2}   = isfinite(hDiffMA) && abs(hDiffMA - h_hat_ref_MA) < 1e-3;
@@ -260,7 +262,7 @@ results{end,2}   = H_ji < H_edo;
 %% ---- Per-method input-form coverage ----------------------------------
 % entropyExpTens supports five input forms; shannon and normalized
 % support all five, differential and renyi2 support three (scalar
-% density, raw SA scalar, raw MA scalar) and reject list / batched.
+% density, raw single multiset scalar, raw MA scalar) and reject list / batched.
 
 % Set up input fixtures.
 sa_p     = [100, 200, 300];
@@ -324,10 +326,15 @@ results{end,2}   = inUnit(n_sa_dens) ...
                    && inUnit(n_ma_dens);
 
 % --- Differential: 3 input forms, list and batched rejected ---
+% The MA form is D==2; at the tightest accuracy a 2-D differential grid is
+% infeasible, so pin a feasible truncationSigmas (the scalar forms are 1-D
+% and converge at any accuracy). The check is only that a finite value
+% comes back.
 d_sa_dens = entropyExpTens(sa_dens, 'method', 'differential', 'verbose', false);
 d_sa_raw  = entropyExpTens(sa_p, sa_w, sa_sigma, 1, false, false, 0, ...
     'method', 'differential', 'verbose', false);
-d_ma_dens = entropyExpTens(ma_dens, 'method', 'differential', 'verbose', false);
+d_ma_dens = entropyExpTens(ma_dens, 'method', 'differential', ...
+    'truncationSigmas', 5, 'verbose', false);
 results{end+1,1} = 'differential input forms: 3 scalar forms return finite';
 results{end,2}   = isfinite(d_sa_dens) && isfinite(d_sa_raw) && isfinite(d_ma_dens);
 

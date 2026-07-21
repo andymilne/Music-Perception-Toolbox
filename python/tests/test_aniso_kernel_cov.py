@@ -150,17 +150,24 @@ class TestScalarReduction:
 
     def test_entropies(self):
         d_mat, d_sca = self._dens_pair()
+        # Certifying tight accuracy needs an infeasibly fine grid in 3-D;
+        # pin a feasible accuracy on both sides (the materialised-vs-scalar
+        # comparison uses the same grid, so it is accuracy-independent).
         for method in ("renyi2", "differential"):
             np.testing.assert_allclose(
-                mpt.entropy_exp_tens(d_mat, method=method, verbose=False),
-                mpt.entropy_exp_tens(d_sca, method=method, verbose=False),
+                mpt.entropy_exp_tens(
+                    d_mat, method=method,
+                    truncation_sigmas=4.0, verbose=False),
+                mpt.entropy_exp_tens(
+                    d_sca, method=method,
+                    truncation_sigmas=4.0, verbose=False),
                 rtol=1e-9)
 
 
 class TestWhitenedVsDirect:
     """The whitened machinery equals a direct anisotropic computation."""
 
-    def test_eval_sa_single_tuple(self):
+    def test_eval_single_multiset_single_tuple(self):
         r = 3
         Sigma = _random_spd(r, scale=0.5)
         p = np.array([1.0, -0.5, 2.0])
@@ -241,7 +248,11 @@ class TestWhitenedVsDirect:
             d2 = X[r] - P2[0, n]
             f2 = np.exp(-d2**2 / (2 * sig_t**2))
             want += f1 * f2
-        np.testing.assert_allclose(got, want, rtol=1e-12)
+        # inf resolves to the accuracy-floor width, so near-zero query
+        # points differ from the exhaustive reference by a sub-1e-12
+        # absolute tail; add an absolute floor scaled to the peak.
+        np.testing.assert_allclose(got, want, rtol=1e-12,
+                                   atol=1e-11 * float(np.max(np.abs(want))))
 
 
 class TestShiftRidgeLimits:
@@ -312,8 +323,11 @@ class TestEntropyClosedForms:
         p = np.array([0.0, 0.5])
         dens = mpt.build_exp_tens(p, np.ones(r), Sigma, r, False, False,
                                   0.0, False, verbose=False)
+        # This entropy is near zero, so the rtol=1e-4 closed-form check is
+        # unusually sensitive and needs the tighter accuracy (still a
+        # feasible ~13M-point grid in 2-D).
         got = mpt.entropy_exp_tens(dens, method="differential", base=np.e,
-                                   verbose=False)
+                                   truncation_sigmas=6.0, verbose=False)
         want = 0.5 * r * np.log(2 * np.pi * np.e) \
             + 0.5 * np.linalg.slogdet(Sigma)[1]
         np.testing.assert_allclose(got, want, rtol=1e-4)
@@ -353,7 +367,7 @@ class TestWindowedSimilarity:
         # The match is up to a common shift, absorbed by the ridge.
         assert prof[2] > 0.9
         # Manual check of one off-peak step: window drops the time
-        # attribute, so the step-n comparison is the plain SA cosine...
+        # attribute, so the step-n comparison is the plain single-multiset cosine...
         # (oneSidedDenom) of the anisotropic pairs.
         got_0 = prof[0]
         Sinv = np.linalg.inv(Sigma)

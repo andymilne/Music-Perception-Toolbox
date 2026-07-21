@@ -1113,18 +1113,22 @@ def _ma_eval_costs_ms(dens, n_q):
             continue
         joint_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
 
-    # Per-query culling factor: the single-multiset centres route
-    # (_eval_core) truncates each Gaussian at truncation_sigmas, so per
-    # query only the centres within a few sigma contribute; the
-    # near-centre fraction is min(1, c * sigma / spread), where spread is
-    # the source spread (max - min of the positions). The multi-attribute
-    # full-tensor route does not cull this way --- it evaluates the joint
-    # difference tensor in full --- so culling applies only to the
-    # single-multiset corner, matching the evaluator that runs.
+    # Per-query culling factor: the single-multiset non-periodic centres
+    # route (_eval_core) hashes the tuple centres into a truncation-radius
+    # bucket grid and evaluates only the centres in each query's
+    # neighbouring buckets, so per query the near-centre fraction is
+    # min(1, c * sigma / spread), where spread is the source spread
+    # (max - min of the positions). Two routes do not cull this way and
+    # so take no discount: the multi-attribute full-tensor route (it forms
+    # the joint difference tensor in full and masks the tails), and the
+    # periodic single-multiset route (the pairwise wrap is not a
+    # tail-truncatable ball, so it also runs dense). Culling therefore
+    # applies only to the single-multiset non-periodic corner, matching
+    # the evaluator that runs.
     from .density import is_single_multiset
 
     cull = 1.0
-    if is_single_multiset(dens) and sigma[0] > 0:
+    if is_single_multiset(dens) and sigma[0] > 0 and not is_per[0]:
         spread_0 = 0.0
         p_attr = getattr(dens, "p_attr", None)
         if p_attr is not None and len(p_attr) and p_attr[0] is not None:

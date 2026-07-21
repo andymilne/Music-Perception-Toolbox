@@ -1,10 +1,49 @@
 """Toolbox-wide default options.
 
 Centralises the few user-tunable toolbox defaults (currently:
-``truncation_sigmas``, ``kernel_precision``). The defaults are consulted by
-:func:`mpt._kernel.gaussian_kernel_sum` and (via that helper) by every
-centres-path consumer in the toolbox. Per-call keyword arguments
+``truncation_sigmas``, ``kernel_precision``). Per-call keyword arguments
 always override the defaults set here.
+
+``truncation_sigmas`` (factory default 6) is the Gaussian kernel truncation
+radius, in standard deviations. A kernel centred more than
+``truncation_sigmas * sigma`` from an evaluation point is dropped; at that
+radius the kernel has decayed to ``exp(-truncation_sigmas**2 / 2)`` of its
+peak. That factor is therefore an upper bound on the relative contribution
+any single excluded centre would have made, so the absolute error of a
+kernel sum is at most ``exp(-truncation_sigmas**2 / 2)`` times the summed
+weight of the excluded centres, and its relative error is of the same order
+wherever the retained centres dominate (the usual case). Representative
+bounds (k = truncation_sigmas)::
+
+    truncation_sigmas    error bound exp(-k**2 / 2)
+          3                    1.1e-2
+          4                    3.4e-4
+          5                    3.7e-6
+          6                    1.5e-8     (factory default)
+          7                    2.3e-11
+          inf                  1.0e-12    (see below)
+
+``inf`` does not sum into the far denormal tail. It resolves to the finite
+width (~7.43 sigma) at which the kernel reaches the 1e-12 parity floor,
+applied uniformly across the absolute, relative, single- and multi-attribute,
+kernel and orbit paths. Treat ``inf`` as "exact to 1e-12" rather than
+literally exhaustive.
+
+What it affects: every density evaluation routes through the Gaussian kernel
+sum, so ``truncation_sigmas`` governs the accuracy of ``eval_exp_tens``,
+``cos_sim_exp_tens``, ``entropy_exp_tens``, ``tensor_harmonicity``,
+``template_harmonicity``, ``spectral_entropy``, ``virtual_pitches``,
+``windowed_tensor_similarity``, and ``weight_events``, together with the
+orbit evaluators those functions call. It does not affect any non-kernel
+computation.
+
+Differential entropy is a special case: there ``truncation_sigmas`` also
+sets the adaptive convergence tolerance,
+``max(exp(-truncation_sigmas**2 / 2), 1e-12)``, and hence how fine the
+nested grid must become. At the tightest accuracy (``inf``) a two- or
+higher-dimensional grid can exceed the feasible size, in which case
+``entropy_exp_tens`` raises with guidance rather than exhausting memory;
+the factory default 6 keeps such grids feasible.
 
 Defaults persist within the Python process but not across processes.
 
@@ -398,8 +437,8 @@ def show_defaults() -> None:
         "",
         f"  truncation_sigmas: {trunc_str:<12}  Gaussian kernel truncation radius, in sigmas.",
         "                                   inf = exact; larger is more accurate, slower.",
-        "                                   Worst-case error vs exact: 4 -> ~1e-3,",
-        "                                   5 -> ~1e-5, 6 (default) -> ~2e-8.",
+        "                                   Relative error exp(-k^2/2): 4 -> 3.4e-4,",
+        "                                   5 -> 3.7e-6, 6 (default) -> 1.5e-8.",
         f"  kernel_precision : {prec_str:<12}  Kernel-matrix arithmetic precision.",
         "                                   'double' (default) or 'single'.",
         f"  show_hints       : {hints_str:<12}  Informational console messages from",
@@ -462,9 +501,9 @@ _TRUNCATION_NOTICE_MESSAGE = (
     "Kernel evaluation truncates the Gaussian kernel at 6 sigma by "
     "default, which runs much faster than a wider cutoff; the speed-up "
     "grows with tuple size r and multiset size, where a wider cutoff has "
-    "many kernel centres and becomes expensive. Worst-case error vs an "
-    "essentially exhaustive sum is about 2e-8 at 6 sigma (the default), "
-    "~1e-5 at 5, and ~1e-3 at 4. Set "
+    "many kernel centres and becomes expensive. Relative error is of "
+    "order exp(-k^2/2): ~1.5e-8 at 6 sigma (the default), ~3.7e-6 at 5, "
+    "and ~3.4e-4 at 4. Set "
     "mpt.set_default(truncation_sigmas=float('inf')) for the accuracy "
     "floor (~7.43 sigma, ~1e-12 error). This warning shows only once "
     "per session."

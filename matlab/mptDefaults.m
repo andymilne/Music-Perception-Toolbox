@@ -2,11 +2,50 @@ function varargout = mptDefaults(varargin)
 %MPTDEFAULTS  Get / set / reset toolbox-wide default options.
 %
 %   Centralises the user-tunable toolbox defaults (currently:
-%   truncationSigmas, kernelPrecision, showHints). The first two
-%   are consulted by INTERNAL.GAUSSIANKERNELSUM and (via that helper)
-%   by every centres-path consumer in the toolbox. showHints gates
-%   one-time informational tips. Per-call name-value arguments
-%   always override the defaults set here.
+%   truncationSigmas, kernelPrecision, showHints). showHints gates
+%   one-time informational tips. Per-call name-value arguments always
+%   override the defaults set here.
+%
+%   truncationSigmas (factory default 6) is the Gaussian kernel
+%   truncation radius, in standard deviations. A kernel centred more
+%   than truncationSigmas*sigma from an evaluation point is dropped; at
+%   that radius the kernel has decayed to exp(-truncationSigmas^2/2) of
+%   its peak. That factor is therefore an upper bound on the relative
+%   contribution any single excluded centre would have made -- so the
+%   absolute error of a kernel sum is at most exp(-truncationSigmas^2/2)
+%   times the summed weight of the excluded centres, and its relative
+%   error is of the same order wherever the retained centres dominate
+%   (the usual case). Representative bounds (k = truncationSigmas):
+%
+%       truncationSigmas    error bound exp(-k^2/2)
+%             3                    1.1e-2
+%             4                    3.4e-4
+%             5                    3.7e-6
+%             6                    1.5e-8     (factory default)
+%             7                    2.3e-11
+%           Inf                    1.0e-12    (see below)
+%
+%   Inf does not sum into the far denormal tail. It resolves to the
+%   finite width (~7.43 sigma) at which the kernel reaches the 1e-12
+%   parity floor, applied uniformly across the absolute, relative,
+%   single- and multi-attribute, kernel and orbit paths. Treat Inf as
+%   "exact to 1e-12" rather than literally exhaustive.
+%
+%   What it affects. Every density evaluation routes through the
+%   Gaussian kernel sum, so truncationSigmas governs the accuracy of
+%   evalExpTens, cosSimExpTens, entropyExpTens, tensorHarmonicity,
+%   templateHarmonicity, spectralEntropy, virtualPitches,
+%   windowedTensorSimilarity, and weightEvents, together with the orbit
+%   evaluators those functions call. It does not affect any non-kernel
+%   computation.
+%
+%   Differential entropy is a special case. There truncationSigmas also
+%   sets the adaptive convergence tolerance,
+%   max(exp(-truncationSigmas^2/2), 1e-12), and hence how fine the
+%   nested grid must become. At the tightest accuracy (Inf) a two- or
+%   higher-dimensional grid can exceed the feasible size, in which case
+%   entropyExpTens refuses with guidance rather than exhausting memory;
+%   the factory default 6 keeps such grids feasible.
 %
 %   Call forms:
 %
@@ -157,8 +196,8 @@ function printSummary(S)
     fprintf('  truncationSigmas: %-12s  Gaussian kernel truncation radius, in sigmas.\n', ...
             num2str(S.truncationSigmas));
     fprintf('                                  Inf = exact; larger is more accurate, slower.\n');
-    fprintf('                                  Worst-case error vs exact: 4 -> ~1e-3,\n');
-    fprintf('                                  5 -> ~1e-5, 6 (default) -> ~2e-8.\n');
+    fprintf('                                  Relative error exp(-k^2/2): 4 -> 3.4e-4,\n');
+    fprintf('                                  5 -> 3.7e-6, 6 (default) -> 1.5e-8.\n');
     fprintf('  kernelPrecision : %-12s  Kernel-matrix arithmetic precision.\n', ...
             sprintf('''%s''', S.kernelPrecision));
     fprintf('                                  ''double'' (default) or ''single''.\n');

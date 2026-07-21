@@ -926,8 +926,151 @@ def inner_product_orbit_pw_batched(
 
 
 # ---------------------------------------------------------------------
-# Total-mass formula (used for Rényi-2 entropy and elsewhere)
+# Sparse-kernel orbit inner product (spatial cull for large, sparse
+# slot kernels). Each orbit's bipartite graph is contracted by
+# min-degree elimination -- degree-1 nodes fold in as mat-vecs,
+# degree-2 nodes become Gram products (sparse matmul) -- which for
+# every shipped arity (r <= 8; graphs no worse than K_{2,m}) never
+# needs more than a 2-D intermediate. A degree->=3 node (would need a
+# higher-order intermediate) reverts that orbit to the dense einsum;
+# a per-matrix density guard densifies any Gram that fills in. The
+# value equals the dense orbit inner product to floating point.
 # ---------------------------------------------------------------------
+
+
+def _orbit_elementwise(A, B):
+    import scipy.sparse as sp
+    if sp.issparse(A) and sp.issparse(B):
+        return A.multiply(B).tocsr()
+    Ad = A.toarray() if sp.issparse(A) else A
+    Bd = B.toarray() if sp.issparse(B) else B
+    return Ad * Bd
+
+
+def _contract_orbit_sparse(orb, K, wA, wB, density_thresh):
+    """Contract one orbit's bipartite graph with a sparse kernel by
+    min-degree elimination. Returns the scalar contraction, or ``None``
+    to signal that a degree->=3 node was reached (dense fallback)."""
+    import scipy.sparse as sp
+    nA, nB = wA.size, wB.size
+    Kpow = {1: K}
+
+    def kpow(m):
+        if m not in Kpow:
+            Kpow[m] = K.power(m)
+        return Kpow[m]
+
+    node_w, node_n = {}, {}
+    for al in range(orb.qA):
+        node_w[al] = wA ** orb.m_A[al]
+        node_n[al] = nA
+    for be in range(orb.qB):
+        nid = orb.qA + be
+        node_w[nid] = wB ** orb.m_B[be]
+        node_n[nid] = nB
+
+    edges = {}
+
+    def add_edge(p, q, M):
+        lo, hi = (p, q) if p < q else (q, p)
+        if (p, q) != (lo, hi):
+            M = M.T
+        edges[(lo, hi)] = _orbit_elementwise(edges[(lo, hi)], M) \
+            if (lo, hi) in edges else M
+
+    for (al, be, m) in orb.edges:
+        add_edge(al, orb.qA + be, kpow(m))
+
+    scalar = 1.0
+    nodes = set(node_w)
+
+    def incident(v):
+        return [(lo, hi) for (lo, hi) in edges if lo == v or hi == v]
+
+    while nodes:
+        degree = {v: len(incident(v)) for v in nodes}
+        v = min(nodes, key=lambda x: degree[x])
+        d = degree[v]
+        if d == 0:
+            scalar *= float(node_w[v].sum())
+            nodes.discard(v)
+            del node_w[v]
+        elif d == 1:
+            (lo, hi), = incident(v)
+            M = edges.pop((lo, hi))
+            u = hi if lo == v else lo
+            vec = (M.T @ node_w[v]) if lo == v else (M @ node_w[v])
+            node_w[u] = node_w[u] * np.asarray(vec).ravel()
+            nodes.discard(v)
+            del node_w[v]
+        elif d == 2:
+            e1, e2 = incident(v)
+            M1 = edges.pop(e1)
+            M2 = edges.pop(e2)
+            u1 = e1[1] if e1[0] == v else e1[0]
+            u2 = e2[1] if e2[0] == v else e2[0]
+            if e1[0] != v:
+                M1 = M1.T
+            if e2[0] != v:
+                M2 = M2.T
+            wv = node_w[v]
+            M2s = sp.diags(wv) @ M2 if sp.issparse(M2) else wv[:, None] * M2
+            G = M1.T @ M2s
+            if sp.issparse(G):
+                G = G.tocsr()
+                if G.nnz > density_thresh * G.shape[0] * G.shape[1]:
+                    G = G.toarray()
+            nodes.discard(v)
+            del node_w[v]
+            add_edge(u1, u2, G)
+        else:
+            return None
+    return scalar
+
+
+def _contract_orbit_dense_from(orb, Kd, wA, wB):
+    operands = []
+    for al in range(orb.qA):
+        operands.append(wA ** orb.m_A[al])
+    for be in range(orb.qB):
+        operands.append(wB ** orb.m_B[be])
+    for (_, _, m) in orb.edges:
+        operands.append(Kd if m == 1 else Kd ** m)
+    return float(np.einsum(orb.einsum_str, *operands,
+                           optimize=orb.einsum_path))
+
+
+def inner_product_orbit_sparse(K_sp, wA, wB, r, *, prefactor=1.0,
+                               return_cancellation_ratio=False,
+                               density_thresh=0.34):
+    """Sparse-kernel twin of :func:`inner_product_orbit`.
+
+    ``K_sp`` is a scipy.sparse (nA x nB) truncated kernel. The value
+    equals :func:`inner_product_orbit` on the same (densified) kernel to
+    floating point. With ``return_cancellation_ratio=True`` returns
+    ``(value, ratio)`` with ``ratio = |total| / max|term|`` over orbit
+    classes, matching the dense contract.
+    """
+    table = get_orbit_table(r)
+    Kd = None
+    total = 0.0
+    max_abs_term = 0.0
+    for orb in table:
+        val = _contract_orbit_sparse(orb, K_sp, wA, wB, density_thresh)
+        if val is None:
+            if Kd is None:
+                Kd = K_sp.toarray()
+            val = _contract_orbit_dense_from(orb, Kd, wA, wB)
+        term = orb.weight * orb.mu * val
+        total += term
+        if abs(term) > max_abs_term:
+            max_abs_term = abs(term)
+    value = prefactor * total
+    if return_cancellation_ratio:
+        ratio = abs(total) / max_abs_term if max_abs_term > 0 else 1.0
+        return value, ratio
+    return value
+
 
 
 def total_mass_abs(p_unused, w: np.ndarray, sigma: float, r: int) -> float:

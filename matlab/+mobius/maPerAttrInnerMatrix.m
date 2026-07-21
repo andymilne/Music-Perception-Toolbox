@@ -160,10 +160,33 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 
     % --- Safe x Safe submatrix: vectorised batched Möbius method ---
     if ~isempty(safe_x_idx) && ~isempty(safe_y_idx)
-        I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
-            Px(:, safe_x_idx), Wx(:, safe_x_idx), ...
-            Py(:, safe_y_idx), Wy(:, safe_y_idx), ...
-            sigma, r, isPer, period, truncationSigmas);
+        Pxs = Px(:, safe_x_idx); Wxs = Wx(:, safe_x_idx);
+        Pys = Py(:, safe_y_idx); Wys = Wy(:, safe_y_idx);
+        KxMax = size(Pxs, 1); KyMax = size(Pys, 1);
+
+        % Sparse-orbit fast path: when the slot kernel is large and the
+        % (non-periodic) slots are well-separated, a spatially-culled
+        % per-pair orbit beats the dense batched contraction. Gate on a
+        % cheap density probe from one representative safe pair.
+        [minKernel, maxDensity] = localOrbitSparseThresholds();
+        useSparse = false;
+        if ~isPer && r >= 2 && KxMax * KyMax >= minKernel
+            vx0 = ~isnan(Pxs(:, 1)) & ~isnan(Wxs(:, 1)) & (Wxs(:, 1) ~= 0);
+            vy0 = ~isnan(Pys(:, 1)) & ~isnan(Wys(:, 1)) & (Wys(:, 1) ~= 0);
+            K0 = localBuildSparseKernelAbs( ...
+                Pxs(vx0, 1), Pys(vy0, 1), sigma, truncationSigmas);
+            if nnz(K0) <= maxDensity * KxMax * KyMax
+                useSparse = true;
+            end
+        end
+
+        if useSparse
+            I(safe_x_idx, safe_y_idx) = localSafeSafeOrbitSparse( ...
+                Pxs, Wxs, Pys, Wys, sigma, r, truncationSigmas);
+        else
+            I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
+                Pxs, Wxs, Pys, Wys, sigma, r, isPer, period, truncationSigmas);
+        end
     end
 
     % --- Pairs involving any unsafe event: K-grouped batched direct ---
@@ -306,6 +329,110 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
             'prefactor', prefactor);
         I(idxX, :) = reshape(flat, nc, Ny_safe);
     end
+end
+
+
+function [minKernel, maxDensity] = localOrbitSparseThresholds()
+%LOCALORBITSPARSETHRESHOLDS  Sparse-orbit cost model (mirror of the Python
+%   _ORBIT_SPARSE_MIN_KERNEL / _ORBIT_SPARSE_MAX_DENSITY). The sparse
+%   per-pair orbit undercuts the dense batched contraction only when the
+%   slot kernel is both large and sparse; below these thresholds the
+%   dense contraction's constant factors win. Tunable.
+    minKernel = 200000;   % Kx * Ky floor
+    maxDensity = 0.20;    % nnz / (Kx * Ky) ceiling
+end
+
+
+function I = localSafeSafeOrbitSparse(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
+                                        sigma, r, truncationSigmas)
+%LOCALSAFESAFEORBITSPARSE  Safe submatrix via the sparse per-pair orbit.
+%
+%   Absolute mode only. Each event uses just its non-zero-weight,
+%   non-NaN slots, so variable cardinality is handled naturally (a
+%   zero-weight slot contributes zero to every orbit term). Mirrors the
+%   dense LOCALSAFESAFEORBIT output.
+
+    [~, Nx_safe] = size(Px_safe);
+    [~, Ny_safe] = size(Py_safe);
+    prefactor = (sigma * sqrt(pi))^r;
+
+    yPts = cell(Ny_safe, 1);
+    yWts = cell(Ny_safe, 1);
+    for j = 1:Ny_safe
+        py = Py_safe(:, j); wy = Wy_safe(:, j);
+        vy = ~isnan(py) & ~isnan(wy) & (wy ~= 0);
+        yPts{j} = py(vy);
+        yWts{j} = wy(vy);
+    end
+
+    I = zeros(Nx_safe, Ny_safe);
+    for i = 1:Nx_safe
+        px = Px_safe(:, i); wx = Wx_safe(:, i);
+        vx = ~isnan(px) & ~isnan(wx) & (wx ~= 0);
+        pxi = px(vx); wxi = wx(vx);
+        for j = 1:Ny_safe
+            Ksp = localBuildSparseKernelAbs( ...
+                pxi, yPts{j}, sigma, truncationSigmas);
+            I(i, j) = mobius.innerProductOrbitSparse( ...
+                Ksp, wxi, yWts{j}, r, 'prefactor', prefactor);
+        end
+    end
+end
+
+
+function Ksp = localBuildSparseKernelAbs(pX, pY, sigma, truncationSigmas)
+%LOCALBUILDSPARSEKERNELABS  Spatially-culled absolute-mode kernel as a
+%   sparse matrix. Keeps only slot pairs within the truncation radius via
+%   a 1-D sorted window, matching INTERNAL.TRUNCKERNELEXP's cutoff
+%   (|d|^2 > 2 (truncationSigmas * sigma)^2) without the dense O(n^2) pass.
+
+    nx = numel(pX);
+    ny = numel(pY);
+    if nx == 0 || ny == 0
+        Ksp = sparse(nx, ny);
+        return;
+    end
+    R = sqrt(2) * truncationSigmas * sigma;
+    [pYs, order] = sort(pY(:));
+    rowsC = cell(nx, 1);
+    colsC = cell(nx, 1);
+    valsC = cell(nx, 1);
+    for i = 1:nx
+        x = pX(i);
+        lo = localLowerBound(pYs, x - R);
+        hi = localLowerBound(pYs, x + R);
+        if hi > lo
+            jj = order(lo:hi - 1);
+            d = x - pY(jj);
+            rowsC{i} = repmat(i, numel(jj), 1);
+            colsC{i} = jj(:);
+            valsC{i} = exp(-(d(:) .^ 2) / (4 * sigma^2));
+        end
+    end
+    rows = vertcat(rowsC{:});
+    cols = vertcat(colsC{:});
+    vals = vertcat(valsC{:});
+    if isempty(rows)
+        Ksp = sparse(nx, ny);
+    else
+        Ksp = sparse(rows, cols, vals, nx, ny);
+    end
+end
+
+
+function idx = localLowerBound(sortedVec, val)
+%LOCALLOWERBOUND  First index i with sortedVec(i) >= val (numel+1 if none).
+    lo = 1;
+    hi = numel(sortedVec) + 1;
+    while lo < hi
+        mid = floor((lo + hi) / 2);
+        if sortedVec(mid) < val
+            lo = mid + 1;
+        else
+            hi = mid;
+        end
+    end
+    idx = lo;
 end
 
 

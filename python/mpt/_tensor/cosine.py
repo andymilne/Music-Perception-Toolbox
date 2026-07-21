@@ -1608,6 +1608,82 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas):
 
 
 
+# Sparse-orbit cost model. The sparse per-pair orbit undercuts the dense
+# batched contraction only when the slot kernel is both large and sparse;
+# below these thresholds the dense einsum's constant factors win. Tunable.
+_ORBIT_SPARSE_MIN_KERNEL = 200_000     # K_x * K_y floor
+_ORBIT_SPARSE_MAX_DENSITY = 0.20       # nnz / (K_x * K_y) ceiling
+
+
+def _build_sparse_kernel_abs(pX, pY, sigma, truncation_sigmas):
+    """Spatially-culled absolute-mode kernel as a scipy.sparse matrix.
+
+    Keeps only slot pairs within the truncation radius via a 1-D sorted
+    window (O(n log n + nnz)), matching :func:`_trunc_kernel_exp`'s cutoff
+    without the dense O(n^2) distance pass.
+    """
+    import scipy.sparse as sp
+    R = np.sqrt(2.0) * float(truncation_sigmas) * sigma
+    order = np.argsort(pY)
+    pYs = pY[order]
+    rows, cols, vals = [], [], []
+    for i in range(pX.size):
+        x = pX[i]
+        lo = np.searchsorted(pYs, x - R)
+        hi = np.searchsorted(pYs, x + R)
+        if hi > lo:
+            jj = order[lo:hi]
+            d = x - pY[jj]
+            rows.append(np.full(jj.size, i, dtype=np.intp))
+            cols.append(jj.astype(np.intp))
+            vals.append(np.exp(-d * d / (4.0 * sigma * sigma)))
+    if not rows:
+        return sp.csr_matrix((pX.size, pY.size))
+    return sp.csr_matrix(
+        (np.concatenate(vals),
+         (np.concatenate(rows), np.concatenate(cols))),
+        shape=(pX.size, pY.size))
+
+
+def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
+                                 prefactor, truncation_sigmas,
+                                 return_cancellation_ratio):
+    """Safe-submatrix orbit inner products via the sparse per-pair path.
+
+    Mirrors the dense batched safe-submatrix output: returns the flattened
+    ``(N_xs * N_ys,)`` vector in row-major (x, y) order and the worst
+    cancellation ratio. Each event uses only its non-zero-weight slots, so
+    variable cardinality is handled naturally (a zero-weight slot
+    contributes zero to every orbit term).
+    """
+    from .._mobius import inner_product_orbit_sparse
+    N_xs = Px_s.shape[1]
+    N_ys = Py_s.shape[1]
+    flat = np.empty(N_xs * N_ys, dtype=np.float64)
+    worst = 1.0
+    y_slots = []
+    for j in range(N_ys):
+        vy = Wy_s[:, j] != 0.0
+        y_slots.append((Py_s[vy, j], Wy_s[vy, j]))
+    for i in range(N_xs):
+        vx = Wx_s[:, i] != 0.0
+        pxi, wxi = Px_s[vx, i], Wx_s[vx, i]
+        for j in range(N_ys):
+            pyj, wyj = y_slots[j]
+            Ks = _build_sparse_kernel_abs(pxi, pyj, sigma, truncation_sigmas)
+            if return_cancellation_ratio:
+                v, ratio = inner_product_orbit_sparse(
+                    Ks, wxi, wyj, r, prefactor=prefactor,
+                    return_cancellation_ratio=True)
+                if ratio < worst:
+                    worst = ratio
+            else:
+                v = inner_product_orbit_sparse(
+                    Ks, wxi, wyj, r, prefactor=prefactor)
+            flat[i * N_ys + j] = v
+    return flat, worst
+
+
 def _ma_per_attr_inner_matrix(
     Px, Wx, Py, Wy, sigma, r, is_rel, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
@@ -1800,63 +1876,52 @@ def _ma_per_attr_inner_matrix(
         N_xs = safe_x_idx.size
         N_ys = safe_y_idx.size
         prefactor = (sigma * np.sqrt(np.pi)) ** r
-        # Memory: each of diffs, diffs**2, K_tens is
-        # (K_x_max, chunk_N_xs, K_y_max, N_ys) * 8 bytes; ~3 live arrays.
-        # K_pairs reshape adds another N_pairs * K_x_max * K_y_max * 8.
-        per_row_bytes = 4 * K_x_max * K_y_max * N_ys * 8
-        mem_limit = kernel_chunk_bytes_resolved()
-        chunk_N_xs = max(1, min(N_xs, mem_limit // max(per_row_bytes, 1)))
 
-        if chunk_N_xs >= N_xs:
-            # Fast path: single shot.
-            diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
-            if is_per:
-                diffs = diffs - period * np.floor(diffs / period + 0.5)
-            K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-            K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-                N_xs * N_ys, K_x_max, K_y_max,
-            )
-            w_A_pairs = np.broadcast_to(
-                Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
-            ).reshape(N_xs * N_ys, K_x_max)
-            w_B_pairs = np.broadcast_to(
-                Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
-            ).reshape(N_xs * N_ys, K_y_max)
+        # Sparse-orbit fast path: when the slot kernel is large and the
+        # (non-periodic) slots are well-separated, a spatially-culled
+        # per-pair orbit beats the dense batched contraction. Gate on a
+        # cheap density probe from one representative safe pair.
+        use_sparse = False
+        if (not is_per) and r >= 2 \
+                and K_x_max * K_y_max >= _ORBIT_SPARSE_MIN_KERNEL:
+            vx0 = Wx_s[:, 0] != 0.0
+            vy0 = Wy_s[:, 0] != 0.0
+            K0 = _build_sparse_kernel_abs(
+                Px_s[vx0, 0], Py_s[vy0, 0], sigma, truncation_sigmas)
+            if K0.nnz <= _ORBIT_SPARSE_MAX_DENSITY * K_x_max * K_y_max:
+                use_sparse = True
 
+        if use_sparse:
+            flat, wr = _orbit_safe_submatrix_sparse(
+                Px_s, Wx_s, Py_s, Wy_s, sigma, r, prefactor,
+                truncation_sigmas, return_cancellation_ratio)
             if return_cancellation_ratio:
-                flat, ratios = inner_product_orbit_pw_batched(
-                    K_pairs, w_A_pairs, w_B_pairs, r,
-                    prefactor=prefactor,
-                    return_cancellation_ratio=True,
-                )
-                worst_ratio = min(worst_ratio, float(np.min(ratios)))
-            else:
-                flat = inner_product_orbit_pw_batched(
-                    K_pairs, w_A_pairs, w_B_pairs, r,
-                    prefactor=prefactor,
-                )
+                worst_ratio = min(worst_ratio, float(wr))
             out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
+
         else:
-            # Chunked path: process safe_x_idx in chunks of chunk_N_xs.
-            safe_flat = np.empty((N_xs, N_ys), dtype=np.float64)
-            for n_start in range(0, N_xs, chunk_N_xs):
-                n_end = min(n_start + chunk_N_xs, N_xs)
-                n_chunk = n_end - n_start
-                Px_chunk = Px_s[:, n_start:n_end]
-                Wx_chunk = Wx_s[:, n_start:n_end]
-                diffs = Px_chunk[:, :, None, None] - Py_s[None, None, :, :]
+            # Memory: each of diffs, diffs**2, K_tens is
+            # (K_x_max, chunk_N_xs, K_y_max, N_ys) * 8 bytes; ~3 live.
+            # K_pairs reshape adds N_pairs * K_x_max * K_y_max * 8.
+            per_row_bytes = 4 * K_x_max * K_y_max * N_ys * 8
+            mem_limit = kernel_chunk_bytes_resolved()
+            chunk_N_xs = max(1, min(N_xs, mem_limit // max(per_row_bytes, 1)))
+
+            if chunk_N_xs >= N_xs:
+                # Fast path: single shot.
+                diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
                 if is_per:
                     diffs = diffs - period * np.floor(diffs / period + 0.5)
                 K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
                 K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-                    n_chunk * N_ys, K_x_max, K_y_max,
+                    N_xs * N_ys, K_x_max, K_y_max,
                 )
                 w_A_pairs = np.broadcast_to(
-                    Wx_chunk.T[:, None, :], (n_chunk, N_ys, K_x_max),
-                ).reshape(n_chunk * N_ys, K_x_max)
+                    Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
+                ).reshape(N_xs * N_ys, K_x_max)
                 w_B_pairs = np.broadcast_to(
-                    Wy_s.T[None, :, :], (n_chunk, N_ys, K_y_max),
-                ).reshape(n_chunk * N_ys, K_y_max)
+                    Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
+                ).reshape(N_xs * N_ys, K_y_max)
 
                 if return_cancellation_ratio:
                     flat, ratios = inner_product_orbit_pw_batched(
@@ -1870,8 +1935,43 @@ def _ma_per_attr_inner_matrix(
                         K_pairs, w_A_pairs, w_B_pairs, r,
                         prefactor=prefactor,
                     )
-                safe_flat[n_start:n_end, :] = flat.reshape(n_chunk, N_ys)
-            out[np.ix_(safe_x_idx, safe_y_idx)] = safe_flat
+                out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
+            else:
+                # Chunked path: process safe_x_idx in chunks of chunk_N_xs.
+                safe_flat = np.empty((N_xs, N_ys), dtype=np.float64)
+                for n_start in range(0, N_xs, chunk_N_xs):
+                    n_end = min(n_start + chunk_N_xs, N_xs)
+                    n_chunk = n_end - n_start
+                    Px_chunk = Px_s[:, n_start:n_end]
+                    Wx_chunk = Wx_s[:, n_start:n_end]
+                    diffs = Px_chunk[:, :, None, None] - Py_s[None, None, :, :]
+                    if is_per:
+                        diffs = diffs - period * np.floor(diffs / period + 0.5)
+                    K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                    K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
+                        n_chunk * N_ys, K_x_max, K_y_max,
+                    )
+                    w_A_pairs = np.broadcast_to(
+                        Wx_chunk.T[:, None, :], (n_chunk, N_ys, K_x_max),
+                    ).reshape(n_chunk * N_ys, K_x_max)
+                    w_B_pairs = np.broadcast_to(
+                        Wy_s.T[None, :, :], (n_chunk, N_ys, K_y_max),
+                    ).reshape(n_chunk * N_ys, K_y_max)
+
+                    if return_cancellation_ratio:
+                        flat, ratios = inner_product_orbit_pw_batched(
+                            K_pairs, w_A_pairs, w_B_pairs, r,
+                            prefactor=prefactor,
+                            return_cancellation_ratio=True,
+                        )
+                        worst_ratio = min(worst_ratio, float(np.min(ratios)))
+                    else:
+                        flat = inner_product_orbit_pw_batched(
+                            K_pairs, w_A_pairs, w_B_pairs, r,
+                            prefactor=prefactor,
+                        )
+                    safe_flat[n_start:n_end, :] = flat.reshape(n_chunk, N_ys)
+                out[np.ix_(safe_x_idx, safe_y_idx)] = safe_flat
 
     # --- Pairs involving any unsafe event: K-grouped batched direct ---
     # All pairs not in (safe_x, safe_y) flow through ordered-r-tuple

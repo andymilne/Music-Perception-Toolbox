@@ -3071,19 +3071,20 @@ def _ma_ip_per_event_factors(dens, side, skip=None):
 def _nested_factor_cullable(spec, is_per, a):
     """True when a nested attribute's IP factor admits the leaf cull.
 
-    Cullable when the attribute is two-level and its co-transposition is
-    absolute or at the innermost (leaf) unit, so the factor separates
-    into a leaf group-vs-group inner product (a flat multiset IP the
-    culled helper computes) contracted over the outer level. A leaf
-    co-transposition needs a non-periodic leaf (the helper does not take
-    the relative-periodic minimum-image form). Outer or intermediate
-    co-transposition, and depth beyond two levels, stay on the dense
-    factor.
+    Cullable when the co-transposition is absolute or at the innermost
+    (leaf) unit, at any nesting depth. The metric then lives only at the
+    leaf, so the factor separates into leaf group-vs-group inner products
+    (flat multiset IPs the culled helper computes), which the levels above
+    contract combinatorially. A leaf co-transposition needs a non-periodic
+    leaf (the helper does not take the relative-periodic minimum-image
+    form). An outer or intermediate co-transposition spreads the metric
+    across a multi-level block, so those stay on the dense factor.
     """
     r_levels = np.asarray(spec["r"]).ravel()
-    if r_levels.size != 2:
+    L = int(r_levels.size)
+    if L < 2:
         return False
-    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), 2, a)
+    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), L, a)
     if rel_unit is None:
         return True
     if rel_unit == 0:
@@ -3094,53 +3095,67 @@ def _nested_factor_cullable(spec, is_per, a):
 def _ma_ip_factor_nested_culled(spec, Xval, Xw, Yval, Yw, sigma, is_per,
                                 period, a, *, truncation_sigmas,
                                 kernel_precision):
-    """One two-level nested attribute's IP factor, leaf-culled.
+    """One nested attribute's IP factor, leaf-culled, at any depth.
 
-    The block-diagonal metric couples slots only within a co-transposition
-    unit, so the factor separates as a sum over outer group pairings of a
-    product of leaf group-vs-group inner products. Each leaf inner product
-    is a flat multiset IP taken through the culled helper; the outer level
-    then contracts the leaf-IP matrix with the nested cosine's own
-    ``_combine_pair`` (perm x comb, or the Moebius reduction when the
-    outer span makes it cheaper). The value equals the dense block-diagonal
+    With the metric at the leaf, the factor is the leaf group-vs-group
+    inner product contracted up the tag tree. Each leaf inner product is a
+    flat multiset IP taken through the culled helper; every level above
+    contracts its children's inner-product matrix with the nested cosine's
+    own ``_combine_pair`` (perm x comb, or the Moebius reduction when a
+    level's span makes it cheaper). The spatial cull therefore fires once,
+    at the leaf; the levels above carry no metric and are pure
+    combinatorial contraction. The value equals the dense block-diagonal
     factor at the accuracy floor.
     """
     from ._nested_contraction import _combine_pair, _orbit_eligible
     r_levels = [int(x) for x in np.asarray(spec["r"]).ravel()]
     sym_levels = [bool(x) for x in np.asarray(spec["sym"]).ravel()]
-    r0, r_out = r_levels
-    sym0, sym_out = sym_levels
-    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), 2, a)
+    L = len(r_levels)
+    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), L, a)
     is_rel_leaf = (rel_unit == 0)
+    r0, sym0 = r_levels[0], sym_levels[0]
 
     tags = np.asarray(spec["tags"])
-    tags_col = tags[:, 0] if tags.ndim == 2 else tags.ravel()
+    if tags.ndim == 1:
+        tags = tags.reshape(-1, 1)          # (K_total, L-1)
+
+    def group_by(slots, col):
+        keys = tags[slots, col]
+        order = np.argsort(keys, kind="stable")
+        slots_s = slots[order]
+        keys_s = keys[order]
+        bounds = np.nonzero(np.diff(keys_s))[0] + 1
+        return np.split(slots_s, bounds)
+
+    def leaf_ip(sx, sy):
+        if sx.size < r0 or sy.size < r0:
+            return 0.0
+        pm, _, pw, _ = _enum_flat_attr(Xval, sx, r0, sym0, Xw)
+        _, cm, _, cw = _enum_flat_attr(Yval, sy, r0, sym0, Yw)
+        return _ip_via_helper(
+            Xval[pm], pw, Yval[cm], cw, r0, float(sigma), is_rel_leaf,
+            bool(is_per), float(period), truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision)
+
+    def contract(sx, sy, level):
+        if level == 0:
+            return leaf_ip(sx, sy)
+        gx = group_by(sx, level - 1)
+        gy = group_by(sy, level - 1)
+        r_l, sym_l = r_levels[level], sym_levels[level]
+        if len(gx) < r_l or len(gy) < r_l:
+            return 0.0
+        M = np.empty((len(gx), len(gy)), dtype=np.float64)
+        for i, cx in enumerate(gx):
+            for j, cy in enumerate(gy):
+                M[i, j] = contract(cx, cy, level - 1)
+        use_orbit = (_orbit_eligible(len(gx), r_l, sym_l, False, False)
+                     and _orbit_eligible(len(gy), r_l, sym_l, False, False))
+        return float(_combine_pair(M[None], r_l, sym_l, use_orbit)[0])
+
     xv = np.nonzero(~np.isnan(Xval))[0].astype(np.intp)
     yv = np.nonzero(~np.isnan(Yval))[0].astype(np.intp)
-    xg = sorted(set(int(t) for t in tags_col[xv]))
-    yg = sorted(set(int(t) for t in tags_col[yv]))
-    if len(xg) < r_out or len(yg) < r_out:
-        return 0.0
-
-    y_leaf = []
-    for gy in yg:
-        sl = yv[tags_col[yv] == gy]
-        _, cm, _, cw = _enum_flat_attr(Yval, sl, r0, sym0, Yw)
-        y_leaf.append((Yval[cm], cw))
-    Lmat = np.zeros((len(xg), len(yg)), dtype=np.float64)
-    for i, gx in enumerate(xg):
-        sl = xv[tags_col[xv] == gx]
-        pm, _, pw, _ = _enum_flat_attr(Xval, sl, r0, sym0, Xw)
-        u, wU = Xval[pm], pw
-        for j, (v, wV) in enumerate(y_leaf):
-            Lmat[i, j] = _ip_via_helper(
-                u, wU, v, wV, r0, float(sigma), is_rel_leaf, bool(is_per),
-                float(period), truncation_sigmas=truncation_sigmas,
-                kernel_precision=kernel_precision)
-
-    use_orbit = (_orbit_eligible(len(xg), r_out, sym_out, False, False)
-                 and _orbit_eligible(len(yg), r_out, sym_out, False, False))
-    return float(_combine_pair(Lmat[None], r_out, sym_out, use_orbit)[0])
+    return contract(xv, yv, L - 1)
 
 
 def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in):

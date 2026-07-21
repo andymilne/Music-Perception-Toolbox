@@ -117,6 +117,48 @@ def test_factored_nested_large_leaf_completes():
     assert abs(val - 1.0) < 1e-9
 
 
+# Three-level nesting: col0 = finest group, col1 = outer group.
+_L3_TAGS = np.array([[0, 0], [0, 0], [1, 0], [1, 0],
+                     [2, 1], [2, 1], [3, 1], [3, 1]])
+
+
+def test_factored_nested_three_level_absolute():
+    for sym in ([True, True, False], [True, False, False], [True, True, True]):
+        spec = {"tags": _L3_TAGS, "r": [2, 2, 2], "sym": sym}
+        dx = _b([np.array([[0.], [4.], [7.], [11.], [24.], [28.], [31.], [35.]])],
+                [40.], [8], [False], [False], [0], nested=[spec])
+        dy = _b([np.array([[0.], [3.], [7.], [12.], [24.], [27.], [31.], [36.]])],
+                [40.], [8], [False], [False], [0], nested=[spec])
+        _match(dx, dy)
+
+
+def test_factored_nested_three_level_rel_innermost():
+    spec = {"tags": _L3_TAGS, "r": [2, 2, 2], "sym": [True, True, False],
+            "rel": "innermost"}
+    dx = _b([np.array([[0.], [4.], [7.], [11.], [24.], [28.], [31.], [35.]])],
+            [40.], [8], [False], [False], [0], nested=[spec])
+    dy = _b([np.array([[0.], [3.], [7.], [12.], [24.], [27.], [31.], [36.]])],
+            [40.], [8], [False], [False], [0], nested=[spec])
+    _match(dx, dy)
+
+
+def test_factored_nested_three_level_large_completes():
+    # Two outer groups x two finest groups x 16 slots, leaf r0=2: the
+    # dense factor's tuple set is astronomically large; the leaf cull
+    # reduces it to sixteen flat leaf IPs contracted up two levels.
+    rng = np.random.default_rng(5)
+    K = 16
+    col0 = np.repeat([0, 1, 2, 3], K)
+    col1 = np.repeat([0, 0, 1, 1], K)
+    tags = np.column_stack([col0, col1])
+    p = np.concatenate([np.sort(rng.uniform(lo, lo + 300, K))
+                        for lo in (0, 400, 800, 1200)]).reshape(-1, 1)
+    spec = {"tags": tags, "r": [2, 2, 2], "sym": [True, True, False]}
+    dx = _b([p], [50.], [8], [False], [False], [0], nested=[spec])
+    val = cos_sim_exp_tens(dx, dx, method="factored", verbose=False)
+    assert abs(val - 1.0) < 1e-9
+
+
 def test_factored_self_ip_is_one():
     dx = _b([np.array([[0.], [4.], [7.]]), np.array([[0.], [12.], [24.]])],
             [30., 30.], [2, 2], [False, False], [False, False], [0, 0])

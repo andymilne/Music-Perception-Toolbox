@@ -1,8 +1,10 @@
 APPLY NOTES — bundle: everything uncommitted on top of the SA-line HEAD (75041df).
 
-Includes all previously delivered work (periodic culling, entropy budget, docs)
-PLUS the accuracy-tied samples-per-sigma increment. Apply over your tree, then
-`git add -A`: identical files produce no diff.
+Includes all previously delivered work PLUS the periodic relative-mode sparse
+culling for orbit inner products (both languages) and the truncation_sigmas
+threading fix on the Python mobius cosine path. Apply over your tree, then
+`git add -A`: identical files produce no diff, so the commit reduces to the
+delta since your last commit.
 
 TWO FILES TO DELETE (renamed):
   git rm matlab/tests/test_dispatch_sa_cossim.m

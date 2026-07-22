@@ -1311,7 +1311,7 @@ def _cos_sim_exp_tens_ma(
 
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
-            dens_x, dens_y,
+            dens_x, dens_y, truncation_sigmas=truncation_sigmas,
         )
         # Two layers of Möbius-method result validation, fall back on either.
         # The per-entry worst_ratio diagnostic that previously gated
@@ -1643,6 +1643,69 @@ def _build_sparse_kernel_abs(pX, pY, sigma, truncation_sigmas):
         (np.concatenate(vals),
          (np.concatenate(rows), np.concatenate(cols))),
         shape=(pX.size, pY.size))
+
+
+def _rel_per_sparse_prep(pY, period):
+    """One-time sorted-tripled centre arrays for the circular builder.
+
+    Folds the B-side slot values into ``[0, P)``, sorts them, and
+    replicates each at ``c - P, c, c + P`` so a wrapped window maps to a
+    contiguous range of the sorted array. Returns ``(c3, j3)``: the
+    tripled sorted coordinates and, aligned with them, the original
+    column index of each copy. Shared across all u-nodes of a pair.
+    """
+    pYm = np.mod(np.asarray(pY, dtype=np.float64), period)
+    order = np.argsort(pYm, kind="stable")
+    pYs = pYm[order]
+    c3 = np.concatenate([pYs - period, pYs, pYs + period])
+    j3 = np.concatenate([order, order, order]).astype(np.intp)
+    return c3, j3
+
+
+def _build_sparse_kernel_rel_per(pX, c3, j3, pY, sigma, cutoff, period, u):
+    """Circular twin of :func:`_build_sparse_kernel_abs` at shift ``u``.
+
+    Entries ``exp(-wrap(pX[i] + u - pY[j])^2 / (4 sigma^2))`` for wrapped
+    squared distance at most ``cutoff``; the caller guards
+    ``2 sqrt(cutoff) < period``, so each row's window covers at most one
+    copy of any centre (no double counting). Candidates are located via
+    the sorted-tripled window (with a hair of padding), then retained
+    and evaluated with the dense path's own arithmetic --- the raw
+    difference, its floor-wrap, the ``exp_arg <= cutoff`` retention, and
+    ``exp(-exp_arg / (4 sigma^2))`` --- so the sparse kernel densifies
+    to :func:`_trunc_kernel_exp`'s output bit-for-bit.
+    """
+    import scipy.sparse as sp
+    n_x = pX.size
+    n_y = pY.size
+    R = float(np.sqrt(cutoff))
+    R_pad = R * (1.0 + 1e-9) + 1e-9 * period
+    x = np.mod(pX + u, period)
+    lo = np.searchsorted(c3, x - R_pad, side="left")
+    hi = np.searchsorted(c3, x + R_pad, side="right")
+    counts = hi - lo
+    total = int(counts.sum())
+    if total == 0:
+        return sp.csr_matrix((n_x, n_y))
+    row_ptr = np.zeros(n_x + 1, dtype=np.intp)
+    np.cumsum(counts, out=row_ptr[1:])
+    rows = np.repeat(np.arange(n_x, dtype=np.intp), counts)
+    flat = (np.arange(total, dtype=np.intp)
+            - np.repeat(row_ptr[:-1], counts)
+            + np.repeat(lo, counts))
+    cols = j3[flat]
+    # Dense-path arithmetic on the candidates: raw difference,
+    # floor-wrap, inclusive cutoff, exp.
+    d = pX[rows] + u - pY[cols]
+    d = d - period * np.floor(d / period + 0.5)
+    exp_arg = d ** 2
+    keep = exp_arg <= cutoff
+    if not np.any(keep):
+        return sp.csr_matrix((n_x, n_y))
+    vals = np.exp(-exp_arg[keep] / (4 * sigma ** 2))
+    K = sp.csr_matrix((vals, (rows[keep], cols[keep])), shape=(n_x, n_y))
+    K.sort_indices()
+    return K
 
 
 def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
@@ -2205,6 +2268,61 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
 
 
 
+def _rel_per_inner_sparse(Px, Wx, Py, Wy, sigma, r, period, u_grid, du,
+                          cutoff, return_cancellation_ratio):
+    """Periodic relative inner products via the circular sparse route.
+
+    Per pair: the B-side sorted-tripled arrays are prepared once, then
+    each u-node builds its circular sparse kernel and runs the sparse
+    orbit collapse. Values match the dense slab route exactly (the
+    circular window retains precisely the entries the truncated dense
+    kernel keeps, and zero-weight slots contribute zero to every orbit
+    term), and the mass-aware pair ratio |sum_u F_u| / sum_u max|term_u|
+    matches the dense diagnostic. The normalisation tail is shared with
+    the dense route.
+    """
+    from .._mobius import inner_product_orbit_sparse
+    K_x, N_x = Px.shape
+    K_y, N_y = Py.shape
+    integral = np.zeros((N_x, N_y), dtype=np.float64)
+    worst = 1.0
+    y_pre = []
+    for j in range(N_y):
+        vy = Wy[:, j] != 0.0
+        c3, j3 = _rel_per_sparse_prep(Py[vy, j], period)
+        y_pre.append((c3, j3, Py[vy, j], Wy[vy, j]))
+    for i in range(N_x):
+        vx = Wx[:, i] != 0.0
+        pxi = Px[vx, i]
+        wxi = Wx[vx, i]
+        for j in range(N_y):
+            c3, j3, pyj, wyj = y_pre[j]
+            F = 0.0
+            M = 0.0
+            for u in u_grid:
+                Ks = _build_sparse_kernel_rel_per(
+                    pxi, c3, j3, pyj, sigma, cutoff, period, float(u))
+                if return_cancellation_ratio:
+                    v, _, m = inner_product_orbit_sparse(
+                        Ks, wxi, wyj, r,
+                        return_cancellation_ratio=True,
+                        return_term_mass=True)
+                    M += m
+                else:
+                    v = inner_product_orbit_sparse(Ks, wxi, wyj, r)
+                F += v
+            integral[i, j] = F * du
+            if return_cancellation_ratio:
+                ratio = abs(F) / M if M > 0 else 1.0
+                if ratio < worst:
+                    worst = ratio
+    c = sigma * np.sqrt(2 * np.pi / r)
+    out = (sigma * np.sqrt(np.pi)) ** r * integral / c ** 2
+    if return_cancellation_ratio:
+        return out, worst
+    return out
+
+
 def _ma_per_attr_inner_matrix_rel(
     Px, Wx, Py, Wy, sigma, r, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
@@ -2320,6 +2438,34 @@ def _ma_per_attr_inner_matrix_rel(
         u_grid = np.linspace(-0.5 * span, 0.5 * span, N_u)
         du = span / (N_u - 1)
 
+    # Sparse-orbit fast path (periodic): when the slot kernel is large
+    # and the truncation window fits inside the circle, each u-node's
+    # kernel is a circular band of width 2R out of the period, so a
+    # spatially-culled per-node orbit beats the dense slab contraction;
+    # the win repeats across every u-node while the sort is paid once
+    # per pair. Same size/density thresholds as the absolute path, with
+    # a cheap density probe at u = 0 from the first pair (the band
+    # fraction is u-independent, so one node is representative).
+    if is_per and r >= 2 and K_x * K_y >= _ORBIT_SPARSE_MIN_KERNEL:
+        from .._defaults import truncation_ip_sqdist
+        cutoff = float(truncation_ip_sqdist(truncation_sigmas, sigma))
+        # Strict margin: the builder's padded candidate window must never
+        # admit both period-copies of a centre (both would pass the exact
+        # wrapped-distance filter and be double-counted by duplicate
+        # summation), so the window must fit inside the circle with room
+        # for the padding.
+        if 2.0 * np.sqrt(cutoff) < period * (1.0 - 1e-8):
+            vx0 = Wx[:, 0] != 0.0
+            vy0 = Wy[:, 0] != 0.0
+            c3p, j3p = _rel_per_sparse_prep(Py[vy0, 0], period)
+            K0 = _build_sparse_kernel_rel_per(
+                Px[vx0, 0], c3p, j3p, Py[vy0, 0], sigma, cutoff,
+                period, 0.0)
+            if K0.nnz <= _ORBIT_SPARSE_MAX_DENSITY * K_x * K_y:
+                return _rel_per_inner_sparse(
+                    Px, Wx, Py, Wy, sigma, r, period, u_grid, du, cutoff,
+                    return_cancellation_ratio)
+
     PxT = np.ascontiguousarray(Px.T)                 # (N_x, K_x)
     PyT = np.ascontiguousarray(Py.T)                 # (N_y, K_y)
     WxT = np.ascontiguousarray(Wx.T)
@@ -2415,7 +2561,7 @@ def _ma_per_attr_inner_matrix_rel(
     return out
 
 
-def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
+def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
     Möbius method (JMM Eq. 3.4 plus Rem. 3.1).
 
@@ -2473,12 +2619,15 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y):
         else:
             I_xy = _ma_per_attr_inner_matrix(
                 Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
+                truncation_sigmas=truncation_sigmas,
             )
             I_xx = _ma_per_attr_inner_matrix(
                 Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
+                truncation_sigmas=truncation_sigmas,
             )
             I_yy = _ma_per_attr_inner_matrix(
                 Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
+                truncation_sigmas=truncation_sigmas,
             )
         P_xy *= I_xy
         P_xx *= I_xx

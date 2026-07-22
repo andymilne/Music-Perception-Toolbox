@@ -110,6 +110,40 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         du = span / (N_u - 1);
     end
 
+    % Sparse-orbit fast path (periodic): when the slot kernel is large
+    % and the truncation window fits inside the circle, each u-node's
+    % kernel is a circular band of width 2R out of the period, so a
+    % spatially-culled per-node orbit beats the dense slab contraction;
+    % the win repeats across every u-node while the sort is paid once
+    % per pair. Same size/density thresholds as the absolute gate, with
+    % a cheap density probe at u = 0 from the first pair (the band
+    % fraction is u-independent, so one node is representative). The
+    % strict margin keeps the builder's padded candidate window from
+    % ever admitting both period-copies of a centre (both would pass
+    % the exact wrapped-distance filter and be double-counted).
+    if isPer && r >= 2
+        [minKernel, maxDensity] = localOrbitSparseThresholds();
+        kRes = internal.accuracyFloor('resolve', truncationSigmas);
+        cutoff = 2 * (kRes * sigma)^2;
+        if Kx * Ky >= minKernel && 2 * sqrt(cutoff) < period * (1 - 1e-8)
+            vx0 = Wx(:, 1) ~= 0;
+            vy0 = Wy(:, 1) ~= 0;
+            [c3p, j3p] = localRelPerSparsePrep(Py(vy0, 1), period);
+            K0 = localBuildSparseKernelRelPer(Px(vx0, 1), c3p, j3p, ...
+                Py(vy0, 1), sigma, cutoff, period, 0.0);
+            if nnz(K0) <= maxDensity * Kx * Ky
+                [I, worstR] = localRelPerInnerSparse(Px, Wx, Py, Wy, ...
+                    sigma, r, period, uGrid, du, cutoff, wantRatio);
+                if wantRatio
+                    ratio = min(ratio, worstR);
+                end
+                c = sigma * sqrt(2 * pi / r);
+                I = (sigma * sqrt(pi))^r * I / c^2;
+                return;
+            end
+        end
+    end
+
     PxT = Px.';                                    % (Nx, Kx)
     PyT = Py.';                                    % (Ny, Ky)
 
@@ -213,4 +247,141 @@ function s = localWeightedSpread(P, W)
     masked(W <= 0) = NaN;
     s = max(masked, [], 1, 'omitnan') - min(masked, [], 1, 'omitnan');
     s(~isfinite(s)) = 0;
+end
+
+
+function [minKernel, maxDensity] = localOrbitSparseThresholds()
+%LOCALORBITSPARSETHRESHOLDS  Sparse-orbit cost model (mirror of the Python
+%   _ORBIT_SPARSE_MIN_KERNEL / _ORBIT_SPARSE_MAX_DENSITY, shared with the
+%   absolute gate in mobius.maPerAttrInnerMatrix). The sparse per-pair
+%   orbit undercuts the dense contraction only when the slot kernel is
+%   both large and sparse; below these thresholds the dense
+%   contraction's constant factors win. Tunable.
+    minKernel = 200000;   % Kx * Ky floor
+    maxDensity = 0.20;    % nnz / (Kx * Ky) ceiling
+end
+
+
+function [c3, j3] = localRelPerSparsePrep(pY, period)
+%LOCALRELPERSPARSEPREP  One-time sorted-tripled centre arrays.
+%   Folds the B-side slot values into [0, P), sorts them, and replicates
+%   each at c-P, c, c+P so a wrapped window maps to a contiguous range
+%   of the sorted array. j3 carries the original column index of each
+%   copy. Shared across all u-nodes of a pair. Twin of the Python
+%   _rel_per_sparse_prep.
+    pYm = mod(pY(:), period);
+    [pYs, order] = sort(pYm);
+    c3 = [pYs - period; pYs; pYs + period];
+    j3 = [order; order; order];
+end
+
+
+function K = localBuildSparseKernelRelPer(pX, c3, j3, pY, sigma, ...
+        cutoff, period, u)
+%LOCALBUILDSPARSEKERNELRELPER  Circular sparse kernel at shift u.
+%   Entries exp(-wrap(pX(i)+u-pY(j))^2/(4*sigma^2)) for wrapped squared
+%   distance at most CUTOFF; the caller guards 2*sqrt(cutoff) strictly
+%   inside the period, so each row's padded window covers at most one
+%   copy of any centre. Candidates are located via the sorted-tripled
+%   window (with a hair of padding), then retained and evaluated with
+%   internal.truncKernelExp's own arithmetic --- the raw difference, its
+%   floor-wrap, the expArg <= cutoff retention, and
+%   exp(-expArg/(4*sigma^2)) --- so the sparse kernel densifies to the
+%   truncated dense kernel bit-for-bit. Twin of the Python
+%   _build_sparse_kernel_rel_per; the reshape guards on the gathered
+%   index matrices protect the single-row and single-column corners
+%   (see the header note in internal.gaussianKernelSum's
+%   localTruncatedKernelSum1D).
+    pX = pX(:);
+    pY = pY(:);
+    nX = numel(pX);
+    nY = numel(pY);
+    R = sqrt(cutoff);
+    Rpad = R * (1 + 1e-9) + 1e-9 * period;
+    x = mod(pX + u, period);                       % (nX, 1)
+    lo0 = sum(c3 < (x.' - Rpad), 1);               % (1, nX), 0-indexed
+    hi0 = sum(c3 <= (x.' + Rpad), 1);              % (1, nX), one-past-last
+    win = hi0 - lo0;
+    maxWin = max(win);
+    if isempty(maxWin) || maxWin == 0
+        K = sparse(nX, nY);
+        return;
+    end
+    idx = lo0(:) + (0:maxWin - 1) + 1;             % (nX, maxWin), 1-based
+    mask = idx <= hi0(:);
+    idxC = min(idx, numel(c3));
+    cols = reshape(j3(idxC), nX, maxWin);
+    rows = repmat((1:nX).', 1, maxWin);
+    % Dense-path arithmetic on the candidates: raw difference,
+    % floor-wrap, inclusive cutoff, exp.
+    d = reshape(pX(rows), nX, maxWin) + u - reshape(pY(cols), nX, maxWin);
+    d = d - period * floor(d / period + 0.5);
+    expArg = d.^2;
+    keep = mask & (expArg <= cutoff);
+    if ~any(keep(:))
+        K = sparse(nX, nY);
+        return;
+    end
+    vals = exp(-expArg(keep) / (4 * sigma^2));
+    K = sparse(rows(keep), cols(keep), vals, nX, nY);
+end
+
+
+function [I, worst] = localRelPerInnerSparse(Px, Wx, Py, Wy, sigma, r, ...
+        period, uGrid, du, cutoff, wantRatio)
+%LOCALRELPERINNERSPARSE  Periodic relative inner products, sparse route.
+%   Per pair: the B-side sorted-tripled arrays are prepared once, then
+%   each u-node builds its circular sparse kernel and runs the sparse
+%   orbit collapse. Values match the dense slab route (the circular
+%   window retains precisely the entries the truncated dense kernel
+%   keeps, and zero-weight slots contribute zero to every orbit term),
+%   and the mass-aware pair ratio |sum_u F_u| / sum_u max|term_u|
+%   matches the dense diagnostic. The caller applies the shared
+%   normalisation tail. Twin of the Python _rel_per_inner_sparse.
+    Nx = size(Px, 2);
+    Ny = size(Py, 2);
+    I = zeros(Nx, Ny);
+    worst = 1.0;
+    yPre = cell(Ny, 1);
+    for j = 1:Ny
+        vy = Wy(:, j) ~= 0;
+        [c3, j3] = localRelPerSparsePrep(Py(vy, j), period);
+        yPre{j} = {c3, j3, Py(vy, j), Wy(vy, j)};
+    end
+    for i = 1:Nx
+        vx = Wx(:, i) ~= 0;
+        pxi = Px(vx, i);
+        wxi = Wx(vx, i);
+        for j = 1:Ny
+            pj = yPre{j};
+            c3 = pj{1}; j3 = pj{2}; pyj = pj{3}; wyj = pj{4};
+            F = 0.0;
+            M = 0.0;
+            for uu = uGrid
+                Ks = localBuildSparseKernelRelPer(pxi, c3, j3, pyj, ...
+                    sigma, cutoff, period, uu);
+                if wantRatio
+                    [v, ~, m] = mobius.innerProductOrbitSparse( ...
+                        Ks, wxi, wyj, r, ...
+                        'returnCancellationRatio', true, ...
+                        'returnTermMass', true);
+                    M = M + m;
+                else
+                    v = mobius.innerProductOrbitSparse(Ks, wxi, wyj, r);
+                end
+                F = F + v;
+            end
+            I(i, j) = F * du;
+            if wantRatio
+                if M > 0
+                    pr = abs(F) / M;
+                else
+                    pr = 1.0;
+                end
+                if pr < worst
+                    worst = pr;
+                end
+            end
+        end
+    end
 end

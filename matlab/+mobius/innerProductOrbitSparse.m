@@ -1,4 +1,4 @@
-function [val, ratio] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts)
+function [val, ratio, termMass] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts)
 %MOBIUS.INNERPRODUCTORBITSPARSE  Sparse-kernel twin of INNERPRODUCTORBIT.
 %
 %   VAL = MOBIUS.INNERPRODUCTORBITSPARSE(KSP, W_A, W_B, R) evaluates the
@@ -19,9 +19,16 @@ function [val, ratio] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts)
 %       'returnCancellationRatio', true) additionally returns
 %   |sum| / max_orb(|term_orb|), matching INNERPRODUCTORBIT's contract.
 %
+%   [VAL, RATIO, TERMMASS] = MOBIUS.INNERPRODUCTORBITSPARSE(..., ...
+%       'returnTermMass', true) additionally returns the prefactored
+%   max_orb(|term_orb|), mirroring MOBIUS.INNERPRODUCTORBITGRID; callers
+%   integrating over a u-grid use it to form a mass-aware cancellation
+%   diagnostic.
+%
 %   Name-value options:
 %     'prefactor'                (1,1) double, default 1.0.
 %     'returnCancellationRatio'  (1,1) logical, default false.
+%     'returnTermMass'           (1,1) logical, default false.
 %     'densityThresh'            (1,1) double, default 0.34 -- a Gram
 %                                denser than this fraction is densified.
 %
@@ -34,6 +41,7 @@ function [val, ratio] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts)
         r (1,1) {mustBeInteger}
         opts.prefactor (1,1) double = 1.0
         opts.returnCancellationRatio (1,1) logical = false
+        opts.returnTermMass (1,1) logical = false
         opts.densityThresh (1,1) double = 0.34
     end
 
@@ -68,6 +76,11 @@ function [val, ratio] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts)
         end
     else
         ratio = [];
+    end
+    if opts.returnTermMass
+        termMass = opts.prefactor * maxAbsTerm;
+    else
+        termMass = [];
     end
 end
 

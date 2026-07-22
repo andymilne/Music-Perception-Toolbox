@@ -94,6 +94,58 @@ results{end + 1, 1} = 'orbitSparse: wired mobius sparse path matches dense orbit
 results{end, 2}   = abs(s_sparse - s_dense) < 1e-5;
 
 
+%% ---- innerProductOrbitSparse: term mass matches the grid engine ----
+% The returnTermMass output must equal innerProductOrbitGrid's mass on
+% the same (single-node) kernel: both report the prefactored
+% max_orb(|term_orb|).
+rng(21, 'twister');
+tm_n = 14;
+tm_pX = sort(200 * rand(tm_n, 1));
+tm_pY = tm_pX + (rand(tm_n, 1) - 0.5) * 6;
+tm_s = 40.0;
+tm_D = tm_pX - tm_pY.';
+tm_Kd = exp(-(tm_D.^2) / (4 * tm_s^2));
+tm_wA = 0.5 + rand(tm_n, 1);
+tm_wB = 0.5 + rand(tm_n, 1);
+tm_ok = true;
+for tm_r = 2:4
+    [~, ~, massG] = mobius.innerProductOrbitGrid( ...
+        reshape(tm_Kd, [1, tm_n, tm_n]), tm_wA, tm_wB, tm_r, ...
+        'prefactor', 1.3, 'returnCancellationRatio', true);
+    [~, ~, massS] = mobius.innerProductOrbitSparse( ...
+        sparse(tm_Kd), tm_wA, tm_wB, tm_r, 'prefactor', 1.3, ...
+        'returnCancellationRatio', true, 'returnTermMass', true);
+    tm_ok = tm_ok && abs(massG(1) - massS) <= 1e-12 * max(massG(1), 1);
+end
+results{end + 1, 1} = 'orbitSparse: returnTermMass matches innerProductOrbitGrid mass (r=2..4)';
+results{end, 2}   = tm_ok;
+
+
+%% ---- Wired periodic relative sparse path (gate toggled by truncation) ----
+% K = 450 slots on the circle at sigma = 13, P = 1200: the slot kernel
+% has Kx*Ky = 202500 >= 200000 entries, and the circular truncation band
+% occupies 2*sqrt(2)*k*sigma/P of each row --- 0.18 at k = 6 (below the
+% 0.20 density ceiling, so the sparse route fires) but 0.23 at the
+% Inf-resolved k = 7.43 (above it, so the gate stays dormant and the
+% dense slab route runs). The two agree to the truncation gap
+% (~1e-12 measured; 1e-5 asserted). Bulger is infeasible here --- its
+% relative pairwise cost grows as K^(2r) --- which is exactly why the
+% orbit method exists.
+rng(23, 'twister');
+rp_K = 450;
+rp_P = 1200.0;
+rp_sig = 13.0;
+rp_p1 = sort(rp_P * rand(rp_K, 1));
+rp_p2 = sort(rp_P * rand(rp_K, 1));
+rp_w = ones(rp_K, 1);
+rp_s6 = cosSimExpTens(rp_p1, rp_w, rp_p2, rp_w, rp_sig, 2, true, true, ...
+    rp_P, 'method', 'mobius', 'truncationSigmas', 6, 'verbose', false);
+rp_si = cosSimExpTens(rp_p1, rp_w, rp_p2, rp_w, rp_sig, 2, true, true, ...
+    rp_P, 'method', 'mobius', 'truncationSigmas', Inf, 'verbose', false);
+results{end + 1, 1} = 'orbitSparse: wired rel-per sparse path matches dense slab (gate toggle)';
+results{end, 2}   = abs(rp_s6 - rp_si) < 1e-5;
+
+
 %% ---- Standalone reporting ----
 if standalone
     fprintf('\n%s\n', repmat('=', 1, 60));

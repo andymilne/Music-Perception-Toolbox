@@ -1042,6 +1042,7 @@ def _contract_orbit_dense_from(orb, Kd, wA, wB):
 
 def inner_product_orbit_sparse(K_sp, wA, wB, r, *, prefactor=1.0,
                                return_cancellation_ratio=False,
+                               return_term_mass=False,
                                density_thresh=0.34):
     """Sparse-kernel twin of :func:`inner_product_orbit`.
 
@@ -1049,7 +1050,10 @@ def inner_product_orbit_sparse(K_sp, wA, wB, r, *, prefactor=1.0,
     equals :func:`inner_product_orbit` on the same (densified) kernel to
     floating point. With ``return_cancellation_ratio=True`` returns
     ``(value, ratio)`` with ``ratio = |total| / max|term|`` over orbit
-    classes, matching the dense contract.
+    classes, matching the dense contract. With ``return_term_mass=True``
+    the prefactored ``max|term|`` is appended as the last element,
+    mirroring :func:`inner_product_orbit_grid`; callers integrating over
+    a u-grid use it to form a mass-aware cancellation diagnostic.
     """
     table = get_orbit_table(r)
     Kd = None
@@ -1066,10 +1070,15 @@ def inner_product_orbit_sparse(K_sp, wA, wB, r, *, prefactor=1.0,
         if abs(term) > max_abs_term:
             max_abs_term = abs(term)
     value = prefactor * total
+    out = [value]
     if return_cancellation_ratio:
         ratio = abs(total) / max_abs_term if max_abs_term > 0 else 1.0
-        return value, ratio
-    return value
+        out.append(ratio)
+    if return_term_mass:
+        out.append(prefactor * max_abs_term)
+    if len(out) == 1:
+        return value
+    return tuple(out)
 
 
 

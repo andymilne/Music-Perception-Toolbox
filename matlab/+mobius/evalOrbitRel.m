@@ -165,33 +165,39 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
     eps_target = factoredTargetEps(opts.truncationSigmas, opts.kernelPrecision);
     spp = factoredSpp(eps_target);
 
-    % ---- r = 2 cross-correlation strategy (auto selection only) ----
-    % The whole evaluation collapses to one tabulated autocorrelation
-    % plus an analytic diagonal term (see localEvalOrbitRelCorrR2), so
-    % the per-query cost drops from O(N_u) to a six-point read-back.
-    % Engages where the factored strategy's own worthwhile gate fires
-    % (same setup class, strictly cheaper marginal); unlike factored it
-    % needs no periodic validity window, because the circular FFT
-    % correlation is exact on the circle. Explicit 'on'/'off' force
-    % their strategies, and cancellation-ratio requests fall through
-    % (the correlation form has no per-node terms to diagnose).
-    if r == 2 && strcmp(opts.factored, 'auto') ...
-            && ~opts.returnCancellationRatio
-        if opts.is_per
-            nFineC = max(6, round(opts.period / (sigma / spp)));
-            loC = 0.0; hiC = 0.0;
-        else
-            dminC = min(0, min([x_rel(:); 0]));
-            dmaxC = max(0, max([x_rel(:); 0]));
-            hC = sigma / spp;
-            loC = u_min + dminC - 3 * hC;
-            hiC = u_max + dmaxC + 3 * hC;
-            nFineC = ceil((hiC - loC) / hC) + 7;
+    % ---- Spectral (Fourier) strategy, r = 2..4 (auto selection only) ----
+    % Partition evaluation dispatched by block count: analytic masses,
+    % 1-D mode series, and total-mode-zero spectral products (see
+    % localEvalOrbitRelFourier). Engagement thresholds are calibrated
+    % from measured wall times (Python side, K in 7..300 and n_q in
+    % 5..5000): at r = 2 the spectral form wins every measured cell
+    % from n_q ~ 16 up; at r = 3 from n_q ~ 32 (K >= 8); at r = 4 it
+    % matches the factored strategy and beats direct from n_q ~ 64; at
+    % r = 5 the factored strategy remains faster at scale, so the gate
+    % stands down there. Explicit 'on'/'off' force their strategies;
+    % cancellation-ratio requests fall through (the spectral form has
+    % no per-node terms matching that diagnostic). Guards: the periodic
+    % principal-image window protects the analytic variance prefactors,
+    % and (as in the factored-periodic gate) every query's position
+    % span must fit inside half the circle, under which the
+    % principal-image wrap of the deltas is a no-op and the per-block
+    % statistics are exact.
+    fourMinQ = [16, 32, 64];
+    fourMinK = [2, 8, 16];
+    if r >= 2 && r <= 4 && strcmp(opts.factored, 'auto') ...
+            && ~opts.returnCancellationRatio ...
+            && n_q >= fourMinQ(r - 1) && K >= fourMinK(r - 1)
+        kResF = internal.accuracyFloor('resolve', opts.truncationSigmas);
+        spanOk = true;
+        if opts.is_per && ~isempty(x_rel)
+            pLoF = min(0, min(x_rel, [], 1));
+            pHiF = max(0, max(x_rel, [], 1));
+            spanOk = max(pHiF - pLoF) < 0.5 * opts.period;
         end
-        if factoredWorthwhile(K, r, n_q, N_u, nFineC)
-            vals = localEvalOrbitRelCorrR2(p, w, sigma, x_rel, ...
-                opts.is_per, opts.period, opts.truncationSigmas, ...
-                opts.kernelPrecision, spp, loC, hiC);
+        if spanOk && (~opts.is_per ...
+                      || opts.period > 2 * sqrt(2) * kResF * sigma)
+            vals = localEvalOrbitRelFourier(p, w, sigma, r, x_rel, ...
+                opts.is_per, opts.period, opts.truncationSigmas);
             ratios = [];
             return;
         end
@@ -527,64 +533,177 @@ function vals = lagrange6Circular(y, x0, h, pts)
 end
 
 
-function vals = localEvalOrbitRelCorrR2(p, w, sigma, x_rel, isPer, ...
-        period, truncationSigmas, kernelPrecision, spp, lo, hi)
-%LOCALEVALORBITRELCORRR2  r = 2 relative evaluation, cross-correlation form.
-%   At r = 2 the Mobius sum has exactly two partitions and the
-%   translation integral collapses term by term:
-%
-%       T_rel(D) = [ C(D) - exp(-D^2/(4*sigma^2)) * M2 ] / Z_t,
-%
-%   where C = S1 (star) S1 is the autocorrelation of the weighted source
-%   mixture (the two-block partition) and M2 = sum(w.^2) * sigma *
-%   sqrt(pi) is the D-independent mass of the one-block partition's
-%   integral. C is tabulated once for all queries --- a circular FFT
-%   correlation on [0, P) in the periodic case (exact on the circle in
-%   the all-image convention this route realises), a zero-padded linear
-%   FFT correlation on the line otherwise --- and each query is a
-%   six-point Lagrange read-back plus one exponential: the translation
-%   integral itself is amortised across queries, not merely the
-%   source-side tabulation. The grid step sigma/spp reuses the factored
-%   strategy's accuracy machinery; the read-back of C (feature width
-%   sigma*sqrt(2)) on that step is strictly more accurate than the
-%   factored path's S1 read-backs, so the established eps guarantee
-%   carries over. In the periodic case the diagonal term uses the
-%   principal image exp(-wrap(D)^2/(4*sigma^2)), matching the factored
-%   strategy; the neighbouring images sit below the truncation floor
-%   throughout the sigma/P regime this route serves. Twin of the Python
-%   _eval_orbit_rel_corr_r2.
-    kw = {'truncationSigmas', truncationSigmas, ...
-          'kernelPrecision', kernelPrecision};
-    dq = double(x_rel(1, :));
+function vals = localEvalOrbitRelFourier(p, w, sigma, r, x_rel, ...
+        isPer, period, truncationSigmas)
+%LOCALEVALORBITRELFOURIER  Relative evaluation, spectral form, r >= 2.
+%   Every partition's translation integral constrains the total mode
+%   index of its block product to zero. The evaluation dispatches by
+%   block count: single-block partitions are the analytic mass
+%   sum(w.^r)*sigma*sqrt(2*pi/r); two-block partitions are 1-D mode
+%   series L*sum_m conj(cA(m))*cB(m)*exp(1i*om*m*(meanB-meanA)),
+%   evaluated with a multiplicative phase ladder; partitions with three
+%   or more blocks are total-mode-zero coefficients of per-block
+%   spectral products, evaluated as cached per-block FFTs (one per
+%   distinct block appearing in any such partition, shared across
+%   partitions exactly as blocks recur) and one pointwise product per
+%   partition. The block spectra are the closed-form Fourier
+%   coefficients of the wrapped Gaussian mixture --- no sampling, no
+%   kernel truncation, no interpolation --- truncated per block size
+%   where the Gaussian envelope reaches machine precision (the mode
+%   width 8.6 below): the Mobius cancellation amplifies per-term error,
+%   so per-term error must sit near machine eps for the combined value
+%   to reach the requested floor. The non-periodic case embeds in a
+%   virtual period padded to the requested truncation floor. Queries
+%   are chunked so the cached spectra respect the kernel chunk budget.
+%   kernelPrecision does not apply: the coefficients are closed-form in
+%   double precision. Twin of the Python _eval_orbit_rel_fourier.
+    kRes = internal.accuracyFloor('resolve', truncationSigmas);
+    % Mode-cutoff width in sigmas: exp(-8.6^2/2) ~ 8e-17 (machine
+    % precision); mode count scales as sqrt(log(1/eps)), so this costs
+    % only ~16% more modes than the 1e-12 floor would.
+    kM = 8.6;
+    x_rel = double(x_rel);
+    n_q = size(x_rel, 2);
+    p = double(p(:));
+    w = double(w(:));
     if isPer
-        n1 = max(6, round(period / (sigma / spp)));
-        h = period / n1;
-        grid = h * (0:n1 - 1);
-        S1 = internal.gaussianKernelSum(p(:).', w(:), grid, sigma, ...
-            'isPer', true, 'period', period, kw{:});
-        S1 = double(S1(:));
-        F = fft(S1);
-        C = ifft(abs(F).^2, 'symmetric') * h;
-        valsC = lagrange6Circular(C, 0.0, h, reshape(dq, 1, []));
-        dW = dq - period .* round(dq ./ period);
+        L = period;
     else
-        h = sigma / spp;
-        n1 = ceil((hi - lo) / h) + 7;
-        grid = lo + h * (0:n1 - 1);
-        S1 = internal.gaussianKernelSum(p(:).', w(:), grid, sigma, kw{:});
-        S1 = double(S1(:));
-        F = fft(S1, 2 * n1);
-        Cfull = ifft(abs(F).^2, 'symmetric') * h;
-        % Zero-padded circular correlation realises the linear one:
-        % entries 1..n1 are lags 0..(n1-1)*h; the tail holds the
-        % negative lags. Assemble on D in [-(n1-1)*h, (n1-1)*h].
-        C = [Cfull(n1 + 2:2 * n1); Cfull(1:n1)];
-        x0C = -(n1 - 1) * h;
-        valsC = lagrange6Uniform(C, x0C, h, reshape(dq, 1, []));
-        dW = dq;
+        pad = (kRes + 2) * sigma;
+        lo = min(p) - pad + min(0, min([x_rel(:); 0]));
+        hi = max(p) + pad + max(0, max([x_rel(:); 0]));
+        L = hi - lo;
     end
-    M2 = sum(double(w(:)).^2) * sigma * sqrt(pi);
-    term2 = exp(-(dW .* dW) / (4 * sigma^2)) * M2;
-    Z_t = sigma * sqrt(pi);
-    vals = (valsC(:) - term2(:)) / Z_t;
+    om = 2 * pi / L;
+    MBy = zeros(1, r);
+    for mSz = 1:r
+        MBy(mSz) = ceil(kM * L * sqrt(mSz) / (2 * pi * sigma)) + 2;
+    end
+    c = cell(1, r);
+    for mSz = 1:r
+        Mm = MBy(mSz);
+        mm = (-Mm:Mm).';
+        sigM = sigma / sqrt(mSz);
+        env = sigM * sqrt(2 * pi) / L ...
+            * exp(-2 * pi^2 * sigM^2 * mm.^2 / L^2);
+        c{mSz} = env .* (exp(-1i * om * mm * p.') * w.^mSz);
+    end
+    partitions = mobius.getSetPartitionsWithMobius(r);
+    maxSpan = 0;
+    nFftBlocks = 0;
+    seen = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+    for ip = 1:numel(partitions)
+        blocks = partitions(ip).blocks;
+        if numel(blocks) >= 3
+            spanSum = 0;
+            for ib = 1:numel(blocks)
+                spanSum = spanSum + MBy(numel(blocks{ib}));
+                key = localBlockKey(blocks{ib});
+                if ~isKey(seen, key)
+                    seen(key) = true;
+                    nFftBlocks = nFftBlocks + 1;
+                end
+            end
+            maxSpan = max(maxSpan, spanSum);
+        end
+    end
+    Nf = max(2 * maxSpan + 2, 2);
+    masses = zeros(1, r);
+    for mSz = 1:r
+        masses(mSz) = sum(w.^mSz) * sigma * sqrt(2 * pi / mSz);
+    end
+    perQueryBytes = (nFftBlocks + 3) * Nf * 16;
+    budget = max(internal.kernelChunkBytesResolved(), 1);
+    chunk = max(1, min(n_q, floor(budget / max(perQueryBytes, 1))));
+    inv2s2 = 1 / (2 * sigma^2);
+    vals = zeros(n_q, 1);
+    for q0 = 1:chunk:n_q
+        q1 = min(q0 + chunk - 1, n_q);
+        nqc = q1 - q0 + 1;
+        deltas = [zeros(1, nqc); x_rel(:, q0:q1)];
+        if isPer
+            deltas = deltas - period .* round(deltas ./ period);
+        end
+        stats = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        ghat = containers.Map('KeyType', 'char', 'ValueType', 'any');
+        total = complex(zeros(1, nqc));
+        for ip = 1:numel(partitions)
+            blocks = partitions(ip).blocks;
+            mu = partitions(ip).mu;
+            qn = numel(blocks);
+            pref = ones(1, nqc);
+            for ib = 1:qn
+                key = localBlockKey(blocks{ib});
+                if ~isKey(stats, key)
+                    dB = deltas(blocks{ib}, :);
+                    meanB = mean(dB, 1);
+                    varB = sum((dB - meanB).^2, 1);
+                    stats(key) = {meanB, exp(-varB * inv2s2)};
+                end
+                sv = stats(key);
+                pref = pref .* sv{2};
+            end
+            if qn == 1
+                total = total + mu * pref * masses(r);
+                continue;
+            end
+            if qn == 2
+                BA = blocks{1};
+                BB = blocks{2};
+                mA = numel(BA);
+                mB = numel(BB);
+                Mp = max(MBy(mA), MBy(mB));
+                ca = complex(zeros(2 * Mp + 1, 1));
+                cb = complex(zeros(2 * Mp + 1, 1));
+                ca(Mp - MBy(mA) + 1:Mp + MBy(mA) + 1) = c{mA};
+                cb(Mp - MBy(mB) + 1:Mp + MBy(mB) + 1) = c{mB};
+                G = L * conj(ca) .* cb;
+                svA = stats(localBlockKey(BA));
+                svB = stats(localBlockKey(BB));
+                b = svB{1} - svA{1};
+                E = localPhaseLadder(Mp, b, om);
+                total = total + mu * (pref .* (G.' * E));
+                continue;
+            end
+            prodG = [];
+            for ib = 1:qn
+                B = blocks{ib};
+                key = localBlockKey(B);
+                if ~isKey(ghat, key)
+                    Mm = MBy(numel(B));
+                    mm = (-Mm:Mm).';
+                    sv = stats(key);
+                    g = complex(zeros(Nf, nqc));
+                    g(mod(mm, Nf) + 1, :) = c{numel(B)} ...
+                        .* localPhaseLadder(Mm, sv{1}, om);
+                    ghat(key) = fft(g, [], 1);
+                end
+                gh = ghat(key);
+                if isempty(prodG)
+                    prodG = gh;
+                else
+                    prodG = prodG .* gh;
+                end
+            end
+            total = total + mu * (pref .* ((L / Nf) * sum(prodG, 1)));
+        end
+        vals(q0:q1) = real(total).';
+    end
+    Z_t = sigma * sqrt(2 * pi / r);
+    vals = vals / Z_t;
+end
+
+
+function E = localPhaseLadder(Mm, b, om)
+%LOCALPHASELADDER  E(m, q) = exp(1i*om*m*b(q)) for m = -Mm..Mm via one
+%   exponential per query and cumulative products.
+    z = exp(1i * om * b(:).');
+    pos = cumprod(repmat(z, Mm, 1), 1);
+    E = [conj(pos(end:-1:1, :)); ones(1, numel(b)); pos];
+end
+
+
+function key = localBlockKey(B)
+%LOCALBLOCKKEY  Char key for a block (its member indices).
+    key = sprintf('%d,', B);
 end

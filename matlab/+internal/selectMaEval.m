@@ -264,6 +264,37 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r;
         perQueryMs = MA_COST_MOBIUS_QUERY_PER_OP_MS * ops;
         if isRel(a)
+            % The spectral (Fourier) strategy engages inside the mobius
+            % relative evaluator for r_a in 2..4 above its query
+            % thresholds (see the gate in mobius.evalOrbitRel); where it
+            % would engage, price the per-query cost with its measured,
+            % K-free slope. The slope scales with the mode count, i.e.
+            % with window/sigma (session-calibrated on the Python side;
+            % re-derive here via bench_ma_eval_calibration if picks
+            % look off).
+            FOUR_PER_MODE = [1.05e-4, 2.2e-3, 6.7e-3];   % r = 2, 3, 4
+            FOUR_MIN_Q = [16, 32, 64];
+            FOUR_MIN_K = [2, 8, 16];
+            spreadF = 0.0;
+            if a <= numel(dens.pAttr) && ~isempty(dens.pAttr{a})
+                arrF = double(dens.pAttr{a}(:));
+                if ~isempty(arrF)
+                    spreadF = max(arrF) - min(arrF);
+                end
+            end
+            if isPer(a) && periodG(a) > 0
+                windowF = periodG(a);
+            else
+                windowF = 2.0 * spreadF + 16.0 * sigmaG(a);
+            end
+            if r_a >= 2 && r_a <= 4 ...
+                    && nQ >= FOUR_MIN_Q(r_a - 1) ...
+                    && K_a >= FOUR_MIN_K(r_a - 1)
+                mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_MS ...
+                    + FOUR_PER_MODE(r_a - 1) ...
+                      * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
+                continue;
+            end
             sps = internal.resolveSamplesPerSigma([], r_a, []);
             if isPer(a) && periodG(a) > 0
                 N_u = max(64, ceil(sps * periodG(a) / sigmaG(a)));

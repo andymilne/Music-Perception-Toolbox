@@ -260,46 +260,50 @@ results{end+1, 1} = 'mobius.evalOrbitRel: periodic factored matches direct (vali
 results{end, 2}   = max(abs(valsFac - valsDir)) < 1e-7 * max(abs(valsDir));
 
 
-%% ---- evalOrbitRel r=2: correlation strategy agrees with forced strategies ----
-% At r = 2 under 'auto' the cross-correlation strategy engages (one
-% tabulated autocorrelation plus an analytic diagonal term); its values
-% must agree with the forced direct and factored strategies to within an
-% order of the truncation floor, in both modes. The suite baseline (Inf)
-% resolves to the 1e-12 floor.
+%% ---- evalOrbitRel: spectral strategy agrees with forced strategies ----
+% Under 'auto' the spectral (Fourier) strategy engages for r = 2..4
+% above its thresholds (n_q >= 16/32/64, K >= 2/8/16); its values must
+% agree with the forced direct and factored strategies to within an
+% order of the truncation floor, in both modes. The suite baseline
+% (Inf) resolves to the 1e-12 floor.
 rng(31, 'twister');
-cr_K = 20;
-cr_p = sort(1200 * rand(cr_K, 1));
-cr_w = 0.5 + rand(cr_K, 1);
-cr_x = (rand(1, 50) - 0.5) * 400;
-cr_ok = true;
-for cr_per = [false, true]
-    if cr_per, cr_P = 1200; else, cr_P = 0; end
-    va = mobius.evalOrbitRel(cr_p, cr_w, 20.0, 2, cr_x, ...
-        'is_per', cr_per, 'period', cr_P);                    % auto -> corr
-    vd = mobius.evalOrbitRel(cr_p, cr_w, 20.0, 2, cr_x, ...
-        'is_per', cr_per, 'period', cr_P, 'factored', 'off');
-    vf = mobius.evalOrbitRel(cr_p, cr_w, 20.0, 2, cr_x, ...
-        'is_per', cr_per, 'period', cr_P, 'factored', 'on');
-    pk = max(abs(vd));
-    cr_ok = cr_ok && max(abs(va - vd)) <= 1e-11 * pk ...
-                  && max(abs(va - vf)) <= 1e-11 * pk;
+sp_K = 20;
+sp_p = sort(1200 * rand(sp_K, 1));
+sp_w = 0.5 + rand(sp_K, 1);
+sp_ok = true;
+for sp_r = 2:4
+    sp_x = (rand(sp_r - 1, 80) - 0.5) * 400;
+    for sp_per = [false, true]
+        if sp_per, sp_P = 1200; else, sp_P = 0; end
+        va = mobius.evalOrbitRel(sp_p, sp_w, 20.0, sp_r, sp_x, ...
+            'is_per', sp_per, 'period', sp_P);                 % auto -> spectral
+        vd = mobius.evalOrbitRel(sp_p, sp_w, 20.0, sp_r, sp_x, ...
+            'is_per', sp_per, 'period', sp_P, 'factored', 'off');
+        vf = mobius.evalOrbitRel(sp_p, sp_w, 20.0, sp_r, sp_x, ...
+            'is_per', sp_per, 'period', sp_P, 'factored', 'on');
+        pk = max(abs(vd));
+        sp_ok = sp_ok && max(abs(va - vd)) <= 1e-11 * pk ...
+                      && max(abs(va - vf)) <= 1e-11 * pk;
+    end
 end
-results{end + 1, 1} = 'evalOrbitRel r=2: correlation strategy matches direct and factored (both modes)';
-results{end, 2}   = cr_ok;
+results{end + 1, 1} = 'evalOrbitRel: spectral strategy matches direct and factored (r=2..4, both modes)';
+results{end, 2}   = sp_ok;
 
-% Periodic translation invariance under auto (the circular read-back wraps).
-va1 = mobius.evalOrbitRel(cr_p, cr_w, 20.0, 2, cr_x, ...
+% Periodic translation invariance under auto (wrapped deltas).
+sp_x2 = (rand(1, 80) - 0.5) * 400;
+va1 = mobius.evalOrbitRel(sp_p, sp_w, 20.0, 2, sp_x2, ...
     'is_per', true, 'period', 1200);
-va2 = mobius.evalOrbitRel(cr_p, cr_w, 20.0, 2, cr_x + 3 * 1200, ...
+va2 = mobius.evalOrbitRel(sp_p, sp_w, 20.0, 2, sp_x2 + 3 * 1200, ...
     'is_per', true, 'period', 1200);
-results{end + 1, 1} = 'evalOrbitRel r=2: correlation strategy period-translation invariant';
+results{end + 1, 1} = 'evalOrbitRel: spectral strategy period-translation invariant';
 results{end, 2}   = max(abs(va1 - va2)) <= 1e-12 * max(abs(va1));
 
-% K = 1: no distinct pairs; the value is zero at floating point.
-cr_v1 = mobius.evalOrbitRel(600.0, 1.0, 15.0, 2, [0.0, 30.0], ...
+% K = 1: no distinct pairs; the value is zero at floating point (the
+% gate stands down at K = 1; the fall-through strategies cancel to ~0).
+sp_v1 = mobius.evalOrbitRel(600.0, 1.0, 15.0, 2, [0.0, 30.0], ...
     'is_per', false, 'period', 0);
-results{end + 1, 1} = 'evalOrbitRel r=2: K=1 evaluates to ~0 (no distinct pairs)';
-results{end, 2}   = max(abs(cr_v1)) < 1e-12;
+results{end + 1, 1} = 'evalOrbitRel: K=1 evaluates to ~0 (no distinct pairs)';
+results{end, 2}   = max(abs(sp_v1)) < 1e-12;
 
 
 %% ---- resolveSamplesPerSigma: explicit passthrough and derived values ----

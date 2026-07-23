@@ -2339,6 +2339,16 @@ _SPECTRAL_IP_MODE_SIGMAS = 8.6
 #: of memory trouble; above it the branch stands down.
 _SPECTRAL_IP_MAX_POINTS = 4_000_000
 
+#: Cost-gate constant. The grid path's cost grows as
+#: K^2 * n_events_x * n_events_y, while the spectral branch's grows
+#: with the mode-grid size, so the branch is worth taking only while
+#: the grid stays below this multiple of that product. Calibrated by
+#: measured wall times across sigma/P from 0.05 down to 0.0025, K from
+#: 4 to 100, and event counts from 1 to 30: the value below reproduces
+#: the sign of every measured cell, erring towards declining a modest
+#: win rather than taking a loss.
+_SPECTRAL_IP_COST_C = 1000.0
+
 
 def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     """Relative-mode per-attribute inner matrix by the spectral form.
@@ -2393,7 +2403,14 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     dxi = 2.0 * np.pi / L
     M = int(np.ceil(_SPECTRAL_IP_MODE_SIGMAS / np.sqrt(2.0)
                     * L / (2.0 * np.pi * sigma))) + 2
-    if (2 * M + 1) ** (r - 1) > _SPECTRAL_IP_MAX_POINTS:
+    grid_size = (2 * M + 1) ** (r - 1)
+    if grid_size > _SPECTRAL_IP_MAX_POINTS:
+        return None
+    # Cost gate: the grid path pays K^2 per event pair, the branch pays
+    # the mode grid. Decline where the mode grid is not repaid.
+    k_slots = float(Px.shape[0])
+    n_pairs = float(Px.shape[1]) * float(Py.shape[1])
+    if grid_size > _SPECTRAL_IP_COST_C * k_slots ** 2 * n_pairs:
         return None
 
     axes = [np.arange(-M, M + 1, dtype=np.int64)] * (r - 1)

@@ -2374,7 +2374,11 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     (xi_m = 2 pi m / P, valid at any sigma/P, since the wrapped-Gaussian
     coefficients are closed form); on the line they are spaced
     2 pi / L for an embedding period L covering both sides' spans plus a
-    truncation margin. Returns ``None`` when the mode grid would exceed
+    truncation margin. Hermitian symmetry (env is even under xi -> -xi;
+    S_n(-xi) = conj(S_n(xi)) for real Gaussian mixtures) halves the
+    working grid: only the DC point plus one point per (xi, -xi) pair
+    is evaluated, with the off-DC envelope doubled to account for the
+    conjugate partner. Returns ``None`` when the mode grid would exceed
     ``_SPECTRAL_IP_MAX_POINTS``, so the caller falls through.
     """
     from .._mobius import get_set_partitions_with_mobius
@@ -2429,6 +2433,26 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     n_pts = env.size
     if n_pts == 0:
         return np.zeros((Px.shape[1], Py.shape[1]), dtype=np.float64)
+
+    # Hermitian symmetry: env is even under xi -> -xi (it depends only
+    # on sum_s xi_s^2), and each event's spectrum satisfies
+    # S_n(-xi) = conj(S_n(xi)) because the underlying Gaussian mixture
+    # is real-valued. Grid points therefore come in (xi, -xi) pairs
+    # whose contributions to Re((SX * env) @ conj(SY).T) are equal, so
+    # keeping only the DC point plus one point per pair, and doubling
+    # the off-DC envelope, reproduces the full sum. Lex-positivity is
+    # marked by a scalar key with key(-m) = -key(m); base = 2M + 1
+    # keeps int64 range comfortable across the parameter regime the
+    # branch operates in.
+    base = np.int64(2 * M + 1)
+    key = np.zeros(n_pts, dtype=np.int64)
+    for i in range(r - 1):
+        key += xs[i] * base ** i
+    is_dc = key == 0
+    keep_h = (key > 0) | is_dc
+    xs = [x[keep_h] for x in xs]
+    env = env[keep_h] * np.where(is_dc[keep_h], 1.0, 2.0)
+    n_pts = env.size
 
     W_ax = r * M
     ax_modes = dxi * np.arange(-W_ax, W_ax + 1)

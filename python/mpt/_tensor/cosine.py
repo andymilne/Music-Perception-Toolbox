@@ -2323,6 +2323,124 @@ def _rel_per_inner_sparse(Px, Wx, Py, Wy, sigma, r, period, u_grid, du,
     return out
 
 
+#: Enables the spectral (Fourier) branch of the relative-mode
+#: per-attribute inner matrix. Module-level for tests.
+_SPECTRAL_IP_ENABLED = True
+
+#: Mode-cutoff width in sigmas for the spectral inner product. The
+#: block spectra are truncated where the Gaussian envelope reaches
+#: machine precision rather than the requested accuracy floor: the
+#: alternating partition sum amplifies per-term error, and the mode
+#: count grows only as sqrt(log(1/eps)).
+_SPECTRAL_IP_MODE_SIGMAS = 8.6
+
+#: Largest mode-grid point count admitted, per side. The grid is
+#: (r-1)-dimensional, so this is what keeps r = 4 at small sigma/P out
+#: of memory trouble; above it the branch stands down.
+_SPECTRAL_IP_MAX_POINTS = 4_000_000
+
+
+def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
+    """Relative-mode per-attribute inner matrix by the spectral form.
+
+    The relative inner product is the integral of the absolute inner
+    product under a rigid diagonal shift, and transforming along that
+    shift constrains each partition's total mode index to zero. Every
+    partition therefore contributes a product of per-block spectra
+    evaluated at block-summed frequencies, so each event carries a
+    single spectrum
+
+        S_n(xi) = sum_pi mu(pi) prod_B A_{|B|}(eta_B),
+        A_m(eta) = sum_i w_{i,n}^m exp(-i eta p_{i,n}),
+
+    and the matrix over event pairs is the Gram matrix of those
+    spectra against the envelope exp(-sigma^2 sum_s xi_s^2), scaled by
+
+        C_r = r * (sigma^2 * dxi)^(r-1).
+
+    The spectra are per-event objects, so the K-dependence is paid once
+    per event rather than once per pair, and the per-pair cost is
+    independent of K. Frequencies are exact on the circle
+    (xi_m = 2 pi m / P, valid at any sigma/P, since the wrapped-Gaussian
+    coefficients are closed form); on the line they are spaced
+    2 pi / L for an embedding period L covering both sides' spans plus a
+    truncation margin. Returns ``None`` when the mode grid would exceed
+    ``_SPECTRAL_IP_MAX_POINTS``, so the caller falls through.
+    """
+    from .._mobius import get_set_partitions_with_mobius
+
+    Px = np.asarray(Px, dtype=np.float64)
+    Py = np.asarray(Py, dtype=np.float64)
+    Wx = np.asarray(Wx, dtype=np.float64)
+    Wy = np.asarray(Wy, dtype=np.float64)
+
+    def _span(P_, W_):
+        live = np.abs(W_) > 0.0
+        if not live.any():
+            return 0.0, 0.0
+        vals = P_[live]
+        return float(vals.min()), float(vals.max())
+
+    if is_per:
+        L = float(period)
+    else:
+        lo_x, hi_x = _span(Px, Wx)
+        lo_y, hi_y = _span(Py, Wy)
+        L = ((hi_x - lo_x) + (hi_y - lo_y)
+             + 2.0 * (_SPECTRAL_IP_MODE_SIGMAS + 2.0) * sigma)
+        if not np.isfinite(L) or L <= 0.0:
+            return None
+    dxi = 2.0 * np.pi / L
+    M = int(np.ceil(_SPECTRAL_IP_MODE_SIGMAS / np.sqrt(2.0)
+                    * L / (2.0 * np.pi * sigma))) + 2
+    if (2 * M + 1) ** (r - 1) > _SPECTRAL_IP_MAX_POINTS:
+        return None
+
+    axes = [np.arange(-M, M + 1, dtype=np.int64)] * (r - 1)
+    grids = np.meshgrid(*axes, indexing='ij')
+    xs = [g.ravel() for g in grids]
+    del grids
+    xs.append(-sum(xs))
+    a = (dxi * sigma) ** 2
+    quad = np.zeros(xs[0].size, dtype=np.float64)
+    for x in xs:
+        quad += x.astype(np.float64) ** 2
+    env = np.exp(-a * quad)
+    keep = env > 1e-18
+    xs = [x[keep] for x in xs]
+    env = env[keep]
+    n_pts = env.size
+    if n_pts == 0:
+        return np.zeros((Px.shape[1], Py.shape[1]), dtype=np.float64)
+
+    W_ax = r * M
+    ax_modes = dxi * np.arange(-W_ax, W_ax + 1)
+    partitions = get_set_partitions_with_mobius(r)
+
+    def _spectra(P_, W_):
+        out = np.empty((P_.shape[1], n_pts), dtype=np.complex128)
+        for n in range(P_.shape[1]):
+            phase = np.exp(-1j * np.outer(ax_modes, P_[:, n]))
+            A = {m: phase @ (W_[:, n] ** m) for m in range(1, r + 1)}
+            tot = np.zeros(n_pts, dtype=np.complex128)
+            for blocks, mu in partitions:
+                term = np.full(n_pts, float(mu), dtype=np.complex128)
+                for B in blocks:
+                    idx = list(B)
+                    eta = xs[idx[0]].copy()
+                    for sl in idx[1:]:
+                        eta = eta + xs[sl]
+                    term *= A[len(B)][eta + W_ax]
+                tot += term
+            out[n] = tot
+        return out
+
+    SX = _spectra(Px, Wx)
+    SY = _spectra(Py, Wy)
+    C_r = r * (sigma ** 2 * dxi) ** (r - 1)
+    return C_r * np.real((SX * env) @ np.conj(SY).T)
+
+
 def _ma_per_attr_inner_matrix_rel(
     Px, Wx, Py, Wy, sigma, r, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
@@ -2377,6 +2495,26 @@ def _ma_per_attr_inner_matrix_rel(
     ``truncation_sigmas`` is honoured on the per-u kernel tensor;
     ``None`` resolves to ``mpt.get_default('truncation_sigmas')``.
     """
+
+    # ---- Spectral (Fourier) branch, r = 2..4 --------------------
+    # Replaces the translation grid with a mode sum: each event's
+    # spectrum is built once and the matrix over event pairs is their
+    # Gram matrix, so the per-pair cost carries no K and no grid nodes.
+    # Cancellation-ratio requests fall through (the spectral form has
+    # no per-node terms matching that diagnostic), as do configurations
+    # whose mode grid would be too large (the helper returns None).
+    if (
+        _SPECTRAL_IP_ENABLED
+        and 2 <= r <= 4
+        and not return_cancellation_ratio
+    ):
+        _spec = _spectral_rel_inner_matrix(
+            Px, Wx, Py, Wy, float(sigma), int(r), bool(is_per),
+            float(period),
+        )
+        if _spec is not None:
+            return _spec
+
     from .._mobius import (
         inner_product_orbit_grid,
         inner_product_orbit_pw_batched,

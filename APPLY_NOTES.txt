@@ -1,10 +1,25 @@
-APPLY NOTES — bundle: everything uncommitted on top of the SA-line HEAD (75041df).
+APPLY NOTES — full uncommitted set on top of the SA-line HEAD (75041df).
 
-Includes all previously delivered work PLUS the periodic relative-mode sparse
-culling for orbit inner products (both languages) and the truncation_sigmas
-threading fix on the Python mobius cosine path. Apply over your tree, then
-`git add -A`: identical files produce no diff, so the commit reduces to the
-delta since your last commit.
+This bundle adds, on top of the previously delivered hybrid spectral EVALUATION
+strategy (both languages), a spectral branch for the relative-mode INNER
+PRODUCT, Python only:
+
+  mpt/_tensor/cosine.py
+    _spectral_rel_inner_matrix() + a gate inside
+    _ma_per_attr_inner_matrix_rel() for r = 2..4.
+  tests/test_spectral_rel_ip.py (new)
+
+The branch replaces the translation grid with a mode sum: one spectrum per
+event, the matrix over event pairs being their Gram matrix, so per-pair cost
+carries neither K nor grid nodes. Verified against the grid path it replaces at
+~3e-13 for r = 2, 3, 4 in both periodic and non-periodic modes, absolute scale
+included (constant C_r = r (sigma^2 dxi)^(r-1), derived and checked with no
+fitted parameters). Full Python suite green, 90 files.
+
+NOT YET DONE: the MATLAB twin of this IP branch, and cost-model pricing for it.
+The gate currently engages whenever the mode grid fits, which is correct but
+not yet cost-calibrated; measured gains ran from ~25x to ~3600x on large-K
+similarity matrices, with small-K single-pair cases roughly neutral.
 
 TWO FILES TO DELETE (renamed):
   git rm matlab/tests/test_dispatch_sa_cossim.m

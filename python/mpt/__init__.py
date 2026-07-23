@@ -20,7 +20,6 @@ from .spectra import add_spectra
 
 # --- Expectation tensors ---
 from .tensor import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
     batch_cos_sim_exp_tens,
@@ -94,7 +93,6 @@ __all__ = [
     # spectra
     "add_spectra",
     # tensor
-    "ExpTensDensity",
     "MaetDensity",
     "build_exp_tens",
     "eval_exp_tens",

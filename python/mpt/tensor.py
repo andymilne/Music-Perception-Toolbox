@@ -13,7 +13,6 @@ from __future__ import annotations
 
 # --- Public API (re-exported by mpt/__init__.py) ---
 from ._tensor.density import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
 )
@@ -80,10 +79,7 @@ from ._tensor.dispatch import (
     _normalize_density_input,
     _orbit_ips_look_corrupted,
     _resolve_list_list_mode,
-    _select_and_estimate_sa,
-    _select_and_estimate_sa_ip,
     _select_ma_inner_product_method,
-    _select_sa_inner_product_method,
     # Policy constants (imported by dispatcher tests).
     _CENTRES_PROBE_MEM_BUDGET,
     _CENTRES_WORKING_SET_SOFT_BUDGET,
@@ -94,15 +90,11 @@ from ._tensor.dispatch import (
     _PROBE_MIN_N_Q,
 )
 
-# Cosine-layer SA/MA-method dispatchers and IP helpers (imported by tests).
+# Cosine-layer MA-method dispatchers and IP helpers (imported by tests).
 from ._tensor.cosine import (
-    _batched_direct_enum_abs_sa,
     _build_ordered_r_tuples,
     _cos_sim_exp_tens_ma_orbit,
     _cos_sim_exp_tens_ma_pairwise,
-    _cos_sim_exp_tens_sa_orbit,
-    _cos_sim_exp_tens_sa_pairwise,
-    _inner_product_direct_abs_sa,
     _ma_has_nan,
     _ma_per_attr_inner_matrix,
     _orbit_inner_abs,

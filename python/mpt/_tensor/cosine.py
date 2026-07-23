@@ -2374,11 +2374,18 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     (xi_m = 2 pi m / P, valid at any sigma/P, since the wrapped-Gaussian
     coefficients are closed form); on the line they are spaced
     2 pi / L for an embedding period L covering both sides' spans plus a
-    truncation margin. Hermitian symmetry (env is even under xi -> -xi;
-    S_n(-xi) = conj(S_n(xi)) for real Gaussian mixtures) halves the
-    working grid: only the DC point plus one point per (xi, -xi) pair
-    is evaluated, with the off-DC envelope doubled to account for the
-    conjugate partner. Returns ``None`` when the mode grid would exceed
+    truncation margin. Hermitian symmetry cuts the working sets in half
+    on two sides: (i) env is even under xi -> -xi and
+    S_n(-xi) = conj(S_n(xi)) since the underlying Gaussian mixture is
+    real, so only the DC point plus one point per (xi, -xi) pair is
+    evaluated on the grid, with the off-DC envelope doubled to account
+    for the conjugate partner; (ii) real event weights give
+    A_m(-eta) = conj(A_m(eta)), so per-event phases are evaluated only
+    on non-negative modes and the full A_m table is assembled by
+    reflection and conjugation. The first halving cuts the partition
+    loop and final matmul; the second halves the per-event phase
+    matmul, which dominates at r = 2 where the partition loop is
+    trivial. Returns ``None`` when the mode grid would exceed
     ``_SPECTRAL_IP_MAX_POINTS``, so the caller falls through.
     """
     from .._mobius import get_set_partitions_with_mobius
@@ -2455,14 +2462,27 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     n_pts = env.size
 
     W_ax = r * M
-    ax_modes = dxi * np.arange(-W_ax, W_ax + 1)
+    # Phase-side Hermitian: since W_[:, n] is real, A_m(-eta) = conj(A_m(eta)),
+    # so phases are only evaluated on non-negative modes and the full
+    # A[m] table is assembled by reflecting the positive half and
+    # conjugating. Halves the O(K * W_ax) phase matmul, which dominates
+    # the per-event cost at r = 2 where the partition loop is trivial.
+    ax_modes_pos = dxi * np.arange(0, W_ax + 1)
     partitions = get_set_partitions_with_mobius(r)
 
     def _spectra(P_, W_):
         out = np.empty((P_.shape[1], n_pts), dtype=np.complex128)
         for n in range(P_.shape[1]):
-            phase = np.exp(-1j * np.outer(ax_modes, P_[:, n]))
-            A = {m: phase @ (W_[:, n] ** m) for m in range(1, r + 1)}
+            phase_pos = np.exp(-1j * np.outer(ax_modes_pos, P_[:, n]))
+            A = {}
+            for m in range(1, r + 1):
+                A_pos_m = phase_pos @ (W_[:, n] ** m)
+                Am = np.empty(2 * W_ax + 1, dtype=np.complex128)
+                # index W_ax..2*W_ax carries modes 0..W_ax (positive half);
+                # index 0..W_ax-1 carries modes -W_ax..-1 by conjugation.
+                Am[W_ax:] = A_pos_m
+                Am[:W_ax] = np.conj(A_pos_m[1:])[::-1]
+                A[m] = Am
             tot = np.zeros(n_pts, dtype=np.complex128)
             for blocks, mu in partitions:
                 term = np.full(n_pts, float(mu), dtype=np.complex128)

@@ -18,7 +18,6 @@ Module layout:
 See ARCHITECTURE.md §3 ("Code layering") for the layered design.
 """
 from .density import (
-    ExpTensDensity,
     MaetDensity,
     WindowedMaetDensity,
     _broadcast_attr_weight,
@@ -73,14 +72,11 @@ from .cosine import (
     batch_cos_sim_exp_tens,
     cos_sim_exp_tens,
     cos_sim_exp_tens_raw,
-    _cos_sim_exp_tens_sa_orbit,
-    _cos_sim_exp_tens_sa_pairwise,
 )
 
 
 __all__ = [
     # Density (public)
-    "ExpTensDensity",
     "MaetDensity",
     "WindowedMaetDensity",
     # Build / eval / cosine (public)

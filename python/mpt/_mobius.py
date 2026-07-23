@@ -1676,6 +1676,81 @@ def _factored_worthwhile(K: int, r: int, n_q: int, N_u: int,
     return fact < direct
 
 
+#: Enables the r = 2 cross-correlation strategy inside
+#: :func:`eval_orbit_rel` (auto selection only; explicit ``factored``
+#: values force their strategies). Module-level for tests.
+_CORR_R2_ENABLED = True
+
+
+def _eval_orbit_rel_corr_r2(p, w, sigma, x_rel, is_per, period,
+                            truncation_sigmas, kernel_precision, spp,
+                            lo, hi):
+    """r = 2 relative evaluation via the cross-correlation form.
+
+    At r = 2 the Möbius sum has exactly two partitions and the
+    translation integral collapses term by term:
+
+        T_rel(Δ) = [ C(Δ) - exp(-Δ²/(4σ²)) · M₂ ] / Z_t,
+
+    where ``C = S₁ ⋆ S₁`` is the autocorrelation of the weighted source
+    mixture (the two-block partition) and ``M₂ = Σ w² · σ√π`` is the
+    Δ-independent mass of the one-block partition's integral. ``C`` is
+    tabulated once for all queries --- a circular FFT correlation on
+    [0, P) in the periodic case (exact on the circle in the all-image
+    convention this route realises), a zero-padded linear FFT
+    correlation on the line otherwise --- and each query is a six-point
+    Lagrange read-back plus one exponential: the translation integral
+    itself is amortised across queries, not merely the source-side
+    tabulation. The grid step ``σ/spp`` reuses the factored strategy's
+    accuracy machinery; the read-back of ``C`` (feature width σ√2) on
+    that step is strictly more accurate than the factored path's S₁
+    read-backs, so the established eps guarantee carries over. In the
+    periodic case the diagonal term uses the principal image
+    ``exp(-wrap(Δ)²/(4σ²))``, matching the factored strategy; the
+    neighbouring images sit below the truncation floor throughout the
+    σ/P regime this route serves.
+    """
+    from ._kernel import gaussian_kernel_sum
+    kw: dict = {}
+    if truncation_sigmas is not None:
+        kw["truncation_sigmas"] = float(truncation_sigmas)
+    if kernel_precision is not None:
+        kw["kernel_precision"] = kernel_precision
+    dq = np.asarray(x_rel[0], dtype=np.float64)
+    if is_per:
+        n1 = max(6, int(round(period / (sigma / spp))))
+        h = period / n1
+        grid = h * np.arange(n1)
+        S1 = np.asarray(gaussian_kernel_sum(
+            p.reshape(1, -1), w, grid.reshape(1, -1), float(sigma),
+            is_per=True, period=period, **kw), dtype=np.float64).ravel()
+        F = np.fft.rfft(S1)
+        C = np.fft.irfft(F * np.conj(F), n=n1) * h
+        vals_C = _lagrange6_circular(C, 0.0, h, dq.reshape(1, -1)).ravel()
+        d_wrap = dq - period * np.round(dq / period)
+    else:
+        h = sigma / spp
+        n1 = int(np.ceil((hi - lo) / h)) + 7
+        grid = lo + h * np.arange(n1)
+        S1 = np.asarray(gaussian_kernel_sum(
+            p.reshape(1, -1), w, grid.reshape(1, -1), float(sigma),
+            **kw), dtype=np.float64).ravel()
+        F = np.fft.rfft(S1, n=2 * n1)
+        C_full = np.fft.irfft(F * np.conj(F), n=2 * n1) * h
+        # Zero-padded circular correlation realises the linear one:
+        # indices 0..n1-1 are lags 0..(n1-1)h; the tail holds the
+        # negative lags. Assemble on Δ ∈ [-(n1-1)h, (n1-1)h].
+        C = np.concatenate([C_full[n1 + 1:], C_full[:n1]])
+        x0_C = -(n1 - 1) * h
+        vals_C = _lagrange6_uniform(C, x0_C, h, dq.reshape(1, -1)).ravel()
+        d_wrap = dq
+    M2 = float(np.sum(np.asarray(w, dtype=np.float64) ** 2)) \
+        * sigma * np.sqrt(np.pi)
+    term2 = np.exp(-(d_wrap * d_wrap) / (4.0 * sigma * sigma)) * M2
+    Z_t = sigma * np.sqrt(np.pi)
+    return (vals_C - term2) / Z_t
+
+
 def eval_orbit_rel(
     p: np.ndarray,
     w: np.ndarray,
@@ -1763,10 +1838,15 @@ def eval_orbit_rel(
         semantics, they set the factored read-back accuracy target as
         described above.
     factored : bool or None, default None
-        ``None`` — cost gate chooses per call. ``True`` — force the
-        factored strategy (raises ``ValueError`` in periodic mode).
-        ``False`` — force the direct strategy. Intended for testing
-        and benchmarking; the gate is the supported default.
+        ``None`` — a cost gate chooses per call; at ``r = 2`` (without a
+        cancellation-ratio request) the gate may select the
+        cross-correlation strategy, which tabulates the translation
+        integral itself once and reads it back per query.
+        ``True`` — force the factored strategy (raises ``ValueError``
+        when the periodic validity conditions fail: truncation window or
+        query span exceeding half the period). ``False`` — force the
+        direct strategy. Intended for testing and benchmarking; the
+        gate is the supported default.
 
     Returns
     -------
@@ -1824,6 +1904,41 @@ def eval_orbit_rel(
     K = int(p.shape[0])
     eps = _factored_target_eps(truncation_sigmas, kernel_precision)
     spp = _factored_spp(eps)
+
+    # ---- r = 2 cross-correlation strategy (auto selection only) ----
+    # The whole evaluation collapses to one tabulated autocorrelation
+    # plus an analytic diagonal term (see _eval_orbit_rel_corr_r2), so
+    # the per-query cost drops from O(N_u) to a six-point read-back.
+    # Engages where the factored strategy's own worthwhile gate fires
+    # (same setup class, strictly cheaper marginal); unlike factored it
+    # needs no periodic validity window, because the circular FFT
+    # correlation is exact on the circle. Explicit ``factored`` values
+    # force their strategies, and cancellation-ratio requests fall
+    # through to them (the correlation form has no per-node terms to
+    # diagnose).
+    if (
+        _CORR_R2_ENABLED
+        and r == 2
+        and factored is None
+        and not return_cancellation_ratio
+    ):
+        if is_per:
+            n_fine_c = max(6, int(round(period / (sigma / spp))))
+            lo_c = 0.0
+            hi_c = 0.0
+        else:
+            dmin_c = min(0.0, float(x_rel.min(initial=0.0)))
+            dmax_c = max(0.0, float(x_rel.max(initial=0.0)))
+            h_c = sigma / spp
+            lo_c = u_min + dmin_c - 3.0 * h_c
+            hi_c = u_max + dmax_c + 3.0 * h_c
+            n_fine_c = int(np.ceil((hi_c - lo_c) / h_c)) + 7
+        if _factored_worthwhile(K, r, n_q, N_u, n_fine_c):
+            return _eval_orbit_rel_corr_r2(
+                p, w, sigma, x_rel, is_per, period,
+                truncation_sigmas, kernel_precision, spp, lo_c, hi_c,
+            )
+
     if is_per:
         # Factored-periodic is valid only where the circular variance/mean
         # block reduction survives wrapping: the truncation window must fit

@@ -164,6 +164,39 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
     K = numel(p);
     eps_target = factoredTargetEps(opts.truncationSigmas, opts.kernelPrecision);
     spp = factoredSpp(eps_target);
+
+    % ---- r = 2 cross-correlation strategy (auto selection only) ----
+    % The whole evaluation collapses to one tabulated autocorrelation
+    % plus an analytic diagonal term (see localEvalOrbitRelCorrR2), so
+    % the per-query cost drops from O(N_u) to a six-point read-back.
+    % Engages where the factored strategy's own worthwhile gate fires
+    % (same setup class, strictly cheaper marginal); unlike factored it
+    % needs no periodic validity window, because the circular FFT
+    % correlation is exact on the circle. Explicit 'on'/'off' force
+    % their strategies, and cancellation-ratio requests fall through
+    % (the correlation form has no per-node terms to diagnose).
+    if r == 2 && strcmp(opts.factored, 'auto') ...
+            && ~opts.returnCancellationRatio
+        if opts.is_per
+            nFineC = max(6, round(opts.period / (sigma / spp)));
+            loC = 0.0; hiC = 0.0;
+        else
+            dminC = min(0, min([x_rel(:); 0]));
+            dmaxC = max(0, max([x_rel(:); 0]));
+            hC = sigma / spp;
+            loC = u_min + dminC - 3 * hC;
+            hiC = u_max + dmaxC + 3 * hC;
+            nFineC = ceil((hiC - loC) / hC) + 7;
+        end
+        if factoredWorthwhile(K, r, n_q, N_u, nFineC)
+            vals = localEvalOrbitRelCorrR2(p, w, sigma, x_rel, ...
+                opts.is_per, opts.period, opts.truncationSigmas, ...
+                opts.kernelPrecision, spp, loC, hiC);
+            ratios = [];
+            return;
+        end
+    end
+
     if opts.is_per
         % Factored-periodic is valid only where the circular variance/mean
         % block reduction survives wrapping: the truncation window must fit
@@ -491,4 +524,67 @@ function vals = lagrange6Circular(y, x0, h, pts)
     wgt = pref .* suff ./ denom;
     idx = mod(base + reshape(0:5, 1, 1, 6), n) + 1;   % wrap mod n, 1-based
     vals = sum(wgt .* y(idx), 3);
+end
+
+
+function vals = localEvalOrbitRelCorrR2(p, w, sigma, x_rel, isPer, ...
+        period, truncationSigmas, kernelPrecision, spp, lo, hi)
+%LOCALEVALORBITRELCORRR2  r = 2 relative evaluation, cross-correlation form.
+%   At r = 2 the Mobius sum has exactly two partitions and the
+%   translation integral collapses term by term:
+%
+%       T_rel(D) = [ C(D) - exp(-D^2/(4*sigma^2)) * M2 ] / Z_t,
+%
+%   where C = S1 (star) S1 is the autocorrelation of the weighted source
+%   mixture (the two-block partition) and M2 = sum(w.^2) * sigma *
+%   sqrt(pi) is the D-independent mass of the one-block partition's
+%   integral. C is tabulated once for all queries --- a circular FFT
+%   correlation on [0, P) in the periodic case (exact on the circle in
+%   the all-image convention this route realises), a zero-padded linear
+%   FFT correlation on the line otherwise --- and each query is a
+%   six-point Lagrange read-back plus one exponential: the translation
+%   integral itself is amortised across queries, not merely the
+%   source-side tabulation. The grid step sigma/spp reuses the factored
+%   strategy's accuracy machinery; the read-back of C (feature width
+%   sigma*sqrt(2)) on that step is strictly more accurate than the
+%   factored path's S1 read-backs, so the established eps guarantee
+%   carries over. In the periodic case the diagonal term uses the
+%   principal image exp(-wrap(D)^2/(4*sigma^2)), matching the factored
+%   strategy; the neighbouring images sit below the truncation floor
+%   throughout the sigma/P regime this route serves. Twin of the Python
+%   _eval_orbit_rel_corr_r2.
+    kw = {'truncationSigmas', truncationSigmas, ...
+          'kernelPrecision', kernelPrecision};
+    dq = double(x_rel(1, :));
+    if isPer
+        n1 = max(6, round(period / (sigma / spp)));
+        h = period / n1;
+        grid = h * (0:n1 - 1);
+        S1 = internal.gaussianKernelSum(p(:).', w(:), grid, sigma, ...
+            'isPer', true, 'period', period, kw{:});
+        S1 = double(S1(:));
+        F = fft(S1);
+        C = ifft(abs(F).^2, 'symmetric') * h;
+        valsC = lagrange6Circular(C, 0.0, h, reshape(dq, 1, []));
+        dW = dq - period .* round(dq ./ period);
+    else
+        h = sigma / spp;
+        n1 = ceil((hi - lo) / h) + 7;
+        grid = lo + h * (0:n1 - 1);
+        S1 = internal.gaussianKernelSum(p(:).', w(:), grid, sigma, kw{:});
+        S1 = double(S1(:));
+        F = fft(S1, 2 * n1);
+        Cfull = ifft(abs(F).^2, 'symmetric') * h;
+        % Zero-padded circular correlation realises the linear one:
+        % entries 1..n1 are lags 0..(n1-1)*h; the tail holds the
+        % negative lags. Assemble on D in [-(n1-1)*h, (n1-1)*h].
+        C = [Cfull(n1 + 2:2 * n1); Cfull(1:n1)];
+        x0C = -(n1 - 1) * h;
+        valsC = lagrange6Uniform(C, x0C, h, reshape(dq, 1, []));
+        dW = dq;
+    end
+    M2 = sum(double(w(:)).^2) * sigma * sqrt(pi);
+    term2 = exp(-(dW .* dW) / (4 * sigma^2)) * M2;
+    Z_t = sigma * sqrt(pi);
+    vals = (valsC(:) - term2(:)) / Z_t;
 end

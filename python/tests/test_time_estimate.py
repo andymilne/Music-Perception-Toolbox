@@ -205,14 +205,19 @@ class TestAccuracySmoke:
     """Generous regression guard against gross mis-calibration on the
     culled centres path. Not a tight timing assertion."""
 
-    def test_culled_centres_estimate_within_generous_band(self):
+    def test_estimate_within_generous_band(self):
         import time
 
         _session_time_scale()
+        # With the spectral (Fourier) strategy inside the mobius
+        # relative evaluator, auto routes this shape to mobius
+        # (measured ~10x faster than centres here); the estimate for
+        # the chosen route must sit within a generous band of the
+        # measured wall time.
         d = _single(60, 1150.0, 20.0)
         x = np.random.default_rng(7).uniform(0.0, 1150.0, (d.dim, 8000))
         chosen, _ = _select_ma_eval(d, 8000, method="auto")
-        assert chosen == "centres"
+        assert chosen == "mobius"
         est = _estimate_eval_seconds(d, 8000, chosen)
         mpt.eval_exp_tens(d, x, verbose=False)  # warm
         ts = []

@@ -1192,6 +1192,36 @@ def _ma_eval_costs_ms(dens, n_q):
         mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
         per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
         if is_rel[a]:
+            # The spectral (Fourier) strategy engages inside the mobius
+            # relative evaluator for r_a in 2..4 above its query
+            # thresholds (see the gate in mpt._mobius.eval_orbit_rel);
+            # where it would engage, price the per-query cost with its
+            # measured, K-free slope. The slope scales with the mode
+            # count, i.e. with window/sigma (session-calibrated: at
+            # window/sigma ~ 270, measured ~0.06, ~0.6, and ~1.8
+            # ms/query for r = 2, 3, 4 at the 6-sigma floor). The
+            # r = 2 constant is the geometric mean of the two
+            # calibration configs (window/sigma 270 and 131), whose
+            # setup shares differ; the crude linear-in-modes model sits
+            # within ~2x of both.
+            _four_per_mode = {2: 1.05e-4, 3: 2.2e-3, 4: 6.7e-3}
+            _four_minq = {2: 16, 3: 32, 4: 64}
+            spread = 0.0
+            p_a = getattr(dens, "p_attr", None)
+            if p_a is not None and a < len(p_a) and p_a[a] is not None:
+                arr = np.asarray(p_a[a], dtype=np.float64)
+                if arr.size:
+                    spread = float(np.max(arr) - np.min(arr))
+            if is_per[a] and period[a] > 0:
+                window = float(period[a])
+            else:
+                window = 2.0 * spread + 16.0 * sigma[a]
+            if (r_a in _four_per_mode and n_q >= _four_minq[r_a]
+                    and k_vec[a] >= (2, 8, 16)[r_a - 2]):
+                mobius_ms += (_MA_COST_MOBIUS_SETUP_MS
+                              + _four_per_mode[r_a]
+                              * (window / max(sigma[a], 1e-12)) * n_q_eff)
+                continue
             from .._defaults import resolve_samples_per_sigma
             sps = float(resolve_samples_per_sigma(None, r_a, None))
             if is_per[a] and period[a] > 0:

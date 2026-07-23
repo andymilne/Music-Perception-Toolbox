@@ -1676,79 +1676,162 @@ def _factored_worthwhile(K: int, r: int, n_q: int, N_u: int,
     return fact < direct
 
 
-#: Enables the r = 2 cross-correlation strategy inside
+#: Enables the spectral (Fourier) strategy inside
 #: :func:`eval_orbit_rel` (auto selection only; explicit ``factored``
 #: values force their strategies). Module-level for tests.
-_CORR_R2_ENABLED = True
+_FOURIER_ENABLED = True
+
+#: Mode-cutoff width for the spectral strategy, in sigmas: the block
+#: spectra are truncated where the Gaussian envelope falls below
+#: machine precision (exp(-8.6^2/2) ~ 8e-17), NOT at the requested
+#: accuracy floor. The Möbius alternating sum amplifies per-term error
+#: by the cancellation ratio, so per-term error must sit near machine
+#: eps for the combined value to reach the requested floor; since the
+#: mode count scales as sqrt(log(1/eps)), this costs only ~16% more
+#: modes than the 1e-12 floor would.
+_FOURIER_MODE_SIGMAS = 8.6
 
 
-def _eval_orbit_rel_corr_r2(p, w, sigma, x_rel, is_per, period,
-                            truncation_sigmas, kernel_precision, spp,
-                            lo, hi):
-    """r = 2 relative evaluation via the cross-correlation form.
+def _eval_orbit_rel_fourier(p, w, sigma, r, x_rel, is_per, period,
+                            truncation_sigmas):
+    """Relative evaluation via the spectral (Fourier) form, r >= 2.
 
-    At r = 2 the Möbius sum has exactly two partitions and the
-    translation integral collapses term by term:
-
-        T_rel(Δ) = [ C(Δ) - exp(-Δ²/(4σ²)) · M₂ ] / Z_t,
-
-    where ``C = S₁ ⋆ S₁`` is the autocorrelation of the weighted source
-    mixture (the two-block partition) and ``M₂ = Σ w² · σ√π`` is the
-    Δ-independent mass of the one-block partition's integral. ``C`` is
-    tabulated once for all queries --- a circular FFT correlation on
-    [0, P) in the periodic case (exact on the circle in the all-image
-    convention this route realises), a zero-padded linear FFT
-    correlation on the line otherwise --- and each query is a six-point
-    Lagrange read-back plus one exponential: the translation integral
-    itself is amortised across queries, not merely the source-side
-    tabulation. The grid step ``σ/spp`` reuses the factored strategy's
-    accuracy machinery; the read-back of ``C`` (feature width σ√2) on
-    that step is strictly more accurate than the factored path's S₁
-    read-backs, so the established eps guarantee carries over. In the
-    periodic case the diagonal term uses the principal image
-    ``exp(-wrap(Δ)²/(4σ²))``, matching the factored strategy; the
-    neighbouring images sit below the truncation floor throughout the
-    σ/P regime this route serves.
+    Every partition's translation integral constrains the total mode
+    index of its block product to zero. The evaluation dispatches by
+    block count: single-block partitions are the analytic mass
+    ``M_r = Σ w^r · σ√(2π/r)``; two-block partitions are 1-D mode
+    series ``L·Σ_m conj(c_A[m]) c_B[m] e^{iωm(mean_B - mean_A)}``,
+    evaluated with a multiplicative phase ladder; partitions with three
+    or more blocks are total-mode-zero coefficients of per-block
+    spectral products, evaluated as cached per-block FFTs (one per
+    distinct block appearing in any such partition, shared across
+    partitions exactly as blocks recur) and one pointwise product per
+    partition. The block spectra are the closed-form Fourier
+    coefficients of the wrapped Gaussian mixture --- no sampling, no
+    kernel truncation, no interpolation --- truncated per block size
+    where the Gaussian envelope reaches machine precision
+    (``_FOURIER_MODE_SIGMAS``): the Möbius cancellation amplifies
+    per-term error, so per-term error must sit near machine eps for the
+    combined value to reach the requested floor. The non-periodic case
+    embeds in a virtual period padded to the requested truncation
+    floor. Queries are chunked so the cached spectra respect the kernel
+    chunk budget. ``kernel_precision`` does not apply: the coefficients
+    are closed-form in float64.
     """
-    from ._kernel import gaussian_kernel_sum
-    kw: dict = {}
-    if truncation_sigmas is not None:
-        kw["truncation_sigmas"] = float(truncation_sigmas)
-    if kernel_precision is not None:
-        kw["kernel_precision"] = kernel_precision
-    dq = np.asarray(x_rel[0], dtype=np.float64)
+    from ._defaults import resolve_truncation_sigmas
+    k_res = float(resolve_truncation_sigmas(truncation_sigmas))
+    k_m = _FOURIER_MODE_SIGMAS
+    x_rel = np.asarray(x_rel, dtype=np.float64)
+    n_q = x_rel.shape[1]
+    p64 = np.asarray(p, dtype=np.float64).ravel()
+    w64 = np.asarray(w, dtype=np.float64).ravel()
     if is_per:
-        n1 = max(6, int(round(period / (sigma / spp))))
-        h = period / n1
-        grid = h * np.arange(n1)
-        S1 = np.asarray(gaussian_kernel_sum(
-            p.reshape(1, -1), w, grid.reshape(1, -1), float(sigma),
-            is_per=True, period=period, **kw), dtype=np.float64).ravel()
-        F = np.fft.rfft(S1)
-        C = np.fft.irfft(F * np.conj(F), n=n1) * h
-        vals_C = _lagrange6_circular(C, 0.0, h, dq.reshape(1, -1)).ravel()
-        d_wrap = dq - period * np.round(dq / period)
+        L = float(period)
     else:
-        h = sigma / spp
-        n1 = int(np.ceil((hi - lo) / h)) + 7
-        grid = lo + h * np.arange(n1)
-        S1 = np.asarray(gaussian_kernel_sum(
-            p.reshape(1, -1), w, grid.reshape(1, -1), float(sigma),
-            **kw), dtype=np.float64).ravel()
-        F = np.fft.rfft(S1, n=2 * n1)
-        C_full = np.fft.irfft(F * np.conj(F), n=2 * n1) * h
-        # Zero-padded circular correlation realises the linear one:
-        # indices 0..n1-1 are lags 0..(n1-1)h; the tail holds the
-        # negative lags. Assemble on Δ ∈ [-(n1-1)h, (n1-1)h].
-        C = np.concatenate([C_full[n1 + 1:], C_full[:n1]])
-        x0_C = -(n1 - 1) * h
-        vals_C = _lagrange6_uniform(C, x0_C, h, dq.reshape(1, -1)).ravel()
-        d_wrap = dq
-    M2 = float(np.sum(np.asarray(w, dtype=np.float64) ** 2)) \
-        * sigma * np.sqrt(np.pi)
-    term2 = np.exp(-(d_wrap * d_wrap) / (4.0 * sigma * sigma)) * M2
-    Z_t = sigma * np.sqrt(np.pi)
-    return (vals_C - term2) / Z_t
+        pad = (k_res + 2.0) * sigma
+        lo = float(p64.min()) - pad + min(0.0, float(x_rel.min(initial=0.0)))
+        hi = float(p64.max()) + pad + max(0.0, float(x_rel.max(initial=0.0)))
+        L = hi - lo
+    om = 2.0 * np.pi / L
+
+    def _M_of(m_sz):
+        return int(np.ceil(k_m * L * np.sqrt(m_sz)
+                           / (2.0 * np.pi * sigma))) + 2
+
+    M_by = {m_sz: _M_of(m_sz) for m_sz in range(1, r + 1)}
+    c = {}
+    for m_sz in range(1, r + 1):
+        Mm = M_by[m_sz]
+        mm = np.arange(-Mm, Mm + 1)
+        sig_m = sigma / np.sqrt(m_sz)
+        env = (sig_m * np.sqrt(2.0 * np.pi) / L
+               * np.exp(-2.0 * np.pi ** 2 * sig_m ** 2
+                        * mm.astype(np.float64) ** 2 / L ** 2))
+        c[m_sz] = env * (np.exp(-1j * om * np.outer(mm, p64)) @ w64 ** m_sz)
+
+    partitions = get_set_partitions_with_mobius(r)
+    # FFT domain sized for the widest >=3-block partition.
+    fft_blocks = set()
+    max_span = 0
+    for blocks, mu in partitions:
+        if len(blocks) >= 3:
+            max_span = max(max_span,
+                           sum(M_by[len(B)] for B in blocks))
+            for B in blocks:
+                fft_blocks.add(tuple(B))
+    Nf = max(2 * max_span + 2, 2)
+    masses = {m_sz: float(np.sum(w64 ** m_sz))
+              * sigma * np.sqrt(2.0 * np.pi / m_sz)
+              for m_sz in range(1, r + 1)}
+    per_query_bytes = (len(fft_blocks) + 3) * Nf * 16
+    budget = max(kernel_chunk_bytes_resolved(), 1)
+    chunk = int(np.clip(budget // max(per_query_bytes, 1), 1, max(n_q, 1)))
+    inv2s2 = 1.0 / (2.0 * sigma * sigma)
+
+    def _phase_ladder(Mm, b):
+        # E[m, q] = exp(i om m b_q) for m = -Mm..Mm via one exp and
+        # cumulative products.
+        z = np.exp(1j * om * b)
+        pos = np.cumprod(np.broadcast_to(z, (Mm, b.size)), axis=0)
+        ones = np.ones((1, b.size), dtype=np.complex128)
+        return np.vstack([np.conj(pos[::-1]), ones, pos])
+
+    out = np.empty(n_q, dtype=np.float64)
+    for q0 in range(0, n_q, chunk):
+        q1 = min(q0 + chunk, n_q)
+        nqc = q1 - q0
+        deltas = np.vstack([np.zeros((1, nqc)), x_rel[:, q0:q1]])
+        if is_per:
+            deltas = deltas - period * np.round(deltas / period)
+        stats = {}
+        for blocks, mu in partitions:
+            for B in blocks:
+                key = tuple(B)
+                if key not in stats:
+                    dB = deltas[list(B), :]
+                    meanB = dB.mean(axis=0)
+                    varB = ((dB - meanB) ** 2).sum(axis=0)
+                    stats[key] = (meanB, np.exp(-varB * inv2s2))
+        ghat = {}
+        total = np.zeros(nqc, dtype=np.complex128)
+        for blocks, mu in partitions:
+            qn = len(blocks)
+            pref = np.ones(nqc, dtype=np.float64)
+            for B in blocks:
+                pref = pref * stats[tuple(B)][1]
+            if qn == 1:
+                total = total + mu * pref * masses[r]
+                continue
+            if qn == 2:
+                (BA, BB) = blocks
+                mA, mB = len(BA), len(BB)
+                Mp = max(M_by[mA], M_by[mB])
+                ca = np.zeros(2 * Mp + 1, dtype=np.complex128)
+                cb = np.zeros(2 * Mp + 1, dtype=np.complex128)
+                ca[Mp - M_by[mA]:Mp + M_by[mA] + 1] = c[mA]
+                cb[Mp - M_by[mB]:Mp + M_by[mB] + 1] = c[mB]
+                G = L * np.conj(ca) * cb
+                b = stats[tuple(BB)][0] - stats[tuple(BA)][0]
+                E = _phase_ladder(Mp, b)
+                total = total + mu * pref * (G @ E)
+                continue
+            prod = None
+            for B in blocks:
+                key = tuple(B)
+                if key not in ghat:
+                    Mm = M_by[len(B)]
+                    mm = np.arange(-Mm, Mm + 1)
+                    meanB = stats[key][0]
+                    g = np.zeros((Nf, nqc), dtype=np.complex128)
+                    g[mm % Nf, :] = (c[len(B)][:, None]
+                                     * _phase_ladder(Mm, meanB))
+                    ghat[key] = np.fft.fft(g, axis=0)
+                gh = ghat[key]
+                prod = gh.copy() if prod is None else prod * gh
+            total = total + mu * pref * (L / Nf) * prod.sum(axis=0)
+        out[q0:q1] = np.real(total)
+    Z_t = sigma * np.sqrt(2.0 * np.pi / r)
+    return out / Z_t
 
 
 def eval_orbit_rel(
@@ -1905,38 +1988,44 @@ def eval_orbit_rel(
     eps = _factored_target_eps(truncation_sigmas, kernel_precision)
     spp = _factored_spp(eps)
 
-    # ---- r = 2 cross-correlation strategy (auto selection only) ----
-    # The whole evaluation collapses to one tabulated autocorrelation
-    # plus an analytic diagonal term (see _eval_orbit_rel_corr_r2), so
-    # the per-query cost drops from O(N_u) to a six-point read-back.
-    # Engages where the factored strategy's own worthwhile gate fires
-    # (same setup class, strictly cheaper marginal); unlike factored it
-    # needs no periodic validity window, because the circular FFT
-    # correlation is exact on the circle. Explicit ``factored`` values
-    # force their strategies, and cancellation-ratio requests fall
-    # through to them (the correlation form has no per-node terms to
-    # diagnose).
+    # ---- Spectral (Fourier) strategy, r = 2..4 (auto selection only) ----
+    # Partition evaluation dispatched by block count: analytic masses,
+    # 1-D mode series, and total-mode-zero spectral products (see
+    # _eval_orbit_rel_fourier). Engagement thresholds are calibrated
+    # from measured wall times across K in 7..300 and n_q in 5..5000
+    # (span 3600, sigma 15, 6-sigma floor): at r = 2 the spectral form
+    # wins every measured cell from n_q ~ 16 up; at r = 3 from
+    # n_q ~ 32 (any K >= 8); at r = 4 it matches the factored strategy
+    # and beats direct from n_q ~ 64; at r = 5 the factored strategy
+    # remains faster at scale, so the gate stands down there. Explicit
+    # ``factored`` values force their strategies; cancellation-ratio
+    # requests fall through (the spectral form has no per-node terms
+    # matching that diagnostic); the periodic principal-image window
+    # guards the analytic variance prefactors.
     if (
-        _CORR_R2_ENABLED
-        and r == 2
+        _FOURIER_ENABLED
+        and 2 <= r <= 4
         and factored is None
         and not return_cancellation_ratio
+        and n_q >= (16, 32, 64)[r - 2]
+        and K >= (2, 8, 16)[r - 2]
     ):
-        if is_per:
-            n_fine_c = max(6, int(round(period / (sigma / spp))))
-            lo_c = 0.0
-            hi_c = 0.0
+        from ._defaults import resolve_truncation_sigmas as _rts
+        _k_res = float(_rts(truncation_sigmas))
+        if is_per and r >= 2 and x_rel.size:
+            # As in the factored-periodic gate: every query's position
+            # span (slot 0 carries delta 0) must fit inside half the
+            # circle, under which the principal-image wrap of the
+            # deltas is a no-op and the per-block statistics are exact.
+            _plo = np.minimum(0.0, x_rel.min(axis=0))
+            _phi = np.maximum(0.0, x_rel.max(axis=0))
+            _span_ok = float(np.max(_phi - _plo)) < 0.5 * period
         else:
-            dmin_c = min(0.0, float(x_rel.min(initial=0.0)))
-            dmax_c = max(0.0, float(x_rel.max(initial=0.0)))
-            h_c = sigma / spp
-            lo_c = u_min + dmin_c - 3.0 * h_c
-            hi_c = u_max + dmax_c + 3.0 * h_c
-            n_fine_c = int(np.ceil((hi_c - lo_c) / h_c)) + 7
-        if _factored_worthwhile(K, r, n_q, N_u, n_fine_c):
-            return _eval_orbit_rel_corr_r2(
-                p, w, sigma, x_rel, is_per, period,
-                truncation_sigmas, kernel_precision, spp, lo_c, hi_c,
+            _span_ok = True
+        if _span_ok and ((not is_per)
+                         or (period > 2.0 * np.sqrt(2.0) * _k_res * sigma)):
+            return _eval_orbit_rel_fourier(
+                p, w, sigma, r, x_rel, is_per, period, truncation_sigmas,
             )
 
     if is_per:

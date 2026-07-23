@@ -508,6 +508,21 @@ nQ = size(X, 2);
 if strcmp(method, 'centres') || strcmp(method, 'direct')
     chosen = 'centres';
 elseif strcmp(method, 'mobius')
+    % An ordered ([sym] = 0) attribute at r > 1 has no orbit: the Möbius
+    % partition sum realises the symmetrised tuple set, so it would
+    % evaluate a different density. Silently substituting centres would
+    % hide that the requested method does not apply; silently proceeding
+    % would return the wrong values. Twin of the Python
+    % _reject_ordered_for_mobius guard.
+    if internal.hasOrderedAttr(maet)
+        error('mpt:evalExpTens:orderedMobius', ...
+            ['method=''mobius'' is not available for an ordered ' ...
+             '([sym]=0) attribute at r > 1: the Möbius decomposition ' ...
+             'sums over set partitions of the slot indices, which ' ...
+             'realises the symmetrised tuple set and so evaluates a ' ...
+             'different density. Use method=''centres'' (or ' ...
+             'method=''auto'', which selects it).']);
+    end
     chosen = 'mobius';
 elseif strcmp(method, 'auto')
     % Probe-free cost-model path selection. The single-multiset corner is

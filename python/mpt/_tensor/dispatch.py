@@ -1256,6 +1256,46 @@ def _predict_ma_eval_cost_ms(dens, n_q, chosen):
     return mobius_ms if chosen == "mobius" else centres_ms
 
 
+def _has_ordered_attr(dens) -> bool:
+    """True if any flat attribute is ordered (``[sym] = 0``) at ``r > 1``.
+
+    Such an attribute carries no slot-permutation symmetry, so the
+    Möbius orbit decomposition does not apply to it: the partition sum
+    realises the symmetrised tuple set, which is a *different* density
+    rather than the same one computed faster. ``r = 1`` is exempt
+    ([sym] is vacuous at a single slot), as are nested attributes, whose
+    per-attribute density is built by contraction rather than by a
+    single Möbius sum.
+    """
+    A = int(dens.n_attrs)
+    is_sym = np.atleast_1d(
+        getattr(dens, "is_sym", np.ones(A, dtype=bool))
+    )
+    r_vec = np.atleast_1d(dens.r)
+    nested = getattr(dens, "nested", [None] * A)
+    for a in range(A):
+        if nested[a] is None and not bool(is_sym[a]) and int(r_vec[a]) > 1:
+            return True
+    return False
+
+
+def _reject_ordered_for_mobius(dens) -> None:
+    """Raise if an explicit ``method='mobius'`` names an ordered density.
+
+    Silently substituting the centres path would hide the fact that the
+    requested method does not apply; silently proceeding would return
+    the symmetrised density's values. Both are worse than an error.
+    """
+    if _has_ordered_attr(dens):
+        raise ValueError(
+            "method='mobius' is not available for an ordered ([sym]=0) "
+            "attribute at r > 1: the Möbius decomposition sums over set "
+            "partitions of the slot indices, which realises the "
+            "symmetrised tuple set and so evaluates a different density. "
+            "Use method='centres' (or method='auto', which selects it)."
+        )
+
+
 def _select_ma_eval(dens, n_q, *, method):
     """Cost-model path selection for multi-attribute ``eval_exp_tens``.
 
@@ -1316,6 +1356,7 @@ def _select_ma_eval(dens, n_q, *, method):
     if method in ("centres", "direct"):
         return "centres", "user override"
     if method == "mobius":
+        _reject_ordered_for_mobius(dens)
         return "mobius", "user override"
     if method != "auto":
         raise ValueError(
@@ -1330,6 +1371,16 @@ def _select_ma_eval(dens, n_q, *, method):
     is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
     sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
     period = [float(v) for v in np.atleast_1d(dens.period)]
+
+    # ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 have no
+    # orbit. The Möbius decomposition sums over set partitions of the
+    # slot indices, which counts every ordering of each block and so
+    # realises the symmetrised tuple set; on an ordered attribute that
+    # is a different density, not a faster route to the same one. Keep
+    # the joint-centres path, which enumerates the ordered tuple set as
+    # given. ----
+    if _has_ordered_attr(dens):
+        return "centres", "ordered ([sym]=0) attribute (no orbit to collapse)"
 
     # ---- Hard rule: nested attributes are not handled by the flat
     # factored evaluator; keep the joint-centres path. ----

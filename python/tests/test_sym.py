@@ -474,3 +474,66 @@ class TestOrderedRenyi2:
         hS = float(entropy_exp_tens(dS, method="renyi2", verbose=False))
         assert np.isfinite(hO) and np.isfinite(hS)
         assert abs(hO - hS) > 1e-6
+
+
+class TestOrderedNotRoutedToMobius:
+    """Ordered ([sym]=0) attributes at r>1 have no orbit: the Möbius
+    partition sum realises the symmetrised tuple set, so it evaluates a
+    different density. Auto must keep them on centres, and an explicit
+    method='mobius' must be refused rather than silently return the
+    symmetrised values."""
+
+    P = np.array([0.0, 4.0, 7.0, 11.0])
+    SIG = 2.0
+
+    def _ordered(self, r):
+        from mpt import build_exp_tens
+        return build_exp_tens([self.P[:, None]], None, [self.SIG], [r],
+                              [False], [False], [0.0], [False], verbose=False)
+
+    @pytest.mark.parametrize("r", [2, 3])
+    def test_auto_stays_asymmetric(self, r):
+        from mpt import eval_exp_tens
+        d = self._ordered(r)
+        a = [0.0, 4.0, 7.0][:r]
+        x = np.array([a, list(reversed(a))]).T
+        v = eval_exp_tens(d, x, verbose=False)
+        # The mirrored point is not in the ordered centre set.
+        assert v[0] > 10.0 * v[1]
+
+    @pytest.mark.parametrize("r", [2, 3])
+    def test_auto_matches_forced_centres(self, r):
+        from mpt import eval_exp_tens
+        d = self._ordered(r)
+        rng = np.random.default_rng(0)
+        x = rng.uniform(-4, 15, (d.dim, 40))
+        v_auto = eval_exp_tens(d, x, verbose=False)
+        v_cent = eval_exp_tens(d, x, method="centres", verbose=False)
+        np.testing.assert_allclose(v_auto, v_cent, rtol=1e-12, atol=0.0)
+
+    @pytest.mark.parametrize("r", [2, 3])
+    def test_explicit_mobius_raises(self, r):
+        from mpt import eval_exp_tens
+        d = self._ordered(r)
+        with pytest.raises(ValueError, match="ordered"):
+            eval_exp_tens(d, np.zeros((d.dim, 1)), method="mobius",
+                          verbose=False)
+
+    def test_r1_ordered_still_allows_mobius(self):
+        # [sym] is vacuous at a single slot, so r = 1 is exempt.
+        from mpt import build_exp_tens, eval_exp_tens
+        d = build_exp_tens([self.P[:, None]], None, [self.SIG], [1],
+                           [False], [False], [0.0], [False], verbose=False)
+        v = eval_exp_tens(d, np.zeros((d.dim, 1)), method="mobius",
+                          verbose=False)
+        assert np.isfinite(v).all()
+
+    def test_symmetric_still_routes_to_mobius(self):
+        from mpt import build_exp_tens, eval_exp_tens
+        d = build_exp_tens([self.P[:, None]], None, [self.SIG], [2],
+                           [False], [False], [0.0], [True], verbose=False)
+        rng = np.random.default_rng(1)
+        x = rng.uniform(-4, 15, (d.dim, 40))
+        v_m = eval_exp_tens(d, x, method="mobius", verbose=False)
+        v_c = eval_exp_tens(d, x, method="centres", verbose=False)
+        np.testing.assert_allclose(v_m, v_c, rtol=1e-8, atol=1e-12)

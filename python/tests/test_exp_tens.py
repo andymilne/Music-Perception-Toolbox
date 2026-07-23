@@ -1,4 +1,4 @@
-"""Tests for build_exp_tens / eval_exp_tens / cos_sim_exp_tens — SA core.
+"""Tests for build_exp_tens / eval_exp_tens / cos_sim_exp_tens — single-multiset core.
 
 Mirror of MATLAB tests/test_exp_tens.m.
 """

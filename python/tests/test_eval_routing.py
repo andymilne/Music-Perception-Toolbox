@@ -1,4 +1,4 @@
-"""Parity tests for ``eval_exp_tens`` SA centres-path routing through
+"""Parity tests for ``eval_exp_tens`` single-multiset centres-path routing through
 the shared helper (:func:`mpt._kernel.gaussian_kernel_sum`).
 
 Verifies, on a battery of representative densities and queries, that:
@@ -22,6 +22,15 @@ code.
 import math
 
 import numpy as np
+
+from mpt._defaults import accuracy_floor_context
+
+# Comparisons against the untruncated reference widen the accuracy floor
+# to 1e-300 (as the MATLAB twin test_kernel_truncation.m does), so the
+# shipped paths sum essentially exhaustively. Entries below that floor
+# are legitimately dropped -- the reference can still emit denormals at
+# ~1e-308 -- so atol is tied to the floor being requested.
+_FLOOR = 1e-300
 import pytest
 
 import mpt
@@ -34,6 +43,11 @@ from mpt.tensor import build_exp_tens, eval_exp_tens
 
 def _ref_eval(dens, x):
     """Plain broadcast-subtract-exp-sum, no truncation, double precision."""
+    # A MaetDensity carries per-attribute vectors (r, sigma, is_rel, ...);
+    # this frozen reference is written against the flat single-multiset
+    # field names, so take that view rather than indexing the vectors here.
+    from mpt._tensor.density import single_multiset_view
+    dens = single_multiset_view(dens)
     centres = dens.centres
     w_j = dens.w_j
     sigma = dens.sigma
@@ -104,23 +118,26 @@ def density_case(request):
 
 def test_default_settings_match_reference(density_case):
     label, dens, x = density_case
-    v = eval_exp_tens(dens, x, method='centres', verbose=False)
+    with accuracy_floor_context(1e-300):
+        v = eval_exp_tens(dens, x, method='centres', truncation_sigmas=math.inf,
+                          verbose=False)
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=0,
+        v, ref, rtol=1e-12, atol=_FLOOR,
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
 
 def test_explicit_inf_matches_reference(density_case):
     label, dens, x = density_case
-    v = eval_exp_tens(
-        dens, x, method='centres', truncation_sigmas=math.inf,
-        kernel_precision='double', verbose=False,
-    )
+    with accuracy_floor_context(1e-300):
+        v = eval_exp_tens(
+            dens, x, method='centres', truncation_sigmas=math.inf,
+            kernel_precision='double', verbose=False,
+        )
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=0,
+        v, ref, rtol=1e-12, atol=_FLOOR,
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
@@ -161,8 +178,15 @@ def test_truncation_inf_is_exact(density_case):
         f"{label}: explicit inf vs default not bit-identical"
 
 
-def test_periodic_ignores_truncation(density_case):
-    """Periodic mode: truncation has no effect (falls through to exact)."""
+def test_periodic_truncation_agrees_within_floor(density_case):
+    """Periodic mode: culling changes values only below the requested floor.
+
+    Periodic evaluation once fell through to an exact wrapped sum, so
+    truncation had no effect and the two calls were bit-identical. Since
+    periodic-mode culling shipped, a requested width does cull, so the
+    contract is agreement to the amplitude that width admits --
+    exp(-k^2/2) at k = 6 -- not bitwise equality.
+    """
     label, dens, x = density_case
     if not dens.is_per:
         pytest.skip("only applies to periodic")
@@ -170,8 +194,10 @@ def test_periodic_ignores_truncation(density_case):
     v_trunc = eval_exp_tens(
         dens, x, method='centres', truncation_sigmas=6, verbose=False,
     )
-    assert np.array_equal(v_default, v_trunc), \
-        f"{label}: periodic should be exact regardless of truncation"
+    np.testing.assert_allclose(
+        v_trunc, v_default, rtol=0, atol=10.0 * math.exp(-6.0 ** 2 / 2),
+        err_msg=f"{label}: periodic culling exceeds the requested floor",
+    )
 
 
 # ---------------------------------------------------------------------
@@ -209,9 +235,12 @@ def test_global_default_picked_up():
     x = rng.uniform(0, 1000, (2, 20))
     ref = _ref_eval(dens, x)
 
-    # First with default (Inf): bit-identical.
-    v1 = eval_exp_tens(dens, x, method='centres', verbose=False)
-    assert np.array_equal(v1, ref)
+    # With the default width, agreement is to the accuracy floor: the
+    # resolved width is k = 7.43, not an untruncated sum.
+    with accuracy_floor_context(1e-300):
+        v1 = eval_exp_tens(dens, x, method='centres',
+                           truncation_sigmas=math.inf, verbose=False)
+    np.testing.assert_allclose(v1, ref, rtol=1e-12, atol=_FLOOR)
 
     # Set global default; bit-identical now requires truncation match.
     mpt.set_default(truncation_sigmas=6)
@@ -233,8 +262,11 @@ def test_per_call_overrides_global():
 
     # Set a lax global default.
     mpt.set_default(truncation_sigmas=4)
-    # Per-call override with Inf must still produce exact result.
-    v = eval_exp_tens(
-        dens, x, method='centres', truncation_sigmas=math.inf, verbose=False,
-    )
-    assert np.array_equal(v, ref)
+    # A per-call Inf must still resolve to the accuracy floor, overriding
+    # the laxer global width.
+    with accuracy_floor_context(1e-300):
+        v = eval_exp_tens(
+            dens, x, method='centres', truncation_sigmas=math.inf,
+            verbose=False,
+        )
+    np.testing.assert_allclose(v, ref, rtol=1e-12, atol=_FLOOR)

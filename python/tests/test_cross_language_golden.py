@@ -4,8 +4,8 @@ Hardcodes outputs of representative v2.2 computations on deterministic
 inputs (no RNG). The companion MATLAB file
 ``matlab/tests/test_cross_language_golden.m`` hardcodes the same
 values; running both pins down cross-language numerical agreement to
-1e-8 relative on the v2.2 surface (orbit cosine similarity SA + MA
-including the safe/unsafe hybrid, Rényi-2 entropy SA + MA, orbit-path
+1e-8 relative on the v2.2 surface (orbit cosine similarity single-multiset + MA
+including the safe/unsafe hybrid, Rényi-2 entropy single-multiset + MA, orbit-path
 :func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
 
 Inputs use ``method='mobius'`` on the cosine cases so the Möbius method's
@@ -36,7 +36,7 @@ ATOL = 1e-12
 
 
 # ----------------------------------------------------------------------
-# Case A: SA cosSim, abs r=3, Möbius method
+# Case A: single-multiset cosSim, abs r=3, Möbius method
 # ----------------------------------------------------------------------
 
 def test_golden_sa_cossim_abs_r3():
@@ -53,7 +53,7 @@ def test_golden_sa_cossim_abs_r3():
 
 
 # ----------------------------------------------------------------------
-# Case B: SA cosSim, rel r=3 periodic, Möbius method
+# Case B: single-multiset cosSim, rel r=3 periodic, Möbius method
 # ----------------------------------------------------------------------
 
 def test_golden_sa_cossim_rel_r3_per():
@@ -74,7 +74,7 @@ def test_golden_sa_cossim_rel_r3_per():
 # ----------------------------------------------------------------------
 
 def test_golden_ma_cossim_ragged_k_hybrid():
-    """Mixed safe/unsafe ragged-K MA (single attribute, K=8, r=3,
+    """Mixed safe/unsafe ragged-K MA (single multiset, K=8, r=3,
     two unsafe events on each side via NaN padding to K_eff=4).
 
     Exercises the per-event safe/unsafe partition: safe pairs go
@@ -105,7 +105,7 @@ def test_golden_ma_cossim_ragged_k_hybrid():
 
 
 # ----------------------------------------------------------------------
-# Case D: SA entropy Rényi-2, abs r=2
+# Case D: single-multiset entropy Rényi-2, abs r=2
 # ----------------------------------------------------------------------
 
 def test_golden_sa_renyi2_abs_r2():
@@ -174,7 +174,7 @@ def test_golden_eval_exp_tens_rel():
 
 
 # ----------------------------------------------------------------------
-# Case H: SA Shannon entropy r=2, dim=2 (bin-integration path)
+# Case H: single-multiset Shannon entropy r=2, dim=2 (bin-integration path)
 # ----------------------------------------------------------------------
 # These cases lock in the bin-integration parity for the discrete
 # entropy methods. The bin-integration path was added to Python without

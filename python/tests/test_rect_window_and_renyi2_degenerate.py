@@ -79,7 +79,7 @@ class TestRectWindowHalfOpen:
 class TestRenyi2ZeroMassNaN:
     """#21: zero-mass density -> NaN from renyi2, not a raise."""
 
-    def test_sa_zero_weight_returns_nan(self):
+    def test_single_multiset_zero_weight_returns_nan(self):
         v = mpt.entropy_exp_tens([0., 4., 7.], [0., 0., 0.], 1.0, 1,
                                  False, False, 0.0, method="renyi2",
                                  verbose=False)

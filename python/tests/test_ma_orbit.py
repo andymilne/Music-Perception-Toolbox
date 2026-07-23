@@ -4,7 +4,7 @@ The MA inner product factorises per attribute and per event pair (JMM
 Eq. 3.4 with the per-attribute integral separation), so orbit Möbius
 applies attribute-by-attribute. The integration tests below check
 that orbit-MA matches pairwise-MA at the cosine level on representative
-MAET configurations (single-attribute equivalence, pitch+time, mixed
+MAET configurations (single-multiset equivalence, pitch+time, mixed
 r_a, NaN fallback, etc.).
 """
 from __future__ import annotations
@@ -93,11 +93,22 @@ def test_ma_dispatcher_routes_orbit_when_clean(r_max):
     ) == 'mobius'
 
 
-def test_ma_dispatcher_routes_pairwise_when_r_too_large():
-    """r_max above the shipped-table cutoff: fall back."""
-    assert _select_ma_inner_product_method(
-        **_disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1, K=12),
-    ) == 'bulger'
+def test_ma_dispatcher_raises_when_r_too_large_and_bulger_infeasible():
+    """r_max above the shipped-table cutoff leaves no viable route.
+
+    Above the shipped orbit order the Möbius method is unavailable, so
+    the single-image (Bulger) route is the only fallback -- but its
+    tuple-pair kernel is quadratic in the ordered-tuple count, which at
+    r = 9 exceeds any practical budget for every K >= r (at K = 9 the
+    kernel alone is ~1e12 bytes). The feasibility guard therefore raises
+    with a sizing message rather than returning a route that cannot be
+    executed.
+    """
+    from mpt._tensor.dispatch import SingleImageInfeasibleError
+    with pytest.raises(SingleImageInfeasibleError, match="single-image"):
+        _select_ma_inner_product_method(
+            **_disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1, K=12),
+        )
 
 
 def test_ma_dispatcher_routes_pairwise_for_rel_nonper_at_A1():

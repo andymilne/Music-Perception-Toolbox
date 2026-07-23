@@ -3,11 +3,11 @@
 Coverage of the new v2.1 capabilities:
 
 - Density list input — output shape ``(M,)``, with optional dedup.
-- Raw SA batched input (2-D ``P``) — output shape ``(M,)``, with
+- Raw single-attribute batched input (2-D ``P``) — output shape ``(M,)``, with
   chord-level dedup; ``np.nan`` for invalid rows (K < r).
 - ``spectrum``, ``precision``, ``dedup`` kwargs.
 
-The pre-existing scalar-density and raw SA/MA scalar paths are
+The pre-existing scalar-density and raw single-multiset/MA scalar paths are
 exercised by ``test_mpt.py`` and continue to work.
 """
 
@@ -27,7 +27,7 @@ from mpt import build_exp_tens, entropy_exp_tens
 
 @pytest.fixture
 def density_set():
-    """Three SA densities for testing."""
+    """Three single-multiset densities for testing."""
     sigma, r, period = 60.0, 2, 1200.0
     return {
         "major": build_exp_tens(
@@ -116,7 +116,7 @@ class TestDensityList:
 
 
 # =====================================================================
-# Raw SA batched
+# Raw single-attribute batched
 # =====================================================================
 
 
@@ -294,7 +294,7 @@ class TestCrossFormConsistency:
 
 class TestEntropyExpTensVerboseEstimate:
     """Bundle 2: entropy_exp_tens prints a time estimate via empirical
-    calibration when ``verbose=True`` (default) in the SA batched
+    calibration when ``verbose=True`` (default) in the single-attribute batched
     dispatch, and is silent when ``verbose=False``.
     """
 

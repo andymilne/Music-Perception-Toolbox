@@ -58,7 +58,7 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
     cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
     cos_dir = cos_sim_exp_tens(T_a, T_b, method='direct', verbose=False)
 
-    # Pairwise and direct route through _ip_core in SA mode and so are
+    # Pairwise and direct route through _ip_core in single-multiset mode and so are
     # bit-identical. Auto routes through orbit at r >= 3 or large n.
     assert cos_pw == cos_dir, (
         f"r={r}, n={n}: pairwise={cos_pw}, direct={cos_dir} differ"

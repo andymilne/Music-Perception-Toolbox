@@ -31,21 +31,21 @@ from tests.standard_regimes import (
 _PAIRWISE_N_J_MAX = 5000
 
 
-def _n_j_sa(r, K):
-    """Number of permutation tuples K! / (K-r)! for SA mode."""
+def _n_j_sm(r, K):
+    """Number of permutation tuples K! / (K-r)! for single-multiset mode."""
     return math.perm(K, r)
 
 
 def _cell_pairwise_feasible(cell):
     """True if pairwise on this cell stays under the n_j threshold."""
-    if cell['kind'] == 'SA':
-        return _n_j_sa(cell['r'], cell['K']) <= _PAIRWISE_N_J_MAX
+    if cell['kind'] == 'single-multiset':
+        return _n_j_sm(cell['r'], cell['K']) <= _PAIRWISE_N_J_MAX
     elif cell['kind'] == 'MA':
         # Per-attribute n_j_a = K_a! / (K_a - r_a)! and the MA pairwise
         # kernel scales with the product across attributes.
         prod = 1
         for r_a, K_a in zip(cell['r'], cell['K']):
-            prod *= _n_j_sa(r_a, K_a)
+            prod *= _n_j_sm(r_a, K_a)
             if prod > _PAIRWISE_N_J_MAX:
                 return False
         return True
@@ -117,8 +117,8 @@ def renyi2(cell):
 # -----------------------------------------------------------------
 # Quantity: eval_exp_tens orbit-vs-centres consistency.
 # Compute density at a small batch of query points via auto routing
-# and via forced centres; demand FP-precision agreement. SA only —
-# the v2.2 orbit eval covers SA; an MA orbit eval is on the roadmap.
+# and via forced centres; demand FP-precision agreement. single-multiset only —
+# the v2.2 orbit eval covers single-multiset; an MA orbit eval is on the roadmap.
 # -----------------------------------------------------------------
 
 _EVAL_N_Q = 16  # query batch size; small to keep centres path tractable
@@ -129,7 +129,7 @@ def _eval_query_pts(cell):
     """Generate r-1 (rel) or r (abs) dimensional query columns for a
     cell. Periodic queries live in [0, P); non-periodic queries live
     in a typical-musical band around the source range."""
-    if cell['kind'] != 'SA':
+    if cell['kind'] != 'single-multiset':
         return None
     seed = cell.get('seed') if cell.get('seed') is not None else 12345
     rng = np.random.default_rng(seed + 9000)
@@ -144,7 +144,7 @@ def _eval_query_pts(cell):
 
 
 def eval_auto(cell):
-    if cell['kind'] != 'SA':
+    if cell['kind'] != 'single-multiset':
         return float('nan')
     d = _build_dens(cell)
     x = _eval_query_pts(cell)
@@ -156,7 +156,7 @@ def eval_auto(cell):
 
 
 def eval_centres(cell):
-    if cell['kind'] != 'SA':
+    if cell['kind'] != 'single-multiset':
         return float('nan')
     d = _build_dens(cell)
     x = _eval_query_pts(cell)
@@ -192,7 +192,7 @@ if __name__ == '__main__':
     )
     print_summary(s3)
 
-    print('\n=== Quantity: eval_exp_tens (auto vs centres, SA only) ===')
+    print('\n=== Quantity: eval_exp_tens (auto vs centres, single-multiset only) ===')
     s4 = run_regime_assessment(
         'eval auto vs centres', eval_auto, eval_centres,
         regimes=regimes, rel_tol=1e-10,

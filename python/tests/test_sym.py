@@ -3,7 +3,7 @@
 Covers the predictions of the sym-flag specification §10:
 
 * ``r = 1``: the flag is vacuous; ``[sym] = 0`` and ``[sym] = 1``
-  coincide (single-attribute and multi-attribute paths).
+  coincide (single-multiset and multi-attribute paths).
 * ``r = K``: ``[sym] = 0`` deposits the single ordered tuple (one
   kernel); ``[sym] = 1`` deposits the full ``S_K`` orbit (``K!``
   kernels).
@@ -28,6 +28,11 @@ import numpy as np
 import pytest
 
 from mpt import build_exp_tens, eval_exp_tens, cos_sim_exp_tens
+from mpt._tensor.density import single_multiset_view as _smv
+
+# A MaetDensity exposes per-attribute lists (u_perm[a], centres[a], ...).
+# These tests are written against a single multiset, so they read the flat
+# view rather than indexing [0] at each site.
 
 
 # ---------------------------------------------------------------------
@@ -35,7 +40,7 @@ from mpt import build_exp_tens, eval_exp_tens, cos_sim_exp_tens
 # ---------------------------------------------------------------------
 
 class TestVacuousAtR1:
-    def test_sa_eval_coincides(self):
+    def test_single_multiset_eval_coincides(self):
         p = [0.0, 4.0, 7.0, 11.0]
         x = np.linspace(-3, 14, 60)
         d_sym = build_exp_tens(p, None, 1.0, 1, False, False, 0.0, True,
@@ -73,22 +78,22 @@ class TestCentreCounts:
         (3, 4, 24),    # C(4,3)=4; x3!
         (4, 1, 24),    # C(4,4)=1; x4!  (r=K: single tuple vs S_K orbit)
     ])
-    def test_sa_u_perm_columns(self, r, expect_ord, expect_sym):
+    def test_single_multiset_u_perm_columns(self, r, expect_ord, expect_sym):
         p = [0.0, 4.0, 7.0, 11.0]   # K = 4
         d_ord = build_exp_tens(p, None, 1.0, r, False, False, 0.0, False,
                                verbose=False)
         d_sym = build_exp_tens(p, None, 1.0, r, False, False, 0.0, True,
                                verbose=False)
-        assert d_ord.u_perm.shape[1] == expect_ord
-        assert d_sym.u_perm.shape[1] == expect_sym
+        assert _smv(d_ord).u_perm.shape[1] == expect_ord
+        assert _smv(d_sym).u_perm.shape[1] == expect_sym
 
     def test_r_eq_k_single_ordered_tuple(self):
         p = [3.0, 1.0, 8.0]   # K = 3, deliberately unsorted
         d_ord = build_exp_tens(p, None, 1.0, 3, False, False, 0.0, False,
                                verbose=False)
         # Exactly one centre, the tuple in listed order.
-        assert d_ord.u_perm.shape[1] == 1
-        np.testing.assert_array_equal(d_ord.u_perm.ravel(), [3.0, 1.0, 8.0])
+        assert _smv(d_ord).u_perm.shape[1] == 1
+        np.testing.assert_array_equal(_smv(d_ord).u_perm.ravel(), [3.0, 1.0, 8.0])
 
     def test_ma_u_perm_columns(self):
         P = [np.array([[0.0], [4.0], [7.0]])]   # one event, K=3 slots
@@ -296,8 +301,8 @@ class TestPeriodicOrdered:
                                verbose=False)
         d_sym = build_exp_tens(p, None, 1.0, 3, False, True, self.P, True,
                                verbose=False)
-        assert d_ord.u_perm.shape[1] == 1
-        assert d_sym.u_perm.shape[1] == 6
+        assert _smv(d_ord).u_perm.shape[1] == 1
+        assert _smv(d_sym).u_perm.shape[1] == 6
 
     def test_periodic_r1_coincides(self):
         """r = 1 confirmation under [per] = 1: the flag is vacuous, so the
@@ -366,7 +371,7 @@ class TestDefaultAndSelf:
                                    verbose=False)
         d_sym = build_exp_tens(p, None, 1.0, 2, False, False, 0.0, True,
                                verbose=False)
-        assert d_default.u_perm.shape[1] == d_sym.u_perm.shape[1]
+        assert _smv(d_default).u_perm.shape[1] == _smv(d_sym).u_perm.shape[1]
         assert bool(np.all(d_default.is_sym))
 
     def test_ordered_self_similarity_is_one(self):
@@ -439,7 +444,7 @@ class TestOrderedRenyi2:
 
     @pytest.mark.parametrize("r", [2, 3])
     @pytest.mark.parametrize("rel", [False, True])
-    def test_renyi2_ordered_sa_matches_grid(self, r, rel):
+    def test_renyi2_ordered_single_multiset_matches_grid(self, r, rel):
         from mpt import entropy_exp_tens, build_exp_tens
         P = np.array([0.0, 4.0, 7.0, 11.0])
         sig = 2.0

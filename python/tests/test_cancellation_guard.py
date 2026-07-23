@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from mpt import build_exp_tens, cos_sim_exp_tens
-from mpt.tensor import _cos_sim_exp_tens_sa_orbit, _cos_sim_exp_tens_sa_pairwise
+from mpt.tensor import (_cos_sim_exp_tens_ma_orbit,
+                        _cos_sim_exp_tens_ma_pairwise)
 
 
 # ----------------------------------------------------------------------
@@ -155,8 +156,8 @@ def test_orbit_and_pairwise_triples_give_same_cosine():
     T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
     T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
-    ip_xy_o, ip_xx_o, ip_yy_o, _ = _cos_sim_exp_tens_sa_orbit(T_a, T_b)
-    ip_xy_p, ip_xx_p, ip_yy_p = _cos_sim_exp_tens_sa_pairwise(T_a, T_b, verbose=False)
+    ip_xy_o, ip_xx_o, ip_yy_o = _cos_sim_exp_tens_ma_orbit(T_a, T_b)
+    ip_xy_p, ip_xx_p, ip_yy_p = _cos_sim_exp_tens_ma_pairwise(T_a, T_b, verbose=False)
 
     cos_orbit = ip_xy_o / np.sqrt(ip_xx_o * ip_yy_o)
     cos_pw = ip_xy_p / np.sqrt(ip_xx_p * ip_yy_p)

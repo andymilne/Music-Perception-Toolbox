@@ -1,14 +1,16 @@
-"""Tests for the v2.2 eval_exp_tens dispatcher (SA path).
+"""Tests for the eval_exp_tens dispatcher at the single-multiset corner.
 
-The dispatcher routes between the v2.0 centres-array body and the
-v2.2 orbit-Möbius point evaluator according to ``method`` and the
-cost model in :func:`mpt.tensor._select_and_estimate_sa`. These tests
-verify that the three explicit methods produce mutually consistent
-output and that the precision and convention guards behave as
-documented. (Whole-call auto-routing is covered in
+The dispatcher routes between the joint-centres body and the factored
+orbit-Möbius point evaluator according to ``method`` and the cost model
+in :func:`mpt._tensor.dispatch._select_ma_eval`, of which the single
+multiset is the A = 1 case. These tests verify that the explicit methods
+produce mutually consistent output and that the precision and convention
+guards behave as documented. (Whole-call auto-routing is covered in
 test_dispatcher_probe.py.)
 """
 import numpy as np
+
+from mpt._defaults import accuracy_floor_context
 import pytest
 
 from mpt.tensor import (
@@ -62,12 +64,22 @@ def test_eval_methods_agree(r, K, is_rel, is_per):
     else:
         x = rng.uniform(-300, 300, (dim, 30))
 
-    v_auto = eval_exp_tens(T, x, method='auto', verbose=False)
-    v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
-    v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
+    # Widen the accuracy floor so the paths are compared exhaustively
+    # rather than each dropping marginally different far tails, matching
+    # the MATLAB twin (test_ma_eval_dispatch.m), which brackets the same
+    # comparison with internal.accuracyFloor('setEps', 1e-300).
+    with accuracy_floor_context(1e-300):
+        v_auto = eval_exp_tens(T, x, method='auto', verbose=False)
+        v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
+        v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
 
-    assert np.allclose(v_auto, v_centres, atol=ATOL, rtol=RTOL)
-    assert np.allclose(v_centres, v_orbit, atol=ATOL, rtol=RTOL)
+    # Max-relative agreement, normalised by the largest density value, as
+    # the MATLAB twin does: a per-element rtol is dominated by near-zero
+    # tail entries, where the two paths legitimately differ by their own
+    # rounding while the values themselves are negligible.
+    denom = max(float(np.max(np.abs(v_centres))), 1e-12)
+    assert float(np.max(np.abs(v_auto - v_centres))) / denom < 1e-9
+    assert float(np.max(np.abs(v_centres - v_orbit))) / denom < 1e-6
 
 
 # -------------------------------------------------------------------

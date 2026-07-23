@@ -21,7 +21,7 @@ Coverage:
 - Output shape checks across all input combinations.
 - Mixed density types in a list raises.
 
-Tests use single-attribute (ExpTensDensity) inputs throughout; MA
+Tests use single-multiset inputs throughout; multi-attribute
 dedup is bypassed transparently and is exercised in a single
 correctness-only check.
 """
@@ -39,7 +39,7 @@ from mpt import build_exp_tens, cos_sim_exp_tens
 
 @pytest.fixture
 def density_set():
-    """Return a small set of distinct SA densities for testing."""
+    """Return a small set of distinct single-multiset densities for testing."""
     sigma, r = 15.0, 2
     period = 1200.0
     chords = {
@@ -387,7 +387,7 @@ class TestErrors:
     def test_invalid_density_in_list_raises(self, density_set):
         # Mixed list with one density and one non-density routes to
         # density-list path and raises via _normalize_density_input.
-        with pytest.raises(TypeError, match="ExpTensDensity"):
+        with pytest.raises(TypeError, match="MaetDensity"):
             cos_sim_exp_tens(
                 [density_set["major"], "not a density"],
                 density_set["minor"], verbose=False,
@@ -395,7 +395,7 @@ class TestErrors:
 
     def test_invalid_single_first_arg_raises(self, density_set):
         # A string first argument with only 2 positional args fails the
-        # arg-count check for raw SA mode (9 expected) — the simplest
+        # arg-count check for raw single-multiset mode (9 expected) — the simplest
         # and clearest error in this case.
         with pytest.raises(TypeError, match="positional"):
             cos_sim_exp_tens(

@@ -4,11 +4,11 @@ Verifies the analytical Rényi-2 entropy
 
     H_2 = -log_b(<T,T> / Z²)
 
-against direct numerical integration of (T/Z)² across the four SA
+against direct numerical integration of (T/Z)² across the four single-multiset
 modes and several MA configurations. Also checks the API contract:
 ``method`` argument validation, migration error on the removed
 ``normalize`` kwarg, and the
-SA/MA dispatch.
+single-multiset/MA dispatch.
 """
 import numpy as np
 import pytest
@@ -27,8 +27,13 @@ TOL_FP = 1e-10
 TOL_GRID = 5e-2  # generous: discretisation, not orbit precision
 
 
-def _grid_renyi2_sa(T, n_per_dim, ax_range):
-    """Direct grid evaluation of -log2(∫(T/Z)² dx) for an SA tensor."""
+def _grid_renyi2_single_multiset(T, n_per_dim, ax_range):
+    """Direct grid evaluation of -log2(∫(T/Z)² dx) for an single-multiset tensor."""
+    # A MaetDensity carries per-attribute vectors; this helper is written
+    # against a single multiset, so read the flat view for r/is_rel/is_per.
+    from mpt._tensor.density import single_multiset_view
+    Tq = T                      # keep the original for eval_exp_tens
+    T = single_multiset_view(T)
     if T.is_per:
         ax = np.linspace(0, T.period, n_per_dim, endpoint=False)
         dx = T.period / n_per_dim
@@ -37,7 +42,7 @@ def _grid_renyi2_sa(T, n_per_dim, ax_range):
         ax = np.linspace(a, b, n_per_dim)
         dx = (b - a) / (n_per_dim - 1)
     if T.is_rel:
-        # Relative SA tensor lives on dim r-1 (one translation removed).
+        # Relative single-multiset tensor lives on dim r-1 (one translation removed).
         # Build a (r-1)-D mesh.
         d = T.r - 1
     else:
@@ -52,18 +57,18 @@ def _grid_renyi2_sa(T, n_per_dim, ax_range):
         mesh = np.meshgrid(*([ax] * d), indexing='ij')
         X = np.stack([m.ravel() for m in mesh], axis=0)
         vol = dx ** d
-    t = eval_exp_tens(T, X, verbose=False)
+    t = eval_exp_tens(Tq, X, verbose=False)
     Z = float(t.sum() * vol)
     if Z <= 0:
         raise RuntimeError("grid Z is non-positive")
     return -float(np.log2(((t / Z) ** 2).sum() * vol))
 
 
-# ---- SA cases: all four modes at moderate r and K -----------------
+# ---- single-multiset cases: all four modes at moderate r and K -----------------
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
-def test_renyi2_sa_abs_per_matches_grid(seed):
+def test_renyi2_single_multiset_abs_per_matches_grid(seed):
     rng = np.random.default_rng(seed)
     P = 1200.0
     sigma = 50.0
@@ -72,7 +77,7 @@ def test_renyi2_sa_abs_per_matches_grid(seed):
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, False, True, P, verbose=False)
     H2 = entropy_exp_tens(T, method='renyi2')
-    H2_grid = _grid_renyi2_sa(T, 600, None)
+    H2_grid = _grid_renyi2_single_multiset(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
 
@@ -86,7 +91,7 @@ def test_renyi2_sa_rel_per_matches_grid(seed):
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, True, True, P, verbose=False)
     H2 = entropy_exp_tens(T, method='renyi2')
-    H2_grid = _grid_renyi2_sa(T, 600, None)
+    H2_grid = _grid_renyi2_single_multiset(T, 600, None)
     assert abs(H2 - H2_grid) < TOL_FP
 
 
@@ -99,7 +104,7 @@ def test_renyi2_sa_abs_nonper_matches_grid(seed):
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, False, False, 0.0, verbose=False)
     H2 = entropy_exp_tens(T, method='renyi2')
-    H2_grid = _grid_renyi2_sa(T, 1000, (-1000, 1000))
+    H2_grid = _grid_renyi2_single_multiset(T, 1000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
 
@@ -112,11 +117,11 @@ def test_renyi2_sa_rel_nonper_matches_grid(seed):
     w = rng.uniform(0.5, 1.5, K)
     T = build_exp_tens(p, w, sigma, r, True, False, 0.0, verbose=False)
     H2 = entropy_exp_tens(T, method='renyi2')
-    H2_grid = _grid_renyi2_sa(T, 4000, (-1000, 1000))
+    H2_grid = _grid_renyi2_single_multiset(T, 4000, (-1000, 1000))
     assert abs(H2 - H2_grid) < TOL_GRID
 
 
-# ---- SA at r >= 3 — the regime where grid-Shannon strains -------
+# ---- single-multiset at r >= 3 — the regime where grid-Shannon strains -------
 
 
 def test_renyi2_sa_high_r_works_where_grid_would_fail():
@@ -237,7 +242,7 @@ def test_invalid_method_rejected():
 
 def test_renyi2_default_is_shannon():
     """Default method is Shannon — adding the parameter must not
-    change behaviour for callers who don't pass it. Tests SA r=1
+    change behaviour for callers who don't pass it. Tests single-multiset r=1
     case which Shannon supports."""
     rng = np.random.default_rng(0)
     P = 1200.0
@@ -255,7 +260,7 @@ def test_renyi2_inequality_with_shannon():
     H_2 <= H_1 = Shannon. For continuous densities the same
     inequality holds when both are computed on the same support
     with consistent normalisation. We test the unnormalised case
-    on r=1 SA where Shannon's grid path works.
+    on r=1 single-multiset where Shannon's grid path works.
     """
     rng = np.random.default_rng(0)
     P = 1200.0
@@ -284,7 +289,7 @@ def test_renyi2_inequality_with_shannon():
 
 def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
     """If the orbit self-IP returns a non-positive value (sign-flip from
-    FP cancellation), the SA Rényi-2 path returns NaN.
+    FP cancellation), the single-multiset Rényi-2 path returns NaN.
 
     Rationale: empirical sweeps across all 7 standard regimes
     (sweep_self_ip.py) found no real-world case where orbit produces a
@@ -303,14 +308,18 @@ def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
+    # The Rényi-2 path composes per-attribute inner matrices; patch the
+    # function it actually calls so the finite-and-positive guard sees a
+    # corrupt self-IP.
     monkeypatch.setattr(
-        ent_mod, '_orbit_inner_abs', lambda *a, **k: -1.0,
+        ent_mod, '_ma_per_attr_inner_matrix',
+        lambda *a, **k: np.full((1, 1), -1.0),
     )
     assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 
 
 def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
-    """If the orbit self-IP returns NaN or inf, the SA path returns NaN."""
+    """If the orbit self-IP returns NaN or inf, the single-multiset path returns NaN."""
     import mpt.entropy as ent_mod
     rng = np.random.default_rng(0)
     P = 1200.0
@@ -319,7 +328,8 @@ def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
         50.0, 2, False, True, P, verbose=False,
     )
     monkeypatch.setattr(
-        ent_mod, '_orbit_inner_abs', lambda *a, **k: float('nan'),
+        ent_mod, '_ma_per_attr_inner_matrix',
+        lambda *a, **k: np.full((1, 1), float('nan')),
     )
     assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 

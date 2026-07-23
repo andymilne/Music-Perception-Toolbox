@@ -28,7 +28,7 @@ Schema
 ------
 Each regime is a dict with at least:
 
-* ``name``: short identifier (e.g. ``'R2_high_r_sa'``).
+* ``name``: short identifier (e.g. ``'R2_high_r_single_multiset'``).
 * ``description``: human-readable rationale.
 * ``cells``: a list of dicts, each describing one parameter point. The
   cell schema depends on the regime, but always carries a ``seed``
@@ -53,11 +53,11 @@ SEEDS_THOROUGH = list(range(20))
 
 
 # ===================================================================
-#  Single-attribute (SA) regimes — pitch on the octave
+#  Single-attribute (single-multiset) regimes — pitch on the octave
 # ===================================================================
 
-def regime_sa_sigma_to_zero(seeds=SEEDS_QUICK, P=P_DEFAULT):
-    """SA: σ → 0 catastrophic regime.
+def regime_sm_sigma_to_zero(seeds=SEEDS_QUICK, P=P_DEFAULT):
+    """single-multiset: σ → 0 catastrophic regime.
 
     At very small σ/P, the orbit-Möbius alternating sum can lose all
     significant digits. Earlier audits established that:
@@ -75,19 +75,19 @@ def regime_sa_sigma_to_zero(seeds=SEEDS_QUICK, P=P_DEFAULT):
             for sigma in (33.0, 10.0, 3.0, 1.0, 0.1, 0.01, 1e-3, 1e-5):
                 for seed in seeds:
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=False, is_per=True, period=P,
                         seed=seed,
                     ))
     return dict(
         name='R0_sigma_to_zero',
-        description='SA σ → 0 catastrophic cancellation regime',
+        description='single-multiset σ → 0 catastrophic cancellation regime',
         cells=cells,
     )
 
 
-def regime_sa_high_r(seeds=SEEDS_QUICK, P=P_DEFAULT):
-    """SA: r ∈ {5, 6} with K barely above r.
+def regime_sm_high_r(seeds=SEEDS_QUICK, P=P_DEFAULT):
+    """single-multiset: r ∈ {5, 6} with K barely above r.
 
     Stress-tests the orbit table at the largest available r and
     smallest K-r margin. Bell numbers grow rapidly here (B_5 = 52,
@@ -99,19 +99,19 @@ def regime_sa_high_r(seeds=SEEDS_QUICK, P=P_DEFAULT):
             for sigma in (33.0, 10.0, 3.0, 1.0, 0.1):
                 for seed in seeds:
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=False, is_per=True, period=P,
                         seed=seed,
                     ))
     return dict(
-        name='R2_high_r_sa',
-        description='SA r ∈ {5, 6} with K-r margin ≤ 4',
+        name='R2_high_r_single_multiset',
+        description='single-multiset r ∈ {5, 6} with K-r margin ≤ 4',
         cells=cells,
     )
 
 
-def regime_sa_abs_nonper(seeds=SEEDS_QUICK):
-    """SA: absolute non-periodic mode at sharp σ.
+def regime_sm_abs_nonper(seeds=SEEDS_QUICK):
+    """single-multiset: absolute non-periodic mode at sharp σ.
 
     Geometry differs from periodic mode: no period parameter, density
     falls off at infinity. Pitches drawn from a typical-musical range
@@ -123,20 +123,20 @@ def regime_sa_abs_nonper(seeds=SEEDS_QUICK):
             for sigma in (33.0, 10.0, 3.0, 1.0):
                 for seed in seeds:
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=False, is_per=False, period=0.0,
                         pitch_range=(-300.0, 300.0),
                         seed=seed,
                     ))
     return dict(
-        name='R3_abs_nonper_sa',
-        description='SA absolute non-periodic mode at sharp σ',
+        name='R3_abs_nonper_single_multiset',
+        description='single-multiset absolute non-periodic mode at sharp σ',
         cells=cells,
     )
 
 
-def regime_sa_rel_per(seeds=SEEDS_QUICK, P=P_DEFAULT):
-    """SA: relative-periodic mode.
+def regime_sm_rel_per(seeds=SEEDS_QUICK, P=P_DEFAULT):
+    """single-multiset: relative-periodic mode.
 
     Relative-mode densities depend only on within-tuple differences.
     Geometry is on a (r-1)-dimensional torus quotient. Per-u-point
@@ -149,19 +149,19 @@ def regime_sa_rel_per(seeds=SEEDS_QUICK, P=P_DEFAULT):
             for sigma in (33.0, 10.0, 3.0, 1.0, 0.1):
                 for seed in seeds:
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=True, is_per=True, period=P,
                         seed=seed,
                     ))
     return dict(
-        name='R0b_rel_per_sa',
-        description='SA relative-periodic mode at sharp σ',
+        name='R0b_rel_per_single_multiset',
+        description='single-multiset relative-periodic mode at sharp σ',
         cells=cells,
     )
 
 
-def regime_sa_high_K(seeds=(0,), P=P_DEFAULT):
-    """SA: high K with low-to-moderate r.
+def regime_sm_high_K(seeds=(0,), P=P_DEFAULT):
+    """single-multiset: high K with low-to-moderate r.
 
     Spectral analyses use K of 24 to 100 partials with r=2 or 3.
     Different cancellation profile from low-K cases. K=64 is the
@@ -173,22 +173,22 @@ def regime_sa_high_K(seeds=(0,), P=P_DEFAULT):
             for sigma in (33.0, 10.0, 3.0, 1.0):
                 for seed in seeds:
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=False, is_per=True, period=P,
                         seed=seed,
                     ))
     return dict(
-        name='R7_high_K_sa',
-        description='SA high K (up to 100) with r ∈ {2, 3}',
+        name='R7_high_K_single_multiset',
+        description='single-multiset high K (up to 100) with r ∈ {2, 3}',
         cells=cells,
     )
 
 
 # ===================================================================
-#  Adversarial pitch arrangements (SA only — generalise as needed)
+#  Adversarial pitch arrangements (single-multiset only — generalise as needed)
 # ===================================================================
 
-def regime_sa_adversarial(P=P_DEFAULT):
+def regime_sm_adversarial(P=P_DEFAULT):
     """Structured pitch configurations that random uniform sampling
     misses: equal-tempered scale degrees, near-degenerate pairs,
     tight clusters, just-intonation triads.
@@ -217,14 +217,14 @@ def regime_sa_adversarial(P=P_DEFAULT):
                 continue
             for sigma in (33.0, 10.0, 3.0, 1.0):
                 cells.append(dict(
-                    kind='SA', r=r, K=len(p), sigma=sigma,
+                    kind='single-multiset', r=r, K=len(p), sigma=sigma,
                     is_rel=False, is_per=True, period=P,
                     pitches=p.copy(), weights=w.copy(),
                     description=desc, seed=None,
                 ))
     return dict(
-        name='R4_adversarial_sa',
-        description='Structured SA pitch configurations',
+        name='R4_adversarial_single_multiset',
+        description='Structured single-multiset pitch configurations',
         cells=cells,
     )
 
@@ -233,7 +233,7 @@ def regime_sa_adversarial(P=P_DEFAULT):
 #  Spectral weight distributions
 # ===================================================================
 
-def regime_sa_spectral_weights(seeds=SEEDS_QUICK, P=P_DEFAULT):
+def regime_sm_spectral_weights(seeds=SEEDS_QUICK, P=P_DEFAULT):
     """Realistic spectral inputs: harmonic series with rolloff α.
 
     Real timbres have weights spanning orders of magnitude, not the
@@ -269,14 +269,14 @@ def regime_sa_spectral_weights(seeds=SEEDS_QUICK, P=P_DEFAULT):
                     rng = np.random.default_rng(seed)
                     fund = rng.uniform(0, P)
                     cells.append(dict(
-                        kind='SA', r=r, K=K, sigma=sigma,
+                        kind='single-multiset', r=r, K=K, sigma=sigma,
                         is_rel=False, is_per=True, period=P,
                         pitches=((p_base + fund) % P).copy(),
                         weights=w.copy(),
                         description=desc, seed=seed,
                     ))
     return dict(
-        name='R5_spectral_weights_sa',
+        name='R5_spectral_weights_single_multiset',
         description='Harmonic spectra K up to 64 with realistic rolloff',
         cells=cells,
     )
@@ -337,14 +337,14 @@ def standard_regimes(thorough=False, P=P_DEFAULT):
     """
     seeds = SEEDS_THOROUGH if thorough else SEEDS_QUICK
     return [
-        regime_sa_sigma_to_zero(seeds=seeds, P=P),
-        regime_sa_rel_per(seeds=seeds, P=P),
+        regime_sm_sigma_to_zero(seeds=seeds, P=P),
+        regime_sm_rel_per(seeds=seeds, P=P),
         regime_ma_self_ip(seeds=seeds, P=P),
-        regime_sa_high_r(seeds=seeds, P=P),
-        regime_sa_abs_nonper(seeds=seeds),
-        regime_sa_adversarial(P=P),
-        regime_sa_spectral_weights(seeds=seeds, P=P),
-        regime_sa_high_K(seeds=(0,), P=P),
+        regime_sm_high_r(seeds=seeds, P=P),
+        regime_sm_abs_nonper(seeds=seeds),
+        regime_sm_adversarial(P=P),
+        regime_sm_spectral_weights(seeds=seeds, P=P),
+        regime_sm_high_K(seeds=(0,), P=P),
     ]
 
 
@@ -354,12 +354,12 @@ def standard_regimes(thorough=False, P=P_DEFAULT):
 
 def materialise_cell(cell, default_pitch_range=None):
     """Turn a cell parameter dict into the positional argument tuple
-    expected by build_exp_tens (SA or MA, depending on cell['kind']).
+    expected by build_exp_tens (single-multiset or MA, depending on cell['kind']).
 
-    SA call: ``build_exp_tens(p, w, sigma, r, is_rel, is_per, period)``
+    single-multiset call: ``build_exp_tens(p, w, sigma, r, is_rel, is_per, period)``
     MA call: ``build_exp_tens(p_attr, w, sigma, r, is_rel, is_per, period)``
     """
-    if cell['kind'] == 'SA':
+    if cell['kind'] == 'single-multiset':
         K = cell['K']
         if 'pitches' in cell:
             p = cell['pitches']

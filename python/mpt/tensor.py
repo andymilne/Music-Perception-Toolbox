@@ -92,9 +92,11 @@ from ._tensor.dispatch import (
 
 # Cosine-layer MA-method dispatchers and IP helpers (imported by tests).
 from ._tensor.cosine import (
+    _batched_direct_enum_abs,
     _build_ordered_r_tuples,
     _cos_sim_exp_tens_ma_orbit,
     _cos_sim_exp_tens_ma_pairwise,
+    _inner_product_direct_abs,
     _ma_has_nan,
     _ma_per_attr_inner_matrix,
     _orbit_inner_abs,

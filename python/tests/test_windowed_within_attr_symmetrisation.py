@@ -119,7 +119,7 @@ def _direct_windowed_cross_corr_perm_perm(p_a, w_a, p_b, w_b, sigma, r,
     return total * (sigma * np.sqrt(np.pi)) ** r
 
 
-def _direct_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
+def _direct_windowed_cosine_sm(p_a, w_a, p_b, w_b, sigma, r,
                                  offset_vec, size, mix):
     """Framework-correct windowed similarity via direct (perm-perm)
     enumeration of the cross-correlation form, under normaliser (i):
@@ -149,7 +149,7 @@ def _direct_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
 # -------------------------------------------------------------------
 
 
-def _toolbox_windowed_cosine_sa(p_a, w_a, p_b, w_b, sigma, r,
+def _toolbox_windowed_cosine_sm(p_a, w_a, p_b, w_b, sigma, r,
                                   offset_vec, size, mix):
     """Toolbox windowed inner product via _windowed_inner_product + window_tensor.
     The user-supplied centre vector is the offset interpretation
@@ -205,10 +205,10 @@ def test_toolbox_matches_direct_for_non_uniform_centre(r, size, mix,
     elif c_pattern == "non_uniform_large_spread":
         offset_vec = np.linspace(-100.0, 100.0, r)
 
-    cos_direct = _direct_windowed_cosine_sa(
+    cos_direct = _direct_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_vec, size, mix,
     )
-    cos_toolbox = _toolbox_windowed_cosine_sa(
+    cos_toolbox = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_vec, size, mix,
     )
 
@@ -260,20 +260,20 @@ def test_windowed_cosine_invariant_under_context_reorder(r, size, mix,
         offset_vec = np.linspace(-100.0, 100.0, r)
 
     # Original ordering
-    cos_orig = _toolbox_windowed_cosine_sa(
+    cos_orig = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_vec, size, mix,
     )
 
     # Reverse ordering of the windowed-side values
     perm = np.arange(K)[::-1]
-    cos_rev = _toolbox_windowed_cosine_sa(
+    cos_rev = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b[perm], w_b[perm], sigma, r,
         offset_vec, size, mix,
     )
 
     # Random shuffle of the windowed-side values
     perm = rng.permutation(K)
-    cos_shuf = _toolbox_windowed_cosine_sa(
+    cos_shuf = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b[perm], w_b[perm], sigma, r,
         offset_vec, size, mix,
     )
@@ -313,14 +313,14 @@ def test_windowed_cosine_invariant_under_centre_permutation(r, size, mix):
     offset_vec = np.linspace(-50.0, 50.0, r)
 
     # Original c ordering
-    cos_orig = _toolbox_windowed_cosine_sa(
+    cos_orig = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_vec, size, mix,
     )
 
     # All permutations
     for pi in permutations(range(r)):
         offset_perm = offset_vec[list(pi)]
-        cos_pi = _toolbox_windowed_cosine_sa(
+        cos_pi = _toolbox_windowed_cosine_sm(
             p_a, w_a, p_b, w_b, sigma, r, offset_perm, size, mix,
         )
         if abs(cos_orig) < 1e-6:
@@ -425,10 +425,10 @@ def test_uniform_centre_byte_identical_to_old_path():
     # Uniform offset
     offset_uniform = np.full(r, 25.0)
 
-    cos_via_toolbox = _toolbox_windowed_cosine_sa(
+    cos_via_toolbox = _toolbox_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_uniform, 5.0, 0.0,
     )
-    cos_via_direct = _direct_windowed_cosine_sa(
+    cos_via_direct = _direct_windowed_cosine_sm(
         p_a, w_a, p_b, w_b, sigma, r, offset_uniform, 5.0, 0.0,
     )
     assert np.isclose(cos_via_toolbox, cos_via_direct,

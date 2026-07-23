@@ -279,7 +279,7 @@ def test_renyi2_ma_windowed_matches_manual_prune():
     p_w, w_w, g_w = _windowed_ma_inputs(n_events, seed=2)
 
     # weight_events(drop_input_attr=True) removes the time attribute, so the
-    # windowed density carries a single attribute (pitch) whose column was
+    # windowed density carries a single multiset (pitch) whose column was
     # zeroed for far events --- the realistic truncation scenario.
     n_live = int((w_w[0].sum(axis=0) > 0).sum())
     assert 0 < n_live < 40              # narrow window keeps a handful

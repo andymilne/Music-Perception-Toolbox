@@ -1,6 +1,6 @@
 """Tests for MaetDensity lazy materialisation (v2.2).
 
-Parallel to ``test_lazy_density.py`` for the SA path. Verifies:
+Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
 
 1. ``build_exp_tens`` returns a lazy MA density.
 2. Reading any of the eager fields (``p_attr``, ``w``, ``sigma``,

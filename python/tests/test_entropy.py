@@ -1,4 +1,4 @@
-"""Tests for entropy_exp_tens — SA Shannon and basic.
+"""Tests for entropy_exp_tens — single-multiset Shannon and basic.
 
 Mirror of MATLAB tests/test_entropy.m.
 """

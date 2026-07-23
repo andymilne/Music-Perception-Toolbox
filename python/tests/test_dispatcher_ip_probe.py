@@ -1,10 +1,12 @@
-"""Tests for the v2.2.x probe-based dispatcher for SA cos_sim_exp_tens.
+"""Tests for inner-product method selection in cos_sim_exp_tens.
 
-The dispatcher (``_select_and_estimate_sa_ip``) decides between the
-Möbius method and Bulger's method. Hard rules (correctness /
-feasibility) decide first; then an analytical pre-screen catches
-clear-winner cases without paying probe overhead; otherwise both
-paths are timed on a small subset and the faster is picked.
+Method selection is a pure cost model
+(:func:`mpt._tensor.dispatch._select_ma_inner_product_method`) choosing
+between the Möbius method and Bulger's method: hard rules (correctness /
+feasibility) decide first, then the cost model. What remains here are
+the tests that exercise that choice through the public API and the
+dispatch-message behaviour; the tests that drove the former timing
+probe directly were retired with it.
 """
 from __future__ import annotations
 
@@ -20,7 +22,6 @@ from mpt import build_exp_tens, cos_sim_exp_tens
 from mpt.tensor import (
     _PROBE_K_IP_TARGET,
     _PRESCREEN_IP_DOMINANCE,
-    _select_and_estimate_sa_ip,
 )
 
 
@@ -36,105 +37,12 @@ def _dens(K: int, r: int, sigma: float = 1.0,
 # ----------------------------------------------------------------------
 # Hard rules
 # ----------------------------------------------------------------------
-
-
-class TestHardRules:
-    def test_user_method_pairwise(self):
-        dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="bulger",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "bulger"
-        assert probed is False
-
-    def test_user_method_orbit(self):
-        dens_x, dens_y = _dens(20, 3), _dens(20, 3, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="mobius",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "mobius"
-        assert probed is False
-
-    def test_r1_routes_pairwise_no_probe(self):
-        dens_x, dens_y = _dens(20, 1), _dens(20, 1, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="auto",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "bulger"
-        assert probed is False
-
-    def test_n_min_too_small_routes_pairwise_no_probe(self):
-        # K_y = 4, r = 3 -> n_min - r = 1 < 2: orbit precision guard.
-        dens_x, dens_y = _dens(20, 3), _dens(4, 3, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="auto",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "bulger"
-        assert probed is False
-
-
 # ----------------------------------------------------------------------
 # Analytical pre-screen
 # ----------------------------------------------------------------------
-
-
-class TestPreScreen:
-    def test_large_K_routes_orbit_via_prescreen(self):
-        """Large K with moderate r: pairwise cost (K^r * K^r) dwarfs
-        orbit cost (B_r * K^2). Pre-screen routes to orbit without
-        probing."""
-        dens_x, dens_y = _dens(40, 3), _dens(40, 3, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="auto",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "mobius"
-        assert probed is False
-
-    def test_small_K_at_r_routes_to_bulger_via_prescreen(self):
-        """At the smallest safe K (K=4, r=2: K-r=2, just clears the
-        Möbius cancellation guard), Bulger's method is measurably
-        faster than the Möbius method (few tuples, so tuple
-        enumeration is cheap while the orbit path pays its fixed
-        setup cost). The orbit cost estimate includes the
-        fixed-overhead term ``B_r * _ORBIT_IP_FIXED_OVERHEAD`` that
-        captures this K-independent setup cost, so the analytical
-        pre-screen correctly routes the small-K region to Bulger's
-        method rather than to the Möbius method. (Before the
-        fixed-overhead correction the bare operation-count model
-        ``B_r * K^2`` under-estimated the Möbius cost and routed here
-        to 'mobius', ~4x slower than Bulger's method at this size.)
-        This test pins the corrected small-K routing at the boundary."""
-        dens_x, dens_y = _dens(4, 2), _dens(4, 2, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="auto",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        assert chosen == "bulger"
-        assert probed is False
-
-
 # ----------------------------------------------------------------------
 # Probe execution
 # ----------------------------------------------------------------------
-
-
-class TestProbe:
-    def test_probe_returns_positive_estimate(self):
-        """When probe fires, est_sec > 0."""
-        dens_x, dens_y = _dens(8, 3), _dens(8, 3, seed=1)
-        chosen, probed, est, _ = _select_and_estimate_sa_ip(
-            dens_x, dens_y, method="auto",
-            truncation_sigmas=None, kernel_precision=None, verbose=False,
-        )
-        if probed:
-            assert est > 0
-
-
 # ----------------------------------------------------------------------
 # Semantic equivalence with the analytical-heuristic decision
 # ----------------------------------------------------------------------
@@ -224,7 +132,7 @@ class TestVerboseDispatchMessage:
         scope do not.
 
         Verified here via the batched form, where a single top-level
-        ``cos_sim_exp_tens`` call internally evaluates many SA-SA
+        ``cos_sim_exp_tens`` call internally evaluates many single-multiset-single-multiset
         pairs sharing the same dispatch decision: exactly one
         ``"chose"`` line should appear regardless of how many
         internal pairs are evaluated.

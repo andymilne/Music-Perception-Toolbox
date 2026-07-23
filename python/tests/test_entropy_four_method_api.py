@@ -405,7 +405,7 @@ class TestSpectralEntropyMethod:
 #   (a) scalar density object (MaetDensity)
 #   (b) list of density objects
 #   (c) raw single-multiset scalar (p, w, sigma, r, is_rel, is_per, period)
-#   (d) raw single-multiset batched (P, W, sigma, r, is_rel, is_per, period)
+#   (d) raw single-attribute batched (P, W, sigma, r, is_rel, is_per, period)
 #   (e) raw MA scalar (p_attr, w, sigma_vec, r_vec, groups, ...)
 #
 # The discrete methods ('shannon', 'normalized') support all five.
@@ -449,8 +449,8 @@ def single_multiset_dens_list(single_multiset_inputs):
 
 
 @pytest.fixture
-def single_multiset_batched(single_multiset_inputs):
-    """Batched single-multiset: 4 rows of 3 pitches each."""
+def single_attribute_batched(single_multiset_inputs):
+    """Batched single-attribute density: 4 events of 3 pitches each."""
     P = np.stack([
         single_multiset_inputs["p"] + 0.,
         single_multiset_inputs["p"] + 50.,
@@ -506,11 +506,11 @@ class TestShannonInputForms:
         )
         assert isinstance(h, float) and math.isfinite(h)
 
-    def test_raw_single_multiset_batched(self, single_multiset_batched):
+    def test_raw_single_attribute_batched(self, single_attribute_batched):
         H = entropy_exp_tens(
-            single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
-            single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
-            single_multiset_batched["period"],
+            single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
+            single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+            single_attribute_batched["period"],
             method='shannon', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -557,11 +557,11 @@ class TestNormalizedInputForms:
         )
         assert isinstance(h, float) and 0.0 <= h <= 1.0
 
-    def test_raw_single_multiset_batched(self, single_multiset_batched):
+    def test_raw_single_attribute_batched(self, single_attribute_batched):
         H = entropy_exp_tens(
-            single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
-            single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
-            single_multiset_batched["period"],
+            single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
+            single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+            single_attribute_batched["period"],
             method='normalized', n_points_per_dim=200,
             x_min=0., x_max=500., verbose=False,
         )
@@ -607,12 +607,12 @@ class TestDifferentialInputForms:
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(single_multiset_dens_list, method='differential', verbose=False)
 
-    def test_batched_rejected(self, single_multiset_batched):
+    def test_batched_rejected(self, single_attribute_batched):
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(
-                single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
-                single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
-                single_multiset_batched["period"],
+                single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
+                single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+                single_attribute_batched["period"],
                 method='differential', verbose=False,
             )
 
@@ -642,12 +642,12 @@ class TestRenyi2InputForms:
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(single_multiset_dens_list, method='renyi2', verbose=False)
 
-    def test_batched_rejected(self, single_multiset_batched):
+    def test_batched_rejected(self, single_attribute_batched):
         with pytest.raises(NotImplementedError):
             entropy_exp_tens(
-                single_multiset_batched["P"], single_multiset_batched["W"], single_multiset_batched["sigma"],
-                single_multiset_batched["r"], single_multiset_batched["is_rel"], single_multiset_batched["is_per"],
-                single_multiset_batched["period"],
+                single_attribute_batched["P"], single_attribute_batched["W"], single_attribute_batched["sigma"],
+                single_attribute_batched["r"], single_attribute_batched["is_rel"], single_attribute_batched["is_per"],
+                single_attribute_batched["period"],
                 method='renyi2', verbose=False,
             )
 

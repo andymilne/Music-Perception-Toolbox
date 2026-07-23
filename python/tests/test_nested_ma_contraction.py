@@ -1,7 +1,7 @@
 """Multi-attribute nested contraction: a nested attribute tensored with one
 or more plain attributes.
 
-Previously the fast tree-contraction handled only a single-attribute density;
+Previously the fast tree-contraction handled only a single-multiset density;
 tensoring any further attribute (e.g. an inversion flag) made it decline, and
 the dispatcher fell back to the joint-tuple enumeration --- which at inner
 ``r = 2`` with wide chords is the combinatorial blow-up the contraction was
@@ -128,8 +128,8 @@ def test_ma_nested_factorises_into_harmonic_times_flag():
 # ---------------------------------------------------------------------
 
 
-def _dens_sa(events, r_in, rel_out=1):
-    """Single nested harmonic attribute (no flag): the single-attribute gate."""
+def _dens_sm(events, r_in, rel_out=1):
+    """Single nested harmonic attribute (no flag): the single-multiset gate."""
     n_chords = len(events[0])
     n_slots = len(events[0][0])
     tags = np.concatenate([np.full(n_slots, k) for k in range(n_chords)])
@@ -142,12 +142,12 @@ def _dens_sa(events, r_in, rel_out=1):
 
 
 @pytest.mark.parametrize("r_in", [1, 2])
-def test_one_sided_contraction_matches_bulger_sa(r_in):
+def test_one_sided_contraction_matches_bulger_single_multiset(r_in):
     # Single nested attribute. method='contract' previously raised for
     # 'oneSidedDenom'; it must now run and equal the exact enumeration, and
     # the auto dispatch must pick the contraction and agree.
-    X = _dens_sa([_IVI2], r_in)        # doubled chords: the costly enumeration case
-    Y = _dens_sa([_IVI], r_in)
+    X = _dens_sm([_IVI2], r_in)        # doubled chords: the costly enumeration case
+    Y = _dens_sm([_IVI], r_in)
     contract = cos_sim_exp_tens(X, Y, method="contract",
                                 normalize="oneSidedDenom", verbose=False)
     bulger = cos_sim_exp_tens(X, Y, method="bulger",

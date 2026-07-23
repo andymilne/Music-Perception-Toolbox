@@ -39,7 +39,7 @@ def _build(seed, A, K, N, r, sigma=20.0, is_rel=0):
     np.array([5.0]),       # length-1 array
     np.array([[5.0]]),     # 1x1 array
 ])
-def test_global_scalar_broadcast_sa(scalar_form):
+def test_global_scalar_broadcast_single_multiset(scalar_form):
     """Each numeric size-1 input form produces the same wmd and
     cosine as the explicit length-d_a uniform reference. List/tuple
     inputs do NOT take the broadcast path — see

@@ -4,8 +4,8 @@ Coverage:
 
 - Pre-built density input (the v2.0 case, scalar) — output shape ``(nQ,)``.
 - Density list input — output shape ``(M, nQ)``, with optional dedup.
-- Raw SA scalar input via unified entry — matches v2.0 raw form.
-- Raw SA batched input — output shape ``(M, nQ)``, with chord-level dedup.
+- Raw single-multiset scalar input via unified entry — matches v2.0 raw form.
+- Raw single-attribute batched input — output shape ``(M, nQ)``, with chord-level dedup.
 - Raw MA scalar input via unified entry.
 - ``normalize`` positional and keyword forms.
 - ``spectrum`` / ``precision`` / ``dedup`` kwargs.
@@ -28,7 +28,7 @@ from mpt import build_exp_tens, eval_exp_tens
 
 @pytest.fixture
 def density_set():
-    """Three SA densities for testing.
+    """Three single-multiset densities for testing.
 
     Uses a wider sigma (60) and a coarse 1-D-equivalent grid (interval-axis
     style at sparse query points) so that density values are not numerically
@@ -137,7 +137,7 @@ class TestDensityList:
 
 
 # =====================================================================
-# Raw SA scalar
+# Raw single-multiset scalar
 # =====================================================================
 
 
@@ -148,7 +148,7 @@ class TestRawSAScalar:
 
         d = build_exp_tens(p, None, sigma, r, False, True, period, verbose=False)
         ref = eval_exp_tens(d, query_grid, verbose=False)
-        # Raw SA scalar via unified entry.
+        # Raw single-multiset scalar via unified entry.
         vals = eval_exp_tens(
             p, None, sigma, r, False, True, period, query_grid, verbose=False,
         )
@@ -176,7 +176,7 @@ class TestRawSAScalar:
 
 
 # =====================================================================
-# Raw SA batched
+# Raw single-attribute batched
 # =====================================================================
 
 

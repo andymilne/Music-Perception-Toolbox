@@ -86,8 +86,8 @@ def test_orbit_ips_look_corrupted_signals():
     assert not _orbit_ips_look_corrupted(1.0 + 1e-10, 1.0, 1.0)
 
 
-def test_sa_sigma_to_zero_auto_matches_pairwise():
-    """SA-path version of the σ→0 fallback test (r=4 K=6 abs_per)."""
+def test_single_multiset_sigma_to_zero_auto_matches_pairwise():
+    """single-multiset-path version of the σ→0 fallback test (r=4 K=6 abs_per)."""
     sigma = 1e-5 * P
     r = 4
     K = 6

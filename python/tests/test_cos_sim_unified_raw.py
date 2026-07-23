@@ -3,8 +3,8 @@
 The unified entry accepts:
 
 - pre-built density (single or list) — exercised by ``test_cos_sim_polymorphic.py``;
-- raw 1-D ndarrays for SA single chord pair (replaces ``cos_sim_exp_tens_raw``);
-- raw 2-D ndarrays for SA batched chord pairs (replaces ``batch_cos_sim_exp_tens``);
+- raw 1-D ndarrays for single-multiset single chord pair (replaces ``cos_sim_exp_tens_raw``);
+- raw 2-D ndarrays for single-attribute batched chord pairs (replaces ``batch_cos_sim_exp_tens``);
 - raw list-of-arrays for MA single chord pair (replaces ``cos_sim_exp_tens_raw`` MA path).
 
 These tests verify the raw paths via the unified entry directly (without
@@ -22,12 +22,12 @@ from mpt import build_exp_tens, cos_sim_exp_tens
 
 
 # ---------------------------------------------------------------------
-# Raw SA scalar
+# Raw single-multiset scalar
 # ---------------------------------------------------------------------
 
 
 class TestRawSAScalar:
-    """Raw single-attribute scalar input (1-D arrays) via cos_sim_exp_tens."""
+    """Raw single-multiset scalar input (1-D arrays) via cos_sim_exp_tens."""
 
     def test_returns_python_float(self):
         s = cos_sim_exp_tens(
@@ -67,7 +67,7 @@ class TestRawSAScalar:
         assert 0.0 < s < 1.0
 
     def test_with_spectrum(self):
-        """Spectrum kwarg applies in raw SA scalar mode."""
+        """Spectrum kwarg applies in raw single-multiset scalar mode."""
         p1, p2 = [0.0, 400.0, 700.0], [0.0, 400.0, 700.0]
         s_no_spec = cos_sim_exp_tens(
             p1, None, p2, None, 15.0, 2, False, True, 1200.0,
@@ -95,7 +95,7 @@ class TestRawSAScalar:
 
 
 # ---------------------------------------------------------------------
-# Raw SA batched
+# Raw single-attribute batched
 # ---------------------------------------------------------------------
 
 
@@ -306,12 +306,12 @@ class TestCrossFormConsistency:
         d2 = build_exp_tens(p2, None, sigma, r, False, True, period, verbose=False)
         s_dens = cos_sim_exp_tens(d1, d2, verbose=False)
 
-        # Form 2: raw SA scalar
+        # Form 2: raw single-multiset scalar
         s_raw_scalar = cos_sim_exp_tens(
             p1, None, p2, None, sigma, r, False, True, period, verbose=False,
         )
 
-        # Form 3: raw SA batched (single row)
+        # Form 3: raw single-attribute batched (single row)
         P1 = np.array([p1])
         P2 = np.array([p2])
         s_raw_batch = cos_sim_exp_tens(
@@ -464,7 +464,7 @@ class TestRawSABroadcast:
             )
 
     def test_single_pair_via_1d_inputs_is_still_scalar(self):
-        """Both operands 1-D → existing scalar SA path; returns float."""
+        """Both operands 1-D → existing scalar single-multiset path; returns float."""
         s = cos_sim_exp_tens(
             np.array([0.0, 400.0, 700.0]), None,
             np.array([0.0, 300.0, 700.0]), None,

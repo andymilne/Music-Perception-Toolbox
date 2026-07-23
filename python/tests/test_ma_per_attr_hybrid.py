@@ -7,12 +7,12 @@ Mirror of MATLAB ``tests/test_ma_per_attr_hybrid.m``. Strategy:
 - Safe-vs-safe pairs flow through the vectorised batched orbit with
   zero-pad within the safe group.
 - Pairs involving any unsafe event flow through
-  :func:`mpt.tensor._inner_product_direct_abs_sa` (direct r-tuple
+  :func:`mpt.tensor._inner_product_direct_abs` (direct r-tuple
   enumeration; no Möbius alternating sum, so no cancellation).
 
 Tests cover:
 
-- ``_inner_product_direct_abs_sa`` standalone correctness against a
+- ``_inner_product_direct_abs`` standalone correctness against a
   hand-rolled centres-array IP.
 - NaN-tolerance: NaN-padded input gives the same result as NaN-stripped
   input.
@@ -26,21 +26,23 @@ Tests cover:
 """
 
 import numpy as np
+
+from mpt._defaults import accuracy_floor_context
 import pytest
 
 from mpt.tensor import (
     build_exp_tens,
     cos_sim_exp_tens,
-    _inner_product_direct_abs_sa,
+    _inner_product_direct_abs,
     _build_ordered_r_tuples,
     _ma_per_attr_inner_matrix,
-    _batched_direct_enum_abs_sa,
+    _batched_direct_enum_abs,
     _pack_nan_top,
 )
 
 
 # ----------------------------------------------------------------------
-# _inner_product_direct_abs_sa standalone
+# _inner_product_direct_abs standalone
 # ----------------------------------------------------------------------
 
 
@@ -54,7 +56,7 @@ def test_inner_product_direct_matches_centres_array_ip():
     sigma = 30.0
     r = 3
 
-    ip_direct = _inner_product_direct_abs_sa(
+    ip_direct = _inner_product_direct_abs(
         p_x, w_x, p_y, w_y, sigma, r, False, 0.0,
     )
 
@@ -82,12 +84,12 @@ def test_inner_product_direct_drops_nan_per_side():
     sigma = 30.0
     r = 3
 
-    ip_clean = _inner_product_direct_abs_sa(
+    ip_clean = _inner_product_direct_abs(
         p_x, w_x, p_y, w_y, sigma, r, False, 0.0,
     )
     p_x_nan = np.concatenate([p_x, [np.nan, np.nan]])
     w_x_nan = np.concatenate([w_x, [np.nan, np.nan]])
-    ip_nan = _inner_product_direct_abs_sa(
+    ip_nan = _inner_product_direct_abs(
         p_x_nan, w_x_nan, p_y, w_y, sigma, r, False, 0.0,
     )
     assert abs(ip_nan - ip_clean) < 1e-12 * abs(ip_clean)
@@ -95,7 +97,7 @@ def test_inner_product_direct_drops_nan_per_side():
 
 def test_inner_product_direct_returns_zero_when_keff_below_r():
     """K_eff < r returns 0 (no r-tuple can be formed)."""
-    ip = _inner_product_direct_abs_sa(
+    ip = _inner_product_direct_abs(
         np.array([0.0, 1.0]), np.array([1.0, 1.0]),
         np.array([0.0, 1.0]), np.array([1.0, 1.0]),
         30.0, 3, False, 0.0,
@@ -130,7 +132,7 @@ def test_all_safe_ragged_matches_direct_enum_reference():
     I_ref = np.empty((N, N))
     for nx in range(N):
         for ny in range(N):
-            I_ref[nx, ny] = _inner_product_direct_abs_sa(
+            I_ref[nx, ny] = _inner_product_direct_abs(
                 P[:, nx], W[:, nx], P[:, ny], W[:, ny],
                 sigma, r, False, 0.0,
             )
@@ -143,25 +145,31 @@ def test_all_unsafe_matches_direct_enum():
                   [4.0, 200.0],
                   [7.0, 300.0]])         # (3, 2), every K_eff = 3
     W = np.ones_like(P)
-    sigma = 30.0
-    r = 3
+    # Under the default (inf) truncation -- which resolves to the 1e-12
+    # accuracy floor -- the hybrid and the direct-enum reference can drop
+    # marginally different far-tail contributions and diverge at ~1e-12,
+    # above this tolerance. Widen the floor so the two are compared
+    # exhaustively, as the MATLAB twin does around its all-unsafe block.
+    with accuracy_floor_context(1e-300):
+        sigma = 30.0
+        r = 3
 
-    I_hybrid = _ma_per_attr_inner_matrix(
-        P, W, P, W, sigma, r, False, False, 0.0,
-    )
-    I_ref = np.empty((2, 2))
-    for nx in range(2):
-        for ny in range(2):
-            I_ref[nx, ny] = _inner_product_direct_abs_sa(
-                P[:, nx], W[:, nx], P[:, ny], W[:, ny],
-                sigma, r, False, 0.0,
-            )
-    # v2.2.0 used a Python double-loop over pairs (one direct-enum
-    # call per (nx, ny)); v2.2.x replaces it with a single vectorised
-    # tensor contraction per (K_eff_x, K_eff_y) sub-block. The two
-    # produce mathematically identical results but accumulate Q sums
-    # in a different order, so individual entries can differ by ~1 ULP.
-    np.testing.assert_allclose(I_hybrid, I_ref, atol=0.0, rtol=1e-13)
+        I_hybrid = _ma_per_attr_inner_matrix(
+            P, W, P, W, sigma, r, False, False, 0.0,
+        )
+        I_ref = np.empty((2, 2))
+        for nx in range(2):
+            for ny in range(2):
+                I_ref[nx, ny] = _inner_product_direct_abs(
+                    P[:, nx], W[:, nx], P[:, ny], W[:, ny],
+                    sigma, r, False, 0.0,
+                )
+        # v2.2.0 used a Python double-loop over pairs (one direct-enum
+        # call per (nx, ny)); v2.2.x replaces it with a single vectorised
+        # tensor contraction per (K_eff_x, K_eff_y) sub-block. The two
+        # produce mathematically identical results but accumulate Q sums
+        # in a different order, so individual entries can differ by ~1 ULP.
+        np.testing.assert_allclose(I_hybrid, I_ref, atol=0.0, rtol=1e-13)
 
 
 def test_mixed_safe_unsafe_cossim_orbit_matches_pairwise():
@@ -223,51 +231,69 @@ class TestBatchedDirectEnum:
     @pytest.mark.parametrize("r", [1, 2, 3])
     @pytest.mark.parametrize("K_x,K_y", [(3, 3), (4, 4), (3, 5), (5, 3)])
     def test_matches_per_pair_direct_enum_nonper(self, r, K_x, K_y):
-        if K_x < r or K_y < r:
-            return
-        rng = np.random.default_rng(0)
-        N_x, N_y = 5, 7
-        Px = rng.uniform(0, 1000, (K_x, N_x))
-        Wx = np.ones((K_x, N_x))
-        Py = rng.uniform(0, 1000, (K_y, N_y))
-        Wy = np.ones((K_y, N_y))
-        sigma = 25.0
+        # Under the default (inf) truncation -- which resolves to the
+        # 1e-12 accuracy floor -- the batched contraction and the
+        # per-pair reference can drop marginally different far-tail
+        # contributions and diverge at ~1e-12, above this tolerance.
+        # Widen the floor so the two are compared exhaustively, exactly
+        # as the MATLAB twin (test_ma_per_attr_hybrid.m) does with
+        # internal.accuracyFloor('setEps', 1e-300). The residual ~1 ULP
+        # drift is the differing Q-sum accumulation order.
+        with accuracy_floor_context(1e-300):
+            if K_x < r or K_y < r:
+                return
+            rng = np.random.default_rng(0)
+            N_x, N_y = 5, 7
+            Px = rng.uniform(0, 1000, (K_x, N_x))
+            Wx = np.ones((K_x, N_x))
+            Py = rng.uniform(0, 1000, (K_y, N_y))
+            Wy = np.ones((K_y, N_y))
+            sigma = 25.0
 
-        I_batched = _batched_direct_enum_abs_sa(
-            Px, Wx, Py, Wy, sigma, r, False, 0.0,
-        )
-        I_ref = np.empty((N_x, N_y))
-        for nx in range(N_x):
-            for ny in range(N_y):
-                I_ref[nx, ny] = _inner_product_direct_abs_sa(
-                    Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
-                    sigma, r, False, 0.0,
-                )
-        np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
+            I_batched = _batched_direct_enum_abs(
+                Px, Wx, Py, Wy, sigma, r, False, 0.0,
+            )
+            I_ref = np.empty((N_x, N_y))
+            for nx in range(N_x):
+                for ny in range(N_y):
+                    I_ref[nx, ny] = _inner_product_direct_abs(
+                        Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
+                        sigma, r, False, 0.0,
+                    )
+            np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
 
     @pytest.mark.parametrize("r", [1, 2, 3])
     def test_matches_per_pair_direct_enum_periodic(self, r):
-        K = max(3, r)
-        rng = np.random.default_rng(1)
-        N_x, N_y = 4, 6
-        Px = rng.uniform(0, 1200, (K, N_x))
-        Wx = np.ones((K, N_x))
-        Py = rng.uniform(0, 1200, (K, N_y))
-        Wy = np.ones((K, N_y))
-        sigma = 80.0
-        period = 1200.0
+        # Under the default (inf) truncation -- which resolves to the
+        # 1e-12 accuracy floor -- the batched contraction and the
+        # per-pair reference can drop marginally different far-tail
+        # contributions and diverge at ~1e-12, above this tolerance.
+        # Widen the floor so the two are compared exhaustively, exactly
+        # as the MATLAB twin (test_ma_per_attr_hybrid.m) does with
+        # internal.accuracyFloor('setEps', 1e-300). The residual ~1 ULP
+        # drift is the differing Q-sum accumulation order.
+        with accuracy_floor_context(1e-300):
+            K = max(3, r)
+            rng = np.random.default_rng(1)
+            N_x, N_y = 4, 6
+            Px = rng.uniform(0, 1200, (K, N_x))
+            Wx = np.ones((K, N_x))
+            Py = rng.uniform(0, 1200, (K, N_y))
+            Wy = np.ones((K, N_y))
+            sigma = 80.0
+            period = 1200.0
 
-        I_batched = _batched_direct_enum_abs_sa(
-            Px, Wx, Py, Wy, sigma, r, True, period,
-        )
-        I_ref = np.empty((N_x, N_y))
-        for nx in range(N_x):
-            for ny in range(N_y):
-                I_ref[nx, ny] = _inner_product_direct_abs_sa(
-                    Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
-                    sigma, r, True, period,
-                )
-        np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
+            I_batched = _batched_direct_enum_abs(
+                Px, Wx, Py, Wy, sigma, r, True, period,
+            )
+            I_ref = np.empty((N_x, N_y))
+            for nx in range(N_x):
+                for ny in range(N_y):
+                    I_ref[nx, ny] = _inner_product_direct_abs(
+                        Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
+                        sigma, r, True, period,
+                    )
+            np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
 
     def test_zero_when_K_below_r(self):
         """K_x < r => IP = 0 (no r-tuples to enumerate)."""
@@ -275,7 +301,7 @@ class TestBatchedDirectEnum:
         Wx = np.ones_like(Px)
         Py = np.zeros((3, 1))
         Wy = np.ones_like(Py)
-        I = _batched_direct_enum_abs_sa(
+        I = _batched_direct_enum_abs(
             Px, Wx, Py, Wy, 20.0, r=3, is_per=False, period=0.0,
         )
         assert I.shape == (1, 1)

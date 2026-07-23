@@ -14,24 +14,24 @@ from mpt.tensor import _windowed_inner_product
 class TestMAET:
     """Multi-attribute expectation tensor tests.
 
-    The v2.1.0 extension to ``build_exp_tens``. The single-attribute
+    The v2.1.0 extension to ``build_exp_tens``. The single-multiset
     legacy path is covered by ``TestTensor`` above; these tests focus on
-    the MAET-specific behaviours: SA-equivalence under degenerate mapping,
+    the MAET-specific behaviours: Single-multiset equivalence under degenerate mapping,
     per-attribute perm/comb enumeration, weight broadcasting, group
     canonicalisation, NaN handling for variable-size events, and the
     error paths introduced by the per-attribute / per-group parameter
     structure.
     """
 
-    # --- SA-equivalence: (N=1, A=1, K_a x 1 column weight) == SA -------
+    # --- Single-multiset equivalence: MA at (A=1, N=1) == the flat form ---
 
-    def test_ma_matches_sa_abs(self):
-        """MA with one event and one attribute reproduces SA bit-for-bit."""
+    def test_ma_matches_single_multiset_abs(self):
+        """MA with one event and one attribute reproduces single-multiset bit-for-bit."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
         sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
 
-        dens_sa = mpt.build_exp_tens(
+        dens_sm = mpt.build_exp_tens(
             p, w, sigma, r, is_rel, is_per, period, verbose=False
         )
 
@@ -43,21 +43,21 @@ class TestMAET:
         )
 
         assert dens_ma.tag == "MaetDensity"
-        assert dens_ma.n_j == dens_sa.n_j
-        assert dens_ma.n_k == dens_sa.n_k
-        np.testing.assert_array_equal(dens_ma.u_perm[0], dens_sa.u_perm)
-        np.testing.assert_array_equal(dens_ma.v_comb[0], dens_sa.v_comb)
-        np.testing.assert_array_equal(dens_ma.centres[0], dens_sa.centres)
-        np.testing.assert_array_almost_equal(dens_ma.w_j, dens_sa.w_j)
-        np.testing.assert_array_almost_equal(dens_ma.wv_comb, dens_sa.wv_comb)
+        assert dens_ma.n_j == dens_sm.n_j
+        assert dens_ma.n_k == dens_sm.n_k
+        np.testing.assert_array_equal(dens_ma.u_perm[0], dens_sm.u_perm[0])
+        np.testing.assert_array_equal(dens_ma.v_comb[0], dens_sm.v_comb[0])
+        np.testing.assert_array_equal(dens_ma.centres[0], dens_sm.centres[0])
+        np.testing.assert_array_almost_equal(dens_ma.w_j, dens_sm.w_j)
+        np.testing.assert_array_almost_equal(dens_ma.wv_comb, dens_sm.wv_comb)
 
-    def test_ma_matches_sa_rel(self):
+    def test_ma_matches_single_multiset_rel(self):
         """Centres reduction: is_rel=True collapses r_a dims to r_a-1."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
         sigma, r, is_rel, is_per, period = 10.0, 2, True, True, 1200.0
 
-        dens_sa = mpt.build_exp_tens(
+        dens_sm = mpt.build_exp_tens(
             p, w, sigma, r, is_rel, is_per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
@@ -67,7 +67,7 @@ class TestMAET:
             [is_rel], [is_per], [period], verbose=False,
         )
         assert dens_ma.centres[0].shape == (r - 1, dens_ma.n_j)
-        np.testing.assert_array_equal(dens_ma.centres[0], dens_sa.centres)
+        np.testing.assert_array_equal(dens_ma.centres[0], dens_sm.centres[0])
 
     # --- Struct basics ------------------------------------------------
 
@@ -295,16 +295,16 @@ class TestMAET:
     # --- evalExpTens MA path ------------------------------------------
 
     def test_ma_eval_matches_sa_abs(self):
-        """MA eval matches SA at the same query points (is_rel=False)."""
+        """MA eval matches single-multiset at the same query points (is_rel=False)."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
         sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
-        x_sa = np.array([[100, 500], [300, 600]], dtype=float)  # 2 x 2 (SA)
+        x_sm = np.array([[100, 500], [300, 600]], dtype=float)  # 2 x 2 (single-multiset)
 
-        dens_sa = mpt.build_exp_tens(
+        dens_sm = mpt.build_exp_tens(
             p, w, sigma, r, is_rel, is_per, period, verbose=False
         )
-        vals_sa = mpt.eval_exp_tens(dens_sa, x_sa, verbose=False)
+        vals_sm = mpt.eval_exp_tens(dens_sm, x_sm, verbose=False)
 
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
         w_ma = [np.array(w, dtype=float).reshape(3, 1)]
@@ -312,20 +312,20 @@ class TestMAET:
             p_attr, w_ma, [sigma], [r], 
             [is_rel], [is_per], [period], verbose=False,
         )
-        vals_ma_cell = mpt.eval_exp_tens(dens_ma, [x_sa], verbose=False)
-        vals_ma_mat = mpt.eval_exp_tens(dens_ma, x_sa, verbose=False)
+        vals_ma_cell = mpt.eval_exp_tens(dens_ma, [x_sm], verbose=False)
+        vals_ma_mat = mpt.eval_exp_tens(dens_ma, x_sm, verbose=False)
 
-        np.testing.assert_allclose(vals_ma_cell, vals_sa, rtol=1e-12, atol=1e-12)
-        np.testing.assert_allclose(vals_ma_mat, vals_sa, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(vals_ma_cell, vals_sm, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(vals_ma_mat, vals_sm, rtol=1e-12, atol=1e-12)
 
     def test_ma_eval_matches_sa_rel(self):
         """Same with is_rel=True: reduced-dim query points."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
         sigma, r, is_rel, is_per, period = 10.0, 3, True, True, 1200.0
-        x_sa = np.array([[400, 200], [700, 500]], dtype=float)  # (r-1) x nQ
+        x_sm = np.array([[400, 200], [700, 500]], dtype=float)  # (r-1) x nQ
 
-        dens_sa = mpt.build_exp_tens(
+        dens_sm = mpt.build_exp_tens(
             p, w, sigma, r, is_rel, is_per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
@@ -335,18 +335,18 @@ class TestMAET:
             [is_rel], [is_per], [period], verbose=False,
         )
 
-        vals_sa = mpt.eval_exp_tens(dens_sa, x_sa, verbose=False)
-        vals_ma = mpt.eval_exp_tens(dens_ma, [x_sa], verbose=False)
-        np.testing.assert_allclose(vals_ma, vals_sa, rtol=1e-12, atol=1e-12)
+        vals_sm = mpt.eval_exp_tens(dens_sm, x_sm, verbose=False)
+        vals_ma = mpt.eval_exp_tens(dens_ma, [x_sm], verbose=False)
+        np.testing.assert_allclose(vals_ma, vals_sm, rtol=1e-12, atol=1e-12)
 
-    def test_ma_eval_normalisation_matches_sa(self):
-        """'gaussian' and 'pdf' normalisation modes match SA."""
+    def test_ma_eval_normalisation_matches_single_multiset(self):
+        """'gaussian' and 'pdf' normalisation modes match single-multiset."""
         p = [0.0, 400.0, 700.0]
         w = [1.0, 0.7, 0.5]
         sigma, r, is_rel, is_per, period = 10.0, 3, True, True, 1200.0
-        x_sa = np.array([[400, 200], [700, 500]], dtype=float)
+        x_sm = np.array([[400, 200], [700, 500]], dtype=float)
 
-        dens_sa = mpt.build_exp_tens(
+        dens_sm = mpt.build_exp_tens(
             p, w, sigma, r, is_rel, is_per, period, verbose=False
         )
         p_attr = [np.array(p, dtype=float).reshape(3, 1)]
@@ -356,9 +356,9 @@ class TestMAET:
             [is_rel], [is_per], [period], verbose=False,
         )
         for mode in ("gaussian", "pdf"):
-            vals_sa = mpt.eval_exp_tens(dens_sa, x_sa, mode, verbose=False)
-            vals_ma = mpt.eval_exp_tens(dens_ma, [x_sa], mode, verbose=False)
-            np.testing.assert_allclose(vals_ma, vals_sa, rtol=1e-12, atol=1e-12)
+            vals_sm = mpt.eval_exp_tens(dens_sm, x_sm, mode, verbose=False)
+            vals_ma = mpt.eval_exp_tens(dens_ma, [x_sm], mode, verbose=False)
+            np.testing.assert_allclose(vals_ma, vals_sm, rtol=1e-12, atol=1e-12)
 
     def test_ma_eval_cell_vs_matrix_forms_agree(self):
         """Cell form and single-matrix form give identical results."""
@@ -479,11 +479,11 @@ class TestMAET:
 
     def test_ma_eval_dispatch_on_type(self):
         """Public eval_exp_tens dispatches on dens type."""
-        # ExpTensDensity -> SA path
-        dens_sa = mpt.build_exp_tens(
+        # Flat (single-multiset) form -> MaetDensity
+        dens_sm = mpt.build_exp_tens(
             [0.0, 4.0], None, 10.0, 2, False, True, 1200.0, verbose=False
         )
-        assert isinstance(dens_sa, mpt.ExpTensDensity)
+        assert isinstance(dens_sm, mpt.MaetDensity)
         # MaetDensity -> MA path
         dens_ma = mpt.build_exp_tens(
             [np.array([[0.0, 4.0]]).T], None, [10.0], [2], 
@@ -492,20 +492,20 @@ class TestMAET:
         assert isinstance(dens_ma, mpt.MaetDensity)
         # Both evaluate successfully
         x = np.array([[0.0], [4.0]])
-        mpt.eval_exp_tens(dens_sa, x, verbose=False)
+        mpt.eval_exp_tens(dens_sm, x, verbose=False)
         mpt.eval_exp_tens(dens_ma, x, verbose=False)
 
     # --- cosSimExpTens MA path ---------------------------------------
 
     def test_ma_cossim_matches_sa_abs(self):
-        """MA cos-sim matches SA at the SA-equivalence mapping (is_rel=False)."""
+        """MA cos-sim matches single-multiset at the Single-multiset equivalence mapping (is_rel=False)."""
         p_a = [0.0, 400.0, 700.0]
         p_b = [0.0, 300.0, 700.0]
         w_a = [1.0, 0.7, 0.5]
         w_b = [1.0, 0.6, 0.8]
         sigma, r, is_rel, is_per, period = 10.0, 2, False, True, 1200.0
 
-        s_sa = mpt.cos_sim_exp_tens_raw(
+        s_sm = mpt.cos_sim_exp_tens_raw(
             p_a, w_a, p_b, w_b, sigma, r, is_rel, is_per, period,
             verbose=False,
         )
@@ -521,10 +521,10 @@ class TestMAET:
         )
         s_ma = mpt.cos_sim_exp_tens(da, db, verbose=False)
 
-        np.testing.assert_allclose(s_ma, s_sa, rtol=1e-12, atol=1e-12)
+        np.testing.assert_allclose(s_ma, s_sm, rtol=1e-12, atol=1e-12)
 
     def test_ma_cossim_matches_sa_rel(self):
-        """SA-equivalence with is_rel=True (uses pairwise-diff formula periodically)."""
+        """Single-multiset equivalence with is_rel=True (uses pairwise-diff formula periodically)."""
         p_a = [0.0, 400.0, 700.0]
         p_b = [0.0, 300.0, 700.0]
         w_a = [1.0, 0.7, 0.5]
@@ -532,7 +532,7 @@ class TestMAET:
         for r, is_per, period in [(2, True, 1200.0),
                                    (3, True, 1200.0),
                                    (3, False, 0.0)]:
-            s_sa = mpt.cos_sim_exp_tens_raw(
+            s_sm = mpt.cos_sim_exp_tens_raw(
                 p_a, w_a, p_b, w_b, 10.0, r, True, is_per, period, verbose=False
             )
             da = mpt.build_exp_tens(
@@ -545,7 +545,7 @@ class TestMAET:
             )
             s_ma = mpt.cos_sim_exp_tens(da, db, verbose=False)
             np.testing.assert_allclose(
-                s_ma, s_sa, rtol=1e-12, atol=1e-12,
+                s_ma, s_sm, rtol=1e-12, atol=1e-12,
                 err_msg=f"r={r}, is_per={is_per}, period={period}",
             )
 
@@ -638,7 +638,7 @@ class TestMAET:
         np.testing.assert_allclose(s_raw, s_struct, rtol=1e-12, atol=1e-12)
 
     def test_ma_cossim_raw_sa_still_works(self):
-        """SA raw-args call unchanged from v2.0.0 behaviour."""
+        """single-multiset raw-args call unchanged from v2.0.0 behaviour."""
         s = mpt.cos_sim_exp_tens_raw(
             [0.0, 4.0, 7.0], None, [0.0, 4.0, 7.0], None,
             10.0, 2, True, True, 1200.0, verbose=False,
@@ -646,32 +646,18 @@ class TestMAET:
         np.testing.assert_allclose(s, 1.0, rtol=1e-12, atol=1e-12)
 
     def test_ma_cossim_raw_mismatched_types_errors(self):
-        """p1 is MA but p2 is SA. Under the unified cos_sim_exp_tens
+        """p1 is MA but p2 is single-multiset. Under the unified cos_sim_exp_tens
         dispatcher, the first arg's type (here, list of arrays = MA)
-        sets the dispatch arm; the SA-shaped second operand then builds
-        an SA density, and comparing densities of different types
+        sets the dispatch arm; the single-multiset-shaped second operand then builds
+        an single-multiset density, and comparing densities of different types
         produces a clear TypeError."""
         pitch_ma = [np.array([[0.0, 4.0]]).T]
-        pitch_sa = [0.0, 4.0]
-        with pytest.raises(TypeError, match="same type"):
+        pitch_sm = [0.0, 4.0]
+        with pytest.raises(TypeError, match="same input form"):
             mpt.cos_sim_exp_tens_raw(
-                pitch_ma, None, pitch_sa, None,
+                pitch_ma, None, pitch_sm, None,
                 10.0, 2, False, True, 1200.0, verbose=False,
             )
-
-    def test_ma_cossim_mixed_struct_types_errors(self):
-        """MaetDensity paired with ExpTensDensity -> TypeError."""
-        d_sa = mpt.build_exp_tens(
-            [0.0, 4.0, 7.0], None, 10.0, 2, False, True, 1200.0, verbose=False
-        )
-        d_ma = mpt.build_exp_tens(
-            [np.array([[0.0, 4.0, 7.0]]).T], None,
-            [10.0], [2], [False], [True], [1200.0], verbose=False,
-        )
-        with pytest.raises(TypeError, match="same type"):
-            mpt.cos_sim_exp_tens(d_sa, d_ma, verbose=False)
-        with pytest.raises(TypeError, match="same type"):
-            mpt.cos_sim_exp_tens(d_ma, d_sa, verbose=False)
 
     def test_ma_cossim_parameter_mismatch_errors(self):
         """Mismatched MA densities raise specific ValueErrors."""
@@ -719,11 +705,11 @@ class TestMAET:
     # --- entropyExpTens MA path -------------------------------------
 
     def test_ma_entropy_sa_equivalence_periodic(self):
-        """MA entropy matches SA entropy at the SA-equivalence mapping
+        """MA entropy matches single-multiset entropy at the Single-multiset equivalence mapping
         (single periodic group, is_rel=False)."""
         p = np.array([0.0, 4.0, 7.0])
         w = np.array([1.0, 1.0, 1.0])
-        H_sa = mpt.entropy_exp_tens(
+        H_sm = mpt.entropy_exp_tens(
             p, w, 10.0, 1, False, True, 12.0,
             n_points_per_dim=400,
         )
@@ -732,14 +718,14 @@ class TestMAET:
             [10.0], [1], [False], [True], [12.0],
             n_points_per_dim=400,
         )
-        np.testing.assert_allclose(H_ma, H_sa, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(H_ma, H_sm, rtol=1e-10, atol=1e-10)
 
     def test_ma_entropy_sa_equivalence_nonperiodic(self):
-        """MA entropy matches SA entropy for a non-periodic group with
+        """MA entropy matches single-multiset entropy for a non-periodic group with
         explicit bounds."""
         p = np.array([0.0, 4.0, 7.0])
         w = np.array([1.0, 1.0, 1.0])
-        H_sa = mpt.entropy_exp_tens(
+        H_sm = mpt.entropy_exp_tens(
             p, w, 10.0, 1, False, False, 0.0,
             x_min=-3.0, x_max=10.0, n_points_per_dim=400,
         )
@@ -748,7 +734,7 @@ class TestMAET:
             [10.0], [1], [False], [False], [0.0],
             x_min=-3.0, x_max=10.0, n_points_per_dim=400,
         )
-        np.testing.assert_allclose(H_ma, H_sa, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(H_ma, H_sm, rtol=1e-10, atol=1e-10)
 
     def test_ma_entropy_uniform_pitch_high(self):
         """Chromatic scale with wide sigma gives near-uniform pmf,

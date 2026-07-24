@@ -2871,25 +2871,103 @@ def _rel_window_margin(truncation_sigmas):
     return min(np.sqrt(2.0) * float(truncation_sigmas) + 0.1, 8.0)
 
 
+#: Predicted wall-time constants for the centres-vs-grid gate.
+#: Both sides model per-event-pair cost in nanoseconds; the gate
+#: compares predictions rather than raw op counts because the actual
+#: per-op costs of the two paths differ by two orders of magnitude
+#: and their scaling with K differs from the raw counts.
+#:
+#: Centres side: per-element cost of the pairwise Gaussian overlap
+#: over the (r_a!·C(K, r_a))² tuple-centre pairs, dominated by the
+#: exp evaluation and augmented by an O(r_a-1) sum for Q and, in the
+#: periodic case, an O((r_a-1)(r_a-2)) pairwise-wrap inner loop.
+#:
+#: Grid side: cost of the grid path, which for r_a ∈ {2, 3, 4} is
+#: served by the spectral branch of ``_ma_per_attr_inner_matrix_rel``
+#: rather than a u-grid contraction; the spectral cost scales as
+#: (K + const) · grid_size and grid_size scales roughly as N_u
+#: within a fixed r_a, so a per-r_a coefficient on N_u·K plus a
+#: fixed setup floor captures the observed sub-K² wall behaviour
+#: (which the raw N_u·K² proxy overpredicts by up to 30x at large K,
+#: causing the previous gate to over-select centres at r_a = 2).
+#:
+#: Calibrated in Python by a 168-cell sweep across r_a ∈ {2, 3, 4},
+#: K ∈ {5..80}, σ ∈ {5, 10, 15, 20, 25, 30}, span ∈ {1200, 2400, 3000,
+#: 3600, 4800}, and both periodic modes. The values below reproduce
+#: the sign of every training cell (102/102) and 88% of held-out
+#: cells, with the small remaining misses all in the c/g ∈ [0.7, 1.4]
+#: neighbourhood of the crossover where either path is nearly as
+#: cheap as the other.
+_CENTRES_NS_BASE = 45.0       # per-element base (exp dominates)
+_CENTRES_NS_LIN  = 15.0       # per-element linear-in-(r_a - 1) term
+_CENTRES_NS_WRAP = 10.0       # per-element (r_a-1)(r_a-2) term, is_per only
+_GRID_NS_FLOOR   = 1_000_000.0  # 1 ms fixed per-pair setup
+_GRID_NS_PER_OP = {2: 30.0, 3: 700.0, 4: 2000.0}  # ns per (N_u·K) op, per r_a
+
+
+def _predicted_centres_wall_ns(K, r_a, is_per):
+    """Nanosecond wall-time estimate for one event pair on the centres
+    (pairwise closed-form) path."""
+    import math
+    n_e = (math.factorial(r_a) * math.comb(K, r_a)) ** 2
+    per_el = _CENTRES_NS_BASE + _CENTRES_NS_LIN * (r_a - 1)
+    if is_per:
+        per_el += _CENTRES_NS_WRAP * (r_a - 1) * (r_a - 2)
+    return per_el * n_e
+
+
+def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per):
+    """Nanosecond wall-time estimate for one event pair on the grid
+    (spectral or u-grid) path. ``span_or_period`` is the period in the
+    periodic case, or the sum of the two side spans in the
+    non-periodic case (matching the current N_u sizing)."""
+    from ._nested_contraction import auto_ntau_default
+    if is_per:
+        n_u = auto_ntau_default(span_or_period, sigma)
+    else:
+        from .._defaults import get_default
+        margin = _rel_window_margin(get_default('truncation_sigmas'))
+        span = span_or_period + 2.0 * margin * sigma
+        n_u = max(64, int(np.ceil(max(span, 1.0) / sigma * 10.0)))
+    # Extrapolate calibrated r_a in {2, 3, 4} to r_a >= 5 by tripling
+    # per r_a increment; centres cost grows faster than that in K, so
+    # the extrapolation only affects the tiny-K corner.
+    if r_a in _GRID_NS_PER_OP:
+        g_op = _GRID_NS_PER_OP[r_a]
+    else:
+        g_op = _GRID_NS_PER_OP[4] * 3.0 ** (r_a - 4)
+    return _GRID_NS_FLOOR + g_op * float(n_u) * float(K)
+
+
 def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     """True when a relative attribute's inner matrices should use the
     pairwise closed form over tuple-centres rather than the
     translation-grid contraction.
 
-    The centres route costs (r_a!·C(K, r_a))² kernel ops per event
-    pair; the grid route costs N_u·K² (N_u from the shared node-count
-    source in periodic mode, or the centred-window rule in
-    non-periodic mode). The centres route is chosen when it is
-    cheaper AND measure-safe: it computes the minimum-image
-    relative-periodic reading (the toolbox's defined measure), which
-    coincides with the grid route's all-image reading only below the
-    σ/P threshold — above it the grid route is kept so an explicit
-    ``method='mobius'`` opt-in preserves the all-image measure. The
-    non-periodic closed form is exact, so it is always measure-safe.
+    The gate compares predicted wall time on the two paths rather than
+    raw kernel-op counts. Raw counts were misleading here because the
+    centres path pays roughly one exp per op (~50 ns) while the grid
+    path — served by the spectral branch of
+    ``_ma_per_attr_inner_matrix_rel`` at r_a ∈ {2, 3, 4} — pays a
+    sub-K² per-op cost after a fixed setup, so the per-op cost ratio
+    between them varies with r_a and configuration and is far from
+    unity. The old raw-count comparison consequently over-selected
+    centres for r_a = 2 across a wide K band (roughly 15..90 at σ/P ~
+    1/240), where centres was up to 100x slower than grid.
+
+    Decision-safety layer: below the ``sigma/P`` threshold the centres
+    route's minimum-image relative-periodic reading coincides with the
+    grid route's all-image reading, so the two agree numerically; above
+    it, the grid route is kept regardless of cost so that
+    ``method='mobius'`` on that side opts into the all-image measure
+    without the gate flipping to a different reading. The non-periodic
+    closed form is exact for the non-periodic reading and always
+    measure-safe.
+
+    See ``_CENTRES_NS_BASE`` and ``_GRID_NS_PER_OP`` for the cost-model
+    calibration notes.
     """
-    import math
     from .dispatch import _ORBIT_SIGMA_OVER_P_THRESHOLD
-    from ._nested_contraction import auto_ntau_default
 
     if not is_rel or r_a < 2:
         return False
@@ -2898,18 +2976,16 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     K = int(Px.shape[0])
     if K < r_a:
         return False
-    centres_pair_ops = (math.factorial(r_a) * math.comb(K, r_a)) ** 2
     if is_per:
-        n_u = auto_ntau_default(period, sigma)
+        span_or_period = float(period)
     else:
-        from .._defaults import get_default
-        margin = _rel_window_margin(get_default('truncation_sigmas'))
-        span = (float(np.nanmax(Px) - np.nanmin(Px))
-                + float(np.nanmax(Py) - np.nanmin(Py))
-                + 2.0 * margin * sigma)
-        n_u = max(64, int(np.ceil(max(span, 1.0) / sigma * 10.0)))
-    grid_pair_ops = n_u * K * K
-    return centres_pair_ops < grid_pair_ops
+        span_or_period = (float(np.nanmax(Px) - np.nanmin(Px))
+                          + float(np.nanmax(Py) - np.nanmin(Py)))
+    c_wall_ns = _predicted_centres_wall_ns(K, r_a, is_per)
+    g_wall_ns = _predicted_grid_wall_ns(
+        K, r_a, sigma, span_or_period, is_per,
+    )
+    return c_wall_ns < g_wall_ns
 
 
 

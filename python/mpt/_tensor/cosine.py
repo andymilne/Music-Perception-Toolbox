@@ -2339,15 +2339,37 @@ _SPECTRAL_IP_MODE_SIGMAS = 8.6
 #: of memory trouble; above it the branch stands down.
 _SPECTRAL_IP_MAX_POINTS = 4_000_000
 
-#: Cost-gate constant. The grid path's cost grows as
-#: K^2 * n_events_x * n_events_y, while the spectral branch's grows
-#: with the mode-grid size, so the branch is worth taking only while
-#: the grid stays below this multiple of that product. Calibrated by
-#: measured wall times across sigma/P from 0.05 down to 0.0025, K from
-#: 4 to 100, and event counts from 1 to 30: the value below reproduces
-#: the sign of every measured cell, erring towards declining a modest
-#: win rather than taking a loss.
-_SPECTRAL_IP_COST_C = 1000.0
+#: Cost-gate constant: the branch is taken while the mode grid stays
+#: below this multiple of K^2 * n_events_x * n_events_y.
+#:
+#: Calibrated on 497 measured cells spanning both periodic modes,
+#: r = 2..4, K = 4..30, event counts 1..16, and sigma/P from 0.001 to
+#: 0.2, scoring each candidate by routing regret --- the wall time
+#: actually paid against an oracle that always picks the faster route.
+#: The value below gives 1.043x of oracle; the previous 1000 gave
+#: 1.127x. At 1000 the gate was one-sided, and expensively so: 29 of its
+#: 31 errors declined a route that would have won, spending 2378 ms to
+#: avoid 775 ms, and its single worst decision declined an 11x win.
+#: Raising it improves the mean and the tail together (worst-case
+#: misroute 11.0x -> 9.2x), so there is no trade to weigh here.
+#:
+#: The form was selected, not assumed. Every subset of
+#: {log gridSize, log K, log N, log N_u, log P(r), log B(r), isPer} was
+#: fitted as a log-linear model of log(t_grid / t_spectral) and scored
+#: by BIC and by cross-validated regret over 40 random halves. No fitted
+#: subset beat this form, whose exponents (1, -2, -2) are pinned by the
+#: cost algebra rather than estimated. BIC's own optimum decides worse
+#: than most of the family, because likelihood weights cells far from
+#: the boundary where the decision is easy, while the decision depends
+#: only on the sign near zero. Offset families (a separate constant per
+#: isPer, per r, or per (r, isPer)) all fit the full data better and
+#: generalise worse.
+#:
+#: One alternative is worth recording: gating on
+#: C * N_u * K^2 * P(r) has a better worst case (1.335x against 1.536x
+#: cross-validated) at 1.8% worse mean, and is the form to prefer if
+#: tail behaviour ever matters more than throughput.
+_SPECTRAL_IP_COST_C = 3160.0
 
 
 def _rel_per_image_count(sigma, period, truncation_sigmas):
@@ -2462,7 +2484,6 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     n_pairs = float(Px.shape[1]) * float(Py.shape[1])
     if grid_size > _SPECTRAL_IP_COST_C * k_slots ** 2 * n_pairs:
         return None
-
     axes = [np.arange(-M, M + 1, dtype=np.int64)] * (r - 1)
     grids = np.meshgrid(*axes, indexing='ij')
     xs = [g.ravel() for g in grids]

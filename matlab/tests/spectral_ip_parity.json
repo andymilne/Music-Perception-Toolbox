@@ -1,6 +1,7 @@
 {
- "note": "Spectral relative inner-matrix parity. Python reference. 'declined' records the branch refusing the shape via MAX_POINTS or the cost gate; MATLAB must decline on exactly the same shapes, since the two routes must agree in value. 'value' is 0.0 and unread when 'declined' is true: the field is kept numeric so jsondecode yields a uniform result.",
+ "note": "Spectral relative inner-matrix parity. Python reference. 'declined' covers the MAX_POINTS memory guard and the cost gate at _SPECTRAL_IP_COST_C = 3160; both languages must decline on exactly the same shapes. 'value' is 0.0 and unread when 'declined' is true: the field is kept numeric so jsondecode yields a uniform result.",
  "period": 1200.0,
+ "costC": 3160.0,
  "cases": [
   {
    "isPer": true,
@@ -266,8 +267,8 @@
     0.8083325124961418,
     0.4138060615701579
    ],
-   "declined": true,
-   "value": 0.0
+   "declined": false,
+   "value": 9.896583456864601
   },
   {
    "isPer": true,
@@ -656,8 +657,8 @@
     0.3978138324948554,
     0.21695470539237585
    ],
-   "declined": true,
-   "value": 0.0
+   "declined": false,
+   "value": 48804419.06114803
   },
   {
    "isPer": true,
@@ -1079,8 +1080,8 @@
     0.26345574300908353,
     0.3533706033501294
    ],
-   "declined": true,
-   "value": 0.0
+   "declined": false,
+   "value": 1710.0983620554011
   },
   {
    "isPer": false,

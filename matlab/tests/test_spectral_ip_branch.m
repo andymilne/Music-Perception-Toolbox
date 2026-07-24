@@ -111,6 +111,41 @@ results(end+1, :) = { ...
             siRouteN, siRouteWorst), ...
     siRouteWorst <= 1e-11};
 
+% --- guard removal preserved values on the single-multiset path ------
+% The per-node cancellation-ratio fallback was removed from
+% cosSimExpTens (it fired only where the Moebius result was already
+% bit-identical to Bulger's). Where it used to fire -- sigma/period
+% <= 0.0125, well below the 0.03 measure-divergence threshold -- the
+% two methods share a measure, so removing the fallback must not move
+% any value. Checked directly against Bulger.
+rng(31);
+siGuardWorst = 0;
+siGuardN = 0;
+for isRelC = [true, false]
+    for r = 2:4
+        for K = [4, 6, 8, 12]
+            if K < r, continue; end
+            for sigma = [0.1, 0.5, 2.0, 6.0, 15.0]
+                p_ = sort(rand(K, 1) * 1200);
+                q_ = sort(rand(K, 1) * 1200);
+                w_ = ones(K, 1);
+                cm = cosSimExpTens(p_, w_, q_, w_, sigma, r, isRelC, ...
+                                   true, 1200, 'method', 'mobius', ...
+                                   'verbose', false);
+                cb = cosSimExpTens(p_, w_, q_, w_, sigma, r, isRelC, ...
+                                   true, 1200, 'method', 'bulger', ...
+                                   'verbose', false);
+                siGuardWorst = max(siGuardWorst, abs(cm - cb));
+                siGuardN = siGuardN + 1;
+            end
+        end
+    end
+end
+results(end+1, :) = { ...
+    sprintf(['spectral IP: mobius matches bulger below the divergence ' ...
+             'threshold (%d cells, worst %.1e)'], siGuardN, siGuardWorst), ...
+    siGuardWorst <= 1e-9};
+
 % --- the enable switch round-trips -----------------------------------
 siPrevState = internal.spectralIpEnabled();
 internal.spectralIpEnabled(false);

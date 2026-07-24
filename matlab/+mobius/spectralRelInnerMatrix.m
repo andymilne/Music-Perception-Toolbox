@@ -43,9 +43,30 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
 %   second halves the per-event phase matmul, which dominates at r = 2
 %   where the partition loop is trivial.
 %
-%   Returns [] when the mode grid would exceed MAXPOINTS, or when the
-%   cost gate judges the mode grid unrepaid against the grid route's
-%   K^2 per event pair.
+%   Returns [] when the mode grid would exceed MAXPOINTS (a memory
+%   guard), or when the cost gate judges the mode grid unrepaid against
+%   the grid route's K^2 per event pair.
+%
+%   COST_C is calibrated on 497 measured cells spanning both periodic
+%   modes, r = 2..4, K = 4..30, event counts 1..16 and sigma/period from
+%   0.001 to 0.2, scored by routing regret -- the wall time actually
+%   paid against an oracle that always picks the faster route. 3160
+%   gives 1.043x of oracle; the earlier 1000 gave 1.127x, and was
+%   one-sided: 29 of its 31 errors declined a route that would have won,
+%   spending 2378 ms to avoid 775 ms. Raising it improves the mean and
+%   the tail together (worst misroute 11.0x -> 9.2x).
+%
+%   The form was selected rather than assumed. Every subset of
+%   {log gridSize, log K, log N, log N_u, log P(r), log B(r), isPer} was
+%   fitted as a log-linear model of log(t_grid / t_spectral) and scored
+%   by BIC and by cross-validated regret over 40 random halves. No
+%   fitted subset beat this form, whose exponents (1, -2, -2) come from
+%   the cost algebra rather than estimation, and BIC's own optimum
+%   decides worse than most of the family -- likelihood weights cells
+%   far from the boundary, where the decision is easy.
+%
+%   Constants match Python cosine._SPECTRAL_IP_* exactly, so both
+%   languages decline on the same shapes.
 %
 %   Constants match Python cosine._SPECTRAL_IP_* exactly, so both
 %   languages decline on the same shapes: route parity here is a
@@ -56,7 +77,7 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
 
     MODE_SIGMAS = 8.6;      % _SPECTRAL_IP_MODE_SIGMAS
     MAX_POINTS  = 4e6;      % _SPECTRAL_IP_MAX_POINTS
-    COST_C      = 1000.0;   % _SPECTRAL_IP_COST_C
+    COST_C      = 3160.0;   % _SPECTRAL_IP_COST_C
     ENV_FLOOR   = 1e-18;
 
     I = [];

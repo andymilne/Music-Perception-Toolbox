@@ -720,10 +720,10 @@ ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
 ranOrbit = false;
 
 if strcmp(chosen, 'mobius')
-    [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens_x, dens_y, ...
+    [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, dens_y, ...
                                                             truncationSigmas);
 
-    % Three-layer fallback guard.
+    % Two-layer fallback guard, matching the Python cosine path.
     %  1. Cross-cancellation: |<X,Y>| small relative to sqrt(<X,X><Y,Y>).
     %     The Möbius estimate may be dominated by cancellation between
     %     partition terms.
@@ -732,13 +732,29 @@ if strcmp(chosen, 'mobius')
     %  2. Post-hoc sanity: non-finite, negative auto-IP (unambiguous Gram
     %     diagonal sign flip), or |cosine| > 1.
     corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
-    %  3. Runtime cancellation diagnostic (worst |sum|/max(|term|) across
-    %     the three IPs): below 1e-10 means ~6 surviving decimal digits or
-    %     fewer — borderline acceptable for cosine but past this point fall
-    %     back to Bulger's method. See V22_DEV_LOG for the empirical regime.
-    cancelTooSevere = worstRatio < 1e-10;
+    %
+    % A third layer once gated this fallback on a per-node cancellation
+    % ratio (the minimum of |sum|/max(|term|) across the three
+    % alternating sums), firing below 1e-10. It was removed because it
+    % measures the wrong thing: a small ratio says one node's alternating
+    % sum cancelled heavily, but the cosine consumes only the total, to
+    % which such nodes contribute negligibly. Measured over 216
+    % configurations spanning both modes, both periodic settings,
+    % r = 2..4, K = 4..12 and sigma = 0.1..60, it fired 49 times, every
+    % one of them where the Möbius cosine was already bit-identical to
+    % Bulger's, and caught none of the 7 configurations that did differ
+    % --- those all showed large ratios (4e-2 to 3e-1) and left it
+    % silent. One cell returned a ratio of exactly zero on a computation
+    % that was exact. Python removed the same gate for the same reason
+    % (see cosine.py, the note above the cross-cancellation guard).
+    %
+    % Removing it also lets the spectral branch engage on this path:
+    % requesting the ratio forced nargout > 1 all the way down to
+    % mobius.relInnerBatched, whose spectral branch declines a
+    % cancellation-ratio request because the spectral form has no
+    % per-node terms matching that diagnostic.
 
-    if crossCancel || corrupted || cancelTooSevere
+    if crossCancel || corrupted
         chosen = 'bulger';   % fall through to the Bulger branch below
     else
         ranOrbit = true;
@@ -1571,12 +1587,12 @@ function t = localProbeIPPath(dens_x, dens_y, K_probe_x, K_probe_y, ...
 
     if strcmp(path, 'mobius')
         % Warmup pass (discarded).
-        [~, ~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
+        [~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
         % Timed passes: repeat until the sample is above timer noise.
         reps = 0;
         tStart = tic;
         while true
-            [~, ~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
+            [~, ~, ~] = localCosSimSingleMultisetOrbit(subX, subY, truncationSigmas);
             reps = reps + 1;
             elapsed = toc(tStart);
             if elapsed >= PROBE_MIN_SAMPLE_SEC || reps >= PROBE_MAX_REPS
@@ -1666,15 +1682,19 @@ function ip_xy = localProbePairwiseIP(dens_x, dens_y, ...
 end
 
 
-function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens_x, ...
+function [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, ...
                                                                  dens_y, ...
                                                                  truncationSigmas)
 %LOCALCOSSIMSINGLEMULTISETORBIT  Three single multiset inner products via the Möbius method.
 %
-%   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>,
-%   and worstRatio = the minimum cancellation ratio across the three
-%   alternating sums. A worstRatio near 1 indicates negligible
-%   cancellation; values << 1 indicate digits of precision lost.
+%   Returns ip_xy = <T_X, T_Y>, ip_xx = <T_X, T_X>, ip_yy = <T_Y, T_Y>.
+%
+%   The per-node cancellation ratio is deliberately not requested. The
+%   ratio remains available from mobius.orbitInner*SingleMultiset for
+%   callers that want the diagnostic, but the cosine does not gate on it
+%   (see the note at the fallback guard), and requesting it would force
+%   nargout > 1 down to mobius.relInnerBatched, whose spectral branch
+%   declines a cancellation-ratio request.
 
     sigma  = dens_x.sigma;
     r      = dens_x.r;
@@ -1693,22 +1713,24 @@ function [ip_xy, ip_xx, ip_yy, worstRatio] = localCosSimSingleMultisetOrbit(dens
         truncResolved = truncationSigmas;
     end
 
+    % Single output on every call: nargout propagates down to
+    % mobius.relInnerBatched, and a second output there is a
+    % cancellation-ratio request, which its spectral branch declines.
     if isRel
-        [ip_xy, r_xy] = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+        ip_xy = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_xx, r_xx] = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+        ip_xx = mobius.orbitInnerRelSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_yy, r_yy] = mobius.orbitInnerRelSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+        ip_yy = mobius.orbitInnerRelSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     else
-        [ip_xy, r_xy] = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
+        ip_xy = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_xx, r_xx] = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
+        ip_xx = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
-        [ip_yy, r_yy] = mobius.orbitInnerAbsSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
+        ip_yy = mobius.orbitInnerAbsSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     end
-    worstRatio = min([r_xy, r_xx, r_yy]);
 end
 
 

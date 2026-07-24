@@ -78,9 +78,27 @@ I_centres = mobius.closedFormAttrMatrixFrom(cxB, cyB);
 I_grid = mobius.maPerAttrInnerMatrix( ...
     dx.pAttr{a}, dx.w{a}, dy.pAttr{a}, dy.w{a}, ...
     dx.sigma(a), dx.r(a), true, true, dx.period(a));
-ratio = I_centres ./ I_grid;
+% The entrywise ratio is only meaningful where I_grid carries signal.
+% The matrix spans some twenty orders of magnitude -- the Moebius
+% alternating sum cancels to the noise floor in a few cells -- and the
+% ratio at a cancellation-noise cell is arbitrary, so it must not be
+% allowed to set the spread. Restrict the constancy check to entries
+% above a relative magnitude floor, and check the discarded entries are
+% negligible against the matrix scale rather than ignoring them.
+mrc_scale = max(abs(I_grid(:)));
+mrc_live  = abs(I_grid) > 1e-8 * mrc_scale;
+ratio = I_centres(mrc_live) ./ I_grid(mrc_live);
 results{end+1,1} = 'MA rel centres matrix: constant ratio to grid matrix (1e-6)';
 results{end,2}   = (max(ratio(:)) / min(ratio(:)) - 1) < 1e-6;
+
+% The proportionality itself, measured against the matrix scale so no
+% single near-zero cell dominates: fit the constant by least squares and
+% bound the residual.
+mrc_c = (I_centres(:).' * I_grid(:)) / (I_grid(:).' * I_grid(:));
+mrc_resid = max(abs(I_centres(:) - mrc_c * I_grid(:))) ...
+            / (abs(mrc_c) * mrc_scale);
+results{end+1,1} = 'MA rel centres matrix: scale-relative residual (1e-10)';
+results{end,2}   = mrc_resid < 1e-10;
 
 % Restore the accuracy floor (paired with the setEps above).
 internal.accuracyFloor('setEps', mrc_prevEps);

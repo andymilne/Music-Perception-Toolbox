@@ -89,6 +89,22 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 
     sharedW = all(all(Wx == Wx(:, 1))) && all(all(Wy == Wy(:, 1)));
 
+    % ---- Spectral (Fourier) branch, r = 2..4 ------------------------
+    % Replaces the translation grid with a mode sum: each event's
+    % spectrum is built once and the matrix over event pairs is their
+    % Gram matrix, so the per-pair cost carries no K and no grid nodes.
+    % Cancellation-ratio requests fall through (the spectral form has no
+    % per-node terms matching that diagnostic), as do configurations
+    % whose mode grid would be too large (the helper returns []).
+    if internal.spectralIpEnabled() && r >= 2 && r <= 4 && ~wantRatio
+        Ispec = mobius.spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, ...
+                                              isPer, period);
+        if ~isempty(Ispec)
+            I = Ispec;
+            return;
+        end
+    end
+
     if isPer
         N_u = internal.autoNtauDefault(period, sigma);
         uGrid = (0:N_u-1) * (period / N_u);

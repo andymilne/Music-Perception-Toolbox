@@ -822,7 +822,7 @@ def _warn_rel_per_all_image(sigma_over_P, *, operation="inner product",
     """
     warnings.warn(
         f"σ/P = {sigma_over_P:.3f} exceeds {_ORBIT_SIGMA_OVER_P_THRESHOLD}: "
-        f"the faster all-image (transposition-integral) form of the "
+        f"the faster all-image (full-image lattice) form of the "
         f"relative-periodic {operation} has been used. Above this σ/P it "
         f"differs from the canonical single-image (minimum-image) measure "
         f"(the two agree below it). To compute the single-image measure "

@@ -2350,6 +2350,45 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 _SPECTRAL_IP_COST_C = 1000.0
 
 
+def _rel_per_image_count(sigma, period, truncation_sigmas):
+    """Number of periodic images each side needed for the relative-periodic
+    kernel to reach the caller's own accuracy floor.
+
+    The relative-periodic inner product marginalises a rigid common shift.
+    Taking that average over a kernel that carries every periodic image
+    yields the lattice-sum (full-image) measure exactly; taking it over a
+    nearest-image kernel yields a different measure, which departs from it
+    as ``sigma/period`` grows. Summing images restores the identity, and
+    the count needed is set by the accuracy already being asked for
+    elsewhere rather than by a fixed constant.
+
+    After the nearest-image reduction the difference satisfies
+    ``|d| <= period/2``, so the image at offset ``l`` is bounded by
+    ``exp(-((|l| - 1/2) period)^2 / (4 sigma^2))``. Requiring the first
+    omitted image to fall below the kernel-value floor gives
+
+        n > 2 (sigma/period) sqrt(ln(1/tol)) - 1/2 .
+
+    Returns 0 whenever the nearest image alone already meets the floor,
+    which is the case throughout the range musical work normally occupies
+    (0 up to sigma/period ~ 0.05 at the default truncation, and the two
+    measures agree there to 2.5e-13). In that regime the full-image
+    kernel and the nearest-image kernel are the same object and this
+    costs nothing.
+    """
+    from .._defaults import truncation_floor
+
+    if not (np.isfinite(sigma) and np.isfinite(period)) or period <= 0.0:
+        return 0
+    tol = truncation_floor(truncation_sigmas)
+    if not (0.0 < tol < 1.0):
+        return 0
+    n = 2.0 * (sigma / period) * np.sqrt(np.log(1.0 / tol)) - 0.5
+    if not np.isfinite(n) or n <= 0.0:
+        return 0
+    return int(np.ceil(n))
+
+
 def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     """Relative-mode per-attribute inner matrix by the spectral form.
 
@@ -2709,7 +2748,28 @@ def _ma_per_attr_inner_matrix_rel(
             diffs = base[None, :, :, :] + u_s[:, None, None, None]
             if is_per:
                 diffs = diffs - period * np.floor(diffs / period + 0.5)
-            K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                n_img = _rel_per_image_count(sigma, period, truncation_sigmas)
+                if n_img > 0:
+                    # Full-image kernel. The transposition average of the
+                    # wrapped (theta) kernel equals the lattice-sum form
+                    # exactly, so summing images here upgrades the whole
+                    # contraction to the full-image measure with the orbit
+                    # reduction, the grid, and the slabbing untouched.
+                    # Accumulated in a loop rather than on a trailing axis
+                    # so peak memory stays flat in the image count.
+                    K_uc = _trunc_kernel_exp(
+                        diffs ** 2, sigma, truncation_sigmas)
+                    for _l in range(1, n_img + 1):
+                        shift = _l * period
+                        K_uc = K_uc + _trunc_kernel_exp(
+                            (diffs + shift) ** 2, sigma, truncation_sigmas)
+                        K_uc = K_uc + _trunc_kernel_exp(
+                            (diffs - shift) ** 2, sigma, truncation_sigmas)
+                else:
+                    K_uc = _trunc_kernel_exp(
+                        diffs ** 2, sigma, truncation_sigmas)
+            else:
+                K_uc = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
             K_uc = K_uc.reshape(nu * n_pairs, K_x, K_y)
             if shared_w:
                 if return_cancellation_ratio:

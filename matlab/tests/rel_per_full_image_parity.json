@@ -1,0 +1,104 @@
+{
+ "note": "Full-image relative-periodic cosines. Python reference, verified against an independent rank-(r-1) image-lattice sum to <=1.6e-13. MATLAB must reproduce these to the 1e-12 parity tolerance.",
+ "period": 1200.0,
+ "p": [
+  270.2486279887102,
+  360.1995418934705,
+  750.1145599256004,
+  930.8228282942322,
+  1076.6565611634906
+ ],
+ "q": [
+  6.318365478689669,
+  561.5219434124649,
+  956.4833145024555,
+  985.4741020593195,
+  1048.2641344755143
+ ],
+ "w": [
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0
+ ],
+ "v": [
+  1.0,
+  1.0,
+  1.0,
+  1.0,
+  1.0
+ ],
+ "cases": [
+  {
+   "label": "relPer full-image r=2 sigma/P=0.02",
+   "r": 2,
+   "sigmaOverP": 0.02,
+   "sigma": 24.0,
+   "cos": 0.7927374088740363
+  },
+  {
+   "label": "relPer full-image r=2 sigma/P=0.05",
+   "r": 2,
+   "sigmaOverP": 0.05,
+   "sigma": 60.0,
+   "cos": 0.8923304749934742
+  },
+  {
+   "label": "relPer full-image r=2 sigma/P=0.10",
+   "r": 2,
+   "sigmaOverP": 0.1,
+   "sigma": 120.0,
+   "cos": 0.9397035407316803
+  },
+  {
+   "label": "relPer full-image r=2 sigma/P=0.20",
+   "r": 2,
+   "sigmaOverP": 0.2,
+   "sigma": 240.0,
+   "cos": 0.9941749237176271
+  },
+  {
+   "label": "relPer full-image r=2 sigma/P=0.30",
+   "r": 2,
+   "sigmaOverP": 0.3,
+   "sigma": 360.0,
+   "cos": 0.9998872133915946
+  },
+  {
+   "label": "relPer full-image r=3 sigma/P=0.02",
+   "r": 3,
+   "sigmaOverP": 0.02,
+   "sigma": 24.0,
+   "cos": 0.33442387369269866
+  },
+  {
+   "label": "relPer full-image r=3 sigma/P=0.05",
+   "r": 3,
+   "sigmaOverP": 0.05,
+   "sigma": 60.0,
+   "cos": 0.6091025398416118
+  },
+  {
+   "label": "relPer full-image r=3 sigma/P=0.10",
+   "r": 3,
+   "sigmaOverP": 0.1,
+   "sigma": 120.0,
+   "cos": 0.8211993765543152
+  },
+  {
+   "label": "relPer full-image r=3 sigma/P=0.20",
+   "r": 3,
+   "sigmaOverP": 0.2,
+   "sigma": 240.0,
+   "cos": 0.9826360651886122
+  },
+  {
+   "label": "relPer full-image r=3 sigma/P=0.30",
+   "r": 3,
+   "sigmaOverP": 0.3,
+   "sigma": 360.0,
+   "cos": 0.9996616856494228
+  }
+ ]
+}

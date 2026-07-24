@@ -188,9 +188,28 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
             diffs = baseD + reshape(u_s, [nu, 1, 1, 1]);
             if isPer
                 diffs = diffs - period * floor(diffs / period + 0.5);
+                nImg = internal.relPerImageCount(sigma, period, ...
+                                                 truncationSigmas);
+                % Full-image kernel. The transposition average of the
+                % wrapped (theta) kernel equals the lattice-sum form
+                % exactly, so summing images here upgrades the whole
+                % contraction to the full-image measure with the orbit
+                % reduction, the grid, and the slabbing untouched.
+                % Accumulated in a loop rather than on a trailing
+                % dimension so peak memory stays flat in the image count.
+                K_uc = internal.truncKernelExp(diffs.^2, sigma, ...
+                                               truncationSigmas);
+                for lImg = 1:nImg
+                    shiftL = lImg * period;
+                    K_uc = K_uc + internal.truncKernelExp( ...
+                        (diffs + shiftL).^2, sigma, truncationSigmas);
+                    K_uc = K_uc + internal.truncKernelExp( ...
+                        (diffs - shiftL).^2, sigma, truncationSigmas);
+                end
+            else
+                K_uc = internal.truncKernelExp(diffs.^2, sigma, ...
+                                               truncationSigmas);
             end
-            K_uc = internal.truncKernelExp(diffs.^2, sigma, ...
-                                           truncationSigmas);
             K_uc = reshape(K_uc, [nu * nPairs, Kx, Ky]);
 
             if sharedW

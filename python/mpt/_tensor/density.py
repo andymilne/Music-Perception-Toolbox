@@ -30,6 +30,46 @@ from scipy.special import comb as _comb
 from .._utils import validate_weights
 
 
+def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period):
+    """Warn once per absolute-periodic attribute whose sigma/period puts
+    it past the point where the single-image measure departs from the
+    full-image one.
+
+    Defensive throughout: sigma may carry an anisotropic kernel
+    covariance rather than a scalar, and any of the mode vectors may be
+    absent or ragged on partially built structs, so anything that does
+    not resolve to a finite positive scalar pair is skipped rather than
+    raised on. A density is metadata; constructing one should not fail
+    because a warning could not be evaluated.
+    """
+    from .dispatch import (
+        _ABS_PER_SIGMA_OVER_P_THRESHOLD,
+        _warn_abs_per_single_image,
+    )
+
+    try:
+        if is_per is None or period is None or sigma is None:
+            return
+        per_v = np.atleast_1d(np.asarray(is_per, dtype=bool))
+        rel_v = (np.zeros_like(per_v) if is_rel is None
+                 else np.atleast_1d(np.asarray(is_rel, dtype=bool)))
+        for a in range(per_v.size):
+            if not per_v[a] or (a < rel_v.size and rel_v[a]):
+                continue
+            try:
+                s = float(np.asarray(sigma).ravel()[a])
+                P = float(np.asarray(period).ravel()[a])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not (np.isfinite(s) and np.isfinite(P)) or P <= 0.0:
+                continue
+            if s / P > _ABS_PER_SIGMA_OVER_P_THRESHOLD:
+                _warn_abs_per_single_image(s / P, stacklevel=4)
+    except Exception:
+        # Never let a diagnostic break construction.
+        return
+
+
 def _nchoosek_indices(n: int, r: int) -> np.ndarray:
     """Return all r-combinations of range(n) as an (r, C(n,r)) array."""
     from itertools import combinations
@@ -138,6 +178,7 @@ class MaetDensity:
         self.is_rel = is_rel
         self.is_per = is_per
         self.period = period
+        _warn_if_abs_per_single_image(sigma, is_rel, is_per, period)
         self.dim = dim
         self.dim_per_attr = dim_per_attr
         # Per-attribute symmetrisation flag. Default all-True (legacy

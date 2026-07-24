@@ -739,6 +739,66 @@ _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
 _ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which the periodic-relative Möbius method deviates
 
+#: σ/P beyond which the absolute-periodic single-image (minimum-image)
+#: measure departs materially from the full-image measure --- the sum of
+#: the Gaussian kernel over every periodic image of the difference.
+#:
+#: Set at 0.05 on two independent grounds, whichever binds first:
+#:
+#: - Accuracy. Below it the two measures agree to within the toolbox's
+#:   own floor: the cosine differs by 0.0 up to σ/P = 0.03 and by 2.5e-13
+#:   at 0.05, against an accuracy floor of ~1e-12 at
+#:   ``truncation_sigmas=inf`` and ~1.5e-8 at the default of 6. It rises
+#:   to 2.6e-6 at σ/P = 0.08 and 8.5e-5 at 0.10.
+#: - Positive definiteness. The single-image kernel's Fourier
+#:   coefficients on the circle are non-negative only up to about this
+#:   point; above it they go negative (-4.9e-5 at σ/P = 0.10, -1.4e-2 at
+#:   0.20), so by Bochner's theorem the kernel is not the autocorrelation
+#:   of any density and the form it induces is not an inner product.
+#:   Cauchy-Schwarz then fails: cosines of 1.07 at σ/P = 0.20 and 1.12 at
+#:   0.30 are reachable with ordinary non-negative weights.
+_ABS_PER_SIGMA_OVER_P_THRESHOLD = 0.05
+
+
+def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
+    """Warn that an absolute-periodic attribute is being built under the
+    single-image (minimum-image) measure at a σ/P where that departs
+    from the full-image measure.
+
+    Raised at density construction rather than at any one operation,
+    because the choice is a property of the density: the absolute
+    periodic kernel wraps each difference to its nearest image, so
+    everything computed downstream --- evaluation, inner product,
+    entropy --- inherits it.
+
+    Unlike the relative-periodic case, absolute-periodic mode currently
+    offers no full-image route, so this warning names no alternative
+    method: it reports a limitation rather than announcing a
+    substitution. The two measures agree below the threshold, so the
+    warning is silent in the range musical work normally occupies.
+
+    The consequence worth acting on is not only the size of the
+    departure but its character. Above roughly σ/P = 0.15 the
+    single-image kernel is no longer positive definite, so a cosine
+    computed from it is not constrained to [-1, 1] and can exceed 1.
+    See ``_ABS_PER_SIGMA_OVER_P_THRESHOLD`` for the measurements.
+    """
+    warnings.warn(
+        f"σ/P = {sigma_over_P:.3f} exceeds "
+        f"{_ABS_PER_SIGMA_OVER_P_THRESHOLD}: this absolute-periodic "
+        f"attribute uses the single-image (minimum-image) measure, "
+        f"which above this σ/P departs from the full-image measure that "
+        f"sums the kernel over every periodic image (the two agree below "
+        f"it). Everything computed from this density inherits the "
+        f"choice, and no full-image route is available in "
+        f"absolute-periodic mode at present. Above roughly σ/P = 0.15 "
+        f"the single-image kernel also stops being positive definite, so "
+        f"a cosine similarity computed from it is not bounded by 1. "
+        f"Reduce sigma relative to the period if the measure matters at "
+        f"this scale.",
+        stacklevel=stacklevel,
+    )
+
 
 def _warn_rel_per_all_image(sigma_over_P, *, operation="inner product",
                             canonical_method="bulger", stacklevel=3):

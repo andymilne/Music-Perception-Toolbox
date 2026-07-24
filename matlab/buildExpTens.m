@@ -402,6 +402,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy)
         dens.isRel      = isRel;
         dens.isPer      = logical(isPer);
         dens.period     = period;
+        internal.maybeWarnAbsPerSingleImage(sigma, isRel, isPer, period);
         dens.isSym      = logical(isSym);
         dens.dim        = dim;
         dens.dimPerAttr = dim;
@@ -866,6 +867,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
     dens.isRel        = isRelVec;
     dens.isPer        = isPerVec;
     dens.period       = periodVec;
+    internal.maybeWarnAbsPerSingleImage(sigmaVec, isRelVec, isPerVec, ...
+                                        periodVec);
     dens.isSym        = isSymVec;
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;

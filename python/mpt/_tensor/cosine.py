@@ -2530,6 +2530,23 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     ax_modes_pos = dxi * np.arange(0, W_ax + 1)
     partitions = get_set_partitions_with_mobius(r)
 
+    # The gather indices ``eta + W_ax`` and block sizes depend only on the
+    # mode grid, not on the event, so they are built once here rather than
+    # rebuilt inside the event loop. At r = 4 rebuilding them cost several
+    # times a single assembly, so hoisting is the dominant saving on the
+    # branch's most expensive shapes. Each entry is (mu, [(block_size,
+    # gather_index_vector), ...]).
+    part_plan = []
+    for blocks, mu in partitions:
+        gathers = []
+        for B in blocks:
+            idx = list(B)
+            eta = xs[idx[0]].copy()
+            for sl in idx[1:]:
+                eta = eta + xs[sl]
+            gathers.append((len(B), eta + W_ax))
+        part_plan.append((float(mu), gathers))
+
     def _spectra(P_, W_):
         out = np.empty((P_.shape[1], n_pts), dtype=np.complex128)
         for n in range(P_.shape[1]):
@@ -2544,14 +2561,10 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
                 Am[:W_ax] = np.conj(A_pos_m[1:])[::-1]
                 A[m] = Am
             tot = np.zeros(n_pts, dtype=np.complex128)
-            for blocks, mu in partitions:
-                term = np.full(n_pts, float(mu), dtype=np.complex128)
-                for B in blocks:
-                    idx = list(B)
-                    eta = xs[idx[0]].copy()
-                    for sl in idx[1:]:
-                        eta = eta + xs[sl]
-                    term *= A[len(B)][eta + W_ax]
+            for mu, gathers in part_plan:
+                term = np.full(n_pts, mu, dtype=np.complex128)
+                for blk_size, eidx in gathers:
+                    term *= A[blk_size][eidx]
                 tot += term
             out[n] = tot
         return out

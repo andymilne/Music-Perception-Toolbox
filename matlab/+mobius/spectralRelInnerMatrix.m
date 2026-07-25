@@ -173,11 +173,44 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
     axModesPos = dxi * (0:Wax).';
     partitions = mobius.getSetPartitionsWithMobius(r);
 
-    SX = localSpectra(Px, Wx, xs, r, nPts, Wax, axModesPos, partitions);
-    SY = localSpectra(Py, Wy, xs, r, nPts, Wax, axModesPos, partitions);
+    plan = localBuildPlan(xs, r, Wax, partitions);
+    SX = localSpectra(Px, Wx, r, nPts, Wax, axModesPos, plan);
+    SY = localSpectra(Py, Wy, r, nPts, Wax, axModesPos, plan);
 
     C_r = r * (sigma^2 * dxi)^(r - 1);
     I = C_r * real((SX .* env.') * SY');
+end
+
+
+function plan = localBuildPlan(xs, r, Wax, partitions)
+%LOCALBUILDPLAN  Gather indices and block sizes, once per call.
+%   The indices eta + Wax + 1 depend only on the mode grid xs, not on the
+%   events, so they are built once here rather than rebuilt inside the
+%   per-event loop of localSpectra. At r = 4 rebuilding them cost several
+%   times a single assembly, so this hoist is the dominant saving on the
+%   branch's most expensive shapes. Returns a struct array with fields
+%   mu, sizes (1 x nBlocks), and idx (nPts x nBlocks) of 1-based gather
+%   indices into the A tables.
+    nP = numel(partitions);
+    plan(nP) = struct('mu', 0, 'sizes', [], 'idx', []);
+    for pp = 1:nP
+        blocks = partitions(pp).blocks;
+        nB = numel(blocks);
+        sizes = zeros(1, nB);
+        idx = zeros(numel(xs{1}), nB);
+        for bb = 1:nB
+            B = blocks{bb};
+            eta = xs{B(1)};
+            for kk = 2:numel(B)
+                eta = eta + xs{B(kk)};
+            end
+            sizes(bb) = numel(B);
+            idx(:, bb) = eta + Wax + 1;
+        end
+        plan(pp).mu = double(partitions(pp).mu);
+        plan(pp).sizes = sizes;
+        plan(pp).idx = idx;
+    end
 end
 
 
@@ -194,11 +227,14 @@ function [lo, hi] = localSpan(P_, W_)
 end
 
 
-function S = localSpectra(P_, W_, xs, r, nPts, Wax, axModesPos, partitions)
+function S = localSpectra(P_, W_, r, nPts, Wax, axModesPos, plan)
 %LOCALSPECTRA  (N, nPts) complex spectra, one row per event.
+%   plan carries the gather indices and block sizes, built once by
+%   localBuildPlan and shared across events and across the three inner
+%   products, so this loop does no index arithmetic.
     N = size(P_, 2);
-    S = zeros(N, nPts);
-    S = complex(S, 0);
+    S = complex(zeros(N, nPts), 0);
+    nP = numel(plan);
     for n = 1:N
         Pn = P_(:, n);
         Wn = W_(:, n);
@@ -209,26 +245,20 @@ function S = localSpectra(P_, W_, xs, r, nPts, Wax, axModesPos, partitions)
         A = cell(1, r);
         for m = 1:r
             AposM = phasePos * (Wn.^m);                 % (Wax+1, 1)
-            Am = zeros(2 * Wax + 1, 1);
-            Am = complex(Am, 0);
+            Am = complex(zeros(2 * Wax + 1, 1), 0);
             % Index Wax+1 .. 2*Wax+1 carries modes 0 .. Wax;
             % index 1 .. Wax carries modes -Wax .. -1 by conjugation.
             Am(Wax + 1 : end) = AposM;
             Am(1 : Wax)       = flip(conj(AposM(2 : Wax + 1)));
             A{m} = Am;
         end
-        tot = zeros(nPts, 1);
-        tot = complex(tot, 0);
-        for pp = 1:numel(partitions)
-            blocks = partitions(pp).blocks;
-            term = complex(repmat(double(partitions(pp).mu), nPts, 1), 0);
-            for bb = 1:numel(blocks)
-                B = blocks{bb};
-                eta = xs{B(1)};
-                for kk = 2:numel(B)
-                    eta = eta + xs{B(kk)};
-                end
-                term = term .* A{numel(B)}(eta + Wax + 1);
+        tot = complex(zeros(nPts, 1), 0);
+        for pp = 1:nP
+            sizes = plan(pp).sizes;
+            idx   = plan(pp).idx;
+            term = complex(repmat(plan(pp).mu, nPts, 1), 0);
+            for bb = 1:numel(sizes)
+                term = term .* A{sizes(bb)}(idx(:, bb));
             end
             tot = tot + term;
         end

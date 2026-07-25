@@ -9,11 +9,13 @@
 %  nodes. Two independent Hermitian halvings apply -- one on the mode
 %  grid, one on the per-event phase table.
 %
-%  Two things are checked. First, value parity with Python against
-%  spectral_ip_parity.json, including which shapes the branch DECLINES:
-%  both languages must decline on the same shapes, because a
-%  disagreement would route one language to the grid and the other to
-%  the branch. Second, route parity within MATLAB: the branch and the
+%  Two things are checked. First, VALUE parity with Python against
+%  spectral_ip_parity.json: wherever the branch runs, the spectral value
+%  must match the Python reference. Decline parity is deliberately NOT
+%  checked -- the cost gate is per-language (Python 3160, MATLAB 282),
+%  so the two legitimately route different shapes; only the value has to
+%  agree, and forceBranch is used to compare it on cells the gates split
+%  on. Second, route parity within MATLAB: the branch and the
 %  translation grid must agree, since both compute the full-image
 %  measure.
 %
@@ -45,37 +47,35 @@ else
         siGet = @(k) siFix.cases(k);
         siN   = numel(siFix.cases);
     end
-    siNDeclineOK = 0; siNDecline = 0;
-    siNValueOK   = 0; siNValue   = 0;
-    siWorst = 0;
+    % Value parity only. The cost gate is per-language (Python 3160,
+    % MATLAB 282), so the two decline on different shapes -- that is
+    % expected and is NOT checked. What must agree is the spectral VALUE
+    % wherever the branch runs, so forceBranch skips MATLAB's cost gate
+    % and the value is compared against the Python reference on every
+    % cell the Python side produced one for. Cells the Python fixture
+    % marks declined are skipped: those are Python's own MAXPOINTS or
+    % cost-gate declines and carry no reference value.
+    siNValueOK = 0; siNValue = 0; siWorst = 0;
     for ii = 1:siN
         c = siGet(ii);
+        if c.declined
+            continue;   % no Python reference value for this cell
+        end
         Px = c.px(:); Py = c.py(:);
         Wx = c.wx(:); Wy = c.wy(:);
         got = mobius.spectralRelInnerMatrix(Px, Wx, Py, Wy, c.sigma, ...
-                                            c.r, logical(c.isPer), siP);
-        if c.declined
-            siNDecline = siNDecline + 1;
-            if isempty(got)
-                siNDeclineOK = siNDeclineOK + 1;
-            end
-        else
-            siNValue = siNValue + 1;
-            if ~isempty(got)
-                rel = abs(got(1,1) - c.value) / max(abs(c.value), realmin);
-                siWorst = max(siWorst, rel);
-                if rel <= 1e-12
-                    siNValueOK = siNValueOK + 1;
-                end
+                                            c.r, logical(c.isPer), siP, true);
+        siNValue = siNValue + 1;
+        if ~isempty(got)
+            rel = abs(got(1,1) - c.value) / max(abs(c.value), realmin);
+            siWorst = max(siWorst, rel);
+            if rel <= 1e-12
+                siNValueOK = siNValueOK + 1;
             end
         end
     end
     results(end+1, :) = { ...
-        sprintf('spectral IP: decline parity (%d/%d shapes)', ...
-                siNDeclineOK, siNDecline), ...
-        siNDeclineOK == siNDecline};
-    results(end+1, :) = { ...
-        sprintf('spectral IP: value parity (%d/%d, worst %.1e)', ...
+        sprintf('spectral IP: value parity, forced (%d/%d, worst %.1e)', ...
                 siNValueOK, siNValue, siWorst), ...
         siNValueOK == siNValue};
 end

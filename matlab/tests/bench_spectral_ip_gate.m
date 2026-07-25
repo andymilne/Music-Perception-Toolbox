@@ -67,7 +67,7 @@ bsg_P      = 1200;
 bsg_rs     = [2, 3, 4];
 bsg_Ks     = [4, 8, 16, 30];
 bsg_Ns     = [1, 2, 4, 8, 16];
-bsg_sops   = [0.0125, 0.05, 0.20];
+bsg_sops   = [0.002, 0.005, 0.0125, 0.05, 0.20];
 bsg_isPers = [true, false];
 bsg_reps   = 5;
 
@@ -109,6 +109,19 @@ for bsg_isPer = bsg_isPers
                              / (2 * pi * bsg_sigma)) + 2;
                 bsg_gridSize = (2 * bsg_M + 1)^(bsg_r - 1);
 
+                % When the mode grid exceeds the memory guard the branch
+                % always declines, so both toggle states run the grid and
+                % the ratio is 1 by construction. Timing that says nothing
+                % about the cost gate and these are the slowest cells, so
+                % record the decline without paying for a multi-second
+                % grid contraction (matches the Python harness).
+                if bsg_gridSize > 4e6
+                    fprintf('%d,%d,%d,%.4f,%d,%d,nan,nan,nan\n', ...
+                            bsg_r, bsg_K, bsg_N, bsg_sop, bsg_isPer, ...
+                            bsg_gridSize);
+                    continue;
+                end
+
                 % Time the per-attribute inner matrix directly: it is the
                 % object the branch replaces, and it takes N events per
                 % side without going through a density build.
@@ -116,19 +129,32 @@ for bsg_isPer = bsg_isPers
                     bsg_q, bsg_w, bsg_sigma, bsg_r, bsg_isPer, ...
                     bsg_periodArg, 'truncationSigmas', Inf);
 
-                % --- spectral branch ---
+                % Cost-aware repetition: one timed call gauges the cost,
+                % then cheap cells get the full bsg_reps for a stable
+                % median while cells already costing seconds are timed
+                % fewer times (the extended low-sigma/P grid has a few
+                % very heavy ones and their magnitude dwarfs jitter).
                 internal.spectralIpEnabled(true);
-                bsg_call();
-                bsg_tS = zeros(1, bsg_reps);
-                for bsg_i = 1:bsg_reps
+                bsg_t0 = tic; bsg_call(); bsg_first = toc(bsg_t0);
+                if bsg_first > 2.0
+                    bsg_nrep = 1;
+                elseif bsg_first > 0.2
+                    bsg_nrep = 2;
+                else
+                    bsg_nrep = bsg_reps;
+                end
+
+                % --- spectral branch ---
+                bsg_tS = zeros(1, bsg_nrep);
+                for bsg_i = 1:bsg_nrep
                     bsg_t0 = tic;  bsg_call();  bsg_tS(bsg_i) = toc(bsg_t0);
                 end
 
                 % --- translation grid ---
                 internal.spectralIpEnabled(false);
                 bsg_call();
-                bsg_tG = zeros(1, bsg_reps);
-                for bsg_i = 1:bsg_reps
+                bsg_tG = zeros(1, bsg_nrep);
+                for bsg_i = 1:bsg_nrep
                     bsg_t0 = tic;  bsg_call();  bsg_tG(bsg_i) = toc(bsg_t0);
                 end
                 internal.spectralIpEnabled(true);

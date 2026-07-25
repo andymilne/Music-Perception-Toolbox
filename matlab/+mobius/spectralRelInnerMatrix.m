@@ -1,10 +1,17 @@
-function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
+function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period, forceBranch)
 %MOBIUS.SPECTRALRELINNERMATRIX  Relative inner matrix by the spectral form.
 %
 %   I = MOBIUS.SPECTRALRELINNERMATRIX(PX, WX, PY, WY, SIGMA, R, ISPER,
 %   PERIOD) returns the (N_x, N_y) per-attribute inner matrix for a
 %   relative attribute, or [] when the branch declines (the caller then
 %   falls through to the translation-grid contraction).
+%
+%   ...(..., FORCEBRANCH) with FORCEBRANCH true skips the cost gate (but
+%   not the MAXPOINTS memory guard), so the branch runs wherever it is
+%   representable. Used only by the parity test, which must compare the
+%   spectral VALUE against the Python reference on cells the two
+%   languages' cost gates route differently. The memory guard is never
+%   bypassed.
 %
 %   The relative inner product is the integral of the absolute inner
 %   product under a rigid diagonal shift, and transforming along that
@@ -47,26 +54,30 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
 %   guard), or when the cost gate judges the mode grid unrepaid against
 %   the grid route's K^2 per event pair.
 %
-%   COST_C is calibrated on 497 measured cells spanning both periodic
-%   modes, r = 2..4, K = 4..30, event counts 1..16 and sigma/period from
-%   0.001 to 0.2, scored by routing regret -- the wall time actually
-%   paid against an oracle that always picks the faster route. 3160
-%   gives 1.043x of oracle; the earlier 1000 gave 1.127x, and was
-%   one-sided: 29 of its 31 errors declined a route that would have won,
-%   spending 2378 ms to avoid 775 ms. Raising it improves the mean and
-%   the tail together (worst misroute 11.0x -> 9.2x).
+%   COST_C is PER-LANGUAGE, and the MATLAB value (282) differs from the
+%   Python value (3160). Both routes compute the same full-image measure,
+%   so which one runs affects only time, not the answer -- the constant
+%   is therefore recalibrated per language rather than matched. The
+%   form is shared: the same K^2 * N_x * N_y product and the same
+%   exponents (1, -2, -2), pinned by the cost algebra, selected on the
+%   Python data against every subset of {log gridSize, log K, log N,
+%   log N_u, log P(r), log B(r), isPer} by BIC and by cross-validated
+%   regret. Only the multiplier is machine- and language-dependent, the
+%   MATLAB branch being relatively dearer against its own grid than the
+%   NumPy branch is against a BLAS-backed grid.
 %
-%   The form was selected rather than assumed. Every subset of
-%   {log gridSize, log K, log N, log N_u, log P(r), log B(r), isPer} was
-%   fitted as a log-linear model of log(t_grid / t_spectral) and scored
-%   by BIC and by cross-validated regret over 40 random halves. No
-%   fitted subset beat this form, whose exponents (1, -2, -2) come from
-%   the cost algebra rather than estimation, and BIC's own optimum
-%   decides worse than most of the family -- likelihood weights cells
-%   far from the boundary, where the decision is easy.
+%   282 is fitted on measured MATLAB wall times spanning both periodic
+%   modes, r = 2..4, K = 4..30 and event counts 1..16. It sits on a flat
+%   plateau (C in 282..447 all give ~1.07x of oracle with a 2.84x worst
+%   case), so the exact value is not delicate. The earlier shared 3160
+%   was far too permissive here: it fired the branch on shapes where the
+%   MATLAB branch loses by up to 8x.
 %
-%   Constants match Python cosine._SPECTRAL_IP_* exactly, so both
-%   languages decline on the same shapes.
+%   Because the constants differ by language, the two decline on
+%   different shapes. That is expected and correct: what must agree
+%   across languages is the VALUE when the branch runs, not which shapes
+%   run it. The parity test checks value agreement only, on cells both
+%   languages fire.
 %
 %   Constants match Python cosine._SPECTRAL_IP_* exactly, so both
 %   languages decline on the same shapes: route parity here is a
@@ -75,9 +86,12 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
 %
 %   Mirror of Python cosine._spectral_rel_inner_matrix.
 
+    if nargin < 9 || isempty(forceBranch)
+        forceBranch = false;
+    end
     MODE_SIGMAS = 8.6;      % _SPECTRAL_IP_MODE_SIGMAS
     MAX_POINTS  = 4e6;      % _SPECTRAL_IP_MAX_POINTS
-    COST_C      = 3160.0;   % _SPECTRAL_IP_COST_C
+    COST_C      = 282.0;    % per-language; see the note in the header
     ENV_FLOOR   = 1e-18;
 
     I = [];
@@ -107,10 +121,15 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
         return;
     end
     % Cost gate: the grid path pays K^2 per event pair, the branch pays
-    % the mode grid. Decline where the mode grid is not repaid.
-    nPairs = double(Nx) * double(Ny);
-    if gridSize > COST_C * double(Kx)^2 * nPairs
-        return;
+    % the mode grid. Decline where the mode grid is not repaid. The
+    % parity test passes forceBranch to skip this (never the memory
+    % guard above) so it can compare values on cells the two languages
+    % route differently.
+    if ~forceBranch
+        nPairs = double(Nx) * double(Ny);
+        if gridSize > COST_C * double(Kx)^2 * nPairs
+            return;
+        end
     end
 
     % ---- Mode grid: r-1 free axes, last slot fixed by the constraint
@@ -175,7 +194,17 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period)
 
     plan = localBuildPlan(xs, r, Wax, partitions);
     SX = localSpectra(Px, Wx, r, nPts, Wax, axModesPos, plan);
-    SY = localSpectra(Py, Wy, r, nPts, Wax, axModesPos, plan);
+    % Self inner product: when the two event sets are identical their
+    % spectra are identical, so compute them once. The cosine forms three
+    % inner matrices per call, two of which -- <X, X> and <Y, Y> -- are
+    % self inner products, so this halves their spectra work. MATLAB has
+    % no identity test, so compare by value behind a cheap size guard.
+    if isequal(size(Px), size(Py)) && isequal(Px, Py) ...
+            && isequal(size(Wx), size(Wy)) && isequal(Wx, Wy)
+        SY = SX;
+    else
+        SY = localSpectra(Py, Wy, r, nPts, Wax, axModesPos, plan);
+    end
 
     C_r = r * (sigma^2 * dxi)^(r - 1);
     I = C_r * real((SX .* env.') * SY');

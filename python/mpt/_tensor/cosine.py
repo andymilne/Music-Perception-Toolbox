@@ -2570,7 +2570,14 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
         return out
 
     SX = _spectra(Px, Wx)
-    SY = _spectra(Py, Wy)
+    # Self inner product (same event set on both sides): the spectra are
+    # identical, so compute them once. The cosine forms three inner
+    # matrices per call, two of which --- <X, X> and <Y, Y> --- are self
+    # inner products, so this halves their spectra work.
+    if Px is Py and Wx is Wy:
+        SY = SX
+    else:
+        SY = _spectra(Py, Wy)
     C_r = r * (sigma ** 2 * dxi) ** (r - 1)
     return C_r * np.real((SX * env) @ np.conj(SY).T)
 

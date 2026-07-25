@@ -2340,18 +2340,36 @@ _SPECTRAL_IP_MODE_SIGMAS = 8.6
 _SPECTRAL_IP_MAX_POINTS = 4_000_000
 
 #: Cost-gate constant: the branch is taken while the mode grid stays
-#: below this multiple of K^2 * n_events_x * n_events_y.
+#: below this multiple of K^2 * n_events_x * n_events_y. It is
+#: per-language --- the MATLAB twin uses 282 --- because the branch and
+#: the grid sit at different points on the cost curve in each language:
+#: the vectorised NumPy/BLAS spectral branch runs about twice as fast as
+#: the MATLAB port while the two grid contractions are comparable, so
+#: the branch is worth taking on more shapes here and clears a higher
+#: bar. Both routes compute the same full-image measure, so which one
+#: runs affects only time, not the answer, and the constant is
+#: recalibrated per language rather than matched.
 #:
-#: Calibrated on 497 measured cells spanning both periodic modes,
-#: r = 2..4, K = 4..30, event counts 1..16, and sigma/P from 0.001 to
-#: 0.2, scoring each candidate by routing regret --- the wall time
-#: actually paid against an oracle that always picks the faster route.
-#: The value below gives 1.043x of oracle; the previous 1000 gave
-#: 1.127x. At 1000 the gate was one-sided, and expensively so: 29 of its
-#: 31 errors declined a route that would have won, spending 2378 ms to
-#: avoid 775 ms, and its single worst decision declined an 11x win.
-#: Raising it improves the mean and the tail together (worst-case
-#: misroute 11.0x -> 9.2x), so there is no trade to weigh here.
+#: Calibrated by routing regret --- the wall time actually paid against
+#: an oracle that always picks the faster route --- over measured cells
+#: spanning both periodic modes, r = 2..4, K = 4..30, event counts 1..16
+#: and sigma/P from 0.002 to 0.2, scored by the geometric mean of the
+#: per-cell regret so every cell counts equally rather than a few
+#: huge-grid cells dominating a wall-time sum. The value below is the
+#: optimum and also has the best worst case (2.03x); the plateau from
+#: roughly 1000 to 1780 is flat within 0.5% on the geometric mean.
+#:
+#: An earlier value of 3160 was fitted before the per-event index hoist
+#: and the self inner-product shortcut made the branch cheaper, and on a
+#: grid whose smallest sigma/P was 0.0125. Re-measured on the faster
+#: branch across the full sigma/P range --- including the sharp-kernel
+#: cells at 0.002 to 0.005 where the branch loses, which were expected
+#: to pull the optimum back up and did not --- 3160 gives 1.016x of
+#: oracle against 1.007x here, and declines 13 winners to avoid 4 losers
+#: where this value declines far fewer. The low-sigma/P columns are why
+#: the constant is not lower still: at sigma/P = 0.002 the branch is
+#: several times slower and the gate must stay conservative enough to
+#: decline it.
 #:
 #: The form was selected, not assumed. Every subset of
 #: {log gridSize, log K, log N, log N_u, log P(r), log B(r), isPer} was
@@ -2364,12 +2382,7 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #: only on the sign near zero. Offset families (a separate constant per
 #: isPer, per r, or per (r, isPer)) all fit the full data better and
 #: generalise worse.
-#:
-#: One alternative is worth recording: gating on
-#: C * N_u * K^2 * P(r) has a better worst case (1.335x against 1.536x
-#: cross-validated) at 1.8% worse mean, and is the form to prefer if
-#: tail behaviour ever matters more than throughput.
-_SPECTRAL_IP_COST_C = 3160.0
+_SPECTRAL_IP_COST_C = 1100.0
 
 
 def _rel_per_image_count(sigma, period, truncation_sigmas):

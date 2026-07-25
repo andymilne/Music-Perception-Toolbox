@@ -286,6 +286,14 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
             % re-derive here via bench_ma_eval_calibration if picks
             % look off).
             FOUR_PER_MODE = [1.05e-4, 2.2e-3, 6.7e-3];   % r = 2, 3, 4
+            % Periodic-only K term (per r) added to the K-free slope: the
+            % per-event spectrum build A_m(eta) = sum_i w^m exp(-i eta p_i)
+            % carries K, which the fixed-period window does not absorb. In
+            % periodic mode the spectral branch fires for r = 2 and 3 (the
+            % r = 4 mode grid exceeds the memory guard and falls to the
+            % node path, so its K growth is priced there). Fitted from the
+            % periodic engaging cells of bench_ma_eval_calibration.
+            FOUR_PERIODIC_K_MS = [1.8e-5, 3.8e-5, 0.0]; % r = 2, 3, 4
             FOUR_MIN_Q = [16, 32, 64];
             FOUR_MIN_K = [2, 8, 16];
             spreadF = 0.0;
@@ -300,12 +308,33 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
             else
                 windowF = 2.0 * spreadF + 16.0 * sigmaG(a);
             end
+            % Mirror the spectral branch's own MAX_POINTS decline (see
+            % _SPECTRAL_IP_MAX_POINTS in the Python cosine module and
+            % spectralRelInnerMatrix on this side): the mode grid is
+            % (r_a - 1)-dimensional, so at small sigma/P and r_a = 4 it
+            % can pass the query/K thresholds yet still stand down,
+            % falling through to the u-grid node path. Price the path
+            % that actually runs.
+            MODE_SIGMAS = 8.6;   MAX_POINTS = 4e6;
+            if isPer(a) && periodG(a) > 0
+                Lspec = periodG(a);
+            else
+                Lspec = 2.0 * spreadF + 2.0 * (MODE_SIGMAS + 2.0) * sigmaG(a);
+            end
+            Mspec = ceil(MODE_SIGMAS / sqrt(2) ...
+                         * Lspec / (2 * pi * sigmaG(a))) + 2;
+            spectralFits = (2 * Mspec + 1)^(r_a - 1) <= MAX_POINTS;
             if r_a >= 2 && r_a <= 4 ...
                     && nQ >= FOUR_MIN_Q(r_a - 1) ...
-                    && K_a >= FOUR_MIN_K(r_a - 1)
-                mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_MS ...
-                    + FOUR_PER_MODE(r_a - 1) ...
-                      * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
+                    && K_a >= FOUR_MIN_K(r_a - 1) ...
+                    && spectralFits
+                fourMs = FOUR_PER_MODE(r_a - 1) ...
+                    * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
+                if isPer(a) && FOUR_PERIODIC_K_MS(r_a - 1) > 0
+                    fourMs = fourMs + FOUR_PERIODIC_K_MS(r_a - 1) * K_a ...
+                        * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
+                end
+                mobiusMs = mobiusMs + MA_COST_MOBIUS_SETUP_MS + fourMs;
                 continue;
             end
             sps = internal.resolveSamplesPerSigma([], r_a, []);

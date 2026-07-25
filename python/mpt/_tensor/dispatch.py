@@ -1265,6 +1265,16 @@ def _ma_eval_costs_ms(dens, n_q):
             # setup shares differ; the crude linear-in-modes model sits
             # within ~2x of both.
             _four_per_mode = {2: 1.05e-4, 3: 2.2e-3, 4: 6.7e-3}
+            # Periodic-only K term (per r) added to the K-free slope: the
+            # per-event spectrum build carries K, which the fixed-period
+            # window does not absorb. In periodic mode the spectral branch
+            # fires for r = 2 and 3 (the r = 4 mode grid exceeds the memory
+            # guard and falls to the node path, so its K growth is priced
+            # there, not here). Fitted from the periodic engaging cells of
+            # bench_ma_eval_calibration: the per-query cost rises linearly
+            # in K with slope ~0.28 ms/K at r = 2 and ~0.60 at r = 3 over
+            # window/sigma = 80, nQ = 200.
+            _FOUR_PER_PERIODIC_K_MS = {2: 1.8e-5, 3: 3.8e-5, 4: 0.0}
             _four_minq = {2: 16, 3: 32, 4: 64}
             spread = 0.0
             p_a = getattr(dens, "p_attr", None)
@@ -1276,11 +1286,42 @@ def _ma_eval_costs_ms(dens, n_q):
                 window = float(period[a])
             else:
                 window = 2.0 * spread + 16.0 * sigma[a]
+            # The spectral branch stands down when its own mode grid would
+            # exceed the memory guard (see _SPECTRAL_IP_MAX_POINTS in
+            # cosine.py): the grid is (r_a - 1)-dimensional, so at small
+            # sigma/P and r_a = 4 it can pass the query/K thresholds yet
+            # still decline, falling through to the u-grid node path. Mirror
+            # that decline here so the cost model prices the path that
+            # actually runs, not the spectral one it would otherwise assume.
+            from .cosine import (
+                _SPECTRAL_IP_MODE_SIGMAS as _mode_sig,
+                _SPECTRAL_IP_MAX_POINTS as _max_pts,
+            )
+            if is_per[a] and period[a] > 0:
+                _L = float(period[a])
+            else:
+                _L = 2.0 * spread + 2.0 * (_mode_sig + 2.0) * sigma[a]
+            _M = int(np.ceil(_mode_sig / np.sqrt(2.0)
+                             * _L / (2.0 * np.pi * sigma[a]))) + 2
+            _spectral_fits = (2 * _M + 1) ** (r_a - 1) <= _max_pts
             if (r_a in _four_per_mode and n_q >= _four_minq[r_a]
-                    and k_vec[a] >= (2, 8, 16)[r_a - 2]):
-                mobius_ms += (_MA_COST_MOBIUS_SETUP_MS
-                              + _four_per_mode[r_a]
-                              * (window / max(sigma[a], 1e-12)) * n_q_eff)
+                    and k_vec[a] >= (2, 8, 16)[r_a - 2]
+                    and _spectral_fits):
+                # The K-free slope prices the per-pair matmul, but the
+                # per-event spectrum build A_m(eta) = sum_i w^m
+                # exp(-i eta p_i) carries K. In periodic mode the window
+                # is fixed at the period, so that K-dependence is not
+                # already absorbed through the window and shows up as an
+                # underprice growing with K (measured pred/actual ~0.1 by
+                # K = 48). Add a periodic K term where the spectral branch
+                # fires (r = 2 and 3); r = 4 declines to the node path in
+                # periodic mode and is priced there.
+                four_ms = (_four_per_mode[r_a]
+                           * (window / max(sigma[a], 1e-12)) * n_q_eff)
+                if is_per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
+                    four_ms += (_FOUR_PER_PERIODIC_K_MS[r_a] * k_vec[a]
+                                * (window / max(sigma[a], 1e-12)) * n_q_eff)
+                mobius_ms += _MA_COST_MOBIUS_SETUP_MS + four_ms
                 continue
             from .._defaults import resolve_samples_per_sigma
             sps = float(resolve_samples_per_sigma(None, r_a, None))

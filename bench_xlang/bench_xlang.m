@@ -61,12 +61,19 @@ function bench_xlang(outPath, method)
         end
 
         % cossim
-        try
-            [tCos, vCos, nJCos] = localRunCossim(c, PERIOD, method);
-            rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, nJCos, c); %#ok<AGROW>
-            fprintf('cossim %.1fms\n', tCos * 1000);
-        catch e
-            fprintf('cossim FAIL (%s)\n', e.message);
+        % Graceful skip: forcing bulger at A>=3 materialises the joint
+        % tuple set (n_j^A pair matrix), 250+ GB at A=3, K=8, r=2. auto
+        % and mobius handle A=3 fine (mobius factorises across attributes).
+        if strcmp(method, 'bulger') && c.A >= 3
+            fprintf('cossim SKIP (bulger joint tuple set too large at A>=3)\n');
+        else
+            try
+                [tCos, vCos, nJCos] = localRunCossim(c, PERIOD, method);
+                rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, nJCos, c); %#ok<AGROW>
+                fprintf('cossim %.1fms\n', tCos * 1000);
+            catch e
+                fprintf('cossim FAIL (%s)\n', e.message);
+            end
         end
     end
 
@@ -156,7 +163,7 @@ function cases = localBuildCases()
         [cases, seenFP] = localTryAdd(cases, seenFP, sprintf('wrap=%s', wr{1}), c);
     end
 
-    for v = [1, 2]
+    for v = [1, 2, 3]
         c = base; c.A = v;
         [cases, seenFP] = localTryAdd(cases, seenFP, sprintf('A=%d', v), c);
     end

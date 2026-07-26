@@ -140,7 +140,7 @@ def iter_cases():
         y = emit(f'wrap={v}', cfg)
         if y: yield y
 
-    for v in [1, 2]:
+    for v in [1, 2, 3]:
         cfg = dict(BASE); cfg['A'] = v
         y = emit(f'A={v}', cfg)
         if y: yield y
@@ -296,17 +296,27 @@ def main():
                 print(f"eval FAIL ({e})  ", end='', flush=True)
 
             # cossim
-            try:
-                t_cos, v_cos, n_j_cos = run_cossim(cfg, method=args.method)
-                cs_cos = checksum_cossim(v_cos)
-                rows.append(dict(
-                    label=label, operation='cossim',
-                    elapsed_s=t_cos, checksum=cs_cos, n_j=n_j_cos,
-                    **cfg,
-                ))
-                print(f"cossim {t_cos*1000:.1f}ms")
-            except Exception as e:
-                print(f"cossim FAIL ({e})")
+            # Graceful skip: forcing bulger at A>=3 materialises the joint
+            # tuple set (n_j^A pair matrix), which balloons quadratically
+            # and OOMs the process well before the dispatcher's memory
+            # guard could catch it (250+ GB at A=3, K=8, r=2). auto and
+            # mobius handle A=3 fine (mobius factorises across attributes),
+            # so we only skip the forced-bulger pass.
+            if args.method == 'bulger' and int(cfg['A']) >= 3:
+                print("cossim SKIP (bulger joint tuple set too large "
+                      "at A>=3)")
+            else:
+                try:
+                    t_cos, v_cos, n_j_cos = run_cossim(cfg, method=args.method)
+                    cs_cos = checksum_cossim(v_cos)
+                    rows.append(dict(
+                        label=label, operation='cossim',
+                        elapsed_s=t_cos, checksum=cs_cos, n_j=n_j_cos,
+                        **cfg,
+                    ))
+                    print(f"cossim {t_cos*1000:.1f}ms")
+                except Exception as e:
+                    print(f"cossim FAIL ({e})")
 
     # Write CSV
     fieldnames = [

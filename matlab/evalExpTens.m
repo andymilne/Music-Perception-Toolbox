@@ -732,6 +732,18 @@ function vals = localEvalSingleMultisetOrbit(dens, X, verbose, ...
         kw = [kw, {'kernelPrecision', kernelPrecision}];
     end
 
+    % Thread the density's abs-per wrap opt-in through to the orbit
+    % evaluator. Without this, evalOrbitAbs falls back to its default
+    % 'full-image' and silently ignores wrap='single-image' set on the
+    % density at build time. Twin of mobius.evalMaOrbit's per-attribute
+    % wrap forwarding. Relative-mode ignores wrap (rel is always
+    % all-image after v3+).
+    if ~isRel && isfield(dens, 'wrap') && ~isempty(dens.wrap)
+        wr = dens.wrap;
+        if iscell(wr); wr = wr{1}; end
+        kw = [kw, {'wrap', char(wr)}];
+    end
+
     if isRel
         % evalOrbitRel expects X_rel as (r-1, nQ).
         vals = mobius.evalOrbitRel(p(:), w(:), sigma, r, X, kw{:});

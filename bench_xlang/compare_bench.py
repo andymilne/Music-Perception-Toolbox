@@ -28,9 +28,9 @@ def main():
     ap.add_argument('-m', '--matlab-csv', default='bench_matlab.csv')
     ap.add_argument('--value-tol', type=float, default=1e-9,
                     help='Relative error threshold on checksum (default 1e-9)')
-    ap.add_argument('--time-flag', type=float, default=10.0,
+    ap.add_argument('--time-flag', type=float, default=3.0,
                     help='Flag rows where |log(matlab/python)| > log(flag) '
-                         '(default 10x either way)')
+                         '(default 3x either way)')
     args = ap.parse_args()
 
     py_rows = read_csv(args.python_csv)
@@ -112,7 +112,7 @@ def main():
     print(f"Value agreement: max rel_err = {max_rel_err:.3e}")
     print(f"  {n_val_bad} rows exceed tolerance {args.value_tol:.1e} (flag V)")
     print(f"Time ratio: max |ratio| = {max_ratio:.2f}x")
-    print(f"  {n_time_bad} rows exceed {args.time_flag:.0f}x either way (flag T)")
+    print(f"  {n_time_bad} rows exceed {args.time_flag:g}x either way (flag T)")
     print(f"Tuple count (n_j) mismatches: {n_nj_bad} (flag N)")
     if missing:
         print(f"\n{len(missing)} rows missing on one side:")

@@ -1718,12 +1718,16 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, ...
         ip_yy = mobius.orbitInnerRelSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     else
+        wrapA = 'full-image';
+        if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
+            wrapA = char(dens_x.wrap{1});
+        end
         ip_xy = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
-            'truncationSigmas', truncResolved);
+            'truncationSigmas', truncResolved, 'wrap', wrapA);
         ip_xx = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_x, w_x, sigma, r, isPer, period, ...
-            'truncationSigmas', truncResolved);
+            'truncationSigmas', truncResolved, 'wrap', wrapA);
         ip_yy = mobius.orbitInnerAbsSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
-            'truncationSigmas', truncResolved);
+            'truncationSigmas', truncResolved, 'wrap', wrapA);
     end
 end
 

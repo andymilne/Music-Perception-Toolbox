@@ -2063,7 +2063,12 @@ function H = localRenyi2SingleMultiset(maet, base)
             ip_xx = mobius.orbitInnerRelSingleMultiset(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassRel(p, w, sigma, r);
         else
-            ip_xx = mobius.orbitInnerAbsSingleMultiset(p, w, p, w, sigma, r, isPer, period);
+            wrapA = 'full-image';
+            if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+                wrapA = char(dens.wrap{1});
+            end
+            ip_xx = mobius.orbitInnerAbsSingleMultiset(p, w, p, w, sigma, r, ...
+                isPer, period, 'wrap', wrapA);
             Z = mobius.totalMassAbs(p, w, sigma, r);
         end
     end

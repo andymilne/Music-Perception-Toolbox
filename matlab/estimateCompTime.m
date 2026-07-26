@@ -50,16 +50,20 @@ if nargin < 5
     minPrintSec = 10;
 end
 
-persistent rateCache;  % containers.Map: dim -> pairsPerSec
+persistent rateCache;  % dictionary: dim -> pairsPerSec
 
-% Initialize the cache on first call
+% dictionary (R2022b+) — MathWorks-recommended replacement for
+% containers.Map, and materially faster on the hot lookup pattern.
+% estimateCompTime is called on every top-level user call, so the
+% per-call lookup cost matters even when the calibration itself has
+% already run. An unconfigured dictionary (before any insert) throws
+% on isKey; guard with numEntries.
 if isempty(rateCache)
-    rateCache = containers.Map('KeyType', 'int32', 'ValueType', 'double');
+    rateCache = dictionary();
 end
 
 % Calibrate for this dimensionality if not already cached
-dimKey = int32(dim);
-if ~rateCache.isKey(dimKey)
+if numEntries(rateCache) == 0 || ~isKey(rateCache, dim)
     % Run a small representative workload that exactly mirrors the
     % dominant operations in evalExpTens / cosSimExpTens:
     %   1. Implicit-expansion subtraction  (dim x nCal x nCal)
@@ -90,11 +94,11 @@ if ~rateCache.isKey(dimKey)
 
     % Pairs processed in the benchmark
     calPairs = double(nCal) * double(nCal);
-    rateCache(dimKey) = calPairs / elapsed;
+    rateCache(dim) = calPairs / elapsed;
 end
 
 % Estimate time
-pairsPerSec = rateCache(dimKey);
+pairsPerSec = rateCache(dim);
 estSec = double(nPairs) / pairsPerSec;
 
 % Print estimate (skip if not verbose, label empty, or estimate

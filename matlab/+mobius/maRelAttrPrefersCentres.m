@@ -45,7 +45,9 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
     CENTRES_NS_WRAP  = 10.0;
     GRID_NS_FLOOR    = 1e6;      % 1 ms per-pair setup
     % gridNsPerOp(r_a): per-(N_u * K) coefficient for r_a in {2, 3, 4}.
-    gridNsPerOp = containers.Map({2, 3, 4}, {30.0, 700.0, 2000.0});
+    % Small fixed table --- a containers.Map (previously used here)
+    % was being reconstructed on every call; an inline switch is
+    % essentially free and gives identical semantics.
 
     tf = false;
     if ~isRel || r_a < 2
@@ -78,14 +80,19 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
              + 2 * margin * sigma;
         n_u = max(64, ceil(max(span, 1.0) / sigma * 10));
     end
-    if isKey(gridNsPerOp, r_a)
-        gOp = gridNsPerOp(r_a);
-    else
-        % Extrapolate calibrated r_a in {2, 3, 4} to r_a >= 5 by
-        % tripling per r_a increment; centres cost grows faster than
-        % that in K, so the extrapolation only affects the tiny-K
-        % corner.
-        gOp = 2000.0 * 3.0^(r_a - 4);
+    switch r_a
+        case 2
+            gOp = 30.0;
+        case 3
+            gOp = 700.0;
+        case 4
+            gOp = 2000.0;
+        otherwise
+            % Extrapolate calibrated r_a in {2, 3, 4} to r_a >= 5 by
+            % tripling per r_a increment; centres cost grows faster than
+            % that in K, so the extrapolation only affects the tiny-K
+            % corner.
+            gOp = 2000.0 * 3.0^(r_a - 4);
     end
     gWallNs = GRID_NS_FLOOR + gOp * double(n_u) * double(K);
 

@@ -38,14 +38,20 @@ function table = getOrbitTable(r)
              'the cost.'], r, R_HARD_CAP);
     end
 
-    % Tier 1: in-memory persistent cache.
+    % Tier 1: in-memory persistent cache. dictionary (R2022b+) —
+    % MathWorks-recommended replacement for containers.Map. Warm-cache
+    % hits on this path fire on every Möbius orbit-abs evaluation. An
+    % unconfigured dictionary (before any insert) throws on isKey;
+    % guard with numEntries. Orbit tables are struct arrays (one
+    % entry per orbit), so wrap in a scalar cell on write and unwrap
+    % on read.
     persistent inMem
     if isempty(inMem)
-        inMem = containers.Map('KeyType', 'int32', 'ValueType', 'any');
+        inMem = dictionary();
     end
-    key = int32(r);
-    if isKey(inMem, key)
-        table = inMem(key);
+    if numEntries(inMem) > 0 && isKey(inMem, r)
+        stored = inMem(r);
+        table = stored{1};
         return
     end
 
@@ -55,7 +61,7 @@ function table = getOrbitTable(r)
     if isfile(prebuilt)
         S = load(prebuilt, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem(key) = table;
+        inMem(r) = {table};
         return
     end
 
@@ -76,14 +82,14 @@ function table = getOrbitTable(r)
     if isfile(userFile)
         S = load(userFile, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem(key) = table;
+        inMem(r) = {table};
         return
     end
 
     % Tier 4: build from scratch (buildOrbitTable embeds recipes).
     maybeWarnBuildCost(r);
     table = mobius.buildOrbitTable(r);
-    inMem(key) = table;
+    inMem(r) = {table};
 
     % Best-effort persist to user disk for non-trivial rebuilds.
     if r >= 5

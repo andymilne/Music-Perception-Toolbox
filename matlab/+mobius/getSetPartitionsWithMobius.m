@@ -22,12 +22,20 @@ function partitions = getSetPartitionsWithMobius(r)
     end
 
     persistent cache
+    % dictionary (R2022b+) — MathWorks-recommended replacement for
+    % containers.Map. Called from every entry to
+    % mobius.getPartitionBlockStructure, which in turn is called on
+    % every Möbius orbit-abs evaluation, so the lookup path is hot.
+    % An unconfigured dictionary (before any insert) throws on isKey;
+    % guard with numEntries. Values are struct arrays (size B_r), so
+    % wrap in a scalar cell on write and unwrap on read --- dictionary
+    % requires values to be scalar (or match key dimensions).
     if isempty(cache)
-        cache = containers.Map('KeyType', 'int32', 'ValueType', 'any');
+        cache = dictionary();
     end
-    key = int32(r);
-    if isKey(cache, key)
-        partitions = cache(key);
+    if numEntries(cache) > 0 && isKey(cache, r)
+        stored = cache(r);
+        partitions = stored{1};
         return
     end
 
@@ -39,7 +47,7 @@ function partitions = getSetPartitionsWithMobius(r)
     else
         partitions = enumerateSetPartitions(r);
     end
-    cache(key) = partitions;
+    cache(r) = {partitions};
 end
 
 

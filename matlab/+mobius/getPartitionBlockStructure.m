@@ -18,22 +18,15 @@ function [uniqueBlocks, partBlockIdx, mus] = getPartitionBlockStructure(r)
 %     mus           row vector of Möbius weights, one per partition.
 
     persistent cache
-    % dictionary (R2022b+) — MathWorks-recommended replacement for
-    % containers.Map, and materially faster on the hot lookup pattern.
-    % This function is called on every entry to mobius.evalOrbitAbs (and
-    % the factored branch of mobius.evalOrbitRel), so the per-call lookup
-    % cost shows up in every nested Möbius call --- meaningful when the
-    % surrounding work is small. An unconfigured dictionary (before any
-    % insert) throws on isKey; guard with numEntries. Values are
-    % wrapped in a scalar cell to sidestep dictionary's scalar-value
-    % restriction (structs with mixed-size fields can fail even when
-    % the outer struct itself is scalar).
-    if isempty(cache)
-        cache = dictionary();
-    end
-    if numEntries(cache) > 0 && isKey(cache, r)
-        stored = cache(r);
-        s = stored{1};
+    % Cell array indexed by r. r is a small integer (1..~10 in practice),
+    % so direct indexing avoids the containers.Map lookup overhead
+    % (~10-15 us per hit through a Java-backed hash lookup). This
+    % function is called on every entry to mobius.evalOrbitAbs (and
+    % the factored branch of mobius.evalOrbitRel), so the per-call
+    % lookup cost shows up in every nested Möbius call --- meaningful
+    % when the surrounding work is small.
+    if ~isempty(cache) && numel(cache) >= r && ~isempty(cache{r})
+        s = cache{r};
         uniqueBlocks = s.uniqueBlocks;
         partBlockIdx = s.partBlockIdx;
         mus = s.mus;
@@ -69,5 +62,10 @@ function [uniqueBlocks, partBlockIdx, mus] = getPartitionBlockStructure(r)
     s.uniqueBlocks = uniqueBlocks;
     s.partBlockIdx = partBlockIdx;
     s.mus = mus;
-    cache(r) = {s};
+    if isempty(cache)
+        cache = cell(1, max(r, 4));
+    elseif numel(cache) < r
+        cache{r} = [];  % triggers auto-extend to length r
+    end
+    cache{r} = s;
 end

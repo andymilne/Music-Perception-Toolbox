@@ -50,20 +50,17 @@ if nargin < 5
     minPrintSec = 10;
 end
 
-persistent rateCache;  % dictionary: dim -> pairsPerSec
+persistent rateCache;  % cell array indexed by dim: pairsPerSec
 
-% dictionary (R2022b+) — MathWorks-recommended replacement for
-% containers.Map, and materially faster on the hot lookup pattern.
-% estimateCompTime is called on every top-level user call, so the
-% per-call lookup cost matters even when the calibration itself has
-% already run. An unconfigured dictionary (before any insert) throws
-% on isKey; guard with numEntries.
+% Cell array indexed by dim --- dim is a small integer (1..~10 in
+% practice), so direct indexing avoids the containers.Map lookup
+% overhead. estimateCompTime is called on every top-level user call.
 if isempty(rateCache)
-    rateCache = dictionary();
+    rateCache = cell(1, max(dim, 4));
 end
 
 % Calibrate for this dimensionality if not already cached
-if numEntries(rateCache) == 0 || ~isKey(rateCache, dim)
+if numel(rateCache) < dim || isempty(rateCache{dim})
     % Run a small representative workload that exactly mirrors the
     % dominant operations in evalExpTens / cosSimExpTens:
     %   1. Implicit-expansion subtraction  (dim x nCal x nCal)
@@ -94,11 +91,14 @@ if numEntries(rateCache) == 0 || ~isKey(rateCache, dim)
 
     % Pairs processed in the benchmark
     calPairs = double(nCal) * double(nCal);
-    rateCache(dim) = calPairs / elapsed;
+    if numel(rateCache) < dim
+        rateCache{dim} = [];  % triggers auto-extend to length dim
+    end
+    rateCache{dim} = calPairs / elapsed;
 end
 
 % Estimate time
-pairsPerSec = rateCache(dim);
+pairsPerSec = rateCache{dim};
 estSec = double(nPairs) / pairsPerSec;
 
 % Print estimate (skip if not verbose, label empty, or estimate

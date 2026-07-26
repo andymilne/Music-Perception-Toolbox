@@ -38,20 +38,13 @@ function table = getOrbitTable(r)
              'the cost.'], r, R_HARD_CAP);
     end
 
-    % Tier 1: in-memory persistent cache. dictionary (R2022b+) —
-    % MathWorks-recommended replacement for containers.Map. Warm-cache
-    % hits on this path fire on every Möbius orbit-abs evaluation. An
-    % unconfigured dictionary (before any insert) throws on isKey;
-    % guard with numEntries. Orbit tables are struct arrays (one
-    % entry per orbit), so wrap in a scalar cell on write and unwrap
-    % on read.
+    % Tier 1: in-memory persistent cache. Cell array indexed by r ---
+    % r is a small integer (1..~10 in practice), so direct indexing
+    % avoids the containers.Map lookup overhead. Called on every
+    % Möbius orbit-abs evaluation.
     persistent inMem
-    if isempty(inMem)
-        inMem = dictionary();
-    end
-    if numEntries(inMem) > 0 && isKey(inMem, r)
-        stored = inMem(r);
-        table = stored{1};
+    if ~isempty(inMem) && numel(inMem) >= r && ~isempty(inMem{r})
+        table = inMem{r};
         return
     end
 
@@ -61,7 +54,7 @@ function table = getOrbitTable(r)
     if isfile(prebuilt)
         S = load(prebuilt, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem(r) = {table};
+        inMem = localCacheStore(inMem, r, table);
         return
     end
 
@@ -82,14 +75,14 @@ function table = getOrbitTable(r)
     if isfile(userFile)
         S = load(userFile, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem(r) = {table};
+        inMem = localCacheStore(inMem, r, table);
         return
     end
 
     % Tier 4: build from scratch (buildOrbitTable embeds recipes).
     maybeWarnBuildCost(r);
     table = mobius.buildOrbitTable(r);
-    inMem(r) = {table};
+    inMem = localCacheStore(inMem, r, table);
 
     % Best-effort persist to user disk for non-trivial rebuilds.
     if r >= 5
@@ -232,4 +225,16 @@ function table = ensureRecipes(table)
         table(k).recipeGrid = rGrid;
         table(k).recipeBatched = rBatched;
     end
+end
+
+
+function inMem = localCacheStore(inMem, r, table)
+%LOCALCACHESTORE  Store table at index r in the cell-array cache,
+%   auto-extending the array if r exceeds its current length.
+    if isempty(inMem)
+        inMem = cell(1, max(r, 4));
+    elseif numel(inMem) < r
+        inMem{r} = [];  % triggers auto-extend to length r
+    end
+    inMem{r} = table;
 end

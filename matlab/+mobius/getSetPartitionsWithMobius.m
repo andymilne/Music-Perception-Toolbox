@@ -22,20 +22,13 @@ function partitions = getSetPartitionsWithMobius(r)
     end
 
     persistent cache
-    % dictionary (R2022b+) — MathWorks-recommended replacement for
-    % containers.Map. Called from every entry to
-    % mobius.getPartitionBlockStructure, which in turn is called on
-    % every Möbius orbit-abs evaluation, so the lookup path is hot.
-    % An unconfigured dictionary (before any insert) throws on isKey;
-    % guard with numEntries. Values are struct arrays (size B_r), so
-    % wrap in a scalar cell on write and unwrap on read --- dictionary
-    % requires values to be scalar (or match key dimensions).
-    if isempty(cache)
-        cache = dictionary();
-    end
-    if numEntries(cache) > 0 && isKey(cache, r)
-        stored = cache(r);
-        partitions = stored{1};
+    % Cell array indexed by r. r is a small integer (1..~10 in practice),
+    % so direct indexing avoids the containers.Map lookup overhead.
+    % Called from every entry to mobius.getPartitionBlockStructure,
+    % which in turn is called on every Möbius orbit-abs evaluation, so
+    % the lookup path is hot.
+    if ~isempty(cache) && numel(cache) >= r && ~isempty(cache{r})
+        partitions = cache{r};
         return
     end
 
@@ -47,7 +40,19 @@ function partitions = getSetPartitionsWithMobius(r)
     else
         partitions = enumerateSetPartitions(r);
     end
-    cache(r) = {partitions};
+    % Extend cache if needed and store. r == 0 uses idx 1 (MATLAB is
+    % 1-based) --- shift by using max(r, 1) as the index; but since
+    % r == 0 is rare and returns a scalar struct, simplest is to
+    % branch: skip caching for r == 0 (constant, trivial to
+    % re-compute), otherwise cache at index r.
+    if r >= 1
+        if isempty(cache)
+            cache = cell(1, max(r, 4));
+        elseif numel(cache) < r
+            cache{r} = [];  % triggers auto-extend
+        end
+        cache{r} = partitions;
+    end
 end
 
 

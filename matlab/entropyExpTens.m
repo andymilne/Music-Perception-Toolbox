@@ -2019,16 +2019,31 @@ function H = localRenyi2SingleMultiset(maet, base)
 
     if r == 1
         % Direct r=1 abs path: T = sum_i w_i G_sigma(x - p_i), so
-        %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j exp(-(p_i-p_j)^2/(4 sigma^2))
-        % (with wrapped differences in periodic mode).
+        %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j K(p_i - p_j)
+        % where K is the 1-D overlap kernel: exp(-d^2/(4 sigma^2)) in
+        % single-image mode, or its wrapped-Gaussian counterpart
+        % theta(d) in full-image mode. The (sigma sqrt(pi)) prefactor
+        % is the 1-D Gaussian overlap normaliser and is the same in
+        % both measures (the 1-D wrapped Gaussian integrates to
+        % sigma sqrt(pi) over the circle, matching the line integral
+        % of the single Gaussian).
         internal.maybeShowDispatchMsg('entropyExpTens', 'pairwise', ...
             sprintf('renyi2, r=1 abs (direct pairwise sum)'));
         p = p(:); w = w(:);
         diffs = p - p.';
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
+        wrap = 'full-image';
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+            wrap = char(dens.wrap{1});
         end
-        K = exp(-(diffs.^2) / (4 * sigma^2));
+        if isPer && strcmp(wrap, 'full-image')
+            ts = internal.accuracyFloor('resolve', []);
+            K = internal.wrappedGaussian1d(diffs, sigma, period, ts, 4);
+        else
+            if isPer
+                diffs = diffs - period * floor(diffs / period + 0.5);
+            end
+            K = exp(-(diffs.^2) / (4 * sigma^2));
+        end
         ip_xx = sigma * sqrt(pi) * sum(sum((w * w.') .* K));
         Z = mobius.totalMassAbs(p, w, sigma, r);
     else
@@ -2138,8 +2153,14 @@ function H = localRenyi2MA(dens, base)
             period_g = dens.period(a);
             Pa = dens.pAttr{a};
             Wa = dens.w{a};
+            % Per-attribute wrap opt-in (default full-image).
+            wrapA = 'full-image';
+            if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
+                    && a <= numel(dens.wrap)
+                wrapA = char(dens.wrap{a});
+            end
             I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
-                sigma_g, r_a, isRel_g, isPer_g, period_g);
+                sigma_g, r_a, isRel_g, isPer_g, period_g, 'wrap', wrapA);
             Z_a = zeros(N, 1);
             for n = 1:N
                 pn = Pa(:, n);
@@ -2227,8 +2248,29 @@ function [I_a, Z_a] = localRenyi2PerAttrNumerical(dens, a)
     I_a = zeros(N, N);
     Z_a = zeros(N, 1);
     if nj > 0
-        Q = localBlockMetricQ(C, blockSize, isRel, r_a, isper, per);  % nJ x nJ
-        O = pref .* exp(-Q ./ (4 * sig^2));
+        % Abs-per full-image path: compute the pairwise overlap matrix
+        % O directly from per-slot theta products, bypassing the Q ->
+        % exp(-Q/(4 sigma^2)) formulation which is single-image. This
+        % applies only to flat abs-per (blockSize < 2 and not rel);
+        % other configurations use the block-diagonal quadratic form
+        % below (either always full-image via pairwise wrap for rel,
+        % or nested/block-metric that keeps its own semantics).
+        wrapA = 'full-image';
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
+                && a <= numel(dens.wrap)
+            wrapA = char(dens.wrap{a});
+        end
+        useAbsPerFullImage = isper && ~isRel && blockSize < 2 ...
+            && strcmp(wrapA, 'full-image');
+        if useAbsPerFullImage
+            D = reshape(C, d_a, nj, 1) - reshape(C, d_a, 1, nj);
+            ts = internal.accuracyFloor('resolve', []);
+            theta = internal.wrappedGaussian1d(D, sig, per, ts, 4);
+            O = pref .* reshape(prod(theta, 1), nj, nj);
+        else
+            Q = localBlockMetricQ(C, blockSize, isRel, r_a, isper, per);  % nJ x nJ
+            O = pref .* exp(-Q ./ (4 * sig^2));
+        end
         WO = (wj * wj.') .* O;
         G = zeros(N, nj);
         G(sub2ind([N, nj], eoj.', 1:nj)) = 1;

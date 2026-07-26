@@ -1761,7 +1761,7 @@ def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
 def _ma_per_attr_inner_matrix(
     Px, Wx, Py, Wy, sigma, r, is_rel, is_per, period,
     *, return_cancellation_ratio=False, truncation_sigmas=None,
-    prune_zero_weight_events=True,
+    prune_zero_weight_events=True, wrap='full-image',
 ):
     """Per-attribute (event_X, event_Y) inner product matrix for the
     MA path under the Möbius method.
@@ -1859,6 +1859,7 @@ def _ma_per_attr_inner_matrix(
                 return_cancellation_ratio=return_cancellation_ratio,
                 truncation_sigmas=truncation_sigmas,
                 prune_zero_weight_events=False,   # avoid infinite recursion
+                wrap=wrap,
             )
             if return_cancellation_ratio:
                 sub_ip, sub_ratio = sub
@@ -1881,12 +1882,30 @@ def _ma_per_attr_inner_matrix(
         mem_limit = kernel_chunk_bytes_resolved()
         chunk_N_x = max(1, min(N_x, mem_limit // max(per_row_bytes, 1)))
 
+        # Abs-per full-image: build the pairwise kernel via the 1-D
+        # wrapped Gaussian (overlap convention, exponent_denominator=4).
+        # Single-image opt-in reduces to the nearest image; the pre-v3
+        # code did the reduction unconditionally.
+        abs_per_full_image = is_per and str(wrap) == 'full-image'
+        if abs_per_full_image:
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            trunc_eff = float(get_default('truncation_sigmas')
+                              if truncation_sigmas is None
+                              else truncation_sigmas)
+
         if chunk_N_x >= N_x:
             # Fast path: single shot.
             diffs = Px_[:, :, None, None] - Py_[None, None, :, :]
-            if is_per:
-                diffs = diffs - period * np.floor(diffs / period + 0.5)
-            K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+            if abs_per_full_image:
+                K_tens = wrapped_gaussian_1d(
+                    diffs, sigma, period, trunc_eff,
+                    exponent_denominator=4,
+                )
+            else:
+                if is_per:
+                    diffs = diffs - period * np.floor(diffs / period + 0.5)
+                K_tens = _trunc_kernel_exp(diffs ** 2, sigma,
+                                            truncation_sigmas)
             out = np.einsum(
                 'xn,xnym,ym->nm', Wx_, K_tens, Wy_, optimize=True,
             )
@@ -1899,9 +1918,16 @@ def _ma_per_attr_inner_matrix(
                 Px_chunk = Px_[:, n_start:n_end]
                 Wx_chunk = Wx_[:, n_start:n_end]
                 diffs = Px_chunk[:, :, None, None] - Py_[None, None, :, :]
-                if is_per:
-                    diffs = diffs - period * np.floor(diffs / period + 0.5)
-                K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                if abs_per_full_image:
+                    K_tens = wrapped_gaussian_1d(
+                        diffs, sigma, period, trunc_eff,
+                        exponent_denominator=4,
+                    )
+                else:
+                    if is_per:
+                        diffs = diffs - period * np.floor(diffs / period + 0.5)
+                    K_tens = _trunc_kernel_exp(diffs ** 2, sigma,
+                                                truncation_sigmas)
                 out_chunk = np.einsum(
                     'xn,xnym,ym->nm', Wx_chunk, K_tens, Wy_, optimize=True,
                 )
@@ -1984,9 +2010,25 @@ def _ma_per_attr_inner_matrix(
             if chunk_N_xs >= N_xs:
                 # Fast path: single shot.
                 diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
-                if is_per:
-                    diffs = diffs - period * np.floor(diffs / period + 0.5)
-                K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                # Abs-per full-image: 1-D wrapped Gaussian kernel per
+                # slot (overlap convention, exponent_denominator=4).
+                # Single-image opt-in reduces to the nearest image; the
+                # pre-v3 code did the reduction unconditionally.
+                if is_per and str(wrap) == 'full-image':
+                    from .._wrapped_kernel import wrapped_gaussian_1d
+                    trunc_eff = float(get_default('truncation_sigmas')
+                                       if truncation_sigmas is None
+                                       else truncation_sigmas)
+                    K_tens = wrapped_gaussian_1d(
+                        diffs, sigma, period, trunc_eff,
+                        exponent_denominator=4,
+                    )
+                else:
+                    if is_per:
+                        diffs = diffs - period * np.floor(
+                            diffs / period + 0.5)
+                    K_tens = _trunc_kernel_exp(
+                        diffs ** 2, sigma, truncation_sigmas)
                 K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
                     N_xs * N_ys, K_x_max, K_y_max,
                 )
@@ -2019,9 +2061,22 @@ def _ma_per_attr_inner_matrix(
                     Px_chunk = Px_s[:, n_start:n_end]
                     Wx_chunk = Wx_s[:, n_start:n_end]
                     diffs = Px_chunk[:, :, None, None] - Py_s[None, None, :, :]
-                    if is_per:
-                        diffs = diffs - period * np.floor(diffs / period + 0.5)
-                    K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+                    if is_per and str(wrap) == 'full-image':
+                        from .._wrapped_kernel import wrapped_gaussian_1d
+                        trunc_eff = float(
+                            get_default('truncation_sigmas')
+                            if truncation_sigmas is None
+                            else truncation_sigmas)
+                        K_tens = wrapped_gaussian_1d(
+                            diffs, sigma, period, trunc_eff,
+                            exponent_denominator=4,
+                        )
+                    else:
+                        if is_per:
+                            diffs = diffs - period * np.floor(
+                                diffs / period + 0.5)
+                        K_tens = _trunc_kernel_exp(
+                            diffs ** 2, sigma, truncation_sigmas)
                     K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
                         n_chunk * N_ys, K_x_max, K_y_max,
                     )
@@ -2947,17 +3002,23 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
             I_yy = _closed_form_attr_matrix_from(cy, cy, truncation_sigmas,
                                                  wrap_a)
         else:
+            wrap_a = (str(dens_x.wrap[a])
+                      if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
+                      else 'full-image')
             I_xy = _ma_per_attr_inner_matrix(
                 Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
+                wrap=wrap_a,
             )
             I_xx = _ma_per_attr_inner_matrix(
                 Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
+                wrap=wrap_a,
             )
             I_yy = _ma_per_attr_inner_matrix(
                 Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
+                wrap=wrap_a,
             )
         P_xy *= I_xy
         P_xx *= I_xx

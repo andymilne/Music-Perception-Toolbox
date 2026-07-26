@@ -1895,6 +1895,18 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
+    % Per-attribute wrap opt-in (v3+). The density's wrap cell selects the
+    % abs-per measure: 'full-image' (default) uses the torus (all-image)
+    % 1-D wrapped Gaussian per slot; 'single-image' uses the nearest-image
+    % reduction, the pre-v3 behaviour. Non-periodic and rel attributes
+    % ignore this axis. The two densities' wrap cells were compared for
+    % structural compatibility at the entry to cosSimExpTens.
+    if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
+        wrapG = dens_x.wrap;
+    else
+        wrapG = repmat({'full-image'}, 1, A);
+    end
+
     % Per-attribute co-transposition block size s_u = prod(r(1:u)) where
     % attribute a is a nested attribute resolved to an inner or
     % intermediate [rel] unit u (1-based), 0 otherwise. Used by
@@ -2140,6 +2152,27 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                 % helper applies the pairwise wrap, so no outer wrap.
                 Qa = qInnerBlocks(D, innerR(a), a);
                 logK = logK - reshape(Qa, nJ, nK) / (4 * sigmaG(a)^2);
+                continue;
+            end
+
+            % Abs-per full-image via the shared 1-D wrapped Gaussian
+            % (overlap convention, exponent_denominator = 4). The
+            % r-tuple full-image kernel factors as prod_k theta(d_k),
+            % so log kernel = sum_k log theta(d_k). Single-image
+            % opt-in falls through to the Q-form path below with a
+            % nearest-image reduction, matching the pre-v3 behaviour.
+            if isPerG(a) && ~isRelG(a) ...
+                    && strcmp(char(wrapG{a}), 'full-image')
+                if isempty(truncationSigmas)
+                    tsA = mptDefaults('truncationSigmas');
+                else
+                    tsA = truncationSigmas;
+                end
+                tsA = internal.accuracyFloor('resolve', tsA);
+                theta = internal.wrappedGaussian1d( ...
+                    D, sigmaG(a), periodG(a), tsA, 4);
+                logK = logK + reshape( ...
+                    sum(log(theta), 1), nJ, nK);
                 continue;
             end
 

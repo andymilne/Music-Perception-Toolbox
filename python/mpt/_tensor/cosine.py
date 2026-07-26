@@ -1420,6 +1420,7 @@ def _ip_core_ma(
             u_cell, w_u, n_j, v_cell, w_v, n_k,
             A, r_vec, sigma, is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas, inner_r=inner_r,
+            wrap=wrap,
         )
 
     chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
@@ -1431,7 +1432,8 @@ def _ip_core_ma(
         log_kernel = _ma_log_kernel(
             u_cell, v_chunk, int(n_j), n_kc,
             A, r_vec, sigma, is_rel, is_per, period,
-            inner_r=inner_r,
+            inner_r=inner_r, wrap=wrap,
+            truncation_sigmas=truncation_sigmas,
         )
         E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
         acc = acc + E @ w_v[c_start:c_end]
@@ -1442,7 +1444,7 @@ def _ip_core_ma(
 def _ip_full_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
-    *, truncation_sigmas=None, inner_r=None,
+    *, truncation_sigmas=None, inner_r=None, wrap=None,
 ):
     """Fully vectorized MA inner product (single chunk).
 
@@ -1457,7 +1459,8 @@ def _ip_full_ma(
     log_kernel = _ma_log_kernel(
         u_cell, v_cell, int(n_j), int(n_k),
         A, r_vec, sigma, is_rel, is_per, period,
-        inner_r=inner_r,
+        inner_r=inner_r, wrap=wrap,
+        truncation_sigmas=truncation_sigmas,
     )
     E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
     return float(w_u @ (E @ w_v))
@@ -1467,7 +1470,7 @@ def _ip_full_ma(
 def _ma_log_kernel(
     u_cell, v_cell, n_j, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
-    *, inner_r=None,
+    *, inner_r=None, wrap=None, truncation_sigmas=None,
 ):
     """Accumulate the summed-Q / (4 sigma^2) log-kernel across attributes.
 
@@ -1480,6 +1483,13 @@ def _ma_log_kernel(
     ``inner_r[a] > 0`` selects the inner ``[rel]`` co-transposition unit
     for attribute *a*: the block-diagonal metric over its event blocks
     (full-tuple convention, ``reduced=False``).
+
+    ``wrap`` (optional) is a per-attribute sequence selecting the
+    abs-per measure: 'full-image' (default) uses the torus (all-image)
+    1-D wrapped Gaussian per slot; 'single-image' uses the nearest-
+    image reduction (the pre-v3 behaviour). Non-periodic and rel
+    attributes ignore this axis. ``None`` matches the pre-v3 default,
+    i.e. 'full-image' everywhere.
     """
     log_kernel = np.zeros((int(n_j), int(n_k)), dtype=np.float64)
     for a in range(A):
@@ -1494,6 +1504,29 @@ def _ma_log_kernel(
             Q_a = _compute_Q_inner_blocks(
                 D, r_in, bool(is_per[a]), float(period[a]), reduced=False)
             log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
+            continue
+
+        # Abs-per full-image via the shared 1-D wrapped Gaussian
+        # (overlap convention, exponent_denominator=4). The r-tuple
+        # full-image kernel factors as prod_k theta(d_k), so
+        # log kernel = sum_k log theta(d_k). Single-image opt-in
+        # falls through to the Q-form path below with a nearest-image
+        # reduction, matching the pre-v3 behaviour.
+        wrap_a = 'full-image'
+        if wrap is not None and a < len(wrap):
+            wrap_a = str(wrap[a])
+        if (is_per[a] and not is_rel[a]
+                and wrap_a == 'full-image'):
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            from .._defaults import get_default
+            ts_a = (float(get_default('truncation_sigmas'))
+                    if truncation_sigmas is None
+                    else float(truncation_sigmas))
+            theta = wrapped_gaussian_1d(
+                D, float(sigma[a]), float(period[a]), ts_a,
+                exponent_denominator=4,
+            )
+            log_kernel = log_kernel + np.sum(np.log(theta), axis=0)
             continue
 
         # The outer wrap is only needed when _compute_Q does not re-wrap

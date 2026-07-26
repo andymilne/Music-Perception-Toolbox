@@ -38,13 +38,14 @@ function table = getOrbitTable(r)
              'the cost.'], r, R_HARD_CAP);
     end
 
-    % Tier 1: in-memory persistent cache. Cell array indexed by r ---
-    % r is a small integer (1..~10 in practice), so direct indexing
-    % avoids the containers.Map lookup overhead. Called on every
-    % Möbius orbit-abs evaluation.
+    % Tier 1: in-memory persistent cache.
     persistent inMem
-    if ~isempty(inMem) && numel(inMem) >= r && ~isempty(inMem{r})
-        table = inMem{r};
+    if isempty(inMem)
+        inMem = containers.Map('KeyType', 'int32', 'ValueType', 'any');
+    end
+    key = int32(r);
+    if isKey(inMem, key)
+        table = inMem(key);
         return
     end
 
@@ -54,7 +55,7 @@ function table = getOrbitTable(r)
     if isfile(prebuilt)
         S = load(prebuilt, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem = localCacheStore(inMem, r, table);
+        inMem(key) = table;
         return
     end
 
@@ -75,14 +76,14 @@ function table = getOrbitTable(r)
     if isfile(userFile)
         S = load(userFile, 'orbit_table');
         table = ensureRecipes(S.orbit_table);
-        inMem = localCacheStore(inMem, r, table);
+        inMem(key) = table;
         return
     end
 
     % Tier 4: build from scratch (buildOrbitTable embeds recipes).
     maybeWarnBuildCost(r);
     table = mobius.buildOrbitTable(r);
-    inMem = localCacheStore(inMem, r, table);
+    inMem(key) = table;
 
     % Best-effort persist to user disk for non-trivial rebuilds.
     if r >= 5
@@ -225,16 +226,4 @@ function table = ensureRecipes(table)
         table(k).recipeGrid = rGrid;
         table(k).recipeBatched = rBatched;
     end
-end
-
-
-function inMem = localCacheStore(inMem, r, table)
-%LOCALCACHESTORE  Store table at index r in the cell-array cache,
-%   auto-extending the array if r exceeds its current length.
-    if isempty(inMem)
-        inMem = cell(1, max(r, 4));
-    elseif numel(inMem) < r
-        inMem{r} = [];  % triggers auto-extend to length r
-    end
-    inMem{r} = table;
 end

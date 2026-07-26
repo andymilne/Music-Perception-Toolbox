@@ -18,15 +18,11 @@ function [uniqueBlocks, partBlockIdx, mus] = getPartitionBlockStructure(r)
 %     mus           row vector of Möbius weights, one per partition.
 
     persistent cache
-    % Cell array indexed by r. r is a small integer (1..~10 in practice),
-    % so direct indexing avoids the containers.Map lookup overhead
-    % (~10-15 us per hit through a Java-backed hash lookup). This
-    % function is called on every entry to mobius.evalOrbitAbs (and
-    % the factored branch of mobius.evalOrbitRel), so the per-call
-    % lookup cost shows up in every nested Möbius call --- meaningful
-    % when the surrounding work is small.
-    if ~isempty(cache) && numel(cache) >= r && ~isempty(cache{r})
-        s = cache{r};
+    if isempty(cache)
+        cache = containers.Map('KeyType', 'double', 'ValueType', 'any');
+    end
+    if isKey(cache, r)
+        s = cache(r);
         uniqueBlocks = s.uniqueBlocks;
         partBlockIdx = s.partBlockIdx;
         mus = s.mus;
@@ -62,10 +58,5 @@ function [uniqueBlocks, partBlockIdx, mus] = getPartitionBlockStructure(r)
     s.uniqueBlocks = uniqueBlocks;
     s.partBlockIdx = partBlockIdx;
     s.mus = mus;
-    if isempty(cache)
-        cache = cell(1, max(r, 4));
-    elseif numel(cache) < r
-        cache{r} = [];  % triggers auto-extend to length r
-    end
-    cache{r} = s;
+    cache(r) = s;
 end

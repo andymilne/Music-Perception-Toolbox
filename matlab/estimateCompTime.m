@@ -50,17 +50,24 @@ if nargin < 5
     minPrintSec = 10;
 end
 
-persistent rateCache;  % cell array indexed by dim: pairsPerSec
+persistent rateCache;  % numeric vector indexed by dim: pairsPerSec.
+                       % Uncalibrated slots hold NaN so isnan() suffices
+                       % as the presence check.
 
-% Cell array indexed by dim --- dim is a small integer (1..~10 in
-% practice), so direct indexing avoids the containers.Map lookup
-% overhead. estimateCompTime is called on every top-level user call.
+% NaN-padded numeric vector indexed by dim. dim is a small integer
+% (1..~10 in practice), so direct numeric indexing plus a single
+% isnan() presence check gives the cheapest possible per-call cache
+% path --- no cell dereference, no Java-map hash lookup, no
+% dictionary type inference. estimateCompTime is called on every
+% top-level user call, so this fast path is worth chasing.
 if isempty(rateCache)
-    rateCache = cell(1, max(dim, 4));
+    rateCache = nan(1, max(dim, 4));
+elseif dim > numel(rateCache)
+    rateCache(end+1:dim) = NaN;
 end
 
 % Calibrate for this dimensionality if not already cached
-if numel(rateCache) < dim || isempty(rateCache{dim})
+if isnan(rateCache(dim))
     % Run a small representative workload that exactly mirrors the
     % dominant operations in evalExpTens / cosSimExpTens:
     %   1. Implicit-expansion subtraction  (dim x nCal x nCal)
@@ -91,14 +98,11 @@ if numel(rateCache) < dim || isempty(rateCache{dim})
 
     % Pairs processed in the benchmark
     calPairs = double(nCal) * double(nCal);
-    if numel(rateCache) < dim
-        rateCache{dim} = [];  % triggers auto-extend to length dim
-    end
-    rateCache{dim} = calPairs / elapsed;
+    rateCache(dim) = calPairs / elapsed;
 end
 
 % Estimate time
-pairsPerSec = rateCache{dim};
+pairsPerSec = rateCache(dim);
 estSec = double(nPairs) / pairsPerSec;
 
 % Print estimate (skip if not verbose, label empty, or estimate

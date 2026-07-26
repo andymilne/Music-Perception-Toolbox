@@ -1,0 +1,246 @@
+Running 27 unique configurations with cossim method='mobius', each measured for eval and cossim (best-of-3)...
+  [1/27] base: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [2/27] sigma_over_P=0.002: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.6ms
+  [3/27] sigma_over_P=0.005: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [4/27] sigma_over_P=0.01: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [5/27] sigma_over_P=0.05: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [6/27] sigma_over_P=0.2: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.0ms
+  [7/27] sigma_over_P=0.3: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.9ms
+  [8/27] sigma_over_P=0.5: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.1ms
+  [9/27] r=1: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.2ms
+  [10/27] r=3: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.4ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.2ms
+  [11/27] r=4: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.6ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 4.2ms
+  [12/27] isRel=False&isPer=False: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [13/27] isRel=True&isPer=False: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.2ms
+  [14/27] isRel=True&isPer=True: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.7ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.2ms
+  [15/27] wrap=single-image: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [16/27] A=2: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.9ms
+  [17/27] A=3: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.3ms
+  [18/27] N=5: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.3ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [19/27] N=20: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.9ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.3ms
+  [20/27] N=50: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 2.3ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 6.3ms
+  [21/27] N=100: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 4.5ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 28.2ms
+  [22/27] K=4: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [23/27] K=16: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.1ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [24/27] K=50: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.6ms
+  [25/27] K=100: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 1.3ms
+  [26/27] nQ=1: eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval_exp_tens (MAET): chose 'centres' path.
+eval 0.0ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+  [27/27] nQ=100: eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval_exp_tens (MAET): chose 'mobius' path.
+eval 0.2ms  cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cos_sim_exp_tens: chose 'mobius' path.
+cossim 0.5ms
+
+Wrote 54 rows to bench_python_mobius.csv

@@ -5,8 +5,17 @@ times eval_exp_tens and cos_sim_exp_tens across a small grid varying
 one axis at a time from a base configuration, and writes CSV.
 
 Usage:
-    python3 bench_xlang.py                 # writes bench_python.csv
-    python3 bench_xlang.py --out X.csv     # custom output path
+    python3 bench_xlang.py                             # writes bench_python.csv, auto method
+    python3 bench_xlang.py --out X.csv                 # custom output path
+    python3 bench_xlang.py --method bulger             # force cossim to bulger route
+    python3 bench_xlang.py --method mobius             # force cossim to mobius route
+
+Forcing a cossim method isolates route-vs-routing discrepancies:
+if the two languages disagree at method='auto' but agree at
+method='bulger', the disagreement is which route the two auto
+dispatchers picked, not the routes themselves. If they still
+disagree at method='bulger', the bulger path itself has a
+cross-language mismatch.
 
 See BENCH_SPEC.md for the grid and input formulae.
 """
@@ -195,7 +204,7 @@ def run_eval(cfg):
     return t, result, n_j
 
 
-def run_cossim(cfg):
+def run_cossim(cfg, method='auto'):
     sigma = cfg['sigma_over_P'] * PERIOD
     A, N, K, r = cfg['A'], cfg['N'], cfg['K'], cfg['r']
     isRel, isPer = cfg['isRel'], cfg['isPer']
@@ -221,7 +230,7 @@ def run_cossim(cfg):
     n_j = int(getattr(dx, 'n_j', -1))
 
     def call():
-        return mpt.cos_sim_exp_tens(dx, dy, verbose=False)
+        return mpt.cos_sim_exp_tens(dx, dy, method=method, verbose=False)
 
     t, result = best_of_3(call)
     return t, result, n_j
@@ -242,6 +251,12 @@ def checksum_cossim(v):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', default='bench_python.csv')
+    ap.add_argument('--method', default='auto',
+                    choices=['auto', 'bulger', 'mobius'],
+                    help="Force cos_sim_exp_tens method (default: auto). "
+                         "'auto' lets the cost model choose; 'bulger' and "
+                         "'mobius' force each specific route to isolate "
+                         "route-vs-routing discrepancies.")
     args = ap.parse_args()
 
     rows = []
@@ -252,8 +267,9 @@ def main():
         label, cfg = item
         n_cases += 1
 
-    print(f"Running {n_cases} unique configurations, each measured for "
-          f"eval and cossim (best-of-3)...")
+    print(f"Running {n_cases} unique configurations with cossim "
+          f"method='{args.method}', each measured for eval and cossim "
+          f"(best-of-3)...")
 
     idx = 0
     for item in iter_cases():
@@ -281,7 +297,7 @@ def main():
 
             # cossim
             try:
-                t_cos, v_cos, n_j_cos = run_cossim(cfg)
+                t_cos, v_cos, n_j_cos = run_cossim(cfg, method=args.method)
                 cs_cos = checksum_cossim(v_cos)
                 rows.append(dict(
                     label=label, operation='cossim',

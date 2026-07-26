@@ -6,14 +6,30 @@
 %  at a time from a base configuration, and writes CSV.
 %
 %  Usage from the matlab/ directory (or after addpath):
-%    bench_xlang;                         % writes bench_matlab.csv
-%    bench_xlang('bench_matlab_v2.csv');  % custom output path
+%    bench_xlang;                                       % bench_matlab.csv, auto method
+%    bench_xlang('bench_matlab_v2.csv');                % custom output path
+%    bench_xlang('bench_matlab_bulger.csv', 'bulger');  % force cossim to bulger
+%    bench_xlang('bench_matlab_mobius.csv', 'mobius');  % force cossim to mobius
+%
+%  Forcing a cossim method isolates route-vs-routing discrepancies:
+%  if the two languages disagree at method='auto' but agree at
+%  method='bulger', the disagreement is which route the two auto
+%  dispatchers picked, not the routes themselves. If they still
+%  disagree at method='bulger', the bulger path itself has a
+%  cross-language mismatch.
 %
 %  See BENCH_SPEC.md for the grid and input formulae.
 
-function bench_xlang(outPath)
-    if nargin < 1
+function bench_xlang(outPath, method)
+    if nargin < 1 || isempty(outPath)
         outPath = 'bench_matlab.csv';
+    end
+    if nargin < 2 || isempty(method)
+        method = 'auto';
+    end
+    if ~ismember(method, {'auto', 'bulger', 'mobius'})
+        error('bench_xlang:badMethod', ...
+            "method must be 'auto', 'bulger', or 'mobius'; got '%s'.", method);
     end
     PERIOD = 1200;
 
@@ -24,8 +40,9 @@ function bench_xlang(outPath)
 
     cases = localBuildCases();
     nCases = numel(cases);
-    fprintf('Running %d unique configurations, each measured for eval and cossim (best-of-3)...\n', ...
-        nCases);
+    fprintf(['Running %d unique configurations with cossim method=''%s'', ' ...
+             'each measured for eval and cossim (best-of-3)...\n'], ...
+        nCases, method);
 
     rows = {};
     for idx = 1:nCases
@@ -45,7 +62,7 @@ function bench_xlang(outPath)
 
         % cossim
         try
-            [tCos, vCos, nJCos] = localRunCossim(c, PERIOD);
+            [tCos, vCos, nJCos] = localRunCossim(c, PERIOD, method);
             rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, nJCos, c); %#ok<AGROW>
             fprintf('cossim %.1fms\n', tCos * 1000);
         catch e
@@ -225,7 +242,7 @@ function [tBest, v, nJ] = localRunEval(c, PERIOD)
 end
 
 
-function [tBest, v, nJ] = localRunCossim(c, PERIOD)
+function [tBest, v, nJ] = localRunCossim(c, PERIOD, method)
     sigma = c.sigma_over_P * PERIOD;
     if c.isPer, periodVal = PERIOD; else, periodVal = 0; end
 
@@ -247,7 +264,8 @@ function [tBest, v, nJ] = localRunCossim(c, PERIOD)
         'wrap', c.wrap, 'verbose', false, 'lazy', false);
     if isfield(dx, 'nJ'); nJ = double(dx.nJ); else; nJ = -1; end
 
-    [tBest, v] = localBestOf3(@() cosSimExpTens(dx, dy, 'verbose', false));
+    [tBest, v] = localBestOf3(@() cosSimExpTens(dx, dy, ...
+        'method', method, 'verbose', false));
 end
 
 

@@ -38,10 +38,20 @@ function bench_xlang(outPath, method)
     prevW = warning('off', 'buildExpTens:absPerSingleImage');
     cleanupW = onCleanup(@() warning(prevW));
 
+    % Silence dispatch messages: with adaptive-inner-loop timing the
+    % bench runs each call thousands of times, and 'chose X path' fires
+    % on every top-level entry (the throttle resets per top-level
+    % call). showHints=false disables the whole dispatch-message
+    % facility globally for this run; correctness is unaffected. Saved
+    % previous state and restored via onCleanup so the caller's session
+    % keeps whatever they had before.
+    prevDefaults = mptDefaults('showHints', false);
+    cleanupD = onCleanup(@() mptDefaults(prevDefaults));
+
     cases = localBuildCases();
     nCases = numel(cases);
     fprintf(['Running %d unique configurations with cossim method=''%s'', ' ...
-             'each measured for eval and cossim (best-of-3)...\n'], ...
+             'each measured for eval and cossim (adaptive inner loop, ~30 ms window, min of 7)...\n'], ...
         nCases, method);
 
     rows = {};
@@ -52,10 +62,11 @@ function bench_xlang(outPath, method)
 
         % eval
         try
-            [tEval, vEval, nJEval] = localRunEval(c, PERIOD);
+            [tEval, vEval, nJEval, nInEval] = localRunEval(c, PERIOD);
             csEval = sum(abs(vEval(:)));
-            rows{end+1} = localMakeRow(label, 'eval', tEval, csEval, nJEval, c); %#ok<AGROW>
-            fprintf('eval %.1fms  ', tEval * 1000);
+            rows{end+1} = localMakeRow(label, 'eval', tEval, csEval, ...
+                nJEval, nInEval, c); %#ok<AGROW>
+            fprintf('eval %.1fus(x%d)  ', tEval * 1e6, nInEval);
         catch e
             fprintf('eval FAIL (%s)  ', e.message);
         end
@@ -68,9 +79,10 @@ function bench_xlang(outPath, method)
             fprintf('cossim SKIP (bulger joint tuple set too large at A>=3)\n');
         else
             try
-                [tCos, vCos, nJCos] = localRunCossim(c, PERIOD, method);
-                rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, nJCos, c); %#ok<AGROW>
-                fprintf('cossim %.1fms\n', tCos * 1000);
+                [tCos, vCos, nJCos, nInCos] = localRunCossim(c, PERIOD, method);
+                rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, ...
+                    nJCos, nInCos, c); %#ok<AGROW>
+                fprintf('cossim %.1fus(x%d)\n', tCos * 1e6, nInCos);
             catch e
                 fprintf('cossim FAIL (%s)\n', e.message);
             end
@@ -217,7 +229,57 @@ end
 % Timing and measurement
 % =========================================================================
 
+function [tBest, result, nInner] = localAdaptiveTime(fn)
+%LOCALADAPTIVETIME  Adaptive-inner-loop timing with outer-minimum.
+%
+%   For sub-millisecond calls, best-of-N on single-call measurements is
+%   dominated by timer-resolution noise and OS scheduling jitter. Fix:
+%   loop N times inside a single tic-toc so the measured window is
+%   ~30 ms, drowning out per-measurement jitter, then divide by N.
+%   n_outer = 7 independent measurements are collected and the minimum
+%   is returned as the estimate (minimum reflects the intrinsic
+%   per-call cost when the CPU is not contested).
+%
+%   Twin of adaptive_time() in bench_xlang.py.
+    TARGET_INNER_S = 0.030;   % ~30 ms per outer window
+    N_OUTER        = 7;
+    N_WARMUP       = 2;
+    MAX_INNER      = 1e6;
+
+    % First call warms caches, does JIT compilation, and returns the
+    % result we hand back to the caller.
+    result = fn();
+
+    % Extra warm-ups so the sizing measurement isn't polluted by cold
+    % cache/JIT effects.
+    for k = 1:N_WARMUP
+        fn();
+    end
+
+    % Quick size: one measurement to estimate single-call time, then
+    % compute nInner so a single outer window is ~TARGET_INNER_S.
+    t0 = tic;
+    fn();
+    singleS = max(toc(t0), 1e-9);
+    nInner = max(1, floor(TARGET_INNER_S / singleS));
+    nInner = min(nInner, MAX_INNER);
+
+    % Timed measurements
+    ts = zeros(1, N_OUTER);
+    for j = 1:N_OUTER
+        t0 = tic;
+        for k = 1:nInner
+            fn();
+        end
+        ts(j) = toc(t0) / nInner;
+    end
+    tBest = min(ts);
+end
+
+
 function [tBest, result] = localBestOf3(fn)
+%LOCALBESTOF3  Legacy: single-call best-of-3. Retained for reference;
+%   new callers should use localAdaptiveTime.
     result = fn();   % warm
     ts = zeros(1, 3);
     for i = 1:3
@@ -229,7 +291,7 @@ function [tBest, result] = localBestOf3(fn)
 end
 
 
-function [tBest, v, nJ] = localRunEval(c, PERIOD)
+function [tBest, v, nJ, nInner] = localRunEval(c, PERIOD)
     sigma = c.sigma_over_P * PERIOD;
     if c.isPer, periodVal = PERIOD; else, periodVal = 0; end
 
@@ -245,11 +307,12 @@ function [tBest, v, nJ] = localRunEval(c, PERIOD)
         'wrap', c.wrap, 'verbose', false, 'lazy', false);
     if isfield(d, 'nJ'); nJ = double(d.nJ); else; nJ = -1; end
 
-    [tBest, v] = localBestOf3(@() evalExpTens(d, X, 'verbose', false));
+    [tBest, v, nInner] = localAdaptiveTime( ...
+        @() evalExpTens(d, X, 'verbose', false));
 end
 
 
-function [tBest, v, nJ] = localRunCossim(c, PERIOD, method)
+function [tBest, v, nJ, nInner] = localRunCossim(c, PERIOD, method)
     sigma = c.sigma_over_P * PERIOD;
     if c.isPer, periodVal = PERIOD; else, periodVal = 0; end
 
@@ -271,7 +334,7 @@ function [tBest, v, nJ] = localRunCossim(c, PERIOD, method)
         'wrap', c.wrap, 'verbose', false, 'lazy', false);
     if isfield(dx, 'nJ'); nJ = double(dx.nJ); else; nJ = -1; end
 
-    [tBest, v] = localBestOf3(@() cosSimExpTens(dx, dy, ...
+    [tBest, v, nInner] = localAdaptiveTime(@() cosSimExpTens(dx, dy, ...
         'method', method, 'verbose', false));
 end
 
@@ -280,13 +343,14 @@ end
 % Row assembly and CSV output
 % =========================================================================
 
-function row = localMakeRow(label, operation, elapsed, checksum, nJ, c)
+function row = localMakeRow(label, operation, elapsed, checksum, nJ, nInner, c)
     row = struct( ...
         'label', label, ...
         'operation', operation, ...
         'elapsed_s', elapsed, ...
         'checksum', checksum, ...
         'n_j', nJ, ...
+        'n_inner', nInner, ...
         'sigma_over_P', c.sigma_over_P, ...
         'r', c.r, ...
         'isRel', localBoolStr(c.isRel), ...
@@ -301,12 +365,13 @@ function localWriteCsv(outPath, rows)
     if fid < 0
         error('bench_xlang:write', 'Cannot open %s for writing', outPath);
     end
-    fprintf(fid, ['label,operation,elapsed_s,checksum,n_j,' ...
+    fprintf(fid, ['label,operation,elapsed_s,checksum,n_j,n_inner,' ...
                   'sigma_over_P,r,isRel,isPer,wrap,A,N,K,nQ\n']);
     for i = 1:numel(rows)
         r = rows{i};
-        fprintf(fid, '%s,%s,%.9g,%.15g,%d,%.6g,%d,%s,%s,%s,%d,%d,%d,%d\n', ...
+        fprintf(fid, '%s,%s,%.9g,%.15g,%d,%d,%.6g,%d,%s,%s,%s,%d,%d,%d,%d\n', ...
             r.label, r.operation, r.elapsed_s, r.checksum, r.n_j, ...
+            r.n_inner, ...
             r.sigma_over_P, r.r, r.isRel, r.isPer, r.wrap, ...
             r.A, r.N, r.K, r.nQ);
     end

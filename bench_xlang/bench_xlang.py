@@ -165,9 +165,55 @@ def iter_cases():
 # Timing and measurement
 # ---------------------------------------------------------------------
 
+def adaptive_time(fn, target_inner_ms=30.0, n_outer=7, n_warmup=2,
+                  max_inner=1_000_000):
+    """Adaptive-inner-loop timing with outer-minimum aggregation.
+
+    A single call to fn() is measured; if it is sub-millisecond, best-of-N
+    on raw single-call measurements is dominated by timer-resolution
+    noise (macOS perf_counter is ~1 us, but background OS activity and
+    thread scheduling add several us of jitter per measurement). Fix:
+    loop N times inside a single tic-toc so the measured window is
+    ~30 ms, drowning out per-measurement jitter, then divide by N.
+    n_outer independent measurements are collected and the minimum is
+    returned as the estimate (minimum is robust to sporadic background
+    load and reflects the intrinsic per-call cost when the CPU is not
+    contested).
+
+    Returns (best_seconds_per_call, first_result, n_inner).
+    """
+    # First call warms caches, does JIT compilation, and returns the
+    # result we hand back to the caller.
+    result = fn()
+
+    # Extra warm-ups so the sizing measurement isn't polluted by cold
+    # cache/JIT effects.
+    for _ in range(n_warmup):
+        fn()
+
+    # Quick size: one measurement to estimate single-call time, then
+    # compute n_inner so a single outer window is ~target_inner_ms.
+    t0 = time.perf_counter()
+    fn()
+    single_s = max(time.perf_counter() - t0, 1e-9)
+    n_inner = max(1, int(target_inner_ms / 1000.0 / single_s))
+    n_inner = min(n_inner, max_inner)
+
+    # Timed measurements
+    ts = []
+    for _ in range(n_outer):
+        t0 = time.perf_counter()
+        for _ in range(n_inner):
+            fn()
+        t1 = time.perf_counter()
+        ts.append((t1 - t0) / n_inner)
+    return min(ts), result, n_inner
+
+
 def best_of_3(fn):
-    """Return (best_seconds, result_of_first_call)."""
-    result = fn()   # first call also warms caches
+    """Legacy: single-call best-of-3. Retained for reference; new callers
+    should use adaptive_time. Returned tuple matches (t, result)."""
+    result = fn()
     ts = [None, None, None]
     for i in range(3):
         t0 = time.perf_counter()
@@ -200,8 +246,8 @@ def run_eval(cfg):
     def call():
         return mpt.eval_exp_tens(d, X, verbose=False)
 
-    t, result = best_of_3(call)
-    return t, result, n_j
+    t, result, n_inner = adaptive_time(call)
+    return t, result, n_j, n_inner
 
 
 def run_cossim(cfg, method='auto'):
@@ -232,8 +278,8 @@ def run_cossim(cfg, method='auto'):
     def call():
         return mpt.cos_sim_exp_tens(dx, dy, method=method, verbose=False)
 
-    t, result = best_of_3(call)
-    return t, result, n_j
+    t, result, n_inner = adaptive_time(call)
+    return t, result, n_j, n_inner
 
 
 def checksum_eval(v):
@@ -259,6 +305,16 @@ def main():
                          "route-vs-routing discrepancies.")
     args = ap.parse_args()
 
+    # Silence dispatch messages: with adaptive-inner-loop timing the
+    # bench runs each call thousands of times, and 'chose X path' fires
+    # on every top-level entry (the throttle resets per top-level
+    # call). show_hints=False disables the whole dispatch-message
+    # facility globally for this run; correctness is unaffected.
+    try:
+        mpt.set_default(show_hints=False)
+    except Exception:
+        pass
+
     rows = []
     n_cases = 0
     for item in iter_cases():
@@ -269,7 +325,7 @@ def main():
 
     print(f"Running {n_cases} unique configurations with cossim "
           f"method='{args.method}', each measured for eval and cossim "
-          f"(best-of-3)...")
+          f"(adaptive inner loop, ~30 ms window, min of 7)...")
 
     idx = 0
     for item in iter_cases():
@@ -284,14 +340,16 @@ def main():
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             try:
-                t_eval, v_eval, n_j_eval = run_eval(cfg)
+                t_eval, v_eval, n_j_eval, n_in_eval = run_eval(cfg)
                 cs_eval = checksum_eval(v_eval)
                 rows.append(dict(
                     label=label, operation='eval',
-                    elapsed_s=t_eval, checksum=cs_eval, n_j=n_j_eval,
+                    elapsed_s=t_eval, checksum=cs_eval,
+                    n_j=n_j_eval, n_inner=n_in_eval,
                     **cfg,
                 ))
-                print(f"eval {t_eval*1000:.1f}ms  ", end='', flush=True)
+                print(f"eval {t_eval*1e6:.1f}us(x{n_in_eval})  ",
+                      end='', flush=True)
             except Exception as e:
                 print(f"eval FAIL ({e})  ", end='', flush=True)
 
@@ -307,20 +365,21 @@ def main():
                       "at A>=3)")
             else:
                 try:
-                    t_cos, v_cos, n_j_cos = run_cossim(cfg, method=args.method)
+                    t_cos, v_cos, n_j_cos, n_in_cos = run_cossim(cfg, method=args.method)
                     cs_cos = checksum_cossim(v_cos)
                     rows.append(dict(
                         label=label, operation='cossim',
-                        elapsed_s=t_cos, checksum=cs_cos, n_j=n_j_cos,
+                        elapsed_s=t_cos, checksum=cs_cos,
+                        n_j=n_j_cos, n_inner=n_in_cos,
                         **cfg,
                     ))
-                    print(f"cossim {t_cos*1000:.1f}ms")
+                    print(f"cossim {t_cos*1e6:.1f}us(x{n_in_cos})")
                 except Exception as e:
                     print(f"cossim FAIL ({e})")
 
     # Write CSV
     fieldnames = [
-        'label', 'operation', 'elapsed_s', 'checksum', 'n_j',
+        'label', 'operation', 'elapsed_s', 'checksum', 'n_j', 'n_inner',
         'sigma_over_P', 'r', 'isRel', 'isPer', 'wrap',
         'A', 'N', 'K', 'nQ',
     ]

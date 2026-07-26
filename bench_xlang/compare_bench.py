@@ -44,7 +44,7 @@ def main():
 
     hdr = f"{'label':<28} {'op':<6} {'py_s':>10} {'ml_s':>10} " \
           f"{'ratio':>8} {'py_cs':>14} {'ml_cs':>14} {'rel_err':>10} " \
-          f"{'py_nj':>6} {'ml_nj':>6}   flags"
+          f"{'py_nj':>6} {'ml_nj':>6} {'py_ni':>6} {'ml_ni':>6}   flags"
     print(hdr)
     print('-' * len(hdr))
 
@@ -72,6 +72,11 @@ def main():
         ml_cs = float(mlr['checksum'])
         py_nj = int(pyr.get('n_j', -1))
         ml_nj = int(mlr.get('n_j', -1))
+        # n_inner: number of inner-loop iterations per outer window
+        # (adaptive; larger => more reliable timing on tiny workloads).
+        # Absent in legacy CSVs → shown as -1.
+        py_ni = int(pyr.get('n_inner', -1) or -1)
+        ml_ni = int(mlr.get('n_inner', -1) or -1)
 
         # Value comparison
         denom = max(abs(py_cs), abs(ml_cs), 1e-30)
@@ -106,7 +111,8 @@ def main():
 
         print(f"{label:<28} {op:<6} {py_t:>10.4g} {ml_t:>10.4g} "
               f"{ratio:>8.2f} {py_cs:>14.6g} {ml_cs:>14.6g} "
-              f"{rel_err:>10.2e} {py_nj:>6d} {ml_nj:>6d}   {flags}")
+              f"{rel_err:>10.2e} {py_nj:>6d} {ml_nj:>6d} "
+              f"{py_ni:>6d} {ml_ni:>6d}   {flags}")
 
     print()
     print(f"Value agreement: max rel_err = {max_rel_err:.3e}")

@@ -409,7 +409,11 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
         end
     end
 
-    % --- Base unwindowed log-kernel: sum_a -Q_a / (4 sigma_a^2) ---
+    % --- Base unwindowed log-kernel: sum_a -Q_a / (4 sigma_a^2) for
+    %     rel and single-image abs-per attributes, and for abs-per
+    %     full-image attributes accumulate log(theta_per_slot) products
+    %     via the shared wrappedGaussian1d helper (overlap convention,
+    %     exponent_denominator = 4). ---
     log_kernel = zeros(n_jx, n_ky);
     for a = 1:A
         r_a = rVec(a);
@@ -426,6 +430,25 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
         % needed when localComputeQ does not re-wrap pairwise
         % component differences (i.e., for isPer and not isRel).
         if isPerG(a) && ~isRelG(a)
+            wrapA = 'full-image';
+            if isfield(dx, 'wrap') && ~isempty(dx.wrap) ...
+                    && a <= numel(dx.wrap)
+                wrapA = char(dx.wrap{a});
+            end
+            if strcmp(wrapA, 'full-image')
+                % Abs-per full-image contribution: sum over slots of
+                % log(theta(d_a)). Skips the Q accumulation for this
+                % attribute (its full-image kernel does not factor
+                % through Q).
+                P_g = periodG(a);
+                ts = internal.accuracyFloor('resolve', []);
+                theta_per_slot = internal.wrappedGaussian1d( ...
+                    D, sigmaG(a), P_g, ts, 4);      % (r_a, n_jx, n_ky)
+                log_kernel = log_kernel + ...
+                    reshape(sum(log(theta_per_slot), 1), n_jx, n_ky);
+                continue
+            end
+            % Single-image opt-in: reduce and fall through to Q.
             P_g = periodG(a);
             D = D - P_g .* floor(D / P_g + 0.5);
         end

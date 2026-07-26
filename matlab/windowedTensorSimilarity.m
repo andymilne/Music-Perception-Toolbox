@@ -162,8 +162,8 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
 %
 %   See also windowTensor, cosSimExpTens.
 
-    % Top-level call guard: see internal.dispatchScope.
-    guard = internal.dispatchScope(); %#ok<NASGU>
+    % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
+    guard = internal.callGuard(); %#ok<NASGU>
 
     verbose = true;
     reference = [];

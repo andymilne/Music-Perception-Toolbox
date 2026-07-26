@@ -103,6 +103,35 @@ function varargout = kernelChunkBytesResolved(command)
             varargout{1} = onCleanup(...
                 @() internal.kernelChunkBytesResolved('clearPin'));
 
+        case 'pinNoCleanup'
+            % Bookkeeping-only pin: pins if outermost and if
+            % kernelChunkBytes is a string (needing OS resolution),
+            % and returns whether a pin was set so the caller can
+            % conditionally clearPin later. No onCleanup allocated --
+            % callers are responsible for calling clearPin themselves
+            % (typically via a combined internal.callGuard onCleanup
+            % that also handles other cleanups in one allocation).
+            if ~isempty(activePin)
+                varargout{1} = false;   % already pinned by outer
+                return;
+            end
+            raw = mptDefaults('kernelChunkBytes');
+            if isnumeric(raw)
+                varargout{1} = false;   % numeric: no need to pin
+                return;
+            end
+            if ~isempty(ttlCache) && isequal(ttlRaw, raw) ...
+                    && toc(ttlTimer) <= 10.0
+                activePin = ttlCache;
+            else
+                activePin = localResolveFresh(raw);
+                ttlCache = activePin;
+                ttlRaw = raw;
+                ttlTimer = tic;
+            end
+            activePinRaw = raw;
+            varargout{1} = true;
+
         case 'clearPin'
             activePin = [];
             activePinRaw = [];

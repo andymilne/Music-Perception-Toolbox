@@ -166,8 +166,8 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
         nvArgs.normalize = []  % v2.2 sentinel: any value triggers migration error
     end
 
-    % Top-level call guard: see internal.dispatchScope.
-    guard = internal.dispatchScope(); %#ok<NASGU>
+    % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
+    guard = internal.callGuard(); %#ok<NASGU>
 
     % Detect the legacy 'normalize' kwarg (removed in v2.2). The empty
     % default cannot be supplied by a caller; any value here means the

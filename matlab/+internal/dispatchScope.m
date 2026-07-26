@@ -45,6 +45,19 @@ function out = dispatchScope(action)
     end
 
     switch lower(char(action))
+        case 'enter'
+            % Bookkeeping-only entry: increment depth, reset throttle
+            % if outermost, return whether this call is the outermost
+            % one in the current stack. No onCleanup allocated --
+            % callers are responsible for calling dispatchScope('exit')
+            % explicitly (typically via a combined internal.callGuard
+            % onCleanup that also handles other cleanups in one
+            % allocation).
+            if depth == 0
+                internal.maybeShowDispatchMsg('reset');
+            end
+            depth = depth + 1;
+            out = (depth == 1);
         case 'exit'
             depth = depth - 1;
             if depth < 0

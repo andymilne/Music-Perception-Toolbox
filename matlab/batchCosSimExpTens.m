@@ -28,8 +28,8 @@ function s = batchCosSimExpTens(pMatA, pMatB, sigma, r, isRel, isPer, period, va
 %
 %   See also: cosSimExpTens.
 
-% Top-level call guard: see internal.dispatchScope.
-guard = internal.dispatchScope(); %#ok<NASGU>
+% Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
+guard = internal.callGuard(); %#ok<NASGU>
 
 % --- Parse kwargs ---
 weightsA = [];

@@ -180,16 +180,16 @@ function vals = evalExpTens(varargin)
 % remaining arguments.
 
 % Top-level call guard: resets the dispatch-message throttle on entry
-% from outside the toolbox so that each user call announces afresh,
-% while keeping inner sub-calls within the same top-level call
-% throttled. See internal.dispatchScope.
-guard = internal.dispatchScope(); %#ok<NASGU>  cleared by onCleanup
-
-% Pin the resolved kernelChunkBytes budget for the lifetime of this
-% call so recursive / nested inner calls (e.g. via entropyExpTens
-% or templateHarmonicity dispatching back into evalExpTens) share
-% one OS query rather than spawning a vm_stat subprocess per call.
-chunkPin = internal.kernelChunkBytesResolved('pinForCall'); %#ok<NASGU>
+% from outside the toolbox so that each user call announces afresh
+% (while keeping inner sub-calls within the same top-level call
+% throttled), AND pins the resolved kernelChunkBytes budget for the
+% lifetime of this call so recursive / nested inner calls (e.g. via
+% entropyExpTens or templateHarmonicity dispatching back into
+% evalExpTens) share one OS query rather than spawning a vm_stat
+% subprocess per call. Single onCleanup, halving the per-call guard
+% overhead vs calling internal.dispatchScope and
+% internal.kernelChunkBytesResolved('pinForCall') separately.
+guard = internal.callGuard(); %#ok<NASGU>
 
 verbose = true;  % default
 method = 'auto';  % 'auto' | 'centres' (alias 'direct') | 'mobius'

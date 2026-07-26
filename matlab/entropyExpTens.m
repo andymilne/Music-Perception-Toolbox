@@ -199,8 +199,8 @@ function H = entropyExpTens(varargin)
 %
 %   See also BUILDEXPTENS, EVALEXPTENS, COSSIMEXPTENS.
 
-% Top-level call guard: see internal.dispatchScope.
-guard = internal.dispatchScope(); %#ok<NASGU>
+% Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
+guard = internal.callGuard(); %#ok<NASGU>
 
 % Detect the legacy 'normalize' kwarg (removed in v2.2). We scan
 % varargin directly *before* invoking localParseNVPairs (which would

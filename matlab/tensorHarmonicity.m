@@ -158,8 +158,8 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
         nvArgs.verbose (1,1) logical = true
     end
 
-    % Top-level call guard: see internal.dispatchScope.
-    guard = internal.dispatchScope(); %#ok<NASGU>
+    % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
+    guard = internal.callGuard(); %#ok<NASGU>
 
     % --- Batched dispatch ---
     % If p is a 2-D matrix with both dimensions > 1, treat rows as

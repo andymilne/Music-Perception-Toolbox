@@ -226,14 +226,11 @@ function s = cosSimExpTens(varargin)
 % removed from varargin before the dispatch sees it, so the dispatch
 % logic only has to inspect positional arguments.
 
-% Top-level call guard: see internal.dispatchScope.
-guard = internal.dispatchScope(); %#ok<NASGU>
-
-% Pin the resolved kernelChunkBytes budget for the lifetime of this
-% call so recursive inner calls — including the batched-raw mode's
-% per-unique-pair recursion below — share one OS query rather than
-% spawning a vm_stat subprocess per call.
-chunkPin = internal.kernelChunkBytesResolved('pinForCall'); %#ok<NASGU>
+% Top-level call guard: resets the dispatch-message throttle and pins
+% the kernelChunkBytes budget in a single onCleanup. Halves the guard
+% overhead vs the previous separate dispatchScope() + pinForCall()
+% pair. See internal.callGuard.
+guard = internal.callGuard(); %#ok<NASGU>
 
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'

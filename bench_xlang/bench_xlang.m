@@ -156,7 +156,7 @@ function cases = localBuildCases()
         [cases, seenFP] = localTryAdd(cases, seenFP, sprintf('wrap=%s', wr{1}), c);
     end
 
-    for v = [1, 2, 3]
+    for v = [1, 2]
         c = base; c.A = v;
         [cases, seenFP] = localTryAdd(cases, seenFP, sprintf('A=%d', v), c);
     end

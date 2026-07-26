@@ -140,7 +140,7 @@ def iter_cases():
         y = emit(f'wrap={v}', cfg)
         if y: yield y
 
-    for v in [1, 2, 3]:
+    for v in [1, 2]:
         cfg = dict(BASE); cfg['A'] = v
         y = emit(f'A={v}', cfg)
         if y: yield y

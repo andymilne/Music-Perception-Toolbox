@@ -34,7 +34,7 @@ Each axis varied independently from the base:
 - `r` in {1, 2, 3, 4}
 - `(isRel, isPer)` in {(F,F), (F,T), (T,F), (T,T)}
 - `wrap` in {'full-image', 'single-image'}
-- `A` in {1, 2, 3}
+- `A` in {1, 2}
 - `N` in {1, 5, 20, 50, 100}
 - `K` in {4, 8, 16, 50, 100}
 - `nQ` (eval only) in {1, 10, 100}

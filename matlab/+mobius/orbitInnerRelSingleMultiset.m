@@ -1,10 +1,10 @@
 function [val, ratio] = orbitInnerRelSingleMultiset(p_a, w_a, p_b, w_b, sigma, r, ...
                                           isPer, period, opts)
-%MOBIUS.ORBITINNERRELSINGLEMULTISET  <T_A, T_B>_rel: single-collection wrapper.
+%MOBIUS.ORBITINNERRELSINGLEMULTISET  <T_A, T_B>_rel: single-multiset wrapper.
 %
 %   [VAL, RATIO] = MOBIUS.ORBITINNERRELSINGLEMULTISET(P_A, W_A, P_B, W_B, SIGMA, R,
 %                                          IS_PER, PERIOD)
-%   computes the relative-mode inner product of two single collections
+%   computes the relative-mode inner product of two single-multiset densities
 %   as the N = 1 specialisation of MOBIUS.RELINNERBATCHED, which is
 %   the single relative-mode evaluator. All grid, slab, truncation,
 %   and cancellation-diagnostic conventions are the core's: the shared

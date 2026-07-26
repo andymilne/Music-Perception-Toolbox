@@ -4,9 +4,9 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
 %
 %   Two forms, selected by the type of PIN:
 %
-%   SA (PIN numeric vector, SIGMAIN a matrix): validates the aniso
-%   constraints and the covariance, whitens the value vector, and
-%   returns (pWhitened, 1.0, Sigma, R).
+%   single-multiset (PIN numeric vector, SIGMAIN a matrix): validates
+%   the aniso constraints and the covariance, whitens the value vector,
+%   and returns (pWhitened, 1.0, Sigma, R).
 %
 %   MA (PIN a cell of K_a x N matrices, SIGMAIN a cell mixing scalars
 %   and matrices): resolves each matrix entry per attribute; returns
@@ -20,7 +20,7 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
 %   entry with the appropriate message.
 
     if ~iscell(pIn)
-        % ----- SA form -----
+        % ----- single-multiset form -----
         p = double(pIn(:));
         K = numel(p);
         isSym = true;

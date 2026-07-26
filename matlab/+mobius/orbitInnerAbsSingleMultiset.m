@@ -4,7 +4,7 @@ function [val, ratio] = orbitInnerAbsSingleMultiset(p_a, w_a, p_b, w_b, sigma, r
 %
 %   [VAL, RATIO] = MOBIUS.ORBITINNERABSSINGLEMULTISET(P_A, W_A, P_B, W_B, SIGMA, R,
 %                                          IS_PER, PERIOD)
-%   computes the absolute-mode SA inner product between two
+%   computes the absolute-mode single-multiset inner product between two
 %   weighted-multiset densities at tensor order R via the orbit-Möbius
 %   identity, by building the (n_a, n_b) Gaussian-kernel matrix and
 %   delegating to MOBIUS.INNERPRODUCTORBIT.

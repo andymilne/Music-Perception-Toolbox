@@ -1,10 +1,10 @@
 function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, ...
                                             isPer, period)
-%MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET  Direct-enumeration SA IP, abs mode.
+%MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET  Direct-enumeration single-multiset IP, abs mode.
 %
 %   IPVAL = MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET(P_X, W_X, P_Y, W_Y, SIGMA, R,
 %                                            IS_PER, PERIOD)
-%   computes <T_X, T_Y> for two SA absolute-mode densities at order
+%   computes <T_X, T_Y> for two single-multiset absolute-mode densities at order
 %   R >= 1 by enumerating ordered R-tuples on each side and summing
 %       <T_X, T_Y> = (sigma * sqrt(pi))^R *
 %                    sum_{J, K} wJ_x[J] * wJ_y[K] *

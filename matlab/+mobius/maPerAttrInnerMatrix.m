@@ -67,7 +67,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   - r >= 2 rel: batched translation-grid integration with zero-pad
 %     (all event pairs at once, slab-bounded; MOBIUS.RELINNERBATCHED,
 %     the single relative-mode evaluator, of which the
-%     single-collection form is the N = 1 specialisation).
+%     single-multiset form is the N = 1 specialisation).
 %     Auto dispatch routes most small-K rel groups to
 %     Bulger globally; this path runs only on explicit
 %     method='mobius' opt-in. Events with K_eff - R below the precision

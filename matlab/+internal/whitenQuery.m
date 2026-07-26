@@ -1,7 +1,8 @@
 function X = whitenQuery(dens, X)
 %WHITENQUERY  Whiten a query array for a density built with kernel covariance.
 %
-%   SA density: X is dim x nQ (a vector accepted when dim == 1).
+%   single-attribute density: X is dim x nQ (a vector accepted when
+%     dim == 1).
 %   MA density: X is D x nQ with per-attribute row blocks in attribute
 %   order; only blocks whose attribute carries a covariance are
 %   transformed. Returns X unchanged for densities without a kernel

@@ -1,26 +1,12 @@
-function warnRelPerAllImage(sigmaOverP)
-%WARNRELPERALLIMAGE  Warn that the faster all-image relative-periodic form was
-%   taken and differs from the canonical single-wrap measure.
+function warnRelPerAllImage(varargin) %#ok<INUSD>
+%WARNRELPERALLIMAGE  Retired.
 %
-%   INTERNAL.WARNRELPERALLIMAGE(SIGMAOVERP) emits the toolbox-wide warning that
-%   the dispatch took the faster all-image (transposition-integral) form of the
-%   relative-periodic inner product, which above sigma/period = 0.03 differs
-%   from the canonical single-wrap (minimum-image) measure.
+%   Retained as a no-op for backward compatibility with any external
+%   call sites. The substitution this once warned about --- rel-per
+%   dispatch giving the "faster all-image form" instead of the
+%   "canonical single-wrap measure" --- no longer describes reality:
+%   rel-per full-image (C) is the toolbox's default measure and the
+%   ``wrap = 'single-image'`` opt-in gives (A) explicitly.
 %
-%   Emitted by every relative-periodic path -- flat single-attribute, flat
-%   multi-attribute, and the probe-based SA estimator -- so the message is
-%   identical wherever the substitution happens. Callers gate the call on their
-%   own 'verbose' flag, matching the existing dispatch-warning convention.
-%   Mirror of Python dispatch._warn_rel_per_all_image.
-    warning('cosSimExpTens:relPerAllImage', ...
-        ['sigma/period = %.3f exceeds 0.03: the faster all-image ' ...
-         '(transposition-integral) form of the relative-periodic inner ' ...
-         'product has been used. Above this sigma/period it differs from ' ...
-         'the canonical single-wrap (minimum-image) measure (the two agree ' ...
-         'below it). To compute the single-wrap measure instead, pass ' ...
-         '''method'', ''bulger'', which enumerates the full symmetric orbit ' ...
-         'this fast path avoids; that enumeration can be substantially ' ...
-         'slower, and infeasible for a large or compounded symmetric ' ...
-         'level (precisely the case that made the all-image form the faster ' ...
-         'path here).'], sigmaOverP);
+%   Mirror of Python dispatch._warn_rel_per_all_image (also retired).
 end

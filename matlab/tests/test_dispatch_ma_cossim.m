@@ -114,19 +114,18 @@ s_orb_rel = cosSimExpTens(dxR, dyR, 'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.MA cossim: explicit Möbius on rel groups matches Bulger (1e-6)';
 results{end,2}   = abs(s_orb_rel - s_pwise_rel) < 1e-6;
 
-%% ---- sigma/period > 0.03 all-image warning ----
+%% ---- sigma/period > 0.03 rel-per dispatch stays silent (retired warning) ----
 
 rng(57, 'twister');
 period_w = 100;
-% K = 12 (rows), not 8: under the faster-path-plus-warn policy the warning
-% fires only when the cost model actually takes the all-image (Möbius) path.
-% At sigma/P = 0.30 that needs the pairwise C(K,r)^2 work to be large enough;
-% K = 8 routes to Bulger (single-wrap, the faster path there) and is silent,
-% whereas K = 12 makes the all-image orbit the faster path.
+% Retired in v3+: rel-per full-image is the default measure and the
+% dispatch no longer warns about the "substitution". This test survives
+% as a positive check that the previously-warning call path is now silent
+% and that the cost model still routes to Möbius on large problems.
 PxW = sort(period_w * rand(12, 4));   WxW = ones(12, 4);
 PyW = sort(period_w * rand(12, 4));   WyW = ones(12, 4);
 dxW = buildExpTens({PxW}, {WxW}, 30, 3, true, true, period_w, ...
-    'verbose', false);  % sigma/P = 0.30 -> well above 0.03, all-image path
+    'verbose', false);  % sigma/P = 0.30 -> rel-per, previously warned
 dyW = buildExpTens({PyW}, {WyW}, 30, 3, true, true, period_w, ...
     'verbose', false);
 
@@ -135,8 +134,8 @@ lastwarn('');
 s_warn = cosSimExpTens(dxW, dyW, 'verbose', true);  %#ok<NASGU>
 [~, lastID] = lastwarn;
 warning(w_state);
-results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per emits all-image warning';
-results{end,2}   = strcmp(lastID, 'cosSimExpTens:relPerAllImage');
+results{end+1,1} = 'dispatch.MA cossim: sigma/P > 0.03 in rel+per stays silent (warning retired)';
+results{end,2}   = ~strcmp(lastID, 'cosSimExpTens:relPerAllImage');
 
 %% ---- r=2 auto routes by the cost model (parity with Python) ----
 

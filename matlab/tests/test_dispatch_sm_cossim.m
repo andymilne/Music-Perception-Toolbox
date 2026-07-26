@@ -155,26 +155,26 @@ results{end,2}   = abs(s_self_pair - 1) < 1e-12;
 results{end+1,1} = 'dispatch.single multiset: self-similarity = 1 (Möbius, within 1e-8)';
 results{end,2}   = abs(s_self_orb - 1) < 1e-8;
 
-%% ---- sigma/period threshold warning in rel+per ----
+%% ---- sigma/period threshold: warning retired, dispatch stays silent ----
 
-% Use n=6 (n_min - r = 3 >= 2) so the K-vs-r precision guard clears and
-% the dispatcher reaches the sigma/P check.
+% Retired in v3+: rel-per full-image is the default measure and the
+% dispatch no longer warns. This test survives as a positive check that
+% the previously-warning call path is now silent and that auto still
+% routes correctly (matching explicit Möbius).
 p_x = (0:5)' * 200;
 w_x = ones(6, 1);
 p_y = (0:5)' * 200 + 50;
 w_y = ones(6, 1);
-% sigma/period = 60/1200 = 0.05 > 0.03 threshold. The faster single multiset path here is
-% the all-image (Möbius) form, so auto takes it and warns; the result matches
-% explicit Möbius and differs from single-wrap Bulger above the threshold.
+% sigma/period = 60/1200 = 0.05: previously above the "warn" threshold.
 warnState = warning('on', 'cosSimExpTens:relPerAllImage');
 lastwarn('');
 s_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
     'verbose', true);
 [wmsg, wid] = lastwarn;
 warning(warnState);
-results{end+1,1} = 'dispatch.single multiset: rel+per sigma/P=0.05 fires all-image warning';
-results{end,2}   = strcmp(wid, 'cosSimExpTens:relPerAllImage');
-% Auto took the all-image path, so it matches explicit Möbius (not Bulger).
+results{end+1,1} = 'dispatch.single multiset: rel+per sigma/P=0.05 stays silent (warning retired)';
+results{end,2}   = ~strcmp(wid, 'cosSimExpTens:relPerAllImage');
+% Auto still takes the all-image (Möbius) path at this sigma/P.
 s_mob_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
     'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset: rel+per sigma/P=0.05 result matches Möbius';

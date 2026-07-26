@@ -108,8 +108,8 @@ function dens = buildExpTens(varargin)
     % ------------------------------------------------------------------
     % Parse optional name-value pairs and split positional args
     % ------------------------------------------------------------------
-    [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw] = ...
-        localExtractKwargs(varargin);
+    [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw, ...
+     wrapKw] = localExtractKwargs(varargin);
 
     if isempty(posArgs)
         error('buildExpTens:missingInputs', ...
@@ -155,7 +155,8 @@ function dens = buildExpTens(varargin)
                     isRelVec, isPerKw, isSymVec, nestedList);
             synthArgs = {pW, posArgs{2}, sigmaNum, rVec, isRelVec, ...
                          isPerKw, periodKw, isSymVec};
-            dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names);
+            dens = localBuildMA(synthArgs, verbose, lazy, nestedList, ...
+                                names, wrapKw);
             dens.kernelCov = covList;
             dens.kernelChol = cholList;
             return
@@ -168,7 +169,8 @@ function dens = buildExpTens(varargin)
             % branch contains no matrix entries).
             synthArgs{3} = cellfun(@double, sigmaKw);
         end
-        dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names);
+        dens = localBuildMA(synthArgs, verbose, lazy, nestedList, names, ...
+                            wrapKw);
         return
     end
     if ~isempty(sigmaKw) || ~isempty(isPerKw) || ~isempty(periodKw)
@@ -201,7 +203,8 @@ function dens = buildExpTens(varargin)
                         nested);
                 posArgs{1} = pW;
                 posArgs{3} = sigmaNum;
-                dens = localBuildMA(posArgs, verbose, lazy, nested, {});
+                dens = localBuildMA(posArgs, verbose, lazy, nested, ...
+                                    {}, wrapKw);
                 dens.kernelCov = covList;
                 dens.kernelChol = cholList;
                 return
@@ -209,7 +212,7 @@ function dens = buildExpTens(varargin)
             % All-scalar cell sigma: accept, coerce to numeric.
             posArgs{3} = cellfun(@double, sigmaArg);
         end
-        dens = localBuildMA(posArgs, verbose, lazy, nested, {});
+        dens = localBuildMA(posArgs, verbose, lazy, nested, {}, wrapKw);
     elseif isnumeric(first)
         % Single-attribute legacy path
         if ~isempty(nested)
@@ -230,7 +233,8 @@ function dens = buildExpTens(varargin)
                 posArgs{6}, isSymArg, []);
             posArgs{1} = pW;
             posArgs{3} = sigmaOne;
-            dens = localBuildSingleMultiset(posArgs, verbose, lazy);
+            dens = localBuildSingleMultiset(posArgs, verbose, lazy, ...
+                                            wrapKw);
             % Store per-attribute (1-cell) to match the MaetDensity
             % convention; internal.singleMultisetView unwraps for the
             % flat single-multiset consumers.
@@ -238,7 +242,7 @@ function dens = buildExpTens(varargin)
             dens.kernelChol = {R};
             return
         end
-        dens = localBuildSingleMultiset(posArgs, verbose, lazy);
+        dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrapKw);
     else
         error('buildExpTens:badFirstArg', ...
               ['First argument must be a numeric vector (single-attribute) ' ...
@@ -251,19 +255,21 @@ end
 %  Helpers: kwarg parsing
 % ======================================================================
 
-function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw] ...
-        = localExtractKwargs(args)
+function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, ...
+          periodKw, wrapKw] = localExtractKwargs(args)
     verbose = true;
     lazy = true;  % default to skinny dens; eager via 'lazy', false
     nested = [];  % per-attribute nesting spec (cell), [] = all flat
     specs = [];   % canonical per-attribute level-geometry spec (cell)
     sigmaKw = []; isPerKw = []; periodKw = [];  % scalar geometry (specs form)
+    wrapKw = [];  % abs-per / rel-per full-image vs single-image opt-in
     posArgs = args;
     i = 1;
     while i <= numel(posArgs)
         if (ischar(posArgs{i}) || isstring(posArgs{i})) ...
                 && any(strcmpi(posArgs{i}, {'verbose', 'lazy', 'nested', ...
-                                            'specs', 'sigma', 'isPer', 'period'}))
+                                            'specs', 'sigma', 'isPer', ...
+                                            'period', 'wrap'}))
             key = lower(char(posArgs{i}));
             if i + 1 > numel(posArgs)
                 error('buildExpTens:kwargMissingValue', ...
@@ -284,6 +290,8 @@ function [posArgs, verbose, lazy, nested, specs, sigmaKw, isPerKw, periodKw] ...
                     isPerKw = posArgs{i + 1};
                 case 'period'
                     periodKw = posArgs{i + 1};
+                case 'wrap'
+                    wrapKw = posArgs{i + 1};
             end
             posArgs(i:i + 1) = [];
         else
@@ -356,7 +364,10 @@ end
 %  Single-attribute (legacy) path
 % ======================================================================
 
-function dens = localBuildSingleMultiset(posArgs, verbose, lazy)
+function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
+    if nargin < 4
+        wrap = [];
+    end
 %LOCALBUILDSINGLEMULTISET  Vector-form build: canonicalise a single
 %   weighted multiset to the A = N = 1 corner of the multi-attribute
 %   build. There is one density type (MaetDensity); the vector calling
@@ -402,7 +413,9 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy)
         dens.isRel      = isRel;
         dens.isPer      = logical(isPer);
         dens.period     = period;
-        internal.maybeWarnAbsPerSingleImage(sigma, isRel, isPer, period);
+        dens.wrap       = internal.normaliseWrapMa(wrap, 1);
+        internal.maybeWarnAbsPerSingleImage(sigma, isRel, isPer, period, ...
+                                            dens.wrap);
         dens.isSym      = logical(isSym);
         dens.dim        = dim;
         dens.dimPerAttr = dim;
@@ -479,8 +492,9 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy)
     % is a single flat attribute (K slots, one event), scalar parameters
     % become length-1 vectors. Every consumer reads the resulting
     % MaetDensity either natively or through internal.singleMultisetView.
+    wrapCell = internal.normaliseWrapMa(wrap, 1);
     maArgs = {{p}, {w}, sigma, r, isRel, isPer, period, isSym};
-    dens = localBuildMA(maArgs, verbose, lazy, {[]}, {});
+    dens = localBuildMA(maArgs, verbose, lazy, {[]}, {}, wrapCell);
 end
 
 
@@ -488,9 +502,12 @@ end
 %  Multi-attribute (MAET) path
 % ======================================================================
 
-function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
+function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     if nargin < 5
         names = {};
+    end
+    if nargin < 6
+        wrap = [];
     end
 
     if numel(posArgs) == 7
@@ -867,8 +884,12 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names)
     dens.isRel        = isRelVec;
     dens.isPer        = isPerVec;
     dens.period       = periodVec;
+    % Per-attribute wrap choice. 'full-image' (default) sums the kernel
+    % over all periodic images (torus measure); 'single-image' evaluates
+    % the nearest image only. Ignored for non-periodic attributes.
+    dens.wrap = internal.normaliseWrapMa(wrap, A);
     internal.maybeWarnAbsPerSingleImage(sigmaVec, isRelVec, isPerVec, ...
-                                        periodVec);
+                                        periodVec, dens.wrap);
     dens.isSym        = isSymVec;
     dens.dim          = dim;
     dens.dimPerAttr   = dimPerAttr;

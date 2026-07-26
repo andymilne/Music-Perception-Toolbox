@@ -188,11 +188,8 @@ def run_eval(cfg):
     )
     n_j = int(getattr(d, 'n_j', -1))
 
-    # Force the centres path on both sides so any residual value
-    # disagreement is genuinely in the centres kernel and not a
-    # dispatch-routing difference across languages.
     def call():
-        return mpt.eval_exp_tens(d, X, method='centres', verbose=False)
+        return mpt.eval_exp_tens(d, X, verbose=False)
 
     t, result = best_of_3(call)
     return t, result, n_j

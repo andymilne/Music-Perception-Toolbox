@@ -1467,14 +1467,35 @@ def eval_orbit_abs(
             )
         else:
             # Direct (m, N, n_q) broadcast: exact fallback for the
-            # periodic small-circle / wide-block case.
+            # periodic small-circle / wide-block case. Honour the
+            # density's wrap: full-image via the shared 1-D wrapped
+            # Gaussian in overlap convention adapted to density-kernel
+            # (exponent_denominator = 2), single-image via nearest-
+            # image reduction (the pre-v3 behaviour). Uses the
+            # original sigma per slot; the sigma/sqrt(m) effective
+            # width belongs to the useReduction branch, where the
+            # m-D block sum is collapsed to a 1-D Gaussian at
+            # mean_x, and is not correct here where each slot is
+            # broadcast separately.
             diffs = x_B[:, None, :] - p[None, :, None]
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-            sq_sum = np.sum(diffs * diffs, axis=0)
-            kernel = np.exp(-sq_sum * inv_2s2)
-            block_contribs.append(
-                np.einsum('i,iq->q', wm, kernel, optimize=True)
-            )
+            if is_per and str(wrap) == 'full-image':
+                from ._wrapped_kernel import wrapped_gaussian_1d
+                theta = wrapped_gaussian_1d(
+                    diffs, sigma, period, float(trunc_resolved),
+                    exponent_denominator=2,
+                )
+                kernel = np.prod(theta, axis=0)  # (N, n_q)
+                block_contribs.append(
+                    np.einsum('i,iq->q', wm, kernel, optimize=True)
+                )
+            else:
+                if is_per:
+                    diffs = diffs - period * np.floor(diffs / period + 0.5)
+                sq_sum = np.sum(diffs * diffs, axis=0)
+                kernel = np.exp(-sq_sum * inv_2s2)
+                block_contribs.append(
+                    np.einsum('i,iq->q', wm, kernel, optimize=True)
+                )
 
     total, max_abs_term = mobius_partition_combine(
         block_contribs, part_block_idx, mus,

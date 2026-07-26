@@ -221,11 +221,7 @@ function [tBest, v, nJ] = localRunEval(c, PERIOD)
         'wrap', c.wrap, 'verbose', false, 'lazy', false);
     if isfield(d, 'nJ'); nJ = double(d.nJ); else; nJ = -1; end
 
-    % Force the centres path on both sides so any residual value
-    % disagreement is genuinely in the centres kernel and not a
-    % dispatch-routing difference across languages.
-    [tBest, v] = localBestOf3(@() evalExpTens(d, X, ...
-        'method', 'centres', 'verbose', false));
+    [tBest, v] = localBestOf3(@() evalExpTens(d, X, 'verbose', false));
 end
 
 

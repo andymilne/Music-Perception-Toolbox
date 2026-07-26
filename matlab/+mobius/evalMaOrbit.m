@@ -113,6 +113,13 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
             xa  = xBlocks{a};
 
             kw = [kwCommon, {'is_per', per, 'period', P}];
+            % For abs-per attributes only, honour the density's wrap
+            % opt-in. evalOrbitRel does not take wrap (relative-mode
+            % is always full-image after v3+).
+            if ~rel && isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
+                    && a <= numel(dens.wrap)
+                kw = [kw, {'wrap', char(dens.wrap{a})}];
+            end
             if wantRatio
                 if rel
                     [fa, ra] = mobius.evalOrbitRel(p, w, sig, r, xa, ...

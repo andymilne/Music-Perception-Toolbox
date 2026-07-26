@@ -61,6 +61,9 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
         opts.kernelPrecision (1,:) char ...
             {mustBeMember(opts.kernelPrecision, {'double','single'})} ...
             = mptDefaults('kernelPrecision')
+        opts.wrap (1,:) char ...
+            {mustBeMember(opts.wrap, {'full-image', 'single-image'})} ...
+            = 'full-image'
     end
 
     sz = size(x);
@@ -171,7 +174,8 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
             if opts.is_per
                 kw = {'truncationSigmas', opts.truncationSigmas, ...
                       'kernelPrecision', opts.kernelPrecision, ...
-                      'isPer', true, 'period', opts.period};
+                      'isPer', true, 'period', opts.period, ...
+                      'wrap', opts.wrap};
             else
                 kw = {'truncationSigmas', opts.truncationSigmas, ...
                       'kernelPrecision', opts.kernelPrecision};
@@ -181,14 +185,26 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
             blockContrib{k} = prefactor .* kernelSum(:);
         else
             % Direct (m, N, n_q) broadcast: exact fallback for the periodic
-            % small-circle / wide-block case.
+            % small-circle / wide-block case. Honour the density's wrap:
+            % full-image via wrappedGaussian1d, single-image via nearest-
+            % image reduction (the pre-v3 behaviour).
             x_B_re = reshape(x_B, m, 1, n_q_total);
             p_re = reshape(p, 1, N, 1);
             diffs = x_B_re - p_re;
-            diffs = diffs - opts.period * floor(diffs / opts.period + 0.5);
-            sqSum = reshape(sum(diffs .* diffs, 1), N, n_q_total);
-            kernel = exp(-sqSum * inv_2s2);
-            blockContrib{k} = kernel' * wm;
+            if strcmp(opts.wrap, 'full-image')
+                % Per-slot theta then product across slots (density-kernel
+                % convention: exponent_denominator = 2, evaluated at
+                % sigma / sqrt(m) as elsewhere in the block).
+                theta = internal.wrappedGaussian1d(diffs, sigma / sqrt(m), ...
+                    opts.period, opts.truncationSigmas, 2);
+                kernel = reshape(prod(theta, 1), N, n_q_total);
+                blockContrib{k} = kernel' * wm;
+            else
+                diffs = diffs - opts.period * floor(diffs / opts.period + 0.5);
+                sqSum = reshape(sum(diffs .* diffs, 1), N, n_q_total);
+                kernel = exp(-sqSum * inv_2s2);
+                blockContrib{k} = kernel' * wm;
+            end
         end
     end
 

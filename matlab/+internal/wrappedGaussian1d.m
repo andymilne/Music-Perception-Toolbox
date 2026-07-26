@@ -39,6 +39,25 @@ function theta = wrappedGaussian1d(d, sigma, period, ...
 %   needs no reduction.
 %
 %   Mirror of Python mpt._wrapped_kernel.wrapped_gaussian_1d.
+%
+%   Implementation note. Two MATLAB semantics require care.
+%
+%   (1) Trailing-singleton stripping: ``ndims`` and ``size`` strip
+%       trailing 1s, so a reshape target that ends in ``, 1]`` is
+%       reported with a lower dimension count than requested. The
+%       image / Fourier axis is captured as ``ndims(d) + 1`` up front
+%       rather than read back from a reshaped array.
+%
+%   (2) Broadcasting is position-based, not right-aligned: MATLAB pads
+%       shorter operands with trailing singletons before matching
+%       dimensions position-by-position. A row vector reshaped to
+%       ``(1, M)`` pairs with a 4-D array's dimension 2, not its last
+%       dimension. To broadcast against ``d`` along the intended
+%       reduce axis, the Fourier envelope and mode indices must share
+%       the same trailing-``M`` shape ``[ones(1, ndims(d)), M]``.
+
+    nDimsIn = ndims(d);
+    reduceAxis = nDimsIn + 1;
 
     if internal.wrappedKernelPreferFourier(sigma, period, ...
                                             truncationSigmas, ...
@@ -48,17 +67,14 @@ function theta = wrappedGaussian1d(d, sigma, period, ...
                                                 exponentDenominator);
         alpha = pi * pi * exponentDenominator * sigma * sigma ...
                 / (period * period);
-        m = (1:M);                              % (1, M)
-        env = exp(-alpha * m .* m);             % (1, M)
         twoPiOverP = 2 * pi / period;
         prefactor = sqrt(pi * exponentDenominator) * sigma / period;
-        % Broadcast d (any shape) against m (1, M) along a trailing
-        % dimension; sum out that dimension.
-        dExp = reshape(d, [size(d), 1]);        % (size(d), 1)
-        phase = twoPiOverP * dExp .* reshape(m, [ones(1, ndims(d)), M]);
-        contrib = env .* cos(phase);
-        % Sum over the trailing M-dimension.
-        contribSum = sum(contrib, ndims(dExp));
+        modeShape = ones(1, nDimsIn);
+        modeShape(reduceAxis) = M;
+        mShaped = reshape((1:M), modeShape);
+        envShaped = reshape(exp(-alpha * (1:M) .* (1:M)), modeShape);
+        phase = twoPiOverP * d .* mShaped;
+        contribSum = sum(envShaped .* cos(phase), reduceAxis);
         theta = prefactor * (1 + 2 * contribSum);
         return
     end
@@ -72,8 +88,9 @@ function theta = wrappedGaussian1d(d, sigma, period, ...
         theta = exp(-dRed .* dRed * inv);
         return
     end
-    n = -L:L;                                       % (1, 2L+1)
-    dExp = reshape(dRed, [size(dRed), 1]);          % (size(d), 1)
-    dShift = dExp + period * reshape(n, [ones(1, ndims(dRed)), 2*L+1]);
-    theta = sum(exp(-dShift .* dShift * inv), ndims(dExp));
+    imageShape = ones(1, nDimsIn);
+    imageShape(reduceAxis) = 2 * L + 1;
+    nShaped = reshape((-L:L), imageShape);
+    dShift = dRed + period * nShaped;
+    theta = sum(exp(-dShift .* dShift * inv), reduceAxis);
 end

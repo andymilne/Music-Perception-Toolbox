@@ -2230,9 +2230,16 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
                 Px, Py, sigma_g, r_a, isRel_g, isPer_g, period_g)
             cxB = mobius.closedFormAttrCentres(dens_x, a);
             cyB = mobius.closedFormAttrCentres(dens_y, a);
-            I_xy = mobius.closedFormAttrMatrixFrom(cxB, cyB);
-            I_xx = mobius.closedFormAttrMatrixFrom(cxB, cxB);
-            I_yy = mobius.closedFormAttrMatrixFrom(cyB, cyB);
+            % Per-attribute wrap opt-in (default full-image). Use
+            % dens_x's wrap as authoritative if it and dens_y's differ.
+            wrapA = 'full-image';
+            if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap) ...
+                    && a <= numel(dens_x.wrap)
+                wrapA = char(dens_x.wrap{a});
+            end
+            I_xy = mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA);
+            I_xx = mobius.closedFormAttrMatrixFrom(cxB, cxB, wrapA);
+            I_yy = mobius.closedFormAttrMatrixFrom(cyB, cyB, wrapA);
         else
             I_xy = mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
                 sigma_g, r_a, isRel_g, isPer_g, period_g, ...

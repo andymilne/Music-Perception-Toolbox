@@ -61,6 +61,8 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         opts.period (1,1) double = 0.0
         opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
         opts.kernelPrecision (1,:) char = mptDefaults('kernelPrecision')
+        opts.wrap (1,:) char {mustBeMember(opts.wrap, ...
+            {'full-image', 'single-image'})} = 'full-image'
     end
 
     if ~ismember(opts.kernelPrecision, {'double', 'single'})
@@ -141,11 +143,13 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
                 sigma_w, period_w, opts.truncationSigmas, inv2s2);
         else
             v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w);
+                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+                opts.wrap, opts.truncationSigmas);
         end
     else
         v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
-            opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w);
+            opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+            opts.wrap, opts.truncationSigmas);
     end
 
     if strcmp(opts.kernelPrecision, 'single')
@@ -160,7 +164,8 @@ end
 %  Exact path — the v2.0 centres-array body, chunked for memory bounds
 % =========================================================================
 
-function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, inv2s2, sigma)
+function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
+                                  inv2s2, sigma, wrap, truncationSigmas)
     dim = size(C, 1);
     nJ  = size(C, 2);
     nQ  = size(X, 2);
@@ -180,7 +185,7 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, inv2s2, sigm
     v = zeros(1, nQ, 'like', C);
     if bytesNeeded <= memLimit
         v = evalChunk(C, wJ, X, nQ, dim, nJ, isRel, r, isPer, period, ...
-            inv2s2, sigma);
+            inv2s2, sigma, wrap, truncationSigmas);
     else
         chunkSize = max(1, floor(memLimit / ...
             ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
@@ -188,16 +193,34 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, inv2s2, sigm
             c1 = min(c0 + chunkSize - 1, nQ);
             idx = c0:c1;
             v(idx) = evalChunk(C, wJ, X(:, idx), numel(idx), ...
-                dim, nJ, isRel, r, isPer, period, inv2s2, sigma);
+                dim, nJ, isRel, r, isPer, period, inv2s2, sigma, ...
+                wrap, truncationSigmas);
         end
     end
 end
 
-function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, inv2s2, sigma) %#ok<INUSL>
+function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
+                        inv2s2, sigma, wrap, truncationSigmas) %#ok<INUSL>
     D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
-    % Outer wrap only needed for abs+per. For rel+per the pairwise
-    % wrap below subsumes it (Eq 6 of the preprint).
+    % Abs-per: full-image via the shared wrapped-Gaussian helper
+    % (image-sum or Fourier by cost; density-kernel convention with
+    % exponent_denominator = 2). Single-image opt-in reduces to the
+    % nearest image and evaluates that Gaussian only, matching pre-v3
+    % behaviour.
     if isPer && ~isRel
+        if strcmp(wrap, 'full-image')
+            % Per-slot theta then product across slots. wrappedGaussian1d
+            % handles nearest-image reduction internally and picks the
+            % cheaper of image-sum and Fourier for the summation.
+            theta = internal.wrappedGaussian1d(D, sigma, period, ...
+                                                truncationSigmas, 2);
+            % theta has shape (dim, nJ, nQc); product over dim = axis 1.
+            E = reshape(prod(theta, 1), nJ, nQc);
+            v = wJ(:)' * E;
+            return
+        end
+        % Single-image opt-in: reduce to nearest image and fall through
+        % to the sum-of-squares path below.
         D = D - period .* floor(D / period + 0.5);
     end
     if isRel

@@ -990,6 +990,18 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             qDtype = 'double';
         end
         Q_total = zeros(N_J, nQc, qDtype);
+        % Abs-per full-image contribution accumulates multiplicatively as
+        % a product of per-attribute theta-slot products rather than
+        % additively into Q_total. Kept as [] until the first abs-per
+        % full-image attribute is encountered.
+        absPerFactor = [];
+
+        % Honour dens.wrap per attribute; absent field defaults to full-image.
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+            wrapCell = dens.wrap;
+        else
+            wrapCell = repmat({'full-image'}, 1, A);
+        end
 
         for a = 1:A
             da = dimPerAttr(a);
@@ -1007,9 +1019,25 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
                 Q_total = Q_total + Q_a / (2 * cast(sigmaG(a), qDtype)^2);
                 continue;
             end
-            % Outer wrap only needed for abs+per. For rel+per the
-            % pairwise wrap below subsumes it (Eq 6).
+            % Abs-per: full-image via the shared wrapped-Gaussian helper
+            % (density-kernel convention with exponent_denominator = 2).
+            % Single-image opt-in reduces to the nearest image and falls
+            % through to Q-accumulation as in the pre-v3 code.
             if isPerG(a) && ~isRelG(a)
+                if strcmp(char(wrapCell{a}), 'full-image')
+                    theta = internal.wrappedGaussian1d( ...
+                        D_a, double(sigmaG(a)), double(periodG(a)), ...
+                        truncResolved, 2);
+                    factorA = reshape(prod(theta, 1), N_J, nQc);
+                    factorA = cast(factorA, qDtype);
+                    if isempty(absPerFactor)
+                        absPerFactor = factorA;
+                    else
+                        absPerFactor = absPerFactor .* factorA;
+                    end
+                    continue;
+                end
+                % Single-image opt-in: reduce and fall through.
                 D_a = D_a - Pg .* floor(D_a / Pg + 0.5);
             end
             if isRelG(a)
@@ -1041,6 +1069,10 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         qThreshold = truncResolved^2 / 2;
         E = exp(-Q_total);
         E(Q_total > cast(qThreshold, qDtype)) = 0;
+        % Multiply in the abs-per full-image factor, if any accumulated.
+        if ~isempty(absPerFactor)
+            E = E .* absPerFactor;
+        end
 
         wJq = cast(wJ(:).', qDtype);
         v = double(wJq * E);

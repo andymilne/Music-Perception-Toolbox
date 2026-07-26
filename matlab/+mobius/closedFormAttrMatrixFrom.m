@@ -1,4 +1,4 @@
-function M = closedFormAttrMatrixFrom(cx, cy)
+function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
 %CLOSEDFORMATTRMATRIXFROM  (N_x, N_y) per-attribute inner matrix from centres.
 %
 %   Mirror of Python cosine._closed_form_attr_matrix_from (flat
@@ -10,17 +10,29 @@ function M = closedFormAttrMatrixFrom(cx, cy)
 %   self matrices of the attribute identically, so it cancels in every
 %   supported normalisation.
 %
+%   Absolute-periodic uses the full-image (torus) measure: the r-tuple
+%   kernel is the product across slots of the 1-D wrapped Gaussian
+%   theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2)). Because Q factors
+%   across slots in absolute mode, the product-of-theta form
+%   (r * (2L+1) or r * M per pair) is the cheaper representation of
+%   the all-image kernel; the image sum switches on only when the
+%   accuracy floor requires it. When the user has opted this attribute
+%   into wrapA = 'single-image' the code falls back to the nearest-
+%   image kernel unchanged.
+%
 %   Relative-periodic uses the minimum-image pairwise-wrap quadratic
 %   (exactly period-shift invariant) — the toolbox's defined
 %   relative-periodic measure, which coincides with the all-image
 %   translation-grid reading below the sigma/P threshold
 %   (MOBIUS.MARELATTRPREFERSCENTRES enforces that condition).
-%   Relative-non-periodic uses the exact relative quadratic; absolute
-%   uses the plain squared distance with a component wrap when
-%   periodic.
+%   Relative-non-periodic uses the exact relative quadratic.
 %
 %   The X-tuple axis is chunked so the pairwise overlap block never
 %   exceeds a fixed element budget, mirroring the Python chunk rule.
+
+    if nargin < 3 || isempty(wrapA)
+        wrapA = 'full-image';
+    end
 
     Cx = cx.Centres;   wx = cx.wJ(:);   Ex = cx.eventOfJ(:);
     Cy = cy.Centres;   wy = cy.wJ(:);   Ey = cy.eventOfJ(:);
@@ -35,6 +47,9 @@ function M = closedFormAttrMatrixFrom(cx, cy)
     GY = sparse(1:njy, Ey, 1, njy, Ny);      % (njy, Ny) incidence
     inv4s2 = 1 / (4 * sigma^2);
 
+    truncationSigmas = mptDefaults('truncationSigmas');
+    absPerFullImage = isPer && ~isRel && strcmp(wrapA, 'full-image');
+
     chunk = max(1, min(njx, floor(16e6 / max(njy * max(d, 1), 1))));
     M = zeros(Nx, Ny);
     for s = 1:chunk:njx
@@ -42,8 +57,18 @@ function M = closedFormAttrMatrixFrom(cx, cy)
         idx = s:e;
         nc = numel(idx);
         D = reshape(Cx(:, idx), [d, nc, 1]) - reshape(Cy, [d, 1, njy]);
-        Q = localComputeQFlat(D, r_a, isRel, isPer, period);
-        ov = (wx(idx) * wy.') .* exp(-reshape(Q, [nc, njy]) * inv4s2);
+        if absPerFullImage
+            % Per-slot theta then product across slots. Overlap-kernel
+            % convention (exponent_denominator = 4). Shape of theta:
+            % (d, nc, njy); product over d = axis 1.
+            theta = internal.wrappedGaussian1d(D, sigma, period, ...
+                                                truncationSigmas, 4);
+            kernelBlock = reshape(prod(theta, 1), [nc, njy]);
+        else
+            Q = localComputeQFlat(D, r_a, isRel, isPer, period);
+            kernelBlock = reshape(exp(-Q * inv4s2), [nc, njy]);
+        end
+        ov = (wx(idx) * wy.') .* kernelBlock;
         GXc = sparse(Ex(idx), 1:nc, 1, Nx, nc);   % (Nx, nc) incidence
         M = M + GXc * (ov * GY);
     end

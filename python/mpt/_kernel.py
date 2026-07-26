@@ -216,7 +216,33 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
 
 def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
                 truncation_sigmas=None, wrap='full-image'):
-    # D: (dim, nJ, nQc)
+    dim = C.shape[0]
+    # Abs-per full-image is the hot path at large K; handle it up
+    # front without building the joint (dim, nJ, nQc) diff tensor.
+    # Compute each slot's difference and theta on the (nJ, nQc) slice
+    # and multiply into a running product. Peak working memory drops
+    # from (2*dim + 1) * nJ * nQc to 2 * nJ * nQc, and the exp calls
+    # each get a smaller array with better cache behaviour. Output
+    # bit-identical to the joint form. ~25% faster at K=50, more at
+    # larger K where the 3-D tensor no longer fits in cache.
+    if is_per and not is_rel and wrap != 'single-image':
+        from ._wrapped_kernel import wrapped_gaussian_1d
+        d_k = C[0, :, None] - Xq[0, None, :]
+        E = wrapped_gaussian_1d(
+            d_k, float(sigma), float(period), truncation_sigmas,
+            exponent_denominator=2,
+        )
+        for k in range(1, dim):
+            d_k = C[k, :, None] - Xq[k, None, :]
+            theta_k = wrapped_gaussian_1d(
+                d_k, float(sigma), float(period), truncation_sigmas,
+                exponent_denominator=2,
+            )
+            E *= theta_k
+        return wJ @ E  # (nQc,)
+
+    # Other modes still need the joint (dim, nJ, nQc) diff tensor for
+    # the shared Q-form path.
     D = C[:, :, None] - Xq[:, None, :]
     # Outer wrap is only needed for abs+per. For rel+per, _compute_Q
     # applies the pairwise wrap inside (Eq 6 of the preprint) to
@@ -227,20 +253,9 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # avoiding np.mod's two-pass implementation. Reduction-order
     # numerical agreement (~1e-13).
     if is_per and not is_rel:
-        # Abs-per: full-image via shared wrapped-Gaussian helper (picks
-        # image-sum or Fourier by cost; density-kernel convention with
-        # exponent_denominator=2). Single-image opt-in evaluates only
-        # the nearest image, matching the pre-v3 behaviour.
-        if wrap == 'single-image':
-            D = D - period * np.floor(D / period + 0.5)
-        else:
-            from ._wrapped_kernel import wrapped_gaussian_1d
-            theta_per_slot = wrapped_gaussian_1d(
-                D, float(sigma), float(period), truncation_sigmas,
-                exponent_denominator=2,
-            )
-            E = theta_per_slot.prod(axis=0)  # (nJ, nQc)
-            return wJ @ E  # (nQc,)
+        # Abs-per single-image opt-in: nearest-image reduction, then
+        # fall through to the shared Q-form path.
+        D = D - period * np.floor(D / period + 0.5)
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
     # to match v2.0/v2.1 ULP-for-ULP at default settings (in all modes

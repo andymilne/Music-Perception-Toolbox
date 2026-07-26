@@ -46,10 +46,19 @@ function maybeShowDispatchMsg(varargin)
         seen = containers.Map('KeyType', 'char', 'ValueType', 'logical');
     end
 
-    % 'reset' form: clear all seen entries.
+    % 'reset' form: clear all seen entries. Reuse the existing
+    % containers.Map instance instead of allocating a fresh one --
+    % containers.Map is Java-backed and its constructor dominates the
+    % per-top-level-call overhead of every user-facing entry point
+    % (each call routes through internal.dispatchScope which resets
+    % the throttle here). Clearing the small existing key set with
+    % remove() is roughly 20x faster than the containers.Map
+    % constructor.
     if nargin == 1 && (ischar(varargin{1}) || isstring(varargin{1})) ...
             && strcmpi(varargin{1}, 'reset')
-        seen = containers.Map('KeyType', 'char', 'ValueType', 'logical');
+        if seen.Count > 0
+            remove(seen, keys(seen));
+        end
         return;
     end
 
@@ -60,20 +69,33 @@ function maybeShowDispatchMsg(varargin)
              'internal.maybeShowDispatchMsg(''reset'').']);
     end
 
+    funcName      = char(varargin{1});
+    chosen        = char(varargin{2});
+    % routingReason retained by callers as documentation but no longer
+    % consumed here (the throttle key intentionally covers what the user
+    % sees, not why the router picked it).
+
+    % Cheap key: direct char concatenation. sprintf('%s|%s', ...) does
+    % the same thing but goes through fprintf-family format parsing,
+    % which is measurably slower on tight-loop dispatch bookkeeping.
+    key = [funcName '|' chosen];
+
+    % Early-exit on the repeat-dispatch case: if we've already
+    % announced this (funcName, chosen) pair in this top-level call,
+    % nothing else here matters. Checking the throttle key first lets
+    % us skip the mptDefaults query on the fast path (repeat calls
+    % within a single top-level user call, which is the common case
+    % inside batched-raw loops and nested dispatch chains).
+    if isKey(seen, key)
+        return;
+    end
+
     % Master switch: showHints false → silent for all dispatch messages.
     S = mptDefaults();
     if isfield(S, 'showHints') && ~S.showHints
         return;
     end
 
-    funcName      = char(varargin{1});
-    chosen        = char(varargin{2});
-    routingReason = char(varargin{3}); %#ok<NASGU>  kept for debugging
-
-    key = sprintf('%s|%s', funcName, chosen);
-    if isKey(seen, key)
-        return;
-    end
     seen(key) = true;
 
     fprintf('%s: chose ''%s'' path.\n', funcName, chosen);

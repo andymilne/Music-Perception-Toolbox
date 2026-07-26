@@ -1248,6 +1248,11 @@ def _cos_sim_exp_tens_ma(
         or (nested_y is not None and any(s is not None for s in nested_y))
     )
 
+    # Rel-per wrap axis (v3+): prefer both densities' wrap agree; use
+    # dens_x's as authoritative if they differ, so downstream routing is
+    # deterministic. Non-periodic and abs-per attributes are unaffected
+    # (their wrap axis has no meaning here).
+    wrap_vec_x = list(getattr(dens_x, 'wrap', ['full-image'] * A))
     chosen = _select_ma_inner_product_method(
         r_vec=r_vec, k_vec=k_vec, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
@@ -1258,6 +1263,7 @@ def _cos_sim_exp_tens_ma(
         user_method=method,
         rel_vec=rel_vec, nu_vec=nu_vec,
         guard_forced_bulger=not nested_any,
+        wrap_vec=wrap_vec_x,
     )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
@@ -1353,6 +1359,7 @@ def _ip_core_ma(
     u_cell, w_u, n_j, v_cell, w_v, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
     *, truncation_sigmas=None, kernel_precision=None, inner_r=None,
+    wrap=None,
 ):
     """MA inner product with memory-aware chunking along the comb side.
 
@@ -1391,12 +1398,16 @@ def _ip_core_ma(
         and not (bool(is_rel[0]) and bool(is_per[0]))
     )
     if single_attr_helper_ok:
+        wrap_a = 'full-image'
+        if wrap is not None and len(wrap) > 0:
+            wrap_a = str(wrap[0])
         return _ip_via_helper(
             u_cell[0], w_u, v_cell[0], w_v,
             int(r_vec[0]), float(sigma[0]),
             bool(is_rel[0]), bool(is_per[0]), float(period[0]),
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
+            wrap_a=wrap_a,
         )
 
     max_r = int(np.max(r_vec)) if A > 0 else 1
@@ -2926,9 +2937,15 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
             # density and shared by the cross and self matrices.
             cx = _closed_form_attr_centres(dens_x, a)
             cy = _closed_form_attr_centres(dens_y, a)
-            I_xy = _closed_form_attr_matrix_from(cx, cy)
-            I_xx = _closed_form_attr_matrix_from(cx, cx)
-            I_yy = _closed_form_attr_matrix_from(cy, cy)
+            wrap_a = (str(dens_x.wrap[a])
+                      if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
+                      else 'full-image')
+            I_xy = _closed_form_attr_matrix_from(cx, cy, truncation_sigmas,
+                                                 wrap_a)
+            I_xx = _closed_form_attr_matrix_from(cx, cx, truncation_sigmas,
+                                                 wrap_a)
+            I_yy = _closed_form_attr_matrix_from(cy, cy, truncation_sigmas,
+                                                 wrap_a)
         else:
             I_xy = _ma_per_attr_inner_matrix(
                 Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
@@ -3145,7 +3162,8 @@ def _closed_form_attr_centres(dens, a):
             int(da.n))
 
 
-def _closed_form_attr_matrix_from(cx, cy):
+def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
+                                  wrap_a='full-image'):
     """(N_x, N_y) per-attribute inner matrix from precomputed tuple-centres.
 
     The full pairwise centre-overlap is formed as one ``(n_jx, n_jy)`` array
@@ -3154,6 +3172,14 @@ def _closed_form_attr_matrix_from(cx, cy):
     constant per-attribute Gaussian prefactor is dropped: it is identical
     across this matrix and the self matrices, so it cancels in the cosine and
     one-sided ratios.
+
+    Absolute-periodic uses the full-image (torus) measure: the r-tuple
+    kernel is the product across slots of the 1D wrapped Gaussian
+    ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Because Q
+    factors across slots in absolute mode, the product-of-theta form
+    (``r * (2L+1)`` per pair) is the cheaper representation of the
+    all-image kernel than the r-dim lattice sum (``(2L+1)^r``); the
+    image sum switches on only when the accuracy floor requires it.
 
     Relative-periodic uses the minimum-image pairwise-wrap metric of
     :func:`_compute_Q` (exactly period-shift invariant, and matching the flat
@@ -3181,6 +3207,21 @@ def _closed_form_attr_matrix_from(cx, cy):
     GY = np.zeros((njy, Ny))
     GY[np.arange(njy), Ey] = 1.0
     inv4s2 = 1.0 / (4.0 * sigma ** 2)
+    # Abs-per full-image: per-slot image sum before the r-tuple product.
+    # L = 0 at sigma/P below the accuracy-floor threshold, so this
+    # collapses to the single-Gaussian route unchanged. When the user
+    # has opted this attribute into ``wrap='single-image'`` the L is
+    # forced to 0 regardless.
+    if is_per and not is_rel:
+        if wrap_a == 'full-image':
+            from .._defaults import get_default
+            ts = (get_default("truncation_sigmas")
+                  if truncation_sigmas is None else truncation_sigmas)
+            L_abs_per = _rel_per_image_count(sigma, period, ts)
+        else:
+            L_abs_per = 0
+    else:
+        L_abs_per = 0
     # Chunk the X-tuple axis so the pairwise difference array never exceeds a
     # fixed budget: the full (njx, njy) overlap is materialised only one
     # |chunk| x njy block at a time, which keeps the materialised-centre path
@@ -3194,11 +3235,30 @@ def _closed_form_attr_matrix_from(cx, cy):
         D = Cx[:, s:e, None] - Cy[:, None, :]
         if bs >= 2:
             Q = _compute_Q_inner_blocks(D, bs, is_per, period, reduced=True)
-        else:
-            if is_per and not is_rel:
+            kernel_val = np.exp(-Q * inv4s2)
+        elif is_per and not is_rel:
+            # Abs-per full-image via the shared wrapped-Gaussian helper,
+            # which picks image-sum or Fourier by cost (crossover at
+            # sigma/P ~ 0.2). ``wrap_a='single-image'`` forces the
+            # single-image path.
+            if wrap_a == 'single-image':
                 D = D - period * np.floor(D / period + 0.5)
+                Q = _compute_Q(D, r_a, is_rel, is_per, period,
+                               reduced=is_rel)
+                kernel_val = np.exp(-Q * inv4s2)
+            else:
+                from .._wrapped_kernel import wrapped_gaussian_1d
+                from .._defaults import get_default
+                ts = (get_default("truncation_sigmas")
+                      if truncation_sigmas is None else truncation_sigmas)
+                theta_per_slot = wrapped_gaussian_1d(
+                    D, sigma, period, ts, exponent_denominator=4
+                )
+                kernel_val = theta_per_slot.prod(axis=0)
+        else:
             Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
-        ov = (Wx[s:e, None] * Wy[None, :]) * np.exp(-Q * inv4s2)
+            kernel_val = np.exp(-Q * inv4s2)
+        ov = (Wx[s:e, None] * Wy[None, :]) * kernel_val
         # X-side incidence matmul (mirror of the MATLAB implementation):
         # scatter-adds row-by-row are far slower than aggregating the
         # chunk with a second incidence product.
@@ -3286,11 +3346,15 @@ def _nested_attr_plan(dens_x, dens_y, a):
     # accuracy-floor width; ``accuracy_floor_context`` honoured).
     tol = truncation_floor(get_default("truncation_sigmas"))
     if route == "taugrid":
-        # The taugrid route is the faster all-image form; warn when it
-        # materially differs from the canonical single-wrap measure (the same
-        # warning the flat path raises), pointing to method='bulger'.
-        if period > 0 and sigma / period > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-            _warn_rel_per_all_image(sigma / period)
+        # The taugrid route computes (C) full-image via the tau-average
+        # of the wrapped Gaussian (v3+). If the user has opted this
+        # attribute into ``wrap='single-image'`` the centres route
+        # (which gives (A)) is used instead.
+        wrap = getattr(dens_x, 'wrap', None)
+        wrap_a = (str(wrap[a]) if wrap is not None and a < len(wrap)
+                  else 'full-image')
+        if wrap_a == 'single-image':
+            return "centres", None
         # Period-only grid; node count from the shared helper so the flat and
         # nested all-image grids coincide exactly.
         return route, np.linspace(0.0, period, auto_ntau_default(period, sigma),
@@ -3342,14 +3406,20 @@ def _nested_attr_route(dens_x, dens_y, a):
     return "centres"
 
 
-def _nested_attr_matrix(dens_x, dens_y, a, route, taus):
+def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     """(N_x, N_y) per-attribute inner matrix for a nested attribute, on the
     given ``route`` and shared ``taus`` from :func:`_nested_attr_plan` (passed
     in so xy, xx and yy share one measure and one grid)."""
     if route == "centres":
+        from .._defaults import get_default
+        ts = (get_default("truncation_sigmas")
+              if truncation_sigmas is None else truncation_sigmas)
         cx = _closed_form_attr_centres(dens_x, a)
         cy = _closed_form_attr_centres(dens_y, a)
-        return _closed_form_attr_matrix_from(cx, cy)
+        wrap_a = (str(dens_x.wrap[a])
+                  if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
+                  else 'full-image')
+        return _closed_form_attr_matrix_from(cx, cy, ts, wrap_a)
     from ._nested_contraction import build_recipe, nested_attr_matrix
     from .._defaults import get_default
     is_rel = bool(dens_x.is_rel[a])
@@ -3554,9 +3624,14 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
         # symmetric orbit to reduce, so there is no per-level Möbius to gain.
         cx = _closed_form_attr_centres(dens_x, a)
         cy = _closed_form_attr_centres(dens_y, a)
-        P_xy *= _closed_form_attr_matrix_from(cx, cy)
-        P_xx *= _closed_form_attr_matrix_from(cx, cx)
-        P_yy *= _closed_form_attr_matrix_from(cy, cy)
+        wrap_a = (str(dens_x.wrap[a])
+                  if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
+                  else 'full-image')
+        from .._defaults import get_default
+        _ts_flat = get_default("truncation_sigmas")
+        P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_flat, wrap_a)
+        P_xx *= _closed_form_attr_matrix_from(cx, cx, _ts_flat, wrap_a)
+        P_yy *= _closed_form_attr_matrix_from(cy, cy, _ts_flat, wrap_a)
 
     # The joint-tuple enumeration (bulger) mis-shapes a nested attribute's
     # per-event tuples in the MA tensor build, so a nested multi-attribute
@@ -3597,6 +3672,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         inner_r=inner_r,
+        wrap=getattr(dens_x, 'wrap', None),
     )
     ip_xx = _ip_core_ma(
         dens_x.u_perm, dens_x.w_j, n_jx,
@@ -3605,6 +3681,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         inner_r=inner_r,
+        wrap=getattr(dens_x, 'wrap', None),
     )
     ip_yy = _ip_core_ma(
         dens_y.u_perm, dens_y.w_j, n_jy,
@@ -3613,6 +3690,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         inner_r=inner_r,
+        wrap=getattr(dens_y, 'wrap', None),
     )
     return ip_xy, ip_xx, ip_yy
 
@@ -3801,23 +3879,45 @@ def _ma_ip_factor_nested_culled(spec, Xval, Xw, Yval, Yw, sigma, is_per,
     return contract(xv, yv, L - 1)
 
 
-def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in):
+def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in,
+                        truncation_sigmas=None, wrap_a='full-image'):
     """One attribute's IP factor by dense evaluation.
 
     Serves the forms the culled helper does not: the relative-periodic
     pairwise-wrap quadratic and the nested block-diagonal metric
     (``r_in > 0``).
+
+    Absolute-periodic uses the full-image r-tuple kernel
+    ``prod_a theta(d_a)`` (product of 1D wrapped Gaussians across
+    slots). At sigma/P below the accuracy-floor threshold ``L = 0`` and
+    the product-of-theta reduces to the single-Gaussian form; the image
+    sum switches on only when the floor requires it. When the user has
+    opted this attribute into ``wrap_a='single-image'`` the L is forced
+    to 0 regardless.
     """
     D = u[:, :, None] - v[:, None, :]                 # (r, M_u, M_v)
     if r_in > 0:
         Q = _compute_Q_inner_blocks(D, r_in, bool(is_per), float(period),
                                     reduced=False)
-    else:
-        if is_per and not is_rel:
-            p = float(period)
+        K = np.exp(-Q / (4.0 * float(sigma) ** 2))
+    elif is_per and not is_rel:
+        p = float(period)
+        if wrap_a == 'single-image':
             D = D - p * np.floor(D / p + 0.5)
+            Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
+            K = np.exp(-Q / (4.0 * float(sigma) ** 2))
+        else:
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            from .._defaults import get_default
+            ts = (get_default("truncation_sigmas")
+                  if truncation_sigmas is None else truncation_sigmas)
+            theta_per_slot = wrapped_gaussian_1d(
+                D, float(sigma), p, ts, exponent_denominator=4
+            )
+            K = theta_per_slot.prod(axis=0)
+    else:
         Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
-    K = np.exp(-Q / (4.0 * float(sigma) ** 2))
+        K = np.exp(-Q / (4.0 * float(sigma) ** 2))
     return float(wU @ K @ wV)
 
 
@@ -3886,18 +3986,27 @@ def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
                 elif kind[a] == "flat":
                     u, wU = pf[a][n]
                     v, wV = cf[a][m]
+                    wrap_a = (str(dens_perm.wrap[a])
+                              if hasattr(dens_perm, 'wrap')
+                              and dens_perm.wrap is not None
+                              else 'full-image')
                     factor = _ip_via_helper(
                         u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
                         bool(is_rel[a]), bool(is_per[a]), float(period[a]),
                         truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision)
+                        kernel_precision=kernel_precision,
+                        wrap_a=wrap_a)
                 else:
                     u, wU = pf[a][n]
                     v, wV = cf[a][m]
+                    wrap_a = (str(dens_perm.wrap[a])
+                              if hasattr(dens_perm, 'wrap')
+                              and dens_perm.wrap is not None
+                              else 'full-image')
                     factor = _ma_ip_factor_dense(
                         u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
                         bool(is_rel[a]), bool(is_per[a]), float(period[a]),
-                        int(inner_r[a]))
+                        int(inner_r[a]), truncation_sigmas, wrap_a)
                 prod *= factor
                 if prod == 0.0:
                     break
@@ -3947,7 +4056,8 @@ def _cos_sim_exp_tens_ma_factored(dens_x, dens_y, *, verbose=True,
 
 
 def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
-                   truncation_sigmas=None, kernel_precision=None):
+                   truncation_sigmas=None, kernel_precision=None,
+                   wrap_a='full-image'):
     """Route the centres-IP through :func:`gaussian_kernel_sum`.
 
     The helper computes ``g(q) = sum_j wJ(j) * exp(-Q(c_j - x_q) /
@@ -3959,7 +4069,8 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
     pairwise-wrap form is not yet supported by the helper.
     """
     kw = dict(is_rel=bool(is_rel), r=int(r),
-              is_per=bool(is_per), period=float(period))
+              is_per=bool(is_per), period=float(period),
+              wrap=str(wrap_a))
     if truncation_sigmas is not None:
         kw["truncation_sigmas"] = float(truncation_sigmas)
     if kernel_precision is not None:
@@ -3972,7 +4083,7 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
 
 def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
                      *, return_cancellation_ratio=False,
-                     truncation_sigmas=None):
+                     truncation_sigmas=None, wrap_a='full-image'):
     """<T_A, T_B> in absolute mode via the Möbius method.
 
     With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
@@ -3982,17 +4093,34 @@ def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
 
     ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
     to the global default.
+
+    ``wrap_a`` selects the abs-per measure: ``'full-image'`` (default)
+    uses the torus (all-image) 1-D wrapped Gaussian per slot, delivered
+    by :func:`_wrapped_kernel.wrapped_gaussian_1d` in overlap
+    convention. The r-tuple full-image kernel factors as
+    :math:`\\prod_a \\theta(d_a)`, delivered by the orbit reduction
+    over the 1-D theta values. ``'single-image'`` opts into the
+    nearest-image kernel unchanged. Ignored when ``is_per=False``.
     """
     from .._mobius import inner_product_orbit
     from .._defaults import get_default
+    from .._wrapped_kernel import wrapped_gaussian_1d
 
     if truncation_sigmas is None:
         truncation_sigmas = get_default('truncation_sigmas')
 
     diffs = p_a[:, None] - p_b[None, :]
-    if is_per:
-        diffs = diffs - period * np.floor(diffs / period + 0.5)
-    K = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+    if is_per and wrap_a == 'full-image':
+        # Overlap-kernel convention (exponent_denominator = 4). The
+        # (sigma sqrt(pi))^r prefactor stays: the 1-D wrapped Gaussian's
+        # integral over the circle equals the single Gaussian's over the
+        # line, so the r-tuple normalisation is identical.
+        K = wrapped_gaussian_1d(diffs, sigma, period, truncation_sigmas,
+                                exponent_denominator=4)
+    else:
+        if is_per:
+            diffs = diffs - period * np.floor(diffs / period + 0.5)
+        K = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
     return inner_product_orbit(
         K, w_a, w_b, r, prefactor=(sigma * np.sqrt(np.pi)) ** r,
         return_cancellation_ratio=return_cancellation_ratio,

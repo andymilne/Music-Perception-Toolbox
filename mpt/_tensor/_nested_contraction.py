@@ -391,7 +391,7 @@ def _trunc(K, sigma, truncation_sigmas):
 
 
 def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
-                 truncation_sigmas):
+                 truncation_sigmas, wrap_a='full-image'):
     """Absolute-mode inner product for one nested attribute.
 
     The absolute-mode r-tuple kernel factors across slots (unlike
@@ -403,6 +403,8 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
     ``d`` to ``[-P/2, P/2]`` first lets ``L = 0`` — i.e. reduce to the
     single-image Gaussian — cover the small-sigma regime, and the
     image sum switches on only when the accuracy floor requires it.
+    When the user has opted this attribute into
+    ``wrap_a='single-image'`` the L is forced to 0 regardless.
 
     The abs-per r-tuple kernel is ``prod_a theta(d_a)``. Its lattice
     representation is the sum over ``Z^r`` of Gaussians in the shifted
@@ -414,7 +416,8 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
     d = vX[:, None] - vY[None, :]
     if is_per:
         d = _wrap(d, period)
-        L = _theta_truncation_L(sigma, period, truncation_sigmas)
+        L = (_theta_truncation_L(sigma, period, truncation_sigmas)
+             if wrap_a == 'full-image' else 0)
         if L == 0:
             K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
         else:
@@ -478,7 +481,7 @@ def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
     dispatch's sense of computing (C) whenever this function is called;
     the toolbox's periodic-relative measure no longer depends on
     dispatch except by the user's ``wrap='full-image' vs 'single-image'``
-    choice (v2.4+).
+    choice (v3+).
 
     Truncation of the image sum: ``d`` is nearest-image reduced to
     ``[-P/2, P/2]`` so ``L = 0`` suffices whenever
@@ -508,7 +511,7 @@ def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
 
 def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
                    is_rel, is_per, period, r_total=None, truncation_sigmas=None,
-                   ntau=None):
+                   ntau=None, wrap_a='full-image'):
     """Cosine similarity via the contraction for one nested attribute.
 
     ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
@@ -533,7 +536,8 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
             rx, ry, a, b, wa, wb, sigma, period, truncation_sigmas, ntau)
     elif (not is_rel):
         ip = lambda rx, ry, a, b, wa, wb: _ip_absolute(
-            rx, ry, a, b, wa, wb, sigma, is_per, period, truncation_sigmas)
+            rx, ry, a, b, wa, wb, sigma, is_per, period, truncation_sigmas,
+            wrap_a)
     else:  # relative, non-periodic
         tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
         taus = auto_taus_line(np.concatenate([vX, vY]),
@@ -970,7 +974,7 @@ def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
 
 
 def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
-              truncation_sigmas, quad):
+              truncation_sigmas, quad, wrap_a='full-image'):
     """Bare inner product for one event-pair, on the shared quadrature.
 
     ``recipe_x`` indexes the X (``vX``) axis of the rectangular kernel,
@@ -983,7 +987,8 @@ def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
         # quadrature dict), not from whether ``period`` happens to be finite:
         # an absolute non-periodic attribute may still carry a finite period.
         return _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                            bool(quad["is_per"]), period, truncation_sigmas)
+                            bool(quad["is_per"]), period, truncation_sigmas,
+                            wrap_a)
     if mode == "relper":
         taus = quad["taus"]
         d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])

@@ -1268,22 +1268,6 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
         # differences (i.e., for is_per and not is_rel).
         if is_per_g[a] and not is_rel_g[a]:
             p_g = float(period_g[a])
-            sigma_a = float(sigma_g[a])
-            wrap_a = 'full-image'
-            if hasattr(dens_x, 'wrap') and dens_x.wrap is not None:
-                wrap_a = str(dens_x.wrap[a])
-            if wrap_a == 'full-image':
-                # Abs-per full-image via shared wrapped-Gaussian helper.
-                # Accumulate log(theta) per slot into log_kernel.
-                from .._wrapped_kernel import wrapped_gaussian_1d
-                from .._defaults import get_default
-                ts = get_default("truncation_sigmas")
-                theta_per_slot = wrapped_gaussian_1d(
-                    D, sigma_a, p_g, ts, exponent_denominator=4
-                )
-                log_kernel = log_kernel + np.log(theta_per_slot).sum(axis=0)
-                continue
-            # Single-image opt-in: reduce and fall through.
             D = D - p_g * np.floor(D / p_g + 0.5)
 
         Q_a = _compute_Q(D, r_a, bool(is_rel_g[a]), bool(is_per_g[a]),

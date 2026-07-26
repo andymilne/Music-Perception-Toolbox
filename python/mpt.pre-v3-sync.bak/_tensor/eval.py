@@ -925,8 +925,6 @@ def _eval_exp_tens_ma(
             float(dens.sigma[0]), int(dens.r[0]),
             bool(dens.is_rel[0]), bool(dens.is_per[0]), float(dens.period[0]),
             truncation_sigmas=truncation_sigmas,
-            wrap=(str(dens.wrap[0]) if hasattr(dens, 'wrap')
-                  and dens.wrap is not None else 'full-image'),
         )
         return _ma_eval_normalize(dens, vals, normalize)
 
@@ -1033,13 +1031,11 @@ def _eval_exp_tens_ma(
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             inner_r=_inner_r_vec(dens),
-            wrap=getattr(dens, 'wrap', None),
         )
     else:
         chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
         vals = np.zeros(n_q, dtype=np.float64)
         inner_r = _inner_r_vec(dens)
-        _wrap_dens = getattr(dens, 'wrap', None)
         for c_start in range(0, n_q, chunk_size):
             c_end = min(c_start + chunk_size, n_q)
             n_qc = c_end - c_start
@@ -1051,7 +1047,6 @@ def _eval_exp_tens_ma(
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 inner_r=inner_r,
-                wrap=_wrap_dens,
             )
 
     # --- Normalisation (shared with the factored path) ---
@@ -1190,7 +1185,6 @@ def _ma_eval_full(
     truncation_sigmas=None,
     kernel_precision=None,
     inner_r=None,
-    wrap=None,
 ):
     """Single-chunk MAET evaluation.
 
@@ -1223,11 +1217,6 @@ def _ma_eval_full(
     dtype = np.float32 if kernel_precision == "single" else np.float64
 
     q_total = np.zeros((int(n_j), int(n_qc)), dtype=dtype)
-    # Abs-per full-image factor accumulator: product over abs-per
-    # attributes of prod_slots theta(d). Stays 1 when every abs-per
-    # attribute has L=0 (the small-sigma/P regime), preserving the
-    # exact single-Gaussian arithmetic in that case.
-    abs_per_factor = None  # allocate lazily to keep the small-L path alloc-free
 
     for a in range(A):
         da = int(dim_per[a])
@@ -1251,26 +1240,6 @@ def _ma_eval_full(
         # applies the pairwise wrap inside (Eq 6).
         if is_per[a] and not is_rel[a]:
             pg = dtype(period[a])
-            wrap_a = 'full-image'
-            if wrap is not None and a < len(wrap):
-                wrap_a = str(wrap[a])
-            if wrap_a == 'full-image':
-                # Abs-per full-image via the shared wrapped-Gaussian
-                # helper (image-sum or Fourier, whichever is cheaper).
-                # Density-kernel convention: exponent_denominator=2.
-                from .._wrapped_kernel import wrapped_gaussian_1d
-                theta_per_slot = wrapped_gaussian_1d(
-                    d_a, float(sigma[a]), float(period[a]),
-                    truncation_sigmas, exponent_denominator=2,
-                )
-                factor_a = theta_per_slot.prod(axis=0).astype(dtype,
-                                                              copy=False)
-                abs_per_factor = (factor_a if abs_per_factor is None
-                                  else abs_per_factor * factor_a)
-                # Contribution now in abs_per_factor; skip q_total.
-                continue
-            # Single-image opt-in: pre-reduce and fall through to
-            # the q_total accumulator.
             d_a = d_a - pg * np.floor(d_a / pg + 0.5)
 
         # _compute_Q matches d_a.dtype, preserving the single-precision
@@ -1294,9 +1263,6 @@ def _ma_eval_full(
         e = np.where(mask, np.exp(-q_total), dtype(0.0))
     else:
         e = np.exp(-q_total)
-
-    if abs_per_factor is not None:
-        e = e * abs_per_factor.astype(dtype, copy=False)
 
     result = w_j.astype(dtype, copy=False) @ e
     return result.astype(np.float64, copy=False)
@@ -1426,7 +1392,7 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
 
 def _eval_core(
     centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
-    *, truncation_sigmas=None, wrap='full-image',
+    *, truncation_sigmas=None,
 ):
     """Evaluate with automatic memory-aware chunking (single-multiset path)."""
     # Non-periodic + finite truncation: bucket-grid spatial cull (mirrors MATLAB
@@ -1455,7 +1421,7 @@ def _eval_core(
 
     if bytes_needed <= mem_limit:
         return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
-                          truncation_sigmas=truncation_sigmas, wrap=wrap)
+                          truncation_sigmas=truncation_sigmas)
 
     chunk_size = max(1, int(mem_limit / ((2 * dim + 2) * int(n_j) * 8)))
     vals = np.zeros(n_q)
@@ -1465,14 +1431,14 @@ def _eval_core(
         n_qc = c_end - c_start
         vals[idx] = _eval_full(
             centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, is_rel, is_per, period,
-            truncation_sigmas=truncation_sigmas, wrap=wrap,
+            truncation_sigmas=truncation_sigmas,
         )
     return vals
 
 
 
 def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period,
-               *, truncation_sigmas=None, wrap='full-image'):
+               *, truncation_sigmas=None):
     """Fully vectorized single-multiset density evaluation.
 
     Uses the pairwise-wrap form (Eq 6 of the preprint) for
@@ -1486,38 +1452,12 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     through this fast kernel is value-identical to the general path,
     not merely close --- the two differ only in per-attribute loop
     overhead, never in the truncation policy.
-
-    ``wrap`` selects the abs-per measure (v3+): ``'full-image'``
-    (default) sums the kernel over periodic images; ``'single-image'``
-    evaluates the nearest image only. Ignored for rel-per and
-    non-periodic modes.
     """
     # D shape: (dim, nJ, nQc)
     D = centres[:, :, None] - x_q[:, None, :]
 
     # Outer wrap only needed for abs+per (see _compute_Q docstring).
     if is_per and not is_rel:
-        if wrap == 'full-image':
-            # Full-image via the shared wrapped-Gaussian helper
-            # (image-sum or Fourier, whichever is cheaper).
-            from .._wrapped_kernel import wrapped_gaussian_1d
-            theta_per_slot = wrapped_gaussian_1d(
-                D, float(sigma), float(period), truncation_sigmas,
-                exponent_denominator=2,
-            )
-            E = theta_per_slot.prod(axis=0)  # (nJ, nQc)
-            use_truncation = (
-                truncation_sigmas is not None
-                and np.isfinite(truncation_sigmas)
-                and truncation_sigmas > 0
-            )
-            if use_truncation:
-                from .._defaults import truncation_floor
-                floor = truncation_floor(truncation_sigmas)
-                E = np.where(E > floor, E, 0.0)
-            return w_j @ E
-        # Single-image: reduce to nearest image and fall through to
-        # the q_total accumulator.
         D = D - period * np.floor(D / period + 0.5)
 
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)

@@ -1498,30 +1498,11 @@ def _renyi2_per_attr_numerical(dens, a):
         if block_size >= 2:
             Q = _compute_Q_inner_blocks(
                 D, block_size, is_per, period, reduced=True)
-            overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-        elif is_per and not is_rel:
-            # Abs-per: full-image via shared helper (image-sum or
-            # Fourier by cost); single-image opt-in evaluates the
-            # nearest image only.
-            wrap_a = 'full-image'
-            if hasattr(dens, 'wrap') and dens.wrap is not None:
-                wrap_a = str(dens.wrap[a])
-            if wrap_a == 'single-image':
-                D = D - period * np.floor(D / period + 0.5)
-                Q = _compute_Q(D, r_a, is_rel, is_per, period,
-                               reduced=is_rel)
-                overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-            else:
-                from ._wrapped_kernel import wrapped_gaussian_1d
-                from ._defaults import get_default
-                ts = get_default("truncation_sigmas")
-                theta_per_slot = wrapped_gaussian_1d(
-                    D, sigma, period, ts, exponent_denominator=4
-                )
-                overlap = pref * theta_per_slot.prod(axis=0)
         else:
+            if is_per and not is_rel:
+                D = D - period * np.floor(D / period + 0.5)
             Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
-            overlap = pref * np.exp(-Q / (4 * sigma ** 2))
+        overlap = pref * np.exp(-Q / (4 * sigma ** 2))   # (n_j, n_j)
         wo = (w_j[:, None] * w_j[None, :]) * overlap
         # Aggregate tuples into their events (G is the N x n_j incidence).
         G = np.zeros((N, n_j), dtype=np.float64)

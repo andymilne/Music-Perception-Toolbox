@@ -169,8 +169,7 @@ def _resolve_aniso_ma(p_attr, sigma_vec, r_vec, is_rel_vec, is_per_vec,
 
 
 def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
-                   period=None, nested=None, wrap=None,
-                   verbose: bool = True) -> MaetDensity:
+                   period=None, nested=None, verbose: bool = True) -> MaetDensity:
     """Precompute an r-ad expectation tensor density object.
 
     Dispatches on the type of the first argument:
@@ -317,7 +316,6 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
         sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec = args[:5]
         is_sym_vec = args[5] if len(args) == 6 else None
-        wrap_vec = _normalise_wrap_ma(wrap, len(period_vec))
         from .aniso import sigma_vec_has_kernel_cov
         if sigma_vec_has_kernel_cov(sigma_vec):
             p, sigma_vec, cov_list, chol_list = _resolve_aniso_ma(
@@ -327,7 +325,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             dens = _build_exp_tens_ma(
                 p, w, sigma_vec, r_vec,
                 is_rel_vec, is_per_vec, period_vec, is_sym_vec,
-                nested=nested, wrap=wrap_vec,
+                nested=nested,
                 verbose=verbose,
             )
             dens.kernel_cov = cov_list
@@ -336,7 +334,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
         return _build_exp_tens_ma(
             p, w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, is_sym_vec,
-            nested=nested, wrap=wrap_vec,
+            nested=nested,
             verbose=verbose,
         )
     else:
@@ -348,7 +346,6 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
         sigma, r, is_rel, is_per, period = args[:5]
         is_sym = args[5] if len(args) == 6 else True
-        wrap_scalar = _normalise_wrap_scalar(wrap)
         from .aniso import is_kernel_cov
         if is_kernel_cov(sigma):
             p, sigma, Sigma, R = _resolve_aniso_single_multiset(
@@ -356,68 +353,15 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
             dens = _build_exp_tens_single_multiset(
                 p, w, sigma, r, is_rel, is_per, period, is_sym,
-                wrap=wrap_scalar, verbose=verbose,
+                verbose=verbose,
             )
             dens.kernel_cov = Sigma
             dens.kernel_chol = R
             return dens
         return _build_exp_tens_single_multiset(
             p, w, sigma, r, is_rel, is_per, period, is_sym,
-            wrap=wrap_scalar, verbose=verbose,
+            verbose=verbose,
         )
-
-
-_WRAP_VALUES = ('full-image', 'single-image')
-
-
-def _normalise_wrap_scalar(wrap):
-    """Return the single-attribute wrap string.
-
-    ``None`` -> ``'full-image'`` (the v3+ default). A string is
-    validated. Anything else raises ``ValueError``.
-    """
-    if wrap is None:
-        return 'full-image'
-    if isinstance(wrap, str):
-        if wrap not in _WRAP_VALUES:
-            raise ValueError(
-                f"wrap must be one of {_WRAP_VALUES!r} or None; got {wrap!r}"
-            )
-        return wrap
-    raise ValueError(
-        f"wrap for the single-multiset path must be a string in "
-        f"{_WRAP_VALUES!r} or None; got {type(wrap).__name__}"
-    )
-
-
-def _normalise_wrap_ma(wrap, n_attrs):
-    """Return an ``(n_attrs,)`` array of wrap strings for the MA path.
-
-    ``None`` -> all ``'full-image'``. A string is broadcast to every
-    attribute. A list/tuple/ndarray of length ``n_attrs`` is used
-    per-attribute. Anything else raises ``ValueError``.
-    """
-    if wrap is None:
-        return np.array(['full-image'] * int(n_attrs), dtype=object)
-    if isinstance(wrap, str):
-        if wrap not in _WRAP_VALUES:
-            raise ValueError(
-                f"wrap must be one of {_WRAP_VALUES!r} or None; got {wrap!r}"
-            )
-        return np.array([wrap] * int(n_attrs), dtype=object)
-    arr = np.asarray(wrap, dtype=object).ravel()
-    if arr.size != int(n_attrs):
-        raise ValueError(
-            f"wrap array length ({arr.size}) does not match number of "
-            f"attributes ({int(n_attrs)})"
-        )
-    for v in arr:
-        if str(v) not in _WRAP_VALUES:
-            raise ValueError(
-                f"wrap entries must each be one of {_WRAP_VALUES!r}; "
-                f"got {v!r}"
-            )
-    return arr
 
 
 
@@ -464,7 +408,6 @@ def _build_exp_tens_ma(
     *,
     nested=None,
     names=None,
-    wrap=None,
     verbose: bool = True,
 ) -> MaetDensity:
     """Multi-attribute expectation tensor builder.
@@ -824,7 +767,6 @@ def _build_exp_tens_ma(
         dim_per_attr=dim_per_attr,
         nested=nested,
         names=names,
-        wrap=wrap,
         _build_lazy=_build_lazy,
     )
 
@@ -1341,7 +1283,6 @@ def _build_exp_tens_single_multiset(
     period: float,
     is_sym: bool = True,
     *,
-    wrap: str = 'full-image',
     verbose: bool = True,
 ) -> MaetDensity:
     """Single-multiset build: the vector form canonicalised to the
@@ -1419,6 +1360,5 @@ def _build_exp_tens_single_multiset(
         [float(sigma)], [int(r)],
         [bool(is_rel)], [bool(is_per)], [float(period)],
         [bool(is_sym)],
-        wrap=np.array([str(wrap)], dtype=object),
         verbose=verbose,
     )

@@ -30,12 +30,10 @@ from scipy.special import comb as _comb
 from .._utils import validate_weights
 
 
-def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, wrap=None):
+def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period):
     """Warn once per absolute-periodic attribute whose sigma/period puts
     it past the point where the single-image measure departs from the
-    full-image one — but only when the user has opted into single-image
-    for that attribute. The full-image (default) kernel is
-    positive-definite by construction and needs no warning.
+    full-image one.
 
     Defensive throughout: sigma may carry an anisotropic kernel
     covariance rather than a scalar, and any of the mode vectors may be
@@ -55,19 +53,8 @@ def _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, wrap=None):
         per_v = np.atleast_1d(np.asarray(is_per, dtype=bool))
         rel_v = (np.zeros_like(per_v) if is_rel is None
                  else np.atleast_1d(np.asarray(is_rel, dtype=bool)))
-        wrap_v = (None if wrap is None
-                  else np.atleast_1d(np.asarray(wrap, dtype=object)))
         for a in range(per_v.size):
             if not per_v[a] or (a < rel_v.size and rel_v[a]):
-                continue
-            # Full-image is the default and is PD by construction; only
-            # warn when the user has explicitly opted into single-image.
-            if wrap_v is not None and a < wrap_v.size:
-                if str(wrap_v[a]) != 'single-image':
-                    continue
-            else:
-                # Legacy caller without wrap: assume default full-image
-                # semantics and stay silent.
                 continue
             try:
                 s = float(np.asarray(sigma).ravel()[a])
@@ -174,7 +161,6 @@ class MaetDensity:
         is_sym: np.ndarray | None = None,
         nested: list | None = None,
         names: list | None = None,
-        wrap: np.ndarray | None = None,
         # The build closure: a no-arg callable that returns a dict
         # populating the lazy fields. Stored on the instance and
         # called on first access of any lazy field.
@@ -192,17 +178,7 @@ class MaetDensity:
         self.is_rel = is_rel
         self.is_per = is_per
         self.period = period
-        # Per-attribute wrap choice (v3+). 'full-image' (default)
-        # sums the kernel over all periodic images (torus measure);
-        # 'single-image' evaluates only the nearest image (the v2.0–v2.3 (pre-v3)
-        # measure). Ignored for non-periodic attributes.
-        self.wrap = (np.array(['full-image'] * n_attrs, dtype=object)
-                     if wrap is None else np.asarray(wrap, dtype=object).ravel())
-        # The abs-per single-image warning fires only when the user has
-        # opted into single-image on an abs-per attribute at large
-        # sigma/P (v3+). At full-image (the default) the kernel is
-        # positive-definite by construction, so the warning is silent.
-        _warn_if_abs_per_single_image(sigma, is_rel, is_per, period, self.wrap)
+        _warn_if_abs_per_single_image(sigma, is_rel, is_per, period)
         self.dim = dim
         self.dim_per_attr = dim_per_attr
         # Per-attribute symmetrisation flag. Default all-True (legacy

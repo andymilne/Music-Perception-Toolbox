@@ -112,11 +112,6 @@ def eval_ma_orbit(
                 truncation_sigmas=ts,
                 kernel_precision=kernel_precision,
             )
-            # For abs-per attributes only, honour the density's wrap
-            # opt-in. eval_orbit_rel does not take wrap (relative-mode
-            # is always full-image after v3).
-            if not is_rel[a] and hasattr(dens, 'wrap') and dens.wrap is not None:
-                kw['wrap'] = str(dens.wrap[a])
             if return_cancellation_ratio:
                 f_a, r_a = evaluator(
                     p_an, w_an, sigma[a], r_vec[a], x_blocks[a],

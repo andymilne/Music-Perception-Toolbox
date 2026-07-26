@@ -36,7 +36,6 @@ def gaussian_kernel_sum(
     period: float = 0.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
-    wrap: str = 'full-image',
 ) -> np.ndarray:
     """Compute the Gaussian kernel sum over centres against queries.
 
@@ -171,12 +170,12 @@ def gaussian_kernel_sum(
         else:
             v = _exact_kernel_sum(
                 C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
-                sigma_w, truncation_sigmas, wrap,
+                sigma_w,
             )
     else:
         v = _exact_kernel_sum(
             C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
-            sigma_w, truncation_sigmas, wrap,
+            sigma_w,
         )
 
     return v.astype(np.float64, copy=False)
@@ -186,8 +185,7 @@ def gaussian_kernel_sum(
 # Exact path
 # ---------------------------------------------------------------------
 
-def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
-                      truncation_sigmas=None, wrap='full-image'):
+def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma):
     dim, nJ = C.shape
     nQ = X.shape[1]
     if nJ == 0 or nQ == 0:
@@ -200,22 +198,19 @@ def _exact_kernel_sum(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
     bytes_needed = (2 * dim + 2) * nJ * nQ * bytes_per_scalar
     BUDGET = kernel_chunk_bytes_resolved()
     if bytes_needed <= BUDGET:
-        return _eval_chunk(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma,
-                           truncation_sigmas, wrap)
+        return _eval_chunk(C, wJ, X, is_rel, r, is_per, period, inv2s2, sigma)
 
     chunk = max(1, BUDGET // ((2 * dim + 2) * nJ * bytes_per_scalar))
     out = np.zeros(nQ, dtype=C.dtype)
     for c0 in range(0, nQ, chunk):
         c1 = min(c0 + chunk, nQ)
         out[c0:c1] = _eval_chunk(
-            C, wJ, X[:, c0:c1], is_rel, r, is_per, period, inv2s2, sigma,
-            truncation_sigmas, wrap
+            C, wJ, X[:, c0:c1], is_rel, r, is_per, period, inv2s2, sigma
         )
     return out
 
 
-def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
-                truncation_sigmas=None, wrap='full-image'):
+def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma):
     # D: (dim, nJ, nQc)
     D = C[:, :, None] - Xq[:, None, :]
     # Outer wrap is only needed for abs+per. For rel+per, _compute_Q
@@ -227,20 +222,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # avoiding np.mod's two-pass implementation. Reduction-order
     # numerical agreement (~1e-13).
     if is_per and not is_rel:
-        # Abs-per: full-image via shared wrapped-Gaussian helper (picks
-        # image-sum or Fourier by cost; density-kernel convention with
-        # exponent_denominator=2). Single-image opt-in evaluates only
-        # the nearest image, matching the pre-v3 behaviour.
-        if wrap == 'single-image':
-            D = D - period * np.floor(D / period + 0.5)
-        else:
-            from ._wrapped_kernel import wrapped_gaussian_1d
-            theta_per_slot = wrapped_gaussian_1d(
-                D, float(sigma), float(period), truncation_sigmas,
-                exponent_denominator=2,
-            )
-            E = theta_per_slot.prod(axis=0)  # (nJ, nQc)
-            return wJ @ E  # (nQc,)
+        D = D - period * np.floor(D / period + 0.5)
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
     # to match v2.0/v2.1 ULP-for-ULP at default settings (in all modes

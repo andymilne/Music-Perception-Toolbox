@@ -356,7 +356,6 @@ def _select_ma_inner_product_method(
     sigma_over_P_max, user_method,
     rel_vec=None, nu_vec=None,
     guard_forced_bulger=True,
-    wrap_vec=None,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
@@ -470,33 +469,13 @@ def _select_ma_inner_product_method(
         # arrays, mirroring the single-multiset row-factor), capped to avoid overflow.
         if n_J_max * (2 * max(dim_sum, 1)) * 8 > _CENTRES_WORKING_SET_SOFT_BUDGET:
             return 'mobius'
-    # Wrap-based override for rel-per attributes at high sigma/P (v3+).
-    # ``wrap='single-image'`` means the user wants (A) minimum-image
-    # pairwise-wrap, computed by Bulger's method. ``wrap='full-image'``
-    # (the default) means the user wants (C) all-image, computed by
-    # the Möbius method. At low sigma/P the two agree numerically so
-    # either method is fine; above the threshold they diverge and the
-    # wrap axis picks the intended measure. Legacy callers without a
-    # wrap vector see no change: the pre-v3 dispatch order stands.
-    if wrap_vec is not None and any_rel_per and rel_vec is not None:
-        wants_single = any(
-            (wrap_vec is not None and w == 'single-image' and rel_vec[a])
-            for a, w in enumerate(wrap_vec) if a < len(rel_vec)
-        )
-        wants_full = any(
-            (w == 'full-image' and rel_vec[a])
-            for a, w in enumerate(wrap_vec) if a < len(rel_vec)
-        )
-        if wants_single and wants_full:
-            raise ValueError(
-                "Mixed rel-per wrap on a single density is not yet supported; "
-                "all rel-per attributes must share a wrap value."
-            )
-        if sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-            if wants_single:
-                return 'bulger'
-            if wants_full:
-                return 'mobius'
+    # Relative-periodic measure note: the Möbius method computes the all-image
+    # (JMM Eq. 3.4 transposition-integral) form; Bulger's method computes the
+    # single-wrap (minimum-image) form. They diverge by O((σ/P)^∞) above
+    # σ/P ≈ 0.03. The dispatch always takes the faster path (cost model below);
+    # when that path is the all-image Möbius method and σ/P is above the
+    # threshold (so the two measures differ), it warns and points to
+    # method='bulger' for the canonical single-wrap measure.
     pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
     pw_cost_ms = pw_size * _pw_per_entry_ms(any_per, r_max)
     # Aggregate-only callers (the legacy selector API) supply no
@@ -521,6 +500,8 @@ def _select_ma_inner_product_method(
     )
     if pw_cost_ms <= orbit_cost_ms:
         return 'bulger'
+    if any_rel_per and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        _warn_rel_per_all_image(sigma_over_P_max)
     return 'mobius'
 
 
@@ -780,9 +761,9 @@ _ABS_PER_SIGMA_OVER_P_THRESHOLD = 0.05
 
 
 def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
-    """Warn that an absolute-periodic attribute has been opted into
-    the single-image (minimum-image) measure at a σ/P where that
-    departs from the full-image measure (the v3+ default).
+    """Warn that an absolute-periodic attribute is being built under the
+    single-image (minimum-image) measure at a σ/P where that departs
+    from the full-image measure.
 
     Raised at density construction rather than at any one operation,
     because the choice is a property of the density: the absolute
@@ -790,12 +771,11 @@ def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
     everything computed downstream --- evaluation, inner product,
     entropy --- inherits it.
 
-    Fires only when the user has explicitly passed
-    ``wrap='single-image'`` on this attribute. The default full-image
-    measure is positive definite by construction; the warning is silent
-    in the ordinary case. The two measures agree below the threshold, so
-    the warning is also silent in the range musical work normally
-    occupies.
+    Unlike the relative-periodic case, absolute-periodic mode currently
+    offers no full-image route, so this warning names no alternative
+    method: it reports a limitation rather than announcing a
+    substitution. The two measures agree below the threshold, so the
+    warning is silent in the range musical work normally occupies.
 
     The consequence worth acting on is not only the size of the
     departure but its character. Above roughly σ/P = 0.15 the
@@ -806,29 +786,53 @@ def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
     warnings.warn(
         f"σ/P = {sigma_over_P:.3f} exceeds "
         f"{_ABS_PER_SIGMA_OVER_P_THRESHOLD}: this absolute-periodic "
-        f"attribute has been opted into the single-image (minimum-image) "
-        f"measure, which above this σ/P departs from the full-image "
-        f"measure that sums the kernel over every periodic image (the "
-        f"two agree below it). Everything computed from this density "
-        f"inherits the choice. Above roughly σ/P = 0.15 the single-image "
-        f"kernel also stops being positive definite, so a cosine "
-        f"similarity computed from it is not bounded by 1. Drop "
-        f"``wrap='single-image'`` (the v3+ default is the full-image "
-        f"measure) or reduce sigma relative to the period if the measure "
-        f"matters at this scale.",
+        f"attribute uses the single-image (minimum-image) measure, "
+        f"which above this σ/P departs from the full-image measure that "
+        f"sums the kernel over every periodic image (the two agree below "
+        f"it). Everything computed from this density inherits the "
+        f"choice, and no full-image route is available in "
+        f"absolute-periodic mode at present. Above roughly σ/P = 0.15 "
+        f"the single-image kernel also stops being positive definite, so "
+        f"a cosine similarity computed from it is not bounded by 1. "
+        f"Reduce sigma relative to the period if the measure matters at "
+        f"this scale.",
         stacklevel=stacklevel,
     )
 
 
-def _warn_rel_per_all_image(*args, **kwargs):
-    """Retired in v3.
+def _warn_rel_per_all_image(sigma_over_P, *, operation="inner product",
+                            canonical_method="bulger", stacklevel=3):
+    """Warn that the dispatch took the faster all-image form in
+    relative-periodic mode, which above the σ/P threshold differs from
+    the canonical single-image measure.
 
-    Retained as a no-op for backward compatibility with any external
-    call sites; the substitution it warned about is no longer a
-    substitution: rel-per full-image (C) is the toolbox's default
-    measure and the ``wrap='single-image'`` opt-in gives (A) explicitly.
+    The all-image (transposition-integral) form is simply what the
+    Möbius method computes in relative-periodic mode --- at every σ/P,
+    not only above the threshold. Below the threshold it closely
+    approximates the canonical single-image (minimum-image) measure and
+    is cheaper, so it is preferred with no warning. Above the threshold
+    it is a genuinely different measure, so its selection is announced
+    here, with the single-image measure available on demand via
+    ``method=canonical_method`` (``'bulger'`` for the inner product,
+    ``'centres'`` for evaluation).
+
+    Emitted by every relative-periodic path --- flat single-multiset,
+    flat multi-attribute, the nested contraction, and evaluation --- so
+    the message is uniform wherever the substitution happens.
     """
-    return None
+    warnings.warn(
+        f"σ/P = {sigma_over_P:.3f} exceeds {_ORBIT_SIGMA_OVER_P_THRESHOLD}: "
+        f"the faster all-image (full-image lattice) form of the "
+        f"relative-periodic {operation} has been used. Above this σ/P it "
+        f"differs from the canonical single-image (minimum-image) measure "
+        f"(the two agree below it). To compute the single-image measure "
+        f"instead, pass method='{canonical_method}', which takes the exact "
+        f"route this fast path avoids; that route can be substantially "
+        f"slower, and infeasible for a large or high-order collection "
+        f"(precisely the case that made the all-image form the faster path "
+        f"here).",
+        stacklevel=stacklevel,
+    )
 
 
 class SingleImageInfeasibleError(MemoryError):
@@ -1531,22 +1535,24 @@ def _select_ma_eval(dens, n_q, *, method):
         return "centres", force_centres_reason
 
     # ---- Relative-periodic measure preference (takes precedence over
-    # the cost model). The Möbius method computes the (C) full-image
-    # (transposition-average) form; the centres path computes the (A)
-    # single-image form. The v3+ default is full-image and the toolbox
-    # prefers the Möbius route whenever it is available (it is cheaper
-    # and memory-safe: the factored evaluator is n_j-free). If the user
-    # has opted the rel-per attribute into ``wrap='single-image'`` the
-    # centres route is selected instead, on the same threshold. ----
-    wrap = getattr(dens, 'wrap', None)
+    # the cost model). Above the σ/P threshold the Möbius method computes
+    # the all-image (transposition-average) form while centres computes
+    # the single-image (minimum-image) form --- different measures, not
+    # two routes to one answer. The toolbox prefers the all-image form
+    # here whenever it is available (it is cheaper and memory-safe: the
+    # factored evaluator is n_j-free), matching the inner-product path.
+    # The single-image measure remains available on demand via
+    # method='centres'. Warn that the substitution has occurred. ----
     for a in range(A):
         if (is_rel[a] and is_per[a] and period[a] > 0
                 and sigma[a] / period[a] > _ORBIT_SIGMA_OVER_P_THRESHOLD):
-            wrap_a = (str(wrap[a]) if wrap is not None
-                      and a < len(wrap) else 'full-image')
-            if wrap_a == 'single-image':
-                return "centres", "rel-per single-image measure (wrap opt-in)"
-            return "mobius", "rel-per full-image measure"
+            _warn_rel_per_all_image(
+                sigma[a] / period[a],
+                operation="evaluation",
+                canonical_method="centres",
+                stacklevel=3,
+            )
+            return "mobius", "rel-per all-image measure"
 
     # ---- Cost model: two closed-form per-call time estimates (ms),
     # each a per-call setup term plus per-query work scaled by n_q. The

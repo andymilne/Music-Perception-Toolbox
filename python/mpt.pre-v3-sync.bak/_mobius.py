@@ -1283,7 +1283,6 @@ def eval_orbit_abs(
     return_cancellation_ratio: bool = False,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
-    wrap: str = 'full-image',
 ) -> np.ndarray:
     """Möbius point evaluator for the single-multiset absolute-mode tensor.
 
@@ -1450,8 +1449,7 @@ def eval_orbit_abs(
             use_reduction = per_helper_global and span_ok
 
         if use_reduction:
-            kw: dict = dict(truncation_sigmas=float(trunc_resolved),
-                            wrap=str(wrap))
+            kw: dict = dict(truncation_sigmas=float(trunc_resolved))
             if kernel_precision is not None:
                 kw["kernel_precision"] = kernel_precision
             if is_per:

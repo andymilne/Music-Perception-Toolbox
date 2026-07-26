@@ -123,7 +123,7 @@ def iter_cases():
 
     for (rel, per) in [(False, False), (False, True), (True, False), (True, True)]:
         cfg = dict(BASE); cfg['isRel'] = rel; cfg['isPer'] = per
-        y = emit(f'isRel={rel},isPer={per}', cfg)
+        y = emit(f'isRel={rel}&isPer={per}', cfg)
         if y: yield y
 
     for v in ['full-image', 'single-image']:
@@ -186,11 +186,16 @@ def run_eval(cfg):
         [isRel] * A, [isPer] * A, [period_val] * A,
         wrap=wrap, verbose=False,
     )
+    n_j = int(getattr(d, 'n_j', -1))
 
+    # Force the centres path on both sides so any residual value
+    # disagreement is genuinely in the centres kernel and not a
+    # dispatch-routing difference across languages.
     def call():
-        return mpt.eval_exp_tens(d, X, verbose=False)
+        return mpt.eval_exp_tens(d, X, method='centres', verbose=False)
 
-    return best_of_3(call)
+    t, result = best_of_3(call)
+    return t, result, n_j
 
 
 def run_cossim(cfg):
@@ -216,11 +221,13 @@ def run_cossim(cfg):
         [isRel] * A, [isPer] * A, [period_val] * A,
         wrap=wrap, verbose=False,
     )
+    n_j = int(getattr(dx, 'n_j', -1))
 
     def call():
         return mpt.cos_sim_exp_tens(dx, dy, verbose=False)
 
-    return best_of_3(call)
+    t, result = best_of_3(call)
+    return t, result, n_j
 
 
 def checksum_eval(v):
@@ -264,11 +271,11 @@ def main():
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             try:
-                t_eval, v_eval = run_eval(cfg)
+                t_eval, v_eval, n_j_eval = run_eval(cfg)
                 cs_eval = checksum_eval(v_eval)
                 rows.append(dict(
                     label=label, operation='eval',
-                    elapsed_s=t_eval, checksum=cs_eval,
+                    elapsed_s=t_eval, checksum=cs_eval, n_j=n_j_eval,
                     **cfg,
                 ))
                 print(f"eval {t_eval*1000:.1f}ms  ", end='', flush=True)
@@ -277,11 +284,11 @@ def main():
 
             # cossim
             try:
-                t_cos, v_cos = run_cossim(cfg)
+                t_cos, v_cos, n_j_cos = run_cossim(cfg)
                 cs_cos = checksum_cossim(v_cos)
                 rows.append(dict(
                     label=label, operation='cossim',
-                    elapsed_s=t_cos, checksum=cs_cos,
+                    elapsed_s=t_cos, checksum=cs_cos, n_j=n_j_cos,
                     **cfg,
                 ))
                 print(f"cossim {t_cos*1000:.1f}ms")
@@ -290,7 +297,7 @@ def main():
 
     # Write CSV
     fieldnames = [
-        'label', 'operation', 'elapsed_s', 'checksum',
+        'label', 'operation', 'elapsed_s', 'checksum', 'n_j',
         'sigma_over_P', 'r', 'isRel', 'isPer', 'wrap',
         'A', 'N', 'K', 'nQ',
     ]

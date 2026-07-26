@@ -43,7 +43,8 @@ def main():
     print(f"Joined on (label, operation): {len(all_keys)} unique keys\n")
 
     hdr = f"{'label':<28} {'op':<6} {'py_s':>10} {'ml_s':>10} " \
-          f"{'ratio':>8} {'py_cs':>14} {'ml_cs':>14} {'rel_err':>10}   flags"
+          f"{'ratio':>8} {'py_cs':>14} {'ml_cs':>14} {'rel_err':>10} " \
+          f"{'py_nj':>6} {'ml_nj':>6}   flags"
     print(hdr)
     print('-' * len(hdr))
 
@@ -51,6 +52,7 @@ def main():
     max_ratio = 1.0
     n_val_bad = 0
     n_time_bad = 0
+    n_nj_bad = 0
     missing = []
 
     for k in all_keys:
@@ -68,6 +70,8 @@ def main():
         ml_t = float(mlr['elapsed_s'])
         py_cs = float(pyr['checksum'])
         ml_cs = float(mlr['checksum'])
+        py_nj = int(pyr.get('n_j', -1))
+        ml_nj = int(mlr.get('n_j', -1))
 
         # Value comparison
         denom = max(abs(py_cs), abs(ml_cs), 1e-30)
@@ -78,30 +82,38 @@ def main():
         ratio = ml_t / py_t if py_t > 0 else float('inf')
         time_flag = (ratio > args.time_flag) or (ratio < 1.0 / args.time_flag)
 
+        # Tuple-count comparison — a build-side mismatch that would
+        # explain per-r eval discrepancies. -1 means the runner didn't
+        # emit n_j; only flag when both are >= 0 and differ.
+        nj_flag = py_nj >= 0 and ml_nj >= 0 and py_nj != ml_nj
+
         max_rel_err = max(max_rel_err, rel_err)
         max_ratio = max(max_ratio, ratio, 1.0 / max(ratio, 1e-30))
         if val_flag:
             n_val_bad += 1
         if time_flag:
             n_time_bad += 1
+        if nj_flag:
+            n_nj_bad += 1
 
         flags = ''
         if val_flag:
             flags += 'V'
         if time_flag:
             flags += 'T'
+        if nj_flag:
+            flags += 'N'
 
         print(f"{label:<28} {op:<6} {py_t:>10.4g} {ml_t:>10.4g} "
               f"{ratio:>8.2f} {py_cs:>14.6g} {ml_cs:>14.6g} "
-              f"{rel_err:>10.2e}   {flags}")
+              f"{rel_err:>10.2e} {py_nj:>6d} {ml_nj:>6d}   {flags}")
 
     print()
     print(f"Value agreement: max rel_err = {max_rel_err:.3e}")
-    print(f"  {n_val_bad} rows exceed tolerance {args.value_tol:.1e} "
-          f"(flag V)")
+    print(f"  {n_val_bad} rows exceed tolerance {args.value_tol:.1e} (flag V)")
     print(f"Time ratio: max |ratio| = {max_ratio:.2f}x")
-    print(f"  {n_time_bad} rows exceed {args.time_flag:.0f}x either way "
-          f"(flag T)")
+    print(f"  {n_time_bad} rows exceed {args.time_flag:.0f}x either way (flag T)")
+    print(f"Tuple count (n_j) mismatches: {n_nj_bad} (flag N)")
     if missing:
         print(f"\n{len(missing)} rows missing on one side:")
         for k, side in missing:

@@ -35,9 +35,9 @@ function bench_xlang(outPath)
 
         % eval
         try
-            [tEval, vEval] = localRunEval(c, PERIOD);
+            [tEval, vEval, nJEval] = localRunEval(c, PERIOD);
             csEval = sum(abs(vEval(:)));
-            rows{end+1} = localMakeRow(label, 'eval', tEval, csEval, c); %#ok<AGROW>
+            rows{end+1} = localMakeRow(label, 'eval', tEval, csEval, nJEval, c); %#ok<AGROW>
             fprintf('eval %.1fms  ', tEval * 1000);
         catch e
             fprintf('eval FAIL (%s)  ', e.message);
@@ -45,8 +45,8 @@ function bench_xlang(outPath)
 
         % cossim
         try
-            [tCos, vCos] = localRunCossim(c, PERIOD);
-            rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, c); %#ok<AGROW>
+            [tCos, vCos, nJCos] = localRunCossim(c, PERIOD);
+            rows{end+1} = localMakeRow(label, 'cossim', tCos, vCos, nJCos, c); %#ok<AGROW>
             fprintf('cossim %.1fms\n', tCos * 1000);
         catch e
             fprintf('cossim FAIL (%s)\n', e.message);
@@ -131,7 +131,7 @@ function cases = localBuildCases()
     for kk = 1:4
         c = base; c.isRel = relPer{kk}(1); c.isPer = relPer{kk}(2);
         [cases, seenFP] = localTryAdd(cases, seenFP, ...
-            sprintf('isRel=%s,isPer=%s', localBoolStr(c.isRel), localBoolStr(c.isPer)), c);
+            sprintf('isRel=%s&isPer=%s', localBoolStr(c.isRel), localBoolStr(c.isPer)), c);
     end
 
     for wr = {'full-image', 'single-image'}
@@ -205,7 +205,7 @@ function [tBest, result] = localBestOf3(fn)
 end
 
 
-function [tBest, v] = localRunEval(c, PERIOD)
+function [tBest, v, nJ] = localRunEval(c, PERIOD)
     sigma = c.sigma_over_P * PERIOD;
     if c.isPer, periodVal = PERIOD; else, periodVal = 0; end
 
@@ -218,13 +218,18 @@ function [tBest, v] = localRunEval(c, PERIOD)
         repmat(sigma, 1, c.A), repmat(c.r, 1, c.A), ...
         repmat(c.isRel, 1, c.A), repmat(c.isPer, 1, c.A), ...
         repmat(periodVal, 1, c.A), ...
-        'wrap', c.wrap, 'verbose', false);
+        'wrap', c.wrap, 'verbose', false, 'lazy', false);
+    if isfield(d, 'nJ'); nJ = double(d.nJ); else; nJ = -1; end
 
-    [tBest, v] = localBestOf3(@() evalExpTens(d, X, 'verbose', false));
+    % Force the centres path on both sides so any residual value
+    % disagreement is genuinely in the centres kernel and not a
+    % dispatch-routing difference across languages.
+    [tBest, v] = localBestOf3(@() evalExpTens(d, X, ...
+        'method', 'centres', 'verbose', false));
 end
 
 
-function [tBest, v] = localRunCossim(c, PERIOD)
+function [tBest, v, nJ] = localRunCossim(c, PERIOD)
     sigma = c.sigma_over_P * PERIOD;
     if c.isPer, periodVal = PERIOD; else, periodVal = 0; end
 
@@ -238,12 +243,13 @@ function [tBest, v] = localRunCossim(c, PERIOD)
         repmat(sigma, 1, c.A), repmat(c.r, 1, c.A), ...
         repmat(c.isRel, 1, c.A), repmat(c.isPer, 1, c.A), ...
         repmat(periodVal, 1, c.A), ...
-        'wrap', c.wrap, 'verbose', false);
+        'wrap', c.wrap, 'verbose', false, 'lazy', false);
     dy = buildExpTens(pAll2, wAll, ...
         repmat(sigma, 1, c.A), repmat(c.r, 1, c.A), ...
         repmat(c.isRel, 1, c.A), repmat(c.isPer, 1, c.A), ...
         repmat(periodVal, 1, c.A), ...
-        'wrap', c.wrap, 'verbose', false);
+        'wrap', c.wrap, 'verbose', false, 'lazy', false);
+    if isfield(dx, 'nJ'); nJ = double(dx.nJ); else; nJ = -1; end
 
     [tBest, v] = localBestOf3(@() cosSimExpTens(dx, dy, 'verbose', false));
 end
@@ -253,12 +259,13 @@ end
 % Row assembly and CSV output
 % =========================================================================
 
-function row = localMakeRow(label, operation, elapsed, checksum, c)
+function row = localMakeRow(label, operation, elapsed, checksum, nJ, c)
     row = struct( ...
         'label', label, ...
         'operation', operation, ...
         'elapsed_s', elapsed, ...
         'checksum', checksum, ...
+        'n_j', nJ, ...
         'sigma_over_P', c.sigma_over_P, ...
         'r', c.r, ...
         'isRel', localBoolStr(c.isRel), ...
@@ -273,12 +280,12 @@ function localWriteCsv(outPath, rows)
     if fid < 0
         error('bench_xlang:write', 'Cannot open %s for writing', outPath);
     end
-    fprintf(fid, ['label,operation,elapsed_s,checksum,' ...
+    fprintf(fid, ['label,operation,elapsed_s,checksum,n_j,' ...
                   'sigma_over_P,r,isRel,isPer,wrap,A,N,K,nQ\n']);
     for i = 1:numel(rows)
         r = rows{i};
-        fprintf(fid, '%s,%s,%.9g,%.15g,%.6g,%d,%s,%s,%s,%d,%d,%d,%d\n', ...
-            r.label, r.operation, r.elapsed_s, r.checksum, ...
+        fprintf(fid, '%s,%s,%.9g,%.15g,%d,%.6g,%d,%s,%s,%s,%d,%d,%d,%d\n', ...
+            r.label, r.operation, r.elapsed_s, r.checksum, r.n_j, ...
             r.sigma_over_P, r.r, r.isRel, r.isPer, r.wrap, ...
             r.A, r.N, r.K, r.nQ);
     end

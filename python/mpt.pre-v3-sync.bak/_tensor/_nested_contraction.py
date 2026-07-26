@@ -358,24 +358,6 @@ def _wrap(d, period):
     return d - period * np.round(d / period)
 
 
-def _theta_truncation_L(sigma, period, truncation_sigmas):
-    """Number of periodic-image shifts per side to include in the 1D
-    wrapped Gaussian ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``
-    so the first omitted term is below the truncation floor. Callers
-    are responsible for having reduced ``d`` to ``[-P/2, P/2]`` first
-    (``_wrap``), so the worst-case first-omitted term is at
-    ``|d + n P| >= (L + 1/2) P``.
-    """
-    from .._defaults import truncation_floor
-    if sigma <= 0.0 or period <= 0.0:
-        return 0
-    floor = truncation_floor(truncation_sigmas)
-    if floor <= 0.0 or floor >= 1.0:
-        floor = 1e-15
-    rhs = 2.0 * sigma / period * math.sqrt(-math.log(floor))
-    return max(0, int(math.ceil(rhs - 0.5)))
-
-
 def _trunc(K, sigma, truncation_sigmas):
     """Zero kernel entries below the truncation floor exp(-k^2/2).
 
@@ -391,42 +373,11 @@ def _trunc(K, sigma, truncation_sigmas):
 
 
 def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
-                 truncation_sigmas, wrap_a='full-image'):
-    """Absolute-mode inner product for one nested attribute.
-
-    The absolute-mode r-tuple kernel factors across slots (unlike
-    relative-mode, whose ``Q`` couples slots via the projected form),
-    so the per-slot 1D kernel here is the object the outer contraction
-    multiplies across r_a slots. In periodic mode that per-slot 1D
-    kernel is the wrapped Gaussian (theta):
-    ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Reducing
-    ``d`` to ``[-P/2, P/2]`` first lets ``L = 0`` — i.e. reduce to the
-    single-image Gaussian — cover the small-sigma regime, and the
-    image sum switches on only when the accuracy floor requires it.
-    When the user has opted this attribute into
-    ``wrap_a='single-image'`` the L is forced to 0 regardless.
-
-    The abs-per r-tuple kernel is ``prod_a theta(d_a)``. Its lattice
-    representation is the sum over ``Z^r`` of Gaussians in the shifted
-    r-tuple; the product-of-theta form is the cheaper one to compute
-    (``(2L+1) * r`` vs ``(2L+1)^r`` per pair). The r-dim outer product
-    is applied downstream in ``_contract``, so this function returns
-    the 1D per-slot kernel matrix.
-    """
+                 truncation_sigmas):
     d = vX[:, None] - vY[None, :]
     if is_per:
         d = _wrap(d, period)
-        L = (_theta_truncation_L(sigma, period, truncation_sigmas)
-             if wrap_a == 'full-image' else 0)
-        if L == 0:
-            K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-        else:
-            n_shift = np.arange(-L, L + 1, dtype=np.float64) * period
-            d_shift = d[..., None] + n_shift               # (nX, nY, 2L+1)
-            K = np.exp(-d_shift ** 2 / (4.0 * sigma ** 2)).sum(axis=-1)
-    else:
-        K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-    K = K[None, :, :]                                       # (1, nX, nY)
+    K = np.exp(-d ** 2 / (4.0 * sigma ** 2))[None, :, :]   # (1, nX, nY)
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
     return float(_contract(recipe_x, recipe_y, K)[0])
@@ -466,44 +417,15 @@ def auto_ntau_default(period, sigma):
 
 def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
                      truncation_sigmas, ntau):
-    """One event-pair relative-periodic inner product: the transposition
-    average over tau in [0, P) of a per-slot wrapped-Gaussian kernel.
-
-    The 1D wrapped-Gaussian kernel
-    ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))`` is the periodic
-    (torus) overlap of two unit-height Gaussians; the r-slot product
-    ``prod_a theta(delta_a - tau)`` is the r-tuple absolute-mode kernel
-    and averaging over tau in [0, P) projects it onto the relative
-    (diagonal-invariant) subspace. This is the (C) full-image measure
-    (a.k.a. all-image, torus-quotient), agreeing with the flat spectral
-    branch to floating-point precision and matching the reference
-    lattice sum on 1^perp. The kernel is now unconditional in the
-    dispatch's sense of computing (C) whenever this function is called;
-    the toolbox's periodic-relative measure no longer depends on
-    dispatch except by the user's ``wrap='full-image' vs 'single-image'``
-    choice (v3+).
-
-    Truncation of the image sum: ``d`` is nearest-image reduced to
-    ``[-P/2, P/2]`` so ``L = 0`` suffices whenever
-    ``exp(-(P/2)^2 / (4 sigma^2))`` is below the floor; ``L`` grows
-    as the floor tightens or sigma approaches P/2.
-    """
+    """One event-pair relative-periodic inner product: the all-image
+    transposition average over tau in [0, P) (the torus-quotient measure, not
+    the minimum-image pairwise-wrap of the centres path). Each tau node is a
+    one-body product, so the contraction's per-level orbit reduction applies;
+    the mean over nodes is the trapezoidal estimate of the period average."""
     taus = np.linspace(0.0, period, ntau, endpoint=False)
     d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])  # nX,nY,T
     d = _wrap(d, period)
-    # 1D wrapped-Gaussian theta at each (nX, nY, T). Nearest-image
-    # reduction above lets L be small; the sum here is what turns the
-    # inner one-body product into the abs-per r-tuple kernel that the
-    # outer tau-average projects to rel-per.
-    L = _theta_truncation_L(sigma, period, truncation_sigmas)
-    if L == 0:
-        K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-    else:
-        n_shift = np.arange(-L, L + 1, dtype=np.float64) * period
-        # (nX, nY, T, 2L+1) then sum over image axis -> (nX, nY, T)
-        d_shift = d[..., None] + n_shift
-        K = np.exp(-d_shift ** 2 / (4.0 * sigma ** 2)).sum(axis=-1)
-    K = K.transpose(2, 0, 1)                                            # T,nX,nY
+    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)        # T,nX,nY
     K = K * (wX[None, :, None] * wY[None, None, :])
     _trunc(K, sigma, truncation_sigmas)
     return float(_contract(recipe_x, recipe_y, K).mean())
@@ -511,7 +433,7 @@ def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
 
 def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
                    is_rel, is_per, period, r_total=None, truncation_sigmas=None,
-                   ntau=None, wrap_a='full-image'):
+                   ntau=None):
     """Cosine similarity via the contraction for one nested attribute.
 
     ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
@@ -536,8 +458,7 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
             rx, ry, a, b, wa, wb, sigma, period, truncation_sigmas, ntau)
     elif (not is_rel):
         ip = lambda rx, ry, a, b, wa, wb: _ip_absolute(
-            rx, ry, a, b, wa, wb, sigma, is_per, period, truncation_sigmas,
-            wrap_a)
+            rx, ry, a, b, wa, wb, sigma, is_per, period, truncation_sigmas)
     else:  # relative, non-periodic
         tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
         taus = auto_taus_line(np.concatenate([vX, vY]),
@@ -974,7 +895,7 @@ def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
 
 
 def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
-              truncation_sigmas, quad, wrap_a='full-image'):
+              truncation_sigmas, quad):
     """Bare inner product for one event-pair, on the shared quadrature.
 
     ``recipe_x`` indexes the X (``vX``) axis of the rectangular kernel,
@@ -987,8 +908,7 @@ def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
         # quadrature dict), not from whether ``period`` happens to be finite:
         # an absolute non-periodic attribute may still carry a finite period.
         return _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                            bool(quad["is_per"]), period, truncation_sigmas,
-                            wrap_a)
+                            bool(quad["is_per"]), period, truncation_sigmas)
     if mode == "relper":
         taus = quad["taus"]
         d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])

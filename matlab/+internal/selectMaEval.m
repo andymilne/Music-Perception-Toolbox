@@ -190,9 +190,6 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     for a = 1:A
         if isRel(a) && isPer(a) && periodG(a) > 0 ...
                 && sigmaG(a) / periodG(a) > ORBIT_SIGMA_OVER_P_THRESHOLD
-            if verbose
-                internal.warnRelPerAllImage(sigmaG(a) / periodG(a));
-            end
             chosen = 'mobius';
             routingReason = 'rel-per all-image measure';
             return;

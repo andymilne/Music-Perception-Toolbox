@@ -1066,9 +1066,6 @@ function chosen = localSelectSingleMultisetMethod(r, n_max, isRel, isPer, ...
         chosen = 'bulger';
         return;
     end
-    if isRel && isPer && sigmaOverP > 0.03 && verbose   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-        internal.warnRelPerAllImage(sigmaOverP);
-    end
     chosen = 'mobius';
 end
 
@@ -1222,9 +1219,6 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleM
     % they do in absolute mode and in relative mode below the threshold). Emit
     % the warning pointing to method='bulger' for the single-wrap measure.
     if relPerAbove
-        if verbose
-            internal.warnRelPerAllImage(sigmaOverP);
-        end
         chosen = 'mobius';
         probed = false;
         estSec = 0;

@@ -71,9 +71,6 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     if pwCost <= orbitCost
         chosen = 'bulger';
     else
-        if anyRelPer && sigmaOverPMax > 0.03 && verbose   % _ORBIT_SIGMA_OVER_P_THRESHOLD
-            internal.warnRelPerAllImage(sigmaOverPMax);
-        end
         chosen = 'mobius';
     end
 end

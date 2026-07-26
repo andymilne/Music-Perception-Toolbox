@@ -678,6 +678,15 @@ isRel = dens_x.isRel;
 isPer = dens_x.isPer;
 J     = dens_x.period;
 
+% Wrap opt-in on the single-multiset flat view (unwrapped to bare
+% char). Consumers of the flat view read this directly. Default
+% 'full-image' when absent (older builds without a wrap field).
+if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
+    if iscell(dens_x.wrap); wrap = char(dens_x.wrap{1}); else; wrap = char(dens_x.wrap); end
+else
+    wrap = 'full-image';
+end
+
 % === Early return for degenerate case ===
 if r > min(numel(dens_x.p), numel(dens_y.p))
     s = NaN;
@@ -877,18 +886,25 @@ end
                 Dc = reshape(U, r, nJ, 1) ...
                    - reshape(V(:, idx), r, 1, nKc);
 
-                % See note in ipFull: outer wrap is only needed when
-                % computeQ does not re-wrap pairwise component
-                % differences.
-                if isPer && ~isRel
-                    Dc = Dc - J .* floor(Dc / J + 0.5);
+                % Abs-per full-image via the shared 1-D wrapped
+                % Gaussian in overlap convention; the r-tuple kernel
+                % factors as prod_a theta(d_a). Abs-per single-image
+                % opts back to nearest-image + Q form. Rel-per and
+                % non-periodic keep the pre-v3 path unchanged.
+                if isPer && ~isRel && strcmp(wrap, 'full-image')
+                    ts = internal.accuracyFloor('resolve', truncResolved);
+                    theta_c = internal.wrappedGaussian1d( ...
+                        Dc, sigma, J, ts, 4);
+                    Ec = reshape(prod(theta_c, 1), nJ, nKc);
+                else
+                    if isPer && ~isRel
+                        Dc = Dc - J .* floor(Dc / J + 0.5);
+                    end
+                    Qc = computeQ(Dc);
+                    Ec = reshape( ...
+                        internal.truncKernelExp(Qc(:), sigma, truncResolved), ...
+                        nJ, nKc);
                 end
-
-                Qc = computeQ(Dc);
-
-                Ec = reshape( ...
-                    internal.truncKernelExp(Qc(:), sigma, truncResolved), ...
-                    nJ, nKc);
                 acc = acc + Ec * wV(idx)';
             end
 
@@ -919,6 +935,9 @@ end
         end
         if isPer
             kw = [kw, {'isPer', true, 'period', J}];
+        end
+        if isPer
+            kw = [kw, {'wrap', wrap}];
         end
         if ~isempty(truncationSigmas)
             kw = [kw, {'truncationSigmas', truncationSigmas}];
@@ -961,23 +980,32 @@ end
     function ipval = ipFull(U, wU, nJ, V, wV, nK, truncResolved)
         D = reshape(U, r, nJ, 1) - reshape(V, r, 1, nK);
 
-        % The outer wrap is needed only when computeQ does not re-wrap
-        % the pairwise component differences (i.e., for isPer and not
-        % isRel: Q = sum(D.^2), which requires wrapped D components).
-        % For isRel+isPer, computeQ wraps each (D(i)-D(j)) inside
-        % (the pairwise-wrap form of Eq 6); that inner wrap is
-        % invariant under integer-period shifts of the operands, so
-        % wrapping D first is redundant. Skipping it saves ~30-45% of
-        % ipFull time across K.
-        if isPer && ~isRel
-            D = D - J .* floor(D / J + 0.5);
+        % Abs-per full-image via the shared 1-D wrapped Gaussian in
+        % overlap convention; the r-tuple kernel factors as
+        % prod_a theta(d_a). Abs-per single-image opts back to
+        % nearest-image + Q form. Rel-per and non-periodic keep the
+        % pre-v3 path unchanged.
+        if isPer && ~isRel && strcmp(wrap, 'full-image')
+            ts = internal.accuracyFloor('resolve', truncResolved);
+            theta = internal.wrappedGaussian1d(D, sigma, J, ts, 4);
+            E = reshape(prod(theta, 1), nJ, nK);
+        else
+            % The outer wrap is needed only when computeQ does not
+            % re-wrap the pairwise component differences (i.e., for
+            % isPer and not isRel: Q = sum(D.^2), which requires
+            % wrapped D components). For isRel+isPer, computeQ wraps
+            % each (D(i)-D(j)) inside (the pairwise-wrap form of
+            % Eq 6); that inner wrap is invariant under integer-period
+            % shifts of the operands, so wrapping D first is
+            % redundant.
+            if isPer && ~isRel
+                D = D - J .* floor(D / J + 0.5);
+            end
+            Qvec = computeQ(D);
+            E = reshape( ...
+                internal.truncKernelExp(Qvec(:), sigma, truncResolved), ...
+                nJ, nK);
         end
-
-        Qvec = computeQ(D);
-
-        E = reshape( ...
-            internal.truncKernelExp(Qvec(:), sigma, truncResolved), ...
-            nJ, nK);
         ipval = wU(:)' * (E * wV(:));
     end
 
@@ -1157,6 +1185,16 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleM
     else
         sigmaOverP = 0;
     end
+    % Wrap opt-in on the flat single-multiset view (unwrapped char).
+    if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
+        if iscell(dens_x.wrap)
+            wrapA = char(dens_x.wrap{1});
+        else
+            wrapA = char(dens_x.wrap);
+        end
+    else
+        wrapA = 'full-image';
+    end
     routingReason = '';
 
     % ---- Hard rules ----
@@ -1211,18 +1249,23 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleM
 
     % ---- Relative-periodic measure preference (takes precedence over cost) --
     % Above the sigma/P threshold the Möbius method computes the all-image
-    % transposition average while Bulger's method computes the single-wrap
-    % (minimum-image) form -- these are *different measures*, not two routes to
-    % the same answer. The toolbox's default measure there is the all-image
-    % form, so we must choose Möbius on measure grounds regardless of the cost
-    % comparison below (which assumes both methods compute the same object, as
-    % they do in absolute mode and in relative mode below the threshold). Emit
-    % the warning pointing to method='bulger' for the single-wrap measure.
+    % (transposition-integral) form -- the toolbox's default full-image
+    % measure -- while Bulger's method computes the single-wrap
+    % (minimum-image) form. These are *different measures*, not two routes
+    % to the same answer. Route by the density's wrap opt-in: 'full-image'
+    % (the default) picks Möbius for the all-image measure; 'single-image'
+    % picks Bulger for the minimum-image measure. Below the threshold the
+    % two measures agree numerically and the routing falls through to the
+    % cost model below.
     if relPerAbove
-        chosen = 'mobius';
+        if strcmp(wrapA, 'single-image')
+            chosen = 'bulger';
+        else
+            chosen = 'mobius';
+        end
         probed = false;
         estSec = 0;
-        routingReason = 'rel-per all-image measure';
+        routingReason = sprintf('rel-per measure via wrap=%s', wrapA);
         return;
     end
 
@@ -1718,9 +1761,16 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, ...
         ip_yy = mobius.orbitInnerRelSingleMultiset(p_y, w_y, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved);
     else
+        % Consumer of dens_x may be an MA density (dens.wrap{a} as cell)
+        % or a single-multiset view (dens.wrap as bare char); handle
+        % both layouts.
         wrapA = 'full-image';
         if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
-            wrapA = char(dens_x.wrap{1});
+            if iscell(dens_x.wrap)
+                wrapA = char(dens_x.wrap{1});
+            else
+                wrapA = char(dens_x.wrap);
+            end
         end
         ip_xy = mobius.orbitInnerAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, isPer, period, ...
             'truncationSigmas', truncResolved, 'wrap', wrapA);

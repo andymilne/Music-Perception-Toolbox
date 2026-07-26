@@ -83,14 +83,14 @@ function theta = wrappedGaussian1d(d, sigma, period, ...
                                          truncationSigmas, ...
                                          exponentDenominator);
     dRed = d - period * floor(d / period + 0.5);
-    inv = 1 / (exponentDenominator * sigma * sigma);
+    inv2s2 = 1 / (exponentDenominator * sigma * sigma);
     if L == 0
-        theta = exp(-dRed .* dRed * inv);
+        theta = exp(-dRed .* dRed * inv2s2);
         return
     end
     imageShape = ones(1, nDimsIn);
     imageShape(reduceAxis) = 2 * L + 1;
     nShaped = reshape((-L:L), imageShape);
     dShift = dRed + period * nShaped;
-    theta = sum(exp(-dShift .* dShift * inv), reduceAxis);
+    theta = sum(exp(-dShift .* dShift * inv2s2), reduceAxis);
 end

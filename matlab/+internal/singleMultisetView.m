@@ -49,6 +49,17 @@ function v = singleMultisetView(dens)
         v.dim = dens.dim;
     end
 
+    % --- per-attribute wrap opt-in. At the A = 1 corner, unwrap the
+    %     single cell slot to a bare char, matching the view's flat-
+    %     scalar convention throughout. Consumers that read wrap must
+    %     handle both the MA cell layout (dens.wrap{a}) and this flat
+    %     char form. ---
+    if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+        wr = dens.wrap;
+        if iscell(wr); wr = wr{1}; end
+        v.wrap = char(wr);
+    end
+
     % --- matrix-valued kernel covariance metadata (per-attribute at the
     %     A = 1 corner: unwrap the single slot for the flat consumers) ---
     if isfield(dens, 'kernelCov') && ~isempty(dens.kernelCov)

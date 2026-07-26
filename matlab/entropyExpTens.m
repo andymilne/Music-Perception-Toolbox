@@ -2033,7 +2033,11 @@ function H = localRenyi2SingleMultiset(maet, base)
         diffs = p - p.';
         wrap = 'full-image';
         if isfield(dens, 'wrap') && ~isempty(dens.wrap)
-            wrap = char(dens.wrap{1});
+            if iscell(dens.wrap)
+                wrap = char(dens.wrap{1});
+            else
+                wrap = char(dens.wrap);
+            end
         end
         if isPer && strcmp(wrap, 'full-image')
             ts = internal.accuracyFloor('resolve', []);
@@ -2063,9 +2067,15 @@ function H = localRenyi2SingleMultiset(maet, base)
             ip_xx = mobius.orbitInnerRelSingleMultiset(p, w, p, w, sigma, r, isPer, period);
             Z = mobius.totalMassRel(p, w, sigma, r);
         else
+            % dens here may be a single-multiset view (wrap as bare
+            % char) or an MA density (wrap as cell); handle both.
             wrapA = 'full-image';
             if isfield(dens, 'wrap') && ~isempty(dens.wrap)
-                wrapA = char(dens.wrap{1});
+                if iscell(dens.wrap)
+                    wrapA = char(dens.wrap{1});
+                else
+                    wrapA = char(dens.wrap);
+                end
             end
             ip_xx = mobius.orbitInnerAbsSingleMultiset(p, w, p, w, sigma, r, ...
                 isPer, period, 'wrap', wrapA);

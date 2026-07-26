@@ -91,6 +91,9 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
         period (1,1) double
         opts.truncationSigmas (1,1) double = mptDefaults('truncationSigmas')
         opts.pruneZeroWeightEvents (1,1) logical = true
+        opts.wrap (1,:) char ...
+            {mustBeMember(opts.wrap, {'full-image', 'single-image'})} ...
+            = 'full-image'
     end
 
     [Kx, Nx] = size(Px); %#ok<ASGLU>
@@ -118,6 +121,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
                 Py(:, keepY), Wy(:, keepY), ...
                 sigma, r, isRel, isPer, period, ...
                 'truncationSigmas', opts.truncationSigmas, ...
+                'wrap', opts.wrap, ...
                 'pruneZeroWeightEvents', false);   % avoid infinite recursion
             I = zeros(Nx, Ny);
             I(keepX, keepY) = subIp;
@@ -126,11 +130,12 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
     end
 
     truncationSigmas = opts.truncationSigmas;
+    wrap = opts.wrap;
 
     % --- r = 1: direct kernel sum, zero-pad fine (no cancellation) ---
     if r == 1
         I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
-            truncationSigmas);
+            truncationSigmas, wrap);
         return;
     end
 
@@ -185,7 +190,8 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
                 Pxs, Wxs, Pys, Wys, sigma, r, truncationSigmas);
         else
             I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
-                Pxs, Wxs, Pys, Wys, sigma, r, isPer, period, truncationSigmas);
+                Pxs, Wxs, Pys, Wys, sigma, r, isPer, period, ...
+                truncationSigmas, wrap);
         end
     end
 
@@ -204,12 +210,14 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
     if ~isempty(unsafe_x_idx)
         I = localFillDirectEnumGroups(I, ...
             Px, Wx, Py, Wy, unsafe_x_idx, 1:Ny, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period, truncationSigmas);
+            K_eff_x, K_eff_y, sigma, r, isPer, period, ...
+            truncationSigmas, wrap);
     end
     if ~isempty(unsafe_y_idx) && ~isempty(safe_x_idx)
         I = localFillDirectEnumGroups(I, ...
             Px, Wx, Py, Wy, safe_x_idx, unsafe_y_idx, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period, truncationSigmas);
+            K_eff_x, K_eff_y, sigma, r, isPer, period, ...
+            truncationSigmas, wrap);
     end
 end
 
@@ -219,7 +227,7 @@ end
 % =========================================================================
 
 function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
-                              truncationSigmas)
+                              truncationSigmas, wrap)
 %LOCALR1ZEROPAD  r=1 direct kernel sum with NaN -> zero-weight padding.
 
     [Kx, Nx] = size(Px);
@@ -236,6 +244,8 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
         Wy(nanY) = 0;
     end
 
+    absPerFullImage = isPer && strcmp(wrap, 'full-image');
+
     % Memory: each of diffs, diffs.^2, K_tens is
     % (Kx, chunk_Nx, Ky, Ny) * 8 bytes. Up to ~3 live arrays during
     % evaluation; budget accordingly.
@@ -251,10 +261,19 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
 
         diffs = reshape(Px(:, idxX), Kx, nc, 1, 1) ...
               - reshape(Py, 1, 1, Ky, Ny);
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
+        if absPerFullImage
+            % Full-image 1-D wrapped Gaussian in overlap convention
+            % (exponent_denominator = 4). Same shape as diffs; the
+            % r=1 kernel factor is this theta directly (no product
+            % across slots at r = 1).
+            K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
+                                                 truncationSigmas, 4);
+        else
+            if isPer
+                diffs = diffs - period * floor(diffs / period + 0.5);
+            end
+            K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         end
-        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         for n_local = 1:nc
             n_x = idxX(n_local);
             slab = squeeze(K_tens(:, n_local, :, :));   % (Kx, Ky, Ny)
@@ -267,7 +286,7 @@ end
 
 
 function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
-                                  sigma, r, isPer, period, truncationSigmas)
+                                  sigma, r, isPer, period, truncationSigmas, wrap)
 %LOCALSAFESAFEORBIT  Vectorised Möbius-method IP on the safe submatrix.
 %
 %   Within the safe group K still varies per event; zero-pad to the
@@ -290,6 +309,7 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
     end
 
     prefactor = (sigma * sqrt(pi))^r;
+    absPerFullImage = isPer && strcmp(wrap, 'full-image');
 
     % Memory: each of diffs, diffs.^2, K_tens is
     % (Kx, chunk_Nxs, Ky, Ny_safe) * 8 bytes; ~3 live arrays.
@@ -309,10 +329,20 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
 
         diffs = reshape(Px_chunk, Kx, nc, 1, 1) ...
               - reshape(Py_safe, 1, 1, Ky, Ny_safe);
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
+        if absPerFullImage
+            % Full-image 1-D wrapped Gaussian in overlap convention.
+            % innerProductOrbitPwBatched consumes the per-slot pair
+            % kernel unchanged; the r-tuple full-image kernel factors
+            % across slots as prod_a theta(d_a), delivered by the orbit
+            % reduction over the 1-D theta values.
+            K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
+                                                 truncationSigmas, 4);
+        else
+            if isPer
+                diffs = diffs - period * floor(diffs / period + 0.5);
+            end
+            K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         end
-        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
 
         K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (nc, Ny_safe, Kx, Ky)
         K_pairs = reshape(K_perm, nc*Ny_safe, Kx, Ky);
@@ -438,7 +468,7 @@ end
 
 function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
                                          K_eff_x, K_eff_y, sigma, r, ...
-                                         isPer, period, truncationSigmas)
+                                         isPer, period, truncationSigmas, wrap)
 %LOCALFILLDIRECTENUMGROUPS  K-grouped batched direct-enum fill.
 %
 %   Partitions x_idx by K_eff_x value and y_idx by K_eff_y value, then
@@ -473,7 +503,7 @@ function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
             Wy_grp = Wy_grp(1:double(Ky_val), :);
             sub_ip = localBatchedDirectEnumAbsSingleMultiset( ...
                 Px_grp, Wx_grp, Py_grp, Wy_grp, ...
-                sigma, r, isPer, period, truncationSigmas);
+                sigma, r, isPer, period, truncationSigmas, wrap);
             I(x_grp, y_grp) = sub_ip;
         end
     end
@@ -506,7 +536,7 @@ end
 
 
 function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, ...
-                                          isPer, period, truncationSigmas)
+                                          isPer, period, truncationSigmas, wrap)
 %LOCALBATCHEDDIRECTENUMABSSINGLEMULTISET  Batched direct r-tuple enumeration IP.
 %
 %   Vectorised replacement for repeated calls to
@@ -532,13 +562,20 @@ function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, .
         return;
     end
 
+    absPerFullImage = isPer && strcmp(wrap, 'full-image');
+
     if r == 1
         % r=1: direct kernel sum without r-tuple enumeration.
         diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
+        if absPerFullImage
+            K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
+                                                 truncationSigmas, 4);
+        else
+            if isPer
+                diffs = diffs - period * floor(diffs / period + 0.5);
+            end
+            K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         end
-        K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         I = zeros(Nx, Ny);
         for n_x = 1:Nx
             slab = squeeze(K_tens(:, n_x, :, :));   % (Kx, Ky, Ny)
@@ -589,11 +626,19 @@ function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, .
     % Differences: (r, N_x, nJ_x, N_y, nJ_y)
     diffs = reshape(U_x, r, Nx, nJ_x, 1, 1) ...
           - reshape(U_y, r, 1, 1, Ny, nJ_y);
-    if isPer
-        diffs = diffs - period * floor(diffs / period + 0.5);
+    if absPerFullImage
+        % Full-image r-tuple kernel factors across slots: per-slot
+        % theta then product across slots. Overlap convention.
+        theta = internal.wrappedGaussian1d(diffs, sigma, period, ...
+                                            truncationSigmas, 4);
+        Kmat = reshape(prod(theta, 1), Nx, nJ_x, Ny, nJ_y);
+    else
+        if isPer
+            diffs = diffs - period * floor(diffs / period + 0.5);
+        end
+        Q = reshape(sum(diffs.^2, 1), Nx, nJ_x, Ny, nJ_y);
+        Kmat = internal.truncKernelExp(Q, sigma, truncationSigmas);
     end
-    Q = reshape(sum(diffs.^2, 1), Nx, nJ_x, Ny, nJ_y);
-    Kmat = internal.truncKernelExp(Q, sigma, truncationSigmas);
 
     % Contract: ip(n_x, n_y) = sum_{jx, jy}
     %               Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy) * Wj_y(n_y, jy)

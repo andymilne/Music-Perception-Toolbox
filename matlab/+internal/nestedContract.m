@@ -5,7 +5,7 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 %   Returns a struct with fields xy, xx, yy (the bare inner-product triple)
 %   when the case is covered -- exactly one nested attribute, outer or no
 %   [rel] (inner_r == 0), cosine or one-sided normalisation, NaN-padded
-%   (variable-K) slots included -- AND the
+%   (variable-K) values included -- AND the
 %   contraction is estimated cheaper than the enumeration; otherwise [] and
 %   the caller routes to the exact Bulger enumeration.
 %
@@ -65,10 +65,10 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
     WY = densY.w{1}; if isempty(WY); WY = ones(size(PY)); end
     WX = double(WX);
     WY = double(WY);
-    % Variable-K (NaN-padded) slots: a padded slot is exactly equivalent
-    % to a zero-weight slot at any finite value (every tuple touching it
+    % Variable-K (NaN-padded) values: a padded value is exactly equivalent
+    % to a zero-weight value at any finite position (every tuple touching it
     % carries zero weight), so the contraction covers it by filling each
-    % padded slot with an in-range value at weight zero -- the same
+    % padded value with an in-range value at weight zero -- the same
     % NaN -> zero-weight idiom as mobius.maPerAttrInnerMatrix.
     mX = isnan(PX);
     mY = isnan(PY);
@@ -80,8 +80,8 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
 
     rLevels   = double(specX.r(:)).';
     symLevels = logical(specX.sym(:)).';
-    % tags: rows index slots, columns the inner tag levels (L-1 of them). A
-    % MATLAB literal tag vector is a row, whereas buildRecipe takes the slot
+    % tags: rows index values, columns the inner tag levels (L-1 of them). A
+    % MATLAB literal tag vector is a row, whereas buildRecipe takes the value
     % count from dimension 1 (matching the Python 1-D convention), so orient
     % single-level (L=2) tags as a column and undo any transposed matrix.
     tagsX = orientTags(double(specX.tags), size(PX, 1), numel(rLevels));
@@ -281,7 +281,7 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
         WYa = densY.w{a}; if isempty(WYa); WYa = ones(size(PYa)); end
         WXa = double(WXa);
         WYa = double(WYa);
-        % Variable-K (NaN-padded) slots: fill with an in-range value at
+        % Variable-K (NaN-padded) values: fill with an in-range value at
         % weight zero (exactly equivalent; see the single-attribute path).
         mXa = isnan(PXa);
         mYa = isnan(PYa);
@@ -381,28 +381,28 @@ function recipe = buildRecipe(rLevels, symLevels, tags, isRel, isPer)
 end
 
 
-function node = buildNode(level, slots, rLevels, symLevels, tags, isRel, isPer)
-    slots = slots(:);
+function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
+    valIdx = valIdx(:);
     if level == 0
         r0 = rLevels(1);
         sy0 = symLevels(1);
-        useOrb = orbitEligible(numel(slots), r0, sy0, isRel, isPer);
+        useOrb = orbitEligible(numel(valIdx), r0, sy0, isRel, isPer);
         if useOrb
             xt = zeros(0, r0); yt = zeros(0, r0);   % lazy: orbit needs no tuples
         else
-            [xt, yt] = tupleIndices(numel(slots), r0, sy0);
+            [xt, yt] = tupleIndices(numel(valIdx), r0, sy0);
         end
-        node = struct('level', 0, 'slots', slots, 'children', {{}}, ...
+        node = struct('level', 0, 'valIdx', valIdx, 'children', {{}}, ...
                       'xtup', xt, 'ytup', yt, 'r', r0, 'sym', sy0, ...
                       'useOrbit', useOrb);
         return;
     end
     col = level;                       % 1-based tag column (Python col=level-1)
-    keys = tags(slots, col);
+    keys = tags(valIdx, col);
     uk = unique(keys);                 % ascending
     children = cell(1, numel(uk));
     for c = 1:numel(uk)
-        sub = slots(keys == uk(c));
+        sub = valIdx(keys == uk(c));
         children{c} = buildNode(level - 1, sub, rLevels, symLevels, tags, ...
                                 isRel, isPer);
     end
@@ -414,7 +414,7 @@ function node = buildNode(level, slots, rLevels, symLevels, tags, isRel, isPer)
     else
         [xt, yt] = tupleIndices(numel(children), rl, syl);
     end
-    node = struct('level', level, 'slots', slots, 'children', {children}, ...
+    node = struct('level', level, 'valIdx', valIdx, 'children', {children}, ...
                   'xtup', xt, 'ytup', yt, 'r', rl, 'sym', syl, ...
                   'useOrbit', useOrb);
 end
@@ -477,12 +477,12 @@ end
 % ----------------------------------------------------------------------
 function v = contractNode(xn, yn, K)
     % Bottom-up, batched over the quadrature (dim 1) AND over sibling pairs.
-    % K is (Q, nX, nY): the X axis is indexed by xn slots, the Y axis by yn
-    % slots. For XX/YY (and equal-cardinality XY) xn and yn coincide and this
+    % K is (Q, nX, nY): the X axis is indexed by xn values, the Y axis by yn
+    % values. For XX/YY (and equal-cardinality XY) xn and yn coincide and this
     % is the original single-tree walk; differing leaf spans are handled per
     % level by combinePair's per-size tuple sourcing.
     if xn.level == 0
-        block = K(:, xn.slots, yn.slots);
+        block = K(:, xn.valIdx, yn.valIdx);
         v = combinePair(block, xn.r, xn.sym, xn.useOrbit && yn.useOrbit);
     else
         Mc = subtreeOverlaps(xn.children, yn.children, K);
@@ -493,7 +493,7 @@ end
 
 function s = nodeSpan(node)
     if node.level == 0
-        s = numel(node.slots);
+        s = numel(node.valIdx);
     else
         s = numel(node.children);
     end
@@ -527,11 +527,11 @@ function M = leafOverlaps(xnodes, ynodes, K)
         % r0 = 1: M(q,a,b) = sum_{i in Sxa, j in Syb} K(q,i,j) (weights folded).
         Gx = zeros(gx, nX);
         for a = 1:gx
-            Gx(a, xnodes{a}.slots) = 1.0;
+            Gx(a, xnodes{a}.valIdx) = 1.0;
         end
         Gy = zeros(gy, nY);
         for b = 1:gy
-            Gy(b, ynodes{b}.slots) = 1.0;
+            Gy(b, ynodes{b}.valIdx) = 1.0;
         end
         KG = reshape(reshape(K, [Q * nX, nY]) * Gy.', [Q, nX, gy]);  % (q,i,b)
         KGp = reshape(permute(KG, [2, 1, 3]), [nX, Q * gy]);          % (i, q*b)
@@ -542,13 +542,13 @@ function M = leafOverlaps(xnodes, ynodes, K)
     ux = siblingsUniform(xnodes);
     uy = siblingsUniform(ynodes);
     if ux && uy
-        mx = numel(xnodes{1}.slots);
-        my = numel(ynodes{1}.slots);
+        mx = numel(xnodes{1}.valIdx);
+        my = numel(ynodes{1}.valIdx);
         blocks = zeros(gx, gy, Q, mx, my);
         for a = 1:gx
-            sa = K(:, xnodes{a}.slots, :);
+            sa = K(:, xnodes{a}.valIdx, :);
             for b = 1:gy
-                blocks(a, b, :, :, :) = reshape(sa(:, :, ynodes{b}.slots), ...
+                blocks(a, b, :, :, :) = reshape(sa(:, :, ynodes{b}.valIdx), ...
                                                 [1, 1, Q, mx, my]);
             end
         end
@@ -562,7 +562,7 @@ function M = leafOverlaps(xnodes, ynodes, K)
     for a = 1:gx
         for b = 1:gy
             uo = xnodes{a}.useOrbit && ynodes{b}.useOrbit;
-            M(:, a, b) = combinePair(K(:, xnodes{a}.slots, ynodes{b}.slots), ...
+            M(:, a, b) = combinePair(K(:, xnodes{a}.valIdx, ynodes{b}.valIdx), ...
                                      r, sym, uo);
         end
     end
@@ -738,12 +738,12 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
 end
 
 
-function tpl = slotSharedLeafTemplate(node, v, w)
+function tpl = sharedLeafTemplate(node, v, w)
 %SLOTSHAREDLEAFTEMPLATE Detect a spectral-augmentation leaf (mirror of the
-%   Python _slot_shared_leaf_template): a two-level node whose children are all
+%   Python _shared_leaf_template): a two-level node whose children are all
 %   r == 1 leaves sharing one partial template (a common offset and weight
-%   profile, translated per child by a single carrier). Returns a struct with
-%   fields carriers/off/wt, or [] when the node is not of this form.
+%   profile, translated per child by a single reference value). Returns a struct with
+%   fields refVals/off/wt, or [] when the node is not of this form.
     tpl = [];
     if node.level ~= 1 || isempty(node.children)
         return;
@@ -752,7 +752,7 @@ function tpl = slotSharedLeafTemplate(node, v, w)
     if rep.level ~= 0 || rep.r ~= 1 || ~isempty(rep.children)
         return;
     end
-    s0 = rep.slots(:);
+    s0 = rep.valIdx(:);
     width = numel(s0);
     if width < 2                       % Kp == 1 is a plain fundamental: leave
         return;                        % it on the generic path (no change)
@@ -761,13 +761,13 @@ function tpl = slotSharedLeafTemplate(node, v, w)
     w0 = w(s0);
     off = v0 - v0(1);
     g = numel(node.children);
-    carriers = zeros(g, 1);
+    refVals = zeros(g, 1);
     for a = 1:g
         ch = node.children{a};
         if ch.level ~= 0 || ch.r ~= 1 || ~isempty(ch.children)
             return;
         end
-        sa = ch.slots(:);
+        sa = ch.valIdx(:);
         if numel(sa) ~= width
             return;
         end
@@ -775,9 +775,9 @@ function tpl = slotSharedLeafTemplate(node, v, w)
         if ~isequal(va - va(1), off) || ~isequal(w(sa), w0)
             return;
         end
-        carriers(a) = va(1);
+        refVals(a) = va(1);
     end
-    tpl = struct('carriers', carriers, 'off', off(:), 'wt', w0(:));
+    tpl = struct('refVals', refVals, 'off', off(:), 'wt', w0(:));
 end
 
 
@@ -786,7 +786,7 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
 %IPRELNONPERFACTORED Closed-form inner-partial reduction of the relative-non-
 %   periodic inner product for spectrally-augmented ordered cells (mirror of
 %   the Python _ip_rel_nonper_factored). The inner partial index sums into the
-%   template cross-correlation g, and the cell overlap reduces to the carrier
+%   template cross-correlation g, and the cell overlap reduces to the reference-value
 %   differences: sum_tau prod_a g(carrierX_a - carrierY_a - tau). Returns [] when
 %   the structure is not of this form (then the caller uses the generic path).
     ipv = [];
@@ -797,13 +797,13 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
             || recipeY.r ~= numel(recipeY.children)
         return;                        % need the whole cell as one ordered tuple
     end
-    tx = slotSharedLeafTemplate(recipeX, vX, wX);
-    ty = slotSharedLeafTemplate(recipeY, vY, wY);
+    tx = sharedLeafTemplate(recipeX, vX, wX);
+    ty = sharedLeafTemplate(recipeY, vY, wY);
     if isempty(tx) || isempty(ty)
         return;
     end
-    g = numel(tx.carriers);
-    if g ~= numel(ty.carriers)         % diagonal needs equal cell lengths
+    g = numel(tx.refVals);
+    if g ~= numel(ty.refVals)         % diagonal needs equal cell lengths
         return;
     end
     dpq = tx.off - ty.off.';                          % Kx x Ky
@@ -811,7 +811,7 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
     Kx = size(dpq, 1);
     Ky = size(dpq, 2);
     T = numel(taus);
-    delta = reshape(tx.carriers - ty.carriers, [1, g]) ...
+    delta = reshape(tx.refVals - ty.refVals, [1, g]) ...
             - reshape(taus, [T, 1]);                  % T x g
     arg = reshape(delta, [T, g, 1, 1]) ...
           + reshape(dpq, [1, 1, Kx, Ky]);             % T x g x Kx x Ky
@@ -892,21 +892,21 @@ function [mPerm, mComb] = tupleCounts(rLevels, symLevels, tags)
 end
 
 
-function c = countSide(slots, level, useSym, rLevels, symLevels, tags)
+function c = countSide(valIdx, level, useSym, rLevels, symLevels, tags)
     if level == 0
         r0 = rLevels(1);
-        c = nchoosekCount(numel(slots), r0);
+        c = nchoosekCount(numel(valIdx), r0);
         if useSym && symLevels(1)
             c = c * factorial(r0);
         end
         return;
     end
     col = level;
-    keys = tags(slots, col);
+    keys = tags(valIdx, col);
     uk = unique(keys);
     subs = zeros(1, numel(uk));
     for g = 1:numel(uk)
-        sub = slots(keys == uk(g));
+        sub = valIdx(keys == uk(g));
         subs(g) = countSide(sub, level - 1, useSym, rLevels, symLevels, tags);
     end
     rl = rLevels(level + 1);
@@ -964,18 +964,18 @@ function w = recipeWork(node)
 end
 
 
-function tg = orientTags(tg, nSlots, L)
-    % Orient a tag array so slots index dimension 1 and the L-1 inner tag
+function tg = orientTags(tg, nValues, L)
+    % Orient a tag array so values index dimension 1 and the L-1 inner tag
     % levels index dimension 2 (the convention buildRecipe expects, matching
     % the Python 1-D tags). A single-level (L == 2) spec is a vector -- a
     % MATLAB literal makes it a row -- so reshape it to a column; an already
     % oriented matrix is left as is, a transposed one is corrected.
     if isvector(tg)
         tg = tg(:);
-    elseif size(tg, 1) ~= nSlots && size(tg, 2) == nSlots
+    elseif size(tg, 1) ~= nValues && size(tg, 2) == nValues
         tg = tg.';
     end
-    if size(tg, 1) ~= nSlots && L >= 2   %#ok<BDLGI> defensive: keep slots on dim 1
-        tg = reshape(tg, nSlots, []);
+    if size(tg, 1) ~= nValues && L >= 2   %#ok<BDLGI> defensive: keep values on dim 1
+        tg = reshape(tg, nValues, []);
     end
 end

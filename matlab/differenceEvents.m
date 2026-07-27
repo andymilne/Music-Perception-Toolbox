@@ -2,20 +2,22 @@ function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvAr
 %DIFFERENCEEVENTS Replace event sequences with inter-event differences.
 %
 %   [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, ...)
-%   is cross-event preprocessing on the canonical (pAttr, w, specs) carrier.
+%   is cross-event preprocessing on the canonical (pAttr, w, specs) triple.
 %   The k_a-th finite difference is applied along the event axis to each
 %   attribute; the returned (pAttrDiff, wDiff, specs) chains into another
 %   pre-MAET operation or into buildExpTens(..., 'specs', specs).
 %
-%   Differencing is slot-wise: event i's slot k differences against event
-%   i+1's slot k. This is well-defined exactly when the slots have stable
+%   Differencing pairs values position by position: event i's value at
+%   position k differences against event
+%   i+1's value at position k. This is well-defined exactly when the positions
+%   have stable
 %   identity --- an ordered attribute ([sym] = 0) or a singleton (K = 1).
-%   A symmetric multiset (K > 1, [sym] = 1) is a bag with no slot
+%   A symmetric multiset (K > 1, [sym] = 1) is a bag with no positional
 %   correspondence, so differencing it is undefined and errors. The rule
 %   extends per level for a nested attribute: every level must be ordered
 %   (or of size 1). Ragged ordered data (events of differing length) is
 %   represented by NaN-padding to a common K; a difference touching a NaN
-%   slot is NaN, so absence propagates rather than fabricating an interval.
+%   value is NaN, so absence propagates rather than fabricating an interval.
 %
 %   Differencing changes values only; the spec (tags, r, sym, rel) passes
 %   through unchanged. Output values are raw; periodic wrapping is the
@@ -37,7 +39,7 @@ function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvAr
 %   Outputs
 %       pAttrDiff - 1 x A cell of differenced matrices, each K_a x N'.
 %       wDiff     - Transformed weights.
-%       specs     - The carrier specs, unchanged from input (or synthesised).
+%       specs     - The attribute specifications, unchanged from input (or synthesised).
 %
 %   See also BUILDEXPTENS, BINDEVENTS, FLATSPECS, TRANSLATEATTRIBUTES.
 
@@ -86,7 +88,7 @@ for a = 2:A
     end
 end
 
-% --- Carrier specs: synthesise flat if none supplied ---
+% --- Attribute specifications: synthesise flat if none supplied ---
 if isempty(nvArgs.specs)
     specs = flatSpecs(pAttr);
 else
@@ -131,7 +133,7 @@ else
     end
 end
 
-% --- Difference each attribute's value matrix (slot-wise; NaN propagates) ---
+% --- Difference each attribute's value matrix (position by position; NaN propagates) ---
 pAttrDiff = cell(1, A);
 for a = 1:A
     k = double(ordersPerAttr(a));
@@ -162,9 +164,9 @@ end
 
 
 function localCheckDifferenceable(spec, K_a, a)
-%LOCALCHECKDIFFERENCEABLE  An attribute is differenceable only if its slots
+%LOCALCHECKDIFFERENCEABLE  An attribute is differenceable only if its positions
 %   have stable identity across events --- ordered ([sym] = 0) or singleton
-%   at every level. A symmetric multiset of size > 1 is a bag with no slot
+%   at every level. A symmetric multiset of size > 1 is a bag with no positional
 %   correspondence, so differencing it is undefined.
     if isstruct(spec) && isfield(spec, 'tags')
         tags = double(spec.tags(:).');
@@ -174,7 +176,7 @@ function localCheckDifferenceable(spec, K_a, a)
             sym = true(1, 2);
         end
         nGroups = numel(unique(tags));           % outer level size
-        innerSz = numel(tags) / max(nGroups, 1); % slots per group
+        innerSz = numel(tags) / max(nGroups, 1); % values per group
         innerOk = (~sym(1)) || innerSz == 1;
         outerOk = (~sym(end)) || nGroups == 1;
         if ~(innerOk && outerOk)
@@ -194,7 +196,7 @@ function localCheckDifferenceable(spec, K_a, a)
             error('differenceEvents:notDifferenceable', ...
                   ['attribute %d: differencing requires an ordered attribute ' ...
                    '([sym] = 0) or K = 1; got a symmetric multiset with K = ' ...
-                   '%d. A symmetric multiset is a bag with no slot ' ...
+                   '%d. A symmetric multiset is a bag with no positional ' ...
                    'correspondence across events. Set [sym] = 0 (e.g. via ' ...
                    'flatSpecs(..., ''sym'', false)) to difference it.'], a, K_a);
         end
@@ -317,7 +319,7 @@ end
 
 function tf = localWeightHasEventDep(wa, N, attrIdx)
     % True iff wa's shape carries the N axis. Accepts [], scalar,
-    % K_a x 1 column (broadcast per slot), 1 x N row, or K_a x N
+    % K_a x 1 column (broadcast per value), 1 x N row, or K_a x N
     % matrix.
     if isempty(wa)
         tf = false;

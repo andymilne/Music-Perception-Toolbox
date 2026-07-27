@@ -2,7 +2,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %BINDEVENTS Bind sliding windows of consecutive events into nested attributes.
 %
 %   [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, ...)
-%   is a cross-event preprocessing helper on the (pAttr, w, specs) carrier.
+%   is a cross-event preprocessing helper on the (pAttr, w, specs) triple.
 %   For each input attribute a, a sliding window of width L_a (bindOrders)
 %   is laid across the event axis and the L_a consecutive events are nested
 %   into a single output attribute (toolbox spec §6.1/§6.5): the bound
@@ -10,7 +10,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   each event's own value multiset is the inner level.
 %
 %   The inner level's geometry (r/rel/sym) is read from the incoming
-%   carrier specs --- the attribute's existing spec supplies the inner
+%   specifications --- the attribute's existing specification supplies the inner
 %   level(s). specs = [] synthesises flat specs (flatSpecs defaults: r = 1,
 %   rel = 0, sym = 1). The outer level defaults to r = L_a (read the whole
 %   bound window), sym = 0, rel = 0. L_a = 1 is the no-op: the incoming
@@ -30,7 +30,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   Inputs
 %       pAttr      - 1 x A cell of K_a x N per-attribute value matrices.
 %       w          - Weights ([], scalar, or 1 x A cell). Same convention
-%                    as buildExpTens; bound slot weights are the windowed-
+%                    as buildExpTens; bound value weights are the windowed-
 %                    and-stacked input weights.
 %       bindOrders - Scalar or 1 x A window widths L_a >= 1 (1 = no-op).
 %
@@ -55,7 +55,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %                      and rel each extend by one entry. Repeated binds nest
 %                      to arbitrary depth, but each call must be given the
 %                      specs returned by the previous one: passing [] on an
-%                      already-bound carrier re-synthesises flat specs,
+%                      already-bound attributes re-synthesises flat specs,
 %                      silently discarding the existing nesting and producing
 %                      a shallower result.
 %       'rOuter'     - [] (default L_a) or scalar/1xA outer-level r.
@@ -139,7 +139,7 @@ end
 
 orders = localCanonicaliseBindOrders(bindOrders, A);
 
-% --- Inner geometry from the carrier specs ---
+% --- Inner geometry from the attribute specifications ---
 if isempty(nvArgs.specs)
     specsIn = flatSpecs(pAttr);
 else
@@ -203,7 +203,7 @@ pAttrBound = cell(1, A);
 specs = cell(1, A);
 for a = 1:A
     L_a = double(orders(a));
-    K_a = K(a);                           % flat slot count K_total
+    K_a = K(a);                           % flat value count K_total
     Marr = pAttr{a};
     sIn = specsIn{a};
     isNestedIn = isstruct(sIn) && isfield(sIn, 'tags');
@@ -357,9 +357,9 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
 %
 %  For L_a >= 2 the per-event weight slices are windowed and stacked into a
 %  (L_a*K_a) x N' column aligned with the value stack (per-event weights
-%  expanded across the K_a slots of their event); for L_a = 1 the weight is
+%  expanded across the K_a values of their event); for L_a = 1 the weight is
 %  leading-aligned. Non-event-dependent inputs ([], scalar, K_a x 1
-%  column) are inherited / tiled across the bound slots.
+%  column) are inherited / tiled across the bound values.
 
     if isempty(w) && ~iscell(w)
         wOut = [];
@@ -389,7 +389,7 @@ function wOut = localBindWeightsNested(w, A, orders, K, nEvents, nPrime, isCircu
             if isempty(wa) || (isnumeric(wa) && isscalar(wa))
                 wOut{a} = wa;
             else
-                W = double(wa);   % K_a x 1 per-slot column
+                W = double(wa);   % K_a x 1 per-value column
                 if L_a == 1
                     wOut{a} = W;
                 else
@@ -448,7 +448,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
 %   Consecutive events sharing a constant value on attribute groupBy are
 %   gathered into one super-event; a new group begins where the value
 %   changes. Group sizes vary, so the outer level is ragged: each
-%   super-event is padded to the maximum group size with NaN slots carrying
+%   super-event is padded to the maximum group size with NaN values carrying
 %   zero weight. The inner level preserves each attribute's parameters; the
 %   outer tuple size rOuter defaults to the smallest group size. Mirror of
 %   Python _bind_events_run_length.
@@ -477,7 +477,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
     if K(groupBy) ~= 1
         error('bindEvents:groupByCardinality', ...
             ['groupBy attribute %d must have K = 1 (one value per event); ' ...
-             'got K = %d. Constancy of a multi-slot value is ambiguous.'], ...
+             'got K = %d. Constancy across multiple values is ambiguous.'], ...
             groupBy, K(groupBy));
     end
 
@@ -518,7 +518,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
     Lmax = max(sizes);
     Lmin = min(sizes);
 
-    % source event index per (outer slot, group) and a validity mask
+    % source event index per (outer position, group) and a validity mask
     src = ones(Lmax, nPrime);
     valid = false(Lmax, nPrime);
     for j = 1:nPrime

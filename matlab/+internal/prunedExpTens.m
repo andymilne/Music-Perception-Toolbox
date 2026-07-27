@@ -13,7 +13,7 @@ function dens = prunedExpTens(dens)
 %       iff its weight is finite and of nonzero magnitude. Dead elements
 %       are dropped from the multiset (element-level prune).
 %     * General MA (MaetDensity): an event is live iff EVERY attribute
-%       has at least one finite, nonzero weight slot in that event's
+%       has at least one finite, nonzero weight in that event's
 %       column. An all-zero or all-NaN column kills the event (the
 %       per-attribute factors multiply); a partly-zero column does not.
 %
@@ -92,7 +92,7 @@ function dens = prunedExpTens(dens)
             if isfield(dens, 'isSym'); out.isSym = dens.isSym; end
             out.dim          = dens.dim;
             out.dimPerAttr   = dens.dimPerAttr;
-            % Per-slot nesting spec (representation B): tags are
+            % Per-value nesting spec (representation B): tags are
             % row-indexed, so event (column) pruning leaves them intact.
             % Must be carried, or the rebuild flattens the attribute.
             if isfield(dens, 'nested'); out.nested = dens.nested; end

@@ -570,7 +570,7 @@ function H = localEntropyMA(dens, nvArgs)
 %LOCALENTROPYMA  Shannon entropy of a MaetDensity or WindowedMaetDensity.
 %
 %   Builds a Cartesian-product grid with one 1-D linspace per effective
-%   dimension of the density's domain (one per non-isRel tuple slot for
+%   dimension of the density's domain (one per non-isRel tuple position for
 %   each attribute, each on its group's domain), evaluates the density
 %   at every grid point via evalExpTens, normalises to a pmf, and
 %   returns Shannon entropy.
@@ -996,7 +996,7 @@ function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
 %   Returns an (nJ x nCells) array with entry [t, j] equal to
 %   Phi((edgesHi(j) - centres(t))/sigma) - Phi((edgesLo(j) -
 %   centres(t))/sigma), the 1-D Gaussian probability mass in cell j
-%   for the tuple-slot at centres(t).
+%   for the tuple position at centres(t).
 
     centres = centres(:);   % (nJ x 1)
     edgesLo = edgesLo(:).'; % (1 x nCells)
@@ -1771,12 +1771,12 @@ function [xMinG, xMaxG, n0, dim, perAxisW, perAxisPer] = localDiffSpansMA(dens, 
             Wg = periodG(a);
         else
             Pa = double(pAttr{a});
-            % Zero-weight slots contribute nothing to any live tuple, so
+            % Zero-weight values contribute nothing to any live tuple, so
             % they must not enlarge the span --- otherwise the auto-prune
             % inside localCellMassesMAAbsolute (which drops zero-weight
             % perm-side tuples from the cell integrand) and manual
             % upstream pruning would discretise differently at a narrower
-            % ts. The per-slot mask w{a} > 0 is the pAttr-side mirror of
+            % ts. The per-value mask w{a} > 0 is the pAttr-side mirror of
             % that perm-side wJ > 0 prune, so the auto/manual invariance
             % holds at every truncation width.
             if a <= numel(wCell) && ~isempty(wCell{a})
@@ -2096,7 +2096,7 @@ function H = localRenyi2MA(dens, base)
 %   (the same machinery cosSimExpTens uses), and
 %       Z = sum_n prod_a Z_a^{(n)}
 %   where each Z_a^{(n)} is the closed-form single multiset total mass evaluated on
-%   event n's attribute-a slot pitches and weights.
+%   event n's attribute-a pitches and weights.
 %
 %   Windowed densities are not supported on this path.
 
@@ -2264,7 +2264,7 @@ function [I_a, Z_a] = localRenyi2PerAttrNumerical(dens, a)
     Z_a = zeros(N, 1);
     if nj > 0
         % Abs-per full-image path: compute the pairwise overlap matrix
-        % O directly from per-slot theta products, bypassing the Q ->
+        % O directly from per-position theta products, bypassing the Q ->
         % exp(-Q/(4 sigma^2)) formulation which is single-image. This
         % applies only to flat abs-per (blockSize < 2 and not rel);
         % other configurations use the block-diagonal quadratic form

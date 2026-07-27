@@ -1,13 +1,13 @@
 % =========================================================================
-%  pruneDeadCarrier — drop window-zeroed events from a carrier (internal)
+%  pruneDeadEvents — drop window-zeroed events (internal)
 % =========================================================================
 
-function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
+function [pAttr, w, specs] = pruneDeadEvents(pAttr, w, specs)
 %PRUNEDEADCARRIER  Drop events the window hard-zeroed, before the build.
 %
-%   [pAttr, w, specs] = internal.pruneDeadCarrier(pAttr, w, specs)
+%   [pAttr, w, specs] = internal.pruneDeadEvents(pAttr, w, specs)
 %
-%   A windowed carrier carries out-of-window / beyond-truncation events
+%   A windowed density carries out-of-window / beyond-truncation events
 %   at weight zero (weightEvents writes its factor as such). Those events
 %   contribute nothing to any inner product or to the density an entropy
 %   integrates, so dropping them here -- at the windowing seam, before
@@ -16,12 +16,12 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
 %   without touching the build itself or the density-level prunedExpTens
 %   path. The liveness rule is the shared internal.weightIsLive (also used
 %   by internal.prunedExpTens): an event is live iff every weighted
-%   attribute has a finite, nonzero slot in its column. Returned unchanged
+%   attribute has a finite, nonzero value in its column. Returned unchanged
 %   when nothing is dead (the un-windowed common case pays only a mask
 %   scan); an all-dead window (one that caught nothing) prunes to zero
 %   events, so the build is trivial and the empty density scores zero at
-%   the comparison. The specs (per-slot tags) are untouched: event-column
-%   pruning leaves the slot layout intact.
+%   the comparison. The specs (per-value tags) are untouched: event-column
+%   pruning leaves the value layout intact.
 
     if isempty(pAttr) || ~iscell(w)
         return
@@ -38,7 +38,7 @@ function [pAttr, w, specs] = pruneDeadCarrier(pAttr, w, specs)
             continue
         end
         if ~ismatrix(Wa) || size(Wa, 2) ~= N
-            continue    % per-slot / scalar: cannot kill an event on its own
+            continue    % per-value / scalar: cannot kill an event on its own
         end
         live = live & any(internal.weightIsLive(Wa), 1);
     end

@@ -5,7 +5,7 @@ function partitions = getSetPartitionsWithMobius(r)
 %   partitions of {1, 2, ..., R} as a struct array with fields
 %
 %     .blocks  Cell array of integer vectors; blocks{l} lists the
-%              slot-indices in block l (sorted ascending).
+%              position indices in block l (sorted ascending).
 %     .mu      Möbius coefficient mu(0_hat, pi) for the partition,
 %              equal to prod_l (-1)^(m_l - 1) * (m_l - 1)! where m_l
 %              is the size of block l.
@@ -51,7 +51,7 @@ function out = enumerateSetPartitions(r)
 %   partition exactly once (canonical-form: blocks ordered by the
 %   smallest index they contain).
 
-    % Start with the partition having just the first slot.
+    % Start with the partition having just the first tuple position.
     states = {{[1]}};
     for k = 2:r
         nStates = numel(states);

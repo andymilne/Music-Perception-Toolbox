@@ -1121,7 +1121,7 @@ def _cos_sim_exp_tens_ma(
 
     Both densities must share the full parameter structure: number of
     attributes, group assignment, per-attribute ``r``, and per-group
-    ``sigma``/``is_rel``/``is_per``/``period``. Weights and event/slot
+    ``sigma``/``is_rel``/``is_per``/``period``. Weights and event/value
     counts may differ freely — that's the whole point of the similarity
     measure.
     """
@@ -1129,11 +1129,11 @@ def _cos_sim_exp_tens_ma(
     dens_y = dens_y.pruned()
 
     # An empty operand has no events to overlap, so the inner product -- and
-    # hence the similarity -- is zero. A windowed carrier whose window caught
+    # hence the similarity -- is zero. A windowed density whose window caught
     # nothing prunes to zero events here; without this guard it reaches the
     # nested contraction's value-range scan, which has no identity over an
     # empty attribute column. (The raw single-multiset path is unaffected: it
-    # is reached only without specs, and an empty windowed carrier always
+    # is reached only without specs, and an empty windowed density always
     # carries specs.)
     if dens_x.n == 0 or dens_y.n == 0:
         return 0.0
@@ -1167,7 +1167,7 @@ def _cos_sim_exp_tens_ma(
     # Explicit factored-cull route: computes the triple through the
     # per-attribute / per-event-pair factorisation without materialising
     # the joint tuple set. Covers every mode except relative-periodic
-    # (minimum-image), whose per-slot factor the culled helper cannot take.
+    # (minimum-image), whose per-position factor the culled helper cannot take.
     if method == "factored":
         if not _ma_factored_ip_supported(dens_x, dens_y):
             raise ValueError(
@@ -1289,8 +1289,8 @@ def _cos_sim_exp_tens_ma(
         chosen = "bulger"
 
     # Nested attributes are not handled by the flat orbit/Möbius entry
-    # point: that path would have to flatten the levels into one slot set,
-    # but the inner unit's metric is block-diagonal (slots couple only
+    # point: that path would have to flatten the levels into one value set,
+    # but the inner unit's metric is block-diagonal (positions couple only
     # within an aligned inner unit), which the flat re-enumeration cannot
     # represent. Route instead to the hierarchical contraction, which
     # contracts the tag tree level by level and itself selects the orbit
@@ -1494,7 +1494,7 @@ def _ma_log_kernel(
 
     ``wrap`` (optional) is a per-attribute sequence selecting the
     abs-per measure: 'full-image' (default) uses the torus (all-image)
-    1-D wrapped Gaussian per slot; 'single-image' uses the nearest-
+    1-D wrapped Gaussian per tuple position; 'single-image' uses the nearest-
     image reduction (the pre-v3 behaviour). Non-periodic and rel
     attributes ignore this axis. ``None`` matches the pre-v3 default,
     i.e. 'full-image' everywhere.
@@ -1567,7 +1567,7 @@ def _ma_log_kernel(
 #      <T_X, T_Y>_MA = Σ_{n_X, n_Y} Π_a I_a(n_X, n_Y)
 #
 #  where I_a(n_X, n_Y) is an single-multiset-shaped Möbius inner product over
-#  the K_a slot values of event n_X (X-side) against those of n_Y
+#  the K_a values of event n_X (X-side) against those of n_Y
 #  (Y-side), with the group's mode parameters. Bulger's method
 #  collapses this into a flat (n_J × n_K) bilinear form that scales
 #  as N² · Π_a [r_a! · C(K_a, r_a)]²; the Möbius form scales as
@@ -1768,7 +1768,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
 
 
 def _attr_value_range(dens_x, dens_y, a):
-    """(vmin, vmax) over both densities' slot values for attribute ``a``,
+    """(vmin, vmax) over both densities' values for attribute ``a``,
     ignoring NaN padding -- the span the relative-non-periodic translation grid
     must cover."""
     px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
@@ -1781,7 +1781,7 @@ def _rel_contract_cheaper(spec_x, spec_y, sigma, period, is_per, vmin, vmax):
     """True when a relative attribute's per-level contraction is cheaper than
     its materialised-centres path.
 
-    The relative kernel couples all slots within a tuple, so the centres path
+    The relative kernel couples all positions within a tuple, so the centres path
     must materialise every tuple -- including each symmetric level's full orbit,
     and every selection at an ``r = 1`` level compounded across the ordered
     positions above it (the spectral-cell case: one partial per note across the
@@ -1870,7 +1870,7 @@ def _nested_attr_route(dens_x, dens_y, a):
     yy share a single measure.
 
     - ``'contract'`` -- absolute and absolute-periodic: the kernel is a
-      one-body product across slots, so the event-pair-vectorised per-level
+      one-body product across tuple positions, so the event-pair-vectorised per-level
       contraction applies the orbit (Möbius) reduction at symmetric levels and
       enumeration at ordered ones, mirroring the flat per-attribute matrix and
       never materialising the tuple set.
@@ -1956,7 +1956,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
     attribute, outer/no ``[rel]``, cosine or one-sided normalisation,
-    NaN-padded (variable-K) slots included -- via the per-level dispatch of
+    NaN-padded (variable-K) values included -- via the per-level dispatch of
     :func:`_nested_attr_plan` / :func:`_nested_attr_matrix`; otherwise ``None``,
     and the caller routes to the exact enumeration. The route, decided once so
     xy, xx and yy share one measure, is the cheaper of the event-pair
@@ -2244,10 +2244,10 @@ def _ma_ip_per_event_factors(dens, side, skip=None):
     side (the Y convention); the r_a! ratio between them cancels in the
     cosine, exactly as in the joint build.
 
-    Each event enumerates its own non-NaN slots, so variable cardinality
+    Each event enumerates its own non-NaN values, so variable cardinality
     (NaN-padded ``p_attr``) is handled per event without a common-slab
     zero-pad. Attributes in ``skip`` are left as ``None``: a
-    culled-nested attribute is served from its raw per-event slots
+    culled-nested attribute is served from its raw per-event values
     without enumerating its (blow-up) tuple set, so pre-enumerating it
     here would defeat the cull.
     """
@@ -2338,13 +2338,13 @@ def _ma_ip_factor_nested_culled(spec, Xval, Xw, Yval, Yw, sigma, is_per,
     if tags.ndim == 1:
         tags = tags.reshape(-1, 1)          # (K_total, L-1)
 
-    def group_by(slots, col):
-        keys = tags[slots, col]
+    def group_by(val_idx, col):
+        keys = tags[val_idx, col]
         order = np.argsort(keys, kind="stable")
-        slots_s = slots[order]
+        val_idx_s = val_idx[order]
         keys_s = keys[order]
         bounds = np.nonzero(np.diff(keys_s))[0] + 1
-        return np.split(slots_s, bounds)
+        return np.split(val_idx_s, bounds)
 
     def leaf_ip(sx, sy):
         if sx.size < r0 or sy.size < r0:
@@ -2387,7 +2387,7 @@ def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in,
 
     Absolute-periodic uses the full-image r-tuple kernel
     ``prod_a theta(d_a)`` (product of 1D wrapped Gaussians across
-    slots). At sigma/P below the accuracy-floor threshold ``L = 0`` and
+    tuple positions). At sigma/P below the accuracy-floor threshold ``L = 0`` and
     the product-of-theta reduces to the single-Gaussian form; the image
     sum switches on only when the floor requires it. When the user has
     opted this attribute into ``wrap_a='single-image'`` the L is forced
@@ -2409,10 +2409,10 @@ def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in,
             from .._defaults import get_default
             ts = (get_default("truncation_sigmas")
                   if truncation_sigmas is None else truncation_sigmas)
-            theta_per_slot = wrapped_gaussian_1d(
+            theta_per_position = wrapped_gaussian_1d(
                 D, float(sigma), p, ts, exponent_denominator=4
             )
-            K = theta_per_slot.prod(axis=0)
+            K = theta_per_position.prod(axis=0)
     else:
         Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
         K = np.exp(-Q / (4.0 * float(sigma) ** 2))
@@ -2516,7 +2516,7 @@ def _ma_factored_ip_supported(dens_x, dens_y):
     """True when the factored culled IP covers this density pair.
 
     The factored path serves every attribute mode except relative-and-
-    periodic under the minimum-image convention, whose per-slot factor
+    periodic under the minimum-image convention, whose per-position factor
     does not admit the culled helper. Ordered ([sym]=0) and nested
     attributes are supported: a two-level nested attribute with an
     absolute or leaf co-transposition is culled at the leaf, and any
@@ -2593,7 +2593,7 @@ def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     to the global default.
 
     ``wrap_a`` selects the abs-per measure: ``'full-image'`` (default)
-    uses the torus (all-image) 1-D wrapped Gaussian per slot, delivered
+    uses the torus (all-image) 1-D wrapped Gaussian per tuple position, delivered
     by :func:`_wrapped_kernel.wrapped_gaussian_1d` in overlap
     convention. The r-tuple full-image kernel factors as
     :math:`\\prod_a \\theta(d_a)`, delivered by the orbit reduction
@@ -2643,7 +2643,7 @@ def _inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
 
     NaN tolerance: NaN entries in ``p_x`` / ``w_x`` / ``p_y`` / ``w_y``
     are dropped per side before enumeration. If the dropped count
-    leaves either side with fewer than r valid slots, returns 0 by
+    leaves either side with fewer than r valid values, returns 0 by
     convention (cannot form an r-tuple).
 
     Cost: O(K_x! / (K_x - r)! * K_y! / (K_y - r)! * r) per call. Cheap

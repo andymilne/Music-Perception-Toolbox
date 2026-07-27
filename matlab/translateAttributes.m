@@ -1,34 +1,34 @@
 function [pOut, w, specs] = translateAttributes(pAttr, w, offsets, nvArgs)
-%TRANSLATEATTRIBUTES Translate attributes' values by per-slot offsets (carrier).
+%TRANSLATEATTRIBUTES Translate attributes' values by per-value offsets.
 %
 %   [pOut, w, specs] = translateAttributes(pAttr, w, offsets, ...)
-%   is per-attribute preprocessing on the (pAttr, w, specs) carrier.
+%   is per-attribute preprocessing on the (pAttr, w, specs) triple.
 %   Selected attributes' values are shifted by a chosen offset and the
 %   transformed triple feeds straight into buildExpTens (or a further
 %   pre-MAET step). Weights and specs pass through unchanged; only the
 %   values move.
 %
-%   Slot-axis alignment (read this first). Everything hangs off one axis:
-%   the slot axis of an attribute, whose length is K_total (the number of
-%   leaf values in one event/super-event). In the value matrix the slot
-%   axis is the ROWS (K_total x N: slots down, sequence positions across).
+%   Value-axis alignment (read this first). Everything hangs off one axis:
+%   the value axis of an attribute, whose length is K_total (the number of
+%   leaf values in one event/super-event). In the value matrix the value
+%   axis is the ROWS (K_total x N: values down, sequence positions across).
 %   The spec's tags label that same axis (one entry per row). An offset is
-%   likewise per-slot: one value per row, held CONSTANT across the sequence
+%   likewise per-value: one offset per row, held CONSTANT across the sequence
 %   (column) axis --- that constancy is what makes D(T(p)) == D(p).
 %
 %   Offsets are a 1 x A cell, one entry per attribute, each entry one of:
 %       []                  - do not translate this attribute.
-%       scalar              - broadcast to all K_total slots.
-%       column (K_total x 1)- per-slot, single translation.
+%       scalar              - broadcast to all K_total values.
+%       column (K_total x 1)- per-value, single translation.
 %       row    (1 x M)      - per-sweep global shift: one scalar per sweep
-%                             index, broadcast across slots (M copies).
-%       matrix (K_total x M)- per-slot by sweep index: slots down, sweep
+%                             index, broadcast across values (M copies).
+%       matrix (K_total x M)- per-value by sweep index: values down, sweep
 %                             index across.
-%   (Orientation disambiguates: a single per-slot offset is a COLUMN; a
+%   (Orientation disambiguates: a single per-value offset is a COLUMN; a
 %   sweep of global shifts is a ROW. This differs from the Python list
 %   form, which uses 1-D vs 2-D; the semantics and outputs are identical.)
 %
-%   NaN entries skip the corresponding slot (left untranslated); +/-Inf is
+%   NaN entries skip the corresponding value (left untranslated); +/-Inf is
 %   rejected. All swept entries must agree on M (scalar, column, and single
 %   sweep-column entries broadcast across the call's M).
 %
@@ -42,7 +42,7 @@ function [pOut, w, specs] = translateAttributes(pAttr, w, offsets, nvArgs)
 %   difference, so on an attribute whose OUTERMOST level is relative a
 %   uniform finite offset is a structural no-op: that column is left
 %   unchanged and a single warning is emitted per call. A non-uniform
-%   (per-slot) offset is NOT a no-op even on a relative attribute --- it
+%   (per-value) offset is NOT a no-op even on a relative attribute --- it
 %   shifts the within-tuple differences --- so it applies. is_per/period
 %   are not consulted here (translation emits unwrapped values; the
 %   periodic kernel in buildExpTens wraps downstream) and stay separate.
@@ -60,7 +60,7 @@ function [pOut, w, specs] = translateAttributes(pAttr, w, offsets, nvArgs)
 %       pOut  - Single (M = 1): 1 x A cell of K_total x N matrices.
 %               Sweep (M > 1): 1 x M cell of such cells.
 %       w     - Same as input.
-%       specs - The carrier specs, unchanged (or synthesised).
+%       specs - The attribute specifications, unchanged (or synthesised).
 %
 %   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDEXPTENS.
 
@@ -104,7 +104,7 @@ for a = 1:A
     K(a) = size(pArr{a}, 1);          % K_total (rows) per attribute
 end
 
-% --- Carrier specs ---
+% --- Attribute specifications ---
 if isempty(nvArgs.specs)
     specs = flatSpecs(pArr);
 else
@@ -138,11 +138,11 @@ if warned
             ['A uniform finite offset was applied to an attribute whose ' ...
              'outermost level is relative; a uniform shift cancels in ' ...
              'every within-tuple difference, so it is a structural no-op ' ...
-             'and that column is left unchanged. (A non-uniform per-slot ' ...
+             'and that column is left unchanged. (A non-uniform per-value ' ...
              'offset would apply, as it shifts the relative structure.)']);
 end
 
-% --- Apply: value + per-slot offset, broadcast across events; NaN slots ---
+% --- Apply: value + per-value offset, broadcast across events; NaN values ---
 % --- are left untranslated. ---
 colsOut = cell(1, Msweep);
 for m = 1:Msweep
@@ -177,13 +177,13 @@ end
 
 function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
 %LOCALNORMALISEOFFSETS  Coerce a 1 x A offsets cell to per-attribute
-%   K_a x M blocks (NaN marks skipped slots). Orientation disambiguates:
-%   scalar -> all slots; column -> per-slot; row -> per-sweep; matrix ->
-%   per-slot x sweep. Returns [matrixMode, M, blocks].
+%   K_a x M blocks (NaN marks skipped values). Orientation disambiguates:
+%   scalar -> all values; column -> per-value; row -> per-sweep; matrix ->
+%   per-value x sweep. Returns [matrixMode, M, blocks].
     if ~iscell(offsets) || numel(offsets) ~= A
         error('translateAttributes:offsetsShape', ...
               ['offsets must be a length-A (%d) cell, one entry per ' ...
-               'attribute ([], scalar, column per-slot, row sweep, or ' ...
+               'attribute ([], scalar, column per-value, row sweep, or ' ...
                'K_total x M block).'], A);
     end
     raw = cell(1, A);
@@ -202,10 +202,10 @@ function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
         if any(isinf(o(:)))
             error('translateAttributes:offsetInf', ...
                   ['offsets{%d} contains +/-Inf; entries must be finite ' ...
-                   'or NaN (NaN skips a slot).'], a);
+                   'or NaN (NaN skips a value).'], a);
         end
         if isscalar(o)
-            raw{a} = o;                   % broadcast to all slots
+            raw{a} = o;                   % broadcast to all values
         elseif isrow(o)
             raw{a} = o;                   % per-sweep global shift
             M = max(M, size(o, 2));
@@ -213,16 +213,16 @@ function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
             if numel(o) ~= K(a) && numel(o) ~= 1
                 error('translateAttributes:offsetLength', ...
                       ['offsets{%d} is a length-%d column; expected ' ...
-                       'K_total = %d (per-slot).'], a, numel(o), K(a));
+                       'K_total = %d (per-value).'], a, numel(o), K(a));
             end
-            raw{a} = o;                   % per-slot, single
+            raw{a} = o;                   % per-value, single
         else
             if size(o, 1) ~= K(a) && size(o, 1) ~= 1
                 error('translateAttributes:offsetRows', ...
                       ['offsets{%d} has %d rows; expected 1 or K_total ' ...
-                       '= %d (slots down).'], a, size(o, 1), K(a));
+                       '= %d (values down).'], a, size(o, 1), K(a));
             end
-            raw{a} = o;                   % per-slot x sweep
+            raw{a} = o;                   % per-value x sweep
             M = max(M, size(o, 2));
         end
     end
@@ -238,7 +238,7 @@ function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
             r = repmat(r, K(a), M);
         else
             if size(r, 1) == 1 && K(a) > 1
-                r = repmat(r, K(a), 1);   % broadcast across slots
+                r = repmat(r, K(a), 1);   % broadcast across values
             end
             if size(r, 2) == 1 && M > 1
                 r = repmat(r, 1, M);      % broadcast across sweep

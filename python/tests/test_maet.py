@@ -239,12 +239,12 @@ class TestMAET:
 
     # --- Error paths -------------------------------------------------
 
-    def test_ma_insufficient_slots_errors(self):
-        # Event 1 has 1 valid slot, r=2 -> error
+    def test_ma_insufficient_values_errors(self):
+        # Event 1 has 1 valid value, r=2 -> error
         pitch = np.array(
             [[0, 0], [4, np.nan], [np.nan, np.nan]], dtype=float
         )
-        with pytest.raises(ValueError, match="non-NaN slot"):
+        with pytest.raises(ValueError, match="non-NaN value"):
             mpt.build_exp_tens(
                 [pitch], None, [10.0], [2], 
                 [False], [True], [1200.0], verbose=False,

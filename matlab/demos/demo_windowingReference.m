@@ -13,13 +13,13 @@
 %    F (fixed)    A user-supplied constant reference, one vector per
 %                 attribute, that does not depend on the query.
 %
-%  The choice matters most when a pitch attribute has more than one slot
+%  The choice matters most when a pitch attribute has more than one value
 %  per event (chords with exchangeable voices, or partials added by
 %  addSpectra). Queries can then differ in:
 %
-%    - slot count   (e.g., adding partials)
-%    - slot values  (e.g., stretching partials)
-%    - slot weights (e.g., changing rolloff)
+%    - value count   (e.g., adding partials)
+%    - values       (e.g., stretching partials)
+%    - value weights (e.g., changing rolloff)
 %
 %  This demo characterises how the similarity profile responds to each
 %  of these kinds of between-query variation, under each reference
@@ -38,20 +38,20 @@
 %  Responses to between-query variation:
 %
 %    * Slot weights. Neither P* nor mu_q moves. Both methods give
-%      identical, stable peak offsets. Holds for any slot structure.
+%      identical, stable peak offsets. Holds for any value structure.
 %
 %    * Slot values. mu_q moves smoothly with the sweep parameter while
 %      P* sits on a branch of the similarity profile that may be pinned
 %      locally in absolute pitch. Within a branch, delta*_D drifts;
-%      delta*_F stays put. Holds for any slot structure.
+%      delta*_F stays put. Holds for any value structure.
 %
-%    * Slot count. For harmonic queries (slot values at or close to
+%    * Value count. For harmonic queries (values at or close to
 %      integer-harmonic positions above each fundamental), P* and mu_q
 %      co-move closely, so delta*_D is stable. For non-harmonic
 %      queries, the two move by different amounts, so delta*_D drifts.
 %      delta*_F shifts with P* in both cases.
 %
-%  The harmonic case is special for slot-count changes because integer-
+%  The harmonic case is special for value-count changes because integer-
 %  harmonic positions on a log-frequency axis are self-similar under
 %  extension.
 %
@@ -213,12 +213,12 @@ fprintf('Figure 2/3 sweeps: collecting data ...\n');
 
 harm_label_list = arrayfun(@(n) sprintf('%d', n), N_SWEEP, 'UniformOutput', false);
 sweeps = { ...
-    'Harm: slot count N',     make_kw_list_N(N_SWEEP, 1.0, HARMONIC_ROLLOFF),                harm_label_list, 'N'; ...
-    'Harm: slot values beta', make_kw_list_B(BETA_HARM, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF), arrayfun(@(b) sprintf('%.2f', b), BETA_HARM, 'UniformOutput', false), 'beta'; ...
-    'Harm: slot weights rho', make_kw_list_R(RHO_SWEEP, HARMONIC_N_PARTIALS, 1.0),           arrayfun(@(r) sprintf('%.1f', r), RHO_SWEEP, 'UniformOutput', false), 'rho'; ...
-    'Inh: slot count N',      make_kw_list_N(N_SWEEP, INHARMONIC_BETA, HARMONIC_ROLLOFF),   harm_label_list, 'N'; ...
-    'Inh: slot values beta',  make_kw_list_B(BETA_INH,  HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF), arrayfun(@(b) sprintf('%.2f', b), BETA_INH, 'UniformOutput', false), 'beta'; ...
-    'Inh: slot weights rho',  make_kw_list_R(RHO_SWEEP, HARMONIC_N_PARTIALS, INHARMONIC_BETA), arrayfun(@(r) sprintf('%.1f', r), RHO_SWEEP, 'UniformOutput', false), 'rho'; ...
+    'Harm: value count N',     make_kw_list_N(N_SWEEP, 1.0, HARMONIC_ROLLOFF),                harm_label_list, 'N'; ...
+    'Harm: values beta',    make_kw_list_B(BETA_HARM, HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF), arrayfun(@(b) sprintf('%.2f', b), BETA_HARM, 'UniformOutput', false), 'beta'; ...
+    'Harm: value weights rho', make_kw_list_R(RHO_SWEEP, HARMONIC_N_PARTIALS, 1.0),           arrayfun(@(r) sprintf('%.1f', r), RHO_SWEEP, 'UniformOutput', false), 'rho'; ...
+    'Inh: value count N',      make_kw_list_N(N_SWEEP, INHARMONIC_BETA, HARMONIC_ROLLOFF),   harm_label_list, 'N'; ...
+    'Inh: values beta',     make_kw_list_B(BETA_INH,  HARMONIC_N_PARTIALS, HARMONIC_ROLLOFF), arrayfun(@(b) sprintf('%.2f', b), BETA_INH, 'UniformOutput', false), 'beta'; ...
+    'Inh: value weights rho',  make_kw_list_R(RHO_SWEEP, HARMONIC_N_PARTIALS, INHARMONIC_BETA), arrayfun(@(r) sprintf('%.1f', r), RHO_SWEEP, 'UniformOutput', false), 'rho'; ...
 };
 
 % Each sweep is processed independently: build that sweep's query
@@ -341,7 +341,7 @@ fprintf('Figure 3: peak_abs and mu_q ...\n');
 fig3 = figure('Name', 'Figure 3: P* and mu_q', 'Position', [100 100 1100 800], ...
               'Color', 'w');
 set(fig3, 'DefaultAxesXColor', 'k', 'DefaultAxesYColor', 'k');
-axis_titles = {'slot count N', 'slot values beta', 'slot weights rho'};
+axis_titles = {'value count N', 'values beta', 'value weights rho'};
 for col = 1:2
     if col == 1, base_offset = 0; else, base_offset = 3; end
     for row = 1:3

@@ -70,8 +70,8 @@ function [pOut, sigmaOut, covOut, cholOut] = resolveAnisoSigma( ...
             nestedA = ~isempty(nestedIn{a});
         end
         P = double(pIn{a});
-        % Rows are slots, columns are events (buildExpTens's coercion):
-        % no reshape — a 1 x N row vector is one slot across N events
+        % Rows are values, columns are events (buildExpTens's coercion):
+        % no reshape — a 1 x N row vector is one value across N events
         % and correctly fails the r == K check below.
         Ka = size(P, 1);
         rA = expand(rIn, a, []);

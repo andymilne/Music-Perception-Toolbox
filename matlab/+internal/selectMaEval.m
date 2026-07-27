@@ -122,11 +122,11 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     periodG = double(dens.period(:).');
 
     % ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 -> centres.
-    % The Möbius decomposition sums over set partitions of the slot
+    % The Möbius decomposition sums over set partitions of the tuple
     % indices, which counts every ordering of each block and so realises
     % the symmetrised tuple set; on an ordered attribute that is a
     % different density, not a faster route to the same one. r = 1 is
-    % exempt ([sym] vacuous at a single slot). Twin of the Python
+    % exempt ([sym] vacuous at a single value). Twin of the Python
     % _has_ordered_attr rule in _tensor/dispatch.py. ----
     if internal.hasOrderedAttr(dens)
         chosen = 'centres';

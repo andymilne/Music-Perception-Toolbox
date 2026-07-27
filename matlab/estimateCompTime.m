@@ -51,7 +51,7 @@ if nargin < 5
 end
 
 persistent rateCache;  % numeric vector indexed by dim: pairsPerSec.
-                       % Uncalibrated slots hold NaN so isnan() suffices
+                       % Uncalibrated entries hold NaN so isnan() suffices
                        % as the presence check.
 
 % NaN-padded numeric vector indexed by dim. dim is a small integer

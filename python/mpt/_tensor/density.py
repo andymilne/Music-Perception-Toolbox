@@ -100,7 +100,7 @@ def _weight_is_live(w: np.ndarray) -> np.ndarray:
     """Boolean mask of weights that contribute to a density.
 
     A weight contributes iff it is finite and of nonzero magnitude.
-    NaN (a structurally absent slot) and ``0`` (present but
+    NaN (a structurally absent value) and ``0`` (present but
     zero-weighted, e.g. hard-zeroed outside a window's truncation
     support) both fail the test. This is the single definition of a
     "live" weight used by the event-level prune below.
@@ -213,7 +213,7 @@ class MaetDensity:
         # Per-attribute nesting spec (representation B): None per attribute
         # for flat attributes, or a dict {tags, r, sym, rel, ...} (per-level
         # r/sym vectors and the resolved [rel] projection) for a nested one.
-        # Per-slot tags are row-indexed, so event (column) pruning leaves
+        # Per-value tags are row-indexed, so event (column) pruning leaves
         # them untouched.
         self.nested = ([None] * n_attrs if nested is None else list(nested))
         # Optional per-attribute user-defined names (None where unnamed).
@@ -222,7 +222,7 @@ class MaetDensity:
         # Per-level names for a nested attribute live inside nested[a].
         self.names = ([None] * n_attrs if names is None else list(names))
 
-        # Lazy slots
+        # Lazy fields
         self._build_lazy_fn = _build_lazy
         self._n_j = None
         self._n_k = None
@@ -244,7 +244,7 @@ class MaetDensity:
         """Boolean ``(n,)`` mask of events that can contribute.
 
         An event is live iff every attribute has at least one finite,
-        nonzero weight slot in that event's column. An attribute whose
+        nonzero weight in that event's column. An attribute whose
         column is all-zero or all-NaN kills the event (the
         per-attribute factors multiply); a partly-zero column does not.
         Cached on first access.
@@ -519,10 +519,10 @@ def _broadcast_attr_weight(wa, K: int, N: int, attr_idx: int) -> np.ndarray:
     Accepts:
       - ``None`` or empty           -> ones
       - scalar                      -> constant
-      - 1-D of length N (K != N)    -> per-event row, broadcast across slots
-      - 1-D of length K (K != N)    -> per-slot column, broadcast across events
-      - 2-D (1, N)                  -> per-event row, broadcast across slots
-      - 2-D (K, 1)                  -> per-slot column, broadcast across events
+      - 1-D of length N (K != N)    -> per-event row, broadcast across values
+      - 1-D of length K (K != N)    -> per-value column, broadcast across events
+      - 2-D (1, N)                  -> per-event row, broadcast across values
+      - 2-D (K, 1)                  -> per-value column, broadcast across events
       - 2-D (K, N)                  -> full matrix
 
     When K == N, a 1-D input is ambiguous and rejected.
@@ -545,12 +545,12 @@ def _broadcast_attr_weight(wa, K: int, N: int, attr_idx: int) -> np.ndarray:
             raise ValueError(
                 f"Attribute {attr_idx} weight is a 1-D array of length "
                 f"{wa.size}, but K_a == N == {K} makes the per-event vs "
-                f"per-slot interpretation ambiguous. Supply as a 2-D array "
-                f"(shape ({K}, 1) for per-slot or (1, {N}) for per-event)."
+                f"per-value interpretation ambiguous. Supply as a 2-D array "
+                f"(shape ({K}, 1) for per-value or (1, {N}) for per-event)."
             )
         raise ValueError(
             f"Attribute {attr_idx} weight is a 1-D array of length "
-            f"{wa.size}; expected {K} (per-slot), {N} (per-event), or a "
+            f"{wa.size}; expected {K} (per-value), {N} (per-event), or a "
             f"scalar."
         )
 
@@ -750,7 +750,7 @@ def single_multiset_view(dens):
     if is_single_multiset(dens):
         # Cache the view on the density so repeated wrapping is
         # identity-stable (batch deduplication pairs operands by
-        # object identity). The cache slot holds only a weak
+        # object identity). The cache entry holds only a weak
         # reference: the view keeps the density alive (callers may
         # hold just the view), but the density must not keep the view
         # alive, or every viewed density becomes a reference cycle

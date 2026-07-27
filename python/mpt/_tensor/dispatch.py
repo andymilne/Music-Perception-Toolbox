@@ -537,7 +537,7 @@ def _compute_Q_inner_blocks(D, r_inner, is_per, period, *, reduced):
     ``reduced=False``: each block is a full ``r_inner``-tuple, so ``D`` has
     ``r_outer * r_inner`` rows (the inner-product / cosine convention,
     which carries the full perm-side tuples). ``reduced=True``: each block
-    is the ``(r_inner-1)``-row slot-0 reduction of an ``r_inner``-tuple, so
+    is the ``(r_inner-1)``-row position-0 reduction of an ``r_inner``-tuple, so
     ``D`` has ``r_outer * (r_inner-1)`` rows (the centres-array evaluation
     convention). The periodic pairwise wrap is applied inside
     :func:`_compute_Q`, so callers must *not* pre-wrap ``D`` for the inner
@@ -638,7 +638,7 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
       inner-product (cosine-similarity) path uses, where centres are
       stored as full r-tuples.
     - ``reduced=True``: ``D`` has *r-1* components representing the
-      "slot 0 anchored" reduction ``D[k] = d_{k+1} − d_0`` of an
+      "position 0 anchored" reduction ``D[k] = d_{k+1} − d_0`` of an
       r-tuple. This is what the single-multiset centres-array evaluation path uses,
       where ``centres = u_perm[1:] − u_perm[0]`` are stored in
       effective coordinates. Only meaningful when ``is_rel=True``;
@@ -652,12 +652,12 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
     - **rel non-periodic:** ``Q = sum(D**2) - sum(D)**2 / r``. The
       same formula serves both conventions, because the algebraic
       identity that produces it doesn't depend on whether the
-      first-slot zero is materialised.
+      first-position zero is materialised.
     - **rel periodic (Eq 6 of the preprint):** the pairwise-wrap
-      form, ``Q = sum_{i<j over r slots} wrap(d_i - d_j)**2 / r``.
+      form, ``Q = sum_{i<j over r tuple positions} wrap(d_i - d_j)**2 / r``.
       Pairwise wrapping (not component-wise outer wrap) is what
       preserves exact transposition invariance on the circle. In
-      reduced form the implicit slot 0 contributes pairs
+      reduced form the implicit position 0 contributes pairs
       ``(0, k+1) -> -D[k]`` together with the within-reduced-block
       pairs ``(i+1, j+1) -> D[i] - D[j]``; both sets are wrapped and
       accumulated.
@@ -671,9 +671,9 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
             p_g = dt.type(period)
             half = dt.type(0.5)
             if reduced:
-                # Slot-0 pairs (0, k+1) for k = 0..r-2: each contributes
+                # Position-0 pairs (0, k+1) for k = 0..r-2: each contributes
                 # wrap(D[k])^2 (since wrap(-x)^2 = wrap(x)^2). Vectorise
-                # the wrap-and-sum across all slot-0 pairs in one numpy
+                # the wrap-and-sum across all position-0 pairs in one numpy
                 # pass on D as a whole.
                 slot0_wrapped = D - p_g * np.floor(D / p_g + half)
                 Q = np.sum(slot0_wrapped ** 2, axis=0)
@@ -1353,11 +1353,11 @@ def _predict_ma_eval_cost_ms(dens, n_q, chosen):
 def _has_ordered_attr(dens) -> bool:
     """True if any flat attribute is ordered (``[sym] = 0``) at ``r > 1``.
 
-    Such an attribute carries no slot-permutation symmetry, so the
+    Such an attribute carries no position-permutation symmetry, so the
     Möbius orbit decomposition does not apply to it: the partition sum
     realises the symmetrised tuple set, which is a *different* density
     rather than the same one computed faster. ``r = 1`` is exempt
-    ([sym] is vacuous at a single slot), as are nested attributes, whose
+    ([sym] is vacuous at a single value), as are nested attributes, whose
     per-attribute density is built by contraction rather than by a
     single Möbius sum.
     """
@@ -1384,7 +1384,7 @@ def _reject_ordered_for_mobius(dens) -> None:
         raise ValueError(
             "method='mobius' is not available for an ordered ([sym]=0) "
             "attribute at r > 1: the Möbius decomposition sums over set "
-            "partitions of the slot indices, which realises the "
+            "partitions of the tuple positions, which realises the "
             "symmetrised tuple set and so evaluates a different density. "
             "Use method='centres' (or method='auto', which selects it)."
         )
@@ -1468,7 +1468,7 @@ def _select_ma_eval(dens, n_q, *, method):
 
     # ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 have no
     # orbit. The Möbius decomposition sums over set partitions of the
-    # slot indices, which counts every ordering of each block and so
+    # tuple positions, which counts every ordering of each block and so
     # realises the symmetrised tuple set; on an ordered attribute that
     # is a different density, not a faster route to the same one. Keep
     # the joint-centres path, which enumerates the ordered tuple set as

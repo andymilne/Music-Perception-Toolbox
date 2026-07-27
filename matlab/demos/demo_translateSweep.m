@@ -55,7 +55,7 @@ qryPAttr  = {qryPitch, qryTime};
 % time in group 2). Pitch is periodic at the octave; time is absolute
 % non-periodic.
 sigma     = [50, 0.3];        % per-group sigma: cents, seconds
-r         = [1, 1];           % single-slot per attribute (K_a = 1)
+r         = [1, 1];           % single-value per attribute (K_a = 1)
 groups    = [1, 2];           % attribute -> group
 isRel     = [false, false];
 isPer     = [true,  false];
@@ -102,7 +102,7 @@ fprintf('=== 3. translateAttributes (offset sweep) ===\n');
 % offsets is a 1-by-A cell, one entry per attribute. Each entry here is
 % a 1-by-M row, which the orientation grammar reads as a per-sweep
 % global shift: M candidate offsets broadcast across the attribute's
-% slots (trivial here, as each attribute is single-slot, K_a = 1). The
+% values (trivial here, as each attribute is single-value, K_a = 1). The
 % M sweep columns are shared across attributes, so column m of every
 % entry together defines the m-th translated copy. Reads naturally as
 % "sweep pitch by these values; sweep time by these values".

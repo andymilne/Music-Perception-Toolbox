@@ -7,7 +7,7 @@ function v = singleMultisetView(dens)
 %   arrays --- so the single-multiset fast kernels read one layout. The
 %   density itself carries per-attribute cells and length-1 parameter
 %   vectors; this view scalarises the parameters and unwraps the A = 1
-%   cell slot, and aliases the perm-side weight/count under the
+%   cell entry, and aliases the perm-side weight/count under the
 %   single-multiset names (wJ / w_perm, nJ / nJ_perm).
 %
 %   The view is a plain struct (MATLAB value semantics), materialised
@@ -50,7 +50,7 @@ function v = singleMultisetView(dens)
     end
 
     % --- per-attribute wrap opt-in. At the A = 1 corner, unwrap the
-    %     single cell slot to a bare char, matching the view's flat-
+    %     single cell entry to a bare char, matching the view's flat-
     %     scalar convention throughout. Consumers that read wrap must
     %     handle both the MA cell layout (dens.wrap{a}) and this flat
     %     char form. ---
@@ -61,7 +61,7 @@ function v = singleMultisetView(dens)
     end
 
     % --- matrix-valued kernel covariance metadata (per-attribute at the
-    %     A = 1 corner: unwrap the single slot for the flat consumers) ---
+    %     A = 1 corner: unwrap the single entry for the flat consumers) ---
     if isfield(dens, 'kernelCov') && ~isempty(dens.kernelCov)
         kc = dens.kernelCov;
         if iscell(kc); kc = kc{1}; end
@@ -74,7 +74,7 @@ function v = singleMultisetView(dens)
     % --- per-tuple "expensive" arrays, present only after
     %     ensureExpTensExpensive. At A = 1 the joint centres/perm/comb
     %     arrays coincide with the single-attribute ones, so unwrap the
-    %     single cell slot and alias the perm-side weight/count under the
+    %     single cell entry and alias the perm-side weight/count under the
     %     flat single-multiset names. ---
     if isfield(dens, 'Centres') && ~isempty(dens.Centres)
         v.Centres = unwrap1(dens.Centres);
@@ -93,7 +93,7 @@ end
 function out = unwrap1(x)
 %UNWRAP1  Return the first cell of a 1-cell array, or x itself if already
 %   a bare array. The MA fill stores per-attribute cells; the flat view
-%   wants the bare A = 1 slot.
+%   wants the bare A = 1 entry.
     if iscell(x)
         out = x{1};
     else

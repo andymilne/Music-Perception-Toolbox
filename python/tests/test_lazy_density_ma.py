@@ -174,7 +174,7 @@ def test_ma_insufficient_slots_eager_error():
     not deferred to first lazy-field access. Users reasonably expect
     malformed inputs to fail fast."""
     pitch = np.array([[0.0, 0.0], [4.0, np.nan], [np.nan, np.nan]])
-    with pytest.raises(ValueError, match="non-NaN slot"):
+    with pytest.raises(ValueError, match="non-NaN value"):
         build_exp_tens(
             [pitch], None, [10.0], [2], 
             [False], [True], [1200.0], verbose=False,

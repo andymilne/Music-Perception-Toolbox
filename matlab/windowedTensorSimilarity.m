@@ -78,14 +78,14 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
 %   under a fixed reference track P* directly.
 %
 %   The choice matters most when a pitch attribute has more than one
-%   slot per event (chords with exchangeable voices, or partials
-%   added by addSpectra), because queries can then vary in slot
-%   count, slot values, and slot weights. For slot-weight sweeps the
-%   two options coincide. For slot-value sweeps (e.g., stretching
+%   value per event (chords with exchangeable voices, or partials
+%   added by addSpectra), because queries can then vary in value
+%   count, values, and value weights. For value-weight sweeps the
+%   two options coincide. For value sweeps (e.g., stretching
 %   partials), the default's peak offset drifts while a fixed
-%   reference's stays put. For slot-count sweeps, the default's
+%   reference's stays put. For value-count sweeps, the default's
 %   peak offset is stable only for harmonic queries -- those whose
-%   slots lie at (or close to) integer-harmonic values
+%   values lie at (or close to) integer-harmonic positions
 %   f_e + 1200*log2(n) cents. See User Guide §3.1 "Post-tensor
 %   windowing" and the demo_windowingReference demo for analysis
 %   and worked examples.

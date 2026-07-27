@@ -108,7 +108,7 @@ print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
 
 print("=== 3b. bind_events again (B o B): deepen to L = 3 ===")
 
-# bind_events accepts the (p_attr, w, specs) carrier it produces, so a
+# bind_events accepts the (p_attr, w, specs) triple it produces, so a
 # second bind deepens the *already-nested* attribute rather than starting
 # over. The existing tag matrix is tiled and a fresh outermost grouping
 # column is appended; r/sym/rel each gain one outer level. The hierarchy
@@ -157,7 +157,7 @@ print("=== 4. translate_attributes (T) ===")
 
 # Translate pitch (attribute 0) by +5 semitones; leave time alone.
 # Offsets are a per-attribute list: a scalar broadcasts across the
-# attribute's slots (here K=1 each). is_rel is read from specs
+# attribute's values (here K=1 each). is_rel is read from specs
 # (synthesised flat: both absolute), so neither is a no-op.
 mu_pitch = 5.0
 mu = [mu_pitch, 0.0]
@@ -176,7 +176,7 @@ print("=== 5. weight_events (W) ===")
 
 # Apply a window on the time axis (input attribute 1) centred at the
 # penult event (t = 6) with standard deviation 1 quarter-note and
-# gamma = 0 (pure Gaussian). The factor lands back on the time slot
+# gamma = 0 (pure Gaussian). The factor lands back on the time attribute
 # (target attribute 1), the in-place weighting case, and the input is
 # kept (delete_input=False).
 p_w, w_w, s_w = mpt.weight_events(
@@ -199,14 +199,14 @@ print("  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2 / 2).)\n")
 
 print("=== 6. B o D == D o B (pipeline commutation) ===")
 
-# Both pre-MAET operators now speak the (p_attr, w, specs) carrier, so the
-# two routes coincide. Difference is slot-wise across (super-)events and the
+# Both pre-MAET operators speak the (p_attr, w, specs) triple, so the
+# two routes coincide. Differencing pairs values position by position across (super-)events and the
 # sliding bind window commutes with it, on the ordered/K=1 domain where
 # difference is defined.
 #   D then B: difference each attribute (order 1), then bind 2-grams.
 pD1, wD1, sD1 = mpt.difference_events(p_attr, w, [1, 1])
 pDB, wDB, sDB = mpt.bind_events(pD1, wD1, [2, 2], specs=sD1)
-#   B then D: bind 2-grams, then difference each nested attribute slot-wise.
+#   B then D: bind 2-grams, then difference each nested attribute position by position.
 pB1, wB1, sB1 = mpt.bind_events(p_attr, w, [2, 2])
 pBD, wBD, sBD = mpt.difference_events(pB1, wB1, [1, 1], specs=sB1)
 
@@ -218,7 +218,7 @@ specs_agree = all(
 print(f"  D(pitch) intervals, bound (stacked L*K x N''):\n{pDB[0]}")
 print(f"  values agree (both routes): {vals_agree}")
 print(f"  specs  agree (both routes): {specs_agree}")
-print("  (Slot-wise differencing commutes with the sliding bind window; the\n"
+print("  (Position-by-position differencing commutes with the sliding bind window; the\n"
       "   two routes share one nested representation.)\n")
 
 
@@ -308,7 +308,7 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 # cos_sim_exp_tens, and the LIST form of cos_sim_exp_tens, with parity
 # assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25]   # kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
-r     = [1, 1]        # single-slot attributes (K_a = 1) in both groups
+r     = [1, 1]        # single-value attributes (K_a = 1) in both groups
 
 # --- 9a. entropy_exp_tens (raw MA form) ---
 # Signature:

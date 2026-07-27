@@ -166,7 +166,7 @@ def window_tensor(dens, window_spec) -> WindowedMaetDensity:
     else:
         # Numeric input (scalar, 0-D ndarray, or ndarray of any shape).
         # Two interpretations:
-        #   * size 1: scalar broadcast — fill every per-attribute slot
+        #   * size 1: scalar broadcast — fill every per-attribute entry
         #     uniformly with the scalar value.
         #   * size dim_total: flat form, split by ``dim_per_attr``.
         #   * anything else: error.
@@ -1192,9 +1192,9 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
     #
     #     delta_a = { (c_g - mu_q_g)|_a            if group g is absolute
     #               { [0, (c_g - mu_q_g)|_a_eff]   if group g is relative
-    #                                               (slot-0-anchored lift)
+    #                                          (position-0-anchored lift)
     #
-    # to the r_a-slot tuple differences D = U - V before computing Q_a.
+    # to the r_a-position tuple differences D = U - V before computing Q_a.
     # Groups that are not windowed receive no shift.
     #
     # For the unwindowed path (windowed_c is None) this whole block is
@@ -1221,7 +1221,7 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             # translation-invariant attributes have no canonical
             # position. Where the window centre in a relative attribute
             # is non-zero in effective space, the shift is still applied
-            # and lifted via slot-0 anchoring.
+            # and lifted via position-0 anchoring.
             r_a = int(r_vec[a])
             d_a = int(dim_per[a])
             mu_q_a = dens_x.centres[a].mean(axis=1)               # (d_a,)
@@ -1231,9 +1231,9 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             mu_q_per_attr[a] = mu_q_a
             eff_shift_per_attr[a] = delta_a_eff
 
-            # Lift delta_a_eff into the attribute's r_a-slot shift.
+            # Lift delta_a_eff into the attribute's r_a-position shift.
             if bool(is_rel_g[a]):
-                # Slot-0 anchored lift: shift[0]=0, shift[1:]=delta_a_eff.
+                # Position-0 anchored lift: shift[0]=0, shift[1:]=delta_a_eff.
                 # For r_a == 1 and isRel=True the attribute is degenerate
                 # (d_a == 0) and no shift is needed.
                 if r_a == 1:
@@ -1274,14 +1274,14 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 wrap_a = str(dens_x.wrap[a])
             if wrap_a == 'full-image':
                 # Abs-per full-image via shared wrapped-Gaussian helper.
-                # Accumulate log(theta) per slot into log_kernel.
+                # Accumulate log(theta) per tuple position into log_kernel.
                 from .._wrapped_kernel import wrapped_gaussian_1d
                 from .._defaults import get_default
                 ts = get_default("truncation_sigmas")
-                theta_per_slot = wrapped_gaussian_1d(
+                theta_per_position = wrapped_gaussian_1d(
                     D, sigma_a, p_g, ts, exponent_denominator=4
                 )
-                log_kernel = log_kernel + np.log(theta_per_slot).sum(axis=0)
+                log_kernel = log_kernel + np.log(theta_per_position).sum(axis=0)
                 continue
             # Single-image opt-in: reduce and fall through.
             D = D - p_g * np.floor(D / p_g + 0.5)
@@ -1354,8 +1354,8 @@ def _effective_centres_from_U(dens: "MaetDensity", side: str):
 
     ``side='perm'`` uses u_perm (r_a x nJ); ``side='comb'`` uses v_comb
     (r_a x nK). Effective-space centre is obtained by projecting the r
-    slot values onto the group's effective (dim_per_attr) space:
-      - absolute group: centre is the slot vector itself (dim = r).
+    tuple values onto the group's effective (dim_per_attr) space:
+      - absolute group: centre is the tuple vector itself (dim = r).
       - relative group: centre is (r - 1)-dim reduced coords; compute
         via the first (r - 1) pairwise differences from the mean, or
         equivalently the identity-projector-on-zero-mean. The specific
@@ -1383,7 +1383,7 @@ def _effective_centres_from_V(dens: "MaetDensity", side: str):
         v_comb[a] (r_a rows, used directly).
       - Relative groups (isRel=True) with r_a >= 2: effective-space
         centre is v_comb[a][1:, :] - v_comb[a][0:1, :], i.e., the (r_a - 1)
-        differences of every slot from slot 0.
+        differences of every tuple position from position 0.
       - Relative groups with r_a = 1: empty (0, nK) array (degenerate).
     """
     A = dens.n_attrs
@@ -1746,7 +1746,7 @@ def _windowed_contribution_gaussian_multi_rel(cx_g, cy_g, centre_g,
         (the unwindowed integration constants are the same per group
         regardless of window).
     """
-    # In the "drop first slot, v[i] = u[i+1] - u[1]" reduction used by
+    # In the "drop first position, v[i] = u[i+1] - u[1]" reduction used by
     # build_exp_tens, the quadratic form in reduced coords is
     #
     #     Q(v) = v^T M_rel v    where M_rel = I - (1/r) * 1 1^T  (size d_g).

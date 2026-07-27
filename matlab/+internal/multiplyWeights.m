@@ -3,7 +3,7 @@ function wNew = multiplyWeights(wExisting, factor, K_target)
 %
 %   factor is (1, N); the target attribute's existing weight may be
 %   [], a scalar, a (1, N) row, or a (K_target, N) matrix. The factor
-%   broadcasts across K_target slots (every slot of every event sees
+%   broadcasts across K_target values (every value of every event sees
 %   the same factor).
     if isempty(wExisting)
         % factor broadcast to (K_target, N).
@@ -21,7 +21,7 @@ function wNew = multiplyWeights(wExisting, factor, K_target)
         return;
     end
     if isequal(size(arr), [K_target, size(factor, 2)])
-        % (K_target, N): per-slot weights, broadcast factor across rows.
+        % (K_target, N): per-value weights, broadcast factor across rows.
         wNew = arr .* factor;
         return;
     end

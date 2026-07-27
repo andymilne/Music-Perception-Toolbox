@@ -52,8 +52,8 @@
 %  reference. This demo uses the default throughout. Which method is
 %  appropriate depends on how queries vary between runs: see
 %  USER_GUIDE.md §3.1 "Post-tensor windowing" for a summary, and the
-%  demo demo_windowingReference for a full analysis across slot-count,
-%  slot-value, and slot-weight sweeps of both harmonic and non-harmonic
+%  demo demo_windowingReference for a full analysis across value-count,
+%  value, and value-weight sweeps of both harmonic and non-harmonic
 %  queries.
 %
 %  Uses: buildExpTens, evalExpTens, cosSimExpTens, windowedTensorSimilarity,

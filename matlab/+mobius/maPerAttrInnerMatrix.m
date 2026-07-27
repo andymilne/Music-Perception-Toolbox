@@ -10,7 +10,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   on a single attribute.
 %
 %   Inputs:
-%     PX, WX     (K_x, N_x) per-event slot positions and weights for
+%     PX, WX     (K_x, N_x) per-event values and weights for
 %                density X. NaN entries indicate ragged events; they
 %                are routed and handled per-pair as appropriate.
 %     PY, WY     (K_y, N_y) same for Y.
@@ -47,7 +47,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %
 %   Output:
 %     I          (N_x, N_y) double; entry (n_X, n_Y) is the
-%                per-attribute inner product over the slot values of
+%                per-attribute inner product over the values of
 %                event n_X (X-side) against those of n_Y (Y-side).
 %
 %   Strategy:
@@ -56,7 +56,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %     Zero-pad NaN entries (zero weight kills any contribution).
 %
 %   - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
-%     this attribute iff its non-NaN slot count K_eff satisfies
+%     this attribute iff its non-NaN value count K_eff satisfies
 %     K_eff - R >= _ORBIT_K_MINUS_R_MIN = 2 (the precision margin
 %     used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
 %     through the vectorised batched Möbius method with within-safe-group
@@ -102,7 +102,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
     % --- Zero-weight-event pruning (auto, before dispatch) ---
     % An event contributes zero to every output entry iff its weight
     % column is identically zero in this attribute (NaN entries are
-    % missing slots — equivalent to zero in the IP). Drop such events,
+    % missing values — equivalent to zero in the IP). Drop such events,
     % recurse on the smaller matrices, scatter the result back.
     if opts.pruneZeroWeightEvents && Nx > 0 && Ny > 0
         colMaxX = max(abs(Wx), [], 1, 'omitnan');
@@ -150,7 +150,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 
     K_MARGIN_MIN = 2;   % matches _ORBIT_K_MINUS_R_MIN
 
-    % Per-event K_eff (count of non-NaN slots), per side.
+    % Per-event K_eff (count of non-NaN values), per side.
     K_eff_x = sum(~isnan(Px) & ~isnan(Wx), 1);   % (1, Nx)
     K_eff_y = sum(~isnan(Py) & ~isnan(Wy), 1);   % (1, Ny)
 
@@ -169,8 +169,8 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
         Pys = Py(:, safe_y_idx); Wys = Wy(:, safe_y_idx);
         KxMax = size(Pxs, 1); KyMax = size(Pys, 1);
 
-        % Sparse-orbit fast path: when the slot kernel is large and the
-        % (non-periodic) slots are well-separated, a spatially-culled
+        % Sparse-orbit fast path: when the value kernel is large and the
+        % (non-periodic) values are well-separated, a spatially-culled
         % per-pair orbit beats the dense batched contraction. Gate on a
         % cheap density probe from one representative safe pair.
         [minKernel, maxDensity] = localOrbitSparseThresholds();
@@ -265,7 +265,7 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
             % Full-image 1-D wrapped Gaussian in overlap convention
             % (exponent_denominator = 4). Same shape as diffs; the
             % r=1 kernel factor is this theta directly (no product
-            % across slots at r = 1).
+            % across tuple positions at r = 1).
             K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                                  truncationSigmas, 4);
         else
@@ -331,9 +331,9 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
               - reshape(Py_safe, 1, 1, Ky, Ny_safe);
         if absPerFullImage
             % Full-image 1-D wrapped Gaussian in overlap convention.
-            % innerProductOrbitPwBatched consumes the per-slot pair
+            % innerProductOrbitPwBatched consumes the per-position pair
             % kernel unchanged; the r-tuple full-image kernel factors
-            % across slots as prod_a theta(d_a), delivered by the orbit
+            % across tuple positions as prod_a theta(d_a), delivered by the orbit
             % reduction over the 1-D theta values.
             K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                                  truncationSigmas, 4);
@@ -366,7 +366,7 @@ function [minKernel, maxDensity] = localOrbitSparseThresholds()
 %LOCALORBITSPARSETHRESHOLDS  Sparse-orbit cost model (mirror of the Python
 %   _ORBIT_SPARSE_MIN_KERNEL / _ORBIT_SPARSE_MAX_DENSITY). The sparse
 %   per-pair orbit undercuts the dense batched contraction only when the
-%   slot kernel is both large and sparse; below these thresholds the
+%   value kernel is both large and sparse; below these thresholds the
 %   dense contraction's constant factors win. Tunable.
     minKernel = 200000;   % Kx * Ky floor
     maxDensity = 0.20;    % nnz / (Kx * Ky) ceiling
@@ -378,8 +378,8 @@ function I = localSafeSafeOrbitSparse(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
 %LOCALSAFESAFEORBITSPARSE  Safe submatrix via the sparse per-pair orbit.
 %
 %   Absolute mode only. Each event uses just its non-zero-weight,
-%   non-NaN slots, so variable cardinality is handled naturally (a
-%   zero-weight slot contributes zero to every orbit term). Mirrors the
+%   non-NaN values, so variable cardinality is handled naturally (a
+%   zero-weight value contributes zero to every orbit term). Mirrors the
 %   dense LOCALSAFESAFEORBIT output.
 
     [~, Nx_safe] = size(Px_safe);
@@ -412,7 +412,7 @@ end
 
 function Ksp = localBuildSparseKernelAbs(pX, pY, sigma, truncationSigmas)
 %LOCALBUILDSPARSEKERNELABS  Spatially-culled absolute-mode kernel as a
-%   sparse matrix. Keeps only slot pairs within the truncation radius via
+%   sparse matrix. Keeps only value pairs within the truncation radius via
 %   a 1-D sorted window, matching INTERNAL.TRUNCKERNELEXP's cutoff
 %   (|d|^2 > 2 (truncationSigmas * sigma)^2) without the dense O(n^2) pass.
 
@@ -511,10 +511,10 @@ end
 
 
 function [Pp, Wp] = localPackNanTop(P, W)
-%LOCALPACKNANTOP  Pack non-NaN slots to the top of each column.
+%LOCALPACKNANTOP  Pack non-NaN values to the top of each column.
 %
 %   Returns P_packed, W_packed where for each column n the first
-%   K_eff(n) rows hold the valid slots (preserving their original
+%   K_eff(n) rows hold the valid values (preserving their original
 %   order) and the rest are NaN. The buildExpTens convention already
 %   places NaN at the bottom, in which case this is mathematically a
 %   no-op; per-column packing handles user-constructed densities with
@@ -602,7 +602,7 @@ function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, .
     nJ_x = size(idx_x, 1);                % K_x! / (K_x - r)!
     nJ_y = size(idx_y, 1);
 
-    % Gather tuple slot positions per event. Px(idx_x.', :) is
+    % Gather tuple value indices per event. Px(idx_x.', :) is
     % (r, nJ_x, N_x); we want U_x of shape (r, N_x, nJ_x).
     U_x = permute(Px(idx_x.', :), [1 3 2]);  % (r, N_x, nJ_x)... wait
     % MATLAB: Px(idx_x.', :) with idx_x.' (r, nJ_x) — fancy index is
@@ -627,8 +627,8 @@ function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, .
     diffs = reshape(U_x, r, Nx, nJ_x, 1, 1) ...
           - reshape(U_y, r, 1, 1, Ny, nJ_y);
     if absPerFullImage
-        % Full-image r-tuple kernel factors across slots: per-slot
-        % theta then product across slots. Overlap convention.
+        % Full-image r-tuple kernel factors across tuple positions: per-position
+        % theta then product across tuple positions. Overlap convention.
         theta = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                             truncationSigmas, 4);
         Kmat = reshape(prod(theta, 1), Nx, nJ_x, Ny, nJ_y);

@@ -956,7 +956,7 @@ def _eval_exp_tens_ma(
     w_j         = dens.w_j
 
     # --- Auto-prune zero-weight joint perm-side tuples ---
-    # The MaetDensity build expands per-attribute slot combinations into
+    # The MaetDensity build expands per-attribute value combinations into
     # joint perm-side tuples and computes w_j as the product of
     # per-attribute weights. A tuple with w_j == 0 contributes zero at
     # every query point, so dropping it is exact (matches the strict
@@ -1077,10 +1077,10 @@ def _ma_eval_factored(
     per-attribute tuple counts --- is never materialised; the cost is the
     *sum* of the per-attribute counts instead.
 
-    Absent slots (NaN in a given event) are handled as zero-weight values
-    on a shared enumeration over the ever-valid slots, so events with
-    differing valid-slot patterns need no special case: a tuple touching a
-    slot absent in its event carries weight zero and contributes nothing.
+    Absent values (NaN in a given event) are handled as zero-weight values
+    on a shared enumeration over the ever-valid values, so events with
+    differing valid-value patterns need no special case: a tuple touching a
+    value absent in its event carries weight zero and contributes nothing.
 
     Returns the raw (un-normalised) values ``(n_q,)`` --- the caller
     applies :func:`_ma_eval_normalize`, identically to the joint path ---
@@ -1118,14 +1118,14 @@ def _ma_eval_factored(
     ts = resolve_truncation_sigmas(truncation_sigmas)
 
     # Per-attribute tuple-index structure, enumerated once over the
-    # ever-valid slots (slots non-NaN in at least one event). The index
+    # ever-valid values (non-NaN in at least one event). The index
     # pattern is event-invariant; only the per-event values and weights
     # change, so this is built a single time per attribute.
     perm = []
     for a in range(A):
         ever_valid = np.nonzero((~np.isnan(P[a])).any(axis=1))[0].astype(np.intp)
         if ever_valid.size < r_vec[a]:
-            return None  # too few slots for a full tuple; joint path errors cleanly
+            return None  # too few values for a full tuple; joint path errors cleanly
         spec = nested[a]
         if spec is not None:
             tags = np.asarray(spec["tags"])[ever_valid]
@@ -1149,14 +1149,14 @@ def _ma_eval_factored(
             w_col = W[a][:, n]
             absent = np.isnan(p_col)
             # Finite placeholder keeps the kernel finite; zero weight
-            # nulls any tuple touching an absent slot.
+            # nulls any tuple touching an absent value.
             p_fill = np.where(absent, 0.0, p_col)
             w_fill = np.where(absent | np.isnan(w_col), 0.0, w_col)
             u = p_fill[pm]                      # (r_a, M)
             w_tuple = np.prod(w_fill[pm], axis=0)   # (M,)
             r_in = int(inner_r[a])
             if r_in > 0:
-                # Nested: reduce each inner block by its own first slot,
+                # Nested: reduce each inner block by its own first value,
                 # then a dense block-diagonal quadratic form (nested M is
                 # small, so the cull is not needed here).
                 r_out = u.shape[0] // r_in
@@ -1259,11 +1259,11 @@ def _ma_eval_full(
                 # helper (image-sum or Fourier, whichever is cheaper).
                 # Density-kernel convention: exponent_denominator=2.
                 from .._wrapped_kernel import wrapped_gaussian_1d
-                theta_per_slot = wrapped_gaussian_1d(
+                theta_per_position = wrapped_gaussian_1d(
                     d_a, float(sigma[a]), float(period[a]),
                     truncation_sigmas, exponent_denominator=2,
                 )
-                factor_a = theta_per_slot.prod(axis=0).astype(dtype,
+                factor_a = theta_per_position.prod(axis=0).astype(dtype,
                                                               copy=False)
                 abs_per_factor = (factor_a if abs_per_factor is None
                                   else abs_per_factor * factor_a)
@@ -1501,11 +1501,11 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
             # Full-image via the shared wrapped-Gaussian helper
             # (image-sum or Fourier, whichever is cheaper).
             from .._wrapped_kernel import wrapped_gaussian_1d
-            theta_per_slot = wrapped_gaussian_1d(
+            theta_per_position = wrapped_gaussian_1d(
                 D, float(sigma), float(period), truncation_sigmas,
                 exponent_denominator=2,
             )
-            E = theta_per_slot.prod(axis=0)  # (nJ, nQc)
+            E = theta_per_position.prod(axis=0)  # (nJ, nQc)
             use_truncation = (
                 truncation_sigmas is not None
                 and np.isfinite(truncation_sigmas)

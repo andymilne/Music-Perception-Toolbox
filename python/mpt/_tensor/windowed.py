@@ -1,7 +1,7 @@
 """Pre-MAET windowed sweeps: ``windowed_similarity`` and ``windowed_entropy``.
 
 Both slide a window across one or more attribute axes of a *pre-MAET*
-carrier and read out a profile, sharing one placement-and-window seam.
+density and read out a profile, sharing one placement-and-window seam.
 ``windowed_similarity`` translates a query to each swept position and
 scores it against the locally windowed context; ``windowed_entropy`` has
 no query and reads the entropy of the windowed (and, for any dropped axis,
@@ -100,10 +100,10 @@ def _resolve_centres(p_attr, axis, centres, start, stop, step, default_step):
     return lo + st * np.arange(max(n, 1))
 
 
-def _prune_dead_carrier(p_attr, w, specs):
+def _prune_dead_events(p_attr, w, specs):
     """Drop events the window hard-zeroed, before the (heavy) build.
 
-    A windowed carrier carries out-of-window / beyond-truncation events
+    A windowed density carries out-of-window / beyond-truncation events
     at weight zero (``weight_events`` writes its factor as such). Those
     events contribute nothing to any inner product or to the density an
     entropy integrates, so dropping them here -- at the single windowing
@@ -112,7 +112,7 @@ def _prune_dead_carrier(p_attr, w, specs):
     a sliding sweep's cost, without touching the core build contract or
     the density-level ``pruned()`` path. The liveness rule is the shared
     one (``_weight_is_live``): an event is live iff every weighted
-    attribute has a finite, nonzero slot in its column. Skipped only when
+    attribute has a finite, nonzero value in its column. Skipped only when
     nothing is dead (the un-windowed common case pays only a mask scan).
     An all-dead window (one that caught nothing) prunes to zero events, so
     the build is trivial and the resulting empty density scores zero at the
@@ -131,7 +131,7 @@ def _prune_dead_carrier(p_attr, w, specs):
         if Wa.ndim == 1:
             Wa = Wa.reshape(1, -1)
         if Wa.ndim != 2 or Wa.shape[1] != N:
-            continue                      # per-slot / scalar: cannot kill an event alone
+            continue                      # per-value / scalar: cannot kill an event alone
         live &= _weight_is_live(Wa).any(axis=0)
     n_live = int(live.sum())
     if n_live == N:
@@ -149,8 +149,8 @@ def _prune_dead_carrier(p_attr, w, specs):
         elif Wa.ndim == 1 and Wa.shape[0] == N:
             w_out.append(Wa[keep])
         else:
-            w_out.append(W)               # per-slot / scalar: unchanged
-    return p_out, w_out, specs            # specs are per-slot -> unchanged
+            w_out.append(W)               # per-value / scalar: unchanged
+    return p_out, w_out, specs            # specs are per-value -> unchanged
 
 
 def _locate_row(M, locate):
@@ -240,7 +240,7 @@ def _apply_windows(p, w, specs, centres, win, locate, target):
         gamma, sd = win[a]
         factor = _window_factor(loc, centre, gamma, sd)
         w_out[target] = _multiply_weights(w_out[target], factor, target)
-    return _prune_dead_carrier(p, w_out, specs)
+    return _prune_dead_events(p, w_out, specs)
 
 
 def _drop_axes(p, w, specs, drop_axes):

@@ -77,7 +77,7 @@ def _trunc_kernel_exp(exp_arg, sigma, truncation_sigmas):
 
 
 # Sparse-orbit cost model. The sparse per-pair orbit undercuts the dense
-# batched contraction only when the slot kernel is both large and sparse;
+# batched contraction only when the value kernel is both large and sparse;
 # below these thresholds the dense einsum's constant factors win. Tunable.
 _ORBIT_SPARSE_MIN_KERNEL = 200_000     # K_x * K_y floor
 
@@ -88,7 +88,7 @@ _ORBIT_SPARSE_MAX_DENSITY = 0.20       # nnz / (K_x * K_y) ceiling
 def _build_sparse_kernel_abs(pX, pY, sigma, truncation_sigmas):
     """Spatially-culled absolute-mode kernel as a scipy.sparse matrix.
 
-    Keeps only slot pairs within the truncation radius via a 1-D sorted
+    Keeps only value pairs within the truncation radius via a 1-D sorted
     window (O(n log n + nnz)), matching :func:`_trunc_kernel_exp`'s cutoff
     without the dense O(n^2) distance pass.
     """
@@ -118,7 +118,7 @@ def _build_sparse_kernel_abs(pX, pY, sigma, truncation_sigmas):
 def _rel_per_sparse_prep(pY, period):
     """One-time sorted-tripled centre arrays for the circular builder.
 
-    Folds the B-side slot values into ``[0, P)``, sorts them, and
+    Folds the B-side values into ``[0, P)``, sorts them, and
     replicates each at ``c - P, c, c + P`` so a wrapped window maps to a
     contiguous range of the sorted array. Returns ``(c3, j3)``: the
     tripled sorted coordinates and, aligned with them, the original
@@ -185,8 +185,8 @@ def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
 
     Mirrors the dense batched safe-submatrix output: returns the flattened
     ``(N_xs * N_ys,)`` vector in row-major (x, y) order and the worst
-    cancellation ratio. Each event uses only its non-zero-weight slots, so
-    variable cardinality is handled naturally (a zero-weight slot
+    cancellation ratio. Each event uses only its non-zero-weight values, so
+    variable cardinality is handled naturally (a zero-weight value
     contributes zero to every orbit term).
     """
     from .._mobius import inner_product_orbit_sparse
@@ -194,15 +194,15 @@ def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
     N_ys = Py_s.shape[1]
     flat = np.empty(N_xs * N_ys, dtype=np.float64)
     worst = 1.0
-    y_slots = []
+    y_values = []
     for j in range(N_ys):
         vy = Wy_s[:, j] != 0.0
-        y_slots.append((Py_s[vy, j], Wy_s[vy, j]))
+        y_values.append((Py_s[vy, j], Wy_s[vy, j]))
     for i in range(N_xs):
         vx = Wx_s[:, i] != 0.0
         pxi, wxi = Px_s[vx, i], Wx_s[vx, i]
         for j in range(N_ys):
-            pyj, wyj = y_slots[j]
+            pyj, wyj = y_values[j]
             Ks = _build_sparse_kernel_abs(pxi, pyj, sigma, truncation_sigmas)
             if return_cancellation_ratio:
                 v, ratio = inner_product_orbit_sparse(
@@ -227,7 +227,7 @@ def _ma_per_attr_inner_matrix(
 
     ``Px`` is (K, N_x), ``Wx`` is (K, N_x); same shape for Y. Returns
     an (N_x, N_y) matrix where entry (n_X, n_Y) is the per-attribute
-    inner product over the K slot values of event n_X (X-side) against
+    inner product over the K values of event n_X (X-side) against
     those of n_Y (Y-side).
 
     Strategy (in parity with MATLAB ``mobius.maPerAttrInnerMatrix``):
@@ -236,7 +236,7 @@ def _ma_per_attr_inner_matrix(
       Möbius decomposition, cancellation impossible).
 
     - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
-      this attribute iff its non-NaN slot count K_eff satisfies
+      this attribute iff its non-NaN value count K_eff satisfies
       ``K_eff - r >= _ORBIT_K_MINUS_R_MIN`` (= 2; the precision margin
       used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
       through the vectorised batched Möbius method with within-safe-group
@@ -291,13 +291,13 @@ def _ma_per_attr_inner_matrix(
     # --- Zero-weight-event pruning (auto, before dispatch) ---
     # An event contributes zero to every output entry iff its weight
     # column is identically zero in this attribute (NaN entries are
-    # missing slots — equivalent to zero in the IP). Drop such events,
+    # missing values — equivalent to zero in the IP). Drop such events,
     # recurse on the smaller matrices, scatter the result back.
     if prune_zero_weight_events and (N_x > 0) and (N_y > 0):
         # nanmax over a column returns NaN only when ALL entries are
         # NaN (which is an invalid event); for any partial-NaN column
-        # it returns the max over the non-NaN slots. Compare > 0 to
-        # find columns with at least one positive-magnitude slot.
+        # it returns the max over the non-NaN values. Compare > 0 to
+        # find columns with at least one positive-magnitude value.
         with np.errstate(invalid='ignore'):
             col_max_x = np.nanmax(np.abs(Wx), axis=0)
             col_max_y = np.nanmax(np.abs(Wy), axis=0)
@@ -409,7 +409,7 @@ def _ma_per_attr_inner_matrix(
 
     K_MARGIN_MIN = _ORBIT_K_MINUS_R_MIN
 
-    # Per-event K_eff (count of non-NaN slots), per side.
+    # Per-event K_eff (count of non-NaN values), per side.
     K_eff_x = np.sum(~(np.isnan(Px) | np.isnan(Wx)), axis=0)   # (N_x,)
     K_eff_y = np.sum(~(np.isnan(Py) | np.isnan(Wy)), axis=0)   # (N_y,)
 
@@ -436,8 +436,8 @@ def _ma_per_attr_inner_matrix(
         N_ys = safe_y_idx.size
         prefactor = (sigma * np.sqrt(np.pi)) ** r
 
-        # Sparse-orbit fast path: when the slot kernel is large and the
-        # (non-periodic) slots are well-separated, a spatially-culled
+        # Sparse-orbit fast path: when the value kernel is large and the
+        # (non-periodic) values are well-separated, a spatially-culled
         # per-pair orbit beats the dense batched contraction. Gate on a
         # cheap density probe from one representative safe pair.
         use_sparse = False
@@ -470,7 +470,7 @@ def _ma_per_attr_inner_matrix(
                 # Fast path: single shot.
                 diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
                 # Abs-per full-image: 1-D wrapped Gaussian kernel per
-                # slot (overlap convention, exponent_denominator=4).
+                # value (overlap convention, exponent_denominator=4).
                 # Single-image opt-in reduces to the nearest image; the
                 # pre-v3 code did the reduction unconditionally.
                 if is_per and str(wrap) == 'full-image':
@@ -632,7 +632,7 @@ def _ma_fill_direct_enum_groups(
         if x_grp.size == 0 or int(K_x_val) < r:
             # K < r: ordered r-tuple set is empty; IP = 0.
             continue
-        # Pack non-NaN slots to the top of each group column. The
+        # Pack non-NaN values to the top of each group column. The
         # build_exp_tens convention has NaN already at the bottom, so
         # in the common case this is a memory-cheap slice; in the
         # general case _pack_nan_top handles arbitrary NaN positions.
@@ -655,10 +655,10 @@ def _ma_fill_direct_enum_groups(
 
 
 def _pack_nan_top(P, W):
-    """Pack non-NaN slots to the top of each column.
+    """Pack non-NaN values to the top of each column.
 
     Returns ``(P_packed, W_packed)`` of the same shape, where for each
-    column ``n`` the first ``K_eff[n]`` rows are the valid slots
+    column ``n`` the first ``K_eff[n]`` rows are the valid values
     (preserving their original order) and the rest are NaN. The
     ``build_exp_tens`` convention already places NaN at the bottom, in
     which case this is mathematically a no-op (still copies for
@@ -694,9 +694,9 @@ def _batched_direct_enum_abs(
     Inputs
     ------
     Px_group : (K_x, N_x) ndarray
-        Slot positions, no NaN.
+        Values, no NaN.
     Wx_group : (K_x, N_x) ndarray
-        Slot weights, no NaN.
+        Value weights, no NaN.
     Py_group, Wy_group : (K_y, N_y) ndarrays
         Same for Y side.
     sigma, r, is_per, period
@@ -743,7 +743,7 @@ def _batched_direct_enum_abs(
     nJ_x = idx_x.shape[0]                  # K_x! / (K_x - r)!
     nJ_y = idx_y.shape[0]
 
-    # Gather tuple slot positions and weights per event. The fancy
+    # Gather tuple value indices and weights per event. The fancy
     # index Px_group[idx_x.T, :] has shape (r, nJ_x, N_x); we want
     # U_x of shape (r, N_x, nJ_x) and Wj_x of shape (N_x, nJ_x).
     U_x = Px_group[idx_x.T, :].transpose(0, 2, 1)
@@ -773,8 +773,8 @@ def _zero_pad_nan(Px, Wx, Py, Wy):
     """Replace NaN entries in P / W with 0 (zero-weight padding).
 
     Returns new arrays (does not mutate inputs). The Möbius method's weighted
-    contractions read ``w_i^m``, so a zero-weight slot kills any Möbius
-    term involving that slot regardless of the corresponding p value
+    contractions read ``w_i^m``, so a zero-weight value kills any Möbius
+    term involving that value regardless of the corresponding p value
     — mathematically equivalent to per-event truncation.
     """
     nan_x = np.isnan(Px) | np.isnan(Wx)
@@ -796,7 +796,7 @@ def _rel_per_inner_sparse(Px, Wx, Py, Wy, sigma, r, period, u_grid, du,
     each u-node builds its circular sparse kernel and runs the sparse
     orbit collapse. Values match the dense slab route exactly (the
     circular window retains precisely the entries the truncated dense
-    kernel keeps, and zero-weight slots contribute zero to every orbit
+    kernel keeps, and zero-weight values contribute zero to every orbit
     term), and the mass-aware pair ratio |sum_u F_u| / sum_u max|term_u|
     matches the dense diagnostic. The normalisation tail is shared with
     the dense route.
@@ -1150,7 +1150,7 @@ def _rel_inner_batched(
     batched Möbius contraction is flat in N and K (mirroring the
     single-multiset slabbing in ``_orbit_inner_rel``).
 
-    Ragged (NaN-padded) events arrive zero-padded: a zero-weight slot
+    Ragged (NaN-padded) events arrive zero-padded: a zero-weight value
     contributes a zero factor to every Möbius term in which its axis
     value appears, so the result is exact for the K_eff events.
     Events with K_eff - r below the precision margin in this regime
@@ -1224,7 +1224,7 @@ def _rel_inner_batched(
         du = period / N_u
         centres = np.zeros((N_x, N_y), dtype=np.float64)
     else:
-        # Per-pair centred common grid. Weighted-slot means keep the
+        # Per-pair centred common grid. Weighted-value means keep the
         # centre finite for zero-padded events (all-zero-weight events
         # contribute nothing regardless of centre).
         def _col_means(P, W):
@@ -1253,7 +1253,7 @@ def _rel_inner_batched(
         u_grid = np.linspace(-0.5 * span, 0.5 * span, N_u)
         du = span / (N_u - 1)
 
-    # Sparse-orbit fast path (periodic): when the slot kernel is large
+    # Sparse-orbit fast path (periodic): when the value kernel is large
     # and the truncation window fits inside the circle, each u-node's
     # kernel is a circular band of width 2R out of the period, so a
     # spatially-culled per-node orbit beats the dense slab contraction;
@@ -1574,8 +1574,8 @@ def _closed_form_attr_centres(dens, a):
     :func:`_closed_form_attr_matrix_from`).
 
     Returns ``(centres, w_j, event_of_j, inner_block_size, is_per, period,
-    r_a, is_rel, sigma, n_events)``. Variable-K (NaN-padded) slots are carried
-    by the rebuild, which drops every tuple touching a padded slot to zero
+    r_a, is_rel, sigma, n_events)``. Variable-K (NaN-padded) values are carried
+    by the rebuild, which drops every tuple touching a padded value to zero
     weight.
     """
     from .build import build_exp_tens as _bld
@@ -1612,9 +1612,9 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     one-sided ratios.
 
     Absolute-periodic uses the full-image (torus) measure: the r-tuple
-    kernel is the product across slots of the 1D wrapped Gaussian
+    kernel is the product across tuple positions of the 1D wrapped Gaussian
     ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Because Q
-    factors across slots in absolute mode, the product-of-theta form
+    factors across tuple positions in absolute mode, the product-of-theta form
     (``r * (2L+1)`` per pair) is the cheaper representation of the
     all-image kernel than the r-dim lattice sum (``(2L+1)^r``); the
     image sum switches on only when the accuracy floor requires it.
@@ -1625,7 +1625,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     measure. It does not equal the all-image transposition average (the torus
     inner product), which the tau-grid contraction computes; the two coincide
     for sigma << period and diverge as sigma approaches the period. Because the
-    minimum-image kernel couples all slots within a tuple (a pairwise quadratic
+    minimum-image kernel couples all positions within a tuple (a pairwise quadratic
     form), it does not factor per level, so the per-level orbit (Möbius)
     reduction is unavailable here and a symmetric level is enumerated over its
     full orbit. When that enumeration becomes the dominant cost, the dispatch
@@ -1645,7 +1645,7 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     GY = np.zeros((njy, Ny))
     GY[np.arange(njy), Ey] = 1.0
     inv4s2 = 1.0 / (4.0 * sigma ** 2)
-    # Abs-per full-image: per-slot image sum before the r-tuple product.
+    # Abs-per full-image: per-position image sum before the r-tuple product.
     # L = 0 at sigma/P below the accuracy-floor threshold, so this
     # collapses to the single-Gaussian route unchanged. When the user
     # has opted this attribute into ``wrap='single-image'`` the L is
@@ -1689,10 +1689,10 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
                 from .._defaults import get_default
                 ts = (get_default("truncation_sigmas")
                       if truncation_sigmas is None else truncation_sigmas)
-                theta_per_slot = wrapped_gaussian_1d(
+                theta_per_position = wrapped_gaussian_1d(
                     D, sigma, period, ts, exponent_denominator=4
                 )
-                kernel_val = theta_per_slot.prod(axis=0)
+                kernel_val = theta_per_position.prod(axis=0)
         else:
             Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
             kernel_val = np.exp(-Q * inv4s2)

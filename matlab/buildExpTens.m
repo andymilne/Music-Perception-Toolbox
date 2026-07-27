@@ -42,8 +42,8 @@ function dens = buildExpTens(varargin)
 %   Inputs (multi-attribute path):
 %     pAttr     - 1 x A cell array of K_a x N matrices (attribute values).
 %                 Shapes are honoured literally: a [K x 1] column is
-%                 K slots of one event, a [1 x N] row is one slot of N
-%                 events, and a [K x N] matrix is K slots of N events.
+%                 K values of one event, a [1 x N] row is one value of N
+%                 events, and a [K x N] matrix is K values of N events.
 %                 No flattening is applied.
 %     w         - Weights. One of:
 %                   []       -> all ones
@@ -141,7 +141,7 @@ function dens = buildExpTens(varargin)
         hasKc = iscell(sigmaKw) && any(cellfun(@internal.isKernelCov, sigmaKw));
         if hasKc
             % Matrix-sigma attributes require flat geometry; degenerate
-            % nested specs (e.g. from bindEvents on flat single-slot
+            % nested specs (e.g. from bindEvents on flat single-value
             % events) are order-isomorphic to flat ordered tuples and
             % are flattened here; non-degenerate nesting errors.
             specs = internal.resolveSpecsForKernelCov(specs, sigmaKw);
@@ -349,7 +349,7 @@ function [rVec, isRelVec, isSymVec, nestedList, names] = ...
                       ['specs{%d}: ''r'' is a multi-element vector but the ' ...
                        'spec has no ''tags'' field. A per-level ''r'' denotes ' ...
                        'a nested spec, which must also carry ''tags'' (the ' ...
-                       'slot-to-level map).'], a);
+                       'value-to-level map).'], a);
             end
             nestedList{a} = [];
             rVec(a) = double(rA(1));
@@ -394,7 +394,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     % that captures nothing): a valid zero-mass density with no tuples,
     % matching the historical vector-build behaviour. Constructed directly
     % because the general multi-attribute event validation (each event
-    % needs at least r valid slots) correctly rejects empty events in the
+    % needs at least r valid values) correctly rejects empty events in the
     % multi-event setting. Placed before the r > K validation so the
     % empty case is accepted rather than rejected. Twin of the K == 0
     % branch of Python _build_exp_tens_single_multiset.
@@ -489,7 +489,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     end
 
     % Canonicalise to the A = N = 1 multi-attribute build: the collection
-    % is a single flat attribute (K slots, one event), scalar parameters
+    % is a single flat attribute (K values, one event), scalar parameters
     % become length-1 vectors. Every consumer reads the resulting
     % MaetDensity either natively or through internal.singleMultisetView.
     wrapCell = internal.normaliseWrapMa(wrap, 1);
@@ -533,8 +533,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
 
     % Coerce each attribute input to its 2-D K_a x N shape. MATLAB
     % treats everything as at least 2-D, so a user-supplied column
-    % vector [K x 1] is read as K slots / 1 event, a row vector [1 x N]
-    % as 1 slot / N events, and a matrix [K x N] as K slots / N events,
+    % vector [K x 1] is read as K values / 1 event, a row vector [1 x N]
+    % as 1 value / N events, and a matrix [K x N] as K values / N events,
     % with no ambiguity. (A bare scalar is 1 x 1 and fills the K=N=1
     % case.) No flattening is applied — flattening a 2-D input would
     % silently reinterpret columns as rows.
@@ -571,10 +571,10 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
 
     % --- Nested attributes (representation B) ---------------------------
     % A nested attribute carries its level breakdown in nested{a} (a
-    % struct with fields: tags (per-slot source-event tag), r and sym
+    % struct with fields: tags (per-value source-event tag), r and sym
     % (per-level vectors, innermost-outward), and optional rel (the
     % co-transposition-unit selector: a per-level vector or
-    % 'innermost'/'outermost')) and a flat K_total-slot value column;
+    % 'innermost'/'outermost')) and a flat K_total-value column;
     % rVec(a) is (re)derived to the total tuple dim D_a = prod(r) so
     % dim/allocation stay scalar. nested{a} = [] for an ordinary flat
     % attribute (unchanged path). Two-level only for now.
@@ -602,7 +602,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
             error('buildExpTens:nestedSpec', 'nested{%d} must be a struct.', a);
         end
         % Structural fields (no default): 'r' (per-level tuple size) and
-        % 'tags' (slot-to-level map). Everything else is optional and
+        % 'tags' (value-to-level map). Everything else is optional and
         % defaults here, so a hand-edited spec can carry only the fields
         % being changed (unknown fields such as name/names/proj ride
         % through untouched via the struct copy).
@@ -613,7 +613,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         end
         if ~isfield(spec, 'tags')
             error('buildExpTens:nestedTags', ...
-                  ['nested{%d}: spec must have a ''tags'' field (the slot-to-' ...
+                  ['nested{%d}: spec must have a ''tags'' field (the value-to-' ...
                    'level map); it is structural and has no default.'], a);
         end
         rLevels   = double(spec.r(:).');
@@ -639,7 +639,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         end
         % tags: a K_total x (L-1) integer matrix, one column per grouping
         % level innermost-outward (column 1 the finest grouping above the
-        % leaf slots, column L-1 the outermost). A vector is the single-
+        % leaf values, column L-1 the outermost). A vector is the single-
         % column (L = 2) case and is stored as a 1 x K_total row.
         rawTags = spec.tags;
         if isvector(rawTags)
@@ -653,7 +653,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
             if numel(rawTags) ~= Ka(a)
                 error('buildExpTens:nestedTags', ...
                       ['nested{%d}: tags length %d must equal K_total = %d ' ...
-                       '(slot count).'], a, numel(rawTags), Ka(a));
+                       '(value count).'], a, numel(rawTags), Ka(a));
             end
             tags = double(rawTags(:).');           % 1 x K_total (L = 2)
         else
@@ -707,7 +707,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     end
 
     % --- Collapse a vacuous inner nesting level to flat ----------------
-    % A nested attribute whose inner level reads one slot from each of
+    % A nested attribute whose inner level reads one value from each of
     % K_a singleton groups, with the outer level reading every group
     % (r = [1, K_a]), is mathematically a flat r = K_a attribute: the
     % inner level is the identity and the outer level forms the one full
@@ -724,7 +724,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     % Restricted to the full-read case r_out == K_a. There each event
     % contributes exactly one tuple, so the flat path can never enumerate
     % a combinatorial set of sub-tuples: a partial read of singleton
-    % groups (r_out < K_a) -- including every ragged carrier, whose
+    % groups (r_out < K_a) -- including every ragged attribute, whose
     % variable-length groups are padded to K_a and read with r_out < K_a
     % -- stays nested so the orbit contraction carries it. An attribute
     % whose isRelVec entry is already set is left nested so the check
@@ -741,7 +741,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         if numel(rLevels) ~= 2 || rLevels(1) ~= 1
             continue
         end
-        if rLevels(2) ~= Ka(a)              % not a full read of all slots
+        if rLevels(2) ~= Ka(a)              % not a full read of all values
             continue
         end
         if ~any(strcmp(spec.proj, {'absolute', 'outer'}))
@@ -835,7 +835,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
     dim = sum(dimPerAttr);
 
     % --- Eager input validation: each event must have enough non-NaN
-    % slots in every attribute. We check here (cheap) so that bad inputs
+    % values in every attribute. We check here (cheap) so that bad inputs
     % fail at buildExpTens time even when lazy=true. The full per-event
     % enumeration in localFillMAExpensive recomputes the valid index
     % vectors anyway, so this is just a guard.
@@ -849,12 +849,12 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
                 if isvector(tg)
                     tg = tg(:);                      % K_total x 1 (L = 2)
                 end
-                validIdx = find(~isnan(valCol(:))).';   % 1 x Kv slot indices
+                validIdx = find(~isnan(valCol(:))).';   % 1 x Kv value indices
                 if ~localNestedFeasible(validIdx, tg, rLv, numel(rLv))
                     error('buildExpTens:nestedInfeasible', ...
                           ['Event %d, nested attribute %d: the non-NaN ' ...
-                           'slots do not admit a full nested r-tuple for ' ...
-                           'r = [%s] (too few groups or slots at some ' ...
+                           'values do not admit a full nested r-tuple for ' ...
+                           'r = [%s] (too few groups or values at some ' ...
                            'nesting level).'], n, a, num2str(rLv));
                 end
                 continue
@@ -863,8 +863,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
             K_na = sum(valid);
             r_a = rVec(a);
             if K_na < r_a
-                error('buildExpTens:insufficientSlots', ...
-                      ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                error('buildExpTens:insufficientValues', ...
+                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], n, a, K_na, r_a);
             end
         end
@@ -938,7 +938,7 @@ function dens = localFillMAExpensive(dens, verbose)
     % so the general per-(n,a) machinery below is overhead. Enumerate the
     % attribute directly (shared localEnumFlatAttr, so the tuples are
     % identical) and, for N > 1, concatenate the events. When the non-NaN
-    % slot pattern is the same every event and r >= 2 (the build has
+    % value pattern is the same every event and r >= 2 (the build has
     % already reduced any r = 1, N > 1 case to N = 1), the tuple-index
     % structure is event-invariant: compute it once and reuse it,
     % recomputing only the per-event values and weights. Mirrors the
@@ -951,8 +951,8 @@ function dens = localFillMAExpensive(dens, verbose)
             valCol = P(:, 1);
             valid  = find(~isnan(valCol));
             if numel(valid) < r_a
-                error('buildExpTens:insufficientSlots', ...
-                      ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                error('buildExpTens:insufficientValues', ...
+                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], 1, 1, numel(valid), r_a);
             end
             [permMat, combMat, wJ, wvComb] = ...
@@ -1007,9 +1007,9 @@ function dens = localFillMAExpensive(dens, verbose)
                     val    = P(:, n);
                     validn = find(~isnan(val));
                     if numel(validn) < r_a
-                        error('buildExpTens:insufficientSlots', ...
+                        error('buildExpTens:insufficientValues', ...
                               ['Event %d, attribute %d has %d non-NaN ' ...
-                               'slot(s) but r_a = %d.'], n, 1, ...
+                               'value(s) but r_a = %d.'], n, 1, ...
                               numel(validn), r_a);
                     end
                     [pm, cm, pw, cw] = ...
@@ -1054,10 +1054,10 @@ function dens = localFillMAExpensive(dens, verbose)
 
     % --- Per-event, per-attribute r-ad enumeration ---
 
-    permIdx = cell(N, A);     % slot indices, perm side: r_a x P_{n,a}
-    combIdx = cell(N, A);     % slot indices, comb side: r_a x C_{n,a}
-    permW   = cell(N, A);     % per-tuple slot weight products, perm side
-    combW   = cell(N, A);     % per-tuple slot weight products, comb side
+    permIdx = cell(N, A);     % value indices, perm side: r_a x P_{n,a}
+    combIdx = cell(N, A);     % value indices, comb side: r_a x C_{n,a}
+    permW   = cell(N, A);     % per-tuple value weight products, perm side
+    combW   = cell(N, A);     % per-tuple value weight products, comb side
 
     for n = 1:N
         for a = 1:A
@@ -1090,8 +1090,8 @@ function dens = localFillMAExpensive(dens, verbose)
 
             r_a     = rVec(a);
             if K_na < r_a
-                error('buildExpTens:insufficientSlots', ...
-                      ['Event %d, attribute %d has %d non-NaN slot(s) ' ...
+                error('buildExpTens:insufficientValues', ...
+                      ['Event %d, attribute %d has %d non-NaN value(s) ' ...
                        'but r_a = %d.'], n, a, K_na, r_a);
             end
 
@@ -1150,12 +1150,12 @@ function dens = localFillMAExpensive(dens, verbose)
             r_a = rVec(a);
             valCol = pAttr{a}(:, n);
 
-            slotPerm = permIdx{n, a}(:, idxPerm{a});
-            U_perm{a}(:, offJ + 1 : offJ + nJh) = reshape(valCol(slotPerm), r_a, nJh);
+            valPerm = permIdx{n, a}(:, idxPerm{a});
+            U_perm{a}(:, offJ + 1 : offJ + nJh) = reshape(valCol(valPerm), r_a, nJh);
             wJh = wJh .* permW{n, a}(idxPerm{a});
 
-            slotComb = combIdx{n, a}(:, idxComb{a});
-            V_comb{a}(:, offK + 1 : offK + nKh) = reshape(valCol(slotComb), r_a, nKh);
+            valComb = combIdx{n, a}(:, idxComb{a});
+            V_comb{a}(:, offK + 1 : offK + nKh) = reshape(valCol(valComb), r_a, nKh);
             wKh = wKh .* combW{n, a}(idxComb{a});
         end
 
@@ -1179,7 +1179,7 @@ function dens = localFillMAExpensive(dens, verbose)
             % Co-transposition at unit u: the leaves split into G_u
             % contiguous blocks of size s_u = prod(r(1:u)) (the depth-first
             % enumeration lays each level-u sub-tuple out contiguously).
-            % Reduce each block by its own first slot (per-block interval
+            % Reduce each block by its own first value (per-block interval
             % space), then stack. At u = 1 this is the per-event inner
             % reduction; for an intermediate u a per-intermediate-group one.
             u   = spec.relUnit;
@@ -1289,7 +1289,7 @@ function Wab = localBroadcastWeight(w, Ka, N, attrIdx)
     end
 
     sz = size(w);
-    % Row vector 1 x N -> broadcast across slots
+    % Row vector 1 x N -> broadcast across values
     if sz(1) == 1 && sz(2) == N
         Wab = repmat(w, Ka, 1);
         return;
@@ -1335,34 +1335,34 @@ function idxCell = localCartesianIndices(sizes)
 end
 
 function [permIdx, combIdx] = localNestedEnumIndices( ...
-        validSlots, tagsValid, rLevels, symLevels)
+        validValues, tagsValid, rLevels, symLevels)
     %LOCALNESTEDENUMINDICES  Delegates to the shared
     %   internal.nestedEnumIndices so the build's nested fill loop and
     %   evalExpTens's factored centres path enumerate identical nested
     %   tuples from one source. See internal.nestedEnumIndices.
     [permIdx, combIdx] = internal.nestedEnumIndices( ...
-        validSlots, tagsValid, rLevels, symLevels);
+        validValues, tagsValid, rLevels, symLevels);
 end
 
 
-function tf = localNestedFeasible(slots, tagsMat, rLevels, level)
-    %LOCALNESTEDFEASIBLE  Whether `slots` admit a full level-`level` nested
+function tf = localNestedFeasible(vals, tagsMat, rLevels, level)
+    %LOCALNESTEDFEASIBLE  Whether `vals` admit a full level-`level` nested
     %   r-tuple. Recurses outermost-inward through tagsMat (K_total x (L-1),
-    %   indexed by absolute slot index), mirroring localNestedEnumIndices:
+    %   indexed by absolute value index), mirroring localNestedEnumIndices:
     %   enough distinct groups at each grouping level (each recursively
-    %   feasible) and enough leaf slots in the finest groups.
-    slots = slots(:).';
+    %   feasible) and enough leaf values in the finest groups.
+    vals = vals(:).';
     if level == 1
-        tf = numel(slots) >= rLevels(1);
+        tf = numel(vals) >= rLevels(1);
         return
     end
     col = level - 1;
-    gids = tagsMat(slots, col).';
+    gids = tagsMat(vals, col).';
     ug = unique(gids);
     need = rLevels(level);
     feasible = 0;
     for gi = 1:numel(ug)
-        sub = slots(gids == ug(gi));
+        sub = vals(gids == ug(gi));
         if localNestedFeasible(sub, tagsMat, rLevels, level - 1)
             feasible = feasible + 1;
             if feasible >= need

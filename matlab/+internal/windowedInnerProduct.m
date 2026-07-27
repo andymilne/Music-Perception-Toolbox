@@ -347,7 +347,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 %   per-attribute tuple-space shift
 %       delta_a = { (c_a - mu_q_a)|_a            if attribute a is absolute
 %                 { [0, (c_a - mu_q_a)|_a_eff]   if attribute a is relative
-%                                                 (slot-0-anchored lift)
+%                                                 (position-0-anchored lift)
 %   to D = U - V before computing Q_a. Groups that are not windowed
 %   receive no shift.
 %
@@ -387,13 +387,13 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
             delta_a_eff = centre_a - mu_q_a;             % (d_a x 1)
             muQperAttr{a} = mu_q_a;
 
-            % Lift delta_a_eff into the attribute's r_a-slot shift.
+            % Lift delta_a_eff into the attribute's r_a-position shift.
             if isRelG(a)
                 if r_a == 1
                     shift_a = zeros(1, 1);
                 else
-                    % Slot-0 anchored lift: first slot = 0, remaining
-                    % r_a - 1 slots = effective shift.
+                    % Position-0 anchored lift: first position = 0, remaining
+                    % r_a - 1 positions = effective shift.
                     shift_a = [0; delta_a_eff(:)];
                 end
             else
@@ -411,7 +411,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 
     % --- Base unwindowed log-kernel: sum_a -Q_a / (4 sigma_a^2) for
     %     rel and single-image abs-per attributes, and for abs-per
-    %     full-image attributes accumulate log(theta_per_slot) products
+    %     full-image attributes accumulate log(theta_per_position) products
     %     via the shared wrappedGaussian1d helper (overlap convention,
     %     exponent_denominator = 4). ---
     log_kernel = zeros(n_jx, n_ky);
@@ -436,16 +436,16 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
                 wrapA = char(dx.wrap{a});
             end
             if strcmp(wrapA, 'full-image')
-                % Abs-per full-image contribution: sum over slots of
+                % Abs-per full-image contribution: sum over tuple positions of
                 % log(theta(d_a)). Skips the Q accumulation for this
                 % attribute (its full-image kernel does not factor
                 % through Q).
                 P_g = periodG(a);
                 ts = internal.accuracyFloor('resolve', []);
-                theta_per_slot = internal.wrappedGaussian1d( ...
+                theta_per_position = internal.wrappedGaussian1d( ...
                     D, sigmaG(a), P_g, ts, 4);      % (r_a, n_jx, n_ky)
                 log_kernel = log_kernel + ...
-                    reshape(sum(log(theta_per_slot), 1), n_jx, n_ky);
+                    reshape(sum(log(theta_per_position), 1), n_jx, n_ky);
                 continue
             end
             % Single-image opt-in: reduce and fall through to Q.
@@ -548,7 +548,7 @@ end
 function eff = localEffectiveCentresComb(dens)
 %LOCALEFFECTIVECENTRESCOMB  Reconstruct per-attribute effective-space
 %centres on the comb side from V_comb, using the same reduction as
-%build_exp_tens (drop first slot; v[i] = u[i+1] - u[1]).
+%build_exp_tens (drop first position; v[i] = u[i+1] - u[1]).
     A = dens.nAttrs;
     isRelG = logical(dens.isRel);
     rVec = dens.r;
@@ -786,7 +786,7 @@ function log_F = localWindowedGaussianMultiRel(cx_g, cy_g, centre_g, ...
 %LOCALWINDOWEDGAUSSIANMULTIREL  Gaussian window on a multi-D relative
 %group.
 %
-%   In the "drop first slot, v[i] = u[i+1] - u[1]" reduction used by
+%   In the "drop first position, v[i] = u[i+1] - u[1]" reduction used by
 %   buildExpTens, the quadratic form on reduced coords is M_rel =
 %   I - (1/r) * 1 1^T, so the product Gaussian has covariance
 %       Sigma_pair = sigma_g^2 * M_rel^{-1} = sigma_g^2 * (I + 1 1^T).

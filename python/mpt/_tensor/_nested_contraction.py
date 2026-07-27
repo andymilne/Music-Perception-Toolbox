@@ -4,13 +4,13 @@ Replaces the O((K^leaves)^2) full enumeration in the nested cosine path
 with a bottom-up contraction over the tag tree. The contraction reproduces
 the exact closed-form inner product (TISMIR preprint Sec 2.6, Eq 7) for the
 factorisable cases, and the all-image transposition average over the period
-(Eq 6) for the one case that does not factorise per slot, relative-periodic.
+(Eq 6) for the one case that does not factorise per tuple position, relative-periodic.
 
 A single contraction kernel serves all modes; only the per-quadrature-node
 leaf-kernel batch and the node reduction differ:
 
   - absolute (any periodicity): one node, no quadrature -- exact. The kernel
-    is a one-body product across slots, so each level reduces independently.
+    is a one-body product across tuple positions, so each level reduces independently.
   - relative non-periodic: a translation integral over the line, exact to the
     quadrature; the same measure as the analytic relative quadratic.
   - relative periodic: a transposition average over tau in [0, P). This is the
@@ -18,7 +18,7 @@ leaf-kernel batch and the node reduction differ:
     minimum-image pairwise-wrap that the flat per-attribute path (and the
     nested centres path) computes; the two coincide for sigma << period and
     diverge as sigma approaches the period. Only in this all-image form does
-    the relative-periodic kernel factor per slot (each tau node is a one-body
+    the relative-periodic kernel factor per tuple position (each tau node is a one-body
     product), which is what makes the per-level orbit reduction available --
     the minimum-image kernel is an irreducible pairwise (two-body) quadratic,
     so it admits no such per-level reduction. The trapezoidal tau-grid is exact
@@ -90,13 +90,13 @@ def _orbit_eligible(g, r, sym, is_rel, is_per):
 
 
 class _Node:
-    __slots__ = ("level", "slots", "children", "xtup", "ytup", "r", "sym",
+    __slots__ = ("level", "val_idx", "children", "xtup", "ytup", "r", "sym",
                  "use_orbit")
 
-    def __init__(self, level, slots, children, xtup, ytup, r, sym,
+    def __init__(self, level, val_idx, children, xtup, ytup, r, sym,
                  use_orbit=False):
         self.level = level          # tree level (0 = leaf / finest group)
-        self.slots = slots          # global slot indices spanned by node
+        self.val_idx = val_idx          # global value indices spanned by node
         self.children = children    # list[_Node] (empty at leaf)
         self.xtup = xtup            # (T, r) X-side tuple indices
         self.ytup = ytup            # (T, r) Y-side tuple indices
@@ -109,7 +109,7 @@ def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
     """Build the contraction tree once.
 
     ``r_levels`` / ``sym_levels`` are per-level (length L, level 0 = finest).
-    ``tags`` is (K_total, L-1): column (l-1) groups slots for level l; the
+    ``tags`` is (K_total, L-1): column (l-1) groups values for level l; the
     outermost level L-1 partitions by the last column, level 0 is the
     within-finest-group leaf. Mirrors the enumeration's nesting.
     """
@@ -120,29 +120,29 @@ def build_recipe(r_levels, sym_levels, tags, is_rel=False, is_per=False):
     tags2 = tags.reshape(K_total, -1) if tags.ndim == 2 else \
         tags.reshape(K_total, 1)
 
-    def build(level, slots):
-        slots = np.asarray(slots, dtype=np.intp)
+    def build(level, val_idx):
+        val_idx = np.asarray(val_idx, dtype=np.intp)
         if level == 0:
             r0 = int(r_levels[0])
             sy0 = bool(sym_levels[0])
-            if _orbit_eligible(len(slots), r0, sy0, is_rel, is_per):
+            if _orbit_eligible(len(val_idx), r0, sy0, is_rel, is_per):
                 empty = np.empty((0, r0), dtype=np.intp)
-                return _Node(0, slots, [], empty, empty, r0, sy0, True)
-            xt, yt = _tuple_indices(len(slots), r0, sy0)
-            return _Node(0, slots, [], xt, yt, r0, sy0, False)
+                return _Node(0, val_idx, [], empty, empty, r0, sy0, True)
+            xt, yt = _tuple_indices(len(val_idx), r0, sy0)
+            return _Node(0, val_idx, [], xt, yt, r0, sy0, False)
         col = level - 1
-        keys = tags2[slots, col]
+        keys = tags2[val_idx, col]
         children = []
         for k in sorted(set(int(v) for v in keys)):
-            sub = slots[keys == k]
+            sub = val_idx[keys == k]
             children.append(build(level - 1, sub))
         rl = int(r_levels[level])
         syl = bool(sym_levels[level])
         if _orbit_eligible(len(children), rl, syl, is_rel, is_per):
             empty = np.empty((0, rl), dtype=np.intp)
-            return _Node(level, slots, children, empty, empty, rl, syl, True)
+            return _Node(level, val_idx, children, empty, empty, rl, syl, True)
         xt, yt = _tuple_indices(len(children), rl, syl)
-        return _Node(level, slots, children, xt, yt, rl, syl, False)
+        return _Node(level, val_idx, children, xt, yt, rl, syl, False)
 
     return build(L - 1, np.arange(K_total, dtype=np.intp))
 
@@ -167,7 +167,7 @@ def _combine(M, xtup, ytup):
 # The orbit-vs-enumeration choice at each symmetric level reuses the flat
 # path's calibrated policy (dispatch._orbit_beats_pairwise_per_attr K-vs-r
 # crossover + _orbit_safe_for_precision K>=r+2 guard), applied per level with
-# K = g (the level's child/slot count). For r in 7..R_MAX (no flat K-threshold
+# K = g (the level's child/value count). For r in 7..R_MAX (no flat K-threshold
 # entry, and where enumeration's C(g,r)*r! is infeasible anyway) orbit is the
 # only viable route, so it is used whenever precision-safe.
 from .dispatch import (
@@ -181,7 +181,7 @@ _ORBIT_CANCEL_FLOOR = 1e-10
 
 
 def _node_span(node):
-    return len(node.slots) if node.level == 0 else len(node.children)
+    return len(node.val_idx) if node.level == 0 else len(node.children)
 
 
 @functools.lru_cache(maxsize=None)
@@ -242,7 +242,7 @@ def _combine_orbit(M, r, xtup, ytup):
 #  Bottom-up, batched contraction (vectorised over the quadrature batch
 #  AND over sibling pairs). The X and Y trees are walked in lockstep: the
 #  rectangular leaf kernel K has shape (Q, nX, nY), so the X axis is indexed
-#  by X-side slots and the Y axis by Y-side slots. When the two densities
+#  by X-side values and the Y axis by Y-side values. When the two densities
 #  share an identical nested structure (the XX, YY, and equal-cardinality XY
 #  cases) the X and Y node lists coincide and every step reduces to the
 #  earlier single-tree code. When their leaf cardinalities differ (e.g. a
@@ -255,9 +255,9 @@ def _combine_orbit(M, r, xtup, ytup):
 # ----------------------------------------------------------------------
 def _siblings_uniform(nodes):
     rep = nodes[0]
-    span = (len(rep.slots) if rep.level == 0 else len(rep.children))
+    span = (len(rep.val_idx) if rep.level == 0 else len(rep.children))
     for nd in nodes:
-        s = len(nd.slots) if nd.level == 0 else len(nd.children)
+        s = len(nd.val_idx) if nd.level == 0 else len(nd.children)
         if (s != span or nd.r != rep.r or nd.sym != rep.sym
                 or nd.use_orbit != rep.use_orbit):
             return False, span
@@ -273,29 +273,29 @@ def _leaf_overlaps(xnodes, ynodes, K):
         # r0 = 1: M[a,b] = sum_{i in Sxa, j in Syb} K[:, i, j] (weights folded).
         Gx = np.zeros((gx, nX), dtype=K.dtype)
         for a, nd in enumerate(xnodes):
-            Gx[a, nd.slots] = 1.0
+            Gx[a, nd.val_idx] = 1.0
         Gy = np.zeros((gy, nY), dtype=K.dtype)
         for b, nd in enumerate(ynodes):
-            Gy[b, nd.slots] = 1.0
+            Gy[b, nd.val_idx] = 1.0
         return np.einsum('ai,qij,bj->qab', Gx, K, Gy, optimize=True)
     ux, mx = _siblings_uniform(xnodes)
     uy, my = _siblings_uniform(ynodes)
     if ux and uy:
         blocks = np.empty((gx, gy, Q, mx, my), dtype=K.dtype)
         for a in range(gx):
-            sa = K[:, xnodes[a].slots]
+            sa = K[:, xnodes[a].val_idx]
             for b in range(gy):
-                blocks[a, b] = sa[:, :, ynodes[b].slots]
+                blocks[a, b] = sa[:, :, ynodes[b].val_idx]
         use_orbit = xnodes[0].use_orbit and ynodes[0].use_orbit
         vals = _combine_pair(blocks.reshape(gx * gy * Q, mx, my),
                              r, sym, use_orbit)
         return vals.reshape(gx, gy, Q).transpose(2, 0, 1)
     M = np.empty((Q, gx, gy), dtype=K.dtype)
     for a in range(gx):
-        sa = K[:, xnodes[a].slots]
+        sa = K[:, xnodes[a].val_idx]
         for b in range(gy):
             uo = xnodes[a].use_orbit and ynodes[b].use_orbit
-            M[:, a, b] = _combine_pair(sa[:, :, ynodes[b].slots], r, sym, uo)
+            M[:, a, b] = _combine_pair(sa[:, :, ynodes[b].val_idx], r, sym, uo)
     return M
 
 
@@ -338,13 +338,13 @@ def _subtree_overlaps(xnodes, ynodes, K):
 def _contract(xn: _Node, yn: _Node, K):
     """Overlap (Q,) of two nested structures under rectangular kernel ``K``.
 
-    ``K`` is (Q, nX, nY); the X axis is indexed by ``xn`` slots, the Y axis by
-    ``yn`` slots. For the XX / YY inner products (and equal-cardinality XY)
+    ``K`` is (Q, nX, nY); the X axis is indexed by ``xn`` values, the Y axis by
+    ``yn`` values. For the XX / YY inner products (and equal-cardinality XY)
     ``xn`` and ``yn`` are the same recipe and this is the original single-tree
     walk; when the densities' nested cardinalities differ the two trees share
     topology but have differing leaf spans, handled per level."""
     if xn.level == 0:
-        block = K[:, xn.slots][:, :, yn.slots]
+        block = K[:, xn.val_idx][:, :, yn.val_idx]
         return _combine_pair(block, xn.r, xn.sym,
                              xn.use_orbit and yn.use_orbit)
     Mc = _subtree_overlaps(xn.children, yn.children, K)
@@ -394,10 +394,10 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
                  truncation_sigmas, wrap_a='full-image'):
     """Absolute-mode inner product for one nested attribute.
 
-    The absolute-mode r-tuple kernel factors across slots (unlike
-    relative-mode, whose ``Q`` couples slots via the projected form),
-    so the per-slot 1D kernel here is the object the outer contraction
-    multiplies across r_a slots. In periodic mode that per-slot 1D
+    The absolute-mode r-tuple kernel factors across tuple positions (unlike
+    relative-mode, whose ``Q`` couples them via the projected form),
+    so the per-position 1D kernel here is the object the outer contraction
+    multiplies across the r_a tuple positions. In periodic mode that per-position 1D
     kernel is the wrapped Gaussian (theta):
     ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Reducing
     ``d`` to ``[-P/2, P/2]`` first lets ``L = 0`` — i.e. reduce to the
@@ -411,7 +411,7 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
     r-tuple; the product-of-theta form is the cheaper one to compute
     (``(2L+1) * r`` vs ``(2L+1)^r`` per pair). The r-dim outer product
     is applied downstream in ``_contract``, so this function returns
-    the 1D per-slot kernel matrix.
+    the 1D per-position kernel matrix.
     """
     d = vX[:, None] - vY[None, :]
     if is_per:
@@ -467,11 +467,11 @@ def auto_ntau_default(period, sigma):
 def _ip_rel_periodic(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
                      truncation_sigmas, ntau):
     """One event-pair relative-periodic inner product: the transposition
-    average over tau in [0, P) of a per-slot wrapped-Gaussian kernel.
+    average over tau in [0, P) of a per-position wrapped-Gaussian kernel.
 
     The 1D wrapped-Gaussian kernel
     ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))`` is the periodic
-    (torus) overlap of two unit-height Gaussians; the r-slot product
+    (torus) overlap of two unit-height Gaussians; the r-fold product
     ``prod_a theta(delta_a - tau)`` is the r-tuple absolute-mode kernel
     and averaging over tau in [0, P) projects it onto the relative
     (diagonal-invariant) subspace. This is the (C) full-image measure
@@ -516,7 +516,7 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
 
     ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
     density's (defaults to ``recipe_x`` when both sides share the structure).
-    Absolute and relative-non-periodic factorise per slot and are computed
+    Absolute and relative-non-periodic factorise per tuple position and are computed
     exactly (to the line quadrature for relative-non-periodic); relative-
     periodic uses the all-image transposition average over the period -- the
     torus-quotient measure, which differs from the minimum-image pairwise-wrap
@@ -567,12 +567,12 @@ def auto_taus_line(vX, vY, sigma, tol):
     return np.linspace(-hi, hi, n)
 
 
-def _slot_shared_leaf_template(node, v, w):
+def _shared_leaf_template(node, v, w):
     """Detect a spectral-augmentation leaf: a two-level node whose children are
     all ``r == 1`` leaves sharing one partial template (a common set of offsets
-    and weights, translated per child by a single carrier value).
+    and weights, translated per child by a single reference value).
 
-    Returns ``(carriers, offsets, weights)`` -- the per-child carrier value, the
+    Returns ``(ref_vals, offsets, weights)`` -- the per-child reference value, the
     shared offset profile, and the shared weight profile -- or ``None`` when the
     node is not of this form. The detection is exact (the offsets and weights of
     every child must coincide), so any departure falls back to the generic path.
@@ -582,26 +582,26 @@ def _slot_shared_leaf_template(node, v, w):
     rep = node.children[0]
     if rep.level != 0 or int(rep.r) != 1 or rep.children:
         return None
-    s0 = np.asarray(rep.slots, dtype=np.intp)
+    s0 = np.asarray(rep.val_idx, dtype=np.intp)
     width = s0.size
     if width < 2:                      # Kp == 1 is a plain fundamental: leave it
         return None                    # on the generic path (no numerics change)
     v0 = v[s0]
     w0 = w[s0]
     off = v0 - v0[0]
-    carriers = np.empty(len(node.children), dtype=np.float64)
+    ref_vals = np.empty(len(node.children), dtype=np.float64)
     for a, ch in enumerate(node.children):
         if ch.level != 0 or int(ch.r) != 1 or ch.children:
             return None
-        sa = np.asarray(ch.slots, dtype=np.intp)
+        sa = np.asarray(ch.val_idx, dtype=np.intp)
         if sa.size != width:
             return None
         va = v[sa]
         if not (np.array_equal(va - va[0], off)
                 and np.array_equal(w[sa], w0)):
             return None
-        carriers[a] = va[0]
-    return carriers, off, w0
+        ref_vals[a] = va[0]
+    return ref_vals, off, w0
 
 
 def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
@@ -613,7 +613,7 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     to the cell length) whose tones carry a shared partial template, the inner
     partial index sums analytically into the template cross-correlation
     ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
-    and the cell overlap reduces to the carrier differences alone:
+    and the cell overlap reduces to the reference-value differences alone:
     ``sum_tau prod_a g(carrierX_a - carrierY_a - tau)``. This evaluates only the
     per-position note overlaps, never the full partial-by-partial kernel, and is
     exact to floating-point summation order. Returns ``None`` when the structure
@@ -624,8 +624,8 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     if (int(recipe_x.r) != len(recipe_x.children)
             or int(recipe_y.r) != len(recipe_y.children)):
         return None                    # need the whole cell as one ordered tuple
-    tx = _slot_shared_leaf_template(recipe_x, vX, wX)
-    ty = _slot_shared_leaf_template(recipe_y, vY, wY)
+    tx = _shared_leaf_template(recipe_x, vX, wX)
+    ty = _shared_leaf_template(recipe_y, vY, wY)
     if tx is None or ty is None:
         return None
     cX, offX, wtX = tx
@@ -647,31 +647,31 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
 def _all_shared_templates(recipe, P, W):
     """Per-event shared-leaf-template detection across one whole side.
 
-    Returns ``(carriers, offsets, weights)`` -- ``carriers`` an ``(N, g)``
-    array of the per-event note carriers, and the single offset and weight
+    Returns ``(ref_vals, offsets, weights)`` -- ``ref_vals`` an ``(N, g)``
+    array of the per-event note reference values, and the single offset and weight
     profile common to every event -- or ``None`` when any event departs from
     one shared template (then the caller uses the generic kernel). This is
-    :func:`_slot_shared_leaf_template` applied to every event, with the
+    :func:`_shared_leaf_template` applied to every event, with the
     offsets and weights required identical across events.
     """
     N = P.shape[1]
-    first = _slot_shared_leaf_template(recipe, P[:, 0], W[:, 0])
+    first = _shared_leaf_template(recipe, P[:, 0], W[:, 0])
     if first is None:
         return None
     c0, off, wt = first
     g = c0.size
-    carriers = np.empty((N, g), dtype=np.float64)
-    carriers[0] = c0
+    ref_vals = np.empty((N, g), dtype=np.float64)
+    ref_vals[0] = c0
     for i in range(1, N):
-        ti = _slot_shared_leaf_template(recipe, P[:, i], W[:, i])
+        ti = _shared_leaf_template(recipe, P[:, i], W[:, i])
         if ti is None:
             return None
         ci, offi, wti = ti
         if (ci.size != g or not np.array_equal(offi, off)
                 or not np.array_equal(wti, wt)):
             return None
-        carriers[i] = ci
-    return carriers, off, wt
+        ref_vals[i] = ci
+    return ref_vals, off, wt
 
 
 def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
@@ -684,7 +684,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     template, the inner partial index sums into the template cross-
     correlation -- the offsets and weights are common to every event -- and
     the matrix forms only the per-position note overlaps over the whole
-    event-pair grid, never the full partial-by-partial slot kernel. This is
+    event-pair grid, never the full partial-by-partial value kernel. This is
     the matrix-form, whole-grid counterpart of
     :func:`_ip_rel_nonper_factored`, evaluated by the same expression and so
     equal to it up to floating-point summation order. Returns ``None`` when
@@ -763,15 +763,15 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     orbit (Möbius) reduction at symmetric levels, enumeration at ordered ones,
     selected by :func:`build_recipe` -- exactly as the flat per-attribute
     matrix reduces a single level, and with the same memory profile (only the
-    small per-event slot kernel and the per-level intermediates are formed,
+    small per-event value kernel and the per-level intermediates are formed,
     never the materialised tuple set).
 
-    ``PX``/``PY`` are ``(K, N)`` slot arrays; ``WX``/``WY`` the matching
-    weights or ``None``. NaN-padded (variable-K) slots are carried as
+    ``PX``/``PY`` are ``(K, N)`` value arrays; ``WX``/``WY`` the matching
+    weights or ``None``. NaN-padded (variable-K) values are carried as
     zero-weight. The mode is set by ``taus``:
 
     - ``taus=None`` -- the absolute (``is_per=False``) or absolute-periodic
-      (``is_per=True``) inner product, a one-body product per slot.
+      (``is_per=True``) inner product, a one-body product per tuple position.
     - ``taus`` given with ``periodic_taus=True``, ``taus_reduce='mean'`` -- the
       relative-periodic transposition average over the period (the all-image
       torus measure, which is what makes the per-level orbit reduction
@@ -796,7 +796,7 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     # Relative-non-periodic ordered cells carrying a shared partial template
     # (spectral augmentation) reduce the inner partial index analytically; the
     # vectorised template matrix forms only the per-position note overlaps,
-    # never the full slot kernel below. Falls through when not of that form.
+    # never the full value kernel below. Falls through when not of that form.
     if taus is not None and not periodic_taus and taus_reduce == "sum":
         M = _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                                     truncation_sigmas, taus, mem_budget)
@@ -888,15 +888,15 @@ def tuple_counts(r_levels, sym_levels, tags):
                 e[j] += e[j - 1] * x
         return e[k]
 
-    def count(slots, level, use_sym):
+    def count(val_idx, level, use_sym):
         if level == 0:
             r0 = r_levels[0]
-            c = comb(len(slots), r0)
+            c = comb(len(val_idx), r0)
             return c * (fact(r0) if (use_sym and sym_levels[0]) else 1)
         col = level - 1
-        keys = tags2[slots, col]
+        keys = tags2[val_idx, col]
         groups = {}
-        for sidx, k in zip(slots.tolist(), keys.tolist()):
+        for sidx, k in zip(val_idx.tolist(), keys.tolist()):
             groups.setdefault(int(k), []).append(sidx)
         rl = r_levels[level]
         subs = [count(np.asarray(g, dtype=np.intp), level - 1, use_sym)
@@ -904,9 +904,9 @@ def tuple_counts(r_levels, sym_levels, tags):
         e = e_r(subs, rl)
         return e * (fact(rl) if (use_sym and sym_levels[level]) else 1)
 
-    all_slots = np.arange(K_total, dtype=np.intp)
-    m_perm = count(all_slots, L - 1, True)
-    m_comb = count(all_slots, L - 1, False)
+    all_values = np.arange(K_total, dtype=np.intp)
+    m_perm = count(all_values, L - 1, True)
+    m_comb = count(all_values, L - 1, False)
     return int(m_perm), int(m_comb)
 
 
@@ -921,7 +921,7 @@ def recipe_work(recipe: _Node):
 
     def node_combine_cost(node):
         if node.use_orbit:
-            g = len(node.slots) if node.level == 0 else len(node.children)
+            g = len(node.val_idx) if node.level == 0 else len(node.children)
             return len(get_orbit_table(node.r)) * g * g * max(1, node.r)
         return node.xtup.shape[0] * node.ytup.shape[0] * max(1, node.r)
 

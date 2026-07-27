@@ -23,7 +23,7 @@ function wmd = windowTensor(dens, windowSpec)
 %                     forms:
 %                       * Numeric scalar (or 1x1 numeric array, or any
 %                         numeric size-1 ndarray): broadcast to fill
-%                         every per-attribute slot uniformly.
+%                         every per-attribute entry uniformly.
 %                         Convenient when one window centre is wanted
 %                         everywhere.
 %                       * 1 x A cell, each entry a column vector of
@@ -125,7 +125,7 @@ function wmd = windowTensor(dens, windowSpec)
     elseif isnumeric(windowSpec.centre)
         % Numeric input. Two interpretations:
         %   * numel == 1 — scalar broadcast: fill every per-attribute
-        %     slot uniformly with the scalar value. Covers ordinary
+        %     entry uniformly with the scalar value. Covers ordinary
         %     scalars (``5.0``), 1x1 arrays, and any numeric size-1
         %     ndarray. Convenient when one window centre is wanted
         %     everywhere.

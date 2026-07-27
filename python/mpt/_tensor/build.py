@@ -55,7 +55,7 @@ def _normalise_specs(specs, A):
     spec.
 
     Returns ``(r_vec, is_rel_vec, is_sym_vec, nested_list, names)``. For a
-    nested entry the geometry slots are placeholders: the nested machinery
+    nested entry the geometry fields are placeholders: the nested machinery
     in :func:`_build_exp_tens_ma` derives ``r`` from ``prod(level r)`` and
     ``is_rel`` from the resolved projection, and uses the per-level ``sym``.
     """
@@ -87,7 +87,7 @@ def _normalise_specs(specs, A):
                 raise ValueError(
                     f"specs[{a}]: 'r' is a multi-element vector but the spec "
                     f"has no 'tags' field. A per-level 'r' denotes a nested "
-                    f"spec, which must also carry 'tags' (the slot-to-level "
+                    f"spec, which must also carry 'tags' (the value-to-level "
                     f"map)."
                 )
             nested_list.append(None)
@@ -274,7 +274,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
         has_kc = sigma_vec_has_kernel_cov(sigma)
         if has_kc:
             # Matrix-sigma attributes require flat geometry; degenerate
-            # nested specs (e.g. from bind_events on flat single-slot
+            # nested specs (e.g. from bind_events on flat single-value
             # events) are order-isomorphic to flat ordered tuples and
             # are flattened here; non-degenerate nesting raises.
             specs = resolve_specs_for_kernel_cov(specs, sigma)
@@ -511,10 +511,10 @@ def _build_exp_tens_ma(
 
     # --- Nested attributes (representation B) -------------------------
     # A nested attribute carries its level breakdown in nested[a] (a dict
-    # with keys: tags (per-slot source-event tag), r and sym (per-level
+    # with keys: tags (per-value source-event tag), r and sym (per-level
     # vectors, innermost-outward), and rel (the co-transposition-unit
     # selector: a per-level vector or 'innermost'/'outermost')) and a flat
-    # K_total-slot value column; r_vec[a] is (re)derived to the total
+    # flat K_total-value column; r_vec[a] is (re)derived to the total
     # tuple dim D_a = prod(r) so dim/allocation stay scalar. nested[a] is
     # None for ordinary flat attributes (unchanged path). Two-level only
     # for now (recursion to L > 2 is a later step).
@@ -538,7 +538,7 @@ def _build_exp_tens_ma(
             continue
         nested_was_norm[a] = isinstance(spec, dict) and "proj" in spec
         # Structural fields (no default): 'r' defines the levels and per-
-        # level tuple size; 'tags' maps slots to levels. Everything else is
+        # level tuple size; 'tags' maps values to levels. Everything else is
         # optional and defaults here, so a hand-edited spec can carry only
         # the fields the user means to change (unknown fields such as
         # 'name'/'names'/'proj' ride through the dict(spec) copy untouched).
@@ -551,7 +551,7 @@ def _build_exp_tens_ma(
         if "tags" not in spec:
             raise ValueError(
                 f"nested attribute {a}: spec must have a 'tags' field (the "
-                f"slot-to-level map); it is structural and has no default."
+                f"value-to-level map); it is structural and has no default."
             )
         r_levels = np.asarray(spec["r"], dtype=np.intp).ravel()
         L = int(r_levels.size)
@@ -577,7 +577,7 @@ def _build_exp_tens_ma(
             )
         # tags: a (K_total, L-1) integer matrix, one column per grouping
         # level innermost-outward; column 0 is the finest grouping above
-        # the leaf slots, column L-2 the outermost. A 1-D vector is the
+        # the leaf values, column L-2 the outermost. A 1-D vector is the
         # single-column (L = 2) case and is kept as-is.
         tags = np.asarray(spec["tags"])
         K_total_a = int(K_a[a])
@@ -591,7 +591,7 @@ def _build_exp_tens_ma(
             if tags.size != K_total_a:
                 raise ValueError(
                     f"nested attribute {a}: tags length {tags.size} must "
-                    f"equal K_total = {K_total_a} (slot count)."
+                    f"equal K_total = {K_total_a} (value count)."
                 )
         elif tags.ndim == 2:
             if tags.shape != (K_total_a, L - 1):
@@ -624,7 +624,7 @@ def _build_exp_tens_ma(
 
     # [sym] is per-attribute; default all-True preserves the legacy
     # symmetrised (v2.0.0) semantics. [sym] = 1 symmetrises each
-    # r-sub-tuple over the slot-permutation (S_r) orbit; [sym] = 0
+    # r-sub-tuple over the tuple-position permutation (S_r) orbit; [sym] = 0
     # keeps it ordered. (r_a = 1 makes the flag vacuous.)
     if is_sym_vec is None:
         is_sym_vec = np.ones(A, dtype=bool)
@@ -642,7 +642,7 @@ def _build_exp_tens_ma(
             )
 
     # --- Collapse a vacuous inner nesting level to flat ----------------
-    # A nested attribute whose inner level reads one slot from each of
+    # A nested attribute whose inner level reads one value from each of
     # K_a singleton groups, with the outer level reading every group
     # (r_levels = (1, K_a)), is mathematically a flat r = K_a attribute:
     # the inner level is the identity and the outer level forms the one
@@ -663,7 +663,7 @@ def _build_exp_tens_ma(
     # The collapse is restricted to the full-read case r_out == K_a. There
     # each event contributes exactly one tuple, so the flat path can never
     # enumerate a combinatorial set of sub-tuples: a partial read of
-    # singleton groups (r_out < K_a) -- including every ragged carrier,
+    # singleton groups (r_out < K_a) -- including every ragged attribute,
     # whose variable-length groups are padded to K_a and read with
     # r_out < K_a -- stays nested so the orbit contraction carries it.
     # An attribute whose is_rel_vec entry is already set is left nested so
@@ -677,7 +677,7 @@ def _build_exp_tens_ma(
         r_levels_a = np.asarray(spec["r"], dtype=np.intp).ravel()
         if r_levels_a.size != 2 or int(r_levels_a[0]) != 1:
             continue
-        if int(r_levels_a[1]) != int(K_a[a]):              # not a full read of all slots
+        if int(r_levels_a[1]) != int(K_a[a]):              # not a full read of all values
             continue
         if spec.get("proj") not in ("absolute", "outer"):
             continue
@@ -731,7 +731,7 @@ def _build_exp_tens_ma(
         N = 1
         K_a = np.array([p_attr[0].shape[0]], dtype=np.intp)
 
-    # Eager per-event / per-attribute non-NaN slot count check. The
+    # Eager per-event / per-attribute non-NaN value count check. The
     # heavy r-ad enumeration is deferred to first access of a lazy
     # field, but this validation is cheap (one NaN scan per (a, n))
     # and users reasonably expect malformed inputs to fail fast at the
@@ -750,9 +750,9 @@ def _build_exp_tens_ma(
                 if not _nested_feasible(valid_idx, tags, r_levels,
                                         len(r_levels) - 1):
                     raise ValueError(
-                        f"Event {n}, nested attribute {a}: the non-NaN slots "
+                        f"Event {n}, nested attribute {a}: the non-NaN values "
                         f"do not admit a full nested r-tuple for "
-                        f"r = {r_levels.tolist()} (too few groups or slots at "
+                        f"r = {r_levels.tolist()} (too few groups or values at "
                         f"some nesting level)."
                     )
                 continue
@@ -761,7 +761,7 @@ def _build_exp_tens_ma(
             if valid_count < r_a:
                 raise ValueError(
                     f"Event {n}, attribute {a} has {valid_count} non-NaN "
-                    f"slot(s) but r_a = {r_a}."
+                    f"value(s) but r_a = {r_a}."
                 )
 
     # --- Per-attribute dim (eager; needed by callers without
@@ -830,24 +830,24 @@ def _build_exp_tens_ma(
 
 
 
-def _nested_feasible(slots, tags_mat, r_levels, level):
-    """Whether ``slots`` admit at least one full level-``level`` nested r-tuple.
+def _nested_feasible(vals, tags_mat, r_levels, level):
+    """Whether ``vals`` admit at least one full level-``level`` nested r-tuple.
 
     Recurses outermost-inward through the tag-matrix columns, mirroring
     :func:`_nested_enum_indices`: enough distinct groups at each grouping
-    level (each itself recursively feasible) and enough leaf slots in the
+    level (each itself recursively feasible) and enough leaf values in the
     finest groups. ``tags_mat`` is the full ``(K_total, L-1)`` matrix
-    indexed by absolute slot index.
+    indexed by absolute value index.
     """
-    slots = np.asarray(slots, dtype=np.intp)
+    vals = np.asarray(vals, dtype=np.intp)
     if level == 0:
-        return int(slots.size) >= int(r_levels[0])
+        return int(vals.size) >= int(r_levels[0])
     col = level - 1
-    gids = np.asarray(tags_mat)[slots, col]
+    gids = np.asarray(tags_mat)[vals, col]
     need = int(r_levels[level])
     feasible = 0
     for g in set(gids.tolist()):
-        sub = slots[gids == g]
+        sub = vals[gids == g]
         if _nested_feasible(sub, tags_mat, r_levels, level - 1):
             feasible += 1
             if feasible >= need:
@@ -855,7 +855,7 @@ def _nested_feasible(slots, tags_mat, r_levels, level):
     return feasible >= need
 
 
-def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
+def _nested_enum_indices(valid_values, tags_valid, r_levels, sym_levels):
     """Tag-scoped nested r-tuple enumeration (representation B, L levels).
 
     Generalises the two-level enumeration to arbitrary nesting depth by
@@ -864,13 +864,13 @@ def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
 
     Parameters
     ----------
-    valid_slots : (Kv,) intp
-        Slot indices (into the attribute's full ``K_total`` axis) that are
+    valid_values : (Kv,) intp
+        Value indices (into the attribute's full ``K_total`` axis) that are
         non-NaN for this output-event, in ascending order.
     tags_valid : (Kv, L-1) intp
-        Per-slot group ids at each grouping level, innermost-grouping
+        Per-value group ids at each grouping level, innermost-grouping
         first: column ``j`` is the level-``(j+1)`` group of each valid
-        slot (column 0 is the finest grouping above the leaf slots,
+        value (column 0 is the finest grouping above the leaf values,
         column ``L-2`` the outermost). A 1-D ``(Kv,)`` array is accepted
         as the single-column ``L = 2`` case.
     r_levels : (L,) int
@@ -885,18 +885,18 @@ def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
     Returns
     -------
     perm_idx, comb_idx : (D, M) intp, ``D = prod(r_levels)``
-        Slot-index arrays. ``perm_idx`` is the symmetrised deposit (the
+        Value-index arrays. ``perm_idx`` is the symmetrised deposit (the
         density's kernel centres): at each level the chosen sub-units are
         permuted into their orbit when that level's ``sym`` is set, else
         kept in listed order. ``comb_idx`` is the canonical
         one-per-combination side (combinations at every level, listed
         order) used for inner-product pairing. Columns are concatenated
-        outermost-group-major, innermost-slot-minor.
+        outermost-group-major, innermost-value-minor.
     """
     from itertools import combinations as _comb, permutations as _perm
     from itertools import product as _product
 
-    valid_slots = np.asarray(valid_slots, dtype=np.intp)
+    valid_values = np.asarray(valid_values, dtype=np.intp)
     tags_valid = np.asarray(tags_valid)
     if tags_valid.ndim == 1:
         tags_valid = tags_valid.reshape(-1, 1)
@@ -904,21 +904,21 @@ def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
     sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
     L = len(r_levels)
 
-    # Map a slot index to its row in tags_valid (slots are a subset of
-    # valid_slots, kept in ascending order throughout the recursion).
-    row_of = {int(s): i for i, s in enumerate(valid_slots.tolist())}
+    # Map a value index to its row in tags_valid (values are a subset of
+    # valid_values, kept in ascending order throughout the recursion).
+    row_of = {int(s): i for i, s in enumerate(valid_values.tolist())}
 
-    def enum_side(slots, level, symmetrise):
+    def enum_side(vals, level, symmetrise):
         # Returns a list of 1-D index arrays, each length prod(r_levels[:level+1]).
         if level == 0:
             r0 = r_levels[0]
-            combs = list(_comb(slots.tolist(), r0))
+            combs = list(_comb(vals.tolist(), r0))
             if symmetrise[0]:
                 return [np.array(p, dtype=np.intp)
                         for c in combs for p in _perm(c)]
             return [np.array(c, dtype=np.intp) for c in combs]
         col = level - 1
-        gids = np.array([tags_valid[row_of[int(s)], col] for s in slots])
+        gids = np.array([tags_valid[row_of[int(s)], col] for s in vals])
         uniq = sorted(set(gids.tolist()))
         gcombs = list(_comb(uniq, r_levels[level]))
         gsels = ([p for c in gcombs for p in _perm(c)]
@@ -927,15 +927,15 @@ def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
         for gsel in gsels:
             per_group = []
             for g in gsel:
-                sub = slots[gids == g]
+                sub = vals[gids == g]
                 per_group.append(enum_side(sub, level - 1, symmetrise))
             for combo in _product(*per_group):
                 out.append(np.concatenate(combo))
         return out
 
     D = int(np.prod(r_levels)) if r_levels else 0
-    perm_cols = enum_side(valid_slots, L - 1, sym_levels)
-    comb_cols = enum_side(valid_slots, L - 1, [False] * L)
+    perm_cols = enum_side(valid_values, L - 1, sym_levels)
+    comb_cols = enum_side(valid_values, L - 1, [False] * L)
     perm_idx = (np.array(perm_cols, dtype=np.intp).T if perm_cols
                 else np.empty((D, 0), dtype=np.intp))
     comb_idx = (np.array(comb_cols, dtype=np.intp).T if comb_cols
@@ -1011,7 +1011,7 @@ def _enum_flat_attr(val_col, valid, r_a, is_sym, w_col_orig):
     """Per-(event, attribute) r-ad enumeration for one flat attribute.
 
     Returns ``(perm_mat, comb_mat, perm_w, comb_w)`` for the non-NaN
-    slots ``valid`` of value column ``val_col`` at tuple size ``r_a``.
+    values ``valid`` of value column ``val_col`` at tuple size ``r_a``.
     Applies the r = 1 equal-value collapse (summing weights). Shared by
     the general per-(n, a) fill loop and the A = N = 1 fast path so both
     produce byte-identical tuples. Caller guarantees ``valid.size >=
@@ -1088,7 +1088,7 @@ def _ma_build_perm_arrays(
     # attributes, so the general per-(n, a) cell machinery is overhead.
     # Enumerate the attribute directly (shared _enum_flat_attr, so the
     # tuples are identical) and, for N > 1, concatenate the events. When
-    # the non-NaN slot pattern is the same every event and r >= 2 (no
+    # the non-NaN value pattern is the same every event and r >= 2 (no
     # r = 1 value-collapse, which the build has already reduced to N = 1),
     # the tuple-index structure is event-invariant: compute it once and
     # reuse it, recomputing only the per-event values and weights.
@@ -1102,7 +1102,7 @@ def _ma_build_perm_arrays(
             if valid.size < r_a:
                 raise ValueError(
                     f"Event 0, attribute 0 has {valid.size} non-NaN "
-                    f"slot(s) but r_a = {r_a}."
+                    f"value(s) but r_a = {r_a}."
                 )
             perm_mat, comb_mat, perm_w, comb_w = _enum_flat_attr(
                 val_col, valid, r_a, is_sym_vec[0], W[:, 0])
@@ -1152,7 +1152,7 @@ def _ma_build_perm_arrays(
                     if valid.size < r_a:
                         raise ValueError(
                             f"Event {n}, attribute 0 has {valid.size} "
-                            f"non-NaN slot(s) but r_a = {r_a}."
+                            f"non-NaN value(s) but r_a = {r_a}."
                         )
                     pm, cm, pw, cw = _enum_flat_attr(
                         val, valid, r_a, is_sym_vec[0], W[:, n])
@@ -1216,7 +1216,7 @@ def _ma_build_perm_arrays(
             if K_na < r_a:
                 raise ValueError(
                     f"Event {n}, attribute {a} has {K_na} non-NaN "
-                    f"slot(s) but r_a = {r_a}."
+                    f"value(s) but r_a = {r_a}."
                 )
 
             (perm_idx[n][a], comb_idx[n][a],
@@ -1263,12 +1263,12 @@ def _ma_build_perm_arrays(
             r_a = int(r_vec[a])
             val_col = p_attr[a][:, n]
 
-            slot_perm = perm_idx[n][a][:, idx_perm[a]]   # r_a x nJh
-            u_perm[a][:, off_j:off_j + nJh] = val_col[slot_perm]
+            val_perm = perm_idx[n][a][:, idx_perm[a]]   # r_a x nJh
+            u_perm[a][:, off_j:off_j + nJh] = val_col[val_perm]
             wJh *= perm_w[n][a][idx_perm[a]]
 
-            slot_comb = comb_idx[n][a][:, idx_comb[a]]   # r_a x nKh
-            v_comb[a][:, off_k:off_k + nKh] = val_col[slot_comb]
+            val_comb = comb_idx[n][a][:, idx_comb[a]]   # r_a x nKh
+            v_comb[a][:, off_k:off_k + nKh] = val_col[val_comb]
             wKh *= comb_w[n][a][idx_comb[a]]
 
         w_j[off_j:off_j + nJh]       = wJh
@@ -1287,7 +1287,7 @@ def _ma_build_perm_arrays(
             # Co-transposition at unit u: the leaves split into G_u
             # contiguous blocks of size s_u = prod(r[:u+1]) (the
             # depth-first enumeration lays each level-u sub-tuple out
-            # contiguously). Reduce each block by its own first slot
+            # contiguously). Reduce each block by its own first value
             # (per-block interval space), then stack the blocks. At u = 0
             # this is the per-event inner reduction; at u = L-2 a per-
             # intermediate-group one.
@@ -1366,7 +1366,7 @@ def _build_exp_tens_single_multiset(
         # with no tuples, matching the historical vector-build
         # behaviour. Constructed directly because the general
         # multi-attribute event validation (each event needs at least
-        # r_a valid slots) correctly rejects empty events in the
+        # r_a valid values) correctly rejects empty events in the
         # multi-event setting.
         dim = int(r) - (1 if is_rel else 0)
         empty = {

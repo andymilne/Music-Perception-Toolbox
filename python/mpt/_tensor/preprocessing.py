@@ -49,13 +49,13 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     chains into another pre-MAET operation or into ``build_exp_tens(...,
     specs=...)``.
 
-    Differencing pairs values **position by position**: event *i*'s value at
-    position *k* differences against
-    event *i+1*'s value at position *k*. This is well-defined exactly when the
-    positions
+    Differencing pairs values **index by index**: event *i*'s value at index
+    *k* differences against
+    event *i+1*'s value at index *k*. This is well-defined exactly when the
+    indices
     have stable identity --- an ordered attribute (``[sym] = 0``) or a
     singleton (``K = 1``). A symmetric multiset (``K > 1``, ``[sym] = 1``)
-    is a bag with no positional correspondence, so differencing it is undefined
+    is a bag with no index correspondence, so differencing it is undefined
     and raises. The rule extends per level for a nested attribute: every
     level must be ordered (or of size 1). Ragged ordered data (events of
     differing length) is represented by NaN-padding to a common ``K``; a
@@ -79,7 +79,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
         ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
-        position by position when the attribute is ordered (see above).
+        index by index when the attribute is ordered (see above).
     w : None, scalar, or length-A list
         Weights (``build_exp_tens`` convention).
     diff_orders : scalar or length-A array-like
@@ -134,7 +134,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
             )
     K = [M.shape[0] for M in p_attr]
 
-    # --- Carrier specs: synthesise flat if none supplied --------------
+    # --- Attribute specifications: synthesise flat if none supplied --------------
     if specs is None:
         specs_out = flat_specs(p_attr)
     else:
@@ -167,7 +167,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
                 f"count: max order = {max_order} but N = {n_events}."
             )
 
-    # --- Difference each value matrix (slot-wise; NaN propagates) -----
+    # --- Difference each value matrix (position by position; NaN propagates) -----
     p_attr_diff = []
     for a, M in enumerate(p_attr):
         k = int(orders[a])
@@ -191,9 +191,9 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
 
 
 def _check_differenceable(spec, K_a, a):
-    """Guard: an attribute is differenceable only if its slots have stable
+    """Guard: an attribute is differenceable only if its positions have stable
     identity across events --- ordered (``[sym] = 0``) or singleton at
-    every level. A symmetric multiset of size > 1 is a bag with no slot
+    every level. A symmetric multiset of size > 1 is a bag with no positional
     correspondence, so differencing it is undefined.
     """
     if isinstance(spec, dict) and "tags" in spec:
@@ -202,7 +202,7 @@ def _check_differenceable(spec, K_a, a):
         sym = (np.ones(2, dtype=bool) if sym is None
                else np.asarray(sym, dtype=bool).ravel())
         n_groups = int(np.unique(tags).size)            # outer level size
-        inner_sz = int(tags.size // max(n_groups, 1))   # slots per group
+        inner_sz = int(tags.size // max(n_groups, 1))   # values per group
         inner_ok = (not bool(sym[0])) or inner_sz == 1
         outer_ok = (not bool(sym[-1])) or n_groups == 1
         if not (inner_ok and outer_ok):
@@ -218,7 +218,7 @@ def _check_differenceable(spec, K_a, a):
             raise ValueError(
                 f"attribute {a}: differencing requires an ordered attribute "
                 f"([sym] = 0) or K = 1; got a symmetric multiset with K = "
-                f"{K_a}. A symmetric multiset is a bag with no slot "
+                f"{K_a}. A symmetric multiset is a bag with no positional "
                 f"correspondence across events. Set [sym] = 0 (e.g. via "
                 f"flat_specs(..., sym=False)) to difference it."
             )
@@ -648,7 +648,7 @@ def bind_events(
             "step must be >= 1 (1 is the fully overlapping slide)."
         )
 
-    # --- Inner geometry from the carrier specs ------------------------
+    # --- Inner geometry from the attribute specifications ---------------
     if specs is None:
         specs_in = flat_specs(p_attr)
     else:
@@ -709,7 +709,7 @@ def bind_events(
     specs_out = []
     for a in range(A):
         L_a = int(orders[a])
-        K_a = K[a]                       # flat slot count K_total
+        K_a = K[a]                       # flat value count K_total
         M = p_attr[a]
         s_in = specs_in[a] if isinstance(specs_in[a], dict) else {}
         is_nested_in = "tags" in s_in
@@ -801,8 +801,8 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
     Consecutive events sharing a constant value on attribute ``group_by``
     are gathered into one super-event; a new group begins wherever that
     value changes. Group sizes vary, so the outer level is ragged: each
-    super-event is padded to the maximum group size with NaN slots carrying
-    zero weight (the padded-slot-at-zero-weight convention the nested inner
+    super-event is padded to the maximum group size with NaN values carrying
+    zero weight (the padded-value-at-zero-weight convention the nested inner
     product already consumes). The inner level preserves each attribute's
     existing per-attribute parameters; the outer tuple size ``r_outer``
     defaults to the smallest group size --- the largest tuple size at which every
@@ -832,7 +832,7 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
     if K[group_by] != 1:
         raise ValueError(
             f"group_by attribute {group_by} must have K = 1 (one value per "
-            f"event); got K = {K[group_by]}. Constancy of a multi-slot value "
+            f"event); got K = {K[group_by]}. Constancy across multiple values "
             f"is ambiguous."
         )
 
@@ -872,8 +872,8 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
             "binding)."
         )
 
-    # Per outer slot, the source event index for each group and a validity
-    # mask (False where the group is shorter than the slot).
+    # Per outer position, the source event index for each group and a validity
+    # mask (False where the group is shorter than the position).
     src = np.zeros((L_max, n_prime), dtype=np.intp)
     valid = np.zeros((L_max, n_prime), dtype=bool)
     for j, g in enumerate(groups):
@@ -964,10 +964,10 @@ def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, step=1):
 
     For ``L_a >= 2`` the per-event weight slices are windowed and
     stacked into a ``(L_a * K_a, N')`` column aligned with the value
-    stack (per-event weights are expanded across the ``K_a`` slots of
+    stack (per-event weights are expanded across the ``K_a`` values of
     their event); for ``L_a = 1`` the weight is trailing-aligned.
     Non-event-dependent inputs (``None``, scalar, ``(K_a, 1)`` column)
-    are inherited / tiled across the bound slots.
+    are inherited / tiled across the bound values.
     """
     if w is None:
         return None
@@ -997,7 +997,7 @@ def _bind_weights_nested(w, A, orders, K, n_events, n_prime, circular, step=1):
             if wa is None or np.isscalar(wa):
                 w_bound.append(wa)
             else:
-                W = np.asarray(wa, dtype=np.float64)   # (K_a, 1) per-slot
+                W = np.asarray(wa, dtype=np.float64)   # (K_a, 1) per-value
                 w_bound.append(W if L_a == 1 else np.tile(W, (L_a, 1)))
             continue
         # Event-dependent: materialise to (K_a, N), window per lag, stack.
@@ -1240,7 +1240,7 @@ def weight_events(
                 f"N={M.shape[1]}."
             )
 
-    # --- Carrier specs: synthesise flat if absent, else validate length ---
+    # --- Attribute specifications: synthesise flat if absent, else validate length ---
     if specs is None:
         specs_in = flat_specs(p_attr)
     else:
@@ -1368,7 +1368,7 @@ def weight_events(
     trunc_sig = resolve_truncation_sigmas(get_default('truncation_sigmas'))
     factor[np.abs(delta) > trunc_sig * sd_f] = 0.0
 
-    # --- Normalise w to length-A list; multiply factor into target slot ---
+    # --- Normalise w to length-A list; multiply factor into target entry ---
     w_out = _normalise_weights_to_list(w, A)
     w_out[target_attr_int] = _multiply_weights(
         w_out[target_attr_int], factor, target_attr_int,
@@ -1484,7 +1484,7 @@ def _multiply_weights(w_existing, factor, attr_idx):
     if np.isscalar(w_existing):
         return float(w_existing) * factor
     arr = np.asarray(w_existing, dtype=np.float64)
-    # numpy broadcasting handles the per-slot / per-event cases.
+    # numpy broadcasting handles the per-value / per-event cases.
     return arr * factor
 
 
@@ -1506,7 +1506,7 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
     axis: the **value axis** of an attribute, whose length is ``K_total``
     (the number of leaf values in one event/super-event). In the value
     matrix the value axis is the **rows** (``K_total x N``: values down,
-    sequence positions across). The spec's ``tags`` label that same axis
+    events across). The spec's ``tags`` label that same axis
     (one entry per row). An offset is likewise per-value: one offset per
     row, held **constant across the sequence (column) axis** --- that
     constancy is what makes ``D(T(p)) == D(p)``. A scalar broadcasts to
@@ -1639,14 +1639,14 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
             "A uniform finite offset was applied to an attribute whose "
             "outermost level is relative; a uniform shift cancels in "
             "every within-tuple difference, so it is a structural no-op "
-            "and that column is left unchanged. (A non-uniform per-slot "
+            "and that column is left unchanged. (A non-uniform per-value "
             "offset would apply, as it shifts the relative structure.)",
             TranslateAttributesNoOpWarning,
             stacklevel=2,
         )
 
-    # --- Apply: value + per-slot offset, broadcast across events; NaN ---
-    # --- slots are left untranslated. ---
+    # --- Apply: value + per-value offset, broadcast across events; NaN ---
+    # --- values are left untranslated. ---
     cols_out: list[list[np.ndarray]] = []
     for m in range(M_sweep):
         col_list: list[np.ndarray] = []
@@ -1669,14 +1669,14 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
 def _normalise_translate_offsets(offsets, K, A):
     """Coerce a length-A offsets list to per-attribute ``(K_a, M)`` blocks.
 
-    Each block is a float array with ``NaN`` marking slots to skip; a
+    Each block is a float array with ``NaN`` marking values to skip; a
     scalar/1-D/single-column entry is broadcast across the common sweep
     width ``M``. Returns ``(matrix_mode, M, blocks)``.
     """
     if not isinstance(offsets, (list, tuple)) or len(offsets) != A:
         raise ValueError(
             f"offsets must be a length-A ({A}) list, one entry per "
-            f"attribute (scalar, per-slot vector, (1, M) or (K_total, M) "
+            f"attribute (scalar, per-value vector, (1, M) or (K_total, M) "
             f"block, or None)."
         )
     raw = []
@@ -1689,7 +1689,7 @@ def _normalise_translate_offsets(offsets, K, A):
         if np.any(np.isinf(arr)):
             raise ValueError(
                 f"offsets[{a}] contains +/-inf; entries must be finite or "
-                f"NaN (NaN skips a slot)."
+                f"NaN (NaN skips a value)."
             )
         if arr.ndim == 0:
             raw.append(arr.reshape(1, 1))
@@ -1704,7 +1704,7 @@ def _normalise_translate_offsets(offsets, K, A):
             if arr.shape[0] not in (1, K[a]):
                 raise ValueError(
                     f"offsets[{a}] has {arr.shape[0]} rows; expected 1 or "
-                    f"K_total = {K[a]} (slots down)."
+                    f"K_total = {K[a]} (values down)."
                 )
             raw.append(arr)
             M = max(M, arr.shape[1])

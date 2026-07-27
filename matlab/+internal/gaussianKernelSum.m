@@ -209,7 +209,7 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     % behaviour.
     if isPer && ~isRel
         if strcmp(wrap, 'full-image')
-            % Per-slot theta then product across slots. wrappedGaussian1d
+            % Per-position theta then product across tuple positions. wrappedGaussian1d
             % handles nearest-image reduction internally and picks the
             % cheaper of image-sum and Fourier for the summation.
             theta = internal.wrappedGaussian1d(D, sigma, period, ...
@@ -226,7 +226,7 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     if isRel
         if isPer
             % Pairwise-wrap form on the reduced centres
-            % representation (slot 0 = 0 implicit). Slot-0 pairs
+            % representation (position 0 = 0 implicit). Position-0 pairs
             % vectorised in a single pass; within-reduced pairs
             % looped.
             slot0_wrapped = D - period .* floor(D / period + 0.5);

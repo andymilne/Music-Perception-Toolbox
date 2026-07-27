@@ -12,7 +12,7 @@ function flat = flattenDegenerateNestedSpec(spec)
 %   outer level reads all groups (outer r = the number of groups). The
 %   flat equivalent is struct('r', K, 'sym', sym(outer), 'rel',
 %   rel(outer)) over the same K x N value matrix (their densities are
-%   identical). bindEvents applied to flat single-slot events produces
+%   identical). bindEvents applied to flat single-value events produces
 %   exactly this form; the isotropic build recognises the same
 %   structure downstream (the singleton-group fast path), but the
 %   matrix-covariance path must flatten *before* spec normalisation,

@@ -145,9 +145,9 @@ end
 function d = sadens(chords, rIn)
     % Single nested harmonic attribute (outer relative, periodic).
     SIG = 0.15; P = 12.0;
-    nCh = numel(chords); nSlot = numel(chords{1});
+    nCh = numel(chords); nValue = numel(chords{1});
     tags = [];
-    for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nSlot)]; end
+    for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nValue)]; end
     p0 = [];
     for c = 1:nCh; p0 = [p0, chords{c}]; end
     sp = struct('tags', tags, 'r', [rIn nCh], 'sym', [true false], 'rel', [0 1]);
@@ -161,11 +161,11 @@ function d = madens(events, flags, rIn)
     % 1-D non-periodic flag attribute. events is a cell over events, each a
     % cell of chords (pitch-class row vectors).
     SIG = 0.15; SF = 0.1; P = 12.0;
-    nCh = numel(events{1}); nSlot = numel(events{1}{1});
+    nCh = numel(events{1}); nValue = numel(events{1}{1});
     tags = [];
-    for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nSlot)]; end
+    for k = 1:nCh; tags = [tags, (k - 1) * ones(1, nValue)]; end
     N = numel(events);
-    p0 = zeros(nCh * nSlot, N);
+    p0 = zeros(nCh * nValue, N);
     for e = 1:N
         col = [];
         for c = 1:nCh; col = [col, events{e}{c}]; end

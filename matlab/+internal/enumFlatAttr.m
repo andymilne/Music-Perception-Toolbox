@@ -1,8 +1,8 @@
 function [permMat, combMat, permW, combW] = ...
         enumFlatAttr(valCol, valid, r_a, isSym, wColOrig)
 %ENUMFLATATTR  Per-(event, attribute) r-ad enumeration for one flat
-%   attribute. Returns the perm/comb slot-index matrices and their
-%   per-tuple weight products for the non-NaN slots `valid` of value
+%   attribute. Returns the perm/comb value-index matrices and their
+%   per-tuple weight products for the non-NaN values `valid` of value
 %   column `valCol` at tuple size `r_a`. Applies the r = 1 equal-value
 %   collapse (summing weights). Shared by buildExpTens's per-(n, a) fill
 %   loop and evalExpTens's factored centres path so both produce

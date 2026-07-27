@@ -40,7 +40,7 @@ Constraints (validated at build time):
   ordered outer read of all groups) is order-isomorphic to the flat
   ordered tuple and is flattened automatically (see
   :func:`flatten_degenerate_nested_spec`). :func:`bind_events` applied
-  to flat single-slot events produces exactly this degenerate form.
+  to flat single-value events produces exactly this degenerate form.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def sigma_vec_has_kernel_cov(sigma_vec) -> bool:
         # A bare 2-D array as the whole sigma_vec is ambiguous; the MA
         # path requires a list/tuple with one entry per attribute, so a
         # 2-D ndarray here is a single-attribute matrix only when it is
-        # the SA path's scalar slot -- callers handle that separately.
+        # the single-attribute path's scalar value -- callers handle that separately.
         return True
     if isinstance(sigma_vec, (list, tuple)):
         return any(is_kernel_cov(s) for s in sigma_vec)
@@ -99,7 +99,7 @@ def flatten_degenerate_nested_spec(spec):
     groups). The flat equivalent is ``{r: K, sym: sym[outer],
     rel: rel[outer]}`` over the same ``(K, N)`` value matrix (their
     densities are identical). :func:`bind_events` applied to flat
-    single-slot events produces exactly this form; the isotropic build
+    single-value events produces exactly this form; the isotropic build
     recognises the same structure downstream (the singleton-group fast
     path in ``_build_exp_tens_ma``), but the matrix-covariance path
     must flatten *before* spec normalisation, since whitening and the

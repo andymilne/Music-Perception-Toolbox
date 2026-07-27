@@ -1,7 +1,7 @@
 function [pc, wc, sc] = applyWindows(p, w, specs, axes, centres, gammas, sds, locates, target)
 %APPLYWINDOWS  Compose each swept axis's window factor onto the target's
 %   weights, then prune. The locating value is reduced as a separate array
-%   (the carrier is never mutated), so the target's slot count is read from
+%   (the inputs are never mutated), so the target's value count is read from
 %   the real attribute and a windowed-and-compared bundle is handled
 %   correctly. Mirrors the Python seam (factor via evaluateShape, multiply
 %   via multiplyWeights). Per the truncation contract, the window-factor
@@ -21,5 +21,5 @@ function [pc, wc, sc] = applyWindows(p, w, specs, axes, centres, gammas, sds, lo
         factor(abs(delta) > truncSig * sds(k)) = 0;
         wAcc{target} = internal.multiplyWeights(wAcc{target}, factor, Kt);
     end
-    [pc, wc, sc] = internal.pruneDeadCarrier(p, wAcc, specs);
+    [pc, wc, sc] = internal.pruneDeadEvents(p, wAcc, specs);
 end

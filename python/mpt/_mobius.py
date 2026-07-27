@@ -11,11 +11,11 @@ The reformulation has two layers:
 
 1. **Möbius inversion on the partition lattice.** A sum over ordered
    distinct r-tuples can be written as an alternating sum over set
-   partitions of the slot indices, with each partition's term factorising
+   partitions of the tuple positions, with each partition's term factorising
    across blocks as a product of single-source-sum quantities.
 
-2. **Orbit collapse under slot symmetry.** The kernel is invariant under
-   common permutation of slots, so the |Π_r|² partition pairs collapse to
+2. **Orbit collapse under position symmetry.** The kernel is invariant under
+   common permutation of tuple positions, so the |Π_r|² partition pairs collapse to
    |Ω_r| orbits under the joint S_r action. Each orbit is identified by a
    triple (m_A, m_B, M) where m_A, m_B are integer partitions of r and M
    is a non-negative integer matrix with row sums m_A and column sums
@@ -927,7 +927,7 @@ def inner_product_orbit_pw_batched(
 
 # ---------------------------------------------------------------------
 # Sparse-kernel orbit inner product (spatial cull for large, sparse
-# slot kernels). Each orbit's bipartite graph is contracted by
+# value kernels). Each orbit's bipartite graph is contracted by
 # min-degree elimination -- degree-1 nodes fold in as mat-vecs,
 # degree-2 nodes become Gram products (sparse matmul) -- which for
 # every shipped tuple size (r <= 8; graphs no worse than K_{2,m}) never
@@ -1141,7 +1141,7 @@ def _set_partitions_with_mobius(r: int):
     """Enumerate set partitions of {0, ..., r-1} as (blocks, mu) pairs.
 
     Returns a list of ``(blocks, mu)`` tuples where ``blocks`` is a
-    tuple of tuples (each inner tuple is the sorted slot-indices of one
+    tuple of tuples (each inner tuple is the sorted position indices of one
     block) and ``mu`` is the Möbius coefficient for the partition's
     block-size profile.
 
@@ -1433,7 +1433,7 @@ def eval_orbit_abs(
             use_reduction = True
         else:
             # Circular mean/variance relative to the block's reference
-            # slot (translation-invariant offsets), so a block sitting on
+            # tuple position (translation-invariant offsets), so a block sitting on
             # the period seam is handled correctly.
             if m == 1:
                 mean_x = x_B[0, :]
@@ -1472,10 +1472,10 @@ def eval_orbit_abs(
             # Gaussian in overlap convention adapted to density-kernel
             # (exponent_denominator = 2), single-image via nearest-
             # image reduction (the pre-v3 behaviour). Uses the
-            # original sigma per slot; the sigma/sqrt(m) effective
+            # original sigma per tuple position; the sigma/sqrt(m) effective
             # width belongs to the useReduction branch, where the
             # m-D block sum is collapsed to a 1-D Gaussian at
-            # mean_x, and is not correct here where each slot is
+            # mean_x, and is not correct here where each position is
             # broadcast separately.
             diffs = x_B[:, None, :] - p[None, :, None]
             if is_per and str(wrap) == 'full-image':
@@ -1540,7 +1540,7 @@ def eval_orbit_abs(
 # the O(K^r) tuple enumeration the decomposition exists to avoid). The
 # integral is evaluated on a u-grid; what is NOT intrinsic is the K
 # factor in the integrand. In the non-periodic case each partition
-# block B (with m = |B| slots and query offsets δ_B) factorises exactly:
+# block B (with m = |B| tuple positions and query offsets δ_B) factorises exactly:
 #
 #     f_B(u) = exp(-var(δ_B)/(2σ²)) · S_m(u + mean(δ_B)),
 #     S_m(v) = Σ_i w_i^m exp(-m (v - p_i)² / (2σ²)),
@@ -1928,7 +1928,7 @@ def eval_orbit_rel(
     x_rel : (r-1, n_q) ndarray
         Relative-mode query: each column is a (r-1)-D point.
         Convention: ``x_rel`` represents differences from the
-        implicit reference slot; the full r-vector at translation u
+        implicit reference position; the full r-vector at translation u
         is ``(u, u + x_rel_1, ..., u + x_rel_{r-1})``.
     is_per, period, return_cancellation_ratio : as in
         :func:`eval_orbit_abs`.
@@ -2037,7 +2037,7 @@ def eval_orbit_rel(
         _k_res = float(_rts(truncation_sigmas))
         if is_per and r >= 2 and x_rel.size:
             # As in the factored-periodic gate: every query's position
-            # span (slot 0 carries delta 0) must fit inside half the
+            # span (position 0 carries delta 0) must fit inside half the
             # circle, under which the principal-image wrap of the
             # deltas is a no-op and the per-block statistics are exact.
             _plo = np.minimum(0.0, x_rel.min(axis=0))
@@ -2088,7 +2088,7 @@ def eval_orbit_rel(
             use_factored = bool(factored) and factored_per_valid
     else:
         # Read-back points are u + mean(δ_B) with the block means lying
-        # inside the hull of the full offset rows (slot 0 carries δ=0).
+        # inside the hull of the full offset rows (position 0 carries δ=0).
         dmin = min(0.0, float(x_rel.min(initial=0.0)))
         dmax = max(0.0, float(x_rel.max(initial=0.0)))
         n_fine_total = 0

@@ -162,7 +162,7 @@ def _phi_diff_axis(centres: np.ndarray, edges_lo: np.ndarray,
     Returns ``(n_j, n_cells)`` array with entry ``[t, j]`` equal to
     ``Phi((edges_hi[j] - centres[t]) / sigma) - Phi((edges_lo[j] -
     centres[t]) / sigma)``, the 1-D Gaussian probability mass in cell
-    ``j`` for the tuple-slot at ``centres[t]``.
+    ``j`` for the tuple position at ``centres[t]``.
     """
     inv = 1.0 / (sigma * _SQRT2)
     z_hi = (edges_hi[None, :] - centres[:, None]) * inv
@@ -1443,7 +1443,7 @@ def _renyi2_per_attr_numerical(dens, a):
     ``Z = sum_n prod_a Z_a[n]``.
 
     The flat Möbius per-attribute matrix presumes a single *symmetric*
-    ``r_a``-tuple over the slots and re-derives the full S_{r_a} orbit;
+    ``r_a``-tuple over the values and re-derives the full S_{r_a} orbit;
     that orbit is wrong for an ordered attribute (no symmetrisation) and,
     for a nested attribute (``r_a = prod(r_levels)``), both wrong and
     infeasible. The numerical reading here builds the attribute's density,
@@ -1520,10 +1520,10 @@ def _renyi2_per_attr_numerical(dens, a):
                 from ._wrapped_kernel import wrapped_gaussian_1d
                 from ._defaults import get_default
                 ts = get_default("truncation_sigmas")
-                theta_per_slot = wrapped_gaussian_1d(
+                theta_per_position = wrapped_gaussian_1d(
                     D, sigma, period, ts, exponent_denominator=4
                 )
-                overlap = pref * theta_per_slot.prod(axis=0)
+                overlap = pref * theta_per_position.prod(axis=0)
         else:
             Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
             overlap = pref * np.exp(-Q / (4 * sigma ** 2))
@@ -1543,7 +1543,7 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     ``<T,T> = Σ_{n,m} Π_a I_a[n,m]``, with the per-attribute matrix
     coming from the same machinery the cosine path uses, and
     ``Z = Σ_n Π_a Z_a^(n)`` where each ``Z_a^(n)`` is the closed-form
-    Single-multiset total mass evaluated on event ``n``'s attribute-``a`` slot
+    Single-multiset total mass evaluated on event ``n``'s attribute-``a`` value
     pitches and weights.
 
     Windowed densities are not yet supported on this path; raises
@@ -1610,11 +1610,11 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
             )
             Z_a = np.empty(N, dtype=np.float64)
             for n in range(N):
-                # Drop NaN-padded slots: in a ragged (unequal-K) event
+                # Drop NaN-padded values: in a ragged (unequal-K) event
                 # set, short events are NaN-padded to the tallest column,
-                # and those padding slots carry a placeholder weight that
+                # and those padding values carry a placeholder weight that
                 # must not enter the closed-form total mass (the Moebius
-                # sum over slot weights). The per-attribute inner matrix
+                # sum over value weights). The per-attribute inner matrix
                 # already excludes them; this keeps Z consistent.
                 col = Pa[:, n]
                 valid = ~np.isnan(col)
@@ -1647,7 +1647,7 @@ def _looks_like_ma_p(p) -> bool:
     # Single-multiset: p is a list/tuple of numbers (e.g., [0, 4, 7]).
     if np.isscalar(first):
         return False
-    # MA: first is an array-like (matrix) with rows (slots) and cols (events).
+    # MA: first is an array-like (matrix) with rows (values) and cols (events).
     return True
 
 
@@ -1667,7 +1667,7 @@ def _entropy_exp_tens_ma(
     """Multi-attribute Shannon entropy.
 
     Builds a Cartesian-product grid with one 1-D linspace per effective
-    dimension of the density's domain (one per non-``isRel`` tuple slot
+    dimension of the density's domain (one per non-``isRel`` tuple position
     for each attribute), evaluates the density at every grid point,
     normalises to a pmf, and returns Shannon entropy.
 

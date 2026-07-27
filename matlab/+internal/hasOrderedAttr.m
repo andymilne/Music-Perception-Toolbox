@@ -1,11 +1,11 @@
 function tf = hasOrderedAttr(dens)
 %HASORDEREDATTR  True if any flat attribute is ordered ([sym] = 0) at r > 1.
 %
-%   Such an attribute carries no slot-permutation symmetry, so the Möbius
+%   Such an attribute carries no position-permutation symmetry, so the Möbius
 %   orbit decomposition does not apply to it: the partition sum realises
 %   the symmetrised tuple set, which is a *different* density rather than
 %   the same one computed faster. r = 1 is exempt ([sym] is vacuous at a
-%   single slot), as are nested attributes, whose per-attribute density is
+%   single value), as are nested attributes, whose per-attribute density is
 %   built by contraction rather than by a single Möbius sum.
 %
 %   Twin of python mpt._tensor.dispatch._has_ordered_attr.

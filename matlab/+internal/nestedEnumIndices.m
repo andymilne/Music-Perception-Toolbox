@@ -1,22 +1,22 @@
 function [permIdx, combIdx] = nestedEnumIndices( ...
-        validSlots, tagsValid, rLevels, symLevels)
+        validValues, tagsValid, rLevels, symLevels)
 %NESTEDENUMINDICES  Tag-scoped nested r-tuple enumeration (rep. B).
 %   Generalises the two-level enumeration to arbitrary nesting depth by
 %   recursing outermost-inward through the grouping columns of the tag
 %   matrix. At L = 2 it reproduces the two-level result exactly.
-%   validSlots : 1 x Kv slot indices (ascending) non-NaN for this event.
-%   tagsValid  : Kv x (L-1) per-slot group ids, innermost-grouping first
-%                (column 1 the finest grouping above the leaf slots,
+%   validValues : 1 x Kv value indices (ascending) non-NaN for this event.
+%   tagsValid  : Kv x (L-1) per-value group ids, innermost-grouping first
+%                (column 1 the finest grouping above the leaf values,
 %                column L-1 the outermost). A Kv-vector is the single-
 %                column (L = 2) case.
 %   rLevels    : 1 x L read-arities, innermost-outward (rLevels(1) leaf).
 %   symLevels  : 1 x L per-level symmetrisation.
-%   Returns permIdx, combIdx: D x M slot-index arrays, D = prod(rLevels).
+%   Returns permIdx, combIdx: D x M value-index arrays, D = prod(rLevels).
 %   permIdx is the symmetrised deposit (each level permuted into its
 %   orbit when that level's sym is set, else listed order); combIdx is
 %   the canonical one-per-combination side (combinations at every level)
 %   used for inner-product pairing. Columns concatenate outermost-group-
-%   major, innermost-slot-minor. Shared by buildExpTens's nested fill
+%   major, innermost-value-minor. Shared by buildExpTens's nested fill
 %   loop and evalExpTens's factored centres path.
     if isvector(tagsValid)
         tagsValid = tagsValid(:);            % Kv x 1 (L = 2 single column)
@@ -25,21 +25,21 @@ function [permIdx, combIdx] = nestedEnumIndices( ...
     symLevels = logical(symLevels(:).');
     L = numel(rLevels);
     D = prod(rLevels);
-    Kv = numel(validSlots);
-    permCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
+    Kv = numel(validValues);
+    permCols = localEnumSide(1:Kv, L, validValues(:).', tagsValid, ...
                              rLevels, symLevels);
-    combCols = localEnumSide(1:Kv, L, validSlots(:).', tagsValid, ...
+    combCols = localEnumSide(1:Kv, L, validValues(:).', tagsValid, ...
                              rLevels, false(1, L));
     if isempty(permCols), permIdx = zeros(D, 0); else, permIdx = [permCols{:}]; end
     if isempty(combCols), combIdx = zeros(D, 0); else, combIdx = [combCols{:}]; end
 end
 
 
-function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
+function cols = localEnumSide(rowset, level, validValues, tagsValid, ...
                               rLevels, symFlags)
     %LOCALENUMSIDE  Recursive enumeration. `rowset` are row indices into
-    %   validSlots/tagsValid. Returns a cell row of column vectors, each of
-    %   length prod(rLevels(1:level)) holding emitted slot indices.
+    %   validValues/tagsValid. Returns a cell row of column vectors, each of
+    %   length prod(rLevels(1:level)) holding emitted value indices.
     rowset = rowset(:).';
     if level == 1
         r0 = rLevels(1);
@@ -50,7 +50,7 @@ function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
         elseif r0 == k
             combRows = rowset;                        % single combination
         else
-            % nchoosek(1:k, r0) is (nCk x r0); map positions to slot row
+            % nchoosek(1:k, r0) is (nCk x r0); map positions to value row
             % indices via rowset. reshape guards the r0 = 1 case: there the
             % index is a column vector and plain v(idx) would follow the row
             % vector rowset's orientation, collapsing nCk combinations of one
@@ -65,7 +65,7 @@ function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
         nC = size(combRows, 1);
         cols = cell(1, nC);
         for i = 1:nC
-            cols{i} = validSlots(combRows(i, :)).';   % r0 x 1 slot column
+            cols{i} = validValues(combRows(i, :)).';   % r0 x 1 value column
         end
         return
     end
@@ -93,7 +93,7 @@ function cols = localEnumSide(rowset, level, validSlots, tagsValid, ...
         for j = 1:rg
             g = ug(pickPos(j));
             subrows = rowset(gids == g);
-            perGroup{j} = localEnumSide(subrows, level - 1, validSlots, ...
+            perGroup{j} = localEnumSide(subrows, level - 1, validValues, ...
                                         tagsValid, rLevels, symFlags);
             if isempty(perGroup{j})
                 ok = false;

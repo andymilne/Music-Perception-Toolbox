@@ -98,9 +98,9 @@ def eval_ma_orbit(
         for a in range(A):
             p_an = P[a][:, n]
             w_an = W[a][:, n]
-            # Drop absent slots (NaN in this event) so ragged cardinality
+            # Drop absent values (NaN in this event) so ragged cardinality
             # needs no special case: the per-attribute factor is built
-            # from that event's live slots alone.
+            # from that event's live values alone.
             live = ~np.isnan(p_an)
             p_an = p_an[live]
             w_an = w_an[live]

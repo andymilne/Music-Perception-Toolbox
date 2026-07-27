@@ -56,7 +56,7 @@
 %  the stamp the difference/bind pipeline gives it. The trigram
 %  attribute must be ORDERED:
 %  one foil is the motif reversed, which has the same interval multiset
-%  as the motif and is separated from it only by slot order. The
+%  as the motif and is separated from it only by value order. The
 %  trigrams are built with the toolbox's cross-event preprocessing --
 %  differenceEvents (onsets to IOIs), then bindEvents (overlapping
 %  windows of three consecutive log-IOIs per event). The rel kernel
@@ -98,7 +98,7 @@ prevDefaults = mptDefaults('showHints', false);
 % the reference tempo. All densities are built on natural-log IOIs, so
 % a tempo factor a appears as a common shift of log(a).
 dMotif = [0.50, 0.25, 0.25];
-xMotif = log(dMotif)';   % column: one event, K = 3 slots
+xMotif = log(dMotif)';   % column: one event, K = 3 values
 
 % Candidate cells. The jittered cells displace the onset shared by the
 % two short intervals by +25 ms (at the reference tempo), lengthening
@@ -148,7 +148,7 @@ pDiff{1} = log(pDiff{1});
     'specs', spDiff);
 [~, ~, spBoundRel] = bindEvents(pDiff, wDiff, [3, 1], 'specs', spDiff, ...
     'relOuter', true);
-% Two quantities read off the bound carrier feed the search below:
+% Two quantities read off the bound attributes feed the search below:
 nTri = size(pBound{1}, 2);   % number of trigrams (windows to place)
 triTimes = pBound{2};        % window-placing times (the sweep centres);
                              % trigram i is timed at onsets(i + 1)

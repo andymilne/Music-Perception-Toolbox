@@ -1833,7 +1833,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
-%   isRel, isPer, period. Weights and event/slot counts may differ.
+%   isRel, isPer, period. Weights and event/value counts may differ.
 
     % --- Structural compatibility (cheap fields only) ---
     if ~internal.kernelCovsCompatible(dens_x, dens_y)
@@ -1847,11 +1847,11 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     dens_y = internal.prunedExpTens(dens_y);
 
     % An empty operand has no events to overlap, so the inner product -- and
-    % hence the similarity -- is zero. A windowed carrier whose window caught
+    % hence the similarity -- is zero. A windowed density whose window caught
     % nothing prunes to zero events here; without this guard it reaches the
     % nested contraction's value-range scan, which has no identity over an
     % empty attribute column. (The raw single-attribute path is unaffected: it
-    % is reached only without specs, and an empty windowed carrier always
+    % is reached only without specs, and an empty windowed density always
     % carries specs.)
     if dens_x.N == 0 || dens_y.N == 0
         s = 0.0;
@@ -1894,7 +1894,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 
     % Per-attribute wrap opt-in (v3+). The density's wrap cell selects the
     % abs-per measure: 'full-image' (default) uses the torus (all-image)
-    % 1-D wrapped Gaussian per slot; 'single-image' uses the nearest-image
+    % 1-D wrapped Gaussian per tuple position; 'single-image' uses the nearest-image
     % reduction, the pre-v3 behaviour. Non-periodic and rel attributes
     % ignore this axis. The two densities' wrap cells were compared for
     % structural compatibility at the entry to cosSimExpTens.
@@ -1992,8 +1992,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     % Nested attributes are not handled by the flat orbit/Möbius entry
-    % point: that path would have to flatten the levels into one slot set,
-    % but the inner unit's metric is block-diagonal (slots couple only
+    % point: that path would have to flatten the levels into one value set,
+    % but the inner unit's metric is block-diagonal (positions couple only
     % within an aligned inner unit), which the flat re-enumeration cannot
     % represent. Route instead to the hierarchical contraction, which
     % contracts the tag tree level by level and itself selects the orbit

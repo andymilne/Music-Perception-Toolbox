@@ -103,7 +103,7 @@ fprintf(['  spec{1}: r = [%d %d], sym = [%d %d], rel = [%d %d], ' ...
 
 fprintf('=== 3b. bindEvents again (B o B): deepen to L = 3 ===\n');
 
-% bindEvents accepts the (pAttr, w, specs) carrier it produces, so a
+% bindEvents accepts the (pAttr, w, specs) triple it produces, so a
 % second bind deepens the *already-nested* attribute rather than starting
 % over. The existing tag matrix is tiled and a fresh outermost grouping
 % column is appended; r/sym/rel each gain one outer level. The hierarchy
@@ -157,10 +157,10 @@ fprintf('=== 4. translateAttributes (T) ===\n');
 
 % Translate pitch (attribute 1) by +5 semitones; leave time alone.
 % offsets is a 1 x A cell, one entry per attribute. A scalar entry
-% broadcasts to every slot of that attribute as a single translation
+% broadcasts to every value of that attribute as a single translation
 % (M = 1), so {5, 0} shifts pitch by 5 and time by 0. (Orientation
 % disambiguates the richer forms: a row vector is a transposition
-% sweep, a column a per-slot offset, a matrix per-slot x sweep.)
+% sweep, a column a per-value offset, a matrix per-value x sweep.)
 muPitch = 5;
 pT = translateAttributes(pAttr, w, {muPitch, 0});
 
@@ -177,7 +177,7 @@ fprintf('=== 5. weightEvents (W) ===\n');
 
 % Apply a window on the time attribute (input = 2) centred at the penult
 % event (t = 6) with standard deviation 1 quarter-note and gamma = 0
-% (pure Gaussian). The factor lands back on the time slot itself
+% (pure Gaussian). The factor lands back on the time attribute itself
 % (target = 2), which is the in-place weighting use case.
 [~, wOut, ~] = weightEvents(pAttr, w, 2, 2, 6, 0, 'sd', 1, 'dropInputAttr', false);
 
@@ -193,14 +193,14 @@ fprintf('  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2/2).)\n\n');
 
 fprintf('=== 6. B o D == D o B (pipeline commutation) ===\n');
 
-% Both pre-MAET operators now speak the (pAttr, w, specs) carrier, so the
-% two routes coincide. Differencing is slot-wise across (super-)events and
+% Both pre-MAET operators speak the (pAttr, w, specs) triple, so the
+% two routes coincide. Differencing pairs values position by position across (super-)events and
 % the sliding bind window commutes with it, on the ordered/K=1 domain where
 % differencing is defined.
 %   D then B: difference each attribute (order 1), then bind 2-grams.
 [pD1, wD1, sD1] = differenceEvents(pAttr, w, [1 1]);
 [pDB, wDB, sDB] = bindEvents(pD1, wD1, [2 2], 'specs', sD1);
-%   B then D: bind 2-grams, then difference each nested attribute slot-wise.
+%   B then D: bind 2-grams, then difference each nested attribute position by position.
 [pB1, wB1, sB1] = bindEvents(pAttr, w, [2 2]);
 [pBD, wBD, sBD] = differenceEvents(pB1, wB1, [1 1], 'specs', sB1);
 
@@ -288,7 +288,7 @@ fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n'
 % cosSimExpTens, and the LIST form of cosSimExpTens, with parity
 % assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25];     % kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
-r     = [1, 1];          % single-slot attributes (K_a = 1) in both groups
+r     = [1, 1];          % single-value attributes (K_a = 1) in both groups
 
 % --- 9a. entropyExpTens (raw MA form) ---
 % Signature:

@@ -12,7 +12,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   input. It reads the K=1 value at every event from inputAttr,
 %   evaluates a window function h centred at centre with shape
 %   parameter shape (= gamma), and writes the resulting (1, N)
-%   per-event factor into the weight slot of targetAttr, multiplied
+%   per-event factor into the weight entry of targetAttr, multiplied
 %   into any existing weight already there. targetAttr may differ
 %   from inputAttr (the typical case --- e.g., time-driven windowing
 %   of pitch events) or coincide with it (the input attribute weights
@@ -71,7 +71,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   the stored values in pAttr are not modified.
 %
 %   The per-event factor is broadcast across the target attribute's
-%   K_target slots, so every slot of every event sees the same factor.
+%   K_target values, so every value of every event sees the same factor.
 %
 %   Factor entries whose distance from the centre exceeds the global
 %   truncationSigmas cutoff (i.e., |delta| > truncationSigmas * s,
@@ -92,13 +92,13 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %     inputAttr    Scalar integer in [1, A]. The attribute whose K = 1
 %                  value supplies the window argument. Must have K = 1.
 %     targetAttr   Scalar integer in [1, A]. The attribute whose
-%                  weight slot receives the factor. May equal
+%                  weight entry receives the factor. May equal
 %                  inputAttr.
 %     centre       Scalar finite double. Window centre c.
 %     shape        Scalar double in [0, 1]. Shape parameter gamma.
 %
 %   Name-Value options:
-%     specs        Carrier specs: [] (synthesise flat via flatSpecs) or
+%     specs        Attribute specifications: [] (synthesise flat via flatSpecs) or
 %                  a 1 x A cell, one spec per attribute. Threaded
 %                  through unchanged except that dropInputAttr=true drops
 %                  the input attribute's entry. Not otherwise consulted;
@@ -122,9 +122,9 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
 %   Outputs:
 %     pAttrOut     1 x A_out cell of per-attribute value matrices.
 %                  Length A if dropInputAttr=false, A - 1 otherwise.
-%     wOut         1 x A_out cell of weights. The targetAttr slot (in
+%     wOut         1 x A_out cell of weights. The targetAttr entry (in
 %                  the output indexing) carries the windowed weights.
-%     specsOut     1 x A_out cell of carrier specs for the output
+%     specsOut     1 x A_out cell of attribute specifications for the output
 %                  attribute list (the input attribute's spec removed
 %                  when dropInputAttr=true).
 %
@@ -184,7 +184,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
         end
     end
 
-    % --- Carrier specs: synthesise flat if absent, else validate length ---
+    % --- Attribute specifications: synthesise flat if absent, else validate length ---
     if isempty(nvArgs.specs)
         specsIn = flatSpecs(pAttr);
     else
@@ -286,7 +286,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
         mptDefaults('truncationSigmas'));
     factor(abs(delta) > truncSig * sd) = 0;
 
-    % --- Normalise w to length-A cell; multiply factor into target slot ---
+    % --- Normalise w to length-A cell; multiply factor into target entry ---
     wOut = internal.normaliseWeightsToCell(w, A);
     wOut{targetAttr} = internal.multiplyWeights( ...
         wOut{targetAttr}, factor, size(pAttr{targetAttr}, 1));

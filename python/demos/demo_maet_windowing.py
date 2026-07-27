@@ -51,8 +51,8 @@ column mean of the query's tuple centres) and a user-supplied fixed
 reference. This demo uses the default throughout. Which method is
 appropriate depends on how queries vary between runs: see USER_GUIDE.md
 §3.1 "Post-tensor windowing" for a summary, and the demo
-``demo_windowing_reference`` for a full analysis across slot-count,
-slot-value, and slot-weight sweeps of both harmonic and non-harmonic
+``demo_windowing_reference`` for a full analysis across value-count,
+value, and value-weight sweeps of both harmonic and non-harmonic
 queries.
 
 Note on ``differenceEvents`` and ``addSpectra``. The demo deliberately
@@ -60,8 +60,8 @@ does not show a combined "diff + spectrum" pipeline, because diff
 renders spectral enrichment numerically invisible to the windowed
 similarity. For consecutive events, the harmonic offset
 ``1200 * log2(k)`` is identical, so it cancels in the difference:
-every partial slot carries the same pitch-interval value per
-differenced event. The remaining slot-weight factor H_K(2*rho)^2
+every partial carries the same pitch-interval value per
+differenced event. The remaining value-weight factor H_K(2*rho)^2
 multiplies numerator and denominator of the similarity ratio equally
 and cancels. The same argument holds for any per-event pre-weighting
 applied before ``add_spectra`` -- an exponential time decay, a

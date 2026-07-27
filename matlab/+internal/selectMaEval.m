@@ -45,12 +45,17 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     % over spans of 1200--3600 cents; July 2026 MATLAB harness
     % bench_ma_eval_calibration.m). Absolute values are machine-specific;
     % selection depends only on their ratios. Python carries its own
-    % constants (same functional form, per-language calibration): where
-    % Python's centres per-query grows with the joint count (its kernel
-    % does not cull), MATLAB's non-periodic centres kernel bucket-culls,
-    % so its per-query work is nearly flat and the joint-count growth
-    % shows up in the per-call materialisation term instead --- the same
-    % "cost grows with the joint set" captured in a different term.
+    % constants (same functional form, per-language calibration). The two
+    % fits distribute the joint-count growth differently: MATLAB's puts it
+    % chiefly in the per-call materialisation term and leaves the
+    % per-query term nearly flat, while Python's carries it in the
+    % per-query term. Both express the same "cost grows with the joint
+    % set", and either fit reproduces its own language's timings; the
+    % split between the two terms is a property of the fits, not of the
+    % evaluators. The kernels themselves agree: internal.gaussianKernelSum
+    % and the Python _kernel.gaussian_kernel_sum apply grid-bucket
+    % truncation under the same conditions, so neither language culls
+    % where the other does not.
     %
     % Centres: a per-call materialisation term and a per-query kernel
     % term, both linear in the joint tuple count.

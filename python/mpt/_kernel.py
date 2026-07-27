@@ -142,9 +142,11 @@ def gaussian_kernel_sum(
     )
 
     if use_truncation and not is_per:
-        # Dispatch on dimensionality: 1-D abs case has a much
-        # tighter vectorised path via sorted-centres + searchsorted.
-        # Avoids the per-query Python loop in the general path.
+        # Dispatch on dimensionality: the 1-D abs case admits a much
+        # tighter path via sorted centres + searchsorted, which yields a
+        # contiguous centre window per query and so avoids the 3**dim
+        # neighbour-offset expansion and ragged scatter the general path
+        # needs in higher dimensions.
         dim_w = C_w.shape[0]
         if dim_w == 1 and not is_rel:
             v = _truncated_kernel_sum_1d_vectorised(
@@ -272,14 +274,16 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
 def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
     """Truncated kernel sum, fully vectorised over queries.
 
-    Builds the bucket grid as before, then for all queries at once:
-    expands the 3^dim neighbour-offset coordinates, vectorised in-
-    bounds and bucket-exists masks, ragged-expands to (query, centre)
-    pairs via a cumsum trick, computes the kernel for all surviving
-    pairs in one pass, and scatter-accumulates into the per-query
-    output via ``np.bincount``. This avoids the per-query Python loop
-    and dict lookups that dominate a naive implementation; the win is
-    ~5-40x depending on dim (largest where per-query work was small).
+    Builds the bucket grid, then for all queries at once: expands the
+    3**dim neighbour-offset coordinates, applies vectorised in-bounds and
+    bucket-exists masks, ragged-expands to (query, centre) pairs via a
+    cumsum trick, computes the kernel for all surviving pairs in one
+    pass, and scatter-accumulates into the per-query output via
+    ``np.bincount``. Handling every query in one pass this way, rather
+    than looping queries and looking buckets up in a dict, is worth
+    ~5-40x depending on dim (largest where the per-query work is small);
+    measured for this implementation, so not comparable with the MATLAB
+    figure quoted in internal/gaussianKernelSum.m.
 
     The dim=1 abs case is handled by ``_truncated_kernel_sum_1d_vectorised``;
     this function covers dim>=2 (and dim=1 rel as an edge case).
@@ -420,9 +424,11 @@ def _truncated_kernel_sum(C, wJ, X, sigma, is_rel, r, k_sigma, inv2s2):
 # searchsorted on the bounds [x - kσ, x + kσ]. All queries then
 # process a fixed-width slice of centres (the maximum window size in
 # the batch), padded with zero-weight entries where their own window
-# is shorter. This eliminates the per-query Python loop in
-# _truncated_kernel_sum and is ~10-30× faster at typical orbit-path
-# sizes (N ≈ 50-300 partials).
+# is shorter. A fixed-width slab needs neither the 3**dim
+# neighbour-offset expansion nor the ragged scatter that
+# _truncated_kernel_sum uses to stay vectorised in higher dimensions,
+# and is ~10-30× faster at typical orbit-path sizes (N ≈ 50-300
+# partials); measured for this implementation.
 #
 # Used in particular by mobius.eval_orbit_abs for the per-block
 # 1-D kernel sum that arises after factoring the block's

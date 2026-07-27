@@ -179,10 +179,154 @@ end
 
 % ----------------------------------------------------------------------
 function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, sym)
+    % Sum of the per-event-pair inner products over the pair grid.
+    %
     % sym=true (self inner products): <e_i,e_j> = <e_j,e_i>, so evaluate
     % only the upper triangle and double the off-diagonal terms. recipeA /
     % recipeB index the PA / PB axes of the rectangular kernel.
+    %
+    % The contraction machinery is already batched over its leading axis
+    % (contractNode reads Q = size(K, 1) and every helper below it is
+    % generic in Q), which the absolute mode uses with Q = 1 and the
+    % relative-periodic mode with Q = the transposition count. Folding the
+    % event pairs into that same axis therefore needs no change to the
+    % contraction itself: the pair grid is assembled into one kernel and
+    % reduced in a single call per chunk, as on the Python side.
+    %
+    % The relative-non-periodic mode keeps the per-pair route, because its
+    % factored shortcut (ipRelNonperFactored) is chosen per pair and has no
+    % batched form.
     if nargin < 11; sym = false; end
+    if any(strcmp(quad.mode, {'abs', 'relper'}))
+        s = tripSumBatched(recipeA, recipeB, PA, WA, PB, WB, ...
+                           sigma, period, ts, quad, sym);
+    else
+        s = tripSumLooped(recipeA, recipeB, PA, WA, PB, WB, ...
+                          sigma, period, ts, quad, sym);
+    end
+end
+
+
+% ----------------------------------------------------------------------
+function s = tripSumBatched(recipeA, recipeB, PA, WA, PB, WB, ...
+                            sigma, period, ts, quad, sym)
+    % Sum over the event-pair grid, evaluated in batches.
+    [mi, ni] = pairIndices(size(PA, 2), size(PB, 2), sym);
+    mult = ones(numel(mi), 1);
+    if sym
+        % Upper triangle only, so off-diagonal pairs stand for two terms.
+        mult(:) = 2.0;
+        mult(mi == ni) = 1.0;
+    end
+    v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
+                          sigma, period, ts, quad, mi, ni);
+    s = sum(v .* mult);
+end
+
+
+% ----------------------------------------------------------------------
+function [mi, ni] = pairIndices(nA, nB, sym)
+    % Event-pair index lists. Under sym only the upper triangle is listed;
+    % the caller supplies the multiplicity or scatters the transpose.
+    if sym
+        spans = max(nB - (1:nA) + 1, 0);
+        nPairs = sum(spans);
+        mi = zeros(nPairs, 1);
+        ni = zeros(nPairs, 1);
+        p = 0;
+        for i = 1:nA
+            span = spans(i);
+            if span == 0; continue; end
+            idx = p + (1:span);
+            mi(idx) = i;
+            ni(idx) = i:nB;
+            p = p + span;
+        end
+    else
+        mi = repelem((1:nA).', nB, 1);
+        ni = repmat((1:nB).', nA, 1);
+    end
+end
+
+
+% ----------------------------------------------------------------------
+function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
+                               sigma, period, ts, quad, mi, ni)
+    % Per-event-pair inner products for the listed pairs, with the pairs
+    % folded into the contraction's leading batch axis.
+    %
+    % contractNode and everything below it read the batch extent from
+    % size(K, 1), so a batch carrying pairs (and, in relative-periodic mode,
+    % pairs times transpositions) needs no change to the contraction. This
+    % is the MATLAB form of the Python nested_attr_matrix, which folds the
+    % same grid into the leading axis of its contraction.
+    nPairs = numel(mi);
+    nX = size(PA, 1);
+    nY = size(PB, 1);
+    v = zeros(nPairs, 1);
+    if nPairs == 0
+        return;
+    end
+
+    isRelPer = strcmp(quad.mode, 'relper');
+    if isRelPer
+        taus = quad.taus(:);
+        T = numel(taus);
+    else
+        T = 1;
+    end
+
+    % Chunk so the assembled kernel stays within budget: it holds
+    % T * nX * nY doubles per pair.
+    memBudget = 16e6;
+    chunk = max(1, min(nPairs, floor(memBudget / max(T * nX * nY, 1))));
+
+    for c0 = 1:chunk:nPairs
+        c1 = min(c0 + chunk - 1, nPairs);
+        nb = c1 - c0 + 1;
+        cm = mi(c0:c1);
+        cn = ni(c0:c1);
+
+        vx = PA(:, cm).';               % (nb, nX)
+        vy = PB(:, cn).';               % (nb, nY)
+        wx = WA(:, cm).';
+        wy = WB(:, cn).';
+
+        if isRelPer
+            d = reshape(vx, [nb, nX, 1, 1]) ...
+                - (reshape(vy, [nb, 1, nY, 1]) + reshape(taus, [1, 1, 1, T]));
+            d = d - period * round(d / period);
+            K = exp(-d.^2 / (4 * sigma^2));
+            K = K .* (reshape(wx, [nb, nX, 1, 1]) .* reshape(wy, [nb, 1, nY, 1]));
+            % (nb, nX, nY, T) -> (nb, T, nX, nY) -> (nb*T, nX, nY). The
+            % merge is column-major, so the pair index runs fastest; the
+            % reshape below inverts it the same way.
+            K = permute(K, [1, 4, 2, 3]);
+            K = reshape(K, [nb * T, nX, nY]);
+            K = truncK(K, ts);
+            vc = contractNode(recipeA, recipeB, K);
+            vc = sum(reshape(vc, [nb, T]), 2);   % common dtau cancels
+        else
+            d = reshape(vx, [nb, nX, 1]) - reshape(vy, [nb, 1, nY]);
+            if quad.isPer
+                d = d - period * round(d / period);
+            end
+            K = exp(-d.^2 / (4 * sigma^2));
+            K = K .* (reshape(wx, [nb, nX, 1]) .* reshape(wy, [nb, 1, nY]));
+            K = truncK(K, ts);
+            vc = contractNode(recipeA, recipeB, K);
+            vc = vc(:);
+        end
+
+        v(c0:c1) = vc;
+    end
+end
+
+
+% ----------------------------------------------------------------------
+function s = tripSumLooped(recipeA, recipeB, PA, WA, PB, WB, ...
+                           sigma, period, ts, quad, sym)
+    % Per-event-pair route, retained for the relative-non-periodic mode.
     s = 0.0;
     nA = size(PA, 2);
     nB = size(PB, 2);
@@ -336,9 +480,25 @@ function M = nestedAttrInnerMatrix(recipeA, recipeB, Pa, Pb, Wa, Wb, ...
     % tree contraction. symmetric exploits <e_i,e_j> = <e_j,e_i> for the self
     % matrices. The per-attribute prefactor is constant and cancels in the
     % cosine when the attribute matrices are multiplied and summed.
+    %
+    % The absolute and relative-periodic modes evaluate the whole pair grid
+    % in batches; the relative-non-periodic mode keeps the per-pair route,
+    % whose factored shortcut is chosen per pair and has no batched form.
     na = size(Pa, 2);
     nb = size(Pb, 2);
     M = zeros(na, nb);
+
+    if any(strcmp(quad.mode, {'abs', 'relper'}))
+        [mi, ni] = pairIndices(na, nb, symmetric);
+        v = pairValuesBatched(recipeA, recipeB, Pa, Wa, Pb, Wb, ...
+                              sigma, period, ts, quad, mi, ni);
+        M(sub2ind([na, nb], mi, ni)) = v;
+        if symmetric
+            M(sub2ind([na, nb], ni, mi)) = v;
+        end
+        return;
+    end
+
     for i = 1:na
         ai = Pa(:, i); wi = Wa(:, i);
         if symmetric; j0 = i; else; j0 = 1; end

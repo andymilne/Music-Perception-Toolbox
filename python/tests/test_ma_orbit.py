@@ -141,16 +141,17 @@ def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A2_heavy_K():
 
 
 def test_ma_dispatcher_warns_above_perrel_threshold():
-    """Periodic-relative σ/P > threshold: the dispatch takes the faster path.
+    """Retired in v3: rel-per full-image is now the default measure and
+    the dispatch no longer warns about the "substitution" (there is none
+    to warn about; the user's ``wrap`` choice determines the measure).
 
-    When that path is the all-image (Möbius) form -- at large K/N where the
-    orbit cost model wins -- it warns and points to method='bulger' for the
-    canonical single-wrap measure. When the faster path is the single-wrap
-    pairwise (Bulger) form -- at small K/N -- it is taken silently, since
-    below that size there is no measure change to warn about.
+    This test survives as a positive check that the previously-warning
+    call path is now silent, and that the cost model still routes to
+    Möbius on large problems and Bulger on small ones.
     """
-    # Large problem: orbit/all-image is the faster path → Möbius, with warning.
-    with pytest.warns(UserWarning, match=r"all-image"):
+    # Large problem: orbit/all-image is the faster path → Möbius, silent.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         chosen = _select_ma_inner_product_method(
             **_disp_kwargs(K=12, N_x=12, N_y=12, any_per=True,
                            any_rel_per=True, sigma_over_P_max=0.05),

@@ -133,7 +133,11 @@ def test_forced_pairwise_silences_perrel_warning():
 
 
 def test_auto_warns_in_perrel_high_sigma_over_P():
-    """method='auto' issues a warning when σ/P exceeds the orbit threshold."""
+    """Retired in v3: the ``method='auto'`` dispatch no longer warns
+    about the rel-per measure choice at high σ/P. Full-image is the
+    default and the user chooses via ``wrap=``. This test survives as
+    a positive check that the previously-warning call now runs silently.
+    """
     rng = np.random.default_rng(seed=42)
     n = 12
     P = 1200.0
@@ -142,7 +146,8 @@ def test_auto_warns_in_perrel_high_sigma_over_P():
     T_a = build_exp_tens(p_a, w_a, sigma, 3, True, True, P, verbose=False)
     T_b = build_exp_tens(p_b, w_b, sigma, 3, True, True, P, verbose=False)
 
-    with pytest.warns(UserWarning, match=r"σ/P = .* exceeds"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
 
 

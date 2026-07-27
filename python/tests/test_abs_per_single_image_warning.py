@@ -22,23 +22,24 @@ PERIOD = 1200.0
 _MARKER = "absolute-periodic"
 
 
-def _build(sigma, is_rel, is_per, period=PERIOD, r=2):
+def _build(sigma, is_rel, is_per, period=PERIOD, r=2, wrap='single-image'):
     p = np.array([0.0, 100.0, 300.0, 700.0]).reshape(-1, 1)
     w = np.ones(4).reshape(-1, 1)
     return mpt.build_exp_tens(
-        [p], [w], [sigma], [r], [is_rel], [is_per], [period], verbose=False
+        [p], [w], [sigma], [r], [is_rel], [is_per], [period],
+        wrap=wrap, verbose=False,
     )
 
 
-def _warns(sigma, is_rel, is_per, period=PERIOD, r=2):
+def _warns(sigma, is_rel, is_per, period=PERIOD, r=2, wrap='single-image'):
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        _build(sigma, is_rel, is_per, period, r)
+        _build(sigma, is_rel, is_per, period, r, wrap=wrap)
     return [w for w in caught if _MARKER in str(w.message)]
 
 
 # ---------------------------------------------------------------------
-# Fires where it should
+# Fires where it should — user opted into single-image at large sigma/P
 # ---------------------------------------------------------------------
 
 @pytest.mark.parametrize("sigma_over_P", [0.06, 0.10, 0.20, 0.30, 0.50])
@@ -122,7 +123,18 @@ def test_multi_attribute_warns_once_per_offending_attribute():
             [p, p], [w, w],
             [0.20 * PERIOD, 0.01 * PERIOD],   # first offends, second does not
             [2, 2], [False, False], [True, True], [PERIOD, PERIOD],
-            verbose=False,
+            wrap='single-image', verbose=False,
         )
     hits = [w for w in caught if _MARKER in str(w.message)]
     assert len(hits) == 1
+
+
+# ---------------------------------------------------------------------
+# Silent by default (full-image is PD, no warning needed)
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("sigma_over_P", [0.06, 0.10, 0.20, 0.30, 0.50])
+def test_silent_when_wrap_defaults_to_full_image(sigma_over_P):
+    """Full-image (the v3+ default) is PD by construction. No warning
+    should fire, even at large sigma/P where single-image would."""
+    assert not _warns(sigma_over_P * PERIOD, False, True, wrap='full-image')

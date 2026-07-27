@@ -11,14 +11,24 @@ windowed-chorale differential-entropy sweep.
 
 ``_contract_cell_axes`` streams the leading axis in cell blocks of
 ``_DIFF_CELL_BLOCK`` elements (for ``D <= 2``), which bounds the peak.
-Blocking the leading axis leaves each cell's full sum over tuples intact,
-so the streamed result must be bit-identical to the whole-matrix path
-regardless of block size. This test pins that invariant by comparing the
+Blocking the leading axis leaves each cell's full sum over tuples intact:
+every block sums the same tuple values into the same cell, so the streamed
+result agrees with the whole-matrix path to within the toolbox's accuracy
+floor. The agreement is numerical, not bit-for-bit. ``numpy.einsum``
+selects its accumulation order from the operand layout, and a block narrow
+enough to yield a contiguous single-column ``(n_tuples, 1)`` matrix
+reduces over tuples in a different order from a wide one, which moves the
+last bit of each cell mass. The cells sum to one, so the departure sits at
+the level of a few units in the last place and is some four orders of
+magnitude inside the 1e-12 floor.
+
+This test pins the invariant that matters --- that no tuple contribution
+is dropped or double-counted as the block size varies --- by comparing the
 default block against a single huge block, and a deliberately tiny block
 (many chunks) against the same reference, for both ``D == 1`` and
-``D == 2`` absolute-mode densities.
-
-Any change to the cell-mass contraction must keep these byte-exact.
+``D == 2`` absolute-mode densities. A contraction that split a cell's sum
+across blocks would miss mass outright and fail by orders of magnitude,
+far above the tolerance used here.
 """
 
 import numpy as np
@@ -80,17 +90,27 @@ def d2():
 # A block large enough that the leading axis is never split (single block).
 _WHOLE = int(1e12)
 
+# The toolbox's stated accuracy floor. The streamed and whole-matrix paths
+# sum the same values per cell but not necessarily in the same order, so
+# they agree to a few units in the last place rather than exactly.
+_REL_TOL = 1e-12
+
+
+def _agree(got, ref):
+    """Streamed entropy agrees with the whole-matrix reference."""
+    return abs(got - ref) <= _REL_TOL * abs(ref)
+
 
 def test_d1_streaming_matches_whole(d1):
     ref = _h(d1, _WHOLE)
-    assert _h(d1, E._DIFF_CELL_BLOCK) == ref      # default block
-    assert _h(d1, 64) == ref                      # tiny block -> many chunks
+    assert _agree(_h(d1, E._DIFF_CELL_BLOCK), ref)   # default block
+    assert _agree(_h(d1, 64), ref)                   # tiny block -> many chunks
 
 
 def test_d2_streaming_matches_whole(d2):
     ref = _h(d2, _WHOLE)
-    assert _h(d2, E._DIFF_CELL_BLOCK) == ref      # default block
-    assert _h(d2, 64) == ref                      # tiny block -> many chunks
+    assert _agree(_h(d2, E._DIFF_CELL_BLOCK), ref)   # default block
+    assert _agree(_h(d2, 64), ref)                   # tiny block -> many chunks
 
 
 def test_block_size_is_bounded_but_positive():

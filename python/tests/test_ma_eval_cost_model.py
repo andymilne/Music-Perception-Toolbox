@@ -111,21 +111,22 @@ _GRID = [
 
 def test_ma_cost_model_convention_prefers_all_image_mobius():
     """Above the σ/P threshold in relative-periodic mode, the model
-    prefers the all-image Möbius form (cheaper and memory-safe) as the
-    default, warning that it deviates from the single-image measure. The
-    single-image form remains available via method='centres'."""
+    prefers the (C) all-image Möbius form (cheaper and memory-safe) as
+    the default. In v3 the choice is the user's ``wrap=`` field on the
+    density (default ``'full-image'``); the previous "warning that it
+    deviates" was retired because there is no deviation — full-image is
+    the toolbox measure now, and single-image is an explicit opt-in.
+    The (A) single-image form remains available via method='centres'."""
     import warnings
     dens = _build([40., 40.], [3, 3], [True, True], [True, True],
                   [1200., 1200.], K=6, N=1)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         chosen, reason = _select_ma_eval(dens, 200, method="auto")
     assert chosen == "mobius", (
         f"chose {chosen} ({reason}); above σ/P the all-image Möbius form "
         f"is the preferred default."
     )
-    assert any("all-image" in str(w.message).lower() for w in caught), \
-        "expected the all-image deviation warning."
     # Single-image is available on demand.
     assert _select_ma_eval(dens, 200, method="centres")[0] == "centres"
 

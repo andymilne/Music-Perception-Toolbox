@@ -668,7 +668,7 @@ function H = localEntropyMA(dens, nvArgs)
         % Bin-integration cell-mass path (see the single multiset sibling above for
         % the truncationSigmas contract note).
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
-        densX = ensureExpTensExpensive(base_dens);
+        densX = internal.ensureExpTensExpensive(base_dens);
         t = localCellMassesMAAbsolute(densX, axes1D, ts);
     else
         % --- Cartesian product as (dim x totalPoints) query matrix ---

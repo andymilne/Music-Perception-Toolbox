@@ -239,8 +239,13 @@ def _contract_cell_axes(w_j, axis_specs, truncation_sigmas):
     ``grid_limit ** (1 / D)``, so the whole-matrix einsum is already
     memory-safe and is used directly (its summation also matches the
     cross-language reference). Blocking the leading axis leaves each
-    cell's full sum over tuples intact, so the result is identical to
-    the whole-matrix path.
+    cell's full sum over tuples intact, so the result agrees with the
+    whole-matrix path to within the accuracy floor. The agreement is
+    numerical rather than bit-for-bit: ``numpy.einsum`` picks its
+    accumulation order from the operand layout, so a block narrow enough
+    to yield a contiguous single-column matrix reduces over tuples in a
+    different order from a wide one, moving the last bit of each cell
+    mass.
     """
     def axis_mat(spec, sl=slice(None)):
         cents, lo, hi, sig, is_per_a, per_a = spec

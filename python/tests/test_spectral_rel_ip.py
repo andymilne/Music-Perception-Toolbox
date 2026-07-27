@@ -13,20 +13,20 @@ import numpy as np
 
 import mpt
 import mpt._tensor.cosine as CO
-from mpt._tensor.cosine import (_ma_per_attr_inner_matrix_rel,
-                                _spectral_rel_inner_matrix)
+import mpt._tensor._mobius_inner as _mobius_inner
+from mpt._tensor._mobius_inner import (_rel_inner_batched, _spectral_rel_inner_matrix)
 
 
 def _both(Px, Wx, Py, Wy, sigma, r, is_per, period):
     args = (Px, Wx, Py, Wy, sigma, r, is_per, period)
-    got = np.asarray(_ma_per_attr_inner_matrix_rel(
+    got = np.asarray(_rel_inner_batched(
         *args, truncation_sigmas=np.inf))
-    CO._SPECTRAL_IP_ENABLED = False
+    _mobius_inner._SPECTRAL_IP_ENABLED = False
     try:
-        ref = np.asarray(_ma_per_attr_inner_matrix_rel(
+        ref = np.asarray(_rel_inner_batched(
             *args, truncation_sigmas=np.inf))
     finally:
-        CO._SPECTRAL_IP_ENABLED = True
+        _mobius_inner._SPECTRAL_IP_ENABLED = True
     return got, ref
 
 
@@ -55,24 +55,24 @@ def test_spectral_stands_down_for_cancellation_ratio():
     Px = np.sort(rng.uniform(0, P, (K, 3)), axis=0)
     Wx = 0.5 + rng.random((K, 3))
     calls = {"n": 0}
-    orig = CO._spectral_rel_inner_matrix
+    orig = _mobius_inner._spectral_rel_inner_matrix
 
     def spy(*a, **k):
         calls["n"] += 1
         return orig(*a, **k)
 
-    CO._spectral_rel_inner_matrix = spy
+    _mobius_inner._spectral_rel_inner_matrix = spy
     try:
-        _ma_per_attr_inner_matrix_rel(
+        _rel_inner_batched(
             Px, Wx, Px, Wx, sigma, 3, True, P,
             return_cancellation_ratio=True, truncation_sigmas=np.inf)
         assert calls["n"] == 0
-        _ma_per_attr_inner_matrix_rel(
+        _rel_inner_batched(
             Px, Wx, Px, Wx, sigma, 3, True, P,
             truncation_sigmas=np.inf)
         assert calls["n"] == 1
     finally:
-        CO._spectral_rel_inner_matrix = orig
+        _mobius_inner._spectral_rel_inner_matrix = orig
 
 
 def test_spectral_declines_oversized_grid():
@@ -87,7 +87,7 @@ def test_spectral_declines_oversized_grid():
     out = _spectral_rel_inner_matrix(Px, Wx, Px, Wx, 1.0, 4, True, P)
     assert out is None
     # The public path still returns a finite matrix for that case.
-    full = np.asarray(_ma_per_attr_inner_matrix_rel(
+    full = np.asarray(_rel_inner_batched(
         Px, Wx, Px, Wx, 1.0, 4, True, P, truncation_sigmas=np.inf))
     assert np.all(np.isfinite(full))
 
@@ -111,7 +111,7 @@ def test_spectral_symmetry_and_positivity():
     K, P, sigma = 12, 1200.0, 40.0
     Px = np.sort(rng.uniform(0, P, (K, 4)), axis=0)
     Wx = 0.5 + rng.random((K, 4))
-    G = np.asarray(_ma_per_attr_inner_matrix_rel(
+    G = np.asarray(_rel_inner_batched(
         Px, Wx, Px, Wx, sigma, 3, True, P, truncation_sigmas=np.inf))
     assert np.max(np.abs(G - G.T)) <= 1e-10 * np.max(np.abs(G))
     assert np.all(np.diag(G) > 0.0)

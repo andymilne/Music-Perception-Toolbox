@@ -30,10 +30,7 @@ import pytest
 
 import mpt
 from mpt import weight_events
-from mpt._tensor.cosine import (
-    _ma_per_attr_inner_matrix,
-    _batched_direct_enum_abs,
-)
+from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix, _batched_direct_enum_abs)
 
 
 # ---------------------------------------------------------------------

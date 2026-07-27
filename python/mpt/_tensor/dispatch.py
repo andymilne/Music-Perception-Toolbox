@@ -1289,10 +1289,7 @@ def _ma_eval_costs_ms(dens, n_q):
             # still decline, falling through to the u-grid node path. Mirror
             # that decline here so the cost model prices the path that
             # actually runs, not the spectral one it would otherwise assume.
-            from .cosine import (
-                _SPECTRAL_IP_MODE_SIGMAS as _mode_sig,
-                _SPECTRAL_IP_MAX_POINTS as _max_pts,
-            )
+            from ._mobius_inner import (_SPECTRAL_IP_MODE_SIGMAS as _mode_sig, _SPECTRAL_IP_MAX_POINTS as _max_pts)
             if is_per[a] and period[a] > 0:
                 _L = float(period[a])
             else:

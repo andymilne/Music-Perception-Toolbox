@@ -15,11 +15,8 @@ that started at sigma/P = 0.0125 and was wrong by 7.8x at 0.0025.
 import numpy as np
 import pytest
 
-from mpt._tensor.cosine import (
-    _SPECTRAL_IP_COST_C,
-    _SPECTRAL_IP_MAX_POINTS,
-    _spectral_rel_inner_matrix,
-)
+from mpt._tensor._mobius_inner import (_SPECTRAL_IP_COST_C, _SPECTRAL_IP_MAX_POINTS)
+from mpt._tensor._mobius_inner import (_spectral_rel_inner_matrix)
 
 PERIOD = 1200.0
 

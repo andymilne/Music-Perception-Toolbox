@@ -725,7 +725,7 @@ def windowed_tensor_similarity(dens_context, dens_query, window_spec, offsets, *
     elif normalize is None:
         normalize = normalise
     # Canonicalise (raises on bad value).
-    from .cosine import _canonical_normalize
+    from .cosine import (_canonical_normalize)
     normalize = _canonical_normalize(normalize)
 
     return _windowed_similarity_core(

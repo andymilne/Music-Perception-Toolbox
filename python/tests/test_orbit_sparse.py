@@ -11,6 +11,7 @@ import pytest
 import mpt
 from mpt import build_exp_tens, cos_sim_exp_tens
 import mpt._tensor.cosine as C
+import mpt._tensor._mobius_inner as _mobius_inner
 
 
 def _clustered(n, rng, ncl=8, span=70.0, gap=600.0):
@@ -21,22 +22,22 @@ def _clustered(n, rng, ncl=8, span=70.0, gap=600.0):
 
 @pytest.fixture
 def _restore_threshold():
-    lo = C._ORBIT_SPARSE_MIN_KERNEL
-    orig = C._orbit_safe_submatrix_sparse
+    lo = _mobius_inner._ORBIT_SPARSE_MIN_KERNEL
+    orig = _mobius_inner._orbit_safe_submatrix_sparse
     yield
-    C._ORBIT_SPARSE_MIN_KERNEL = lo
-    C._orbit_safe_submatrix_sparse = orig
+    _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = lo
+    _mobius_inner._orbit_safe_submatrix_sparse = orig
 
 
 def _patch_counter():
     calls = {"n": 0}
-    orig = C._orbit_safe_submatrix_sparse
+    orig = _mobius_inner._orbit_safe_submatrix_sparse
 
     def wrapped(*a, **k):
         calls["n"] += 1
         return orig(*a, **k)
 
-    C._orbit_safe_submatrix_sparse = wrapped
+    _mobius_inner._orbit_safe_submatrix_sparse = wrapped
     return calls
 
 
@@ -52,11 +53,11 @@ def test_sparse_orbit_matches_dense_orbit(_restore_threshold):
                         [False, False], [0, 0], verbose=False)
 
     calls = _patch_counter()
-    C._ORBIT_SPARSE_MIN_KERNEL = 200_000
+    _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 200_000
     v_sparse = cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
     assert calls["n"] > 0                      # gate fired
 
-    C._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12      # disable -> dense orbit
+    _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12      # disable -> dense orbit
     v_dense = cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
     assert abs(v_sparse - v_dense) / abs(v_dense) < 1e-12
 
@@ -71,7 +72,7 @@ def test_sparse_orbit_dormant_for_small_kernels(_restore_threshold):
     dy = build_exp_tens(py, None, [40.], [3], [False], [False], [0],
                         verbose=False)
     calls = _patch_counter()
-    C._ORBIT_SPARSE_MIN_KERNEL = 200_000
+    _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 200_000
     cos_sim_exp_tens(dx, dy, method="mobius", verbose=False)
     assert calls["n"] == 0                     # small kernel stays dense
 
@@ -106,9 +107,7 @@ def test_sparse_orbit_engine_matches_dense_all_arities():
 def test_rel_per_sparse_kernel_bitwise():
     """The circular sparse builder densifies to the truncated dense
     kernel bit-for-bit (same retention decision, same arithmetic)."""
-    from mpt._tensor.cosine import (
-        _rel_per_sparse_prep, _build_sparse_kernel_rel_per,
-        _trunc_kernel_exp)
+    from mpt._tensor._mobius_inner import (_rel_per_sparse_prep, _build_sparse_kernel_rel_per, _trunc_kernel_exp)
     from mpt._defaults import truncation_ip_sqdist
     rng = np.random.default_rng(11)
     P = 1200.0
@@ -134,9 +133,9 @@ def test_rel_per_sparse_route_matches_dense():
     """Gate-forced sparse rel-per inner products match the dense slab
     route to floating point, value and mass-aware ratio alike."""
     import mpt._tensor.cosine as C
-    from mpt._tensor.cosine import _ma_per_attr_inner_matrix_rel
+    from mpt._tensor._mobius_inner import (_rel_inner_batched)
     rng = np.random.default_rng(5)
-    lo = C._ORBIT_SPARSE_MIN_KERNEL
+    lo = _mobius_inner._ORBIT_SPARSE_MIN_KERNEL
     try:
         for trial in range(4):
             K = int(rng.integers(12, 35))
@@ -148,19 +147,19 @@ def test_rel_per_sparse_route_matches_dense():
             Py = rng.uniform(0, P, (K, 1))
             Wx = np.ones((K, 1))
             Wy = np.ones((K, 1))
-            C._ORBIT_SPARSE_MIN_KERNEL = 1
-            vs, rs = _ma_per_attr_inner_matrix_rel(
+            _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 1
+            vs, rs = _rel_inner_batched(
                 Px, Wx, Py, Wy, sigma, r, True, P,
                 return_cancellation_ratio=True, truncation_sigmas=ts)
-            C._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12
-            vd, rd = _ma_per_attr_inner_matrix_rel(
+            _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12
+            vd, rd = _rel_inner_batched(
                 Px, Wx, Py, Wy, sigma, r, True, P,
                 return_cancellation_ratio=True, truncation_sigmas=ts)
             assert abs(float(vs[0, 0]) - float(vd[0, 0])) \
                 <= 1e-13 * max(abs(float(vd[0, 0])), 1e-300)
             assert abs(rs - rd) <= 1e-12
     finally:
-        C._ORBIT_SPARSE_MIN_KERNEL = lo
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = lo
 
 
 def test_rel_per_sparse_matches_bulger():
@@ -169,9 +168,9 @@ def test_rel_per_sparse_matches_bulger():
     import mpt
     import mpt._tensor.cosine as C
     rng = np.random.default_rng(9)
-    lo = C._ORBIT_SPARSE_MIN_KERNEL
+    lo = _mobius_inner._ORBIT_SPARSE_MIN_KERNEL
     try:
-        C._ORBIT_SPARSE_MIN_KERNEL = 1
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 1
         for r in (2, 3):
             K = 20
             P = 1200.0
@@ -185,7 +184,7 @@ def test_rel_per_sparse_matches_bulger():
                                       method='bulger', verbose=False)
             assert abs(cm - cb) < 1e-9
     finally:
-        C._ORBIT_SPARSE_MIN_KERNEL = lo
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = lo
 
 
 def test_rel_per_gate_requires_window_inside_circle():
@@ -194,7 +193,7 @@ def test_rel_per_gate_requires_window_inside_circle():
     the dense route runs and the value is unaffected by the size
     threshold."""
     import mpt._tensor.cosine as C
-    from mpt._tensor.cosine import _ma_per_attr_inner_matrix_rel
+    from mpt._tensor._mobius_inner import (_rel_inner_batched)
     rng = np.random.default_rng(2)
     K = 15
     P = 1200.0
@@ -203,14 +202,14 @@ def test_rel_per_gate_requires_window_inside_circle():
     Py = rng.uniform(0, P, (K, 1))
     Wx = np.ones((K, 1))
     Wy = np.ones((K, 1))
-    lo = C._ORBIT_SPARSE_MIN_KERNEL
+    lo = _mobius_inner._ORBIT_SPARSE_MIN_KERNEL
     try:
-        C._ORBIT_SPARSE_MIN_KERNEL = 1
-        v1 = _ma_per_attr_inner_matrix_rel(
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 1
+        v1 = _rel_inner_batched(
             Px, Wx, Py, Wy, sigma, 2, True, P, truncation_sigmas=6.0)
-        C._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12
-        v2 = _ma_per_attr_inner_matrix_rel(
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = 10 ** 12
+        v2 = _rel_inner_batched(
             Px, Wx, Py, Wy, sigma, 2, True, P, truncation_sigmas=6.0)
         np.testing.assert_array_equal(v1, v2)
     finally:
-        C._ORBIT_SPARSE_MIN_KERNEL = lo
+        _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = lo

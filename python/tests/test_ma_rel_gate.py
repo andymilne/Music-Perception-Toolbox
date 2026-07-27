@@ -18,11 +18,7 @@ import math
 import numpy as np
 import pytest
 
-from mpt._tensor.cosine import (
-    _ma_rel_attr_prefers_centres,
-    _predicted_centres_wall_ns,
-    _predicted_grid_wall_ns,
-)
+from mpt._tensor._mobius_inner import (_ma_rel_attr_prefers_centres, _predicted_centres_wall_ns, _predicted_grid_wall_ns)
 
 
 def _make_events(K, span, seed=0):

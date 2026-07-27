@@ -18,11 +18,7 @@ from ._tensor.density import (
 )
 from ._tensor.build import build_exp_tens
 from ._tensor.eval import eval_exp_tens, eval_exp_tens_raw
-from ._tensor.cosine import (
-    batch_cos_sim_exp_tens,
-    cos_sim_exp_tens,
-    cos_sim_exp_tens_raw,
-)
+from ._tensor.cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
 from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
     bind_events,
@@ -91,15 +87,5 @@ from ._tensor.dispatch import (
 )
 
 # Cosine-layer MA-method dispatchers and IP helpers (imported by tests).
-from ._tensor.cosine import (
-    _batched_direct_enum_abs,
-    _build_ordered_r_tuples,
-    _cos_sim_exp_tens_ma_orbit,
-    _cos_sim_exp_tens_ma_pairwise,
-    _inner_product_direct_abs,
-    _ma_has_nan,
-    _ma_per_attr_inner_matrix,
-    _orbit_inner_abs,
-    _orbit_inner_rel,
-    _pack_nan_top,
-)
+from ._tensor.cosine import (_build_ordered_r_tuples, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise, _inner_product_direct_abs, _ma_has_nan, _orbit_inner_abs, _orbit_inner_rel)
+from ._tensor._mobius_inner import (_batched_direct_enum_abs, _ma_per_attr_inner_matrix, _pack_nan_top)

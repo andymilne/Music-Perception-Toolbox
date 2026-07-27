@@ -68,11 +68,7 @@ from .eval import (
     eval_exp_tens_raw,
 )
 
-from .cosine import (
-    batch_cos_sim_exp_tens,
-    cos_sim_exp_tens,
-    cos_sim_exp_tens_raw,
-)
+from .cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
 
 
 __all__ = [

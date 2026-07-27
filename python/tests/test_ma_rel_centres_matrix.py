@@ -26,6 +26,7 @@ import pytest
 
 import mpt
 from mpt._tensor import cosine as _c
+import mpt._tensor._mobius_inner as _mobius_inner
 
 N_EVENTS = 8
 K = 4
@@ -60,17 +61,17 @@ def _make(seed):
 
 def _grid_matrix(dx, dy, spectral):
     a = PITCH_ATTR
-    prev = _c._SPECTRAL_IP_ENABLED
-    _c._SPECTRAL_IP_ENABLED = spectral
+    prev = _mobius_inner._SPECTRAL_IP_ENABLED
+    _mobius_inner._SPECTRAL_IP_ENABLED = spectral
     try:
         with _quiet():
-            return np.asarray(_c._ma_per_attr_inner_matrix_rel(
+            return np.asarray(_mobius_inner._rel_inner_batched(
                 dx.p_attr[a], dx.w[a], dy.p_attr[a], dy.w[a],
                 float(dx.sigma[a]), int(dx.r[a]), True,
                 float(dx.period[a]), truncation_sigmas=float('inf'),
             ))
     finally:
-        _c._SPECTRAL_IP_ENABLED = prev
+        _mobius_inner._SPECTRAL_IP_ENABLED = prev
 
 
 @pytest.fixture(scope="module")
@@ -78,9 +79,9 @@ def matrices():
     dx = _make(17)
     dy = _make(28)
     a = PITCH_ATTR
-    cx = _c._closed_form_attr_centres(dx, a)
-    cy = _c._closed_form_attr_centres(dy, a)
-    I_centres = np.asarray(_c._closed_form_attr_matrix_from(cx, cy))
+    cx = _mobius_inner._closed_form_attr_centres(dx, a)
+    cy = _mobius_inner._closed_form_attr_centres(dy, a)
+    I_centres = np.asarray(_mobius_inner._closed_form_attr_matrix_from(cx, cy))
     return dx, dy, I_centres
 
 

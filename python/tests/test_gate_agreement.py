@@ -21,7 +21,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from mpt._tensor.cosine import _ma_rel_attr_prefers_centres
+from mpt._tensor._mobius_inner import (_ma_rel_attr_prefers_centres)
 
 _FIXTURE = (pathlib.Path(__file__).resolve().parents[2]
             / "matlab" / "tests" / "gate_agreement_parity.json")

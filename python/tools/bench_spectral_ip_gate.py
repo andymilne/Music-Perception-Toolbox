@@ -5,7 +5,7 @@ against the translation grid, over the same grid of shapes the MATLAB
 benchmark uses, and prints a CSV block with identical columns so the two
 languages' output can be compared line for line.
 
-It times ``_ma_per_attr_inner_matrix_rel`` directly with the spectral
+It times ``_rel_inner_batched`` directly with the spectral
 branch toggled on and off via ``_SPECTRAL_IP_ENABLED`` --- the same
 object the MATLAB harness times through ``relInnerBatched`` --- so the
 comparison is like for like. Both routes compute the full-image measure,
@@ -30,9 +30,10 @@ import time
 import numpy as np
 
 from mpt._tensor import cosine as _c
+import mpt._tensor._mobius_inner as _mobius_inner
 
 PERIOD = 1200.0
-MODE_SIGMAS = _c._SPECTRAL_IP_MODE_SIGMAS
+MODE_SIGMAS = _mobius_inner._SPECTRAL_IP_MODE_SIGMAS
 REPS = 5
 
 # Same grid as bench_spectral_ip_gate.m.
@@ -61,13 +62,13 @@ def _grid_size(sigma, r, is_per):
 
 
 def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
-    prev = _c._SPECTRAL_IP_ENABLED
-    _c._SPECTRAL_IP_ENABLED = spectral
+    prev = _mobius_inner._SPECTRAL_IP_ENABLED
+    _mobius_inner._SPECTRAL_IP_ENABLED = spectral
     try:
         period = PERIOD if is_per else 0.0
         # One warm-up call, discarded, which also gauges the cost.
         t0 = time.perf_counter()
-        _c._ma_per_attr_inner_matrix_rel(
+        _mobius_inner._rel_inner_batched(
             Px, Wx, Py, Wy, sigma, r, is_per, period,
             truncation_sigmas=float('inf'))
         first = time.perf_counter() - t0
@@ -84,13 +85,13 @@ def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
         ts = []
         for _ in range(reps):
             t0 = time.perf_counter()
-            _c._ma_per_attr_inner_matrix_rel(
+            _mobius_inner._rel_inner_batched(
                 Px, Wx, Py, Wy, sigma, r, is_per, period,
                 truncation_sigmas=float('inf'))
             ts.append(time.perf_counter() - t0)
         return 1e3 * float(np.median(ts))
     finally:
-        _c._SPECTRAL_IP_ENABLED = prev
+        _mobius_inner._SPECTRAL_IP_ENABLED = prev
 
 
 def main():
@@ -122,7 +123,7 @@ def main():
                         # Timing that adds nothing about the cost gate and
                         # these are the slowest cells, so record the decline
                         # without paying for a multi-second grid contraction.
-                        if gs > _c._SPECTRAL_IP_MAX_POINTS:
+                        if gs > _mobius_inner._SPECTRAL_IP_MAX_POINTS:
                             print(f"{r},{K},{N},{sop:.4f},{int(is_per)},{gs},"
                                   f"nan,nan,nan")
                             sys.stdout.flush()

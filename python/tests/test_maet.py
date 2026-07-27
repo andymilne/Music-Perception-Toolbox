@@ -1667,7 +1667,7 @@ class TestMAET:
         w = rng.uniform(0.5, 1.5, size=(K, N))
         # Run with default (auto) budget — fast path.
         mpt.reset_defaults()
-        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
             p, w, p, w, sigma=80.0, r=1, is_rel=False,
             is_per=False, period=0.0,
@@ -1692,7 +1692,7 @@ class TestMAET:
         p = rng.uniform(0, 1200, size=(K, N))
         w = rng.uniform(0.5, 1.5, size=(K, N))
         mpt.reset_defaults()
-        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
             p, w, p, w, sigma=80.0, r=2, is_rel=False,
             is_per=False, period=0.0,
@@ -1708,14 +1708,14 @@ class TestMAET:
         np.testing.assert_allclose(ip_default, ip_chunked, rtol=1e-10, atol=1e-12)
 
     def test_chunking_parity_rel_per(self):
-        """`_ma_per_attr_inner_matrix_rel_per`: outer N_x chunking matches
+        """`_rel_inner_batched_per`: outer N_x chunking matches
         the unchunked single-shot pair-tensor allocation."""
         rng = np.random.default_rng(9012)
         N, K = 6, 4
         p = rng.uniform(0, 12, size=(K, N))
         w = rng.uniform(0.5, 1.5, size=(K, N))
         mpt.reset_defaults()
-        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip_default = _ma_per_attr_inner_matrix(
             p, w, p, w, sigma=0.3, r=2, is_rel=True,
             is_per=True, period=12.0,
@@ -1738,7 +1738,7 @@ class TestMAET:
         N, K = 272, 48
         p = rng.uniform(0, 12000, size=(K, N))
         w = rng.uniform(0.5, 1.5, size=(K, N))
-        from mpt._tensor.cosine import _ma_per_attr_inner_matrix
+        from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix)
         ip = _ma_per_attr_inner_matrix(
             p, w, p, w, sigma=10.0, r=1, is_rel=False,
             is_per=False, period=0.0,

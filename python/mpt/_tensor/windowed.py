@@ -36,7 +36,7 @@ from .preprocessing import (
     _evaluate_shape, _multiply_weights, _normalise_weights_to_list,
 )
 from .build import build_exp_tens
-from .cosine import cos_sim_exp_tens
+from .cosine import (cos_sim_exp_tens)
 from .density import _weight_is_live
 
 _SQRT12 = 2.0 * np.sqrt(3.0)

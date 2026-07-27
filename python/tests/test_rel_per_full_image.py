@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 from mpt._tensor import cosine as _c
+import mpt._tensor._mobius_inner as _mobius_inner
 
 PERIOD = 1200.0
 
@@ -56,16 +57,16 @@ def _taugrid_cos(p, w, q, v, sigma, r):
         Wx = np.asarray(wa, float).reshape(-1, 1)
         Py = np.asarray(b, float).reshape(-1, 1)
         Wy = np.asarray(wb, float).reshape(-1, 1)
-        prev = _c._SPECTRAL_IP_ENABLED
-        _c._SPECTRAL_IP_ENABLED = False
+        prev = _mobius_inner._SPECTRAL_IP_ENABLED
+        _mobius_inner._SPECTRAL_IP_ENABLED = False
         try:
-            out = _c._ma_per_attr_inner_matrix_rel(
+            out = _mobius_inner._rel_inner_batched(
                 Px, Wx, Py, Wy, float(sigma), int(r), True, PERIOD,
                 truncation_sigmas=float('inf'),
             )
             return float(np.asarray(out)[0, 0])
         finally:
-            _c._SPECTRAL_IP_ENABLED = prev
+            _mobius_inner._SPECTRAL_IP_ENABLED = prev
 
     return ip(p, w, q, v) / np.sqrt(ip(p, w, p, w) * ip(q, v, q, v))
 
@@ -76,7 +77,7 @@ def _spectral_cos(p, w, q, v, sigma, r):
         Wx = np.asarray(wa, float).reshape(-1, 1)
         Py = np.asarray(b, float).reshape(-1, 1)
         Wy = np.asarray(wb, float).reshape(-1, 1)
-        out = _c._spectral_rel_inner_matrix(
+        out = _mobius_inner._spectral_rel_inner_matrix(
             Px, Wx, Py, Wy, float(sigma), int(r), True, PERIOD)
         return None if out is None else float(out[0, 0])
 
@@ -137,25 +138,25 @@ def test_spectral_and_taugrid_agree(multisets, r, sigma_over_P):
 def test_image_count_is_zero_at_musical_sigma_over_P(sigma_over_P):
     # Zero images means the full-image and nearest-image kernels are the
     # same object, so the measure upgrade costs nothing here.
-    n = _c._rel_per_image_count(sigma_over_P * PERIOD, PERIOD, 6.0)
+    n = _mobius_inner._rel_per_image_count(sigma_over_P * PERIOD, PERIOD, 6.0)
     assert n == 0
 
 
 @pytest.mark.parametrize("sigma_over_P", [0.10, 0.20, 0.30])
 def test_image_count_positive_where_measures_diverge(sigma_over_P):
-    assert _c._rel_per_image_count(sigma_over_P * PERIOD, PERIOD, 6.0) >= 1
+    assert _mobius_inner._rel_per_image_count(sigma_over_P * PERIOD, PERIOD, 6.0) >= 1
 
 
 def test_image_count_rises_with_accuracy_demanded():
     # A tighter kernel floor needs at least as many images.
     sigma = 0.20 * PERIOD
-    loose = _c._rel_per_image_count(sigma, PERIOD, 4.0)
-    tight = _c._rel_per_image_count(sigma, PERIOD, float('inf'))
+    loose = _mobius_inner._rel_per_image_count(sigma, PERIOD, 4.0)
+    tight = _mobius_inner._rel_per_image_count(sigma, PERIOD, float('inf'))
     assert tight >= loose
 
 
 def test_image_count_monotone_in_sigma_over_P():
-    counts = [_c._rel_per_image_count(s * PERIOD, PERIOD, 6.0)
+    counts = [_mobius_inner._rel_per_image_count(s * PERIOD, PERIOD, 6.0)
               for s in (0.02, 0.05, 0.10, 0.20, 0.30, 0.50)]
     assert counts == sorted(counts)
 
@@ -167,4 +168,4 @@ def test_image_count_monotone_in_sigma_over_P():
     (float('inf'), PERIOD),
 ])
 def test_image_count_degenerate_inputs_return_zero(sigma, period):
-    assert _c._rel_per_image_count(sigma, period, 6.0) == 0
+    assert _mobius_inner._rel_per_image_count(sigma, period, 6.0) == 0

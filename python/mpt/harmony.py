@@ -850,7 +850,7 @@ def tensor_harmonicity(
     The Möbius route is *not* grid-free in relative mode: it integrates
     the absolute tensor over the translation coordinate on a u-grid of
     ``N_u`` points (the relative tensor is a translation marginal, and
-    the alternating partition sum only factorises across slots at fixed
+    the alternating partition sum only factorises across tuple positions at fixed
     ``u``). Its per-query cost is ``B_r · r · K · N_u`` on the direct
     strategy, dropping to ``B_r · r · N_u`` (plus an amortised
     ``O(Σ_m N_fine_m · K)`` tabulation) when the evaluator's factored

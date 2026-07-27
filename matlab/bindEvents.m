@@ -450,7 +450,7 @@ function [pAttrBound, wBound, specs] = localBindEventsRunLength( ...
 %   changes. Group sizes vary, so the outer level is ragged: each
 %   super-event is padded to the maximum group size with NaN slots carrying
 %   zero weight. The inner level preserves each attribute's parameters; the
-%   outer read arity rOuter defaults to the smallest group size. Mirror of
+%   outer tuple size rOuter defaults to the smallest group size. Mirror of
 %   Python _bind_events_run_length.
     groupBy  = nvArgs.groupBy;
     groupAtol = nvArgs.groupAtol;

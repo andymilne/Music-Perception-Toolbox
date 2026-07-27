@@ -15,7 +15,7 @@ function specs = flatSpecs(pAttr, nvArgs)
 %               its length A; values are not inspected).
 %
 %   Name-value pairs
-%       'r'    - scalar or 1 x A per-attribute read-arity (default 1).
+%       'r'    - scalar or 1 x A per-attribute tuple size (default 1).
 %       'rel'  - scalar or 1 x A [rel] (default false).
 %       'sym'  - scalar or 1 x A [sym] (default true).
 %       'name' - [], char, or 1 x A cell of per-attribute names.

@@ -1,4 +1,4 @@
-"""Nested contraction with unequal inner cardinalities at read-arity r > 1.
+"""Nested contraction with unequal inner cardinalities at tuple size r > 1.
 
 These guard two defects fixed together:
 

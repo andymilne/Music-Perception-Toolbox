@@ -54,7 +54,7 @@ d = localBuildFlat(2, 8, 3, 2, true, true, 1200.0);
 results{end+1,1} = 'MA factored flat per: centres matches mobius (1e-4)';
 results{end,2}   = relErr(d, localQuery(d, 60)) < 1e-4;
 
-% --- Higher arity r = 3, 4 ---
+% --- Higher tuple size r = 3, 4 ---
 for r = [3, 4]
     d = localBuildFlat(2, 7, 2, r, true, false, 0.0);
     results{end+1,1} = sprintf(...

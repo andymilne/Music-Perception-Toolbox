@@ -176,7 +176,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     Dispatches on the type of the first argument:
 
       - numeric 1-D array, or a flat list/tuple of numbers -> single-
-        collection path, returns a :class:`MaetDensity` (A = N = 1).
+        single-multiset path, returns a :class:`MaetDensity` (A = N = 1).
       - list/tuple of attribute matrices (each element itself an
         array-like with ``len(...)`` > 0 or a 2-D ndarray) -> multi-
         attribute path, returns :class:`MaetDensity`.
@@ -227,7 +227,7 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     w : None, scalar, or list/tuple of per-attribute inputs
         Top-level weight specification. A list/tuple has length *A*,
         with each per-attribute input being ``None``, a scalar, a 1-D
-        array of length *N* (per-event) or *K_a* (per-slot), a 2-D
+        array of length *N* (per-event) or *K_a* (per-value), a 2-D
         array of shape (1, N), (K_a, 1), or (K_a, N). See Section 2.8
         of the MAET specification.
     sigma_vec : (A,) array-like of float
@@ -538,14 +538,14 @@ def _build_exp_tens_ma(
             continue
         nested_was_norm[a] = isinstance(spec, dict) and "proj" in spec
         # Structural fields (no default): 'r' defines the levels and per-
-        # level read-arity; 'tags' maps slots to levels. Everything else is
+        # level tuple size; 'tags' maps slots to levels. Everything else is
         # optional and defaults here, so a hand-edited spec can carry only
         # the fields the user means to change (unknown fields such as
         # 'name'/'names'/'proj' ride through the dict(spec) copy untouched).
         if "r" not in spec:
             raise ValueError(
                 f"nested attribute {a}: spec must have an 'r' field (the "
-                f"per-level read-arity vector); it is structural and has no "
+                f"per-level tuple size vector); it is structural and has no "
                 f"default."
             )
         if "tags" not in spec:
@@ -875,7 +875,7 @@ def _nested_enum_indices(valid_slots, tags_valid, r_levels, sym_levels):
         as the single-column ``L = 2`` case.
     r_levels : (L,) int
         Per-level read-arities, innermost-outward: ``r_levels[0]`` is the
-        leaf (within-finest-group) arity, ``r_levels[g]`` (``g >= 1``) the
+        leaf (within-finest-group) tuple size, ``r_levels[g]`` (``g >= 1``) the
         number of level-``g`` groups to read.
     sym_levels : (L,) bool
         Per-level symmetrisation, innermost-outward. ``sym_levels[-1]``
@@ -1011,7 +1011,7 @@ def _enum_flat_attr(val_col, valid, r_a, is_sym, w_col_orig):
     """Per-(event, attribute) r-ad enumeration for one flat attribute.
 
     Returns ``(perm_mat, comb_mat, perm_w, comb_w)`` for the non-NaN
-    slots ``valid`` of value column ``val_col`` at read-arity ``r_a``.
+    slots ``valid`` of value column ``val_col`` at tuple size ``r_a``.
     Applies the r = 1 equal-value collapse (summing weights). Shared by
     the general per-(n, a) fill loop and the A = N = 1 fast path so both
     produce byte-identical tuples. Caller guarantees ``valid.size >=

@@ -69,7 +69,7 @@ def test_ragged_orbit_matches_enumeration():
 
 
 def test_high_arity_ragged_runs_via_orbit():
-    """At an outer arity where enumeration is infeasible, auto still completes
+    """At an outer tuple size where enumeration is infeasible, auto still completes
     (the orbit path carries the ragged density)."""
     pb, wb, sp = _density(3, [7, 6, 8], r_outer=6, sym_outer=True)
     d = build_exp_tens(pb, wb, sigma=[30.0, 0.01], is_per=[False, False],

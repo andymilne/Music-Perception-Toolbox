@@ -10,7 +10,7 @@ function [val, ratio, termMass] = innerProductOrbitSparse(Ksp, w_A, w_B, r, opts
 %   Each orbit's bipartite graph is contracted by min-degree
 %   elimination: a degree-1 node folds into its neighbour as a mat-vec,
 %   a degree-2 node becomes a Gram product M1' diag(w) M2 (a sparse
-%   matmul). For every shipped arity (r = 2..8; graphs no worse than
+%   matmul). For every shipped tuple size (r = 2..8; graphs no worse than
 %   K_{2,m}) this never needs more than a 2-D intermediate. A degree->=3
 %   node reverts that orbit to the dense recipe (MOBIUS.EXECUTERECIPE);
 %   a per-matrix density guard densifies any Gram that fills in.

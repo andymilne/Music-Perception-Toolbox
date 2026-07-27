@@ -930,7 +930,7 @@ def inner_product_orbit_pw_batched(
 # slot kernels). Each orbit's bipartite graph is contracted by
 # min-degree elimination -- degree-1 nodes fold in as mat-vecs,
 # degree-2 nodes become Gram products (sparse matmul) -- which for
-# every shipped arity (r <= 8; graphs no worse than K_{2,m}) never
+# every shipped tuple size (r <= 8; graphs no worse than K_{2,m}) never
 # needs more than a 2-D intermediate. A degree->=3 node (would need a
 # higher-order intermediate) reverts that orbit to the dense einsum;
 # a per-matrix density guard densifies any Gram that fills in. The
@@ -1534,7 +1534,7 @@ def eval_orbit_abs(
 #
 #     T_rel(Δ) = (1/Z_t) · ∫ T_abs(u, u + Δ_1, ..., u + Δ_{r-1}) du,
 #
-# and the Möbius partition sum only factorises across slots at fixed u,
+# and the Möbius partition sum only factorises across tuple positions at fixed u,
 # so the integral is intrinsic to the Möbius realisation (integrating it
 # analytically re-expands the per-partition product of block sums into
 # the O(K^r) tuple enumeration the decomposition exists to avoid). The
@@ -1883,7 +1883,7 @@ def eval_orbit_rel(
     (verified against grid integration for both periodic and
     non-periodic cases). The quadrature itself is intrinsic to the
     Möbius realisation of relative mode: the alternating partition sum
-    only factorises across slots at fixed ``u``, and integrating it
+    only factorises across tuple positions at fixed ``u``, and integrating it
     analytically re-expands into the ``O(K^r)`` tuple enumeration the
     decomposition exists to avoid. The grid mirrors
     :func:`mpt.tensor._orbit_inner_rel`: periodic uses ``[0, P)``

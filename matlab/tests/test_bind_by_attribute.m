@@ -1,10 +1,10 @@
 %% test_bind_by_attribute.m — run-length (bind-by-attribute) binding
 %
 %  Mirror of Python tests/test_bind_by_attribute.py (structural + self-sim
-%  + high-arity ragged smoke). bindEvents(..., 'groupBy', a) gathers
+%  + large-tuple-size ragged smoke). bindEvents(..., 'groupBy', a) gathers
 %  consecutive events sharing a constant value on attribute a into one
 %  ragged super-event (NaN-padded to the max group size, padded slots at
-%  zero weight); the outer read arity defaults to the smallest group size.
+%  zero weight); the outer tuple size defaults to the smallest group size.
 
 if ~exist('results', 'var')
     results = {};
@@ -37,13 +37,13 @@ d3 = buildExpTens(pb3, wb3, 'sigma', [30 0.01], 'isPer', [false false], 'period'
 s3 = cosSimExpTens(d3, d3, 'verbose', false);
 results(end+1, :) = {'ragged self-similarity == 1', abs(s3 - 1) < tol}; %#ok<SAGROW>
 
-% --- high-arity ragged smoke (orbit path carries it) ---------------------
+% --- large-tuple-size ragged smoke (orbit path carries it) ---------------------
 onset4 = [zeros(1,7), ones(1,6), 2*ones(1,8)];   % sizes 7,6,8 -> min 6
 pit4 = 60 + (0:numel(onset4)-1);
 [pb4, wb4, sp4] = bindEvents({pit4, onset4}, [], [], 'groupBy', 2, 'rOuter', 6, 'symOuter', true);
 d4 = buildExpTens(pb4, wb4, 'sigma', [30 0.01], 'isPer', [false false], 'period', [0 0], 'specs', sp4, 'verbose', false);
 s4 = cosSimExpTens(d4, d4, 'verbose', false);
-results(end+1, :) = {'high-arity ragged self-similarity == 1', abs(s4 - 1) < tol}; %#ok<SAGROW>
+results(end+1, :) = {'large-tuple-size ragged self-similarity == 1', abs(s4 - 1) < tol}; %#ok<SAGROW>
 
 % --- consecutive runs, not global grouping -------------------------------
 [pbc, ~, ~] = bindEvents({[60 61 62 63], [0 0 1 0]}, [], [], 'groupBy', 2);

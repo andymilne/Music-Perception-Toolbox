@@ -44,20 +44,22 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     """Replace selected attributes' event sequences with inter-event differences.
 
     Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
-    carrier. The ``k_a``-th finite difference is applied along the event
+    specifications. The ``k_a``-th finite difference is applied along the event
     axis to each attribute; the returned ``(p_attr_diff, w_diff, specs)``
     chains into another pre-MAET operation or into ``build_exp_tens(...,
     specs=...)``.
 
-    Differencing is **slot-wise**: event *i*'s slot *k* differences against
-    event *i+1*'s slot *k*. This is well-defined exactly when the slots
+    Differencing pairs values **position by position**: event *i*'s value at
+    position *k* differences against
+    event *i+1*'s value at position *k*. This is well-defined exactly when the
+    positions
     have stable identity --- an ordered attribute (``[sym] = 0``) or a
     singleton (``K = 1``). A symmetric multiset (``K > 1``, ``[sym] = 1``)
-    is a bag with no slot correspondence, so differencing it is undefined
+    is a bag with no positional correspondence, so differencing it is undefined
     and raises. The rule extends per level for a nested attribute: every
     level must be ordered (or of size 1). Ragged ordered data (events of
     differing length) is represented by NaN-padding to a common ``K``; a
-    difference touching a NaN slot is NaN, so absence propagates rather
+    difference touching a NaN value is NaN, so absence propagates rather
     than fabricating an interval.
 
     Differencing changes **values only**; the spec (``tags``, ``r``,
@@ -77,7 +79,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     p_attr : list/tuple of array-like
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
         ``K_a >= 1``; ``K_a = 0`` is rejected. ``K_a > 1`` is differenced
-        slot-wise when the attribute is ordered (see above).
+        position by position when the attribute is ordered (see above).
     w : None, scalar, or length-A list
         Weights (``build_exp_tens`` convention).
     diff_orders : scalar or length-A array-like
@@ -86,7 +88,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
     circular : bool, keyword-only
         Wrap the difference at the event-sequence boundary (``N' = N``).
     specs : None or length-A list, keyword-only
-        The carrier specs. ``None`` synthesises flat specs
+        The attribute specifications. ``None`` synthesises flat specs
         (:func:`flat_specs` defaults). The ordered-or-singleton guard reads
         ``[sym]`` from here, and the specs pass through to the output
         unchanged.
@@ -97,7 +99,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
         Length-A list of differenced matrices, each ``(K_a, N')``.
     w_diff : same general form as *w*
     specs : list of dict
-        The carrier specs, unchanged from the input (or synthesised).
+        The attribute specifications, unchanged from the input (or synthesised).
 
     See Also
     --------
@@ -435,7 +437,7 @@ def _bcast_names(name, A):
 def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
     """Build a list of flat (one-level) specs for bare attributes.
 
-    Convenience constructor for the canonical specs carrier: wraps a list
+    Convenience constructor for the canonical attribute specifications: wraps a list
     of per-attribute value matrices in flat spec dicts ``{r, rel, sym,
     name?}``, broadcasting scalar geometry across attributes. This is the
     trivial flat-specs synthesis at the entry of a pre-MAET chain (raw
@@ -448,7 +450,7 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None):
         Length-A list of per-attribute value matrices (used only for its
         length A; values are not inspected).
     r : int or length-A, keyword-only
-        Per-attribute read-arity (default 1).
+        Per-attribute tuple size (default 1).
     rel, sym : bool or length-A, keyword-only
         Per-attribute ``[rel]`` / ``[sym]`` (defaults ``False`` / ``True``).
     name : None, str, or length-A, keyword-only
@@ -497,7 +499,7 @@ def bind_events(
     """Bind sliding windows of consecutive events into nested attributes.
 
     Cross-event preprocessing on the canonical ``(p_attr, w, specs)``
-    carrier. For each input attribute *a*, a sliding window of width
+    specifications. For each input attribute *a*, a sliding window of width
     ``L_a`` (``bind_orders``) is laid across the event axis and the
     ``L_a`` consecutive events are nested into a single output attribute
     (toolbox spec §6.1): the bound events form an **ordered outer level**
@@ -505,7 +507,7 @@ def bind_events(
     event's own value multiset is the **inner level**.
 
     The inner level's geometry (``r``/``rel``/``sym``) is read from the
-    incoming carrier ``specs`` --- the attribute's existing spec supplies
+    incoming ``specs`` --- the attribute's existing specification supplies
     the inner level(s). ``specs = None`` synthesises flat specs
     (:func:`flat_specs` defaults: ``r = 1``, ``rel = 0``, ``sym = 1``).
     The outer level defaults to ``r = L_a`` (read the whole bound
@@ -532,7 +534,7 @@ def bind_events(
         Length-A list of ``(K_a, N)`` per-attribute value matrices.
     w : None, scalar, or length-A list
         Weights (same convention as :func:`build_exp_tens`). Each bound
-        attribute's slot weights are the windowed-and-stacked input
+        attribute's value weights are the windowed-and-stacked input
         weights, so the kernel product over the nested tuple recovers
         the rolling product.
     bind_orders : scalar or length-A array-like
@@ -551,7 +553,7 @@ def bind_events(
         step``. The bind/difference composition identity holds at
         ``step = 1`` only.
     specs : None or length-A list, keyword-only
-        The carrier specs supplying the inner geometry. ``None``
+        The attribute specifications supplying the inner geometry. ``None``
         synthesises flat specs. An incoming spec may be flat or already
         nested: a flat spec becomes the inner level of a new two-level
         attribute, while an already-nested spec is deepened --- a new
@@ -560,7 +562,7 @@ def bind_events(
         ``sym``, and ``rel`` each extend by one entry. Repeated binds
         nest to arbitrary depth, but each call must be given the
         ``specs`` returned by the previous one: passing ``None`` (or
-        omitting ``specs``) on an already-bound carrier re-synthesises
+        omitting ``specs``) on already-bound attributes re-synthesises
         flat specs, silently discarding the existing nesting and
         producing a shallower result.
     r_outer : None, scalar, or length-A, keyword-only
@@ -802,8 +804,8 @@ def _bind_events_run_length(p_attr, w, K, A, n_events, group_by, group_atol,
     super-event is padded to the maximum group size with NaN slots carrying
     zero weight (the padded-slot-at-zero-weight convention the nested inner
     product already consumes). The inner level preserves each attribute's
-    existing per-attribute parameters; the outer read arity ``r_outer``
-    defaults to the smallest group size --- the largest arity at which every
+    existing per-attribute parameters; the outer tuple size ``r_outer``
+    defaults to the smallest group size --- the largest tuple size at which every
     group is feasible, so all groups contribute uniform ``r_outer``-tuples
     into one density.
     """
@@ -1055,7 +1057,7 @@ def weight_events(
     K=1 value at every event from ``input_attr``, evaluates a window
     function :math:`h` centred at ``centre`` with shape parameter
     ``shape`` (:math:`= \gamma`), and writes the resulting
-    :math:`(1, N)` per-event factor into the weight slot of
+    :math:`(1, N)` per-event factor into the weight entry of
     ``target_attr``, multiplied into any existing weight already there.
     ``target_attr`` may differ from ``input_attr`` (the typical case
     --- e.g., time-driven windowing of pitch events) or coincide with
@@ -1121,7 +1123,7 @@ def weight_events(
     in ``p_attr`` are not modified.
 
     The per-event factor is broadcast across the target attribute's
-    ``K_target`` slots, so every slot of every event sees the same
+    ``K_target`` values, so every value of every event sees the same
     factor.
 
     Factor entries whose distance from the centre exceeds the global
@@ -1145,7 +1147,7 @@ def weight_events(
         per-attribute weights (each ``None``, scalar, 1-D row, or
         ``(K_a, N)`` matrix). Same convention as :func:`build_exp_tens`.
     specs : None or length-A list of dict, keyword-only
-        Carrier specs (per-attribute level geometry). ``None``
+        Attribute specifications (per-attribute level geometry). ``None``
         synthesises flat specs via :func:`flat_specs`. Threaded through
         unchanged, except that ``drop_input_attr=True`` drops the input
         attribute's entry. ``weight_events`` does not otherwise consult
@@ -1158,9 +1160,9 @@ def weight_events(
         ``K_input == 1`` (single value per event).
     target_attr : int
         Index of the attribute receiving the window factor in its
-        weight slot. Must satisfy ``0 <= target_attr < A``. May equal
+        weight entry. Must satisfy ``0 <= target_attr < A``. May equal
         ``input_attr``. ``K_target`` may be any positive integer; the
-        factor broadcasts across slots.
+        factor broadcasts across values.
     centre : float
         Window centre, in the input attribute's units.
     shape : float
@@ -1197,10 +1199,10 @@ def weight_events(
         ``drop_input_attr=False``, else ``A - 1``.
     w_out : list
         Per-attribute weights, length matching ``p_attr_out``. The
-        slot at ``target_attr`` (in the output indexing) carries the
+        entry at ``target_attr`` (in the output indexing) carries the
         windowed weights.
     specs_out : list of dict
-        The carrier specs for the output attribute list. Same as the
+        The attribute specifications for the output attribute list. Same as the
         input specs (synthesised flat if ``specs`` was ``None``), with
         the input attribute's entry removed when ``drop_input_attr=True``.
 
@@ -1492,38 +1494,38 @@ def _multiply_weights(w_existing, factor, attr_idx):
 
 
 def translate_attributes(p_attr, w, offsets, *, specs=None):
-    """Translate attributes' values by per-slot offsets (carrier form).
+    """Translate attributes' values by per-value offsets.
 
-    Per-attribute preprocessing on the ``(p_attr, w, specs)`` carrier.
+    Per-attribute preprocessing on the ``(p_attr, w, specs)`` triple.
     Selected attributes' values are shifted by a chosen offset and the
     transformed triple feeds straight into :func:`build_exp_tens` (or a
     further pre-MAET step). Weights and specs pass through unchanged;
     only the values move.
 
-    **Slot-axis alignment (read this first).** Everything hangs off one
-    axis: the **slot axis** of an attribute, whose length is ``K_total``
+    **Value-axis alignment (read this first).** Everything hangs off one
+    axis: the **value axis** of an attribute, whose length is ``K_total``
     (the number of leaf values in one event/super-event). In the value
-    matrix the slot axis is the **rows** (``K_total x N``: slots down,
+    matrix the value axis is the **rows** (``K_total x N``: values down,
     sequence positions across). The spec's ``tags`` label that same axis
-    (one entry per row). An offset is likewise per-slot: one value per
+    (one entry per row). An offset is likewise per-value: one offset per
     row, held **constant across the sequence (column) axis** --- that
     constancy is what makes ``D(T(p)) == D(p)``. A scalar broadcasts to
-    every slot (a global transposition).
+    every value (a global transposition).
 
     Offsets are supplied as a **length-A list**, one entry per attribute,
     each entry one of:
 
     - ``None`` --- do not translate this attribute.
-    - scalar or 1-D length 1 --- broadcast to all ``K_total`` slots.
-    - 1-D length ``K_total`` --- per-slot (typed as a plain vector; it is
+    - scalar or 1-D length 1 --- broadcast to all ``K_total`` values.
+    - 1-D length ``K_total`` --- per-value (typed as a plain vector; it is
       aligned to the rows internally, no transpose needed).
     - 2-D ``(1, M)`` --- a per-sweep global shift: one scalar per sweep
-      index, broadcast across slots.
-    - 2-D ``(K_total, M)`` --- per-slot by sweep index: slots down, sweep
+      index, broadcast across values.
+    - 2-D ``(K_total, M)`` --- per-value by sweep index: values down, sweep
       index across (the only meaningful 2-D layout; the second axis is an
       enumeration of the ``M`` candidate offsets, unrelated to events).
 
-    ``NaN`` entries skip the corresponding slot (left untranslated);
+    ``NaN`` entries skip the corresponding value (left untranslated);
     ``+/-inf`` is rejected. All 2-D entries must agree on ``M`` (scalar,
     1-D, and single-column entries broadcast across the call's ``M``).
 
@@ -1540,7 +1542,7 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
     is relative** a uniform finite offset is a structural no-op: that
     column is left unchanged and a single
     :class:`TranslateAttributesNoOpWarning` is emitted per call. A
-    *non-uniform* (per-slot) offset is **not** a no-op even on a relative
+    *non-uniform* (per-value) offset is **not** a no-op even on a relative
     attribute --- it shifts the within-tuple differences --- so it
     applies. ``is_per``/``period`` are not consulted here (translation
     emits unwrapped values; the periodic kernel in
@@ -1554,12 +1556,12 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
         (a 1-D entry is taken as a ``1 x N`` row).
     w : None, scalar, or length-A list
         Weights. Passed through unchanged (translation does not touch
-        weights); returned as-is for clean carrier chaining.
+        weights); returned as-is for clean chaining.
     offsets : length-A list
         Per-attribute offsets; see the layouts above.
     specs : None or length-A list, keyword-only
-        Carrier specs supplying per-attribute ``is_rel`` (outermost
-        level) and slot structure. ``None`` synthesises flat specs.
+        Attribute specifications supplying per-attribute ``is_rel`` (outermost
+        level) and value structure. ``None`` synthesises flat specs.
 
     Returns
     -------
@@ -1568,7 +1570,7 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
         arrays. Sweep (``M > 1``): a length-M list of such lists.
     w : same as input
     specs : list of dict
-        The carrier specs, unchanged (or synthesised).
+        The attribute specifications, unchanged (or synthesised).
 
     Warns
     -----

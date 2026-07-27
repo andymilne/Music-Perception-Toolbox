@@ -601,7 +601,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         if ~isstruct(spec)
             error('buildExpTens:nestedSpec', 'nested{%d} must be a struct.', a);
         end
-        % Structural fields (no default): 'r' (per-level read-arity) and
+        % Structural fields (no default): 'r' (per-level tuple size) and
         % 'tags' (slot-to-level map). Everything else is optional and
         % defaults here, so a hand-edited spec can carry only the fields
         % being changed (unknown fields such as name/names/proj ride
@@ -609,7 +609,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
         if ~isfield(spec, 'r')
             error('buildExpTens:nestedR', ...
                   ['nested{%d}: spec must have an ''r'' field (the per-level ' ...
-                   'read-arity vector); it is structural and has no default.'], a);
+                   'tuple-size vector); it is structural and has no default.'], a);
         end
         if ~isfield(spec, 'tags')
             error('buildExpTens:nestedTags', ...

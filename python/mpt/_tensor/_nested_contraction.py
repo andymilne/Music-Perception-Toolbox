@@ -29,7 +29,7 @@ built once and reused across the three inner products (XY, XX, YY) and
 across all quadrature nodes.
 
 Each symmetric level independently uses the orbit (Möbius) reduction when
-its read-arity makes the orbit cheaper than r! enumeration, and explicit
+its tuple size makes the orbit cheaper than r! enumeration, and explicit
 permutation/combination enumeration otherwise (the per-level choice mirrors
 the flat path's calibrated policy). The contraction therefore composes with
 both the Bulger and Möbius decompositions rather than replacing them.
@@ -100,7 +100,7 @@ class _Node:
         self.children = children    # list[_Node] (empty at leaf)
         self.xtup = xtup            # (T, r) X-side tuple indices
         self.ytup = ytup            # (T, r) Y-side tuple indices
-        self.r = r                  # this level's read-arity
+        self.r = r                  # this level's tuple size
         self.sym = sym              # this level's [sym] flag
         self.use_orbit = use_orbit  # True: orbit-reduce this level (skip xtup)
 
@@ -609,7 +609,7 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     """Closed-form inner-partial reduction of the relative-non-periodic inner
     product for spectrally-augmented ordered cells.
 
-    When each side is an ordered cell (outer ``[sym] = 0`` with read-arity equal
+    When each side is an ordered cell (outer ``[sym] = 0`` with tuple size equal
     to the cell length) whose tones carry a shared partial template, the inner
     partial index sums analytically into the template cross-correlation
     ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
@@ -680,7 +680,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     ordered cells carrying a shared partial template.
 
     When every event on each side is an ordered cell (outer ``[sym] = 0``
-    with read-arity equal to the cell length) whose tones share one partial
+    with tuple size equal to the cell length) whose tones share one partial
     template, the inner partial index sums into the template cross-
     correlation -- the offsets and weights are common to every event -- and
     the matrix forms only the per-position note overlaps over the whole

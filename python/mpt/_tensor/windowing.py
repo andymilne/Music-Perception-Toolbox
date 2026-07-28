@@ -1274,7 +1274,7 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 wrap_a = str(dens_x.wrap[a])
             if wrap_a == 'full-image':
                 # Abs-per full-image via shared wrapped-Gaussian helper.
-                # Accumulate log(theta) per tuple position into log_kernel.
+                # Accumulate log(theta) per coordinate into log_kernel.
                 from .._wrapped_kernel import wrapped_gaussian_1d
                 from .._defaults import get_default
                 ts = get_default("truncation_sigmas")
@@ -1383,7 +1383,7 @@ def _effective_centres_from_V(dens: "MaetDensity", side: str):
         v_comb[a] (r_a rows, used directly).
       - Relative groups (isRel=True) with r_a >= 2: effective-space
         centre is v_comb[a][1:, :] - v_comb[a][0:1, :], i.e., the (r_a - 1)
-        differences of every tuple position from position 0.
+        differences of every coordinate from coordinate 0.
       - Relative groups with r_a = 1: empty (0, nK) array (degenerate).
     """
     A = dens.n_attrs

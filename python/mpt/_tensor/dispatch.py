@@ -654,7 +654,7 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
       identity that produces it doesn't depend on whether the
       first-position zero is materialised.
     - **rel periodic (Eq 6 of the preprint):** the pairwise-wrap
-      form, ``Q = sum_{i<j over r tuple positions} wrap(d_i - d_j)**2 / r``.
+      form, ``Q = sum_{i<j in {1, ..., r}} wrap(d_i - d_j)**2 / r``.
       Pairwise wrapping (not component-wise outer wrap) is what
       preserves exact transposition invariance on the circle. In
       reduced form the implicit position 0 contributes pairs
@@ -1384,7 +1384,7 @@ def _reject_ordered_for_mobius(dens) -> None:
         raise ValueError(
             "method='mobius' is not available for an ordered ([sym]=0) "
             "attribute at r > 1: the Möbius decomposition sums over set "
-            "partitions of the tuple positions, which realises the "
+            "partitions of {1, ..., r}, which realises the "
             "symmetrised tuple set and so evaluates a different density. "
             "Use method='centres' (or method='auto', which selects it)."
         )
@@ -1467,8 +1467,8 @@ def _select_ma_eval(dens, n_q, *, method):
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     # ---- Hard rule: ordered ([sym] = 0) attributes at r > 1 have no
-    # orbit. The Möbius decomposition sums over set partitions of the
-    # tuple positions, which counts every ordering of each block and so
+    # orbit. The Möbius decomposition sums over set partitions of
+    # {1, ..., r}, which counts every ordering of each block and so
     # realises the symmetrised tuple set; on an ordered attribute that
     # is a different density, not a faster route to the same one. Keep
     # the joint-centres path, which enumerates the ordered tuple set as

@@ -209,7 +209,7 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     % behaviour.
     if isPer && ~isRel
         if strcmp(wrap, 'full-image')
-            % Per-position theta then product across tuple positions. wrappedGaussian1d
+            % Per-coordinate theta then product across coordinates. wrappedGaussian1d
             % handles nearest-image reduction internally and picks the
             % cheaper of image-sum and Fourier for the summation.
             theta = internal.wrappedGaussian1d(D, sigma, period, ...

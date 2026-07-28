@@ -570,7 +570,7 @@ function H = localEntropyMA(dens, nvArgs)
 %LOCALENTROPYMA  Shannon entropy of a MaetDensity or WindowedMaetDensity.
 %
 %   Builds a Cartesian-product grid with one 1-D linspace per effective
-%   dimension of the density's domain (one per non-isRel tuple position for
+%   dimension of the density's domain (one per non-isRel coordinate for
 %   each attribute, each on its group's domain), evaluates the density
 %   at every grid point via evalExpTens, normalises to a pmf, and
 %   returns Shannon entropy.
@@ -996,7 +996,7 @@ function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
 %   Returns an (nJ x nCells) array with entry [t, j] equal to
 %   Phi((edgesHi(j) - centres(t))/sigma) - Phi((edgesLo(j) -
 %   centres(t))/sigma), the 1-D Gaussian probability mass in cell j
-%   for the tuple position at centres(t).
+%   for the coordinate at centres(t).
 
     centres = centres(:);   % (nJ x 1)
     edgesLo = edgesLo(:).'; % (1 x nCells)

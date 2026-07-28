@@ -436,7 +436,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
                 wrapA = char(dx.wrap{a});
             end
             if strcmp(wrapA, 'full-image')
-                % Abs-per full-image contribution: sum over tuple positions of
+                % Abs-per full-image contribution: sum over coordinates of
                 % log(theta(d_a)). Skips the Q accumulation for this
                 % attribute (its full-image kernel does not factor
                 % through Q).

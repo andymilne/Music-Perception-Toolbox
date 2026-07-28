@@ -1894,7 +1894,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 
     % Per-attribute wrap opt-in (v3+). The density's wrap cell selects the
     % abs-per measure: 'full-image' (default) uses the torus (all-image)
-    % 1-D wrapped Gaussian per tuple position; 'single-image' uses the nearest-image
+    % 1-D wrapped Gaussian per coordinate; 'single-image' uses the nearest-image
     % reduction, the pre-v3 behaviour. Non-periodic and rel attributes
     % ignore this axis. The two densities' wrap cells were compared for
     % structural compatibility at the entry to cosSimExpTens.

@@ -51,7 +51,7 @@ function out = enumerateSetPartitions(r)
 %   partition exactly once (canonical-form: blocks ordered by the
 %   smallest index they contain).
 
-    % Start with the partition having just the first tuple position.
+    % Start with the partition having just the first element of {1, ..., r}.
     states = {{[1]}};
     for k = 2:r
         nStates = numel(states);

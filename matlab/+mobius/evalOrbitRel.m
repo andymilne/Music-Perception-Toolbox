@@ -9,7 +9,7 @@ function [vals, ratios] = evalOrbitRel(p, w, sigma, r, x_rel, opts)
 %
 %   where Z_t = sigma * sqrt(2*pi/r) is the translation-mode normaliser.
 %   The quadrature is intrinsic to the Möbius realisation of relative
-%   mode: the alternating partition sum only factorises across tuple positions at
+%   mode: the alternating partition sum only factorises across {1, ..., r} at
 %   fixed u, and integrating it analytically re-expands into the O(K^r)
 %   tuple enumeration the decomposition exists to avoid. The grid
 %   mirrors the tensor module's _orbit_inner_rel: periodic uses [0, P)

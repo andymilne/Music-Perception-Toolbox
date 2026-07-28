@@ -11,11 +11,11 @@ The reformulation has two layers:
 
 1. **Möbius inversion on the partition lattice.** A sum over ordered
    distinct r-tuples can be written as an alternating sum over set
-   partitions of the tuple positions, with each partition's term factorising
+   partitions of {1, ..., r}, with each partition's term factorising
    across blocks as a product of single-source-sum quantities.
 
 2. **Orbit collapse under position symmetry.** The kernel is invariant under
-   common permutation of tuple positions, so the |Π_r|² partition pairs collapse to
+   common permutation of {1, ..., r}, so the |Π_r|² partition pairs collapse to
    |Ω_r| orbits under the joint S_r action. Each orbit is identified by a
    triple (m_A, m_B, M) where m_A, m_B are integer partitions of r and M
    is a non-negative integer matrix with row sums m_A and column sums
@@ -1433,7 +1433,7 @@ def eval_orbit_abs(
             use_reduction = True
         else:
             # Circular mean/variance relative to the block's reference
-            # tuple position (translation-invariant offsets), so a block sitting on
+            # coordinate (translation-invariant offsets), so a block sitting on
             # the period seam is handled correctly.
             if m == 1:
                 mean_x = x_B[0, :]
@@ -1472,10 +1472,10 @@ def eval_orbit_abs(
             # Gaussian in overlap convention adapted to density-kernel
             # (exponent_denominator = 2), single-image via nearest-
             # image reduction (the pre-v3 behaviour). Uses the
-            # original sigma per tuple position; the sigma/sqrt(m) effective
+            # original sigma per coordinate; the sigma/sqrt(m) effective
             # width belongs to the useReduction branch, where the
             # m-D block sum is collapsed to a 1-D Gaussian at
-            # mean_x, and is not correct here where each position is
+            # mean_x, and is not correct here where each coordinate is
             # broadcast separately.
             diffs = x_B[:, None, :] - p[None, :, None]
             if is_per and str(wrap) == 'full-image':
@@ -1534,13 +1534,13 @@ def eval_orbit_abs(
 #
 #     T_rel(Δ) = (1/Z_t) · ∫ T_abs(u, u + Δ_1, ..., u + Δ_{r-1}) du,
 #
-# and the Möbius partition sum only factorises across tuple positions at fixed u,
+# and the Möbius partition sum only factorises across {1, ..., r} at fixed u,
 # so the integral is intrinsic to the Möbius realisation (integrating it
 # analytically re-expands the per-partition product of block sums into
 # the O(K^r) tuple enumeration the decomposition exists to avoid). The
 # integral is evaluated on a u-grid; what is NOT intrinsic is the K
 # factor in the integrand. In the non-periodic case each partition
-# block B (with m = |B| tuple positions and query offsets δ_B) factorises exactly:
+# block B (with m = |B| entries and query offsets δ_B) factorises exactly:
 #
 #     f_B(u) = exp(-var(δ_B)/(2σ²)) · S_m(u + mean(δ_B)),
 #     S_m(v) = Σ_i w_i^m exp(-m (v - p_i)² / (2σ²)),
@@ -1883,7 +1883,7 @@ def eval_orbit_rel(
     (verified against grid integration for both periodic and
     non-periodic cases). The quadrature itself is intrinsic to the
     Möbius realisation of relative mode: the alternating partition sum
-    only factorises across tuple positions at fixed ``u``, and integrating it
+    only factorises across {1, ..., r} at fixed ``u``, and integrating it
     analytically re-expands into the ``O(K^r)`` tuple enumeration the
     decomposition exists to avoid. The grid mirrors
     :func:`mpt.tensor._orbit_inner_rel`: periodic uses ``[0, P)``

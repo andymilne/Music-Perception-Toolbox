@@ -265,7 +265,7 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
             % Full-image 1-D wrapped Gaussian in overlap convention
             % (exponent_denominator = 4). Same shape as diffs; the
             % r=1 kernel factor is this theta directly (no product
-            % across tuple positions at r = 1).
+            % across coordinates at r = 1).
             K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                                  truncationSigmas, 4);
         else
@@ -333,7 +333,7 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
             % Full-image 1-D wrapped Gaussian in overlap convention.
             % innerProductOrbitPwBatched consumes the per-position pair
             % kernel unchanged; the r-tuple full-image kernel factors
-            % across tuple positions as prod_a theta(d_a), delivered by the orbit
+            % across coordinates as prod_a theta(d_a), delivered by the orbit
             % reduction over the 1-D theta values.
             K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                                  truncationSigmas, 4);
@@ -627,8 +627,8 @@ function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, .
     diffs = reshape(U_x, r, Nx, nJ_x, 1, 1) ...
           - reshape(U_y, r, 1, 1, Ny, nJ_y);
     if absPerFullImage
-        % Full-image r-tuple kernel factors across tuple positions: per-position
-        % theta then product across tuple positions. Overlap convention.
+        % Full-image r-tuple kernel factors across coordinates: per-coordinate
+        % theta then product across coordinates. Overlap convention.
         theta = internal.wrappedGaussian1d(diffs, sigma, period, ...
                                             truncationSigmas, 4);
         Kmat = reshape(prod(theta, 1), Nx, nJ_x, Ny, nJ_y);

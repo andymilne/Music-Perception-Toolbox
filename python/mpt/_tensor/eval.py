@@ -1078,7 +1078,7 @@ def _ma_eval_factored(
     *sum* of the per-attribute counts instead.
 
     Absent values (NaN in a given event) are handled as zero-weight values
-    on a shared enumeration over the ever-valid values, so events with
+    on a shared enumeration over the ever-valid indices, so events with
     differing valid-value patterns need no special case: a tuple touching a
     value absent in its event carries weight zero and contributes nothing.
 
@@ -1118,7 +1118,7 @@ def _ma_eval_factored(
     ts = resolve_truncation_sigmas(truncation_sigmas)
 
     # Per-attribute tuple-index structure, enumerated once over the
-    # ever-valid values (non-NaN in at least one event). The index
+    # ever-valid indices (non-NaN in at least one event). The index
     # pattern is event-invariant; only the per-event values and weights
     # change, so this is built a single time per attribute.
     perm = []

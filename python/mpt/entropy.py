@@ -162,7 +162,7 @@ def _phi_diff_axis(centres: np.ndarray, edges_lo: np.ndarray,
     Returns ``(n_j, n_cells)`` array with entry ``[t, j]`` equal to
     ``Phi((edges_hi[j] - centres[t]) / sigma) - Phi((edges_lo[j] -
     centres[t]) / sigma)``, the 1-D Gaussian probability mass in cell
-    ``j`` for the tuple position at ``centres[t]``.
+    ``j`` for the coordinate at ``centres[t]``.
     """
     inv = 1.0 / (sigma * _SQRT2)
     z_hi = (edges_hi[None, :] - centres[:, None]) * inv
@@ -1667,7 +1667,7 @@ def _entropy_exp_tens_ma(
     """Multi-attribute Shannon entropy.
 
     Builds a Cartesian-product grid with one 1-D linspace per effective
-    dimension of the density's domain (one per non-``isRel`` tuple position
+    dimension of the density's domain (one per non-``isRel`` coordinate
     for each attribute), evaluates the density at every grid point,
     normalises to a pmf, and returns Shannon entropy.
 

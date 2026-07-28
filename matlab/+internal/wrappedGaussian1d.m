@@ -13,7 +13,7 @@ function theta = wrappedGaussian1d(d, sigma, period, ...
 %   evaluation).
 %
 %   The abs-per full-image r-tuple kernel is prod_a theta(d_a) --- Q
-%   factors across tuple positions in absolute mode, so the product-of-theta form
+%   factors across coordinates in absolute mode, so the product-of-theta form
 %   is the cheap representation of the all-image kernel.
 %
 %   Two exact representations of the theta function converge at

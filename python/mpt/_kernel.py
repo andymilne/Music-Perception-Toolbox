@@ -221,7 +221,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     dim = C.shape[0]
     # Abs-per full-image is the hot path at large K; handle it up
     # front without building the joint (dim, nJ, nQc) diff tensor.
-    # Compute each tuple position's difference and theta on the (nJ, nQc) slice
+    # Compute each coordinate's difference and theta on the (nJ, nQc) slice
     # and multiply into a running product. Peak working memory drops
     # from (2*dim + 1) * nJ * nQc to 2 * nJ * nQc, and the exp calls
     # each get a smaller array with better cache behaviour. Output

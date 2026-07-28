@@ -1612,9 +1612,9 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     one-sided ratios.
 
     Absolute-periodic uses the full-image (torus) measure: the r-tuple
-    kernel is the product across tuple positions of the 1D wrapped Gaussian
+    kernel is the product across coordinates of the 1D wrapped Gaussian
     ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Because Q
-    factors across tuple positions in absolute mode, the product-of-theta form
+    factors across coordinates in absolute mode, the product-of-theta form
     (``r * (2L+1)`` per pair) is the cheaper representation of the
     all-image kernel than the r-dim lattice sum (``(2L+1)^r``); the
     image sum switches on only when the accuracy floor requires it.

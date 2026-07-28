@@ -1,6 +1,6 @@
 """Wrapped-Gaussian 1D kernel with automatic image-sum vs Fourier dispatch.
 
-The abs-per full-image kernel is a product across tuple positions of the 1D
+The abs-per full-image kernel is a product across coordinates of the 1D
 wrapped Gaussian
 
     theta(d) = sum_{n in Z} exp(-(d + n P)^2 / (2 tau^2))

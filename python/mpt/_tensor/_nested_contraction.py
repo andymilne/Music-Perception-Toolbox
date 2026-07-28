@@ -4,13 +4,13 @@ Replaces the O((K^leaves)^2) full enumeration in the nested cosine path
 with a bottom-up contraction over the tag tree. The contraction reproduces
 the exact closed-form inner product (TISMIR preprint Sec 2.6, Eq 7) for the
 factorisable cases, and the all-image transposition average over the period
-(Eq 6) for the one case that does not factorise per tuple position, relative-periodic.
+(Eq 6) for the one case that does not factorise per coordinate, relative-periodic.
 
 A single contraction kernel serves all modes; only the per-quadrature-node
 leaf-kernel batch and the node reduction differ:
 
   - absolute (any periodicity): one node, no quadrature -- exact. The kernel
-    is a one-body product across tuple positions, so each level reduces independently.
+    is a one-body product across coordinates, so each level reduces independently.
   - relative non-periodic: a translation integral over the line, exact to the
     quadrature; the same measure as the analytic relative quadratic.
   - relative periodic: a transposition average over tau in [0, P). This is the
@@ -18,7 +18,7 @@ leaf-kernel batch and the node reduction differ:
     minimum-image pairwise-wrap that the flat per-attribute path (and the
     nested centres path) computes; the two coincide for sigma << period and
     diverge as sigma approaches the period. Only in this all-image form does
-    the relative-periodic kernel factor per tuple position (each tau node is a one-body
+    the relative-periodic kernel factor per coordinate (each tau node is a one-body
     product), which is what makes the per-level orbit reduction available --
     the minimum-image kernel is an irreducible pairwise (two-body) quadratic,
     so it admits no such per-level reduction. The trapezoidal tau-grid is exact
@@ -155,7 +155,7 @@ def _combine(M, xtup, ytup):
     if xtup.shape[0] == 0 or ytup.shape[0] == 0:
         return np.zeros(M.shape[0], dtype=M.dtype)
     r = xtup.shape[1]
-    # prod over the r tuple positions; broadcast (Q, Tx, Ty)
+    # prod over the r coordinates; broadcast (Q, Tx, Ty)
     P = M[:, xtup[:, 0][:, None], ytup[:, 0][None, :]]
     for t in range(1, r):
         P = P * M[:, xtup[:, t][:, None], ytup[:, t][None, :]]
@@ -394,10 +394,10 @@ def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
                  truncation_sigmas, wrap_a='full-image'):
     """Absolute-mode inner product for one nested attribute.
 
-    The absolute-mode r-tuple kernel factors across tuple positions (unlike
+    The absolute-mode r-tuple kernel factors across coordinates (unlike
     relative-mode, whose ``Q`` couples them via the projected form),
     so the per-position 1D kernel here is the object the outer contraction
-    multiplies across the r_a tuple positions. In periodic mode that per-position 1D
+    multiplies across the r_a coordinates. In periodic mode that per-coordinate 1D
     kernel is the wrapped Gaussian (theta):
     ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Reducing
     ``d`` to ``[-P/2, P/2]`` first lets ``L = 0`` — i.e. reduce to the
@@ -516,7 +516,7 @@ def cos_sim_nested(recipe_x, vX, vY, sigma, *, recipe_y=None, wX=None, wY=None,
 
     ``recipe_x`` describes the X density's nesting; ``recipe_y`` the Y
     density's (defaults to ``recipe_x`` when both sides share the structure).
-    Absolute and relative-non-periodic factorise per tuple position and are computed
+    Absolute and relative-non-periodic factorise per coordinate and are computed
     exactly (to the line quadrature for relative-non-periodic); relative-
     periodic uses the all-image transposition average over the period -- the
     torus-quotient measure, which differs from the minimum-image pairwise-wrap
@@ -822,7 +822,7 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     zero-weight. The mode is set by ``taus``:
 
     - ``taus=None`` -- the absolute (``is_per=False``) or absolute-periodic
-      (``is_per=True``) inner product, a one-body product per tuple position.
+      (``is_per=True``) inner product, a one-body product per coordinate.
     - ``taus`` given with ``periodic_taus=True``, ``taus_reduce='mean'`` -- the
       relative-periodic transposition average over the period (the all-image
       torus measure, which is what makes the per-level orbit reduction

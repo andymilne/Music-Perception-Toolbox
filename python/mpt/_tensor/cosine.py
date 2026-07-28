@@ -1494,7 +1494,7 @@ def _ma_log_kernel(
 
     ``wrap`` (optional) is a per-attribute sequence selecting the
     abs-per measure: 'full-image' (default) uses the torus (all-image)
-    1-D wrapped Gaussian per tuple position; 'single-image' uses the nearest-
+    1-D wrapped Gaussian per coordinate; 'single-image' uses the nearest-
     image reduction (the pre-v3 behaviour). Non-periodic and rel
     attributes ignore this axis. ``None`` matches the pre-v3 default,
     i.e. 'full-image' everywhere.
@@ -1870,7 +1870,7 @@ def _nested_attr_route(dens_x, dens_y, a):
     yy share a single measure.
 
     - ``'contract'`` -- absolute and absolute-periodic: the kernel is a
-      one-body product across tuple positions, so the event-pair-vectorised per-level
+      one-body product across coordinates, so the event-pair-vectorised per-level
       contraction applies the orbit (Möbius) reduction at symmetric levels and
       enumeration at ordered ones, mirroring the flat per-attribute matrix and
       never materialising the tuple set.
@@ -2387,7 +2387,7 @@ def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in,
 
     Absolute-periodic uses the full-image r-tuple kernel
     ``prod_a theta(d_a)`` (product of 1D wrapped Gaussians across
-    tuple positions). At sigma/P below the accuracy-floor threshold ``L = 0`` and
+    coordinates). At sigma/P below the accuracy-floor threshold ``L = 0`` and
     the product-of-theta reduces to the single-Gaussian form; the image
     sum switches on only when the floor requires it. When the user has
     opted this attribute into ``wrap_a='single-image'`` the L is forced
@@ -2593,7 +2593,7 @@ def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
     to the global default.
 
     ``wrap_a`` selects the abs-per measure: ``'full-image'`` (default)
-    uses the torus (all-image) 1-D wrapped Gaussian per tuple position, delivered
+    uses the torus (all-image) 1-D wrapped Gaussian per coordinate, delivered
     by :func:`_wrapped_kernel.wrapped_gaussian_1d` in overlap
     convention. The r-tuple full-image kernel factors as
     :math:`\\prod_a \\theta(d_a)`, delivered by the orbit reduction

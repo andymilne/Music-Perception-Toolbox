@@ -43,10 +43,14 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %   which evaluates the relative tensor without materialising the
 %   (r-1, K!/(K-r)!) centres array. For dup = 4 with the default
 %   64-partial template this avoids a centres array of order 10^9
-%   floats; runtime is dominated by the u-grid translation integral and
-%   grows as B_r * r * K * N_u per query. This unblocks chord
-%   cardinalities greater than 3, which the centres-array path could
-%   not feasibly handle.
+%   floats. The route is not grid-free in relative mode: the relative
+%   tensor is a translation marginal, and the alternating partition sum
+%   only factorises across {1, ..., r} at fixed u, so the absolute
+%   tensor is integrated over the translation coordinate on a u-grid.
+%   Runtime is therefore dominated by that integral and grows as
+%   B_r * r * K * N_u per query. This unblocks chord cardinalities
+%   greater than 3, which the centres-array path could not feasibly
+%   handle.
 %
 %   For batch processing (many chords), pass a 2-D nRows-by-K matrix as
 %   p; the batched dispatch path memoises both the harmonic template

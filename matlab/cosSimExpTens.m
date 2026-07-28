@@ -958,7 +958,7 @@ end
     %  The quadratic form Q depends on the mode:
     %    Absolute: Q(d) = sum(d.^2)
     %    Relative (non-periodic): Q(d) = sum(d.^2) - sum(d)^2 / r
-    %    Relative + periodic: Q(d) = sum_{i<j} wrap(d_i - d_j)^2 / r
+    %    Relative + periodic: Q(d) = sum_{i<j in {1, ..., r}} wrap(d_i - d_j)^2 / r
     %
     %  The relative quadratic form (induced by the Riemannian metric on
     %  the quotient space R^r / R*1) projects out the mean, yielding

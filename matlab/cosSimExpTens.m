@@ -2593,60 +2593,10 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
             wBv = [];
         end
 
-        % Canonicalize each set and apply joint co-transposition
-        % normalization for the absolute case.
-        if isRel
-            % Relative: independent canonicalization
-            [pAc, wAc] = internal.canonicalizeSet(pAv, wAv, isRel, isPer, period);
-            [pBc, wBc] = internal.canonicalizeSet(pBv, wBv, isRel, isPer, period);
-        else
-            % Absolute: joint co-transposition normalization.
-            % cosSimExpTens(A-c, B-c) = cosSimExpTens(A, B) because the
-            % raw tuple differences cancel. Find A's canonical form and
-            % apply the same shift to B.
-
-            hasWA = ~isempty(wAv);
-            hasWB = ~isempty(wBv);
-
-            % Canonicalize A
-            [pAs, siA] = sort(pAv);
-            if hasWA, wAs = wAv(siA); else, wAs = []; end
-
-            if isPer
-                pAs = mod(pAs, period);
-                [pAs, siA2] = sort(pAs);
-                if hasWA, wAs = wAs(siA2); end
-                % Cyclic canonical form — collapses all rotations
-                [pAc, wAc, shift] = internal.cyclicCanonical(pAs, wAs, hasWA, period);
-            else
-                shift = pAs(1);
-                pAc = pAs(:)' - shift;
-                if hasWA, wAc = wAs(:)'; else, wAc = []; end
-            end
-
-            % Apply the same shift to B
-            [pBs, siB] = sort(pBv);
-            if hasWB, wBs = wBv(siB); else, wBs = []; end
-
-            if isPer
-                pBshifted = mod(pBs - shift, period);
-                [pBshifted, siB2] = sort(pBshifted);
-                pBc = pBshifted(:)';
-                if hasWB, wBc = wBs(siB2)'; else, wBc = []; end
-            else
-                pBc = pBs(:)' - shift;
-                if hasWB, wBc = wBs(:)'; else, wBc = []; end
-            end
-        end
-
-        % Re-round after canonicalization to collapse floating-point
-        % noise introduced by mod-reduction and subtraction.
-        if ~isempty(nDec)
-            pAc = round(pAc, nDec);
-            pBc = round(pBc, nDec);
-            if ~isempty(wAc), wAc = round(wAc, nDec); end
-            if ~isempty(wBc), wBc = round(wBc, nDec); end
-        end
+        % Canonical form of the pair: the symmetry exploited depends on
+        % the mode, and the values are re-rounded afterwards.
+        [pAc, wAc, pBc, wBc] = internal.pairCanonicalKey( ...
+            pAv, wAv, pBv, wBv, isRel, isPer, period, nDec);
 
         % Build NaN-padded keys
         keyA = NaN(1, keyWidthA);

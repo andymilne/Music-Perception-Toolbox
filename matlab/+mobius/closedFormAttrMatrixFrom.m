@@ -11,9 +11,9 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
 %   supported normalisation.
 %
 %   Absolute-periodic uses the full-image (torus) measure: the r-tuple
-%   kernel is the product across slots of the 1-D wrapped Gaussian
+%   kernel is the product across coordinates of the 1-D wrapped Gaussian
 %   theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2)). Because Q factors
-%   across slots in absolute mode, the product-of-theta form
+%   across coordinates in absolute mode, the product-of-theta form
 %   (r * (2L+1) or r * M per pair) is the cheaper representation of
 %   the all-image kernel; the image sum switches on only when the
 %   accuracy floor requires it. When the user has opted this attribute
@@ -58,7 +58,7 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
         nc = numel(idx);
         D = reshape(Cx(:, idx), [d, nc, 1]) - reshape(Cy, [d, 1, njy]);
         if absPerFullImage
-            % Per-slot theta then product across slots. Overlap-kernel
+            % Per-coordinate theta then product across coordinates. Overlap-kernel
             % convention (exponent_denominator = 4). Shape of theta:
             % (d, nc, njy); product over d = axis 1.
             theta = internal.wrappedGaussian1d(D, sigma, period, ...
@@ -79,14 +79,14 @@ function Q = localComputeQFlat(D, r, isRel, isPer, period)
 %LOCALCOMPUTEQFLAT  Quadratic form from centre differences (flat attrs).
 %
 %   Mirror of Python dispatch._compute_Q with reduced=isRel: relative
-%   centres arrive in the slot-0 reduced convention (r - 1 rows),
+%   centres arrive in the first-coordinate reduced convention (r - 1 rows),
 %   absolute centres as full r-tuples.
 %
 %   - abs: Q = sum(D.^2, 1), with component-wise principal wrap first
 %     when periodic.
 %   - rel non-periodic: Q = sum(D.^2, 1) - sum(D, 1).^2 / r (the same
 %     algebraic identity serves the full and reduced conventions).
-%   - rel periodic (pairwise wrap, Eq 6 form): the implicit slot 0
+%   - rel periodic (pairwise wrap, Eq 6 form): the implicit coordinate 0
 %     contributes pairs (0, k+1) -> wrap(D(k))^2, and reduced rows
 %     contribute pairs (i+1, j+1) -> wrap(D(i) - D(j))^2; the sum is
 %     divided by r. Pairwise wrapping (not a component-wise outer

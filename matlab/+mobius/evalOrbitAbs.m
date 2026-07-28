@@ -149,7 +149,7 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
             end
             useReduction = true;
         else
-            % Circular mean/variance relative to the block's reference slot
+            % Circular mean/variance relative to the block's reference coordinate
             % (translation-invariant offsets), so a block sitting on the
             % period seam is handled correctly.
             if m == 1
@@ -192,14 +192,14 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
             p_re = reshape(p, 1, N, 1);
             diffs = x_B_re - p_re;
             if strcmp(opts.wrap, 'full-image')
-                % Per-slot 1-D wrapped Gaussian at the original sigma
+                % Per-coordinate 1-D wrapped Gaussian at the original sigma
                 % (density-kernel convention, exponent_denominator = 2);
                 % the r-tuple wrapped kernel over the block factors as
                 % prod_k theta_1D(d_k; sigma). The sigma/sqrt(m)
                 % effective width belongs to the *useReduction* branch,
                 % where the m-D block sum is collapsed to a 1-D
                 % Gaussian at mean_x; it is not correct here where each
-                % slot is broadcast separately.
+                % coordinate is broadcast separately.
                 theta = internal.wrappedGaussian1d(diffs, sigma, ...
                     opts.period, opts.truncationSigmas, 2);
                 kernel = reshape(prod(theta, 1), N, n_q_total);

@@ -132,7 +132,7 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period, for
         end
     end
 
-    % ---- Mode grid: r-1 free axes, last slot fixed by the constraint
+    % ---- Mode grid: r-1 free axes, last coordinate fixed by the constraint
     axis1 = (-M:M).';
     if r == 2
         xs = {axis1};
@@ -244,7 +244,7 @@ end
 
 
 function [lo, hi] = localSpan(P_, W_)
-%LOCALSPAN  Min and max over slots carrying nonzero weight.
+%LOCALSPAN  Min and max over values carrying nonzero weight.
     live = abs(W_) > 0;
     if ~any(live(:))
         lo = 0; hi = 0;

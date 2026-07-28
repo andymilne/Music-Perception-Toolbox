@@ -27,7 +27,7 @@ function [val, ratio] = orbitInnerAbsSingleMultiset(p_a, w_a, p_b, w_b, sigma, r
 %                       Gaussian is evaluated directly).
 %     wrap              char, default 'full-image'. Selects the abs-per
 %                       measure. 'full-image' (default) uses the torus
-%                       (all-image) 1-D wrapped Gaussian per slot,
+%                       (all-image) 1-D wrapped Gaussian per coordinate,
 %                       delivered by INTERNAL.WRAPPEDGAUSSIAN1D in
 %                       overlap convention. The r-tuple full-image
 %                       kernel factors as prod_a theta(d_a), delivered

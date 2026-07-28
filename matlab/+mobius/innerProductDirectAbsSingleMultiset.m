@@ -18,7 +18,7 @@ function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, 
 %
 %   NaN tolerance: NaN entries in P_X / W_X / P_Y / W_Y are dropped
 %   per event before enumeration. If the dropped count leaves either
-%   side with fewer than R valid slots, IPVAL = 0 by convention
+%   side with fewer than R valid values, IPVAL = 0 by convention
 %   (can't form an R-tuple).
 %
 %   Cost: O(K_x! / (K_x - R)! * K_y! / (K_y - R)! * R) per call.

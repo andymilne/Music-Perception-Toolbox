@@ -2,8 +2,9 @@ function specs = flatSpecs(pAttr, nvArgs)
 %FLATSPECS Build a cell of flat (one-level) specs for bare attributes.
 %
 %   specs = flatSpecs(pAttr, 'r', r, 'rel', rel, 'sym', sym, 'name', name)
-%   is a convenience constructor for the canonical specs carrier: it wraps
-%   a cell of per-attribute value matrices in flat spec structs
+%   is a convenience constructor for the canonical attribute
+%   specifications: it wraps a cell of per-attribute value matrices in
+%   flat spec structs
 %   struct('r', ., 'rel', ., 'sym', .[, 'name', .]), broadcasting scalar
 %   geometry across attributes. This is the trivial flat-specs synthesis at
 %   the entry of a pre-MAET chain (raw attributes carry no level structure

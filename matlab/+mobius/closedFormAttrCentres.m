@@ -14,13 +14,13 @@ function bundle = closedFormAttrCentres(dens, a)
 %   single-attribute construction (milliseconds), eagerly
 %   materialised.
 %
-%   Relative attributes store centres in the slot-0 reduced
+%   Relative attributes store centres in the first-coordinate reduced
 %   convention (r_a - 1 rows: U_perm(2:r) - U_perm(1)); absolute
 %   attributes store full r_a-tuples. MOBIUS.CLOSEDFORMATTRMATRIXFROM
 %   evaluates the matching quadratic form for each convention.
 %
-%   Ragged (NaN-padded) slots are carried by the rebuild, which drops
-%   every tuple touching a padded slot to zero weight.
+%   Ragged (NaN-padded) values are carried by the rebuild, which drops
+%   every tuple touching a padded value to zero weight.
 %
 %   Returns a struct with fields:
 %     Centres   (d x nJ)  tuple-centres (d = r_a - 1 rel, r_a abs)

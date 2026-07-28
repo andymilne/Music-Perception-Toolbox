@@ -41,7 +41,7 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 %   contraction cost is flat in N and K. When every event carries the
 %   same weight vector the cheaper shared-weights
 %   MOBIUS.INNERPRODUCTORBITGRID contraction applies. Zero-padded
-%   (NaN) slots carry zero weight, contributing a zero factor to every
+%   (NaN) values carry zero weight, contributing a zero factor to every
 %   Möbius term touching them, so the result is exact for the K_eff
 %   events.
 %
@@ -126,7 +126,7 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         du = span / (N_u - 1);
     end
 
-    % Sparse-orbit fast path (periodic): when the slot kernel is large
+    % Sparse-orbit fast path (periodic): when the value kernel is large
     % and the truncation window fits inside the circle, each u-node's
     % kernel is a circular band of width 2R out of the period, so a
     % spatially-culled per-node orbit beats the dense slab contraction;
@@ -277,7 +277,7 @@ end
 
 
 function s = localWeightedSpread(P, W)
-%LOCALWEIGHTEDSPREAD  Per-event max-minus-min over positive-weight slots.
+%LOCALWEIGHTEDSPREAD  Per-event max-minus-min over positive-weight values.
     masked = P;
     masked(W <= 0) = NaN;
     s = max(masked, [], 1, 'omitnan') - min(masked, [], 1, 'omitnan');
@@ -289,7 +289,7 @@ function [minKernel, maxDensity] = localOrbitSparseThresholds()
 %LOCALORBITSPARSETHRESHOLDS  Sparse-orbit cost model (mirror of the Python
 %   _ORBIT_SPARSE_MIN_KERNEL / _ORBIT_SPARSE_MAX_DENSITY, shared with the
 %   absolute gate in mobius.maPerAttrInnerMatrix). The sparse per-pair
-%   orbit undercuts the dense contraction only when the slot kernel is
+%   orbit undercuts the dense contraction only when the value kernel is
 %   both large and sparse; below these thresholds the dense
 %   contraction's constant factors win. Tunable.
     minKernel = 200000;   % Kx * Ky floor
@@ -299,7 +299,7 @@ end
 
 function [c3, j3] = localRelPerSparsePrep(pY, period)
 %LOCALRELPERSPARSEPREP  One-time sorted-tripled centre arrays.
-%   Folds the B-side slot values into [0, P), sorts them, and replicates
+%   Folds the B-side values into [0, P), sorts them, and replicates
 %   each at c-P, c, c+P so a wrapped window maps to a contiguous range
 %   of the sorted array. j3 carries the original column index of each
 %   copy. Shared across all u-nodes of a pair. Twin of the Python
@@ -369,7 +369,7 @@ function [I, worst] = localRelPerInnerSparse(Px, Wx, Py, Wy, sigma, r, ...
 %   each u-node builds its circular sparse kernel and runs the sparse
 %   orbit collapse. Values match the dense slab route (the circular
 %   window retains precisely the entries the truncated dense kernel
-%   keeps, and zero-weight slots contribute zero to every orbit term),
+%   keeps, and zero-weight values contribute zero to every orbit term),
 %   and the mass-aware pair ratio |sum_u F_u| / sum_u max|term_u|
 %   matches the dense diagnostic. The caller applies the shared
 %   normalisation tail. Twin of the Python _rel_per_inner_sparse.

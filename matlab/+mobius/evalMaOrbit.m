@@ -101,7 +101,7 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
             else
                 w = ones(size(p));
             end
-            % Drop zero-padded / NaN slots (ragged cardinality).
+            % Drop zero-padded / NaN values (ragged cardinality).
             live = ~isnan(p);
             p = p(live);
             w = w(live);

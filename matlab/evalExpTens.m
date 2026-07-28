@@ -518,7 +518,7 @@ elseif strcmp(method, 'mobius')
         error('mpt:evalExpTens:orderedMobius', ...
             ['method=''mobius'' is not available for an ordered ' ...
              '([sym]=0) attribute at r > 1: the Möbius decomposition ' ...
-             'sums over set partitions of the slot indices, which ' ...
+             'sums over set partitions of the tuple positions, which ' ...
              'realises the symmetrised tuple set and so evaluates a ' ...
              'different density. Use method=''centres'' (or ' ...
              'method=''auto'', which selects it).']);
@@ -859,7 +859,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     innerR = localComputeInnerR(dens, A);
 
     % --- Auto-prune zero-weight joint perm-side tuples ---
-    % The MaetDensity build expands per-attribute slot combinations into
+    % The MaetDensity build expands per-attribute value combinations into
     % joint perm-side tuples and computes wJ as the product of
     % per-attribute weights. A tuple with wJ == 0 contributes zero at
     % every query point, so dropping it is exact (matches the strict
@@ -1003,7 +1003,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         end
         Q_total = zeros(N_J, nQc, qDtype);
         % Abs-per full-image contribution accumulates multiplicatively as
-        % a product of per-attribute theta-slot products rather than
+        % a product of per-attribute per-coordinate theta products rather than
         % additively into Q_total. Kept as [] until the first abs-per
         % full-image attribute is encountered.
         absPerFactor = [];
@@ -1271,7 +1271,7 @@ function sumW = localFactoredSumW(dens, innerR)
     permCell = cell(1, A);
     for a = 1:A
         if rVec(a) < 2
-            permCell{a} = [];   % r = 1: sum of valid-slot weights directly
+            permCell{a} = [];   % r = 1: sum of valid-value weights directly
             continue;
         end
         everValid = find(any(~isnan(P{a}), 2)).';
@@ -1297,7 +1297,7 @@ function sumW = localFactoredSumW(dens, innerR)
             absent  = isnan(pCol);
             wFill   = wCol;  wFill(absent | isnan(wCol)) = 0;
             if rVec(a) < 2
-                % r = 1: each valid slot is a 1-tuple; the total is
+                % r = 1: each valid index is a 1-tuple; the total is
                 % invariant to the equal-value collapse, so sum directly.
                 sA = sum(wFill);
             else
@@ -1359,9 +1359,9 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
 %   product of the per-attribute tuple counts --- is never materialised;
 %   the cost is the sum of the per-attribute counts instead.
 %
-%   Absent slots (NaN in a given event) are handled as zero-weight values
-%   on a shared enumeration over the ever-valid slots, so events with
-%   differing valid-slot patterns need no special case.
+%   Absent values (NaN in a given event) are handled as zero-weight values
+%   on a shared enumeration over the ever-valid indices, so events with
+%   differing valid-index patterns need no special case.
 %
 %   Returns the raw (un-normalised) values (1 x nQ) --- the caller applies
 %   localMaNormalise, identically to the joint path --- or [] when the
@@ -1390,13 +1390,13 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
     isSymV  = dens.isSym(:).';
 
     % Per-attribute tuple-index structure, enumerated once over the
-    % ever-valid slots (non-NaN in at least one event). The index pattern
+    % ever-valid indices (non-NaN in at least one event). The index pattern
     % is event-invariant; only the per-event values and weights change.
     permCell = cell(1, A);
     for a = 1:A
         everValid = find(any(~isnan(P{a}), 2)).';
         if numel(everValid) < rVec(a)
-            return;   % too few slots for a full tuple; joint path errors
+            return;   % too few values for a full tuple; joint path errors
         end
         if innerR(a) > 0
             spec = dens.nested{a};
@@ -1423,7 +1423,7 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
             wCol    = W{a}(:, n);
             absent  = isnan(pCol);
             % Finite placeholder keeps the kernel finite; zero weight nulls
-            % any tuple touching an absent slot (0 * exp(finite) = 0).
+            % any tuple touching an absent value (0 * exp(finite) = 0).
             pFill = pCol;  pFill(absent) = 0;
             wFill = wCol;  wFill(absent | isnan(wCol)) = 0;
             Dtup    = size(pm, 1);
@@ -1431,7 +1431,7 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
             u       = reshape(pFill(pm), Dtup, M);          % Dtup x M
             wTuple  = prod(reshape(wFill(pm), Dtup, M), 1);  % 1 x M
             if innerR(a) > 0
-                % Nested: reduce each inner block by its own first slot,
+                % Nested: reduce each inner block by its own first coordinate,
                 % then a dense block-diagonal quadratic form (nested M is
                 % small, so the cull is not needed here).
                 rIn  = innerR(a);
@@ -1482,7 +1482,7 @@ end
 function Q_a = localQInnerBlocksReduced(D_a, rIn, isPer, Pg)
 % LOCALQINNERBLOCKSREDUCED  Block-diagonal quadratic form for the inner
 %   [rel] co-transposition unit (reduced / centres convention). D_a is
-%   (rOut*(rIn-1)) x nJ x nQc; each event block is the (rIn-1)-row slot-0
+%   (rOut*(rIn-1)) x nJ x nQc; each event block is the (rIn-1)-row first-coordinate
 %   reduction of an rIn-tuple. Q_a is the sum over blocks of the per-block
 %   flat relative quotient form (the within-event intervals, tensor-joined
 %   across events). Twin of Python _compute_Q_inner_blocks. Shared by the

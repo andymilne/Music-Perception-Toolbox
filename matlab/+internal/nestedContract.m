@@ -197,7 +197,7 @@ function s = tripSum(recipeA, recipeB, PA, WA, PB, WB, sigma, period, ts, quad, 
     % factored shortcut (ipRelNonperFactored) is chosen per pair and has no
     % batched form.
     if nargin < 11; sym = false; end
-    if any(strcmp(quad.mode, {'abs', 'relper'}))
+    if batchableMode(recipeA, recipeB, PA, WA, PB, WB, quad)
         s = tripSumBatched(recipeA, recipeB, PA, WA, PB, WB, ...
                            sigma, period, ts, quad, sym);
     else
@@ -269,10 +269,12 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
     end
 
     isRelPer = strcmp(quad.mode, 'relper');
-    if isRelPer
-        taus = quad.taus(:);
+    isRelNon = strcmp(quad.mode, 'relnonper');
+    if isRelPer || isRelNon
+        taus = quad.taus(:).';
         T = numel(taus);
     else
+        taus = [];
         T = 1;
     end
 
@@ -292,7 +294,29 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
         wx = WA(:, cm).';
         wy = WB(:, cn).';
 
-        if isRelPer
+        if isRelNon
+            % Per-pair window into the line grid: taus outside it give
+            % kernel entries below the truncation floor, which are zeroed
+            % and then summed as exact zeros, so the window changes nothing
+            % but the amount of arithmetic.
+            [tw, valid] = tauWindow(vx, vy, taus, sigma, ts);
+            if isempty(tw)
+                tw = repmat(taus, nb, 1);
+                valid = [];
+            end
+            W = size(tw, 2);
+            d = reshape(vx, [nb, nX, 1, 1]) ...
+                - (reshape(vy, [nb, 1, nY, 1]) + reshape(tw, [nb, 1, 1, W]));
+            K = exp(-d.^2 / (4 * sigma^2));
+            K = K .* (reshape(wx, [nb, nX, 1, 1]) .* reshape(wy, [nb, 1, nY, 1]));
+            K = permute(K, [1, 4, 2, 3]);
+            K = reshape(K, [nb * W, nX, nY]);
+            K = truncK(K, ts);
+            vc = contractNode(recipeA, recipeB, K);
+            vc = reshape(vc, [nb, W]);
+            if ~isempty(valid); vc = vc .* valid; end
+            vc = sum(vc, 2);                     % common dtau cancels
+        elseif isRelPer
             d = reshape(vx, [nb, nX, 1, 1]) ...
                 - (reshape(vy, [nb, 1, nY, 1]) + reshape(taus, [1, 1, 1, T]));
             d = d - period * round(d / period);
@@ -320,6 +344,96 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
 
         v(c0:c1) = vc;
     end
+end
+
+
+% ----------------------------------------------------------------------
+function tf = batchableMode(recipeX, recipeY, PA, WA, PB, WB, quad)
+    % Whether the pair grid can be evaluated in batches.
+    %
+    % Absolute and relative-periodic modes always can. The relative-non-
+    % periodic mode can whenever its closed-form shortcut cannot apply,
+    % since that shortcut is chosen per pair and has no batched form: the
+    % two structural gates are read from the recipes, and the third asks
+    % whether every cell carries a shared leaf template. Where the shortcut
+    % could fire the per-pair route is kept, so nothing is given up.
+    tf = true;
+    if any(strcmp(quad.mode, {'abs', 'relper'}))
+        return;
+    end
+    if ~strcmp(quad.mode, 'relnonper')
+        tf = false;
+        return;
+    end
+    if recipeX.sym || recipeY.sym
+        return;                        % shortcut needs ordered cells
+    end
+    if recipeX.r ~= numel(recipeX.children) ...
+            || recipeY.r ~= numel(recipeY.children)
+        return;                        % shortcut needs the whole cell
+    end
+    for i = 1:size(PA, 2)
+        if isempty(sharedLeafTemplate(recipeX, PA(:, i), WA(:, i)))
+            return;
+        end
+    end
+    for j = 1:size(PB, 2)
+        if isempty(sharedLeafTemplate(recipeY, PB(:, j), WB(:, j)))
+            return;
+        end
+    end
+    tf = false;                        % every cell can use the shortcut
+end
+
+
+% ----------------------------------------------------------------------
+function [tw, valid] = tauWindow(vxT, vyT, taus, sigma, ts)
+    % Per-pair slice of a uniform line tau-grid, or [] when not worthwhile.
+    %
+    % On the line the grid spans the whole value range, because any two
+    % events may be that far apart, but one event pair aligns only over the
+    % taus near its own offset. A kernel entry survives truncation when
+    % |v_x - v_y - tau| <= 2*sigma*sqrt(-log(floor)), so the window runs
+    % from min(v_x) - max(v_y) to max(v_x) - min(v_y), widened by that
+    % margin at each end. Every node outside is zeroed by truncK and then
+    % summed as an exact zero.
+    %
+    % All windows share one width so the pairs stay in a single batch: only
+    % the start index varies, and valid masks the tail where a window
+    % overruns its own end at the grid edges.
+    tw = [];
+    valid = [];
+    T = numel(taus);
+    if T < 3
+        return;
+    end
+    step = taus(2) - taus(1);
+    if ~isfinite(step) || step <= 0
+        return;                        % not a uniform ascending grid
+    end
+    if isempty(ts) || ~isfinite(ts)
+        return;                        % without truncation no node is removable
+    end
+    floorv = exp(-0.5 * ts^2);
+    if ~(floorv > 0 && floorv < 1)
+        return;
+    end
+    margin = 2 * sigma * sqrt(-log(floorv));
+
+    t0 = taus(1);
+    lo = min(vxT, [], 2) - max(vyT, [], 2) - margin;      % (nb, 1)
+    hi = max(vxT, [], 2) - min(vyT, [], 2) + margin;
+    startI = min(max(floor((lo - t0) / step), 0), T - 1);
+    stopI  = min(max(ceil((hi - t0) / step), 0), T - 1);
+    W = max(stopI - startI) + 1;
+    if W >= T
+        return;                        % the window is the grid; nothing saved
+    end
+
+    idx = startI + (0:W - 1);                            % (nb, W), 0-based
+    valid = double(idx <= stopI);
+    idx = min(idx, T - 1) + 1;                           % to 1-based
+    tw = taus(idx);                                      % (nb, W)
 end
 
 
@@ -488,7 +602,7 @@ function M = nestedAttrInnerMatrix(recipeA, recipeB, Pa, Pb, Wa, Wb, ...
     nb = size(Pb, 2);
     M = zeros(na, nb);
 
-    if any(strcmp(quad.mode, {'abs', 'relper'}))
+    if batchableMode(recipeA, recipeB, Pa, Wa, Pb, Wb, quad)
         [mi, ni] = pairIndices(na, nb, symmetric);
         v = pairValuesBatched(recipeA, recipeB, Pa, Wa, Pb, Wb, ...
                               sigma, period, ts, quad, mi, ni);

@@ -750,6 +750,57 @@ def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
                                   truncation_sigmas, taus)
 
 
+def _tau_window(vx, vy, taus, sigma, truncation_sigmas):
+    """Per-pair slice of a uniform line tau-grid, or ``(None, None)``.
+
+    On the line the grid must span the whole value range, because any two
+    events may be that far apart; but a single event pair aligns only over
+    the taus near its own offset. Every other node gives kernel entries
+    below the truncation floor, which are zeroed and then summed as exact
+    zeros -- so restricting each pair to its own window leaves the result
+    bit-identical while the grid shrinks from the passage's range to the
+    event's own.
+
+    A kernel entry survives truncation when
+    ``|v_x - v_y - tau| <= 2 * sigma * sqrt(-log(floor))``, so the window
+    runs from ``min(v_x) - max(v_y)`` to ``max(v_x) - min(v_y)``, widened
+    by that margin at each end.
+
+    All windows share one width so the pairs stay in a single batch: the
+    start index varies per pair, and ``valid`` masks the tail where a
+    clamped window overruns its own end (at the grid edges).
+
+    Returns the taus for each pair, shape ``(nb, W)``, with the matching
+    mask; or ``(None, None)`` when windowing would not pay, in which case
+    the caller uses the whole grid.
+    """
+    from .._defaults import truncation_floor
+    T = int(taus.shape[0])
+    if T < 3:
+        return None, None
+    step = float(taus[1] - taus[0])
+    if not np.isfinite(step) or step <= 0.0:
+        return None, None          # not a uniform ascending grid
+    floor = float(truncation_floor(truncation_sigmas))
+    if not (0.0 < floor < 1.0):
+        return None, None          # no truncation, so no node is removable
+    margin = 2.0 * sigma * math.sqrt(-math.log(floor))
+
+    t0 = float(taus[0])
+    lo = vx.min(axis=0) - vy.max(axis=0) - margin      # (nb,)
+    hi = vx.max(axis=0) - vy.min(axis=0) + margin
+    start = np.clip(np.floor((lo - t0) / step).astype(np.int64), 0, T - 1)
+    stop = np.clip(np.ceil((hi - t0) / step).astype(np.int64), 0, T - 1)
+    W = int((stop - start).max()) + 1
+    if W >= T:
+        return None, None          # the window is the grid; nothing saved
+
+    idx = start[:, None] + np.arange(W)[None, :]       # (nb, W)
+    valid = (idx <= stop[:, None]).astype(np.float64)
+    np.minimum(idx, T - 1, out=idx)
+    return taus[idx], valid
+
+
 def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                        is_per, period, truncation_sigmas, *, taus=None,
                        periodic_taus=True, taus_reduce="mean",
@@ -831,17 +882,34 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
             _trunc(K, sigma, truncation_sigmas)
             out[s:e] = _contract(recipe_x, recipe_y, K)
         else:
-            d = (vx.T[:, :, None, None]
-                 - (vy.T[:, None, :, None] + taus[None, None, None, :]))
-            if periodic_taus:
-                d = _wrap(d, period)
+            tw, valid = None, None
+            if not periodic_taus:
+                tw, valid = _tau_window(vx, vy, taus, sigma,
+                                        truncation_sigmas)
+            if tw is None:
+                d = (vx.T[:, :, None, None]
+                     - (vy.T[:, None, :, None] + taus[None, None, None, :]))
+                if periodic_taus:
+                    d = _wrap(d, period)
+                W = T
+            else:
+                d = (vx.T[:, :, None, None]
+                     - (vy.T[:, None, :, None] + tw[:, None, None, :]))
+                W = tw.shape[1]
             K = np.exp(-(d ** 2) * inv)
             K = K * (wx.T[:, :, None, None] * wy.T[:, None, :, None])
             nb = e - s
-            K = K.transpose(0, 3, 1, 2).reshape(nb * T, nX, nY)
+            K = K.transpose(0, 3, 1, 2).reshape(nb * W, nX, nY)
             _trunc(K, sigma, truncation_sigmas)
-            vals = _contract(recipe_x, recipe_y, K).reshape(nb, T)
-            out[s:e] = vals.mean(1) if taus_reduce == "mean" else vals.sum(1)
+            vals = _contract(recipe_x, recipe_y, K).reshape(nb, W)
+            if valid is not None:
+                vals = vals * valid
+            if taus_reduce == "mean":
+                # The mean is over the whole grid, so a window divides by the
+                # full node count, not by the window width.
+                out[s:e] = vals.sum(1) / T
+            else:
+                out[s:e] = vals.sum(1)
     return out.reshape(Nx, Ny)
 
 

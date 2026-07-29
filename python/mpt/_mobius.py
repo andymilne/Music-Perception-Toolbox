@@ -700,11 +700,11 @@ def inner_product_orbit(
     return_cancellation_ratio : bool, default False
         If True, additionally return the alternating-sum cancellation
         ratio ``|sum| / max(|term|)``, where the max is taken across
-        orbit classes. A value near 1 indicates no cancellation; a value
-        much smaller than 1 indicates digits of precision lost to
-        catastrophic cancellation. Threshold of ~1e-10 corresponds to
-        roughly 6 surviving significant decimal digits in the result;
-        callers should fall back to a non-cancelling method below that.
+        orbit classes. Reported as a diagnostic only: it informs no
+        routing or accuracy decision, because it is a ratio whose
+        denominator legitimately approaches zero. Accuracy is judged by
+        absolute error on the value scale, against
+        :func:`mpt._defaults.truncation_floor`.
 
     Returns
     -------
@@ -1707,9 +1707,9 @@ _FOURIER_ENABLED = True
 #: Mode-cutoff width for the spectral strategy, in sigmas: the block
 #: spectra are truncated where the Gaussian envelope falls below
 #: machine precision (exp(-8.6^2/2) ~ 8e-17), NOT at the requested
-#: accuracy floor. The Möbius alternating sum amplifies per-term error
-#: by the cancellation ratio, so per-term error must sit near machine
-#: eps for the combined value to reach the requested floor; since the
+#: accuracy floor. The Möbius alternating sum accumulates per-term
+#: error across orbit classes, so per-term error must sit near machine
+#: eps for the summed value to reach the requested floor; since the
 #: mode count scales as sqrt(log(1/eps)), this costs only ~16% more
 #: modes than the 1e-12 floor would.
 _FOURIER_MODE_SIGMAS = 8.6
@@ -1903,8 +1903,8 @@ def eval_orbit_rel(
       quintic interpolation removes the ``K`` factor from the per-node
       cost: per-query cost ``O(B_r · r · N_u)`` after a one-time
       ``O(Σ_m N_fine_m · K)`` tabulation. The read-back accuracy is
-      tied to ``truncation_sigmas``: the tabulation step targets a
-      relative error at the kernel-truncation floor ``exp(-k²/2)``
+      tied to ``truncation_sigmas``: the tabulation step targets an
+      absolute error at the kernel-truncation floor ``exp(-k²/2)``
       (clamped to ``[1e-12, 1e-3]``; ``inf`` targets ``1e-12``, at the
       noise level of the u-grid quadrature; under
       ``kernel_precision='single'`` the target is floored at ``1e-7``).

@@ -1421,7 +1421,10 @@ def _ip_core_ma(
             inner_r=inner_r, wrap=wrap,
             truncation_sigmas=truncation_sigmas,
         )
-        E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
+        E = _trunc_log_kernel_exp(
+            log_kernel, truncation_sigmas,
+            n_terms=int(n_j) * int(n_k),
+        )
         acc = acc + E @ w_v[c_start:c_end]
     return float(w_u @ acc)
 
@@ -1448,7 +1451,9 @@ def _ip_full_ma(
         inner_r=inner_r, wrap=wrap,
         truncation_sigmas=truncation_sigmas,
     )
-    E = _trunc_log_kernel_exp(log_kernel, truncation_sigmas)
+    E = _trunc_log_kernel_exp(
+        log_kernel, truncation_sigmas, n_terms=int(n_j) * int(n_k),
+    )
     return float(w_u @ (E @ w_v))
 
 
@@ -1574,7 +1579,7 @@ def _ma_has_nan(dens):
 
 
 
-def _trunc_log_kernel_exp(log_kernel, truncation_sigmas):
+def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
     """Evaluate ``exp(log_kernel)`` with optional truncation in log space.
 
     ``log_kernel`` is the (non-positive) log of the kernel — typically
@@ -1594,10 +1599,26 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas):
     global default. The "exact" sentinel ``math.inf`` resolves to the
     finite accuracy-floor width, uniformly with every other truncation
     path, so truncation always applies.
+
+    ``n_terms`` states how many entries the caller will sum. The floor
+    is stated per entry, but the inner product is a sum, so discarding
+    ``n_terms`` entries each just under the floor admits an error of
+    ``n_terms`` times the floor on the summed value. This holds in every
+    mode: the periodic wrap makes the tail broadest, so the shortfall is
+    largest there, but an untightened threshold overshoots the stated
+    accuracy wherever the block is large enough. Passing the count
+    lowers the per-entry threshold to ``floor / n_terms``, which bounds
+    the total discarded mass by the floor itself --- the scale the
+    accuracy is stated on. In log space this is a shift of
+    ``-log(n_terms)``, so the equivalent width is
+    ``sqrt(k^2 + 2 log(n_terms))`` and the cost is a modestly wider
+    kernel window rather than a different algorithm.
     """
     from .._defaults import resolve_truncation_sigmas
     truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     threshold = -0.5 * truncation_sigmas ** 2
+    if n_terms is not None and n_terms > 1:
+        threshold = threshold - math.log(float(n_terms))
     mask = log_kernel >= threshold
     out = np.zeros_like(log_kernel)
     out[mask] = np.exp(log_kernel[mask])

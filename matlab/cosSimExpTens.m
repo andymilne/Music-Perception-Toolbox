@@ -2107,7 +2107,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                 end
 
                 logK = maLogKernel(U_cell, V_chunk, nJ, nKc);
-                Ec = internal.truncLogKernelExp(logK, truncResolved);
+                Ec = internal.truncLogKernelExp(logK, truncResolved, ...
+                                        double(nJ) * double(nK));
                 acc = acc + Ec * wV(idx).';
             end
             ipval = wU(:).' * acc;
@@ -2116,7 +2117,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 
     function ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK, truncResolved)
         logK = maLogKernel(U_cell, V_cell, nJ, nK);
-        E = internal.truncLogKernelExp(logK, truncResolved);  % nJ x nK
+        E = internal.truncLogKernelExp(logK, truncResolved, ...
+                                double(nJ) * double(nK));  % nJ x nK
         ipval = wU(:).' * (E * wV(:));
     end
 

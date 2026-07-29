@@ -499,7 +499,7 @@ def entropy_exp_tens(
     result is non-finite, non-positive, or sign-flipped.
 
     What is *not* currently caught: a finite, positive, but slightly
-    inaccurate self-IP from sub-catastrophic Möbius cancellation in
+    inaccurate self-IP from accumulated Möbius per-term error in
     the Möbius alternating partition sum. No instance of this has been
     observed in extensive testing (1475 cells covering
     ``r ∈ {2..6}``, K up to 100, σ down to ``10⁻⁵`` cents, all four
@@ -1418,7 +1418,7 @@ def _renyi2_finalise(ip_xx, Z, base):
     entropy is undefined. Returning NaN rather than raising is friendlier
     for sweep-style callers: a windowed sweep already wants NaN at
     out-of-support centres, and the caller need not wrap each evaluation
-    in ``try``/``except``. (Finite-precision catastrophic cancellation in
+    in ``try``/``except``. (Finite-precision error accumulation in
     a self-inner-product is not produced analytically and has not been
     observed; if a genuine cancellation regime ever surfaces it would
     also land here as NaN rather than a wrong number.)

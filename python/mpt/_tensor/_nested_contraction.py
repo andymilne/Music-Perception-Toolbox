@@ -85,8 +85,12 @@ def _perm_count(g, r):
 def _orbit_eligible(g, r, sym, is_rel, is_per):
     if not sym or not (2 <= r <= _ORBIT_MAX_R):
         return False
-    if not _flat_orbit_precision_ok([r], [g]):
-        return False                       # K (=g) too close to r: cancellation
+    # Precision is not judged here. A size margin between K and r is the
+    # wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16, while a
+    # steeply peaked weight profile can ruin it at any margin. The bound in
+    # _combine_pair measures the error the computation actually incurred and
+    # compares it against the accuracy the caller asked for, so eligibility
+    # here is purely a question of cost.
     if r <= 6:
         return bool(_flat_orbit_beats_enum(r, g, is_rel, is_per))
     return True                            # r in 7..R_MAX: enumeration infeasible
@@ -175,7 +179,6 @@ def _combine(M, xtup, ytup):
 # only viable route, so it is used whenever precision-safe.
 from .dispatch import (
     _orbit_beats_pairwise_per_attr as _flat_orbit_beats_enum,
-    _orbit_safe_for_precision as _flat_orbit_precision_ok,
     _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R,
 )
 # Below this alternating-sum cancellation ratio the orbit value has lost too

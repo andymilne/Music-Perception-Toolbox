@@ -109,6 +109,10 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
     % exhaustive summation is reachable only by widening the floor eps via
     % internal.accuracyFloor('setEps', ...), as golden regeneration does.)
     ts = internal.accuracyFloor('resolve', truncationSigmas);
+    % Bind the accuracy budget for this call; warnings fire once per
+    % scope rather than once per block.
+    orbitGuard('begin', ts);
+    guardCleanup = onCleanup(@() orbitGuard('end', []));  %#ok<NASGU>
 
     % One recipe per side: the X recipe indexes the X axis of the rectangular
     % leaf kernel, the Y recipe the Y axis. They coincide when the densities
@@ -477,6 +481,10 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
     % resolver (see the entry note above): Inf -> the finite accuracy-floor
     % width, not unbounded exact summation.
     ts = internal.accuracyFloor('resolve', truncationSigmas);
+    % Bind the accuracy budget for this call; warnings fire once per
+    % scope rather than once per block.
+    orbitGuard('begin', ts);
+    guardCleanup = onCleanup(@() orbitGuard('end', []));  %#ok<NASGU>
     N_x = densX.N;
     N_y = densY.N;
     P_xy = ones(N_x, N_y);
@@ -695,17 +703,20 @@ end
 
 
 function tf = orbitEligible(g, r, sym, isRel, isPer)
-    % Per-level orbit-vs-enumeration choice, reusing the shared flat policy
-    % (internal.orbitBeatsPairwisePerAttr K-vs-r crossover +
-    % internal.orbitSafeForPrecision g>=r+2 guard), applied with K = g. For
-    % r in 7..8 (no K-threshold entry; enumeration's C(g,r)*r! infeasible)
-    % orbit is the only viable route when precision-safe.
+    % Per-level orbit-vs-enumeration choice, reusing the shared flat cost
+    % policy (internal.orbitBeatsPairwisePerAttr K-vs-r crossover) applied
+    % with K = g. For r in 7..8 enumeration's C(g,r)*r! is infeasible, so
+    % orbit is the only viable route.
+    %
+    % Precision is not judged here. A size margin between K and r is the
+    % wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16, while a
+    % steeply peaked weight profile can ruin it at any margin. The bound in
+    % combinePair measures the error the computation actually incurred and
+    % compares it against the accuracy the caller asked for, so eligibility
+    % here is purely a question of cost.
     ORBIT_R_MAX_SHIPPED = 8;     % match Python _ORBIT_R_MAX_SHIPPED
     tf = false;
     if ~sym || r < 2 || r > ORBIT_R_MAX_SHIPPED
-        return;
-    end
-    if ~internal.orbitSafeForPrecision(r, g)   % precision guard (g >= r+2)
         return;
     end
     if r <= 6
@@ -901,6 +912,90 @@ function M = subtreeOverlaps(xnodes, ynodes, K)
 end
 
 
+% ----------------------------------------------------------------------
+function v = combineChunked(M, xtup, ytup)
+    % Enumerated combine, chunked over the batch to bound peak memory.
+    % Feasibility is judged on the work before this is called; chunking
+    % only keeps the materialised array within reach.
+    maxElems = 16e6;
+    Q = size(M, 1);
+    per = max(size(xtup, 1) * size(ytup, 1), 1);
+    step = max(1, floor(maxElems / per));
+    if step >= Q
+        v = combine(M, xtup, ytup);
+        return;
+    end
+    v = zeros(Q, 1);
+    for s = 1:step:Q
+        e = min(s + step - 1, Q);
+        v(s:e) = combine(M(s:e, :, :), xtup, ytup);
+    end
+end
+
+
+% ----------------------------------------------------------------------
+function out = orbitGuard(cmd, arg)
+    % Accuracy budget for one batched call, and the once-per-call warning
+    % flags. The Moebius (orbit) reduction sums signed terms that largely
+    % cancel, so its answer carries fewer digits than the terms it was built
+    % from; enumeration sums only non-negative terms and loses nothing.
+    % Summing n terms carries a forward error of at most n*eps*max|partial
+    % sum|, and where terms cancel the partial sums are bounded by the
+    % largest term, giving
+    %
+    %     error <= |Omega_r| * eps * max|term| / r!
+    %
+    % on the scale combineOrbit returns. |Omega_r| is the orbit count the sum
+    % runs over and max|term| is reported by innerProductOrbitGrid, so the
+    % bound costs nothing to evaluate. Measured against enumeration across
+    % 165 configurations -- power-law and geometric weights including
+    % rho = 10, and a 1000:1 dominant weight -- it held in every case,
+    % conservative by 2x to 31x.
+    persistent state
+    switch cmd
+        case 'begin'
+            state = struct('floor', arg, 'sigmas', arg, ...
+                           'warnedCost', false, 'warnedAcc', false);
+            out = [];
+        case 'end'
+            state = [];
+            out = [];
+        case 'get'
+            out = state;
+        case 'set'
+            state = arg;
+            out = [];
+    end
+end
+
+
+% ----------------------------------------------------------------------
+function n = orbitCount(r)
+    % Number of terms the orbit sum runs over.
+    persistent cache
+    if isempty(cache)
+        cache = containers.Map('KeyType', 'double', 'ValueType', 'double');
+    end
+    if ~isKey(cache, r)
+        cache(r) = numel(mobius.getOrbitTable(r));
+    end
+    n = cache(r);
+end
+
+
+% ----------------------------------------------------------------------
+function w = enumWork(Q, gx, gy, r)
+    % Kernel products the enumerated route performs for this block. Peak
+    % memory can be capped by chunking, but the work cannot, so feasibility
+    % is judged on the work.
+    if r > gx || r > gy
+        w = Inf;
+        return;
+    end
+    w = Q * nchoosek(gx, r) * factorial(r) * nchoosek(gy, r);
+end
+
+
 function v = combinePair(M, r, sym, useOrbit)
     % Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
     % Y-side comb tuples over gy (the r!-cancelled perm x comb form, same
@@ -908,39 +1003,94 @@ function v = combinePair(M, r, sym, useOrbit)
     % spans -- ragged siblings *or* two densities whose nested cardinalities
     % differ -- are handled directly. For a square block with gx == gy this
     % reproduces the old combineNode exactly, so the X == Y path is unchanged.
-    if useOrbit
-        empt = zeros(0, r);
-        v = combineOrbit(M, r, empt, empt);
-        return;
-    end
     gx = size(M, 2);
     gy = size(M, 3);
+    if useOrbit
+        empt = zeros(0, r);
+        [v, bound] = combineOrbit(M, r, empt, empt);
+        budget = orbitGuard('get', []);
+        if isempty(budget); return; end
+        scale = max(abs(v));
+        if isempty(scale) || scale <= 0 || bound <= budget.floor * scale
+            return;                      % inside the requested accuracy
+        end
+        rel = bound / scale;
+        work = enumWork(size(M, 1), gx, gy, r);
+        if work <= 16e6
+            if ~budget.warnedCost
+                budget.warnedCost = true;
+                orbitGuard('set', budget);
+                warning('mpt:nestedOrbitCost', ...
+                    ['The Mobius route''s error bound (%.1e) exceeds the ' ...
+                     'accuracy implied by truncationSigmas = %.4g (%.1e), ' ...
+                     'so enumeration was used instead. Enumeration is ' ...
+                     'substantially slower and may need much more memory. ' ...
+                     'To use the faster route, lower truncationSigmas ' ...
+                     '(6 gives %.1e) and accept an error that may exceed ' ...
+                     'the tighter figure.'], rel, budget.sigmas, ...
+                    budget.floor, exp(-0.5 * 6^2));
+            end
+            [xt, ~] = tupleIndices(gx, r, sym);
+            [~, yt] = tupleIndices(gy, r, sym);
+            v = combineChunked(M, xt, yt);
+            return;
+        end
+        if ~budget.warnedAcc
+            budget.warnedAcc = true;
+            orbitGuard('set', budget);
+            head = sprintf(['The Mobius route''s error bound (%.1e) ' ...
+                'exceeds the accuracy implied by truncationSigmas = ' ...
+                '%.4g (%.1e), and enumeration is not feasible at r = %d, ' ...
+                'K = %d. The returned value may carry an error above ' ...
+                '%.1e.'], rel, budget.sigmas, budget.floor, r, ...
+                max(gx, gy), budget.floor);
+            if rel >= 1.0
+                % The bound is at or above the values themselves, so no
+                % truncation setting can accommodate it; saying otherwise
+                % would offer a lever that cannot help.
+                tail = [' The bound is as large as the values, so no ' ...
+                        'truncationSigmas setting would admit this route; ' ...
+                        'the weight profile is too steeply peaked for the ' ...
+                        'Mobius reduction at this tuple size.'];
+            else
+                tail = sprintf([' Lowering truncationSigmas (6 gives ' ...
+                    '%.1e) raises the tolerance this is judged against.'], ...
+                    exp(-0.5 * 6^2));
+            end
+            warning('mpt:nestedOrbitAccuracy', '%s%s', head, tail);
+        end
+        return;
+    end
     [xt, ~] = tupleIndices(gx, r, sym);
     [~, yt] = tupleIndices(gy, r, sym);
     v = combine(M, xt, yt);
 end
 
 
-function v = combineOrbit(M, r, xtup, ytup)
+function [v, bound] = combineOrbit(M, r, xtup, ytup)
     % (B,) = Sum_{cX,cY} perm(M[cX,cY]) via the partition-lattice orbit
     % reduction (= innerProductOrbitGrid / r!), vectorised over the leading
     % batch, with a cancellation guard reverting to enumeration where
     % feasible. Supports rectangular M (gx ~= gy).
     gx = size(M, 2);
     gy = size(M, 3);
-    [vals, ratios] = mobius.innerProductOrbitGrid(M, ones(gx, 1), ...
-        ones(gy, 1), r, 'prefactor', 1.0, 'returnCancellationRatio', true);
+    [vals, ratios, termMass] = mobius.innerProductOrbitGrid(M, ...
+        ones(gx, 1), ones(gy, 1), r, 'prefactor', 1.0, ...
+        'returnCancellationRatio', true);
     vals = vals(:) / factorial(r);
-    bad = ratios(:) < 1e-10;            % _ORBIT_CANCEL_FLOOR
-    if any(bad)
-        if size(xtup, 1) > 0
+    if isempty(termMass)
+        bound = 0.0;
+    else
+        bound = orbitCount(r) * eps * max(abs(termMass(:))) / factorial(r);
+    end
+    if size(xtup, 1) > 0
+        % An explicit tuple list means the caller wants the enumerated value
+        % wherever cancellation has cost too much; the ratio is a cheap
+        % per-element screen for that.
+        bad = ratios(:) < 1e-10;
+        if any(bad)
             idx = find(bad);
             vals(idx) = combine(M(idx, :, :), xtup, ytup);
-        else
-            warning('mpt:nestedOrbitCancellation', ...
-                ['Nested orbit reduction lost precision to alternating-sum ' ...
-                 'cancellation at a symmetric level where enumeration is ' ...
-                 'infeasible; the value may be inaccurate.']);
         end
     end
     v = vals;

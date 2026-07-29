@@ -110,17 +110,19 @@ def _orbit_flops_beat_enum(r, Kx, Ky=None):
             < math.comb(Kx, r) * math.comb(Ky, r) * math.factorial(r))
 
 
-def _admitting_sigmas(rel):
-    """Largest ``truncationSigmas`` whose floor would admit an orbit bound.
+def _admitting_sigmas(bound):
+    """Largest ``truncationSigmas`` whose floor would admit an error bound.
 
-    The guard admits the orbit route when ``truncation_floor(ts) >= rel``,
-    and that floor is ``exp(-ts^2 / 2)``, so the condition inverts to
-    ``ts <= sqrt(-2 ln rel)``. Returns ``None`` when ``rel`` is at or above
-    1, where no positive setting satisfies it.
+    The guard admits the orbit route when ``truncation_floor(ts) >= bound``,
+    both being absolute quantities on the value scale, and that floor is
+    ``exp(-ts^2 / 2)``, so the condition inverts to
+    ``ts <= sqrt(-2 ln bound)``. Returns ``None`` when ``bound`` is at or
+    above 1 -- the top of the normalised value scale -- where no positive
+    setting satisfies it.
     """
-    if not (0.0 < rel < 1.0):
+    if not (0.0 < bound < 1.0):
         return None
-    return math.sqrt(-2.0 * math.log(rel))
+    return math.sqrt(-2.0 * math.log(bound))
 
 
 def _orbit_eligible(g, r, sym, is_rel, is_per):
@@ -229,7 +231,6 @@ from .dispatch import (
 )
 # Below this alternating-sum cancellation ratio the orbit value has lost too
 # many digits; fall back to the enumerated combine for that quadrature node.
-_ORBIT_CANCEL_FLOOR = 1e-10
 
 
 def _node_span(node):
@@ -345,28 +346,30 @@ def _combine_pair(M, r, sym, use_orbit):
     from .._defaults import truncation_floor
     gx, gy = M.shape[1], M.shape[2]
     if use_orbit:
-        empty = np.empty((0, r), dtype=np.intp)
-        vals, bound = _combine_orbit(M, r, empty, empty, return_bound=True)
+        vals, bound = _combine_orbit(M, r, return_bound=True)
         budget = _orbit_budget()
         if budget is None:
             return vals
-        scale = float(np.max(np.abs(vals))) if vals.size else 0.0
-        if scale <= 0.0 or bound <= budget["floor"] * scale:
+        # The bound and the truncation floor are both absolute quantities on
+        # the value scale, which is the single error measure the toolbox
+        # judges accuracy by. Comparing them directly is the whole test; a
+        # ratio to the returned value would reintroduce a denominator that
+        # legitimately approaches zero.
+        if bound <= budget["floor"]:
             return vals                       # inside the requested accuracy
         work = _enum_work(M.shape[0], gx, gy, r)
-        rel = bound / scale
-        admit = _admitting_sigmas(rel)
+        admit = _admitting_sigmas(bound)
         if work <= _ORBIT_ENUM_MAX_WORK:
             if not budget["warned_cost"]:
                 budget["warned_cost"] = True
-                head = (f"The Mobius route's error bound ({rel:.1e}) exceeds "
+                head = (f"The Mobius route's error bound ({bound:.1e}) exceeds "
                         f"the accuracy implied by truncationSigmas="
                         f"{budget['sigmas']!r} ({budget['floor']:.1e}), so "
                         f"enumeration was used instead.")
                 if admit is None:
-                    tail = (" The bound is as large as the values, so no "
-                            "truncationSigmas setting would admit the Mobius "
-                            "route here.")
+                    tail = (" The bound is at or above the value scale "
+                            "itself, so no truncationSigmas setting would "
+                            "admit the Mobius route here.")
                 elif _orbit_flops_beat_enum(r, gx, gy):
                     # The Mobius route is the cheaper one at this level's
                     # sizes, so trading accuracy for it does buy speed.
@@ -388,20 +391,20 @@ def _combine_pair(M, r, sym, use_orbit):
             return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
         if not budget["warned_accuracy"]:
             budget["warned_accuracy"] = True
-            head = (f"The Mobius route's error bound ({rel:.1e}) exceeds the "
+            head = (f"The Mobius route's error bound ({bound:.1e}) exceeds the "
                     f"accuracy implied by truncationSigmas="
                     f"{budget['sigmas']!r} ({budget['floor']:.1e}), and "
                     f"enumeration is not feasible at r={r}, "
                     f"K={max(gx, gy)}. The returned value may carry an error "
                     f"above {budget['floor']:.1e}.")
-            if rel >= 1.0:
-                # The bound is at or above the values themselves, so no
+            if admit is None:
+                # The bound is at or above the value scale itself, so no
                 # truncation setting can accommodate it; saying otherwise
                 # would offer a lever that cannot help.
-                tail = (" The bound is as large as the values, so no "
-                        "truncationSigmas setting would admit this route; "
-                        "the weight profile is too steeply peaked for the "
-                        "Mobius reduction at this tuple size.")
+                tail = (" The bound is at or above the value scale itself, "
+                        "so no truncationSigmas setting would admit this "
+                        "route; the weight profile is too steeply peaked for "
+                        "the Mobius reduction at this tuple size.")
             else:
                 tail = (f" Setting truncationSigmas to {admit:.3g} or below "
                         f"would bring the requested accuracy within the "
@@ -413,7 +416,7 @@ def _combine_pair(M, r, sym, use_orbit):
     return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
 
 
-def _combine_orbit(M, r, xtup, ytup, return_bound=False):
+def _combine_orbit(M, r, return_bound=False):
     """(B,) = Sum_{cX,cY} perm(M[cX,cY]) via the partition-lattice orbit
     reduction (= inner_product_orbit_grid / r!), vectorised over the leading
     batch. Supports rectangular M (gx != gy).
@@ -434,15 +437,11 @@ def _combine_orbit(M, r, xtup, ytup, return_bound=False):
     else:
         vals, ratios = inner_product_orbit_grid(
             M, wx, wy, r, prefactor=1.0, return_cancellation_ratio=True)
+    # ``ratios`` is requested only because return_term_mass depends on it;
+    # the cancellation ratio informs no decision. Accuracy is judged solely
+    # by the absolute bound below, against the truncation floor on the value
+    # scale.
     out = vals / fr
-    if xtup.shape[0] > 0:
-        # An explicit tuple list means the caller wants the enumerated value
-        # wherever cancellation has cost too much; the ratio is a cheap
-        # per-element screen for that.
-        bad = ratios < _ORBIT_CANCEL_FLOOR
-        if np.any(bad):
-            idx = np.nonzero(bad)[0]
-            out[idx] = _combine(M[idx], xtup, ytup)
     if return_bound:
         bound = (_n_orbits(r) * np.finfo(float).eps
                  * float(np.max(mass)) / fr) if mass.size else 0.0

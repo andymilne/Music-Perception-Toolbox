@@ -1085,15 +1085,6 @@ grows only the loop overhead, which is negligible against the per-slab
 contraction work."""
 
 
-_ORBIT_CANCELLATION_RATIO_MIN = 1e-10
-"""Minimum acceptable cancellation ratio in the Möbius method's alternating partition sum.
-
-When ``|sum| / max(|term|)`` drops below this threshold the result has
-lost roughly 10 of its 16 significant decimal digits, leaving ~6
-surviving — borderline acceptable for cosine accuracy at downstream
-1e-6 user tolerance, but past this point the dispatcher falls back to
-Bulger's method. See V22_DEV_LOG.md for the empirical regime where this
-fires (sharp Gaussians + low K-r margin in absolute modes)."""
 
 
 

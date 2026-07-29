@@ -45,11 +45,13 @@ function results = calibrateOrbitCrossover(varargin)
 %   'reps'     timed repetitions per cell      (default 3)
 %   'tol'      route-disagreement guard          (default 1e-6)
 %
-% The tolerance guards against a transcription error in this file -- the two
-% local routes computing different things, which would make their timings
-% meaningless. It is deliberately loose: the orbit route's own cancellation
-% reaches 2.9e-8 at r = 2, K = 2, and that is the phenomenon the shipped
-% guard exists to manage, not a fault in the harness.
+% Error is measured the way truncationSigmas states it: as an ABSOLUTE
+% perturbation on the value scale, never as a ratio to the returned value.
+% A ratio explodes wherever the result is legitimately near zero and says
+% nothing about accuracy. The tolerance guards against a transcription error
+% in this file -- the two local routes computing different things, which
+% would make their timings meaningless -- and sits well above the orbit
+% route's own worst absolute error, which the shipped guard manages.
 
     p = inputParser;
     p.addParameter('rVals', 2:8);
@@ -63,11 +65,11 @@ function results = calibrateOrbitCrossover(varargin)
 
     modes = {'absolute', 'relPeriodic'};
     results = struct('mode', {}, 'r', {}, 'K', {}, 'B', {}, ...
-                     'relDiff', {}, 'tOrbit', {}, 'tEnum', {}, ...
+                     'absErr', {}, 'tOrbit', {}, 'tEnum', {}, ...
                      'measured', {}, 'predicted', {}, 'agree', {});
 
     fprintf('\n%-12s %3s %3s %6s %10s %10s %10s  %-6s %-6s %s\n', ...
-            'mode', 'r', 'K', 'B', 'relDiff', 'orbit ms', 'enum ms', ...
+            'mode', 'r', 'K', 'B', 'absErr', 'orbit ms', 'enum ms', ...
             'measrd', 'predct', 'ok');
     fprintf('%s\n', repmat('-', 1, 84));
 
@@ -90,20 +92,15 @@ function results = calibrateOrbitCrossover(varargin)
                     % the same thing is the error this guards against.
                     vOrb = combineOrbitLocal(M, r);
                     vEnu = combineEnumLocal(M, r);
-                    scale = max(abs(vEnu));
-                    if scale <= 0
-                        relDiff = NaN;
-                    else
-                        relDiff = max(abs(vOrb - vEnu)) / scale;
-                    end
-                    if ~(isnan(relDiff)) && relDiff > opt.tol
+                    absErr = max(abs(vOrb - vEnu));
+                    if ~(isnan(absErr)) && absErr > opt.tol
                         warning('mpt:calibrateOrbitCrossover:disagree', ...
                             ['Routes disagree at r = %d, K = %d, B = %d ' ...
-                             '(relative difference %.2e), beyond what the ' ...
+                             '(absolute difference %.2e), beyond what the ' ...
                              'orbit route''s cancellation explains. Suspect ' ...
                              'a transcription error in this file rather ' ...
                              'than a toolbox fault; skipping the cell.'], ...
-                            r, K, B, relDiff);
+                            r, K, B, absErr);
                         continue;
                     end
 
@@ -124,11 +121,11 @@ function results = calibrateOrbitCrossover(varargin)
                     if ok; okStr = 'yes'; else; okStr = 'NO'; end
 
                     fprintf('%-12s %3d %3d %6d %10.2e %10.3f %10.3f  %-6s %-6s %s\n', ...
-                            mode, r, K, B, relDiff, tOrb*1e3, tEnu*1e3, ...
+                            mode, r, K, B, absErr, tOrb*1e3, tEnu*1e3, ...
                             measured, predicted, okStr);
 
                     results(end+1) = struct('mode', mode, 'r', r, 'K', K, ...
-                        'B', B, 'relDiff', relDiff, 'tOrbit', tOrb, ...
+                        'B', B, 'absErr', absErr, 'tOrbit', tOrb, ...
                         'tEnum', tEnu, 'measured', measured, ...
                         'predicted', predicted, 'agree', ok); %#ok<AGROW>
                 end
@@ -196,36 +193,57 @@ end
 
 % ----------------------------------------------------------------------
 function v = combineEnumLocal(M, r)
-    % Enumerated route: sum over X-side ordered tuples and Y-side unordered
-    % tuples of the product of their kernel entries.
-    B = size(M, 1);
-    Kx = size(M, 2);
-    Ky = size(M, 3);
-    xt = perms2(Kx, r);
-    yt = nchoosek(1:Ky, r);
-    v = zeros(B, 1);
-    for i = 1:size(xt, 1)
-        for j = 1:size(yt, 1)
-            prod_ij = ones(B, 1);
-            for k = 1:r
-                prod_ij = prod_ij .* M(:, xt(i, k), yt(j, k));
-            end
-            v = v + prod_ij;
-        end
+    % Enumerated route. This mirrors internal.nestedContract/combine
+    % verbatim -- the (B, Tx, Ty) materialisation and r element-wise
+    % multiplies -- because a loop-based transcription would time this file
+    % rather than the shipped route, and would report the orbit route as the
+    % winner nearly everywhere.
+    [xt, yt] = tupleIndicesLocal(size(M, 2), r);
+    [~, ytY] = tupleIndicesLocal(size(M, 3), r);
+    yt = ytY;
+    Tx = size(xt, 1);
+    Ty = size(yt, 1);
+    if Tx == 0 || Ty == 0
+        v = zeros(size(M, 1), 1);
+        return;
     end
+    P = M(:, xt(:, 1), yt(:, 1));                   % B x Tx x Ty
+    for t = 2:r
+        P = P .* M(:, xt(:, t), yt(:, t));
+    end
+    v = sum(sum(P, 3), 2);
+    v = v(:);
 end
 
 
 % ----------------------------------------------------------------------
-function P = perms2(n, r)
-    % All ordered r-tuples of distinct indices drawn from 1:n.
-    C = nchoosek(1:n, r);
-    P = zeros(size(C, 1) * factorial(r), r);
-    row = 1;
-    for i = 1:size(C, 1)
-        Q = perms(C(i, :));
-        P(row:row + size(Q, 1) - 1, :) = Q;
-        row = row + size(Q, 1);
+function [xt, yt] = tupleIndicesLocal(n, r)
+    % Mirror of internal.nestedContract/tupleIndices at sym = true, which is
+    % the only case an orbit-vs-enumeration comparison arises in. X side
+    % takes permutations of r-combinations, Y side the combinations.
+    if r > n
+        xt = zeros(0, r);
+        yt = zeros(0, r);
+        return;
+    end
+    if r == 1
+        C = (1:n).';
+    else
+        C = nchoosek(1:n, r);
+    end
+    yt = C;
+    if r > 1
+        P = perms(1:r);
+        nC = size(C, 1);
+        nP = size(P, 1);
+        xt = zeros(nC * nP, r);
+        idx = 1;
+        for q = 1:nP
+            xt(idx:idx + nC - 1, :) = C(:, P(q, :));
+            idx = idx + nC;
+        end
+    else
+        xt = C;
     end
 end
 

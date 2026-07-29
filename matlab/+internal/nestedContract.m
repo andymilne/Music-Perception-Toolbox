@@ -758,18 +758,19 @@ function tf = orbitFlopsBeatEnum(r, Kx, Ky)
 end
 
 
-function ts = admittingSigmas(rel)
-    % Largest truncationSigmas whose floor would admit an orbit bound.
+function ts = admittingSigmas(bound)
+    % Largest truncationSigmas whose floor would admit an error bound.
     %
-    % The guard admits the orbit route when truncationFloor(ts) >= rel, and
-    % that floor is exp(-ts^2 / 2), so the condition inverts to
-    % ts <= sqrt(-2 log(rel)). Empty when rel is at or above 1, where no
-    % positive setting satisfies it.
-    if ~(rel > 0 && rel < 1)
+    % The guard admits the orbit route when truncationFloor(ts) >= bound,
+    % both being absolute quantities on the value scale, and that floor is
+    % exp(-ts^2 / 2), so the condition inverts to ts <= sqrt(-2 log(bound)).
+    % Empty when bound is at or above 1 -- the top of the normalised value
+    % scale -- where no positive setting satisfies it.
+    if ~(bound > 0 && bound < 1)
         ts = [];
         return;
     end
-    ts = sqrt(-2 * log(rel));
+    ts = sqrt(-2 * log(bound));
 end
 
 
@@ -1055,16 +1056,18 @@ function v = combinePair(M, r, sym, useOrbit)
     gx = size(M, 2);
     gy = size(M, 3);
     if useOrbit
-        empt = zeros(0, r);
-        [v, bound] = combineOrbit(M, r, empt, empt);
+        [v, bound] = combineOrbit(M, r);
         budget = orbitGuard('get', []);
         if isempty(budget); return; end
-        scale = max(abs(v));
-        if isempty(scale) || scale <= 0 || bound <= budget.floor * scale
+        % The bound and the truncation floor are both absolute quantities on
+        % the value scale, which is the single error measure the toolbox
+        % judges accuracy by. Comparing them directly is the whole test; a
+        % ratio to the returned value would reintroduce a denominator that
+        % legitimately approaches zero.
+        if bound <= budget.floor
             return;                      % inside the requested accuracy
         end
-        rel = bound / scale;
-        admit = admittingSigmas(rel);
+        admit = admittingSigmas(bound);
         work = enumWork(size(M, 1), gx, gy, r);
         if work <= 16e6
             if ~budget.warnedCost
@@ -1073,11 +1076,11 @@ function v = combinePair(M, r, sym, useOrbit)
                 head = sprintf(['The Mobius route''s error bound (%.1e) ' ...
                     'exceeds the accuracy implied by truncationSigmas = ' ...
                     '%.4g (%.1e), so enumeration was used instead.'], ...
-                    rel, budget.sigmas, budget.floor);
+                    bound, budget.sigmas, budget.floor);
                 if isempty(admit)
-                    tail = [' The bound is as large as the values, so no ' ...
-                            'truncationSigmas setting would admit the ' ...
-                            'Mobius route here.'];
+                    tail = [' The bound is at or above the value scale ' ...
+                            'itself, so no truncationSigmas setting would ' ...
+                            'admit the Mobius route here.'];
                 elseif orbitFlopsBeatEnum(r, gx, gy)
                     % The Mobius route is the cheaper one at this level's
                     % sizes, so trading accuracy for it does buy speed.
@@ -1108,16 +1111,16 @@ function v = combinePair(M, r, sym, useOrbit)
                 'exceeds the accuracy implied by truncationSigmas = ' ...
                 '%.4g (%.1e), and enumeration is not feasible at r = %d, ' ...
                 'K = %d. The returned value may carry an error above ' ...
-                '%.1e.'], rel, budget.sigmas, budget.floor, r, ...
+                '%.1e.'], bound, budget.sigmas, budget.floor, r, ...
                 max(gx, gy), budget.floor);
-            if rel >= 1.0
-                % The bound is at or above the values themselves, so no
+            if isempty(admit)
+                % The bound is at or above the value scale itself, so no
                 % truncation setting can accommodate it; saying otherwise
                 % would offer a lever that cannot help.
-                tail = [' The bound is as large as the values, so no ' ...
-                        'truncationSigmas setting would admit this route; ' ...
-                        'the weight profile is too steeply peaked for the ' ...
-                        'Mobius reduction at this tuple size.'];
+                tail = [' The bound is at or above the value scale itself, ' ...
+                        'so no truncationSigmas setting would admit this ' ...
+                        'route; the weight profile is too steeply peaked ' ...
+                        'for the Mobius reduction at this tuple size.'];
             else
                 tail = sprintf([' Setting truncationSigmas to %.3g or ' ...
                     'below would bring the requested accuracy within the ' ...
@@ -1133,14 +1136,18 @@ function v = combinePair(M, r, sym, useOrbit)
 end
 
 
-function [v, bound] = combineOrbit(M, r, xtup, ytup)
+function [v, bound] = combineOrbit(M, r)
     % (B,) = Sum_{cX,cY} perm(M[cX,cY]) via the partition-lattice orbit
     % reduction (= innerProductOrbitGrid / r!), vectorised over the leading
-    % batch, with a cancellation guard reverting to enumeration where
-    % feasible. Supports rectangular M (gx ~= gy).
+    % batch. Supports rectangular M (gx ~= gy).
+    %
+    % ratios is requested only because termMass depends on it; the
+    % cancellation ratio informs no decision. Accuracy is judged solely by
+    % the absolute bound returned here, against the truncation floor on the
+    % value scale.
     gx = size(M, 2);
     gy = size(M, 3);
-    [vals, ratios, termMass] = mobius.innerProductOrbitGrid(M, ...
+    [vals, ~, termMass] = mobius.innerProductOrbitGrid(M, ...
         ones(gx, 1), ones(gy, 1), r, 'prefactor', 1.0, ...
         'returnCancellationRatio', true);
     vals = vals(:) / factorial(r);
@@ -1148,16 +1155,6 @@ function [v, bound] = combineOrbit(M, r, xtup, ytup)
         bound = 0.0;
     else
         bound = orbitCount(r) * eps * max(abs(termMass(:))) / factorial(r);
-    end
-    if size(xtup, 1) > 0
-        % An explicit tuple list means the caller wants the enumerated value
-        % wherever cancellation has cost too much; the ratio is a cheap
-        % per-element screen for that.
-        bad = ratios(:) < 1e-10;
-        if any(bad)
-            idx = find(bad);
-            vals(idx) = combine(M(idx, :, :), xtup, ytup);
-        end
     end
     v = vals;
 end

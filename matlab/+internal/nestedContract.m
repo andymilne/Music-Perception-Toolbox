@@ -703,10 +703,11 @@ end
 
 
 function tf = orbitEligible(g, r, sym, isRel, isPer)
-    % Per-level orbit-vs-enumeration choice, reusing the shared flat cost
-    % policy (internal.orbitBeatsPairwisePerAttr K-vs-r crossover) applied
-    % with K = g. For r in 7..8 enumeration's C(g,r)*r! is infeasible, so
-    % orbit is the only viable route.
+    % Per-level orbit-vs-enumeration choice, applied with K = g, the level's
+    % member count. For r <= 6 it reuses the shared flat cost policy
+    % (internal.orbitBeatsPairwisePerAttr K-vs-r crossover), whose thresholds
+    % are mode-aware but cover r = 2..6 only; above that the choice falls to
+    % orbitFlopsBeatEnum, the two routes' complexities compared directly.
     %
     % Precision is not judged here. A size margin between K and r is the
     % wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16, while a
@@ -722,8 +723,53 @@ function tf = orbitEligible(g, r, sym, isRel, isPer)
     if r <= 6
         tf = internal.orbitBeatsPairwisePerAttr(r, g, isRel, isPer);
     else
-        tf = true;                % r in 7..8: enumeration infeasible
+        tf = orbitFlopsBeatEnum(r, g);
     end
+end
+
+
+function tf = orbitFlopsBeatEnum(r, Kx, Ky)
+    % Large-batch cost comparison between the two routes at one level.
+    %
+    % Kx and Ky are the X- and Y-side member counts: the multiset size
+    % K_{a,n} at the innermost level, the count of sub-multisets at an outer
+    % one. The two may differ, since inner-product compatibility does not
+    % constrain them. The orbit route contracts |Omega_r| terms over the
+    % Kx-by-Ky block, the enumerated route sums C(Kx,r) r! C(Ky,r) kernel
+    % products, so once the batch is large enough that both are flop-bound
+    % rather than call-overhead-bound, the orbit route is cheaper exactly when
+    %
+    %     |Omega_r| Kx Ky  <  C(Kx,r) C(Ky,r) r!
+    %
+    % No fitted constant enters: both sides are the complexities the two
+    % routes are built from. The comparison is blind to mode, where the
+    % measured thresholds for r <= 6 are not -- the relative-periodic u-grid
+    % overhead raises the K at which the orbit route pays off, so in that
+    % mode this is the more optimistic of the two criteria at the margin.
+    if nargin < 3
+        Ky = Kx;
+    end
+    if r > Kx || r > Ky
+        tf = false;
+        return;
+    end
+    tf = orbitCount(r) * Kx * Ky < ...
+         nchoosek(Kx, r) * nchoosek(Ky, r) * factorial(r);
+end
+
+
+function ts = admittingSigmas(rel)
+    % Largest truncationSigmas whose floor would admit an orbit bound.
+    %
+    % The guard admits the orbit route when truncationFloor(ts) >= rel, and
+    % that floor is exp(-ts^2 / 2), so the condition inverts to
+    % ts <= sqrt(-2 log(rel)). Empty when rel is at or above 1, where no
+    % positive setting satisfies it.
+    if ~(rel > 0 && rel < 1)
+        ts = [];
+        return;
+    end
+    ts = sqrt(-2 * log(rel));
 end
 
 
@@ -1003,6 +1049,9 @@ function v = combinePair(M, r, sym, useOrbit)
     % spans -- ragged siblings *or* two densities whose nested cardinalities
     % differ -- are handled directly. For a square block with gx == gy this
     % reproduces the old combineNode exactly, so the X == Y path is unchanged.
+    % Both enumerated routes -- the one taken when the level is not
+    % orbit-eligible and the guard's fallback -- chunk over the batch, so
+    % peak memory is bounded whatever the tuple counts.
     gx = size(M, 2);
     gy = size(M, 3);
     if useOrbit
@@ -1015,20 +1064,37 @@ function v = combinePair(M, r, sym, useOrbit)
             return;                      % inside the requested accuracy
         end
         rel = bound / scale;
+        admit = admittingSigmas(rel);
         work = enumWork(size(M, 1), gx, gy, r);
         if work <= 16e6
             if ~budget.warnedCost
                 budget.warnedCost = true;
                 orbitGuard('set', budget);
-                warning('mpt:nestedOrbitCost', ...
-                    ['The Mobius route''s error bound (%.1e) exceeds the ' ...
-                     'accuracy implied by truncationSigmas = %.4g (%.1e), ' ...
-                     'so enumeration was used instead. Enumeration is ' ...
-                     'substantially slower and may need much more memory. ' ...
-                     'To use the faster route, lower truncationSigmas ' ...
-                     '(6 gives %.1e) and accept an error that may exceed ' ...
-                     'the tighter figure.'], rel, budget.sigmas, ...
-                    budget.floor, exp(-0.5 * 6^2));
+                head = sprintf(['The Mobius route''s error bound (%.1e) ' ...
+                    'exceeds the accuracy implied by truncationSigmas = ' ...
+                    '%.4g (%.1e), so enumeration was used instead.'], ...
+                    rel, budget.sigmas, budget.floor);
+                if isempty(admit)
+                    tail = [' The bound is as large as the values, so no ' ...
+                            'truncationSigmas setting would admit the ' ...
+                            'Mobius route here.'];
+                elseif orbitFlopsBeatEnum(r, gx, gy)
+                    % The Mobius route is the cheaper one at this level's
+                    % sizes, so trading accuracy for it does buy speed.
+                    tail = sprintf([' Setting truncationSigmas to %.3g or ' ...
+                        'below would admit the Mobius route, which is the ' ...
+                        'faster of the two at r = %d, K = %d, at the cost ' ...
+                        'of an error that may exceed the tighter figure.'], ...
+                        admit, r, max(gx, gy));
+                else
+                    % Enumeration is also the cheaper route at these sizes,
+                    % so there is nothing to be gained by loosening the
+                    % budget; saying otherwise would offer a false trade.
+                    tail = sprintf([' Loosening truncationSigmas would not ' ...
+                        'help: enumeration is also the faster of the two ' ...
+                        'at r = %d, K = %d.'], r, max(gx, gy));
+                end
+                warning('mpt:nestedOrbitCost', '%s%s', head, tail);
             end
             [xt, ~] = tupleIndices(gx, r, sym);
             [~, yt] = tupleIndices(gy, r, sym);
@@ -1053,9 +1119,9 @@ function v = combinePair(M, r, sym, useOrbit)
                         'the weight profile is too steeply peaked for the ' ...
                         'Mobius reduction at this tuple size.'];
             else
-                tail = sprintf([' Lowering truncationSigmas (6 gives ' ...
-                    '%.1e) raises the tolerance this is judged against.'], ...
-                    exp(-0.5 * 6^2));
+                tail = sprintf([' Setting truncationSigmas to %.3g or ' ...
+                    'below would bring the requested accuracy within the ' ...
+                    'bound this is judged against.'], admit);
             end
             warning('mpt:nestedOrbitAccuracy', '%s%s', head, tail);
         end
@@ -1063,7 +1129,7 @@ function v = combinePair(M, r, sym, useOrbit)
     end
     [xt, ~] = tupleIndices(gx, r, sym);
     [~, yt] = tupleIndices(gy, r, sym);
-    v = combine(M, xt, yt);
+    v = combineChunked(M, xt, yt);
 end
 
 

@@ -82,6 +82,47 @@ def _perm_count(g, r):
     return n
 
 
+@lru_cache(maxsize=None)
+def _orbit_flops_beat_enum(r, Kx, Ky=None):
+    """Large-batch cost comparison between the two routes at one level.
+
+    ``Kx``/``Ky`` are the X- and Y-side member counts: the multiset size
+    ``K_{a,n}`` at the innermost level, the count of sub-multisets at an outer
+    one. The two may differ, since inner-product compatibility does not
+    constrain them. The orbit route contracts ``|Omega_r|`` terms over the
+    Kx-by-Ky block, the enumerated route sums ``C(Kx, r) r! C(Ky, r)`` kernel
+    products, so once the batch is large enough that both are flop-bound
+    rather than call-overhead-bound, the orbit route is cheaper exactly when
+
+        |Omega_r| Kx Ky  <  C(Kx, r) C(Ky, r) r!
+
+    No fitted constant enters: both sides are the complexities the two routes
+    are built from. The comparison is blind to mode, where the measured
+    thresholds for r <= 6 are not -- the relative-periodic u-grid overhead
+    raises the K at which the orbit route pays off, so in that mode this is
+    the more optimistic of the two criteria at the margin.
+    """
+    if Ky is None:
+        Ky = Kx
+    if r > Kx or r > Ky:
+        return False
+    return (_n_orbits(r) * Kx * Ky
+            < math.comb(Kx, r) * math.comb(Ky, r) * math.factorial(r))
+
+
+def _admitting_sigmas(rel):
+    """Largest ``truncationSigmas`` whose floor would admit an orbit bound.
+
+    The guard admits the orbit route when ``truncation_floor(ts) >= rel``,
+    and that floor is ``exp(-ts^2 / 2)``, so the condition inverts to
+    ``ts <= sqrt(-2 ln rel)``. Returns ``None`` when ``rel`` is at or above
+    1, where no positive setting satisfies it.
+    """
+    if not (0.0 < rel < 1.0):
+        return None
+    return math.sqrt(-2.0 * math.log(rel))
+
+
 def _orbit_eligible(g, r, sym, is_rel, is_per):
     if not sym or not (2 <= r <= _ORBIT_MAX_R):
         return False
@@ -93,7 +134,11 @@ def _orbit_eligible(g, r, sym, is_rel, is_per):
     # here is purely a question of cost.
     if r <= 6:
         return bool(_flat_orbit_beats_enum(r, g, is_rel, is_per))
-    return True                            # r in 7..R_MAX: enumeration infeasible
+    # No measured K threshold covers r in 7..R_MAX, so the cost question is
+    # settled by the two routes' complexities. Enumeration is not infeasible
+    # across this range: at K = r it is r! products against |Omega_r| orbit
+    # terms, which the orbit route loses by three orders of magnitude.
+    return _orbit_flops_beat_enum(r, int(g))
 
 
 class _Node:
@@ -169,14 +214,15 @@ def _combine(M, xtup, ytup):
     return P.sum(axis=(1, 2))
 
 
-# Use the orbit (Möbius) reduction at a symmetric level once r is large
-# enough that |Omega_r| beats r! (r! crosses the orbit-entry count near r=5).
-# The orbit-vs-enumeration choice at each symmetric level reuses the flat
-# path's calibrated policy (dispatch._orbit_beats_pairwise_per_attr K-vs-r
-# crossover + _orbit_safe_for_precision K>=r+2 guard), applied per level with
-# K = g (the level's child/value count). For r in 7..R_MAX (no flat K-threshold
-# entry, and where enumeration's C(g,r)*r! is infeasible anyway) orbit is the
-# only viable route, so it is used whenever precision-safe.
+# Use the orbit (Möbius) reduction at a symmetric level once the level's
+# member count makes it cheaper than enumeration. For r <= 6 the choice reuses
+# the flat path's measured K thresholds (dispatch._orbit_beats_pairwise_per_attr),
+# applied per level with K = g (the level's child/value count). Those thresholds
+# are mode-aware, encoding the relative-periodic u-grid overhead that a plain
+# op count would miss, but they cover r = 2..6 only. For r in 7..R_MAX the
+# choice falls to _orbit_flops_beat_enum, the two routes' complexities compared
+# directly. Precision is not judged at either point: the error bound in
+# _combine_pair governs it.
 from .dispatch import (
     _orbit_beats_pairwise_per_attr as _flat_orbit_beats_enum,
     _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R,
@@ -288,7 +334,10 @@ def _combine_pair(M, r, sym, use_orbit):
     -- ragged siblings *or* two densities whose nested cardinalities differ --
     are handled directly. ``r``/``sym`` are the (shared) per-level parameters;
     ``use_orbit`` requests the Moebius reduction (both sides orbit-eligible),
-    matching the per-size tuple sourcing of the enumerated path.
+    matching the per-size tuple sourcing of the enumerated path. Both
+    enumerated routes -- the one taken when the level is not orbit-eligible
+    and the guard's fallback -- chunk over the batch, so peak memory is
+    bounded by ``_ORBIT_ENUM_MAX_ELEMS`` whatever the tuple counts.
 
     For a square block with gx == gy this reproduces the old ``_combine_node``
     exactly (``_tuple_sides`` returns the same cached arrays the recipe stored),
@@ -306,19 +355,34 @@ def _combine_pair(M, r, sym, use_orbit):
             return vals                       # inside the requested accuracy
         work = _enum_work(M.shape[0], gx, gy, r)
         rel = bound / scale
+        admit = _admitting_sigmas(rel)
         if work <= _ORBIT_ENUM_MAX_WORK:
             if not budget["warned_cost"]:
                 budget["warned_cost"] = True
-                warnings.warn(
-                    f"The Mobius route's error bound ({rel:.1e}) exceeds the "
-                    f"accuracy implied by truncationSigmas="
-                    f"{budget['sigmas']!r} ({budget['floor']:.1e}), so "
-                    f"enumeration was used instead. Enumeration is "
-                    f"substantially slower and may need much more memory. To "
-                    f"use the faster route, lower truncationSigmas (6 gives "
-                    f"{truncation_floor(6.0):.1e}) and accept an error that "
-                    f"may exceed the tighter figure.",
-                    RuntimeWarning, stacklevel=2)
+                head = (f"The Mobius route's error bound ({rel:.1e}) exceeds "
+                        f"the accuracy implied by truncationSigmas="
+                        f"{budget['sigmas']!r} ({budget['floor']:.1e}), so "
+                        f"enumeration was used instead.")
+                if admit is None:
+                    tail = (" The bound is as large as the values, so no "
+                            "truncationSigmas setting would admit the Mobius "
+                            "route here.")
+                elif _orbit_flops_beat_enum(r, gx, gy):
+                    # The Mobius route is the cheaper one at this level's
+                    # sizes, so trading accuracy for it does buy speed.
+                    tail = (f" Setting truncationSigmas to {admit:.3g} or "
+                            f"below would admit the Mobius route, which is "
+                            f"the faster of the two at r={r}, K={max(gx, gy)},"
+                            f" at the cost of an error that may exceed the "
+                            f"tighter figure.")
+                else:
+                    # Enumeration is also the cheaper route at these sizes,
+                    # so there is nothing to be gained by loosening the
+                    # budget; saying otherwise would offer a false trade.
+                    tail = (f" Loosening truncationSigmas would not help: "
+                            f"enumeration is also the faster of the two at "
+                            f"r={r}, K={max(gx, gy)}.")
+                warnings.warn(head + tail, RuntimeWarning, stacklevel=2)
             xtup = _tuple_sides(gx, r, sym)[0]
             ytup = _tuple_sides(gy, r, sym)[1]
             return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
@@ -339,14 +403,14 @@ def _combine_pair(M, r, sym, use_orbit):
                         "the weight profile is too steeply peaked for the "
                         "Mobius reduction at this tuple size.")
             else:
-                tail = (f" Lowering truncationSigmas (6 gives "
-                        f"{truncation_floor(6.0):.1e}) raises the tolerance "
-                        f"this is judged against.")
+                tail = (f" Setting truncationSigmas to {admit:.3g} or below "
+                        f"would bring the requested accuracy within the "
+                        f"bound this is judged against.")
             warnings.warn(head + tail, RuntimeWarning, stacklevel=2)
         return vals
     xtup = _tuple_sides(gx, r, sym)[0]
     ytup = _tuple_sides(gy, r, sym)[1]
-    return _combine(M, xtup, ytup)
+    return _combine_chunked(M, xtup, ytup, _ORBIT_ENUM_MAX_ELEMS)
 
 
 def _combine_orbit(M, r, xtup, ytup, return_bound=False):

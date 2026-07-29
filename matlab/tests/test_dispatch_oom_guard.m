@@ -2,7 +2,7 @@
 %
 %  The cosine dispatch forces the single-image Bulger route when the
 %  Möbius method is unavailable (r above the shipped orbit order, or the
-%  K-r precision floor). At high tuple order the Bulger tuple-pair kernel
+%  feasibility bound). At high tuple order the Bulger tuple-pair kernel
 %  can be infeasibly large; auto-dispatch must then raise
 %  mpt:dispatch:singleImageInfeasible rather than risk an out-of-memory
 %  crash. Explicit method='bulger' is the user's own choice and is
@@ -32,15 +32,19 @@ end
 results{end+1, 1} = 'OOM guard: r=9 K=15 auto raises singleImageInfeasible'; %#ok<*AGROW>
 results{end, 2} = ok;
 
-% 2. Precision floor (K = r+1) at high r -> forced bulger, infeasible -> raises
+% 2. A collection barely larger than the tuple size (K = r+1) is no
+%    longer a reason to refuse the Mobius method: accuracy is governed
+%    by truncationSigmas, so the route is chosen on cost and the call
+%    completes rather than raising.
 ok = false;
 try
     cosSimExpTens(mk(9, 8, false, false, 0), mk(9, 8, false, false, 0), ...
         'method', 'auto', 'verbose', false);
-catch err
-    ok = strcmp(err.identifier, 'mpt:dispatch:singleImageInfeasible');
+    ok = true;
+catch
+    ok = false;
 end
-results{end+1, 1} = 'OOM guard: r=8 K=9 (precision floor) auto raises';
+results{end+1, 1} = 'Dispatch: r=8 K=9 chooses on cost, no infeasibility raise';
 results{end, 2} = ok;
 
 % 3. User override method='bulger' at infeasible shape -> honoured (no raise

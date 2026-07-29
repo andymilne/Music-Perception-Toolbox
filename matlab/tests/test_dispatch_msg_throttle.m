@@ -39,7 +39,7 @@ function test_dispatch_msg_throttle()
 
     % --- Test 2: differing reason is silent (same (funcName, chosen)
     %     already in seen-set; reason is NOT part of the throttle key).
-    out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'K - r < 2');");
+    out3 = evalc("internal.maybeShowDispatchMsg('foo', 'bulger', 'r = 9 > 8');");
     results{end+1, 1} = 'differing reason collapses to same throttle key';
     results{end, 2} = isempty(strtrim(out3));
 

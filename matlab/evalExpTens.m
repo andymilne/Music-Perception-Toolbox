@@ -486,7 +486,7 @@ nQ = size(X, 2);
 % === single multiset dispatch — two orthogonal axes ===
 %
 % Routing axis (forced vs discretionary):
-%   - Explicit method override or hard rules (r <= 1, K - r < 2) force
+%   - Explicit method override or hard rules (r <= 1) force
 %     the routing inline, with no dispatcher function call.
 %   - Otherwise the unified dispatcher runs, with prescreen and (if
 %     needed) probe.

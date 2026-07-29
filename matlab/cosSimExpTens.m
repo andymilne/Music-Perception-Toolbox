@@ -235,7 +235,7 @@ guard = internal.callGuard(); %#ok<NASGU>
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
 normalize = 'cosine';           % 'cosine' | 'oneSidedDenom'
-cancellationThreshold = 1e-12;  % cross-cancellation guard
+cancellationThreshold = 1e-12;  % accepted for compatibility; inert
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
@@ -729,14 +729,13 @@ if strcmp(chosen, 'mobius')
     [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, dens_y, ...
                                                             truncationSigmas);
 
-    % Two-layer fallback guard, matching the Python cosine path.
-    %  1. Cross-cancellation: |<X,Y>| small relative to sqrt(<X,X><Y,Y>).
-    %     The Möbius estimate may be dominated by cancellation between
-    %     partition terms.
-    denomGeo = sqrt(max(ip_xx * ip_yy, 0));
-    crossCancel = denomGeo > 0 && abs(ip_xy) < cancellationThreshold * denomGeo;
-    %  2. Post-hoc sanity: non-finite, negative auto-IP (unambiguous Gram
-    %     diagonal sign flip), or |cosine| > 1.
+    % Post-hoc correctness check only, matching the Python cosine path.
+    % Accuracy is governed by truncationSigmas: the Mobius route's
+    % agreement with enumeration tracks the truncation budget, so a small
+    % cosine is a legitimate value rather than a symptom, and no route is
+    % diverted on the size of the result. What remains is the
+    % unambiguous-corruption test: non-finite, negative auto-IP (a Gram
+    % diagonal sign flip), or |cosine| > 1.
     corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
     %
     % A third layer once gated this fallback on a per-node cancellation
@@ -760,7 +759,7 @@ if strcmp(chosen, 'mobius')
     % cancellation-ratio request because the spectral form has no
     % per-node terms matching that diagnostic.
 
-    if crossCancel || corrupted
+    if corrupted
         chosen = 'bulger';   % fall through to the Bulger branch below
     else
         ranOrbit = true;
@@ -1087,10 +1086,6 @@ function chosen = localSelectSingleMultisetMethod(r, n_max, isRel, isPer, ...
         chosen = 'bulger';
         return;
     end
-    if n_min - r < 2   % _ORBIT_K_MINUS_R_MIN
-        chosen = 'bulger';
-        return;
-    end
     chosen = 'mobius';
 end
 
@@ -1225,15 +1220,6 @@ function [chosen, probed, estSec, routingReason] = localSelectAndEstimateSingleM
         probed = false;
         estSec = 0;
         routingReason = sprintf('r = %d > 8 (Möbius infeasible)', r);
-        return;
-    end
-    if (n_min - r) < 2   % _ORBIT_K_MINUS_R_MIN
-        internal.guardForcedBulgerFeasible(K_x, K_y, r, ...
-            sprintf('min(K_x, K_y) - r = %d < 2 (Möbius precision)', n_min - r));
-        chosen = 'bulger';
-        probed = false;
-        estSec = 0;
-        routingReason = sprintf('min(K_x, K_y) - r = %d < 2', n_min - r);
         return;
     end
     % Relative-periodic measure note: 'mobius' is the all-image
@@ -2031,13 +2017,12 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
                                                     truncationSigmas);
 
-        % Three-layer fallback guard (mirrors single multiset path).
-        denomGeo = sqrt(max(ip_xx * ip_yy, 0));
-        crossCancel = denomGeo > 0 ...
-                    && abs(ip_xy) < cancellationThreshold * denomGeo;
+        % Post-hoc correctness check only (mirrors single multiset path);
+        % accuracy is governed by truncationSigmas, so no route is
+        % diverted on the size of the result.
         corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
 
-        if crossCancel || corrupted
+        if corrupted
             chosen = 'bulger';
         else
             ranOrbit = true;

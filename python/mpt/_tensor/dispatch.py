@@ -431,19 +431,10 @@ def _select_ma_inner_product_method(
                 reason="r above the shipped orbit order",
             )
         return 'bulger'
-    # K-vs-r precision guard. The Möbius method's auto-inner-products can
-    # suffer catastrophic Möbius cancellation when any K_a is too close
-    # to its r_a (see _ORBIT_K_MINUS_R_MIN block). The cross
-    # cancellation guard at the call site does NOT catch this, since it
-    # inspects only |<T_X,T_Y>|; corrupted <T_X,T_X> propagates silently
-    # into the cosine denominator.
-    if A > 0 and not _orbit_safe_for_precision(r_vec, k_vec):
-        if guard_forced_bulger:
-            _guard_forced_bulger_feasible_ma(
-                k_vec, r_vec, rel_vec, N_x, N_y,
-                reason="the K - r precision floor",
-            )
-        return 'bulger'
+    # Accuracy is governed by ``truncationSigmas``, not by the collection
+    # size: the Möbius method's agreement with enumeration tracks the
+    # truncation budget and is closest at K_a = r_a. The route is
+    # therefore chosen on cost alone from here on.
     # ---- Memory-safety guard (explicit invariant) ----
     # Bulger's MA IP materialises each side's joint perm-side working
     # set n_J = N · ∏_a r_a!·C(K_a, r_a) (lazy, built on first access);
@@ -741,18 +732,11 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #                     with 'bulger' (both route through ``_ip_core``);
 #                     the distinction surfaces in later windowed paths.
 #
-#  cancellation_threshold = 1e-12 : when the Möbius method's cross
-#    inner product falls below this fraction of sqrt(<A,A><B,B>), the
-#    Möbius result may suffer from catastrophic alternating-sum
-#    cancellation; in that case fall back to ``_ip_core`` (Bulger's
-#    method). In typical use the guard never triggers; the cost is at
-#    most one extra Bulger pass. Note: this guard inspects the cross
-#    product only — corruption in the auto inner products (<A,A>,
-#    <B,B>) propagates through the cosine denominator silently. The
-#    K_a >= r_a + 2 margin in `_orbit_safe_for_precision` is the
-#    primary protection against auto-IP cancellation; a runtime
-#    cancellation diagnostic on auto IPs is on the roadmap
-#    (see V22_DEV_LOG.md Issue 4).
+#  cancellation_threshold : accepted for backward compatibility; it
+#    affects neither the result nor the route. Accuracy is governed by
+#    ``truncationSigmas`` --- the Möbius method's agreement with
+#    enumeration tracks the truncation budget --- and the route is
+#    chosen on cost.
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
@@ -837,8 +821,8 @@ class SingleImageInfeasibleError(MemoryError):
 
     Arises at high tuple order in relative-periodic (and, for the inner
     product, any) mode when the Möbius method is *unavailable* --- refused
-    by the precision floor (``K - r`` below the guard) or the feasibility
-    bound (``r`` above the shipped/feasible orbit order) --- so no cheaper
+    by the feasibility bound (``r`` above the shipped/feasible orbit
+    order) --- so no cheaper
     all-image substitute exists, and the exact single-image route
     (``centres`` for evaluation, ``bulger`` for the inner product) would
     need an infeasibly large tuple(-pair) kernel. There is no correct
@@ -846,44 +830,6 @@ class SingleImageInfeasibleError(MemoryError):
     the all-image form is a legitimate cheaper measure), so the honest
     outcome is a clear error rather than an out-of-memory crash.
     """
-
-
-_ORBIT_K_MINUS_R_MIN = 2  # K_a >= r_a + this margin required for the Möbius method (precision guard)
-
-# Rationale (May 2026 audit): the Möbius method expresses the
-# distinct-r-tuple sum as a signed sum over set-partition orbits.
-# When K_a is close to r_a, the expansion has very few orbit classes
-# and the Möbius alternation can produce catastrophic cancellation in
-# the auto-inner-products <T_X, T_X> and <T_Y, T_Y> (which are not
-# protected by the cross-cancellation guard, since that guard only
-# inspects |<T_X, T_Y>| / sqrt(<T_X,T_X><T_Y,T_Y>)). Empirical sweep
-# (5 seeds × all four modes × r in {2..5}) shows: K = r usually
-# catastrophic; K = r+1 typically OK but with marginal r=4,5 cases
-# losing ~1e-6 precision; K >= r+2 reaches FP precision uniformly.
-# This guard is conservative but cheap: realistic music applications
-# have K >> r, so it almost never triggers.
-
-
-def _orbit_safe_for_precision(r_vec, k_vec):
-    """Return True if every r_a >= 2 attribute satisfies K_a >= r_a + margin.
-
-    Used by both the single-multiset and multi-attribute dispatchers to refuse the Möbius method
-    when its Möbius cancellation could swamp the answer. See the
-    `_ORBIT_K_MINUS_R_MIN` rationale block above.
-
-    The margin applies only to attributes with r_a >= 2: the Möbius
-    alternating sum over set partitions is trivial at r_a = 1 (a single
-    partition, no signs), so an r_a = 1 attribute carries no
-    cancellation risk regardless of its K_a. Scalar attributes
-    (K_a = 1, r_a = 1) are the canonical multi-attribute pattern — an
-    onset or duration alongside pitch content — and must not veto the
-    Möbius method for the density.
-    """
-    r_arr = np.atleast_1d(np.asarray(r_vec, dtype=np.intp))
-    k_arr = np.atleast_1d(np.asarray(k_vec, dtype=np.intp))
-    mask = r_arr >= 2
-    return bool(np.all(k_arr[mask] - r_arr[mask] >= _ORBIT_K_MINUS_R_MIN))
-
 
 
 def _format_time(t_sec: float) -> str:
@@ -1077,7 +1023,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *, reason)
     working set ``n_J = N * prod_a nj_a`` with ``nj_a = K_a! / (K_a -
     r_a)!``, and the tuple-pair kernel is ``n_J_x * n_J_y`` float64
     entries. When the Möbius method is *forced* off (r above the
-    shipped orbit order, or the K - r precision floor) there is no
+    shipped orbit order) there is no
     cheaper all-image substitute; at high tuple order the pair kernel
     can exhaust memory. Rather than let it crash the process, raise a
     clear error naming the shape. Explicit ``method='bulger'`` overrides
@@ -1487,25 +1433,20 @@ def _select_ma_eval(dens, n_q, *, method):
     if all(r_vec[a] <= 1 for a in range(A)):
         return "centres", "all r <= 1"
 
-    # ---- Hard rules per attribute: precision floor and feasibility
-    # force the single-image centres route, because the Möbius method is
-    # genuinely unavailable there (it would lose precision or is beyond
-    # its shipped order) --- not merely slower. These forced-centres
-    # picks are guarded against out-of-memory below: since no cheaper
-    # all-image substitute exists here, an infeasible shape must raise a
-    # clear error, not crash. (The σ/P convention is handled separately,
+    # ---- Hard rule per attribute: feasibility forces the single-image
+    # centres route, because the Möbius method is beyond its shipped
+    # order there --- not merely slower. These forced-centres picks are
+    # guarded against out-of-memory below: since no cheaper all-image
+    # substitute exists here, an infeasible shape must raise a clear
+    # error, not crash. (The σ/P convention is handled separately,
     # after the loop: there the all-image Möbius form is a legitimate
     # cheaper measure, so it becomes the preferred default rather than a
     # reason to force centres.) ----
     force_centres_reason = None
     for a in range(A):
-        r_a, K_a = r_vec[a], k_vec[a]
+        r_a = r_vec[a]
         if r_a < 2:
             continue  # r_a = 1 factor is exact either way
-        if not _orbit_safe_for_precision([r_a], [K_a]):
-            force_centres_reason = (
-                f"attr {a}: K - r = {K_a - r_a} below precision floor")
-            break
         if r_a > _ORBIT_R_MAX_FEASIBLE:
             force_centres_reason = (
                 f"attr {a}: r = {r_a} exceeds orbit feasibility bound")

@@ -16,7 +16,7 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
 %   Hard rules (in order):
 %     - nested attribute            -> centres (flat Möbius not applicable)
 %     - all r <= 1                  -> centres (Möbius degenerate)
-%     - precision floor / feasibility bound on any attribute forces the
+%     - feasibility bound on any attribute forces the
 %       single-image centres route, GUARDED: if its joint tuple set is
 %       infeasible to materialise it raises mpt:dispatch:singleImageInfeasible
 %       (no cheaper all-image substitute exists there).
@@ -152,18 +152,13 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         return;
     end
 
-    % ---- Hard rules per attribute: precision floor / feasibility force
-    % the single-image centres route (Möbius genuinely unavailable). ----
+    % ---- Hard rule per attribute: feasibility forces the single-image
+    % centres route (Möbius beyond its shipped order there). ----
     forceCentresReason = '';
     for a = 1:A
-        r_a = rVec(a); K_a = kVec(a);
+        r_a = rVec(a);
         if r_a < 2
             continue;
-        end
-        if ~internal.orbitSafeForPrecision(r_a, K_a)
-            forceCentresReason = sprintf( ...
-                'attr %d: K - r = %d below precision floor', a, K_a - r_a);
-            break;
         end
         if r_a > ORBIT_R_MAX_FEASIBLE
             forceCentresReason = sprintf( ...
@@ -266,7 +261,7 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
     for a = 1:A
-        r_a = rVec(a); K_a = kVec(a);
+        r_a = rVec(a);
         if r_a < 2
             continue;  % r_a <= 1: a plain kernel sum either way
         end

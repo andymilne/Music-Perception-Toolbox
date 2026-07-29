@@ -15,7 +15,7 @@
 %  the strictly faster route always -- it demands the model is never
 %  BADLY wrong: whenever it picks centres FOR COST REASONS, centres is
 %  within a modest factor of Möbius. Correctness-forced centres picks
-%  (precision floor, feasibility) are exempt from the speed contract.
+%  (feasibility) are exempt from the speed contract.
 %
 %  Twin of python tests/test_ma_eval_cost_model.py.
 

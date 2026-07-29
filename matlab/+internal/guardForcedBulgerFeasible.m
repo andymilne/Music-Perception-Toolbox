@@ -4,7 +4,7 @@ function guardForcedBulgerFeasible(K_x, K_y, r, reason)
 %   INTERNAL.GUARDFORCEDBULGERFEASIBLE(K_X, K_Y, R, REASON) raises
 %   mpt:dispatch:singleImageInfeasible when the single-image Bulger
 %   route is *forced* (the Möbius method is unavailable --- r above the
-%   shipped orbit order, or the K - r precision floor) and its
+%   shipped orbit order) and its
 %   tuple-pair kernel would be too large to materialise.
 %
 %   Bulger materialises a kernel whose size is the product of the two

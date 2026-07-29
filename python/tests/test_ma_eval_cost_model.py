@@ -285,8 +285,8 @@ def test_ma_cost_model_small_corner_may_choose_centres():
 
 # ---------------------------------------------------------------------
 # Inner-product side: the same single-image infeasibility guard applies
-# to the forced-Bulger paths (Möbius unavailable by precision floor or
-# feasibility bound, and the Bulger tuple-pair kernel too large).
+# to the forced-Bulger path (Möbius unavailable by the feasibility
+# bound, and the Bulger tuple-pair kernel too large).
 # ---------------------------------------------------------------------
 
 def _single_multiset_ip_select(K, r, is_rel=False, is_per=False, period=0.0, method="auto"):
@@ -312,12 +312,12 @@ def test_ip_raises_when_bulger_forced_by_feasibility_and_infeasible():
         _single_multiset_ip_select(K=15, r=9)
 
 
-def test_ip_raises_when_bulger_forced_by_precision_and_infeasible():
-    """The K-r precision floor forces Bulger at high tuple order; the
-    tuple-pair kernel is then infeasible, so auto-dispatch raises."""
-    from mpt._tensor.dispatch import SingleImageInfeasibleError
-    with pytest.raises(SingleImageInfeasibleError):
-        _single_multiset_ip_select(K=9, r=8)  # K - r = 1 < 2
+def test_ip_chooses_on_cost_at_small_collection_margin():
+    """A collection barely larger than the tuple size is no longer a
+    reason to refuse the Möbius method: accuracy is governed by
+    truncationSigmas, so the route is chosen on cost and no
+    infeasibility error is raised. At K = 9, r = 8 enumeration wins."""
+    assert _single_multiset_ip_select(K=9, r=8)[0] == "bulger"
 
 
 def test_ip_infeasible_bulger_honours_user_override():

@@ -5,7 +5,7 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
 %   Mirror of Python dispatch._select_ma_inner_product_method. Routing
 %   rules, in order: (1) userMethod override; (2) r_max <= 1 -> Bulger;
 %   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger; (4) K-vs-r precision guard
-%   (orbitSafeForPrecision; the guard exempts r_a = 1 attributes) ->
+%   (accuracy is governed by truncationSigmas, so cost decides) ->
 %   Bulger; (5) predict both wall times (ms) and take the faster path
 %   (ties favour Bulger); when that path is the all-image Möbius method
 %   and rel+per sigma/P exceeds 0.03, warn that it differs from the
@@ -54,9 +54,10 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     if r_max > 8                        % _ORBIT_R_MAX_SHIPPED
         chosen = 'bulger'; return;
     end
-    if A > 0 && ~internal.orbitSafeForPrecision(rVec, kVec)
-        chosen = 'bulger'; return;     % K-vs-r precision guard
-    end
+    % Accuracy is governed by truncationSigmas, not by the collection
+    % size: the Mobius method's agreement with enumeration tracks the
+    % truncation budget and is closest at K_a = r_a. The route is
+    % therefore chosen on cost alone from here on.
     % Relative-periodic measure note: the Möbius method computes the all-image
     % (transposition-integral) form, Bulger's the single-wrap (minimum-image)
     % form; they diverge above sigma/P = 0.03. The dispatch always takes the

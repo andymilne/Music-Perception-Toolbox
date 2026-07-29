@@ -129,8 +129,9 @@ s_pair2 = cosSimExpTens(p_x, w_x, p_y, w_y, sigma, r, false, false, 0, ...
 results{end+1,1} = 'dispatch.single multiset: r=2 small-n auto matches Bulger (1e-12)';
 results{end,2}   = abs(s_auto2 - s_pair2) < 1e-12;
 
-% --- K-vs-r margin too small (n_min - r < 2) -> Bulger ---
-% n=4, r=3 -> margin = 1 < 2 -> Bulger.
+% --- Collection barely larger than the tuple size: routed on cost ---
+% n=4, r=3. The two routes agree to within the accuracy truncationSigmas
+% asks for; a cosine has value scale 1, so the floor applies directly.
 p_x = [0; 100; 400; 700];
 w_x = ones(4, 1);
 p_y = p_x;
@@ -139,8 +140,8 @@ s_auto3 = cosSimExpTens(p_x, w_x, p_y, w_y, 50, 3, false, false, 0, ...
     'verbose', false);
 s_pair3 = cosSimExpTens(p_x, w_x, p_y, w_y, 50, 3, false, false, 0, ...
     'method', 'bulger', 'verbose', false);
-results{end+1,1} = 'dispatch.single multiset: K-r margin <2 auto agrees with Bulger (exact)';
-results{end,2}   = abs(s_auto3 - s_pair3) < 1e-12;
+results{end+1,1} = 'dispatch.single multiset: K-r margin <2 auto agrees with Bulger on the value scale';
+results{end,2}   = abs(s_auto3 - s_pair3) <= 10 * internal.truncationFloor([]);
 
 % --- Self-similarity is 1 in both modes ---
 rng(19, 'twister');

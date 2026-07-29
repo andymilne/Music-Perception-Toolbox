@@ -75,7 +75,6 @@ from .dispatch import (
     _resolve_list_list_mode,
     _select_ma_inner_product_method,
     # Orbit-table policy constants used by the Möbius-method router.
-    _ORBIT_K_MINUS_R_MIN,
     _ORBIT_R_MAX_SHIPPED,
     _ORBIT_SIGMA_OVER_P_THRESHOLD,
     _warn_rel_per_all_image,
@@ -260,10 +259,9 @@ def cos_sim_exp_tens(*args,
         spelling ``'normalise'`` is also accepted as an alias for the
         keyword name, and matching is case-insensitive on the value.
     cancellation_threshold : float, default 1e-12
-        When the Möbius method is selected and ``|<A,B>|`` falls below
-        this fraction of ``sqrt(<A,A><B,B>)``, fall back to Bulger's
-        method to avoid catastrophic Möbius alternating-sum
-        cancellation.
+        Accepted for backward compatibility; it does not affect the
+        result or the route. Accuracy is governed by
+        ``truncationSigmas``, and the method is chosen on cost.
     verbose : bool, default True
         Print progress.
 
@@ -1318,26 +1316,15 @@ def _cos_sim_exp_tens_ma(
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y, truncation_sigmas=truncation_sigmas,
         )
-        # Two layers of Möbius-method result validation, fall back on either.
-        # The per-entry worst_ratio diagnostic that previously gated
-        # this fallback (analogous to the single-multiset case) was found to fire
-        # spuriously for self-IP matrices: it reports per-(n,m) entry
-        # cancellation in the per-attribute Möbius alternating partition sums, but
-        # the cosine consumes only Σ_{n,m} P[n,m], where individual
-        # entries with bad ratios contribute negligibly. Empirically,
-        # at typical musical sigmas the diagnostic flagged ~100% of
-        # MA self-IPs while the values themselves matched Bulger's method
-        # to FP precision. The cross-cancellation guard plus the
-        # post-hoc IP corruption check below catch the residual real
-        # failure modes (small/sign-flipped cosines and non-finite
-        # IPs respectively).
-        denom_geo = np.sqrt(max(ip_xx * ip_yy, 0.0))
-        cross_cancellation = (
-            denom_geo > 0
-            and abs(ip_xy) < cancellation_threshold * denom_geo
-        )
-        ips_corrupted = _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)
-        if cross_cancellation or ips_corrupted:
+        # Post-hoc correctness check only. Accuracy is governed by
+        # truncationSigmas: the Möbius route's agreement with
+        # enumeration tracks the truncation budget, so a small cosine is
+        # a legitimate value rather than a symptom, and no route is
+        # diverted on the size of the result. What remains is the
+        # unambiguous-corruption test (non-finite inner product,
+        # negative Gram diagonal, or a cosine outside [-1, 1]), which
+        # signals a broken value rather than an inaccurate one.
+        if _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,
@@ -2627,10 +2614,9 @@ def _inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
                                 exp(-||centres_x[:, J] - centres_y[:, K]||^2
                                     / (4 sigma^2))
     by enumerating ordered r-tuples on each side. No Möbius
-    alternating sum is involved, so the result is exact (no
-    catastrophic cancellation) for any K_x, K_y >= r. This is a reference/direct implementation used for event
-    pairs where at least one event has K_eff - r below the
-    Möbius-method precision margin (`_ORBIT_K_MINUS_R_MIN` = 2).
+    alternating sum is involved, so the result is exact for any
+    K_x, K_y >= r. This is a reference/direct implementation, retained
+    as the enumerated comparison point for the Möbius route.
 
     NaN tolerance: NaN entries in ``p_x`` / ``w_x`` / ``p_y`` / ``w_y``
     are dropped per side before enumeration. If the dropped count

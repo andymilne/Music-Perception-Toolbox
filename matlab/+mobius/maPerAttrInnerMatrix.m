@@ -57,7 +57,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %
 %   - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
 %     this attribute iff its non-NaN value count K_eff satisfies
-%     K_eff - R >= _ORBIT_K_MINUS_R_MIN = 2 (the precision margin
+%     accuracy is governed by truncationSigmas (no size margin
 %     used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
 %     through the vectorised batched Möbius method with within-safe-group
 %     zero-padding. Pairs involving any unsafe event flow through the
@@ -146,16 +146,20 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
         return;
     end
 
-    % --- r >= 2 abs: hybrid safe/unsafe partition ---
-
-    K_MARGIN_MIN = 2;   % matches _ORBIT_K_MINUS_R_MIN
+    % --- r >= 2 abs: every event takes the batched Mobius route ---
 
     % Per-event K_eff (count of non-NaN values), per side.
     K_eff_x = sum(~isnan(Px) & ~isnan(Wx), 1);   % (1, Nx)
     K_eff_y = sum(~isnan(Py) & ~isnan(Wy), 1);   % (1, Ny)
 
-    safe_x_mask = (K_eff_x - r) >= K_MARGIN_MIN;
-    safe_y_mask = (K_eff_y - r) >= K_MARGIN_MIN;
+    % Accuracy is governed by truncationSigmas, not by the collection
+    % size, so no size-based partition is applied: every event takes the
+    % vectorised batched Mobius route, which is also the faster one.
+    % Events whose non-NaN value count falls below r contribute no
+    % r-tuples; zero-weight padding makes every orbit term containing a
+    % padded value vanish, so those entries come out as zero.
+    safe_x_mask = true(1, Nx);
+    safe_y_mask = true(1, Ny);
     safe_x_idx   = find(safe_x_mask);
     unsafe_x_idx = find(~safe_x_mask);
     safe_y_idx   = find(safe_y_mask);

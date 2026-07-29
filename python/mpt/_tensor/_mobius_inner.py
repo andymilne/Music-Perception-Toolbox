@@ -33,7 +33,6 @@ from .dispatch import (
     _compute_Q,
     _compute_Q_inner_blocks,
     _inner_r_vec,
-    _ORBIT_K_MINUS_R_MIN,
     _ORBIT_SIGMA_OVER_P_THRESHOLD,
 )
 
@@ -235,29 +234,19 @@ def _ma_per_attr_inner_matrix(
     - r = 1: direct kernel sum with NaN -> zero-weight padding (no
       Möbius decomposition, cancellation impossible).
 
-    - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
-      this attribute iff its non-NaN value count K_eff satisfies
-      ``K_eff - r >= _ORBIT_K_MINUS_R_MIN`` (= 2; the precision margin
-      used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
-      through the vectorised batched Möbius method with within-safe-group
-      zero-padding. Pairs involving any unsafe event flow through
-      :func:`_inner_product_direct_abs`, which is exact for any
-      K >= r (no Möbius alternating sum, so no cancellation).
+    - r >= 2 abs: every event takes the vectorised batched Möbius
+      method, with zero-weight padding for NaN entries. Accuracy is
+      governed by ``truncationSigmas`` rather than by how close K is to
+      r, so no size-based partition is applied.
 
     - r >= 2 rel: per-event-pair loop with zero-pad. Auto dispatch
       routes any rel group globally to Bulger's method; this path runs
-      only on explicit ``method='mobius'`` opt-in. Events with K_eff - r
-      below the precision margin in this niche regime may lose
-      precision in the Möbius relative-mode u-grid integration; users
-      wanting exact rel + ragged Möbius-method behaviour should either
-      filter events to K_eff >= r + 2 or use ``method='auto'`` (which
-      routes to Bulger's method).
+      only on explicit ``method='mobius'`` opt-in.
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case (minimum) cancellation ratio across the (N_x, N_y)
-    entries — a scalar in (0, 1]. Direct-enum entries always have
-    ratio 1.0; the worst ratio comes from the safe-Möbius submatrix.
-    If no safe pairs exist, the worst ratio is 1.0.
+    entries — a scalar in (0, 1]. If there are no pairs, the worst
+    ratio is 1.0.
 
     ``truncation_sigmas`` is honoured in every kernel-evaluation
     branch (r=1 abs, r>=2 abs safe, r>=2 abs unsafe via
@@ -407,14 +396,18 @@ def _ma_per_attr_inner_matrix(
 
     # --- r >= 2 abs: hybrid safe/unsafe partition ---
 
-    K_MARGIN_MIN = _ORBIT_K_MINUS_R_MIN
-
     # Per-event K_eff (count of non-NaN values), per side.
     K_eff_x = np.sum(~(np.isnan(Px) | np.isnan(Wx)), axis=0)   # (N_x,)
     K_eff_y = np.sum(~(np.isnan(Py) | np.isnan(Wy)), axis=0)   # (N_y,)
 
-    safe_x_mask = (K_eff_x - r) >= K_MARGIN_MIN
-    safe_y_mask = (K_eff_y - r) >= K_MARGIN_MIN
+    # Accuracy is governed by ``truncationSigmas``, not by the collection
+    # size, so no size-based partition is applied: every event takes the
+    # vectorised batched Möbius route, which is also the faster one.
+    # Events whose non-NaN value count falls below r contribute no
+    # r-tuples; zero-weight padding makes every orbit term containing a
+    # padded value vanish, so those entries come out as zero.
+    safe_x_mask = np.ones(N_x, dtype=bool)
+    safe_y_mask = np.ones(N_y, dtype=bool)
     safe_x_idx = np.where(safe_x_mask)[0]
     unsafe_x_idx = np.where(~safe_x_mask)[0]
     safe_y_idx = np.where(safe_y_mask)[0]

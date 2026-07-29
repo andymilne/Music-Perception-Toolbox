@@ -14,7 +14,7 @@ function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, 
 %   (no catastrophic cancellation) for any K_x, K_y >= R. This is
 %   the "unsafe" path of the MA per-attribute IP matrix, used for
 %   event pairs where at least one event has K_eff - R below the
-%   orbit precision margin (_ORBIT_K_MINUS_R_MIN = 2).
+%   enumerated comparison point for the Mobius route.
 %
 %   NaN tolerance: NaN entries in P_X / W_X / P_Y / W_Y are dropped
 %   per event before enumeration. If the dropped count leaves either

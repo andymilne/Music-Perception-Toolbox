@@ -735,8 +735,12 @@ if strcmp(chosen, 'mobius')
     % cosine is a legitimate value rather than a symptom, and no route is
     % diverted on the size of the result. What remains is the
     % unambiguous-corruption test: non-finite, negative auto-IP (a Gram
-    % diagonal sign flip), or |cosine| > 1.
-    corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+    % diagonal sign flip), or |cosine| > 1. postHocGuards off skips it:
+    % the check inspects a result already computed and, when it diverts,
+    % pays for Bulger's method on top of this one, so with it active the
+    % measured cost of the Mobius route is not the cost of choosing it.
+    corrupted = logical(mptDefaults('postHocGuards')) ...
+                && localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
     %
     % A third layer once gated this fallback on a per-node cancellation
     % ratio (the minimum of |sum|/max(|term|) across the three
@@ -2023,8 +2027,13 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 
         % Post-hoc correctness check only (mirrors single multiset path);
         % accuracy is governed by truncationSigmas, so no route is
-        % diverted on the size of the result.
-        corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+        % diverted on the size of the result. postHocGuards off skips it:
+        % the check inspects a result already computed and, when it
+        % diverts, pays for Bulger's method on top of this one, so with it
+        % active the measured cost of the Mobius route is not the cost of
+        % choosing it.
+        corrupted = logical(mptDefaults('postHocGuards')) ...
+                    && localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
 
         if corrupted
             chosen = 'bulger';

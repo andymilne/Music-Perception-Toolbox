@@ -76,6 +76,7 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
     "kernel_precision": "double",
     "show_hints": True,
     "kernel_chunk_bytes": "auto",
+    "post_hoc_guards": True,
 }
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
@@ -420,6 +421,12 @@ def _validate_one(name: str, value: Any) -> Any:
         if not isinstance(value, bool):
             raise ValueError(
                 f"'show_hints' must be True or False (got {value!r})"
+            )
+        return value
+    if name == "post_hoc_guards":
+        if not isinstance(value, bool):
+            raise ValueError(
+                f"'post_hoc_guards' must be True or False (got {value!r})"
             )
         return value
     if name == "kernel_chunk_bytes":

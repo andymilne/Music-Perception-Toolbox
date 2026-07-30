@@ -314,6 +314,7 @@ def test_reset_defaults():
         "kernel_precision": "double",
         "show_hints": True,
         "kernel_chunk_bytes": "auto",
+        "post_hoc_guards": True,
     }
 
 

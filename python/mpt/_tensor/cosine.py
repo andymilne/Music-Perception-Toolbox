@@ -1324,7 +1324,14 @@ def _cos_sim_exp_tens_ma(
         # unambiguous-corruption test (non-finite inner product,
         # negative Gram diagonal, or a cosine outside [-1, 1]), which
         # signals a broken value rather than an inaccurate one.
-        if _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
+        #
+        # ``post_hoc_guards`` off skips it: the check inspects a result
+        # already computed and, when it diverts, pays for Bulger's method
+        # on top of this one, so with it active the measured cost of the
+        # Möbius route is not the cost of choosing it.
+        from .._defaults import get_default as _gd_guard
+        if (_gd_guard("post_hoc_guards")
+                and _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)):
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,

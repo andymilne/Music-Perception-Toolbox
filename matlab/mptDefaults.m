@@ -2,7 +2,12 @@ function varargout = mptDefaults(varargin)
 %MPTDEFAULTS  Get / set / reset toolbox-wide default options.
 %
 %   Centralises the user-tunable toolbox defaults (currently:
-%   truncationSigmas, kernelPrecision, showHints). showHints gates
+%   truncationSigmas, kernelPrecision, showHints, postHocGuards).
+%   postHocGuards (default true) enables the checks that inspect a
+%   route's output after computing it and may then recompute by another
+%   route. Switch it off for calibration runs: with it on, the measured
+%   cost of a route is not the cost of choosing it, because a diverting
+%   check pays for both routes. showHints gates
 %   one-time informational tips. Per-call name-value arguments always
 %   override the defaults set here.
 %
@@ -172,7 +177,8 @@ function S = factoryDefaults()
         'truncationSigmas', 6, ...
         'kernelPrecision', 'double', ...
         'showHints', true, ...
-        'kernelChunkBytes', 'auto' ...
+        'kernelChunkBytes', 'auto', ...
+        'postHocGuards', true ...
     );
 end
 
@@ -250,6 +256,12 @@ function S = setOne(S, name, value)
                     '''showHints'' must be true or false.');
             end
             S.showHints = value;
+        case 'posthocguards'
+            if ~(islogical(value) && isscalar(value))
+                error('mptDefaults:badValue', ...
+                    '''postHocGuards'' must be true or false.');
+            end
+            S.postHocGuards = value;
         case 'kernelchunkbytes'
             if ischar(value) || isstring(value)
                 v = lower(char(value));

@@ -279,13 +279,14 @@ def orbit_guard_scope(truncation_sigmas):
     levels and event pairs reports a single message rather than one per
     block.
     """
-    from .._defaults import truncation_floor
+    from .._defaults import truncation_floor, get_default
     prev = getattr(_ORBIT_GUARD, "state", None)
     _ORBIT_GUARD.state = {
         "floor": float(truncation_floor(truncation_sigmas)),
         "sigmas": truncation_sigmas,
         "warned_cost": False,
         "warned_accuracy": False,
+        "enabled": bool(get_default("post_hoc_guards")),
     }
     try:
         yield
@@ -349,6 +350,14 @@ def _combine_pair(M, r, sym, use_orbit):
         vals, bound = _combine_orbit(M, r, return_bound=True)
         budget = _orbit_budget()
         if budget is None:
+            return vals
+        if not budget["enabled"]:
+            # ``post_hoc_guards`` is off. The check below inspects a result
+            # that has already been computed and, when it diverts, pays for
+            # the enumerated route on top of this one --- so with it active
+            # the measured cost of the Möbius route is not the cost of
+            # choosing it. Calibration runs switch it off so the two routes
+            # can be timed as the alternatives they are.
             return vals
         # The bound and the truncation floor are both absolute quantities on
         # the value scale, which is the single error measure the toolbox

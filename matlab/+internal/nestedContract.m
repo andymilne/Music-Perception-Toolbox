@@ -1002,7 +1002,8 @@ function out = orbitGuard(cmd, arg)
     switch cmd
         case 'begin'
             state = struct('floor', arg, 'sigmas', arg, ...
-                           'warnedCost', false, 'warnedAcc', false);
+                           'warnedCost', false, 'warnedAcc', false, ...
+                           'enabled', logical(mptDefaults('postHocGuards')));
             out = [];
         case 'end'
             state = [];
@@ -1059,6 +1060,15 @@ function v = combinePair(M, r, sym, useOrbit)
         [v, bound] = combineOrbit(M, r);
         budget = orbitGuard('get', []);
         if isempty(budget); return; end
+        if ~budget.enabled
+            % postHocGuards is off. The check below inspects a result that
+            % has already been computed and, when it diverts, pays for the
+            % enumerated route on top of this one -- so with it active the
+            % measured cost of the Mobius route is not the cost of choosing
+            % it. Calibration runs switch it off so the two routes can be
+            % timed as the alternatives they are.
+            return;
+        end
         % The bound and the truncation floor are both absolute quantities on
         % the value scale, which is the single error measure the toolbox
         % judges accuracy by. Comparing them directly is the whole test; a

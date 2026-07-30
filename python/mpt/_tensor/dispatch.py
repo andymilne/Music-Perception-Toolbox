@@ -133,14 +133,31 @@ def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
         True if the IPs are unsuitable for use and the caller should
         fall back to Bulger's method.
     """
+    return _impossible_value_reason(ip_xy, ip_xx, ip_yy) is not None
+
+
+def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
+    """Describe why these inner products cannot be correct, or None.
+
+    Returns a phrase naming the specific impossibility, for the warning
+    the caller raises before rerouting. The three conditions are
+    mathematically impossible rather than merely inaccurate, so the
+    message says a defect occurred, not that accuracy was lost.
+    """
     if not (np.isfinite(ip_xy) and np.isfinite(ip_xx) and np.isfinite(ip_yy)):
-        return True
+        return (f"an inner product is not finite "
+                f"(<X,Y> = {ip_xy!r}, <X,X> = {ip_xx!r}, "
+                f"<Y,Y> = {ip_yy!r})")
     if ip_xx < 0 or ip_yy < 0:
-        return True
+        neg = "<X,X>" if ip_xx < 0 else "<Y,Y>"
+        val = ip_xx if ip_xx < 0 else ip_yy
+        return (f"{neg} = {val:.3e} is negative, and a self inner "
+                f"product cannot be")
     denom = np.sqrt(ip_xx * ip_yy)
     if denom > 0 and abs(ip_xy) > 1.000001 * denom:
-        return True
-    return False
+        return (f"the cosine similarity is {ip_xy / denom:.6f}, outside "
+                f"[-1, 1]")
+    return None
 
 
 

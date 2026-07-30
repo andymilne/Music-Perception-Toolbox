@@ -452,13 +452,20 @@ def _combine_orbit(M, r, return_bound=False):
     # scale.
     out = vals / fr
     if return_bound:
-        # Adding the orbit terms carries a forward error bounded by eps
-        # times the sum of their magnitudes. Bounding that sum by
-        # |Omega_r| * max|term| instead --- assuming every term is as
-        # large as the largest --- over-states it severalfold, and the
-        # over-statement grows with r because the terms decay. Summing
-        # the magnitudes directly costs one extra accumulation in the
-        # orbit loop and keeps the derivation intact.
+        # Estimated rounding error of the alternating sum, as eps times
+        # the sum of the terms' magnitudes.
+        #
+        # This is NOT a guaranteed upper limit. Sequential summation of
+        # n terms admits (n-1) * eps * sum|term| in the worst case, and
+        # both this estimate and the |Omega_r| * eps * max|term| it
+        # replaces sit below that. Each is a heuristic; this one was
+        # measured against enumeration over four weight profiles and
+        # r = 3..7 and came out 2x to 44x above the true error, where
+        # its predecessor ran 5x to 1100x above. Preferred because it is
+        # the better-validated of the two, not because it is provably
+        # safe. Widening to the guaranteed limit would refuse the Mobius
+        # route almost everywhere; see tests/precision_audit/
+        # 17_nested_bound_looseness.py.
         bound = (np.finfo(float).eps * float(np.max(mass_sum))
                  / fr) if mass_sum.size else 0.0
         return out, bound

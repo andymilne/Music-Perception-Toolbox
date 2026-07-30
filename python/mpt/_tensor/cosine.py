@@ -1329,8 +1329,17 @@ def _cos_sim_exp_tens_ma(
         # on top of this one, so with it active the measured cost of the
         # Möbius route is not the cost of choosing it.
         from .._defaults import get_default as _gd_guard
-        if (_gd_guard("post_hoc_guards")
-                and _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy)):
+        from .dispatch import _impossible_value_reason
+        _bad = (_impossible_value_reason(ip_xy, ip_xx, ip_yy)
+                if _gd_guard("post_hoc_guards") else None)
+        if _bad is not None:
+            warnings.warn(
+                f"The Mobius route returned a value that cannot be "
+                f"correct: {_bad}. This is a defect, not a loss of "
+                f"accuracy, so it is not something truncationSigmas "
+                f"governs. Enumeration was used instead; please report "
+                f"the inputs.",
+                RuntimeWarning, stacklevel=2)
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,

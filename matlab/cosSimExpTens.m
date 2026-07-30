@@ -739,8 +739,18 @@ if strcmp(chosen, 'mobius')
     % the check inspects a result already computed and, when it diverts,
     % pays for Bulger's method on top of this one, so with it active the
     % measured cost of the Mobius route is not the cost of choosing it.
-    corrupted = logical(mptDefaults('postHocGuards')) ...
-                && localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+    corrupted = false; badReason = '';
+    if logical(mptDefaults('postHocGuards'))
+        [corrupted, badReason] = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+    end
+    if corrupted
+        warning('mpt:cosSimExpTens:impossibleValue', ...
+            ['The Mobius route returned a value that cannot be ' ...
+             'correct: %s. This is a defect, not a loss of accuracy, ' ...
+             'so it is not something truncationSigmas governs. ' ...
+             'Enumeration was used instead; please report the ' ...
+             'inputs.'], badReason);
+    end
     %
     % A third layer once gated this fallback on a per-node cancellation
     % ratio (the minimum of |sum|/max(|term|) across the three
@@ -1773,32 +1783,48 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimSingleMultisetOrbit(dens_x, ...
 end
 
 
-function corrupted = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
-%LOCALORBITIPSCORRUPTED  Cheap post-hoc sanity check on Möbius-method IPs.
+function [corrupted, reason] = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
+%LOCALORBITIPSCORRUPTED  Check for inner products that cannot be correct.
 %
 %   Triggers on:
 %     - non-finite IP (NaN or Inf in any of the three),
-%     - negative auto-IP (Gram diagonal must be >= 0; sign flip is
-%       unambiguous corruption),
+%     - negative auto-IP (a self inner product cannot be negative),
 %     - cosine magnitude > 1 + 1e-6 (impossible for a genuine cosine).
 %
-%   Catches the catastrophic-overflow regime (sigma -> 0 with low K).
-%   Does NOT catch the quieter sharp-Gaussian regime where IPs are
-%   finite-looking but ~1e-4 to 1e-2 wrong; the cancellation-ratio
-%   guard handles that.
+%   All three are mathematically impossible rather than merely
+%   inaccurate, so they signal a defect and not a loss of accuracy.
+%   Accuracy is governed by truncationSigmas, and this check does NOT
+%   test it: a finite, plausible, but insufficiently accurate result
+%   passes here.
+%
+%   REASON names the specific impossibility, for the warning the caller
+%   raises before rerouting to enumeration.
 
     corrupted = false;
+    reason = '';
     if ~all(isfinite([ip_xy, ip_xx, ip_yy]))
         corrupted = true;
+        reason = sprintf(['an inner product is not finite ' ...
+                          '(<X,Y> = %g, <X,X> = %g, <Y,Y> = %g)'], ...
+                         ip_xy, ip_xx, ip_yy);
         return;
     end
     if ip_xx < 0 || ip_yy < 0
         corrupted = true;
+        if ip_xx < 0
+            nm = '<X,X>'; vl = ip_xx;
+        else
+            nm = '<Y,Y>'; vl = ip_yy;
+        end
+        reason = sprintf(['%s = %.3e is negative, and a self inner ' ...
+                          'product cannot be'], nm, vl);
         return;
     end
     denom = sqrt(ip_xx * ip_yy);
     if denom > 0 && abs(ip_xy) > 1.000001 * denom
         corrupted = true;
+        reason = sprintf(['the cosine similarity is %.6f, outside ' ...
+                          '[-1, 1]'], ip_xy / denom);
     end
 end
 
@@ -2032,8 +2058,19 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         % diverts, pays for Bulger's method on top of this one, so with it
         % active the measured cost of the Mobius route is not the cost of
         % choosing it.
-        corrupted = logical(mptDefaults('postHocGuards')) ...
-                    && localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy);
+        corrupted = false; badReason = '';
+        if logical(mptDefaults('postHocGuards'))
+            [corrupted, badReason] = localOrbitIPsCorrupted( ...
+                ip_xy, ip_xx, ip_yy);
+        end
+        if corrupted
+            warning('mpt:cosSimExpTens:impossibleValue', ...
+                ['The Mobius route returned a value that cannot be ' ...
+                 'correct: %s. This is a defect, not a loss of ' ...
+                 'accuracy, so it is not something truncationSigmas ' ...
+                 'governs. Enumeration was used instead; please ' ...
+                 'report the inputs.'], badReason);
+        end
 
         if corrupted
             chosen = 'bulger';

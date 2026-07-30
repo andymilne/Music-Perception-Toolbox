@@ -1,27 +1,48 @@
 %% bench_ip_unit_cost.m
-%  Diagnostic for cosSimExpTens auto-dispatch on this machine, using the
-%  EDO-approximation workload (JI reference vs n-EDO, r = 2, rel-per).
+%  Diagnostic for cosSimExpTens on the EDO-approximation workload: a
+%  five-partial just-intonation reference against an n-tone equal
+%  division, r = 2, relative and periodic.
 %
-%  Answers two questions:
+%  Answers three questions.
 %
 %  1. Do the two routes agree to within the accuracy truncationSigmas
-%     states? An explicit 'method','mobius' call on this workload
-%     returns the orbit-path value, which differs from the 'bulger'
-%     value by a small fraction of the truncation floor. A cosine has
-%     value scale 1, so the floor applies to the difference directly.
-%     A difference ABOVE the floor warrants a report; exact equality is
-%     unexpected on this workload and also warrants one.
+%     states? An explicit 'method','mobius' call returns the Möbius
+%     value, which differs from the 'bulger' value by a small fraction
+%     of the truncation floor. A cosine has value scale 1, so the floor
+%     applies to the difference directly. A difference ABOVE the floor
+%     warrants a report; exact equality is unexpected on this workload
+%     and also warrants one.
 %
-%  2. What is the per-op cost of a translation-grid orbit kernel op
-%     relative to a pairwise kernel op on this machine? This is the
-%     ORBIT_GRID_OP_UNIT_COST constant in localOrbitIPGridFactors
-%     (cosSimExpTens.m). The shipped value is calibrated on the Python
-%     implementation; the ratio is implementation-dependent, so if
-%     'auto' routes to the Möbius method where the pairwise path is
-%     faster (or vice versa), this measurement gives the corrected
-%     value.
+%  2. What is the per-operation cost of a translation-grid kernel
+%     operation relative to a pairwise kernel operation on this
+%     machine? This is ORBIT_GRID_OP_UNIT_COST in
+%     localOrbitIPGridFactors (cosSimExpTens.m).
 %
-%  Run from anywhere with the toolbox on the path. Takes ~1 minute.
+%  3. Does the Möbius side's operation count have the right FORM? The
+%     count charged to the translation-grid route is
+%     B_r * N_u * (K_x*n + K_x^2 + n^2), quadratic in the second value
+%     count. If the measured time grows far more slowly than that count,
+%     the exponent is wrong, and no choice of unit-cost constant can
+%     repair a count of the wrong form. Section 2 measures the Möbius
+%     route alone across a wide range of n and fits the growth.
+%
+%  Section 1 runs both routes and so is limited to small n: Bulger's
+%  tuple-pair kernel is n_J*n_K entries, which at n = 200 is 7.9e8
+%  doubles (6.3 GB) and at n = 400 is 1.3e10 (100 GB).
+%
+%  Section 2 runs the Möbius route only. Its working set is far smaller,
+%  but the translation-grid branch is not bounded by kernelChunkBytes
+%  here (that chunking is over the event count, which is 1 on this
+%  workload), so the largest n may still exhaust memory on some
+%  machines. Each n is therefore attempted separately and the sweep
+%  stops at the first failure, keeping the points already measured.
+%
+%  Run from anywhere with the toolbox on the path. Takes ~2 minutes.
+
+prevHints = mptDefaults('showHints');
+mptDefaults('showHints', false);
+
+try
 
 refPitches = [0, log2(3), log2(5), log2(7), log2(11)] * 1200;
 sigma  = 6;
@@ -30,61 +51,87 @@ isRel  = 1;
 isPer  = 1;
 period = 1200;
 
-nList  = [40, 60, 80, 100];
-nReps  = 3;   %#ok<NASGU> superseded by internal.timeRepeated
-
 K_x = numel(refPitches);
 N_u = internal.autoNtauDefault(period, sigma);
 B_r = 2;   % Bell number, r = 2
 
+% Falling factorial K!/(K-k)!, the permutation-side tuple count.
 ff = @(K, k) prod(K:-1:(K - k + 1)) * (K >= k);
+
+% Operation counts charged to the two routes.
+pwOpsOf  = @(n) ff(K_x, r) * ff(n, r) + ff(K_x, r)^2 + ff(n, r)^2;
+orbSqOf  = @(n) B_r * N_u * (K_x * n + K_x^2 + n^2);   % shipped form
+orbLinOf = @(n) B_r * N_u * (K_x + n);                 % linear alternative
 
 fprintf('bench_ip_unit_cost: sigma = %g, N_u = %d, K_x = %d\n\n', ...
     sigma, N_u, K_x);
-fprintf('%6s %12s %12s %14s %12s %12s %8s\n', ...
-    'n-EDO', 't_bulger(s)', 't_mobius(s)', '|s_mob-s_bul|', ...
+
+%% ---- Section 1: both routes, agreement and relative per-operation cost ----
+
+nPair = [40, 60, 80, 100];
+
+fprintf('Section 1 -- both routes (n limited by Bulger memory)\n');
+fprintf('%6s %13s %13s %14s %11s %11s %9s\n', ...
+    'n-EDO', 't_bulger(ms)', 't_mobius(ms)', '|s_mob-s_bul|', ...
     'c_pw(ns)', 'c_orb(ns)', 'ratio');
 
-ratios   = zeros(1, numel(nList));
-diffs    = zeros(1, numel(nList));
-for i = 1:numel(nList)
-    n = nList(i);
+ratios = zeros(1, numel(nPair));
+diffs  = zeros(1, numel(nPair));
+for i = 1:numel(nPair)
+    n = nPair(i);
     edoPitches = (0:n-1) * (1200 / n);
 
-    % Warm-up (both paths) so caches and orbit tables are hot.
-    sBul = cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'bulger');
-    sMob = cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'mobius');
+    call = @(m) cosSimExpTens(refPitches, [], edoPitches, [], ...
+        sigma, r, isRel, isPer, period, 'method', m);
 
-    % Timing policy: internal.timeRepeated discards the first few runs,
-    % then takes the median of several more. Timings do not settle until
-    % a few calls have been made.
-    tBul = internal.timeRepeated(@() cosSimExpTens( ...
-        refPitches, [], edoPitches, [], sigma, r, isRel, isPer, ...
-        period, 'method', 'bulger'));
-    tMob = internal.timeRepeated(@() cosSimExpTens( ...
-        refPitches, [], edoPitches, [], sigma, r, isRel, isPer, ...
-        period, 'method', 'mobius'));
-    sBul = cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'bulger');
-    sMob = cosSimExpTens(refPitches, [], edoPitches, [], ...
-        sigma, r, isRel, isPer, period, 'method', 'mobius');
+    sBul = call('bulger');
+    sMob = call('mobius');
+    tBul = internal.timeRepeated(@() call('bulger'));
+    tMob = internal.timeRepeated(@() call('mobius'));
 
-    % Op counts (shared unit: one kernel evaluation).
-    P_x = ff(K_x, r);
-    P_y = ff(n, r);
-    pwOps  = P_x * P_y + P_x^2 + P_y^2;
-    orbOps = B_r * N_u * (K_x * n + K_x^2 + n^2);
-
-    c_pw  = tBul / pwOps  * 1e9;
-    c_orb = tMob / orbOps * 1e9;
+    c_pw  = tBul / pwOpsOf(n) * 1e9;
+    c_orb = tMob / orbSqOf(n) * 1e9;
     ratios(i) = c_orb / c_pw;
     diffs(i)  = abs(sMob - sBul);
 
-    fprintf('%6d %12.3f %12.3f %14.3e %12.2f %12.2f %8.2f\n', ...
-        n, tBul, tMob, diffs(i), c_pw, c_orb, ratios(i));
+    fprintf('%6d %13.3f %13.3f %14.3e %11.3f %11.4f %9.4f\n', ...
+        n, tBul * 1e3, tMob * 1e3, diffs(i), c_pw, c_orb, ratios(i));
 end
+
+%% ---- Section 2: Möbius route alone, does the operation count scale? ----
+
+nSolo = [40, 60, 80, 100, 150, 200, 300, 400, 600, 800];
+
+fprintf('\nSection 2 -- Mobius route alone\n');
+fprintf('%6s %13s %16s %16s\n', ...
+    'n-EDO', 't_mobius(ms)', 'ops (N_u K^2)', 'ops (N_u K)');
+
+tSolo  = [];
+opsSq  = [];
+opsLin = [];
+nDone  = [];
+for i = 1:numel(nSolo)
+    n = nSolo(i);
+    edoPitches = (0:n-1) * (1200 / n);
+    call = @() cosSimExpTens(refPitches, [], edoPitches, [], ...
+        sigma, r, isRel, isPer, period, 'method', 'mobius');
+    try
+        call();                                  % warm and prove feasible
+        t = internal.timeRepeated(call);
+    catch ME
+        fprintf(['%6d  stopped: %s\n' ...
+                 '        The sweep ends here; the fit below uses the ' ...
+                 '%d points already measured.\n'], n, ME.message, numel(nDone));
+        break;
+    end
+    nDone(end+1)  = n;      %#ok<SAGROW>
+    tSolo(end+1)  = t;      %#ok<SAGROW>
+    opsSq(end+1)  = orbSqOf(n);   %#ok<SAGROW>
+    opsLin(end+1) = orbLinOf(n);  %#ok<SAGROW>
+    fprintf('%6d %13.3f %16.4g %16.4g\n', n, t * 1e3, opsSq(end), opsLin(end));
+end
+
+%% ---- Verdicts ----
 
 fprintf('\n--- Verdicts ---\n');
 floorv = internal.truncationFloor([]);
@@ -92,9 +139,8 @@ if max(diffs) == 0
     fprintf(['[1] mobius output is EXACTLY equal to bulger output.\n' ...
              '    The two routes are numerically distinct on this\n' ...
              '    workload, so exact equality means one of them was not\n' ...
-             '    exercised. Report this: the unit-cost measurement\n' ...
-             '    below is meaningless if both timings ran the same\n' ...
-             '    path.\n']);
+             '    exercised. Report this: the measurements below are\n' ...
+             '    meaningless if both timings ran the same path.\n']);
 elseif max(diffs) > floorv
     fprintf(['[1] mobius and bulger outputs differ by ~%.1e, ABOVE the\n' ...
              '    truncation floor %.1e. The routes should agree to\n' ...
@@ -104,10 +150,92 @@ else
     fprintf(['[1] mobius and bulger outputs differ by ~%.1e, within the\n' ...
              '    truncation floor %.1e: both routes are being used and\n' ...
              '    agree to the stated accuracy.\n'], max(diffs), floorv);
-    fprintf(['[2] Measured per-op unit-cost ratio (median across n):\n' ...
-             '    ORBIT_GRID_OP_UNIT_COST = %.1f\n' ...
-             '    (shipped value 1.6, calibrated on the Python\n' ...
-             '    implementation). If the measured value differs\n' ...
-             '    substantially, set it in localOrbitIPGridFactors in\n' ...
-             '    cosSimExpTens.m.\n'], median(ratios));
+
+    % Reported across n rather than as a single median. A genuine
+    % per-operation constant is flat in n; a ratio that declines
+    % monotonically means the count it divides grows faster than the
+    % work does, which no constant can fix.
+    fprintf('[2] Measured per-operation cost ratio across n:\n    ');
+    fprintf('%.4f ', ratios);
+    fprintf('\n');
+    if numel(ratios) > 1 && all(diff(ratios) < 0)
+        fprintf(['    The ratio DECLINES monotonically (%.4f to %.4f).\n' ...
+                 '    A per-operation constant would be flat, so this is\n' ...
+                 '    evidence that the Mobius operation count grows\n' ...
+                 '    faster than the measured work. See verdict [3]: a\n' ...
+                 '    single constant cannot repair a count of the wrong\n' ...
+                 '    form, so ORBIT_GRID_OP_UNIT_COST should not be\n' ...
+                 '    reset from these numbers.\n'], ratios(1), ratios(end));
+    else
+        fprintf(['    The ratio is not monotone in n. Median %.4f is a\n' ...
+                 '    usable value for ORBIT_GRID_OP_UNIT_COST in\n' ...
+                 '    localOrbitIPGridFactors (cosSimExpTens.m); the\n' ...
+                 '    shipped value is 1.6.\n'], median(ratios));
+    end
+end
+
+if numel(nDone) < 4
+    fprintf(['[3] Only %d Mobius points were measured; at least 4 are\n' ...
+             '    needed to fit the growth. Reduce the top of nSolo and\n' ...
+             '    re-run.\n'], numel(nDone));
+else
+    % A count of the right form gives a slope near 1 when the measured
+    % time is regressed on it in logs; a count whose exponent in the
+    % value count is too high gives a slope well below 1.
+    slopeSq  = localLogSlope(opsSq,  tSolo);
+    slopeLin = localLogSlope(opsLin, tSolo);
+    slopeN   = localLogSlope(nDone,  tSolo);
+
+    % Setup plus per-operation cost under the shipped count, by least
+    % squares, with the count in millions to keep the two columns
+    % comparable in scale. The setup share at the largest n says how
+    % much of that reading is fixed overhead rather than growing work.
+    A = [ones(numel(nDone), 1), opsSq(:) / 1e6];
+    coef = A \ tSolo(:);
+    setupMs   = coef(1) * 1e3;
+    perMopMs  = coef(2) * 1e3;
+    setupShare = 100 * coef(1) / tSolo(end);
+
+    fprintf(['[3] Mobius route growth, n = %d to %d (%.0fx in n):\n' ...
+             '    measured time            %.3f ms -> %.3f ms  (%.1fx)\n' ...
+             '    count B_r N_u (.. + n^2) rises %.0fx, log-log slope %.3f\n' ...
+             '    count B_r N_u (K_x + n)  rises %.0fx, log-log slope %.3f\n' ...
+             '    time against n directly, log-log slope %.3f\n'], ...
+        nDone(1), nDone(end), nDone(end) / nDone(1), ...
+        tSolo(1) * 1e3, tSolo(end) * 1e3, tSolo(end) / tSolo(1), ...
+        opsSq(end) / opsSq(1), slopeSq, ...
+        opsLin(end) / opsLin(1), slopeLin, slopeN);
+    fprintf(['    Least squares on the shipped count: setup %.3f ms plus\n' ...
+             '    %.4f ms per million operations; setup is %.0f%% of the\n' ...
+             '    reading at n = %d.\n'], ...
+        setupMs, perMopMs, setupShare, nDone(end));
+    if slopeSq < 0.6
+        fprintf(['    A slope near 1 is what a count of the right form\n' ...
+                 '    gives. %.3f means the n^2 term charges work the\n' ...
+                 '    route does not do, so the exponent in the value\n' ...
+                 '    count, not the unit-cost constant, is what needs\n' ...
+                 '    changing.\n'], slopeSq);
+    elseif slopeSq > 0.85
+        fprintf(['    A slope of %.3f is consistent with the shipped\n' ...
+                 '    count being the right form, leaving only the\n' ...
+                 '    constant to set.\n'], slopeSq);
+    else
+        fprintf(['    A slope of %.3f sits between the two readings;\n' ...
+                 '    extend nSolo before drawing a conclusion.\n'], slopeSq);
+    end
+end
+
+catch benchErr
+    mptDefaults('showHints', prevHints);
+    rethrow(benchErr);
+end
+mptDefaults('showHints', prevHints);
+
+
+function s = localLogSlope(x, y)
+%LOCALLOGSLOPE  Slope of log(y) regressed on log(x), least squares.
+    lx = log(double(x(:)));
+    ly = log(double(y(:)));
+    p = [ones(numel(lx), 1), lx] \ ly;
+    s = p(2);
 end

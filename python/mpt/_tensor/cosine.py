@@ -1203,8 +1203,14 @@ def _cos_sim_exp_tens_ma(
     # Per-attribute slab dimension K_a (the kernel slab size; events
     # within an attribute may have lower K_eff via NaN padding, which
     # the Möbius-method wrapper handles via per-event safe/unsafe partition).
+    # One vector per density: the two need not carry the same number of
+    # values in an attribute, and a chord against a scale, or a reference
+    # tuning against an equal division, is the ordinary case.
     k_vec = np.array(
         [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
+    ) if A > 0 else np.zeros(0, dtype=np.intp)
+    k_vec_y = np.array(
+        [int(M.shape[0]) for M in dens_y.p_attr], dtype=np.intp,
     ) if A > 0 else np.zeros(0, dtype=np.intp)
 
     # Per-attribute vectors for the Möbius-side cost model: which
@@ -1250,7 +1256,7 @@ def _cos_sim_exp_tens_ma(
     # (their wrap axis has no meaning here).
     wrap_vec_x = list(getattr(dens_x, 'wrap', ['full-image'] * A))
     chosen = _select_ma_inner_product_method(
-        r_vec=r_vec, k_vec=k_vec, A=A,
+        r_vec=r_vec, k_vec=k_vec, k_vec_y=k_vec_y, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
         any_per=any_per,
         any_rel_nonper=any_rel_nonper,

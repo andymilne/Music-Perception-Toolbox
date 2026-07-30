@@ -2,8 +2,8 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
                                         isPer, period)
 %MARELATTRPREFERSCENTRES  Centres route vs translation grid, per attribute.
 %
-%   Mirror of Python cosine._ma_rel_attr_prefers_centres. True when a
-%   relative attribute's (event_X, event_Y) inner matrices should use
+%   Mirror of Python _mobius_inner._ma_rel_attr_prefers_centres. True
+%   when a relative attribute's (event_X, event_Y) inner matrices should use
 %   the pairwise closed form over materialised tuple-centres
 %   (MOBIUS.CLOSEDFORMATTRMATRIXFROM) rather than the batched
 %   translation-grid contraction in MOBIUS.MAPERATTRINNERMATRIX.
@@ -28,21 +28,39 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
 %   closed form is exact for the non-periodic reading and always
 %   measure-safe.
 %
+%   The two densities need not carry the same number of values in the
+%   attribute, and a chord against a scale, or a reference tuning
+%   against an equal division, is the ordinary case. The centres
+%   estimate therefore spans all three matrices the route computes --
+%   the cross matrix and one self matrix per density -- reading each
+%   density's own value count; the grid estimate reads Px's count
+%   alone, for the reasons recorded below at gOp.
+%
 %   Cost-model constants match the Python calibration exactly so that
-%   both languages route the same (K, r, sigma, span, isPer) cells to
-%   the same path (route parity across the two implementations). See
-%   Python cosine._CENTRES_NS_BASE etc. for the calibration notes; the
-%   fit was measured on a 168-cell Python sweep spanning
-%   r_a in {2, 3, 4}, K in {5..80}, sigma in {5, 10, 15, 20, 25, 30},
-%   span in {1200, 2400, 3000, 3600, 4800}, and both periodic modes.
+%   both languages route the same (K_x, K_y, r, sigma, span, isPer)
+%   cells to the same path (route parity across the two
+%   implementations). See Python _mobius_inner._CENTRES_NS_BASE etc.
+%   for the calibration notes; the fit was measured on a 168-cell
+%   Python sweep spanning r_a in {2, 3, 4}, K in {5..80},
+%   sigma in {5, 10, 15, 20, 25, 30}, span in {1200, 2400, 3000, 3600,
+%   4800}, and both periodic modes. Every cell of that sweep gave both
+%   densities the same value count, where the three matrices carry
+%   3*M^2 elements between them; the fit was performed against an
+%   element count of M^2, so the fitted figures (45, 15, 10 ns) each
+%   absorb that factor of three. They appear below as those figures
+%   divided by three, which leaves every equal-value-count cell
+%   predicting exactly what it predicted when the fit was made.
+%   Writing the division out keeps the fitted figures visible and gives
+%   both languages the identical double.
 
     SIGMA_OVER_P_THRESHOLD = 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
 
     % Cost-model constants (nanoseconds). Cross-language route parity
-    % requires these to match Python cosine._CENTRES_NS_*, _GRID_NS_*.
-    CENTRES_NS_BASE  = 45.0;
-    CENTRES_NS_LIN   = 15.0;
-    CENTRES_NS_WRAP  = 10.0;
+    % requires these to match Python _mobius_inner._CENTRES_NS_*,
+    % _GRID_NS_*.
+    CENTRES_NS_BASE  = 45.0 / 3.0;
+    CENTRES_NS_LIN   = 15.0 / 3.0;
+    CENTRES_NS_WRAP  = 10.0 / 3.0;
     GRID_NS_FLOOR    = 1e6;      % 1 ms per-pair setup
     % gridNsPerOp(r_a): per-(N_u * K) coefficient for r_a in {2, 3, 4}.
     % Small fixed table --- a containers.Map (previously used here)
@@ -57,13 +75,21 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
         return;
     end
     K = size(Px, 1);
-    if K < r_a
+    K_y = size(Py, 1);
+    if K < r_a || K_y < r_a
         return;
     end
 
     % Centres wall (ns): per-element base + linear in (r_a-1); periodic
     % adds an (r_a-1)(r_a-2) inner pairwise-wrap term (zero at r_a = 2).
-    n_e = (factorial(r_a) * nchoosek(K, r_a))^2;
+    % The element count spans all three matrices the route computes,
+    % M_x*M_y + M_x^2 + M_y^2, with M taken from each density's own
+    % value count. The three-matrix count matters: a five-partial
+    % reference against an 80-value tuning has M_x = 20 and M_y = 6320,
+    % and the second self matrix supplies 4.0e7 of the 4.0e7 elements.
+    M_x = factorial(r_a) * nchoosek(K, r_a);
+    M_y = factorial(r_a) * nchoosek(K_y, r_a);
+    n_e = M_x * M_y + M_x * M_x + M_y * M_y;
     perEl = CENTRES_NS_BASE + CENTRES_NS_LIN * (r_a - 1);
     if isPer
         perEl = perEl + CENTRES_NS_WRAP * (r_a - 1) * (r_a - 2);
@@ -80,6 +106,17 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
              + 2 * margin * sigma;
         n_u = max(64, ceil(max(span, 1.0) / sigma * 10));
     end
+    % The grid estimate reads Px's value count alone, so it is low
+    % whenever Py carries more values. That is deliberate on two
+    % grounds. Choosing the grid route where centres is faster costs at
+    % most the setup floor, whereas choosing centres where the grid
+    % route is faster costs a factor rising as the fourth power of the
+    % larger value count, so a low grid estimate errs on the cheap
+    % side. And whether this estimate should depend on the value count
+    % at all is an open question: measured grid times on this workload
+    % do not grow with it, which is the subject of the pending
+    % bench_ip_unit_cost extension. Raising the estimate now would
+    % pre-empt that measurement.
     switch r_a
         case 2
             gOp = 30.0;

@@ -10,12 +10,14 @@ r_a, NaN fallback, etc.).
 from __future__ import annotations
 
 import warnings
+from math import comb, factorial
 
 import numpy as np
 import pytest
 
 import mpt
 from mpt import build_exp_tens, cos_sim_exp_tens
+from mpt._tensor.dispatch import _predict_pairwise_kernel_size
 from mpt.tensor import (
     _ORBIT_R_MAX_SHIPPED,
     _ORBIT_SIGMA_OVER_P_THRESHOLD,
@@ -81,6 +83,79 @@ def test_ma_dispatcher_routes_pairwise_at_r1():
     assert _select_ma_inner_product_method(
         **_disp_kwargs(r_max=1, K=2),
     ) == 'bulger'
+
+
+# ----------------------------------------------------------------------
+# Unequal value counts between the two densities
+# ----------------------------------------------------------------------
+
+# A chord compared against a scale, or a reference tuning against an
+# equal division, gives the two densities different numbers of values.
+# Bulger's method builds three matrices -- the cross matrix and one self
+# matrix per density -- so its size is dominated by the larger density's
+# self matrix, and the estimate has to read both counts to see that.
+
+
+def test_pairwise_size_reduces_to_three_cross_terms_at_equal_counts():
+    # Each density contributes n_J = N.prod r!C and n_K = N.prod C; at
+    # equal counts the three matrices coincide.
+    for r, K, N in ((2, 8, 3), (3, 10, 1), (4, 9, 2)):
+        r_vec = np.array([r], dtype=np.intp)
+        k_vec = np.array([K], dtype=np.intp)
+        cross = (N * factorial(r) * comb(K, r)) * (N * comb(K, r))
+        assert _predict_pairwise_kernel_size(
+            r_vec, k_vec, 1, N, N) == pytest.approx(3.0 * cross, rel=1e-12)
+
+
+def test_pairwise_size_grows_with_the_second_count():
+    r_vec = np.array([2], dtype=np.intp)
+    k_x = np.array([5], dtype=np.intp)
+    base = _predict_pairwise_kernel_size(
+        r_vec, k_x, 1, 1, 1, k_vec_y=np.array([5], dtype=np.intp))
+    prev = base
+    for K_y in (10, 20, 40, 80):
+        got = _predict_pairwise_kernel_size(
+            r_vec, k_x, 1, 1, 1, k_vec_y=np.array([K_y], dtype=np.intp))
+        assert got > prev
+        prev = got
+    # At five values against eighty the second self matrix carries the
+    # work: it holds 19971200 of the 20034600 entries, so the total is
+    # 317 times the cross matrix and 33391 times the equal-count total.
+    assert prev / base == pytest.approx(33391.0, rel=1e-9)
+
+
+def test_second_count_vector_omitted_means_the_counts_agree():
+    r_vec = np.array([3], dtype=np.intp)
+    k_vec = np.array([9], dtype=np.intp)
+    assert (_predict_pairwise_kernel_size(r_vec, k_vec, 1, 4, 4)
+            == _predict_pairwise_kernel_size(
+                r_vec, k_vec, 1, 4, 4, k_vec_y=k_vec))
+
+
+def test_dispatcher_routes_mobius_once_the_second_density_is_large():
+    """Five values against a large equal division: Bulger's three
+    matrices grow as the fourth power of the second count while the
+    Möbius side stays near its base, so the route must switch."""
+    kw = _disp_kwargs(r_max=2, K=5, N_x=1, N_y=1,
+                      any_per=True, any_rel_per=True,
+                      sigma_over_P_max=0.005)
+    kw['rel_vec'] = np.array([True])
+    kw['nu_vec'] = np.array([1666.0])
+    small = dict(kw, k_vec_y=np.array([8], dtype=np.intp))
+    large = dict(kw, k_vec_y=np.array([80], dtype=np.intp))
+    assert _select_ma_inner_product_method(**small) == 'bulger'
+    assert _select_ma_inner_product_method(**large) == 'mobius'
+
+
+def test_dispatcher_is_unchanged_when_the_counts_agree():
+    # The corrected estimates reduce exactly to the previous ones at
+    # equal counts, so no equal-count decision may move.
+    for r in (2, 3):
+        for K in (5, 8, 12, 20):
+            kw = _disp_kwargs(r_max=r, K=K, N_x=4, N_y=4, any_per=True)
+            with_y = dict(kw, k_vec_y=np.array([K], dtype=np.intp))
+            assert (_select_ma_inner_product_method(**kw)
+                    == _select_ma_inner_product_method(**with_y))
 
 
 @pytest.mark.parametrize("r_max", [2, 3, 4, _ORBIT_R_MAX_SHIPPED])

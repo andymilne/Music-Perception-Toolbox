@@ -1941,9 +1941,14 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
+    % One value-count vector per density: the two need not carry the same
+    % number of values in an attribute, and a chord against a scale, or a
+    % reference tuning against an equal division, is the ordinary case.
     kVec = zeros(1, A);
+    kVecY = zeros(1, A);
     for a = 1:A
-        kVec(a) = size(dens_x.pAttr{a}, 1);
+        kVec(a)  = size(dens_x.pAttr{a}, 1);
+        kVecY(a) = size(dens_y.pAttr{a}, 1);
     end
     anyPer = false; anyRelNonper = false; anyRelPer = false; sigmaOverPMax = 0;
     for a = 1:A
@@ -1990,7 +1995,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
     chosen = internal.selectMaInnerProductMethod( ...
         rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
-        sigmaOverPMax, method, verbose, relVecSel, nuVecSel);
+        sigmaOverPMax, method, verbose, relVecSel, nuVecSel, kVecY);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent

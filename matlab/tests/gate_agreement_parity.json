@@ -1,5 +1,5 @@
 {
- "note": "Routing-gate decisions. Both languages must reproduce every decision exactly: matched constants are what keeps the choice of route from being measure-visible. Driven from one fixture so a shared error cannot pass twice. Positions pin both endpoints so the span is fixed across K within a shape, making the K-sweep vary only K.",
+ "note": "Routing-gate decisions. Both languages must reproduce every decision exactly: matched constants are what keeps the choice of route from being measure-visible. Driven from one fixture so a shared error cannot pass twice. Positions pin both endpoints so the span is fixed across K within a shape, making the K-sweep vary only K. K is the first density's value count and Ky the second's; cases with K == Ky sweep one count, cases with K != Ky pin the unequal-count case, where the second density's self matrix dominates the centres route.",
  "cases": [
   {
    "gate": "centres_vs_grid",
@@ -21,7 +21,8 @@
     284.8570841653162,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -43,7 +44,8 @@
     373.7154272754334,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -65,7 +67,8 @@
     912.3409033395183,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -87,7 +90,8 @@
     3408.228145579511,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -109,7 +113,8 @@
     3273.6291635232174,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -133,7 +138,8 @@
     1096.8939637596056,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -157,7 +163,8 @@
     461.8660240908072,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -181,7 +188,8 @@
     861.8934169112221,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -205,7 +213,8 @@
     2964.750009225708,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -229,7 +238,8 @@
     2979.0151767159896,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -255,7 +265,8 @@
     980.4683475290617,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -281,7 +292,8 @@
     1038.4632757338684,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -307,7 +319,8 @@
     866.0352902533906,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -333,7 +346,8 @@
     2015.1287893258916,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -359,7 +373,8 @@
     2709.174007774082,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -389,7 +404,8 @@
     1196.9038327127087,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -419,7 +435,8 @@
     1165.9154530666235,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -449,7 +466,8 @@
     1083.5935743348443,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -479,7 +497,8 @@
     3270.4786811437734,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -509,7 +528,8 @@
     3548.488034462076,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -543,7 +563,8 @@
     844.3761394055869,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -577,7 +598,8 @@
     1191.355023638973,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -611,7 +633,8 @@
     1182.9623508297498,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -645,7 +668,8 @@
     2902.321558468375,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -679,7 +703,8 @@
     3538.8502551575225,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -717,7 +742,8 @@
     1045.4112193893102,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -755,7 +781,8 @@
     983.6209126924763,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -793,7 +820,8 @@
     1144.2145978665062,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -831,7 +859,8 @@
     3372.843434137025,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -869,7 +898,8 @@
     3181.037482432929,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -915,7 +945,8 @@
     1194.6746753959712,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -961,7 +992,8 @@
     1093.7332730635885,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -1007,7 +1039,8 @@
     975.9666381947652,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -1053,7 +1086,8 @@
     3364.0765764670564,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -1099,7 +1133,8 @@
     2943.4902415997585,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -1153,7 +1188,8 @@
     1106.5714622922571,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -1207,7 +1243,8 @@
     1126.940004279001,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -1261,7 +1298,8 @@
     1139.2220657426167,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -1315,7 +1353,8 @@
     3501.101548432139,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -1369,7 +1408,8 @@
     3596.01596988075,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -1443,7 +1483,8 @@
     1164.2307479361518,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -1517,7 +1558,8 @@
     1177.8315314885476,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -1591,7 +1633,8 @@
     1195.9940147316065,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -1665,7 +1708,8 @@
     3521.003996299703,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -1739,7 +1783,8 @@
     3234.1936431045847,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -1853,7 +1898,8 @@
     1197.6823453726952,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -1967,7 +2013,8 @@
     1161.887366730647,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -2081,7 +2128,8 @@
     1159.5696770028726,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -2195,7 +2243,8 @@
     3588.2370789852453,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -2309,7 +2358,8 @@
     3562.9459828761146,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -2463,7 +2513,8 @@
     1175.279376524947,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -2617,7 +2668,8 @@
     1119.251481880705,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -2771,7 +2823,8 @@
     1182.2296393782776,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -2925,7 +2978,8 @@
     3590.056220429282,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -3079,7 +3133,8 @@
     3596.1262852612367,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -3101,7 +3156,8 @@
     914.4130082603464,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -3123,7 +3179,8 @@
     790.1279916695923,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -3145,7 +3202,8 @@
     883.3642679252132,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -3167,7 +3225,8 @@
     3265.093354752376,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -3189,7 +3248,8 @@
     2142.167715610023,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -3213,7 +3273,8 @@
     1163.75075755062,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -3237,7 +3298,8 @@
     1174.8857558756642,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -3261,7 +3323,8 @@
     1184.758469742305,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -3285,7 +3348,8 @@
     2028.4622727232327,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -3309,7 +3373,8 @@
     2952.7921324038416,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -3335,7 +3400,8 @@
     1175.464999983284,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -3361,7 +3427,8 @@
     1094.8850505607525,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -3387,7 +3454,8 @@
     1102.3871889242196,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -3413,7 +3481,8 @@
     3181.5472381243358,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -3439,7 +3508,8 @@
     3573.238414203006,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -3469,7 +3539,8 @@
     1188.9612608758953,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -3499,7 +3570,8 @@
     1133.5766281009553,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -3529,7 +3601,8 @@
     882.5283980237646,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -3559,7 +3632,8 @@
     3218.0907466505137,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -3589,7 +3663,8 @@
     3407.7090706575354,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -3623,7 +3698,8 @@
     1199.2803599935569,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -3657,7 +3733,8 @@
     1182.5004597737163,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -3691,7 +3768,8 @@
     1140.3424831594475,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -3725,7 +3803,8 @@
     3490.2320395110073,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -3759,7 +3838,8 @@
     3196.1048055962165,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -3797,7 +3877,8 @@
     1121.426054981461,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -3835,7 +3916,8 @@
     1189.4386624592898,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -3873,7 +3955,8 @@
     1125.2064432580837,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -3911,7 +3994,8 @@
     3509.543549161152,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -3949,7 +4033,8 @@
     3485.8406284353837,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -3995,7 +4080,8 @@
     1004.8318312797014,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -4041,7 +4127,8 @@
     1168.628935390871,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -4087,7 +4174,8 @@
     1172.0728335239623,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -4133,7 +4221,8 @@
     3148.902904932132,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -4179,7 +4268,8 @@
     3428.8535301577035,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -4233,7 +4323,8 @@
     1152.2157179412104,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -4287,7 +4378,8 @@
     1170.561647358717,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -4341,7 +4433,8 @@
     1191.3205182591923,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -4395,7 +4488,8 @@
     3432.6550959501824,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -4449,7 +4543,8 @@
     3598.024233621112,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -4523,7 +4618,8 @@
     1134.5787176417466,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -4597,7 +4693,8 @@
     1180.8364350631848,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -4671,7 +4768,8 @@
     1187.9723889232152,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -4745,7 +4843,8 @@
     3587.319555627105,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -4819,7 +4918,8 @@
     3544.6830466552055,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -4933,7 +5033,8 @@
     1160.7214672293258,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -5047,7 +5148,8 @@
     1170.2685721580715,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -5161,7 +5263,8 @@
     1160.1391210705483,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -5275,7 +5378,8 @@
     3444.6998359210097,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -5389,7 +5493,8 @@
     3448.1899038203333,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -5543,7 +5648,8 @@
     1194.4642926210286,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -5697,7 +5803,8 @@
     1194.9481129924268,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -5851,7 +5958,8 @@
     1115.104649742147,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -6005,7 +6113,8 @@
     3545.900229884524,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -6159,7 +6268,8 @@
     3494.8948035609897,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -6181,7 +6291,8 @@
     1009.4901862144656,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -6203,7 +6314,8 @@
     723.4683390940451,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -6225,7 +6337,8 @@
     830.7163735529175,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -6247,7 +6360,8 @@
     3067.923321831685,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -6269,7 +6383,8 @@
     2177.31484952521,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -6293,7 +6408,8 @@
     1023.7781017110864,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -6317,7 +6433,8 @@
     1105.0195684765083,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -6341,7 +6458,8 @@
     879.0525079914013,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -6365,7 +6483,8 @@
     3276.08144538663,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -6389,7 +6508,8 @@
     3510.485042581743,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -6415,7 +6535,8 @@
     701.3113297845605,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -6441,7 +6562,8 @@
     965.3586281892318,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -6467,7 +6589,8 @@
     884.3918957538966,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -6493,7 +6616,8 @@
     3213.9165719768016,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -6519,7 +6643,8 @@
     3523.9655949529283,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -6549,7 +6674,8 @@
     717.1280972204603,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -6579,7 +6705,8 @@
     1146.213998018353,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -6609,7 +6736,8 @@
     1165.7782131187232,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -6639,7 +6767,8 @@
     2629.7889900988416,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -6669,7 +6798,8 @@
     3470.1029568068893,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -6703,7 +6833,8 @@
     994.6612198425595,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -6737,7 +6868,8 @@
     1162.9621711936654,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -6771,7 +6903,8 @@
     954.5528910951199,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -6805,7 +6938,8 @@
     3270.251050048904,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -6839,7 +6973,8 @@
     3423.4075878449607,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -6877,7 +7012,8 @@
     1160.0527988590006,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -6915,7 +7051,8 @@
     1151.5805583142467,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -6953,7 +7090,8 @@
     1159.482430188938,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -6991,7 +7129,8 @@
     3522.0838437449493,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -7029,7 +7168,8 @@
     2591.7787097168602,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -7075,7 +7215,8 @@
     1163.414072691126,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -7121,7 +7262,8 @@
     937.5005443167696,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -7167,7 +7309,8 @@
     1195.3169756663438,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -7213,7 +7356,8 @@
     3321.8405393672915,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -7259,7 +7403,8 @@
     3434.6586867091905,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -7313,7 +7458,8 @@
     1042.7653469189902,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -7367,7 +7513,8 @@
     1116.7526090401138,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -7421,7 +7568,8 @@
     1198.8311579716205,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -7475,7 +7623,8 @@
     3297.693706823346,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -7529,7 +7678,8 @@
     3564.709696516207,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -7603,7 +7753,8 @@
     1163.8012825602132,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -7677,7 +7828,8 @@
     1191.8803223753848,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -7751,7 +7903,8 @@
     1189.7054609721724,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -7825,7 +7978,8 @@
     3468.748573026633,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -7899,7 +8053,8 @@
     3585.250385332828,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -8013,7 +8168,8 @@
     1100.7130839353306,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -8127,7 +8283,8 @@
     1182.753963135684,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -8241,7 +8398,8 @@
     1177.7202786822818,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -8355,7 +8513,8 @@
     3586.9496614774994,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -8469,7 +8628,8 @@
     3519.8963064014215,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -8623,7 +8783,8 @@
     1124.348447452523,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -8777,7 +8938,8 @@
     1196.474828186497,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -8931,7 +9093,8 @@
     1156.8201255185613,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -9085,7 +9248,8 @@
     3562.208158569555,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -9239,7 +9403,8 @@
     3508.0619220761114,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -9263,7 +9428,8 @@
     753.513782631178,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -9287,7 +9453,8 @@
     797.7710548552822,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -9311,7 +9478,8 @@
     1050.3859039060176,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -9335,7 +9503,8 @@
     3171.2377339282148,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -9359,7 +9528,8 @@
     2283.7102388388644,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -9385,7 +9555,8 @@
     1191.9280919038697,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -9411,7 +9582,8 @@
     472.9883688950907,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -9437,7 +9609,8 @@
     556.7333422856663,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -9463,7 +9636,8 @@
     1456.1170842629667,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -9489,7 +9663,8 @@
     2324.4833129975545,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -9519,7 +9694,8 @@
     977.6166736809859,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -9549,7 +9725,8 @@
     1036.90478232662,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -9579,7 +9756,8 @@
     1038.7222449918374,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -9609,7 +9787,8 @@
     3446.208182419778,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -9639,7 +9818,8 @@
     2935.766062087223,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -9673,7 +9853,8 @@
     683.511159132926,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -9707,7 +9888,8 @@
     1118.3354122656872,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -9741,7 +9923,8 @@
     944.1550750495926,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -9775,7 +9958,8 @@
     3583.3118189639304,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -9809,7 +9993,8 @@
     3486.340697522888,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -9847,7 +10032,8 @@
     1185.2479234908008,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -9885,7 +10071,8 @@
     1181.6259835001247,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -9923,7 +10110,8 @@
     1143.2980246191034,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -9961,7 +10149,8 @@
     3480.5723115240476,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -9999,7 +10188,8 @@
     3529.990600458454,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -10045,7 +10235,8 @@
     1016.969461950359,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -10091,7 +10282,8 @@
     1161.6367374981278,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -10137,7 +10329,8 @@
     1131.5179529586153,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -10183,7 +10376,8 @@
     2986.3817074618255,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -10229,7 +10423,8 @@
     3276.895557843375,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -10283,7 +10478,8 @@
     1164.478150120208,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -10337,7 +10533,8 @@
     1106.0203680946945,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -10391,7 +10588,8 @@
     1187.729138403438,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -10445,7 +10643,8 @@
     3472.2451820296324,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -10499,7 +10698,8 @@
     3485.9366010138046,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -10573,7 +10773,8 @@
     1172.7048587535937,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -10647,7 +10848,8 @@
     1178.3878717494217,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -10721,7 +10923,8 @@
     1193.284220506564,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -10795,7 +10998,8 @@
     3584.6883307748317,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -10869,7 +11073,8 @@
     3494.315146124941,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -10983,7 +11188,8 @@
     1181.8355405042948,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -11097,7 +11303,8 @@
     1166.666052332949,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -11211,7 +11418,8 @@
     1140.3107155450134,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -11325,7 +11533,8 @@
     3573.4090493757008,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -11439,7 +11648,8 @@
     3542.700535204989,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -11593,7 +11803,8 @@
     1199.529352578696,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -11747,7 +11958,8 @@
     1198.992213964181,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -11901,7 +12113,8 @@
     1194.1485373681012,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -12055,7 +12268,8 @@
     3518.2702601313317,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -12209,7 +12423,8 @@
     3588.91354891819,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -12231,7 +12446,8 @@
     960.6905626455651,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -12253,7 +12469,8 @@
     1166.60970175374,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -12275,7 +12492,8 @@
     1033.3777051733307,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -12297,7 +12515,8 @@
     1629.260376063936,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -12319,7 +12538,8 @@
     342.8839781502917,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -12343,7 +12563,8 @@
     1166.1942101633892,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -12367,7 +12588,8 @@
     584.4173431380119,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -12391,7 +12613,8 @@
     1191.639525196977,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -12415,7 +12638,8 @@
     2817.8786045211655,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -12439,7 +12663,8 @@
     2013.9063803240774,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -12465,7 +12690,8 @@
     1075.6103480480015,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -12491,7 +12717,8 @@
     964.3517340713466,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -12517,7 +12744,8 @@
     1088.8079911397062,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -12543,7 +12771,8 @@
     3158.9141115235393,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -12569,7 +12798,8 @@
     3178.816816602772,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -12599,7 +12829,8 @@
     1024.5468951998196,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -12629,7 +12860,8 @@
     1123.6539601711288,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -12659,7 +12891,8 @@
     1081.6384389025666,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -12689,7 +12922,8 @@
     3386.549818299122,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -12719,7 +12953,8 @@
     3041.4962176342156,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -12753,7 +12988,8 @@
     938.4012499017578,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -12787,7 +13023,8 @@
     1153.4786770461546,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -12821,7 +13058,8 @@
     1187.1673122166255,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -12855,7 +13093,8 @@
     3401.8466805502435,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -12889,7 +13128,8 @@
     2804.819183539783,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -12927,7 +13167,8 @@
     1198.4579491035458,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -12965,7 +13206,8 @@
     1185.509220017524,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -13003,7 +13245,8 @@
     1027.6498455317096,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -13041,7 +13284,8 @@
     3106.0763346379754,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -13079,7 +13323,8 @@
     3579.645052880643,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -13125,7 +13370,8 @@
     1081.5964334776127,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -13171,7 +13417,8 @@
     1176.9213802517208,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -13217,7 +13464,8 @@
     1144.8200466621952,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -13263,7 +13511,8 @@
     3462.6551681828455,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -13309,7 +13558,8 @@
     3029.2763852372673,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -13363,7 +13613,8 @@
     1132.315083847308,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -13417,7 +13668,8 @@
     1178.327273945648,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -13471,7 +13723,8 @@
     1043.1412302659028,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -13525,7 +13778,8 @@
     2525.8178152719534,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -13579,7 +13833,8 @@
     3217.9844769861784,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -13653,7 +13908,8 @@
     1130.2062812131403,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -13727,7 +13983,8 @@
     1179.8526183081437,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -13801,7 +14058,8 @@
     1148.0720564706155,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -13875,7 +14133,8 @@
     3335.3079724617196,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -13949,7 +14208,8 @@
     3418.293591545509,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -14063,7 +14323,8 @@
     1166.2536446974075,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -14177,7 +14438,8 @@
     1161.3296529901445,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -14291,7 +14553,8 @@
     1123.9700886199605,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -14405,7 +14668,8 @@
     3556.134390271174,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -14519,7 +14783,8 @@
     3326.187278518541,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -14673,7 +14938,8 @@
     1174.4469553602319,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -14827,7 +15093,8 @@
     1179.5998549108388,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -14981,7 +15248,8 @@
     1198.7575651613945,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -15135,7 +15403,8 @@
     3596.067414096789,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -15289,7 +15558,8 @@
     3553.54174205623,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -15311,7 +15581,8 @@
     682.4289678514891,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -15333,7 +15604,8 @@
     1182.940760503245,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -15355,7 +15627,8 @@
     939.7604288850575,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -15377,7 +15650,8 @@
     1649.3109189819518,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -15399,7 +15673,8 @@
     1212.541916506448,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -15423,7 +15698,8 @@
     689.4129575672475,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -15447,7 +15723,8 @@
     1104.7997265927534,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -15471,7 +15748,8 @@
     730.281870650467,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -15495,7 +15773,8 @@
     2089.965444618448,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -15519,7 +15798,8 @@
     3092.2156060229686,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -15545,7 +15825,8 @@
     1190.1138577009015,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -15571,7 +15852,8 @@
     1167.8351957849486,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -15597,7 +15879,8 @@
     860.2967472213173,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -15623,7 +15906,8 @@
     2999.705702696552,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -15649,7 +15933,8 @@
     3072.941902608418,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -15679,7 +15964,8 @@
     693.1672755045294,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -15709,7 +15995,8 @@
     1077.564385679032,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -15739,7 +16026,8 @@
     993.62617936487,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -15769,7 +16057,8 @@
     2783.3906340588856,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -15799,7 +16088,8 @@
     2557.255378680201,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -15833,7 +16123,8 @@
     1091.863396953085,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -15867,7 +16158,8 @@
     937.8914078114285,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -15901,7 +16193,8 @@
     1126.637997295126,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -15935,7 +16228,8 @@
     3495.3052745257983,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -15969,7 +16263,8 @@
     3457.088540412955,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -16007,7 +16302,8 @@
     1060.9744462420329,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -16045,7 +16341,8 @@
     1173.4672584642306,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -16083,7 +16380,8 @@
     1170.8265774515537,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -16121,7 +16419,8 @@
     3199.2962963477285,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -16159,7 +16458,8 @@
     3430.1906387564222,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -16205,7 +16505,8 @@
     1188.3694852196636,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -16251,7 +16552,8 @@
     1179.2544739214027,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -16297,7 +16599,8 @@
     942.3146347277138,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -16343,7 +16646,8 @@
     3479.0251291377253,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -16389,7 +16693,8 @@
     3589.6129903927276,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -16443,7 +16748,8 @@
     1176.0028732049648,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -16497,7 +16803,8 @@
     996.2421153379476,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -16551,7 +16858,8 @@
     1183.892986347247,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -16605,7 +16913,8 @@
     3488.0245002289953,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -16659,7 +16968,8 @@
     3179.5614630909718,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -16733,7 +17043,8 @@
     1048.7314442855861,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -16807,7 +17118,8 @@
     1182.0639389017604,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -16881,7 +17193,8 @@
     1176.6201290931485,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -16955,7 +17268,8 @@
     3552.939372408225,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -17029,7 +17343,8 @@
     3423.7650134705154,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -17143,7 +17458,8 @@
     1183.6095814246019,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -17257,7 +17573,8 @@
     1123.2698879031184,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -17371,7 +17688,8 @@
     1194.3226869282207,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -17485,7 +17803,8 @@
     3595.3156050790762,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -17599,7 +17918,8 @@
     3559.3439128355903,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -17753,7 +18073,8 @@
     1161.4459819869815,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -17907,7 +18228,8 @@
     1188.0334328881033,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -18061,7 +18383,8 @@
     1197.45536824823,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -18215,7 +18538,8 @@
     3547.505976841072,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -18369,7 +18693,8 @@
     3518.043799547303,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -18391,7 +18716,8 @@
     417.176329882069,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -18413,7 +18739,8 @@
     1060.4729778751675,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -18435,7 +18762,8 @@
     962.8564408591103,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -18457,7 +18785,8 @@
     2375.3892869538595,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -18479,7 +18808,8 @@
     3034.7123009166107,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 4
   },
   {
    "gate": "centres_vs_grid",
@@ -18503,7 +18833,8 @@
     987.8916042678826,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -18527,7 +18858,8 @@
     968.0779342949274,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -18551,7 +18883,8 @@
     368.94165526085476,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -18575,7 +18908,8 @@
     3071.8016798265303,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -18599,7 +18933,8 @@
     2882.93081015466,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -18625,7 +18960,8 @@
     978.3577594857029,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -18651,7 +18987,8 @@
     654.3736321349035,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -18677,7 +19014,8 @@
     1020.0647645684902,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -18703,7 +19041,8 @@
     2758.3277818510933,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -18729,7 +19068,8 @@
     1767.0459264382064,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -18759,7 +19099,8 @@
     1152.3690757037984,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -18789,7 +19130,8 @@
     1000.5161187486793,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -18819,7 +19161,8 @@
     942.1018471438184,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -18849,7 +19192,8 @@
     3574.9556679602297,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -18879,7 +19223,8 @@
     3517.941769102073,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -18913,7 +19258,8 @@
     1010.2579614427109,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -18947,7 +19293,8 @@
     1076.8765254528219,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -18981,7 +19328,8 @@
     1012.7400770426256,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -19015,7 +19363,8 @@
     3547.172143084671,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -19049,7 +19398,8 @@
     3199.236277214972,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -19087,7 +19437,8 @@
     1122.5759931203336,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -19125,7 +19476,8 @@
     1199.5430670048602,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -19163,7 +19515,8 @@
     1029.1760372005733,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -19201,7 +19554,8 @@
     3324.504011782721,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -19239,7 +19593,8 @@
     3599.0590617270445,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -19285,7 +19640,8 @@
     1191.9564956695529,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -19331,7 +19687,8 @@
     666.9325086830668,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -19377,7 +19734,8 @@
     985.7414096376211,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -19423,7 +19781,8 @@
     3482.959464276646,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -19469,7 +19828,8 @@
     3348.7036351199276,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -19523,7 +19883,8 @@
     1081.6805194985488,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -19577,7 +19938,8 @@
     1075.1782700237238,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -19631,7 +19993,8 @@
     1192.2373498051707,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -19685,7 +20048,8 @@
     3276.143555614699,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -19739,7 +20103,8 @@
     3490.4883781790795,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -19813,7 +20178,8 @@
     994.76094239657,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -19887,7 +20253,8 @@
     1067.8217130045791,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -19961,7 +20328,8 @@
     1134.7771622108173,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -20035,7 +20403,8 @@
     3419.4628174964487,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -20109,7 +20478,8 @@
     3596.8093699011306,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -20223,7 +20593,8 @@
     1154.3091429131418,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -20337,7 +20708,8 @@
     1191.758616845788,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -20451,7 +20823,8 @@
     1187.1997299028735,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -20565,7 +20938,8 @@
     3585.0335718411557,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -20679,7 +21053,8 @@
     3573.412187859579,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -20833,7 +21208,8 @@
     1198.8859937713667,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -20987,7 +21363,8 @@
     1169.3129507486924,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -21141,7 +21518,8 @@
     1178.6224785404675,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -21295,7 +21673,8 @@
     3567.4880295773555,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -21449,7 +21828,8 @@
     3435.3492780086603,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -21473,7 +21853,8 @@
     1014.6292733621431,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -21497,7 +21878,8 @@
     794.7320603920135,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -21521,7 +21903,8 @@
     905.3902130397574,
     1200.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -21545,7 +21928,8 @@
     2558.275276784881,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -21569,7 +21953,8 @@
     3269.1124307681007,
     3600.0
    ],
-   "decision": true
+   "decision": true,
+   "Ky": 5
   },
   {
    "gate": "centres_vs_grid",
@@ -21595,7 +21980,8 @@
     1101.6982141569333,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -21621,7 +22007,8 @@
     925.5147654477555,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -21647,7 +22034,8 @@
     1037.7754198543837,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -21673,7 +22061,8 @@
     3521.3177499884137,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -21699,7 +22088,8 @@
     3482.346896211098,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 6
   },
   {
    "gate": "centres_vs_grid",
@@ -21729,7 +22119,8 @@
     1123.5174456334134,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -21759,7 +22150,8 @@
     1156.601009287737,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -21789,7 +22181,8 @@
     1003.6332062964713,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -21819,7 +22212,8 @@
     3533.249203931526,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -21849,7 +22243,8 @@
     3364.002916510947,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 8
   },
   {
    "gate": "centres_vs_grid",
@@ -21883,7 +22278,8 @@
     959.4526861105345,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -21917,7 +22313,8 @@
     1169.3949884716678,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -21951,7 +22348,8 @@
     986.4925073661637,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -21985,7 +22383,8 @@
     3507.4511805177776,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -22019,7 +22418,8 @@
     2990.3196062957645,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 10
   },
   {
    "gate": "centres_vs_grid",
@@ -22057,7 +22457,8 @@
     1197.8271071871277,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -22095,7 +22496,8 @@
     1189.9820437839587,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -22133,7 +22535,8 @@
     1145.31528722343,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -22171,7 +22574,8 @@
     3504.447175194084,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -22209,7 +22613,8 @@
     3416.005611987509,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 12
   },
   {
    "gate": "centres_vs_grid",
@@ -22255,7 +22660,8 @@
     1184.2771113360586,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -22301,7 +22707,8 @@
     1055.3758044178671,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -22347,7 +22754,8 @@
     1184.5039271013356,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -22393,7 +22801,8 @@
     2845.363576241604,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -22439,7 +22848,8 @@
     3033.796402001788,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 16
   },
   {
    "gate": "centres_vs_grid",
@@ -22493,7 +22903,8 @@
     1126.8059999965838,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -22547,7 +22958,8 @@
     1186.8872305911186,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -22601,7 +23013,8 @@
     1157.551630337364,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -22655,7 +23068,8 @@
     3032.9581363866296,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -22709,7 +23123,8 @@
     3153.5968247062897,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 20
   },
   {
    "gate": "centres_vs_grid",
@@ -22783,7 +23198,8 @@
     1160.0533495315506,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -22857,7 +23273,8 @@
     1086.1928745124217,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -22931,7 +23348,8 @@
     1197.3342605551768,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -23005,7 +23423,8 @@
     3551.749797518031,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -23079,7 +23498,8 @@
     3137.7073307171827,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 30
   },
   {
    "gate": "centres_vs_grid",
@@ -23193,7 +23613,8 @@
     1197.5904426996756,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -23307,7 +23728,8 @@
     1198.3332179617555,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -23421,7 +23843,8 @@
     1186.8659123022392,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -23535,7 +23958,8 @@
     3533.7867595155276,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -23649,7 +24073,8 @@
     3514.443807686597,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 50
   },
   {
    "gate": "centres_vs_grid",
@@ -23803,7 +24228,8 @@
     1142.179216693098,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -23957,7 +24383,8 @@
     1197.780562735937,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -24111,7 +24538,8 @@
     1195.6266157514165,
     1200.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -24265,7 +24693,8 @@
     3571.203303517834,
     3600.0
    ],
-   "decision": false
+   "decision": false,
+   "Ky": 70
   },
   {
    "gate": "centres_vs_grid",
@@ -24418,6 +24847,4507 @@
     3394.046712392864,
     3421.777668074504,
     3600.0
+   ],
+   "decision": false,
+   "Ky": 70
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    347.08155665912403,
+    546.3659172070305,
+    865.4328574987139,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    387.8966419367612,
+    514.4372569369737,
+    546.1389476719128,
+    655.5835500400916,
+    857.6343248728964,
+    892.3843107886535,
+    963.8137422127013,
+    1009.758240388438,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    241.17431113693692,
+    258.9832967396145,
+    948.5767593281738,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    85.65779197922593,
+    124.16028229422818,
+    227.98558821169757,
+    297.14220416321746,
+    384.3515163735744,
+    537.3032676760989,
+    603.7860321432812,
+    610.4221729512823,
+    626.8603801391906,
+    627.5074759413857,
+    640.5296056608696,
+    881.0027949441201,
+    928.8659950816697,
+    930.5909605818156,
+    1042.991192657879,
+    1141.2024843005966,
+    1179.2568722171195,
+    1191.9078537879686,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    252.37003526582478,
+    277.43483340311815,
+    583.6703243530419,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    3.0753783311685545,
+    3.6906465718478554,
+    64.24360422577236,
+    71.51115049015586,
+    74.1149969955186,
+    120.23005482541835,
+    130.23439346025413,
+    169.90983385567117,
+    179.3388679694155,
+    239.3323760618423,
+    275.29376256611545,
+    333.99323952578754,
+    368.67467337728857,
+    386.2541620798761,
+    437.80467996182676,
+    467.9203729366698,
+    475.09642301174233,
+    476.50257472070587,
+    501.7159907190517,
+    592.9932198425217,
+    609.7192379734566,
+    610.322117863845,
+    664.4419086041419,
+    717.892721745558,
+    732.3779238184209,
+    791.2570364432947,
+    823.2313489205048,
+    843.6866355277758,
+    871.8205461986439,
+    890.2980910808956,
+    911.4445727985521,
+    926.4736975406765,
+    991.5292845349851,
+    1034.522645943736,
+    1169.3732187324838,
+    1173.4563424519972,
+    1182.660310898562,
+    1197.8763155615327,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    665.9301400975044,
+    847.4075010453126,
+    950.3932358126007,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    13.300842942854452,
+    22.06847906756204,
+    29.483977088693123,
+    43.604764834620724,
+    59.54472813606757,
+    71.77267563193017,
+    72.9032313344978,
+    79.91384199498222,
+    81.32988652194975,
+    91.94047583930009,
+    97.39704801168494,
+    118.20276422559913,
+    122.07533274146876,
+    124.93756354679371,
+    158.14802467960206,
+    183.13053393608416,
+    185.68366728028977,
+    187.094220028709,
+    195.7251203070617,
+    207.16542503256034,
+    210.43265096489327,
+    214.21926572105914,
+    232.17972029027237,
+    252.43510630369266,
+    281.608753693128,
+    286.6194202226528,
+    301.6522555009327,
+    316.32688226712133,
+    320.4143894381413,
+    332.85513111655104,
+    340.51222489092174,
+    372.3735506941652,
+    378.0888871281908,
+    398.0957942052257,
+    412.7900597027196,
+    418.84749595791953,
+    434.3742840928196,
+    452.4490960957573,
+    486.62262607675603,
+    500.1984555637212,
+    511.10348035021246,
+    514.3002816148963,
+    522.469808341905,
+    541.6797064601338,
+    547.7334478937877,
+    577.3740344407535,
+    595.0921300400387,
+    609.7316500232799,
+    612.725245463172,
+    628.9564412177623,
+    632.2554060360013,
+    632.6911256865487,
+    634.1364286524012,
+    653.7863960013954,
+    670.321906367831,
+    713.0091789881922,
+    759.5788751655422,
+    764.691717452445,
+    767.2478132029194,
+    796.9627393908052,
+    799.4622453869463,
+    808.7422686188245,
+    814.6746279684422,
+    828.9364601471767,
+    831.5313206653818,
+    850.2976863728695,
+    881.5458317222048,
+    885.2212878838133,
+    935.5807051630393,
+    962.8946531912748,
+    972.3796905781255,
+    989.4627270803486,
+    1069.4214364611387,
+    1079.3896672156911,
+    1113.5071637404214,
+    1116.3698650202596,
+    1136.4870560332777,
+    1172.3577170737624,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    158.0857427071769,
+    497.4442613400279,
+    554.0595055048758,
+    644.3816820944984,
+    669.9827223585611,
+    894.3185641015136,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    698.56978609068,
+    921.1026866610408,
+    962.1384661759497,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    253.12349935361618,
+    533.2862261470997,
+    699.2108835005487,
+    790.9894961901314,
+    803.3275779495744,
+    1087.082824914349,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    68.28879294059918,
+    90.03453776436827,
+    167.43625508299732,
+    182.88335283056009,
+    432.98849498702504,
+    595.0114387211928,
+    672.2235578566062,
+    1084.7650590010533,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    627.268983646466,
+    644.1805557934016,
+    686.2567589226943,
+    832.8327271342462,
+    1061.4846986094255,
+    1142.1716802961234,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    153.3224558070504,
+    175.3706536312047,
+    181.66629616262685,
+    185.4414713873198,
+    191.49963795171607,
+    310.75035985500307,
+    423.8893267674181,
+    522.8192858586078,
+    542.9539069810344,
+    628.507075078753,
+    943.3442172217957,
+    966.490241963094,
+    1015.1410128209881,
+    1108.40765177013,
+    1136.3934079324642,
+    1147.3628173534976,
+    1170.743429681685,
+    1184.8996052707857,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    128.05481828706849,
+    262.32070406190024,
+    404.88671408864366,
+    756.7298069543782,
+    1018.2341062252636,
+    1126.9080932759814,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    15.549136077556502,
+    46.41953526741074,
+    59.87559641438218,
+    73.66841805558795,
+    134.17121798238608,
+    135.6586283242811,
+    152.01045470678767,
+    223.1307292672462,
+    252.7464854725189,
+    274.9384543453987,
+    305.61980362637524,
+    306.07533556349136,
+    375.13477618457335,
+    381.1761907285773,
+    408.33989880832394,
+    418.95990977159175,
+    433.73709409019955,
+    501.6113198856313,
+    588.8110308709075,
+    673.8035078150011,
+    681.476058989367,
+    691.5102626037409,
+    719.2777720904553,
+    733.2371200990086,
+    788.1811741937491,
+    834.8858561093816,
+    842.2698111330674,
+    966.1881672508655,
+    982.8053668288015,
+    1030.1240658634024,
+    1034.4011717585038,
+    1036.9811191924953,
+    1049.270064746823,
+    1054.1986355608362,
+    1085.9932198493038,
+    1086.3556106534195,
+    1132.6159011511602,
+    1171.4250873866533,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    237.96180878240324,
+    358.3745203621574,
+    687.8251192617773,
+    742.0692543188956,
+    793.3271630293794,
+    1086.3849692530305,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    1.9977301769597222,
+    3.961509615768888,
+    8.800014462296257,
+    14.24491222733919,
+    25.921112406967417,
+    27.004681561794985,
+    48.929080079212994,
+    52.20957880073205,
+    59.96886507767414,
+    65.63191293876729,
+    71.02291620733179,
+    80.66866805007322,
+    82.18581578226964,
+    101.4138190836129,
+    109.20960349931642,
+    112.45836714367772,
+    138.2182090242693,
+    139.66151129262337,
+    146.38919969401897,
+    185.08727888060227,
+    196.02325321617164,
+    199.53597199751084,
+    229.88938106036213,
+    231.62083921427882,
+    263.45102881206896,
+    285.67737738543156,
+    353.37161993979265,
+    363.22461775113635,
+    402.3285575207778,
+    408.09112767642534,
+    416.50703921030583,
+    440.34312013918,
+    452.63204611139554,
+    516.0773190243206,
+    520.1376550368465,
+    533.6123175250623,
+    575.9043442791403,
+    592.8768733767515,
+    599.8077750749553,
+    614.7673507394697,
+    618.9526049462602,
+    649.2760164679028,
+    650.4724092130818,
+    660.389191492186,
+    670.7987040048077,
+    694.3458408326927,
+    716.8353112992285,
+    739.1603113073417,
+    759.5861409027341,
+    759.7263501239762,
+    762.3285001624945,
+    772.6955179539475,
+    778.0051641122942,
+    793.2887229096932,
+    824.3023441508262,
+    843.1326594004138,
+    845.77700948695,
+    853.3458869095803,
+    855.6735747833684,
+    866.3688139112163,
+    867.5466553469213,
+    884.8318067359354,
+    902.7347765041137,
+    927.7977585285963,
+    944.5904282088751,
+    963.3828122880278,
+    973.2736875803619,
+    983.3774363021198,
+    983.612807283817,
+    1015.4941635984856,
+    1051.3905533497914,
+    1081.0173675324118,
+    1095.5615729294864,
+    1142.3398085103565,
+    1159.286410832804,
+    1159.771379700645,
+    1183.3170898050396,
+    1185.9208137729768,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    902.5241315238108,
+    1365.4172959058349,
+    2472.2803902592264,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    374.38188481715696,
+    840.4214120403252,
+    1154.1009370805411,
+    2034.5902757045544,
+    2337.556512334475,
+    3003.0569561548336,
+    3022.6914449925903,
+    3266.7142310068057,
+    3600.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    1779.0455714694072,
+    2052.255733921693,
+    3290.143878065828,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    135.68419724596677,
+    644.9864869757897,
+    861.4677154465174,
+    1001.6156156535312,
+    1051.247711179086,
+    1130.4545687321192,
+    1137.5066457186729,
+    1242.664830345664,
+    1354.491278237377,
+    1757.1109047124019,
+    1781.8535429410304,
+    2002.8403824155516,
+    2417.0205230873867,
+    2811.283327413636,
+    2866.1780347356603,
+    2972.302962357389,
+    3229.6518396846864,
+    3418.480697149289,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    980.8644200634626,
+    1480.3907738931105,
+    2530.4458011785077,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    18.76901236033102,
+    67.31253711611691,
+    77.84166472181835,
+    96.42253898872065,
+    259.2403230955544,
+    277.9364491460434,
+    421.86103624153486,
+    451.75948289204786,
+    498.00481876215883,
+    524.2017929924182,
+    573.9997158165698,
+    902.5791964233441,
+    1003.4106315898708,
+    1083.5028443136198,
+    1158.4424704240926,
+    1177.1334792473608,
+    1353.8732255765312,
+    1378.7615961628496,
+    1383.3918598107523,
+    1541.4359930537448,
+    1796.011092716582,
+    1814.4946819419176,
+    1899.4304288519627,
+    1958.113185766231,
+    2317.206606321835,
+    2371.5123289150984,
+    2418.217420847327,
+    2546.6960659775445,
+    2633.837101056664,
+    2708.823203173384,
+    2867.8782213162112,
+    2925.2733459998167,
+    3081.126408731742,
+    3167.5464297903513,
+    3333.2477494798586,
+    3465.8103253519125,
+    3524.5940212768787,
+    3561.4215907424777,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    709.4837002834109,
+    866.440815438344,
+    2991.4797537052,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    49.18005267653118,
+    153.5828325141166,
+    185.8272835254467,
+    189.57281570636098,
+    241.77718151055697,
+    288.6686854865973,
+    357.8122125483401,
+    416.03170481061954,
+    441.9821888384459,
+    464.0865317897746,
+    584.2203298491016,
+    664.2995000431947,
+    673.4558730535941,
+    715.6351269144574,
+    749.202794092416,
+    763.5762640938939,
+    837.7279989416191,
+    867.0316759460458,
+    918.4412209510068,
+    943.0021441877496,
+    1013.5831720027808,
+    1018.8854669435425,
+    1053.4642391588393,
+    1070.9632160296674,
+    1269.5032481588833,
+    1387.526232199504,
+    1401.730814431649,
+    1486.6860871934866,
+    1492.861513305597,
+    1497.4810164763385,
+    1508.0657486324556,
+    1561.3921633547202,
+    1585.7177401112906,
+    1593.8870433880834,
+    1594.0166758267528,
+    1619.5159104865984,
+    1693.7462607828886,
+    1702.6239490854086,
+    1703.5961876982792,
+    1706.5784815609102,
+    1757.0900011919225,
+    1762.0505580510269,
+    1793.0401973977812,
+    1805.7591360491374,
+    1899.4286228349051,
+    1901.6395146102225,
+    1921.9562255733724,
+    1934.4891818428057,
+    1940.4588410039114,
+    1952.691788634067,
+    2004.6982391844356,
+    2074.8124979071767,
+    2096.5254839582662,
+    2104.153704885825,
+    2275.974240245769,
+    2288.451213245644,
+    2313.760928943521,
+    2364.9750498715225,
+    2407.845840413558,
+    2415.644091783885,
+    2475.140115875271,
+    2476.895309465115,
+    2590.9526196385705,
+    2656.6606695770133,
+    2688.5180910779336,
+    2811.035365284542,
+    2831.6329073731413,
+    2879.660794979487,
+    2950.6383181351484,
+    3032.9378087755344,
+    3112.315485675909,
+    3168.3431200216314,
+    3253.3698404256115,
+    3273.8861338962665,
+    3276.398335827813,
+    3390.002299530595,
+    3498.3221904010265,
+    3526.5351892334415,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    1290.6855381611888,
+    1424.7577256762208,
+    2327.2504040297376,
+    2658.599391040672,
+    3028.052056555785,
+    3064.370263988007,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    1790.7840580872833,
+    2840.635098187901,
+    3192.9819886099895,
+    3600.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    464.75102517617944,
+    560.0234045959113,
+    956.7605000707597,
+    1839.0019033671504,
+    2287.4352754593647,
+    2859.433477517322,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    263.096589864981,
+    341.7364373473841,
+    547.1906955066567,
+    778.95113481085,
+    2108.659122905323,
+    2936.4424870094044,
+    2957.1013171929403,
+    3374.8750481181887,
+    3600.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    415.0822726395044,
+    622.1003745359178,
+    645.5649945942699,
+    753.6483446973699,
+    879.7312638586093,
+    3376.565367936822,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    184.2957992660988,
+    293.6434040627377,
+    308.54159555075444,
+    352.84196660116567,
+    708.6899997179713,
+    912.829463243026,
+    1021.8481451988318,
+    1163.6769420443381,
+    1421.4000991631501,
+    1584.000930120673,
+    1834.441696915882,
+    1841.3621634460492,
+    2259.573424213995,
+    2309.8413723158365,
+    2451.127494774629,
+    2739.574850286312,
+    3394.286448090689,
+    3421.7133530326078,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    1563.5009335314244,
+    1941.5316344819585,
+    2203.8031607603016,
+    2360.71162650758,
+    2528.6881675564573,
+    3307.040779973892,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    10.395632253916975,
+    40.28261197795722,
+    142.96553504712435,
+    188.24866871845165,
+    315.2490749072781,
+    323.91820674711596,
+    421.4968843984148,
+    611.1808379622032,
+    762.5142295048597,
+    1253.9305220550582,
+    1274.302334548033,
+    1520.6856678619213,
+    1627.0488642082566,
+    1664.7337092553607,
+    1777.853118908278,
+    1820.2536402744186,
+    1913.1227310744034,
+    1920.5496823992814,
+    1929.8629953565226,
+    2005.934966477969,
+    2031.2054646572167,
+    2033.2148612565143,
+    2046.8264739449287,
+    2076.3622494131478,
+    2113.6714326604065,
+    2156.8650811201906,
+    2283.572241185858,
+    2378.231574583297,
+    2409.938274428399,
+    2518.898613619884,
+    2933.7716469388893,
+    3090.5018809053304,
+    3116.3149999279995,
+    3177.436015779008,
+    3227.2926839820384,
+    3385.5113272490494,
+    3585.3341459051976,
+    3587.031167250223,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    305.1649074206742,
+    538.3824074944445,
+    2474.0725771361995,
+    2917.466439452784,
+    3160.5486792380393,
+    3228.189156601763,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    61.201449077350965,
+    90.39478600612925,
+    93.33025152902353,
+    194.90055722166426,
+    198.54377032222655,
+    210.26593840465458,
+    252.45679076869374,
+    333.6567847358151,
+    343.51995377887454,
+    420.0375979999447,
+    421.4466730506628,
+    426.25016311381995,
+    443.1281090085507,
+    455.44092716351525,
+    890.1087003253468,
+    990.9148186955447,
+    1019.3325199072748,
+    1034.55969262494,
+    1034.9829195455227,
+    1052.9661069570816,
+    1059.1530473712555,
+    1104.614835409206,
+    1157.7836996826024,
+    1176.5526029245364,
+    1226.0735252523955,
+    1315.9716228128725,
+    1401.0624044286865,
+    1454.9097332836157,
+    1488.1429979408936,
+    1579.0053098625804,
+    1667.878362723858,
+    1728.2469420571733,
+    1742.5864877647602,
+    1802.7682484922266,
+    1838.945020996477,
+    1870.9622914089657,
+    2004.6987753940598,
+    2071.434987967609,
+    2087.9079115554237,
+    2144.5828335329697,
+    2146.429800241397,
+    2167.873635188204,
+    2192.021713673988,
+    2327.5798504023915,
+    2330.56320770722,
+    2408.7377930287516,
+    2409.854131714988,
+    2428.1212514084955,
+    2431.866131524644,
+    2436.0583718151274,
+    2475.2938802451085,
+    2647.0026705878286,
+    2652.938655866109,
+    2717.2445226997847,
+    2745.905704465424,
+    2773.1863252818043,
+    2796.875383568434,
+    2898.297723538945,
+    2905.523052899872,
+    2939.955940030203,
+    2948.9062974375615,
+    3115.4781297095237,
+    3141.065313511749,
+    3145.5730109882506,
+    3184.6376281715575,
+    3207.1717128914033,
+    3215.097060045822,
+    3248.6669703154903,
+    3276.378774477663,
+    3296.139352933096,
+    3322.4010906569792,
+    3375.3623080232983,
+    3401.511795268939,
+    3441.1386941067417,
+    3443.7567641506585,
+    3445.160817654336,
+    3544.5479468371045,
+    3591.159385399044,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    79.7277977333677,
+    431.24473631012495,
+    799.0035319636878,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    70.6481188966448,
+    152.11656626247466,
+    357.8878984030083,
+    421.018189093853,
+    540.7669704899577,
+    1026.7498582764058,
+    1162.9775179391356,
+    1183.0590864850087,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    526.9029271312786,
+    748.7666768689857,
+    766.0420102352501,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    7.826554067047153,
+    70.91505780073129,
+    142.622478248633,
+    159.50369411401817,
+    204.0021295283641,
+    216.71230870939624,
+    429.0279883693061,
+    435.09124570114847,
+    471.11729145360994,
+    472.7598296165739,
+    571.6023936695423,
+    667.6812524088798,
+    864.1725544287755,
+    872.7465303713218,
+    888.2865067486123,
+    934.4163635197185,
+    935.4109183774212,
+    943.5792758669992,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    145.23307007780977,
+    527.9658969911795,
+    780.6781477161218,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    6.766913879545866,
+    21.60145482244573,
+    106.24299556058907,
+    124.74302774515857,
+    168.42025508297738,
+    278.9296015787436,
+    324.76673804963576,
+    331.86538638156276,
+    414.0584661606519,
+    457.6070977121726,
+    477.27496653325466,
+    481.6179177373987,
+    523.0190989350203,
+    573.7251039295779,
+    695.6870903634436,
+    700.9128895891114,
+    715.7020815603962,
+    733.1282440203709,
+    766.2447472879264,
+    777.9565445355064,
+    799.5605446187406,
+    865.1765949185215,
+    891.8414298452003,
+    942.5773129431858,
+    957.9420854390846,
+    982.3567088551001,
+    984.7873118787626,
+    989.3286282067323,
+    1005.0579125896942,
+    1005.6513436912624,
+    1049.8779185248675,
+    1053.672698155417,
+    1063.613684567497,
+    1109.4622324778436,
+    1159.0292600479925,
+    1161.110703248094,
+    1164.7403105836956,
+    1198.5588577454325,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    274.9308444980812,
+    476.2342486066787,
+    547.059922603615,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    7.976640389359435,
+    12.651945066862647,
+    21.991183944756543,
+    31.57487206904466,
+    40.061922730054356,
+    43.23822400739053,
+    44.65617432692941,
+    64.48785155350704,
+    66.59575543644843,
+    78.2959351885125,
+    95.6471793002267,
+    97.98841614899744,
+    118.22428543609043,
+    139.6644110429146,
+    155.27124513741958,
+    188.1993604923295,
+    192.0058320223147,
+    201.3074171363653,
+    202.1554282141232,
+    209.09852594606576,
+    231.91282660723024,
+    247.02111252827615,
+    257.58135967929115,
+    262.6906298060658,
+    263.5026724392968,
+    266.86334564471866,
+    280.681987772167,
+    302.67925142900214,
+    322.30338581815766,
+    352.23991086760583,
+    365.30568073818864,
+    380.16708702692756,
+    380.6197701882487,
+    387.7321529424674,
+    394.07769271860155,
+    417.6236757232391,
+    422.701474411959,
+    465.9933078169187,
+    473.47001719915,
+    532.2992196118416,
+    537.4825457424396,
+    560.4992456667953,
+    568.6968238659691,
+    579.6949184118055,
+    594.5697476751378,
+    596.2374756866326,
+    600.0463972724931,
+    613.6832734421176,
+    677.9152394349425,
+    690.9460251003829,
+    701.8259460993723,
+    706.3217445877239,
+    707.7486727438574,
+    708.3393447306296,
+    723.8679722378507,
+    730.5002747112566,
+    752.5555189608691,
+    800.14261261593,
+    828.5214177955055,
+    833.1417133156024,
+    882.6877705223724,
+    896.4142952497738,
+    902.9612963379606,
+    906.4534906404094,
+    911.2074366355233,
+    950.9925504678025,
+    964.6865576664267,
+    968.0441277378495,
+    1021.5571612066426,
+    1037.1690189778697,
+    1056.203837787497,
+    1065.2563919435459,
+    1094.769723972731,
+    1096.3518444944589,
+    1100.9186905996883,
+    1101.802918585325,
+    1141.5655627347267,
+    1169.784902913887,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    214.94136646318358,
+    619.935235735667,
+    739.2365581995311,
+    789.4175563426749,
+    792.0596460324601,
+    1074.4599771548149,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    228.79817616876448,
+    877.9252156054836,
+    995.855898576979,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    198.0614244232623,
+    374.3024301872719,
+    932.960120698609,
+    1065.6883339922474,
+    1113.910547420796,
+    1147.9234293332631,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    280.6935092245529,
+    347.3799975268106,
+    415.80942499168884,
+    448.675791030469,
+    716.02051964134,
+    764.2965213143082,
+    833.6928041217506,
+    1126.835491101214,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    145.07496496665416,
+    267.4784739070753,
+    280.87299011308875,
+    283.9026051119141,
+    521.1234752518467,
+    596.4473323337997,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    9.554700311840891,
+    13.884521010317386,
+    183.27832237675148,
+    253.4128536598567,
+    265.46420832907114,
+    287.9169161978923,
+    417.0273658111661,
+    450.26495391568926,
+    683.6965087823296,
+    732.0616122549573,
+    734.9147070536302,
+    886.7251532324551,
+    911.1024364329004,
+    923.5556461479207,
+    937.3012300508752,
+    1043.8754276896707,
+    1074.76615174614,
+    1155.5815933429747,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    59.365497209704365,
+    95.45283247846865,
+    729.9795641155249,
+    1083.7959349652044,
+    1121.8015845616542,
+    1177.0110555172578,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    13.13305903099673,
+    30.79486856376681,
+    42.653513382596216,
+    90.60344656346398,
+    91.83139860172732,
+    102.61140106055846,
+    113.04091671599718,
+    243.2656725211889,
+    289.3883632369753,
+    324.722650044187,
+    326.33654471382647,
+    344.25746654864616,
+    391.3672989782043,
+    482.86862697370617,
+    515.0414263782139,
+    526.0109120717176,
+    553.0785093166207,
+    581.54649060743,
+    583.9523890066822,
+    592.1021773793578,
+    597.9143729611878,
+    664.4068691961079,
+    683.6183876732147,
+    688.2671940763273,
+    745.6749981370594,
+    762.9155990182632,
+    842.2820634980953,
+    854.3234344949665,
+    981.6895980035896,
+    1005.0152464920972,
+    1026.4816908900589,
+    1027.1462053255852,
+    1075.3040886659464,
+    1102.167798438119,
+    1109.4419651856451,
+    1123.615968165885,
+    1126.4856546952842,
+    1179.4288513611214,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 2,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    72.56445998962229,
+    342.719581051418,
+    516.5930030059152,
+    745.0258809040224,
+    908.0211451886281,
+    1071.3539389945315,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    3.2245101464698056,
+    3.9832383892377976,
+    14.283077342636075,
+    37.825370774627665,
+    68.24712263069705,
+    85.39885474846938,
+    143.61335843276146,
+    157.5639962885362,
+    168.3414851457485,
+    184.98896853643512,
+    206.3245467351166,
+    248.49755756450648,
+    251.8663272599177,
+    257.52771021374576,
+    270.11970141384387,
+    275.50631033199977,
+    280.4569578366906,
+    305.56461546242645,
+    308.5848004682224,
+    335.461932119944,
+    380.3609064836089,
+    407.6396514714449,
+    413.288797426294,
+    449.4497438036252,
+    479.9499738558057,
+    514.8493109515249,
+    515.2711217061878,
+    516.9549353586392,
+    524.6624234265292,
+    539.9385118901139,
+    558.3778791274457,
+    586.8809734930202,
+    621.2000471302233,
+    643.9980733240963,
+    651.4872919989187,
+    654.9772160793729,
+    662.837407694917,
+    701.284403603034,
+    702.5501558982274,
+    704.0523365986106,
+    711.1973854180353,
+    714.0375942087484,
+    715.3142842051027,
+    754.3009616002155,
+    756.3811347836446,
+    775.7019368963374,
+    783.8573292984327,
+    789.2518058867547,
+    793.0553108287461,
+    797.4914936960322,
+    802.023877045543,
+    810.5009062535242,
+    851.5900116023087,
+    881.2956695277976,
+    887.1979014787038,
+    927.6367482281252,
+    936.2591948348039,
+    971.2258474022545,
+    980.0860519185201,
+    1003.2714894877845,
+    1006.0036633819236,
+    1032.3082898509651,
+    1032.5167199337761,
+    1071.7717822333104,
+    1079.6005441387233,
+    1084.5964329777796,
+    1085.0421396665865,
+    1085.6279119744017,
+    1095.161559154229,
+    1110.9210594079807,
+    1133.4270819073593,
+    1136.064881075025,
+    1137.8632058876444,
+    1156.6471852625846,
+    1162.8536434859716,
+    1163.0102157299877,
+    1183.4977176344808,
+    1189.8859610378436,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    427.762424434233,
+    456.4865976300929,
+    752.0598050123939,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    4.575299184903647,
+    56.41612366602824,
+    365.707899828972,
+    470.10909303632076,
+    881.878381502342,
+    998.1678717732171,
+    1091.745108460391,
+    1112.0694012773965,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    182.87963257642895,
+    338.7932724922899,
+    1120.4423596555375,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    63.30739005969068,
+    133.71502411160262,
+    148.9666498741212,
+    343.0902312041237,
+    388.37639978792964,
+    398.8071923355136,
+    445.8430200074889,
+    452.31664857451995,
+    476.54575677023223,
+    480.40637589379867,
+    484.2932897258977,
+    536.1262205991518,
+    585.2953575147346,
+    670.8721758779035,
+    671.8503025131897,
+    705.4169898091506,
+    1012.6313244045471,
+    1158.7318532636393,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    327.2082643871359,
+    426.1482335171506,
+    499.611929490555,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    34.01324722735186,
+    59.6173182538752,
+    112.00250493713978,
+    158.92226807294688,
+    190.29958612941576,
+    206.2554793663838,
+    208.3030557346012,
+    262.3221647805586,
+    284.44722739920815,
+    308.00070268800954,
+    356.5828632980187,
+    425.58856053058895,
+    448.6320395866616,
+    463.51877947772965,
+    564.1617241611178,
+    614.6225123829624,
+    614.9154495363761,
+    670.5862373272728,
+    696.6418081142654,
+    732.215981677993,
+    737.7430060452473,
+    743.1817259608437,
+    758.4699989860749,
+    840.2267389731825,
+    919.7967547705128,
+    939.0814677754776,
+    1001.5572796271987,
+    1025.7083241485484,
+    1035.9441840748455,
+    1078.4136855314823,
+    1153.1016608898858,
+    1153.3368649549527,
+    1169.2673387616253,
+    1171.4760733078879,
+    1177.342477468176,
+    1189.3250772179122,
+    1191.548043433185,
+    1198.1275514064469,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    287.72582615807414,
+    629.656928759394,
+    908.6112505301544,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    8.683180007462932,
+    17.857884810839806,
+    26.096680675933783,
+    46.1653911637542,
+    46.633477569608274,
+    64.37110169597902,
+    75.05948432212786,
+    85.57003663403631,
+    95.39431305365311,
+    117.94997450369506,
+    120.06521331100113,
+    137.6519340460775,
+    141.71660511196836,
+    154.3612002231709,
+    180.56598515636074,
+    187.8501017914742,
+    203.74565329719044,
+    204.54263037354843,
+    227.14603072774617,
+    237.8924311172551,
+    238.28278820963317,
+    244.710679114646,
+    313.92237179858296,
+    314.1441180338485,
+    347.4434640891109,
+    353.0791034998146,
+    394.6107288805855,
+    396.50752266688596,
+    433.1921480831476,
+    434.19955705569066,
+    448.89028879617274,
+    471.4738369413633,
+    488.89144807620124,
+    503.7661615392505,
+    508.60024321577384,
+    522.9488389743377,
+    525.5841683123024,
+    543.3434810054596,
+    561.9531932592412,
+    564.2547882669852,
+    571.5030682137319,
+    575.9785934577869,
+    601.2868689867478,
+    605.6805407064145,
+    608.606889657957,
+    610.6640485737062,
+    614.2407961595414,
+    616.8805030782344,
+    651.467408142419,
+    662.6783388100478,
+    683.1556505784366,
+    705.1252408484302,
+    709.2180804958903,
+    744.0165567177883,
+    754.8257400740165,
+    777.6423733470152,
+    797.534229949833,
+    808.0043336814854,
+    808.8389223234371,
+    841.8171044367566,
+    872.4964944371193,
+    915.5558866808311,
+    926.5121449079705,
+    940.974276350383,
+    956.554400897825,
+    967.1308707776772,
+    989.5346797876769,
+    991.1861298922915,
+    1000.4104773556039,
+    1025.7703198621784,
+    1032.2517596513733,
+    1039.3036149548618,
+    1089.7070336204267,
+    1103.2864242495298,
+    1105.588793901989,
+    1184.83455194738,
+    1190.5829854715928,
+    1192.8325400115168,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    9.044720271534246,
+    230.53775424180012,
+    549.7888077689781,
+    757.8149271543547,
+    1020.4588184341915,
+    1031.0189430418072,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    167.4575012018886,
+    257.74375583825065,
+    896.8599130570676,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    335.1908795899814,
+    384.99245647111707,
+    686.635478511811,
+    780.2065090885073,
+    824.5642206774002,
+    1188.9600036882816,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    274.0544365349493,
+    591.5453587738455,
+    658.7377662512074,
+    683.5347555431619,
+    855.2535272758199,
+    875.2618688004811,
+    1033.4426093706336,
+    1069.5358039451137,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    267.3403770130577,
+    753.5294348935611,
+    901.2608221847174,
+    1140.654582041244,
+    1175.0552689026192,
+    1198.7007132136955,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    35.63057399859546,
+    117.60974189122315,
+    208.61157700484404,
+    293.87813576593874,
+    317.475937092848,
+    409.55749816487395,
+    561.6514812954072,
+    712.2416152653295,
+    825.840063728772,
+    962.9764239983346,
+    992.0436719113413,
+    997.2448245429192,
+    1011.5960735060386,
+    1079.8808679690228,
+    1080.605414501979,
+    1162.6163807040334,
+    1162.8045474724522,
+    1165.2414135171964,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    11.223176284219472,
+    187.78903240663502,
+    243.558950768682,
+    646.8171626627413,
+    693.8882370378446,
+    961.333401475142,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    5.575977457828163,
+    12.559655610813447,
+    16.800158635282656,
+    41.35461157515965,
+    46.25217019959953,
+    62.21764970290553,
+    79.39713461639246,
+    97.46587372698818,
+    134.14281468020226,
+    273.28979948478417,
+    343.12532569351305,
+    362.3656514224601,
+    375.0797779899822,
+    412.68074021943437,
+    441.86838846757695,
+    460.8260038657259,
+    476.60630967718475,
+    487.5143479016929,
+    515.5268138181624,
+    558.08392909847,
+    562.2094934244277,
+    628.0177606007478,
+    628.6200296089535,
+    656.7459709761137,
+    674.938284052515,
+    714.9390437733088,
+    810.523761038887,
+    823.1325067876049,
+    843.1343902529142,
+    876.2559918204893,
+    879.7905084794515,
+    969.2073638335388,
+    1070.979496670469,
+    1079.6408578484009,
+    1081.707352399416,
+    1116.777189677195,
+    1142.5758050834954,
+    1146.5626112234731,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    251.80268605924726,
+    399.3675860803155,
+    757.825152378517,
+    775.672956433571,
+    895.2430368415037,
+    1179.3121223699407,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    8.40116345897397,
+    41.19407663123664,
+    58.7712244324301,
+    59.60020601964371,
+    63.08270569265617,
+    67.03560818360246,
+    75.928972451685,
+    176.90706410021994,
+    194.30931242799184,
+    211.69242827734607,
+    212.8937555808886,
+    218.34070289969293,
+    225.72515822013122,
+    225.85078617565176,
+    227.41859069506566,
+    245.71611037936333,
+    263.68936483210007,
+    266.8595341269696,
+    284.44488962454375,
+    300.7816983466121,
+    322.10462772079416,
+    363.3186364315614,
+    367.1325177808373,
+    370.1599137675118,
+    374.74039646374854,
+    400.2764428951729,
+    403.0996334381932,
+    419.24402930010854,
+    429.1038272536956,
+    436.0885514970844,
+    440.75890867773086,
+    445.4783837568412,
+    452.3927634500614,
+    459.9008958777004,
+    481.7877230894397,
+    523.413880964266,
+    529.2730294019417,
+    529.5223570848187,
+    531.9124501754569,
+    549.8069140743603,
+    553.0037543816871,
+    559.1884337305419,
+    566.4053973007973,
+    613.5984083810733,
+    620.4373508307524,
+    632.0784651069738,
+    655.9664202276784,
+    656.2361805965234,
+    675.6990495019012,
+    675.865628734743,
+    704.6182347882651,
+    715.3957416445874,
+    726.9200379491413,
+    731.3797809235906,
+    756.9330479528816,
+    757.0596812934042,
+    771.3628092511512,
+    778.9176910951339,
+    863.2010184401896,
+    884.1507870656122,
+    890.2558180695983,
+    906.3550924588727,
+    939.7829747545527,
+    947.5042792047927,
+    948.1497466062392,
+    1011.6669723014436,
+    1022.5142446424074,
+    1048.2881902533575,
+    1081.6634027190307,
+    1083.3741972759492,
+    1093.829717497173,
+    1113.600239044449,
+    1142.495540401454,
+    1150.6380292115782,
+    1156.5529098530694,
+    1164.6272151439252,
+    1169.5272311592942,
+    1196.2174422646272,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    79.85102424175214,
+    395.0987811178996,
+    3063.513544391991,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    415.01837851758313,
+    694.4547467884379,
+    772.6281470733264,
+    892.1342487590406,
+    1173.8396037860034,
+    3118.4133667942433,
+    3198.902575037148,
+    3450.620802555609,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    105.6578997182986,
+    1797.7215395796973,
+    2298.109500606054,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    217.08970910973585,
+    688.6339151789472,
+    806.4427610006231,
+    903.0528450752003,
+    960.883815551904,
+    1546.9138741603167,
+    2027.5560814132757,
+    2219.57678517896,
+    2279.345160270802,
+    2308.00231891879,
+    2388.5913649845174,
+    2770.116354489039,
+    2849.5282495063334,
+    3080.3125073124434,
+    3177.0381484501027,
+    3346.1005157819395,
+    3456.549088734452,
+    3520.6538825875195,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    490.8692123597749,
+    1018.6497444153537,
+    2894.352546024585,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    52.60568031636454,
+    170.71696946505233,
+    177.61855136568724,
+    196.9346491616852,
+    219.1236570224599,
+    250.73506551320799,
+    255.60944442589357,
+    497.0732630284117,
+    545.7486775730946,
+    567.967121693207,
+    695.8154697031205,
+    1093.7962770013569,
+    1204.648735163331,
+    1379.9355981798662,
+    1513.2780573746552,
+    1647.2543933156342,
+    1678.9196618678532,
+    1964.69715945075,
+    1982.988670436258,
+    2000.0446704599926,
+    2022.3768345787394,
+    2025.6930188151532,
+    2302.4506620319394,
+    2362.7335364600813,
+    2507.3806482430796,
+    2531.0989465266643,
+    2537.6803515678807,
+    2569.6875382066696,
+    2587.1331568961677,
+    2677.295906887642,
+    2803.6536860944493,
+    3054.1262537483503,
+    3147.4178540524854,
+    3159.6699127183647,
+    3171.1824149317317,
+    3203.489821969599,
+    3358.596951177571,
+    3591.876968516892,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    769.1371426922344,
+    1043.8608230540249,
+    3473.45248022012,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    37.52394253624547,
+    60.54964530524942,
+    60.67290368510694,
+    124.77946607381764,
+    175.0091005055705,
+    195.42189318859954,
+    247.90420265635825,
+    296.01692214835447,
+    299.59581679218496,
+    306.9973692948795,
+    427.7629017592043,
+    455.6844343471347,
+    533.5653189349831,
+    586.0460049568242,
+    589.414589115626,
+    607.3308872092888,
+    665.3988062317644,
+    675.0473278719319,
+    709.0139717276254,
+    818.5394939781967,
+    999.9884478017397,
+    1023.7978656722644,
+    1058.0140739049725,
+    1099.5183787644935,
+    1213.651501499664,
+    1290.8963405189716,
+    1371.6783722308994,
+    1438.3188501130194,
+    1552.4973345492197,
+    1583.9688368404077,
+    1607.4920065211302,
+    1735.4320485862054,
+    1775.704855761892,
+    1777.1656198376415,
+    1778.8817165713954,
+    1852.1547014151658,
+    1878.6174586019083,
+    1878.6813090220937,
+    1886.4437316349909,
+    1958.5437401768882,
+    1962.308451732122,
+    1983.7985801070438,
+    2038.4891207002743,
+    2085.453294190371,
+    2097.8278939701163,
+    2100.2714834648277,
+    2147.0986502258797,
+    2147.6945018731535,
+    2163.36072220498,
+    2169.7232635065825,
+    2291.141187259262,
+    2315.5919715229147,
+    2348.3377280046116,
+    2355.3528653069966,
+    2397.0031695311177,
+    2404.114556345512,
+    2450.2502041036705,
+    2479.7571510138864,
+    2484.1114130432097,
+    2486.4258820656532,
+    2495.268691354275,
+    2564.814713546669,
+    2719.5711603731625,
+    2827.7693837573406,
+    2919.294849138705,
+    2923.710777998748,
+    2927.4299388556583,
+    2941.3923205844717,
+    3041.55098744928,
+    3121.2004816302265,
+    3128.9935815304525,
+    3166.454421325174,
+    3183.2954842962295,
+    3454.8725301312925,
+    3466.4011313491083,
+    3478.629579935999,
+    3483.242322880194,
+    3503.1525405374987,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    1090.873925867385,
+    1594.8213778164372,
+    2786.84104355591,
+    2831.490155544704,
+    3525.275598345697,
+    3568.415767213412,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    246.59859563072274,
+    2040.0594685438612,
+    3251.6464604989383,
+    3600.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    106.6772513289103,
+    856.5629404012077,
+    957.9470233369823,
+    1720.3727305137174,
+    3369.2410103687703,
+    3413.472929518911,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    193.55754710127172,
+    581.2305773458991,
+    947.9428864215217,
+    1125.063771499591,
+    2354.834522767029,
+    3053.6573771123444,
+    3087.0970948276054,
+    3258.7419958075316,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    653.8018862027014,
+    1411.299828101183,
+    1450.5963925423769,
+    2072.309865295776,
+    2498.1837518644907,
+    3475.4612492001106,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    408.7151927522171,
+    656.9396048998769,
+    674.0935953662324,
+    897.2188543958946,
+    1340.6373497279612,
+    1825.1279889437449,
+    1979.2254139653955,
+    2052.3595004922086,
+    2091.4766601829356,
+    2209.639474992815,
+    2486.606160614274,
+    2500.402995488101,
+    2665.3854973016055,
+    2683.369129354536,
+    2784.985287236859,
+    2993.20189028915,
+    3280.7560634885854,
+    3425.5812893518446,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    952.3874216716399,
+    1247.4265583485655,
+    1981.7950436494552,
+    2075.535002454692,
+    2181.545745097337,
+    2968.84214106118,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    159.6254334306979,
+    277.2341492969609,
+    309.5141750872512,
+    383.2190493405302,
+    396.67042713270234,
+    436.81647599219644,
+    440.29943711381634,
+    521.7904207051427,
+    712.9078393265656,
+    1043.7165900529792,
+    1097.5729599184633,
+    1150.8292523154562,
+    1171.8447912978688,
+    1237.6608999713953,
+    1653.1041535154347,
+    1677.4366589241713,
+    1739.3466224496162,
+    1829.7692167799464,
+    1929.8343482357977,
+    1967.948344760971,
+    1969.0345650013644,
+    2041.6107332595411,
+    2190.259905972725,
+    2240.464623140823,
+    2261.89597138454,
+    2358.45817777599,
+    2511.232800287628,
+    2617.6859460954893,
+    2647.5039875843077,
+    2655.234126091189,
+    2762.606468965615,
+    2792.683951329273,
+    2817.2405314383423,
+    2969.107295032947,
+    3356.0420794810307,
+    3527.521735448169,
+    3541.6197228247042,
+    3579.940878526885,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    466.7384429989904,
+    2582.44254891678,
+    2603.2893162423156,
+    2828.4253508489205,
+    3062.496515014754,
+    3187.3307338015084,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    7.219823687537508,
+    34.71704530031112,
+    35.70080922650387,
+    46.12202554317237,
+    57.62621024396326,
+    123.89515921097431,
+    203.1924643014635,
+    409.52797180021616,
+    476.82860139181264,
+    535.6554522433895,
+    560.2451530762169,
+    590.7134845487933,
+    655.9018171283577,
+    708.8794476617586,
+    877.1526832458989,
+    884.8926611953358,
+    994.0701363756475,
+    1034.2166139762378,
+    1180.2448168974943,
+    1214.8255781890375,
+    1269.131894919083,
+    1274.5088680434797,
+    1279.8922546892052,
+    1296.4463870411232,
+    1339.794028028258,
+    1340.7643381136672,
+    1372.5341815893285,
+    1430.3748759812377,
+    1468.8110425568075,
+    1566.57796396723,
+    1645.4524456802735,
+    1682.7799592645829,
+    1701.1866036681556,
+    1749.5125507102828,
+    1804.8297579580503,
+    1833.8604210768087,
+    1885.5024472019397,
+    1910.6736358467545,
+    1930.2477729241311,
+    2040.262782479477,
+    2061.0103252796384,
+    2081.878126714754,
+    2083.4751866336137,
+    2129.2018044332085,
+    2432.587616740006,
+    2447.2876673779947,
+    2505.9203086832676,
+    2525.4621419661526,
+    2587.6829556708244,
+    2598.3440074821992,
+    2661.6713449360705,
+    2744.8323108153295,
+    2747.6699003973276,
+    2750.5904775880786,
+    2766.837612095433,
+    2776.2155548329865,
+    2776.6137638356386,
+    2801.072007156101,
+    2833.7126693929577,
+    2957.6224701777355,
+    3017.205483158185,
+    3030.2979434234635,
+    3051.227399650903,
+    3063.375773498149,
+    3069.8572322006066,
+    3082.8218292901397,
+    3119.8995094261086,
+    3257.7613203121714,
+    3258.799239038092,
+    3301.4073523509405,
+    3384.7100241598578,
+    3486.1369559639234,
+    3532.9430446125825,
+    3533.701342773563,
+    3549.428042045889,
+    3582.276884518756,
+    3590.8667580502683,
+    3599.526969364279,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    503.7218136457506,
+    1013.630966580184,
+    1192.3037683540333,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    318.7188335867914,
+    369.4355244116312,
+    518.0795005015437,
+    541.5169530213307,
+    572.2426918078475,
+    612.3060066746423,
+    868.0701346735063,
+    1019.1913343676416,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    279.60099278389043,
+    561.6012740829162,
+    668.7086122920542,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    41.31819512201278,
+    55.81593233864011,
+    305.19669177010235,
+    388.0331123427771,
+    427.78411463580574,
+    445.100178352423,
+    540.7031525442562,
+    541.2001310757323,
+    735.4054849023215,
+    759.2465377152923,
+    784.7180425478856,
+    831.4821124903101,
+    942.8692974590758,
+    966.6404912514146,
+    967.7705756599585,
+    989.462235499423,
+    1050.7849717717904,
+    1189.6800953049105,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    238.28093033921607,
+    563.544944073975,
+    577.8194685724067,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    59.69548399762083,
+    114.45308772610159,
+    146.21462847882415,
+    183.6024024901535,
+    216.64166942987126,
+    240.5987191298995,
+    258.79806316507114,
+    270.30995993434254,
+    316.24639325327433,
+    345.78165938693536,
+    371.3910272711326,
+    395.01971535176386,
+    406.8313329695473,
+    413.55712689801624,
+    416.4650618718844,
+    468.07080347254936,
+    496.17991954643776,
+    567.7814074522075,
+    669.6934695807604,
+    682.2114801827989,
+    689.3749995942727,
+    694.7215849123576,
+    697.2283756985006,
+    750.5067904186753,
+    758.7455586818005,
+    770.1808594488289,
+    780.0991841517559,
+    840.8952613546745,
+    865.0844100367249,
+    925.6876815174625,
+    990.8778192894954,
+    1044.2816350592964,
+    1124.7022657831776,
+    1147.5550868128819,
+    1150.6751116589016,
+    1184.60258646902,
+    1188.0291458128468,
+    1188.5211879785006,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    278.56466172674726,
+    289.7398080808611,
+    1090.8241271599397,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    18.324822733306423,
+    35.022192888604444,
+    67.08361516057818,
+    70.60452946050634,
+    94.3943580402406,
+    107.76071882252549,
+    115.49555516011351,
+    124.2555388348377,
+    128.3941971073364,
+    178.70877188840316,
+    194.60910930882554,
+    199.59732015578052,
+    200.49970815015334,
+    210.14655072591987,
+    266.12087576653806,
+    339.660517751338,
+    353.28993235403016,
+    374.9773717244932,
+    387.39181267349267,
+    395.0230174447256,
+    398.2553357324608,
+    429.7273052474587,
+    476.17003567184264,
+    487.53287616363826,
+    508.90655832931765,
+    523.8814125328618,
+    544.93808470545,
+    557.7167752061649,
+    605.2279724175183,
+    611.7490068554143,
+    620.8356963244412,
+    622.4495334961533,
+    641.3743321718689,
+    644.678351070381,
+    644.9199963871879,
+    646.3177291429992,
+    649.2755205930079,
+    675.7369796576461,
+    677.4272831663209,
+    695.1087043418762,
+    695.1280797351836,
+    709.4989891530518,
+    712.40907636065,
+    742.0677104197289,
+    761.9972375812733,
+    770.6086006149155,
+    773.0313913381898,
+    777.792642438592,
+    777.888626559694,
+    785.7549764370349,
+    790.0004626809381,
+    801.90257479768,
+    804.1106465409355,
+    810.9398372043045,
+    814.5322503105756,
+    815.5058113391714,
+    848.6434924339854,
+    859.9349834794245,
+    865.5578027898493,
+    865.9062920472566,
+    888.6752827514603,
+    909.4027720639001,
+    923.9583034940762,
+    976.2149350462889,
+    983.2449569775696,
+    1003.0826091427642,
+    1018.9554133081717,
+    1022.5071625298541,
+    1049.583036392402,
+    1073.9128285800195,
+    1083.4438806639487,
+    1096.1258344586015,
+    1123.2140768934278,
+    1130.9381990627671,
+    1137.9882194608435,
+    1140.6712126321954,
+    1147.3141899348907,
+    1157.0371784169022,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    25.82508999556259,
+    129.4919785079586,
+    410.98479323426164,
+    430.05156168841927,
+    520.5314055102103,
+    946.8239774332967,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    426.424235951394,
+    656.0565547471599,
+    904.4819694956038,
+    1200.0
+   ],
+   "decision": true
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    46.91449267979415,
+    252.96059091976258,
+    363.0966163994536,
+    630.830474049947,
+    919.1586833470093,
+    1001.1698494823022,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    100.07886875418475,
+    221.0608873816662,
+    531.3345532025362,
+    608.7503452858255,
+    645.8165563731309,
+    661.5787175581617,
+    853.4919094019095,
+    919.9670497733341,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    422.2418313866329,
+    524.6824368219011,
+    974.9131254256173,
+    1070.190369229464,
+    1134.5058735619941,
+    1173.9131972517723,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    13.566371035052294,
+    20.36519325129329,
+    130.19024175525072,
+    193.75468923591376,
+    253.4786080703103,
+    305.4642834560915,
+    313.7949040644769,
+    486.416575692783,
+    506.78058860978587,
+    521.8006828564414,
+    589.5130918373286,
+    601.6397878123855,
+    666.122003150938,
+    746.0689686650117,
+    770.9689281552965,
+    900.048987531249,
+    965.3025774057991,
+    1049.4081645678052,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    216.3006570550757,
+    242.51136648260774,
+    669.6663243727261,
+    815.4521389159013,
+    1083.44758321037,
+    1150.8049192587255,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    20.563424197037918,
+    28.539921114808877,
+    96.25445050564907,
+    102.49284738353093,
+    115.73252376971665,
+    165.5115945726095,
+    173.83649962423146,
+    176.9657588514045,
+    190.97309689023461,
+    207.96107682247734,
+    211.9720941381059,
+    221.18135172980078,
+    225.2709192666531,
+    233.58569305162277,
+    234.0911089617828,
+    272.2896984109562,
+    283.8102530808216,
+    384.9635493619106,
+    400.1921806590178,
+    404.60008770926083,
+    413.21528372882926,
+    436.5433210166878,
+    449.8353582995294,
+    456.32245779246034,
+    459.0468647672394,
+    576.8770082369015,
+    611.6581986404772,
+    662.9640043215434,
+    686.5527684138459,
+    729.4914780919763,
+    729.9888058788828,
+    740.4529525545594,
+    757.0481732179217,
+    946.4685911996895,
+    951.67939153457,
+    992.3320199506995,
+    1010.7602294918673,
+    1126.9113235875675,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 3,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    66.59505155458976,
+    97.70498678306225,
+    218.32916756558313,
+    501.37629418175607,
+    885.6318500339904,
+    1035.582586442363,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    26.886143404994023,
+    29.154711560283175,
+    71.41369221263636,
+    105.42931320299039,
+    111.3438582856523,
+    113.94115255189989,
+    153.3714810776966,
+    161.95444952789143,
+    177.0126574046706,
+    182.08187449772763,
+    198.0223887188834,
+    213.9262966145234,
+    215.23612422240447,
+    249.86743787911,
+    262.5926373536643,
+    266.6785607226748,
+    291.3180251547595,
+    301.9651559452147,
+    303.32315192239685,
+    303.75056983233895,
+    359.72979920402963,
+    409.6912390699935,
+    433.4057028847941,
+    434.0495737463797,
+    442.2730266347605,
+    445.1166959314233,
+    461.2639830539982,
+    467.4326707827194,
+    470.73332013007587,
+    492.77368529984267,
+    501.98267079009094,
+    530.6296260411154,
+    535.0497917883783,
+    656.2097550348603,
+    662.7126848969973,
+    666.9132663623582,
+    679.4713523841622,
+    681.3019384748577,
+    709.1213351158406,
+    762.1734810788914,
+    789.5538171618861,
+    791.405264573549,
+    796.23770959347,
+    814.8222072300099,
+    821.978624892174,
+    845.0857118258899,
+    861.4146354207214,
+    871.7379742927254,
+    878.9569451261154,
+    879.7485709574734,
+    891.7170340844439,
+    895.369155098799,
+    957.7971161604313,
+    960.5518302216468,
+    965.3275654041346,
+    972.034159204885,
+    975.9877887227906,
+    996.3431759613857,
+    999.518190054093,
+    1005.1796721646797,
+    1012.9384371718843,
+    1013.3865036568086,
+    1021.7436169219147,
+    1040.020765411762,
+    1074.3141125337577,
+    1079.8143052920802,
+    1091.9318960683747,
+    1127.769670334254,
+    1128.0115430440196,
+    1148.44632825314,
+    1157.2075400457504,
+    1161.7096053516852,
+    1166.1107355902298,
+    1173.6564190621878,
+    1182.8992567923965,
+    1189.9382267034055,
+    1197.9800905604627,
+    1199.0076400895132,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    1.3119175317068077,
+    107.23624535298822,
+    231.973025964229,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    62.76857240570717,
+    317.72148452649805,
+    425.77287790106874,
+    535.6819547096356,
+    582.9657143241429,
+    647.7683605407071,
+    735.2010418792621,
+    1178.992244636886,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    90.5435042162003,
+    620.0416143592071,
+    1168.7498777709816,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    23.692715449860557,
+    110.50240197280368,
+    352.414026112499,
+    383.12299800603614,
+    511.0391006227767,
+    529.2292925531561,
+    658.5354511207008,
+    702.1858456852736,
+    728.7453118651244,
+    752.4514990320191,
+    826.5710058796499,
+    867.532622322116,
+    910.5213614142933,
+    968.1324039753716,
+    976.5707609261527,
+    993.5411466951155,
+    1044.6435177804547,
+    1116.1647905726943,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    110.48593954625719,
+    664.6453642123544,
+    1165.1660407180311,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    5.401909333100097,
+    54.409591614563666,
+    55.2637591040686,
+    69.33540398632499,
+    104.56611063377198,
+    125.90907866430778,
+    217.06029717595166,
+    248.06895149834736,
+    252.94229441529228,
+    327.814230802452,
+    380.5924155979062,
+    419.7523234996406,
+    456.1353555456827,
+    501.8081941724162,
+    531.8150855311327,
+    551.8934030655996,
+    563.0710840752548,
+    629.0406978785087,
+    674.163549003535,
+    675.5638318063315,
+    711.4263710553787,
+    748.1502232042817,
+    760.2948214511342,
+    813.641707687866,
+    834.0664051356296,
+    838.2893959726011,
+    843.2685098110392,
+    866.8252490485957,
+    896.990658765696,
+    920.7015205909369,
+    965.1583484912917,
+    988.0819995282797,
+    988.9633629529671,
+    1088.2971045513411,
+    1119.4856099160297,
+    1121.4278796314754,
+    1122.3135459127393,
+    1133.5726064685784,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    382.9869889749857,
+    835.777245493536,
+    935.7108785770441,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    14.103172364539907,
+    16.69239780254248,
+    31.8112544115829,
+    35.15014472414953,
+    36.05238301955538,
+    36.20235286518883,
+    59.70743951028443,
+    77.31436957734883,
+    83.90643136506593,
+    98.15211678162817,
+    105.07230172193687,
+    117.93928941281351,
+    124.60054368636473,
+    127.41048449720705,
+    157.26230845327427,
+    171.25686110470585,
+    185.1577348399726,
+    195.5646072109733,
+    201.06332578666496,
+    204.29067159252168,
+    219.66428426098017,
+    235.10339608453674,
+    241.3584104876787,
+    255.9980638610686,
+    261.3375534965623,
+    295.16566763254195,
+    309.55528007137195,
+    321.83916290010137,
+    341.07113073521634,
+    344.5084892296269,
+    353.1553636564059,
+    366.6171417598541,
+    382.1325701238637,
+    420.7369281639506,
+    426.26514832313524,
+    426.4450133311122,
+    438.065067958573,
+    453.52202701205687,
+    459.0443442702984,
+    471.7544744300464,
+    505.1911090696072,
+    511.5648403228035,
+    523.7595454759863,
+    576.3784013035433,
+    621.8485780483156,
+    623.7629708665506,
+    677.9110151799333,
+    704.4833443602286,
+    749.8837794922172,
+    760.8643032175069,
+    762.7955810984206,
+    767.1866432408618,
+    796.6790209375561,
+    802.0117327344713,
+    821.6259101304227,
+    834.4221531466143,
+    849.9773843589087,
+    863.8449771963835,
+    871.4439490650936,
+    872.988356416214,
+    884.3960950015337,
+    918.6950130744405,
+    937.1668245726297,
+    946.5094012122566,
+    947.447010893602,
+    979.9555003507221,
+    991.3496034973388,
+    991.8987296549758,
+    1002.6296100799701,
+    1007.0294380783869,
+    1011.9017844193004,
+    1067.066811806913,
+    1082.3861361692416,
+    1092.7555004588648,
+    1099.07851588127,
+    1106.7412223450485,
+    1116.7521810078958,
+    1132.890479315929,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    127.41148685263597,
+    520.5772416699778,
+    553.7863598863141,
+    709.2829110247056,
+    997.4845669997871,
+    1060.0559616340847,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    56.95796517358382,
+    185.15793119912846,
+    341.4918092103168,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    20.74480530299163,
+    61.12059712281193,
+    227.56701024607068,
+    321.8680054844264,
+    838.1583028538448,
+    1067.5195054343997,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    69.29963130371632,
+    272.20741180438637,
+    303.5439405350746,
+    350.0095898464405,
+    839.9756188768604,
+    1130.961046777696,
+    1135.4824865974779,
+    1145.078933342093,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    472.7210312809757,
+    536.0149423722644,
+    757.2415044677626,
+    803.6648230588198,
+    856.8527721726084,
+    990.8045831786036,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    69.22445508445998,
+    113.69841536824312,
+    128.48943212896677,
+    199.23399199296205,
+    311.4129064383131,
+    318.99210087803993,
+    347.81601541381133,
+    402.06378710113825,
+    468.4509023614188,
+    529.3907155971468,
+    700.5437213285998,
+    751.8255817807062,
+    1009.5650615229731,
+    1062.1704600667433,
+    1129.7772296817798,
+    1162.2608848055847,
+    1182.5462606768167,
+    1196.7998245477738,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    119.31444275688463,
+    395.53843232654896,
+    428.94301619865956,
+    811.8221531613675,
+    985.7349552138769,
+    1047.7481839211025,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    35.06868599619124,
+    51.28793933219802,
+    56.911056875582574,
+    149.61710936246578,
+    149.85193343601696,
+    201.60571334786778,
+    232.61138872947612,
+    249.58647097973162,
+    253.95637737397138,
+    277.2201929279412,
+    297.25072141247705,
+    315.64196878644907,
+    351.01033861238164,
+    367.14184742249387,
+    374.00161855789105,
+    380.6754836589847,
+    421.2621293674177,
+    513.8601066597812,
+    549.5026108906326,
+    684.7843320302613,
+    705.630873563882,
+    737.5604177080146,
+    761.5222228090545,
+    794.8477670211818,
+    851.2119380448727,
+    898.3927282410557,
+    899.3548242700721,
+    917.6073772642533,
+    943.5429059881895,
+    963.6823295295468,
+    1003.143499234916,
+    1004.5497128800249,
+    1016.1494431324898,
+    1023.4406107201116,
+    1033.2257049387965,
+    1044.386606090399,
+    1122.340470992936,
+    1180.1776808599493,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 6.0,
+   "period": 1200.0,
+   "isPer": true,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    72.9751000584998,
+    78.73453327531719,
+    313.57713637296956,
+    699.5783561411282,
+    903.4468390761331,
+    1186.6767911626453,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    6.560042032636915,
+    19.183761127699974,
+    69.40912010714277,
+    76.24416809443719,
+    91.55722471126455,
+    103.71402643015925,
+    110.13417524771829,
+    115.86307864020387,
+    161.10402795273,
+    166.28652569962327,
+    166.6202846481428,
+    189.08575563696485,
+    189.67672782209166,
+    198.94549855244225,
+    199.10464791691248,
+    208.05758741152113,
+    214.97688037955407,
+    238.22670011045193,
+    249.21743682498789,
+    259.3181877850416,
+    276.44438364729456,
+    360.161614365091,
+    366.97083016195825,
+    373.1045536953975,
+    378.8506414022145,
+    381.06030946690316,
+    407.56650272128627,
+    414.7371233735892,
+    417.42009328245297,
+    454.80041788279266,
+    468.1579977256072,
+    480.957526322032,
+    489.91685044681816,
+    490.50579017741853,
+    501.14960144833464,
+    513.7446984116335,
+    536.1274711066771,
+    553.1923096552993,
+    561.5666788193585,
+    567.7944134475632,
+    582.0060195001035,
+    638.3610383233176,
+    638.5761347190013,
+    657.4990999839246,
+    665.7854059647327,
+    669.0932643650181,
+    670.5061369016829,
+    672.1958414875039,
+    684.635389404038,
+    686.6403066773537,
+    697.9120338427956,
+    705.699927626145,
+    720.5381092410531,
+    721.4595708221236,
+    775.5465423737712,
+    796.2286881433687,
+    800.3344818802949,
+    850.6365724758465,
+    851.7181859393339,
+    853.2279312145373,
+    861.0328734712843,
+    868.2735197188392,
+    872.8989660136606,
+    898.3151244316434,
+    912.5127204608094,
+    941.4799442984191,
+    954.2223084057531,
+    969.2730021538737,
+    987.5160692142065,
+    1016.4062283083053,
+    1077.3599110318476,
+    1117.995258047229,
+    1123.2543398385944,
+    1136.7240618710662,
+    1144.172875029891,
+    1151.4590299617973,
+    1168.060278687074,
+    1180.6605481633283,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    2.684355663707283,
+    110.50689836481146,
+    2440.2176025554377,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    540.1759394487852,
+    647.9960263191231,
+    1303.4833571892707,
+    1987.2757353369489,
+    2927.277883099301,
+    3197.9568156373475,
+    3253.2791652033316,
+    3444.672404808925,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    1200.400034180219,
+    1200.7279405112913,
+    2461.01055620023,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    356.2731357776646,
+    367.019235383334,
+    1041.4675456060052,
+    1280.916810444357,
+    1351.369997185093,
+    1376.0988885950128,
+    1415.7400192954542,
+    1497.9596419805105,
+    1643.1397979225708,
+    1771.3680995486484,
+    1973.3743487638296,
+    2042.8365708664062,
+    2129.603406508947,
+    2197.5371294226275,
+    2228.1071986982406,
+    2357.478586497741,
+    2411.5750663567296,
+    3115.4626273356766,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    2084.1193898307074,
+    2768.3198849600144,
+    3189.8526724615863,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    88.24028433099089,
+    453.814001780701,
+    474.8364668467417,
+    542.2758885175077,
+    575.9701477522831,
+    633.7144797165786,
+    725.0795382037376,
+    830.959413479512,
+    994.442842985027,
+    1022.4017136288853,
+    1172.3042055486626,
+    1340.5628326612893,
+    1462.3035633095749,
+    1588.0947861490413,
+    1626.4370380845899,
+    1732.9506826744123,
+    1995.5661892347357,
+    2057.2819276438454,
+    2245.613599819034,
+    2255.228363641178,
+    2281.2676943663137,
+    2372.2004143507734,
+    2403.9211182384256,
+    2450.6107314525966,
+    2451.365104961036,
+    2781.0241024834318,
+    2847.3301153065536,
+    2861.0244149345563,
+    3033.7323510448145,
+    3082.8166784998725,
+    3132.29747480617,
+    3145.959875974964,
+    3239.55499034345,
+    3302.614775238178,
+    3480.3494404489147,
+    3511.0735223044157,
+    3554.841799377994,
+    3570.5746155967863,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    2570.2283150972353,
+    3198.8346479096895,
+    3443.8960805168094,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    35.156357554685954,
+    78.63141215741413,
+    94.31464585226644,
+    108.20662443893721,
+    109.50777083281835,
+    140.35601571339123,
+    144.38734598154088,
+    379.8625664394159,
+    410.57476609141463,
+    503.2382812183213,
+    528.2875416625709,
+    531.427460470181,
+    539.1239637671348,
+    554.3373415646719,
+    572.7390718089847,
+    611.8826725428037,
+    612.9620687906377,
+    616.1490150931625,
+    666.8832784881157,
+    705.111783003828,
+    755.3885363934515,
+    818.2384077210237,
+    862.434050166579,
+    889.4048614965283,
+    987.9647025312295,
+    1054.3907053266066,
+    1137.378098906612,
+    1144.79796268908,
+    1160.175404432624,
+    1246.6666954940401,
+    1282.2244849252568,
+    1302.742967247716,
+    1456.4383511823294,
+    1648.7838758972944,
+    1660.0459322641275,
+    1700.820950989493,
+    1739.9265216569809,
+    1822.4997083176336,
+    1871.9231804817,
+    1970.4257236830301,
+    2031.5777661803436,
+    2101.9284590808957,
+    2131.0617368835474,
+    2138.1687881974926,
+    2147.627893023858,
+    2230.4995429609817,
+    2271.5390060186146,
+    2286.8010079265573,
+    2318.9728808705186,
+    2325.5840111580724,
+    2474.6337057019387,
+    2542.027597511484,
+    2584.408100971626,
+    2621.6120694112533,
+    2684.30003408734,
+    2697.475258860728,
+    2748.0079669530905,
+    2766.8114889643084,
+    2809.3705556075624,
+    2826.825855608668,
+    2829.575969982859,
+    2860.4419664572606,
+    2922.9928039142605,
+    2949.89124291359,
+    2972.2197224708134,
+    2995.5008804079416,
+    3034.3810867072852,
+    3043.3522150494236,
+    3069.1376215885903,
+    3098.910755792809,
+    3116.6438828460964,
+    3224.3358665123847,
+    3367.9796996663827,
+    3391.554274601793,
+    3430.40714658253,
+    3460.420021173341,
+    3502.5654476391355,
+    3529.8699247974737,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    233.46393808477575,
+    1698.5857062925288,
+    2059.0514870489283,
+    2355.810280412778,
+    2416.3022108557043,
+    3103.6532615295628,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    337.38525988017943,
+    796.9778395320392,
+    2503.998449213371,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    614.714986866327,
+    928.359512517303,
+    1164.078121447243,
+    1708.784974090703,
+    2138.717930455329,
+    3108.6089699222675,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    5.26531348070951,
+    124.45006452405325,
+    363.36860314691,
+    413.42474774660485,
+    1912.7145798912516,
+    2523.08726588818,
+    3137.005168672012,
+    3414.149805337213,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    929.0084587191053,
+    1366.2350223395679,
+    2099.0079448364586,
+    2602.5208583303875,
+    2929.8235474339212,
+    3150.2199854612954,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    202.8253771766609,
+    393.09579863999824,
+    450.30327014072736,
+    478.38387755211585,
+    506.88742726226616,
+    619.0731655419487,
+    636.0434746176114,
+    854.9000076632727,
+    1048.0790620927667,
+    2061.7736212580962,
+    2069.8849794260964,
+    2708.4555746702886,
+    2808.331080173105,
+    2816.3553154154392,
+    2927.792112075954,
+    3008.2722832199443,
+    3123.568633048125,
+    3494.7626597211965,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    198.70497140381337,
+    502.8914987986384,
+    1277.8227401913805,
+    3250.618078510552,
+    3331.4741193287987,
+    3421.43100846839,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    47.14622975231308,
+    62.73455874571461,
+    249.82549449245695,
+    599.2754906434922,
+    699.6203719417136,
+    874.7674262445714,
+    945.4211466635579,
+    1040.0085879675087,
+    1043.1741228388303,
+    1215.4945182176104,
+    1218.9624381469835,
+    1380.3888566465714,
+    1426.2819034060544,
+    1607.586944392678,
+    1743.1946553488667,
+    1926.1739957446616,
+    2044.3703283042732,
+    2066.904916025949,
+    2168.523651957514,
+    2170.3473034986887,
+    2192.8123226072425,
+    2236.436730693471,
+    2290.289411948786,
+    2346.9846640688675,
+    2587.332939138394,
+    2679.4307898611128,
+    2735.984310702466,
+    2853.737547796382,
+    2881.9647828455354,
+    2904.8384548596496,
+    2971.6184890481895,
+    2973.1894824048854,
+    3144.663577698813,
+    3186.292455585799,
+    3418.5153795447754,
+    3426.1113057719326,
+    3446.1005709417664,
+    3532.8373480206724,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 3600.0,
+   "isPer": true,
+   "span": 3600.0,
+   "px": [
+    0.0,
+    47.762034149001174,
+    164.60125436875566,
+    542.9004295751718,
+    547.3155760439018,
+    666.308824896805,
+    1949.4978408105912,
+    3600.0
+   ],
+   "py": [
+    0.0,
+    235.37975127840474,
+    238.8197998131647,
+    290.215097300544,
+    297.5074823694442,
+    302.45575167093574,
+    377.9293129454914,
+    393.168976736531,
+    440.0385604282861,
+    445.4893605752489,
+    504.8267461429085,
+    572.0852895105943,
+    654.8071921498696,
+    786.0434521942649,
+    809.9245135106158,
+    975.2160628247709,
+    980.4376724091134,
+    1006.730973717002,
+    1014.3186628012298,
+    1044.8734038967923,
+    1054.5085102807982,
+    1091.5485010728362,
+    1296.6791901961576,
+    1309.7430997521362,
+    1374.397536390831,
+    1388.4377773913525,
+    1456.6232398900388,
+    1519.7993153997775,
+    1538.2984683393422,
+    1547.766190201435,
+    1582.4416165418775,
+    1611.841004245942,
+    1624.4355758913566,
+    1722.9593195988623,
+    1728.988110507119,
+    1740.0557219798661,
+    1803.0283719611837,
+    1866.2044601653827,
+    1922.944161885539,
+    1975.9205600979258,
+    2001.2389734198441,
+    2040.5671576984437,
+    2067.432693333395,
+    2075.9804409189182,
+    2128.177932274734,
+    2135.630702757861,
+    2158.7627279035078,
+    2191.054753130701,
+    2198.1966366360507,
+    2229.356402220818,
+    2283.3128905144927,
+    2394.2993790661512,
+    2709.810221534804,
+    2711.4805141762176,
+    2867.7286506417695,
+    2899.573996321631,
+    2913.93374925737,
+    2988.314867172248,
+    3012.2479050656707,
+    3031.647227879309,
+    3070.086659074576,
+    3074.6746931159623,
+    3081.426873791344,
+    3089.569421106031,
+    3101.3221830838784,
+    3179.139328018665,
+    3244.5442065693196,
+    3261.9289738849047,
+    3298.8486170272336,
+    3325.0705952944118,
+    3366.2938864338275,
+    3417.0512240073895,
+    3444.6383540330785,
+    3454.283074079186,
+    3483.3008787388208,
+    3537.682419061768,
+    3569.0062709866215,
+    3573.7791946477087,
+    3581.452068848209,
+    3600.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    467.633823136759,
+    587.7429128748139,
+    1116.8069395708042,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    19.90665975215289,
+    284.27539251725426,
+    380.54740492118896,
+    483.88132079305814,
+    665.3783594134442,
+    741.4961673352963,
+    1077.9175826350615,
+    1083.4934357810484,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    352.81737465364466,
+    686.4728301727614,
+    859.1407031120234,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    23.763253790899164,
+    71.10891805130572,
+    261.42322494976133,
+    286.49328074538784,
+    335.25939127856327,
+    385.12791022053455,
+    398.53787514279,
+    477.34087317321433,
+    499.21881991950113,
+    519.6154887288017,
+    634.068826624196,
+    761.3225937655983,
+    862.420031299446,
+    871.5016093614626,
+    917.6716706264267,
+    921.0427924556616,
+    927.1496003236117,
+    1083.12611853256,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    67.12232457218362,
+    396.9375898967581,
+    983.8956366932838,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    28.15643223828137,
+    50.61869419346845,
+    92.58255060497929,
+    94.14167378009562,
+    162.5790501458802,
+    204.99315542526722,
+    220.2093652294883,
+    245.20601108673267,
+    261.8605675588385,
+    263.83444548383284,
+    284.3904582959094,
+    291.3837509191257,
+    384.3873672079234,
+    387.6109601821582,
+    391.7405002349961,
+    397.6818400522297,
+    408.51080356411774,
+    437.0029517476993,
+    447.05007829485646,
+    557.9524293539982,
+    590.7033499954217,
+    628.9331770427042,
+    629.0074176417908,
+    715.0734654865308,
+    736.5551014779435,
+    825.9717780019857,
+    826.8284009826735,
+    885.6388152214439,
+    909.0081883529025,
+    924.8604617754416,
+    1003.5987077844294,
+    1019.0482887396987,
+    1022.1794641660368,
+    1026.6787128510698,
+    1048.259265275462,
+    1084.2978566186905,
+    1117.6191319755717,
+    1185.1101258376675,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 5,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    274.1692327149,
+    734.1426100139656,
+    809.866321069029,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    10.90921436966994,
+    19.96516428480586,
+    34.50908451745316,
+    38.86645018063373,
+    52.09417867722777,
+    83.96504366508819,
+    126.74683887723855,
+    142.27206735944856,
+    150.62819389430513,
+    166.11325967008733,
+    166.6181573283962,
+    167.2749889183478,
+    195.42748036764098,
+    215.76479679598557,
+    230.04355200213092,
+    243.8238533365776,
+    269.16640825958666,
+    269.5848227476896,
+    273.21954562137785,
+    334.681308076325,
+    341.25011728398647,
+    369.3253745215548,
+    372.7575993797078,
+    376.92476290161517,
+    378.31141745674273,
+    392.7087708815696,
+    416.72010681696946,
+    422.24021271966694,
+    463.31127309172103,
+    469.6945658775129,
+    469.9977584079361,
+    478.8052501320415,
+    517.8317830466453,
+    517.9554146519025,
+    589.3931351028397,
+    607.0746213146834,
+    629.716668111273,
+    641.665489084207,
+    653.9553531917086,
+    670.6911603508554,
+    700.1580906288996,
+    714.8725308925588,
+    730.6596300307084,
+    785.3395638164259,
+    789.4616144231065,
+    837.0864750906973,
+    845.8328727037858,
+    846.4761953625462,
+    849.106339853117,
+    886.7821904278455,
+    903.8994072721598,
+    906.9668627111125,
+    916.7589741148906,
+    935.2166108994097,
+    938.5859507502197,
+    942.3694095331815,
+    944.1355479689324,
+    962.377927825296,
+    975.0475060132674,
+    985.6763901533708,
+    1001.7014394446762,
+    1003.026312317706,
+    1010.9306121344569,
+    1013.1959008102115,
+    1049.294300705321,
+    1053.602691127458,
+    1061.1690381861154,
+    1064.5109624889822,
+    1070.6634722601175,
+    1090.7690030969422,
+    1092.32765911092,
+    1093.8412057622265,
+    1095.0443852665528,
+    1160.2609988274196,
+    1174.306824286184,
+    1176.3697497880323,
+    1187.669062320812,
+    1191.4709288013973,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 5,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    89.82138421072375,
+    172.4310153175323,
+    336.0795267579702,
+    442.6189779160299,
+    465.2846163238576,
+    1017.0720878330034,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    679.2997892219365,
+    1055.0026506142517,
+    1185.934636693922,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 10,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    39.63407487733379,
+    77.7458735619565,
+    379.17870731371204,
+    809.4106586536307,
+    898.6777378928491,
+    976.7372684045067,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    178.53303190989993,
+    275.151811684267,
+    330.24483629475253,
+    341.2702497909409,
+    708.741434520173,
+    921.1024099483351,
+    941.4121196648923,
+    1035.287631654628,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 20,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    431.31832958876686,
+    513.3637763268488,
+    514.1037308273225,
+    621.781524168752,
+    859.1939623778832,
+    1020.8123069127348,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    10.289565289614844,
+    231.8723268767178,
+    233.7471492535354,
+    272.72365123606716,
+    326.449803564394,
+    459.3052612090021,
+    530.2109978117301,
+    612.6890127677342,
+    658.8202711657175,
+    711.7266849463415,
+    803.7617007941079,
+    831.4741073137272,
+    974.2378267435543,
+    1012.7285339467794,
+    1053.4964168613303,
+    1128.5118227430837,
+    1150.0219147199978,
+    1168.5418483404067,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 40,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    106.91118417534327,
+    122.81380162632374,
+    467.4325849977934,
+    627.241220194163,
+    789.0953358887626,
+    1053.7397359354009,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    1.8212980928378197,
+    37.5580934554387,
+    67.23694766588847,
+    68.76075428741015,
+    97.0598373305402,
+    125.49999087669073,
+    145.26016470247032,
+    182.3271216113332,
+    223.48779386069873,
+    239.70351717841703,
+    293.4654768433909,
+    297.21163258193934,
+    340.06627308682545,
+    359.87818072278867,
+    463.4148134248029,
+    478.95569596463446,
+    480.1867013283444,
+    506.5681594955664,
+    511.45682079110054,
+    584.2577612208385,
+    632.0485201796137,
+    680.3358084971635,
+    892.5335371072647,
+    929.615962725724,
+    957.673626284805,
+    996.2492420980975,
+    1004.0579587681701,
+    1063.512083704428,
+    1071.0732083195282,
+    1073.7548899591266,
+    1087.119865606307,
+    1100.8273447847885,
+    1108.0162803628962,
+    1135.998095557771,
+    1156.055205640743,
+    1173.2922956977677,
+    1187.426116502488,
+    1192.5207317532174,
+    1200.0
+   ],
+   "decision": false
+  },
+  {
+   "gate": "centres_vs_grid",
+   "r": 4,
+   "K": 8,
+   "Ky": 80,
+   "sigma": 15.0,
+   "period": 0.0,
+   "isPer": false,
+   "span": 1200.0,
+   "px": [
+    0.0,
+    20.55724442338751,
+    30.642469693495933,
+    114.37972438580618,
+    570.1663652882662,
+    747.3798083702927,
+    847.0329043202227,
+    1200.0
+   ],
+   "py": [
+    0.0,
+    2.7689091572131286,
+    7.768831367715867,
+    18.877932734702974,
+    58.69475577413596,
+    80.60642402530868,
+    109.32944876623658,
+    117.19361188533543,
+    141.626494345983,
+    146.31517988396064,
+    159.47838796028725,
+    160.06716245210418,
+    166.75714381688067,
+    174.59781867012256,
+    215.63446678177462,
+    228.5126100920716,
+    247.45213818618063,
+    299.39127119253857,
+    330.55062943860247,
+    336.7763220204176,
+    353.63178698658646,
+    377.2714906041041,
+    390.95613997146705,
+    409.1219730661512,
+    410.44509020342326,
+    416.92513105778113,
+    428.0605741722467,
+    445.03080349057177,
+    451.1161399655843,
+    452.6448594905446,
+    481.5322802758754,
+    517.9451993242899,
+    543.8699549025055,
+    546.118991596616,
+    604.8813597277547,
+    636.7507402952152,
+    662.4169034094058,
+    673.5695599256115,
+    675.1183194939638,
+    679.4016728093192,
+    695.7120499992908,
+    696.0379410350484,
+    703.9104218956071,
+    722.0824044734677,
+    725.6875703939185,
+    733.9017407305633,
+    736.6954858371879,
+    740.7558404106968,
+    741.1914408970931,
+    745.4093764692418,
+    768.401910847454,
+    771.4609169219864,
+    796.3284016390046,
+    860.5049509320526,
+    868.2046660129357,
+    870.0766312442116,
+    888.558607196335,
+    911.286084153201,
+    911.6027644251113,
+    946.6462123435066,
+    948.4355246998856,
+    956.238681162909,
+    977.971240774571,
+    978.047316776702,
+    995.5738105240141,
+    1005.010767870408,
+    1009.5818160257547,
+    1033.6534948873968,
+    1036.7048930752599,
+    1043.63505928019,
+    1068.260167140148,
+    1070.2682034301235,
+    1111.3325563163935,
+    1133.3231463906793,
+    1160.0280287162002,
+    1165.837824877177,
+    1172.6519239711358,
+    1176.901515355274,
+    1184.7807209485147,
+    1200.0
    ],
    "decision": false
   }

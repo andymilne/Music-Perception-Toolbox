@@ -75,11 +75,19 @@ def test_decisions_are_monotone_in_K_within_each_shape(cases):
     oscillate as K grows: centres cost rises as K^(2r) while grid cost
     rises far more slowly, so once grid wins it must keep winning.
     A non-monotone boundary would mean the cost model is not ordering
-    the two paths consistently."""
+    the two paths consistently.
+
+    Restricted to the cases where both densities carry the same number of
+    values, so that one count is being swept and not two. The unequal
+    cases have their own monotonicity check below.
+    """
     groups = {}
     for c in cases:
+        if c["Ky"] != c["K"]:
+            continue
         key = (c["r"], c["sigma"], c["period"], c["isPer"])
         groups.setdefault(key, []).append((c["K"], c["decision"]))
+    assert groups, "fixture carries no equal-value-count cases"
     bad = []
     for key, items in groups.items():
         items.sort()
@@ -90,3 +98,40 @@ def test_decisions_are_monotone_in_K_within_each_shape(cases):
             elif seen_grid:
                 bad.append(f"{key}: centres reappears at K={K}")
     assert not bad, "non-monotone gate boundary:\n  " + "\n  ".join(bad)
+
+
+def test_fixture_covers_unequal_value_counts(cases):
+    # A chord against a scale, or a reference tuning against an equal
+    # division, gives the two densities different numbers of values. The
+    # fit the constants come from used equal counts throughout, so the
+    # fixture has to carry the unequal case or nothing holds the two
+    # languages matched on it.
+    unequal = [c for c in cases if c["Ky"] != c["K"]]
+    assert len(unequal) >= 40
+    n_centres = sum(c["decision"] for c in unequal)
+    assert 0 < n_centres < len(unequal), (
+        f"unequal-count cases are lopsided: {n_centres}/{len(unequal)} centres"
+    )
+
+
+def test_decisions_are_monotone_in_the_second_count(cases):
+    """At fixed first count and shape, the gate must not oscillate as the
+    second count grows. The centres route's dominant term is the second
+    density's self matrix, so adding values to that side can only make it
+    dearer; once the grid route wins it must keep winning."""
+    groups = {}
+    for c in cases:
+        key = (c["r"], c["sigma"], c["period"], c["isPer"], c["K"])
+        groups.setdefault(key, []).append((c["Ky"], c["decision"]))
+    bad = []
+    for key, items in groups.items():
+        items.sort()
+        seen_grid = False
+        for Ky, dec in items:
+            if not dec:
+                seen_grid = True
+            elif seen_grid:
+                bad.append(f"{key}: centres reappears at Ky={Ky}")
+    assert not bad, (
+        "non-monotone in the second value count:\n  " + "\n  ".join(bad)
+    )

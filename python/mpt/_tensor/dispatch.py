@@ -191,9 +191,20 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
 # suggested). Values sit at the lower end of the measured band so
 # near-crossover routing under-prices Bulger's method — the
 # cheap-to-mispick side. Orders above 3 reuse the r = 3 value.
-_PW_PER_ENTRY_MS_NONPER = {2: 1.0e-4, 3: 1.4e-4}
+#
+# Those measurements gave the two densities the same value count and the
+# same event count, where the three matrices the inner product needs are
+# each the size of the cross matrix. The fit was performed against the
+# cross matrix alone, so the fitted figures (110 and 145 ns non-periodic,
+# and the periodic pair) each absorb that factor of three. They are
+# written below as those figures divided by three, which leaves every
+# equal-count workload predicting exactly what it predicted when the fit
+# was made, while _predict_pairwise_kernel_size now returns the total
+# across the three matrices and so responds correctly when the counts
+# differ.
+_PW_PER_ENTRY_MS_NONPER = {2: 1.0e-4 / 3.0, 3: 1.4e-4 / 3.0}
 
-_PW_PER_ENTRY_MS_PER = {2: 1.1e-4, 3: 1.6e-4}
+_PW_PER_ENTRY_MS_PER = {2: 1.1e-4 / 3.0, 3: 1.6e-4 / 3.0}
 
 
 
@@ -257,66 +268,113 @@ def _orbit_rel_op_ms(table, r_a):
 
 
 
-def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y):
-    """Predicted n_J · n_K for the MA path under Bulger's method.
+def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None):
+    """Predicted tuple-pair kernel entries for the MA path under Bulger's
+    method, summed over the three matrices the inner product needs.
 
-    n_J^X = N_x · ∏_a r_a! · C(K_a, r_a)
-    n_K^Y = N_y · ∏_a C(K_a, r_a)
-    so n_J · n_K = N_x · N_y · ∏_a r_a! · C(K_a, r_a)².
+    Each density contributes a permutation-side and a combination-side
+    tuple count,
+
+        n_J = N · ∏_a r_a! · C(K_a, r_a),    n_K = N · ∏_a C(K_a, r_a),
+
+    and the three matrices are the cross matrix at n_J^X·n_K^Y and one
+    self matrix per density at n_J^X·n_K^X and n_J^Y·n_K^Y. Where the two
+    densities carry the same number of values in every attribute and the
+    same number of events the three coincide, and the total is three
+    times the cross term; where they do not, the larger density's self
+    matrix dominates. For a five-value density against an 80-value one at
+    r = 2 -- the ordinary shape of a chord compared against a scale -- the
+    second self matrix holds 19971200 of the 20034600 entries, so pricing
+    the cross matrix alone understates the work by 317.
+
+    ``k_vec`` and ``k_vec_y`` are the two densities' per-attribute value
+    counts; omitting the second means they agree, which is the
+    aggregate-only legacy calling convention.
     """
     if A == 0:
         return float(N_x * N_y)
-    size = float(N_x * N_y)
+    if k_vec_y is None:
+        k_vec_y = k_vec
+    perm_x = float(N_x)
+    comb_x = float(N_x)
+    perm_y = float(N_y)
+    comb_y = float(N_y)
     for a in range(A):
         r_a = int(r_vec[a])
-        K_a = int(k_vec[a])
-        if K_a < r_a:
+        K_x_a = int(k_vec[a])
+        K_y_a = int(k_vec_y[a])
+        if K_x_a < r_a or K_y_a < r_a:
             return float('inf')
-        c = float(_math_comb(K_a, r_a))
-        size *= float(factorial(r_a)) * c * c
-    return size
+        f_a = float(factorial(r_a))
+        c_x = float(_math_comb(K_x_a, r_a))
+        c_y = float(_math_comb(K_y_a, r_a))
+        perm_x *= f_a * c_x
+        comb_x *= c_x
+        perm_y *= f_a * c_y
+        comb_y *= c_y
+    return perm_x * comb_y + perm_x * comb_x + perm_y * comb_y
 
 
 
 def _predict_orbit_cost_ms(
     r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec, centres_ok=True,
+    k_vec_y=None,
 ):
     """Predicted Möbius-method MA wall time in milliseconds.
 
     Per-attribute sum. Absolute attributes with r_a >= 2 cost the
     vectorised-batch constant for their order (r_a = 1 attributes are
     a single direct kernel sum, absorbed into the base). Relative
-    attributes cost three (N_x, N_y)-shaped matrices at the cheaper of
-    the two per-pair routes the orchestrator itself chooses between:
-    the tuple-centres closed form ((r_a!·C(K_a, r_a))² ops per pair)
-    or the slab-batched translation-grid contraction (nu_a·K_a² ops
-    per pair, with nu_a the caller's per-attribute grid node
-    estimate). A-linearity of the absolute constants is verified at
-    r = 2, 3 to within ~5 % and slightly sub-linear at r = 4, where
-    linear-A over-predicts conservatively, biasing the dispatcher
-    toward Bulger's method in close calls.
+    attributes cost three (N_x, N_y)-shaped matrices — the cross matrix
+    and one self matrix per density — at the cheaper of the two per-pair
+    routes the orchestrator itself chooses between: the tuple-centres
+    closed form, at M_x·M_y + M_x² + M_y² ops per pair with
+    M = r_a!·C(K_a, r_a) read from each density's own value count, or the
+    slab-batched translation-grid contraction (nu_a·K_a² ops per matrix,
+    with nu_a the caller's per-attribute grid node estimate).
+    A-linearity of the absolute constants is verified at r = 2, 3 to
+    within ~5 % and slightly sub-linear at r = 4, where linear-A
+    over-predicts conservatively, biasing the dispatcher toward Bulger's
+    method in close calls.
+
+    ``k_vec`` and ``k_vec_y`` are the two densities' per-attribute value
+    counts; omitting the second means they agree, which is the
+    aggregate-only legacy calling convention. The centres term reads both
+    because the second density's self matrix dominates it whenever that
+    density carries more values. The grid term reads the first count
+    alone, matching :func:`_mobius_inner._ma_rel_attr_prefers_centres`,
+    the gate this function is predicting the outcome of; that leaves the
+    grid route under-priced for unequal counts, and so the Möbius side
+    under-priced wherever the grid route is the cheaper of its two, which
+    is a bias toward the Möbius method. Whether the grid estimate should
+    depend on the value count at all is the subject of the pending
+    bench_ip_unit_cost extension.
     """
     total = _ORBIT_REL_BASE_MS if np.any(rel_vec) else 0.0
     pairs = float(N_x) * float(N_y)
+    if k_vec_y is None:
+        k_vec_y = k_vec
     for a in range(A):
         r_a = int(r_vec[a])
         K_a = int(k_vec[a])
+        K_y_a = int(k_vec_y[a])
         if bool(rel_vec[a]) and r_a >= 2:
             # The centres route is measure-blocked above the sigma/P
             # threshold (the orchestrator keeps the all-image grid
             # there), so above it the grid route is priced alone.
-            grid_ops = float(nu_vec[a]) * K_a * K_a
+            grid_ops = 3.0 * float(nu_vec[a]) * K_a * K_a
             per_pair = grid_ops * _orbit_rel_op_ms(
                 _ORBIT_REL_GRID_OP_MS, r_a)
-            if centres_ok:
-                centres_ops = float(
-                    factorial(r_a) * _math_comb(K_a, r_a)) ** 2
+            if centres_ok and K_a >= r_a and K_y_a >= r_a:
+                m_x = float(factorial(r_a) * _math_comb(K_a, r_a))
+                m_y = float(factorial(r_a) * _math_comb(K_y_a, r_a))
+                centres_ops = m_x * m_y + m_x * m_x + m_y * m_y
                 per_pair = min(
                     per_pair,
                     centres_ops * _orbit_rel_op_ms(
                         _ORBIT_REL_CENTRES_OP_MS, r_a),
                 )
-            total += 3.0 * pairs * per_pair
+            total += pairs * per_pair
         elif r_a >= 2:
             total += float(_ORBIT_ABS_PER_ATTR_MS[r_a])
     return float(total)
@@ -332,6 +390,7 @@ def _select_ma_inner_product_method(
     rel_vec=None, nu_vec=None,
     guard_forced_bulger=True,
     wrap_vec=None,
+    k_vec_y=None,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
@@ -378,10 +437,17 @@ def _select_ma_inner_product_method(
     r_vec : (A,) intp
         Per-attribute r_a.
     k_vec : (A,) intp
-        Per-attribute slab dimension K_a (the kernel slab size; events
-        within an attribute may have lower K_eff via NaN padding,
-        which the Möbius-method wrapper handles via per-event
-        safe/unsafe partition).
+        First density's per-attribute value count K_a (the kernel slab
+        size; events within an attribute may have lower K_eff via NaN
+        padding, which the Möbius-method wrapper handles via
+        per-event safe/unsafe partition).
+    k_vec_y : (A,) intp, optional
+        Second density's per-attribute value count. The two densities
+        need not agree — a chord against a scale, or a reference tuning
+        against an equal division, is the ordinary case — and both
+        Bulger's tuple-pair size and the Möbius side's centres term are
+        products over the two. Omitted means the counts agree, which is
+        the aggregate-only legacy calling convention.
     A : int
         Number of attributes.
     N_x, N_y : int
@@ -404,6 +470,7 @@ def _select_ma_inner_product_method(
             _guard_forced_bulger_feasible_ma(
                 k_vec, r_vec, rel_vec, N_x, N_y,
                 reason="r above the shipped orbit order",
+                k_vec_y=k_vec_y,
             )
         return 'bulger'
     # Accuracy is governed by ``truncationSigmas``, not by the collection
@@ -425,13 +492,20 @@ def _select_ma_inner_product_method(
     # _predict_pairwise_kernel_size formula (n_J = N · ∏_a r_a!·C).
     if A > 0 and not (any_rel_per
                       and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD):
-        per_side_tuples = 1.0
+        k_y = k_vec if k_vec_y is None else k_vec_y
+        tuples_x = 1.0
+        tuples_y = 1.0
         dim_sum = 0
         for a in range(A):
-            r_a = int(r_vec[a]); K_a = int(k_vec[a])
-            per_side_tuples *= float(factorial(r_a)) * float(_math_comb(K_a, r_a))
+            r_a = int(r_vec[a])
+            f_a = float(factorial(r_a))
+            tuples_x *= f_a * float(_math_comb(int(k_vec[a]), r_a))
+            tuples_y *= f_a * float(_math_comb(int(k_y[a]), r_a))
             dim_sum += r_a
-        n_J_max = max(int(N_x), int(N_y)) * per_side_tuples
+        # "Either side" is meant literally: each density's working set is
+        # its own event count times its own tuple count, and the two
+        # densities need not carry the same number of values.
+        n_J_max = max(int(N_x) * tuples_x, int(N_y) * tuples_y)
         # working-set bytes ≈ n_J · (2·Σr_a) · 8 (perm + centres + index
         # arrays, mirroring the single-multiset row-factor), capped to avoid overflow.
         if n_J_max * (2 * max(dim_sum, 1)) * 8 > _CENTRES_WORKING_SET_SOFT_BUDGET:
@@ -463,7 +537,8 @@ def _select_ma_inner_product_method(
                 return 'bulger'
             if wants_full:
                 return 'mobius'
-    pw_size = _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y)
+    pw_size = _predict_pairwise_kernel_size(
+        r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y)
     pw_cost_ms = pw_size * _pw_per_entry_ms(any_per, r_max)
     # Aggregate-only callers (the legacy selector API) supply no
     # per-attribute vectors; reconstruct conservative defaults. Marking
@@ -484,6 +559,7 @@ def _select_ma_inner_product_method(
     orbit_cost_ms = _predict_orbit_cost_ms(
         r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec,
         centres_ok=(sigma_over_P_max <= _ORBIT_SIGMA_OVER_P_THRESHOLD),
+        k_vec_y=k_vec_y,
     )
     if pw_cost_ms <= orbit_cost_ms:
         return 'bulger'
@@ -990,7 +1066,8 @@ def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
     return n_j * max(dim, 1) * 8
 
 
-def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *, reason):
+def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
+                                     reason, k_vec_y=None):
     """Raise if a *forced* multi-attribute Bulger inner product would be
     infeasible.
 
@@ -1004,13 +1081,17 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *, reason)
     clear error naming the shape. Explicit ``method='bulger'`` overrides
     are honoured earlier and do not reach here, so this guards only
     auto-dispatch.
+
+    Each side is sized from its own density's per-attribute value counts,
+    since the two need not agree; ``k_vec_y`` omitted means they do.
     """
     A = len(r_vec)
+    k_y = k_vec if k_vec_y is None else k_vec_y
 
-    def _nj_side(N):
+    def _nj_side(N, k_side):
         n_j = float(N)
         for a in range(A):
-            K_a = int(k_vec[a])
+            K_a = int(k_side[a])
             r_a = int(r_vec[a])
             if K_a < r_a:
                 return 0.0
@@ -1022,8 +1103,8 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *, reason)
                 return 1e18
         return n_j
 
-    nj_x = _nj_side(N_x)
-    nj_y = _nj_side(N_y)
+    nj_x = _nj_side(N_x, k_vec)
+    nj_y = _nj_side(N_y, k_y)
     pair_bytes = nj_x * nj_y * 8
     if pair_bytes > _CENTRES_PROBE_MEM_BUDGET:
         raise SingleImageInfeasibleError(

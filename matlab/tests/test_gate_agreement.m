@@ -17,6 +17,10 @@
 %  agree in value, so a disagreement costs only time; the constants are
 %  still deliberately matched, and this test is what holds them matched.
 %
+%  The Python twin additionally checks that the decisions are monotone in
+%  each value count within a shape; that check reads the same fixture and
+%  is not duplicated here.
+%
 %  No local functions: this file is executed as a script from test_mpt.m.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
@@ -87,6 +91,28 @@ else
             sprintf('gate agreement: %d/%d decisions differ (first: %s)', ...
                     gaBad, gaN, gaFirst), false};
     end
+
+    % A chord against a scale, or a reference tuning against an equal
+    % division, gives the two densities different numbers of values. The
+    % fit the gate constants come from used equal counts throughout, so
+    % the fixture has to carry the unequal case or nothing holds the two
+    % languages matched on it. K is the first density's count, Ky the
+    % second's.
+    gaNUneq = 0;
+    gaNUneqCentres = 0;
+    for ii = 1:gaN
+        c = gaGet(ii);
+        if c.Ky ~= c.K
+            gaNUneq = gaNUneq + 1;
+            if c.decision
+                gaNUneqCentres = gaNUneqCentres + 1;
+            end
+        end
+    end
+    results(end+1, :) = { ...
+        sprintf(['gate agreement: unequal value counts covered ' ...
+                 '(%d cases, %d centres)'], gaNUneq, gaNUneqCentres), ...
+        gaNUneq >= 40 && gaNUneqCentres > 0 && gaNUneqCentres < gaNUneq};
 end
 
 

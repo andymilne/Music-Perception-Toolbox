@@ -106,8 +106,10 @@ internal.accuracyFloor('setEps', mrc_prevEps);
 % --- Predicate behaviour ---
 PxSmall = rand(4, 10) * 1200;
 % The centres/grid crossover at r = 2 with these parameters (N_u = 1666
-% grid nodes) sits at K = 42: (2*C(K,2))^2 vs 1666*K^2. K = 60 sits
-% comfortably on the grid side, robust to modest node-count changes.
+% grid nodes, both densities carrying K values) sits at K = 14: the
+% centres estimate 60*(K*(K-1))^2 against the grid estimate
+% 1e6 + 30*1666*K. K = 4 and K = 60 sit either side of it with room to
+% spare, so both assertions survive modest changes to the node count.
 PxLarge = rand(60, 10) * 1200;
 results{end+1,1} = 'maRelAttrPrefersCentres: small K -> centres';
 results{end,2}   = mobius.maRelAttrPrefersCentres( ...
@@ -118,6 +120,66 @@ results{end,2}   = ~mobius.maRelAttrPrefersCentres( ...
 results{end+1,1} = 'maRelAttrPrefersCentres: above sigma/P threshold -> grid';
 results{end,2}   = ~mobius.maRelAttrPrefersCentres( ...
     PxSmall, PxSmall, 100, 2, true, true, 1200);
+
+% --- Unequal value counts between the two densities ---
+% The two densities need not carry the same number of values in an
+% attribute: a chord against a scale, or a reference tuning against an
+% equal division, is the ordinary case. Every cell of the fit the
+% constants come from gives both sides the same count, so these pin the
+% case that fit leaves untested.
+%
+% The centres route computes three matrices, and their element counts are
+% M_x*M_y, M_x^2 and M_y^2 with M = r!*C(K, r). The second self matrix
+% dominates whenever Py carries more values, so an estimate reading Px's
+% count alone is low by (M_y/M_x)^2. The cells below sit in the band
+% where that difference decides the route. Each expectation was checked
+% against measurement in Python: both routes were run explicitly within
+% one process and their times compared as a ratio (t_centres/t_grid in
+% the labels). Twin of the Python cells in test_ma_rel_gate.py.
+mrc_unequal = { ...
+    %  K_x  K_y  r  expectCentres  ratio
+        5,  10,  2, true,          0.6; ...
+        5,  20,  2, false,         3.2; ...
+        5,  40,  2, false,         29.0; ...
+        5,  60,  2, false,         133.0; ...
+        5,  80,  2, false,         519.0; ...
+        5,   8,  3, true,          0.3; ...
+        5,  12,  3, false,         4.5};
+for mrc_ii = 1:size(mrc_unequal, 1)
+    mrc_Kx  = mrc_unequal{mrc_ii, 1};
+    mrc_Ky  = mrc_unequal{mrc_ii, 2};
+    mrc_r   = mrc_unequal{mrc_ii, 3};
+    mrc_exp = mrc_unequal{mrc_ii, 4};
+    mrc_got = mobius.maRelAttrPrefersCentres( ...
+        rand(mrc_Kx, 4) * 1200, rand(mrc_Ky, 4) * 1200, ...
+        6, mrc_r, true, true, 1200);
+    if mrc_exp
+        mrc_want = 'centres';
+    else
+        mrc_want = 'grid';
+    end
+    results{end+1,1} = sprintf( ...
+        ['maRelAttrPrefersCentres: K_x=%d K_y=%d r=%d -> %s ' ...
+         '(measured %.1fx)'], mrc_Kx, mrc_Ky, mrc_r, mrc_want, ...
+        mrc_unequal{mrc_ii, 5});
+    results{end,2}   = isequal(logical(mrc_got), logical(mrc_exp));
+end
+
+% The element count spans the cross matrix and both self matrices, so it
+% is symmetric in the two value counts even though the cross matrix
+% alone is not.
+results{end+1,1} = 'maRelAttrPrefersCentres: symmetric in the two counts';
+results{end,2}   = isequal( ...
+    logical(mobius.maRelAttrPrefersCentres( ...
+        rand(6, 4) * 1200, rand(30, 4) * 1200, 6, 2, true, true, 1200)), ...
+    logical(mobius.maRelAttrPrefersCentres( ...
+        rand(30, 4) * 1200, rand(6, 4) * 1200, 6, 2, true, true, 1200)));
+
+% An estimate built from C(K_y, r) = 0 would be zero and would select
+% centres unconditionally.
+results{end+1,1} = 'maRelAttrPrefersCentres: K_y below r -> grid';
+results{end,2}   = ~mobius.maRelAttrPrefersCentres( ...
+    rand(8, 4) * 1200, rand(2, 4) * 1200, 6, 3, true, true, 1200);
 
 if standalone
     nPass = sum(cellfun(@(x) isequal(x, true), results(:, 2)));

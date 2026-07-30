@@ -1432,10 +1432,16 @@ def _rel_window_margin(truncation_sigmas):
 #: per-op costs of the two paths differ by two orders of magnitude
 #: and their scaling with K differs from the raw counts.
 #:
-#: Centres side: per-element cost of the pairwise Gaussian overlap
-#: over the (r_a!·C(K, r_a))² tuple-centre pairs, dominated by the
-#: exp evaluation and augmented by an O(r_a-1) sum for Q and, in the
-#: periodic case, an O((r_a-1)(r_a-2)) pairwise-wrap inner loop.
+#: Centres side: per-element cost of the pairwise Gaussian overlap,
+#: dominated by the exp evaluation and augmented by an O(r_a-1) sum
+#: for Q and, in the periodic case, an O((r_a-1)(r_a-2)) pairwise-wrap
+#: inner loop. The element count spans all three matrices the route
+#: computes, M_x·M_y + M_x² + M_y² with M = r_a!·C(K, r_a) taken from
+#: each density's own value count, so the two densities need not carry
+#: the same number of values in an attribute. The three-matrix count
+#: matters: a five-partial reference against an 80-value tuning has
+#: M_x = 20 and M_y = 6320, and the second self matrix supplies
+#: 4.0e7 of the 4.0e7 elements.
 #:
 #: Grid side: cost of the grid path, which for r_a ∈ {2, 3, 4} is
 #: served by the spectral branch of ``_rel_inner_batched``
@@ -1453,13 +1459,24 @@ def _rel_window_margin(truncation_sigmas):
 #: cells, with the small remaining misses all in the c/g ∈ [0.7, 1.4]
 #: neighbourhood of the crossover where either path is nearly as
 #: cheap as the other.
-_CENTRES_NS_BASE = 45.0       # per-element base (exp dominates)
+#:
+#: Every cell of that sweep gave both densities the same value count,
+#: where the three matrices carry 3·M² elements between them. The fit
+#: was performed against an element count of M², so the fitted figures
+#: (45, 15, 10 ns) each absorb that factor of three. They are written
+#: below as those figures divided by three, which leaves every
+#: equal-value-count cell predicting exactly what it predicted when the
+#: fit was made -- verified over the 25 cells in test_ma_rel_gate.py
+#: and the 430 in gate_agreement_parity.json, all of which have equal
+#: counts. Writing the division out keeps the fitted figures visible
+#: and gives both languages the identical double.
+_CENTRES_NS_BASE = 45.0 / 3.0   # per-element base (exp dominates)
 
 
-_CENTRES_NS_LIN  = 15.0       # per-element linear-in-(r_a - 1) term
+_CENTRES_NS_LIN  = 15.0 / 3.0   # per-element linear-in-(r_a - 1) term
 
 
-_CENTRES_NS_WRAP = 10.0       # per-element (r_a-1)(r_a-2) term, is_per only
+_CENTRES_NS_WRAP = 10.0 / 3.0   # per-element (r_a-1)(r_a-2), is_per only
 
 
 _GRID_NS_FLOOR   = 1_000_000.0  # 1 ms fixed per-pair setup
@@ -1467,12 +1484,31 @@ _GRID_NS_FLOOR   = 1_000_000.0  # 1 ms fixed per-pair setup
 
 _GRID_NS_PER_OP = {2: 30.0, 3: 700.0, 4: 2000.0}  # ns per (N_u·K) op, per r_a
 
+#: The grid estimate reads the first density's value count alone, so it
+#: is low whenever the second carries more values. That is deliberate on
+#: two grounds. Choosing the grid route where centres is faster costs at
+#: most the setup floor, whereas choosing centres where the grid route is
+#: faster costs a factor rising as the fourth power of the larger value
+#: count, so a low grid estimate errs on the cheap side. And whether this
+#: estimate should depend on the value count at all is an open question:
+#: measured grid times on this workload do not grow with it, which is the
+#: subject of the pending bench_ip_unit_cost extension. Raising the
+#: estimate now would pre-empt that measurement.
 
-def _predicted_centres_wall_ns(K, r_a, is_per):
+
+def _predicted_centres_wall_ns(K_x, K_y, r_a, is_per):
     """Nanosecond wall-time estimate for one event pair on the centres
-    (pairwise closed-form) path."""
+    (pairwise closed-form) path.
+
+    ``K_x`` and ``K_y`` are the two densities' value counts in the
+    attribute. The route computes three matrices -- the cross matrix and
+    one self matrix per density -- and the estimate spans all three,
+    so it is symmetric in the two counts and does not assume they agree.
+    """
     import math
-    n_e = (math.factorial(r_a) * math.comb(K, r_a)) ** 2
+    M_x = math.factorial(r_a) * math.comb(K_x, r_a)
+    M_y = math.factorial(r_a) * math.comb(K_y, r_a)
+    n_e = M_x * M_y + M_x * M_x + M_y * M_y
     per_el = _CENTRES_NS_BASE + _CENTRES_NS_LIN * (r_a - 1)
     if is_per:
         per_el += _CENTRES_NS_WRAP * (r_a - 1) * (r_a - 2)
@@ -1527,6 +1563,14 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     closed form is exact for the non-periodic reading and always
     measure-safe.
 
+    The two densities need not carry the same number of values in the
+    attribute, and a chord against a scale, or a reference tuning against
+    an equal division, is the ordinary case. The centres estimate
+    therefore spans all three matrices the route computes, reading each
+    density's own value count; the grid estimate reads the first
+    density's count alone, for the reasons recorded at
+    ``_GRID_NS_PER_OP``.
+
     See ``_CENTRES_NS_BASE`` and ``_GRID_NS_PER_OP`` for the cost-model
     calibration notes.
     """
@@ -1536,17 +1580,18 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
         return False
     if is_per and (sigma / period) > _ORBIT_SIGMA_OVER_P_THRESHOLD:
         return False
-    K = int(Px.shape[0])
-    if K < r_a:
+    K_x = int(Px.shape[0])
+    K_y = int(Py.shape[0])
+    if K_x < r_a or K_y < r_a:
         return False
     if is_per:
         span_or_period = float(period)
     else:
         span_or_period = (float(np.nanmax(Px) - np.nanmin(Px))
                           + float(np.nanmax(Py) - np.nanmin(Py)))
-    c_wall_ns = _predicted_centres_wall_ns(K, r_a, is_per)
+    c_wall_ns = _predicted_centres_wall_ns(K_x, K_y, r_a, is_per)
     g_wall_ns = _predicted_grid_wall_ns(
-        K, r_a, sigma, span_or_period, is_per,
+        K_x, r_a, sigma, span_or_period, is_per,
     )
     return c_wall_ns < g_wall_ns
 

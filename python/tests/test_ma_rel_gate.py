@@ -160,6 +160,80 @@ def test_gate_returns_false_above_sigma_over_P_threshold():
 
 
 # ---------------------------------------------------------------------------
+# Unequal value counts between the two densities
+# ---------------------------------------------------------------------------
+
+# The two densities need not carry the same number of values in an
+# attribute: a chord against a scale, or a reference tuning against an
+# equal division, is the ordinary case. Every cell above, and every cell
+# in the fit the constants come from, gives both sides the same count,
+# so these pin the case that count leaves untested.
+#
+# The centres route computes three matrices, and their element counts are
+# M_x*M_y, M_x^2 and M_y^2 with M = r!*C(K, r). The second self matrix
+# dominates whenever the second density carries more values, so an
+# estimate reading the first count alone is low by (M_y/M_x)^2. The cells
+# below sit in the band where that difference decides the route, and
+# each expectation was checked against measurement: both routes were run
+# explicitly within one process and their times compared as a ratio.
+_UNEQUAL_PER = [
+    # (K_x, K_y, r, sigma, period, expect_centres, measured ratio t_c/t_g)
+    (5, 10, 2, 6.0, 1200.0, True,   0.6),
+    (5, 20, 2, 6.0, 1200.0, False,  3.2),
+    (5, 40, 2, 6.0, 1200.0, False,  29.0),
+    (5, 60, 2, 6.0, 1200.0, False,  133.0),
+    (5, 80, 2, 6.0, 1200.0, False,  519.0),
+    (5, 8,  3, 6.0, 1200.0, True,   0.3),
+    (5, 12, 3, 6.0, 1200.0, False,  4.5),
+]
+
+
+@pytest.mark.parametrize(
+    "K_x, K_y, r, sigma, period, expect_centres, ratio", _UNEQUAL_PER)
+def test_unequal_counts_periodic(K_x, K_y, r, sigma, period,
+                                 expect_centres, ratio):
+    Px = _make_events(K_x, period, seed=1)
+    Py = _make_events(K_y, period, seed=2)
+    got = bool(_ma_rel_attr_prefers_centres(
+        Px, Py, sigma, r, True, True, period))
+    assert got is expect_centres, (
+        f"K_x={K_x} K_y={K_y} r={r}: centres/grid measured at "
+        f"{ratio}x, so the faster route is "
+        f"{'centres' if expect_centres else 'grid'}"
+    )
+
+
+def test_swapping_the_two_densities_does_not_change_the_centres_estimate():
+    # The route computes the cross matrix and both self matrices, so its
+    # element count is symmetric in the two value counts even though the
+    # cross matrix alone is not.
+    for r, is_per in ((2, True), (3, False), (4, True)):
+        a = _predicted_centres_wall_ns(6, 30, r, is_per)
+        b = _predicted_centres_wall_ns(30, 6, r, is_per)
+        assert a == b
+
+
+def test_larger_second_count_raises_the_centres_estimate():
+    # Monotone in the second count at fixed first count: adding values to
+    # one side cannot make the route cheaper.
+    prev = None
+    for K_y in (5, 10, 20, 40, 80):
+        est = _predicted_centres_wall_ns(5, K_y, 2, True)
+        if prev is not None:
+            assert est > prev
+        prev = est
+
+
+def test_gate_returns_false_when_second_count_below_r():
+    # An estimate built from C(K_y, r) = 0 would be zero and would
+    # select centres unconditionally.
+    Px = _make_events(8, 1200.0, seed=1)
+    Py = _make_events(2, 1200.0, seed=2)
+    assert not _ma_rel_attr_prefers_centres(
+        Px, Py, 6.0, 3, True, True, 1200.0)
+
+
+# ---------------------------------------------------------------------------
 # Cost model sanity: predictions must be finite and positive.
 # ---------------------------------------------------------------------------
 
@@ -171,7 +245,7 @@ def test_gate_returns_false_above_sigma_over_P_threshold():
     (5, 5, False), (6, 6, False),  # extrapolation regime
 ])
 def test_predicted_walls_finite_and_positive(K, r, is_per):
-    c = _predicted_centres_wall_ns(K, r, is_per)
+    c = _predicted_centres_wall_ns(K, K, r, is_per)
     g = _predicted_grid_wall_ns(K, r, 15.0, 3600.0, is_per)
     assert np.isfinite(c) and c > 0
     assert np.isfinite(g) and g > 0

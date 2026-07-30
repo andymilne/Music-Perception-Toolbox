@@ -31,7 +31,7 @@ isPer  = 1;
 period = 1200;
 
 nList  = [40, 60, 80, 100];
-nReps  = 3;   % timed repetitions per cell; median reported
+nReps  = 3;   %#ok<NASGU> superseded by internal.timeRepeated
 
 K_x = numel(refPitches);
 N_u = internal.autoNtauDefault(period, sigma);
@@ -57,20 +57,19 @@ for i = 1:numel(nList)
     sMob = cosSimExpTens(refPitches, [], edoPitches, [], ...
         sigma, r, isRel, isPer, period, 'method', 'mobius');
 
-    tB = zeros(1, nReps);
-    tM = zeros(1, nReps);
-    for k = 1:nReps
-        tStart = tic;
-        sBul = cosSimExpTens(refPitches, [], edoPitches, [], ...
-            sigma, r, isRel, isPer, period, 'method', 'bulger');
-        tB(k) = toc(tStart);
-        tStart = tic;
-        sMob = cosSimExpTens(refPitches, [], edoPitches, [], ...
-            sigma, r, isRel, isPer, period, 'method', 'mobius');
-        tM(k) = toc(tStart);
-    end
-    tBul = median(tB);
-    tMob = median(tM);
+    % Timing policy: internal.timeRepeated discards the first few runs,
+    % then takes the median of several more. Timings do not settle until
+    % a few calls have been made.
+    tBul = internal.timeRepeated(@() cosSimExpTens( ...
+        refPitches, [], edoPitches, [], sigma, r, isRel, isPer, ...
+        period, 'method', 'bulger'));
+    tMob = internal.timeRepeated(@() cosSimExpTens( ...
+        refPitches, [], edoPitches, [], sigma, r, isRel, isPer, ...
+        period, 'method', 'mobius'));
+    sBul = cosSimExpTens(refPitches, [], edoPitches, [], ...
+        sigma, r, isRel, isPer, period, 'method', 'bulger');
+    sMob = cosSimExpTens(refPitches, [], edoPitches, [], ...
+        sigma, r, isRel, isPer, period, 'method', 'mobius');
 
     % Op counts (shared unit: one kernel evaluation).
     P_x = ff(K_x, r);

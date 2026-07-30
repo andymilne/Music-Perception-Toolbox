@@ -137,11 +137,12 @@ fprintf(['\ncen_ms = -1 marks a cell where centres was not timed ' ...
 fprintf('Reminder: this is the SECOND-run output that matters.\n\n');
 
 % ---- helper ----
-function t = timeMethod(fn, nReps)
-    fn();                       % warm this specific shape/method
-    ts = zeros(1, nReps);
-    for i = 1:nReps
-        tic; fn(); ts(i) = toc;
-    end
-    t = min(ts);
+function t = timeMethod(fn, nReps) %#ok<INUSD>
+    % Timing policy lives in internal.timeRepeated: discard the first
+    % few runs, then take the median of several more. One warm-up and
+    % three timed runs was not enough -- timings do not settle until a
+    % few calls have been made -- and min() reports the luckiest run
+    % rather than the typical one. nReps is retained for call
+    % compatibility and is no longer used.
+    t = internal.timeRepeated(fn);
 end

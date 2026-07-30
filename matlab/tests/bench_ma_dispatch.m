@@ -35,7 +35,7 @@
 
 sigOnset  = 15;   sigPitch = 6;
 perOnset  = 4000; perPitch = 1200;
-nReps     = 3;
+nReps     = 3;    %#ok<NASGU> superseded by internal.timeRepeated
 TIME_CAP  = 60;
 
 modes = { ...
@@ -86,14 +86,12 @@ for mi = 1:numel(modes)
         if tWarm > TIME_CAP
             tBul = tWarm;
         else
-            tB = zeros(1, nReps);
-            for k = 1:nReps
-                tStart = tic;
-                sBul = cosSimExpTens(dx, dy, ...
-                    'method', 'bulger', 'verbose', false);
-                tB(k) = toc(tStart);
-            end
-            tBul = median(tB);
+            % Timing policy: internal.timeRepeated discards the first
+            % few runs, then takes the median of several more.
+            tBul = internal.timeRepeated(@() cosSimExpTens(dx, dy, ...
+                'method', 'bulger', 'verbose', false));
+            sBul = cosSimExpTens(dx, dy, ...
+                'method', 'bulger', 'verbose', false);
         end
 
         % --- forced mobius (capped, try/catch) ---
@@ -109,14 +107,10 @@ for mi = 1:numel(modes)
                     tMob = tWarm;
                     skipMob = true;
                 else
-                    tM = zeros(1, nReps);
-                    for k = 1:nReps
-                        tStart = tic;
-                        sMob = cosSimExpTens(dx, dy, ...
-                            'method', 'mobius', 'verbose', false);
-                        tM(k) = toc(tStart);
-                    end
-                    tMob = median(tM);
+                    tMob = internal.timeRepeated(@() cosSimExpTens( ...
+                        dx, dy, 'method', 'mobius', 'verbose', false));
+                    sMob = cosSimExpTens(dx, dy, ...
+                        'method', 'mobius', 'verbose', false);
                 end
             catch err
                 fprintf('  mobius unavailable: %s\n', err.message);
@@ -126,10 +120,12 @@ for mi = 1:numel(modes)
         end
 
         % --- auto ---
-        cosSimExpTens(dx, dy, 'verbose', false);   % warm
-        tStart = tic;
-        cosSimExpTens(dx, dy, 'verbose', false);
-        tAuto = toc(tStart);
+        % Same policy as the two forced arms. This one matters most: the
+        % pass criterion compares tAuto against the faster of the other
+        % two, so a single noisy reading here can report a routing miss
+        % that did not happen.
+        tAuto = internal.timeRepeated(@() cosSimExpTens( ...
+            dx, dy, 'verbose', false));
 
         if isnan(tMob)
             autoPick = '?';

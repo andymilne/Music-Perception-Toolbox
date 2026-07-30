@@ -41,8 +41,12 @@ function results = calibrateOrbitCrossover(varargin)
 %   'rVals'    tuple sizes to sweep            (default 2:8)
 %   'margins'  K - r values to sweep           (default 0:3)
 %   'BVals'    batch extents to sweep          (default [1 32 256 2048])
-%   'maxElems' peak (B, Tx, Ty) element cap    (default 2e7, ~160 MB)
-%   'reps'     timed repetitions per cell      (default 3)
+%   'maxElems' per-batch-entry (Tx, Ty) cap    (default 5e7, ~400 MB).
+%              Both routes chunk over the batch, so this is the array
+%              size for one batch entry, not for the whole block.
+%   'reps'     retained for compatibility; timing policy is now
+%              internal.timeRepeated (3 discarded, then up to 10 timed,
+%              median, stopping early on a 2 s budget)
 %   'tol'      route-disagreement guard          (default 1e-6)
 %
 % Error is measured the way truncationSigmas states it: as an ABSOLUTE
@@ -57,7 +61,7 @@ function results = calibrateOrbitCrossover(varargin)
     p.addParameter('rVals', 2:8);
     p.addParameter('margins', 0:3);
     p.addParameter('BVals', [1 32 256 2048]);
-    p.addParameter('maxElems', 2e7);
+    p.addParameter('maxElems', 5e7);
     p.addParameter('reps', 3);
     p.addParameter('tol', 1e-6);
     p.parse(varargin{:});
@@ -105,7 +109,13 @@ function results = calibrateOrbitCrossover(varargin)
                 K = r + m;
                 for B = opt.BVals
                     [Tx, Ty] = tupleCounts(K, r);
-                    if B * Tx * Ty > opt.maxElems
+                    % Both routes chunk over the batch, so what limits
+                    % reach is the per-batch-entry array Tx * Ty, not
+                    % B * Tx * Ty. Testing the latter skipped every cell
+                    % beyond K = r + 3 at r >= 6 --- which is exactly the
+                    % region where the Mobius route starts to win, so the
+                    % sweep never saw its own crossover.
+                    if Tx * Ty > opt.maxElems
                         continue;   % enumeration not materialisable here
                     end
 
@@ -275,15 +285,29 @@ function v = combineEnumLocal(M, r)
     yt = ytY;
     Tx = size(xt, 1);
     Ty = size(yt, 1);
+    Q = size(M, 1);
     if Tx == 0 || Ty == 0
-        v = zeros(size(M, 1), 1);
+        v = zeros(Q, 1);
         return;
     end
-    P = M(:, xt(:, 1), yt(:, 1));                   % B x Tx x Ty
-    for t = 2:r
-        P = P .* M(:, xt(:, t), yt(:, t));
+    % Chunk over the batch, mirroring nestedContract/combineChunked,
+    % which is what the shipped diversion path calls. The unchunked form
+    % materialises B x Tx x Ty at once, which put the whole high-r
+    % region out of reach: at r = 7, K = 10 that is 7.3e7 elements even
+    % at B = 1. Chunking bounds the batch extent, so the reachable K is
+    % set by Tx * Ty for a single batch entry.
+    chunkElems = 16e6;                              % matches the shipped route
+    step = max(1, floor(chunkElems / max(Tx * Ty, 1)));
+    v = zeros(Q, 1);
+    for s = 1:step:Q
+        e = min(s + step - 1, Q);
+        Ms = M(s:e, :, :);
+        P = Ms(:, xt(:, 1), yt(:, 1));              % chunk x Tx x Ty
+        for t = 2:r
+            P = P .* Ms(:, xt(:, t), yt(:, t));
+        end
+        v(s:e) = sum(sum(P, 3), 2);
     end
-    v = sum(sum(P, 3), 2);
     v = v(:);
 end
 
@@ -321,13 +345,14 @@ end
 
 
 % ----------------------------------------------------------------------
-function t = timeRoute(fn, reps)
-    fn();                      % warm any caches, as in steady state
-    t0 = tic;
-    for i = 1:reps
-        fn();
-    end
-    t = toc(t0) / reps;
+function t = timeRoute(fn, reps) %#ok<INUSD>
+    % Timing policy lives in internal.timeRepeated: discard the first
+    % few runs, then take the median of several more. Three timed runs
+    % with a single warm-up was not enough -- timings do not settle
+    % until a few calls have been made, and a mean lets one slow call
+    % dominate. The reps argument is retained for call compatibility and
+    % is no longer used.
+    t = internal.timeRepeated(fn);
 end
 
 

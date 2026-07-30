@@ -1,31 +1,24 @@
 function results = calibrateOrbitCrossover(varargin)
 % Measure the orbit-vs-enumeration cost crossover on the MATLAB side.
 %
-% Why this exists. The per-level route choice in internal.nestedContract has
-% two criteria. For r <= 6 it uses internal.orbitBeatsPairwisePerAttr, whose
-% K thresholds were measured; for r >= 7 it uses the two routes'
-% complexities, orbit being cheaper exactly when
-%
-%     |Omega_r| Kx Ky  <  C(Kx,r) C(Ky,r) r!
-%
-% That comparison is blind to mode, where the measured thresholds are not:
-% the relative-periodic u-grid overhead raises the K at which the orbit
-% route pays off. It is also blind to per-call overhead, which dominates at
-% small batch extent and differs between the two languages -- the Python
-% harness that derived the criterion cannot settle the MATLAB offsets. This
-% script measures them here.
+% Why this exists. The per-level route choice in internal.nestedContract is
+% made by internal.orbitCostModel, a power-law model in the quantities each
+% route works on. Only its intercept is machine-specific; the exponents are
+% scaling. This script measures the crossover so that intercept can be
+% checked, and refitted for a machine other than the one it was fitted on.
 %
 % What it reports, per (mode, r, K, batch extent B):
 %
 %   - agreement between the two routes, checked BEFORE any timing, so a
 %     timing comparison is never made between two different computations;
 %   - wall time for each route and the measured winner;
-%   - what orbitEligible would choose, and whether the two agree.
+%   - the model's predicted ratio against the measured one, so its error is
+%     a continuous quantity rather than a win/lose label;
+%   - which route the model would choose, and whether the two agree.
 %
-% Read the disagreements by K margin, not in aggregate. The criterion is
-% expected to be least reliable at K = r and K = r+1, where enumeration's
-% C(K,r) collapses to 1 and the orbit route's fixed |Omega_r| call count
-% dominates.
+% Read the disagreements by batch extent. The model takes B as an argument,
+% so its accuracy should not vary strongly with it; a rate that does says
+% the B exponent needs refitting.
 %
 % Terminology follows section 3 of the manuscript. K is a level's member
 % count: the multiset size K_{a,n} at the innermost level, the count of
@@ -77,7 +70,7 @@ function results = calibrateOrbitCrossover(varargin)
     fprintf('  guard pays for both routes when it diverts)\n');
     provFiles = {'+internal/nestedContract.m', ...
                  '+mobius/innerProductOrbitGrid.m', ...
-                 '+internal/orbitBeatsPairwisePerAttr.m'};
+                 '+internal/orbitCostModel.m'};
     for pf = 1:numel(provFiles)
         fprintf('  %-42s %s\n', provFiles{pf}, fileFingerprint(provFiles{pf}));
     end
@@ -92,12 +85,12 @@ function results = calibrateOrbitCrossover(varargin)
              '%-6s %-6s %s\n'], ...
             'mode', 'r', 'K', 'B', 'absErr', 'orbit ms', 'enum ms', ...
             'predRatio', 'measRatio', 'measrd', 'predct', 'ok');
-    fprintf(['predRatio is the work criterion''s orbit-over-enum ratio, ' ...
-             'measRatio the measured\ntime ratio; 1 is the crossover for ' ...
-             'both, so the gap between them is the model''s\nerror. At ' ...
-             'r <= 6 the shipped choice comes from the measured table ' ...
-             '(orbitBeatsPairwisePerAttr),\nnot from predRatio, so the ' ...
-             'two can disagree there by design.\n\n']);
+    fprintf(['predRatio is the cost model''s predicted orbit-over-enum ' ...
+             'ratio, measRatio the\nmeasured time ratio; 1 is the ' ...
+             'crossover for both, so the gap between them is\nthe ' ...
+             'model''s error. The predct column comes from the same ' ...
+             'model, so the two agree by\nconstruction; the useful ' ...
+             'reading is predRatio against measRatio.\n\n']);
     fprintf('%s\n', repmat('-', 1, 104));
 
     for mi = 1:numel(modes)
@@ -145,7 +138,7 @@ function results = calibrateOrbitCrossover(varargin)
                     else
                         measured = 'enum';
                     end
-                    if predictOrbit(K, r, isRel, isPer)
+                    if predictOrbit(K, r, B)
                         predicted = 'orbit';
                     else
                         predicted = 'enum';
@@ -157,8 +150,7 @@ function results = calibrateOrbitCrossover(varargin)
                     % both are orbit-over-enum, so 1 is the crossover and
                     % the gap between them is the model's error on a
                     % continuous scale.
-                    [oW, eW] = predictWork(K, r);
-                    workRatio = oW / eW;
+                    workRatio = predictedRatio(K, r, B);
                     timeRatio = tOrb / tEnu;
 
                     fprintf(['%-12s %3d %3d %6d %10.2e %10.3f %10.3f ' ...
@@ -184,11 +176,9 @@ function results = calibrateOrbitCrossover(varargin)
     fprintf('\n%d of %d cells disagree with orbitEligible.\n', ...
             nBad, numel(results));
 
-    % Break the disagreements down by batch extent. orbitFlopsBeatEnum
-    % holds only once the batch is large enough that both routes are
-    % flop-bound rather than call-overhead-bound, so a headline count
-    % that weights B = 1 equally with the largest B overstates the
-    % failure. Read the largest-B row.
+    % Break the disagreements down by batch extent. The model takes B as
+    % an argument, so it should hold across the range; a rate that varies
+    % strongly with B says the B exponent needs refitting.
     fprintf('\n%-8s %8s %8s %12s\n', 'B', 'cells', 'disagree', 'median t_o/t_e');
     fprintf('%s\n', repmat('-', 1, 40));
     allB = unique([results.B]);
@@ -357,38 +347,20 @@ end
 
 
 % ----------------------------------------------------------------------
-function [orbWork, enumWork] = predictWork(K, r)
-    % The two work counts the r >= 7 criterion compares. Reporting them
-    % rather than only the winner they imply makes the model's error a
-    % continuous quantity: predicted work ratio against measured time
-    % ratio. A label discards the magnitude, so a model wrong by 40x and
-    % one wrong by 1.01x score the same.
-    orbWork = numel(mobius.getOrbitTable(r)) * K * K;
-    if r > K
-        enumWork = Inf;
-    else
-        enumWork = nchoosek(K, r)^2 * factorial(r);
-    end
+function ratio = predictedRatio(K, r, B)
+    % The model's predicted t_orbit / t_enum. Reporting the ratio rather
+    % than only the winner it implies makes the model's error a continuous
+    % quantity: predicted ratio against measured time ratio, 1 being the
+    % crossover for both. A label discards the magnitude, so a model wrong
+    % by 40x and one wrong by 1.01x would score the same.
+    [~, logRatio] = internal.orbitCostModel(r, K, B);
+    ratio = exp(logRatio);
 end
 
 
-function tf = predictOrbit(K, r, isRel, isPer)
-    % Mirror of internal.nestedContract/orbitEligible. That function is
-    % local to its file and cannot be called from here, so the policy is
-    % restated; if it changes there, change it here too.
-    ORBIT_R_MAX_SHIPPED = 8;
-    tf = false;
-    if r < 2 || r > ORBIT_R_MAX_SHIPPED
-        return;
-    end
-    if r <= 6
-        tf = internal.orbitBeatsPairwisePerAttr(r, K, isRel, isPer);
-    else
-        if r > K
-            tf = false;
-            return;
-        end
-        n = numel(mobius.getOrbitTable(r));
-        tf = n * K * K < nchoosek(K, r)^2 * factorial(r);
-    end
+function tf = predictOrbit(K, r, B)
+    % The shipped routing decision, called directly rather than mirrored.
+    % internal.orbitCostModel is a plain function, so this harness no
+    % longer restates policy that could drift from it.
+    tf = internal.orbitCostModel(r, K, B);
 end

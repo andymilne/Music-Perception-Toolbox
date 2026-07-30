@@ -158,28 +158,13 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
         return (f"the cosine similarity is {ip_xy / denom:.6f}, outside "
                 f"[-1, 1]")
     return None
-
-
-
-# Per-r, per-mode K thresholds for the orbit-vs-enumeration crossover at a
-# single symmetric attribute or nesting level, established empirically on
-# representative MAET workloads (N = 8-12, σ = 12, P = 1200). Mode matters: the
-# relative-periodic orbit path carries a transposition-average u-grid that
-# enumeration avoids, so its crossover sits well above the absolute one, and at
-# r = 2 enumeration always wins (hence the inf entry — a pure op-count
-# comparison, which sees only the orbit-class reduction and not the u-grid
-# cost, would wrongly route every r = 2 rel-per level to orbit). These drive
-# the per-level decision in the nested contraction via
-# _orbit_beats_pairwise_per_attr. The flat multi-attribute and single-multiset
-# inner-product paths make a whole-call decision instead, through the cost
-# model and probe below, which additionally account for N (e.g. the absolute
-# r = 2 crossover ranges from K ≥ 14 at N = 2 to K ≥ 6 at N = 16, a span no
-# single K threshold can capture); the per-level predicate stays
-# threshold-based because it runs once per level with no room for a probe.
-_K_THRESHOLD_ABS = {2: 7, 3: 6, 4: 5, 5: 4, 6: 4}
-
-_K_THRESHOLD_REL_PER = {2: float("inf"), 3: 10, 4: 8, 5: 7, 6: 6}
-
+# Routing for the nested contraction is settled by _orbit_cost, a power-law
+# model in the quantities each route works on, which additionally takes the
+# batch extent. The measured K threshold tables that used to drive it are
+# gone: they covered r = 2..6 only, and could not express a crossover that
+# moves by up to 11 in K across the batch range. The flat multi-attribute and
+# single-multiset inner-product paths make a whole-call decision instead,
+# through the cost model and probe below, which account for N as well.
 
 
 # Cost-model constants for the dispatcher. Refit on a 328-cell wall-time
@@ -269,33 +254,6 @@ def _orbit_rel_op_ms(table, r_a):
     if r_a > max(table):
         val *= 2.0 ** (int(r_a) - max(table))
     return val
-
-
-
-def _orbit_beats_pairwise_per_attr(r, K, is_rel, is_per):
-    """Per-level orbit-vs-enumeration decision for one symmetric attribute or
-    nesting level, from the mode-aware K thresholds above.
-
-    This is the live predicate for the per-level decision in the nested
-    contraction (``_nested_contraction._orbit_eligible``): it runs once per
-    level, so it uses a cheap mode-aware threshold rather than a probe. The flat
-    multi-attribute inner-product path instead makes a
-    whole-call decision through the cost model (see
-    ``_select_ma_inner_product_method``),
-    which also weighs N. The two mechanisms are matched to their contexts, not
-    redundant: the per-level predicate cannot afford a probe, and its thresholds
-    encode the relative-periodic u-grid overhead that an op-count comparison
-    would miss. ``True`` means orbit (Möbius) is the cheaper route here.
-    """
-    if r == 1:
-        return False
-    if r > _ORBIT_R_MAX_SHIPPED:
-        return False
-    if is_rel and is_per:
-        threshold = _K_THRESHOLD_REL_PER.get(r, 999)
-    else:
-        threshold = _K_THRESHOLD_ABS.get(r, 999)
-    return K >= threshold
 
 
 

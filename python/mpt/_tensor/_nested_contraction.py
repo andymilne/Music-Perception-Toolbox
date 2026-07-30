@@ -83,33 +83,6 @@ def _perm_count(g, r):
 
 
 @lru_cache(maxsize=None)
-def _orbit_flops_beat_enum(r, Kx, Ky=None):
-    """Large-batch cost comparison between the two routes at one level.
-
-    ``Kx``/``Ky`` are the X- and Y-side member counts: the multiset size
-    ``K_{a,n}`` at the innermost level, the count of sub-multisets at an outer
-    one. The two may differ, since inner-product compatibility does not
-    constrain them. The orbit route contracts ``|Omega_r|`` terms over the
-    Kx-by-Ky block, the enumerated route sums ``C(Kx, r) r! C(Ky, r)`` kernel
-    products, so once the batch is large enough that both are flop-bound
-    rather than call-overhead-bound, the orbit route is cheaper exactly when
-
-        |Omega_r| Kx Ky  <  C(Kx, r) C(Ky, r) r!
-
-    No fitted constant enters: both sides are the complexities the two routes
-    are built from. The comparison is blind to mode, where the measured
-    thresholds for r <= 6 are not -- the relative-periodic u-grid overhead
-    raises the K at which the orbit route pays off, so in that mode this is
-    the more optimistic of the two criteria at the margin.
-    """
-    if Ky is None:
-        Ky = Kx
-    if r > Kx or r > Ky:
-        return False
-    return (_n_orbits(r) * Kx * Ky
-            < math.comb(Kx, r) * math.comb(Ky, r) * math.factorial(r))
-
-
 def _admitting_sigmas(bound):
     """Largest ``truncationSigmas`` whose floor would admit an error bound.
 
@@ -123,6 +96,9 @@ def _admitting_sigmas(bound):
     if not (0.0 < bound < 1.0):
         return None
     return math.sqrt(-2.0 * math.log(bound))
+
+
+from .dispatch import _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R
 
 
 def _orbit_eligible(g, r, sym, is_rel, is_per):
@@ -219,19 +195,14 @@ def _combine(M, xtup, ytup):
 
 # Use the orbit (Möbius) reduction at a symmetric level once the level's
 # member count makes it cheaper than enumeration. For r <= 6 the choice reuses
-# the flat path's measured K thresholds (dispatch._orbit_beats_pairwise_per_attr),
-# applied per level with K = g (the level's child/value count). Those thresholds
-# are mode-aware, encoding the relative-periodic u-grid overhead that a plain
-# op count would miss, but they cover r = 2..6 only. For r in 7..R_MAX the
-# choice falls to _orbit_flops_beat_enum, the two routes' complexities compared
-# directly. Precision is not judged at either point: the error bound in
-# _combine_pair governs it.
-from .dispatch import (
-    _orbit_beats_pairwise_per_attr as _flat_orbit_beats_enum,
-    _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R,
-)
-# Below this alternating-sum cancellation ratio the orbit value has lost too
-# many digits; fall back to the enumerated combine for that quadrature node.
+# Routing is settled by internal.orbitCostModel / _orbit_cost, a power-law
+# model in the quantities each route works on. It replaces two earlier
+# criteria: a measured K threshold table covering r = 2..6, and a flop-count
+# comparison above that. Neither predicted time well --- against 444 timed
+# cells the flop criterion placed the crossover within one of its true K in
+# 6 of 21 (r, B) combinations, missing by up to 15, where the model manages
+# 19 of 21. Neither took the batch extent, which moves the crossover by up
+# to 11 in K.
 
 
 def _node_span(node):
@@ -249,21 +220,22 @@ def _tuple_sides(n, r, sym):
 #
 # The Moebius (orbit) reduction sums signed terms that largely cancel, so its
 # answer carries fewer digits than the terms it was built from; enumeration
-# sums only non-negative terms and loses nothing. Summing n terms carries a
-# forward error of at most n * eps * max|partial sum|, and where terms cancel
-# the partial sums are bounded by the largest term, giving
+# sums only non-negative terms and loses nothing. Adding the orbit terms
+# carries a forward error bounded by eps times the sum of their magnitudes,
+# which the orbit routines report alongside the value, so
 #
-#     error  <=  |Omega_r| * eps * max|term| / r!
+#     estimated error  =  eps * sum|term| / r!
 #
-# on the same scale _combine_orbit returns. |Omega_r| is the orbit count the
-# sum runs over and max|term| is reported by the orbit routines themselves,
-# so the bound costs nothing to evaluate. Measured against enumeration across
-# 165 configurations -- power-law and geometric weights including rho = 10,
-# and a 1000:1 dominant weight -- it held in every case, conservative by 2x
-# to 31x.
+# on the same scale _combine_orbit returns. This is a heuristic, not a
+# guaranteed limit: sequential summation of n terms admits
+# (n - 1) * eps * sum|term| in the worst case. Measured against enumeration
+# over four weight profiles and r = 3..7 it came out 2x to 44x above the true
+# error, where the earlier |Omega_r| * eps * max|term| form ran 5x to 1100x
+# above --- the difference being that the earlier form assumed every term was
+# as large as the largest, when in fact they decay.
 #
-# The guard compares that bound against the accuracy the caller asked for via
-# truncationSigmas, and prefers enumeration when the bound exceeds it.
+# The guard compares that estimate against the accuracy the caller asked for
+# via truncationSigmas, and prefers enumeration when it exceeds it.
 _ORBIT_GUARD = threading.local()
 
 # The enumerated fallback materialises a (Q, Tx, Ty) array, so its cost is

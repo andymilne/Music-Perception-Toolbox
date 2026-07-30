@@ -722,34 +722,6 @@ function tf = orbitEligible(g, r, sym, isRel, isPer) %#ok<INUSD>
 end
 
 
-function tf = orbitFlopsBeatEnum(r, Kx, Ky)
-    % Large-batch cost comparison between the two routes at one level.
-    %
-    % Kx and Ky are the X- and Y-side member counts: the multiset size
-    % K_{a,n} at the innermost level, the count of sub-multisets at an outer
-    % one. The two may differ, since inner-product compatibility does not
-    % constrain them. The orbit route contracts |Omega_r| terms over the
-    % Kx-by-Ky block, the enumerated route sums C(Kx,r) r! C(Ky,r) kernel
-    % products, so once the batch is large enough that both are flop-bound
-    % rather than call-overhead-bound, the orbit route is cheaper exactly when
-    %
-    %     |Omega_r| Kx Ky  <  C(Kx,r) C(Ky,r) r!
-    %
-    % No fitted constant enters: both sides are the complexities the two
-    % routes are built from. The comparison is blind to mode, where the
-    % measured thresholds for r <= 6 are not -- the relative-periodic u-grid
-    % overhead raises the K at which the orbit route pays off, so in that
-    % mode this is the more optimistic of the two criteria at the margin.
-    if nargin < 3
-        Ky = Kx;
-    end
-    if r > Kx || r > Ky
-        tf = false;
-        return;
-    end
-    tf = orbitCount(r) * Kx * Ky < ...
-         nchoosek(Kx, r) * nchoosek(Ky, r) * factorial(r);
-end
 
 
 function ts = admittingSigmas(bound)

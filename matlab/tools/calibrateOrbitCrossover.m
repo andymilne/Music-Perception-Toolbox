@@ -63,15 +63,38 @@ function results = calibrateOrbitCrossover(varargin)
     p.parse(varargin{:});
     opt = p.Results;
 
+    % Provenance. Two runs of this harness on different trees are not
+    % comparable, and nothing in the output previously said which tree
+    % produced it. Fingerprint the files whose behaviour is measured.
+    fprintf('\ncalibrateOrbitCrossover  %s\n', ...
+            datestr(now, 'yyyy-mm-dd HH:MM:SS')); %#ok<TNOW1,DATST>
+    fprintf('  postHocGuards = %d   (switch off for timing: the nested\n', ...
+            logical(mptDefaults('postHocGuards')));
+    fprintf('  guard pays for both routes when it diverts)\n');
+    provFiles = {'+internal/nestedContract.m', ...
+                 '+mobius/innerProductOrbitGrid.m', ...
+                 '+internal/orbitBeatsPairwisePerAttr.m'};
+    for pf = 1:numel(provFiles)
+        fprintf('  %-42s %s\n', provFiles{pf}, fileFingerprint(provFiles{pf}));
+    end
+
     modes = {'absolute', 'relPeriodic'};
     results = struct('mode', {}, 'r', {}, 'K', {}, 'B', {}, ...
                      'absErr', {}, 'tOrbit', {}, 'tEnum', {}, ...
+                     'workRatio', {}, 'timeRatio', {}, ...
                      'measured', {}, 'predicted', {}, 'agree', {});
 
-    fprintf('\n%-12s %3s %3s %6s %10s %10s %10s  %-6s %-6s %s\n', ...
+    fprintf(['\n%-12s %3s %3s %6s %10s %10s %10s %9s %9s  ' ...
+             '%-6s %-6s %s\n'], ...
             'mode', 'r', 'K', 'B', 'absErr', 'orbit ms', 'enum ms', ...
-            'measrd', 'predct', 'ok');
-    fprintf('%s\n', repmat('-', 1, 84));
+            'predRatio', 'measRatio', 'measrd', 'predct', 'ok');
+    fprintf(['predRatio is the work criterion''s orbit-over-enum ratio, ' ...
+             'measRatio the measured\ntime ratio; 1 is the crossover for ' ...
+             'both, so the gap between them is the model''s\nerror. At ' ...
+             'r <= 6 the shipped choice comes from the measured table ' ...
+             '(orbitBeatsPairwisePerAttr),\nnot from predRatio, so the ' ...
+             'two can disagree there by design.\n\n']);
+    fprintf('%s\n', repmat('-', 1, 104));
 
     for mi = 1:numel(modes)
         mode = modes{mi};
@@ -120,13 +143,23 @@ function results = calibrateOrbitCrossover(varargin)
                     ok = strcmp(measured, predicted);
                     if ok; okStr = 'yes'; else; okStr = 'NO'; end
 
-                    fprintf('%-12s %3d %3d %6d %10.2e %10.3f %10.3f  %-6s %-6s %s\n', ...
+                    % Predicted work ratio against measured time ratio:
+                    % both are orbit-over-enum, so 1 is the crossover and
+                    % the gap between them is the model's error on a
+                    % continuous scale.
+                    [oW, eW] = predictWork(K, r);
+                    workRatio = oW / eW;
+                    timeRatio = tOrb / tEnu;
+
+                    fprintf(['%-12s %3d %3d %6d %10.2e %10.3f %10.3f ' ...
+                             '%9.2f %9.2f  %-6s %-6s %s\n'], ...
                             mode, r, K, B, absErr, tOrb*1e3, tEnu*1e3, ...
-                            measured, predicted, okStr);
+                            workRatio, timeRatio, measured, predicted, okStr);
 
                     results(end+1) = struct('mode', mode, 'r', r, 'K', K, ...
                         'B', B, 'absErr', absErr, 'tOrbit', tOrb, ...
-                        'tEnum', tEnu, 'measured', measured, ...
+                        'tEnum', tEnu, 'workRatio', workRatio, ...
+                        'timeRatio', timeRatio, 'measured', measured, ...
                         'predicted', predicted, 'agree', ok); %#ok<AGROW>
                 end
             end
@@ -140,16 +173,55 @@ function results = calibrateOrbitCrossover(varargin)
     nBad = sum(~[results.agree]);
     fprintf('\n%d of %d cells disagree with orbitEligible.\n', ...
             nBad, numel(results));
-    if nBad > 0
-        fprintf(['Group the disagreements by K - r before concluding ' ...
-                 'anything: a criterion that is right in the bulk and ' ...
-                 'wrong only at K = r needs its margin adjusted, not ' ...
-                 'replacing.\n']);
+
+    % Break the disagreements down by batch extent. orbitFlopsBeatEnum
+    % holds only once the batch is large enough that both routes are
+    % flop-bound rather than call-overhead-bound, so a headline count
+    % that weights B = 1 equally with the largest B overstates the
+    % failure. Read the largest-B row.
+    fprintf('\n%-8s %8s %8s %12s\n', 'B', 'cells', 'disagree', 'median t_o/t_e');
+    fprintf('%s\n', repmat('-', 1, 40));
+    allB = unique([results.B]);
+    for bi = 1:numel(allB)
+        sel = [results.B] == allB(bi);
+        fprintf('%-8d %8d %8d %12.1f\n', allB(bi), sum(sel), ...
+                sum(~[results(sel).agree]), median([results(sel).timeRatio]));
     end
+
+    % Raw block, so a later run can be compared against this one rather
+    % than against a remembered conclusion.
+    fprintf('\nBEGIN_CSV\n');
+    fprintf('mode,r,K,B,absErr,tOrbit_ms,tEnum_ms,workRatio,timeRatio\n');
+    for i = 1:numel(results)
+        fprintf('%s,%d,%d,%d,%.6e,%.6f,%.6f,%.6f,%.6f\n', ...
+                results(i).mode, results(i).r, results(i).K, results(i).B, ...
+                results(i).absErr, results(i).tOrbit*1e3, ...
+                results(i).tEnum*1e3, results(i).workRatio, ...
+                results(i).timeRatio);
+    end
+    fprintf('END_CSV\n');
 end
 
 
 % ----------------------------------------------------------------------
+function tag = fileFingerprint(relPath)
+    % Modification time and byte count of a toolbox file, so a run can be
+    % matched to the tree that produced it.
+    full = which(regexprep(relPath, '^\+\w+[/\\]', ''));
+    if isempty(full)
+        p = fileparts(fileparts(mfilename('fullpath')));
+        full = fullfile(p, relPath);
+    end
+    d = dir(full);
+    if isempty(d)
+        tag = '(not found)';
+    else
+        tag = sprintf('%s  %d bytes', ...
+                      datestr(d.datenum, 'yyyy-mm-dd HH:MM'), d.bytes); %#ok<DATST>
+    end
+end
+
+
 function [Tx, Ty] = tupleCounts(K, r)
     % X side takes ordered tuples, Y side unordered -- the r!-cancelled
     % perm x comb form the enumerated combine uses.
@@ -260,6 +332,21 @@ end
 
 
 % ----------------------------------------------------------------------
+function [orbWork, enumWork] = predictWork(K, r)
+    % The two work counts the r >= 7 criterion compares. Reporting them
+    % rather than only the winner they imply makes the model's error a
+    % continuous quantity: predicted work ratio against measured time
+    % ratio. A label discards the magnitude, so a model wrong by 40x and
+    % one wrong by 1.01x score the same.
+    orbWork = numel(mobius.getOrbitTable(r)) * K * K;
+    if r > K
+        enumWork = Inf;
+    else
+        enumWork = nchoosek(K, r)^2 * factorial(r);
+    end
+end
+
+
 function tf = predictOrbit(K, r, isRel, isPer)
     % Mirror of internal.nestedContract/orbitEligible. That function is
     % local to its file and cannot be called from here, so the policy is

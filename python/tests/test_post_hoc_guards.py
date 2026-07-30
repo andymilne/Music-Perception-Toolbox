@@ -41,37 +41,46 @@ def _block(r, K, seed=0):
     return np.random.default_rng(seed).uniform(0.0, 1.0, (8, K, K))
 
 
-def test_guard_on_diverts_to_enumeration_at_r6():
-    """At r = 6 the bound exceeds the floor, so the guard should divert:
-    the returned value is enumeration's, not the Möbius route's."""
+# The scope is opened at the "exact" setting, whose floor is 1e-12 --- the
+# tightest the toolbox offers. The guard's estimate exceeds that at this
+# shape, so it diverts, which is what these two tests need. Pinning the
+# floor rather than the tuple size keeps them testing the switch: a
+# tightening of the estimate changes where the guard fires, and should
+# not silently turn these into no-ops.
+_TIGHT = float("inf")
+
+
+def test_guard_on_diverts_to_enumeration():
+    """Where the estimate exceeds the floor the guard should divert: the
+    returned value is enumeration's, not the Möbius route's."""
     r, K = 6, 6
     M = _block(r, K)
     xt, yt = _tuple_sides(K, r, True)
     enum = np.asarray(_combine_chunked(M, xt, yt, _ORBIT_ENUM_MAX_ELEMS))
     orbit, bound = _combine_orbit(M, r, return_bound=True)
-    assert float(np.max(bound)) > truncation_floor(6), (
-        "premise: the guard must fire at this shape"
+    assert float(np.max(bound)) > truncation_floor(_TIGHT), (
+        "premise: the guard must fire at this shape and floor"
     )
     assert not np.array_equal(np.asarray(orbit), enum), (
         "premise: the two routes must differ for this test to bite"
     )
     try:
         mpt.set_default(post_hoc_guards=True)
-        with orbit_guard_scope(6.0):
+        with orbit_guard_scope(_TIGHT):
             got = np.asarray(_combine_pair(M, r, True, True))
     finally:
         mpt.reset_defaults()
     np.testing.assert_array_equal(got, enum)
 
 
-def test_guard_off_keeps_the_mobius_result_at_r6():
+def test_guard_off_keeps_the_mobius_result():
     """With the guard off the same block returns the Möbius value."""
     r, K = 6, 6
     M = _block(r, K)
     orbit = np.asarray(_combine_orbit(M, r, return_bound=False))
     try:
         mpt.set_default(post_hoc_guards=False)
-        with orbit_guard_scope(6.0):
+        with orbit_guard_scope(_TIGHT):
             got = np.asarray(_combine_pair(M, r, True, True))
     finally:
         mpt.reset_defaults()
@@ -80,8 +89,9 @@ def test_guard_off_keeps_the_mobius_result_at_r6():
 
 def test_guard_off_still_within_the_stated_accuracy_here():
     """Switching the guard off is not a licence to exceed the accuracy
-    truncationSigmas states: at this shape the bound is loose and the
-    Möbius route's actual error sits well inside the floor."""
+    truncationSigmas states: at this shape the estimate is conservative
+    and the Möbius route's actual error sits well inside the default
+    floor."""
     r, K = 6, 6
     M = _block(r, K)
     xt, yt = _tuple_sides(K, r, True)

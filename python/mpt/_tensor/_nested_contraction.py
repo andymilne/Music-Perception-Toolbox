@@ -440,7 +440,7 @@ def _combine_orbit(M, r, return_bound=False):
     wy = np.ones(gy, dtype=M.dtype)
     fr = float(math.factorial(r))
     if return_bound:
-        vals, ratios, mass = inner_product_orbit_grid(
+        vals, ratios, mass, mass_sum = inner_product_orbit_grid(
             M, wx, wy, r, prefactor=1.0, return_cancellation_ratio=True,
             return_term_mass=True)
     else:
@@ -452,8 +452,15 @@ def _combine_orbit(M, r, return_bound=False):
     # scale.
     out = vals / fr
     if return_bound:
-        bound = (_n_orbits(r) * np.finfo(float).eps
-                 * float(np.max(mass)) / fr) if mass.size else 0.0
+        # Adding the orbit terms carries a forward error bounded by eps
+        # times the sum of their magnitudes. Bounding that sum by
+        # |Omega_r| * max|term| instead --- assuming every term is as
+        # large as the largest --- over-states it severalfold, and the
+        # over-statement grows with r because the terms decay. Summing
+        # the magnitudes directly costs one extra accumulation in the
+        # orbit loop and keeps the derivation intact.
+        bound = (np.finfo(float).eps * float(np.max(mass_sum))
+                 / fr) if mass_sum.size else 0.0
         return out, bound
     return out
 

@@ -489,14 +489,14 @@ def entropy_exp_tens(
     -----
     Numerical precision envelope for ``method='renyi2'``.
 
-    The Möbius method is exact to floating-point precision when
-    every per-attribute ``K_a`` satisfies ``K_a >= r_a + 2`` and σ is
-    not catastrophically small relative to P. The dispatcher enforces
-    these conditions structurally — it routes to Bulger's method
-    when ``K_a < r_a + 2``, when ``σ/P > 0.03`` in periodic-relative
-    mode, or when the σ → 0 fallback heuristic triggers. A post-hoc
-    check on the Möbius-method self-IP raises ``FloatingPointError`` if the
-    result is non-finite, non-positive, or sign-flipped.
+    Accuracy is governed by ``truncationSigmas``: the Möbius method's
+    agreement with enumeration tracks the truncation budget, and how
+    close each ``K_a`` is to its ``r_a`` does not bear on it. The
+    dispatcher routes to Bulger's method when ``σ/P > 0.03`` in
+    periodic-relative mode, or when the σ → 0 fallback heuristic
+    triggers; otherwise it chooses on cost. A check on the
+    Möbius-method self-IP raises ``FloatingPointError`` if the result is
+    non-finite, non-positive, or sign-flipped.
 
     What is *not* currently caught: a finite, positive, but slightly
     inaccurate self-IP from accumulated Möbius per-term error in

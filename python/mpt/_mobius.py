@@ -799,12 +799,22 @@ def inner_product_orbit_grid(
         to recover the relative-mode inner product. If
         ``return_cancellation_ratio`` is True, returns a 2-tuple
         ``(values, ratios)``; with ``return_term_mass`` also True, a
-        3-tuple ``(values, ratios, term_mass)``.
+        4-tuple ``(values, ratios, term_mass, term_mass_sum)``, where
+        ``term_mass`` is the largest term magnitude per grid point and
+        ``term_mass_sum`` the sum of the magnitudes --- the quantity a
+        forward-error bound on the alternating sum is stated over.
     """
     table = get_orbit_table(r)
     N_u = K_u.shape[0]
     total = np.zeros(N_u, dtype=K_u.dtype)
     max_abs_term = np.zeros(N_u, dtype=K_u.dtype)
+    # Sum of the terms' magnitudes. Adding n numbers carries a forward
+    # error bounded by eps times the sum of their magnitudes, so this is
+    # what an error bound on the alternating sum needs. Bounding it by
+    # n * max|term| instead assumes every term is as large as the
+    # largest; the terms decay, so that over-states the sum severalfold
+    # and the over-statement grows with r.
+    sum_abs_term = np.zeros(N_u, dtype=K_u.dtype)
     for orb in table:
         operands = []
         for alpha in range(orb.qA):
@@ -820,7 +830,9 @@ def inner_product_orbit_grid(
             orb.einsum_str_grid, *operands, optimize=orb.einsum_path_grid)
         term = orb.weight * orb.mu * contribution
         total += term
-        np.maximum(max_abs_term, np.abs(term), out=max_abs_term)
+        abs_term = np.abs(term)
+        np.maximum(max_abs_term, abs_term, out=max_abs_term)
+        sum_abs_term += abs_term
     values = prefactor * total
     if return_cancellation_ratio:
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -830,7 +842,8 @@ def inner_product_orbit_grid(
                 1.0,
             )
         if return_term_mass:
-            return values, ratios, prefactor * max_abs_term
+            return (values, ratios, prefactor * max_abs_term,
+                    prefactor * sum_abs_term)
         return values, ratios
     return values
 

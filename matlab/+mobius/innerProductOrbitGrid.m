@@ -1,4 +1,4 @@
-function [vals, ratios, termMass] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
+function [vals, ratios, termMass, termMassSum] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts)
 %MOBIUS.INNERPRODUCTORBITGRID  Distinct-index IP on a grid of u-shifts.
 %
 %   VALS = MOBIUS.INNERPRODUCTORBITGRID(K_U, W_A, W_B, R) evaluates the
@@ -45,6 +45,13 @@ function [vals, ratios, termMass] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts
     table = mobius.getOrbitTable(r);
     total = zeros(N_u, 1);
     maxAbsTerm = zeros(N_u, 1);
+    % Sum of the terms' magnitudes. Adding n numbers carries a forward
+    % error bounded by eps times the sum of their magnitudes, so this is
+    % what an error bound on the alternating sum needs. Bounding it by
+    % n * max|term| instead assumes every term is as large as the
+    % largest; the terms decay, so that over-states the sum severalfold
+    % and the over-statement grows with r.
+    sumAbsTerm = zeros(N_u, 1);
 
     % Reserve a label for the u-axis distinct from any A/B label.
     % A labels run 1..qA, B labels run qA+1..qA+qB; use a high value.
@@ -83,7 +90,9 @@ function [vals, ratios, termMass] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts
         contribution = contribution(:);
         term = orb.weight * orb.mu * contribution;
         total = total + term;
-        maxAbsTerm = max(maxAbsTerm, abs(term));
+        absTerm    = abs(term);
+        maxAbsTerm = max(maxAbsTerm, absTerm);
+        sumAbsTerm = sumAbsTerm + absTerm;
     end
 
     vals = opts.prefactor * total;
@@ -91,9 +100,11 @@ function [vals, ratios, termMass] = innerProductOrbitGrid(K_u, w_A, w_B, r, opts
         ratios = ones(N_u, 1);
         nz = maxAbsTerm > 0;
         ratios(nz) = abs(total(nz)) ./ maxAbsTerm(nz);
-        termMass = opts.prefactor * maxAbsTerm;
+        termMass    = opts.prefactor * maxAbsTerm;
+        termMassSum = opts.prefactor * sumAbsTerm;
     else
         ratios = [];
-        termMass = [];
+        termMass    = [];
+        termMassSum = [];
     end
 end

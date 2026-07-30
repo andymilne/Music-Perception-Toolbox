@@ -1,0 +1,13 @@
+Corruption check: how often does it fire?
+
+Regimes swept: sigma 1e-6 to 400 (the docstring names sigma -> 0 at low K, r >= 3 as its reason), r 2..6, K = r and r+2, four modes, 2 seeds.
+
+mode         r  K    sigma | fired    cos orbit     cos enum
+------------------------------------------------------------
+abs_nonper   5  7    1e-06 |   ERR OverflowError
+abs_nonper   5  7    1e-06 |   ERR OverflowError
+abs_nonper   5  7    1e-03 |   ERR OverflowError
+abs_nonper   5  7    1e-03 |   ERR OverflowError
+
+Fired in 0 of 80 configurations.
+No firing anywhere in the swept range, including the regime the check was written for.

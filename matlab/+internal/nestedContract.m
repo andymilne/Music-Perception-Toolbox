@@ -1157,14 +1157,21 @@ function [v, bound] = combineOrbit(M, r)
     % value scale.
     gx = size(M, 2);
     gy = size(M, 3);
-    [vals, ~, termMass] = mobius.innerProductOrbitGrid(M, ...
+    [vals, ~, ~, termMassSum] = mobius.innerProductOrbitGrid(M, ...
         ones(gx, 1), ones(gy, 1), r, 'prefactor', 1.0, ...
         'returnCancellationRatio', true);
     vals = vals(:) / factorial(r);
-    if isempty(termMass)
+    if isempty(termMassSum)
         bound = 0.0;
     else
-        bound = orbitCount(r) * eps * max(abs(termMass(:))) / factorial(r);
+        % Adding the orbit terms carries a forward error bounded by eps
+        % times the sum of their magnitudes. Bounding that sum by
+        % |Omega_r| * max|term| instead -- assuming every term is as
+        % large as the largest -- over-states it severalfold, and the
+        % over-statement grows with r because the terms decay. Summing
+        % the magnitudes directly costs one extra accumulation in the
+        % orbit loop and keeps the derivation intact.
+        bound = eps * max(abs(termMassSum(:))) / factorial(r);
     end
     v = vals;
 end

@@ -1343,7 +1343,7 @@ def _rel_inner_batched(
             K_uc = K_uc.reshape(nu * n_pairs, K_x, K_y)
             if shared_w:
                 if return_cancellation_ratio:
-                    flat, _, mass = inner_product_orbit_grid(
+                    flat, _, mass, _ = inner_product_orbit_grid(
                         K_uc, Wx[:, 0], Wy[:, 0], r,
                         return_cancellation_ratio=True,
                         return_term_mass=True,

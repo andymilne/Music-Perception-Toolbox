@@ -293,10 +293,8 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
                                   sigma, r, isPer, period, truncationSigmas, wrap)
 %LOCALSAFESAFEORBIT  Vectorised Möbius-method IP on the safe submatrix.
 %
-%   Within the safe group K still varies per event; zero-pad to the
-%   slab Kx / Ky dimensions. The waste factor K_max/mean(K) is smaller
-%   here than in the all-events approach because the safe group has
-%   more uniform K (everyone has K_eff >= r + 2).
+%   K still varies per event; zero-pad to the slab Kx / Ky dimensions.
+%   The waste factor is K_max/mean(K).
 
     [Kx, Nx_safe] = size(Px_safe);
     [Ky, Ny_safe] = size(Py_safe);

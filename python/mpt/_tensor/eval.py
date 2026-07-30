@@ -154,15 +154,15 @@ def eval_exp_tens(*args,
     -----
     Numerical precision envelope for ``method='mobius'``.
 
-    The Möbius point evaluator is exact to floating-point precision
-    when ``K >= r + 2`` and σ is not catastrophically small relative
-    to P. The dispatcher enforces these conditions structurally — it
-    falls back to the centres path when ``K < r + 2``, when
-    ``σ/P > 0.03`` in periodic-relative mode, or when the Möbius
-    output contains non-finite values (post-hoc safety net).
+    Accuracy is governed by ``truncationSigmas``: the Möbius point
+    evaluator's agreement with the centres path tracks the truncation
+    budget, and how close ``K`` is to ``r`` does not bear on it. The
+    dispatcher falls back to the centres path when ``σ/P > 0.03`` in
+    periodic-relative mode, and when the Möbius output contains
+    non-finite values; otherwise it chooses on cost.
 
     What is *not* currently caught: a finite, but slightly inaccurate
-    output from sub-catastrophic Möbius cancellation. None has been
+    output from accumulated Möbius per-term error. None has been
     observed in extensive testing, but a sum-level cancellation
     diagnostic that would close this residual gap is planned. See
     :func:`cos_sim_exp_tens` Notes for the parallel discussion on the

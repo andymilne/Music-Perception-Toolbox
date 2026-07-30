@@ -273,14 +273,13 @@ def cos_sim_exp_tens(*args,
 
     Notes
     -----
-    The Möbius method  is exact to floating-point
-    precision when every per-attribute ``K_a`` satisfies
-    ``K_a >= r_a + 2`` and σ is not catastrophically small relative to
-    the period P. The dispatcher enforces these conditions structurally
-    — it refuses the Möbius method and routes to Bulger's method when
-    ``K_a < r_a + 2``, when ``σ/P > 0.03`` in periodic-relative mode,
-    or when the σ → 0 fallback triggers. Pass ``method='bulger'`` to
-    bypass the Möbius method entirely.
+    Accuracy is governed by ``truncationSigmas``: the Möbius method's
+    agreement with enumeration tracks the truncation budget, and how
+    close each ``K_a`` is to its ``r_a`` does not bear on it. The
+    dispatcher routes to Bulger's method when ``σ/P > 0.03`` in
+    periodic-relative mode, or when the σ → 0 fallback triggers;
+    otherwise it chooses on cost. Pass ``method='bulger'`` to bypass
+    the Möbius method entirely.
 
     See Also
     --------

@@ -3,6 +3,12 @@ function varargout = mptDefaults(varargin)
 %
 %   Centralises the user-tunable toolbox defaults (currently:
 %   truncationSigmas, kernelPrecision, showHints, postHocGuards).
+%   orbitCostIntercept (default 3.8536) is the machine-specific term in
+%   internal.orbitCostModel, which chooses between the Mobius and
+%   enumerated combines. The default was measured on one machine; run
+%   tools/calibrateOrbitIntercept to measure it on yours. Larger values
+%   favour enumeration.
+%
 %   postHocGuards (default true) enables the checks that inspect a
 %   route's output after computing it and may then recompute by another
 %   route. Switch it off for calibration runs: with it on, the measured
@@ -178,7 +184,8 @@ function S = factoryDefaults()
         'kernelPrecision', 'double', ...
         'showHints', true, ...
         'kernelChunkBytes', 'auto', ...
-        'postHocGuards', true ...
+        'postHocGuards', true, ...
+        'orbitCostIntercept', 3.8536 ...
     );
 end
 
@@ -256,6 +263,12 @@ function S = setOne(S, name, value)
                     '''showHints'' must be true or false.');
             end
             S.showHints = value;
+        case 'orbitcostintercept'
+            if ~(isnumeric(value) && isscalar(value) && isfinite(value))
+                error('mptDefaults:badValue', ...
+                    '''orbitCostIntercept'' must be a finite scalar.');
+            end
+            S.orbitCostIntercept = double(value);
         case 'posthocguards'
             if ~(islogical(value) && isscalar(value))
                 error('mptDefaults:badValue', ...

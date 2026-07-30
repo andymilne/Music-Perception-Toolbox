@@ -47,7 +47,16 @@ function [tf, logRatio] = orbitCostModel(r, K, B)
 %   shipped value was measured on one machine, so it will be somewhat
 %   wrong elsewhere, in the same way the constant it replaces was. It is
 %   isolated as a single number so that recalibrating means measuring one
-%   quantity rather than repopulating a table.
+%   quantity rather than repopulating a table: it is the default
+%   orbitCostIntercept, and tools/calibrateOrbitIntercept measures it.
+%
+%   Accuracy: over 484 timed cells the predicted time ratio sits within a
+%   factor of about 2.5 of the measured one typically, with occasional
+%   cells further out. Adequate for the purpose, since the two routes
+%   differ by 10x to 200x away from the crossover and near it either
+%   choice costs little. Refitting the difference directly, and adding a
+%   second run's cells, left the coefficients and the crossover placement
+%   unchanged.
 %
 %   Known weak spot: at r = 2 and low batch the model is conservative by
 %   up to 5 in K, preferring enumeration past the point where the Mobius
@@ -92,7 +101,7 @@ function v = costLogRatio(r, K, B)
     % measured crossover within one in K in 19 of 21 combinations, and
     % held-out performance matched in-sample, indicating the fit captured
     % the scaling rather than memorising individual tuple sizes.
-    C = [ 3.8536, ...   % intercept -- the machine-specific term
+    C = [ mptDefaults('orbitCostIntercept'), ...  % machine-specific term
           1.0708, ...   % log |Omega_r|
           1.4033, ...   % log K
          -0.3608, ...   % log B

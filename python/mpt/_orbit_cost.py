@@ -16,8 +16,20 @@ import math
 # and held-out performance matched in-sample, indicating the fit captured
 # the scaling rather than memorising individual tuple sizes.
 #
+# Accuracy, measured over 484 timed cells on the machine the model was fitted
+# on: the predicted time ratio sits within a factor of about 2.5 of the
+# measured one typically (standard deviation 0.93 in log), with occasional
+# cells further out. That is adequate for the purpose --- the two routes
+# differ by 10x to 200x away from the crossover, so a factor of 2.5 changes
+# nothing there, and near the crossover choosing the wrong route costs little.
+# Refitting the difference directly rather than each route separately, and
+# adding a second machine-run's cells, left the coefficients and the crossover
+# placement unchanged, so this scatter is the model's own and not a sign the
+# form is wrong.
+#
 # Only the intercept is machine-specific; the rest are scaling exponents.
-_C_INTERCEPT = 3.8536
+# The intercept ships as the ``orbit_cost_intercept`` default rather than as
+# a constant here, so it can be recalibrated per machine.
 _C_LOG_N_ORBITS = 1.0708
 _C_LOG_K = 1.4033
 _C_LOG_B = -0.3608
@@ -40,9 +52,15 @@ def _log_tuple_pairs(r: int, K: int) -> float:
 
 
 def orbit_cost_log_ratio(r: int, K: int, B: int = 1) -> float:
-    """Predicted ``log(t_orbit / t_enum)``. Negative favours Möbius."""
+    """Predicted ``log(t_orbit / t_enum)``. Negative favours Möbius.
+
+    The intercept is read from the ``orbit_cost_intercept`` default, so a
+    machine other than the one the model was fitted on can be calibrated
+    without touching the exponents. Larger values favour enumeration.
+    """
+    from ._defaults import get_default
     from ._tensor._nested_contraction import _n_orbits
-    return (_C_INTERCEPT
+    return (float(get_default("orbit_cost_intercept"))
             + _C_LOG_N_ORBITS * math.log(_n_orbits(r))
             + _C_LOG_K * math.log(K)
             + _C_LOG_B * math.log(B)

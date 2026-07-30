@@ -942,6 +942,10 @@ end
             kw = [kw, {'kernelPrecision', kernelPrecision}];
         end
         sigmaEff = sigma * sqrt(2);
+        % The kernel sum is reduced to a single inner product below, so
+        % the truncation floor has to bound the summed discarded mass
+        % over all centre-query pairs rather than each pair individually.
+        kw = [kw, {'nTerms', double(size(U, 2)) * double(size(V, 2))}];
         g = internal.gaussianKernelSum(V, wV(:), U, sigmaEff, kw{:});
         ipval = double(g(:).' * wU(:));
     end

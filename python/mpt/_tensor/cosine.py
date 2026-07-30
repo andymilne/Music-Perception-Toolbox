@@ -2573,6 +2573,10 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
     if kernel_precision is not None:
         kw["kernel_precision"] = kernel_precision
     sigma_eff = float(sigma) * np.sqrt(2.0)
+    # The kernel sum is reduced to a single inner product below, so the
+    # truncation floor has to bound the summed discarded mass over all
+    # centre-query pairs rather than each pair individually.
+    kw["n_terms"] = int(np.asarray(U).shape[-1]) * int(np.asarray(V).shape[-1])
     g = gaussian_kernel_sum(V, wV.ravel(), U, sigma_eff, **kw)
     return float(np.asarray(g).ravel() @ wU.ravel())
 

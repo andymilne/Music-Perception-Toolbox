@@ -16,6 +16,12 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
 %   truncation and kernelPrecision options are applied uniformly across the
 %   toolbox.
 %
+%   opts.nTerms (0 default, meaning unset): number of centre-query pairs
+%   the caller will reduce to a single value. When given, the truncation
+%   width is raised so that the *summed* discarded mass, rather than
+%   each discarded entry, sits below the floor. Omit when the per-query
+%   values are consumed individually rather than summed.
+%
 %   opts.truncationSigmas (Inf default): if finite, centres beyond a
 %   Q-ball of squared radius (truncationSigmas * sigma)^2 are skipped
 %   via a grid-bucket spatial index. Discarded centres' kernel value
@@ -63,6 +69,7 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         opts.kernelPrecision (1,:) char = mptDefaults('kernelPrecision')
         opts.wrap (1,:) char {mustBeMember(opts.wrap, ...
             {'full-image', 'single-image'})} = 'full-image'
+        opts.nTerms (1,1) double = 0
     end
 
     if ~ismember(opts.kernelPrecision, {'double', 'single'})
@@ -100,6 +107,18 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
     % falls below the 1e-12 parity floor, uniform with Python.
     opts.truncationSigmas = internal.accuracyFloor('resolve', ...
                                                    opts.truncationSigmas);
+
+    % The floor is stated per centre-query pair, but a caller that
+    % reduces this sum to a scalar discards nTerms pairs, each of which
+    % may sit just under the floor, admitting an error of nTerms times
+    % the floor on the reduced value. Widening to
+    % sqrt(k^2 + 2 log(nTerms)) puts the per-pair floor at
+    % floor / nTerms, which bounds the total discarded mass by the floor
+    % itself -- the scale the accuracy is stated on.
+    if opts.nTerms > 1
+        opts.truncationSigmas = sqrt(opts.truncationSigmas^2 ...
+                                     + 2 * log(double(opts.nTerms)));
+    end
 
     % Decide path. Non-periodic and periodic 1-D abs modes both truncate;
     % see the dispatch below.

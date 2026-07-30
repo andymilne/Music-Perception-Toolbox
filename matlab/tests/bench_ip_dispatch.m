@@ -19,10 +19,9 @@
 %      within a batched sweep this cost is paid once, not per pair).
 %
 %  The reference uses eight prime harmonics (K_x = 8) rather than the
-%  demo's five: the dispatcher's precision guard requires
-%  min(K_x, K_y) - r >= 2, so K_x = 8 keeps the Möbius method
-%  available up to r = 6. Per-op costs are insensitive to the
-%  reference size.
+%  demo's five, so that the sweep reaches r = 6 with a collection
+%  comfortably larger than the tuple size. Per-op costs are insensitive
+%  to the reference size.
 %
 %  A per-path time cap skips larger n for a path once a single run
 %  exceeds TIME_CAP seconds (reported as NaN), so the bench stays

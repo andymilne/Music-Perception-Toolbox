@@ -37,6 +37,7 @@ def gaussian_kernel_sum(
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     wrap: str = 'full-image',
+    n_terms: int | None = None,
 ) -> np.ndarray:
     """Compute the Gaussian kernel sum over centres against queries.
 
@@ -70,6 +71,12 @@ def gaussian_kernel_sum(
         a follow-up.
     period : float, default 0.0
         Period; required for ``is_per=True``.
+    n_terms : int, optional
+        Number of centre-query pairs the caller will reduce to a single
+        value. When given, the truncation width is raised so that the
+        *summed* discarded mass, rather than each discarded entry, sits
+        below the floor. Omit when the per-query values are consumed
+        individually rather than summed.
     truncation_sigmas : float, optional
         If finite, centres beyond a Q-ball of squared radius
         ``(truncation_sigmas * sigma)**2`` are skipped via a grid-bucket
@@ -95,6 +102,16 @@ def gaussian_kernel_sum(
     # (except in periodic mode, handled below).
     from ._defaults import resolve_truncation_sigmas
     truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
+    if n_terms is not None and n_terms > 1:
+        # The floor is stated per centre-query pair, but the caller
+        # reduces this sum to a scalar, so discarding ``n_terms`` pairs
+        # each just under the floor admits an error of ``n_terms`` times
+        # the floor on the reduced value. Widening to
+        # ``sqrt(k^2 + 2 log(n_terms))`` puts the per-pair floor at
+        # ``floor / n_terms``, which bounds the total discarded mass by
+        # the floor itself --- the scale the accuracy is stated on.
+        truncation_sigmas = math.sqrt(
+            truncation_sigmas ** 2 + 2.0 * math.log(float(n_terms)))
     if kernel_precision is None:
         kernel_precision = get_default("kernel_precision")
     kernel_precision = kernel_precision.lower()

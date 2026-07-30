@@ -7,10 +7,9 @@
 %  (K = 1, r = 1, absolute, non-periodic, sigma = 15) and a K-pitch
 %  chord (r = 2 or 3, sigma = 6, period 1200). The pitch attribute's
 %  rel/per flags sweep the four mode combinations. The scalar r = 1
-%  attribute is deliberate: it is the canonical MAET pattern, and it
-%  exercises the K-vs-r precision guard, which must exempt r_a = 1
-%  attributes (no alternating sum, no cancellation risk) rather than
-%  veto the Möbius method for the whole density.
+%  attribute is deliberate: it is the canonical MAET pattern, and an
+%  r_a = 1 factor is exact on either route, so it exercises the
+%  dispatcher's handling of a mixed-order density.
 %
 %  Columns:
 %    * t_bul / t_mob / t_auto — forced and automatic timings.

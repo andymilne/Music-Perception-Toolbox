@@ -702,29 +702,23 @@ function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
 end
 
 
-function tf = orbitEligible(g, r, sym, isRel, isPer)
-    % Per-level orbit-vs-enumeration choice, applied with K = g, the level's
-    % member count. For r <= 6 it reuses the shared flat cost policy
-    % (internal.orbitBeatsPairwisePerAttr K-vs-r crossover), whose thresholds
-    % are mode-aware but cover r = 2..6 only; above that the choice falls to
-    % orbitFlopsBeatEnum, the two routes' complexities compared directly.
+function tf = orbitEligible(g, r, sym, isRel, isPer) %#ok<INUSD>
+    % Is the Mobius reduction *structurally* available at this level?
     %
-    % Precision is not judged here. A size margin between K and r is the
-    % wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16, while a
-    % steeply peaked weight profile can ruin it at any margin. The bound in
-    % combinePair measures the error the computation actually incurred and
-    % compares it against the accuracy the caller asked for, so eligibility
-    % here is purely a question of cost.
-    ORBIT_R_MAX_SHIPPED = 8;     % match Python _ORBIT_R_MAX_SHIPPED
-    tf = false;
-    if ~sym || r < 2 || r > ORBIT_R_MAX_SHIPPED
-        return;
-    end
-    if r <= 6
-        tf = internal.orbitBeatsPairwisePerAttr(r, g, isRel, isPer);
-    else
-        tf = orbitFlopsBeatEnum(r, g);
-    end
+    % Structure only: the level must be symmetric and r within the shipped
+    % orbit order. Whether the Mobius route is also the *faster* one is a
+    % separate question, settled in combinePair, because it turns on the
+    % batch extent and no block exists yet when the recipe is built. The
+    % crossover moves by up to 11 in K across the batch range, so a
+    % decision taken here could not express it.
+    %
+    % Precision is not judged here either. A size margin between K and r
+    % is the wrong variable: at r = 2, K = r + 1 the orbit error is
+    % 4e-16. The estimate in combinePair measures the error the
+    % computation actually incurred and compares it against the accuracy
+    % the caller asked for.
+    ORBIT_R_MAX_SHIPPED = 8;     % match Python _ORBIT_MAX_R
+    tf = sym && r >= 2 && r <= ORBIT_R_MAX_SHIPPED;
 end
 
 
@@ -1057,6 +1051,15 @@ function v = combinePair(M, r, sym, useOrbit)
     gx = size(M, 2);
     gy = size(M, 3);
     if useOrbit
+        % The recipe said the Mobius route is structurally available here.
+        % Whether it is also the faster one depends on the batch extent,
+        % which only exists now, so the cost question is settled here. K
+        % is taken as max(gx, gy), matching how the warning strings report
+        % the shape; the model was fitted on square blocks, so a markedly
+        % ragged level is outside what it was validated on.
+        useOrbit = internal.orbitCostModel(r, max(gx, gy), size(M, 1));
+    end
+    if useOrbit
         [v, bound] = combineOrbit(M, r);
         budget = orbitGuard('get', []);
         if isempty(budget); return; end
@@ -1091,7 +1094,7 @@ function v = combinePair(M, r, sym, useOrbit)
                     tail = [' The bound is at or above the value scale ' ...
                             'itself, so no truncationSigmas setting would ' ...
                             'admit the Mobius route here.'];
-                elseif orbitFlopsBeatEnum(r, gx, gy)
+                elseif internal.orbitCostModel(r, max(gx, gy), size(M, 1))
                     % The Mobius route is the cheaper one at this level's
                     % sizes, so trading accuracy for it does buy speed.
                     tail = sprintf([' Setting truncationSigmas to %.3g or ' ...

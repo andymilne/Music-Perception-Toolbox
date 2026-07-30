@@ -67,7 +67,11 @@ def test_guard_on_diverts_to_enumeration():
     try:
         mpt.set_default(post_hoc_guards=True)
         with orbit_guard_scope(_TIGHT):
-            got = np.asarray(_combine_pair(M, r, True, True))
+            # cost_check=False: this test is about the guard, so the
+            # Möbius route must actually run rather than be declined on
+            # cost. At this shape the cost model prefers enumeration.
+            got = np.asarray(
+                _combine_pair(M, r, True, True, cost_check=False))
     finally:
         mpt.reset_defaults()
     np.testing.assert_array_equal(got, enum)
@@ -81,7 +85,11 @@ def test_guard_off_keeps_the_mobius_result():
     try:
         mpt.set_default(post_hoc_guards=False)
         with orbit_guard_scope(_TIGHT):
-            got = np.asarray(_combine_pair(M, r, True, True))
+            # cost_check=False: this test is about the guard, so the
+            # Möbius route must actually run rather than be declined on
+            # cost. At this shape the cost model prefers enumeration.
+            got = np.asarray(
+                _combine_pair(M, r, True, True, cost_check=False))
     finally:
         mpt.reset_defaults()
     np.testing.assert_array_equal(got, orbit)

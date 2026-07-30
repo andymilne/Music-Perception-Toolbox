@@ -126,21 +126,22 @@ def _admitting_sigmas(bound):
 
 
 def _orbit_eligible(g, r, sym, is_rel, is_per):
-    if not sym or not (2 <= r <= _ORBIT_MAX_R):
-        return False
-    # Precision is not judged here. A size margin between K and r is the
-    # wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16, while a
-    # steeply peaked weight profile can ruin it at any margin. The bound in
-    # _combine_pair measures the error the computation actually incurred and
-    # compares it against the accuracy the caller asked for, so eligibility
-    # here is purely a question of cost.
-    if r <= 6:
-        return bool(_flat_orbit_beats_enum(r, g, is_rel, is_per))
-    # No measured K threshold covers r in 7..R_MAX, so the cost question is
-    # settled by the two routes' complexities. Enumeration is not infeasible
-    # across this range: at K = r it is r! products against |Omega_r| orbit
-    # terms, which the orbit route loses by three orders of magnitude.
-    return _orbit_flops_beat_enum(r, int(g))
+    """Is the Möbius reduction *structurally* available at this level?
+
+    Structure only: the level must be symmetric and r within the shipped
+    orbit order. Whether the Möbius route is also the *faster* one is a
+    separate question, settled in :func:`_combine_pair`, because it turns
+    on the batch extent and no block exists yet when the recipe is built.
+    The crossover moves by up to 11 in K across the batch range, so a
+    decision taken here could not express it.
+
+    Precision is not judged here either. A size margin between K and r is
+    the wrong variable: at r = 2, K = r + 1 the orbit error is 4e-16.
+    The estimate in :func:`_combine_pair` measures the error the
+    computation actually incurred and compares it against the accuracy
+    the caller asked for.
+    """
+    return bool(sym) and 2 <= r <= _ORBIT_MAX_R
 
 
 class _Node:
@@ -329,7 +330,7 @@ def _combine_chunked(M, xtup, ytup, max_elems):
     return out
 
 
-def _combine_pair(M, r, sym, use_orbit):
+def _combine_pair(M, r, sym, use_orbit, *, cost_check=True):
     """Combine a (Q, gx, gy) block at one level: X-side perm tuples over gx,
     Y-side comb tuples over gy (the r!-cancelled perm x comb form, same scale
     as ``_combine``). gx and gy are read from the block, so unequal X/Y spans
@@ -345,7 +346,22 @@ def _combine_pair(M, r, sym, use_orbit):
     exactly (``_tuple_sides`` returns the same cached arrays the recipe stored),
     so the X == Y cosine path is unchanged."""
     from .._defaults import truncation_floor
+    # Imported unconditionally: the warning branch below also consults the
+    # model, and binding this inside the cost_check branch left it unbound
+    # whenever an explicit request bypassed the cost decision.
+    from .._orbit_cost import orbit_cost_model
     gx, gy = M.shape[1], M.shape[2]
+    if use_orbit:
+        # The recipe said the Möbius route is structurally available here.
+        # Whether it is also the faster one depends on the batch extent,
+        # which only exists now, so the cost question is settled here.
+        # K is taken as max(gx, gy), matching how the warning strings
+        # report the shape; the model was fitted on square blocks, so a
+        # markedly ragged level is outside what it was validated on.
+        # ``cost_check=False`` skips this, so an explicit user request for
+        # the Möbius route is honoured rather than overridden on cost.
+        if cost_check:
+            use_orbit = orbit_cost_model(r, max(gx, gy), M.shape[0])[0]
     if use_orbit:
         vals, bound = _combine_orbit(M, r, return_bound=True)
         budget = _orbit_budget()
@@ -379,7 +395,7 @@ def _combine_pair(M, r, sym, use_orbit):
                     tail = (" The bound is at or above the value scale "
                             "itself, so no truncationSigmas setting would "
                             "admit the Mobius route here.")
-                elif _orbit_flops_beat_enum(r, gx, gy):
+                elif orbit_cost_model(r, max(gx, gy), M.shape[0])[0]:
                     # The Mobius route is the cheaper one at this level's
                     # sizes, so trading accuracy for it does buy speed.
                     tail = (f" Setting truncationSigmas to {admit:.3g} or "

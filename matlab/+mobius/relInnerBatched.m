@@ -111,11 +111,25 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
         du = period / N_u;
         centres = zeros(Nx, Ny);
     else
-        wsx = sum(Wx, 1);
-        wsy = sum(Wy, 1);
-        mx = sum(Px .* Wx, 1) ./ max(wsx, realmin);
-        my = sum(Py .* Wy, 1) ./ max(wsy, realmin);
-        centres = my - mx.';                       % (Nx, Ny)
+        % Each pair's window is centred on the midpoint of its own
+        % difference range, not on its weighted-mean offset. The cross
+        % integrand's support runs from (min_y - max_x) to
+        % (max_y - min_x), whose midpoint is the midrange offset; the
+        % weighted mean can sit far from it when the weights are
+        % lopsided -- by over 100 cents on ordinary random data, against
+        % a margin of 8 sigma -- and a window of the right width centred
+        % there clips one end of the support. The clipped mass is the
+        % extreme pairs' contribution, so the resulting error is
+        % data-dependent and survives grid refinement; it reached 4.8e-4
+        % against direct enumeration, four orders above the truncation
+        % floor.
+        [loX, hiX] = localExtremes(Px, Wx);
+        [loY, hiY] = localExtremes(Py, Wy);
+        midX = 0.5 * (loX + hiX);
+        midY = 0.5 * (loY + hiY);
+        midX(~isfinite(midX)) = 0;
+        midY(~isfinite(midY)) = 0;
+        centres = midY - midX.';                   % (Nx, Ny)
 
         spreadX = localWeightedSpread(Px, Wx);
         spreadY = localWeightedSpread(Py, Wy);
@@ -276,11 +290,19 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
 end
 
 
-function s = localWeightedSpread(P, W)
-%LOCALWEIGHTEDSPREAD  Per-event max-minus-min over positive-weight values.
+function [lo, hi] = localExtremes(P, W)
+%LOCALEXTREMES  Per-event min and max over positive-weight values.
     masked = P;
     masked(W <= 0) = NaN;
-    s = max(masked, [], 1, 'omitnan') - min(masked, [], 1, 'omitnan');
+    lo = min(masked, [], 1, 'omitnan');
+    hi = max(masked, [], 1, 'omitnan');
+end
+
+
+function s = localWeightedSpread(P, W)
+%LOCALWEIGHTEDSPREAD  Per-event max-minus-min over positive-weight values.
+    [lo, hi] = localExtremes(P, W);
+    s = hi - lo;
     s(~isfinite(s)) = 0;
 end
 

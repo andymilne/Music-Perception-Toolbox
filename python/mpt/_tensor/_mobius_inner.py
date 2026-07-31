@@ -1225,16 +1225,32 @@ def _rel_inner_batched(
             safe = np.where(wsum > 0, wsum, 1.0)
             return (P * W).sum(axis=0) / safe
 
-        mx = _col_means(Px, Wx)
-        my = _col_means(Py, Wy)
-        centres = my[None, :] - mx[:, None]          # (N_x, N_y)
-
-        def _spread(P, W):
+        def _extremes(P, W):
             masked = np.where(W > 0, P, np.nan)
             lo = np.nanmin(masked, axis=0)
             hi = np.nanmax(masked, axis=0)
+            return lo, hi
+
+        def _spread(P, W):
+            lo, hi = _extremes(P, W)
             s = hi - lo
             return np.where(np.isfinite(s), s, 0.0)
+
+        # Each pair's window is centred on the midpoint of its own
+        # difference range, not on its weighted-mean offset. The cross
+        # integrand's support runs from (min_y - max_x) to
+        # (max_y - min_x), whose midpoint is the midrange offset; the
+        # weighted mean can sit far from it when the weights are
+        # lopsided --- by over 100 cents on ordinary random data, against
+        # a margin of 8 sigma --- and a window of the right width centred
+        # there clips one end of the support. The clipped mass is the
+        # extreme pairs' contribution, so the resulting error is
+        # data-dependent and survives grid refinement.
+        lo_x, hi_x = _extremes(Px, Wx)
+        lo_y, hi_y = _extremes(Py, Wy)
+        mid_x = np.where(np.isfinite(lo_x), 0.5 * (lo_x + hi_x), 0.0)
+        mid_y = np.where(np.isfinite(lo_y), 0.5 * (lo_y + hi_y), 0.0)
+        centres = mid_y[None, :] - mid_x[:, None]    # (N_x, N_y)
 
         margin = _rel_window_margin(truncation_sigmas)
         span = (float(np.max(_spread(Px, Wx)) + np.max(_spread(Py, Wy)))

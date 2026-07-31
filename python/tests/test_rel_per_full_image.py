@@ -298,3 +298,78 @@ def test_eval_departs_from_the_nearest_image_kernel_as_sigma_grows():
         gaps[sigma_over_P] = float(np.max(np.abs(got - near)) / ref.max())
     assert gaps[0.02] < 1e-6, gaps
     assert gaps[0.30] > 1e-3, gaps
+
+
+# ---------------------------------------------------------------------
+# Non-periodic relative: the translation window must cover its support
+# ---------------------------------------------------------------------
+#
+# In non-periodic relative mode every pair marginalises a translation
+# over a window of shared width, positioned per pair. The support of the
+# cross integrand runs from (min_y - max_x) to (max_y - min_x), so its
+# midpoint is the midrange offset. Centring the window on the weighted
+# mean offset instead displaces it: on ordinary random data with
+# non-uniform weights the two differ by over 100 cents, against a margin
+# of 8 sigma, and the far end of the support is clipped.
+#
+# The lost mass is the extreme pairs' contribution, so the error is
+# data-dependent, survives grid refinement, and reached 4.8e-4 -- four
+# orders above the truncation floor -- on 8 of 25 random draws at
+# r = 2, K = 40. It was invisible in ordinary use because the spectral
+# branch runs first for 2 <= r <= 4 and is accurate; the dense route
+# carries it whenever that branch stands down, which includes every
+# cancellation-ratio request.
+#
+# Direct enumeration is the arbiter here: it evaluates the tuple sum
+# without any translation window at all.
+
+
+def _nonper_case(K=40, decay_x=(0.0, 6.0), decay_y=(6.0, 0.0),
+                 extent=1200.0):
+    """Values evenly spaced over EXTENT with weights decaying towards a
+    chosen end of each side.
+
+    Constructed rather than drawn, so the property under test holds in
+    both languages: MATLAB's RandStream and numpy's generator do not
+    produce the same numbers from the same seed, so a seeded draw that
+    displaces the window in one language need not do so in the other.
+    Opposite decays put the weighted-mean offset 835 cents from the
+    midrange offset, against a margin of 8 sigma.
+    """
+    p = np.linspace(0.0, extent, K)
+    q = np.linspace(0.0, extent, K)
+    wp = np.exp(-np.linspace(decay_x[0], decay_x[1], K))
+    wq = np.exp(-np.linspace(decay_y[0], decay_y[1], K))
+    return p, wp, q, wq
+
+
+@pytest.mark.parametrize("K, r", [(40, 2), (20, 2), (12, 3), (10, 4)])
+def test_nonper_dense_matches_direct_enumeration(K, r):
+    """The dense translation-grid route must agree with direct
+    enumeration to the truncation floor. Under a window centred on the
+    weighted mean this construction errs by 2.1e-6 at r = 2, K = 40."""
+    import mpt
+    import mpt._tensor._mobius_inner as _mi
+    p, wp, q, wq = _nonper_case(K=K)
+    ref = mpt.cos_sim_exp_tens(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
+                               method="bulger", verbose=False)
+    spectral_was = _mi._SPECTRAL_IP_ENABLED
+    _mi._SPECTRAL_IP_ENABLED = False
+    try:
+        got = mpt.cos_sim_exp_tens(p, wp, q, wq, 6.0, r, 1, 0, 0.0,
+                                   method="mobius", verbose=False)
+    finally:
+        _mi._SPECTRAL_IP_ENABLED = spectral_was
+    assert abs(got - ref) < 1.5e-8, f"K={K} r={r}: {abs(got - ref):.3e}"
+
+
+def test_nonper_window_offsets_differ_by_more_than_the_margin():
+    """Pin the mechanism, not just the symptom: on this construction the
+    weighted-mean offset sits far outside the window's own margin, so a
+    window placed there cannot cover the support."""
+    import mpt._tensor._mobius_inner as _mi
+    p, wp, q, wq = _nonper_case()
+    mid_offset = 0.5 * (q.max() + q.min()) - 0.5 * (p.max() + p.min())
+    mean_offset = ((q * wq).sum() / wq.sum()) - ((p * wp).sum() / wp.sum())
+    margin = _mi._rel_window_margin(6.0) * 6.0
+    assert abs(mean_offset - mid_offset) > 10.0 * margin

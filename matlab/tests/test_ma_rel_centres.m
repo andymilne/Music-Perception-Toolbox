@@ -335,3 +335,60 @@ end
 results{end+1,1} = 'singleMultisetPath: rejects a value outside the two';
 results{end,2}   = smp_raised;
 mptDefaults('singleMultisetPath', smp_prev);
+
+% --- Non-periodic relative: the window must cover its own support ---
+% Twin of the cells in test_rel_per_full_image.py. The cross integrand's
+% support runs from (min_y - max_x) to (max_y - min_x), centred on the
+% midrange offset; centring the window on the weighted-mean offset
+% displaces it and clips one end. Direct enumeration is the arbiter: it
+% uses no window.
+%
+% The data is constructed rather than drawn, so the property holds in
+% both languages: MATLAB's RandStream and numpy's generator do not
+% produce the same numbers from the same seed, so a seeded draw that
+% displaces the window in one language need not do so in the other.
+% Weights decaying towards opposite ends put the weighted-mean offset
+% 835 cents from the midrange offset, against a margin of 8 sigma.
+% Under the weighted-mean centring this construction errs by 2.1e-6,
+% two orders above the truncation floor.
+nprel_K = 40;
+nprel_p = linspace(0, 1200, nprel_K);
+nprel_q = linspace(0, 1200, nprel_K);
+nprel_wp = exp(-linspace(0, 6, nprel_K));
+nprel_wq = exp(-linspace(6, 0, nprel_K));
+
+nprel_mid = 0.5 * (max(nprel_q) + min(nprel_q)) ...
+          - 0.5 * (max(nprel_p) + min(nprel_p));
+nprel_mean = sum(nprel_q .* nprel_wq) / sum(nprel_wq) ...
+           - sum(nprel_p .* nprel_wp) / sum(nprel_wp);
+results{end+1,1} = sprintf( ...
+    ['relInnerBatched: midrange and weighted-mean offsets differ by ' ...
+     '%.0f cents, beyond the margin'], abs(nprel_mean - nprel_mid));
+results{end,2}   = abs(nprel_mean - nprel_mid) > ...
+                   internal.relWindowMargin(6) * 6;
+
+nprel_ref = cosSimExpTens(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
+    6, 2, 1, 0, 0, 'method', 'bulger', 'verbose', false);
+nprel_got = cosSimExpTens(nprel_p, nprel_wp, nprel_q, nprel_wq, ...
+    6, 2, 1, 0, 0, 'method', 'mobius', 'verbose', false);
+results{end+1,1} = sprintf( ...
+    ['relInnerBatched: non-periodic relative matches direct ' ...
+     'enumeration (%.2e)'], abs(nprel_got - nprel_ref));
+results{end,2}   = abs(nprel_got - nprel_ref) < 1.5e-8;
+
+% The same construction at r = 3, on a smaller multiset: direct
+% enumeration builds K!/(K-r)! tuples per side, so K = 40 at r = 3 is
+% beyond what the arbiter can hold.
+nprel_K3 = 12;
+nprel_p3 = linspace(0, 1200, nprel_K3);
+nprel_q3 = linspace(0, 1200, nprel_K3);
+nprel_wp3 = exp(-linspace(0, 6, nprel_K3));
+nprel_wq3 = exp(-linspace(6, 0, nprel_K3));
+nprel_ref2 = cosSimExpTens(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
+    6, 3, 1, 0, 0, 'method', 'bulger', 'verbose', false);
+nprel_got2 = cosSimExpTens(nprel_p3, nprel_wp3, nprel_q3, nprel_wq3, ...
+    6, 3, 1, 0, 0, 'method', 'mobius', 'verbose', false);
+results{end+1,1} = sprintf( ...
+    ['relInnerBatched: non-periodic relative at r = 3 matches direct ' ...
+     'enumeration (%.2e)'], abs(nprel_got2 - nprel_ref2));
+results{end,2}   = abs(nprel_got2 - nprel_ref2) < 1.5e-8;

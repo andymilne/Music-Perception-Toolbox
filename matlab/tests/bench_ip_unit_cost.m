@@ -357,9 +357,9 @@ s4batch(2:3:end, :) = repmat(s4batch(1, :), numel(2:3:s4M), 1);
 s4cases(end+1, :) = {'4d batched 60x8 dedup on', ...
     @() cosSimExpTens(s4ref, [], s4batch, [], sigma, 2, 1, 1, period, ...
         'verbose', false)};
-s4cases(end+1, :) = {'4d batched 60x8 dedup off', ...
-    @() cosSimExpTens(s4ref, [], s4batch, [], sigma, 2, 1, 1, period, ...
-        'dedup', false, 'verbose', false)};
+% 'dedup', false is a documented no-op on the batched-raw path and warns
+% on every call, including every repeat inside timeRepeated, so it is not
+% exercised here. The dedup cache is covered by the repeated rows above.
 s4cases(end+1, :) = {'4d batched 60x8 r=3', ...
     @() cosSimExpTens(s4ref, [], s4batch, [], sigma, 3, 1, 1, period, ...
         'verbose', false)};
@@ -455,6 +455,77 @@ else
                  'before anything is deleted.\n']);
     end
 end
+
+%% ---- Section 5: where the MA path is slower, is it route or cost? ----
+
+% Section 4 finds the two paths agreeing on value everywhere but the MA
+% path far slower in a few cells, all of them relative and most of them
+% non-periodic. That is either a route the MA path chooses badly or a
+% cost it cannot avoid, and the two call for different remedies: the
+% first is a gate correction, the second means the dedicated stack is
+% buying something real.
+%
+% relAttrRoute pins the route inside the MA path, so timing each cell
+% under 'centres' and 'grid' separates the two. In Python the same cells
+% show 'auto' tracking 'grid' closely while 'centres' runs hundreds of
+% times slower, so if a forced route here comes in near the dedicated
+% figure the fault is the gate, not the path.
+
+fprintf('\nSection 5 -- outlier diagnosis (relative mode)\n');
+fprintf('%-26s %9s %9s %9s %9s\n', ...
+        'case', 'ded(ms)', 'MA auto', 'MA centr', 'MA grid');
+
+s5cells = { ...
+    2, 40, false; ...
+    2, 80, false; ...
+    2, 80, true;  ...
+    4, 10, false; ...
+    4, 10, true};
+
+prevPath5 = mptDefaults('singleMultisetPath');
+prevRoute5 = mptDefaults('relAttrRoute');
+for ci = 1:size(s5cells, 1)
+    s5r = s5cells{ci, 1};
+    s5K = s5cells{ci, 2};
+    s5isPer = s5cells{ci, 3};
+    if s5isPer, s5P = period; else, s5P = 0; end
+    rs = RandStream('twister', 'Seed', 77 * s5K + s5r + 13 * (2 + 2 * s5isPer));
+    px = sort(rand(rs, 1, s5K) * period);
+    py = sort(rand(rs, 1, s5K) * period);
+    wx = 0.5 + rand(rs, 1, s5K);
+    wy = 0.5 + rand(rs, 1, s5K);
+    call = @() cosSimExpTens(px, wx, py, wy, sigma, s5r, 1, s5isPer, ...
+        s5P, 'verbose', false);
+    mptDefaults('singleMultisetPath', 'auto');
+    mptDefaults('relAttrRoute', 'auto');
+    call();
+    s5ded = internal.timeRepeated(call) * 1e3;
+    s5t = nan(1, 3);
+    s5routes = {'auto', 'centres', 'grid'};
+    mptDefaults('singleMultisetPath', 'ma');
+    for ri = 1:3
+        mptDefaults('relAttrRoute', s5routes{ri});
+        try
+            call();
+            s5t(ri) = internal.timeRepeated(call) * 1e3;
+        catch
+            s5t(ri) = NaN;   % route inadmissible here
+        end
+    end
+    mptDefaults('relAttrRoute', 'auto');
+    mptDefaults('singleMultisetPath', 'auto');
+    fprintf('%-26s %9.3f %9.3f %9.3f %9.3f\n', ...
+        sprintf('r=%d K=%d per=%d', s5r, s5K, s5isPer), ...
+        s5ded, s5t(1), s5t(2), s5t(3));
+end
+mptDefaults('relAttrRoute', prevRoute5);
+mptDefaults('singleMultisetPath', prevPath5);
+
+fprintf(['    If a forced route comes in near the dedicated figure, the ' ...
+         'gate is\n    choosing badly and the fix is the gate. If every ' ...
+         'route is far slower,\n    the MA path cannot reach the ' ...
+         'dedicated stack''s cost and the stack\n    is buying ' ...
+         'something real.\n']);
 
 %% ---- Verdicts ----
 

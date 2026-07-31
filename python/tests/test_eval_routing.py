@@ -37,11 +37,11 @@ _FLOOR = 1e-300
 # multiples above it while every term composing it was dropped: at a
 # query far from every centre the reference returns ~2e-300 where the
 # shipped path returns exactly 0. An atol equal to the floor fails those
-# entries by a factor of two or three. The comparison tolerance is
-# therefore a margin above the floor, which at 1e-297 is still some 297
-# orders of magnitude below the scale of these arrays (max |ref| ~ 0.6)
-# and so cannot mask a divergence that means anything.
+# entries by a factor of two or three, so the comparison needs a margin
+# above it.
 _ATOL = 1e3 * _FLOOR
+
+
 import pytest
 
 import mpt
@@ -72,11 +72,28 @@ def _ref_eval(dens, x):
         x = x.reshape(1, -1)
 
     D = centres[:, :, None] - x[:, None, :]
-    if is_per:
-        D = np.mod(D + period / 2, period) - period / 2
     if is_rel:
-        Q = np.sum(D * D, axis=0) - np.sum(D, axis=0) ** 2 / r
+        # A relative density depends on a tuple only through its
+        # within-tuple differences, and
+        #     sum_i D_i^2 - (sum_i D_i)^2 / r = (1/r) sum_{i<j} (D_i - D_j)^2
+        # over the r slots, of which the reduced coordinates carry r - 1
+        # with an implicit zeroth slot at the origin. Periodicity acts on
+        # those within-tuple differences, so the wrap belongs inside the
+        # pairwise sum -- wrapping each D_i first and then forming the
+        # quadratic is a different quantity, and the two part company
+        # wherever a within-tuple difference sits beyond half a period.
+        D = np.concatenate([np.zeros((1,) + D.shape[1:]), D], axis=0)
+        Q = np.zeros(D.shape[1:])
+        for i in range(r):
+            for j in range(i + 1, r):
+                d = D[i] - D[j]
+                if is_per:
+                    d = np.mod(d + period / 2, period) - period / 2
+                Q = Q + d * d
+        Q = Q / r
     else:
+        if is_per:
+            D = np.mod(D + period / 2, period) - period / 2
         Q = np.sum(D * D, axis=0)
     E = np.exp(-Q / (2 * sigma ** 2))
     return w_j @ E
@@ -123,12 +140,18 @@ def density_case(request):
 
 
 # ---------------------------------------------------------------------
-# Default settings = match v2.0/v2.1 reference within reduction-order
-# noise. v2.2 relaxes the v2.1 bit-identity contract to reduction-order
-# identity (~1e-13) for periodic configurations, since the periodic
-# wrap was retargeted from np.mod to D - period * floor(D/period + 0.5)
-# (mathematically equivalent everywhere; different FP-op sequence).
-# Non-periodic configurations remain bit-identical to the reference.
+# The shipped paths must match the reference to reduction-order noise
+# (~1e-13): the two carry out the same arithmetic in a different order,
+# which for periodic configurations differs because the wrap is written
+# as D - period * floor(D/period + 0.5) rather than with np.mod.
+#
+# That holds only because the reference forms the relative quadratic
+# from wrapped within-tuple differences, as the shipped paths do. An
+# earlier reference wrapped each offset before forming the quadratic,
+# which is a different quantity: the two agree near the peak of the
+# density and part company in its tail, where a within-tuple difference
+# can sit beyond half a period. The disagreement reached 7e-3 relative
+# at values ~1e-53, on roughly one draw in three thousand.
 # ---------------------------------------------------------------------
 
 def test_default_settings_match_reference(density_case):

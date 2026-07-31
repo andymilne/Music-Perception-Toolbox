@@ -37,7 +37,8 @@
 %  machines. Each n is therefore attempted separately and the sweep
 %  stops at the first failure, keeping the points already measured.
 %
-%  Run from anywhere with the toolbox on the path. Takes ~2 minutes.
+%  Run from anywhere with the toolbox on the path. Takes a few
+%  minutes, most of it in Section 3 at r = 4.
 
 prevHints = mptDefaults('showHints');
 mptDefaults('showHints', false);
@@ -129,6 +130,96 @@ for i = 1:numel(nSolo)
     opsSq(end+1)  = orbSqOf(n);   %#ok<SAGROW>
     opsLin(end+1) = orbLinOf(n);  %#ok<SAGROW>
     fprintf('%6d %13.3f %16.4g %16.4g\n', n, t * 1e3, opsSq(end), opsLin(end));
+end
+
+%% ---- Section 3: how the grid route scales with the value count ----
+
+% Section 2 tests r = 2 only. The shipped count charges the
+% translation-grid route a term in n^2 at every tuple order, but the
+% exponent is not the same at every order: the grid contraction at order
+% r takes r-fold products over the value set, so the dependence on the
+% value count steepens as r rises. This section forces the grid route,
+% sweeps the value count at r = 2, 3 and 4, and reports the exponent
+% directly as the slope of log(time) against log(value count).
+%
+% Read it as: slope near 1 means the cost is linear in the value count,
+% near 2 means quadratic, and the shipped count is right only where the
+% slope is near 2.
+%
+% Python measurements on this sweep give slope 0.65 at r = 2 and 1.79 at
+% r = 4, so the shipped n^2 is far too steep at r = 2 and about right at
+% r = 4. But the Python per-value slope at r = 2 is some seventeen times
+% steeper than the MATLAB slope Section 2 measures, so those numbers do
+% not carry across and the fit has to be made here before any constant
+% in the cost model is changed.
+
+% The value counts are capped per order because the grid route steepens
+% with r: at r = 4 a single call at K = 80 already runs for seconds in
+% Python, and timeRepeated times at least three runs whatever its budget
+% says. Four points are enough to read an exponent.
+rOrders  = [2, 3, 4];
+KPerOrder = {[5, 10, 20, 40, 80], [5, 10, 20, 40, 80], [5, 10, 20, 40]};
+
+fprintf('\nSection 3 -- grid route scaling by tuple order\n');
+fprintf('%3s %6s %13s\n', 'r', 'K', 't_grid(ms)');
+
+for ri = 1:numel(rOrders)
+    ra = rOrders(ri);
+    Ks = KPerOrder{ri};
+    Ks = Ks(Ks >= ra);
+    tg = nan(1, numel(Ks));
+    for ki = 1:numel(Ks)
+        K = Ks(ki);
+        rs = RandStream('twister', 'Seed', 1000 * K + ra);
+        px = sort(rand(rs, 1, K) * period);
+        py = sort(rand(rs, 1, K) * period);
+        call = @() cosSimExpTens(px, [], py, [], sigma, ra, isRel, ...
+            isPer, period, 'method', 'mobius');
+        try
+            call();
+            tg(ki) = internal.timeRepeated(call);
+        catch ME
+            fprintf('%3d %6d  stopped: %s\n', ra, K, ME.message);
+            break;
+        end
+    end
+    ok = ~isnan(tg);
+    Kok = Ks(ok); tok = tg(ok) * 1e3;          % ms
+    for ki = 1:numel(Kok)
+        fprintf('%3d %6d %13.3f\n', ra, Kok(ki), tok(ki));
+    end
+    if numel(Kok) < 3
+        fprintf('    r = %d: too few points to fit\n', ra);
+        continue;
+    end
+    slope = localLogSlope(Kok, tok);
+    % Both candidate forms, for a reader who wants the constants. The
+    % exponent above is the primary reading; these say how well each
+    % fixed form does.
+    Alin = [ones(numel(Kok), 1), 2 * Kok(:)];
+    Asq  = [ones(numel(Kok), 1), Kok(:).^2];
+    clin = Alin \ tok(:);
+    csq  = Asq  \ tok(:);
+    fprintf(['    r = %d: exponent in the value count = %.2f\n' ...
+             '           setup+linear R^2 = %.4f (setup %.4f ms, ' ...
+             '%.4e ms per value)\n' ...
+             '           setup+K^2    R^2 = %.4f\n'], ...
+        ra, slope, localR2(Alin, clin, tok(:)), clin(1), clin(2), ...
+        localR2(Asq, csq, tok(:)));
+    if clin(1) < 0
+        fprintf(['           The linear fit wants a negative setup, so ' ...
+                 'it is the wrong form here.\n']);
+    end
+    if slope < 1.4
+        fprintf(['           -> the shipped n^2 charge is too steep at ' ...
+                 'this order.\n']);
+    elseif slope > 1.7
+        fprintf(['           -> consistent with the shipped n^2 charge ' ...
+                 'at this order.\n']);
+    else
+        fprintf(['           -> between the two; widen KList before ' ...
+                 'drawing a conclusion.\n']);
+    end
 end
 
 %% ---- Verdicts ----
@@ -238,4 +329,12 @@ function s = localLogSlope(x, y)
     ly = log(double(y(:)));
     p = [ones(numel(lx), 1), lx] \ ly;
     s = p(2);
+end
+
+
+function v = localR2(A, c, y)
+%LOCALR2  Coefficient of determination for the fit A*c against y.
+    e = y - A * c;
+    d = y - mean(y);
+    v = 1 - (e' * e) / (d' * d);
 end

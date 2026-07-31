@@ -20,6 +20,7 @@ code.
 """
 
 import math
+import zlib
 
 import numpy as np
 
@@ -31,6 +32,16 @@ from mpt._defaults import accuracy_floor_context
 # are legitimately dropped -- the reference can still emit denormals at
 # ~1e-308 -- so atol is tied to the floor being requested.
 _FLOOR = 1e-300
+
+# The floor is a per-term cutoff, but a summed value can sit a few
+# multiples above it while every term composing it was dropped: at a
+# query far from every centre the reference returns ~2e-300 where the
+# shipped path returns exactly 0. An atol equal to the floor fails those
+# entries by a factor of two or three. The comparison tolerance is
+# therefore a margin above the floor, which at 1e-297 is still some 297
+# orders of magnitude below the scale of these arrays (max |ref| ~ 0.6)
+# and so cannot mask a divergence that means anything.
+_ATOL = 1e3 * _FLOOR
 import pytest
 
 import mpt
@@ -95,7 +106,11 @@ def reset_defaults_each_test():
 ])
 def density_case(request):
     label, K, r, is_rel, is_per, period, sigma, n_q = request.param
-    rng = np.random.default_rng(hash(label) & 0xFFFFFFFF)
+    # Seed from a stable digest of the label, not from hash(): Python
+    # salts string hashing per process, so hash(label) gives different
+    # data on every run and a failure cannot be reproduced from the
+    # reported case name.
+    rng = np.random.default_rng(zlib.crc32(label.encode()))
     p = np.sort(rng.uniform(0, 1000, K))
     w = rng.uniform(0.5, 1.5, K)
     dens = build_exp_tens(p, w, sigma, r, is_rel, is_per, period, verbose=False)
@@ -123,7 +138,7 @@ def test_default_settings_match_reference(density_case):
                           verbose=False)
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=_FLOOR,
+        v, ref, rtol=1e-12, atol=_ATOL,
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
@@ -137,7 +152,7 @@ def test_explicit_inf_matches_reference(density_case):
         )
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=_FLOOR,
+        v, ref, rtol=1e-12, atol=_ATOL,
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
@@ -240,7 +255,7 @@ def test_global_default_picked_up():
     with accuracy_floor_context(1e-300):
         v1 = eval_exp_tens(dens, x, method='centres',
                            truncation_sigmas=math.inf, verbose=False)
-    np.testing.assert_allclose(v1, ref, rtol=1e-12, atol=_FLOOR)
+    np.testing.assert_allclose(v1, ref, rtol=1e-12, atol=_ATOL)
 
     # Set global default; bit-identical now requires truncation match.
     mpt.set_default(truncation_sigmas=6)
@@ -269,4 +284,4 @@ def test_per_call_overrides_global():
             dens, x, method='centres', truncation_sigmas=math.inf,
             verbose=False,
         )
-    np.testing.assert_allclose(v, ref, rtol=1e-12, atol=_FLOOR)
+    np.testing.assert_allclose(v, ref, rtol=1e-12, atol=_ATOL)

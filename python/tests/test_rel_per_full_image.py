@@ -169,3 +169,132 @@ def test_image_count_monotone_in_sigma_over_P():
 ])
 def test_image_count_degenerate_inputs_return_zero(sigma, period):
     assert _mobius_inner._rel_per_image_count(sigma, period, 6.0) == 0
+
+
+# ---------------------------------------------------------------------
+# Evaluation carries the same measure as the inner product
+# ---------------------------------------------------------------------
+#
+# The tests above compare inner products. Evaluation is the other half:
+# eval_exp_tens returns the density at a set of query points, and it must
+# return the full-image density, not the nearest-image approximation to
+# it. The two coincide as sigma/period tends to zero and part company as
+# it grows, so the cells below run from the musical range up to
+# sigma/period = 0.30, well past the point where the nearest-image
+# kernel ceases to be positive-definite.
+#
+# The reference is the same independent lattice sum used above, applied
+# to a single density rather than a pair.
+#
+# Agreement is measured against the peak of the reference, not entry by
+# entry. These densities span many orders of magnitude across a set of
+# query points, and at a query far from every tuple both sides return
+# numbers that are zero for any purpose; an entrywise relative test
+# there compares noise with noise.
+
+
+def _lattice_eval(p, w, x, sigma, r, n_max=8):
+    """Full-image density at the query points, by direct lattice sum.
+
+    Q0(x) = sum_i x_i^2 - (sum_i x_i)^2 / r over the r slots, summed over
+    translates x + P n for n in Z^r / Z.1, the quotient represented by
+    fixing the zeroth component at zero. The query carries r - 1 reduced
+    coordinates, so a zeroth slot at the origin is prepended.
+    """
+    tuples = list(itertools.permutations(range(len(p)), r))
+    C = np.array([[p[i] for i in t] for t in tuples], dtype=float)
+    W = np.array([np.prod([w[i] for i in t]) for t in tuples], dtype=float)
+    x = np.asarray(x, dtype=float)
+    x_full = np.vstack([np.zeros((1, x.shape[1])), x])
+    out = np.zeros(x.shape[1])
+    for shift in itertools.product(range(-n_max, n_max + 1), repeat=r - 1):
+        n = np.array((0,) + shift, dtype=float)
+        d = C[:, :, None] - x_full[None, :, :] + PERIOD * n[None, :, None]
+        Q = np.sum(d * d, axis=1) - np.sum(d, axis=1) ** 2 / r
+        out = out + W @ np.exp(-Q / (2 * sigma ** 2))
+    return out
+
+
+def _eval_case(r, sigma_over_P, n_q=10, K=5):
+    import mpt
+    rng = np.random.default_rng(3 + r)
+    p = np.sort(rng.uniform(0, PERIOD, K))
+    w = np.ones(K)
+    x = rng.uniform(0, PERIOD, (r - 1, n_q))
+    sigma = sigma_over_P * PERIOD
+    dens = mpt.build_exp_tens(p, w, sigma, r, True, True, PERIOD, verbose=False)
+    ref = _lattice_eval(p, w, x, sigma, r)
+    return mpt, dens, x, ref
+
+
+@pytest.mark.parametrize("r", [2, 3, 4])
+@pytest.mark.parametrize("sigma_over_P", [0.02, 0.05, 0.10, 0.20, 0.30])
+def test_eval_matches_lattice_untruncated(r, sigma_over_P):
+    """With truncation off, evaluation reproduces the lattice measure to
+    reduction-order noise at every sigma/period."""
+    import math
+    from mpt._defaults import accuracy_floor_context
+    mpt, dens, x, ref = _eval_case(r, sigma_over_P)
+    with accuracy_floor_context(1e-300):
+        got = mpt.eval_exp_tens(dens, x, truncation_sigmas=math.inf,
+                                verbose=False)
+    err = np.max(np.abs(got - ref)) / ref.max()
+    assert err < 1e-12, f"r={r}, sigma/P={sigma_over_P}: {err:.3e}"
+
+
+@pytest.mark.parametrize("r", [2, 3, 4])
+@pytest.mark.parametrize("sigma_over_P", [0.02, 0.05, 0.10, 0.20, 0.30])
+def test_eval_matches_lattice_at_default_truncation(r, sigma_over_P):
+    """At the default 6-sigma cutoff the same comparison must hold to the
+    truncation floor rather than to machine precision. The bound is the
+    floor with an order of magnitude of headroom, since the discarded
+    mass accumulates over tuples and images."""
+    mpt, dens, x, ref = _eval_case(r, sigma_over_P)
+    got = mpt.eval_exp_tens(dens, x, verbose=False)
+    err = np.max(np.abs(got - ref)) / ref.max()
+    assert err < 1.5e-7, f"r={r}, sigma/P={sigma_over_P}: {err:.3e}"
+
+
+def _nearest_image_eval(p, w, x, sigma, r):
+    """Density under the nearest-image kernel: the within-tuple
+    differences are wrapped to [-P/2, P/2) and the quadratic formed from
+    them. This is the cheap approximation the toolbox is entitled to use
+    only while sigma/period is small."""
+    tuples = list(itertools.permutations(range(len(p)), r))
+    C = np.array([[p[i] for i in t] for t in tuples], dtype=float)
+    W = np.array([np.prod([w[i] for i in t]) for t in tuples], dtype=float)
+    x = np.asarray(x, dtype=float)
+    x_full = np.vstack([np.zeros((1, x.shape[1])), x])
+    D = C[:, :, None] - x_full[None, :, :]
+    Q = np.zeros(D.shape[::2])
+    for i in range(r):
+        for j in range(i + 1, r):
+            d = D[:, i, :] - D[:, j, :]
+            d = np.mod(d + PERIOD / 2, PERIOD) - PERIOD / 2
+            Q = Q + d * d
+    return W @ np.exp(-(Q / r) / (2 * sigma ** 2))
+
+
+def test_eval_departs_from_the_nearest_image_kernel_as_sigma_grows():
+    """The measure under test is not the nearest-image one: pin the
+    difference so a silent reversion to the cheap kernel fails.
+
+    Below the threshold the two are indistinguishable, which is what
+    entitles the toolbox to the cheap kernel there; well above it they
+    differ by an appreciable fraction of the peak.
+    """
+    import math
+    from mpt._defaults import accuracy_floor_context
+    r = 3
+    gaps = {}
+    for sigma_over_P in (0.02, 0.30):
+        mpt, dens, x, ref = _eval_case(r, sigma_over_P)
+        rng = np.random.default_rng(3 + r)
+        p = np.sort(rng.uniform(0, PERIOD, 5))
+        near = _nearest_image_eval(p, np.ones(5), x, sigma_over_P * PERIOD, r)
+        with accuracy_floor_context(1e-300):
+            got = mpt.eval_exp_tens(dens, x, truncation_sigmas=math.inf,
+                                    verbose=False)
+        gaps[sigma_over_P] = float(np.max(np.abs(got - near)) / ref.max())
+    assert gaps[0.02] < 1e-6, gaps
+    assert gaps[0.30] > 1e-3, gaps

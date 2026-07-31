@@ -3,6 +3,14 @@ function varargout = mptDefaults(varargin)
 %
 %   Centralises the user-tunable toolbox defaults (currently:
 %   truncationSigmas, kernelPrecision, showHints, postHocGuards).
+%   relAttrRoute (default 'auto') is a calibration and testing lever, not
+%   part of the public interface: it pins the route a relative attribute
+%   takes inside the Mobius method, which auto-dispatch otherwise chooses
+%   on a cost estimate. 'auto' leaves that estimate in charge; 'centres'
+%   forces the materialised tuple-centres route and 'grid' the
+%   translation-grid route. Forcing a route overrides the cost judgement
+%   only, never admissibility: see MOBIUS.MARELATTRPREFERSCENTRES.
+%
 %   orbitCostIntercept (default 3.8536) is the machine-specific term in
 %   internal.orbitCostModel, which chooses between the Mobius and
 %   enumerated combines. The default was measured on one machine; run
@@ -185,7 +193,8 @@ function S = factoryDefaults()
         'showHints', true, ...
         'kernelChunkBytes', 'auto', ...
         'postHocGuards', true, ...
-        'orbitCostIntercept', 3.8536 ...
+        'orbitCostIntercept', 3.8536, ...
+        'relAttrRoute', 'auto' ...
     );
 end
 
@@ -269,6 +278,19 @@ function S = setOne(S, name, value)
                     '''orbitCostIntercept'' must be a finite scalar.');
             end
             S.orbitCostIntercept = double(value);
+        case 'relattrroute'
+            if ~(ischar(value) || isstring(value))
+                error('mptDefaults:badValue', ...
+                    ['''relAttrRoute'' must be ''auto'', ''centres'', ' ...
+                     'or ''grid''.']);
+            end
+            v = lower(char(value));
+            if ~ismember(v, {'auto', 'centres', 'grid'})
+                error('mptDefaults:badValue', ...
+                    ['''relAttrRoute'' must be ''auto'', ''centres'', ' ...
+                     'or ''grid''; got ''%s''.'], char(value));
+            end
+            S.relAttrRoute = v;
         case 'posthocguards'
             if ~(islogical(value) && isscalar(value))
                 error('mptDefaults:badValue', ...

@@ -67,16 +67,47 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
     % was being reconstructed on every call; an inline switch is
     % essentially free and gives identical semantics.
 
+    % Admissibility first. These returns are not cost judgements: no
+    % choice exists at r_a < 2 or for an absolute attribute; the centres
+    % route is measure-blocked above the sigma/period threshold, where
+    % the wrapped-difference kernel it evaluates is no longer positive
+    % definite; and a value count below r_a leaves an empty tuple set.
+    % The relAttrRoute lever below overrides the cost judgement only, so
+    % none of these may be forced past.
     tf = false;
     if ~isRel || r_a < 2
         return;
     end
-    if isPer && (sigma / period) > SIGMA_OVER_P_THRESHOLD
-        return;
-    end
+    blockedByMeasure = isPer && (sigma / period) > SIGMA_OVER_P_THRESHOLD;
     K = size(Px, 1);
     K_y = size(Py, 1);
-    if K < r_a || K_y < r_a
+    emptyTupleSet = K < r_a || K_y < r_a;
+
+    forced = mptDefaults('relAttrRoute');
+    switch forced
+        case 'grid'
+            return;
+        case 'centres'
+            if blockedByMeasure
+                error('mpt:relAttrRouteBlocked', ...
+                    ['relAttrRoute=''centres'' cannot be honoured at ' ...
+                     'sigma/period = %.4g: above %g the tuple-centres ' ...
+                     'route evaluates a kernel that is not positive ' ...
+                     'definite, so the translation grid is the only ' ...
+                     'admissible route. Lower sigma/period or use ' ...
+                     '''auto''.'], sigma / period, SIGMA_OVER_P_THRESHOLD);
+            end
+            if emptyTupleSet
+                error('mpt:relAttrRouteBlocked', ...
+                    ['relAttrRoute=''centres'' cannot be honoured with ' ...
+                     'value counts (%d, %d) at r_a = %d: the tuple set ' ...
+                     'is empty.'], K, K_y, r_a);
+            end
+            tf = true;
+            return;
+    end
+
+    if blockedByMeasure || emptyTupleSet
         return;
     end
 

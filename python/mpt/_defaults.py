@@ -78,6 +78,14 @@ _FACTORY_DEFAULTS: dict[str, Any] = {
     "kernel_chunk_bytes": "auto",
     "post_hoc_guards": True,
     "orbit_cost_intercept": 3.8536,
+    # Calibration and testing lever, not part of the public interface: it
+    # pins the route a relative attribute takes inside the Möbius method,
+    # which auto-dispatch otherwise chooses on a cost estimate. 'auto'
+    # leaves that estimate in charge; 'centres' forces the materialised
+    # tuple-centres route and 'grid' the translation-grid route. Forcing
+    # a route overrides only the cost judgement, never admissibility --
+    # see _ma_rel_attr_prefers_centres.
+    "rel_attr_route": "auto",
 }
 
 _DEFAULTS: dict[str, Any] = dict(_FACTORY_DEFAULTS)
@@ -432,6 +440,14 @@ def _validate_one(name: str, value: Any) -> Any:
                 f"'orbit_cost_intercept' must be a finite number "
                 f"(got {value!r})"
             ) from None
+    if name == "rel_attr_route":
+        v = str(value)
+        if v not in ("auto", "centres", "grid"):
+            raise ValueError(
+                f"'rel_attr_route' must be 'auto', 'centres', or 'grid' "
+                f"(got {value!r})"
+            )
+        return v
     if name == "post_hoc_guards":
         if not isinstance(value, bool):
             raise ValueError(

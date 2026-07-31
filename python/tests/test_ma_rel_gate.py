@@ -18,6 +18,8 @@ import math
 import numpy as np
 import pytest
 
+import mpt
+
 from mpt._tensor._mobius_inner import (_ma_rel_attr_prefers_centres, _predicted_centres_wall_ns, _predicted_grid_wall_ns)
 
 
@@ -249,3 +251,99 @@ def test_predicted_walls_finite_and_positive(K, r, is_per):
     g = _predicted_grid_wall_ns(K, r, 15.0, 3600.0, is_per)
     assert np.isfinite(c) and c > 0
     assert np.isfinite(g) and g > 0
+
+
+# ---------------------------------------------------------------------
+# Forcing the route
+# ---------------------------------------------------------------------
+
+# rel_attr_route pins the route a relative attribute takes inside the
+# Möbius method, which auto-dispatch otherwise chooses on a cost
+# estimate. It exists so a benchmark can time one route rather than
+# whichever the estimate happens to prefer, which changes partway
+# through a sweep and makes the resulting curve a mixture of the two.
+#
+# It overrides the cost judgement only. Admissibility is not forceable:
+# above the sigma/period threshold the tuple-centres route evaluates a
+# kernel that is not positive definite, and with a value count below the
+# tuple order its tuple set is empty.
+
+
+@pytest.fixture(autouse=True)
+def _restore_route_default():
+    yield
+    mpt.reset_defaults()
+
+
+def test_forcing_either_route_overrides_the_cost_estimate():
+    # A cell the estimate sends to grid, and one it sends to centres.
+    big = _make_events(40, 1200.0, seed=1)
+    small = _make_events(6, 1200.0, seed=2)
+    assert not _ma_rel_attr_prefers_centres(
+        big, big, 6.0, 2, True, True, 1200.0)
+    assert _ma_rel_attr_prefers_centres(
+        small, small, 6.0, 2, True, True, 1200.0)
+
+    mpt.set_default(rel_attr_route="centres")
+    assert _ma_rel_attr_prefers_centres(
+        big, big, 6.0, 2, True, True, 1200.0)
+
+    mpt.set_default(rel_attr_route="grid")
+    assert not _ma_rel_attr_prefers_centres(
+        small, small, 6.0, 2, True, True, 1200.0)
+
+
+def test_forcing_grid_is_honoured_where_centres_is_inadmissible():
+    # 'grid' is always admissible, so it never raises.
+    P = _make_events(8, 1200.0, seed=1)
+    mpt.set_default(rel_attr_route="grid")
+    assert not _ma_rel_attr_prefers_centres(
+        P, P, 240.0, 2, True, True, 1200.0)       # sigma/P = 0.2
+    assert not _ma_rel_attr_prefers_centres(
+        _make_events(2, 1200.0, seed=3), P, 6.0, 3, True, True, 1200.0)
+
+
+def test_forcing_centres_above_the_threshold_raises():
+    P = _make_events(8, 1200.0, seed=1)
+    mpt.set_default(rel_attr_route="centres")
+    with pytest.raises(ValueError, match="positive definite"):
+        _ma_rel_attr_prefers_centres(P, P, 240.0, 2, True, True, 1200.0)
+
+
+def test_forcing_centres_with_an_empty_tuple_set_raises():
+    mpt.set_default(rel_attr_route="centres")
+    with pytest.raises(ValueError, match="tuple set is empty"):
+        _ma_rel_attr_prefers_centres(
+            _make_events(2, 1200.0, seed=3),
+            _make_events(8, 1200.0, seed=1),
+            6.0, 3, True, True, 1200.0)
+
+
+def test_auto_is_the_default_and_reset_restores_it():
+    from mpt._defaults import get_default
+    assert get_default("rel_attr_route") == "auto"
+    mpt.set_default(rel_attr_route="grid")
+    mpt.reset_defaults()
+    assert get_default("rel_attr_route") == "auto"
+
+
+@pytest.mark.parametrize("bad", ["Grid", "tau", "", 1, None])
+def test_rejects_values_outside_the_three(bad):
+    with pytest.raises(ValueError, match="rel_attr_route"):
+        mpt.set_default(rel_attr_route=bad)
+
+
+def test_forcing_a_route_does_not_change_the_value():
+    # The two routes are numerically distinct but agree to well inside
+    # the truncation floor below the threshold, so pinning one must not
+    # move the answer.
+    rng = np.random.default_rng(11)
+    px = np.sort(rng.uniform(0, 1200, 5))
+    py = np.sort(rng.uniform(0, 1200, 24))
+    out = {}
+    for route in ("centres", "grid"):
+        mpt.set_default(rel_attr_route=route)
+        out[route] = mpt.cos_sim_exp_tens(
+            px, None, py, None, 6.0, 2, 1, 1, 1200.0,
+            method="mobius", verbose=False)
+    assert abs(out["centres"] - out["grid"]) < 1.5e-8

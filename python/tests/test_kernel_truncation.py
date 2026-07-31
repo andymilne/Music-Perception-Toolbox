@@ -316,6 +316,7 @@ def test_reset_defaults():
         "kernel_chunk_bytes": "auto",
         "post_hoc_guards": True,
         "orbit_cost_intercept": 3.8536,
+        "rel_attr_route": "auto",
     }
 
 

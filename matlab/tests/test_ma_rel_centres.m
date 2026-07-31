@@ -214,3 +214,81 @@ function dens = localMakeMaRagged(N, K, r, isRelP, isPerP, seed)
         [false, isRelP], [false, isPerP], [4000, 1200], ...
         'verbose', false);
 end
+
+% --- Forcing the route (relAttrRoute) ---
+% relAttrRoute pins the route a relative attribute takes inside the
+% Mobius method, which auto-dispatch otherwise chooses on a cost
+% estimate. It exists so a benchmark can time one route rather than
+% whichever the estimate happens to prefer, which changes partway
+% through a sweep and makes the resulting curve a mixture of the two.
+% It overrides the cost judgement only; admissibility is not forceable.
+% Twin of the cells in test_ma_rel_gate.py.
+mrc_prevRoute = mptDefaults('relAttrRoute');
+mrc_big   = rand(40, 4) * 1200;
+mrc_small = rand(6, 4) * 1200;
+
+results{end+1,1} = 'relAttrRoute: default is auto';
+results{end,2}   = strcmp(mrc_prevRoute, 'auto');
+
+mptDefaults('relAttrRoute', 'centres');
+results{end+1,1} = 'relAttrRoute: centres overrides an estimate favouring grid';
+results{end,2}   = mobius.maRelAttrPrefersCentres( ...
+    mrc_big, mrc_big, 6, 2, true, true, 1200);
+
+mptDefaults('relAttrRoute', 'grid');
+results{end+1,1} = 'relAttrRoute: grid overrides an estimate favouring centres';
+results{end,2}   = ~mobius.maRelAttrPrefersCentres( ...
+    mrc_small, mrc_small, 6, 2, true, true, 1200);
+
+% 'grid' is always admissible, so it never errors.
+results{end+1,1} = 'relAttrRoute: grid honoured above the sigma/P threshold';
+results{end,2}   = ~mobius.maRelAttrPrefersCentres( ...
+    mrc_small, mrc_small, 240, 2, true, true, 1200);
+
+% 'centres' must refuse where the measure forbids it.
+mptDefaults('relAttrRoute', 'centres');
+mrc_raised = false;
+try
+    mobius.maRelAttrPrefersCentres(mrc_small, mrc_small, 240, 2, true, true, 1200);
+catch mrc_err
+    mrc_raised = strcmp(mrc_err.identifier, 'mpt:relAttrRouteBlocked');
+end
+results{end+1,1} = 'relAttrRoute: centres above the threshold errors';
+results{end,2}   = mrc_raised;
+
+% ... and where the tuple set is empty.
+mrc_raised = false;
+try
+    mobius.maRelAttrPrefersCentres(rand(2, 4) * 1200, mrc_small, ...
+        6, 3, true, true, 1200);
+catch mrc_err
+    mrc_raised = strcmp(mrc_err.identifier, 'mpt:relAttrRouteBlocked');
+end
+results{end+1,1} = 'relAttrRoute: centres with an empty tuple set errors';
+results{end,2}   = mrc_raised;
+
+% Pinning a route must not move the answer: the two are numerically
+% distinct but agree to well inside the truncation floor below the
+% threshold.
+mrc_rs = RandStream('twister', 'Seed', 11);
+mrc_px = sort(rand(mrc_rs, 1, 5) * 1200);
+mrc_py = sort(rand(mrc_rs, 1, 24) * 1200);
+mptDefaults('relAttrRoute', 'centres');
+mrc_vC = cosSimExpTens(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
+    'method', 'mobius');
+mptDefaults('relAttrRoute', 'grid');
+mrc_vG = cosSimExpTens(mrc_px, [], mrc_py, [], 6, 2, 1, 1, 1200, ...
+    'method', 'mobius');
+results{end+1,1} = 'relAttrRoute: forcing a route does not change the value';
+results{end,2}   = abs(mrc_vC - mrc_vG) < 1.5e-8;
+
+mrc_raised = false;
+try
+    mptDefaults('relAttrRoute', 'tau');
+catch mrc_err
+    mrc_raised = strcmp(mrc_err.identifier, 'mptDefaults:badValue');
+end
+results{end+1,1} = 'relAttrRoute: rejects a value outside the three';
+results{end,2}   = mrc_raised;
+
+mptDefaults('relAttrRoute', mrc_prevRoute);

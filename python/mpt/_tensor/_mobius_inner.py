@@ -1575,14 +1575,45 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     calibration notes.
     """
     from .dispatch import _ORBIT_SIGMA_OVER_P_THRESHOLD
+    from .._defaults import get_default
 
+    # Admissibility first. These four returns are not cost judgements:
+    # no choice exists at r_a < 2 or for an absolute attribute; the
+    # centres route is measure-blocked above the sigma/period threshold,
+    # where the wrapped-difference kernel it evaluates is no longer
+    # positive definite; and a value count below r_a leaves an empty
+    # tuple set. The rel_attr_route lever below overrides the cost
+    # judgement only, so none of these may be forced past.
     if not is_rel or r_a < 2:
         return False
-    if is_per and (sigma / period) > _ORBIT_SIGMA_OVER_P_THRESHOLD:
-        return False
+    blocked_by_measure = (
+        is_per and (sigma / period) > _ORBIT_SIGMA_OVER_P_THRESHOLD)
     K_x = int(Px.shape[0])
     K_y = int(Py.shape[0])
-    if K_x < r_a or K_y < r_a:
+    empty_tuple_set = K_x < r_a or K_y < r_a
+
+    forced = get_default("rel_attr_route")
+    if forced == "grid":
+        return False
+    if forced == "centres":
+        if blocked_by_measure:
+            raise ValueError(
+                "rel_attr_route='centres' cannot be honoured at "
+                f"sigma/period = {sigma / period:.4g}: above "
+                f"{_ORBIT_SIGMA_OVER_P_THRESHOLD:g} the tuple-centres "
+                "route evaluates a kernel that is not positive definite, "
+                "so the translation grid is the only admissible route. "
+                "Lower sigma/period or use 'auto'."
+            )
+        if empty_tuple_set:
+            raise ValueError(
+                f"rel_attr_route='centres' cannot be honoured with value "
+                f"counts ({K_x}, {K_y}) at r_a = {r_a}: the tuple set is "
+                "empty."
+            )
+        return True
+
+    if blocked_by_measure or empty_tuple_set:
         return False
     if is_per:
         span_or_period = float(period)

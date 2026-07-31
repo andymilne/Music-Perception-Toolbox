@@ -132,95 +132,129 @@ for i = 1:numel(nSolo)
     fprintf('%6d %13.3f %16.4g %16.4g\n', n, t * 1e3, opsSq(end), opsLin(end));
 end
 
-%% ---- Section 3: how the grid route scales with the value count ----
+%% ---- Section 3: how each route scales with the value count ----
 
-% Section 2 tests r = 2 only. The shipped count charges the
-% translation-grid route a term in n^2 at every tuple order, but the
-% exponent is not the same at every order: the grid contraction at order
-% r takes r-fold products over the value set, so the dependence on the
-% value count steepens as r rises. This section forces the grid route,
-% sweeps the value count at r = 2, 3 and 4, and reports the exponent
-% directly as the slope of log(time) against log(value count).
+% The shipped count charges the translation-grid route a term in n^2 at
+% every tuple order. This section measures whether that is the right
+% shape, and does so for each route separately.
 %
-% Read it as: slope near 1 means the cost is linear in the value count,
-% near 2 means quadratic, and the shipped count is right only where the
-% slope is near 2.
+% Three arms, over the same sweep:
 %
-% Python measurements on this sweep give slope 0.65 at r = 2 and 1.79 at
-% r = 4, so the shipped n^2 is far too steep at r = 2 and about right at
-% r = 4. But the Python per-value slope at r = 2 is some seventeen times
-% steeper than the MATLAB slope Section 2 measures, so those numbers do
-% not carry across and the fit has to be made here before any constant
-% in the cost model is changed.
+%   bulger           Bulger's method, selected by 'method'.
+%   mobius/centres   the Mobius method on the materialised tuple-centres
+%                    route.
+%   mobius/grid      the Mobius method on the translation-grid route.
+%
+% The second choice is not reachable through 'method', which selects only
+% between Bulger's method and the Mobius method; within the latter, a
+% relative attribute takes the centres or the grid route according to a
+% cost estimate. Left to itself that estimate switches partway through a
+% sweep, and the resulting curve is a mixture of two routes rather than
+% the scaling of either. mptDefaults('relAttrRoute', ...) pins it.
+%
+% The value counts are set per arm as well as per order. Bulger's method
+% and the centres route both grow as K^(2r) -- at r = 3 the centres route
+% already takes tens of seconds at K = 20 -- and their shape is settled
+% long before the top of the range. The grid route is the one the n^2
+% question is about, and it is cheap, so it gets the wide sweep. A wall
+% budget stops any arm whose single call exceeds ARMBUDGETSEC, so a
+% machine slower than the one these caps were chosen on abandons the arm
+% rather than grinding through it.
 
-% The value counts are capped per order because the grid route steepens
-% with r: at r = 4 a single call at K = 80 already runs for seconds in
-% Python, and timeRepeated times at least three runs whatever its budget
-% says. Four points are enough to read an exponent.
-rOrders  = [2, 3, 4];
-KPerOrder = {[5, 10, 20, 40, 80], [5, 10, 20, 40, 80], [5, 10, 20, 40]};
+rOrders = [2, 3, 4];
+armNames = {'bulger', 'mobius/centres', 'mobius/grid'};
+armRoute = {'auto', 'centres', 'grid'};
+armMethod = {'bulger', 'mobius', 'mobius'};
+% Rows: arm. Columns: r = 2, 3, 4.
+% The caps come from measurement: at r = 3 the centres route runs 1.4 ms
+% at K = 5, 90 ms at K = 10 and 39 s at K = 20, so its row stops well
+% below the counts the grid row uses. Four points are enough to fit.
+KPerArmOrder = { ...
+    [5, 10, 20, 40, 80],      [5, 8, 12, 16],  [5, 7, 9, 11]; ...  % bulger
+    [5, 10, 20, 40, 80],      [5, 8, 12, 16],  [5, 7, 9, 11]; ...  % centres
+    [5, 10, 20, 40, 80, 160], [5, 10, 20, 40, 80, 160], ...
+                                               [5, 10, 20, 40]};   % grid
+ARMBUDGETSEC = 3;
 
-fprintf('\nSection 3 -- grid route scaling by tuple order\n');
-fprintf('%3s %6s %13s\n', 'r', 'K', 't_grid(ms)');
+prevRoute = mptDefaults('relAttrRoute');
+
+fprintf('\nSection 3 -- scaling by route and tuple order\n');
 
 for ri = 1:numel(rOrders)
     ra = rOrders(ri);
-    Ks = KPerOrder{ri};
-    Ks = Ks(Ks >= ra);
-    tg = nan(1, numel(Ks));
-    for ki = 1:numel(Ks)
-        K = Ks(ki);
-        rs = RandStream('twister', 'Seed', 1000 * K + ra);
-        px = sort(rand(rs, 1, K) * period);
-        py = sort(rand(rs, 1, K) * period);
-        call = @() cosSimExpTens(px, [], py, [], sigma, ra, isRel, ...
-            isPer, period, 'method', 'mobius');
-        try
-            call();
-            tg(ki) = internal.timeRepeated(call);
-        catch ME
-            fprintf('%3d %6d  stopped: %s\n', ra, K, ME.message);
-            break;
+    for arm = 1:3
+        Ks = KPerArmOrder{arm, ri};
+        Ks = Ks(Ks >= ra);
+        tok = [];
+        Kok = [];
+        mptDefaults('relAttrRoute', armRoute{arm});
+        for ki = 1:numel(Ks)
+            K = Ks(ki);
+            rs = RandStream('twister', 'Seed', 1000 * K + ra);
+            px = sort(rand(rs, 1, K) * period);
+            py = sort(rand(rs, 1, K) * period);
+            call = @() cosSimExpTens(px, [], py, [], sigma, ra, isRel, ...
+                isPer, period, 'method', armMethod{arm});
+            try
+                tic; call(); tWarm = toc;
+            catch ME
+                fprintf('    r = %d, %-14s: K = %d stopped: %s\n', ...
+                    ra, armNames{arm}, K, ME.message);
+                break;
+            end
+            if tWarm > ARMBUDGETSEC
+                fprintf(['    r = %d, %-14s: K = %d took %.1f s on a ' ...
+                         'single call, over the %g s budget; arm ' ...
+                         'stopped here.\n'], ...
+                    ra, armNames{arm}, K, tWarm, ARMBUDGETSEC);
+                break;
+            end
+            Kok(end+1) = K;                          %#ok<SAGROW>
+            tok(end+1) = internal.timeRepeated(call) * 1e3;  %#ok<SAGROW>
+        end
+        mptDefaults('relAttrRoute', 'auto');
+
+        fprintf('  r = %d, %s\n', ra, armNames{arm});
+        for ki = 1:numel(Kok)
+            fprintf('%8d %14.3f ms\n', Kok(ki), tok(ki));
+        end
+        if numel(Kok) < 3
+            fprintf('           too few points to fit\n');
+            continue;
+        end
+        slope = localLogSlope(Kok, tok);
+        Alin  = [ones(numel(Kok), 1), 2 * Kok(:)];
+        Asq   = [ones(numel(Kok), 1), Kok(:).^2];
+        clin  = Alin \ tok(:);
+        csq   = Asq  \ tok(:);
+        r2lin = localR2(Alin, clin, tok(:));
+        r2sq  = localR2(Asq,  csq,  tok(:));
+        fprintf(['           exponent %.2f | setup+linear R^2 %.4f ' ...
+                 '(setup %.3f ms, %.4e ms per value) | setup+K^2 ' ...
+                 'R^2 %.4f\n'], ...
+            slope, r2lin, clin(1), clin(2), r2sq);
+        if arm == 3
+            if max(r2lin, r2sq) < 0.5
+                fprintf(['           -> neither form fits; the time is ' ...
+                         'dominated by fixed setup over this range, so ' ...
+                         'the n^2 charge is unsupported but the ' ...
+                         'alternative is not yet measurable.\n']);
+            elseif r2lin > r2sq + 0.02 && clin(1) >= 0
+                fprintf(['           -> setup plus a term linear in the ' ...
+                         'value count; the shipped n^2 charge is too ' ...
+                         'steep at this order.\n']);
+            elseif r2sq > r2lin + 0.02
+                fprintf(['           -> consistent with the shipped n^2 ' ...
+                         'charge at this order.\n']);
+            else
+                fprintf(['           -> the two forms fit equally well; ' ...
+                         'the range is too narrow to separate them.\n']);
+            end
         end
     end
-    ok = ~isnan(tg);
-    Kok = Ks(ok); tok = tg(ok) * 1e3;          % ms
-    for ki = 1:numel(Kok)
-        fprintf('%3d %6d %13.3f\n', ra, Kok(ki), tok(ki));
-    end
-    if numel(Kok) < 3
-        fprintf('    r = %d: too few points to fit\n', ra);
-        continue;
-    end
-    slope = localLogSlope(Kok, tok);
-    % Both candidate forms, for a reader who wants the constants. The
-    % exponent above is the primary reading; these say how well each
-    % fixed form does.
-    Alin = [ones(numel(Kok), 1), 2 * Kok(:)];
-    Asq  = [ones(numel(Kok), 1), Kok(:).^2];
-    clin = Alin \ tok(:);
-    csq  = Asq  \ tok(:);
-    fprintf(['    r = %d: exponent in the value count = %.2f\n' ...
-             '           setup+linear R^2 = %.4f (setup %.4f ms, ' ...
-             '%.4e ms per value)\n' ...
-             '           setup+K^2    R^2 = %.4f\n'], ...
-        ra, slope, localR2(Alin, clin, tok(:)), clin(1), clin(2), ...
-        localR2(Asq, csq, tok(:)));
-    if clin(1) < 0
-        fprintf(['           The linear fit wants a negative setup, so ' ...
-                 'it is the wrong form here.\n']);
-    end
-    if slope < 1.4
-        fprintf(['           -> the shipped n^2 charge is too steep at ' ...
-                 'this order.\n']);
-    elseif slope > 1.7
-        fprintf(['           -> consistent with the shipped n^2 charge ' ...
-                 'at this order.\n']);
-    else
-        fprintf(['           -> between the two; widen KList before ' ...
-                 'drawing a conclusion.\n']);
-    end
 end
+
+mptDefaults('relAttrRoute', prevRoute);
 
 %% ---- Verdicts ----
 

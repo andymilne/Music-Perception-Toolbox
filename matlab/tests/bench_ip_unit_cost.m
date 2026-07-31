@@ -256,6 +256,68 @@ end
 
 mptDefaults('relAttrRoute', prevRoute);
 
+%% ---- Section 4: does the dedicated single-multiset stack earn its place? ----
+
+% A single multiset (A = N = 1) is handled in MATLAB by a stack of
+% kernels, cost model and dispatcher separate from the multi-attribute
+% one: localSelectSingleMultisetMethod, localOrbitGridUnitCost,
+% localOrbitIPGridFactors, localCosSimSingleMultisetOrbit and
+% localOrbitIPsCorrupted have no counterpart in Python, which routes the
+% corner through its general path and keeps only a deduplication cache
+% for repeated collections.
+%
+% The duplication has already cost correctness: the centres-versus-grid
+% gate, the relAttrRoute lever and three cost-model corrections all live
+% in the multi-attribute path, so none of them reaches this workload in
+% MATLAB while all of them reach it in Python.
+%
+% This section runs the identical workload down both MATLAB paths and
+% reports the ratio, so the decision to keep or remove the dedicated
+% stack rests on measurement. Values are compared first: a timing
+% comparison between paths that disagree would be meaningless.
+
+fprintf('\nSection 4 -- dedicated single-multiset stack against the MA path\n');
+fprintf('%6s %6s %14s %14s %9s %14s\n', ...
+    'r', 'K', 'dedicated(ms)', 'MA path(ms)', 'MA/ded', '|difference|');
+
+prevPath = mptDefaults('singleMultisetPath');
+s4r = [2, 3];
+s4K = [10, 20, 40];
+for ri = 1:numel(s4r)
+    ra = s4r(ri);
+    for ki = 1:numel(s4K)
+        K = s4K(ki);
+        rs = RandStream('twister', 'Seed', 77 * K + ra);
+        px = sort(rand(rs, 1, K) * period);
+        py = sort(rand(rs, 1, K) * period);
+        call = @() cosSimExpTens(px, [], py, [], sigma, ra, isRel, ...
+            isPer, period);
+        mptDefaults('singleMultisetPath', 'auto');
+        vDed = call();
+        tDed = internal.timeRepeated(call) * 1e3;
+        mptDefaults('singleMultisetPath', 'ma');
+        try
+            vMA = call();
+            tMA = internal.timeRepeated(call) * 1e3;
+        catch ME
+            mptDefaults('singleMultisetPath', prevPath);
+            fprintf(['%6d %6d  the MA path rejected this shape: %s\n' ...
+                     '        The dedicated stack cannot simply be ' ...
+                     'deleted; report this message.\n'], ra, K, ME.message);
+            continue;
+        end
+        mptDefaults('singleMultisetPath', 'auto');
+        fprintf('%6d %6d %14.3f %14.3f %9.2f %14.3e\n', ...
+            ra, K, tDed, tMA, tMA / tDed, abs(vMA - vDed));
+    end
+end
+mptDefaults('singleMultisetPath', prevPath);
+
+fprintf(['    A ratio near 1 means the dedicated stack buys nothing and ' ...
+         'can go.\n    Differences should sit at reduction-order noise; ' ...
+         'anything larger\n    means the two paths do not agree and the ' ...
+         'timings are moot.\n']);
+
 %% ---- Verdicts ----
 
 fprintf('\n--- Verdicts ---\n');

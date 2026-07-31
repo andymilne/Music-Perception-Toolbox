@@ -3,6 +3,15 @@ function varargout = mptDefaults(varargin)
 %
 %   Centralises the user-tunable toolbox defaults (currently:
 %   truncationSigmas, kernelPrecision, showHints, postHocGuards).
+%   singleMultisetPath (default 'auto') is a measurement lever, not part
+%   of the public interface, and exists only in MATLAB. A single multiset
+%   (A = N = 1) is handled here by a dedicated stack of kernels, cost
+%   model and dispatcher separate from the multi-attribute one; Python
+%   has no such split and routes the corner through its general path.
+%   Setting this to 'ma' sends a single multiset through
+%   LOCALCOSSIMMA instead, so the two can be compared on one machine.
+%   It exists to decide whether the dedicated stack earns its place.
+%
 %   relAttrRoute (default 'auto') is a calibration and testing lever, not
 %   part of the public interface: it pins the route a relative attribute
 %   takes inside the Mobius method, which auto-dispatch otherwise chooses
@@ -194,7 +203,8 @@ function S = factoryDefaults()
         'kernelChunkBytes', 'auto', ...
         'postHocGuards', true, ...
         'orbitCostIntercept', 3.8536, ...
-        'relAttrRoute', 'auto' ...
+        'relAttrRoute', 'auto', ...
+        'singleMultisetPath', 'auto' ...
     );
 end
 
@@ -291,6 +301,18 @@ function S = setOne(S, name, value)
                      'or ''grid''; got ''%s''.'], char(value));
             end
             S.relAttrRoute = v;
+        case 'singlemultisetpath'
+            if ~(ischar(value) || isstring(value))
+                error('mptDefaults:badValue', ...
+                    '''singleMultisetPath'' must be ''auto'' or ''ma''.');
+            end
+            v = lower(char(value));
+            if ~ismember(v, {'auto', 'ma'})
+                error('mptDefaults:badValue', ...
+                    ['''singleMultisetPath'' must be ''auto'' or ''ma''; ' ...
+                     'got ''%s''.'], char(value));
+            end
+            S.singleMultisetPath = v;
         case 'posthocguards'
             if ~(islogical(value) && isscalar(value))
                 error('mptDefaults:badValue', ...

@@ -292,3 +292,46 @@ results{end+1,1} = 'relAttrRoute: rejects a value outside the three';
 results{end,2}   = mrc_raised;
 
 mptDefaults('relAttrRoute', mrc_prevRoute);
+
+% --- Measurement lever: singleMultisetPath ---
+% MATLAB handles a single multiset (A = N = 1) with a dedicated stack
+% separate from the multi-attribute path; Python has no such split.
+% Setting this default to 'ma' sends the corner through localCosSimMA so
+% the two can be compared. The value must not depend on which path ran.
+smp_prev = mptDefaults('singleMultisetPath');
+results{end+1,1} = 'singleMultisetPath: default is auto';
+results{end,2}   = strcmp(smp_prev, 'auto');
+
+smp_rs = RandStream('twister', 'Seed', 4242);
+smp_px = sort(rand(smp_rs, 1, 12) * 1200);
+smp_py = sort(rand(smp_rs, 1, 12) * 1200);
+mptDefaults('singleMultisetPath', 'auto');
+smp_vDed = cosSimExpTens(smp_px, [], smp_py, [], 6, 2, 1, 1, 1200);
+smp_ok = false;
+smp_msg = '';
+try
+    mptDefaults('singleMultisetPath', 'ma');
+    smp_vMA = cosSimExpTens(smp_px, [], smp_py, [], 6, 2, 1, 1, 1200);
+    smp_ok = abs(smp_vMA - smp_vDed) < 1.5e-8;
+catch smp_err
+    smp_msg = smp_err.message;
+end
+mptDefaults('singleMultisetPath', smp_prev);
+if isempty(smp_msg)
+    results{end+1,1} = ['singleMultisetPath: MA path agrees with the ' ...
+                        'dedicated stack'];
+else
+    results{end+1,1} = sprintf( ...
+        'singleMultisetPath: MA path rejected the corner (%s)', smp_msg);
+end
+results{end,2}   = smp_ok;
+
+smp_raised = false;
+try
+    mptDefaults('singleMultisetPath', 'grid');
+catch smp_err
+    smp_raised = strcmp(smp_err.identifier, 'mptDefaults:badValue');
+end
+results{end+1,1} = 'singleMultisetPath: rejects a value outside the two';
+results{end,2}   = smp_raised;
+mptDefaults('singleMultisetPath', smp_prev);

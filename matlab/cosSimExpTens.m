@@ -641,6 +641,17 @@ else
     error('cosSimExpTens:wrongArgCount', USAGE_MSG);
 end
 
+% --- Measurement lever: send this single multiset through the
+%     multi-attribute path instead of the dedicated stack below, so the
+%     two can be timed against each other on one machine. Both entry
+%     forms above leave maet_x/maet_y set, so one redirect serves both.
+%     See mptDefaults('singleMultisetPath'). ---
+if strcmp(mptDefaults('singleMultisetPath'), 'ma')
+    s = localCosSimMA(maet_x, maet_y, method, normalize, ...
+                      cancellationThreshold, verbose, truncationSigmas);
+    return;
+end
+
 % --- single multiset compatibility validation (shared by single multiset dens-struct and single multiset raw) ---
 % For single multiset raw the two densities are built from identical scalar
 % parameters, so these checks are trivially satisfied. They are run

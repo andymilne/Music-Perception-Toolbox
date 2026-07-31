@@ -527,6 +527,98 @@ fprintf(['    If a forced route comes in near the dedicated figure, the ' ...
          'dedicated stack''s cost and the stack\n    is buying ' ...
          'something real.\n']);
 
+%% ---- Section 6: calibrating the relative-mode cost model ----
+
+% Sections 4 and 5 localise the remaining gap to a routing decision, not
+% to a missing technique: both paths reach mobius.relInnerBatched, and
+% the dedicated stack's whole advantage is that its own selector picks
+% the Mobius method where the multi-attribute selector picks Bulger's.
+% In Python the same cells show the Mobius method 15 to 300 times faster
+% than the one chosen.
+%
+% This section supplies what a fit needs: for each cell, both methods
+% timed, and beside them the two wall times the selector's comparison
+% actually rests on. The ratio of predicted to measured is the quantity
+% to calibrate against; the sign of the disagreement says which side is
+% mispriced.
+%
+% Relative mode only, both periodicities, since that is where the
+% misprediction lives. The node count is reconstructed the way
+% relInnerBatched sets it, so the prediction seen here is the one the
+% dispatcher forms.
+
+fprintf('\nSection 6 -- relative-mode cost model against measurement\n');
+fprintf('%-20s %9s %9s %8s %10s %10s %8s %8s\n', ...
+    'case', 'bulger', 'mobius', 'picked', 'pred bul', 'pred mob', ...
+    'bul p/m', 'mob p/m');
+
+s6ts = mptDefaults('truncationSigmas');
+s6margin = internal.relWindowMargin(s6ts);
+s6cells = {2, 20; 2, 40; 2, 80; 3, 10; 3, 20; 4, 8; 4, 10};
+s6bad = 0;
+for ci = 1:size(s6cells, 1)
+    for s6per = [false, true]
+        s6r = s6cells{ci, 1};
+        s6K = s6cells{ci, 2};
+        if s6per, s6P = period; else, s6P = 0; end
+        rs = RandStream('twister', 'Seed', 613 * s6K + s6r);
+        px = sort(rand(rs, 1, s6K) * period);
+        py = sort(rand(rs, 1, s6K) * period);
+        wx = 0.5 + rand(rs, 1, s6K);
+        wy = 0.5 + rand(rs, 1, s6K);
+
+        callB = @() cosSimExpTens(px, wx, py, wy, sigma, s6r, 1, s6per, ...
+            s6P, 'method', 'bulger', 'verbose', false);
+        callM = @() cosSimExpTens(px, wx, py, wy, sigma, s6r, 1, s6per, ...
+            s6P, 'method', 'mobius', 'verbose', false);
+        try
+            callB(); tB = internal.timeRepeated(callB) * 1e3;
+        catch
+            tB = NaN;
+        end
+        try
+            callM(); tM = internal.timeRepeated(callM) * 1e3;
+        catch
+            tM = NaN;
+        end
+
+        % Node count as relInnerBatched sets it.
+        if s6per
+            s6nu = internal.autoNtauDefault(period, sigma);
+            s6sop = sigma / period;
+        else
+            % The node density is tied to the accuracy floor and to the
+            % tuple order, so it is resolved per cell.
+            s6sps = internal.resolveSamplesPerSigma([], s6r, s6ts);
+            s6span = (max(px) - min(px)) + (max(py) - min(py)) ...
+                     + 2 * s6margin * sigma;
+            s6nu = max(64, ceil(max(s6span, 1.0) / sigma * s6sps));
+            s6sop = 0;
+        end
+        [s6pick, s6pw, s6orb] = internal.selectMaInnerProductMethod( ...
+            s6r, s6K, 1, 1, 1, s6per, ~s6per, s6per, s6sop, 'auto', ...
+            false, true, s6nu, s6K);
+
+        s6faster = 'bulger';
+        if tM < tB, s6faster = 'mobius'; end
+        s6flag = '';
+        if ~strcmp(s6pick, s6faster)
+            s6flag = '  <- mispredicted';
+            s6bad = s6bad + 1;
+        end
+        fprintf('%-20s %9.2f %9.2f %8s %10.1f %10.1f %8.2f %8.2f%s\n', ...
+            sprintf('r=%d K=%d per=%d', s6r, s6K, s6per), ...
+            tB, tM, s6pick, s6pw, s6orb, s6pw / tB, s6orb / tM, s6flag);
+    end
+end
+
+fprintf(['\n    %d of %d cells routed to the slower method.\n' ...
+         '    The last two columns are predicted over measured: 1 is a ' ...
+         'calibrated\n    model, above 1 over-prices that side, below 1 ' ...
+         'under-prices it. A\n    correction has to bring both near 1 ' ...
+         'across the grid, not just flip\n    the verdict on these ' ...
+         'cells.\n'], s6bad, 2 * size(s6cells, 1));
+
 %% ---- Verdicts ----
 
 fprintf('\n--- Verdicts ---\n');

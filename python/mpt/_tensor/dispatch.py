@@ -391,6 +391,7 @@ def _select_ma_inner_product_method(
     guard_forced_bulger=True,
     wrap_vec=None,
     k_vec_y=None,
+    return_costs=False,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
@@ -459,12 +460,21 @@ def _select_ma_inner_product_method(
     sigma_over_P_max : float
         Maximum σ/P across periodic-relative groups.
     user_method : {'auto', 'bulger', 'mobius', 'direct'}
+    return_costs : bool, default False
+        Also return the two predicted wall times in milliseconds that the
+        comparison rests on, as ``(chosen, pw_cost_ms, orbit_cost_ms)``.
+        Both are NaN on the returns that decide without pricing, so a
+        caller can tell a structural decision from a costed one. Exposed
+        for calibration: fitting the cost model needs the prediction
+        beside the measurement.
     """
     if user_method != 'auto':
-        return user_method
+        return (user_method, float('nan'), float('nan')) \
+            if return_costs else user_method
     r_max = int(np.max(r_vec)) if A > 0 else 1
     if r_max <= 1:
-        return 'bulger'
+        return ('bulger', float('nan'), float('nan')) \
+            if return_costs else 'bulger'
     if r_max > _ORBIT_R_MAX_SHIPPED:
         if guard_forced_bulger:
             _guard_forced_bulger_feasible_ma(
@@ -472,7 +482,8 @@ def _select_ma_inner_product_method(
                 reason="r above the shipped orbit order",
                 k_vec_y=k_vec_y,
             )
-        return 'bulger'
+        return ('bulger', float('nan'), float('nan')) \
+            if return_costs else 'bulger'
     # Accuracy is governed by ``truncationSigmas``, not by the collection
     # size: the Möbius method's agreement with enumeration tracks the
     # truncation budget and is closest at K_a = r_a. The route is
@@ -534,9 +545,11 @@ def _select_ma_inner_product_method(
             )
         if sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
             if wants_single:
-                return 'bulger'
+                return ('bulger', float('nan'), float('nan')) \
+                    if return_costs else 'bulger'
             if wants_full:
-                return 'mobius'
+                return ('mobius', float('nan'), float('nan')) \
+                    if return_costs else 'mobius'
     pw_size = _predict_pairwise_kernel_size(
         r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y)
     pw_cost_ms = pw_size * _pw_per_entry_ms(any_per, r_max)
@@ -561,9 +574,10 @@ def _select_ma_inner_product_method(
         centres_ok=(sigma_over_P_max <= _ORBIT_SIGMA_OVER_P_THRESHOLD),
         k_vec_y=k_vec_y,
     )
-    if pw_cost_ms <= orbit_cost_ms:
-        return 'bulger'
-    return 'mobius'
+    chosen = 'bulger' if pw_cost_ms <= orbit_cost_ms else 'mobius'
+    if return_costs:
+        return chosen, float(pw_cost_ms), float(orbit_cost_ms)
+    return chosen
 
 
 

@@ -1,6 +1,14 @@
-function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
+function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
+        rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
         verbose, relVec, nuVec, kVecY)
+%   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
+%   wall times in milliseconds that the comparison rests on. They are
+%   NaN on the early returns that decide without pricing (an explicit
+%   userMethod, r_max <= 1, r above the shipped orbit order, and the
+%   memory guard), so a caller can tell a priced decision from a
+%   structural one. Exposed for calibration: fitting the cost model
+%   needs the prediction beside the measurement.
 %SELECTMAINNERPRODUCTMETHOD  Pick the MA inner-product method (cost model).
 %   Mirror of Python dispatch._select_ma_inner_product_method. Routing
 %   rules, in order: (1) userMethod override; (2) r_max <= 1 -> Bulger;
@@ -50,6 +58,10 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     if nargin < 14 || isempty(kVecY)
         kVecY = kVec;
     end
+    % NaN until the priced comparison sets them, so a caller can tell a
+    % structural decision from a costed one.
+    pwCostOut = NaN;
+    orbitCostOut = NaN;
     if ~strcmp(userMethod, 'auto')
         chosen = userMethod;
         return;
@@ -80,6 +92,8 @@ function chosen = selectMaInnerProductMethod(rVec, kVec, A, Nx, Ny, ...
     centresOk = sigmaOverPMax <= 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
     orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                                    nuVec, centresOk, kVecY);
+    pwCostOut = pwCost;
+    orbitCostOut = orbitCost;
     if pwCost <= orbitCost
         chosen = 'bulger';
     else

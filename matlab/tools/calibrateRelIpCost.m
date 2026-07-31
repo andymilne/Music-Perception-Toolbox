@@ -43,7 +43,7 @@ function results = calibrateRelIpCost(varargin)
 %   results = calibrateRelIpCost('sigmas', [3 6 12], 'seeds', 1:3);
 %
 % Name-value arguments:
-%   'sigmas'      kernel widths to sweep (default [2 3 6 12 25 50])
+%   'sigmas'      kernel widths to sweep (default [2 6 25])
 %   'seeds'       repeats per cell with fresh values (default 1:2)
 %   'budgetSec'      skip a route predicted, or found, to exceed this
 %                    (default 5)
@@ -70,8 +70,8 @@ function results = calibrateRelIpCost(varargin)
     % The Mobius cost tracks the grid node count, which sigma sets, so the
     % sweep needs enough distinct values of it to separate that dependence
     % from the value count.
-    p.addParameter('sigmas', [2 3 6 12 25 50], @(x) isnumeric(x) && all(x > 0));
-    p.addParameter('seeds', 1:2, @isnumeric);
+    p.addParameter('sigmas', [2 6 25], @(x) isnumeric(x) && all(x > 0));
+    p.addParameter('seeds', 1, @isnumeric);
     p.addParameter('budgetSec', 5, @(x) isscalar(x) && x > 0);
     p.addParameter('repeatBelowSec', 0.25, @(x) isscalar(x) && x > 0);
     p.addParameter('period', 1200, @(x) isscalar(x) && x > 0);
@@ -97,6 +97,21 @@ function results = calibrateRelIpCost(varargin)
     % K = 100 at r = 2 is dropped: through the MA path its Bulger arm runs
     % for seconds, and the r = 2 curve is already determined by K = 64.
     KByOrder = {[6 10 16 24 40 64], [6 8 12 16 24], [5 6 8 10 12]};
+
+    % The two densities need not carry the same number of values, and a
+    % chord against a scale is the ordinary case. A sweep with equal
+    % counts throughout leaves the asymmetric case unconstrained, and it
+    % is where a cost model most easily goes wrong: the tuple-pair count
+    % spans five orders of magnitude across it, so a term fitted only on
+    % equal counts flattens exactly the shape that matters. K_REF is the
+    % small side.
+    K_REF = 5;
+    shapes = {'equal', 'asym'};
+
+    % Weights change how much of a multiset the truncated kernel actually
+    % touches, so a model fitted on one profile need not hold on another.
+    % Three shapes, each jittered per seed so no cell is a special case.
+    profiles = {'flat', 'decay', 'bimodal'};
     rOrders  = [2 3 4];
     ts = mptDefaults('truncationSigmas');
     margin = internal.relWindowMargin(ts);
@@ -108,9 +123,9 @@ function results = calibrateRelIpCost(varargin)
     fprintf('# budgetSec %g, seeds %s\n', opt.budgetSec, mat2str(opt.seeds));
     fprintf('# times in milliseconds; NaN means the route exceeded the budget\n');
     fprintf('# or is inadmissible in that mode\n');
-    fprintf(['r,K,isPer,sigma,seed,nu,M,t_bulger,t_centres,t_grid,' ...
-             't_auto,pred_bulger,pred_mobius,max_abs_diff,' ...
-             'gate_route,faster\n']);
+    fprintf(['r,K_x,K_y,shape,weights,isPer,sigma,seed,nu,M_x,M_y,' ...
+             't_bulger,t_centres,t_grid,pred_bulger,pred_mobius,' ...
+             'max_abs_diff,gate_route,faster\n']);
 
     results = struct('r', {}, 'K', {}, 'isPer', {}, 'sigma', {}, ...
                      'seed', {}, 'nu', {}, 'M', {}, 't', {});
@@ -131,22 +146,34 @@ function results = calibrateRelIpCost(varargin)
         Ks = KByOrder{ri};
         for ki = 1:numel(Ks)
             K = Ks(ki);
-            for si = 1:numel(opt.sigmas)
-                sg = opt.sigmas(si);
-                for isPer = [false true]
-                    for sd = opt.seeds
-                        nCell = nCell + 1;
-                        [row, est] = localCell(ra, K, isPer, sg, sd, ...
-                                               opt, ts, margin, est);
-                        fprintf(['%d,%d,%d,%g,%d,%d,%.0f,%.4f,%.4f,' ...
-                                 '%.4f,%.4f,%.4f,%.4f,%.3e,%s,%s\n'], ...
-                            ra, K, isPer, sg, sd, row.nu, row.M, ...
-                            row.tB, row.tC, row.tG, row.tA, ...
-                            row.pB, row.pM, row.diff, row.gate, ...
-                            row.faster);
-                        results(end+1) = struct('r', ra, 'K', K, ...
-                            'isPer', isPer, 'sigma', sg, 'seed', sd, ...
-                            'nu', row.nu, 'M', row.M, 't', row); %#ok<AGROW>
+            for shi = 1:numel(shapes)
+                if strcmp(shapes{shi}, 'asym')
+                    Kx = K_REF;
+                else
+                    Kx = K;
+                end
+                Ky = K;
+                if Kx < ra || Ky < ra || (strcmp(shapes{shi}, 'asym') && Kx == Ky)
+                    continue;
+                end
+                for pfi = 1:numel(profiles)
+                    for si = 1:numel(opt.sigmas)
+                        sg = opt.sigmas(si);
+                        for isPer = [false true]
+                            for sd = opt.seeds
+                                nCell = nCell + 1;
+                                [row, est] = localCell(ra, Kx, Ky, ...
+                                    shapes{shi}, profiles{pfi}, isPer, sg, ...
+                                    sd, opt, ts, margin, est);
+                                fprintf(['%d,%d,%d,%s,%s,%d,%g,%d,%d,%.0f,' ...
+                                         '%.0f,%.4f,%.4f,%.4f,%.4f,%.4f,' ...
+                                         '%.3e,%s,%s\n'], ...
+                                    ra, Kx, Ky, shapes{shi}, profiles{pfi}, ...
+                                    isPer, sg, sd, row.nu, row.Mx, row.My, ...
+                                    row.tB, row.tC, row.tG, row.pB, row.pM, ...
+                                    row.diff, row.gate, row.faster);
+                            end
+                        end
                     end
                 end
             end
@@ -156,57 +183,18 @@ function results = calibrateRelIpCost(varargin)
 end
 
 
-function [row, est] = localCell(ra, K, isPer, sg, sd, opt, ts, margin, est)
+function [row, est] = localCell(ra, Kx, Ky, shape, profile, isPer, sg, ...
+                                sd, opt, ts, margin, est)
     if isPer, P = opt.period; else, P = 0; end
-    rs = RandStream('twister', 'Seed', 7919 * K + 131 * ra + 17 * sd + ...
+    rs = RandStream('twister', 'Seed', 7919 * Ky + 131 * ra + 17 * sd + ...
                                        round(1000 * sg));
-    px = sort(rand(rs, 1, K) * opt.period);
-    py = sort(rand(rs, 1, K) * opt.period);
-    wx = 0.5 + rand(rs, 1, K);
-    wy = 0.5 + rand(rs, 1, K);
+    px = sort(rand(rs, 1, Kx) * opt.period);
+    py = sort(rand(rs, 1, Ky) * opt.period);
+    wx = localWeights(profile, Kx, rs);
+    wy = localWeights(profile, Ky, rs);
 
-    % Predictors: the quantity each arm scales with, used only to decide
-    % whether starting it is worth the wall time.
-    Mfull = factorial(ra) * nchoosek(K, ra);
-    if isPer
-        nuPred = internal.autoNtauDefault(opt.period, sg);
-    else
-        spsP = internal.resolveSamplesPerSigma([], ra, ts);
-        spanP = (max(px) - min(px)) + (max(py) - min(py)) + 2 * margin * sg;
-        nuPred = max(64, ceil(max(spanP, 1.0) / sg * spsP));
-    end
-    % The unforced Mobius arm is not timed: it runs whichever route the
-    % gate picks, which gate_route records, so its time is whichever of
-    % the two route columns that names. Timing it would repeat a
-    % measurement already in hand for a quarter of the sweep's wall time.
-    arms = { 'B', 'bulger', 'auto',    Mfull^2; ...
-             'C', 'mobius', 'centres', Mfull^2; ...
-             'G', 'mobius', 'grid',    nuPred };
-    vals = [];
-    for ai = 1:size(arms, 1)
-        key = sprintf('%s%d', arms{ai, 1}, ra);
-        [t, v, est] = localTimed(px, wx, py, wy, sg, ra, isPer, P, ...
-            arms{ai, 2}, arms{ai, 3}, opt, est, key, arms{ai, 4});
-        switch arms{ai, 1}
-            case 'B', row.tB = t;
-            case 'C', row.tC = t;
-            case 'G', row.tG = t;
-            case 'A', row.tA = t;
-        end
-        vals(end+1) = v; %#ok<AGROW>
-    end
-    row.tA = NaN;
-
-    % Agreement first: a timing comparison between computations that
-    % disagree would be meaningless. VALS carries one value per arm that
-    % ran; arms skipped or inadmissible contribute NaN and drop out.
-    vals = vals(~isnan(vals));
-    if numel(vals) > 1
-        row.diff = max(abs(vals - vals(1)));
-    else
-        row.diff = NaN;
-    end
-
+    row.Mx = factorial(ra) * nchoosek(Kx, ra);
+    row.My = factorial(ra) * nchoosek(Ky, ra);
     if isPer
         row.nu = internal.autoNtauDefault(opt.period, sg);
         sop = sg / opt.period;
@@ -216,14 +204,40 @@ function [row, est] = localCell(ra, K, isPer, sg, sd, opt, ts, margin, est)
         row.nu = max(64, ceil(max(span, 1.0) / sg * sps));
         sop = 0;
     end
-    row.M = factorial(ra) * nchoosek(K, ra);
+
+    % Predictors price by the larger side, since that is what dominates
+    % each route.
+    Mbig = max(row.Mx, row.My);
+    Kbig = max(Kx, Ky);
+    arms = { 'B', 'bulger', 'auto',    Mbig^2; ...
+             'C', 'mobius', 'centres', Mbig^2; ...
+             'G', 'mobius', 'grid',    row.nu * Kbig };
+    vals = [];
+    for ai = 1:size(arms, 1)
+        key = sprintf('%s%d', arms{ai, 1}, ra);
+        [t, v, est] = localTimed(px, wx, py, wy, sg, ra, isPer, P, ...
+            arms{ai, 2}, arms{ai, 3}, opt, est, key, arms{ai, 4});
+        switch arms{ai, 1}
+            case 'B', row.tB = t;
+            case 'C', row.tC = t;
+            case 'G', row.tG = t;
+        end
+        vals(end+1) = v; %#ok<AGROW>
+    end
+
+    % Agreement first: a timing comparison between computations that
+    % disagree would be meaningless. Arms skipped or inadmissible
+    % contribute NaN and drop out.
+    vals = vals(~isnan(vals));
+    if numel(vals) > 1
+        row.diff = max(abs(vals - vals(1)));
+    else
+        row.diff = NaN;
+    end
 
     % Which route the gate itself picks, so a fitted min(centres, grid)
-    % can be checked against the code's own choice rather than inferred
-    % from whichever column came out smaller.
-    Pa = px(:);
-    Pb = py(:);
-    if mobius.maRelAttrPrefersCentres(Pa, Pb, sg, ra, true, isPer, ...
+    % can be checked against the code's own choice rather than inferred.
+    if mobius.maRelAttrPrefersCentres(px(:), py(:), sg, ra, true, isPer, ...
                                       max(opt.period, 1))
         row.gate = 'centres';
     else
@@ -237,9 +251,27 @@ function [row, est] = localCell(ra, K, isPer, sg, sd, opt, ts, margin, est)
     else
         row.faster = 'bulger';
     end
+
     [~, row.pB, row.pM] = internal.selectMaInnerProductMethod( ...
-        ra, K, 1, 1, 1, isPer, ~isPer, isPer, sop, 'auto', false, ...
-        true, row.nu, K);
+        ra, Kx, 1, 1, 1, isPer, ~isPer, isPer, sop, 'auto', false, ...
+        true, row.nu, Ky);
+end
+
+
+function w = localWeights(profile, K, rs)
+%LOCALWEIGHTS  Weight vector of the named shape, jittered.
+    switch profile
+        case 'flat'
+            base = ones(1, K);
+        case 'decay'
+            base = exp(-linspace(0, 4, K));
+        case 'bimodal'
+            x = linspace(-1, 1, K);
+            base = exp(-((1 - abs(x)).^2) * 6);
+        otherwise
+            error('mpt:badProfile', 'Unknown weight profile ''%s''.', profile);
+    end
+    w = base .* (0.75 + 0.5 * rand(rs, 1, K));
 end
 
 

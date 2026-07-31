@@ -64,6 +64,35 @@ from mpt._tensor.dispatch import _select_ma_inner_product_method
 K_BY_ORDER = {2: [6, 10, 16, 24, 40, 64], 3: [6, 8, 12, 16, 24],
               4: [5, 6, 8, 10, 12]}
 
+# The two densities need not carry the same number of values, and a chord
+# against a scale is the ordinary case. A sweep with equal counts
+# throughout leaves the asymmetric case unconstrained, and it is where a
+# cost model most easily goes wrong: the tuple-pair count spans five
+# orders of magnitude across it, so a term fitted only on equal counts
+# flattens exactly the shape that matters. K_REF is the small side.
+K_REF = 5
+SHAPES = ("equal", "asym")
+
+# Weights change how much of a multiset the truncated kernel actually
+# touches, so a model fitted on one profile need not hold on another.
+# Three shapes, each jittered per seed so no cell is a special case:
+# flat, decaying towards one end, and concentrated at both ends.
+WEIGHT_PROFILES = ("flat", "decay", "bimodal")
+
+
+def _weights(profile, K, rng):
+    """Weight vector of the named shape, jittered so no cell is exact."""
+    if profile == "flat":
+        base = np.ones(K)
+    elif profile == "decay":
+        base = np.exp(-np.linspace(0.0, 4.0, K))
+    elif profile == "bimodal":
+        x = np.linspace(-1.0, 1.0, K)
+        base = np.exp(-((1.0 - np.abs(x)) ** 2) * 6.0)
+    else:
+        raise ValueError(f"unknown weight profile {profile!r}")
+    return base * (0.75 + 0.5 * rng.uniform(0, 1, K))
+
 
 def _timed(p_x, w_x, p_y, w_y, sigma, r, is_per, period, method, route,
            budget, repeat_below, seen, key, predictor):
@@ -104,9 +133,8 @@ def _timed(p_x, w_x, p_y, w_y, sigma, r, is_per, period, method, route,
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--sigmas", type=float, nargs="+",
-                    default=[2, 3, 6, 12, 25, 50])
-    ap.add_argument("--seeds", type=int, nargs="+", default=[1, 2])
+    ap.add_argument("--sigmas", type=float, nargs="+", default=[2, 6, 25])
+    ap.add_argument("--seeds", type=int, nargs="+", default=[1])
     ap.add_argument("--budget", type=float, default=5.0,
                     help="skip an arm predicted, or found, to exceed this (s)")
     ap.add_argument("--repeat-below", type=float, default=0.25,
@@ -126,80 +154,103 @@ def main(argv=None):
     print("# times in milliseconds; nan means the arm was skipped as over "
           "budget")
     print("# or is inadmissible in that mode")
-    print("r,K,isPer,sigma,seed,nu,M,t_bulger,t_centres,t_grid,"
-          "pred_bulger,pred_mobius,max_abs_diff,gate_route,faster")
+    print("r,K_x,K_y,shape,weights,isPer,sigma,seed,nu,M_x,M_y,"
+          "t_bulger,t_centres,t_grid,pred_bulger,pred_mobius,"
+          "max_abs_diff,gate_route,faster")
 
     seen: dict[str, list[float]] = {}
     n = 0
     for r in (2, 3, 4):
         for K in K_BY_ORDER[r]:
-            for sigma in args.sigmas:
-                for is_per in (False, True):
-                    for seed in args.seeds:
-                        rng = np.random.default_rng(
-                            7919 * K + 131 * r + 17 * seed
-                            + round(1000 * sigma))
-                        p_x = np.sort(rng.uniform(0, args.period, K))
-                        p_y = np.sort(rng.uniform(0, args.period, K))
-                        w_x = 0.5 + rng.uniform(0, 1, K)
-                        w_y = 0.5 + rng.uniform(0, 1, K)
+            for shape in SHAPES:
+                K_x = K_REF if shape == "asym" else K
+                K_y = K
+                if K_x < r or K_y < r:
+                    continue
+                if shape == "asym" and K_x == K_y:
+                    continue
+                for profile in WEIGHT_PROFILES:
+                    for sigma in args.sigmas:
+                        for is_per in (False, True):
+                            for seed in args.seeds:
+                                rng = np.random.default_rng(
+                                    7919 * K + 131 * r + 17 * seed
+                                    + 3 * WEIGHT_PROFILES.index(profile)
+                                    + 5 * SHAPES.index(shape)
+                                    + round(1000 * sigma))
+                                p_x = np.sort(rng.uniform(0, args.period, K_x))
+                                p_y = np.sort(rng.uniform(0, args.period, K_y))
+                                w_x = _weights(profile, K_x, rng)
+                                w_y = _weights(profile, K_y, rng)
 
-                        M = math.factorial(r) * math.comb(K, r)
-                        if is_per:
-                            nu = auto_ntau_default(args.period, sigma)
-                            sop = sigma / args.period
-                        else:
-                            sps = resolve_samples_per_sigma(None, r, ts)
-                            span = ((p_x.max() - p_x.min())
-                                    + (p_y.max() - p_y.min())
-                                    + 2 * margin * sigma)
-                            nu = max(64, int(np.ceil(
-                                max(span, 1.0) / sigma * sps)))
-                            sop = 0.0
+                                M_x = math.factorial(r) * math.comb(K_x, r)
+                                M_y = math.factorial(r) * math.comb(K_y, r)
+                                if is_per:
+                                    nu = auto_ntau_default(args.period, sigma)
+                                    sop = sigma / args.period
+                                else:
+                                    sps = resolve_samples_per_sigma(None, r, ts)
+                                    span = ((p_x.max() - p_x.min())
+                                            + (p_y.max() - p_y.min())
+                                            + 2 * margin * sigma)
+                                    nu = max(64, int(np.ceil(
+                                        max(span, 1.0) / sigma * sps)))
+                                    sop = 0.0
 
-                        arms = (("B", "bulger", "auto", M ** 2),
-                                ("C", "mobius", "centres", M ** 2),
-                                ("G", "mobius", "grid", float(nu)))
-                        times, vals = {}, []
-                        for tag, method, route, predictor in arms:
-                            t, v, seen = _timed(
-                                p_x, w_x, p_y, w_y, sigma, r, is_per,
-                                args.period, method, route, args.budget,
-                                args.repeat_below, seen, f"{tag}{r}",
-                                predictor)
-                            times[tag] = t
-                            vals.append(v)
+                                # Predictors price by the larger side, since
+                                # that is what dominates each route.
+                                M_big = max(M_x, M_y)
+                                K_big = max(K_x, K_y)
+                                arms = (("B", "bulger", "auto", M_big ** 2),
+                                        ("C", "mobius", "centres", M_big ** 2),
+                                        ("G", "mobius", "grid",
+                                         float(nu) * K_big))
+                                times, vals = {}, []
+                                for tag, method, route, predictor in arms:
+                                    t, v, seen = _timed(
+                                        p_x, w_x, p_y, w_y, sigma, r, is_per,
+                                        args.period, method, route,
+                                        args.budget, args.repeat_below, seen,
+                                        f"{tag}{r}", predictor)
+                                    times[tag] = t
+                                    vals.append(v)
 
-                        good = [v for v in vals if not math.isnan(v)]
-                        diff = (max(abs(v - good[0]) for v in good)
-                                if len(good) > 1 else float("nan"))
+                                good = [v for v in vals if not math.isnan(v)]
+                                diff = (max(abs(v - good[0]) for v in good)
+                                        if len(good) > 1 else float("nan"))
+                                gate = ("centres"
+                                        if _ma_rel_attr_prefers_centres(
+                                            p_x[:, None], p_y[:, None], sigma,
+                                            r, True, is_per,
+                                            max(args.period, 1.0))
+                                        else "grid")
+                                mob = [times[t] for t in ("C", "G")
+                                       if not math.isnan(times[t])]
+                                if math.isnan(times["B"]) or not mob:
+                                    faster = "unknown"
+                                else:
+                                    faster = ("mobius" if min(mob) < times["B"]
+                                              else "bulger")
 
-                        gate = ("centres" if _ma_rel_attr_prefers_centres(
-                            p_x[:, None], p_y[:, None], sigma, r, True,
-                            is_per, max(args.period, 1.0)) else "grid")
-                        mob = [times[t] for t in ("C", "G")
-                               if not math.isnan(times[t])]
-                        if math.isnan(times["B"]) or not mob:
-                            faster = "unknown"
-                        else:
-                            faster = ("mobius" if min(mob) < times["B"]
-                                      else "bulger")
+                                _, p_b, p_m = _select_ma_inner_product_method(
+                                    r_vec=np.array([r]),
+                                    k_vec=np.array([K_x]), A=1, N_x=1, N_y=1,
+                                    any_per=is_per, any_rel_nonper=not is_per,
+                                    any_rel_per=is_per, sigma_over_P_max=sop,
+                                    user_method="auto",
+                                    rel_vec=np.array([True]),
+                                    nu_vec=np.array([float(nu)]),
+                                    guard_forced_bulger=False, wrap_vec=None,
+                                    k_vec_y=np.array([K_y]),
+                                    return_costs=True)
 
-                        _, p_b, p_m = _select_ma_inner_product_method(
-                            r_vec=np.array([r]), k_vec=np.array([K]), A=1,
-                            N_x=1, N_y=1, any_per=is_per,
-                            any_rel_nonper=not is_per, any_rel_per=is_per,
-                            sigma_over_P_max=sop, user_method="auto",
-                            rel_vec=np.array([True]),
-                            nu_vec=np.array([float(nu)]),
-                            guard_forced_bulger=False, wrap_vec=None,
-                            k_vec_y=np.array([K]), return_costs=True)
-
-                        print(f"{r},{K},{int(is_per)},{sigma:g},{seed},"
-                              f"{nu},{M},{times['B']:.4f},{times['C']:.4f},"
-                              f"{times['G']:.4f},{p_b:.4f},{p_m:.4f},"
-                              f"{diff:.3e},{gate},{faster}", flush=True)
-                        n += 1
+                                print(f"{r},{K_x},{K_y},{shape},{profile},"
+                                      f"{int(is_per)},{sigma:g},{seed},{nu},"
+                                      f"{M_x},{M_y},{times['B']:.4f},"
+                                      f"{times['C']:.4f},{times['G']:.4f},"
+                                      f"{p_b:.4f},{p_m:.4f},{diff:.3e},"
+                                      f"{gate},{faster}", flush=True)
+                                n += 1
     mpt.reset_defaults()
     print(f"# {n} cells")
 

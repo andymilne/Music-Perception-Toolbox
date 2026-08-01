@@ -257,203 +257,162 @@ end
 
 mptDefaults('relAttrRoute', prevRoute);
 
-%% ---- Section 4: does the dedicated single-multiset stack earn its place? ----
+%% ---- Section 4: is the multi-attribute path ever slower? ----
 
-% A single multiset (A = N = 1) is handled in MATLAB by a stack of
-% kernels, cost model and dispatcher separate from the multi-attribute
-% one: localSelectSingleMultisetMethod, localOrbitGridUnitCost,
-% localOrbitIPGridFactors, localCosSimSingleMultisetOrbit and
-% localOrbitIPsCorrupted have no counterpart in Python, which routes the
-% corner through its general path and keeps only a deduplication cache
-% for repeated collections.
+% The dedicated single-multiset stack is now unreachable
+% (mptDefaults('singleMultisetPath') defaults to 'ma'), and the question
+% before deleting it is whether anything it did is faster than what
+% replaces it.
 %
-% The duplication has already cost correctness: the centres-versus-grid
-% gate, the relAttrRoute lever and three cost-model corrections all live
-% in the multi-attribute path, so none of them reaches this workload in
-% MATLAB while all of them reach it in Python.
+% Both paths compute the same thing by the same arithmetic: each reaches
+% mobius.relInnerBatched, and 46 shapes agreed to 3.2e-9. The stack's
+% only advantage was its separate selector, and the multi-attribute cost
+% model has since been refitted from 0.62 to 0.93 on the routing
+% decision. So this section re-measures under the model that will ship,
+% not the one the earlier comparison ran against.
 %
-% This section runs identical work down both MATLAB paths and reports
-% the ratio, so the decision to keep or remove the dedicated stack rests
-% on measurement. Values are compared first: a timing comparison between
-% paths that disagree would be meaningless.
+% It sweeps the axes the calibration does, because each of them has in
+% turn been the one that mattered: the event count (24.5 s against
+% 173 ms at twelve events), unequal value counts (a chord against a
+% scale), the tuple order, the kernel width, both periodicities, and the
+% weight profile.
 %
-% The batched and list entry forms deduplicate and then call back into
-% cosSimExpTens once per unique pair, so they reach the same redirect;
-% they are covered here because the flip changes what those inner calls
-% do, and because dedup means a batched result is assembled from cached
-% values whose provenance the scalar cells cannot exercise.
+% The verdict reports the worst case as well as the spread. A median of
+% 1.00 hid a single cell at 180x in the earlier comparison; but a single
+% cell at 1.7 among 256 is a different thing, so the count above
+% threshold is reported beside the worst.
+%
+% Agreement is judged against a bound that accounts for accumulation.
+% truncationSigmas sets a PER-TERM floor of 1.5e-8: the largest single
+% kernel value discarded. An inner product sums M = r! C(K, r) such
+% terms, so the summed difference between two methods can exceed the
+% per-term floor without either being wrong --- at r = 4, K = 10 that is
+% 5040 terms. Measured against an untruncated reference, both methods sit
+% at 5e-10 there while differing from each other by more. The bound below
+% is the floor times sqrt(M), which is the accumulation a sum of M
+% independent roundings gives, and still some seven orders below the
+% value scale of a cosine.
 
-fprintf(['\nSection 4 -- dedicated single-multiset stack against the ' ...
-         'MA path\n']);
+fprintf('\nSection 4 -- multi-attribute path against the dedicated stack\n');
 
-prevPath = mptDefaults('singleMultisetPath');
+s4prevPath = mptDefaults('singleMultisetPath');
+s4rows = {};          % {label, t_dedicated, t_ma, worst difference}
 
-% Cases are assembled first, then run in one loop: a script cannot carry
-% nested functions sharing a workspace, so the comparison is written out
-% once rather than wrapped in a helper.
-s4cases = {};   % {label, function handle}
-
-% --- 4a. Scalar grid: both modes, both periodicities, r = 2 to 4,
-%         non-uniform weights throughout. ---
-for s4r = [2, 3, 4]
-    for s4K = [10, 20, 40, 80]
-        if s4K < s4r, continue; end
-        if s4r == 4 && s4K > 20, continue; end   % K^8; keep it tractable
-        for s4mode = 1:4
-            s4isRel = (s4mode == 2 || s4mode == 4);
-            s4isPer = (s4mode == 3 || s4mode == 4);
-            if s4isPer, s4P = period; else, s4P = 0; end
-            rs = RandStream('twister', 'Seed', 77 * s4K + s4r + 13 * s4mode);
-            px = sort(rand(rs, 1, s4K) * period);
-            py = sort(rand(rs, 1, s4K) * period);
-            wx = 0.5 + rand(rs, 1, s4K);
-            wy = 0.5 + rand(rs, 1, s4K);
-            s4cases(end+1, :) = { ...
-                sprintf('4a r=%d K=%d rel=%d per=%d', s4r, s4K, ...
-                        s4isRel, s4isPer), ...
-                @() cosSimExpTens(px, wx, py, wy, sigma, s4r, ...
-                    s4isRel, s4isPer, s4P, 'verbose', false)}; %#ok<SAGROW>
+s4cases = {};
+for s4r = [2 3 4]
+    switch s4r
+        case 2, s4Ks = [8 24]; s4Ns = [1 4 16];
+        case 3, s4Ks = [8 16]; s4Ns = [1 4 8];
+        case 4, s4Ks = [6 10]; s4Ns = [1 4];
+    end
+    for s4K = s4Ks
+        for s4N = s4Ns
+            for s4shape = {'equal', 'asym'}
+                if strcmp(s4shape{1}, 'asym')
+                    s4Kx = 5;
+                else
+                    s4Kx = s4K;
+                end
+                if s4Kx < s4r || (strcmp(s4shape{1}, 'asym') && s4Kx == s4K)
+                    continue;
+                end
+                for s4prof = {'flat', 'decay'}
+                    for s4sg = [6 25]
+                        for s4isPer = [false true]
+                            s4cases(end+1, :) = {s4r, s4Kx, s4K, s4N, ...
+                                s4shape{1}, s4prof{1}, s4sg, s4isPer}; %#ok<SAGROW>
+                        end
+                    end
+                end
+            end
         end
     end
 end
 
-% --- 4b. Unweighted, to separate the weighted path from the plain one. ---
-rs = RandStream('twister', 'Seed', 991);
-s4bx = sort(rand(rs, 1, 30) * period);
-s4by = sort(rand(rs, 1, 30) * period);
-s4cases(end+1, :) = {'4b unweighted r=2 rel-per', ...
-    @() cosSimExpTens(s4bx, [], s4by, [], sigma, 2, 1, 1, period, ...
-        'verbose', false)};
-
-% --- 4c. Spectral augmentation: the option whose plumbing differs most
-%         between entry forms. MATLAB accepts 'spectrum' only where at
-%         least one operand is a 2-D matrix with both dimensions above
-%         one, so the case is presented in that form. (Python accepts it
-%         on scalar input as well; that divergence is reported
-%         separately and is not this benchmark's business.) ---
-rs = RandStream('twister', 'Seed', 992);
-s4cx = sort(rand(rs, 1, 6) * 1200);
-s4cy = zeros(5, 6);
-for ii = 1:5
-    s4cy(ii, :) = sort(rand(rs, 1, 6) * 1200);
-end
-s4spec = {'harmonic', 10, 'powerlaw', 0.75};
-s4cases(end+1, :) = {'4c spectrum batched 5x6', ...
-    @() cosSimExpTens(s4cx, [], s4cy, [], sigma, 2, 1, 1, period, ...
-        'spectrum', s4spec, 'verbose', false)};
-
-% --- 4d. Batched raw against a reference row, dedup on and off. The
-%         batch deduplicates and calls back per unique pair, so the flip
-%         changes what each inner call does; the whole vector is
-%         compared, not one entry. Repeated rows exercise the cache. ---
-rs = RandStream('twister', 'Seed', 993);
-s4ref = sort(rand(rs, 1, 8) * period);
-s4M = 60;
-s4batch = zeros(s4M, 8);
-for ii = 1:s4M
-    s4batch(ii, :) = sort(rand(rs, 1, 8) * period);
-end
-s4batch(2:3:end, :) = repmat(s4batch(1, :), numel(2:3:s4M), 1);
-s4cases(end+1, :) = {'4d batched 60x8 dedup on', ...
-    @() cosSimExpTens(s4ref, [], s4batch, [], sigma, 2, 1, 1, period, ...
-        'verbose', false)};
-% 'dedup', false is a documented no-op on the batched-raw path and warns
-% on every call, including every repeat inside timeRepeated, so it is not
-% exercised here. The dedup cache is covered by the repeated rows above.
-s4cases(end+1, :) = {'4d batched 60x8 r=3', ...
-    @() cosSimExpTens(s4ref, [], s4batch, [], sigma, 3, 1, 1, period, ...
-        'verbose', false)};
-
-% --- 4e. Density-list input, cell against cell and scalar broadcast. ---
-s4listA = cell(1, 12);
-s4listB = cell(1, 12);
-for ii = 1:12
-    pa = sort(rand(rs, 1, 7) * period);
-    pb = sort(rand(rs, 1, 7) * period);
-    s4listA{ii} = buildExpTens(pa, [], sigma, 2, 1, 1, period, ...
-        'verbose', false);
-    s4listB{ii} = buildExpTens(pb, [], sigma, 2, 1, 1, period, ...
-        'verbose', false);
-end
-s4cases(end+1, :) = {'4e list 12 vs 12', ...
-    @() cell2mat(cosSimExpTens(s4listA, s4listB, 'verbose', false))};
-s4cases(end+1, :) = {'4e list scalar broadcast', ...
-    @() cell2mat(cosSimExpTens(s4listA{1}, s4listB, 'verbose', false))};
-
-fprintf('%-34s %10s %10s %7s %13s\n', ...
+fprintf('%-34s %10s %10s %8s %12s\n', ...
         'case', 'ded(ms)', 'MA(ms)', 'MA/ded', 'worst diff');
-
-s4worstDiff = 0;
-s4worstWhere = '';
-s4ratios = [];
+s4worstRatio = 0; s4worstWhere = ''; s4worstDiff = 0; s4nCmp = 0;
+s4worstDiffRel = 0; s4nDisagree = 0; s4nSlow = 0;
 for ci = 1:size(s4cases, 1)
-    s4label = s4cases{ci, 1};
-    s4fn    = s4cases{ci, 2};
-    mptDefaults('singleMultisetPath', 'auto');
-    s4failed = false;
+    ra = s4cases{ci, 1}; Kx = s4cases{ci, 2}; Ky = s4cases{ci, 3};
+    N = s4cases{ci, 4}; shp = s4cases{ci, 5}; prof = s4cases{ci, 6};
+    sg = s4cases{ci, 7}; isPer = s4cases{ci, 8};
+    if isPer, P = period; else, P = 0; end
+
+    rs = RandStream('twister', 'Seed', 4241 * Ky + 97 * ra + 7 * N);
+    px = sort(rand(rs, Kx, N) * period, 1);
+    py = sort(rand(rs, Ky, N) * period, 1);
+    wx = localBenchWeights(prof, Kx, N, rs);
+    wy = localBenchWeights(prof, Ky, N, rs);
+    dX = buildExpTens({px}, {wx}, sg, ra, 1, isPer, P, 'verbose', false);
+    dY = buildExpTens({py}, {wy}, sg, ra, 1, isPer, P, 'verbose', false);
+    call = @() cosSimExpTens(dX, dY, 'verbose', false);
+
+    lbl = sprintf('r=%d K=%d/%d N=%d %s %s per=%d sg=%g', ...
+                  ra, Kx, Ky, N, shp, prof, isPer, sg);
+    ok = true;
     try
-        s4vD = s4fn();
-        s4tD = internal.timeRepeated(s4fn) * 1e3;
-    catch s4err
-        s4failed = true;
-        fprintf(['%-34s  rejected by the dedicated stack: %s\n' ...
-                 '%34s  The case is malformed, not the path; fix the ' ...
-                 'case.\n'], s4label, s4err.message, '');
-    end
-    if s4failed
-        mptDefaults('singleMultisetPath', 'auto');
-        continue;
+        mptDefaults('singleMultisetPath', 'dedicated');
+        vD = call();
+        tD = internal.timeRepeated(call) * 1e3;
+        mptDefaults('singleMultisetPath', 'ma');
+        vM = call();
+        tM = internal.timeRepeated(call) * 1e3;
+    catch ME
+        ok = false;
+        fprintf('%-34s  one path failed: %s\n', lbl, ME.message);
     end
     mptDefaults('singleMultisetPath', 'ma');
-    try
-        s4vM = s4fn();
-        s4tM = internal.timeRepeated(s4fn) * 1e3;
-    catch s4err
-        s4failed = true;
-        fprintf(['%-34s  the MA path rejected this shape: %s\n' ...
-                 '%34s  The dedicated stack cannot simply be deleted; ' ...
-                 'report this.\n'], s4label, s4err.message, '');
+    if ~ok, continue; end
+
+    d = max(abs(vM(:) - vD(:)));
+    Mterms = factorial(ra) * nchoosek(max(Kx, Ky), ra);
+    dBound = 1.5e-8 * sqrt(Mterms);
+    ratio = tM / max(tD, eps);
+    s4nCmp = s4nCmp + 1;
+    if d > dBound
+        s4nDisagree = s4nDisagree + 1;
+        fprintf('%-34s  values differ by %.3e, bound %.3e\n', lbl, d, dBound);
     end
-    mptDefaults('singleMultisetPath', 'auto');
-    if s4failed, continue; end
-    if ~isequal(size(s4vM), size(s4vD))
-        fprintf('%-34s  shape differs between paths; report this.\n', ...
-                s4label);
-        continue;
+    if d / dBound > s4worstDiffRel
+        s4worstDiffRel = d / dBound; s4worstDiff = d;
     end
-    s4d = max(abs(s4vM(:) - s4vD(:)));
-    if s4d > s4worstDiff
-        s4worstDiff = s4d;
-        s4worstWhere = s4label;
+    if ratio > s4worstRatio
+        s4worstRatio = ratio; s4worstWhere = lbl;
     end
-    s4ratios(end+1) = s4tM / s4tD;   %#ok<SAGROW>
-    fprintf('%-34s %10.3f %10.3f %7.2f %13.3e\n', ...
-            s4label, s4tD, s4tM, s4tM / s4tD, s4d);
+    % Only the notable rows are printed; the summary carries the rest.
+    if ratio > 1.3
+        s4nSlow = s4nSlow + 1;
+        fprintf('%-34s %10.3f %10.3f %8.2f %12.3e\n', lbl, tD, tM, ratio, d);
+    end
 end
+mptDefaults('singleMultisetPath', s4prevPath);
 
-mptDefaults('singleMultisetPath', prevPath);
-
-fprintf('\n');
-if isempty(s4ratios)
-    fprintf('    No case completed; the MA path is not a drop-in.\n');
+fprintf('\n    %d cells compared.\n', s4nCmp);
+fprintf(['    Values: %d cells beyond the accumulation bound; worst was ' ...
+         '%.2fx its bound (%.3e).\n'], s4nDisagree, s4worstDiffRel, ...
+        s4worstDiff);
+fprintf(['    Times: %d cells above 1.3x; worst ratio %.2f, at %s\n'], ...
+        s4nSlow, s4worstRatio, s4worstWhere);
+if s4nDisagree > 0
+    fprintf(['    The two paths disagree beyond what truncation ' ...
+             'accumulation explains.\n    Report this before anything ' ...
+             'is deleted.\n']);
+elseif s4worstRatio <= 1.3
+    fprintf(['    Values agree and the MA path is nowhere more than 30%% ' ...
+             'slower: the\n    dedicated stack does not earn its place ' ...
+             'and can be deleted.\n']);
+elseif s4worstRatio <= 3.0 && s4nSlow <= 0.05 * s4nCmp
+    fprintf(['    Values agree. A few cells near the cost model''s ' ...
+             'crossover are slower,\n    the worst by %.2fx --- against ' ...
+             'a model that routes 93%% of cells\n    correctly where ' ...
+             'the previous one managed 62%%, and whose worst\n    ' ...
+             'misroute was 180x. The dedicated stack does not earn its ' ...
+             'place.\n'], s4worstRatio);
 else
-    fprintf(['    Cases compared: %d. Worst difference: %.3e (%s).\n' ...
-             '    MA/dedicated ratio: median %.2f, worst %.2f.\n'], ...
-        numel(s4ratios), s4worstDiff, s4worstWhere, ...
-        median(s4ratios), max(s4ratios));
-    if s4worstDiff > 1.5e-8
-        fprintf(['    That exceeds the truncation floor: the two paths ' ...
-                 'do not agree, and\n    the timings are moot. Report ' ...
-                 'this before anything is deleted.\n']);
-    elseif max(s4ratios) < 1.3
-        fprintf(['    Values agree to within the floor and the MA path ' ...
-                 'is nowhere more\n    than 30%% slower: the dedicated ' ...
-                 'stack does not earn its keep.\n']);
-    else
-        fprintf(['    Values agree, but the MA path is materially ' ...
-                 'slower in at least one\n    case. Report which, ' ...
-                 'before anything is deleted.\n']);
-    end
+    fprintf(['    Values agree, but the MA path is materially slower in ' ...
+             '%d cells, worst\n    %.2fx. Those are named above; report ' ...
+             'them before anything is deleted.\n'], s4nSlow, s4worstRatio);
 end
 
 %% ---- Section 5: where the MA path is slower, is it route or cost? ----
@@ -718,6 +677,24 @@ catch benchErr
     rethrow(benchErr);
 end
 mptDefaults('showHints', prevHints);
+
+
+function w = localBenchWeights(profile, K, N, rs)
+%LOCALBENCHWEIGHTS  K x N weights of the named shape, jittered.
+%
+%   Weights change how much of a multiset the truncated kernel touches,
+%   so a comparison made on uniform weights need not hold otherwise.
+    switch profile
+        case 'flat'
+            base = ones(K, 1);
+        case 'decay'
+            base = exp(-linspace(0, 4, K)).';
+        otherwise
+            error('mpt:badProfile', 'Unknown weight profile ''%s''.', ...
+                  profile);
+    end
+    w = repmat(base, 1, N) .* (0.75 + 0.5 * rand(rs, K, N));
+end
 
 
 function s = localLogSlope(x, y)

@@ -191,19 +191,22 @@ def test_ma_dispatcher_raises_when_r_too_large_and_bulger_infeasible():
         )
 
 
-def test_ma_dispatcher_routes_pairwise_for_rel_nonper_at_A1():
-    """rel + nonper at A=1: with a single attribute the Möbius
-    per-attribute factorisation buys nothing (there is nothing to
-    factor across), so the choice is pairwise's one joint kernel
-    against three per-attribute matrices on the Möbius side — measured
-    at roughly a 2× advantage to pairwise at this point (r=3, K=12,
-    N=12: ~6 s vs ~12 s). The cost model routes to pairwise."""
-    # pw_pred = N²·r!·C(12,3)²·1.4e-4 ≈ 5.9e3 ms; orbit_pred =
-    # 5 + 3·N²·min(centres, grid)·per-op ≈ 6.2e3 ms (legacy-default
-    # grid nodes) — an honest near-tie resolved to the pairwise side.
+def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A1():
+    """rel + nonper at A=1, r=3, K=12, N=12: the Möbius method wins, and
+    not narrowly.
+
+    An earlier version of this test asserted the opposite, on the
+    reasoning that a single attribute gives the Möbius per-attribute
+    factorisation nothing to factor across, leaving one joint kernel
+    against three per-attribute matrices --- and quoting a measurement
+    of roughly 6 s against 12 s. Measured on this shape, Bulger's method
+    takes 24.5 s and the Möbius method 173 ms, a factor of 142. The
+    factorisation is not what decides it: Bulger's joint kernel grows
+    with the event count as well as the value count, and at 12 events
+    that is 144 event pairs in one array."""
     assert _select_ma_inner_product_method(
         **_disp_kwargs(K=12, N_x=12, N_y=12, A=1, any_rel_nonper=True),
-    ) == 'bulger'
+    ) == 'mobius'
 
 
 def test_ma_dispatcher_routes_orbit_for_rel_nonper_at_A2_heavy_K():
@@ -261,7 +264,12 @@ def test_ma_dispatcher_routes_pairwise_at_small_problem():
     # informative (well above or below the cost-model crossover).
     ((False, False, False), 1, 12, 12, 'mobius'),     # abs + nonper, A=1 large
     ((True,  False, False), 1, 12, 12, 'mobius'),     # abs + per, A=1 large
-    ((False, True,  False), 1, 12, 12, 'bulger'),  # rel + nonper, A=1: orbit is catastrophic
+    # rel + nonper, A=1: measured at r=3, K=12, N=12, Bulger's method
+    # takes 24.5 s against the Möbius method's 173 ms. The comment this
+    # replaces said the orbit path was catastrophic here; it is the
+    # other way round, because Bulger's joint kernel grows with the
+    # event count as well as the value count.
+    ((False, True,  False), 1, 12, 12, 'mobius'),
     ((False, True,  False), 2,  8,  4, 'mobius'),     # rel + nonper, A=2 K=8: pw OOMs first
     ((True,  False, True),  1, 12, 12, 'mobius'),     # rel + per, A=1 large
 ])

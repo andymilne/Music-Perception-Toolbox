@@ -88,7 +88,11 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % method and sigma/P is above the threshold it warns and points to
     % method='bulger' for the canonical single-wrap measure.
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY);
-    pwCost = pwSize * pwPerEntryMs(anyPer, r_max);
+    % Priced by the same fitted law. The per-entry form this replaces
+    % assumed a fixed cost per kernel entry; measurement contradicts
+    % that, the per-entry cost falling as the arrays grow, which is what
+    % the fitted exponent below 1 carries.
+    pwCost = relRouteCostMs('bulger', r_max, pwSize);
     centresOk = sigmaOverPMax <= 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
     orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                                    nuVec, centresOk, kVecY);
@@ -102,28 +106,51 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 end
 
 
-function ms = pwPerEntryMs(anyPer, r_max)
-    % Per-entry cost of Bulger's joint tuple-pair kernel in n_J . n_K
-    % units, per tensor order (the r! side asymmetry is absorbed into
-    % the constant, so it rises mildly with r). Provisional values from
-    % the Python calibration at representative scale; MATLAB values to
-    % be set from bench_ma_dispatch.
-    %
-    % That calibration gave the two densities the same value count and
-    % the same event count, where the three matrices the inner product
-    % needs are each the size of the cross matrix, and it was fitted
-    % against the cross matrix alone -- so the fitted figures each
-    % absorb a factor of three. They appear below as those figures
-    % divided by three, which leaves every equal-count workload
-    % predicting exactly what it predicted when the fit was made, while
-    % predictPairwiseKernelSize now returns the total across the three
-    % matrices and so responds correctly when the counts differ.
-    if anyPer
-        table = [NaN, 1.1e-4, 1.6e-4] / 3;   % r = 2, 3
-    else
-        table = [NaN, 1.0e-4, 1.4e-4] / 3;
+function ms = relRouteCostMs(route, r_a, term)
+%RELROUTECOSTMS  Predicted wall time (ms) for one route, from its law.
+%
+%   Cost model for the method comparison: one power law per route and
+%   tuple order,
+%
+%       t_ms = exp(a_r) * term ^ b_r
+%
+%   on the quantity each route works over -- Bulger's method and the
+%   tuple-centres route on the tuple-pair entries they materialise, the
+%   translation grid on the node count times the larger value count.
+%   Every term carries the event-pair count, since both methods price
+%   per pair. The Mobius side takes the smaller of its two routes, as
+%   the orchestrator does. Each law is fitted against the quantity the
+%   caller passes, not an idealisation of it, so the intercepts absorb
+%   the constant factors between them; a refit must use the same terms.
+%   Orders above 4 reuse the r = 4 row.
+%
+%   Fitted on 684 cells: r in {2, 3, 4}, value counts 5 to 40, event
+%   counts 1 to 64, three kernel widths, both periodicities, three
+%   weight profiles, equal and unequal value counts, each route timed in
+%   isolation with relAttrRoute pinning it. Cross-validated on the
+%   routing decision, eight-fold: 0.93 against 0.62 for the count-based
+%   model it replaces.
+%
+%   Constants are per-language: the two implementations amortise
+%   differently. Refit with tools/calibrateRelIpCost.m, and run it with
+%   'check', true first -- three earlier fits shipped badly because an
+%   axis was missing from the sweep, and the check asserts that each
+%   axis varies what it claims to.
+    switch route
+        case 'bulger'
+            A = [-7.2149, -8.0168, -7.7822];
+            B = [ 0.6970,  0.7493,  0.7500];
+        case 'centres'
+            A = [-7.7429, -8.6263, -8.8269];
+            B = [ 0.6800,  0.7781,  0.8029];
+        case 'grid'
+            A = [-4.1388, -2.1985, -0.5409];
+            B = [ 0.3916,  0.5021,  0.5768];
+        otherwise
+            error('mpt:badRoute', 'Unknown route ''%s''.', route);
     end
-    ms = table(min(max(r_max, 2), numel(table)));
+    idx = min(max(r_a, 2), 4) - 1;
+    ms = exp(A(idx)) * max(term, 1)^B(idx);
 end
 
 
@@ -179,7 +206,9 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     ABS        = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
     GRID_OP    = [NaN, 3.0e-5, 5.0e-5];    % r = 2, 3
     CENTRES_OP = [NaN, 4.0e-5, 9.0e-5];    % r = 2, 3
-    REL_BASE = 5.0;
+    % No flat relative base: each route's law carries its own intercept,
+    % so adding one would double-count the setup it already prices.
+    REL_BASE = 0.0;
     if nargin < 9 || isempty(kVecY)
         kVecY = kVec;
     end
@@ -195,7 +224,8 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
             if ra > 3    % beyond tabulated orders: double per order
                 gridOp = gridOp * 2^(ra - 3);
             end
-            perPair = 3 * nuVec(a) * Ka * Ka * gridOp;
+            perPair = relRouteCostMs('grid', ra, ...
+                pairs * nuVec(a) * max(Ka, KaY));
             if centresOk && Ka >= ra && KaY >= ra
                 centresOp = CENTRES_OP(min(max(ra, 2), numel(CENTRES_OP)));
                 if ra > 3
@@ -203,10 +233,10 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                 end
                 mX = factorial(ra) * combCount(Ka, ra);
                 mY = factorial(ra) * combCount(KaY, ra);
-                centresOps = mX * mY + mX * mX + mY * mY;
-                perPair = min(perPair, centresOps * centresOp);
+                perPair = min(perPair, relRouteCostMs('centres', ra, ...
+                    pairs * (mX * mY + mX * mX + mY * mY)));
             end
-            ms = ms + pairs * perPair;
+            ms = ms + perPair;
         elseif ra >= 2
             ms = ms + ABS(ra);
         end

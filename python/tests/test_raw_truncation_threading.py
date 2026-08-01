@@ -137,6 +137,16 @@ def test_eval_raw_ma_honours_method_and_width():
 
 
 def test_cos_sim_raw_forms_honour_width():
+    """The width must reach the kernel through both raw call forms.
+
+    The method is pinned to Bulger's, because the subject here is
+    whether the parameter is threaded through, not which route the
+    dispatcher picks. The Möbius method takes the spectral branch on
+    this shape, which evaluates the integral exactly and so has no
+    truncation to honour --- its answer is identical at every width, and
+    correctly so. Leaving the route to the dispatcher made this test an
+    assertion about routing, and it broke when the routing improved.
+    """
     r, K, span, sigma = 3, 10, 1200.0, 60.0
     p1, w1 = _chord(20, K, span)
     p2, w2 = _chord(21, K, span)
@@ -144,7 +154,7 @@ def test_cos_sim_raw_forms_honour_width():
     def sm(ts):
         return cos_sim_exp_tens(
             p1, w1, p2, w2, sigma, r, True, False, 0.0,
-            truncation_sigmas=ts, verbose=False,
+            truncation_sigmas=ts, method='bulger', verbose=False,
         )
 
     def ma(ts):
@@ -152,7 +162,7 @@ def test_cos_sim_raw_forms_honour_width():
             [p1.reshape(K, 1)], [w1.reshape(K, 1)],
             [p2.reshape(K, 1)], [w2.reshape(K, 1)],
             [sigma], [r], [True], [False], [0.0],
-            truncation_sigmas=ts, verbose=False,
+            truncation_sigmas=ts, method='bulger', verbose=False,
         )
 
     assert abs(sm(3.0) - sm(9.0)) > 0.0

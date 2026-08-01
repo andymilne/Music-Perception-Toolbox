@@ -246,6 +246,65 @@ _ORBIT_RELPER_BASE_MS = 5.0
 # measured on the Python implementation (rel-per, K = 4-5, r = 2-3,
 # N = 20-120): centres ~87 ns per centre-pair op; grid contraction
 # ~27 ns per kernel op (slab-resident).
+#: Cost model for the method comparison: one power law per route and
+#: tuple order,
+#:
+#:     t_ms = exp(a_r) * term ** b_r
+#:
+#: on the quantity each route works over --- Bulger's method and the
+#: tuple-centres route on the tuple-pair entries they materialise, the
+#: translation grid on the node count times the larger value count. Every
+#: term carries the event-pair count, since both methods price per pair.
+#: The Möbius side takes the smaller of its two routes, as the
+#: orchestrator does. Each law is fitted against the quantity the caller
+#: passes, not an idealisation of it, so the intercepts absorb the
+#: constant factors between them; a refit must use the same terms. Orders
+#: above 4 reuse the r = 4 row.
+#:
+#: Fitted on 666 cells: r in {2, 3, 4}, value counts 5 to 40, event counts
+#: 1 to 64, three kernel widths, both periodicities, three weight
+#: profiles, equal and unequal value counts, each route timed in
+#: isolation with ``rel_attr_route`` pinning it. Arms that could not run
+#: are censored rather than dropped, a method that cannot run being
+#: decisively the slower one.
+#:
+#: Cross-validated on the routing decision, eight-fold: 0.84 here against
+#: 0.68 for the count-based model it replaces, and 0.93 against 0.62 on
+#: the MATLAB side.
+#:
+#: Three earlier fits scored well and shipped badly, each because an axis
+#: was missing from the sweep: equal value counts only, then one event
+#: per density, then a build signature that flattened the events away.
+#: Each regressed a case earlier work had fixed. Before refitting, run
+#: tools/calibrate_rel_ip_cost.py --check: it asserts that each axis
+#: varies what it claims to.
+#:
+#: The exponents are empirical and below what operation counts alone
+#: would give --- Bulger's method enumerates M tuples per side, so a flop
+#: count would say 1.0 against the 0.82 fitted here. They absorb
+#: amortisation: these calls span 0.3 ms to tens of seconds, and the cost
+#: per entry falls as the arrays grow. Fixing the exponents at their
+#: structural values and adding an explicit overhead term was tried and
+#: scores worse, so the shortfall is not fixed overhead in disguise.
+#:
+#: Constants are per-language: the two implementations amortise
+#: differently. Refit with tools/calibrate_rel_ip_cost.py.
+_REL_COST_LAW = {
+    "bulger":  {2: (-8.5858, 0.8245), 3: (-8.1774, 0.7890),
+                4: (-6.7951, 0.7278)},
+    "centres": {2: (-8.8001, 0.8195), 3: (-10.0569, 0.9269),
+                4: (-9.7867, 0.9251)},
+    "grid":    {2: (-5.0440, 0.4817), 3: (-3.6893, 0.5881),
+                4: (-3.2639, 0.7894)},
+}
+
+
+def _rel_route_cost_ms(route, r_a, term):
+    """Predicted wall time in ms for one route, from its fitted law."""
+    a, b = _REL_COST_LAW[route][min(max(int(r_a), 2), 4)]
+    return float(np.exp(a) * max(float(term), 1.0) ** b)
+
+
 _ORBIT_REL_BASE_MS = 5.0
 _ORBIT_REL_CENTRES_OP_MS = {2: 4.0e-5, 3: 9.0e-5}
 _ORBIT_REL_GRID_OP_MS = {2: 3.0e-5, 3: 5.0e-5}
@@ -350,7 +409,9 @@ def _predict_orbit_cost_ms(
     depend on the value count at all is the subject of the pending
     bench_ip_unit_cost extension.
     """
-    total = _ORBIT_REL_BASE_MS if np.any(rel_vec) else 0.0
+    # No flat relative base: each route's law carries its own intercept,
+    # so adding one would double-count the setup it already prices.
+    total = 0.0
     pairs = float(N_x) * float(N_y)
     if k_vec_y is None:
         k_vec_y = k_vec
@@ -362,19 +423,21 @@ def _predict_orbit_cost_ms(
             # The centres route is measure-blocked above the sigma/P
             # threshold (the orchestrator keeps the all-image grid
             # there), so above it the grid route is priced alone.
-            grid_ops = 3.0 * float(nu_vec[a]) * K_a * K_a
-            per_pair = grid_ops * _orbit_rel_op_ms(
-                _ORBIT_REL_GRID_OP_MS, r_a)
+            # The smaller of the two routes, as the orchestrator takes.
+            # Both terms read each density's own value count and carry the
+            # event-pair count, since both routes price per pair.
+            per_pair = _rel_route_cost_ms(
+                "grid", r_a, pairs * float(nu_vec[a]) * max(K_a, K_y_a))
             if centres_ok and K_a >= r_a and K_y_a >= r_a:
                 m_x = float(factorial(r_a) * _math_comb(K_a, r_a))
                 m_y = float(factorial(r_a) * _math_comb(K_y_a, r_a))
-                centres_ops = m_x * m_y + m_x * m_x + m_y * m_y
                 per_pair = min(
                     per_pair,
-                    centres_ops * _orbit_rel_op_ms(
-                        _ORBIT_REL_CENTRES_OP_MS, r_a),
+                    _rel_route_cost_ms(
+                        "centres", r_a,
+                        pairs * (m_x * m_y + m_x * m_x + m_y * m_y)),
                 )
-            total += pairs * per_pair
+            total += per_pair
         elif r_a >= 2:
             total += float(_ORBIT_ABS_PER_ATTR_MS[r_a])
     return float(total)
@@ -552,7 +615,11 @@ def _select_ma_inner_product_method(
                     if return_costs else 'mobius'
     pw_size = _predict_pairwise_kernel_size(
         r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y)
-    pw_cost_ms = pw_size * _pw_per_entry_ms(any_per, r_max)
+    # Priced by the same fitted law. The per-entry form this replaces
+    # assumed a fixed cost per kernel entry; measurement contradicts that,
+    # the per-entry cost falling as the arrays grow, which is what the
+    # fitted exponent below 1 carries.
+    pw_cost_ms = _rel_route_cost_ms("bulger", r_max, pw_size)
     # Aggregate-only callers (the legacy selector API) supply no
     # per-attribute vectors; reconstruct conservative defaults. Marking
     # every r_a >= 2 attribute as relative whenever either rel flag is

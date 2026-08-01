@@ -2006,7 +2006,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
     chosen = internal.selectMaInnerProductMethod( ...
         rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
-        sigmaOverPMax, method, verbose, relVecSel, nuVecSel, kVecY);
+        sigmaOverPMax, method, verbose, relVecSel, nuVecSel, kVecY, wrapG);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
@@ -2055,6 +2055,12 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     ip_xy = NaN; ip_xx = NaN; ip_yy = NaN;  %#ok<NASGU>  initialised below
+    % Announce the decision, as the Python multi-attribute path does. The
+    % single-multiset stack announced at its own dispatch point; that
+    % stack is no longer reached, so without this the message is lost for
+    % every single multiset.
+    internal.maybeShowDispatchMsg('cosSimExpTens', chosen, 'ma cost model');
+
     ranOrbit = false;
     if ~isempty(contractTriple)
         ip_xy = contractTriple.xy;

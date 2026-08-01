@@ -1,7 +1,7 @@
 function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
-        verbose, relVec, nuVec, kVecY)
+        verbose, relVec, nuVec, kVecY, wrapVec)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without pricing (an explicit
@@ -58,6 +58,9 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     if nargin < 14 || isempty(kVecY)
         kVecY = kVec;
     end
+    if nargin < 15
+        wrapVec = {};
+    end
     % NaN until the priced comparison sets them, so a caller can tell a
     % structural decision from a costed one.
     pwCostOut = NaN;
@@ -87,6 +90,41 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % faster path (cost model below); when that path is the all-image Möbius
     % method and sigma/P is above the threshold it warns and points to
     % method='bulger' for the canonical single-wrap measure.
+    % Relative-periodic wrap. Above the sigma/P threshold the two methods
+    % compute different measures: Bulger's is the single-image
+    % (nearest-image) reduction, the Mobius method's the all-image
+    % transposition average. A density built with 'single-image' is
+    % asking for the former and 'full-image' for the latter, so above the
+    % threshold the wrap picks the method rather than the cost model
+    % doing so. Below it the two agree numerically and either will do.
+    % Callers without a wrap vector see the pre-v3 order unchanged.
+    % Mirrors the Python rule in _select_ma_inner_product_method.
+    if ~isempty(wrapVec) && anyRelPer && ~isempty(relVec)
+        wantsSingle = false;
+        wantsFull = false;
+        for a = 1:min(numel(wrapVec), numel(relVec))
+            if ~relVec(a), continue; end
+            if strcmp(char(wrapVec{a}), 'single-image')
+                wantsSingle = true;
+            elseif strcmp(char(wrapVec{a}), 'full-image')
+                wantsFull = true;
+            end
+        end
+        if wantsSingle && wantsFull
+            error('mpt:mixedRelPerWrap', ...
+                ['Mixed rel-per wrap on a single density is not yet ' ...
+                 'supported; all rel-per attributes must share a wrap ' ...
+                 'value.']);
+        end
+        if sigmaOverPMax > 0.03
+            if wantsSingle
+                chosen = 'bulger'; return;
+            elseif wantsFull
+                chosen = 'mobius'; return;
+            end
+        end
+    end
+
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY);
     % Priced by the same fitted law. The per-entry form this replaces
     % assumed a fixed cost per kernel entry; measurement contradicts

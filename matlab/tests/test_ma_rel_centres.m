@@ -293,19 +293,20 @@ results{end,2}   = mrc_raised;
 
 mptDefaults('relAttrRoute', mrc_prevRoute);
 
-% --- Measurement lever: singleMultisetPath ---
-% MATLAB handles a single multiset (A = N = 1) with a dedicated stack
-% separate from the multi-attribute path; Python has no such split.
-% Setting this default to 'ma' sends the corner through localCosSimMA so
-% the two can be compared. The value must not depend on which path ran.
+% --- singleMultisetPath ---
+% A single multiset (A = N = 1) was handled by a dedicated stack separate
+% from the multi-attribute path; Python has no such split. The default is
+% now 'ma', which makes that stack unreachable. Setting the default to
+% 'dedicated' restores it, and exists only so the two can still be
+% compared. The value must not depend on which path ran.
 smp_prev = mptDefaults('singleMultisetPath');
-results{end+1,1} = 'singleMultisetPath: default is auto';
-results{end,2}   = strcmp(smp_prev, 'auto');
+results{end+1,1} = 'singleMultisetPath: default is ma';
+results{end,2}   = strcmp(smp_prev, 'ma');
 
 smp_rs = RandStream('twister', 'Seed', 4242);
 smp_px = sort(rand(smp_rs, 1, 12) * 1200);
 smp_py = sort(rand(smp_rs, 1, 12) * 1200);
-mptDefaults('singleMultisetPath', 'auto');
+mptDefaults('singleMultisetPath', 'dedicated');
 smp_vDed = cosSimExpTens(smp_px, [], smp_py, [], 6, 2, 1, 1, 1200);
 smp_ok = false;
 smp_msg = '';

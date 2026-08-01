@@ -3,14 +3,25 @@ function varargout = mptDefaults(varargin)
 %
 %   Centralises the user-tunable toolbox defaults (currently:
 %   truncationSigmas, kernelPrecision, showHints, postHocGuards).
-%   singleMultisetPath (default 'auto') is a measurement lever, not part
-%   of the public interface, and exists only in MATLAB. A single multiset
-%   (A = N = 1) is handled here by a dedicated stack of kernels, cost
-%   model and dispatcher separate from the multi-attribute one; Python
-%   has no such split and routes the corner through its general path.
-%   Setting this to 'ma' sends a single multiset through
-%   LOCALCOSSIMMA instead, so the two can be compared on one machine.
-%   It exists to decide whether the dedicated stack earns its place.
+%   singleMultisetPath (default 'ma') is not part of the public
+%   interface, and exists only in MATLAB. A single multiset (A = N = 1)
+%   was handled here by a dedicated stack of kernels, cost model and
+%   dispatcher separate from the multi-attribute one; Python has no such
+%   split and routes the corner through its general path.
+%
+%   That stack no longer earns its place. Measured over 46 shapes --- all
+%   four modes, tuple orders 2 to 4, weighted and unweighted, spectral,
+%   batched with a deduplication cache, and density lists --- the two
+%   paths agree to 3.2e-9 with several cells bit-identical, and the
+%   median time ratio is 1.00. Where the multi-attribute path was slower
+%   it was choosing the wrong method, not computing differently: both
+%   reach MOBIUS.RELINNERBATCHED. The cost model that made that choice
+%   has since been refitted, from 0.62 to 0.93 on the routing decision.
+%
+%   The default is therefore 'ma', which makes the dedicated stack
+%   unreachable. Setting it to 'dedicated' restores the old path, and
+%   exists only so the two can still be compared; the stack itself is
+%   removed once a full suite run confirms nothing reaches it.
 %
 %   relAttrRoute (default 'auto') is a calibration and testing lever, not
 %   part of the public interface: it pins the route a relative attribute
@@ -204,7 +215,7 @@ function S = factoryDefaults()
         'postHocGuards', true, ...
         'orbitCostIntercept', 3.8536, ...
         'relAttrRoute', 'auto', ...
-        'singleMultisetPath', 'auto' ...
+        'singleMultisetPath', 'ma' ...
     );
 end
 
@@ -304,13 +315,17 @@ function S = setOne(S, name, value)
         case 'singlemultisetpath'
             if ~(ischar(value) || isstring(value))
                 error('mptDefaults:badValue', ...
-                    '''singleMultisetPath'' must be ''auto'' or ''ma''.');
+                    ['''singleMultisetPath'' must be ''ma'' or ' ...
+                     '''dedicated''.']);
             end
             v = lower(char(value));
-            if ~ismember(v, {'auto', 'ma'})
+            if strcmp(v, 'auto')
+                v = 'dedicated';       % the old name for the old path
+            end
+            if ~ismember(v, {'ma', 'dedicated'})
                 error('mptDefaults:badValue', ...
-                    ['''singleMultisetPath'' must be ''auto'' or ''ma''; ' ...
-                     'got ''%s''.'], char(value));
+                    ['''singleMultisetPath'' must be ''ma'' or ' ...
+                     '''dedicated''; got ''%s''.'], char(value));
             end
             S.singleMultisetPath = v;
         case 'posthocguards'

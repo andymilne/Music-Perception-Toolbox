@@ -61,10 +61,14 @@ function dens = prunedExpTens(dens)
                 if isfield(dens, 'isSym') && ~isempty(dens.isSym)
                     symArg = {dens.isSym(1)};
                 end
+                wrapArg = {};
+                if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+                    wrapArg = {'wrap', dens.wrap{1}};
+                end
                 dens = buildExpTens( ...
                     p1(live), w1(live), dens.sigma(1), dens.r(1), ...
                     dens.isRel(1), dens.isPer(1), dens.period(1), ...
-                    symArg{:}, 'lazy', true, 'verbose', false);
+                    symArg{:}, wrapArg{:}, 'lazy', true, 'verbose', false);
                 return;
             end
 
@@ -97,6 +101,11 @@ function dens = prunedExpTens(dens)
             % Must be carried, or the rebuild flattens the attribute.
             if isfield(dens, 'nested'); out.nested = dens.nested; end
             if isfield(dens, 'names'); out.names = dens.names; end
+            % Per-attribute wrap: must be carried, or a density built with
+            % 'single-image' silently reverts to full-image, changing the
+            % measure rather than the speed. Only shows up above the
+            % sigma/period threshold, where the two forms diverge.
+            if isfield(dens, 'wrap'); out.wrap = dens.wrap; end
             if isfield(dens, 'kernelCov')
                 out.kernelCov = dens.kernelCov;
                 out.kernelChol = dens.kernelChol;

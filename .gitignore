@@ -3,3 +3,14 @@
 __pycache__/
 *.diff
 APPLY_NOTES.txt
+
+# Calibration run outputs. Each is the default output path of a
+# calibration tool, so a committed copy is a stale run the next one
+# silently overwrites; the fitted constants live in the source, with
+# their provenance in the comment beside them.
+relIpCost.csv
+relIpCostMATLAB.txt
+python/rel_ip_cost.csv
+python/py_bench.txt
+python/py_bench_ext.txt
+python/progress.txt

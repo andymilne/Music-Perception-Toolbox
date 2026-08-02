@@ -1,20 +1,22 @@
 %% bench_ma_eval_dispatch.m
-%  Calibration harness for the multi-attribute EVAL dispatcher
-%  (internal.selectMaEval routing evalExpTens between the factored
-%  Möbius evaluator and the joint-centres accumulator).
+%  Audit of the multi-attribute EVAL dispatcher: does the shipped cost
+%  model pick the arm that is actually faster? internal.selectMaEval
+%  routes evalExpTens between the factored Möbius evaluator and the
+%  joint-centres accumulator, and this times both arms on a small shape
+%  grid spanning the crossover and reports where the pick disagrees with
+%  the measurement.
 %
-%  Purpose: MEASURE the centres-vs-Möbius crossover on THIS machine, so
-%  the dominance constant MA_CENTRES_DOMINANCE in internal.selectMaEval
-%  can be calibrated from MATLAB timings rather than inherited from
-%  Python (whose 2.0 reflects NumPy's constant factors: JIT, column-major
-%  layout, BLAS, and copy-on-write all differ). This is the eval-side
-%  twin of bench_ma_dispatch.m (which calibrates the cosine IP dispatch).
+%  It does NOT fit anything. That is tools-side work:
+%  bench_ma_eval_calibration.m sweeps the grid the MA_COST_* constants
+%  in internal/selectMaEval.m are fitted from. This is the quick check
+%  that the fit still holds on this machine, and the op-count columns
+%  show where the empirical crossover sits.
 %
-%  For each shape cell it times method='centres' and method='mobius'
-%  through the public evalExpTens, reports which is faster and what the
-%  cost model predicted, and prints the op-count ratio orbit/joint at the
-%  empirical crossover. Read the last column: wherever 'faster' and
-%  'predict' disagree OUTSIDE a noise band, the constant needs revisiting.
+%  Read the report by magnitude, not by the mispick count alone. A model
+%  out by 40x that still orders two routes correctly scores no mispick,
+%  while one out by 1.01x near a crossover scores one; the predicted and
+%  measured times are printed side by side so the continuous quantity is
+%  visible behind the pass/fail column.
 %
 %  Run from anywhere with the toolbox on the path.
 
@@ -45,9 +47,10 @@ grid = {
   {'A1 rel r3 K8',  30,   3,     true,          false,         0,       8}
 };
 
-fprintf('%-14s %8s %8s %9s %9s %8s %8s %6s\n', ...
-    'cell', 'orbit', 'joint', 'cen_ms', 'mob_ms', 'faster', 'predict', 'o/j');
-fprintf('%s\n', repmat('-', 1, 82));
+fprintf('%-14s %8s %8s %9s %9s %9s %9s %8s %8s %6s\n', ...
+    'cell', 'orbit', 'joint', 'cen_ms', 'mob_ms', 'pred_cen', ...
+    'pred_mob', 'faster', 'predict', 'o/j');
+fprintf('%s\n', repmat('-', 1, 102));
 
 % Global warm-up before timing. MATLAB pays one-time costs on the first
 % use of each path within a run --- function compilation, +mobius
@@ -81,7 +84,7 @@ for gi = 1:numel(grid)
     dens = buildExpTens(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, nQ);
 
-    [pred, ~] = internal.selectMaEval(dens, nQ, false);
+    [pred, ~, predCen, predMob] = internal.selectMaEval(dens, nQ, false);
 
     % op-counts
     joint = 1; orbit = 0;
@@ -102,18 +105,23 @@ for gi = 1:numel(grid)
     tested = tested + 1;
     if ~ok, mismatch = mismatch + 1; end
 
-    fprintf('%-14s %8d %8d %9.2f %9.2f %8s %8s %6.2f  %s\n', ...
-        label, orbit, joint, tCen * 1e3, tMob * 1e3, faster, pred, ...
-        orbit / joint, tern(ok, '', '<-- MISPICK'));
+    fprintf(['%-14s %8d %8d %9.2f %9.2f %9.2f %9.2f %8s %8s %6.2f' ...
+             '  %s\n'], label, orbit, joint, tCen * 1e3, tMob * 1e3, ...
+        predCen, predMob, faster, pred, orbit / joint, ...
+        tern(ok, '', '<-- MISPICK'));
 end
 
-fprintf('%s\n', repmat('-', 1, 82));
+fprintf('%s\n', repmat('-', 1, 102));
 fprintf('mispicks outside 25%% noise band: %d / %d\n', mismatch, tested);
-fprintf(['\nThis is a quick op-count sanity view; the authoritative ' ...
+fprintf(['\nThis audits the shipped fit; it does not produce one. The ' ...
          'calibration harness is\nbench_ma_eval_calibration.m, whose CSV ' ...
-         'fits the MA_COST_* constants in\ninternal/selectMaEval.m. The ' ...
-         'o/j column shows the op-count ratio at each\ncell; the ' ...
-         'empirical crossover is where ''faster'' flips.\n\n']);
+         'fits the MA_COST_* constants in\ninternal/selectMaEval.m. ' ...
+         'pred_cen and pred_mob are what those constants\npredict, ' ...
+         'beside the measured cen_ms and mob_ms, so a near-tie mispick ' ...
+         'can be\ntold from a real one. The o/j column is the op-count ' ...
+         'ratio; the empirical\ncrossover is where ''faster'' flips. ' ...
+         'NaN predictions mark cells the model\ndecides structurally ' ...
+         'rather than by pricing.\n\n']);
 
 % ---- helpers ----
 function t = timeMethod(fn, nReps)

@@ -236,12 +236,17 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     % ---- Relative-periodic measure preference (precedes the cost
     % model): above sigma/P the all-image Möbius form is the preferred,
     % memory-safe default; single-image via method='centres'. ----
+    %  The measure rule does not return here. Both routes are priced
+    %  first, so the report can say what the cost model would have
+    %  chosen and the reader can see that the measure, not the price,
+    %  settled it. The choice is overridden after pricing, below.
+    %  (Twin of the Python explain path, which prices unconditionally.)
+    measureForcesMobius = false;
     for a = 1:A
         if isRel(a) && isPer(a) && periodG(a) > 0 ...
                 && sigmaG(a) / periodG(a) > ORBIT_SIGMA_OVER_P_THRESHOLD
-            chosen = 'mobius';
-            routingReason = 'rel-per all-image measure';
-            return;
+            measureForcesMobius = true;
+            break;
         end
     end
 
@@ -428,7 +433,10 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 
     centresMsOut = centresMs;
     mobiusMsOut  = mobiusMs;
-    if mobiusMs < centresMs * MA_MOBIUS_SAFETY
+    if measureForcesMobius
+        chosen = 'mobius';
+        routingReason = 'rel-per full-image measure';
+    elseif mobiusMs < centresMs * MA_MOBIUS_SAFETY
         chosen = 'mobius';
         routingReason = 'cost model (factored Möbius cheaper)';
     else

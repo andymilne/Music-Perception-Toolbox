@@ -125,19 +125,23 @@ results{end+1, 1} = 'explainDispatch: explaining a prohibitive call still return
 results{end, 2}   = ischar(xdRep.chosen) && ~isempty(xdRep.chosen) && ...
                     xdCentres > 6e4;
 
-% --- 11. Past the sigma/P limit the measure decides, not the price ----
+% --- 11. Past the sigma/P limit the measure overrides the price -------
 %  At sigma = 60 over P = 1200 the wrapped-difference form is
-%  inadmissible, so the transposition average is computed whatever the
-%  relative cost of the two routes. The decision is structural: the
-%  selector returns before pricing either route, so the report marks it
-%  unpriced rather than quoting times the decision did not rest on.
+%  inadmissible, so the transposition average is computed even though
+%  the joint-centres route is priced cheaper. Both routes are priced so
+%  the report can show that; the decision itself is not a priced one.
+%  Without the report this reads as a routing bug.
 xdRep = explainDispatch(xdD, 200);
-results{end+1, 1} = 'explainDispatch: past the sigma/P limit the measure decides the route';
+xdCentres = xdRep.routeMs(strcmp(xdRep.routeNames, 'centres'));
+xdMobius  = xdRep.routeMs(strcmp(xdRep.routeNames, 'mobius'));
+results{end+1, 1} = 'explainDispatch: past the sigma/P limit the measure overrides the price';
 results{end, 2}   = xdRep.sigmaOverP > xdRep.sigmaOverPLimit && ...
                     strcmp(xdRep.chosen, 'mobius') && ...
                     strcmp(xdRep.measure, ...
                            'transposition average (the definition)') && ...
-                    ~xdRep.priced;
+                    ~xdRep.priced && ...
+                    all(isfinite([xdCentres, xdMobius])) && ...
+                    xdCentres < xdMobius;
 
 % --- 12. Within the sigma/P limit the wrapped-difference form is used -
 xdRep = explainDispatch( ...

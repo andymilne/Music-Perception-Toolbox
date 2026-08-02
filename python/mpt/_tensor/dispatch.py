@@ -815,17 +815,22 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #    method='auto'   : dispatcher chooses the Möbius method or Bulger's
 #                     method based on (r, n, mode, sigma/period).
 #    method='bulger' : forces Bulger's method (the v1 / v2.1
-#                     decomposition with periodic pairwise-wrap form;
-#                     ``_ip_core``); this is the closed form of JMM
-#                     Eq. 3.4 — the toolbox's defined value of
-#                     the rel_per inner product, by definition. At
-#                     sigma/P > 0.03 it differs from the alternative
-#                     integration form computed by 'mobius' by an
-#                     amount that grows as the periodic Theta-tail
-#                     terms become non-negligible (see V22_DEV_LOG.md
-#                     Issue 3 for details). Slower than the Möbius
-#                     method at high r and large K, but correct
-#                     across the full sigma/P range.
+#                     decomposition; ``_ip_core``). In relative
+#                     periodic mode this evaluates the kernel that
+#                     wraps the pairwise component differences, which
+#                     is an approximation to the density's definition:
+#                     the relative periodic density is the
+#                     transposition average of the absolute periodic
+#                     density, and the two coincide only as
+#                     sigma/P -> 0. The wrapped-difference form is
+#                     cheaper, so the toolbox uses it in that regime,
+#                     but as sigma/P grows it ceases to be
+#                     positive-definite --- its cosine similarity
+#                     exceeds 1 for some density pairs from around
+#                     sigma/P = 0.06 --- and is then not an inner
+#                     product at all. The transposition average, being
+#                     an average of Gaussians, is positive-definite at
+#                     every sigma/P.
 #    method='direct' : forces direct enumeration (no Möbius cancellation;
 #                     useful for diagnosing near-zero cosines).
 #                     In the single-multiset path, 'direct' coincides
@@ -840,7 +845,15 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
-_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03  # σ/P beyond which the periodic-relative Möbius method deviates
+#: σ/P beyond which the wrapped-difference relative-periodic kernel
+#: departs materially from the transposition average that defines the
+#: measure. Below it the two agree and either route may be taken on
+#: cost alone; above it the choice is a choice of measure, and the wrap
+#: axis decides it. The Möbius route computes the transposition average
+#: at every σ/P --- ``test_rel_per_full_image.py`` checks it against an
+#: independent lattice sum up to σ/P = 0.30 --- so it is the approximation
+#: that departs, not the Möbius route.
+_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03
 
 #: σ/P beyond which the absolute-periodic single-image (minimum-image)
 #: measure departs materially from the full-image measure --- the sum of

@@ -7,8 +7,9 @@
 %      regimes (r >= 3, abs and rel modes, periodic and non-periodic).
 %    - Auto routing: rel groups always Bulger; r_max < 3 always
 %      Bulger; r_max >= 3 abs routes to the Möbius method.
-%    - sigma/period > 0.03 in rel+per groups: faster all-image form + warning
-%      with a warning.
+%    - sigma/period > 0.03 in rel+per groups: the transposition-average
+%      form, which is the measure's definition; the wrapped-difference
+%      approximation is reached through wrap = 'single-image'.
 %    - K_{a,n}-vs-r margin: ragged K (NaN-padded events) handled
 %      transparently via zero-pad inside the Möbius-method wrapper.
 %    - Skinny dens flows through the dispatcher without forcing eager

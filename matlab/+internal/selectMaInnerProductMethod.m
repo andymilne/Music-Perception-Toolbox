@@ -15,9 +15,10 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger; (4) K-vs-r precision guard
 %   (accuracy is governed by truncationSigmas, so cost decides) ->
 %   Bulger; (5) predict both wall times (ms) and take the faster path
-%   (ties favour Bulger); when that path is the all-image Möbius method
-%   and rel+per sigma/P exceeds 0.03, warn that it differs from the
-%   canonical single-wrap measure and point to method='bulger'.
+%   (ties favour Bulger). Above the rel+per sigma/P threshold the two
+%   methods compute different measures rather than the same one at
+%   different speeds, so the wrap axis decides which is wanted; below
+%   it they agree and cost decides.
 %
 %   The Möbius side is priced per attribute: absolute r_a >= 2
 %   attributes cost the vectorised-batch constant for their order;
@@ -84,12 +85,17 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % size: the Mobius method's agreement with enumeration tracks the
     % truncation budget and is closest at K_a = r_a. The route is
     % therefore chosen on cost alone from here on.
-    % Relative-periodic measure note: the Möbius method computes the all-image
-    % (transposition-integral) form, Bulger's the single-wrap (minimum-image)
-    % form; they diverge above sigma/P = 0.03. The dispatch always takes the
-    % faster path (cost model below); when that path is the all-image Möbius
-    % method and sigma/P is above the threshold it warns and points to
-    % method='bulger' for the canonical single-wrap measure.
+    % Relative-periodic measure note. The relative periodic density is
+    % defined as the transposition average of the absolute periodic
+    % density, which the Möbius method computes at every sigma/P.
+    % Bulger's method evaluates the kernel that wraps the pairwise
+    % component differences instead: an approximation that coincides
+    % with the transposition average as sigma/P -> 0 and is cheaper, so
+    % the toolbox uses it in that regime. The two diverge above
+    % sigma/P = 0.03, and from around 0.06 the wrapped-difference form
+    % stops being positive-definite --- its cosine similarity exceeds 1
+    % for some density pairs --- so above the threshold the choice is a
+    % choice of measure and the wrap axis makes it.
     % Relative-periodic wrap. Above the sigma/P threshold the two methods
     % compute different measures: Bulger's is the single-image
     % (nearest-image) reduction, the Mobius method's the all-image

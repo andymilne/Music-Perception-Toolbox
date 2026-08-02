@@ -47,6 +47,11 @@ function sop = relPerSigmaOverPThreshold(truncationSigmas)
     end
 
     % sigma/P against the worst measured departure at that sigma/P.
+    % The table does not set the limit at every accuracy setting: at
+    % truncationSigmas = 4 the departures admit 0.055, and at 2 they
+    % admit 0.100, both cut to 0.05 by PD_CEILING below. The table
+    % binds at truncationSigmas = 5 and tighter, the ceiling at 4 and
+    % looser.
     DEPARTURE = [0.020, 1.67e-16
                  0.030, 4.14e-14
                  0.040, 3.27e-08
@@ -58,11 +63,14 @@ function sop = relPerSigmaOverPThreshold(truncationSigmas)
                  0.080, 1.10e-02
                  0.100, 4.07e-02];
 
-    % Hard ceiling from positive-definiteness. A search over the same
-    % grid first reaches a cosine above 1 at sigma/P = 0.07, and an
-    % earlier search reached one at 0.06. A search only ever bounds the
-    % onset from above --- failing to find a violation proves nothing ---
-    % so the ceiling sits below the earliest onset anyone has found.
+    % Hard ceiling from positive-definiteness. Three searches over the
+    % same grid have first reached a cosine above 1 at sigma/P = 0.06,
+    % 0.07 and 0.08 respectively. A search only ever bounds the onset
+    % from above --- failing to find a violation proves nothing, and the
+    % spread across runs shows how little a single onset settles --- so
+    % the ceiling sits below the earliest onset anyone has found. It is
+    % not merely a backstop: at truncationSigmas = 4 and looser it is
+    % the binding test.
     PD_CEILING = 0.05;
 
     floorVal = internal.truncationFloor(truncationSigmas);

@@ -859,6 +859,12 @@ _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 #: than the arithmetic allows. The departure peaks at r = 3 rather than
 #: at the largest order, so a calibration taken at r = 2 alone would be
 #: too loose.
+#:
+#: The table does not set the limit at every accuracy setting. At
+#: truncation_sigmas = 4 the departures admit 0.055, and at 2 they admit
+#: 0.100; both are cut to 0.05 by ``_REL_PER_PD_CEILING`` below. So the
+#: table binds at truncation_sigmas = 5 and tighter, and the ceiling
+#: binds at 4 and looser.
 _REL_PER_DEPARTURE = (
     (0.020, 1.67e-16),
     (0.030, 4.14e-14),
@@ -879,14 +885,16 @@ _REL_PER_DEPARTURE = (
 #: cosine similarity exceeds 1, so Cauchy-Schwarz fails and the quantity
 #: is not a similarity at all. That is a failure of admissibility rather
 #: than of accuracy, and no ``truncation_sigmas`` setting has authority
-#: to loosen it. A search over the same grid first reaches a violation
-#: at σ/P = 0.07; an earlier search reached one at 0.06. A search only
+#: to loosen it. Three searches over the same grid have first reached a
+#: violation at σ/P = 0.06, 0.07 and 0.08 respectively. A search only
 #: ever bounds the onset from above --- failing to find a violation
-#: proves nothing --- so the ceiling sits below the earliest onset
+#: proves nothing, and the spread across runs shows how little a single
+#: onset settles --- so the ceiling sits below the earliest onset
 #: anyone has found.
 #:
-#: On the shipped accuracy settings this never binds: the accuracy limit
-#: is 0.055 even at truncation_sigmas = 4. It is a backstop.
+#: This is not merely a backstop: at truncation_sigmas = 4 and looser it
+#: is the binding test, since the departures admit 0.055 and 0.100 there
+#: while the ceiling admits 0.05.
 _REL_PER_PD_CEILING = 0.05
 
 
@@ -901,11 +909,12 @@ def _orbit_sigma_over_p_threshold(truncation_sigmas=None,
     ceiling, since a form that is not an inner product cannot be made
     into one by relaxing a tolerance.
 
-    Accuracy is the binding test in practice --- it gives 0.03 at the
-    factory default and at every tighter setting, and 0.055 at the
-    loosest --- so this returns a threshold that tightens as the caller
-    asks for more accuracy, where a single constant could only be right
-    at one setting. The shipped 0.03 was the value at the default.
+    Accuracy is the binding test at the factory default and at every
+    tighter setting, giving 0.03 at the default; the ceiling binds at
+    truncation_sigmas = 4 and looser. So this returns a threshold that
+    tightens as the caller asks for more accuracy, where a single
+    constant could only be right at one setting. The shipped 0.03 was
+    the value at the default.
 
     The table is the calibration; no functional form is fitted to it,
     and the largest entry inside the floor is taken rather than

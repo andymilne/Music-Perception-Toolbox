@@ -43,8 +43,8 @@ function results = calibrateRelIpCost(varargin)
 %   results = calibrateRelIpCost('sigmas', [3 6 12], 'seeds', 1:3);
 %
 % Name-value arguments:
-%   'sigmas'      kernel widths to sweep (default [2 6 25])
-%   'seeds'       repeats per cell with fresh values (default 1:2)
+%   'sigmas'      kernel widths to sweep (default [3 25])
+%   'seeds'       repeats per cell with fresh values (default 1)
 %   'budgetSec'      skip a route predicted, or found, to exceed this
 %                    (default 5)
 %   'repeatBelowSec' repeat-time only calls faster than this; slower ones
@@ -63,8 +63,10 @@ function results = calibrateRelIpCost(varargin)
 %                 notes into data rows. A third of one run was lost that
 %                 way.
 %
-% Runtime. 16 value counts x 6 widths x 2 periodicities x 2 seeds = 384
-% cells, each timing three arms. Three things keep that affordable: an
+% Runtime. 171 combinations of tuple order, value counts, weight profile
+% and event count x 2 widths x 2 periodicities x 1 seed = 684 cells, each
+% timing three arms. The same 684 as the twin sweep in
+% tools/calibrate_rel_ip_cost.py. Three things keep that affordable: an
 % arm the running estimate puts over budget is never started; a call
 % slower than repeatBelowSec is measured from its single warm run rather
 % than repeated; and the unforced Mobius arm is not timed at all, since
@@ -95,17 +97,8 @@ function results = calibrateRelIpCost(varargin)
 
     prevHints = mptDefaults('showHints');
     prevRoute = mptDefaults('relAttrRoute');
-    prevPath  = mptDefaults('singleMultisetPath');
     mptDefaults('showHints', false);
-    % The cost model being calibrated is the multi-attribute one, so the
-    % cells must run through the path it governs. Left at 'auto', a single
-    % multiset takes the dedicated stack instead, which has its own
-    % selector and never reaches the centres-versus-grid gate: the two
-    % route columns then measure the same computation twice, and the fit
-    % would be against timings the model never produces. Section 4 puts
-    % that discrepancy at up to 180x on relative cells.
-    mptDefaults('singleMultisetPath', 'ma');
-    cleanup = onCleanup(@() localRestore(prevHints, prevRoute, prevPath));
+    cleanup = onCleanup(@() localRestore(prevHints, prevRoute));
 
     % Value counts per tuple order. Bulger's method builds K!/(K-r)!
     % tuples per side, so the affordable range narrows sharply with r.
@@ -149,7 +142,14 @@ function results = calibrateRelIpCost(varargin)
     % below -- and that is enough to settle which method is faster, which
     % is what the routing fit is scored on. Dropping them would discard
     % exactly the cells where the decision is most consequential.
-    nEvents = [1 4 16 64];
+    %
+    % Capped by tuple order. Cost grows with the tuple order, the value
+    % count and the event count together, and the budget can only decline
+    % to START an arm --- neither language can interrupt one already
+    % running --- so the worst cell has to be bounded by construction.
+    % Sixty-four events at r = 4 is not a workload anyone runs;
+    % sixty-four at r = 2 is, and that is where the range is wanted.
+    NByOrder = {[1 4 16 64], [1 4 16], [1 4 8]};
     rOrders  = [2 3 4];
     ts = mptDefaults('truncationSigmas');
     margin = internal.relWindowMargin(ts);
@@ -205,7 +205,8 @@ function results = calibrateRelIpCost(varargin)
                     continue;
                 end
                 for pfi = 1:numel(profiles)
-                  for ni = 1:numel(nEvents)
+                  Ns = NByOrder{ri};
+                  for ni = 1:numel(Ns)
                     for si = 1:numel(opt.sigmas)
                         sg = opt.sigmas(si);
                         for isPer = [false true]
@@ -213,17 +214,17 @@ function results = calibrateRelIpCost(varargin)
                                 nCell = nCell + 1;
                                 fprintf(2, ['  r=%d K=%d/%d N=%d %s %s ' ...
                                             'per=%d sigma=%g\n'], ra, Kx, ...
-                                    Ky, nEvents(ni), shapes{shi}, ...
+                                    Ky, Ns(ni), shapes{shi}, ...
                                     profiles{pfi}, isPer, sg);
                                 [row, est] = localCell(ra, Kx, Ky, ...
-                                    nEvents(ni), shapes{shi}, ...
+                                    Ns(ni), shapes{shi}, ...
                                     profiles{pfi}, isPer, sg, sd, opt, ts, ...
                                     margin, est);
                                 localAssertScalars(row);
                                 fprintf(fid, ['%d,%d,%d,%d,%s,%s,%d,%g,%d,%d,' ...
                                          '%.0f,%.0f,%.4f,%.4f,%.4f,%.4f,' ...
                                          '%.4f,%.3e,%s,%s,%s,%s,%s\n'], ...
-                                    ra, Kx, Ky, nEvents(ni), shapes{shi}, ...
+                                    ra, Kx, Ky, Ns(ni), shapes{shi}, ...
                                     profiles{pfi}, ...
                                     isPer, sg, sd, row.nu, row.Mx, row.My, ...
                                     row.tB, row.tC, row.tG, row.pB, row.pM, ...
@@ -368,10 +369,8 @@ function nFail = localCheck(period)
 
     prevHints = mptDefaults('showHints');
     prevRoute = mptDefaults('relAttrRoute');
-    prevPath  = mptDefaults('singleMultisetPath');
     mptDefaults('showHints', false);
-    mptDefaults('singleMultisetPath', 'ma');
-    cleanup = onCleanup(@() localRestore(prevHints, prevRoute, prevPath));
+    cleanup = onCleanup(@() localRestore(prevHints, prevRoute));
 
     nFail = 0;
     K = 8; N = 6; sigma = 25; r = 2;
@@ -430,11 +429,6 @@ function nFail = localCheck(period)
     mptDefaults('relAttrRoute', 'auto');
     nFail = nFail + localOk('routes agree on the value', ...
         abs(vv(1) - vv(2)) < 1.5e-8, sprintf('gap %.2e', abs(vv(1) - vv(2))));
-
-    % The single-multiset stack must be bypassed, or the sweep measures a
-    % path the cost model does not govern.
-    nFail = nFail + localOk('cells run through the multi-attribute path', ...
-        strcmp(mptDefaults('singleMultisetPath'), 'ma'));
 
     % Unequal value counts must reach both sides.
     py = sort(rand(rs, 3 * K, N) * period, 1);
@@ -641,8 +635,7 @@ function [t, v, est, why] = localTimed(densX, densY, method, route, opt, ...
 end
 
 
-function localRestore(hints, route, smPath)
+function localRestore(hints, route)
     mptDefaults('showHints', hints);
     mptDefaults('relAttrRoute', route);
-    mptDefaults('singleMultisetPath', smPath);
 end

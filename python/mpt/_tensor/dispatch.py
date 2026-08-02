@@ -4,8 +4,8 @@ This module hosts the toolbox's path-selection policy --- the cost-
 model + timing-probe logic that decides between the centres path and
 the Möbius path for a given evaluation or inner-product call, plus the
 small set of pure helpers (``_normalize_density_input``,
-``_resolve_list_list_mode``, ``_compute_Q``, ``_format_time``,
-``_falling_factorial``) that are shared between :mod:`._tensor.cosine`,
+``_resolve_list_list_mode``, ``_compute_Q``, ``_format_time``) that
+are shared between :mod:`._tensor.cosine`,
 :mod:`._tensor.eval`, and :mod:`._tensor.windowing`.
 
 See :doc:`/ARCHITECTURE` §4 ("Dispatcher pattern") for the per-call
@@ -228,24 +228,14 @@ _ORBIT_ABS_PER_ATTR_MS = {
 }
 
 
-# Möbius method (relative-periodic): vectorised across event pairs but each
-# pair carries a u-grid integration of N_u ≈ period/σ × samples_per_σ
-# samples, plus a fixed per-call setup cost (~5 ms). Cost grows with
-# A · N_x · N_y · K_max² · |Ω_r|.
-_ORBIT_RELPER_BASE_MS = 5.0
-
 # Möbius method (relative modes): each relative attribute's
 # (event_X, event_Y) inner matrices are computed by whichever of two
 # routes is cheaper per event pair (see
 # cosine._ma_rel_attr_prefers_centres): the pairwise closed form over
-# materialised tuple-centres at (r_a!·C(K_a, r_a))² kernel ops per
-# pair, or the slab-batched translation-grid contraction at
-# N_u·K_a² ops per pair. The cost model prices both with measured
-# per-op constants and takes the same minimum the orchestrator takes;
-# three matrices (cross plus both self-norms) per attribute. Constants
-# measured on the Python implementation (rel-per, K = 4-5, r = 2-3,
-# N = 20-120): centres ~87 ns per centre-pair op; grid contraction
-# ~27 ns per kernel op (slab-resident).
+# materialised tuple-centres, or the slab-batched translation-grid
+# contraction. The cost model prices both and takes the same minimum
+# the orchestrator takes; three matrices (cross plus both self-norms)
+# per attribute.
 #: Cost model for the method comparison: one power law per route and
 #: tuple order,
 #:
@@ -303,28 +293,6 @@ def _rel_route_cost_ms(route, r_a, term):
     """Predicted wall time in ms for one route, from its fitted law."""
     a, b = _REL_COST_LAW[route][min(max(int(r_a), 2), 4)]
     return float(np.exp(a) * max(float(term), 1.0) ** b)
-
-
-_ORBIT_REL_BASE_MS = 5.0
-_ORBIT_REL_CENTRES_OP_MS = {2: 4.0e-5, 3: 9.0e-5}
-_ORBIT_REL_GRID_OP_MS = {2: 3.0e-5, 3: 5.0e-5}
-
-
-def _orbit_rel_op_ms(table, r_a):
-    """Per-op cost for a relative-attribute Möbius route at order r_a.
-
-    Measured entries cover r = 2, 3 (centres ~35 and ~87 ns; grid ~27
-    and ~48 ns, each set at the upper end of its measured band so the
-    Möbius side is over-priced near crossovers — routing bias toward
-    Bulger's method, the cheap-to-mispick side). Orders above the
-    table extrapolate by doubling per order, conservative in the same
-    direction."""
-    r_key = min(max(int(r_a), 2), max(table))
-    val = table[r_key]
-    if r_a > max(table):
-        val *= 2.0 ** (int(r_a) - max(table))
-    return val
-
 
 
 def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None):
@@ -979,8 +947,6 @@ def _format_time(t_sec: float) -> str:
 # Probing parameters.
 _PROBE_MIN_N_Q = 200    # below this many queries, skip probing entirely
 
-_PROBE_N = 50           # probe sample size
-
 # Centres-path memory budget (bytes). The probe refuses to materialise
 # the centres array if it would exceed this; the Möbius method is chosen instead.
 _CENTRES_PROBE_MEM_BUDGET = 4 * 1024**3
@@ -1022,30 +988,6 @@ _BELL_NUMBERS = {
     8: 4140, 9: 21147, 10: 115975,
 }
 
-
-# Pre-screen: if one method is favoured by more than this factor, skip
-# probing entirely. Two pre-screens, one per mode:
-#
-#  - Rel-mode pre-screen: routes TO centres when centres clearly wins.
-#    The Möbius relative-mode evaluator does u-grid quadrature with N_u
-#    nodes (per-node cost K per block on its direct strategy; K-free on
-#    its factored strategy, which its internal gate prefers for batches)
-#    sub-evals per query, so its PROBE is expensive (a 50-query probe at
-#    N_u=1000 is ~3 s); a generous margin here avoids unnecessary probe
-#    overhead.
-#  - Abs-mode pre-screen: routes TO the Möbius method when it clearly wins.
-#    For abs mode, centres cost per query is K^r vs Möbius cost
-#    B_r * r * K. The Möbius method wins by a factor K^(r-1) / (B_r * r);
-#    for K=72 r=3 that's ~1000x. The tiny-workload shortcut would
-#    otherwise force centres for n_q<200 even at these large K, so the
-#    pre-screen must run BEFORE the tiny shortcut. Pattern-finding and
-#    other common music-cog tasks legitimately use abs mode at large K.
-#
-# The dominance margins are conservative — probe still has the final
-# word when the cost ratio is in the uncertain region.
-_PRESCREEN_CENTRES_DOMINANCE = 3.0
-
-_PRESCREEN_ORBIT_DOMINANCE = 3.0
 
 #: Calibrated constants for the MA eval cost model, in milliseconds.
 #: Fitted to the selection-quality grid (single-attribute, r = 2..4,
@@ -1675,10 +1617,6 @@ def _select_ma_eval(dens, n_q, *, method):
 # r+2.
 _PROBE_K_IP_TARGET = 12
 
-_PROBE_MIN_SAMPLE_SEC = 0.008
-_PROBE_MAX_REPS = 64
-
-
 _PROBE_TIME_CACHE: dict = {}
 """Per-session cache of probe timings, keyed by the probe's structural
 parameters (path, r, probe sizes, mode flags, sigma, period,
@@ -1723,69 +1661,6 @@ _PRESCREEN_IP_DOMINANCE = 3.0
 # crossovers K_cross = {r2:14, r3:9, r4:8, r5:8, r6:8}, which keeps the
 # symmetric-K absolute-mode equal-cost point at those measured values.
 _ORBIT_IP_FIXED_OVERHEAD = 24000.0
-
-# Dominance margin for the *Möbius* side of the analytical inner-product
-# pre-screen. Larger than _PRESCREEN_IP_DOMINANCE so that near-crossover cases
-# (where the analytical model is least reliable) defer to the timing probe
-# rather than committing to Möbius on an under-estimate. The Bulger side keeps
-# the tighter _PRESCREEN_IP_DOMINANCE because over-predicting Bulger is cheap
-# (Bulger's cost is genuinely low in that regime) whereas prematurely choosing
-# Möbius pays its fixed overhead needlessly.
-_PRESCREEN_IP_MOBIUS_DOMINANCE = 10.0
-
-
-
-def _falling_factorial(n: int, k: int) -> float:
-    """``n * (n-1) * ... * (n-k+1)``; 0 if any factor is non-positive."""
-    if n < k:
-        return 0.0
-    prod = 1.0
-    for i in range(k):
-        prod *= (n - i)
-    return prod
-
-
-
-_ORBIT_GRID_OP_UNIT_COST = {2: 0.7, 3: 1.7, 4: 1.7, 5: 20.0}
-"""Per-op cost of a translation-grid orbit kernel op relative to a
-pairwise kernel op, per tensor order r, measured on the Python
-implementation (slabbed grid einsum contraction against pairwise
-kernel evaluation; the orbit side is ~9-18 ns/op and flat in both K
-and r, while the pairwise side's per-op cost varies with r — ~17-21
-ns at r = 2, ~8-9 at r = 3, ~4-17 at r = 4, ~1 at r = 5 — which is
-what makes the ratio r-dependent; r = 4 and 5 measured with a K_x = 8
-reference, tests/bench_ip_dispatch.m). The pairwise and orbit cost models
-below count kernel ops in a shared unit; this factor prices the
-rel-mode orbit ops so the modelled equal-cost point matches the
-measured one. The per-orbit contraction work per kernel op varies with
-r beyond what the Bell-number factor captures, so the calibration is
-per-r. Each value sits at the small-K end of its measured ratio range
-(the ratio falls slightly with K, and the pairwise reference is its
-cache-resident per-op cost, which large working sets degrade well
-beyond), so near-crossover routing biases toward the pairwise path,
-the cheap-to-mispick side.
-
-Orders without a calibrated entry use a unit factor of 1.0 (the raw
-grid size) and — see :func:`_select_ma_inner_product_method` — withhold the
-Möbius-side pre-screen, so routing at those orders defers to the
-timing probe rather than trusting an uncalibrated model to commit to
-the expensive-to-mispick path.
-
-Applied to the relative-mode grid factors only: the absolute-mode
-orbit cost calibration (_ORBIT_IP_FIXED_OVERHEAD against measured
-absolute-mode crossovers) predates no such factor and is left
-untouched. The values are per-implementation: the MATLAB sibling in
-cosSimExpTens.m is calibrated the same way on the MATLAB paths via
-tests/bench_ip_dispatch.m."""
-
-
-def _orbit_grid_unit_cost(r: int) -> tuple[float, bool]:
-    """Unit-cost factor for tensor order ``r`` and whether it is a
-    calibrated value (uncalibrated orders return ``(1.0, False)``)."""
-    cost = _ORBIT_GRID_OP_UNIT_COST.get(int(r))
-    if cost is None:
-        return 1.0, False
-    return float(cost), True
 
 
 

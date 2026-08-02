@@ -345,11 +345,6 @@ _TIME_WARN_EMITTED: list[bool] = [False]
 _dispatch_scope_state = threading.local()
 
 
-def _get_dispatch_depth() -> int:
-    """Return the current dispatch-scope depth (0 if outside any scope)."""
-    return getattr(_dispatch_scope_state, "depth", 0)
-
-
 @contextlib.contextmanager
 def _dispatch_scope():
     """Mark a top-level toolbox entry; reset the dispatch seen-set on entry.

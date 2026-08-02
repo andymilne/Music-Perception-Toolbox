@@ -49,12 +49,10 @@ from .density import (
 
 
 # Convergence tolerance for the periodic-image sum used inside the
-# windowed numerator and windowed evaluator. Matches the existing
-# Möbius cancellation-guard convention (1e-12) for double precision
-# and the kernel_precision='single' floor (1e-7) for single. Both are
+# windowed numerator and windowed evaluator. Matches the Möbius
+# cancellation-guard convention (1e-12) for double precision,
 # documented in USER_GUIDE §3.1.
 _IMAGE_SUM_TOL_DOUBLE = 1e-12
-_IMAGE_SUM_TOL_SINGLE = 1e-7
 
 
 def window_tensor(dens, window_spec) -> WindowedMaetDensity:

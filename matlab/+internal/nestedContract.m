@@ -984,20 +984,6 @@ end
 
 
 % ----------------------------------------------------------------------
-function n = orbitCount(r)
-    % Number of terms the orbit sum runs over.
-    persistent cache
-    if isempty(cache)
-        cache = containers.Map('KeyType', 'double', 'ValueType', 'double');
-    end
-    if ~isKey(cache, r)
-        cache(r) = numel(mobius.getOrbitTable(r));
-    end
-    n = cache(r);
-end
-
-
-% ----------------------------------------------------------------------
 function w = enumWork(Q, gx, gy, r)
     % Kernel products the enumerated route performs for this block. Peak
     % memory can be capped by chunking, but the work cannot, so feasibility

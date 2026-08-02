@@ -15,8 +15,9 @@
 %
 %  2. What is the per-operation cost of a translation-grid kernel
 %     operation relative to a pairwise kernel operation on this
-%     machine? This is ORBIT_GRID_OP_UNIT_COST in
-%     localOrbitIPGridFactors (cosSimExpTens.m).
+%     machine? Section 4 fits this as the 'grid' law in relRouteCostMs
+%     (+internal/selectMaInnerProductMethod.m); the ratio measured here
+%     is the quantity that law has to reproduce.
 %
 %  3. Does the Möbius side's operation count have the right FORM? The
 %     count charged to the translation-grid route is
@@ -257,243 +258,14 @@ end
 
 mptDefaults('relAttrRoute', prevRoute);
 
-%% ---- Section 4: is the multi-attribute path ever slower? ----
+%% ---- Section 4: calibrating the relative-mode cost model ----
 
-% The dedicated single-multiset stack is now unreachable
-% (mptDefaults('singleMultisetPath') defaults to 'ma'), and the question
-% before deleting it is whether anything it did is faster than what
-% replaces it.
-%
-% Both paths compute the same thing by the same arithmetic: each reaches
-% mobius.relInnerBatched, and 46 shapes agreed to 3.2e-9. The stack's
-% only advantage was its separate selector, and the multi-attribute cost
-% model has since been refitted from 0.62 to 0.93 on the routing
-% decision. So this section re-measures under the model that will ship,
-% not the one the earlier comparison ran against.
-%
-% It sweeps the axes the calibration does, because each of them has in
-% turn been the one that mattered: the event count (24.5 s against
-% 173 ms at twelve events), unequal value counts (a chord against a
-% scale), the tuple order, the kernel width, both periodicities, and the
-% weight profile.
-%
-% The verdict reports the worst case as well as the spread. A median of
-% 1.00 hid a single cell at 180x in the earlier comparison; but a single
-% cell at 1.7 among 256 is a different thing, so the count above
-% threshold is reported beside the worst.
-%
-% Agreement is judged against a bound that accounts for accumulation.
-% truncationSigmas sets a PER-TERM floor of 1.5e-8: the largest single
-% kernel value discarded. An inner product sums M = r! C(K, r) such
-% terms, so the summed difference between two methods can exceed the
-% per-term floor without either being wrong --- at r = 4, K = 10 that is
-% 5040 terms. Measured against an untruncated reference, both methods sit
-% at 5e-10 there while differing from each other by more. The bound below
-% is the floor times sqrt(M), which is the accumulation a sum of M
-% independent roundings gives, and still some seven orders below the
-% value scale of a cosine.
-
-fprintf('\nSection 4 -- multi-attribute path against the dedicated stack\n');
-
-s4prevPath = mptDefaults('singleMultisetPath');
-s4rows = {};          % {label, t_dedicated, t_ma, worst difference}
-
-s4cases = {};
-for s4r = [2 3 4]
-    switch s4r
-        case 2, s4Ks = [8 24]; s4Ns = [1 4 16];
-        case 3, s4Ks = [8 16]; s4Ns = [1 4 8];
-        case 4, s4Ks = [6 10]; s4Ns = [1 4];
-    end
-    for s4K = s4Ks
-        for s4N = s4Ns
-            for s4shape = {'equal', 'asym'}
-                if strcmp(s4shape{1}, 'asym')
-                    s4Kx = 5;
-                else
-                    s4Kx = s4K;
-                end
-                if s4Kx < s4r || (strcmp(s4shape{1}, 'asym') && s4Kx == s4K)
-                    continue;
-                end
-                for s4prof = {'flat', 'decay'}
-                    for s4sg = [6 25]
-                        for s4isPer = [false true]
-                            s4cases(end+1, :) = {s4r, s4Kx, s4K, s4N, ...
-                                s4shape{1}, s4prof{1}, s4sg, s4isPer}; %#ok<SAGROW>
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
-fprintf('%-34s %10s %10s %8s %12s\n', ...
-        'case', 'ded(ms)', 'MA(ms)', 'MA/ded', 'worst diff');
-s4worstRatio = 0; s4worstWhere = ''; s4worstDiff = 0; s4nCmp = 0;
-s4worstDiffRel = 0; s4nDisagree = 0; s4nSlow = 0;
-for ci = 1:size(s4cases, 1)
-    ra = s4cases{ci, 1}; Kx = s4cases{ci, 2}; Ky = s4cases{ci, 3};
-    N = s4cases{ci, 4}; shp = s4cases{ci, 5}; prof = s4cases{ci, 6};
-    sg = s4cases{ci, 7}; isPer = s4cases{ci, 8};
-    if isPer, P = period; else, P = 0; end
-
-    rs = RandStream('twister', 'Seed', 4241 * Ky + 97 * ra + 7 * N);
-    px = sort(rand(rs, Kx, N) * period, 1);
-    py = sort(rand(rs, Ky, N) * period, 1);
-    wx = localBenchWeights(prof, Kx, N, rs);
-    wy = localBenchWeights(prof, Ky, N, rs);
-    dX = buildExpTens({px}, {wx}, sg, ra, 1, isPer, P, 'verbose', false);
-    dY = buildExpTens({py}, {wy}, sg, ra, 1, isPer, P, 'verbose', false);
-    call = @() cosSimExpTens(dX, dY, 'verbose', false);
-
-    lbl = sprintf('r=%d K=%d/%d N=%d %s %s per=%d sg=%g', ...
-                  ra, Kx, Ky, N, shp, prof, isPer, sg);
-    ok = true;
-    try
-        mptDefaults('singleMultisetPath', 'dedicated');
-        vD = call();
-        tD = internal.timeRepeated(call) * 1e3;
-        mptDefaults('singleMultisetPath', 'ma');
-        vM = call();
-        tM = internal.timeRepeated(call) * 1e3;
-    catch ME
-        ok = false;
-        fprintf('%-34s  one path failed: %s\n', lbl, ME.message);
-    end
-    mptDefaults('singleMultisetPath', 'ma');
-    if ~ok, continue; end
-
-    d = max(abs(vM(:) - vD(:)));
-    Mterms = factorial(ra) * nchoosek(max(Kx, Ky), ra);
-    dBound = 1.5e-8 * sqrt(Mterms);
-    ratio = tM / max(tD, eps);
-    s4nCmp = s4nCmp + 1;
-    if d > dBound
-        s4nDisagree = s4nDisagree + 1;
-        fprintf('%-34s  values differ by %.3e, bound %.3e\n', lbl, d, dBound);
-    end
-    if d / dBound > s4worstDiffRel
-        s4worstDiffRel = d / dBound; s4worstDiff = d;
-    end
-    if ratio > s4worstRatio
-        s4worstRatio = ratio; s4worstWhere = lbl;
-    end
-    % Only the notable rows are printed; the summary carries the rest.
-    if ratio > 1.3
-        s4nSlow = s4nSlow + 1;
-        fprintf('%-34s %10.3f %10.3f %8.2f %12.3e\n', lbl, tD, tM, ratio, d);
-    end
-end
-mptDefaults('singleMultisetPath', s4prevPath);
-
-fprintf('\n    %d cells compared.\n', s4nCmp);
-fprintf(['    Values: %d cells beyond the accumulation bound; worst was ' ...
-         '%.2fx its bound (%.3e).\n'], s4nDisagree, s4worstDiffRel, ...
-        s4worstDiff);
-fprintf(['    Times: %d cells above 1.3x; worst ratio %.2f, at %s\n'], ...
-        s4nSlow, s4worstRatio, s4worstWhere);
-if s4nDisagree > 0
-    fprintf(['    The two paths disagree beyond what truncation ' ...
-             'accumulation explains.\n    Report this before anything ' ...
-             'is deleted.\n']);
-elseif s4worstRatio <= 1.3
-    fprintf(['    Values agree and the MA path is nowhere more than 30%% ' ...
-             'slower: the\n    dedicated stack does not earn its place ' ...
-             'and can be deleted.\n']);
-elseif s4worstRatio <= 3.0 && s4nSlow <= 0.05 * s4nCmp
-    fprintf(['    Values agree. A few cells near the cost model''s ' ...
-             'crossover are slower,\n    the worst by %.2fx --- against ' ...
-             'a model that routes 93%% of cells\n    correctly where ' ...
-             'the previous one managed 62%%, and whose worst\n    ' ...
-             'misroute was 180x. The dedicated stack does not earn its ' ...
-             'place.\n'], s4worstRatio);
-else
-    fprintf(['    Values agree, but the MA path is materially slower in ' ...
-             '%d cells, worst\n    %.2fx. Those are named above; report ' ...
-             'them before anything is deleted.\n'], s4nSlow, s4worstRatio);
-end
-
-%% ---- Section 5: where the MA path is slower, is it route or cost? ----
-
-% Section 4 finds the two paths agreeing on value everywhere but the MA
-% path far slower in a few cells, all of them relative and most of them
-% non-periodic. That is either a route the MA path chooses badly or a
-% cost it cannot avoid, and the two call for different remedies: the
-% first is a gate correction, the second means the dedicated stack is
-% buying something real.
-%
-% relAttrRoute pins the route inside the MA path, so timing each cell
-% under 'centres' and 'grid' separates the two. In Python the same cells
-% show 'auto' tracking 'grid' closely while 'centres' runs hundreds of
-% times slower, so if a forced route here comes in near the dedicated
-% figure the fault is the gate, not the path.
-
-fprintf('\nSection 5 -- outlier diagnosis (relative mode)\n');
-fprintf('%-26s %9s %9s %9s %9s\n', ...
-        'case', 'ded(ms)', 'MA auto', 'MA centr', 'MA grid');
-
-s5cells = { ...
-    2, 40, false; ...
-    2, 80, false; ...
-    2, 80, true;  ...
-    4, 10, false; ...
-    4, 10, true};
-
-prevPath5 = mptDefaults('singleMultisetPath');
-prevRoute5 = mptDefaults('relAttrRoute');
-for ci = 1:size(s5cells, 1)
-    s5r = s5cells{ci, 1};
-    s5K = s5cells{ci, 2};
-    s5isPer = s5cells{ci, 3};
-    if s5isPer, s5P = period; else, s5P = 0; end
-    rs = RandStream('twister', 'Seed', 77 * s5K + s5r + 13 * (2 + 2 * s5isPer));
-    px = sort(rand(rs, 1, s5K) * period);
-    py = sort(rand(rs, 1, s5K) * period);
-    wx = 0.5 + rand(rs, 1, s5K);
-    wy = 0.5 + rand(rs, 1, s5K);
-    call = @() cosSimExpTens(px, wx, py, wy, sigma, s5r, 1, s5isPer, ...
-        s5P, 'verbose', false);
-    mptDefaults('singleMultisetPath', 'auto');
-    mptDefaults('relAttrRoute', 'auto');
-    call();
-    s5ded = internal.timeRepeated(call) * 1e3;
-    s5t = nan(1, 3);
-    s5routes = {'auto', 'centres', 'grid'};
-    mptDefaults('singleMultisetPath', 'ma');
-    for ri = 1:3
-        mptDefaults('relAttrRoute', s5routes{ri});
-        try
-            call();
-            s5t(ri) = internal.timeRepeated(call) * 1e3;
-        catch
-            s5t(ri) = NaN;   % route inadmissible here
-        end
-    end
-    mptDefaults('relAttrRoute', 'auto');
-    mptDefaults('singleMultisetPath', 'auto');
-    fprintf('%-26s %9.3f %9.3f %9.3f %9.3f\n', ...
-        sprintf('r=%d K=%d per=%d', s5r, s5K, s5isPer), ...
-        s5ded, s5t(1), s5t(2), s5t(3));
-end
-mptDefaults('relAttrRoute', prevRoute5);
-mptDefaults('singleMultisetPath', prevPath5);
-
-fprintf(['    If a forced route comes in near the dedicated figure, the ' ...
-         'gate is\n    choosing badly and the fix is the gate. If every ' ...
-         'route is far slower,\n    the MA path cannot reach the ' ...
-         'dedicated stack''s cost and the stack\n    is buying ' ...
-         'something real.\n']);
-
-%% ---- Section 6: calibrating the relative-mode cost model ----
-
-% Sections 4 and 5 localise the remaining gap to a routing decision, not
-% to a missing technique: both paths reach mobius.relInnerBatched, and
-% the dedicated stack's whole advantage is that its own selector picks
-% the Mobius method where the multi-attribute selector picks Bulger's.
-% In Python the same cells show the Mobius method 15 to 300 times faster
-% than the one chosen.
+% Where the auto-dispatched time exceeds the better of the two forced
+% times, the gap is a routing decision rather than a missing technique:
+% both methods reach mobius.relInnerBatched, and the question is only
+% which of them the selector picks. In relative mode the Mobius method
+% can run 15 to 300 times faster than Bulger's on the same cell, so a
+% misroute there is expensive.
 %
 % This section supplies what a fit needs: for each cell, both methods
 % timed, and beside them the two wall times the selector's comparison
@@ -506,7 +278,7 @@ fprintf(['    If a forced route comes in near the dedicated figure, the ' ...
 % relInnerBatched sets it, so the prediction seen here is the one the
 % dispatcher forms.
 
-fprintf('\nSection 6 -- relative-mode cost model against measurement\n');
+fprintf('\nSection 4 -- relative-mode cost model against measurement\n');
 fprintf('%-20s %9s %9s %8s %10s %10s %8s %8s\n', ...
     'case', 'bulger', 'mobius', 'picked', 'pred bul', 'pred mob', ...
     'bul p/m', 'mob p/m');
@@ -611,13 +383,15 @@ else
                  '    evidence that the Mobius operation count grows\n' ...
                  '    faster than the measured work. See verdict [3]: a\n' ...
                  '    single constant cannot repair a count of the wrong\n' ...
-                 '    form, so ORBIT_GRID_OP_UNIT_COST should not be\n' ...
-                 '    reset from these numbers.\n'], ratios(1), ratios(end));
+                 '    form, so the grid law in relRouteCostMs should\n' ...
+                 '    not be refitted from these numbers.\n'], ...
+                 ratios(1), ratios(end));
     else
         fprintf(['    The ratio is not monotone in n. Median %.4f is a\n' ...
-                 '    usable value for ORBIT_GRID_OP_UNIT_COST in\n' ...
-                 '    localOrbitIPGridFactors (cosSimExpTens.m); the\n' ...
-                 '    shipped value is 1.6.\n'], median(ratios));
+                 '    usable per-operation reading for the grid route,\n' ...
+                 '    against which the fitted law in relRouteCostMs\n' ...
+                 '    (+internal/selectMaInnerProductMethod.m) can be\n' ...
+                 '    sanity-checked.\n'], median(ratios));
     end
 end
 
@@ -677,24 +451,6 @@ catch benchErr
     rethrow(benchErr);
 end
 mptDefaults('showHints', prevHints);
-
-
-function w = localBenchWeights(profile, K, N, rs)
-%LOCALBENCHWEIGHTS  K x N weights of the named shape, jittered.
-%
-%   Weights change how much of a multiset the truncated kernel touches,
-%   so a comparison made on uniform weights need not hold otherwise.
-    switch profile
-        case 'flat'
-            base = ones(K, 1);
-        case 'decay'
-            base = exp(-linspace(0, 4, K)).';
-        otherwise
-            error('mpt:badProfile', 'Unknown weight profile ''%s''.', ...
-                  profile);
-    end
-    w = repmat(base, 1, N) .* (0.75 + 0.5 * rand(rs, K, N));
-end
 
 
 function s = localLogSlope(x, y)

@@ -120,14 +120,6 @@ def apply_transform(vals, mode, gamma, eta):
     return vals
 
 
-def _normalize_for_display(vals):
-    mn = np.nanmin(vals)
-    mx = np.nanmax(vals)
-    if mx > mn:
-        return (vals - mn) / (mx - mn)
-    return np.ones_like(vals)
-
-
 # ===================================================================
 #  Generic UI helper: add Off/Gamma/Sat toggle + slider to a figure
 # ===================================================================

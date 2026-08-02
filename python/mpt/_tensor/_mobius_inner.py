@@ -1217,14 +1217,8 @@ def _rel_inner_batched(
         du = period / N_u
         centres = np.zeros((N_x, N_y), dtype=np.float64)
     else:
-        # Per-pair centred common grid. Weighted-value means keep the
-        # centre finite for zero-padded events (all-zero-weight events
-        # contribute nothing regardless of centre).
-        def _col_means(P, W):
-            wsum = W.sum(axis=0)
-            safe = np.where(wsum > 0, wsum, 1.0)
-            return (P * W).sum(axis=0) / safe
-
+        # Per-pair common grid, positioned from each pair's own
+        # difference range.
         def _extremes(P, W):
             masked = np.where(W > 0, P, np.nan)
             lo = np.nanmin(masked, axis=0)

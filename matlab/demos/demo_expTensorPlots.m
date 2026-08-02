@@ -613,17 +613,6 @@ function vt = applyTransform(vals, mode, gamma, eta)
     end
 end
 
-function vn = normalizeForDisplay(vals)
-%NORMALIZEFORDISPLAY Normalize to [0, 1] for color/alpha mapping.
-    mn = min(vals(:));
-    mx = max(vals(:));
-    if mx > mn
-        vn = (vals - mn) / (mx - mn);
-    else
-        vn = ones(size(vals));
-    end
-end
-
 function addPlotControls(fig, info, gammaInit, etaInit)
 %ADDPLOTCONTROLS Add interactive controls to a figure.
 %

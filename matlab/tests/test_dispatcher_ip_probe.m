@@ -1,11 +1,10 @@
-%% test_dispatcher_ip_probe.m — v2.2.x probe-based SA IP dispatcher
+%% test_dispatcher_ip_probe.m — v2.2.x single-multiset IP dispatcher
 %
-%  Mirrors python/tests/test_dispatcher_ip_probe.py. The
-%  dispatcher (localSelectAndEstimateSingleMultisetIP inside cosSimExpTens) decides
-%  between the Möbius method and the Bulger's method. Hard rules decide
-%  first (correctness / feasibility); then an analytical pre-screen
-%  catches clear-winner cases without probe overhead; otherwise both
-%  paths are timed on a small subset and the faster is picked.
+%  Mirrors python/tests/test_dispatcher_ip_probe.py. The dispatcher
+%  (internal.selectMaInnerProductMethod) decides between the Möbius
+%  method and Bulger's method. Hard rules decide first (correctness /
+%  feasibility); otherwise the fitted cost model prices both routes and
+%  the cheaper is picked.
 %
 %  Standalone-runnable.
 

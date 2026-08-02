@@ -72,16 +72,6 @@ def _tuple_indices(n: int, r: int, sym: bool):
     return xtup, ytup
 
 
-def _perm_count(g, r):
-    # C(g, r) * r!  = number of ordered r-tuples of distinct items from g.
-    if r > g or r < 0:
-        return 0
-    n = 1
-    for i in range(r):
-        n *= (g - i)
-    return n
-
-
 @lru_cache(maxsize=None)
 def _admitting_sigmas(bound):
     """Largest ``truncationSigmas`` whose floor would admit an error bound.
@@ -203,10 +193,6 @@ def _combine(M, xtup, ytup):
 # 6 of 21 (r, B) combinations, missing by up to 15, where the model manages
 # 19 of 21. Neither took the batch extent, which moves the crossover by up
 # to 11 in K.
-
-
-def _node_span(node):
-    return len(node.val_idx) if node.level == 0 else len(node.children)
 
 
 @functools.lru_cache(maxsize=None)

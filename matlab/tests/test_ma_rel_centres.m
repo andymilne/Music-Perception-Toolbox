@@ -293,50 +293,6 @@ results{end,2}   = mrc_raised;
 
 mptDefaults('relAttrRoute', mrc_prevRoute);
 
-% --- singleMultisetPath ---
-% A single multiset (A = N = 1) was handled by a dedicated stack separate
-% from the multi-attribute path; Python has no such split. The default is
-% now 'ma', which makes that stack unreachable. Setting the default to
-% 'dedicated' restores it, and exists only so the two can still be
-% compared. The value must not depend on which path ran.
-smp_prev = mptDefaults('singleMultisetPath');
-results{end+1,1} = 'singleMultisetPath: default is ma';
-results{end,2}   = strcmp(smp_prev, 'ma');
-
-smp_rs = RandStream('twister', 'Seed', 4242);
-smp_px = sort(rand(smp_rs, 1, 12) * 1200);
-smp_py = sort(rand(smp_rs, 1, 12) * 1200);
-mptDefaults('singleMultisetPath', 'dedicated');
-smp_vDed = cosSimExpTens(smp_px, [], smp_py, [], 6, 2, 1, 1, 1200);
-smp_ok = false;
-smp_msg = '';
-try
-    mptDefaults('singleMultisetPath', 'ma');
-    smp_vMA = cosSimExpTens(smp_px, [], smp_py, [], 6, 2, 1, 1, 1200);
-    smp_ok = abs(smp_vMA - smp_vDed) < 1.5e-8;
-catch smp_err
-    smp_msg = smp_err.message;
-end
-mptDefaults('singleMultisetPath', smp_prev);
-if isempty(smp_msg)
-    results{end+1,1} = ['singleMultisetPath: MA path agrees with the ' ...
-                        'dedicated stack'];
-else
-    results{end+1,1} = sprintf( ...
-        'singleMultisetPath: MA path rejected the corner (%s)', smp_msg);
-end
-results{end,2}   = smp_ok;
-
-smp_raised = false;
-try
-    mptDefaults('singleMultisetPath', 'grid');
-catch smp_err
-    smp_raised = strcmp(smp_err.identifier, 'mptDefaults:badValue');
-end
-results{end+1,1} = 'singleMultisetPath: rejects a value outside the two';
-results{end,2}   = smp_raised;
-mptDefaults('singleMultisetPath', smp_prev);
-
 % --- Non-periodic relative: the window must cover its own support ---
 % Twin of the cells in test_rel_per_full_image.py. The cross integrand's
 % support runs from (min_y - max_x) to (max_y - min_x), centred on the

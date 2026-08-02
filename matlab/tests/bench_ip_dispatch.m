@@ -5,9 +5,10 @@
 %
 %    * c_pw, c_orb, ratio — per-op costs of the two paths and their
 %      unit-cost ratio. With the slabbed translation grid, c_orb should
-%      be roughly flat across n; the per-r median ratio is the value
-%      for that r's entry in localOrbitGridUnitCost (cosSimExpTens.m).
-%      Orders without a calibrated entry route via the timing probe.
+%      be roughly flat across n; the per-r medians inform the fitted
+%      constants in relRouteCostMs
+%      (+internal/selectMaInnerProductMethod.m), which
+%      tools/calibrateRelIpCost measures.
 %
 %    * auto~ — which forced method the 'auto' timing sits closer to
 %      (an inference; with 'showHints' on, the dispatch messages name
@@ -273,8 +274,9 @@ for ri = 1:numel(symR)
     end
 end
 
-fprintf(['\nPer-r medians calibrate localOrbitGridUnitCost in\n' ...
-         'cosSimExpTens.m; uncalibrated orders route via the (cached)\n' ...
-         'probe. Where t_mob < t_bul, the Möbius method wins outright\n' ...
+fprintf(['\nPer-r medians inform relRouteCostMs in\n' ...
+         '+internal/selectMaInnerProductMethod.m, which\n' ...
+         'tools/calibrateRelIpCost fits. Where t_mob < t_bul, the\n' ...
+         'Möbius method wins outright\n' ...
          'at that size; pairwise cost grows as n^(2r), so the\n' ...
          'crossover moves to smaller n as r rises.\n']);

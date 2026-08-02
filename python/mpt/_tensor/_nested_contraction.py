@@ -404,9 +404,12 @@ def _combine_orbit(M, r, return_bound=False):
     reduction (= inner_product_orbit_grid / r!), vectorised over the leading
     batch. Supports rectangular M (gx != gy).
 
-    With ``return_bound``, also returns the forward-error bound
-    ``|Omega_r| * eps * max|term| / r!`` on the returned scale, which the
-    caller compares against the accuracy the user asked for.
+    With ``return_bound``, also returns an estimate of the rounding
+    error, ``eps * sum|term| / r!`` on the returned scale, which the
+    caller compares against the accuracy the user asked for. It is an
+    estimate rather than a guaranteed limit; see the note at the return
+    site, and tools/calibrate_orbit_cancellation.py for the measured
+    conservatism.
     """
     from .._mobius import inner_product_orbit_grid
     gx, gy = M.shape[1], M.shape[2]

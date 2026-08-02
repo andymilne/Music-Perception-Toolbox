@@ -952,18 +952,21 @@ function out = orbitGuard(cmd, arg)
     % flags. The Moebius (orbit) reduction sums signed terms that largely
     % cancel, so its answer carries fewer digits than the terms it was built
     % from; enumeration sums only non-negative terms and loses nothing.
-    % Summing n terms carries a forward error of at most n*eps*max|partial
-    % sum|, and where terms cancel the partial sums are bounded by the
-    % largest term, giving
+    % The rounding error is estimated as
     %
-    %     error <= |Omega_r| * eps * max|term| / r!
+    %     eps * sum|term| / r!
     %
-    % on the scale combineOrbit returns. |Omega_r| is the orbit count the sum
-    % runs over and max|term| is reported by innerProductOrbitGrid, so the
-    % bound costs nothing to evaluate. Measured against enumeration across
-    % 165 configurations -- power-law and geometric weights including
-    % rho = 10, and a 1000:1 dominant weight -- it held in every case,
-    % conservative by 2x to 31x.
+    % on the scale combineOrbit returns, where sum|term| is reported by
+    % innerProductOrbitGrid, so the estimate costs nothing to evaluate.
+    % It is an estimate rather than a guaranteed limit; see the note at
+    % combineOrbit's return site.
+    %
+    % Its conservatism has been measured on the Python implementation
+    % only, by tools/calibrate_orbit_cancellation.py. Rounding error
+    % depends on the order in which the terms are accumulated, and the
+    % two implementations do not accumulate in the same order, so those
+    % figures do not transfer to this side. Calibrate with
+    % tools/calibrateOrbitCancellation.m before relying on them here.
     persistent state
     switch cmd
         case 'begin'

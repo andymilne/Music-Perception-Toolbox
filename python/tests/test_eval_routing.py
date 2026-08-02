@@ -308,3 +308,94 @@ def test_per_call_overrides_global():
             verbose=False,
         )
     np.testing.assert_allclose(v, ref, rtol=1e-12, atol=_ATOL)
+
+
+# ---------------------------------------------------------------------
+# The relative-periodic measure: transposition average vs the
+# wrapped-difference approximation
+# ---------------------------------------------------------------------
+# The battery above tops out at sigma/P = 0.021, below the limit at
+# which the wrapped-difference form ceases to be admissible, so nothing
+# in this file exercised the canonical form or the regime where the
+# measure rather than the price decides the route. These do.
+
+
+def _transposition_average(p, w, sigma, r, x, n_tau):
+    """The relative periodic density as the manuscript defines it.
+
+    The average, over a common shift of every coordinate, of the
+    absolute periodic density of the same collection. The reduced
+    coordinates ``x`` carry positions 1..r-1, so position 0 at the
+    origin is prepended before shifting.
+
+    Evaluated on a uniform grid of ``n_tau`` shifts. The grid has to
+    resolve sigma: at n_tau = 600 the ratio against the Mobius route is
+    constant across queries to 8e-8 at sigma/P = 0.05 but only to 4e-1
+    at sigma/P = 0.01, where six grid points span a sigma.
+    """
+    dens_abs = build_exp_tens(
+        p, w, sigma, r, False, True, P_REL, verbose=False,
+    )
+    n_q = x.shape[1]
+    full = np.vstack([np.zeros((1, n_q)), x])            # (r, n_q)
+    taus = np.arange(n_tau) * (P_REL / n_tau)
+    grid = (full[:, :, None] + taus[None, None, :]) % P_REL
+    vals = eval_exp_tens(
+        dens_abs, grid.reshape(r, n_q * n_tau), verbose=False,
+    )
+    return vals.reshape(n_q, n_tau).mean(axis=1)
+
+
+P_REL = 1200.0
+
+
+@pytest.mark.parametrize("sigma_over_P, tol", [(0.05, 1e-5), (0.02, 1e-4)])
+def test_mobius_route_computes_the_transposition_average(sigma_over_P, tol):
+    """The Mobius route returns the transposition average up to scale.
+
+    The two differ by the constant relating the relative and absolute
+    normalisations, so the test is that the ratio is the same at every
+    query point, not that it is one.
+
+    This pins the identity, not a discrimination: at these settings the
+    wrapped-difference form agrees with the transposition average to
+    about 1e-8 in density value, so the test would pass against either
+    route. What fails positive-definiteness past the limit is the
+    cosine, not the density, and that is tested elsewhere.
+    """
+    sigma = sigma_over_P * P_REL
+    rng = np.random.default_rng(zlib.crc32(b"transposition-average"))
+    p = np.sort(rng.uniform(0, P_REL, 6))
+    w = rng.uniform(0.5, 1.5, 6)
+    dens = build_exp_tens(p, w, sigma, 3, True, True, P_REL, verbose=False)
+    x = rng.uniform(0, P_REL, (2, 9))
+    mobius = eval_exp_tens(dens, x, method='mobius', verbose=False)
+    ref = _transposition_average(p, w, sigma, 3, x, n_tau=600)
+    ratio = ref / mobius
+    assert np.all(np.isfinite(ratio))
+    assert ratio.std() / ratio.mean() < tol, (
+        f"sigma/P={sigma_over_P}: ratio to the transposition average "
+        f"varies across queries by {ratio.std() / ratio.mean():.2e}"
+    )
+
+
+def test_beyond_the_limit_the_measure_decides_the_route():
+    """Past the sigma/P limit the transposition average is computed.
+
+    The wrapped-difference form is inadmissible there, so the Mobius
+    route is taken whatever the cost model says. At r=3 K=12 the joint
+    centres route is priced the cheaper of the two, which is what makes
+    this a test of the measure rule rather than of the price.
+    """
+    from mpt._tensor.dispatch import _orbit_sigma_over_p_threshold
+    sigma = 0.05 * P_REL
+    assert 0.05 > _orbit_sigma_over_p_threshold(None)
+    rng = np.random.default_rng(zlib.crc32(b"beyond-the-limit"))
+    p = np.sort(rng.uniform(0, P_REL, 12))
+    dens = build_exp_tens(p, None, sigma, 3, True, True, P_REL,
+                          verbose=False)
+    report = mpt.explain_dispatch(dens, n_q=200)
+    priced = {rt.name: rt.predicted_ms for rt in report.routes}
+    assert priced['centres'] < priced['mobius']
+    assert report.chosen == 'mobius'
+    assert report.measure == "transposition average (the definition)"

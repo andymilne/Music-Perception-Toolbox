@@ -17,7 +17,7 @@ function maybeWarnAbsPerSingleImage(sigma, isRel, isPer, period, wrap)
     if nargin < 5
         wrap = [];
     end
-    THRESHOLD = 0.05;   % _ABS_PER_SIGMA_OVER_P_THRESHOLD
+    THRESHOLD = internal.absPerSigmaOverPThreshold();
     try
         if isempty(isPer) || isempty(period) || isempty(sigma)
             return;

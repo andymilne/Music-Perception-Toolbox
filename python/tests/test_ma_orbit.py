@@ -20,7 +20,6 @@ from mpt import build_exp_tens, cos_sim_exp_tens
 from mpt._tensor.dispatch import _predict_pairwise_kernel_size
 from mpt.tensor import (
     _ORBIT_R_MAX_SHIPPED,
-    _ORBIT_SIGMA_OVER_P_THRESHOLD,
     _cos_sim_exp_tens_ma_orbit,
     _cos_sim_exp_tens_ma_pairwise,
     _ma_has_nan,

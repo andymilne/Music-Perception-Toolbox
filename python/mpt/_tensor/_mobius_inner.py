@@ -33,7 +33,7 @@ from .dispatch import (
     _compute_Q,
     _compute_Q_inner_blocks,
     _inner_r_vec,
-    _ORBIT_SIGMA_OVER_P_THRESHOLD,
+    _orbit_sigma_over_p_threshold,
 )
 
 
@@ -1584,7 +1584,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     See ``_CENTRES_NS_BASE`` and ``_GRID_NS_PER_OP`` for the cost-model
     calibration notes.
     """
-    from .dispatch import _ORBIT_SIGMA_OVER_P_THRESHOLD
+    from .dispatch import _orbit_sigma_over_p_threshold
     from .._defaults import get_default
 
     # Admissibility first. These four returns are not cost judgements:
@@ -1597,7 +1597,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     if not is_rel or r_a < 2:
         return False
     blocked_by_measure = (
-        is_per and (sigma / period) > _ORBIT_SIGMA_OVER_P_THRESHOLD)
+        is_per and (sigma / period) > _orbit_sigma_over_p_threshold())
     K_x = int(Px.shape[0])
     K_y = int(Py.shape[0])
     empty_tuple_set = K_x < r_a or K_y < r_a
@@ -1610,7 +1610,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
             raise ValueError(
                 "rel_attr_route='centres' cannot be honoured at "
                 f"sigma/period = {sigma / period:.4g}: above "
-                f"{_ORBIT_SIGMA_OVER_P_THRESHOLD:g} the tuple-centres "
+                f"{_orbit_sigma_over_p_threshold():g} the tuple-centres "
                 "route evaluates a kernel that is not positive definite, "
                 "so the translation grid is the only admissible route. "
                 "Lower sigma/period or use 'auto'."

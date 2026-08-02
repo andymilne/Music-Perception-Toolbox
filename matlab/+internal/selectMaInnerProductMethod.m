@@ -92,7 +92,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % component differences instead: an approximation that coincides
     % with the transposition average as sigma/P -> 0 and is cheaper, so
     % the toolbox uses it in that regime. The two diverge above
-    % sigma/P = 0.03, and from around 0.06 the wrapped-difference form
+    % the resolved threshold, and from around 0.06 the wrapped-difference form
     % stops being positive-definite --- its cosine similarity exceeds 1
     % for some density pairs --- so above the threshold the choice is a
     % choice of measure and the wrap axis makes it.
@@ -122,7 +122,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
                  'supported; all rel-per attributes must share a wrap ' ...
                  'value.']);
         end
-        if sigmaOverPMax > 0.03
+        if sigmaOverPMax > internal.relPerSigmaOverPThreshold()
             if wantsSingle
                 chosen = 'bulger'; return;
             elseif wantsFull
@@ -137,7 +137,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % that, the per-entry cost falling as the arrays grow, which is what
     % the fitted exponent below 1 carries.
     pwCost = relRouteCostMs('bulger', r_max, pwSize);
-    centresOk = sigmaOverPMax <= 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+    centresOk = sigmaOverPMax <= internal.relPerSigmaOverPThreshold();
     orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                                    nuVec, centresOk, kVecY);
     pwCostOut = pwCost;

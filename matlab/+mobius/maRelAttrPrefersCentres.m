@@ -53,7 +53,7 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
 %   Writing the division out keeps the fitted figures visible and gives
 %   both languages the identical double.
 
-    SIGMA_OVER_P_THRESHOLD = 0.03;   % _ORBIT_SIGMA_OVER_P_THRESHOLD
+    SIGMA_OVER_P_THRESHOLD = internal.relPerSigmaOverPThreshold();
 
     % Cost-model constants (nanoseconds). Cross-language route parity
     % requires these to match Python _mobius_inner._CENTRES_NS_*,

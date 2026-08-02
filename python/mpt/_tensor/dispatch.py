@@ -533,7 +533,8 @@ def _select_ma_inner_product_method(
     # already ensured above; the per-side count reuses the exact
     # _predict_pairwise_kernel_size formula (n_J = N · ∏_a r_a!·C).
     if A > 0 and not (any_rel_per
-                      and sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD):
+                      and sigma_over_P_max
+                      > _orbit_sigma_over_p_threshold()):
         k_y = k_vec if k_vec_y is None else k_vec_y
         tuples_x = 1.0
         tuples_y = 1.0
@@ -574,7 +575,7 @@ def _select_ma_inner_product_method(
                 "Mixed rel-per wrap on a single density is not yet supported; "
                 "all rel-per attributes must share a wrap value."
             )
-        if sigma_over_P_max > _ORBIT_SIGMA_OVER_P_THRESHOLD:
+        if sigma_over_P_max > _orbit_sigma_over_p_threshold():
             if wants_single:
                 return ('bulger', float('nan'), float('nan')) \
                     if return_costs else 'bulger'
@@ -606,7 +607,8 @@ def _select_ma_inner_product_method(
         nu_vec = np.full(max(A, 1), 2000.0)[:A]
     orbit_cost_ms = _predict_orbit_cost_ms(
         r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec,
-        centres_ok=(sigma_over_P_max <= _ORBIT_SIGMA_OVER_P_THRESHOLD),
+        centres_ok=(sigma_over_P_max
+                    <= _orbit_sigma_over_p_threshold()),
         k_vec_y=k_vec_y,
     )
     chosen = 'bulger' if pw_cost_ms <= orbit_cost_ms else 'mobius'
@@ -845,15 +847,74 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
-#: σ/P beyond which the wrapped-difference relative-periodic kernel
-#: departs materially from the transposition average that defines the
-#: measure. Below it the two agree and either route may be taken on
-#: cost alone; above it the choice is a choice of measure, and the wrap
-#: axis decides it. The Möbius route computes the transposition average
-#: at every σ/P --- ``test_rel_per_full_image.py`` checks it against an
-#: independent lattice sum up to σ/P = 0.30 --- so it is the approximation
-#: that departs, not the Möbius route.
-_ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03
+#: Measured departure of the wrapped-difference relative-periodic kernel
+#: from the transposition average that defines the measure, on the value
+#: scale. Worst over tuple orders 2 to 4, value counts 4 to 12, and six
+#: weight profiles --- flat, linear, two exponential rolloffs, bimodal,
+#: and a single dominant value at 1000:1 --- from
+#: tools/calibrate_sigma_over_p.py.
+#:
+#: The two entries below 0.04 sit at floating-point noise rather than at
+#: a measured departure, so they bound the threshold no more tightly
+#: than the arithmetic allows. The departure peaks at r = 3 rather than
+#: at the largest order, so a calibration taken at r = 2 alone would be
+#: too loose.
+_REL_PER_DEPARTURE = (
+    (0.020, 1.67e-16),
+    (0.030, 4.14e-14),
+    (0.040, 3.27e-08),
+    (0.050, 1.82e-05),
+    (0.055, 1.09e-04),
+    (0.060, 3.99e-04),
+    (0.065, 1.03e-03),
+    (0.070, 3.08e-03),
+    (0.080, 1.10e-02),
+    (0.100, 4.07e-02),
+)
+
+#: Hard ceiling on σ/P for the wrapped-difference form, whatever
+#: accuracy is asked for.
+#:
+#: Beyond it the kernel stops being positive-definite: its induced
+#: cosine similarity exceeds 1, so Cauchy-Schwarz fails and the quantity
+#: is not a similarity at all. That is a failure of admissibility rather
+#: than of accuracy, and no ``truncation_sigmas`` setting has authority
+#: to loosen it. A search over the same grid first reaches a violation
+#: at σ/P = 0.07; an earlier search reached one at 0.06. A search only
+#: ever bounds the onset from above --- failing to find a violation
+#: proves nothing --- so the ceiling sits below the earliest onset
+#: anyone has found.
+#:
+#: On the shipped accuracy settings this never binds: the accuracy limit
+#: is 0.055 even at truncation_sigmas = 4. It is a backstop.
+_REL_PER_PD_CEILING = 0.05
+
+
+def _orbit_sigma_over_p_threshold(truncation_sigmas=None):
+    """σ/P above which the wrapped-difference form is inadmissible.
+
+    Two tests, the stricter winning. The accuracy test is the toolbox's
+    usual one: the departure from the defining measure must sit inside
+    the floor ``truncation_sigmas`` implies, judged as an absolute error
+    on the value scale. The positive-definiteness test is a fixed
+    ceiling, since a form that is not an inner product cannot be made
+    into one by relaxing a tolerance.
+
+    Accuracy is the binding test in practice --- it gives 0.03 at the
+    factory default and at every tighter setting, and 0.055 at the
+    loosest --- so this returns a threshold that tightens as the caller
+    asks for more accuracy, where a single constant could only be right
+    at one setting. The shipped 0.03 was the value at the default.
+
+    The table is the calibration; no functional form is fitted to it,
+    and the largest entry inside the floor is taken rather than
+    interpolated, so the answer is always one the measurements support.
+    """
+    from .._defaults import truncation_floor
+    floor = truncation_floor(truncation_sigmas)
+    admissible = [sop for sop, dev in _REL_PER_DEPARTURE if dev <= floor]
+    limit = max(admissible) if admissible else _REL_PER_DEPARTURE[0][0]
+    return min(limit, _REL_PER_PD_CEILING)
 
 #: σ/P beyond which the absolute-periodic single-image (minimum-image)
 #: measure departs materially from the full-image measure --- the sum of
@@ -873,7 +934,7 @@ _ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03
 #:   of any density and the form it induces is not an inner product.
 #:   Cauchy-Schwarz then fails: cosines of 1.07 at σ/P = 0.20 and 1.12 at
 #:   0.30 are reachable with ordinary non-negative weights.
-_ABS_PER_SIGMA_OVER_P_THRESHOLD = 0.05
+_ABS_PER_SIGMA_OVER_P_THRESHOLD = 0.04
 
 
 def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
@@ -1603,7 +1664,8 @@ def _select_ma_eval(dens, n_q, *, method):
     wrap = getattr(dens, 'wrap', None)
     for a in range(A):
         if (is_rel[a] and is_per[a] and period[a] > 0
-                and sigma[a] / period[a] > _ORBIT_SIGMA_OVER_P_THRESHOLD):
+                and sigma[a] / period[a]
+                > _orbit_sigma_over_p_threshold()):
             wrap_a = (str(wrap[a]) if wrap is not None
                       and a < len(wrap) else 'full-image')
             if wrap_a == 'single-image':

@@ -76,7 +76,7 @@ from .dispatch import (
     _select_ma_inner_product_method,
     # Orbit-table policy constants used by the Möbius-method router.
     _ORBIT_R_MAX_SHIPPED,
-    _ORBIT_SIGMA_OVER_P_THRESHOLD,
+    _orbit_sigma_over_p_threshold,
     _warn_rel_per_all_image,
 )
 
@@ -1103,7 +1103,8 @@ def _cos_sim_exp_tens_ma(
     (``_ip_core_ma``) — and the Möbius method.
     With the default ``method='auto'`` and perceptually typical
     parameters (no NaN-padded ``p_attr``, r_a ≤
-    ``_ORBIT_R_MAX_SHIPPED``, σ/P ≤ ``_ORBIT_SIGMA_OVER_P_THRESHOLD``
+    ``_ORBIT_R_MAX_SHIPPED``, σ/P within
+    :func:`_orbit_sigma_over_p_threshold`
     for periodic-relative groups), the Möbius method is selected and
     the result agrees with v2.1 to floating-point precision.
 

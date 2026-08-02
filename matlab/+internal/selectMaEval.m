@@ -37,7 +37,9 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
 
     % --- Hard-rule constants (mirror Python dispatch.py) ---
     ORBIT_R_MAX_FEASIBLE = 10;
-    ORBIT_SIGMA_OVER_P_THRESHOLD = 0.03;
+    % Resolved from the accuracy setting rather than fixed: see
+    % internal.relPerSigmaOverPThreshold.
+    ORBIT_SIGMA_OVER_P_THRESHOLD = internal.relPerSigmaOverPThreshold();
 
     % --- Calibrated cost-model constants, in milliseconds ---
     % Fitted to the selection-quality grid (single-attribute, r = 2..4,

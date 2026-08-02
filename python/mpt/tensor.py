@@ -80,7 +80,7 @@ from ._tensor.dispatch import (
     _CENTRES_PROBE_MEM_BUDGET,
     _CENTRES_WORKING_SET_SOFT_BUDGET,
     _ORBIT_R_MAX_SHIPPED,
-    _ORBIT_SIGMA_OVER_P_THRESHOLD,
+    _orbit_sigma_over_p_threshold,
     _PRESCREEN_IP_DOMINANCE,
     _PROBE_K_IP_TARGET,
     _PROBE_MIN_N_Q,

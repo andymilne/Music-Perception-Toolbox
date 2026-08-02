@@ -196,10 +196,10 @@ def test_image_count_degenerate_inputs_return_zero(sigma, period):
 def _lattice_eval(p, w, x, sigma, r, n_max=8):
     """Full-image density at the query points, by direct lattice sum.
 
-    Q0(x) = sum_i x_i^2 - (sum_i x_i)^2 / r over the r slots, summed over
+    Q0(x) = sum_i x_i^2 - (sum_i x_i)^2 / r over the r positions, summed over
     translates x + P n for n in Z^r / Z.1, the quotient represented by
     fixing the zeroth component at zero. The query carries r - 1 reduced
-    coordinates, so a zeroth slot at the origin is prepended.
+    coordinates, so position 0 at the origin is prepended.
     """
     tuples = list(itertools.permutations(range(len(p)), r))
     C = np.array([[p[i] for i in t] for t in tuples], dtype=float)

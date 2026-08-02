@@ -1,5 +1,5 @@
 function wNew = multiplyWeights(wExisting, factor, K_target)
-%LOCALMULTIPLYWEIGHTS  Multiply per-attribute weight by factor ((1, N) row).
+%MULTIPLYWEIGHTS  Multiply per-attribute weight by factor ((1, N) row).
 %
 %   factor is (1, N); the target attribute's existing weight may be
 %   [], a scalar, a (1, N) row, or a (K_target, N) matrix. The factor

@@ -1,6 +1,6 @@
 """Variable-K (NaN-padded) nested attributes on the contraction path.
 
-A padded slot is exactly equivalent to a zero-weight slot at any finite
+A padded value is exactly equivalent to a zero-weight value at any finite
 value, so the nested contraction must accept NaN-padded events and agree
 with the exact enumeration (method='bulger') -- including under one-sided
 normalisation, an accompanying plain attribute, and all four

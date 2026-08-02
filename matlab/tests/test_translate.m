@@ -1,10 +1,11 @@
-%% test_translate.m — translateAttributes on the (pAttr, w, specs) carrier (3c-iv-d)
+%% test_translate.m — translateAttributes on the (pAttr, w, specs) triple (3c-iv-d)
 %
-%  translateAttributes shifts attribute values by per-slot offsets. Everything
-%  hangs off the slot axis (the rows of the value matrix, length K_total): the
-%  offset is a value per slot held constant across the event axis (which makes
-%  D(T(p)) == D(p)). A scalar broadcasts to all slots; a column is per-slot; a
-%  row is a per-sweep global shift; a K_total x M matrix is per-slot x sweep.
+%  translateAttributes shifts attribute values by per-position offsets.
+%  Everything hangs off the position axis (the rows of the value matrix, length
+%  K_total): the offset is one value per position held constant across the event
+%  axis (which makes D(T(p)) == D(p)). A scalar broadcasts to all positions; a
+%  column is per-position; a row is a per-sweep global shift; a K_total x M
+%  matrix is per-position x sweep.
 %  is_rel is read per-attribute from specs: a uniform shift on an outermost-
 %  relative attribute is a structural no-op (warns); a non-uniform offset
 %  applies.
@@ -20,7 +21,7 @@ else
 end
 
 
-% --- Carrier basics -------------------------------------------------
+% --- Triple basics --------------------------------------------------
 
 % Returns triple; single translation.
 [pOut, wOut, sOut] = translateAttributes({[0 4 7]}, [], {5});
@@ -29,14 +30,14 @@ results{end,2}   = iscell(pOut) && numel(pOut) == 1 && isempty(wOut) ...
                    && iscell(sOut) && numel(sOut) == 1 ...
                    && isequal(pOut{1}, [5 9 12]);
 
-% Scalar broadcasts to all slots.
+% Scalar broadcasts to all positions.
 [pOut, ~, ~] = translateAttributes({[0 4; 7 11]}, [], {10});
-results{end+1,1} = 'translate: scalar broadcasts to all slots';
+results{end+1,1} = 'translate: scalar broadcasts to all positions';
 results{end,2}   = isequal(pOut{1}, [10 14; 17 21]);
 
-% Per-slot offset (column).
+% Per-position offset (column).
 [pOut, ~, ~] = translateAttributes({[0 4; 7 11]}, [], {[10; 20]});
-results{end+1,1} = 'translate: per-slot offset (column)';
+results{end+1,1} = 'translate: per-position offset (column)';
 results{end,2}   = isequal(pOut{1}, [10 14; 27 31]);
 
 % [] skips an attribute.
@@ -44,9 +45,9 @@ results{end,2}   = isequal(pOut{1}, [10 14; 27 31]);
 results{end+1,1} = 'translate: [] skips attribute';
 results{end,2}   = isequal(pOut{1}, [5 9]) && isequal(pOut{2}, [1 2]);
 
-% NaN skips a slot.
+% NaN skips a position.
 [pOut, ~, ~] = translateAttributes({[0 4; 7 11]}, [], {[10; NaN]});
-results{end+1,1} = 'translate: NaN skips a slot';
+results{end+1,1} = 'translate: NaN skips a position';
 results{end,2}   = isequal(pOut{1}, [10 14; 7 11]);
 
 % Weights pass through.
@@ -64,7 +65,7 @@ results{end,2}   = isequal(pIn{1}, orig);
 
 % --- Sweep ----------------------------------------------------------
 
-% (1 x M) row -> M copies, each a global shift broadcast across slots.
+% (1 x M) row -> M copies, each a global shift broadcast across positions.
 [pSweep, ~, ~] = translateAttributes({[0 4]}, [], {[0 5 12]});
 results{end+1,1} = 'translate: sweep per-sweep scalar (row)';
 results{end,2}   = iscell(pSweep) && numel(pSweep) == 3 ...
@@ -72,10 +73,10 @@ results{end,2}   = iscell(pSweep) && numel(pSweep) == 3 ...
                    && isequal(pSweep{2}{1}, [5 9]) ...
                    && isequal(pSweep{3}{1}, [12 16]);
 
-% (K_total x M) matrix: slots down, sweep index across.
-offs = [0 10; 0 20];                         % slot 0 then slot 1, over M=2
+% (K_total x M) matrix: positions down, sweep index across.
+offs = [0 10; 0 20];                         % position 0 then position 1, over M=2
 [pSweep, ~, ~] = translateAttributes({[0 4; 7 11]}, [], {offs});
-results{end+1,1} = 'translate: sweep per-slot x sweep (matrix)';
+results{end+1,1} = 'translate: sweep per-position x sweep (matrix)';
 results{end,2}   = numel(pSweep) == 2 ...
                    && isequal(pSweep{1}{1}, [0 4; 7 11]) ...
                    && isequal(pSweep{2}{1}, [10 14; 27 31]);
@@ -135,12 +136,12 @@ results{end+1,1} = 'translate: difference absorbs uniform translation (D o T == 
 results{end,2}   = isequal(dT{1}, d0{1});
 
 
-% --- Nested per-slot via the tag structure --------------------------
+% --- Nested per-position via the tag structure ----------------------
 
 pIn2 = {[0 4; 7 11]};                          % K_inner=2, N=2
 [pb2, ~, sb2] = bindEvents(pIn2, [], 2);       % L=2 -> K_total=4
 [pOut, ~, ~] = translateAttributes(pb2, [], {[1; 2; 3; 4]}, 'specs', sb2);
-results{end+1,1} = 'translate: nested per-slot addresses stacked slots';
+results{end+1,1} = 'translate: nested per-position addresses stacked positions';
 results{end,2}   = isequal(pOut{1}(:, 1), pb2{1}(:, 1) + [1; 2; 3; 4]);
 
 
@@ -149,7 +150,7 @@ results{end,2}   = isequal(pOut{1}(:, 1), pb2{1}(:, 1) + [1; 2; 3; 4]);
 results{end+1,1} = 'translate: offsets wrong list length errors';
 results{end,2}   = throwsError(@() translateAttributes({[0 4]}, [], {1, 2}));
 
-results{end+1,1} = 'translate: per-slot wrong length errors';
+results{end+1,1} = 'translate: per-position wrong length errors';
 results{end,2}   = throwsError(@() translateAttributes({[0 4; 7 11]}, [], {[1; 2; 3]}));
 
 results{end+1,1} = 'translate: Inf rejected';

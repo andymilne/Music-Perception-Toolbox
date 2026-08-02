@@ -2,7 +2,7 @@
 %
 %  Two checks in the toolbox inspect a route's output after computing it
 %  and may then recompute by another route: the nested accuracy guard in
-%  nestedContract/combinePair and the corruption check in the flat cosine
+%  nestedContract/combinePair and the impossible-value check in the flat cosine
 %  path. With either active the measured cost of the Mobius route is not
 %  the cost of choosing it, because a diverting check pays for both
 %  routes. The default switches them off so the routes can be timed as
@@ -57,7 +57,7 @@ results{end+1, 1} = 'postHocGuards: reset restores true';
 results{end, 2}   = logical(mptDefaults('postHocGuards'));
 
 % --- 5. Flat cosine agrees with the guard off ---
-%  The corruption check fires only on a broken value (non-finite,
+%  The impossible-value check fires only on a broken value (non-finite,
 %  negative auto-IP, or |cosine| > 1), so on a healthy input the two
 %  settings must give the same answer bit for bit. Fixed pitches rather
 %  than rand(), so this file leaves the global RNG stream untouched for

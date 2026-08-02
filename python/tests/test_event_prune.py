@@ -23,7 +23,7 @@ The liveness rule (single predicate: a weight contributes iff finite and
 nonzero):
   * Single-multiset: an element is live iff its weight is finite and nonzero.
   * MA: an event is live iff *every* attribute has at least one finite,
-    nonzero slot in that event's column (the per-attribute factors
+    nonzero value in that event's column (the per-attribute factors
     multiply, so an all-zero or all-NaN column kills the event; a
     partly-zero column does not).
 
@@ -103,8 +103,8 @@ def test_ma_live_events_rule_partly_zero_column_stays_live():
     """MA: an all-zero (or all-NaN) column on any attribute kills the
     event; a partly-zero column does not.
     """
-    # Pitch attribute, K=2 slots per event. Event 1 has both pitch slots
-    # zero (all-zero column -> dead). Events 0 and 2 have one zero slot
+    # Pitch attribute, K=2 values per event. Event 1 has both pitch values
+    # zero (all-zero column -> dead). Events 0 and 2 have one zero value
     # each (partly-zero -> still live). Event 3 has an all-NaN pitch
     # column (-> dead). Time attribute is fully live throughout.
     p_pitch = np.array([[60., 62., 64., 66.],

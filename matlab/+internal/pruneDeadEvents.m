@@ -3,7 +3,7 @@
 % =========================================================================
 
 function [pAttr, w, specs] = pruneDeadEvents(pAttr, w, specs)
-%PRUNEDEADCARRIER  Drop events the window hard-zeroed, before the build.
+%PRUNEDEADEVENTS  Drop events the window hard-zeroed, before the build.
 %
 %   [pAttr, w, specs] = internal.pruneDeadEvents(pAttr, w, specs)
 %

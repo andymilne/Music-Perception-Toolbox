@@ -211,7 +211,7 @@ fprintf('  D(pitch) intervals, bound (stacked L*K x N''):\n');
 disp(pDB{1});
 fprintf('  values agree (both routes): %d\n', valsAgree);
 fprintf('  specs  agree (both routes): %d\n', specsAgree);
-fprintf(['  (Slot-wise differencing commutes with the sliding bind window;\n' ...
+fprintf(['  (Differencing position by position commutes with the sliding bind window;\n' ...
          '   the two routes share one nested representation.)\n\n']);
 
 

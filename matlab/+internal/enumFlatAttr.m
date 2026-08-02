@@ -49,7 +49,7 @@ function [permMat, combMat, permW, combW] = ...
         end
     end
 
-    % Slot-weight products (per-tuple).
+    % Per-tuple products of the values' weights.
     wCol = wColLocal;
     if r_a == 1
         permW = reshape(wCol(permMat), 1, []);

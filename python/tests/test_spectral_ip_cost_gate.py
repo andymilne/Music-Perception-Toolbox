@@ -50,7 +50,7 @@ def test_declines_where_the_branch_is_measurably_slower():
 
 
 def test_takes_the_branch_where_slots_repay_the_grid():
-    # Same sigma, many more slots: the grid route's K^2 per pair now
+    # Same sigma, many more values: the grid route's K^2 per pair now
     # dominates and the branch must be taken.
     Px, Wx = _cols(40, seed=31)
     assert _spectral_rel_inner_matrix(

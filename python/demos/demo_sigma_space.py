@@ -15,7 +15,7 @@ controlled by a flag that says what sigma represents:
 
   sigma_space = 'interval'
      sigma is independent uncertainty per derived interval.
-     Slots are treated as independent draws (V = 2 sigma**2
+     Values are treated as independent draws (V = 2 sigma**2
      uniformly).
 
 The two flags coincide at sigma = 0; only at sigma > 0 does the

@@ -16,7 +16,7 @@ all four modes, r ∈ {2, 3, 4, 5}, K ∈ {r+1, r+2, r+4}, A=1, N=2,
 5 seeds. P=12000 not needed — earlier sweeps confirmed σ/P is the
 controlling parameter.
 
-To make the cosine non-trivial, we share half the K slots between the
+To make the cosine non-trivial, we share half the K values between the
 two events (so the cosine sits in (0, 1) rather than 0 or 1). This
 makes the comparison meaningful even at extreme σ.
 """
@@ -72,7 +72,7 @@ def err_and_cosine(p1, w1, p2, w2, sigma, P, r, is_rel, is_per):
 def main():
     print(
         f"σ→0 sweep — {SEEDS} seeds at A={A}, N={N}, P={P}.\n"
-        f"Half of K slots shared between p1 and p2 to give a non-trivial "
+        f"Half of K values shared between p1 and p2 to give a non-trivial "
         f"cosine.\n"
         f"Note: rel-mode orbit uses trapezoidal grid of period/σ × sps "
         f"points,\n"
@@ -101,7 +101,7 @@ def main():
                     cosines = []
                     for seed in range(SEEDS):
                         rng = np.random.default_rng(seed)
-                        # Half of K slots shared, half random — so cosine
+                        # Half of K values shared, half random — so cosine
                         # is non-degenerate at any σ.
                         K_shared = K // 2
                         shared_p = rng.uniform(0, P, (K_shared, N))

@@ -336,7 +336,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
 %       scalar call.
 %     - Structurally-identical chords (under permutation +
 %       transposition) share a single cached result via the canonical
-%       key from internal.chordCacheKey. For batches with repeated
+%       key from internal.chordCanonicalKey. For batches with repeated
 %       chord shapes (typical of scale and progression sweeps), this
 %       reduces per-row cost to a hash lookup.
 
@@ -476,7 +476,7 @@ function [hMax, hEntropy] = localBatchedTemplateHarmonicity(P, W, sigma, nvArgs)
         wK = localRowWeights(W, W_broadcast, k, validMask, ...
             haveRowWeights, pK);
 
-        key = internal.chordCacheKey(pK(:), wK(:), sigma, ...
+        key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
             1, true, false, 1200);
 
         if isKey(resultCache, key)

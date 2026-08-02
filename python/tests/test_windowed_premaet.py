@@ -24,7 +24,7 @@ SIG_P, SIG_T = 0.12, 0.05
 
 
 @pytest.fixture
-def carrier():
+def triple():
     rng = np.random.default_rng(0)
     N = 40
     pitch = np.sort(rng.integers(48, 84, size=N).astype(float)).reshape(1, N)
@@ -43,8 +43,8 @@ def query():
 @pytest.mark.parametrize("method,shape", [
     ("differential", 0.0), ("renyi2", 0.0), ("renyi2", 1.0),
 ])
-def test_entropy_drop_window_axis(carrier, method, shape):
-    p_attr, centres = carrier
+def test_entropy_drop_window_axis(triple, method, shape):
+    p_attr, centres = triple
     kw = {"width": W_WIDTH} if shape == 1.0 else {"sd": SD}
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
@@ -59,8 +59,8 @@ def test_entropy_drop_window_axis(carrier, method, shape):
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
 
 
-def test_entropy_retain_axis(carrier):
-    p_attr, centres = carrier
+def test_entropy_retain_axis(triple):
+    p_attr, centres = triple
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
         pw, ww, _ = weight_events(p_attr, None, 1, 0, float(c), 1.0,
@@ -75,11 +75,11 @@ def test_entropy_retain_axis(carrier):
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
-def test_entropy_drop_r_ge_2_now_allowed(carrier):
+def test_entropy_drop_r_ge_2_now_allowed(triple):
     """Dropping a bundled axis is allowed: the centroid `locate` reduces it
     for the window, then it is removed from the density (deletion is no
     longer restricted to r = 1)."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     got = windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 2], [False, False],
                            [False, False], [0.0, 0.0], centres,
                            context_window=(1.0, W_WIDTH), window_attr=1,
@@ -88,9 +88,9 @@ def test_entropy_drop_r_ge_2_now_allowed(carrier):
     assert np.all(np.isfinite(got))
 
 
-def test_entropy_marginalise_not_implemented(carrier):
+def test_entropy_marginalise_not_implemented(triple):
     """marginalise (integrate out a retained axis) is reserved but unimplemented."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     with pytest.raises(NotImplementedError):
         windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                          [False, False], [0.0, 0.0], centres,
@@ -98,10 +98,10 @@ def test_entropy_marginalise_not_implemented(carrier):
                          drop_window_attr=False, marginalise=0, verbose=False)
 
 
-def test_entropy_requires_width(carrier):
+def test_entropy_requires_width(triple):
     """No query means no extent to size a default window from, so an explicit
     width is required."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     with pytest.raises(ValueError):
         windowed_entropy(p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False],
                          [False, False], [0.0, 0.0], centres,
@@ -113,8 +113,8 @@ def test_entropy_requires_width(carrier):
 # windowed_similarity: single-axis surface
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
-def test_similarity_locked(carrier, query, normalize):
-    p_attr, centres = carrier
+def test_similarity_locked(triple, query, normalize):
+    p_attr, centres = triple
     qv = query[1].ravel(); q_ext = float(qv.max() - qv.min()); mu_q = float(qv.mean())
     ref = np.empty(len(centres))
     for i, c in enumerate(centres):
@@ -131,10 +131,10 @@ def test_similarity_locked(carrier, query, normalize):
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9)
 
 
-def test_similarity_decoupled_correlogram(carrier, query):
+def test_similarity_decoupled_correlogram(triple, query):
     """2-D ``query_centres`` fixes the window at each anchor while the query
     slides across the lags: the anchor x lag correlogram surface."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     pitch, onset = p_attr
     mu_q = float(query[1].mean())
     anchors = centres[1:8]
@@ -158,8 +158,8 @@ def test_similarity_decoupled_correlogram(carrier, query):
     assert np.allclose(got, ref, rtol=1e-9, atol=1e-9, equal_nan=True)
 
 
-def test_similarity_generative_sweep_matches_explicit(carrier, query):
-    p_attr, _ = carrier
+def test_similarity_generative_sweep_matches_explicit(triple, query):
+    p_attr, _ = triple
     onset = p_attr[1]
     explicit = np.arange(onset.min(), onset.max() + 1e-9, 1.0)
     g_exp = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
@@ -173,8 +173,8 @@ def test_similarity_generative_sweep_matches_explicit(carrier, query):
     assert np.allclose(g_gen, g_exp, rtol=1e-9, atol=1e-9)
 
 
-def test_centres_and_generative_mutually_exclusive(carrier, query):
-    p_attr, centres = carrier
+def test_centres_and_generative_mutually_exclusive(triple, query):
+    p_attr, centres = triple
     with pytest.raises(ValueError):
         windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                             [False, False], [False, False], [0.0, 0.0], centres,
@@ -184,9 +184,9 @@ def test_centres_and_generative_mutually_exclusive(carrier, query):
 # --------------------------------------------------------------------------
 # windowed_similarity: multi-axis surface and locate
 # --------------------------------------------------------------------------
-def test_single_axis_equals_one_entry_sweep(carrier, query):
+def test_single_axis_equals_one_entry_sweep(triple, query):
     """The single-axis surface is exactly the one-entry multi-axis form."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     single = windowed_similarity(p_attr, None, query, None, [SIG_P, SIG_T], [1, 1],
                                  [False, False], [False, False], [0.0, 0.0], centres,
                                  normalize="oneSidedDenom", window_attr=1,
@@ -198,9 +198,9 @@ def test_single_axis_equals_one_entry_sweep(carrier, query):
     assert np.allclose(single, multi, rtol=1e-12, atol=1e-12)
 
 
-def test_multi_axis_two_dim_map(carrier, query):
+def test_multi_axis_two_dim_map(triple, query):
     """Sweeping pitch (compared) and time (dropped) yields a 2-D map."""
-    p_attr, centres = carrier
+    p_attr, centres = triple
     pitch = p_attr[0]
     p_centroid = float(query[0].mean())
     pgrid = p_centroid + np.arange(-4.0, 5.0, 2.0)

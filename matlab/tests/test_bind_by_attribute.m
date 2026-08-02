@@ -3,7 +3,7 @@
 %  Mirror of Python tests/test_bind_by_attribute.py (structural + self-sim
 %  + large-tuple-size ragged smoke). bindEvents(..., 'groupBy', a) gathers
 %  consecutive events sharing a constant value on attribute a into one
-%  ragged super-event (NaN-padded to the max group size, padded slots at
+%  ragged super-event (NaN-padded to the max group size, padded positions at
 %  zero weight); the outer tuple size defaults to the smallest group size.
 
 if ~exist('results', 'var')

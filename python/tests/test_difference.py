@@ -1,11 +1,12 @@
-"""Tests for difference_events on the (p_attr, w, specs) carrier (3c-iv-b).
+"""Tests for difference_events on the (p_attr, w, specs) triple (3c-iv-b).
 
 difference_events applies the k-th finite difference along the event axis,
-slot-wise. It is well-defined exactly when slots have stable identity --- an
+position by position. It is well-defined exactly when the positions have stable
+identity --- an
 ordered attribute ([sym]=0) or a singleton (K=1) --- so a symmetric multiset
 (K>1) raises, and the rule extends per level for a nested attribute. The spec
 passes through unchanged (values change, structure does not); NaN propagates
-(absent slot). With order = L the differenced-then-bound and bound-then-
+(absent value). With order = L the differenced-then-bound and bound-then-
 differenced routes coincide (B o D == D o B).
 """
 
@@ -17,7 +18,7 @@ from mpt import (build_exp_tens, eval_exp_tens, difference_events,
                  bind_events, flat_specs)
 
 
-# --- Carrier basics --------------------------------------------------
+# --- Triple basics ---------------------------------------------------
 
 def test_returns_three_tuple_with_specs():
     pd, wd, sd = difference_events([np.array([[0.0, 2.0, 5.0, 9.0]])], None, 1)
@@ -72,7 +73,7 @@ def test_weight_rolling_product():
 # --- The K generalisation: ordered any-K, symmetric rejected ---------
 
 def test_ordered_multislot_differences_slotwise():
-    """K>1 ordered attribute differences slot-wise (the lifted K=1 rule)."""
+    """K>1 ordered attribute differences position by position (the lifted K=1 rule)."""
     M = np.array([[0.0, 2.0, 5.0], [10.0, 13.0, 17.0]])   # K=2, N=3
     pd, _, _ = difference_events([M], None, 1, specs=flat_specs([M], sym=False))
     np.testing.assert_allclose(pd[0], [[2.0, 3.0], [3.0, 4.0]])
@@ -92,7 +93,7 @@ def test_symmetric_multislot_order_zero_ok():
 
 
 def test_singleton_differences_regardless_of_sym():
-    """K=1 is always differenceable (singleton has trivial slot identity)."""
+    """K=1 is always differenceable (a singleton has trivial position identity)."""
     M = np.array([[0.0, 2.0, 5.0]])
     pd, _, _ = difference_events([M], None, 1, specs=flat_specs([M], sym=True))
     np.testing.assert_allclose(pd[0], [[2.0, 3.0]])

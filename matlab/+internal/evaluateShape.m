@@ -1,5 +1,5 @@
 function h = evaluateShape(delta, sd, gamma)
-%LOCALEVALUATESHAPE  Peak-normalised rect * Gaussian convolution
+%EVALUATESHAPE  Peak-normalised rect * Gaussian convolution
 %(Section 5.2.1 of the MAET manuscript), with derived parameters
 %   phi = sd * sqrt(3 * gamma)   (rectangle half-width)
 %   xi  = sd * sqrt(1 - gamma)   (Gaussian std)

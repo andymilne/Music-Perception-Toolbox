@@ -1,10 +1,10 @@
-%% test_bind.m — carrier-form bindEvents (3c-ii / 3c-iv-c)
+%% test_bind.m — triple-form bindEvents (3c-ii / 3c-iv-c)
 %
 %  bindEvents nests sliding windows of consecutive events into a single
 %  nested attribute per input attribute (toolbox spec §6.1/§6.5): the bound
 %  events form an ordered outer level (symOuter = 0 by default), each
 %  event's own multiset is the inner level. The inner level's geometry
-%  (r/rel/sym) is read from the incoming carrier specs (flatSpecs defaults
+%  (r/rel/sym) is read from the incoming triple's specs (flatSpecs defaults
 %  when specs is []). It returns {pAttrBound, wBound, specs} ready for
 %  buildExpTens(..., 'specs', specs). L = 1 is a flat passthrough. Outer
 %  r = L with rel = [relIn, 0] reproduces the old separate-attribute tensor

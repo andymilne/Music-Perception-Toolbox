@@ -9,7 +9,7 @@
 %  rejected for a nested attribute).
 %
 %   * Outer r = K reproduces old separate-attribute binding (tensor join).
-%   * Partial symmetry (sym inner=1, outer=0): inner slots orbit within
+%   * Partial symmetry (sym inner=1, outer=0): inner positions orbit within
 %     each source event; bound events keep order (no cross-tag interleave).
 %   * Pooled within-source reading (outer r < K) -> shared lower-dim space.
 %   * Outer/whole [rel] unit: dim 4->3 and exact global-transposition

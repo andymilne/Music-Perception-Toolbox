@@ -339,7 +339,7 @@ class TestKGroupedDispatch:
 
 
 class TestPackNanTop:
-    """The packing helper must place valid slots at the top of each
+    """The packing helper must place valid values at the top of each
     column regardless of the user's NaN pattern."""
 
     def test_already_top_packed_is_preserved(self):

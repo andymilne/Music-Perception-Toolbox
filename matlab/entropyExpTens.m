@@ -2055,7 +2055,7 @@ function H = localRenyi2SingleMultiset(maet, base)
         % corpus show the orbit self-IP is robust at every tested
         % musical sigma; the per-orbit-class cancellation ratio in abs
         % mode dips to ~0.13 in the worst tested case, well above the
-        % 1e-10 corruption threshold. We rely on a post-hoc finite/
+        % 1e-10 threshold. We rely on a post-hoc finite/
         % positive check rather than a ratio-based fallback. The
         % pairwise fallback explored earlier was abandoned: orbit and
         % pairwise use different normalisation conventions in rel mode,

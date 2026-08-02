@@ -58,11 +58,11 @@ groupsPre = [1, 2];
 mptDefaults('truncationSigmas', 3.0);
 
 centre_qn = times(round(N_events / 2));
-% weightEvents signature (MATLAB, carrier form):
+% weightEvents signature (MATLAB, triple form):
 %   (pAttr, w, inputAttr, targetAttr, centre, shape,
 %    'sd', s,  'dropInputAttr', tf)
 % inputAttr = 2 (time supplies the per-event scalar values),
-% targetAttr = 1 (pitch's weight slot receives the factor).
+% targetAttr = 1 (the pitch attribute's weights receive the factor).
 [p_w, w_w, g_w] = weightEvents(pAttrPre, wPre, 2, 1, centre_qn, 0.0, 'sd', 1.0, 'dropInputAttr', true);
 
 results{end+1,1} = 'weightEvents preserves event count after truncation';

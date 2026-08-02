@@ -10,7 +10,7 @@ selector (a per-level vector or the depth-proof strings ``'innermost'`` /
   join): a single nested attribute read at the whole-tuple level
   evaluates identically to the equivalent flat tensor-joined density.
 * The within-event/across-event partial symmetry with ``sym`` outer = 0:
-  inner slots orbit within each source event, but the bound events keep
+  inner positions orbit within each source event, but the bound events keep
   sequence order (no cross-tag interleaving).
 * Pooled within-source reading (outer ``r < K``) sums per-event
   sub-tuples into one shared lower-dimensional space.

@@ -76,8 +76,8 @@ def _ref_eval(dens, x):
         # A relative density depends on a tuple only through its
         # within-tuple differences, and
         #     sum_i D_i^2 - (sum_i D_i)^2 / r = (1/r) sum_{i<j} (D_i - D_j)^2
-        # over the r slots, of which the reduced coordinates carry r - 1
-        # with an implicit zeroth slot at the origin. Periodicity acts on
+        # over the r positions, of which the reduced coordinates carry r - 1
+        # with an implicit position 0 at the origin. Periodicity acts on
         # those within-tuple differences, so the wrap belongs inside the
         # pairwise sum -- wrapping each D_i first and then forming the
         # quadratic is a different quantity, and the two part company

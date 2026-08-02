@@ -56,7 +56,7 @@ at the onset that completes its first interval, the stamp the
 difference/bind pipeline gives it. The trigram
 attribute must be ORDERED: one foil is the motif reversed, which has
 the same interval multiset as the motif and is separated from it only
-by slot order. The trigrams are built with the toolbox's cross-event
+by position order. The trigrams are built with the toolbox's cross-event
 preprocessing -- `difference_events` (onsets to IOIs), then
 `bind_events` (overlapping windows of three consecutive log-IOIs per
 event). The rel kernel reads each trigram relative to a common shift;
@@ -161,7 +161,7 @@ p_bound, w_bound, sp_bound = mpt.bind_events(p_diff, w_diff, [3, 1],
                                              specs=sp_diff)
 _, _, sp_bound_rel = mpt.bind_events(p_diff, w_diff, [3, 1],
                                      specs=sp_diff, rel_outer=True)
-# Two quantities read off the bound carrier feed the search below:
+# Two quantities read off the bound triple feed the search below:
 N_TRI = p_bound[0].shape[1]      # number of trigrams (windows to place)
 tri_times = p_bound[1].ravel()   # window-placing times (the sweep
                                  # centres); trigram i is timed at

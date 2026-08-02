@@ -68,7 +68,7 @@ applied before ``add_spectra`` -- an exponential time decay, a
 ``seqWeights`` recency profile, or anything else; that pre-weighting
 propagates through ``difference_events`` via its rolling-product of
 weights, but its interaction with the spectrum weights always
-factorises slot-wise and cancels. So
+factorises value by value and cancels. So
     ``seqWeights -> add_spectra -> difference_events``
 gives the same windowed-similarity profile as
     ``seqWeights -> difference_events``
@@ -274,7 +274,7 @@ def build_diff_maet(pitch_cents, time_sec):
 
 def build_spec_maet(pitch_cents, time_sec, event_weights=None,
                     stretch_beta=1.0):
-    """Spectrum-enriched raw MAET: each event carries N_PARTIALS slots
+    """Spectrum-enriched raw MAET: each event carries N_PARTIALS values
     on the pitch attribute. Optional per-event weights are multiplied
     into the spectrum weights via add_spectra (all ones if None).
 
@@ -296,7 +296,7 @@ def build_spec_maet(pitch_cents, time_sec, event_weights=None,
     # Python add_spectra uses C-order ravel, so the flat output is
     # [event 0 partials..., event 1 partials..., ...]. Reshape to
     # (n_events, N_PARTIALS) then transpose to (N_PARTIALS, n_events)
-    # for K=N_PARTIALS slots per event on the pitch attribute.
+    # for K=N_PARTIALS values per event on the pitch attribute.
     p_mat = p_flat.reshape(n_events, N_PARTIALS).T
     w_mat = w_flat.reshape(n_events, N_PARTIALS).T
     dens = mpt.build_exp_tens(
@@ -612,7 +612,7 @@ def make_row(row_idx, dens_ctx, dens_q, pitch_for_range_ctx,
     # peak).
     #
     # "has partials" is inferred from whether the density's pitch
-    # attribute has K > 1 slots.
+    # attribute has K > 1 values.
     has_partials = (dens_ctx.centres[0].shape[0] > 1)
     dp = 4.0 if has_partials else 20.0
     dt = 0.03 if has_partials else 0.05

@@ -204,7 +204,7 @@ results{end,2}   = abs(s_skinny - s_orbit) < 1e-12;
 
 %% ---- Ragged K (NaN-padded events): orbit handles via zero-pad ----
 
-% One attribute with two events of different K (3 and 5 non-NaN slots).
+% One attribute with two events of different K (3 and 5 non-NaN values).
 P_ragX = [10 100; 30 200; 50 300; NaN 400; NaN 500];   % (5, 2)
 W_ragX = [1 1; 1 1; 1 1; NaN 1; NaN 1];                 % (5, 2)
 P_ragY = [20 110; 40 220; 60 330; NaN 440; NaN 550];

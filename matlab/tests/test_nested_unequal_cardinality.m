@@ -10,7 +10,7 @@
 %      Y axis mis-indexed and the cross inner product collapsed to ~0 while
 %      self-similarity stayed 1. The contraction now threads one recipe per
 %      side. (A MATLAB-specific facet: the tags were also mis-oriented as a
-%      row, giving a degenerate one-slot recipe; oriented to a column now.)
+%      row, giving a degenerate one-value recipe; oriented to a column now.)
 %   2. Absolute-mode periodicity was inferred from a finite period rather
 %      than the density's [per] flag, wrongly wrapping a non-periodic
 %      attribute that happened to carry a finite period.

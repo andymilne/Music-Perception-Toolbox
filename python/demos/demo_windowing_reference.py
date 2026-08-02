@@ -18,13 +18,13 @@ reference-point options are provided:
   F (fixed)    A user-supplied constant reference, one vector per
                attribute, that does not depend on the query.
 
-The choice matters most when a pitch attribute has more than one slot
+The choice matters most when a pitch attribute has more than one value
 per event (chords with exchangeable voices, or partials added by
 addSpectra). Queries can then differ in:
 
-  - slot count   (e.g., adding partials)
-  - slot values  (e.g., stretching partials)
-  - slot weights (e.g., changing rolloff)
+  - value count   (e.g., adding partials)
+  - the values    (e.g., stretching partials)
+  - value weights (e.g., changing rolloff)
 
 This demo characterises how the similarity profile responds to each
 of these three kinds of between-query variation, under each of the
@@ -44,26 +44,26 @@ satisfy
 How each of P* and mu_q responds to between-query variation gives the
 response of delta^*:
 
-* Slot weights. Neither P* nor mu_q moves (unweighted centroid is
-  weight-independent; peak location depends on slot values, not
+* Value weights. Neither P* nor mu_q moves (unweighted centroid is
+  weight-independent; peak location depends on the values, not
   weights). Both methods give identical, stable peak offsets.
-  Holds for any slot structure.
+  Holds for any value structure.
 
-* Slot values. mu_q moves smoothly with the sweep parameter while
+* Values. mu_q moves smoothly with the sweep parameter while
   P* sits on a branch of the similarity profile that may be pinned
   locally in absolute pitch. Within a branch, delta^*_D drifts;
-  delta^*_F stays put. Holds for any slot structure.
+  delta^*_F stays put. Holds for any value structure.
 
-* Slot count. For harmonic queries (slot values at or close to
+* Value count. For harmonic queries (values at or close to
   integer-harmonic positions above each fundamental), P* and mu_q
   co-move closely as partials are added, so delta^*_D is stable.
   For non-harmonic queries (e.g., stretched partials), the two move
   by different amounts, so delta^*_D drifts. delta^*_F shifts with
   P* in both cases.
 
-The harmonic case is special for slot-count changes because integer-
+The harmonic case is special for value-count changes because integer-
 harmonic positions on a log-frequency axis are self-similar under
-extension: adding slot n+1 at 1200*log2(n+1) cents extends a pattern
+extension: adding value n+1 at 1200*log2(n+1) cents extends a pattern
 whose centroid-shift closely matches the alignment-peak shift against
 a similarly harmonic context.
 
@@ -74,7 +74,7 @@ Figure 1: Profiles at fixed time for four query configurations, under
          visual character of each reference choice for a small
          catalogue of queries.
 
-Figure 2: Three sweeps (slot count N, stretch beta, rolloff rho) for
+Figure 2: Three sweeps (value count N, stretch beta, rolloff rho) for
          each baseline, rendered as similarity-profile heatmaps
          (rows: sweep parameter, columns: reference method). Rows are
          stacked across the three sweeps.
@@ -120,7 +120,7 @@ N_QUERY_EVENTS = 3
 # motif M4 = A-B-C in the context, a P5 above the query fundamentals).
 M4_TIME = 6.5
 
-# Baseline slot configurations for the two query families.
+# Baseline value configurations for the two query families.
 HARMONIC_N_PARTIALS = 12
 HARMONIC_ROLLOFF    = 0.5
 INHARMONIC_BETA     = 1.05  # stretch factor for the non-harmonic baseline
@@ -210,11 +210,11 @@ print('Rendering Figure 1: scenario catalogue')
 scenarios = [
     ('1. Harmonic, N=12, ρ=0.5\n(canonical baseline)',
      dict(beta=1.0, n_partials=12, rolloff=0.5)),
-    ('2. Harmonic, N=12, ρ=1.5\n(slot weights changed)',
+    ('2. Harmonic, N=12, ρ=1.5\n(value weights changed)',
      dict(beta=1.0, n_partials=12, rolloff=1.5)),
-    ('3. Stretched, N=12, ρ=0.5\n(slot values changed)',
+    ('3. Stretched, N=12, ρ=0.5\n(values changed)',
      dict(beta=1.05, n_partials=12, rolloff=0.5)),
-    ('4. Harmonic, N=24, ρ=0.5\n(slot count changed)',
+    ('4. Harmonic, N=24, ρ=0.5\n(value count changed)',
      dict(beta=1.0, n_partials=24, rolloff=0.5)),
 ]
 
@@ -353,34 +353,34 @@ inh_base  = dict(beta=INHARMONIC_BETA, n_partials=HARMONIC_N_PARTIALS,
                   rolloff=HARMONIC_ROLLOFF)
 
 # Harmonic baseline sweeps
-sweeps.append(('Harm: slot count N',
+sweeps.append(('Harm: value count N',
                 [dict(beta=1.0, n_partials=n, rolloff=HARMONIC_ROLLOFF)
                   for n in N_SWEEP],
                 [str(n) for n in N_SWEEP], 'N', REF_HARM, 'harm'))
-sweeps.append(('Harm: slot values beta',
+sweeps.append(('Harm: values beta',
                 [dict(beta=b, n_partials=HARMONIC_N_PARTIALS,
                       rolloff=HARMONIC_ROLLOFF) for b in BETA_SWEEP],
                 [f'{b:.2f}' for b in BETA_SWEEP], 'beta',
                 REF_HARM, 'harm'))
-sweeps.append(('Harm: slot weights rho',
+sweeps.append(('Harm: value weights rho',
                 [dict(beta=1.0, n_partials=HARMONIC_N_PARTIALS, rolloff=r)
                   for r in RHO_SWEEP],
                 [f'{r:.1f}' for r in RHO_SWEEP], 'rho',
                 REF_HARM, 'harm'))
 
 # Non-harmonic baseline sweeps
-sweeps.append(('Inh: slot count N',
+sweeps.append(('Inh: value count N',
                 [dict(beta=INHARMONIC_BETA, n_partials=n, rolloff=HARMONIC_ROLLOFF)
                   for n in N_SWEEP],
                 [str(n) for n in N_SWEEP], 'N', REF_HARM, 'inh'))
-sweeps.append(('Inh: slot values beta',
+sweeps.append(('Inh: values beta',
                 # Centre beta sweep on the inharmonic baseline 1.05
                 [dict(beta=b, n_partials=HARMONIC_N_PARTIALS,
                       rolloff=HARMONIC_ROLLOFF)
                   for b in np.arange(0.95, 1.1501, 0.01)],
                 [f'{b:.2f}' for b in np.arange(0.95, 1.1501, 0.01)], 'beta',
                 REF_HARM, 'inh'))
-sweeps.append(('Inh: slot weights rho',
+sweeps.append(('Inh: value weights rho',
                 [dict(beta=INHARMONIC_BETA, n_partials=HARMONIC_N_PARTIALS, rolloff=r)
                   for r in RHO_SWEEP],
                 [f'{r:.1f}' for r in RHO_SWEEP], 'rho',
@@ -436,7 +436,7 @@ plt.close(fig)
 print('Rendering Figure 3: peak_abs and mu_q vs sweep parameter')
 
 fig, axes = plt.subplots(3, 2, figsize=(12, 10), sharex=False)
-axis_titles = ['slot count N', 'slot values beta', 'slot weights rho']
+axis_titles = ['value count N', 'values beta', 'value weights rho']
 ref_fixed_pitch = float(REF_HARM[0][0])
 
 for col, tag in enumerate(['harm', 'inh']):

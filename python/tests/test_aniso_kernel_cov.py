@@ -489,16 +489,16 @@ class TestOrderedTupleEqualsBoundSingletons:
 
 class TestDegenerateNestedFlattening:
     """A matrix-valued kernel covariance on a degenerate nested
-    attribute -- bind_events over flat single-slot events -- is
+    attribute -- bind_events over flat single-value events -- is
     flattened to the equivalent flat ordered tuple (v2.2.1+). The
-    bound and manually stacked flat carriers must agree exactly;
+    bound and manually stacked flat triples must agree exactly;
     non-degenerate nesting is rejected, and outer-level sym/rel on a
     degenerate spec are rejected by the canonical constraint messages.
     """
 
     SIG = interval_kernel_cov(3, sd_position=0.07, sd_shift=0.2)
 
-    def _carriers(self, seed=7, n=12):
+    def _triples(self, seed=7, n=12):
         rng = np.random.default_rng(seed)
         x = rng.normal(size=(1, n))
         pb, _, specs = mpt.bind_events([x], None, 3)
@@ -513,7 +513,7 @@ class TestDegenerateNestedFlattening:
             is_per=[False], period=[0.0], verbose=False)
 
     def test_bound_equals_flat_eval_matrix_sigma(self):
-        P, nested, flat, rng = self._carriers()
+        P, nested, flat, rng = self._triples()
         d_n = self._build(P, nested, self.SIG)
         d_f = self._build(P, flat, self.SIG)
         pts = rng.normal(size=(3, 6))
@@ -523,14 +523,14 @@ class TestDegenerateNestedFlattening:
             rtol=1e-12)
 
     def test_bound_equals_flat_cosine_matrix_sigma(self):
-        P, nested, flat, _ = self._carriers()
+        P, nested, flat, _ = self._triples()
         d_n = self._build(P, nested, self.SIG)
         d_f = self._build(P, flat, self.SIG)
         v = mpt.cos_sim_exp_tens(d_n, d_f, verbose=False)
         np.testing.assert_allclose(float(v), 1.0, rtol=1e-12)
 
     def test_bound_equals_flat_scalar_sigma_baseline(self):
-        P, nested, flat, rng = self._carriers(seed=11)
+        P, nested, flat, rng = self._triples(seed=11)
         d_n = self._build(P, nested, 0.3)
         d_f = self._build(P, flat, 0.3)
         pts = rng.normal(size=(3, 6))
@@ -576,7 +576,7 @@ class TestDegenerateNestedFlattening:
     def test_flat_spec_with_matrix_sigma_in_specs_form(self):
         # specs= with a matrix sigma on a *flat* spec was previously
         # blanket-rejected; it must now match the positional form.
-        P, _, flat, _ = self._carriers(seed=5)
+        P, _, flat, _ = self._triples(seed=5)
         N = P.shape[1]
         d_s = self._build(P, flat, self.SIG)
         d_p = mpt.build_exp_tens(

@@ -59,7 +59,7 @@ class TestCircular:
     def test_edges_signed_antisymmetric_for_block(self):
         """For a contiguous block of events, the rising-edge boundary has
         positive sign and the falling-edge boundary has negative sign."""
-        # Six events filling positions 0..5 of a 12-slot circle.
+        # Six events filling positions 0..5 of a 12-position circle.
         _, e_signed = mpt.edges([0, 1, 2, 3, 4, 5], None, 12)
         # Rising edge expected just before position 0 (i.e., at position 11).
         # Falling edge expected just after position 5 (i.e., at position 6).

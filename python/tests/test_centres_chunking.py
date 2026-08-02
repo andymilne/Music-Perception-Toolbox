@@ -27,7 +27,7 @@ class TestCentresChunking:
 
     def test_completes_without_oom_at_demo_scale(self):
         """K=72, r=3, rel, non-per at n_q=300 triggers chunking
-        under the 1 GB per-chunk budget (per-slot ~8.6 MB →
+        under the 1 GB per-chunk budget (per-value ~8.6 MB →
         2.6 GB unchunked). Should complete and return finite output.
         """
         K = 72

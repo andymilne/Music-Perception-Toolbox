@@ -56,7 +56,7 @@ class TestTensorHarmonicityRouting:
             chord, None, sigma=12.0, truncation_sigmas=6.0, verbose=False,
         )
 
-        # Absolute tolerance: 6-sigma truncation per slot caps weight
+        # Absolute tolerance: 6-sigma truncation per value caps weight
         # discarded at ~erfc(6/sqrt(2)) ~ 2e-9; the normalised harmonicity
         # absorbs this. 1e-7 is a comfortable bound.
         assert abs(h_exact - h_trunc) < 1e-7, (

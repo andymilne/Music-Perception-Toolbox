@@ -119,17 +119,17 @@ def test_spectral_symmetry_and_positivity():
 
 def test_spectral_cost_gate_declines_unprofitable_shapes():
     """The mode grid is (r-1)-dimensional while the grid path costs
-    K^2 per event pair, so at small sigma/P with few slots and few
+    K^2 per event pair, so at small sigma/P with few values and few
     events the branch must decline. Calibrated against measured wall
     times; here we pin the decision, not the timing."""
     rng = np.random.default_rng(29)
     P = 1200.0
-    # Small sigma/P, 4 slots, one event: measured ~12x slower if taken.
+    # Small sigma/P, 4 values, one event: measured ~12x slower if taken.
     Px = np.sort(rng.uniform(0, P, (4, 1)), axis=0)
     Wx = np.ones((4, 1))
     assert _spectral_rel_inner_matrix(
         Px, Wx, Px, Wx, 3.0, 3, True, P) is None
-    # The same sigma with many slots is profitable and must be taken.
+    # The same sigma with many values is profitable and must be taken.
     Px2 = np.sort(rng.uniform(0, P, (40, 1)), axis=0)
     Wx2 = np.ones((40, 1))
     assert _spectral_rel_inner_matrix(

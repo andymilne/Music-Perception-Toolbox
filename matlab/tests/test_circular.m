@@ -75,7 +75,7 @@ results{end+1,1} = 'edges: zero at events of even scale';
 results{end,2}   = max(abs(e_at_events)) < 1e-10;
 
 % -- edges: signed antisymmetric for a contiguous block --
-% Six events filling positions 0..5 of a 12-slot circle: rising edge
+% Six events filling positions 0..5 of a 12-position circle: rising edge
 % just before position 0 (index 12, position 11), falling edge just
 % after position 5 (index 7, position 6).
 [~, e_signed] = edges([0, 1, 2, 3, 4, 5], [], 12);

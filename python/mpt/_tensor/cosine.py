@@ -71,7 +71,6 @@ from .dispatch import (
     _compute_Q_inner_blocks,
     _inner_r_vec,
     _normalize_density_input,
-    _orbit_ips_look_corrupted,
     _resolve_list_list_mode,
     _select_ma_inner_product_method,
     # Orbit-table policy constants used by the Möbius-method router.
@@ -1327,9 +1326,9 @@ def _cos_sim_exp_tens_ma(
         # enumeration tracks the truncation budget, so a small cosine is
         # a legitimate value rather than a symptom, and no route is
         # diverted on the size of the result. What remains is the
-        # unambiguous-corruption test (non-finite inner product,
-        # negative Gram diagonal, or a cosine outside [-1, 1]), which
-        # signals a broken value rather than an inaccurate one.
+        # impossible-value test (non-finite inner product, negative Gram
+        # diagonal, or a cosine outside [-1, 1]), which signals a broken
+        # value rather than an inaccurate one.
         #
         # ``post_hoc_guards`` off skips it: the check inspects a result
         # already computed and, when it diverts, pays for Bulger's method
@@ -1701,8 +1700,8 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
     sums Σ_{n,m} P[n,m], where individual entries with bad ratios
     contribute negligibly when their absolute value is small. Removed
     in favour of relying on the cross-cancellation guard
-    and the post-hoc IP corruption check (see
-    ``_orbit_ips_look_corrupted``) at the dispatcher level.
+    and the post-hoc impossible-value check (see
+    ``_impossible_value_reason``) at the dispatcher level.
     """
     A = dens_x.n_attrs
     N_x = dens_x.n

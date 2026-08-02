@@ -2,7 +2,7 @@
 %
 %  The relative-non-periodic nested inner product for spectrally-augmented
 %  ordered cells reduces the inner partial index analytically into the partial
-%  template cross-correlation, evaluating only the per-position carrier
+%  template cross-correlation, evaluating only the per-position reference-value
 %  overlaps (ipRelNonperFactored in +internal/nestedContract.m, mirror of the
 %  Python _ip_rel_nonper_factored). It is the default path for relative
 %  spectral cells, so this exercises it end-to-end through cosSimExpTens and
@@ -43,7 +43,7 @@ for ci = 1:size(cases, 1)
     NX = numel(X);
     [ppX, wpX] = addSpectra(X, [], 'harmonic', KpX, 'powerlaw', rhoX, ...
         'units', 12);
-    PITX = reshape(ppX, NX, KpX).';        % Kp x N carrier (partial-major)
+    PITX = reshape(ppX, NX, KpX).';        % Kp x N reference values (partial-major)
     WPX  = reshape(wpX, NX, KpX).';
     [pbX, wbX, sbX] = bindEvents({PITX, 0:(NX - 1)}, {WPX, []}, [NX 1], ...
         'step', 1, 'relOuter', true);

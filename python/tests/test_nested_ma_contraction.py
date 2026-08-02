@@ -36,7 +36,7 @@ def _dens(events, flags, r_in, rel_out=1):
     n_slots = len(events[0][0])
     tags = np.concatenate([np.full(n_slots, k) for k in range(n_chords)])
     cols = [np.array([v for ch in ev for v in ch], float) for ev in events]
-    p_harm = np.stack(cols, axis=1)                       # (slots, N_events)
+    p_harm = np.stack(cols, axis=1)                       # (values, N_events)
     p_flag = np.array(flags, float).reshape(1, -1)        # (1, N_events)
     specs = [{"tags": tags, "r": [r_in, n_chords], "sym": [True, False],
               "rel": [0, rel_out]},

@@ -506,8 +506,8 @@ def test_auto_pruning_with_cancellation_ratio():
 
 
 def test_auto_pruning_nan_weight_treated_as_missing():
-    """NaN weights are treated as missing slots (intra-event); a
-    column is "zero-weight" iff every non-NaN slot is zero."""
+    """NaN weights are treated as missing values (intra-event); a
+    column is "zero-weight" iff every non-NaN value is zero."""
     rng = np.random.default_rng(12)
     K, N = 5, 6
     sigma = 1.0
@@ -519,7 +519,7 @@ def test_auto_pruning_nan_weight_treated_as_missing():
     # positive weights — should NOT be pruned.
     Wx[2:, 2] = np.nan
     Px[2:, 2] = np.nan
-    # Event 3 has all-zero weight on its valid slots — SHOULD be pruned.
+    # Event 3 has all-zero weight on its valid values — SHOULD be pruned.
     Wx[:, 3] = 0.0
     ip = _ma_per_attr_inner_matrix(
         Px, Wx, Py, Wy, sigma, r=1, is_rel=False, is_per=False, period=0.0,
@@ -576,7 +576,7 @@ def test_eval_ma_auto_prune_parity_vs_unpruned():
     p = [np.array([[float(i) for i in range(20)]]),
          np.array([[float(i) for i in range(20)]])]
 
-    # weight_events with tight truncation hard-zeros most of the time slot.
+    # weight_events with tight truncation hard-zeros most of the time attribute.
     old = mpt.get_default('truncation_sigmas')
     try:
         mpt.set_default(truncation_sigmas=2.0)

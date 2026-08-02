@@ -37,10 +37,10 @@
 %
 %  Responses to between-query variation:
 %
-%    * Slot weights. Neither P* nor mu_q moves. Both methods give
+%    * Value weights. Neither P* nor mu_q moves. Both methods give
 %      identical, stable peak offsets. Holds for any value structure.
 %
-%    * Slot values. mu_q moves smoothly with the sweep parameter while
+%    * Values. mu_q moves smoothly with the sweep parameter while
 %      P* sits on a branch of the similarity profile that may be pinned
 %      locally in absolute pitch. Within a branch, delta*_D drifts;
 %      delta*_F stays put. Holds for any value structure.

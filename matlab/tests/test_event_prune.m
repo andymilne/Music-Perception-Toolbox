@@ -20,7 +20,7 @@
 %  Liveness rule (single predicate: finite and nonzero):
 %    * SA: an element is live iff its weight is finite and nonzero.
 %    * MA: an event is live iff EVERY attribute has at least one finite,
-%      nonzero slot in that event's column (per-attribute factors
+%      nonzero value in that event's column (per-attribute factors
 %      multiply; an all-zero / all-NaN column kills, a partly-zero
 %      column does not).
 %
@@ -56,7 +56,7 @@ results{end,2}   = isequal(prSingleMultiset.p(:).', [60 66 68]) ...
                    && isequal(prSingleMultiset.w(:).', [1 2 -3]);
 
 % MA: an all-zero column on the pitch attribute (K=2) kills the event;
-% a partly-zero column (one live slot) keeps it.
+% a partly-zero column (one live value) keeps it.
 pPitch = [60 62 64; 67 69 71];
 wPitch = [1 0 1; 0 0 1];        % event 2 all-zero -> dead; 1,3 partly -> live
 pTime  = [0 1 2];

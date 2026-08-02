@@ -59,7 +59,7 @@ results{end, 2}   = ratio_ok;
 
 %% ---- Wired gate: mobius (sparse) agrees with Bulger, large clustered ----
 
-% 8 well-separated clusters of 60 evenly-spaced slots => 480 slots per
+% 8 well-separated clusters of 60 evenly-spaced values => 480 values per
 % attribute (Kx*Ky = 230400 >= gate floor) at low density: the sparse
 % gate fires for the non-periodic, r>=2 safe submatrix.
 mkx = @(k) (600 * k + linspace(0, 70, 60)).';
@@ -122,7 +122,7 @@ results{end, 2}   = tm_ok;
 
 
 %% ---- Wired periodic relative sparse path (gate toggled by truncation) ----
-% K = 450 slots on the circle at sigma = 13, P = 1200: the slot kernel
+% K = 450 values on the circle at sigma = 13, P = 1200: the value kernel
 % has Kx*Ky = 202500 >= 200000 entries, and the circular truncation band
 % occupies 2*sqrt(2)*k*sigma/P of each row --- 0.18 at k = 6 (below the
 % 0.20 density ceiling, so the sparse route fires) but 0.23 at the

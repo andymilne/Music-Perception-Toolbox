@@ -1,4 +1,4 @@
-"""Tests for nested-carrier support in ``windowed_similarity`` /
+"""Tests for nested-triple support in ``windowed_similarity`` /
 ``windowed_entropy``.
 
 Each nested result is pinned to the explicit composition it stands in for
@@ -22,7 +22,7 @@ SIG_P, SIG_T = 0.15, 0.125
 AXIS, TARGET = 1, 0          # window on time (1), target the bound pitch (0)
 
 
-def _carrier(spectral):
+def _triple(spectral):
     """A short monophonic passage with a clean (+3, -3, +5) statement, bound
     into ordered relative four-note super-events (inner partial multiset when
     spectral), plus a flat onset-time axis. Returns (ctx, w_ctx, specs)."""
@@ -65,7 +65,7 @@ def _ref_locked(ctx, w_ctx, qry, w_qry, specs, centres, q_ext):
 
 @pytest.mark.parametrize("spectral", [False, True])
 def test_similarity_nested_locked_matches_handbuilt(spectral):
-    ctx, w_ctx, specs = _carrier(spectral)
+    ctx, w_ctx, specs = _triple(spectral)
     # query = the bound super-event at the clean statement (notes 8..11)
     qi = 8
     qry = [ctx[0][:, qi:qi + 1], ctx[1][:, qi:qi + 1]]
@@ -92,7 +92,7 @@ def test_similarity_nested_locked_matches_handbuilt(spectral):
 def test_similarity_nested_is_transposition_invariant():
     """rel=1 in the specs makes the profile blind to global transposition of
     a context super-event."""
-    ctx, w_ctx, specs = _carrier(spectral=False)
+    ctx, w_ctx, specs = _triple(spectral=False)
     qi = 8
     qry = [ctx[0][:, qi:qi + 1], ctx[1][:, qi:qi + 1]]
     width = 0.4
@@ -115,7 +115,7 @@ def test_similarity_nested_is_transposition_invariant():
 
 
 def test_entropy_nested_matches_handbuilt():
-    ctx, w_ctx, specs = _carrier(spectral=False)
+    ctx, w_ctx, specs = _triple(spectral=False)
     width = 2.0
     centres = np.linspace(ctx[1].min(), ctx[1].max(), 7)
     sigma, is_per, period = [SIG_P, SIG_T], [False, False], [0.0, 0.0]
@@ -160,7 +160,7 @@ def test_flat_path_unchanged_when_specs_none():
 def test_similarity_empty_window_scores_zero(spectral):
     """A time centre whose window catches no super-event scores exactly 0 --
     not NaN, and not an error. The nested (spectral) path must agree with the
-    flat path here: an empty windowed carrier otherwise reaches the nested
+    flat path here: an empty windowed triple otherwise reaches the nested
     contraction's value-range scan, which has no identity over an empty
     attribute column. This pins the empty-operand guard in the multi-attribute
     cosine entry."""

@@ -13,10 +13,10 @@
 %     mixing the two matrix conventions is exact.
 %
 %  2. NESTED-TUPLE ENUMERATION (the Bulger / eager build). The leaf
-%     enumeration mapped combination positions to slot indices with
+%     enumeration mapped combination positions to value indices with
 %     rowset(nchoosek(1:k, r0)); at r0 = 1 the (k x 1) position column
-%     followed the row vector rowset's orientation, collapsing k single-slot
-%     combinations into one k-slot combination. Any nesting level with r = 1
+%     followed the row vector rowset's orientation, collapsing k single-value
+%     combinations into one k-value combination. Any nesting level with r = 1
 %     and k > 1 (e.g. one note read per chord) was mis-enumerated --- a crash
 %     in the MA tensor build, wrong tuples in the single-attribute build.
 %

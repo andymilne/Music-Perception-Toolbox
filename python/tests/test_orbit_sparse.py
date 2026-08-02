@@ -1,6 +1,6 @@
 """Sparse-orbit fast path in the Möbius multi-attribute inner product.
 
-When a non-periodic attribute's slot kernel is large and well-separated,
+When a non-periodic attribute's value kernel is large and well-separated,
 the orbit path contracts a spatially-culled sparse kernel instead of the
 dense batched kernel. The result must equal the dense-orbit result to
 floating point, and the gate must stay dormant for small or dense kernels.

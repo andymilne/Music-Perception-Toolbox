@@ -91,7 +91,7 @@ def _admitting_sigmas(bound):
 from .dispatch import _ORBIT_R_MAX_SHIPPED as _ORBIT_MAX_R
 
 
-def _orbit_eligible(g, r, sym, is_rel, is_per):
+def _orbit_eligible(K, r, sym, is_rel, is_per):
     """Is the Möbius reduction *structurally* available at this level?
 
     Structure only: the level must be symmetric and r within the shipped
@@ -825,7 +825,7 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
     partial index sums analytically into the template cross-correlation
     ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
     and the cell overlap reduces to the reference-value differences alone:
-    ``sum_tau prod_a g(carrierX_a - carrierY_a - tau)``. This evaluates only the
+    ``sum_tau prod_a g(refX_a - refY_a - tau)``. This evaluates only the
     per-position note overlaps, never the full partial-by-partial kernel, and is
     exact to floating-point summation order. Returns ``None`` when the structure
     is not of this form (then the caller uses the generic contraction).
@@ -845,20 +845,21 @@ def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
         return None
     dpq = offX[:, None] - offY[None, :]                     # (Kx, Ky)
     wpq = wtX[:, None] * wtY[None, :]
-    delta = (cX - cY)[None, :] - taus[:, None]              # (T, g)
+    delta = (cX - cY)[None, :] - taus[:, None]              # (T, r)
     K = np.exp(-(delta[..., None, None] + dpq) ** 2
-               / (4.0 * sigma ** 2)) * wpq                  # (T, g, Kx, Ky)
+               / (4.0 * sigma ** 2)) * wpq                  # (T, r, Kx, Ky)
     from .._defaults import truncation_floor
     floor = truncation_floor(truncation_sigmas)
     K[K < floor] = 0.0             # per-term floor, matching _trunc exactly
-    m_diag = K.sum(axis=(-1, -2))                           # (T, g)
+    m_diag = K.sum(axis=(-1, -2))                           # (T, r)
     return float(m_diag.prod(axis=1).sum())   # common dtau cancels in the cosine
 
 
 def _all_shared_templates(recipe, P, W):
     """Per-event shared-leaf-template detection across one whole side.
 
-    Returns ``(ref_vals, offsets, weights)`` -- ``ref_vals`` an ``(N, g)``
+    Returns ``(ref_vals, offsets, weights)`` -- ``ref_vals`` an
+    ``(N, n_children)``
     array of the per-event note reference values, and the single offset and weight
     profile common to every event -- or ``None`` when any event departs from
     one shared template (then the caller uses the generic kernel). This is
@@ -870,15 +871,15 @@ def _all_shared_templates(recipe, P, W):
     if first is None:
         return None
     c0, off, wt = first
-    g = c0.size
-    ref_vals = np.empty((N, g), dtype=np.float64)
+    n_children = c0.size
+    ref_vals = np.empty((N, n_children), dtype=np.float64)
     ref_vals[0] = c0
     for i in range(1, N):
         ti = _shared_leaf_template(recipe, P[:, i], W[:, i])
         if ti is None:
             return None
         ci, offi, wti = ti
-        if (ci.size != g or not np.array_equal(offi, off)
+        if (ci.size != n_children or not np.array_equal(offi, off)
                 or not np.array_equal(wti, wt)):
             return None
         ref_vals[i] = ci
@@ -911,10 +912,10 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     ty = _all_shared_templates(recipe_y, PY, WY)
     if tx is None or ty is None:
         return None
-    cX, offX, wtX = tx                 # cX (Nx, g)
-    cY, offY, wtY = ty                 # cY (Ny, g)
-    g = cX.shape[1]
-    if cY.shape[1] != g:               # diagonal needs equal cell lengths
+    cX, offX, wtX = tx                 # cX (Nx, r)
+    cY, offY, wtY = ty                 # cY (Ny, r)
+    r = cX.shape[1]
+    if cY.shape[1] != r:               # diagonal needs equal cell lengths
         return None
     dpq = offX[:, None] - offY[None, :]                    # (Kx, Ky)
     wpq = wtX[:, None] * wtY[None, :]
@@ -926,19 +927,19 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     m_idx = np.repeat(np.arange(Nx), Ny)
     n_idx = np.tile(np.arange(Ny), Nx)
     B = Nx * Ny
-    per = g * max(T, 1) * Kx * Ky
+    per = r * max(T, 1) * Kx * Ky
     chunk = max(1, min(B, int(mem_budget // max(per, 1))))
     out = np.empty(B, dtype=np.float64)
     for s0 in range(0, B, chunk):
         e0 = min(s0 + chunk, B)
-        cx = cX[m_idx[s0:e0]]                              # (nb, g)
-        cy = cY[n_idx[s0:e0]]                              # (nb, g)
-        delta = (cx - cy)[:, :, None] - taus[None, None, :]   # (nb, g, T)
+        cx = cX[m_idx[s0:e0]]                              # (nb, r)
+        cy = cY[n_idx[s0:e0]]                              # (nb, r)
+        delta = (cx - cy)[:, :, None] - taus[None, None, :]   # (nb, r, T)
         K = np.exp(-(delta[..., None, None] + dpq) ** 2
-                   / (4.0 * sigma ** 2)) * wpq             # (nb, g, T, Kx, Ky)
+                   / (4.0 * sigma ** 2)) * wpq             # (nb, r, T, Kx, Ky)
         K[K < floor] = 0.0
-        m_diag = K.sum(axis=(-1, -2))                      # (nb, g, T)
-        out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over g, sum over T
+        m_diag = K.sum(axis=(-1, -2))                      # (nb, r, T)
+        out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over r, sum over T
     return out.reshape(Nx, Ny)
 
 
@@ -1192,8 +1193,8 @@ def tuple_counts(r_levels, sym_levels, tags):
         for sidx, k in zip(val_idx.tolist(), keys.tolist()):
             groups.setdefault(int(k), []).append(sidx)
         rl = r_levels[level]
-        subs = [count(np.asarray(g, dtype=np.intp), level - 1, use_sym)
-                for g in groups.values()]
+        subs = [count(np.asarray(grp, dtype=np.intp), level - 1, use_sym)
+                for grp in groups.values()]
         e = e_r(subs, rl)
         return e * (fact(rl) if (use_sym and sym_levels[level]) else 1)
 
@@ -1207,22 +1208,22 @@ def recipe_work(recipe: _Node):
     """Approximate combine flop count of one contraction over the tree.
 
     Orbit-eligible symmetric levels (5 <= r <= 8) are costed at the orbit
-    reduction's |Omega_r| * g^2 rather than the enumerated r! * C(g,r)^2,
+    reduction's |Omega_r| * K^2 rather than the enumerated r! * C(K,r)^2,
     so the dispatch reflects the actual route taken at each level.
     """
     from .._mobius import get_orbit_table
 
     def node_combine_cost(node):
         if node.use_orbit:
-            g = len(node.val_idx) if node.level == 0 else len(node.children)
-            return len(get_orbit_table(node.r)) * g * g * max(1, node.r)
+            K = len(node.val_idx) if node.level == 0 else len(node.children)
+            return len(get_orbit_table(node.r)) * K * K * max(1, node.r)
         return node.xtup.shape[0] * node.ytup.shape[0] * max(1, node.r)
 
     def w(node):
         tot = node_combine_cost(node)
         if node.level != 0:
-            g = len(node.children)
-            tot += g * g
+            K = len(node.children)
+            tot += K * K
             for c in node.children:
                 tot += w(c)
         return tot

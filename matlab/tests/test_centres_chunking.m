@@ -38,7 +38,7 @@ end
 % --- Density: matches demo_triadConsonance ---
 %   nJ = 72 * 71 * 70 = 357,840
 %   dim = r - 1 = 2 (rel mode)
-%   Per-n_q-slot memory in the difference tensor:
+%   Per-n_q memory in the difference tensor:
 %     (dim + 1) * nJ * 8 = 8.59 MB
 %   At n_q = 1000: 8.59 GB unchunked — triggers chunking under
 %   MATLAB's default budget (memInfo.MaxPossibleArrayBytes * 0.5)

@@ -54,7 +54,7 @@ class TestVacuousAtR1:
         )
 
     def test_ma_eval_coincides(self):
-        P = [np.array([[0.0, 4.0, 7.0]])]   # one attribute, K=1 slot/event
+        P = [np.array([[0.0, 4.0, 7.0]])]   # one attribute, K=1 value/event
         x = np.linspace(-3, 12, 50).reshape(1, -1)
         d_sym = build_exp_tens(P, None, [1.0], [1], [False], [False], [0.0],
                                [True], verbose=False)
@@ -96,7 +96,7 @@ class TestCentreCounts:
         np.testing.assert_array_equal(_smv(d_ord).u_perm.ravel(), [3.0, 1.0, 8.0])
 
     def test_ma_u_perm_columns(self):
-        P = [np.array([[0.0], [4.0], [7.0]])]   # one event, K=3 slots
+        P = [np.array([[0.0], [4.0], [7.0]])]   # one event, K=3 values
         d_ord = build_exp_tens(P, None, [1.0], [2], [False], [False], [0.0],
                                [False], verbose=False)
         d_sym = build_exp_tens(P, None, [1.0], [2], [False], [False], [0.0],
@@ -177,7 +177,7 @@ class TestDeReflection:
     def test_ordered_cosine_large_k_ma(self):
         """MA analogue: an ordered attribute at K large enough for the
         orbit path must still route to centres and stay distinct."""
-        M = [np.array([[float(x)] for x in range(6)])]      # 6 slots, 1 event
+        M = [np.array([[float(x)] for x in range(6)])]      # 6 values, 1 event
         Mr = [np.array([[float(x)] for x in range(5, -1, -1)])]
         s_ord = cos_sim_exp_tens(M, None, Mr, None, [50.0], [2], [False],
                                  [False], [0.0], [False], verbose=False)
@@ -525,7 +525,7 @@ class TestOrderedNotRoutedToMobius:
                           verbose=False)
 
     def test_r1_ordered_still_allows_mobius(self):
-        # [sym] is vacuous at a single slot, so r = 1 is exempt.
+        # [sym] is vacuous at a single value, so r = 1 is exempt.
         from mpt import build_exp_tens, eval_exp_tens
         d = build_exp_tens([self.P[:, None]], None, [self.SIG], [1],
                            [False], [False], [0.0], [False], verbose=False)

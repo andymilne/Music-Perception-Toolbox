@@ -1,6 +1,6 @@
-%% test_windowed_nested.m — nested-carrier windowedSimilarity / windowedEntropy
+%% test_windowed_nested.m — nested-triple windowedSimilarity / windowedEntropy
 %
-%  Validates the nested-carrier branch of windowedSimilarity and
+%  Validates the nested-triple branch of windowedSimilarity and
 %  windowedEntropy (the 'specs' argument) against the explicit composition
 %  it stands in for (weightEvents / translateAttributes -> buildExpTens with
 %  'specs' -> cosSimExpTens / entropyExpTens). To prove the geometry is read
@@ -38,14 +38,14 @@ onset = cumsum(repmat(0.5, 1, N));
 width = 0.4;     % narrow context window: ~one super-event per centre
 qi    = 9;       % the clean statement's super-event (1-based)
 
-% ----- carriers: plain and spectrally augmented -------------------------
+% ----- triples: plain and spectrally augmented --------------------------
 [pbP, wbP, sbP] = bindEvents({pitch, onset}, [], [4 1], ...
     'step', 1, 'relOuter', true);
 
 Kp = 8;
 [ppS, wpS] = addSpectra(pitch, [], 'harmonic', Kp, 'powerlaw', 1.0, 'units', 12);
 % addSpectra flattens p_matrix (M x K) column-major (partial-major), so the
-% K-by-N carrier is reshape(.., N, Kp).' (column j = note j's partials).
+% K-by-N value matrix is reshape(.., N, Kp).' (column j = note j's partials).
 PIT = reshape(ppS, N, Kp).';
 WP  = reshape(wpS, N, Kp).';
 [pbS, wbS, sbS] = bindEvents({PIT, onset}, {WP, []}, [4 1], ...

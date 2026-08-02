@@ -2,7 +2,7 @@
 
 bind_events(..., group_by=a) gathers consecutive events sharing a constant
 value on attribute ``a`` into one super-event; group sizes vary, so the outer
-level is ragged (NaN-padded to the maximum group size, padded slots at zero
+level is ragged (NaN-padded to the maximum group size, padded positions at zero
 weight). The ragged-orbit test pins that the orbit (Möbius) reduction and the
 permutation/combination enumeration agree on such a density.
 """
@@ -34,7 +34,7 @@ def test_run_length_structure():
     assert np.array_equal(sp[0]["tags"], np.repeat(np.arange(4), 1))
     # NaN padding per group: 4-3, 4-2, 4-1, 4-4
     assert list(np.isnan(pb[0]).sum(0)) == [1, 2, 3, 0]
-    # padded slots carry zero weight
+    # padded positions carry zero weight
     assert np.all(wb[0][np.isnan(pb[0])] == 0.0)
 
 

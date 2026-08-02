@@ -10,8 +10,8 @@
 %      attribute counts, event counts, read-arities, and geometry modes.
 %      Möbius is the independent reference: it never builds the joint and
 %      shares the flat query convention.
-%    - Ragged events (NaN-dropped slots, differing valid-slot patterns)
-%      agree: absent slots are zero-weight on a shared enumeration.
+%    - Ragged events (NaN-dropped values, differing valid-value patterns)
+%      agree: absent values are zero-weight on a shared enumeration.
 %    - Fall-back: an r_a = 1 attribute routes to the joint accumulator
 %      (factored returns []); the eval still matches Möbius.
 %
@@ -62,7 +62,7 @@ for r = [3, 4]
     results{end,2} = relErr(d, localQuery(d, 60)) < 1e-4;
 end
 
-% --- Ragged events (NaN-dropped slots, differing valid patterns) ---
+% --- Ragged events (NaN-dropped values, differing valid patterns) ---
 A = 2; K = 8; N = 6;
 P = cell(1, A);
 for a = 1:A

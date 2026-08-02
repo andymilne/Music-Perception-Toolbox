@@ -1,11 +1,12 @@
-%% test_difference.m — differenceEvents on the (pAttr, w, specs) carrier (3c-iv-b)
+%% test_difference.m — differenceEvents on the (pAttr, w, specs) triple (3c-iv-b)
 %
 %  differenceEvents applies the k-th finite difference along the event axis,
-%  slot-wise. It is well-defined exactly when slots have stable identity ---
+%  position by position. It is well-defined exactly when the positions have
+%  stable identity ---
 %  an ordered attribute ([sym]=0) or a singleton (K=1) --- so a symmetric
 %  multiset (K>1) errors, and the rule extends per level for a nested
 %  attribute. The spec passes through unchanged (values change, structure
-%  does not); NaN propagates (absent slot). With order = L the differenced-
+%  does not); NaN propagates (absent value). With order = L the differenced-
 %  then-bound and bound-then-differenced routes coincide (B o D == D o B).
 
 if ~exist('results', 'var')
@@ -19,7 +20,7 @@ else
 end
 
 
-% --- Carrier basics -------------------------------------------------
+% --- Triple basics --------------------------------------------------
 
 % Returns three-tuple with specs (flat: no tags field).
 [pd, ~, sd] = differenceEvents({[0 2 5 9]}, [], 1);
@@ -63,10 +64,10 @@ results{end,2}   = isequal(wd{1}, [2 6 12]);
 
 % --- K generalisation: ordered any-K, symmetric rejected ------------
 
-% K>1 ordered attribute differences slot-wise (the lifted K=1 rule).
+% K>1 ordered attribute differences position by position (the lifted K=1 rule).
 M = [0 2 5; 10 13 17];
 [pd, ~, ~] = differenceEvents({M}, [], 1, 'specs', flatSpecs({M}, 'sym', false));
-results{end+1,1} = 'diff: ordered K>1 differences slot-wise';
+results{end+1,1} = 'diff: ordered K>1 differences position by position';
 results{end,2}   = isequal(pd{1}, [2 3; 3 4]);
 
 % Symmetric K>1 rejected.
@@ -85,11 +86,11 @@ results{end,2}   = isequal(pd{1}, M);
 results{end+1,1} = 'diff: K=1 differences regardless of sym';
 results{end,2}   = isequal(pd{1}, [2 3]);
 
-% NaN propagates as an absent slot.
+% NaN propagates as an absent value.
 Mn = [0 2 5; 10 NaN 17];
 [pd, ~, ~] = differenceEvents({Mn}, [], 1, 'specs', flatSpecs({Mn}, 'sym', false));
 out = pd{1};
-results{end+1,1} = 'diff: NaN propagates as absent slot';
+results{end+1,1} = 'diff: NaN propagates as absent value';
 results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
 
 
@@ -98,7 +99,7 @@ results{end,2}   = isequal(out(1, :), [2 3]) && all(isnan(out(2, :)));
 raw = [0 2 5 9 14];
 [pb, wb, specs] = bindEvents({raw}, [], 2);   % nested, N'=4
 [pnd, ~, snd] = differenceEvents(pb, wb, 1, 'specs', specs);
-results{end+1,1} = 'diff: nested-D slot-wise, spec passthrough';
+results{end+1,1} = 'diff: nested-D position by position, spec passthrough';
 results{end,2}   = isequal(size(pnd{1}), [2 3]) ...
                    && isequal(snd{1}.tags(:).', [0 1]) ...
                    && isequal(snd{1}.r, specs{1}.r);

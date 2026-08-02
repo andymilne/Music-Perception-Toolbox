@@ -1,10 +1,10 @@
-"""Tests for the carrier-form bind_events (3c-ii / 3c-iv-c).
+"""Tests for the triple-form bind_events (3c-ii / 3c-iv-c).
 
 bind_events nests sliding windows of consecutive events into a single nested
 attribute per input attribute (toolbox spec §6.1/§6.5): the bound events form
 an ordered outer level (sym_outer = 0 by default), each event's own multiset
 is the inner level. The inner level's geometry (r/rel/sym) is read from the
-incoming carrier specs (flat_specs defaults when specs=None). It returns
+incoming triple's specs (flat_specs defaults when specs=None). It returns
 (p_attr_bound, w_bound, specs) ready for build_exp_tens(..., specs=...). L = 1
 is a flat passthrough. Outer r = L with rel = [rel_in, 0] reproduces the old
 separate-attribute tensor join (§6.5).
@@ -168,7 +168,7 @@ def test_deep_nesting_supported():
 
 
 def test_deep_nesting_without_specs_silently_flattens():
-    """The documented footgun: omitting specs on an already-bound carrier
+    """The documented footgun: omitting specs on an already-bound triple
     re-synthesises flat specs and discards the existing nesting (shallower
     result), rather than deepening."""
     p = [np.array([[0.0, 4.0, 7.0, 11.0, 2.0, 9.0]])]

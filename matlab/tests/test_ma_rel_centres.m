@@ -208,7 +208,7 @@ end
 function dens = localMakeMaRagged(N, K, r, isRelP, isPerP, seed)
     rng(seed);
     pitches = rand(K, N) * 1200;
-    pitches(K, 1:3:N) = NaN;   % every third event loses its last slot
+    pitches(K, 1:3:N) = NaN;   % every third event loses its last value
     onsets  = (0:N-1) * 250 + randn(1, N) * 10;
     dens = buildExpTens({onsets; pitches}, {[]; []}, [15, 6], [1, r], ...
         [false, isRelP], [false, isPerP], [4000, 1200], ...

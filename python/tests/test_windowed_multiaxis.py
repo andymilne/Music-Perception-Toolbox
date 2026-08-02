@@ -2,7 +2,7 @@
 ``windowed_similarity`` and ``windowed_entropy``.
 
 The central check pins the new core against the trusted single-axis form on a
-K = 1 carrier, where the two must agree exactly; the rest cover the genuinely
+K = 1 triple, where the two must agree exactly; the rest cover the genuinely
 new surface (the several-axes map, the ``locate`` reduction, and the guards).
 """
 
@@ -15,7 +15,7 @@ SIG_P, SIG_T = 0.12, 0.05
 
 
 @pytest.fixture
-def flat_carrier():
+def flat_triple():
     rng = np.random.default_rng(1)
     N = 36
     pitch = np.sort(rng.integers(48, 84, size=N).astype(float)).reshape(1, N)
@@ -31,10 +31,10 @@ def query():
 
 @pytest.mark.parametrize("dropflag", [True, False])
 @pytest.mark.parametrize("normalize", ["oneSidedDenom", "cosine"])
-def test_multi_one_axis_matches_single_axis(flat_carrier, query, dropflag, normalize):
+def test_multi_one_axis_matches_single_axis(flat_triple, query, dropflag, normalize):
     """On a K=1 axis the centroid reduces to the value, so the multi-axis
     form must reproduce the single-axis form exactly."""
-    p_attr, centres = flat_carrier
+    p_attr, centres = flat_triple
     single = windowed_similarity(
         p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
         [False, False], [0.0, 0.0], centres, window_attr=1,
@@ -97,8 +97,8 @@ def test_locate_start_vs_centroid_shift():
     assert at_start[0] > 0.99          # event's start inside the window
 
 
-def test_drop_requires_one_entry_per_sweep(flat_carrier, query):
-    p_attr, centres = flat_carrier
+def test_drop_requires_one_entry_per_sweep(flat_triple, query):
+    p_attr, centres = flat_triple
     with pytest.raises(ValueError):
         windowed_similarity(
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -106,8 +106,8 @@ def test_drop_requires_one_entry_per_sweep(flat_carrier, query):
             verbose=False)
 
 
-def test_drop_all_axes_errors(flat_carrier, query):
-    p_attr, centres = flat_carrier
+def test_drop_all_axes_errors(flat_triple, query):
+    p_attr, centres = flat_triple
     with pytest.raises(ValueError):
         windowed_similarity(
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -115,8 +115,8 @@ def test_drop_all_axes_errors(flat_carrier, query):
             drop={0: True, 1: True}, verbose=False)
 
 
-def test_target_cannot_be_dropped(flat_carrier, query):
-    p_attr, centres = flat_carrier
+def test_target_cannot_be_dropped(flat_triple, query):
+    p_attr, centres = flat_triple
     with pytest.raises(ValueError):
         windowed_similarity(
             p_attr, None, query, None, [SIG_P, SIG_T], [1, 1], [False, False],
@@ -124,9 +124,9 @@ def test_target_cannot_be_dropped(flat_carrier, query):
             target_attr=1, verbose=False)
 
 
-def test_entropy_multi_matches_single_axis(flat_carrier):
+def test_entropy_multi_matches_single_axis(flat_triple):
     """windowed_entropy multi form matches the single-axis form on a K=1 axis."""
-    p_attr, centres = flat_carrier
+    p_attr, centres = flat_triple
     W = 2.0 * np.sqrt(3.0)
     single = windowed_entropy(
         p_attr, None, [SIG_P, SIG_T], [1, 1], [False, False], [False, False],

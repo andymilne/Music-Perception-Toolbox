@@ -2,7 +2,7 @@
 
 When ``centre`` is a size-1 input (Python scalar, 0-D ndarray,
 length-1 sequence, or 1x1 ndarray), :func:`window_tensor` broadcasts
-the value across every per-attribute slot, equivalent to passing a
+the value across every per-attribute entry, equivalent to passing a
 length-d_a array of identical values per attribute.
 
 Per-attribute scalars in list form (e.g. ``[5.0, 10.0]`` for two
@@ -99,7 +99,7 @@ def test_list_form_never_broadcasts():
 
 def test_global_scalar_broadcast_ma_two_groups():
     """With A=2 attributes in different groups, a single scalar fills
-    every slot of both attributes."""
+    every entry of both attributes."""
     rng = np.random.default_rng(42)
     P_list = [rng.uniform(-50, 50, size=(4, 5)) for _ in range(2)]
     W_list = [rng.uniform(0.5, 1.5, size=(4, 5)) for _ in range(2)]

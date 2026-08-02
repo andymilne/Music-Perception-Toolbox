@@ -245,7 +245,7 @@ results{end,2}   = all(abs(dens.wv_comb - 30) < 1e-12);
 % -- Error paths --
 
 pitchMat = [0 4];
-results{end+1,1} = 'MAET: insufficient slots errors';
+results{end+1,1} = 'MAET: insufficient values errors';
 results{end,2}   = throwsError(@() buildExpTens({[0 0; 4 NaN; NaN NaN]}, [], ...
     10, 2, false, true, 1200, 'verbose', false));
 
@@ -633,7 +633,7 @@ H_vec = entropyExpTens(densE, ...
 results{end+1,1} = 'entropyExpTens MA: per-group bounds vector == scalar';
 results{end,2}   = abs(H_scalar - H_vec) < 1e-12;
 
-% -- differenceEvents: moved onto the (pAttr, w, specs) carrier (3c-iv);
+% -- differenceEvents: moved onto the (pAttr, w, specs) triple (3c-iv);
 %    its tests live in tests/test_difference.m. The old groups/cell-order
 %    contract and the K=1-only restriction were removed with Commit 3c-iv.
 
@@ -711,20 +711,21 @@ p_pt = {[1 2 3], [10 20 30], [100 200 300]};
 results{end+1,1} = 'weightEvents: non-input non-target attribute passes through unchanged';
 results{end,2}   = isequal(w_pt{3}, 0.5);
 
-% input ~= target: factor lands on target slot, input slot unchanged.
+% input ~= target: factor lands on the target attribute's weights, the
+% input attribute's are unchanged.
 p_int = {[60 64 67], [0 1 2]};        % pitch (target), time (input)
 [~, w_int, ~] = weightEvents(p_int, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', false);
 expected_int = exp(-(([0 1 2] - 1) .^ 2) ./ 2);
-results{end+1,1} = 'weightEvents: input ~= target writes factor to target slot only';
+results{end+1,1} = 'weightEvents: input ~= target writes factor to target attribute only';
 results{end,2}   = max(abs(w_int{1} - expected_int)) < 1e-12 && isempty(w_int{2});
 
-% Target with K_target > 1: (1, N) factor broadcasts across K_target slots.
+% Target with K_target > 1: (1, N) factor broadcasts across K_target positions.
 p_bc = {[60 64; 62 65; 64 67], [0 1]};   % pitch K=3 (target), time K=1 (input)
 w_bc_in = {ones(3, 2), []};
 [~, w_bc, ~] = weightEvents(p_bc, w_bc_in, 2, 1, 0, 0, 'sd', 1, 'dropInputAttr', false);
 factor_bc = exp(-([0 1] .^ 2) ./ 2);
 expected_bc = repmat(factor_bc, 3, 1);
-results{end+1,1} = 'weightEvents: (1, N) factor broadcasts across target K_target > 1 slots';
+results{end+1,1} = 'weightEvents: (1, N) factor broadcasts across target K_target > 1 positions';
 results{end,2}   = isequal(size(w_bc{1}), [3 2]) && ...
                    max(abs(w_bc{1}(:) - expected_bc(:))) < 1e-12;
 
@@ -893,7 +894,7 @@ p_after_t = translateAttributes(p_tw, [], {mu_tw});
 results{end+1,1} = 'weightEvents: T \circ W centre-shift commutation';
 results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
-% translateAttributes moved onto the (pAttr, w, specs) carrier (3c-iv-d);
+% translateAttributes moved onto the (pAttr, w, specs) triple (3c-iv-d);
 % its tests now live in tests/test_translate.m. The old groups / isRel /
 % isPer / period positional contract has been removed.
 
@@ -1038,7 +1039,7 @@ results{end,2}   = isfinite(s_raised) && s_raised > 0 && s_raised < 1;
 
 % -- windowTensor: multi-D relative Gaussian works --
 
-pitchMR = [60 62; 64 65; 67 69];   % 3 slots, 2 events
+pitchMR = [60 62; 64 65; 67 69];   % 3 positions, 2 events
 dens_mr = buildExpTens({pitchMR}, [], 10, 3, ...
     true, true, 1200, 'verbose', false);
 spec_mr_gauss = struct('size', 1, 'mix', 0, ...
@@ -1255,7 +1256,7 @@ results{end,2}   = throwsError(@() windowTensor(dens_w, bad_spec));
 % -- windowTensor: scalar centre broadcasting --
 % A size-1 centre input (numeric scalar, 1x1 array, or single-element
 % cell containing a scalar) broadcasts to fill every per-attribute
-% slot uniformly. Mirrors the Python window_tensor behaviour.
+% entry uniformly. Mirrors the Python window_tensor behaviour.
 
 % Build a small MA density: A=2, both attributes r=1, separate groups.
 % dim_per_attr = [1, 1], dim_total = 2.
@@ -1299,8 +1300,8 @@ results{end+1,1} = 'windowTensor: negative scalar centre broadcasts';
 results{end,2}   = isequal(wmd_n.centre{1}, -7.5) && isequal(wmd_n.centre{2}, -7.5);
 
 % Multi-D scalar broadcasting: r=3 absolute single attribute, d_a = 3.
-% A scalar should fill all three slots.
-pitchMA3 = [60 62 64; 67 69 71; 72 74 76];   % 3 slots, 3 events
+% A scalar should fill all three positions.
+pitchMA3 = [60 62 64; 67 69 71; 72 74 76];   % 3 positions, 3 events
 dens_ma3 = buildExpTens({pitchMA3}, [], 10, 3, ...
     false, false, 0, 'verbose', false);
 spec_sc3 = struct('size', 1.5, 'mix', 0.5, 'centre', 5.0);

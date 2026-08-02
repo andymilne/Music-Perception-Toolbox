@@ -73,7 +73,7 @@ from ._tensor.dispatch import (
     _compute_Q,
     _estimate_centres_array_bytes,
     _normalize_density_input,
-    _orbit_ips_look_corrupted,
+    _orbit_ips_impossible,
     _resolve_list_list_mode,
     _select_ma_inner_product_method,
     # Policy constants (imported by dispatcher tests).

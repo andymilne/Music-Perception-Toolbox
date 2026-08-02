@@ -17,7 +17,7 @@ else
     standalone = false;
 end
 
-% Three-level attribute: 2 bars x 2 chords/bar x 2 notes/chord = 8 slots.
+% Three-level attribute: 2 bars x 2 chords/bar x 2 notes/chord = 8 values.
 % tags columns: 1 = chord (finest grouping above leaves), 2 = bar (outermost).
 tags3 = [0 0; 0 0; 1 0; 1 0; 2 1; 2 1; 3 1; 3 1];     % 8 x 2
 P3    = {[0 4 7 11 12 16 19 23].'};                   % K_total = 8, N = 1
@@ -70,7 +70,7 @@ results{end,2}   = cosSimExpTens(dA, dAT, 'verbose', false) < 0.999;
 % dim = D - G_u with G_u = prod(r(u+1:end)). Each unit is invariant to
 % transposition at its own level and coarser, not finer.
 
-% Per-slot offsets: per-chord (tags col 1), per-bar (col 2), global.
+% Per-position offsets: per-chord (tags col 1), per-bar (col 2), global.
 perChord = P3{1} + [0; 0; 60; 60; 0; 0; 60; 60];
 perBar   = P3{1} + [10; 10; 10; 10; 20; 20; 20; 20];
 glob     = P3{1} + 5;

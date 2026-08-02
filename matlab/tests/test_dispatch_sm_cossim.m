@@ -5,8 +5,9 @@
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
 %      regimes (r in {3, 4}, abs and rel modes, periodic and non-periodic).
 %    - Auto dispatch picks the expected path given r, n, mode.
-%    - The three-layer fallback (cross-cancellation, corruption, severe
-%      cancellation ratio) catches degenerate cases and routes to Bulger.
+%    - The post-hoc impossible-value check (non-finite inner product,
+%      negative Gram diagonal, cosine outside [-1, 1]) catches
+%      degenerate cases and routes to Bulger's method.
 %    - Bad keyword values raise informative errors.
 %
 %  Standalone-runnable. When invoked from test_mpt.m the existing

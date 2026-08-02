@@ -44,7 +44,7 @@ v_ord = evalExpTens(d_ord, xg, 'verbose', false);
 results{end+1,1} = 'sym: r=1 vacuous (SA eval coincides)';
 results{end,2}   = max(abs(v_sym(:) - v_ord(:))) < 1e-12;
 
-Pma = {[0 4 7]};   % one attribute, 1 slot, 3 events
+Pma = {[0 4 7]};   % one attribute, 1 value, 3 events
 xm = linspace(-3, 12, 50);
 dms = buildExpTens(Pma, [], 1, 1, false, false, 0, true,  'verbose', false);
 dmo = buildExpTens(Pma, [], 1, 1, false, false, 0, false, 'verbose', false);
@@ -84,7 +84,7 @@ results{end+1,1} = 'sym: r=K single ordered tuple in listed order';
 results{end,2}   = size(dK.U_perm{1}, 2) == 1 ...
                 && isequal(dK.U_perm{1}(:).', [3 1 8]);
 
-% MA centre counts (one event, 3 slots, r = 2).
+% MA centre counts (one event, 3 values, r = 2).
 PmaC = {[0; 4; 7]};
 dmo2 = internal.ensureExpTensExpensive( ...
     buildExpTens(PmaC, [], 1, 2, false, false, 0, false, 'verbose', false));
@@ -141,7 +141,7 @@ sL_ord = cosSimExpTens( ...
 results{end+1,1} = 'sym: large-K ordered cosine not symmetrised (SA routing)';
 results{end,2}   = abs(sL_sym - 1) < 1e-9 && sL_ord < 1 - 1e-4;
 
-ML  = {(0:5).'};        % 6 slots, 1 event
+ML  = {(0:5).'};        % 6 values, 1 event
 MLr = {(5:-1:0).'};
 mL_sym = cosSimExpTens(ML, [], MLr, [], 50, 2, false, false, 0, true,  'verbose', false);
 mL_ord = cosSimExpTens(ML, [], MLr, [], 50, 2, false, false, 0, false, 'verbose', false);

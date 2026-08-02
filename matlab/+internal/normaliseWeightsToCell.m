@@ -1,5 +1,5 @@
 function wCell = normaliseWeightsToCell(w, A)
-%LOCALNORMALISEWEIGHTSTOCELL  Coerce w to a 1 x A cell, preserving entries.
+%NORMALISEWEIGHTSTOCELL  Coerce w to a 1 x A cell, preserving entries.
     wCell = cell(1, A);
     if isempty(w) && ~iscell(w)
         for a = 1:A

@@ -337,7 +337,7 @@ results{end,2}   = abs(vA - vT) <= 1e-12;
 % =====================================================================
 
 % =====================================================================
-%  Degenerate nested flattening (bindEvents over flat single-slot
+%  Degenerate nested flattening (bindEvents over flat single-value
 %  events + matrix sigma; v2.2.1+)
 % =====================================================================
 

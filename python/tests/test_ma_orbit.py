@@ -328,8 +328,8 @@ def _build_ma_pitch_time(rng, N, K_pitch=3, sigma_pitch=10.0, sigma_time=0.05,
 def test_orbit_ma_matches_pairwise_pitch_time(r_pitch, K_pitch, pitch_rel):
     """Pitch + time MAET: orbit-MA cosine matches pairwise-MA cosine.
 
-    Spans the typical MAET use case (one multi-slot attribute with
-    r_a >= 2, one single-slot attribute with r_a = 1) across rel/abs
+    Spans the typical MAET use case (one multi-value attribute with
+    r_a >= 2, one single-value attribute with r_a = 1) across rel/abs
     pitch and several K_pitch values.
     """
     rng = np.random.default_rng(seed=hash((r_pitch, K_pitch, pitch_rel)) & 0xFFFF)
@@ -495,9 +495,9 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
     rng = np.random.default_rng(seed=42)
     N = 5
     K = 3
-    # Build pitch matrix with one event having only K-1 valid slots.
+    # Build pitch matrix with one event having only K-1 valid values.
     pitch_x = rng.uniform(0, 1200, (K, N))
-    pitch_x[2, 1] = np.nan  # Event 1 has only 2 valid slots
+    pitch_x[2, 1] = np.nan  # Event 1 has only 2 valid values
     pitch_y = rng.uniform(0, 1200, (K, N))
     weights_x = np.ones_like(pitch_x)
     weights_x[2, 1] = np.nan

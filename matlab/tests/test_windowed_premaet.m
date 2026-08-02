@@ -23,7 +23,7 @@ WW    = 2.0 * sqrt(3.0) * SD;          % variance-matched rectangular support
 SIGP  = 0.12;
 SIGT  = 0.05;
 
-% Deterministic carrier (no RNG dependence across languages): a rising
+% Deterministic triple (no RNG dependence across languages): a rising
 % pitch line and a near-uniform onset grid.
 N      = 24;
 pitch  = (48 + (0:N-1)) ;                       % 1 x N rising pitches

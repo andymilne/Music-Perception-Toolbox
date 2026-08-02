@@ -17,7 +17,7 @@ from mpt import build_exp_tens, cos_sim_exp_tens, entropy_exp_tens
 from mpt._tensor.build import _nested_enum_indices
 
 
-# A three-level attribute: 2 bars x 2 chords/bar x 2 notes/chord = 8 slots.
+# A three-level attribute: 2 bars x 2 chords/bar x 2 notes/chord = 8 values.
 # tags columns: 0 = chord (finest grouping above leaves), 1 = bar (outermost).
 _TAGS3 = np.array([[0, 0], [0, 0], [1, 0], [1, 0],
                    [2, 1], [2, 1], [3, 1], [3, 1]])
@@ -34,7 +34,7 @@ def _spec(rel):
 def test_enum_L2_parity_single_column():
     """A single-column tag matrix reproduces the two-level enumeration."""
     valid = np.array([0, 1, 2, 3], dtype=np.intp)
-    tags = np.array([0, 0, 1, 1])                 # 2 events x 2 inner slots
+    tags = np.array([0, 0, 1, 1])                 # 2 events x 2 inner positions
     perm, comb = _nested_enum_indices(valid, tags, [2, 2], [True, False])
     assert comb.shape == (4, 1)
     np.testing.assert_array_equal(comb[:, 0], [0, 1, 2, 3])
@@ -150,7 +150,7 @@ def test_L3_renyi2_matches_grid_integral():
 # global. dim = D - G_u with G_u = prod(r[u+1:]). Each unit is invariant
 # to transposition at its own level and coarser, and not finer.
 
-# Per-slot offsets: per-chord (tags col 0), per-bar (tags col 1), global.
+# Per-position offsets: per-chord (tags col 0), per-bar (tags col 1), global.
 _PER_CHORD = [_P3[0] + np.array([[0., 0, 60, 60, 0, 0, 60, 60]]).T]
 _PER_BAR = [_P3[0] + np.array([[10., 10, 10, 10, 20, 20, 20, 20]]).T]
 _GLOBAL = [_P3[0] + 5.0]
@@ -222,7 +222,7 @@ def test_L3_scalar_rel_rejected_when_nested():
 
 
 def test_L3_infeasible_read_errors():
-    """r asks for more groups than the slots provide."""
+    """r asks for more groups than the values provide."""
     bad = [dict(r=[2, 2, 3], sym=[True, True, False], tags=_TAGS3, rel=None)]
     with pytest.raises(ValueError):
         build_exp_tens(_P3, None, specs=bad, **_KW)

@@ -6,7 +6,7 @@ attributes of each event's per-attribute factor --- instead of
 materialising the joint tuple set. These tests pin its value-equality
 with the independent factored-Möbius path across attribute counts,
 event counts, read-arities, geometry modes, nesting, and ragged
-(differing valid-slot) events, and confirm the documented fall-backs.
+(differing valid-value) events, and confirm the documented fall-backs.
 """
 
 import numpy as np
@@ -120,8 +120,8 @@ class TestFactoredEqualsDenseJoint:
         assert _max_rel_err(d, _query_near_mass(d, 60, 0.4, 9)) < 1e-4
 
     def test_ragged_events(self):
-        # Events with differing valid-slot patterns (NaN-dropped slots)
-        # must match: absent slots are zero-weight on a shared enumeration.
+        # Events with differing valid-value patterns (NaN-dropped values)
+        # must match: absent values are zero-weight on a shared enumeration.
         rng = np.random.default_rng(4)
         A, K, N = 2, 8, 6
         p = []

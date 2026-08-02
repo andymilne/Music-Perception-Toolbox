@@ -6,10 +6,10 @@ These guard two defects fixed together:
    it for *both* axes of the rectangular leaf kernel ``K`` of shape
    ``(Q, nX, nY)``. When the two densities' nested cardinalities differed
    (e.g. a 4-pitch prototype against an 8-pitch merged window), the Y axis was
-   indexed with X-side slots and the inner product collapsed to ~0 for every
+   indexed with X-side values and the inner product collapsed to ~0 for every
    cross-comparison while self-similarity stayed 1. The contraction now threads
-   a separate recipe per side; the X axis is indexed by X slots, the Y axis by
-   Y slots, and the per-size tuple sourcing handles differing leaf spans. For
+   a separate recipe per side; the X axis is indexed by X values, the Y axis by
+   Y values, and the per-size tuple sourcing handles differing leaf spans. For
    matching structures the two trees coincide and the result is unchanged.
 
 2. The absolute-mode inner product inferred periodicity from

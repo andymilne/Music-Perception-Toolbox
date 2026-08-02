@@ -2,10 +2,10 @@
 product for spectrally-augmented ordered cells.
 
 The factorisation reduces the inner partial index analytically into the partial
-template cross-correlation, evaluating only the per-position carrier overlaps.
+template cross-correlation, evaluating only the per-position reference-value overlaps.
 It must reproduce the generic partial-by-partial contraction to floating-point
 summation order, must engage only for genuine spectral cells (>= 2 partials per
-tone), and must leave plain fundamentals (one slot per tone) on the generic
+tone), and must leave plain fundamentals (one value per tone) on the generic
 path so their numerics are unchanged.
 """
 import numpy as np

@@ -702,7 +702,7 @@ function node = buildNode(level, valIdx, rLevels, symLevels, tags, isRel, isPer)
 end
 
 
-function tf = orbitEligible(g, r, sym, isRel, isPer) %#ok<INUSD>
+function tf = orbitEligible(K, r, sym, isRel, isPer) %#ok<INUSD>
     % Is the Mobius reduction *structurally* available at this level?
     %
     % Structure only: the level must be symmetric and r within the shipped
@@ -1213,7 +1213,7 @@ end
 
 
 function tpl = sharedLeafTemplate(node, v, w)
-%SLOTSHAREDLEAFTEMPLATE Detect a spectral-augmentation leaf (mirror of the
+%SHAREDLEAFTEMPLATE Detect a spectral-augmentation leaf (mirror of the
 %   Python _shared_leaf_template): a two-level node whose children are all
 %   r == 1 leaves sharing one partial template (a common offset and weight
 %   profile, translated per child by a single reference value). Returns a struct with
@@ -1234,9 +1234,9 @@ function tpl = sharedLeafTemplate(node, v, w)
     v0 = v(s0);
     w0 = w(s0);
     off = v0 - v0(1);
-    g = numel(node.children);
-    refVals = zeros(g, 1);
-    for a = 1:g
+    nChildren = numel(node.children);
+    refVals = zeros(nChildren, 1);
+    for a = 1:nChildren
         ch = node.children{a};
         if ch.level ~= 0 || ch.r ~= 1 || ~isempty(ch.children)
             return;
@@ -1261,7 +1261,7 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
 %   periodic inner product for spectrally-augmented ordered cells (mirror of
 %   the Python _ip_rel_nonper_factored). The inner partial index sums into the
 %   template cross-correlation g, and the cell overlap reduces to the reference-value
-%   differences: sum_tau prod_a g(carrierX_a - carrierY_a - tau). Returns [] when
+%   differences: sum_tau prod_a g(refX_a - refY_a - tau). Returns [] when
 %   the structure is not of this form (then the caller uses the generic path).
     ipv = [];
     if recipeX.sym || recipeY.sym
@@ -1276,8 +1276,8 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
     if isempty(tx) || isempty(ty)
         return;
     end
-    g = numel(tx.refVals);
-    if g ~= numel(ty.refVals)         % diagonal needs equal cell lengths
+    r = numel(tx.refVals);
+    if r ~= numel(ty.refVals)         % diagonal needs equal cell lengths
         return;
     end
     dpq = tx.off - ty.off.';                          % Kx x Ky
@@ -1285,16 +1285,16 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
     Kx = size(dpq, 1);
     Ky = size(dpq, 2);
     T = numel(taus);
-    delta = reshape(tx.refVals - ty.refVals, [1, g]) ...
-            - reshape(taus, [T, 1]);                  % T x g
-    arg = reshape(delta, [T, g, 1, 1]) ...
-          + reshape(dpq, [1, 1, Kx, Ky]);             % T x g x Kx x Ky
+    delta = reshape(tx.refVals - ty.refVals, [1, r]) ...
+            - reshape(taus, [T, 1]);                  % T x r
+    arg = reshape(delta, [T, r, 1, 1]) ...
+          + reshape(dpq, [1, 1, Kx, Ky]);             % T x r x Kx x Ky
     K = exp(-arg.^2 / (4 * sigma^2)) .* reshape(wpq, [1, 1, Kx, Ky]);
     if ~isempty(ts) && isfinite(ts)
         floorv = exp(-0.5 * ts^2);     % per-term floor, matching truncK exactly
         K(K < floorv) = 0;
     end
-    mDiag = sum(sum(K, 4), 3);                        % T x g
+    mDiag = sum(sum(K, 4), 3);                        % T x r
     ipv = sum(prod(mDiag, 2));         % common dtau cancels in the cosine
 end
 
@@ -1379,9 +1379,9 @@ function c = countSide(valIdx, level, useSym, rLevels, symLevels, tags)
     keys = tags(valIdx, col);
     uk = unique(keys);
     subs = zeros(1, numel(uk));
-    for g = 1:numel(uk)
-        sub = valIdx(keys == uk(g));
-        subs(g) = countSide(sub, level - 1, useSym, rLevels, symLevels, tags);
+    for iGrp = 1:numel(uk)
+        sub = valIdx(keys == uk(iGrp));
+        subs(iGrp) = countSide(sub, level - 1, useSym, rLevels, symLevels, tags);
     end
     rl = rLevels(level + 1);
     c = elemSym(subs, rl);
@@ -1419,19 +1419,19 @@ end
 
 function w = recipeWork(node)
     % Orbit-eligible symmetric levels are costed at the orbit reduction's
-    % |Omega_r| * g^2 * r rather than the enumerated r! * C(g,r)^2, so the
+    % |Omega_r| * K^2 * r rather than the enumerated r! * C(K,r)^2, so the
     % dispatch reflects the route actually taken at each level (mirrors the
     % Python recipe_work).
     if node.useOrbit
-        g = nodeSpan(node);
-        w = numel(mobius.getOrbitTable(node.r)) * g * g * max(1, node.r);
+        K = nodeSpan(node);
+        w = numel(mobius.getOrbitTable(node.r)) * K * K * max(1, node.r);
     else
         w = size(node.xtup, 1) * size(node.ytup, 1) * max(1, node.r);
     end
     if node.level ~= 0
-        g = numel(node.children);
-        w = w + g * g;
-        for c = 1:g
+        K = numel(node.children);
+        w = w + K * K;
+        for c = 1:K
             w = w + recipeWork(node.children{c});
         end
     end

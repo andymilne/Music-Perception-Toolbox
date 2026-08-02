@@ -1,5 +1,5 @@
 function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, offsets, varargin)
-%WINDOWEDSIMILARITY  Sliding-window similarity profile (cross-correlation).
+%WINDOWEDTENSORSIMILARITY  Sliding-window similarity profile (cross-correlation).
 %
 %   profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, offsets)
 %   returns a 1 x M profile of windowed similarities. For each offset

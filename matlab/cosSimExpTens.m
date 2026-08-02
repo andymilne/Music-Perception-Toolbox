@@ -642,8 +642,8 @@ s = localCosSimMA(maet_x, maet_y, method, normalize, ...
 end
 
 
-function [corrupted, reason] = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
-%LOCALORBITIPSCORRUPTED  Check for inner products that cannot be correct.
+function [impossible, reason] = localOrbitIPsImpossible(ip_xy, ip_xx, ip_yy)
+%LOCALORBITIPSIMPOSSIBLE  Check for inner products that cannot be correct.
 %
 %   Triggers on:
 %     - non-finite IP (NaN or Inf in any of the three),
@@ -659,17 +659,17 @@ function [corrupted, reason] = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
 %   REASON names the specific impossibility, for the warning the caller
 %   raises before rerouting to enumeration.
 
-    corrupted = false;
+    impossible = false;
     reason = '';
     if ~all(isfinite([ip_xy, ip_xx, ip_yy]))
-        corrupted = true;
+        impossible = true;
         reason = sprintf(['an inner product is not finite ' ...
                           '(<X,Y> = %g, <X,X> = %g, <Y,Y> = %g)'], ...
                          ip_xy, ip_xx, ip_yy);
         return;
     end
     if ip_xx < 0 || ip_yy < 0
-        corrupted = true;
+        impossible = true;
         if ip_xx < 0
             nm = '<X,X>'; vl = ip_xx;
         else
@@ -681,7 +681,7 @@ function [corrupted, reason] = localOrbitIPsCorrupted(ip_xy, ip_xx, ip_yy)
     end
     denom = sqrt(ip_xx * ip_yy);
     if denom > 0 && abs(ip_xy) > 1.000001 * denom
-        corrupted = true;
+        impossible = true;
         reason = sprintf(['the cosine similarity is %.6f, outside ' ...
                           '[-1, 1]'], ip_xy / denom);
     end
@@ -702,8 +702,10 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 %
 %   Dispatches between Bulger's method and a per-attribute Möbius
 %   method based on method ('auto' / 'bulger' / 'mobius') and a
-%   simple r-based heuristic. Three-layer guard mirrors the single multiset
-%   dispatcher (cross-cancellation, corruption, non-finite fallback).
+%   simple r-based heuristic. One post-hoc guard, mirroring the single
+%   multiset dispatcher: the Mobius route's inner products are tested
+%   for impossible values (non-finite, negative Gram diagonal, cosine
+%   outside [-1, 1]) and enumeration is used instead when one is found.
 %
 %   The trailing ``normalize`` argument selects the denominator
 %   applied to the cross inner product: ``'cosine'`` (strict shape-only)
@@ -928,12 +930,12 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         % diverts, pays for Bulger's method on top of this one, so with it
         % active the measured cost of the Mobius route is not the cost of
         % choosing it.
-        corrupted = false; badReason = '';
+        impossible = false; badReason = '';
         if logical(mptDefaults('postHocGuards'))
-            [corrupted, badReason] = localOrbitIPsCorrupted( ...
+            [impossible, badReason] = localOrbitIPsImpossible( ...
                 ip_xy, ip_xx, ip_yy);
         end
-        if corrupted
+        if impossible
             warning('mpt:cosSimExpTens:impossibleValue', ...
                 ['The Mobius route returned a value that cannot be ' ...
                  'correct: %s. This is a defect, not a loss of ' ...
@@ -942,7 +944,7 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                  'report the inputs.'], badReason);
         end
 
-        if corrupted
+        if impossible
             chosen = 'bulger';
         else
             ranOrbit = true;

@@ -55,14 +55,14 @@ def test_set_partition_counts_match_bell_numbers():
 
 
 def test_set_partitions_cover_all_slots_uniquely():
-    """Each slot in {0, ..., r-1} appears in exactly one block of every
+    """Each position in {0, ..., r-1} appears in exactly one block of every
     partition."""
     for r in range(1, 6):
         for blocks, _mu in get_set_partitions_with_mobius(r):
-            slots = []
+            positions = []
             for B in blocks:
-                slots.extend(B)
-            assert sorted(slots) == list(range(r))
+                positions.extend(B)
+            assert sorted(positions) == list(range(r))
 
 
 def test_mobius_signs_alternate_with_block_count():

@@ -100,27 +100,26 @@ def _resolve_list_list_mode(mode: str, m: int, n: int) -> str:
 
 
 
-def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
-    """Cheap post-hoc sanity check on Möbius-method-computed inner products.
+def _orbit_ips_impossible(ip_xy, ip_xx, ip_yy):
+    """Cheap post-hoc check on Möbius-method-computed inner products.
 
-    The Möbius method's alternating partition sum can break down
-    catastrophically in two regimes documented during the May 2026
-    audit:
+    True when the three inner products take a combination of values no
+    inner product can take. See ``_impossible_value_reason`` for the
+    three conditions and the phrase each produces.
+
+    The Möbius method's alternating partition sum can break down in two
+    regimes:
 
     * σ → 0 with low K and r ≥ 3 (music-theoretical exact-match regime):
-      auto-IP terms cancel to a value with magnitude near
-      machine epsilon, then floating-point overflow can produce huge
-      garbage values when the cosine ratio is taken.
-    * Issue 4 sharp-Gaussian regime (σ small relative to data range):
-      auto-IPs lose 4–8 decimal digits of precision while looking
-      finite; this check does NOT catch that — only the catastrophic
-      overflow / sign-corruption regime.
-
-    Triggers on any of:
-    * non-finite IP (NaN or Inf in any of the three),
-    * negative auto-IP (a Gram-matrix diagonal must be ≥ 0; sign flip
-      is unambiguous corruption),
-    * cosine magnitude > 1 + 1e-6 (impossible for a genuine cosine).
+      auto-inner-product terms cancel to a value with magnitude near
+      machine epsilon, and floating-point overflow can then produce
+      arbitrary values when the cosine ratio is taken. This check
+      catches that.
+    * σ small relative to the data range: auto-inner-products lose 4–8
+      decimal digits of precision while remaining finite and of
+      plausible magnitude. This check does NOT catch that, because
+      such values are merely inaccurate, not impossible. Accuracy in
+      that regime is governed by ``truncationSigmas``.
 
     Parameters
     ----------
@@ -130,7 +129,7 @@ def _orbit_ips_look_corrupted(ip_xy, ip_xx, ip_yy):
     Returns
     -------
     bool
-        True if the IPs are unsuitable for use and the caller should
+        True if the inner products are unusable and the caller should
         fall back to Bulger's method.
     """
     return _impossible_value_reason(ip_xy, ip_xx, ip_yy) is not None

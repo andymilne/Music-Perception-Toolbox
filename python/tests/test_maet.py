@@ -179,9 +179,9 @@ class TestMAET:
         expected = np.array([[0.5, 1.0], [0.5, 1.0], [0.5, 1.0]])
         np.testing.assert_array_equal(dens.w[0], expected)
 
-    def test_ma_weight_1d_per_slot_disambiguated(self):
+    def test_ma_weight_1d_per_position_disambiguated(self):
         pitch = np.array([[0, 4], [4, 8], [7, 9]], dtype=float)  # K=3, N=2
-        w_1d = np.array([0.5, 1.0, 2.0])  # length K=3 (not N=2) -> per-slot
+        w_1d = np.array([0.5, 1.0, 2.0])  # length K=3 (not N=2) -> per-position
         dens = mpt.build_exp_tens(
             [pitch], [w_1d], [10.0], [2], 
             [False], [True], [1200.0], verbose=False,
@@ -205,7 +205,7 @@ class TestMAET:
     # --- NaN-padded variable-size events -----------------------------
 
     def test_ma_nan_padding(self):
-        # Event 0: 3 pitches. Event 1: 2 pitches (third slot NaN).
+        # Event 0: 3 pitches. Event 1: 2 pitches (third position NaN).
         pitch = np.array([[0, 0], [4, 4], [7, np.nan]], dtype=float)
         time = np.array([[0.0, 1.0]])
         dens = mpt.build_exp_tens(
@@ -220,8 +220,8 @@ class TestMAET:
     # --- Per-tuple weight factorisation ------------------------------
 
     def test_ma_per_tuple_weight_product(self):
-        # One event, K_p=2 with slot weights 2 and 3; r_p=2.
-        # Time K=1, slot weight 5; r_t=1.
+        # One event, K_p=2 with position weights 2 and 3; r_p=2.
+        # Time K=1, position weight 5; r_t=1.
         # Each perm tuple weight = (w_i * w_j for pitch) * 5 for time.
         pitch = np.array([[0.0], [4.0]])
         time = np.array([[1.5]])
@@ -588,7 +588,7 @@ class TestMAET:
     def test_ma_cossim_isrel_transposition_invariance(self):
         """Shifting all pitches by a constant preserves cos_sim when
         the pitch group has is_rel=True (one event, so the shift affects
-        every pitch slot equally)."""
+        every pitch position equally)."""
         pitch = np.array([[0.0], [400.0], [700.0]])  # K=3, N=1
         time  = np.array([[1.0]])
         pitch_shifted = pitch + 137.0
@@ -843,7 +843,7 @@ class TestMAET:
         np.testing.assert_allclose(H_scalar, H_vec, rtol=1e-12, atol=1e-12)
 
     # --- differenceEvents -------------------------------------------
-    # difference_events moved onto the (p_attr, w, specs) carrier (3c-iv);
+    # difference_events moved onto the (p_attr, w, specs) triple (3c-iv);
     # its tests live in tests/test_difference.py. The old groups/dict
     # contract and the K=1-only restriction were removed with Commit 3c-iv.
 
@@ -938,7 +938,7 @@ class TestMAET:
         p_out, w_out, s_out = out
         assert isinstance(p_out, list) and len(p_out) == 2
         assert isinstance(w_out, list) and len(w_out) == 2
-        # Third element is the carrier specs: one dict per output attribute.
+        # Third element is the triple's specs: one dict per output attribute.
         assert isinstance(s_out, list) and len(s_out) == 2
         assert all(isinstance(sp, dict) for sp in s_out)
 
@@ -960,8 +960,8 @@ class TestMAET:
         assert w_out[2] == 0.5
 
     def test_weight_input_ne_target_factor_to_target_only(self):
-        """When input != target, the factor lands on target's slot and the
-        input's own slot is unchanged."""
+        """When input != target, the factor lands on the target attribute's
+        weights and the input attribute's own are unchanged."""
         p = [np.array([[60.0, 64.0, 67.0]]),    # pitch (target)
              np.array([[0.0, 1.0, 2.0]])]        # time (input)
         _, w_out, _ = mpt.weight_events(
@@ -975,11 +975,11 @@ class TestMAET:
             -((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0
         )
         np.testing.assert_allclose(np.asarray(w_out[0]).ravel(), expected_factor)
-        # Input slot (time) unchanged: still None passes through as None.
+        # Input attribute (time) unchanged: still None passes through as None.
         assert w_out[1] is None
 
     def test_weight_target_K_gt_1_broadcasts(self):
-        """A (1, N) factor broadcasts across the target's K_target slots."""
+        """A (1, N) factor broadcasts across the target's K_target positions."""
         # pitch attr with K=3 (target), time attr with K=1 (input).
         p = [np.array([[60.0, 64.0],
                        [62.0, 65.0],
@@ -994,7 +994,7 @@ class TestMAET:
             is_per=False, period=0.0,
             drop_input_attr=False,
         )
-        # The (1, 2) factor broadcasts across the 3 pitch slots, giving (3, 2).
+        # The (1, 2) factor broadcasts across the 3 pitch positions, giving (3, 2).
         out0 = np.asarray(w_out[0])
         assert out0.shape == (3, 2)
         factor = np.exp(-((np.array([0.0, 1.0])) ** 2) / 2.0)
@@ -1054,7 +1054,7 @@ class TestMAET:
             is_per=False, period=0.0,
             drop_input_attr=False,
         )
-        # Result: pitch slot carries the product of both factors.
+        # Result: the pitch attribute's weights carry the product of both factors.
         h_time = np.exp(-((np.array([0.0, 1.0, 2.0]) - 1.0) ** 2) / 2.0)
         h_beat = np.exp(-((np.array([0.0, 0.5, 1.0]) - 0.5) ** 2) / 0.5)
         np.testing.assert_allclose(
@@ -1267,8 +1267,8 @@ class TestMAET:
         )
 
     # --- translate_attributes -------------------------------------------
-    # translate_attributes moved onto the (p_attr, w, specs) carrier
-    # (3c-iv-d): per-attribute per-slot offsets, is_rel read from specs,
+    # translate_attributes moved onto the (p_attr, w, specs) triple
+    # (3c-iv-d): per-attribute per-position offsets, is_rel read from specs,
     # groups/dict offset forms removed. Its tests live in
     # tests/test_translate.py.
 

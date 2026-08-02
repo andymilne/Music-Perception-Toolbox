@@ -102,7 +102,7 @@ def test_factored_nested_three_ordered_groups():
 
 
 def test_factored_nested_large_leaf_completes():
-    # Three ordered groups, 24 slots each, leaf r0=2: the dense nested
+    # Three ordered groups, 24 values each, leaf r0=2: the dense nested
     # factor would enumerate ~(24*23)^3 ~ 1.7e8 perm tuples per side, so
     # its pair matrix is out of reach; the leaf cull reduces this to nine
     # flat leaf IPs. Verify it runs and self-similarity is 1.
@@ -143,7 +143,7 @@ def test_factored_nested_three_level_rel_innermost():
 
 
 def test_factored_nested_three_level_large_completes():
-    # Two outer groups x two finest groups x 16 slots, leaf r0=2: the
+    # Two outer groups x two finest groups x 16 values, leaf r0=2: the
     # dense factor's tuple set is astronomically large; the leaf cull
     # reduces it to sixteen flat leaf IPs contracted up two levels.
     rng = np.random.default_rng(5)

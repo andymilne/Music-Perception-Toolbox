@@ -441,7 +441,7 @@ function [vp_p, vp_w] = localBatchedVirtualPitches(P, W, sigma, nvArgs)
             haveRowWeights, pK);
 
         pOffset = min(pK);
-        key = internal.chordCacheKey(pK(:), wK(:), sigma, ...
+        key = internal.chordCanonicalKey(pK(:), wK(:), sigma, ...
             1, true, false, 1200);
 
         if isKey(resultCache, key)

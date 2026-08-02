@@ -1174,7 +1174,6 @@ def _cos_sim_exp_tens_ma(
     sigma = dens_x.sigma
     period = dens_x.period
 
-    r_max = int(np.max(r_vec)) if A > 0 else 1
     # Maximum σ/P across attributes that are both relative AND periodic.
     sop_max = 0.0
     any_per = False
@@ -2693,8 +2692,6 @@ def _inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
     # r >= 2: enumerate ordered r-tuples and contract.
     U_x, wJ_x = _build_ordered_r_tuples(p_x, w_x, r)   # (r, nJ_x), (nJ_x,)
     U_y, wJ_y = _build_ordered_r_tuples(p_y, w_y, r)
-    nJ_x = U_x.shape[1]
-    nJ_y = U_y.shape[1]
 
     diffs = U_x[:, :, None] - U_y[:, None, :]   # (r, nJ_x, nJ_y)
     if is_per:

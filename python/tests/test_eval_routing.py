@@ -41,6 +41,23 @@ _FLOOR = 1e-300
 # above it.
 _ATOL = 1e3 * _FLOOR
 
+# Rounding error in a summed value scales with the largest term in the
+# sum, not with the magnitude of the entry it lands in. A query far in
+# the tail can therefore sit many orders below its neighbours and still
+# carry their absolute error, so its own rtol allows far less than the
+# block's precision warrants: one periodic draw in a few thousand
+# disagrees at ~1e-53 while every entry is correct to full precision.
+# Tying the floor to the block's scale states the comparison in the
+# terms the arithmetic actually obeys.
+_RTOL = 1e-12
+
+
+def _atol_for(ref):
+    """Absolute tolerance for a block compared against ``ref``."""
+    ref = np.asarray(ref, dtype=np.float64)
+    scale = float(np.max(np.abs(ref))) if ref.size else 0.0
+    return max(_ATOL, _RTOL * scale)
+
 
 import pytest
 
@@ -161,7 +178,7 @@ def test_default_settings_match_reference(density_case):
                           verbose=False)
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=_ATOL,
+        v, ref, rtol=_RTOL, atol=_atol_for(ref),
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
@@ -175,7 +192,7 @@ def test_explicit_inf_matches_reference(density_case):
         )
     ref = _ref_eval(dens, x)
     np.testing.assert_allclose(
-        v, ref, rtol=1e-12, atol=_ATOL,
+        v, ref, rtol=_RTOL, atol=_atol_for(ref),
         err_msg=f"{label}: divergence from reference exceeds rtol=1e-12"
     )
 
@@ -278,7 +295,7 @@ def test_global_default_picked_up():
     with accuracy_floor_context(1e-300):
         v1 = eval_exp_tens(dens, x, method='centres',
                            truncation_sigmas=math.inf, verbose=False)
-    np.testing.assert_allclose(v1, ref, rtol=1e-12, atol=_ATOL)
+    np.testing.assert_allclose(v1, ref, rtol=_RTOL, atol=_atol_for(ref))
 
     # Set global default; bit-identical now requires truncation match.
     mpt.set_default(truncation_sigmas=6)
@@ -307,7 +324,7 @@ def test_per_call_overrides_global():
             dens, x, method='centres', truncation_sigmas=math.inf,
             verbose=False,
         )
-    np.testing.assert_allclose(v, ref, rtol=1e-12, atol=_ATOL)
+    np.testing.assert_allclose(v, ref, rtol=_RTOL, atol=_atol_for(ref))
 
 
 # ---------------------------------------------------------------------

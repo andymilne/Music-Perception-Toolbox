@@ -890,7 +890,8 @@ _REL_PER_DEPARTURE = (
 _REL_PER_PD_CEILING = 0.05
 
 
-def _orbit_sigma_over_p_threshold(truncation_sigmas=None):
+def _orbit_sigma_over_p_threshold(truncation_sigmas=None,
+                                  return_binding=False):
     """σ/P above which the wrapped-difference form is inadmissible.
 
     Two tests, the stricter winning. The accuracy test is the toolbox's
@@ -909,12 +910,22 @@ def _orbit_sigma_over_p_threshold(truncation_sigmas=None):
     The table is the calibration; no functional form is fitted to it,
     and the largest entry inside the floor is taken rather than
     interpolated, so the answer is always one the measurements support.
+
+    With ``return_binding``, also returns which of the two tests set the
+    answer: ``'accuracy'`` or ``'positive-definiteness'``. The caller
+    that reports a routing decision needs to say why the limit is what
+    it is, and the two carry different weight --- an accuracy limit
+    moves with ``truncation_sigmas`` and the ceiling does not.
     """
     from .._defaults import truncation_floor
     floor = truncation_floor(truncation_sigmas)
     admissible = [sop for sop, dev in _REL_PER_DEPARTURE if dev <= floor]
     limit = max(admissible) if admissible else _REL_PER_DEPARTURE[0][0]
-    return min(limit, _REL_PER_PD_CEILING)
+    if not return_binding:
+        return min(limit, _REL_PER_PD_CEILING)
+    if _REL_PER_PD_CEILING < limit:
+        return _REL_PER_PD_CEILING, "positive-definiteness"
+    return limit, "accuracy"
 
 #: σ/P beyond which the absolute-periodic single-image (minimum-image)
 #: measure departs materially from the full-image measure --- the sum of

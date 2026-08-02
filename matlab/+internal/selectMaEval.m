@@ -1,4 +1,5 @@
-function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
+function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
+        selectMaEval(dens, nQ, verbose)
 %SELECTMAEVAL  Cost-model path selection for multi-attribute evalExpTens.
 %
 %   [CHOSEN, ROUTINGREASON] = INTERNAL.SELECTMAEVAL(DENS, NQ) chooses
@@ -28,12 +29,21 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
 %       tuple count; factored Möbius setup and per-query distinct-block
 %       work), with a safety factor favouring Möbius at near-ties.
 %
+%   [CHOSEN, REASON, CENTRESMS, MOBIUSMS] = ... also returns the two
+%   predicted wall times in milliseconds. They are NaN on the early
+%   returns that decide without pricing (a hard rule or the rel-per
+%   measure rule), so a caller can tell a priced decision from a
+%   structural one. Exposed for EXPLAINDISPATCH, which must report the
+%   quantities the decision rested on rather than restate the model.
+%
 %   Twin of python _select_ma_eval.
 %
 %   See also MOBIUS.EVALMAORBIT, INTERNAL.SELECTMAINNERPRODUCTMETHOD.
 
     if nargin < 2 || isempty(nQ), nQ = 200; end
     if nargin < 3, verbose = true; end
+    centresMsOut = NaN;   % set below only where the cost model prices
+    mobiusMsOut  = NaN;
 
     % --- Hard-rule constants (mirror Python dispatch.py) ---
     ORBIT_R_MAX_FEASIBLE = 10;
@@ -416,6 +426,8 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         mobiusMs = mobiusMs + perQueryMs * nQeff;
     end
 
+    centresMsOut = centresMs;
+    mobiusMsOut  = mobiusMs;
     if mobiusMs < centresMs * MA_MOBIUS_SAFETY
         chosen = 'mobius';
         routingReason = 'cost model (factored Möbius cheaper)';

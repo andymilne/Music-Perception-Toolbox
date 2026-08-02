@@ -71,6 +71,9 @@ from .harmony import (
 # --- Utility ---
 from ._utils import estimate_comp_time
 
+# Diagnostic: report how a call would be routed, and why.
+from ._tensor.explain import explain_dispatch
+
 # --- Audio ---
 from .audio import AudioPeaksDetail, audio_peaks
 
@@ -88,6 +91,7 @@ from ._defaults import (
 )
 
 __all__ = [
+    "explain_dispatch",
     # convert
     "convert_pitch",
     # spectra

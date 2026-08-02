@@ -23,7 +23,10 @@ from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_CALL_PER_JOINT_MS,
     _MA_COST_CENTRES_CULL_C,
     _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS,
+    _MA_COST_CENTRES_QUERY_BASE_MS,
+    _MA_COST_CENTRES_QUERY_BASE_PER_MS,
     _MA_COST_CENTRES_QUERY_PER_JOINT_MS,
+    _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS,
     _MA_COST_CENTRES_SETUP_MS,
     _ma_eval_costs_ms,
     _predict_ma_eval_cost_ms,
@@ -81,30 +84,42 @@ class TestCullingCorrection:
         spread, sigma = 1150.0, 20.0
         d = _two_attr(K, spread, sigma)
         T_a = 2 * (K * (K - 1) // 2)
-        cull = min(1.0, _MA_COST_CENTRES_CULL_C * sigma / spread)
+        # r = 2 relative, so each attribute's centres occupy one
+        # dimension and the culled share is the ratio to the first power.
+        cull = min(1.0, (_MA_COST_CENTRES_CULL_C * sigma / spread) ** 1)
         expected = _MA_COST_CENTRES_SETUP_MS + 2 * (
             _MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a
             + nq * (_MA_COST_CENTRES_FACTORED_QUERY_BASE_MS
+                    + _MA_COST_CENTRES_QUERY_BASE_MS
                     + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * T_a * cull)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)
 
-    def test_multi_attribute_joint_fallback_is_unculled(self):
+    def test_multi_attribute_joint_fallback_culls_per_attribute(self):
         # With an r = 1 attribute the factored route is unsupported and
-        # the joint-materialisation fallback runs; its pricing is the
-        # plain setup + materialisation + joint*nq form, undiscounted.
+        # the joint-materialisation fallback runs. It evaluates through
+        # the same truncated kernel, so it is culled too: a query
+        # reaches a joint centre only if it reaches that centre in every
+        # attribute, making the joint share the product of the
+        # per-attribute shares.
         K, nq = 12, 500
-        p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)] * 2
+        spread, sigma = 1150.0, 20.0
+        p = [np.linspace(0.0, spread, K).reshape(-1, 1)] * 2
         d = mpt.build_exp_tens(
-            p, None, [20.0, 20.0], [2, 1], [True, False], [False, False],
+            p, None, [sigma, sigma], [2, 1], [True, False], [False, False],
             [0.0, 0.0], verbose=False,
         )
         joint = (2 * (K * (K - 1) // 2)) * K
+        # Both attributes occupy one dimension: r = 2 relative reduces to
+        # one, and r = 1 absolute is one already.
+        cull_a = min(1.0, (_MA_COST_CENTRES_CULL_C * sigma / spread) ** 1)
         expected = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
-            + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint * nq
+            + nq * (_MA_COST_CENTRES_QUERY_BASE_MS
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS
+                    * joint * cull_a * cull_a)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)
@@ -128,7 +143,8 @@ class TestCullingCorrection:
         expected = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
-            + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint * nq
+            + nq * (_MA_COST_CENTRES_QUERY_BASE_PER_MS
+                    + _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS * joint)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)

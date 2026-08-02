@@ -766,8 +766,8 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
                 # wrap(D[k])^2 (since wrap(-x)^2 = wrap(x)^2). Vectorise
                 # the wrap-and-sum across all position-0 pairs in one numpy
                 # pass on D as a whole.
-                slot0_wrapped = D - p_g * np.floor(D / p_g + half)
-                Q = np.sum(slot0_wrapped ** 2, axis=0)
+                position0_wrapped = D - p_g * np.floor(D / p_g + half)
+                Q = np.sum(position0_wrapped ** 2, axis=0)
                 inner_range = range(r - 1)
             else:
                 # Full r-tuple representation: all (r choose 2) pairs.
@@ -1006,24 +1006,38 @@ _BELL_NUMBERS = {
 #: their per-tuple constants are of the same order, so one pair of
 #: constants serves both (the cull's growing advantage at very large
 #: shapes only strengthens a centres pick already made).
-_MA_COST_CENTRES_SETUP_MS = 0.15
-_MA_COST_CENTRES_CALL_PER_JOINT_MS = 4e-5
-_MA_COST_CENTRES_QUERY_PER_JOINT_MS = 4.5e-5
+_MA_COST_CENTRES_SETUP_MS = 0.0250
+_MA_COST_CENTRES_CALL_PER_JOINT_MS = 4.877e-5
+#: Per-query cost has a floor no culling removes --- the bucket lookup
+#: and gather each query pays --- plus a term linear in the joint tuple
+#: count, and the two kernels carry different constants: the
+#: non-periodic kernel is bucket-culled, the periodic one runs dense.
+#: One shared pair cannot express that.
+#:
+#: Fitted on 220 cells of tools/calibrate_ma_eval_cost.py spanning sigma
+#: from 3 to 120 cents over spans of 600 to 9600 cents. MATLAB carries
+#: its own values, fitted the same way on its own measurements.
+_MA_COST_CENTRES_QUERY_BASE_MS = 1.158e-3
+_MA_COST_CENTRES_QUERY_PER_JOINT_MS = 9.805e-6
+_MA_COST_CENTRES_QUERY_BASE_PER_MS = 2.854e-4
+_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 8.822e-6
 
 #: Per-attribute per-query overhead of the factored centres route
 #: (bucket lookup and gather in the culled per-attribute kernel),
 #: fitted to measured wall times of that route.
 _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3
-# Culling onset for the centres per-query term. The joint-centres path
-# truncates each Gaussian at truncation_sigmas, so per query only the
-# centres within a few sigma of the query contribute. The near-centre
-# fraction scales as sigma / (source spread): wider kernels (or tighter
-# source spreads) reach more centres, saturating at 1. Calibrated
-# against measured culled per-query cost across sigma, K, and spread
-# (worst-case shape error about 2.5x, typically within 1.5x). Applies
-# to the per-query term only --- all joint centres are still
-# materialised, so the setup and call terms are unculled.
-_MA_COST_CENTRES_CULL_C = 15.0
+# Culling geometry factor for the non-periodic kernels. The truncated
+# kernel visits only the centres inside a ball of radius k*sigma about
+# the query, so the surviving share is a volume ratio in the attribute's
+# own dimension, r_a - [rel]_a, capped at 1. Applies to the per-query
+# term only --- all joint centres are still materialised, so the setup
+# and call terms are unculled.
+#
+# Fitted independently in each language and agreeing to about 2 per cent
+# (25.6 in MATLAB against 26.2 here), which is what a geometric factor
+# should do: it describes the truncation ball, not the implementation.
+# Held one geometry out at a time it lands between 24.3 and 44.5.
+_MA_COST_CENTRES_CULL_C = 26.2
 
 #: Möbius: a per-call setup that scales with the partition count B_r,
 #: and per-query work linear in the distinct-block op count
@@ -1032,9 +1046,9 @@ _MA_COST_CENTRES_CULL_C = 15.0
 #: per-query work by the u-grid node count; each node costs the cheaper
 #: of the direct strategy (op-count linear) and, non-periodically, the
 #: factored strategy (K-free after tabulation).
-_MA_COST_MOBIUS_SETUP_MS = 0.30
-_MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.05
-_MA_COST_MOBIUS_QUERY_PER_OP_MS = 5e-7
+_MA_COST_MOBIUS_SETUP_MS = 0.0541
+_MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.0208
+_MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.732e-6
 #: Relative-mode u-grid node costs, per distinct-block op per query.
 #: Periodic direct nodes cost more per op than non-periodic ones
 #: (per-component wrapping inside the kernel, and no factored
@@ -1046,9 +1060,9 @@ _MA_COST_MOBIUS_QUERY_PER_OP_MS = 5e-7
 #: cost is floor-bound rather than op-bound, so a base term is carried
 #: alongside the per-op slope.
 _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 2.0e-4
-_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 4e-6
-_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 1e-5
-_MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 3.5e-4
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 1.528e-6
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 2.532e-6
+_MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.069e-5
 
 #: u-grid tabulation setup, paid once per call: building the interpolation
 #: table costs K source evaluations over the N_u grid nodes. In Python the
@@ -1057,7 +1071,7 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 3.5e-4
 #: this constant is ~0; MATLAB's lean per-query readback leaves the setup
 #: as the dominant Möbius cost at small n_q, so its twin constant is
 #: nonzero. Same term, per-language magnitude.
-_MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 0.0
+_MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 6.953e-6
 
 #: u-grid nodes per sigma for the relative-mode node-count estimate are
 #: derived per attribute via
@@ -1209,8 +1223,6 @@ def _ma_eval_costs_ms(dens, n_q):
     # attribute there; the joint-materialisation fallback and the periodic
     # single-multiset route run dense (the pairwise wrap is not a
     # tail-truncatable ball) and take no discount.
-    from .density import is_single_multiset
-
     def _attr_spread(a):
         p_attr = getattr(dens, "p_attr", None)
         if p_attr is not None and a < len(p_attr) and p_attr[a] is not None:
@@ -1220,16 +1232,22 @@ def _ma_eval_costs_ms(dens, n_q):
         return 0.0
 
     def _attr_cull(a):
+        """Share of attribute ``a``'s tuple set a query reaches.
+
+        The truncated non-periodic kernel visits only the centres inside
+        a ball of radius ``k * sigma`` about the query, so the surviving
+        share is a volume ratio in the attribute's own dimension,
+        ``r_a - [rel]_a``. The periodic kernel is not truncated --- it
+        sums over images rather than discarding a tail --- so it takes
+        no discount.
+        """
         if is_per[a] or sigma[a] <= 0:
             return 1.0
         spread = _attr_spread(a)
         if spread <= 0:
             return 1.0
-        return min(1.0, _MA_COST_CENTRES_CULL_C * sigma[a] / spread)
-
-    cull = 1.0
-    if is_single_multiset(dens) and sigma[0] > 0 and not is_per[0]:
-        cull = _attr_cull(0)
+        dim = max(1, int(r_vec[a]) - (1 if is_rel[a] else 0))
+        return min(1.0, (_MA_COST_CENTRES_CULL_C * sigma[a] / spread) ** dim)
 
     # The factored centres route (all r_a >= 2, scalar sigma) never
     # materialises the joint tuple set: cost is the SUM of per-attribute
@@ -1252,15 +1270,29 @@ def _ma_eval_costs_ms(dens, n_q):
                 _MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a
                 + n_q_eff * (
                     _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS
-                    + _MA_COST_CENTRES_QUERY_PER_JOINT_MS
+                    + (_MA_COST_CENTRES_QUERY_BASE_PER_MS if is_per[a]
+                       else _MA_COST_CENTRES_QUERY_BASE_MS)
+                    + (_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS if is_per[a]
+                       else _MA_COST_CENTRES_QUERY_PER_JOINT_MS)
                     * T_a * _attr_cull(a)
                 )
             )
     else:
+        # Joint materialisation. A query reaches a joint centre only if
+        # it reaches that centre in every attribute, so the joint culled
+        # fraction is the product of the per-attribute ones.
+        cull_joint = 1.0
+        for a in range(A):
+            cull_joint *= _attr_cull(a)
+        any_per = any(bool(is_per[a]) for a in range(A))
+        q_base = (_MA_COST_CENTRES_QUERY_BASE_PER_MS if any_per
+                  else _MA_COST_CENTRES_QUERY_BASE_MS)
+        q_per_joint = (_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS if any_per
+                       else _MA_COST_CENTRES_QUERY_PER_JOINT_MS)
         centres_ms = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
-            + _MA_COST_CENTRES_QUERY_PER_JOINT_MS * joint_tuples * cull * n_q_eff
+            + n_q_eff * (q_base + q_per_joint * joint_tuples * cull_joint)
         )
 
     mobius_ms = _MA_COST_MOBIUS_SETUP_MS
@@ -1285,7 +1317,7 @@ def _ma_eval_costs_ms(dens, n_q):
             # calibration configs (window/sigma 270 and 131), whose
             # setup shares differ; the crude linear-in-modes model sits
             # within ~2x of both.
-            _four_per_mode = {2: 1.05e-4, 3: 2.2e-3, 4: 6.7e-3}
+            _four_per_mode = {2: 2.613e-5, 3: 4.522e-4, 4: 1.138e-4}
             # Periodic-only K term (per r) added to the K-free slope: the
             # per-event spectrum build carries K, which the fixed-period
             # window does not absorb. In periodic mode the spectral branch
@@ -1295,7 +1327,7 @@ def _ma_eval_costs_ms(dens, n_q):
             # bench_ma_eval_calibration: the per-query cost rises linearly
             # in K with slope ~0.28 ms/K at r = 2 and ~0.60 at r = 3 over
             # window/sigma = 80, nQ = 200.
-            _FOUR_PER_PERIODIC_K_MS = {2: 1.8e-5, 3: 3.8e-5, 4: 0.0}
+            _FOUR_PER_PERIODIC_K_MS = {2: 4.897e-5, 3: 1.501e-4, 4: 0.0}
             _four_minq = {2: 16, 3: 32, 4: 64}
             spread = 0.0
             p_a = getattr(dens, "p_attr", None)

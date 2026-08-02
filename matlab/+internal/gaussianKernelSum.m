@@ -201,10 +201,22 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
     bytesNeeded = (2 * dim + 2) * double(nJ) * double(nQ) * bytesPerScalar;
     memLimit = internal.kernelChunkBytesResolved();
 
+    % Distinct-value table for the abs-per full-image branch, resolved
+    % once: the centres do not vary across query chunks, so the sort
+    % that finds their distinct values is paid once rather than per
+    % chunk. Empty when the branch does not apply.
+    uVals = [];
+    uInv  = [];
+    if isPer && ~isRel && strcmp(wrap, 'full-image') ...
+            && internal.tupleValuesRepeat(C, nQ)
+        [uVals, ~, uInvFlat] = unique(C(:));
+        uInv = reshape(uInvFlat, dim, nJ);
+    end
+
     v = zeros(1, nQ, 'like', C);
     if bytesNeeded <= memLimit
         v = evalChunk(C, wJ, X, nQ, dim, nJ, isRel, r, isPer, period, ...
-            inv2s2, sigma, wrap, truncationSigmas);
+            inv2s2, sigma, wrap, truncationSigmas, uVals, uInv);
     else
         chunkSize = max(1, floor(memLimit / ...
             ((2 * dim + 2) * double(nJ) * bytesPerScalar)));
@@ -213,14 +225,14 @@ function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
             idx = c0:c1;
             v(idx) = evalChunk(C, wJ, X(:, idx), numel(idx), ...
                 dim, nJ, isRel, r, isPer, period, inv2s2, sigma, ...
-                wrap, truncationSigmas);
+                wrap, truncationSigmas, uVals, uInv);
         end
     end
 end
 
 function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
-                        inv2s2, sigma, wrap, truncationSigmas) %#ok<INUSL>
-    D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
+                        inv2s2, sigma, wrap, truncationSigmas, ...
+                        uVals, uInv) %#ok<INUSL>
     % Abs-per: full-image via the shared wrapped-Gaussian helper
     % (image-sum or Fourier by cost; density-kernel convention with
     % exponent_denominator = 2). Single-image opt-in reduces to the
@@ -228,19 +240,48 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     % behaviour.
     if isPer && ~isRel
         if strcmp(wrap, 'full-image')
-            % Per-coordinate theta then product across coordinates. wrappedGaussian1d
-            % handles nearest-image reduction internally and picks the
-            % cheaper of image-sum and Fourier for the summation.
-            theta = internal.wrappedGaussian1d(D, sigma, period, ...
-                                                truncationSigmas, 2);
-            % theta has shape (dim, nJ, nQc); product over dim = axis 1.
-            E = reshape(prod(theta, 1), nJ, nQc);
+            % Per-coordinate theta then product across coordinates.
+            % wrappedGaussian1d handles nearest-image reduction
+            % internally and picks the cheaper of image-sum and Fourier
+            % for the summation.
+            %
+            % Where the centres carry tuple structure, every coordinate
+            % draws from the same multiset, so the distinct arguments
+            % number K rather than one per tuple. Tabulating theta on
+            % those values and reading the tuple layout off the table
+            % presents the same arguments in the same order, so the
+            % result is identical rather than equal to a tolerance, and
+            % the dim x nJ x nQc difference array is never built.
+            if ~isempty(uInv)
+                E = [];
+                for k = 1:dim
+                    tableK = internal.wrappedGaussian1d( ...
+                        reshape(uVals, [], 1) - reshape(Xq(k, :), 1, []), ...
+                        sigma, period, truncationSigmas, 2);
+                    thetaK = tableK(uInv(k, :), :);
+                    if isempty(E)
+                        E = thetaK;
+                    else
+                        E = E .* thetaK;
+                    end
+                end
+                E = reshape(E, nJ, nQc);
+            else
+                D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
+                theta = internal.wrappedGaussian1d(D, sigma, period, ...
+                                                    truncationSigmas, 2);
+                % theta has shape (dim, nJ, nQc); product over dim = axis 1.
+                E = reshape(prod(theta, 1), nJ, nQc);
+            end
             v = wJ(:)' * E;
             return
         end
         % Single-image opt-in: reduce to nearest image and fall through
         % to the sum-of-squares path below.
+        D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
         D = D - period .* floor(D / period + 0.5);
+    else
+        D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
     end
     if isRel
         if isPer
@@ -248,8 +289,8 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
             % representation (position 0 = 0 implicit). Position-0 pairs
             % vectorised in a single pass; within-reduced pairs
             % looped.
-            slot0_wrapped = D - period .* floor(D / period + 0.5);
-            Qvec = sum(slot0_wrapped .^ 2, 1);
+            position0Wrapped = D - period .* floor(D / period + 0.5);
+            Qvec = sum(position0Wrapped .^ 2, 1);
             for i = 1:dim
                 for j = i+1:dim
                     delta = D(i, :, :) - D(j, :, :);
@@ -335,10 +376,14 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     runEnds   = [boundaries(2:end) - 1; numel(sortedLin)];
     runLinIdx = sortedLin(boundaries);
 
-    % Map linear bucket index -> run index (0 = empty).
-    linIdxMax = prod(nBuckets);
-    bucketMap = zeros(linIdxMax, 1);
-    bucketMap(runLinIdx) = 1:numel(runLinIdx);
+    % Bucket lookup is by membership in the sorted list of occupied
+    % bucket indices, not by a dense table over the whole lattice. A
+    % dense table costs prod(nBuckets) entries however few centres
+    % there are, and prod(nBuckets) grows as (span / (k*sigma))^dim:
+    % at r = 4 over a 9600-cent span with sigma = 5 that is 6.6e9
+    % entries, or 49 GB, for a few hundred thousand centres. The
+    % occupied list is at most nJ long. Twin of the searchsorted run
+    % table in the Python _truncated_kernel_sum.
 
     % Neighbour offsets: 3^dim combinations.
     offsetGrid = localNeighbourOffsets(dim);
@@ -351,7 +396,8 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
     % ----- Vectorised per-chunk processing -----
     % For each query chunk:
     %   1. Expand each query's bucket to its 3^dim neighbour buckets.
-    %   2. Mask in-bounds neighbours; look up non-empty runs in bucketMap.
+    %   2. Mask in-bounds neighbours; look up non-empty runs by
+    %      membership in the occupied-bucket list.
     %   3. Flatten each (query, run) pair into per-centre pairs via a
     %      cumsum-based ragged expansion (no AGROW, no inner loop).
     %   4. Compute Q for all (query, centre) pairs in one vector op,
@@ -390,8 +436,9 @@ function v = localTruncatedKernelSum(C, wJ, X, sigma, isRel, r, kSigma, inv2s2)
         queryOfNb = queryOfNb(inBounds);
 
         nbLin   = localSubToInd(nBuckets, nbAll);
-        runIdx  = bucketMap(nbLin);
-        hasRun  = runIdx > 0;
+        [hasRun, runIdx] = ismember(nbLin(:), runLinIdx);
+        runIdx  = runIdx(:);
+        hasRun  = hasRun(:);
         if ~any(hasRun)
             continue;
         end

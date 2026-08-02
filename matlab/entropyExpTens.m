@@ -2312,8 +2312,8 @@ function Q = localBlockMetricQ(C, blockSize, isRel, r_a, isPer, per)
             rows = (b - 1) * blk + (1:blk);
             Db = D(rows, :, :);
             if isPer
-                slot0 = Db - per .* floor(Db ./ per + 0.5);
-                Qb = reshape(sum(slot0 .^ 2, 1), nj, nj);
+                position0Wrapped = Db - per .* floor(Db ./ per + 0.5);
+                Qb = reshape(sum(position0Wrapped .^ 2, 1), nj, nj);
                 for i = 1:blk
                     for j = i + 1:blk
                         delta = reshape(Db(i, :, :) - Db(j, :, :), nj, nj);
@@ -2331,8 +2331,8 @@ function Q = localBlockMetricQ(C, blockSize, isRel, r_a, isPer, per)
     elseif isRel && r_a >= 2
         % Whole-tuple reduced relative quotient (outer unit).
         if isPer
-            slot0 = D - per .* floor(D ./ per + 0.5);
-            Q = reshape(sum(slot0 .^ 2, 1), nj, nj);
+            position0Wrapped = D - per .* floor(D ./ per + 0.5);
+            Q = reshape(sum(position0Wrapped .^ 2, 1), nj, nj);
             for i = 1:d_a
                 for j = i + 1:d_a
                     delta = reshape(D(i, :, :) - D(j, :, :), nj, nj);

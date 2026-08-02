@@ -960,6 +960,15 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     memLimit = internal.kernelChunkBytesResolved();
     bytesNeeded = bytesPerCol * double(nQ);
 
+    % Distinct-value tables for the abs-per full-image branch, one per
+    % attribute, filled on first use and reused across query chunks: the
+    % centres do not vary from chunk to chunk, so the sort that finds
+    % their distinct values is paid once per call. absPerTableDone
+    % records the attributes already considered, so an attribute the
+    % predicate declines is not reconsidered on every chunk.
+    absPerTable     = cell(1, A);
+    absPerTableDone = false(1, A);
+
     if bytesNeeded <= memLimit
         vals = maetEvalFull(Xc, nQ);
     else
@@ -1022,8 +1031,57 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             end
             Ca = cast(Centres{a}, qDtype);
             Xa = cast(Xchunk{a}, qDtype);
-            D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
             Pg = cast(periodG(a), qDtype);
+
+            % Abs-per full-image factorises over tuple positions, and
+            % every coordinate of an r-tuple is a value of the same
+            % multiset, so the distinct arguments number K rather than
+            % one per tuple. Evaluating the wrapped Gaussian once per
+            % distinct value and reading the tuple layout off that table
+            % presents the same floating-point arguments in the same
+            % order, so the result is identical rather than equal to a
+            % tolerance. It also avoids the da x N_J x nQc difference
+            % array entirely.
+            if innerR(a) == 0 && isPerG(a) && ~isRelG(a) ...
+                    && strcmp(char(wrapCell{a}), 'full-image')
+                if ~absPerTableDone(a)
+                    absPerTableDone(a) = true;
+                    % Decided on the whole call's query count, not this
+                    % chunk's: the table serves every chunk.
+                    if internal.tupleValuesRepeat(Ca, nQ)
+                        [uV, ~, uI] = unique(Ca(:));
+                        absPerTable{a} = {uV, reshape(uI, da, N_J)};
+                    end
+                end
+            end
+            if innerR(a) == 0 && isPerG(a) && ~isRelG(a) ...
+                    && ~isempty(absPerTable{a})
+                uVals = absPerTable{a}{1};
+                uInv  = absPerTable{a}{2};
+                factorA = [];
+                for k = 1:da
+                    tableK = internal.wrappedGaussian1d( ...
+                        reshape(uVals, [], 1) ...
+                        - reshape(Xa(k, :), 1, []), ...
+                        double(sigmaG(a)), double(periodG(a)), ...
+                        truncResolved, 2);
+                    thetaK = tableK(uInv(k, :), :);
+                    if isempty(factorA)
+                        factorA = thetaK;
+                    else
+                        factorA = factorA .* thetaK;
+                    end
+                end
+                factorA = cast(reshape(factorA, N_J, nQc), qDtype);
+                if isempty(absPerFactor)
+                    absPerFactor = factorA;
+                else
+                    absPerFactor = absPerFactor .* factorA;
+                end
+                continue;
+            end
+
+            D_a = reshape(Ca, da, N_J, 1) - reshape(Xa, da, 1, nQc);
             if innerR(a) > 0
                 % Inner [rel] unit: block-diagonal metric over event blocks
                 % (reduced convention; pairwise wrap inside the helper).
@@ -1054,9 +1112,10 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             end
             if isRelG(a)
                 if isPerG(a)
-                    % Slot-0 pairs vectorised; inner pairs looped.
-                    slot0_wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
-                    Q_a = reshape(sum(slot0_wrapped .^ 2, 1), N_J, nQc);
+                    % Pairs with the implicit position 0 vectorised;
+                    % the within-reduced-block pairs looped.
+                    position0Wrapped = D_a - Pg .* floor(D_a / Pg + 0.5);
+                    Q_a = reshape(sum(position0Wrapped .^ 2, 1), N_J, nQc);
                     for i = 1:da
                         for j = i+1:da
                             delta = reshape(D_a(i, :, :) - D_a(j, :, :), N_J, nQc);
@@ -1499,8 +1558,8 @@ function Q_a = localQInnerBlocksReduced(D_a, rIn, isPer, Pg)
         rows = (b - 1) * blk + (1:blk);
         Db = D_a(rows, :, :);
         if isPer
-            slot0 = Db - Pg .* floor(Db / Pg + 0.5);
-            Qb = reshape(sum(slot0 .^ 2, 1), nJ_, nQc_);
+            position0Wrapped = Db - Pg .* floor(Db / Pg + 0.5);
+            Qb = reshape(sum(position0Wrapped .^ 2, 1), nJ_, nQc_);
             for i = 1:blk
                 for j = i+1:blk
                     delta = reshape(Db(i, :, :) - Db(j, :, :), nJ_, nQc_);

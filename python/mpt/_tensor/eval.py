@@ -1025,6 +1025,18 @@ def _eval_exp_tens_ma(
     mem_limit = kernel_chunk_bytes_resolved()
 
     bytes_needed = bytes_per_col * int(n_q)
+    inner_r = _inner_r_vec(dens)
+    _wrap_dens = getattr(dens, 'wrap', None)
+    # Distinct-value tables for the abs-per full-image branch, resolved
+    # once: the centres are the same in every chunk.
+    if kernel_precision is None:
+        from .._defaults import get_default
+        _kp = get_default("kernel_precision")
+    else:
+        _kp = kernel_precision
+    _value_tables = _ma_value_tables(
+        centres, A, dim_per, is_rel, is_per, inner_r, _wrap_dens,
+        np.float32 if _kp == "single" else np.float64, n_q)
     if bytes_needed <= mem_limit:
         vals = _ma_eval_full(
             centres, w_j, n_j, x_list, n_q,
@@ -1032,14 +1044,13 @@ def _eval_exp_tens_ma(
             is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
-            inner_r=_inner_r_vec(dens),
-            wrap=getattr(dens, 'wrap', None),
+            inner_r=inner_r,
+            wrap=_wrap_dens,
+            value_tables=_value_tables,
         )
     else:
         chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
         vals = np.zeros(n_q, dtype=np.float64)
-        inner_r = _inner_r_vec(dens)
-        _wrap_dens = getattr(dens, 'wrap', None)
         for c_start in range(0, n_q, chunk_size):
             c_end = min(c_start + chunk_size, n_q)
             n_qc = c_end - c_start
@@ -1052,6 +1063,7 @@ def _eval_exp_tens_ma(
                 kernel_precision=kernel_precision,
                 inner_r=inner_r,
                 wrap=_wrap_dens,
+                value_tables=_value_tables,
             )
 
     # --- Normalisation (shared with the factored path) ---
@@ -1182,6 +1194,70 @@ def _ma_eval_factored(
     return total
 
 
+def _tuple_values_repeat(c_a, n_q, min_queries=100, min_entries=256,
+                         min_saving=4):
+    """Does tabulating the kernel on the distinct values pay?
+
+    Every coordinate of an r-tuple is a value of the same multiset, so
+    the distinct arguments number the multiset size rather than the
+    tuple count, and the saving per query grows with the tuple count.
+    Against that stands the sort that finds the distinct values, which
+    is paid once per call however many queries follow. The trade is
+    settled by ``n_q``: measured on the calibration grid, the sort
+    costs 0.17 ms at 4512 centre entries rising to 59.8 ms at 1020096,
+    against a per-query saving of 0.005 ms to 0.77 ms over the same
+    range, putting the break-even between 35 and 78 queries. The
+    default ``min_queries`` of 100 sits above that across the range.
+
+    The query-count and size tests precede the sort: the predicate must
+    not cost what it is deciding whether to spend. An arbitrary centre
+    array with no repeats fails ``min_saving`` and takes the direct
+    route.
+    """
+    n_entries = int(c_a.shape[0]) * int(c_a.shape[1])
+    if int(n_q) < min_queries or n_entries < min_entries:
+        return False
+    n_distinct = int(np.unique(c_a).size)
+    return n_distinct * min_saving <= n_entries
+
+
+def _distinct_value_table(c_a, n_q):
+    """``(values, inverse)`` for the tabulated kernel, or None.
+
+    The centres do not vary across query chunks, so the sort that finds
+    their distinct values is resolved once by the caller and passed into
+    each chunk rather than repeated per chunk.
+    """
+    if not _tuple_values_repeat(c_a, n_q):
+        return None
+    vals, inv = np.unique(c_a, return_inverse=True)
+    return vals, inv.reshape(c_a.shape)
+
+
+def _ma_value_tables(centres, A, dim_per, is_rel, is_per, inner_r, wrap,
+                     dtype, n_q):
+    """Per-attribute distinct-value tables for the abs-per branch.
+
+    Entry ``a`` is ``None`` unless that attribute takes the abs-per
+    full-image branch and its centres repeat values. Built on the cast
+    array, so the tabulated arguments are the ones the branch would
+    have formed itself.
+    """
+    tables = [None] * int(A)
+    for a in range(int(A)):
+        if int(dim_per[a]) == 0:
+            continue
+        r_in = 0 if inner_r is None else int(inner_r[a])
+        wrap_a = 'full-image'
+        if wrap is not None and a < len(wrap):
+            wrap_a = str(wrap[a])
+        if (r_in == 0 and is_per[a] and not is_rel[a]
+                and wrap_a == 'full-image'):
+            tables[a] = _distinct_value_table(
+                np.asarray(centres[a]).astype(dtype, copy=False), n_q)
+    return tables
+
+
 def _ma_eval_full(
     centres, w_j, n_j, x_list, n_qc,
     A, dim_per, r_vec, sigma,
@@ -1191,6 +1267,7 @@ def _ma_eval_full(
     kernel_precision=None,
     inner_r=None,
     wrap=None,
+    value_tables=None,
 ):
     """Single-chunk MAET evaluation.
 
@@ -1236,9 +1313,43 @@ def _ma_eval_full(
 
         c_a = centres[a].astype(dtype, copy=False)
         x_a = x_list[a].astype(dtype, copy=False)
-        d_a = c_a[:, :, None] - x_a[:, None, :]
 
         r_in = 0 if inner_r is None else int(inner_r[a])
+        wrap_a = 'full-image'
+        if wrap is not None and a < len(wrap):
+            wrap_a = str(wrap[a])
+
+        # Abs-per full-image factorises over tuple positions, and each
+        # position draws from the same small set of values: an r-tuple's
+        # coordinates are values of the attribute's multiset, so the
+        # distinct arguments number K per event rather than one per
+        # tuple. Evaluating the wrapped Gaussian once per distinct value
+        # and reading the tuple layout off that table gives the same
+        # floating-point arguments in the same order, so the result is
+        # identical, not merely equal to tolerance. It also avoids the
+        # (dim, n_j, n_q) difference tensor entirely.
+        table_a = None if value_tables is None else value_tables[a]
+        if (r_in == 0 and is_per[a] and not is_rel[a]
+                and wrap_a == 'full-image' and table_a is not None):
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            vals, inv = table_a
+            factor_a = None
+            for k in range(da):
+                table_k = wrapped_gaussian_1d(
+                    vals[:, None] - x_a[k][None, :],
+                    float(sigma[a]), float(period[a]),
+                    truncation_sigmas, exponent_denominator=2,
+                )
+                theta_k = table_k[inv[k], :]
+                factor_a = (theta_k if factor_a is None
+                            else factor_a * theta_k)
+            factor_a = factor_a.astype(dtype, copy=False)
+            abs_per_factor = (factor_a if abs_per_factor is None
+                              else abs_per_factor * factor_a)
+            continue
+
+        d_a = c_a[:, :, None] - x_a[:, None, :]
+
         if r_in > 0:
             # Inner [rel] unit: block-diagonal metric over event blocks
             # (pairwise wrap applied inside _compute_Q).
@@ -1251,9 +1362,6 @@ def _ma_eval_full(
         # applies the pairwise wrap inside (Eq 6).
         if is_per[a] and not is_rel[a]:
             pg = dtype(period[a])
-            wrap_a = 'full-image'
-            if wrap is not None and a < len(wrap):
-                wrap_a = str(wrap[a])
             if wrap_a == 'full-image':
                 # Abs-per full-image via the shared wrapped-Gaussian
                 # helper (image-sum or Fourier, whichever is cheaper).
@@ -1348,27 +1456,30 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
     n_buckets = np.maximum(
         1, np.ceil((c_max - c_min).ravel() / bucket_size).astype(np.int64) + 1
     )
-    # Guard: a pathologically large bucket grid (high dim, or a spread wide
-    # relative to k_sigma*sigma) would make bucket_map dominate memory while its
-    # buckets sit near-empty, and the cull would save little. Signal the caller
-    # (returning None) to fall back to the dense path in that regime.
-    total_buckets = float(np.prod(n_buckets.astype(np.float64)))
-    if total_buckets > max(8.0 * n_j, 8_388_608.0):     # > 8*nJ or > ~8.4M cells
-        return None
-
     buck_c = np.clip(
         np.floor((ct - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
     )
     lin_c = np.ravel_multi_index(tuple(buck_c), tuple(n_buckets))
 
-    # Group centres by bucket: sort, find runs, map linear bucket -> run index.
+    # Group centres by bucket: sort, find runs, and look buckets up by
+    # membership in the sorted list of occupied ones.
+    #
+    # The occupied list is at most n_j long, where a dense table over the
+    # whole lattice costs prod(n_buckets) however few centres there are,
+    # and that grows as (spread / (k_sigma*sigma))**dim: at r = 4 over a
+    # 9600-cent span with sigma = 5 it is 3.3e9 cells for 11880 centres.
+    # A dense table therefore had to be guarded, and the guard declined
+    # to cull in exactly the regime where culling saves most --- fine
+    # kernels over a wide range --- falling back to the dense kernel at
+    # around thirty times the cost. Indexing by occupancy needs no such
+    # guard. Twin of the run table in _kernel._truncated_kernel_sum and
+    # of internal.gaussianKernelSum on the MATLAB side.
     perm = np.argsort(lin_c, kind="stable")
     sorted_lin = lin_c[perm]
     bounds = np.concatenate(([0], np.nonzero(np.diff(sorted_lin))[0] + 1))
     run_start = bounds
     run_end = np.concatenate((bounds[1:], [n_j]))          # exclusive
-    bucket_map = np.full(int(np.prod(n_buckets)), -1, dtype=np.int64)
-    bucket_map[sorted_lin[bounds]] = np.arange(bounds.size)
+    run_lin = sorted_lin[bounds]                           # ascending
 
     buck_x = np.clip(
         np.floor((xt - c_min) / bucket_size).astype(np.int64), 0, n_buckets[:, None] - 1
@@ -1393,11 +1504,13 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
         nb = nb[:, in_bounds]
         q_of = q_of[in_bounds]
 
-        run_idx = bucket_map[np.ravel_multi_index(tuple(nb), tuple(n_buckets))]
-        has_run = run_idx >= 0
+        nb_lin = np.ravel_multi_index(tuple(nb), tuple(n_buckets))
+        pos = np.searchsorted(run_lin, nb_lin)
+        pos = np.minimum(pos, run_lin.size - 1)
+        has_run = run_lin[pos] == nb_lin
         if not has_run.any():
             continue
-        run_idx = run_idx[has_run]
+        run_idx = pos[has_run]
         q_of = q_of[has_run]
 
         # Ragged-expand each (query, run) into (query, centre) pairs via cumsum.
@@ -1440,12 +1553,9 @@ def _eval_core(
         and truncation_sigmas > 0
         and not is_per
     ):
-        culled = _truncated_kernel_sum_culled(
+        return _truncated_kernel_sum_culled(
             centres, w_j, x, sigma, is_rel, r, float(truncation_sigmas)
         )
-        if culled is not None:
-            return culled
-        # else: bucket grid would be pathological; fall through to dense.
 
     # Peak per-chunk transient ~ (2*dim + 2) × n_j × n_q × 8 (broadcast
     # difference, its square, and the summed/exponentiated intermediate
@@ -1453,9 +1563,16 @@ def _eval_core(
     bytes_needed = (2 * dim + 2) * int(n_j) * int(n_q) * 8
     mem_limit = kernel_chunk_bytes_resolved()
 
+    # Distinct-value table for the abs-per full-image branch, resolved
+    # once: the centres are the same in every chunk.
+    value_table = None
+    if is_per and not is_rel and wrap == 'full-image':
+        value_table = _distinct_value_table(centres, n_q)
+
     if bytes_needed <= mem_limit:
         return _eval_full(centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
-                          truncation_sigmas=truncation_sigmas, wrap=wrap)
+                          truncation_sigmas=truncation_sigmas, wrap=wrap,
+                          value_table=value_table)
 
     chunk_size = max(1, int(mem_limit / ((2 * dim + 2) * int(n_j) * 8)))
     vals = np.zeros(n_q)
@@ -1466,13 +1583,15 @@ def _eval_core(
         vals[idx] = _eval_full(
             centres, w_j, n_j, x[:, idx], n_qc, dim, sigma, r, is_rel, is_per, period,
             truncation_sigmas=truncation_sigmas, wrap=wrap,
+            value_table=value_table,
         )
     return vals
 
 
 
 def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, period,
-               *, truncation_sigmas=None, wrap='full-image'):
+               *, truncation_sigmas=None, wrap='full-image',
+               value_table=None):
     """Fully vectorized single-multiset density evaluation.
 
     Uses the pairwise-wrap form (Eq 6 of the preprint) for
@@ -1492,20 +1611,37 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
     evaluates the nearest image only. Ignored for rel-per and
     non-periodic modes.
     """
-    # D shape: (dim, nJ, nQc)
-    D = centres[:, :, None] - x_q[:, None, :]
-
     # Outer wrap only needed for abs+per (see _compute_Q docstring).
     if is_per and not is_rel:
         if wrap == 'full-image':
             # Full-image via the shared wrapped-Gaussian helper
             # (image-sum or Fourier, whichever is cheaper).
             from .._wrapped_kernel import wrapped_gaussian_1d
-            theta_per_position = wrapped_gaussian_1d(
-                D, float(sigma), float(period), truncation_sigmas,
-                exponent_denominator=2,
-            )
-            E = theta_per_position.prod(axis=0)  # (nJ, nQc)
+            if value_table is not None:
+                # Every coordinate of an r-tuple is a value of the same
+                # multiset, so the distinct arguments number K rather
+                # than one per tuple. Evaluating the wrapped Gaussian
+                # once per distinct value and reading the tuple layout
+                # off that table presents the same floating-point
+                # arguments in the same order, so the result is
+                # identical rather than equal to a tolerance.
+                vals, inv = value_table
+                E = None
+                for k in range(centres.shape[0]):
+                    table_k = wrapped_gaussian_1d(
+                        vals[:, None] - x_q[k][None, :],
+                        float(sigma), float(period), truncation_sigmas,
+                        exponent_denominator=2,
+                    )
+                    theta_k = table_k[inv[k], :]
+                    E = theta_k if E is None else E * theta_k
+            else:
+                D = centres[:, :, None] - x_q[:, None, :]
+                theta_per_position = wrapped_gaussian_1d(
+                    D, float(sigma), float(period), truncation_sigmas,
+                    exponent_denominator=2,
+                )
+                E = theta_per_position.prod(axis=0)  # (nJ, nQc)
             use_truncation = (
                 truncation_sigmas is not None
                 and np.isfinite(truncation_sigmas)
@@ -1518,7 +1654,10 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
             return w_j @ E
         # Single-image: reduce to nearest image and fall through to
         # the q_total accumulator.
+        D = centres[:, :, None] - x_q[:, None, :]
         D = D - period * np.floor(D / period + 0.5)
+    else:
+        D = centres[:, :, None] - x_q[:, None, :]
 
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
 

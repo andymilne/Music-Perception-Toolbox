@@ -95,8 +95,8 @@ function Q = localComputeQFlat(D, r, isRel, isPer, period)
 
     if isRel
         if isPer
-            slot0 = D - period * floor(D / period + 0.5);
-            Q = sum(slot0.^2, 1);
+            position0Wrapped = D - period * floor(D / period + 0.5);
+            Q = sum(position0Wrapped.^2, 1);
             dRows = size(D, 1);
             for i = 1:dRows - 1
                 for j = i + 1:dRows

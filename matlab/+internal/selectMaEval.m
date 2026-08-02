@@ -59,12 +59,30 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     %
     % Centres: a per-call materialisation term and a per-query kernel
     % term, both linear in the joint tuple count.
-    MA_COST_CENTRES_SETUP_MS          = 0.15;
-    MA_COST_CENTRES_CALL_PER_JOINT_MS = 8e-5;
-    MA_COST_CENTRES_QUERY_PER_JOINT_MS = 1.5e-8;
-    % Bucket-grid culling geometry factor for the non-periodic culled
-    % kernels (dimensionless; shared with the Python twin).
-    MA_COST_CENTRES_CULL_C            = 15.0;
+    MA_COST_CENTRES_SETUP_MS          = 0.2096;
+    MA_COST_CENTRES_CALL_PER_JOINT_MS = 6.907e-5;
+    % Per-query cost has a floor that no culling removes (the bucket
+    % lookup and gather each query pays) plus a term linear in the joint
+    % tuple count, and the two kernels carry different constants: the
+    % non-periodic kernel is bucket-culled, the periodic one runs dense.
+    % One shared pair cannot express that --- at 255024 joint tuples the
+    % measured per-query costs differ by a factor of 300 --- so they are
+    % calibrated separately.
+    MA_COST_CENTRES_QUERY_BASE_MS       = 1.220e-3;
+    MA_COST_CENTRES_QUERY_PER_JOINT_MS  = 6.893e-6;
+    MA_COST_CENTRES_QUERY_BASE_PER_MS   = 7.442e-4;
+    MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 3.658e-6;
+    % Culling geometry factor for the non-periodic kernels. The truncated
+    % kernel visits only the centres inside a ball of radius k*sigma, so
+    % the surviving fraction is a volume ratio in the attribute's own
+    % dimension: (c*sigma/spread) raised to r_a - [rel]_a, capped at 1.
+    % Fitted on 124 (shape, geometry) cells of
+    % bench_ma_eval_calibration spanning sigma from 5 to 60 cents over
+    % spans of 1200 to 9600 cents. Leaving the exponent free returns
+    % 2.5 and fits worse than pinning it to the dimension, so the volume
+    % reading is the one the measurements prefer. Held one geometry out
+    % at a time, c lands between 24.9 and 29.5 across all nine folds.
+    MA_COST_CENTRES_CULL_C            = 25.6;
     % Per-attribute per-query overhead of the factored centres route
     % (bucket lookup and gather). Seeded from the Python fit; re-derive
     % with bench_ma_eval_calibration on this side if picks look off.
@@ -228,35 +246,51 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
     % tail-truncatable ball).
     factoredSupported = (A > 1) && all(rVec >= 2) ...
         && ~internal.densityHasKernelCov(dens);
+    % Culled fraction for attribute A: the surviving share of its tuple
+    % set per query. Dimensionless, in (0, 1].
+    cullOf = @(a) localCentresCull(dens, a, isPer(a), sigmaG(a), ...
+                                   rVec(a), isRel(a), ...
+                                   MA_COST_CENTRES_CULL_C);
+
     if factoredSupported
         centresMs = MA_COST_CENTRES_SETUP_MS;
         for a = 1:A
             r_a = rVec(a); K_a = kVec(a);
             T_a = factorial(r_a) * localComb(K_a, r_a);
-            cull_a = 1.0;
-            if ~isPer(a) && sigmaG(a) > 0
-                spread = 0.0;
-                if a <= numel(dens.pAttr) && ~isempty(dens.pAttr{a})
-                    arr = double(dens.pAttr{a}(:));
-                    if ~isempty(arr)
-                        spread = max(arr) - min(arr);
-                    end
-                end
-                if spread > 0
-                    cull_a = min(1.0, ...
-                        MA_COST_CENTRES_CULL_C * sigmaG(a) / spread);
-                end
+            if isPer(a)
+                qBase = MA_COST_CENTRES_QUERY_BASE_PER_MS;
+                qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS;
+            else
+                qBase = MA_COST_CENTRES_QUERY_BASE_MS;
+                qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_MS;
             end
             centresMs = centresMs ...
                 + MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a ...
                 + nQeff * (MA_COST_CENTRES_FACTORED_QUERY_BASE_MS ...
-                           + MA_COST_CENTRES_QUERY_PER_JOINT_MS ...
-                             * T_a * cull_a);
+                           + qBase + qPer * T_a * cullOf(a));
         end
     else
+        % Joint materialisation. The per-query term takes the geometry of
+        % the widest-culling attribute: the joint tuple set is the
+        % product across attributes, and a query reaches a joint centre
+        % only if it reaches that centre in every attribute, so the
+        % joint culled fraction is the product of the per-attribute ones.
+        cullJoint = 1.0;
+        anyPer = false;
+        for a = 1:A
+            cullJoint = cullJoint * cullOf(a);
+            anyPer = anyPer || isPer(a);
+        end
+        if anyPer
+            qBase = MA_COST_CENTRES_QUERY_BASE_PER_MS;
+            qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS;
+        else
+            qBase = MA_COST_CENTRES_QUERY_BASE_MS;
+            qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_MS;
+        end
         centresMs = MA_COST_CENTRES_SETUP_MS ...
             + MA_COST_CENTRES_CALL_PER_JOINT_MS * jointTuples ...
-            + MA_COST_CENTRES_QUERY_PER_JOINT_MS * jointTuples * nQeff;
+            + nQeff * (qBase + qPer * jointTuples * cullJoint);
     end
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
@@ -369,6 +403,42 @@ function [chosen, routingReason] = selectMaEval(dens, nQ, verbose)
         routingReason = 'cost model (joint centres cheaper)';
     end
 end
+
+function cullA = localCentresCull(dens, a, isPerA, sigmaA, r_a, isRelA, cullC)
+%LOCALCENTRESCULL  Share of an attribute's tuple set a query reaches.
+%
+%   The truncated non-periodic kernel visits only the centres inside a
+%   ball of radius k*sigma about the query, so the surviving share is a
+%   volume ratio in the attribute's own dimension, r_a - [rel]_a:
+%
+%       cull = min(1, (cullC * sigma / spread) ^ dim)
+%
+%   SPREAD is the attribute's value range, which stands in for the
+%   extent the centres occupy. The periodic kernel is not truncated ---
+%   it sums over images rather than discarding a tail --- so it takes no
+%   discount and CULLA is 1.
+    cullA = 1.0;
+    if isPerA || sigmaA <= 0
+        return;
+    end
+    spread = 0.0;
+    if isfield(dens, 'pAttr') && a <= numel(dens.pAttr) ...
+            && ~isempty(dens.pAttr{a})
+        arr = double(dens.pAttr{a}(:));
+        if ~isempty(arr)
+            spread = max(arr) - min(arr);
+        end
+    end
+    if spread <= 0
+        return;
+    end
+    dim = double(r_a) - double(logical(isRelA));
+    if dim < 1
+        dim = 1;
+    end
+    cullA = min(1.0, (cullC * double(sigmaA) / spread) ^ dim);
+end
+
 
 function c = localComb(nn, kk)
 %LOCALCOMB  Binomial coefficient C(nn, kk), integer-valued.

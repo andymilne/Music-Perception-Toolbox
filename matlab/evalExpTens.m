@@ -532,7 +532,8 @@ elseif strcmp(method, 'auto')
     % announces the routing DECISION only; the time estimate is a separate
     % concern, emitted by estimateCompTime in the executing centres path
     % under verbose.
-    [chosen, routingReason] = internal.selectMaEval(maet, nQ, verbose);
+    [chosen, routingReason] = internal.selectMaEval( ...
+        maet, nQ, verbose, truncationSigmas);
     internal.maybeShowDispatchMsg('evalExpTens', chosen, routingReason);
 else
     error('evalExpTens:badMethod', ...
@@ -898,7 +899,8 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         maChosen = 'mobius';
         maReason = 'user override';
     else
-        [maChosen, maReason] = internal.selectMaEval(dens, nQ, verbose);
+        [maChosen, maReason] = internal.selectMaEval( ...
+            dens, nQ, verbose, truncationSigmas);
     end
     internal.maybeShowDispatchMsg('evalExpTens (MAET)', maChosen, ...
         maReason);
@@ -1273,7 +1275,8 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
     elseif strcmp(method, 'mobius')
         maChosen = 'mobius'; maReason = 'user override';
     else
-        [maChosen, maReason] = internal.selectMaEval(dens, nQ, verbose);
+        [maChosen, maReason] = internal.selectMaEval( ...
+            dens, nQ, verbose, truncationSigmas);
     end
 
     if strcmp(maChosen, 'mobius')

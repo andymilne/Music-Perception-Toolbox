@@ -1,5 +1,5 @@
 function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
-        selectMaEval(dens, nQ, verbose)
+        selectMaEval(dens, nQ, verbose, truncationSigmas)
 %SELECTMAEVAL  Cost-model path selection for multi-attribute evalExpTens.
 %
 %   [CHOSEN, ROUTINGREASON] = INTERNAL.SELECTMAEVAL(DENS, NQ) chooses
@@ -42,6 +42,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 
     if nargin < 2 || isempty(nQ), nQ = 200; end
     if nargin < 3, verbose = true; end
+    if nargin < 4, truncationSigmas = []; end
     centresMsOut = NaN;   % set below only where the cost model prices
     mobiusMsOut  = NaN;
 
@@ -49,7 +50,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     ORBIT_R_MAX_FEASIBLE = 10;
     % Resolved from the accuracy setting rather than fixed: see
     % internal.relPerSigmaOverPThreshold.
-    ORBIT_SIGMA_OVER_P_THRESHOLD = internal.relPerSigmaOverPThreshold();
+    ORBIT_SIGMA_OVER_P_THRESHOLD = ...
+        internal.relPerSigmaOverPThreshold(truncationSigmas);
 
     % --- Calibrated cost-model constants, in milliseconds ---
     % Fitted to the selection-quality grid (single-attribute, r = 2..4,

@@ -1548,7 +1548,8 @@ def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per):
     return _GRID_NS_FLOOR + g_op * float(n_u) * float(K)
 
 
-def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
+def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
+                                 truncation_sigmas=None):
     """True when a relative attribute's inner matrices should use the
     pairwise closed form over tuple-centres rather than the
     translation-grid contraction.
@@ -1597,7 +1598,8 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
     if not is_rel or r_a < 2:
         return False
     blocked_by_measure = (
-        is_per and (sigma / period) > _orbit_sigma_over_p_threshold())
+        is_per and (sigma / period)
+        > _orbit_sigma_over_p_threshold(truncation_sigmas))
     K_x = int(Px.shape[0])
     K_y = int(Py.shape[0])
     empty_tuple_set = K_x < r_a or K_y < r_a
@@ -1610,7 +1612,8 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period):
             raise ValueError(
                 "rel_attr_route='centres' cannot be honoured at "
                 f"sigma/period = {sigma / period:.4g}: above "
-                f"{_orbit_sigma_over_p_threshold():g} the tuple-centres "
+                f"{_orbit_sigma_over_p_threshold(truncation_sigmas):g} the "
+                f"tuple-centres "
                 "route evaluates a kernel that is not positive definite, "
                 "so the translation grid is the only admissible route. "
                 "Lower sigma/period or use 'auto'."

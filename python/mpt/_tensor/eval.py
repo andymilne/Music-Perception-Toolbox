@@ -876,7 +876,10 @@ def _eval_exp_tens_ma(
     else:
         xa = np.asarray(x)
         n_q_hint = xa.shape[-1] if xa.ndim >= 1 else 1
-    chosen, routing_reason = _select_ma_eval(dens, n_q_hint, method=method)
+    chosen, routing_reason = _select_ma_eval(
+        dens, n_q_hint, method=method,
+        truncation_sigmas=truncation_sigmas,
+    )
     # Dispatch messages are gated by show_hints, not per-call verbose, so
     # users see the routing decision even from internal callers that pass
     # verbose=False (matching the single-multiset path). The MA cost

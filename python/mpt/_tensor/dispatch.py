@@ -421,6 +421,7 @@ def _select_ma_inner_product_method(
     guard_forced_bulger=True,
     wrap_vec=None,
     k_vec_y=None,
+    truncation_sigmas=None,
     return_costs=False,
 ):
     """Pick the inner-product method for the MA case using a cost model.
@@ -533,7 +534,7 @@ def _select_ma_inner_product_method(
     # _predict_pairwise_kernel_size formula (n_J = N · ∏_a r_a!·C).
     if A > 0 and not (any_rel_per
                       and sigma_over_P_max
-                      > _orbit_sigma_over_p_threshold()):
+                      > _orbit_sigma_over_p_threshold(truncation_sigmas)):
         k_y = k_vec if k_vec_y is None else k_vec_y
         tuples_x = 1.0
         tuples_y = 1.0
@@ -574,7 +575,7 @@ def _select_ma_inner_product_method(
                 "Mixed rel-per wrap on a single density is not yet supported; "
                 "all rel-per attributes must share a wrap value."
             )
-        if sigma_over_P_max > _orbit_sigma_over_p_threshold():
+        if sigma_over_P_max > _orbit_sigma_over_p_threshold(truncation_sigmas):
             if wants_single:
                 return ('bulger', float('nan'), float('nan')) \
                     if return_costs else 'bulger'
@@ -607,7 +608,7 @@ def _select_ma_inner_product_method(
     orbit_cost_ms = _predict_orbit_cost_ms(
         r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec,
         centres_ok=(sigma_over_P_max
-                    <= _orbit_sigma_over_p_threshold()),
+                    <= _orbit_sigma_over_p_threshold(truncation_sigmas)),
         k_vec_y=k_vec_y,
     )
     chosen = 'bulger' if pw_cost_ms <= orbit_cost_ms else 'mobius'
@@ -1531,7 +1532,7 @@ def _reject_ordered_for_mobius(dens) -> None:
         )
 
 
-def _select_ma_eval(dens, n_q, *, method):
+def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     """Cost-model path selection for multi-attribute ``eval_exp_tens``.
 
     Chooses between the joint-centres path (``_eval_exp_tens_ma``, which
@@ -1675,7 +1676,7 @@ def _select_ma_eval(dens, n_q, *, method):
     for a in range(A):
         if (is_rel[a] and is_per[a] and period[a] > 0
                 and sigma[a] / period[a]
-                > _orbit_sigma_over_p_threshold()):
+                > _orbit_sigma_over_p_threshold(truncation_sigmas)):
             wrap_a = (str(wrap[a]) if wrap is not None
                       and a < len(wrap) else 'full-image')
             if wrap_a == 'single-image':

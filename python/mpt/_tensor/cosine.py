@@ -1266,6 +1266,7 @@ def _cos_sim_exp_tens_ma(
         rel_vec=rel_vec, nu_vec=nu_vec,
         guard_forced_bulger=not nested_any,
         wrap_vec=wrap_vec_x,
+        truncation_sigmas=truncation_sigmas,
     )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
@@ -1723,6 +1724,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
 
         if _ma_rel_attr_prefers_centres(
             Px, Py, sigma, r_a, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
         ):
             # Relative attribute at small K: the pairwise closed form
             # over materialised tuple-centres ((r!·C(K, r))² kernel ops

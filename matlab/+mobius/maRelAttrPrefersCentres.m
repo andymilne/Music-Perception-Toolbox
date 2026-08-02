@@ -1,5 +1,5 @@
 function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
-                                        isPer, period)
+                                        isPer, period, truncationSigmas)
 %MARELATTRPREFERSCENTRES  Centres route vs translation grid, per attribute.
 %
 %   Mirror of Python _mobius_inner._ma_rel_attr_prefers_centres. True
@@ -53,7 +53,9 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
 %   Writing the division out keeps the fitted figures visible and gives
 %   both languages the identical double.
 
-    SIGMA_OVER_P_THRESHOLD = internal.relPerSigmaOverPThreshold();
+    if nargin < 8, truncationSigmas = []; end
+    SIGMA_OVER_P_THRESHOLD = ...
+        internal.relPerSigmaOverPThreshold(truncationSigmas);
 
     % Cost-model constants (nanoseconds). Cross-language route parity
     % requires these to match Python _mobius_inner._CENTRES_NS_*,

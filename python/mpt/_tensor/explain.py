@@ -138,7 +138,8 @@ def explain_dispatch(dens, other=None, *, n_q=None, method="auto",
                                limit_set_by, method)
 
     n_q = 200 if n_q is None else int(n_q)
-    chosen, reason = _select_ma_eval(dens, n_q, method=method)
+    chosen, reason = _select_ma_eval(
+        dens, n_q, method=method, truncation_sigmas=truncation_sigmas)
     try:
         centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
     except Exception:
@@ -188,7 +189,8 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
         any_rel_nonper=bool((is_rel & ~is_per).any()),
         any_rel_per=bool((is_rel & is_per).any()),
         sigma_over_P_max=(sop or 0.0), user_method=method,
-        rel_vec=is_rel, k_vec_y=k_y, return_costs=True,
+        rel_vec=is_rel, k_vec_y=k_y, truncation_sigmas=ts,
+        return_costs=True,
     )
     priced = not (math.isnan(pw_ms) or math.isnan(orbit_ms))
     why = "priced" if priced else "decided structurally"

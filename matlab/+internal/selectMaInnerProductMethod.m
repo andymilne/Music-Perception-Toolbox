@@ -1,7 +1,7 @@
 function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
-        verbose, relVec, nuVec, kVecY, wrapVec)
+        verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without pricing (an explicit
@@ -61,6 +61,9 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     end
     if nargin < 15
         wrapVec = {};
+    end
+    if nargin < 16
+        truncationSigmas = [];
     end
     % NaN until the priced comparison sets them, so a caller can tell a
     % structural decision from a costed one.
@@ -122,7 +125,8 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
                  'supported; all rel-per attributes must share a wrap ' ...
                  'value.']);
         end
-        if sigmaOverPMax > internal.relPerSigmaOverPThreshold()
+        if sigmaOverPMax > ...
+                internal.relPerSigmaOverPThreshold(truncationSigmas)
             if wantsSingle
                 chosen = 'bulger'; return;
             elseif wantsFull
@@ -137,7 +141,8 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % that, the per-entry cost falling as the arrays grow, which is what
     % the fitted exponent below 1 carries.
     pwCost = relRouteCostMs('bulger', r_max, pwSize);
-    centresOk = sigmaOverPMax <= internal.relPerSigmaOverPThreshold();
+    centresOk = sigmaOverPMax <= ...
+        internal.relPerSigmaOverPThreshold(truncationSigmas);
     orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                                    nuVec, centresOk, kVecY);
     pwCostOut = pwCost;

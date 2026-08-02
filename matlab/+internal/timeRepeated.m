@@ -14,14 +14,16 @@ function [t, nTimed] = timeRepeated(fn, opts)
 %   A cell whose single call already takes a second does not need ten
 %   repeats -- its relative noise is small and ten would make the sweep
 %   unusable -- so timing stops once BUDGETSEC of measured time has
-%   accumulated, provided NMIN timed runs are in hand.
+%   accumulated, provided NMIN timed runs are in hand. The warm-up runs
+%   answer to the same budget, so NDISCARD is a maximum rather than a
+%   fixed cost.
 %
 %   [T, NTIMED] = ... also returns how many runs were actually timed, so
 %   a caller can report it and a reader can tell a well-sampled cell
 %   from a thinly sampled one.
 %
 %   Options (name-value):
-%     nDiscard   warm-up runs, not timed          (default 3)
+%     nDiscard   most warm-up runs, not timed     (default 3)
 %     nMax       most timed runs                  (default 10)
 %     nMin       fewest timed runs                (default 3)
 %     budgetSec  stop after this much timed time  (default 2.0)
@@ -38,8 +40,18 @@ function [t, nTimed] = timeRepeated(fn, opts)
         opts.budgetSec (1,1) double {mustBePositive} = 2.0
     end
 
+    %   The warm-up runs answer to the same budget as the timed ones. A
+    %   route whose single call already costs the whole budget has paid
+    %   the JIT and allocator costs the discards exist to absorb, so
+    %   three of them buy nothing and treble the cost of the cell.
+    tWarm = 0;
     for i = 1:opts.nDiscard
+        wTic = tic;
         fn();
+        tWarm = tWarm + toc(wTic);
+        if tWarm >= opts.budgetSec
+            break;
+        end
     end
 
     ts = zeros(1, opts.nMax);

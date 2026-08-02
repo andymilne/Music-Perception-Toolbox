@@ -30,10 +30,14 @@ from .._defaults import truncation_floor, resolve_truncation_sigmas
 
 @dataclass
 class Route:
-    """One candidate route and how it fared against the three tests."""
+    """One candidate route and how it fared.
+
+    Feasibility is not reported per route: the selector excludes an
+    infeasible route before pricing, and says so in the chosen route's
+    reason rather than marking the excluded one.
+    """
 
     name: str
-    feasible: bool = True
     reason: str = ""
     predicted_ms: float | None = None
     chosen: bool = False
@@ -78,13 +82,12 @@ class Explanation:
         if self.measure:
             out.append(f"measure       {self.measure}")
         out.append("")
-        out.append(f"{'route':<12}{'feasible':<10}{'predicted':>12}   why")
+        out.append(f"{'route':<12}{'predicted':>12}   why")
         for r in self.routes:
             pred = ("--" if r.predicted_ms is None
                     else f"{r.predicted_ms:.3f} ms")
             mark = "*" if r.chosen else " "
-            out.append(f"{mark}{r.name:<11}{str(r.feasible):<10}{pred:>12}   "
-                       f"{r.reason}")
+            out.append(f"{mark}{r.name:<11}{pred:>12}   {r.reason}")
         out.append("")
         out.append(f"chosen        {self.chosen}  ({self.decided_by})")
         return "\n".join(out)
@@ -147,10 +150,10 @@ def explain_dispatch(dens, other=None, *, n_q=None, method="auto",
 
     priced = "cost model" in reason
     routes = [
-        Route("centres", True,
+        Route("centres",
               reason if chosen == "centres" and not priced else "",
               centres_ms, chosen == "centres"),
-        Route("mobius", True,
+        Route("mobius",
               reason if chosen == "mobius" and not priced else "",
               mobius_ms, chosen == "mobius"),
     ]
@@ -195,9 +198,9 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
     priced = not (math.isnan(pw_ms) or math.isnan(orbit_ms))
     why = "priced" if priced else "decided structurally"
     routes = [
-        Route("bulger", True, why,
+        Route("bulger", why,
               None if math.isnan(pw_ms) else pw_ms, chosen == "bulger"),
-        Route("mobius", True, why,
+        Route("mobius", why,
               None if math.isnan(orbit_ms) else orbit_ms, chosen == "mobius"),
     ]
     measure = None

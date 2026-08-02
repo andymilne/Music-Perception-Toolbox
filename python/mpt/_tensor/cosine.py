@@ -27,18 +27,16 @@ from __future__ import annotations
 import math
 import warnings
 from itertools import permutations
-from math import factorial
 
 import numpy as np
 from scipy.special import comb as _comb
 
-from .._defaults import _maybe_show_dispatch_msg, _with_dispatch_scope
+from .._defaults import _with_dispatch_scope
 from .._kernel import gaussian_kernel_sum
 from .._utils import (
     estimate_comp_time,
     kernel_chunk_bytes_resolved,
     maybe_print_batched_estimate,
-    progress_stride,
     with_kernel_chunk_bytes_pin,
 )
 from ..spectra import add_spectra
@@ -73,10 +71,6 @@ from .dispatch import (
     _normalize_density_input,
     _resolve_list_list_mode,
     _select_ma_inner_product_method,
-    # Orbit-table policy constants used by the Möbius-method router.
-    _ORBIT_R_MAX_SHIPPED,
-    _orbit_sigma_over_p_threshold,
-    _warn_rel_per_all_image,
 )
 
 
@@ -1856,8 +1850,7 @@ def _nested_attr_plan(dens_x, dens_y, a):
     route = _nested_attr_route(dens_x, dens_y, a)
     if route in ("centres", "contract"):
         return route, None
-    from ._nested_contraction import (auto_ntau, auto_ntau_default,
-                                       auto_taus_line)
+    from ._nested_contraction import (auto_ntau_default, auto_taus_line)
     from .._defaults import get_default, truncation_floor
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])

@@ -199,8 +199,7 @@ function localPrint(rep)
     if ~isempty(rep.measure)
         fprintf('measure       %s\n', rep.measure);
     end
-    fprintf('\n%-12s%-10s%12s   %s\n', 'route', 'feasible', ...
-            'predicted', 'why');
+    fprintf('\n%-12s%12s   %s\n', 'route', 'predicted', 'why');
     for a = 1:numel(rep.routeNames)
         if isnan(rep.routeMs(a))
             pred = '--';
@@ -214,8 +213,7 @@ function localPrint(rep)
             mark = ' ';
             why  = localTernary(rep.priced, 'priced', 'not selected');
         end
-        fprintf('%s%-11s%-10s%12s   %s\n', mark, rep.routeNames{a}, ...
-                'true', pred, why);
+        fprintf('%s%-11s%12s   %s\n', mark, rep.routeNames{a}, pred, why);
     end
     fprintf('\nchosen        %s  (%s)\n', rep.chosen, rep.decidedBy);
 end

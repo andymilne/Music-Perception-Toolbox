@@ -1,5 +1,5 @@
 function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
-        selectMaEval(dens, nQ, verbose, truncationSigmas)
+        selectMaEval(dens, nQ, truncationSigmas)
 %SELECTMAEVAL  Cost-model path selection for multi-attribute evalExpTens.
 %
 %   [CHOSEN, ROUTINGREASON] = INTERNAL.SELECTMAEVAL(DENS, NQ) chooses
@@ -49,8 +49,20 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %   INTERNAL.SELECTMAINNERPRODUCTMETHOD.
 
     if nargin < 2 || isempty(nQ), nQ = 200; end
-    if nargin < 3, verbose = true; end
-    if nargin < 4, truncationSigmas = []; end
+    if nargin < 3, truncationSigmas = []; end
+    % Guard the removed verbose parameter. This function once took
+    % (dens, nQ, verbose, truncationSigmas); verbose was never read, and
+    % dispatch decisions are announced by internal.maybeShowDispatchMsg
+    % under showHints rather than under a per-call flag. A stale caller
+    % passing the old form would otherwise hand a logical to
+    % relPerSigmaOverPThreshold, which reads false as 0 and returns the
+    % positive-definiteness ceiling in place of the accuracy threshold ---
+    % a silently different route. Fail loudly instead.
+    if islogical(truncationSigmas)
+        error('mpt:selectMaEval:staleCallForm', ...
+            ['internal.selectMaEval no longer takes a verbose argument. ' ...
+             'Call internal.selectMaEval(dens, nQ, truncationSigmas).']);
+    end
     centresMsOut = NaN;   % set below only where the cost model prices
     mobiusMsOut  = NaN;
 

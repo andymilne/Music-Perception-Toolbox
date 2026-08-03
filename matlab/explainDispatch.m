@@ -102,7 +102,7 @@ end
 
 
 function report = localEval(dens, nQ, ts, floorV, sop, limit, setBy, method)
-    [chosen, reason] = internal.selectMaEval(dens, nQ, false, ts);
+    [chosen, reason] = internal.selectMaEval(dens, nQ, ts);
     % Price both routes unconditionally, not just where the selector
     % consulted the cost model. A hard rule returns before pricing, so the
     % selector's own CENTRESMS/MOBIUSMS are NaN there --- but the reader

@@ -84,7 +84,7 @@ for gi = 1:numel(grid)
     dens = buildExpTens(pas, wpas, sig, rv, rel, per, P, 'verbose', false);
     xq = 100 * rand(dens.dim, nQ);
 
-    [pred, ~, predCen, predMob] = internal.selectMaEval(dens, nQ, false);
+    [pred, ~, predCen, predMob] = internal.selectMaEval(dens, nQ);
 
     % op-counts
     joint = 1; orbit = 0;

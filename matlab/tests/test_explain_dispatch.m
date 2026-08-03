@@ -41,7 +41,7 @@ for xdI = 1:size(xdCases, 1)
     if xdPer, xdPeriod = xdP; else, xdPeriod = 0; end
     xdD = buildExpTens(xdPts(xdK), [], xdS, xdR, xdRel, xdPer, ...
                        xdPeriod, 'verbose', false);
-    xdSel = internal.selectMaEval(xdD, 200, false);
+    xdSel = internal.selectMaEval(xdD, 200);
     xdRep = explainDispatch(xdD, 200);
     xdOk = xdOk && strcmp(xdRep.chosen, xdSel);
 end
@@ -176,8 +176,8 @@ xdDSing = buildExpTens(xdPts(12), [], 60, 3, true, true, xdP, ...
                        'wrap', 'single-image', 'verbose', false);
 xdDFull = buildExpTens(xdPts(12), [], 60, 3, true, true, xdP, ...
                        'verbose', false);
-[xdChS, xdRsnS] = internal.selectMaEval(xdDSing, 200, false);
-[xdChF, ~]      = internal.selectMaEval(xdDFull, 200, false);
+[xdChS, xdRsnS] = internal.selectMaEval(xdDSing, 200);
+[xdChF, ~]      = internal.selectMaEval(xdDFull, 200);
 xdRepS = explainDispatch(xdDSing, 200);
 results{end+1, 1} = 'explainDispatch: above the limit the wrap picks the route';
 results{end, 2}   = strcmp(xdChS, 'centres') && strcmp(xdChF, 'mobius') && ...

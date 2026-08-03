@@ -51,7 +51,7 @@ for gi = 1:numel(grid)
     dens = buildExpTens(pas, repmat({[]}, A, 1), sig, rv, rel, per, P, ...
         'verbose', false);
     xq = 100 * rand(dens.dim, 200);
-    [chosen, reason] = internal.selectMaEval(dens, 200, false);
+    [chosen, reason] = internal.selectMaEval(dens, 200);
 
     if strcmp(chosen, 'mobius')
         ok = true;   % failure-safe route; never harmful
@@ -69,7 +69,7 @@ end
 %% ---- Above sigma/P, all-image Möbius is the preferred default ----
 dens = buildExpTens({100*rand(6,1); 100*rand(6,1)}, {[]; []}, [40 40], ...
     [3 3], [true true], [true true], [1200 1200], 'verbose', false);
-[chosen, ~] = internal.selectMaEval(dens, 200, false);
+[chosen, ~] = internal.selectMaEval(dens, 200);
 results{end+1, 1} = 'cost model: rel-per above threshold prefers Möbius';
 results{end, 2} = strcmp(chosen, 'mobius');
 
@@ -81,7 +81,7 @@ if true
     % here is Möbius (above), and that a large shape stays Möbius (safe).
     densBig = buildExpTens({100*rand(40,1); 100*rand(40,1)}, {[]; []}, ...
         [40 40], [3 3], [true true], [true true], [1200 1200], 'verbose', false);
-    [chosenC, reasonC] = internal.selectMaEval(densBig, 200, false); %#ok<ASGLU>
+    [chosenC, reasonC] = internal.selectMaEval(densBig, 200); %#ok<ASGLU>
 end
 results{end+1, 1} = 'cost model: rel-per stays Möbius at large shape (no OOM)';
 results{end, 2} = strcmp(chosenC, 'mobius');
@@ -96,11 +96,28 @@ densInf = buildExpTens({100*rand(20,1); 100*rand(20,1)}, {[]; []}, ...
     [6 6], [11 11], [false false], [false false], [0 0], 'verbose', false);
 ok = false;
 try
-    internal.selectMaEval(densInf, 200, false);
+    internal.selectMaEval(densInf, 200);
 catch err
     ok = strcmp(err.identifier, 'mpt:dispatch:singleImageInfeasible');
 end
 results{end+1, 1} = 'cost model: forced-centres infeasible raises';
+results{end, 2} = ok;
+
+% The removed verbose parameter. selectMaEval once took
+% (dens, nQ, verbose, truncationSigmas). A caller left on that form would
+% hand a logical to relPerSigmaOverPThreshold, which reads false as zero
+% and returns the positive-definiteness ceiling in place of the accuracy
+% threshold --- a different route, chosen silently. The guard turns that
+% into an error, so this pins the loud failure rather than the routing.
+densStale = buildExpTens(100*rand(12,1), [], 15, 2, false, false, 0, ...
+    'verbose', false);
+ok = false;
+try
+    internal.selectMaEval(densStale, 200, false);
+catch err
+    ok = strcmp(err.identifier, 'mpt:selectMaEval:staleCallForm');
+end
+results{end+1, 1} = 'cost model: the removed verbose argument raises';
 results{end, 2} = ok;
 
 %% ---- Standalone reporting ----

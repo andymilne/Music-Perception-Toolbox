@@ -102,8 +102,19 @@ end
 
 
 function report = localEval(dens, nQ, ts, floorV, sop, limit, setBy, method)
-    [chosen, reason, centresMs, mobiusMs] = ...
-        internal.selectMaEval(dens, nQ, false, ts);
+    [chosen, reason] = internal.selectMaEval(dens, nQ, false, ts);
+    % Price both routes unconditionally, not just where the selector
+    % consulted the cost model. A hard rule returns before pricing, so the
+    % selector's own CENTRESMS/MOBIUSMS are NaN there --- but the reader
+    % wants to know what the rule cost or saved. Guarded: this is a
+    % report, so a cost model that cannot price this shape must leave the
+    % column blank rather than fail the call. Mirrors the Python
+    % explain_dispatch, which calls _ma_eval_costs_ms in a try/except.
+    try
+        [centresMs, mobiusMs] = internal.maEvalCostsMs(dens, nQ);
+    catch
+        centresMs = NaN;  mobiusMs = NaN;
+    end
     if ~strcmpi(method, 'auto')
         chosen = method;  reason = 'user override';
     end

@@ -151,6 +151,41 @@ results{end+1, 1} = 'explainDispatch: within the sigma/P limit the approximation
 results{end, 2}   = xdRep.sigmaOverP <= xdRep.sigmaOverPLimit && ...
                     strcmp(xdRep.measure, 'wrapped-difference approximation');
 
+% --- 13. A hard rule is priced too -----------------------------------
+%  The selector returns on a hard rule before consulting the cost model,
+%  so its own route times are NaN there. The report prices both routes
+%  regardless, because the reader wants to know what the rule cost or
+%  saved. At r = 1 the Möbius decomposition is degenerate and the rule
+%  fires; both prices must still come back finite.
+xdRep = explainDispatch( ...
+    buildExpTens(xdPts(12), [], 15, 1, false, false, 0, 'verbose', false), ...
+    200);
+xdCentres = xdRep.routeMs(strcmp(xdRep.routeNames, 'centres'));
+xdMobius  = xdRep.routeMs(strcmp(xdRep.routeNames, 'mobius'));
+results{end+1, 1} = 'explainDispatch: a hard-rule decision is priced too';
+results{end, 2}   = strcmp(xdRep.chosen, 'centres') && ~xdRep.priced && ...
+                    all(isfinite([xdCentres, xdMobius]));
+
+% --- 14. Above the limit the wrap axis picks the route ----------------
+%  At sigma/P = 0.05 the two routes compute different measures, so the
+%  wrap axis decides which is wanted: 'single-image' asks for the
+%  wrapped-difference form and takes the centres route, the 'full-image'
+%  default for the transposition average and takes Möbius. The same
+%  density under the two wrap values must therefore route differently.
+xdDSing = buildExpTens(xdPts(12), [], 60, 3, true, true, xdP, ...
+                       'wrap', 'single-image', 'verbose', false);
+xdDFull = buildExpTens(xdPts(12), [], 60, 3, true, true, xdP, ...
+                       'verbose', false);
+[xdChS, xdRsnS] = internal.selectMaEval(xdDSing, 200, false);
+[xdChF, ~]      = internal.selectMaEval(xdDFull, 200, false);
+xdRepS = explainDispatch(xdDSing, 200);
+results{end+1, 1} = 'explainDispatch: above the limit the wrap picks the route';
+results{end, 2}   = strcmp(xdChS, 'centres') && strcmp(xdChF, 'mobius') && ...
+                    strcmp(xdRsnS, ...
+                           'rel-per single-image measure (wrap opt-in)') && ...
+                    strcmp(xdRepS.chosen, 'centres') && ...
+                    strcmp(xdRepS.measure, 'wrapped-difference approximation');
+
 if standalone
     nPass = sum(cellfun(@(x) isequal(x, true), results(:,2)));
     nFail = numel(results(:,1)) - nPass;

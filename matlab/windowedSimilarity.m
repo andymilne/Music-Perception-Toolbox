@@ -147,6 +147,20 @@ function out = local_ws_single(pContext, wContext, pQuery, wQuery, sigma, r, ...
     symC = internal.subSymArgs(isSym, keep);
     T = size(qRows, 2);
     out = zeros(Ac, T);
+    % The query window attaches to the query, not to the sweep: it is centred
+    % on the query's own location along the window axis and applied before the
+    % per-offset translation, so a template's finite extent is a property of
+    % the template and does not change as it slides. Resolved once, outside
+    % both loops, because neither the query nor its window varies with the
+    % sweep position. Twin of the Python _ws_single.
+    if ~isempty(queryWindow)
+        [qGamma, qSd] = internal.singleWindow(queryWindow, ...
+            internal.queryExtent(pQuery, axisIdx), axisIdx);
+        qCentre = mean(internal.locateRow(pQuery{axisIdx}, locate), 'omitnan');
+        [pQuery, wQuery, sqW] = internal.applyWindows(pQuery, wQuery, specs, ...
+            axisIdx, qCentre, qGamma, qSd, {locate}, target);
+        if nested, specs = sqW; end
+    end
     for a = 1:Ac
         [pc, wc, sc] = internal.applyWindows(pContext, wContext, specs, ...
             axisIdx, ctxCentres(a), gamma, sd, {locate}, target);

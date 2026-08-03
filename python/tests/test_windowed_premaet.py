@@ -231,3 +231,55 @@ def test_locate_is_wired():
     assert np.nanmax(a) > 0.9 and np.nanmax(b) > 0.9
     assert abs(centres[np.nanargmax(a)] - centres[np.nanargmax(b)]) > 0.2
     assert not np.allclose(a, b, equal_nan=True)
+
+
+def _qw_setup():
+    """Asymmetric query: two close events plus one far one, so a narrow query
+    window genuinely reshapes it rather than rescaling it uniformly."""
+    pc = [np.array([[0., 100., 200., 300., 400., 500.]]),
+          np.array([[0., 1., 2., 3., 4., 5.]])]
+    wc = [np.ones((1, 6)), np.ones((1, 6))]
+    pq = [np.array([[0., 100., 500.]]), np.array([[0., 1., 4.]])]
+    wq = [np.ones((1, 3)), np.ones((1, 3))]
+    common = dict(centres=np.arange(6.0), window_attr=1, drop_window_attr=False,
+                  normalize="cosine", verbose=False)
+    run = lambda **kw: np.asarray(windowed_similarity(
+        pc, wc, pq, wq, [30.0, 0.25], [1, 1], [False, False], [False, False],
+        [0.0, 0.0], **common, **kw))
+    return run
+
+
+def test_query_window_is_applied():
+    """A query window must reshape the query. Regression: the argument was
+    accepted, validated, and threaded to the worker, but never read, so a
+    caller asking for a windowed query silently got an unwindowed one."""
+    run = _qw_setup()
+    plain = run(context_window=("gauss", 2.0))
+    narrow = run(context_window=("gauss", 2.0), query_window=("gauss", 0.8))
+    assert not np.allclose(plain, narrow)
+    # Suppressing the far query event leaves the near pair, which matches the
+    # context far better at its best offset.
+    assert np.nanmax(narrow) > np.nanmax(plain)
+    assert narrow.min() >= 0.0 and narrow.max() <= 1.0 + 1e-12
+
+
+def test_wide_rect_query_window_is_an_exact_no_op():
+    """A rectangle wider than the query's own extent includes every event at
+    unit weight, so it must reproduce the unwindowed profile exactly."""
+    run = _qw_setup()
+    plain = run(context_window=("gauss", 2.0))
+    wide = run(context_window=("gauss", 2.0), query_window=("rect", 1000.0))
+    assert np.array_equal(plain, wide)
+
+
+def test_gaussian_query_window_converges_to_no_op():
+    """Widening a Gaussian query window must approach the unwindowed profile,
+    and at the O(1/sd^2) rate set by the window's curvature across the query."""
+    run = _qw_setup()
+    plain = run(context_window=("gauss", 2.0))
+    d = [float(np.max(np.abs(run(context_window=("gauss", 2.0),
+                                 query_window=("gauss", sd)) - plain)))
+         for sd in (100.0, 1000.0, 10000.0)]
+    assert d[0] > d[1] > d[2]
+    for lo, hi in zip(d[1:], d[:-1]):
+        assert 50.0 < hi / lo < 200.0

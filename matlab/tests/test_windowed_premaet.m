@@ -208,6 +208,48 @@ ok = max(aC) > 0.9 && max(aS) > 0.9 && abs(cc9(iC) - cc9(iS)) > 0.2 && ~isequal(
 results(end+1, :) = {'windowedSimilarity locate wired', ok}; %#ok<SAGROW>
 
 
+% ---- Query window is applied ------------------------------------------
+%  Regression: queryWindow was accepted, validated, and threaded to the
+%  single-axis worker, but never read, so a caller asking for a windowed
+%  query silently got an unwindowed one. The query is deliberately
+%  asymmetric --- two close events plus one far one --- so a narrow window
+%  reshapes it rather than rescaling it uniformly, which a scale-invariant
+%  normaliser would not see.
+pcQ = {[0, 100, 200, 300, 400, 500], [0, 1, 2, 3, 4, 5]};
+wcQ = {ones(1, 6), ones(1, 6)};
+pqQ = {[0, 100, 500], [0, 1, 4]};
+wqQ = {ones(1, 3), ones(1, 3)};
+commonQ = {'windowAttr', 2, 'dropWindowAttr', false, 'normalize', 'cosine', ...
+           'verbose', false};
+runQ = @(varargin) windowedSimilarity(pcQ, wcQ, pqQ, wqQ, [30.0, 0.25], ...
+    [1, 1], [false, false], [false, false], [0.0, 0.0], 0:5, ...
+    commonQ{:}, varargin{:});
+plainQ  = runQ('contextWindow', {'gauss', 2.0});
+narrowQ = runQ('contextWindow', {'gauss', 2.0}, 'queryWindow', {'gauss', 0.8});
+ok = ~isequal(plainQ, narrowQ) && max(narrowQ) > max(plainQ) && ...
+     min(narrowQ) >= 0 && max(narrowQ) <= 1 + 1e-12;
+results(end+1, :) = {'windowedSimilarity queryWindow applied', ok}; %#ok<SAGROW>
+
+% ---- A wide rectangular query window is an exact no-op -----------------
+%  A rectangle wider than the query's own extent admits every query event
+%  at unit weight, so it must reproduce the unwindowed profile exactly.
+wideQ = runQ('contextWindow', {'gauss', 2.0}, 'queryWindow', {'rect', 1000.0});
+results(end+1, :) = {'windowedSimilarity wide rect queryWindow is a no-op', ...
+    isequal(plainQ, wideQ)}; %#ok<SAGROW>
+
+% ---- A widening Gaussian query window converges to the no-op ----------
+%  The residual is the window's curvature across the query span, so each
+%  tenfold widening must cut the difference by about a hundred.
+dQ = zeros(1, 3); sdQ = [100.0, 1000.0, 10000.0];
+for iQ = 1:3
+    dQ(iQ) = max(abs(runQ('contextWindow', {'gauss', 2.0}, ...
+        'queryWindow', {'gauss', sdQ(iQ)}) - plainQ));
+end
+ok = dQ(1) > dQ(2) && dQ(2) > dQ(3) && ...
+     all(dQ(1:2) ./ dQ(2:3) > 50) && all(dQ(1:2) ./ dQ(2:3) < 200);
+results(end+1, :) = {'windowedSimilarity queryWindow converges to no-op', ok}; %#ok<SAGROW>
+
+
 if standalone
     nPass = sum([results{:, 2}]);
     fprintf('test_windowed_premaet: %d/%d passed\n', nPass, size(results, 1));

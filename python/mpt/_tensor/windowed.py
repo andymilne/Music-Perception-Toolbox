@@ -434,6 +434,10 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
     nested = specs is not None
     gamma, sd = _single_window(context_window, p_query, axis)
     win = {axis: (gamma, sd)}
+    if query_window is None:
+        q_win = None
+    else:
+        q_win = {axis: _single_window(query_window, p_query, axis)}
     drop_axes = {axis} if drop_window_attr else set()
     keep = [i for i in range(n) if i not in drop_axes]
     if not keep:
@@ -468,6 +472,20 @@ def _ws_single(p_context, w_context, p_query, w_query, sigma, r, is_rel, is_per,
     sy = None if is_sym is None else _sub(is_sym, keep)
     sym_args = () if sy is None else (sy,)
     out = np.empty((A, q_rows.shape[1]), dtype=float)
+    # The query window attaches to the query, not to the sweep: it is centred
+    # on the query's own location along the window axis and applied before the
+    # per-offset translation, so a template's finite extent is a property of
+    # the template and does not change as it slides. Resolved once, outside
+    # both loops, because neither the query nor its window varies with the
+    # sweep position.
+    if q_win is not None:
+        q_centre = float(np.nanmean(_locate_row(
+            p_query[axis], _resolve_locate(locate, axis))))
+        q_target = target
+        p_query, w_query, specs_q = _apply_windows(
+            p_query, w_query, specs, {axis: q_centre}, q_win, locate, q_target)
+        if nested:
+            specs = specs_q
     for a in range(A):
         pc_w, wc_w, sc_w = _apply_windows(
             p_context, w_context, specs, {axis: float(ctx_centres[a])}, win,

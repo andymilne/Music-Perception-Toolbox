@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.0.3] — 2026-08-09
+
+Packaging and documentation, following reviewer feedback on the accompanying
+article. No changes to any measure: results are identical to 2.0.2.
+
+### Added
+
+- Continuous integration (`.github/workflows/tests.yml`), running the Python
+  test suite on every push and pull request across Python 3.10–3.13 on Linux,
+  macOS, and Windows.
+- The Python demos are now also provided as Jupyter notebooks, generated from
+  the scripts by `python/demos/make_notebooks.py`.
+- `python/README.md`, which serves as the package description on PyPI.
+
+### Changed
+
+- Matplotlib and SoundFile are now installed with the package rather than
+  being optional extras; the `audio` extra is therefore withdrawn.
+- Installation instructions now use a virtual environment and an editable
+  install, and give the PyPI route first.
+
+### Fixed
+
+- `pyproject.toml` gave a readme path outside the project directory, so
+  installing from a fresh clone failed.
+
+---
+
 ## [2.0.0] — 2026-04-05
 
 ### Overview

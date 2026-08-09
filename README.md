@@ -47,19 +47,32 @@ Requires MATLAB R2019b or later. No external dependencies.
 
 ### Python
 
-1. Download or clone this repository.
-2. Install from the local `python/` directory:
-   ```bash
-   pip install ./python
-   ```
-
-For audio file support (spectral peak extraction via `audio_peaks`):
+From PyPI:
 
 ```bash
-pip install ./python[audio]
+pip install music-perception-toolbox
 ```
 
-Requires Python 3.10+. Dependencies (NumPy, SciPy) are installed automatically.
+Or, to work from a clone of this repository, in a virtual environment:
+
+```bash
+git clone https://github.com/andymilne/Music-Perception-Toolbox.git
+cd Music-Perception-Toolbox
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ./python
+```
+
+The `-e` installs in editable mode, so changes to the source take effect
+without reinstalling. To run the test suite as well:
+
+```bash
+pip install -e "./python[dev]"
+pytest python/tests
+```
+
+Requires Python 3.10+. Dependencies (NumPy, SciPy, Matplotlib, and SoundFile
+for reading audio) are installed automatically.
 
 ## Quick example
 
@@ -97,6 +110,8 @@ print(f'SPCS(major, minor) = {s:.3f}')
 ```
 
 Demo scripts are included in `matlab/demos/` and `python/demos/`. Start with `demo_overview` for a quick tour of all function families — see the [User Guide](USER_GUIDE.md#8-demo-scripts) for full descriptions.
+
+The Python demos are also provided as Jupyter notebooks alongside the scripts, so they can be read and modified a cell at a time. They are generated from the scripts by `python/demos/make_notebooks.py`, which should be re-run after editing a demo so that the two stay in step.
 
 ## Repository structure
 

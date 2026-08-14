@@ -1260,6 +1260,29 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         logK = zeros(nJ, nK);
         for a = 1:A
             r_a = rVec(a);
+
+            % Non-periodic modes: the quadratic form is a squared
+            % Euclidean distance between (possibly quotiented)
+            % coordinates, so it comes out of one matrix product rather
+            % than an (r_a, nJ, nK) difference array. Periodic
+            % attributes keep the tensor path below, where the wrap
+            % makes the form non-Euclidean. The guard declines the Gram
+            % form where its rounding would exceed the accuracy floor.
+            if ~isPerG(a) && localGramAccurateEnough( ...
+                    U_cell{a}, V_cell{a}, sigmaG(a), truncationSigmas)
+                if innerR(a) > 0
+                    blockSize = innerR(a);
+                elseif isRelG(a)
+                    blockSize = r_a;
+                else
+                    blockSize = 0;
+                end
+                Qa = localGramQuadraticForm( ...
+                    U_cell{a}, V_cell{a}, blockSize);
+                logK = logK - Qa / (4 * sigmaG(a)^2);
+                continue;
+            end
+
             D = reshape(U_cell{a}, r_a, nJ, 1) ...
               - reshape(V_cell{a}, r_a, 1, nK);
 
@@ -2047,6 +2070,92 @@ function cache = localSelfIpFromStruct(d)
     else
         cache = localSelfIpEmpty();
     end
+end
+
+
+function tf = localGramAccurateEnough(U, V, sigma, truncationSigmas)
+%LOCALGRAMACCURATEENOUGH  Whether the Gram form's rounding is admissible.
+%
+%   The Gram identity forms |u|^2 + |v|^2 - 2 u.v, so its rounding is
+%   relative to the size of those squares rather than to the distance
+%   they encode. After the shared shift the coordinates are of the order
+%   of the attribute's own spread s, giving an error in the exponent of
+%   about eps * s^2 / (4 sigma^2). That is negligible when the spread is
+%   comparable to sigma and grows as sigma shrinks against it. Compared
+%   against the floor truncationSigmas implies, so a caller asking for
+%   accuracy-floor accuracy gets the difference form and one asking for
+%   the default gets the fast one.
+%
+%   Twin of Python _tensor.cosine._gram_is_accurate_enough.
+    if isempty(U) || isempty(V)
+        tf = true;
+        return;
+    end
+    origin = U(1);
+    s2 = max(max(abs(U(:) - origin)), max(abs(V(:) - origin)))^2;
+    if s2 == 0
+        tf = true;
+        return;
+    end
+    predicted = eps * s2 / (4 * sigma^2);
+    tf = predicted <= 0.1 * internal.truncationFloor(truncationSigmas);
+end
+
+
+function Q = localGramQuadraticForm(U, V, blockSize)
+%LOCALGRAMQUADRATICFORM  Q(u_j - v_k) for a non-periodic attribute.
+%
+%   BLOCKSIZE selects the quotient: 0 for absolute (raw coordinates),
+%   the tuple length for relative (the whole tuple's all-ones removed),
+%   or the co-transposition unit size for a nested attribute (each
+%   block's own all-ones removed, the form being the sum over blocks).
+%
+%   Both operands are shifted by one of the attribute's own values
+%   first. The Gram identity cancels two large numbers when the
+%   coordinates sit far from the origin, which costs significant digits
+%   --- measured against the difference form, the log-kernel departed by
+%   4e-3 at magnitude 1e6 and 5e-1 at 1e7. Everything here depends on
+%   the operands only through their differences, so a shift shared by
+%   both is exact; taking it from the data rather than from a mean makes
+%   the subtraction itself exact as well (Sterbenz), where a mean would
+%   inject a rounding error at just those magnitudes.
+%
+%   Twin of Python _tensor.cosine._gram_quadratic_form.
+    r = size(U, 1);
+    if isempty(U) || isempty(V)
+        Q = zeros(size(U, 2), size(V, 2));
+        return;
+    end
+    origin = U(1);
+    U = U - origin;
+    V = V - origin;
+
+    if blockSize <= 0
+        rowSets = {1:r};
+        centreEach = false;
+    elseif blockSize >= r
+        rowSets = {1:r};
+        centreEach = true;
+    else
+        nBlocks = floor(r / blockSize);
+        rowSets = cell(1, nBlocks);
+        for b = 1:nBlocks
+            rowSets{b} = ((b - 1) * blockSize + 1):(b * blockSize);
+        end
+        centreEach = true;
+    end
+
+    Q = zeros(size(U, 2), size(V, 2));
+    for b = 1:numel(rowSets)
+        Ub = U(rowSets{b}, :);
+        Vb = V(rowSets{b}, :);
+        if centreEach
+            Ub = Ub - mean(Ub, 1);
+            Vb = Vb - mean(Vb, 1);
+        end
+        Q = Q + (sum(Ub .^ 2, 1).' + sum(Vb .^ 2, 1) - 2 * (Ub.' * Vb));
+    end
+    Q = max(Q, 0);
 end
 
 

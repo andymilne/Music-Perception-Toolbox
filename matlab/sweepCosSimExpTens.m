@@ -38,15 +38,30 @@ function s = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
 %   floor cannot rise above it at any offset, so dropping it up front
 %   changes nothing.
 %
-%   Modes. An attribute is handled by the split when it is flat,
-%   non-periodic, and isotropic. A periodic attribute that is never
+%   Modes. An attribute is handled by the split when it is flat or
+%   nested, non-periodic, and isotropic. Absolute contributes both a
+%   shape and a placement term; relative contributes the shape term
+%   alone, since the relative quadratic form IS the shape term --- a
+%   uniform translation cancels in every within-tuple difference, which
+%   is the same statement as having no placement term, and is why a
+%   relative attribute cannot be swept. A nested attribute at an inner
+%   or intermediate co-transposition unit is that same case read per
+%   block: its form is the sum over blocks of each block's relative
+%   form, so it contributes one shape term per block, no placement term,
+%   and cannot be swept either. A periodic attribute that is never
 %   translated is supported too: it is not split, but contributes an
 %   offset-independent factor through the same wrapped kernel the
-%   per-offset path applies. Absolute contributes both terms;
-%   relative contributes the shape term alone, since the relative
-%   quadratic form IS the shape term --- a uniform translation cancels in
-%   every within-tuple difference, which is the same statement as having
-%   no placement term, and is why a relative attribute cannot be swept.
+%   per-offset path applies.
+%
+%   Relative-periodic. Such an attribute is never swept (a uniform
+%   translation is a no-op there) but may contribute its fixed factor,
+%   computed through the pairwise wrapped-difference form. That form is
+%   one of two measures which coincide only below a sigma/P limit, so
+%   the limit the inner-product dispatcher already calibrates governs
+%   acceptance here: below it the two agree inside the floor
+%   truncationSigmas implies. Above it, wrap = 'single-image' names the
+%   measure this form computes and is honoured, while the default
+%   full-image reading is refused and left to the per-offset path.
 %
 %   Inputs
 %       densX   - Context density struct from buildExpTens (MA form).
@@ -67,13 +82,14 @@ function s = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
 %       s - 1 x M similarities, indexed as the columns of offsets.
 %
 %   Errors when the sweep cannot be reduced: a swept relative attribute
-%   (a no-op by construction), a swept periodic attribute (the wrapped
-%   kernel admits no such split, and the reduction is untested on the
-%   torus), a relative-and-periodic attribute whether swept or not (the
-%   single-wrap and transposition-average kernels differ there), a
-%   nested attribute (its quadratic form is a block-diagonal quotient),
-%   or an anisotropic kernel covariance. Translate the query with
-%   translateAttributes and compare offset by offset in those cases.
+%   or a swept nested inner/intermediate one (a uniform translation
+%   cancels within every block, so there is nothing to sweep), a swept
+%   periodic attribute (the wrapped kernel admits no such split, and the
+%   reduction is untested on the torus), a relative-and-periodic
+%   attribute above the sigma/P limit whose wrap does not name this
+%   measure, or an anisotropic kernel covariance. Translate the query
+%   with translateAttributes and compare offset by offset in those
+%   cases.
 %
 %   See also COSSIMEXPTENS, TRANSLATEATTRIBUTES, BUILDEXPTENS.
 
@@ -115,7 +131,7 @@ densY = internal.prunedExpTens(densY);
 densX = internal.ensureExpTensExpensive(densX);
 densY = internal.ensureExpTensExpensive(densY);
 
-localCheckEligible(densX, densY, off, A);
+localCheckEligible(densX, densY, off, A, nvArgs.truncationSigmas);
 
 if isempty(nvArgs.truncationSigmas)
     tsResolved = mptDefaults('truncationSigmas');
@@ -162,34 +178,49 @@ end
 %  Helpers
 % =========================================================================
 
-function localCheckEligible(densX, densY, off, A)
+function localCheckEligible(densX, densY, off, A, tsRaw)
 %LOCALCHECKELIGIBLE  Refuse any shape the reduction does not cover.
     swept = any(off ~= 0, 2);
     innerR = zeros(1, A);
-    if isfield(densX, 'nested') && ~isempty(densX.nested)
-        for a = 1:A
-            sp = densX.nested{a};
-            if isstruct(sp) && isfield(sp, 'proj') && ...
-                    ismember(char(sp.proj), {'inner', 'intermediate'})
-                rLevels = sp.r(:);
-                u = double(sp.rel_unit);
-                innerR(a) = prod(rLevels(1:u + 1));
-            end
-        end
+    for a = 1:A
+        innerR(a) = localInnerBlock(densX, a);
     end
     for a = 1:A
         if densX.isRel(a) && densX.isPer(a)
-            % Above sigma/P ~ 0.03 the pairwise and orbit routes compute
-            % genuinely different measures on a relative-periodic
-            % attribute --- the single-wrap and the transposition-average
-            % kernel. The fixed factor here would commit to one silently,
-            % so the choice is left with the per-offset path, where
-            % 'method' selects it explicitly.
-            error('sweepCosSimExpTens:relativePeriodic', ...
-                  ['Attribute %d is both relative and periodic; the ' ...
-                   'single-wrap and transposition-average kernels differ ' ...
-                   'there, and the reduction would fix that choice ' ...
-                   'silently.'], a);
+            % A relative-periodic attribute contributes an
+            % offset-independent factor, computed here through the
+            % pairwise wrapped-difference form. That form is one of two
+            % measures which coincide only below a sigma/P limit, so the
+            % same limit the inner-product dispatcher uses governs
+            % acceptance: below it the two agree inside the floor
+            % truncationSigmas implies, and no choice is being made
+            % silently. Above it an explicit wrap = 'single-image' names
+            % the measure this form computes and is honoured; the default
+            % full-image reading is refused, and the per-offset path
+            % decides it by 'method'.
+            P_a = densX.period(a);
+            if isfinite(P_a) && P_a > 0
+                sop = densX.sigma(a) / P_a;
+                limit = internal.relPerSigmaOverPThreshold(tsRaw);
+                if sop > limit
+                    wrapA = 'full-image';
+                    if isfield(densX, 'wrap') && ~isempty(densX.wrap) ...
+                            && numel(densX.wrap) >= a
+                        wrapA = char(densX.wrap{a});
+                    end
+                    if ~strcmp(wrapA, 'single-image')
+                        error('sweepCosSimExpTens:relativePeriodic', ...
+                              ['Attribute %d is relative and periodic ' ...
+                               'at sigma/P = %.3f, above the limit of ' ...
+                               '%.3f for this truncationSigmas; the ' ...
+                               'single-wrap and transposition-average ' ...
+                               'kernels differ there, so pass wrap = ' ...
+                               '''single-image'' to name the former, or ' ...
+                               'compare offset by offset, where ' ...
+                               '''method'' selects it.'], a, sop, limit);
+                    end
+                end
+            end
         end
         if swept(a) && densX.isPer(a)
             error('sweepCosSimExpTens:periodicAttribute', ...
@@ -199,11 +230,14 @@ function localCheckEligible(densX, densY, off, A)
                    'Translate the query with translateAttributes and ' ...
                    'compare offset by offset instead.'], a);
         end
-        if innerR(a) > 0
-            error('sweepCosSimExpTens:nestedAttribute', ...
-                  ['Attribute %d is nested; its quadratic form is a ' ...
-                   'block-diagonal quotient, not a sum of squared ' ...
-                   'components.'], a);
+        if innerR(a) > 0 && swept(a)
+            error('sweepCosSimExpTens:sweptNested', ...
+                  ['Attribute %d is nested at an inner or intermediate ' ...
+                   'co-transposition unit and swept; each block removes ' ...
+                   'its own all-ones, so a uniform translation cancels ' ...
+                   'within every block and there is nothing to sweep ' ...
+                   '(the attribute is supported when it is not ' ...
+                   'translated).'], a);
         end
         if swept(a) && densX.isRel(a)
             error('sweepCosSimExpTens:sweptRelative', ...
@@ -224,6 +258,84 @@ function localCheckEligible(densX, densY, off, A)
 end
 
 
+function Qa = localRelPerQ(D, r, period)
+%LOCALRELPERQ  Relative-periodic quadratic form from differences D.
+%
+%   Q = sum_{i<j} wrap(d_i - d_j)^2 / r, over all r*(r-1)/2 pairs of the
+%   full r-tuple. Each pairwise delta is wrapped into [-P/2, P/2);
+%   wrapping pairwise rather than component-wise is what preserves exact
+%   transposition invariance on the circle. D is r x nJ x nK and Qa is
+%   returned as 1 x nJ x nK, matching computeQaMA's convention.
+%
+%   Twin of the rel-and-per branch of computeQaMA in cosSimExpTens and
+%   of _compute_Q in the Python dispatch module.
+    sz = size(D);
+    if numel(sz) < 3
+        sz = [sz, 1];
+    end
+    Qa = zeros(1, sz(2), sz(3));
+    for i = 1:r
+        for j = i+1:r
+            delta = D(i, :, :) - D(j, :, :);
+            delta = delta - period .* floor(delta / period + 0.5);
+            Qa = Qa + delta .^ 2;
+        end
+    end
+    Qa = Qa / r;
+end
+
+
+function blockSize = localInnerBlock(dens, a)
+%LOCALINNERBLOCK  Co-transposition unit size for attribute A, else 0.
+%
+%   Non-zero only for a nested attribute resolved to an inner or
+%   intermediate unit, where the quadratic form is block-diagonal: each
+%   block removes its own all-ones. Twin of the per-attribute entry of
+%   the Python dispatch helper _inner_r_vec.
+    blockSize = 0;
+    if ~isfield(dens, 'nested') || isempty(dens.nested) ...
+            || numel(dens.nested) < a
+        return;
+    end
+    sp = dens.nested{a};
+    if isstruct(sp) && isfield(sp, 'proj') && isfield(sp, 'relUnit') ...
+            && ismember(char(sp.proj), {'inner', 'intermediate'})
+        % relUnit is a 1-BASED level index on the MATLAB side, so the
+        % block size is prod(r(1:u)) --- matching cosSimExpTens,
+        % evalExpTens, and internal.nestedContract. The Python twin
+        % stores the same quantity 0-based and writes prod(r[:u + 1]);
+        % the two agree on the block size, not on the index.
+        rLevels = sp.r(:);
+        u = double(sp.relUnit);
+        blockSize = prod(rLevels(1:u));
+    end
+end
+
+
+function blocks = localShapeBlocks(U, blockSize)
+%LOCALSHAPEBLOCKS  Within-block centred residuals of an r x n array.
+%
+%   BLOCKSIZE is the row count of one co-transposition unit: 0 (or the
+%   whole tuple) for a flat attribute, or the nested inner unit's size.
+%   The quadratic form removes each block's own all-ones, so the shape
+%   term is the sum over blocks of the squared distance between
+%   block-centred residuals --- one Gram matrix per block. Twin of the
+%   Python _tensor.sweep._shape_blocks.
+    r = size(U, 1);
+    if blockSize <= 0 || blockSize >= r
+        blocks = {U - mean(U, 1)};
+        return;
+    end
+    nBlocks = floor(r / blockSize);
+    blocks = cell(1, nBlocks);
+    for b = 1:nBlocks
+        rows = ((b - 1) * blockSize + 1):(b * blockSize);
+        Ub = U(rows, :);
+        blocks{b} = Ub - mean(Ub, 1);
+    end
+end
+
+
 function [centres, logW, amp, threshold, sweptIdx] = ...
         localBuildMixture(densX, densY, off, A, tsResolved)
 %LOCALBUILDMIXTURE  One pass over tuple pairs, producing the mixture.
@@ -238,9 +350,22 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
     nK = double(densY.nK);
     swept = any(off ~= 0, 2);
 
+    % Block size of one co-transposition unit per attribute: 0 for a
+    % flat attribute, or the nested inner/intermediate unit's size.
+    blockOf = zeros(1, A);
+    for a = 1:A
+        blockOf(a) = localInnerBlock(densX, a);
+    end
+    % An attribute carries a placement term only where its quadratic
+    % form keeps the tuple's own mean: absolute, and not block-quotiented.
+    hasPlacement = false(1, A);
+    for a = 1:A
+        hasPlacement(a) = ~densX.isRel(a) && ~densX.isPer(a) ...
+                          && blockOf(a) == 0;
+    end
     sweptIdx = [];
     for a = 1:A
-        if swept(a) && ~densX.isRel(a) && ~densX.isPer(a)
+        if swept(a) && hasPlacement(a)
             sweptIdx(end + 1) = a; %#ok<AGROW>
         end
     end
@@ -262,12 +387,27 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
         if densX.isPer(a)
             continue;      % handled by the wrapped kernel, not the split
         end
+        % Everything below depends on the two operands only through
+        % their differences, so a shift shared by both is exact --- and
+        % it keeps the shape term well conditioned, that term being a
+        % Gram form whose cancellation costs significant digits when the
+        % coordinates sit far from the origin. The shift is one of the
+        % attribute's own values rather than their mean, because a data
+        % value is exactly representable and subtracting it from a
+        % nearby value is itself exact (Sterbenz).
         U = densX.U_perm{a};
         V = densY.V_comb{a};
-        meanU{a} = mean(U, 1);
-        meanV{a} = mean(V, 1);
-        cenU{a}  = U - meanU{a};
-        cenV{a}  = V - meanV{a};
+        if ~isempty(U)
+            origin = U(1);
+            U = U - origin;
+            V = V - origin;
+        end
+        cenU{a} = localShapeBlocks(U, blockOf(a));
+        cenV{a} = localShapeBlocks(V, blockOf(a));
+        if hasPlacement(a)
+            meanU{a} = mean(U, 1);
+            meanV{a} = mean(V, 1);
+        end
     end
 
     wJ = densX.wJ(:);
@@ -295,14 +435,29 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
             if densX.isPer(a)
                 % Not splittable, and (by the eligibility check) never
                 % swept: an offset-independent factor, computed by the
-                % same wrapped kernel the per-offset path applies. The
-                % abs-per full-image r-tuple kernel factors across
-                % coordinates as prod_k theta(d_k), so the log-kernel is
-                % sum_k log theta(d_k); the single-image opt-in takes the
-                % nearest-image reduction instead.
+                % same kernel the per-offset path applies. Which kernel
+                % that is depends on the mode. Relative-and-periodic
+                % takes the pairwise-wrap form below. Absolute-periodic
+                % factors across coordinates as prod_k theta(d_k), so
+                % its full-image log-kernel is sum_k log theta(d_k),
+                % while the single-image opt-in takes the nearest-image
+                % reduction.
                 D = reshape(densX.U_perm{a}, size(densX.U_perm{a}, 1), nJ, 1) ...
                   - reshape(densY.V_comb{a}(:, idx), ...
                             size(densY.V_comb{a}, 1), 1, nKc);
+                if densX.isRel(a)
+                    % Relative and periodic: the pairwise-wrap form,
+                    % Q = sum_{i<j} wrap(d_i - d_j)^2 / r. Wrapping each
+                    % pairwise delta rather than each component is what
+                    % preserves exact transposition invariance on the
+                    % circle, so this cannot be read as a component-wise
+                    % wrap of the absolute form. Twin of computeQaMA's
+                    % rel-and-per branch in cosSimExpTens.
+                    Qa = localRelPerQ(D, size(D, 1), densX.period(a));
+                    logFixed = logFixed ...
+                        - reshape(Qa, nJ, nKc) / (4 * densX.sigma(a)^2);
+                    continue;
+                end
                 wrapA = 'full-image';
                 if isfield(densX, 'wrap') && ~isempty(densX.wrap) ...
                         && numel(densX.wrap) >= a
@@ -322,15 +477,21 @@ function [centres, logW, amp, threshold, sweptIdx] = ...
                 continue;
             end
             inv = 1 / (4 * densX.sigma(a)^2);
-            % Shape term: ||cu_j - cv_k||^2 as a Gram matrix.
-            U = cenU{a};
-            V = cenV{a}(:, idx);
-            spread = sum(U .^ 2, 1).' + sum(V .^ 2, 1) - 2 * (U.' * V);
+            % Shape term: one Gram matrix per co-transposition block.
+            spread = zeros(nJ, nKc);
+            for b = 1:numel(cenU{a})
+                Ub = cenU{a}{b};
+                Vb = cenV{a}{b}(:, idx);
+                spread = spread + (sum(Ub .^ 2, 1).' + sum(Vb .^ 2, 1) ...
+                                   - 2 * (Ub.' * Vb));
+            end
             spread = max(spread, 0);
             logFixed = logFixed - spread * inv;
 
-            if densX.isRel(a)
-                % No placement term: the relative form is the shape term.
+            if ~hasPlacement(a)
+                % No placement term: for a relative attribute the form
+                % *is* the shape term, and for a block-quotiented nested
+                % one each block removes its own all-ones.
                 continue;
             end
             % Explicit orientation: the outer difference of the two

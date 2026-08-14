@@ -188,6 +188,160 @@ results{end+1,1} = 'sweep: unswept periodic attribute matches';
 results{end,2} = max(abs(gotP - refP) ./ max(abs(refP), 1e-12)) <= tol;
 
 
+% --- Nested attributes --------------------------------------------------
+%
+%  A nested attribute at an inner or intermediate co-transposition unit
+%  has a block-diagonal quadratic form: each block removes its own
+%  all-ones. That is the relative case read per block, so it contributes
+%  one shape term per block and no placement term, and like a relative
+%  attribute it cannot be swept.
+
+nestSpec = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false], ...
+                  'rel', 'innermost');
+absSpec  = struct('tags', [0 0 1 1], 'r', [2 2], 'sym', [true false]);
+
+rng(750);
+pXnest = sort(randn(4, 6) * 4, 1);
+pYnest = sort(randn(4, 3) * 4, 1);
+pXabs2 = randn(2, 6) * 3;
+pYabs2 = randn(2, 3) * 3;
+svN = [1.0 0.9]; rvN = [1 2]; zN = [false false]; pdN = [0 0];
+symN = [true true];
+offN = [zeros(1, numel(baseOff)); baseOff];
+dXnest = buildExpTens({pXnest, pXabs2}, [], svN, rvN, zN, zN, pdN, symN, ...
+                      'nested', {nestSpec, []}, 'verbose', false);
+dYnest = buildExpTens({pYnest, pYabs2}, [], svN, rvN, zN, zN, pdN, symN, ...
+                      'nested', {nestSpec, []}, 'verbose', false);
+gotN = sweepCosSimExpTens(dXnest, dYnest, offN, ...
+                          'truncationSigmas', Inf, 'verbose', false);
+refN = zeros(1, size(offN, 2));
+for m = 1:size(offN, 2)
+    dYm = buildExpTens({pYnest, pYabs2 + offN(2, m)}, [], svN, rvN, ...
+                       zN, zN, pdN, symN, 'nested', {nestSpec, []}, ...
+                       'verbose', false);
+    refN(m) = cosSimExpTens(dXnest, dYm, 'method', 'bulger', ...
+                            'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'sweep: unswept nested inner unit matches per-offset';
+results{end,2} = max(abs(gotN - refN)) <= tol;
+
+% An absolute nested attribute is an absolute attribute, so it sweeps.
+rng(760);
+pXa = sort(randn(4, 6) * 4, 1);
+pYa = sort(randn(4, 3) * 4, 1);
+dXa = buildExpTens({pXa}, [], 1.0, 1, false, false, 0, true, ...
+                   'nested', {absSpec}, 'verbose', false);
+dYa = buildExpTens({pYa}, [], 1.0, 1, false, false, 0, true, ...
+                   'nested', {absSpec}, 'verbose', false);
+gotA = sweepCosSimExpTens(dXa, dYa, baseOff, ...
+                          'truncationSigmas', Inf, 'verbose', false);
+refA = zeros(1, numel(baseOff));
+for m = 1:numel(baseOff)
+    dYm = buildExpTens({pYa + baseOff(m)}, [], 1.0, 1, false, false, 0, ...
+                       true, 'nested', {absSpec}, 'verbose', false);
+    refA(m) = cosSimExpTens(dXa, dYm, 'method', 'bulger', ...
+                            'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'sweep: absolute nested attribute sweeps';
+results{end,2} = max(abs(gotA - refA)) <= tol;
+
+ok = false;
+try
+    sweepCosSimExpTens(dXnest, dYnest, ...
+        [baseOff; zeros(1, numel(baseOff))], 'verbose', false);
+catch ME
+    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:sweptNested');
+end
+results{end+1,1} = 'sweep: swept nested inner unit is refused';
+results{end,2} = ok;
+
+
+% --- Relative-periodic, gated on sigma/P --------------------------------
+%
+%  Below the limit the wrapped-difference and transposition-average
+%  measures agree inside the accuracy floor, so the attribute is
+%  accepted; above it the default full-image reading is refused, and an
+%  explicit single-image wrap names the measure this form computes.
+
+rng(770);
+pXrp = {randn(3, 8) * 20, mod(randn(3, 8) * 5, 12)};
+pYrp = {randn(3, 3) * 20, mod(randn(3, 3) * 5, 12)};
+rvRP = [3 3]; relRP = [false true]; perRP = [false true]; pdRP = [NaN 12];
+symRP = [true true];
+offRP = [baseOff; zeros(1, numel(baseOff))];
+
+% The pitch attribute's sigma is set wide enough that the profile is
+% not identically zero: at sigma = 0.9 against a spread of 20 the two
+% densities barely overlap and every offset returns 0, which no
+% comparison can discriminate. At sigma = 5 the peak similarity is
+% 4.8e-04 below the limit and 1.2e-01 above it.
+svLow = [5 0.02 * 12];          % sigma/P = 0.02, inside the limit
+dXlow = buildExpTens(pXrp, [], svLow, rvRP, relRP, perRP, pdRP, symRP, ...
+                     'verbose', false);
+dYlow = buildExpTens(pYrp, [], svLow, rvRP, relRP, perRP, pdRP, symRP, ...
+                     'verbose', false);
+gotRP = sweepCosSimExpTens(dXlow, dYlow, offRP, ...
+                           'truncationSigmas', Inf, 'verbose', false);
+refRP = zeros(1, size(offRP, 2));
+for m = 1:size(offRP, 2)
+    dYm = buildExpTens({pYrp{1} + offRP(1, m), pYrp{2}}, [], svLow, rvRP, ...
+                       relRP, perRP, pdRP, symRP, 'verbose', false);
+    refRP(m) = cosSimExpTens(dXlow, dYm, 'method', 'bulger', ...
+                             'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'sweep: rel-per below the sigma/P limit is accepted';
+results{end,2} = max(abs(gotRP - refRP)) <= tol;
+if ~results{end,2}
+    fprintf('  [diagnostic] rel-per below limit: max abs deviation %.3e\n', ...
+            max(abs(gotRP - refRP)));
+end
+
+svHigh = [5 0.10 * 12];         % sigma/P = 0.10, above the limit
+dXhigh = buildExpTens(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+                      'verbose', false);
+dYhigh = buildExpTens(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+                      'verbose', false);
+ok = false;
+try
+    sweepCosSimExpTens(dXhigh, dYhigh, offRP, ...
+                       'truncationSigmas', Inf, 'verbose', false);
+catch ME
+    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:relativePeriodic');
+end
+results{end+1,1} = 'sweep: rel-per above the sigma/P limit is refused';
+results{end,2} = ok;
+
+dXsi = buildExpTens(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+                    'wrap', {'full-image', 'single-image'}, 'verbose', false);
+dYsi = buildExpTens(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
+                    'wrap', {'full-image', 'single-image'}, 'verbose', false);
+ok = true;
+try
+    gotSI = sweepCosSimExpTens(dXsi, dYsi, offRP, ...
+                               'truncationSigmas', Inf, 'verbose', false);
+    refSI = zeros(1, size(offRP, 2));
+    for m = 1:size(offRP, 2)
+        dYm = buildExpTens({pYrp{1} + offRP(1, m), pYrp{2}}, [], svHigh, ...
+                           rvRP, relRP, perRP, pdRP, symRP, ...
+                           'wrap', {'full-image', 'single-image'}, ...
+                           'verbose', false);
+        refSI(m) = cosSimExpTens(dXsi, dYm, 'method', 'bulger', ...
+                                 'truncationSigmas', Inf, 'verbose', false);
+    end
+    ok = max(abs(gotSI - refSI)) <= tol;
+    if ~ok
+        fprintf(['  [diagnostic] single-image wrap: max abs deviation ' ...
+                 '%.3e\n'], max(abs(gotSI - refSI)));
+    end
+catch ME
+    ok = false;
+    fprintf('  [diagnostic] single-image wrap threw %s: %s\n', ...
+            ME.identifier, ME.message);
+end
+results{end+1,1} = 'sweep: single-image wrap names the measure and is honoured';
+results{end,2} = ok;
+
+
 % --- Refusals -----------------------------------------------------------
 
 dRel = buildExpTens({randn(3, 4)}, [], 0.9, 3, true, false, NaN, true, ...

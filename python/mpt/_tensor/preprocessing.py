@@ -1454,6 +1454,42 @@ def _evaluate_shape(delta, width, gamma):
     return num / peak
 
 
+
+class TranslatedSweep(list):
+    """A translation sweep, carrying the offsets that produced it.
+
+    A plain ``list`` of length-*A* value-lists --- exactly what
+    :func:`translate_attributes` has always returned in sweep mode ---
+    with the generating offsets attached. Every existing consumer sees a
+    list and is unaffected; :func:`~mpt.cos_sim_exp_tens` reads the
+    attached offsets and, where they describe a uniform per-attribute
+    translation, evaluates the sweep as a mixture in the offset rather
+    than one inner product per entry.
+
+    The offsets are carried rather than recovered. Recovering them from
+    the translated values would mean comparing floating-point
+    differences against a tolerance, and no tolerance both admits every
+    honestly translated sweep and preserves the toolbox's parity floor;
+    reading them from the call that produced them has neither problem.
+
+    Attributes
+    ----------
+    sweep_offsets : ndarray
+        ``(A, M)`` array of per-attribute uniform translations, with
+        ``NaN`` in any (attribute, sweep index) cell whose offset was
+        not uniform across the attribute's values.
+    sweep_base : list of ndarray
+        The length-*A* untranslated value matrices.
+    """
+
+    __slots__ = ("sweep_offsets", "sweep_base")
+
+    def __init__(self, entries, *, sweep_offsets, sweep_base):
+        super().__init__(entries)
+        self.sweep_offsets = sweep_offsets
+        self.sweep_base = sweep_base
+
+
 def _normalise_weights_to_list(w, A):
     """Coerce ``w`` to a length-A list, preserving entries."""
     if w is None:
@@ -1662,7 +1698,26 @@ def translate_attributes(p_attr, w, offsets, *, specs=None):
         cols_out.append(col_list)
 
     if matrix_mode:
-        return cols_out, w, specs_out       # length-M list of length-A lists
+        # Carry the offsets with the sweep. A cell is uniform when every
+        # value of that attribute moved by the same finite amount (a NaN
+        # entry leaves its value in place, so it breaks uniformity unless
+        # the whole column is NaN, which is no translation at all).
+        uni = np.full((A, M_sweep), np.nan)
+        for a in range(A):
+            for m in range(M_sweep):
+                cm = blocks[a][:, m]
+                finite = np.isfinite(cm)
+                if not finite.any():
+                    uni[a, m] = 0.0
+                elif finite.all() and np.all(cm == cm.flat[0]):
+                    uni[a, m] = float(cm.flat[0])
+        return (
+            TranslatedSweep(
+                cols_out, sweep_offsets=uni,
+                sweep_base=[M.copy() for M in p_arr],
+            ),
+            w, specs_out,
+        )
     return cols_out[0], w, specs_out         # single length-A list
 
 

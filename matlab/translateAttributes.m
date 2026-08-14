@@ -1,4 +1,4 @@
-function [pOut, w, specs] = translateAttributes(pAttr, w, offsets, nvArgs)
+function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs)
 %TRANSLATEATTRIBUTES Translate attributes' values by per-value offsets.
 %
 %   [pOut, w, specs] = translateAttributes(pAttr, w, offsets, ...)
@@ -61,8 +61,27 @@ function [pOut, w, specs] = translateAttributes(pAttr, w, offsets, nvArgs)
 %               Sweep (M > 1): 1 x M cell of such cells.
 %       w     - Same as input.
 %       specs - The attribute specifications, unchanged (or synthesised).
+%       sweep - Struct describing the sweep, for callers that go on to
+%               sweepCosSimExpTens: .offsets is an A x M matrix of the
+%               per-attribute uniform translations, with NaN in any
+%               (attribute, sweep index) cell whose offset was not
+%               uniform across that attribute's values, and .base is the
+%               1 x A cell of untranslated value matrices. Empty for a
+%               single translation (M = 1). The offsets are carried
+%               rather than recovered: recovering them from the
+%               translated values would mean comparing floating-point
+%               differences against a tolerance, and no tolerance both
+%               admits every honestly translated sweep and preserves the
+%               toolbox parity floor.
 %
-%   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDEXPTENS.
+%   Cross-language note. The Python translateAttributes attaches this
+%   information to its returned sweep list, so cosSimExpTens picks it up
+%   with no change at the call site. MATLAB cell arrays cannot carry
+%   attached data, so here it is a fourth output the caller passes on
+%   explicitly.
+%
+%   See also DIFFERENCEEVENTS, BINDEVENTS, FLATSPECS, BUILDEXPTENS,
+%   SWEEPCOSSIMEXPTENS.
 
 arguments
     pAttr
@@ -164,8 +183,26 @@ end
 
 if matrixMode
     pOut = colsOut;                       % 1 x M cell of 1 x A cells
+    % Carry the offsets with the sweep. A cell is uniform when every
+    % value of that attribute moved by the same finite amount (a NaN
+    % entry leaves its value in place, so it breaks uniformity unless
+    % the whole column is NaN, which is no translation at all).
+    uni = NaN(A, Msweep);
+    for a = 1:A
+        for m = 1:Msweep
+            cm = blocks{a}(:, m);
+            fin = isfinite(cm);
+            if ~any(fin)
+                uni(a, m) = 0;
+            elseif all(fin) && all(cm == cm(1))
+                uni(a, m) = cm(1);
+            end
+        end
+    end
+    sweep = struct('offsets', uni, 'base', {pArr});
 else
     pOut = colsOut{1};                    % 1 x A cell
+    sweep = struct([]);
 end
 
 end

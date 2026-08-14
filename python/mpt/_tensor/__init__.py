@@ -14,6 +14,7 @@ Module layout:
   dispatch.py       Path-selection cost model + shared helpers.
   eval.py           eval_exp_tens (SA centres / orbit / fast, MA).
   cosine.py         cos_sim_exp_tens + batch_cos_sim_exp_tens.
+  sweep.py          Translation sweeps as a mixture in the offset.
 
 See ARCHITECTURE.md §3 ("Code layering") for the layered design.
 """
@@ -32,8 +33,14 @@ from .build import (
     _looks_like_multi_attr,
 )
 
+from .sweep import (
+    sweep_cos_sim_exp_tens,
+    sweep_eligibility,
+)
+
 from .preprocessing import (
     TranslateAttributesNoOpWarning,
+    TranslatedSweep,
     bind_events,
     difference_events,
     simplex_vertices,

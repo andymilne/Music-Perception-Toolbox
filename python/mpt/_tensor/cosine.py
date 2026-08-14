@@ -1262,6 +1262,24 @@ def _cos_sim_raw_ma_broadcast(
         is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=verbose,
     )
 
+    # A tagged sweep from translate_attributes carries the offsets that
+    # produced it, so the whole list can be evaluated as one mixture in
+    # the offset instead of one inner product per entry. The reduction
+    # declines on any shape it does not cover, and the per-entry loop
+    # below then runs unchanged.
+    fast = _try_sweep_reduction(
+        list_pAttr, list_w, dens_scalar,
+        sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+        scalar_first=scalar_first,
+        normalize=normalize,
+        method=method,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=verbose,
+    )
+    if fast is not None:
+        return fast
+
     M = len(list_pAttr)
     out = np.empty(M, dtype=np.float64)
     for m in range(M):
@@ -1290,6 +1308,62 @@ def _cos_sim_raw_ma_broadcast(
                 verbose=False,
             )
     return out
+
+
+
+def _try_sweep_reduction(
+    list_pAttr, list_w, dens_scalar,
+    sigma_vec, r_vec, is_rel_vec, is_per_vec, period_vec, is_sym_vec,
+    *, scalar_first, normalize, method,
+    truncation_sigmas, kernel_precision, verbose,
+):
+    """Evaluate a tagged translation sweep as a mixture in the offset.
+
+    Returns the length-M result array, or ``None`` when the reduction
+    does not apply --- an untagged list, a non-uniform or unrecoverable
+    offset, a mode the reduction refuses, or an explicitly forced
+    ``method``. Returning ``None`` leaves the caller's per-entry loop to
+    run, so every input still reaches a correct answer by some route.
+    """
+    from .preprocessing import TranslatedSweep
+    from .sweep import sweep_cos_sim_exp_tens, sweep_eligibility
+
+    if not isinstance(list_pAttr, TranslatedSweep):
+        return None
+    # A forced method names a route through the per-pair core; honour it
+    # rather than substituting a different computation.
+    if method not in ("auto",):
+        return None
+    off = np.asarray(list_pAttr.sweep_offsets, dtype=np.float64)
+    if off.size == 0 or not np.all(np.isfinite(off)):
+        return None
+
+    dens_base = build_exp_tens(
+        list_pAttr.sweep_base, list_w, sigma_vec, r_vec,
+        is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=False,
+    )
+    # The sweep translates the query; when the tagged list is the first
+    # operand the roles reverse, and translating X by mu is translating
+    # Y by -mu with the operands exchanged (the inner product is
+    # symmetric, and 'oneSidedDenom' divides by the second operand,
+    # which is the tagged one either way).
+    if scalar_first:
+        dens_x, dens_y, off_use = dens_scalar, dens_base, off
+    else:
+        if normalize != "cosine":
+            return None
+        dens_x, dens_y, off_use = dens_base, dens_scalar, -off
+
+    ok, _ = sweep_eligibility(dens_x, dens_y, off_use)
+    if not ok:
+        return None
+    return sweep_cos_sim_exp_tens(
+        dens_x, dens_y, off_use,
+        normalize=normalize,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
+        verbose=verbose,
+    )
 
 
 

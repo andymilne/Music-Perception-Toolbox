@@ -19,8 +19,10 @@ from ._tensor.density import (
 from ._tensor.build import build_exp_tens
 from ._tensor.eval import eval_exp_tens, eval_exp_tens_raw
 from ._tensor.cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
+from ._tensor.sweep import sweep_cos_sim_exp_tens, sweep_eligibility
 from ._tensor.preprocessing import (
     TranslateAttributesNoOpWarning,
+    TranslatedSweep,
     bind_events,
     difference_events,
     flat_specs,

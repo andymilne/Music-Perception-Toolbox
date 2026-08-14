@@ -222,6 +222,26 @@ class MaetDensity:
         # Per-level names for a nested attribute live inside nested[a].
         self.names = ([None] * n_attrs if names is None else list(names))
 
+        # Derived-value caches (same discipline as the lazy per-tuple
+        # fields below: the density's inputs never change after
+        # construction, so any value derived from them may be stored on
+        # first computation and reused).
+        #
+        # ``_self_ip_cache`` memoises the density's self inner product
+        # <T, T>, keyed by (route, settings) --- see
+        # ``cosine._self_ip_cache_key``. The Bulger and Möbius routes
+        # produce self inner products on different scales (the Möbius
+        # per-attribute convention carries a constant prefactor that
+        # cancels only within a single route's triple), so the route is
+        # part of the key and values never cross routes.
+        #
+        # ``_pruned_cached`` memoises :meth:`pruned`, so that repeated
+        # similarity calls against the same density (the broadcast /
+        # sweep case) resolve to the *same* pruned object and its
+        # self-IP cache persists across the sweep.
+        self._self_ip_cache: dict = {}
+        self._pruned_cached = None
+
         # Lazy fields
         self._build_lazy_fn = _build_lazy
         self._n_j = None
@@ -272,7 +292,21 @@ class MaetDensity:
         when nothing is dead. The subset is rebuilt through the same
         lazy machinery ``build_exp_tens`` uses, so the per-tuple fields
         stay correct for any consumer that later materialises them.
+
+        The result is memoised: the density's inputs never change, so
+        the pruned subset is the same on every call, and returning one
+        shared object lets caches attached to it (the self-IP cache in
+        particular) persist across repeated similarity calls against
+        this density.
         """
+        if self._pruned_cached is not None:
+            return self._pruned_cached
+        out = self._pruned_compute()
+        self._pruned_cached = out
+        return out
+
+    def _pruned_compute(self) -> "MaetDensity":
+        """Uncached body of :meth:`pruned`."""
         if is_single_multiset(self):
             v = single_multiset_view(self)
             if bool(v.live_events.any()):

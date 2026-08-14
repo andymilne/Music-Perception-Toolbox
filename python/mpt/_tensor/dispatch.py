@@ -142,7 +142,20 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
     the caller raises before rerouting. The three conditions are
     mathematically impossible rather than merely inaccurate, so the
     message says a defect occurred, not that accuracy was lost.
+
+    ``ip_xx`` may be ``None`` when the first operand's self inner
+    product was not computed (``normalize='oneSidedDenom'`` does not
+    consume it); the checks that need it are then skipped and the
+    remaining values are still validated.
     """
+    if ip_xx is None:
+        if not (np.isfinite(ip_xy) and np.isfinite(ip_yy)):
+            return (f"an inner product is not finite "
+                    f"(<X,Y> = {ip_xy!r}, <Y,Y> = {ip_yy!r})")
+        if ip_yy < 0:
+            return (f"<Y,Y> = {ip_yy:.3e} is negative, and a self inner "
+                    f"product cannot be")
+        return None
     if not (np.isfinite(ip_xy) and np.isfinite(ip_xx) and np.isfinite(ip_yy)):
         return (f"an inner product is not finite "
                 f"(<X,Y> = {ip_xy!r}, <X,X> = {ip_xx!r}, "
@@ -294,7 +307,8 @@ def _rel_route_cost_ms(route, r_a, term):
     return float(np.exp(a) * max(float(term), 1.0) ** b)
 
 
-def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None):
+def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None,
+                                  skip_xx=False, skip_yy=False):
     """Predicted tuple-pair kernel entries for the MA path under Bulger's
     method, summed over the three matrices the inner product needs.
 
@@ -316,6 +330,13 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None):
     ``k_vec`` and ``k_vec_y`` are the two densities' per-attribute value
     counts; omitting the second means they agree, which is the
     aggregate-only legacy calling convention.
+
+    ``skip_xx`` / ``skip_yy`` exclude the corresponding self matrix from
+    the count: a self inner product that is already memoised on the
+    density, or that the requested normalisation does not consume, costs
+    nothing at call time and must not be priced (mispricing it steers
+    near-crossover routing away from Bulger's method on exactly the
+    repeated-context sweeps where Bulger's marginal cost is lowest).
     """
     if A == 0:
         return float(N_x * N_y)
@@ -338,13 +359,18 @@ def _predict_pairwise_kernel_size(r_vec, k_vec, A, N_x, N_y, k_vec_y=None):
         comb_x *= c_x
         perm_y *= f_a * c_y
         comb_y *= c_y
-    return perm_x * comb_y + perm_x * comb_x + perm_y * comb_y
+    size = perm_x * comb_y
+    if not skip_xx:
+        size += perm_x * comb_x
+    if not skip_yy:
+        size += perm_y * comb_y
+    return size
 
 
 
 def _predict_orbit_cost_ms(
     r_vec, k_vec, A, N_x, N_y, rel_vec, nu_vec, centres_ok=True,
-    k_vec_y=None,
+    k_vec_y=None, skip_xx=False, skip_yy=False,
 ):
     """Predicted Möbius-method MA wall time in milliseconds.
 
@@ -378,6 +404,18 @@ def _predict_orbit_cost_ms(
     """
     # No flat relative base: each route's law carries its own intercept,
     # so adding one would double-count the setup it already prices.
+    #
+    # ``skip_xx`` / ``skip_yy`` exclude the corresponding self matrix
+    # from the pricing (memoised on the density, or not consumed by the
+    # requested normalisation), mirroring
+    # :func:`_predict_pairwise_kernel_size`. The relative-attribute
+    # terms drop the skipped self work exactly; the per-order absolute
+    # constants were fitted on the full three-matrix computation, so
+    # they are scaled by the fraction of matrices still to be computed
+    # --- an approximation, and one that under-discounts (setup is not
+    # per-matrix), which biases near-crossover routing toward Bulger's
+    # method, the cheap-to-mispick side.
+    n_matrices = 1 + (0 if skip_xx else 1) + (0 if skip_yy else 1)
     total = 0.0
     pairs = float(N_x) * float(N_y)
     if k_vec_y is None:
@@ -394,19 +432,24 @@ def _predict_orbit_cost_ms(
             # Both terms read each density's own value count and carry the
             # event-pair count, since both routes price per pair.
             per_pair = _rel_route_cost_ms(
-                "grid", r_a, pairs * float(nu_vec[a]) * max(K_a, K_y_a))
+                "grid", r_a,
+                pairs * float(nu_vec[a]) * max(K_a, K_y_a)
+                * (n_matrices / 3.0))
             if centres_ok and K_a >= r_a and K_y_a >= r_a:
                 m_x = float(factorial(r_a) * _math_comb(K_a, r_a))
                 m_y = float(factorial(r_a) * _math_comb(K_y_a, r_a))
+                centres_size = pairs * m_x * m_y
+                if not skip_xx:
+                    centres_size += pairs * m_x * m_x
+                if not skip_yy:
+                    centres_size += pairs * m_y * m_y
                 per_pair = min(
                     per_pair,
-                    _rel_route_cost_ms(
-                        "centres", r_a,
-                        pairs * (m_x * m_y + m_x * m_x + m_y * m_y)),
+                    _rel_route_cost_ms("centres", r_a, centres_size),
                 )
             total += per_pair
         elif r_a >= 2:
-            total += float(_ORBIT_ABS_PER_ATTR_MS[r_a])
+            total += float(_ORBIT_ABS_PER_ATTR_MS[r_a]) * (n_matrices / 3.0)
     return float(total)
 
 
@@ -423,6 +466,8 @@ def _select_ma_inner_product_method(
     k_vec_y=None,
     truncation_sigmas=None,
     return_costs=False,
+    pw_skip_xx=False, pw_skip_yy=False,
+    orbit_skip_xx=False, orbit_skip_yy=False,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
@@ -582,8 +627,15 @@ def _select_ma_inner_product_method(
             if wants_full:
                 return ('mobius', float('nan'), float('nan')) \
                     if return_costs else 'mobius'
+    # A self inner product that is memoised on its density, or that the
+    # requested normalisation does not consume, costs nothing at call
+    # time; the per-route skip flags exclude it from that route's price.
+    # The flags are per-route because the two routes' memoised values
+    # live under different cache keys (their self-IP scales differ by a
+    # constant prefactor that cancels only within one route's triple).
     pw_size = _predict_pairwise_kernel_size(
-        r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y)
+        r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y,
+        skip_xx=pw_skip_xx, skip_yy=pw_skip_yy)
     # Priced by the same fitted law. The per-entry form this replaces
     # assumed a fixed cost per kernel entry; measurement contradicts that,
     # the per-entry cost falling as the arrays grow, which is what the
@@ -610,6 +662,7 @@ def _select_ma_inner_product_method(
         centres_ok=(sigma_over_P_max
                     <= _orbit_sigma_over_p_threshold(truncation_sigmas)),
         k_vec_y=k_vec_y,
+        skip_xx=orbit_skip_xx, skip_yy=orbit_skip_yy,
     )
     chosen = 'bulger' if pw_cost_ms <= orbit_cost_ms else 'mobius'
     if return_costs:

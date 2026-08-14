@@ -122,8 +122,18 @@ def _finalise_normalisation(
     to ``'cosine'`` the denominator is :math:`\\sqrt{ip_{xx} \\cdot ip_{yy}}`;
     with ``'oneSidedDenom'`` the denominator is :math:`ip_{yy}` alone.
     Either denominator equal to zero returns ``NaN``.
+
+    ``ip_xx`` may be ``None`` under ``'oneSidedDenom'``, whose
+    denominator does not consume it (the triple routines skip its
+    computation in that case); passing ``None`` under ``'cosine'`` is a
+    caller defect and raises.
     """
     if normalize == "cosine":
+        if ip_xx is None:
+            raise ValueError(
+                "normalize='cosine' requires <X,X>, but it was not "
+                "computed. This is an internal routing defect."
+            )
         denom = float(np.sqrt(max(ip_xx * ip_yy, 0.0)))
     elif normalize == "oneSidedDenom":
         denom = float(ip_yy)
@@ -1248,6 +1258,30 @@ def _cos_sim_exp_tens_ma(
     # deterministic. Non-periodic and abs-per attributes are unaffected
     # (their wrap axis has no meaning here).
     wrap_vec_x = list(getattr(dens_x, 'wrap', ['full-image'] * A))
+
+    # A self inner product costs nothing at call time when it is
+    # memoised on its density, or (for <X,X>) when the requested
+    # normalisation does not consume it; tell the selector so its
+    # pricing reflects the work this call will actually perform. The
+    # flags are per route because the two routes' memoised values live
+    # under different keys. The Möbius key includes per-attribute
+    # closed-form-vs-grid choices that are not known before routing, so
+    # any existing Möbius-route entry is treated as a hit — an
+    # approximation that can only misfire when a new partner flips a
+    # per-attribute choice, and then only by under-pricing the Möbius
+    # side of a near-crossover call.
+    need_xx = (normalize == "cosine")
+    _b_key = _self_ip_cache_key("bulger", truncation_sigmas,
+                                kernel_precision)
+    _has_mobius = lambda d: any(
+        isinstance(k, tuple) and len(k) > 0 and k[0] == "mobius"
+        for k in d._self_ip_cache
+    )
+    pw_skip_xx = (not need_xx) or (_b_key in dens_x._self_ip_cache)
+    pw_skip_yy = _b_key in dens_y._self_ip_cache
+    orbit_skip_xx = (not need_xx) or _has_mobius(dens_x)
+    orbit_skip_yy = _has_mobius(dens_y)
+
     chosen = _select_ma_inner_product_method(
         r_vec=r_vec, k_vec=k_vec, k_vec_y=k_vec_y, A=A,
         N_x=int(dens_x.n), N_y=int(dens_y.n),
@@ -1260,6 +1294,8 @@ def _cos_sim_exp_tens_ma(
         guard_forced_bulger=not nested_any,
         wrap_vec=wrap_vec_x,
         truncation_sigmas=truncation_sigmas,
+        pw_skip_xx=pw_skip_xx, pw_skip_yy=pw_skip_yy,
+        orbit_skip_xx=orbit_skip_xx, orbit_skip_yy=orbit_skip_yy,
     )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
@@ -1314,6 +1350,7 @@ def _cos_sim_exp_tens_ma(
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y, truncation_sigmas=truncation_sigmas,
+            need_xx=need_xx,
         )
         # Post-hoc correctness check only. Accuracy is governed by
         # truncationSigmas: the Möbius route's agreement with
@@ -1340,16 +1377,26 @@ def _cos_sim_exp_tens_ma(
                 f"governs. Enumeration was used instead; please report "
                 f"the inputs.",
                 RuntimeWarning, stacklevel=2)
+            # A run the guard rejected must not seed the memoised
+            # self inner products: purge this route's entries from
+            # both densities before falling back.
+            for _d in (dens_x, dens_y):
+                for _k in [k for k in _d._self_ip_cache
+                           if isinstance(k, tuple) and len(k) > 0
+                           and k[0] == "mobius"]:
+                    del _d._self_ip_cache[_k]
             ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
+                need_xx=need_xx,
             )
     else:  # 'bulger' or 'direct' (coincide in MA mode)
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
+            need_xx=need_xx,
         )
 
     return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
@@ -1411,6 +1458,30 @@ def _ip_core_ma(
             wrap_a=wrap_a,
         )
 
+    # Dedicated route for the all-r = 1 shape (each event contributes a
+    # single joint kernel; the inner product is a smoothed
+    # cross-correlation --- the simplest shape the framework supports,
+    # and the one point-set query sweeps exercise). The generic path
+    # below allocates a per-attribute (r_a, nJ, nK) difference tensor,
+    # a per-attribute quadratic form, a separate log-kernel
+    # accumulator, and a masked fancy-indexed exponential; at r = 1
+    # none of that structure is needed, and the direct evaluation here
+    # computes the identical quantity --- same per-attribute terms, same
+    # accumulation order, same truncation threshold --- with one
+    # accumulator, in-place updates, and a plain exponential. Relative
+    # attributes at r = 1 have a vanishing quadratic form (a 1-tuple
+    # has no within-tuple differences) and contribute nothing, exactly
+    # as ``_compute_Q`` evaluates them.
+    all_r1 = (A >= 1 and all(int(r_vec[a]) == 1 for a in range(A))
+              and (inner_r is None
+                   or all(int(x) == 0 for x in inner_r)))
+    if all_r1:
+        return _ip_r1_direct(
+            u_cell, w_u, int(n_j), v_cell, w_v, int(n_k),
+            A, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas, wrap=wrap,
+        )
+
     max_r = int(np.max(r_vec)) if A > 0 else 1
     bytes_per_col = (max_r + 2) * int(n_j) * 8
     mem_limit = kernel_chunk_bytes_resolved()
@@ -1443,6 +1514,72 @@ def _ip_core_ma(
         acc = acc + E @ w_v[c_start:c_end]
     return float(w_u @ acc)
 
+
+
+def _ip_r1_direct(
+    u_cell, w_u, n_j, v_cell, w_v, n_k,
+    A, sigma, is_rel, is_per, period,
+    *, truncation_sigmas, wrap=None,
+):
+    """Direct MA inner product for the all-r = 1 shape.
+
+    Computes the same quantity as the generic ``_ip_full_ma`` /
+    ``_ma_log_kernel`` path --- per-attribute terms accumulated in the
+    same order, with the same truncation threshold (including the
+    ``n_terms`` tightening) --- but with a single (nJ, nK) accumulator,
+    in-place arithmetic, and a plain exponential in place of the
+    generic path's per-attribute tensors and masked fancy-indexed
+    ``exp``. Chunking along the comb side follows the generic path's
+    memory heuristic, so ``kernel_chunk_bytes`` is honoured.
+
+    ``truncation_sigmas`` must arrive resolved (finite positive), as
+    ``_ip_core_ma`` guarantees.
+    """
+    threshold = -0.5 * float(truncation_sigmas) ** 2
+    n_terms = int(n_j) * int(n_k)
+    if n_terms > 1:
+        threshold = threshold - math.log(float(n_terms))
+
+    bytes_per_col = 3 * int(n_j) * 8
+    mem_limit = kernel_chunk_bytes_resolved()
+    chunk_size = max(1, int(mem_limit // max(bytes_per_col, 1)))
+
+    acc = np.zeros(int(n_j), dtype=np.float64)
+    for c_start in range(0, int(n_k), chunk_size):
+        c_end = min(c_start + chunk_size, int(n_k))
+        L = np.zeros((int(n_j), c_end - c_start), dtype=np.float64)
+        for a in range(A):
+            if bool(is_rel[a]):
+                # A 1-tuple has no within-tuple differences: the
+                # relative quadratic form vanishes identically, as
+                # _compute_Q evaluates it, so the attribute
+                # contributes nothing to the log-kernel.
+                continue
+            d = (u_cell[a][0][:, None]
+                 - v_cell[a][0][None, c_start:c_end])
+            wrap_a = 'full-image'
+            if wrap is not None and a < len(wrap):
+                wrap_a = str(wrap[a])
+            if bool(is_per[a]) and wrap_a == 'full-image':
+                from .._wrapped_kernel import wrapped_gaussian_1d
+                theta = wrapped_gaussian_1d(
+                    d, float(sigma[a]), float(period[a]),
+                    float(truncation_sigmas),
+                    exponent_denominator=4,
+                )
+                L += np.log(theta)
+                continue
+            if bool(is_per[a]):
+                p_a = float(period[a])
+                d = d - p_a * np.floor(d / p_a + 0.5)
+            np.multiply(d, d, out=d)
+            d /= (4 * float(sigma[a]) ** 2)
+            L -= d
+        below = L < threshold
+        np.exp(L, out=L)
+        L[below] = 0.0
+        acc += L @ w_v[c_start:c_end]
+    return float(w_u @ acc)
 
 
 def _ip_full_ma(
@@ -1679,12 +1816,21 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
 
 
 
-def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
+def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
+                               need_xx: bool = True):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
     Möbius method (JMM Eq. 3.4 plus Rem. 3.1).
 
     Caller is responsible for ensuring no NaN in ``p_attr`` and for
     structural compatibility of the two densities.
+
+    ``need_xx=False`` skips <X,X> when it is neither memoised nor
+    consumed by the caller's normalisation; the triple's first self
+    slot is then ``None``. Both self inner products are memoised on
+    their densities, keyed on this route's per-attribute
+    closed-form-vs-grid choices; the dispatcher purges this route's
+    entries if its post-hoc impossible-value guard trips, so a broken
+    run never seeds the cache.
 
     Note: previous versions also returned a ``worst_ratio`` aggregating
     per-entry cancellation ratios across the (N_x × N_y) inner-product
@@ -1701,9 +1847,29 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
     N_x = dens_x.n
     N_y = dens_y.n
 
+    # Per-attribute route choice, hoisted because it is part of the
+    # self-IP cache key: the closed form drops a per-attribute constant
+    # prefactor that the grid contraction keeps, so a self inner product
+    # is reusable only against triples that made the same per-attribute
+    # choices (the prefactor cancels only within one such triple).
+    choices = tuple(
+        bool(_ma_rel_attr_prefers_centres(
+            dens_x.p_attr[a], dens_y.p_attr[a],
+            float(dens_x.sigma[a]), int(dens_x.r[a]),
+            bool(dens_x.is_rel[a]), bool(dens_x.is_per[a]),
+            float(dens_x.period[a]),
+            truncation_sigmas=truncation_sigmas,
+        ))
+        for a in range(A)
+    )
+    key = _self_ip_cache_key("mobius", truncation_sigmas, None, choices)
+    xx_cached = key in dens_x._self_ip_cache
+    yy_cached = key in dens_y._self_ip_cache
+    compute_xx = need_xx and not xx_cached
+
     P_xy = np.ones((N_x, N_y), dtype=np.float64)
-    P_xx = np.ones((N_x, N_x), dtype=np.float64)
-    P_yy = np.ones((N_y, N_y), dtype=np.float64)
+    P_xx = np.ones((N_x, N_x), dtype=np.float64) if compute_xx else None
+    P_yy = np.ones((N_y, N_y), dtype=np.float64) if not yy_cached else None
 
     for a in range(A):
         r_a = int(dens_x.r[a])
@@ -1715,10 +1881,10 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
         Px, Py = dens_x.p_attr[a], dens_y.p_attr[a]
         Wx, Wy = dens_x.w[a], dens_y.w[a]
 
-        if _ma_rel_attr_prefers_centres(
-            Px, Py, sigma, r_a, is_rel, is_per, period,
-            truncation_sigmas=truncation_sigmas,
-        ):
+        wrap_a = (str(dens_x.wrap[a])
+                  if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
+                  else 'full-image')
+        if choices[a]:
             # Relative attribute at small K: the pairwise closed form
             # over materialised tuple-centres ((r!·C(K, r))² kernel ops
             # per event pair) undercuts the translation-grid
@@ -1732,39 +1898,47 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None):
             # density and shared by the cross and self matrices.
             cx = _closed_form_attr_centres(dens_x, a)
             cy = _closed_form_attr_centres(dens_y, a)
-            wrap_a = (str(dens_x.wrap[a])
-                      if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
-                      else 'full-image')
-            I_xy = _closed_form_attr_matrix_from(cx, cy, truncation_sigmas,
-                                                 wrap_a)
-            I_xx = _closed_form_attr_matrix_from(cx, cx, truncation_sigmas,
-                                                 wrap_a)
-            I_yy = _closed_form_attr_matrix_from(cy, cy, truncation_sigmas,
-                                                 wrap_a)
+            P_xy *= _closed_form_attr_matrix_from(cx, cy, truncation_sigmas,
+                                                  wrap_a)
+            if P_xx is not None:
+                P_xx *= _closed_form_attr_matrix_from(
+                    cx, cx, truncation_sigmas, wrap_a)
+            if P_yy is not None:
+                P_yy *= _closed_form_attr_matrix_from(
+                    cy, cy, truncation_sigmas, wrap_a)
         else:
-            wrap_a = (str(dens_x.wrap[a])
-                      if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
-                      else 'full-image')
-            I_xy = _ma_per_attr_inner_matrix(
+            P_xy *= _ma_per_attr_inner_matrix(
                 Px, Wx, Py, Wy, sigma, r_a, is_rel, is_per, period,
                 truncation_sigmas=truncation_sigmas,
                 wrap=wrap_a,
             )
-            I_xx = _ma_per_attr_inner_matrix(
-                Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
-                truncation_sigmas=truncation_sigmas,
-                wrap=wrap_a,
-            )
-            I_yy = _ma_per_attr_inner_matrix(
-                Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
-                truncation_sigmas=truncation_sigmas,
-                wrap=wrap_a,
-            )
-        P_xy *= I_xy
-        P_xx *= I_xx
-        P_yy *= I_yy
+            if P_xx is not None:
+                P_xx *= _ma_per_attr_inner_matrix(
+                    Px, Wx, Px, Wx, sigma, r_a, is_rel, is_per, period,
+                    truncation_sigmas=truncation_sigmas,
+                    wrap=wrap_a,
+                )
+            if P_yy is not None:
+                P_yy *= _ma_per_attr_inner_matrix(
+                    Py, Wy, Py, Wy, sigma, r_a, is_rel, is_per, period,
+                    truncation_sigmas=truncation_sigmas,
+                    wrap=wrap_a,
+                )
 
-    return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
+    ip_xy = float(P_xy.sum())
+    if xx_cached:
+        ip_xx = dens_x._self_ip_cache[key]
+    elif compute_xx:
+        ip_xx = float(P_xx.sum())
+        dens_x._self_ip_cache[key] = ip_xx
+    else:
+        ip_xx = None
+    if yy_cached:
+        ip_yy = dens_y._self_ip_cache[key]
+    else:
+        ip_yy = float(P_yy.sum())
+        dens_y._self_ip_cache[key] = ip_yy
+    return ip_xy, ip_xx, ip_yy
 
 
 
@@ -2152,14 +2326,41 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
 
 
+def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
+                       extra=None):
+    """Cache key for a memoised self inner product on a density.
+
+    The key carries everything the value depends on beyond the
+    density's own (immutable) contents: the route (the Bulger and
+    Möbius conventions differ by a constant prefactor that cancels only
+    within one route's triple), the resolved truncation budget, the
+    kernel precision, and any route-specific choices (``extra`` — the
+    Möbius route's per-attribute closed-form-vs-grid selections, which
+    change the per-attribute prefactor). Chunking granularity is
+    deliberately not keyed: it perturbs only the floating-point
+    accumulation order, within the toolbox-wide ≤ 1e-12 parity
+    discipline.
+    """
+    from .._defaults import resolve_truncation_sigmas
+    return (route, float(resolve_truncation_sigmas(truncation_sigmas)),
+            kernel_precision, extra)
+
+
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
                                   truncation_sigmas=None,
-                                  kernel_precision=None):
+                                  kernel_precision=None,
+                                  need_xx: bool = True):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the
     Bulger's method (``_ip_core_ma``).
 
     This is the body of the original ``_cos_sim_exp_tens_ma``
     factored out so the new dispatcher can route to it cleanly.
+
+    ``need_xx=False`` skips <X,X> when it is neither memoised nor
+    consumed by the caller's normalisation (``'oneSidedDenom'``); the
+    triple's first self slot is then ``None``. Both self inner products
+    are memoised on their densities (``_self_ip_cache``), so a sweep of
+    many queries against one context pays each self term once.
     """
     A = dens_x.n_attrs
     r_vec = dens_x.r
@@ -2173,7 +2374,19 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
 
     inner_r = _inner_r_vec(dens_x)
 
-    total_pairs = n_jx * n_ky + n_jx * n_kx + n_jy * n_ky
+    key = _self_ip_cache_key("bulger", truncation_sigmas, kernel_precision)
+    xx_cached = key in dens_x._self_ip_cache
+    yy_cached = key in dens_y._self_ip_cache
+    compute_xx = need_xx and not xx_cached
+
+    # The estimate covers only the kernel work this call performs:
+    # memoised self terms cost nothing here, and a skipped <X,X>
+    # (``need_xx=False`` under 'oneSidedDenom') is never evaluated.
+    total_pairs = n_jx * n_ky
+    if compute_xx:
+        total_pairs += n_jx * n_kx
+    if not yy_cached:
+        total_pairs += n_jy * n_ky
     max_r = int(np.max(r_vec)) if A > 0 else 1
     estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
 
@@ -2186,24 +2399,34 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         inner_r=inner_r,
         wrap=getattr(dens_x, 'wrap', None),
     )
-    ip_xx = _ip_core_ma(
-        dens_x.u_perm, dens_x.w_j, n_jx,
-        dens_x.v_comb, dens_x.wv_comb, n_kx,
-        A, r_vec, sigma, is_rel, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        inner_r=inner_r,
-        wrap=getattr(dens_x, 'wrap', None),
-    )
-    ip_yy = _ip_core_ma(
-        dens_y.u_perm, dens_y.w_j, n_jy,
-        dens_y.v_comb, dens_y.wv_comb, n_ky,
-        A, r_vec, sigma, is_rel, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-        kernel_precision=kernel_precision,
-        inner_r=inner_r,
-        wrap=getattr(dens_y, 'wrap', None),
-    )
+    if xx_cached:
+        ip_xx = dens_x._self_ip_cache[key]
+    elif need_xx:
+        ip_xx = _ip_core_ma(
+            dens_x.u_perm, dens_x.w_j, n_jx,
+            dens_x.v_comb, dens_x.wv_comb, n_kx,
+            A, r_vec, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=inner_r,
+            wrap=getattr(dens_x, 'wrap', None),
+        )
+        dens_x._self_ip_cache[key] = ip_xx
+    else:
+        ip_xx = None
+    if yy_cached:
+        ip_yy = dens_y._self_ip_cache[key]
+    else:
+        ip_yy = _ip_core_ma(
+            dens_y.u_perm, dens_y.w_j, n_jy,
+            dens_y.v_comb, dens_y.wv_comb, n_ky,
+            A, r_vec, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=inner_r,
+            wrap=getattr(dens_y, 'wrap', None),
+        )
+        dens_y._self_ip_cache[key] = ip_yy
     return ip_xy, ip_xx, ip_yy
 
 

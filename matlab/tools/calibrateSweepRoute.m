@@ -21,9 +21,14 @@ function calibrateSweepRoute(outFile)
 %
 %   Reading the output. The script prints, for each (K, r) cell, the
 %   measured time for each route and the ratio orbitTotal / nPairs that
-%   the chooser would compute. The crossover sits between the largest
-%   ratio at which the orbit route won and the smallest at which the
-%   mixture won; ORBIT_WORK_RATIO should be set just below the former.
+%   the chooser would compute. The chooser takes the orbit route when
+%   that ratio is BELOW ORBIT_WORK_RATIO, so any threshold strictly
+%   between the largest ratio at which the orbit route won and the
+%   smallest at which the mixture won reproduces every measured winner.
+%   The script reports that interval and suggests its geometric
+%   midpoint, which is the most robust point within it. A threshold set
+%   at either end misroutes the cell that end came from.
+%
 %   ORBIT_MIN_PAIRS should be set above the largest nPairs at which the
 %   mixture won despite a favourable ratio --- that is the regime where
 %   the orbit route's fixed overhead dominates.
@@ -55,6 +60,10 @@ function calibrateSweepRoute(outFile)
 
     reps = 3;
     rows = zeros(0, 7);
+
+    % The default-truncation notice fires once per session, and would
+    % otherwise land in the middle of the table. Draw it here.
+    mptDefaults('truncationSigmas');
 
     fprintf('\n%6s %8s %12s %12s %12s %10s %9s\n', ...
             'K,r', 'nPairs', 'mixture (s)', 'orbit (s)', 'ratio', ...
@@ -117,13 +126,28 @@ function calibrateSweepRoute(outFile)
                  'constants as shipped.\n']);
         return;
     end
-    ratioCut = max(orbitWon(:, 6));
-    fprintf('ORBIT_WORK_RATIO : orbit won up to ratio %.1f\n', ratioCut);
-    if ~isempty(mixtureWon)
-        fprintf('                   mixture won from ratio %.1f\n', ...
-                min(mixtureWon(:, 6)));
+    ratioLo = max(orbitWon(:, 6));
+    fprintf('ORBIT_WORK_RATIO : orbit won up to ratio %.1f\n', ratioLo);
+    if isempty(mixtureWon)
+        fprintf(['                   no cell favoured the mixture; set ' ...
+                 'above %.0f\n'], ratioLo);
+    else
+        ratioHi = min(mixtureWon(:, 6));
+        fprintf('                   mixture won from ratio %.1f\n', ratioHi);
+        if ratioHi <= ratioLo
+            fprintf(['                   the two overlap: no single ' ...
+                     'threshold reproduces every cell,\n' ...
+                     '                   which means the cost model ' ...
+                     'itself misranks this grid.\n']);
+        else
+            % Strictly inside the interval: a threshold AT either end
+            % misroutes the cell that end came from.
+            fprintf(['                   -> set strictly between %.1f ' ...
+                     'and %.1f; suggested %.0f\n'], ...
+                    ratioLo, ratioHi, sqrt(ratioLo * ratioHi));
+            localReportChoice(rows, sqrt(ratioLo * ratioHi));
+        end
     end
-    fprintf('                   -> set just below %.0f\n', ratioCut);
 
     % Cells where the ratio favoured orbit but the mixture still won are
     % the ones the floor exists to catch.
@@ -146,6 +170,28 @@ function calibrateSweepRoute(outFile)
     end
 end
 
+
+function localReportChoice(rows, threshold)
+%LOCALREPORTCHOICE  Check a candidate threshold against every measured cell.
+    nBad = 0;
+    for i = 1:size(rows, 1)
+        picksOrbit = rows(i, 6) < threshold;
+        orbitWonHere = rows(i, 7) == 1;
+        if picksOrbit ~= orbitWonHere
+            if nBad == 0
+                fprintf('                   cells this would misroute:\n');
+            end
+            nBad = nBad + 1;
+            cost = max(rows(i, 4), rows(i, 5)) / min(rows(i, 4), rows(i, 5));
+            fprintf(['                     K=%d r=%d ratio %.1f ' ...
+                     '(%.1fx slower)\n'], rows(i, 1), rows(i, 2), ...
+                    rows(i, 6), cost);
+        end
+    end
+    if nBad == 0
+        fprintf('                   reproduces every measured winner\n');
+    end
+end
 
 function t = localTime(fn, reps)
 %LOCALTIME  Minimum of REPS runs, after one warm-up.

@@ -1,7 +1,8 @@
 function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
-        verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas)
+        verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas, ...
+        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without pricing (an explicit
@@ -65,6 +66,17 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     if nargin < 16
         truncationSigmas = [];
     end
+    % A self inner product that is memoised on its density, or that the
+    % requested normalisation does not consume, costs nothing at call
+    % time; the per-route skip flags exclude it from that route's
+    % price. The flags are per route because the two routes' memoised
+    % values live under different keys (their self-IP scales differ by
+    % constant prefactors that cancel only within one route's triple).
+    % Defaults false reproduce the full-triple pricing exactly.
+    if nargin < 17 || isempty(pwSkipXX);    pwSkipXX = false;    end
+    if nargin < 18 || isempty(pwSkipYY);    pwSkipYY = false;    end
+    if nargin < 19 || isempty(orbitSkipXX); orbitSkipXX = false; end
+    if nargin < 20 || isempty(orbitSkipYY); orbitSkipYY = false; end
     % NaN until the priced comparison sets them, so a caller can tell a
     % structural decision from a costed one.
     pwCostOut = NaN;
@@ -135,7 +147,8 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         end
     end
 
-    pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY);
+    pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
+                                       pwSkipXX, pwSkipYY);
     % Priced by the same fitted law. The per-entry form this replaces
     % assumed a fixed cost per kernel entry; measurement contradicts
     % that, the per-entry cost falling as the arrays grow, which is what
@@ -144,7 +157,8 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     centresOk = sigmaOverPMax <= ...
         internal.relPerSigmaOverPThreshold(truncationSigmas);
     orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
-                                   nuVec, centresOk, kVecY);
+                                   nuVec, centresOk, kVecY, ...
+                                   orbitSkipXX, orbitSkipYY);
     pwCostOut = pwCost;
     orbitCostOut = orbitCost;
     if pwCost <= orbitCost
@@ -203,10 +217,11 @@ function ms = relRouteCostMs(route, r_a, term)
 end
 
 
-function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY)
-    % Tuple-pair kernel entries summed over the three matrices the inner
-    % product needs. Each density contributes a permutation-side and a
-    % combination-side tuple count,
+function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
+                                        skipXX, skipYY)
+    % Tuple-pair kernel entries summed over the matrices the inner
+    % product will compute. Each density contributes a permutation-side
+    % and a combination-side tuple count,
     %
     %   n_J = N * prod_a r_a! * C(K_a, r_a),  n_K = N * prod_a C(K_a, r_a),
     %
@@ -217,10 +232,16 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY)
     % larger density's self matrix dominates. For a five-value density
     % against an 80-value one at r = 2 the second self matrix holds
     % 19971200 of the 20034600 entries, so pricing the cross matrix alone
-    % understates the work by 317.
+    % understates the work by 317. SKIPXX / SKIPYY exclude a self matrix
+    % that is memoised or not consumed by the requested normalisation;
+    % pricing it anyway would steer near-crossover routing away from
+    % Bulger's method on exactly the repeated-context sweeps where
+    % Bulger's marginal cost is lowest.
     if nargin < 6 || isempty(kVecY)
         kVecY = kVec;
     end
+    if nargin < 7 || isempty(skipXX); skipXX = false; end
+    if nargin < 8 || isempty(skipYY); skipYY = false; end
     if A == 0
         sz = Nx * Ny; return;
     end
@@ -237,12 +258,19 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY)
         permX = permX * fa * cx;  combX = combX * cx;
         permY = permY * fa * cy;  combY = combY * cy;
     end
-    sz = permX * combY + permX * combX + permY * combY;
+    sz = permX * combY;
+    if ~skipXX
+        sz = sz + permX * combX;
+    end
+    if ~skipYY
+        sz = sz + permY * combY;
+    end
 end
 
 
 function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
-                                  nuVec, centresOk, kVecY)
+                                  nuVec, centresOk, kVecY, ...
+                                  skipXX, skipYY)
     % Per-attribute sum, mirror of Python _predict_orbit_cost_ms:
     % relative attributes are priced at the cheaper of the
     % tuple-centres closed form and the batched grid contraction
@@ -252,6 +280,16 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     % doubling per order above (over-pricing the Möbius side —
     % routing bias toward Bulger's method, the cheap-to-mispick
     % side).
+    %
+    % SKIPXX / SKIPYY exclude a self matrix that is memoised or not
+    % consumed (mirroring predictPairwiseKernelSize). The centres term
+    % drops the skipped self work exactly; the grid term and the
+    % per-order absolute constants were fitted on the full
+    % three-matrix computation, so they are scaled by the fraction of
+    % matrices still to be computed --- an approximation that
+    % under-discounts (setup is not per-matrix), biasing near-crossover
+    % routing toward Bulger's method, the cheap-to-mispick side.
+    % Defaults false reproduce the full-triple pricing exactly.
     ABS        = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
     GRID_OP    = [NaN, 3.0e-5, 5.0e-5];    % r = 2, 3
     CENTRES_OP = [NaN, 4.0e-5, 9.0e-5];    % r = 2, 3
@@ -261,6 +299,9 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
     if nargin < 9 || isempty(kVecY)
         kVecY = kVec;
     end
+    if nargin < 10 || isempty(skipXX); skipXX = false; end
+    if nargin < 11 || isempty(skipYY); skipYY = false; end
+    nMatrices = 1 + double(~skipXX) + double(~skipYY);
     ms = 0;
     if any(relVec)
         ms = REL_BASE;
@@ -274,7 +315,7 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                 gridOp = gridOp * 2^(ra - 3);
             end
             perPair = relRouteCostMs('grid', ra, ...
-                pairs * nuVec(a) * max(Ka, KaY));
+                pairs * nuVec(a) * max(Ka, KaY) * (nMatrices / 3));
             if centresOk && Ka >= ra && KaY >= ra
                 centresOp = CENTRES_OP(min(max(ra, 2), numel(CENTRES_OP)));
                 if ra > 3
@@ -282,12 +323,19 @@ function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
                 end
                 mX = factorial(ra) * combCount(Ka, ra);
                 mY = factorial(ra) * combCount(KaY, ra);
+                centresSize = pairs * mX * mY;
+                if ~skipXX
+                    centresSize = centresSize + pairs * mX * mX;
+                end
+                if ~skipYY
+                    centresSize = centresSize + pairs * mY * mY;
+                end
                 perPair = min(perPair, relRouteCostMs('centres', ra, ...
-                    pairs * (mX * mY + mX * mX + mY * mY)));
+                    centresSize));
             end
             ms = ms + perPair;
         elseif ra >= 2
-            ms = ms + ABS(ra);
+            ms = ms + ABS(ra) * (nMatrices / 3);
         end
     end
 end

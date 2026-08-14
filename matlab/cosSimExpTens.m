@@ -1,4 +1,4 @@
-function s = cosSimExpTens(varargin)
+function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %COSSIMEXPTENS Cosine similarity of two r-ad expectation tensor densities.
 %
 %   s = cosSimExpTens(dens_x, dens_y):
@@ -7,6 +7,26 @@ function s = cosSimExpTens(varargin)
 %   This avoids recomputing tuple indices and weight products on each call,
 %   and is the preferred calling convention when comparing a fixed reference
 %   against many other sets.
+%
+%   [s, dens_x, dens_y] = cosSimExpTens(dens_x, dens_y, ...):
+%   As above, additionally returning the two operand structs with their
+%   self inner products memoised (a 'selfIP' field). A density's self
+%   inner product <T, T> depends only on the density itself, so a
+%   caller looping scalar calls against a fixed reference can thread
+%   the returned struct through the loop and pay the reference's
+%   O(N^2) self term once:
+%       for m = 1:M
+%           [s(m), densRef] = cosSimExpTens(densRef, densQry{m}, ...);
+%       end
+%   The memo is keyed on everything the value depends on beyond the
+%   density's contents (inner-product route, resolved
+%   truncationSigmas, and the Möbius route's per-attribute
+%   closed-form-vs-grid choices), so stale reuse is structurally
+%   impossible; an unrecognised key simply recomputes. The extra
+%   outputs are available only in this density-struct scalar form. In
+%   the scalar-vs-cell (sweep) and raw sweep forms the memoisation is
+%   applied internally across the sweep, so no threading is needed
+%   there.
 %
 %   s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period):
 %   s = cosSimExpTens(..., 'verbose', false):
@@ -458,6 +478,11 @@ if nArgs == 2
                 'Both density structs must carry a ''tag'' field.');
         end
         if strcmp(a.tag, 'MaetDensity') && strcmp(b.tag, 'MaetDensity')
+            % Seed the self-IP memo caches from the operand structs
+            % (empty when absent). The updated caches are attached to
+            % the optional second/third outputs below.
+            cacheX = localSelfIpFromStruct(a);
+            cacheY = localSelfIpFromStruct(b);
             if internal.isSingleMultiset(a) && internal.isSingleMultiset(b)
                 % Single-multiset corner (A = N = 1): prune element-level
                 % at the density level, then fall through to the shared
@@ -465,9 +490,13 @@ if nArgs == 2
                 maet_x = internal.prunedExpTens(a);
                 maet_y = internal.prunedExpTens(b);
             else
-                s = localCosSimMA(a, b, method, normalize, ...
+                [s, cacheX, cacheY] = localCosSimMA(a, b, method, normalize, ...
                                   cancellationThreshold, verbose, ...
-                                  truncationSigmas);
+                                  truncationSigmas, cacheX, cacheY);
+                if nargout > 1
+                    densXOut = a; densXOut.selfIP = cacheX;
+                    densYOut = b; densYOut.selfIP = cacheY;
+                end
                 return;
             end
         else
@@ -478,7 +507,15 @@ if nArgs == 2
     elseif iscell(a) || iscell(b)
         % LIST: cell-of-struct on either side (scalar struct may be
         % broadcast against the cell). Inner-element validation occurs
-        % within localCosSimDensityList.
+        % within localCosSimDensityList. The self-IP memo is applied
+        % internally across the list, so the cache-carrying outputs are
+        % not offered here.
+        if nargout > 1
+            error('cosSimExpTens:selfIpOutputsUnavailable', ...
+                ['The cache-carrying outputs are available only in the ' ...
+                 'density-struct scalar form; list-mode sweeps memoise ' ...
+                 'internally and need no threading.']);
+        end
         s = localCosSimDensityList(a, b, normalize, verbose);
         return;
     else
@@ -486,6 +523,13 @@ if nArgs == 2
     end
 
 elseif nArgs == 9
+    if nargout > 1
+        error('cosSimExpTens:selfIpOutputsUnavailable', ...
+            ['The cache-carrying outputs are available only in the ' ...
+             'density-struct scalar form (both operands structs from ' ...
+             'buildExpTens). The raw sweep form memoises internally ' ...
+             'and needs no threading.']);
+    end
     a = varargin{1};
     c = varargin{3};
     if iscell(a) || iscell(c)
@@ -541,17 +585,24 @@ elseif nArgs == 9
             isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
         M = numel(listPAttr);
         s = cell(1, M);
+        % Thread the scalar side's self-IP memo across the sweep so its
+        % self inner product is paid once, not once per entry.
+        cacheScalar = localSelfIpEmpty();
         for m = 1:M
             dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
                 isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', false);
             if scalarFirst
-                s{m} = localCosSimMA(dens_scalar, dens_m, method, ...
+                [s{m}, cacheScalar] = localCosSimMA(dens_scalar, dens_m, ...
+                                     method, ...
                                      normalize, cancellationThreshold, false, ...
-                                     truncationSigmas);
+                                     truncationSigmas, cacheScalar, ...
+                                     localSelfIpEmpty());
             else
-                s{m} = localCosSimMA(dens_m, dens_scalar, method, ...
+                [s{m}, ~, cacheScalar] = localCosSimMA(dens_m, dens_scalar, ...
+                                     method, ...
                                      normalize, cancellationThreshold, false, ...
-                                     truncationSigmas);
+                                     truncationSigmas, localSelfIpEmpty(), ...
+                                     cacheScalar);
             end
         end
         return;
@@ -635,9 +686,29 @@ end
 
 % --- Single-multiset corner (A = N = 1): both entry forms above leave
 %     maet_x/maet_y set, so one call to the shared multi-attribute
-%     inner product serves both. ---
-s = localCosSimMA(maet_x, maet_y, method, normalize, ...
-                  cancellationThreshold, verbose, truncationSigmas);
+%     inner product serves both. The struct entry form seeded cacheX /
+%     cacheY above; the raw form starts them empty. The memoised
+%     values are keyed post-prune and localCosSimMA always prunes
+%     first, so attaching them to the unpruned input struct is
+%     consistent. ---
+structScalarInputs = exist('cacheX', 'var');
+if ~structScalarInputs
+    cacheX = localSelfIpEmpty();
+    cacheY = localSelfIpEmpty();
+end
+if nargout > 1 && ~structScalarInputs
+    error('cosSimExpTens:selfIpOutputsUnavailable', ...
+        ['The cache-carrying outputs are available only in the ' ...
+         'density-struct scalar form (both operands structs from ' ...
+         'buildExpTens).']);
+end
+[s, cacheX, cacheY] = localCosSimMA(maet_x, maet_y, method, normalize, ...
+                  cancellationThreshold, verbose, truncationSigmas, ...
+                  cacheX, cacheY);
+if nargout > 1
+    densXOut = varargin{1}; densXOut.selfIP = cacheX;
+    densYOut = varargin{2}; densYOut.selfIP = cacheY;
+end
 
 end
 
@@ -658,9 +729,28 @@ function [impossible, reason] = localOrbitIPsImpossible(ip_xy, ip_xx, ip_yy)
 %
 %   REASON names the specific impossibility, for the warning the caller
 %   raises before rerouting to enumeration.
+%
+%   IP_XX may be empty when the first operand's self inner product was
+%   not computed (normalize = 'oneSidedDenom' does not consume it); the
+%   checks that need it are then skipped and the remaining values are
+%   still validated.
 
     impossible = false;
     reason = '';
+    if isempty(ip_xx)
+        if ~all(isfinite([ip_xy, ip_yy]))
+            impossible = true;
+            reason = sprintf(['an inner product is not finite ' ...
+                              '(<X,Y> = %g, <Y,Y> = %g)'], ip_xy, ip_yy);
+            return;
+        end
+        if ip_yy < 0
+            impossible = true;
+            reason = sprintf(['<Y,Y> = %.3e is negative, and a self ' ...
+                              'inner product cannot be'], ip_yy);
+        end
+        return;
+    end
     if ~all(isfinite([ip_xy, ip_xx, ip_yy]))
         impossible = true;
         reason = sprintf(['an inner product is not finite ' ...
@@ -692,8 +782,9 @@ end
 %  localCosSimMA — multi-attribute (MAET) cosine similarity
 % =========================================================================
 
-function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
-                            cancellationThreshold, verbose, truncationSigmas)
+function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
+                            normalize, cancellationThreshold, verbose, ...
+                            truncationSigmas, cacheX, cacheY)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
@@ -710,11 +801,30 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
 %   The trailing ``normalize`` argument selects the denominator
 %   applied to the cross inner product: ``'cosine'`` (strict shape-only)
 %   divides by the geometric mean of the operand self inner products;
-%   ``'oneSidedDenom'`` divides by ``ip_yy`` alone.
+%   ``'oneSidedDenom'`` divides by ``ip_yy`` alone. Under
+%   ``'oneSidedDenom'`` the first operand's self inner product is not
+%   consumed and is not computed (unless already memoised, when using
+%   it is free).
+%
+%   ``cacheX`` / ``cacheY`` (optional) are self-IP memo structs (see
+%   localSelfIpEmpty): each operand's self inner product is looked up
+%   before it is computed and stored after, keyed by the route, the
+%   resolved truncationSigmas, and the Möbius route's per-attribute
+%   closed-form-vs-grid choices (the two routes' values differ by
+%   constant prefactors that cancel only within one route's triple, so
+%   values never cross keys). The updated structs are returned so a
+%   caller looping over pairs can thread them and pay each self term
+%   once. If the post-hoc guard rejects a Möbius run, that route's
+%   entries are purged before the fallback, so a broken run never
+%   seeds the memo.
 %
 %   Both densities must share the full parameter structure: number of
 %   attributes, group assignment, per-attribute r, and per-group sigma,
 %   isRel, isPer, period. Weights and event/value counts may differ.
+
+    if nargin < 8 || isempty(cacheX); cacheX = localSelfIpEmpty(); end
+    if nargin < 9 || isempty(cacheY); cacheY = localSelfIpEmpty(); end
+    needXX = strcmp(normalize, 'cosine');
 
     % --- Structural compatibility (cheap fields only) ---
     if ~internal.kernelCovsCompatible(dens_x, dens_y)
@@ -854,10 +964,32 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             end
         end
     end
+    % A self inner product costs nothing at call time when it is
+    % memoised, or (for <X,X>) when the requested normalisation does
+    % not consume it; tell the selector so its pricing reflects the
+    % work this call will actually perform. The flags are per route
+    % because the two routes' memoised values live under different
+    % keys. The Möbius key includes per-attribute closed-form-vs-grid
+    % choices not known before routing, so any existing Möbius-route
+    % entry is treated as a hit --- an approximation that can only
+    % misfire when a new partner flips a per-attribute choice, and
+    % then only by under-pricing the Möbius side of a near-crossover
+    % call.
+    tsKeyResolved = truncationSigmas;
+    if isempty(tsKeyResolved)
+        tsKeyResolved = mptDefaults('truncationSigmas');
+    end
+    tsKeyResolved = internal.accuracyFloor('resolve', tsKeyResolved);
+    bulgerKey = localSelfIpKey('bulger', tsKeyResolved, '');
+    pwSkipXX = ~needXX || localSelfIpHas(cacheX, bulgerKey);
+    pwSkipYY = localSelfIpHas(cacheY, bulgerKey);
+    orbitSkipXX = ~needXX || localSelfIpHasRoute(cacheX, 'mobius');
+    orbitSkipYY = localSelfIpHasRoute(cacheY, 'mobius');
     chosen = internal.selectMaInnerProductMethod( ...
         rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
         sigmaOverPMax, method, verbose, relVecSel, nuVecSel, kVecY, ...
-        wrapG, truncationSigmas);
+        wrapG, truncationSigmas, ...
+        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
@@ -921,8 +1053,8 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
     end
 
     if strcmp(chosen, 'mobius')
-        [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
-                                                    truncationSigmas);
+        [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
+            dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY);
 
         % Post-hoc correctness check only (mirrors single multiset path);
         % accuracy is governed by truncationSigmas, so no route is
@@ -943,6 +1075,11 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
                  'accuracy, so it is not something truncationSigmas ' ...
                  'governs. Enumeration was used instead; please ' ...
                  'report the inputs.'], badReason);
+            % A run the guard rejected must not seed the memo: purge
+            % this route's entries from both caches before the
+            % fallback.
+            cacheX = localSelfIpPurgeRoute(cacheX, 'mobius');
+            cacheY = localSelfIpPurgeRoute(cacheY, 'mobius');
         end
 
         if impossible
@@ -971,20 +1108,51 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
         wvy_comb = dens_y.wv_comb;
         nKy      = dens_y.nK;
 
-        % --- Three inner products ---
-        totalPairs = double(nJx)*double(nKy) + double(nJx)*double(nKx) ...
-                   + double(nJy)*double(nKy);
+        % --- Three inner products, with memoised self terms ---
+        % The estimate covers only the kernel work this call performs:
+        % memoised self terms cost nothing here, and a skipped <X,X>
+        % (oneSidedDenom) is never evaluated.
+        [xxHit, xxVal] = localSelfIpGet(cacheX, bulgerKey);
+        [yyHit, yyVal] = localSelfIpGet(cacheY, bulgerKey);
+        computeXX = needXX && ~xxHit;
+        totalPairs = double(nJx)*double(nKy);
+        if computeXX
+            totalPairs = totalPairs + double(nJx)*double(nKx);
+        end
+        if ~yyHit
+            totalPairs = totalPairs + double(nJy)*double(nKy);
+        end
         maxR = max(rVec);
         estimateCompTime(totalPairs, maxR, 'cosSimExpTens (MAET)', verbose);
 
         ip_xy = ipCoreMA(Ux_perm, wx_perm, nJx, Vy_comb, wvy_comb, nKy);
-        ip_xx = ipCoreMA(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
-        ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+        if xxHit
+            ip_xx = xxVal;
+        elseif computeXX
+            ip_xx = ipCoreMA(Ux_perm, wx_perm, nJx, Vx_comb, wvx_comb, nKx);
+            cacheX = localSelfIpSet(cacheX, bulgerKey, ip_xx);
+        else
+            ip_xx = [];
+        end
+        if yyHit
+            ip_yy = yyVal;
+        else
+            ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
+            cacheY = localSelfIpSet(cacheY, bulgerKey, ip_yy);
+        end
     end
 
-    % Final cosine / one-sided-denominator normalisation.
+    % Final cosine / one-sided-denominator normalisation. An empty
+    % ip_xx is legal only under 'oneSidedDenom', whose denominator does
+    % not consume it; reaching 'cosine' with it empty is an internal
+    % routing defect.
     switch normalize
         case 'cosine'
+            if isempty(ip_xx)
+                error('cosSimExpTens:missingSelfIp', ...
+                    ['normalize=''cosine'' requires <X,X>, but it was ' ...
+                     'not computed. This is an internal routing defect.']);
+            end
             denom = sqrt(max(ip_xx * ip_yy, 0));
         case 'oneSidedDenom'
             denom = ip_yy;
@@ -1006,6 +1174,24 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             truncResolved = mptDefaults('truncationSigmas');
         else
             truncResolved = truncationSigmas;
+        end
+
+        % Dedicated route for the all-r = 1 shape (each event
+        % contributes a single joint kernel; the inner product is a
+        % smoothed cross-correlation --- the simplest shape the
+        % framework supports). Computes the identical quantity to the
+        % generic path below --- same per-attribute terms in the same
+        % accumulation order, same truncation threshold including the
+        % summed-terms tightening, same chunking heuristic --- with a
+        % single accumulator and a plain exponential in place of the
+        % generic path's per-attribute tensors and masked exponential.
+        % Relative attributes at r_a = 1 have a vanishing quadratic
+        % form (a 1-tuple has no within-tuple differences) and
+        % contribute nothing, exactly as computeQaMA evaluates them.
+        if all(rVec == 1) && all(innerR == 0)
+            ipval = ipR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
+                               truncResolved);
+            return;
         end
 
         % Memory-aware chunking along the comb-side (nK) dimension.
@@ -1036,6 +1222,58 @@ function s = localCosSimMA(dens_x, dens_y, method, normalize, ...
             end
             ipval = wU(:).' * acc;
         end
+    end
+
+    function ipval = ipR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
+                                truncResolved)
+        % Direct MA inner product for the all-r = 1 shape. The
+        % truncation threshold matches internal.truncLogKernelExp
+        % exactly: resolve through the accuracy floor, threshold
+        % -0.5 k^2 in log space, tightened by -log(nTerms) for the
+        % summed count.
+        tsR = internal.accuracyFloor('resolve', truncResolved);
+        threshold = -0.5 * tsR^2;
+        nTerms = double(nJ) * double(nK);
+        if nTerms > 1
+            threshold = threshold - log(nTerms);
+        end
+
+        bytesPerCol = 3 * double(nJ) * 8;
+        memLimit = internal.kernelChunkBytesResolved();
+        chunkSize = max(1, floor(memLimit / bytesPerCol));
+
+        wVcol = wV(:);
+        acc = zeros(nJ, 1);
+        for c = 1:chunkSize:nK
+            cEnd = min(c + chunkSize - 1, nK);
+            idx  = c:cEnd;
+            L = zeros(nJ, numel(idx));
+            for a = 1:A
+                if isRelG(a)
+                    % Vanishing quadratic form at r_a = 1: no
+                    % contribution to the log-kernel.
+                    continue;
+                end
+                d = reshape(U_cell{a}, nJ, 1) ...
+                  - reshape(V_cell{a}(1, idx), 1, numel(idx));
+                if isPerG(a) && strcmp(char(wrapG{a}), 'full-image')
+                    theta = internal.wrappedGaussian1d( ...
+                        d, sigmaG(a), periodG(a), tsR, 4);
+                    L = L + log(theta);
+                    continue;
+                end
+                if isPerG(a)
+                    P_g = periodG(a);
+                    d = d - P_g .* floor(d / P_g + 0.5);
+                end
+                L = L - d.^2 / (4 * sigmaG(a)^2);
+            end
+            below = L < threshold;
+            E = exp(L);
+            E(below) = 0;
+            acc = acc + E * wVcol(idx);
+        end
+        ipval = wU(:).' * acc;
     end
 
     function ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK, truncResolved)
@@ -1166,8 +1404,8 @@ end
 
 
 
-function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
-                                                     truncationSigmas)
+function [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
+    dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY)
 %LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute Möbius method.
 %
 %   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
@@ -1177,14 +1415,23 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
 %   so we element-wise multiply per-attribute matrices across attributes
 %   then sum. NaN-padded events are handled via zero-weight padding in
 %   mobius.maPerAttrInnerMatrix.
+%
+%   NEEDXX = false skips <X,X> when it is neither memoised nor
+%   consumed by the caller's normalisation; ip_xx is then []. The self
+%   inner products are memoised in CACHEX / CACHEY, keyed on this
+%   route's per-attribute closed-form-vs-grid choices (the closed form
+%   drops a per-attribute constant prefactor the grid keeps, so a self
+%   term is reusable only against triples that made the same choices).
+%   The caller purges this route's entries if its post-hoc guard
+%   trips, so a broken run never seeds the memo.
+
+    if nargin < 4 || isempty(needXX); needXX = true; end
+    if nargin < 5 || isempty(cacheX); cacheX = localSelfIpEmpty(); end
+    if nargin < 6 || isempty(cacheY); cacheY = localSelfIpEmpty(); end
 
     A = dens_x.nAttrs;
     N_x = dens_x.N;
     N_y = dens_y.N;
-
-    P_xy = ones(N_x, N_y);
-    P_xx = ones(N_x, N_x);
-    P_yy = ones(N_y, N_y);
 
     % Resolve truncationSigmas to a concrete value at call time so the
     % per-call override path is honoured. [] (no override) defers to
@@ -1193,6 +1440,35 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
         truncResolved = mptDefaults('truncationSigmas');
     else
         truncResolved = truncationSigmas;
+    end
+
+    % Per-attribute route choice, hoisted because it is part of the
+    % self-IP memo key (see the closed-form prefactor note below).
+    choices = false(1, A);
+    for a = 1:A
+        flatAttrA = ~isfield(dens_x, 'nested') ...
+            || a > numel(dens_x.nested) || isempty(dens_x.nested{a});
+        choices(a) = flatAttrA && mobius.maRelAttrPrefersCentres( ...
+            dens_x.pAttr{a}, dens_y.pAttr{a}, dens_x.sigma(a), ...
+            dens_x.r(a), dens_x.isRel(a), dens_x.isPer(a), ...
+            dens_x.period(a), truncationSigmas);
+    end
+    tsKey = internal.accuracyFloor('resolve', truncResolved);
+    orbitKey = localSelfIpKey('mobius', tsKey, char('0' + choices));
+    [xxHit, xxVal] = localSelfIpGet(cacheX, orbitKey);
+    [yyHit, yyVal] = localSelfIpGet(cacheY, orbitKey);
+    computeXX = needXX && ~xxHit;
+
+    P_xy = ones(N_x, N_y);
+    if computeXX
+        P_xx = ones(N_x, N_x);
+    else
+        P_xx = [];
+    end
+    if ~yyHit
+        P_yy = ones(N_y, N_y);
+    else
+        P_yy = [];
     end
 
     for a = 1:A
@@ -1218,11 +1494,7 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
         % and shared by the cross and self matrices. Nested
         % attributes keep the grid path (their contraction routes
         % handle the closed form separately).
-        flatAttr = ~isfield(dens_x, 'nested') ...
-            || a > numel(dens_x.nested) || isempty(dens_x.nested{a});
-        if flatAttr && mobius.maRelAttrPrefersCentres( ...
-                Px, Py, sigma_g, r_a, isRel_g, isPer_g, period_g, ...
-                truncationSigmas)
+        if choices(a)
             cxB = mobius.closedFormAttrCentres(dens_x, a);
             cyB = mobius.closedFormAttrCentres(dens_y, a);
             % Per-attribute wrap opt-in (default full-image). Use
@@ -1232,9 +1504,13 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
                     && a <= numel(dens_x.wrap)
                 wrapA = char(dens_x.wrap{a});
             end
-            I_xy = mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA);
-            I_xx = mobius.closedFormAttrMatrixFrom(cxB, cxB, wrapA);
-            I_yy = mobius.closedFormAttrMatrixFrom(cyB, cyB, wrapA);
+            P_xy = P_xy .* mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA);
+            if ~isempty(P_xx)
+                P_xx = P_xx .* mobius.closedFormAttrMatrixFrom(cxB, cxB, wrapA);
+            end
+            if ~isempty(P_yy)
+                P_yy = P_yy .* mobius.closedFormAttrMatrixFrom(cyB, cyB, wrapA);
+            end
         else
             % Per-attribute wrap opt-in (default full-image). Use
             % dens_x's wrap as authoritative if it and dens_y's differ,
@@ -1244,25 +1520,37 @@ function [ip_xy, ip_xx, ip_yy] = localCosSimMAOrbit(dens_x, dens_y, ...
                     && a <= numel(dens_x.wrap)
                 wrapA = char(dens_x.wrap{a});
             end
-            I_xy = mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
+            P_xy = P_xy .* mobius.maPerAttrInnerMatrix(Px, Wx, Py, Wy, ...
                 sigma_g, r_a, isRel_g, isPer_g, period_g, ...
                 'truncationSigmas', truncResolved, 'wrap', wrapA);
-            I_xx = mobius.maPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
-                sigma_g, r_a, isRel_g, isPer_g, period_g, ...
-                'truncationSigmas', truncResolved, 'wrap', wrapA);
-            I_yy = mobius.maPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
-                sigma_g, r_a, isRel_g, isPer_g, period_g, ...
-                'truncationSigmas', truncResolved, 'wrap', wrapA);
+            if ~isempty(P_xx)
+                P_xx = P_xx .* mobius.maPerAttrInnerMatrix(Px, Wx, Px, Wx, ...
+                    sigma_g, r_a, isRel_g, isPer_g, period_g, ...
+                    'truncationSigmas', truncResolved, 'wrap', wrapA);
+            end
+            if ~isempty(P_yy)
+                P_yy = P_yy .* mobius.maPerAttrInnerMatrix(Py, Wy, Py, Wy, ...
+                    sigma_g, r_a, isRel_g, isPer_g, period_g, ...
+                    'truncationSigmas', truncResolved, 'wrap', wrapA);
+            end
         end
-
-        P_xy = P_xy .* I_xy;
-        P_xx = P_xx .* I_xx;
-        P_yy = P_yy .* I_yy;
     end
 
     ip_xy = sum(P_xy(:));
-    ip_xx = sum(P_xx(:));
-    ip_yy = sum(P_yy(:));
+    if xxHit
+        ip_xx = xxVal;
+    elseif computeXX
+        ip_xx = sum(P_xx(:));
+        cacheX = localSelfIpSet(cacheX, orbitKey, ip_xx);
+    else
+        ip_xx = [];
+    end
+    if yyHit
+        ip_yy = yyVal;
+    else
+        ip_yy = sum(P_yy(:));
+        cacheY = localSelfIpSet(cacheY, orbitKey, ip_yy);
+    end
 end
 
 
@@ -1280,14 +1568,19 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
 %     (cell, struct) — broadcast struct against the cell. Returns 1-by-n.
 %     (struct, cell) — broadcast struct against the cell. Returns 1-by-n.
 %
-%   Each pair dispatches recursively to cosSimExpTens, which selects the
-%   appropriate scalar form (MA or single multiset) based on the entries'
-%   tags. Mixed-kind pairs are not prevented at this level; compatibility
-%   is checked downstream. `WindowedMaetDensity` entries are rejected
-%   at the top of cosSimExpTens (use windowedTensorSimilarity instead).
+%   Pairwise (cell, cell) mode dispatches recursively to cosSimExpTens;
+%   no operand repeats there, so no self-IP memo applies. The two
+%   broadcast shapes instead call the scalar-pair dispatcher directly
+%   with a memo cache for the shared operand, so its self inner product
+%   is paid once across the whole sweep (and, under
+%   normalize = 'oneSidedDenom' with the shared operand on the left,
+%   not at all). Mixed-kind pairs are not prevented at this level;
+%   compatibility is checked downstream. `WindowedMaetDensity` entries
+%   are rejected at the top of cosSimExpTens (use
+%   windowedTensorSimilarity instead).
 %
 %   The ``normalize`` argument is forwarded to each per-pair
-%   cosSimExpTens call so every list entry uses the same denominator.
+%   computation so every list entry uses the same denominator.
 
     aIsCell = iscell(a);
     bIsCell = iscell(b);
@@ -1337,6 +1630,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
 
     n = numel(cellArg);
     sCell = cell(1, n);
+    cacheScalar = localSelfIpFromStruct(scalarArg);
     for i = 1:n
         if ~isstruct(cellArg{i})
             error('cosSimExpTens:listNonStruct', ...
@@ -1344,14 +1638,60 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
                  'structs from buildExpTens; entry %d is not a struct.'], i);
         end
         if scalarLeft
-            sCell{i} = cosSimExpTens(scalarArg, cellArg{i}, ...
-                                     'normalize', normalize, ...
-                                     'verbose', verbose);
+            [sCell{i}, cacheScalar] = localScalarPairDispatch( ...
+                scalarArg, cellArg{i}, normalize, verbose, ...
+                cacheScalar, localSelfIpEmpty(), true);
         else
-            sCell{i} = cosSimExpTens(cellArg{i}, scalarArg, ...
-                                     'normalize', normalize, ...
-                                     'verbose', verbose);
+            [sCell{i}, cacheScalar] = localScalarPairDispatch( ...
+                cellArg{i}, scalarArg, normalize, verbose, ...
+                localSelfIpEmpty(), cacheScalar, false);
         end
+    end
+end
+
+
+function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
+    verbose, cacheX, cacheY, sharedIsX)
+%LOCALSCALARPAIRDISPATCH  One density-struct pair with memo threading.
+%
+%   Replicates the scalar dispatch cosSimExpTens applies to a
+%   two-struct call (the single-multiset corner prunes both operands
+%   before the shared multi-attribute inner product; every other shape
+%   goes straight to it), with method / cancellationThreshold /
+%   truncationSigmas at their defaults --- exactly what the previous
+%   per-pair recursion through the public entry point produced, which
+%   forwarded only ``normalize`` and ``verbose``. Returns the shared
+%   operand's updated memo cache (its side selected by SHAREDISX) so
+%   the list loop can thread it.
+
+    if ~isfield(dx, 'tag') || ~isfield(dy, 'tag')
+        error('cosSimExpTens:untaggedStruct', ...
+            'Both density structs must carry a ''tag'' field.');
+    end
+    if strcmp(dx.tag, 'WindowedMaetDensity') ...
+            || strcmp(dy.tag, 'WindowedMaetDensity')
+        error('cosSimExpTens:windowedNotSupported', ...
+              ['cosSimExpTens does not accept WindowedMaetDensity ' ...
+               'operands. Use windowedTensorSimilarity(densQuery, densContext, ' ...
+               'windowSpec, offsets) --- pass a single-column offsets ' ...
+               'vector for the scalar single-offset case, or a dim x M ' ...
+               'matrix for the M-offset sweep.']);
+    end
+    if ~strcmp(dx.tag, 'MaetDensity') || ~strcmp(dy.tag, 'MaetDensity')
+        error('cosSimExpTens:tagMismatch', ...
+            ['Both density structs must carry the ''MaetDensity'' ' ...
+             'tag. Got %s and %s.'], dx.tag, dy.tag);
+    end
+    if internal.isSingleMultiset(dx) && internal.isSingleMultiset(dy)
+        dx = internal.prunedExpTens(dx);
+        dy = internal.prunedExpTens(dy);
+    end
+    [s, cacheX, cacheY] = localCosSimMA(dx, dy, 'auto', normalize, ...
+        1e-12, verbose, [], cacheX, cacheY);
+    if sharedIsX
+        cacheShared = cacheX;
+    else
+        cacheShared = cacheY;
     end
 end
 
@@ -1690,4 +2030,96 @@ function [p, w] = localExtractFromKey(key, nMax, hasWeights)
     else
         w = [];
     end
+end
+
+% =========================================================================
+%  Self-IP memo helpers. A memo cache is a struct with parallel fields
+%  'keys' (1-by-n cellstr) and 'vals' (1-by-n double), keyed by
+%  localSelfIpKey. It is carried by value: within one cosSimExpTens
+%  call the sweep loops thread it across pairs, and the density-struct
+%  scalar form optionally returns it attached to the operand structs
+%  (a 'selfIP' field) so a caller's own loop can thread it too.
+% =========================================================================
+
+function cache = localSelfIpEmpty()
+%LOCALSELFIPEMPTY  Fresh, empty self-IP memo cache.
+    cache = struct('keys', {{}}, 'vals', []);
+end
+
+
+function cache = localSelfIpFromStruct(d)
+%LOCALSELFIPFROMSTRUCT  Read a memo cache from a density struct's
+%   'selfIP' field, or return an empty cache when the field is absent
+%   or malformed (an unrecognised shape simply recomputes; it can never
+%   produce a wrong value).
+    if isstruct(d) && isfield(d, 'selfIP') && isstruct(d.selfIP) ...
+            && isfield(d.selfIP, 'keys') && isfield(d.selfIP, 'vals') ...
+            && iscell(d.selfIP.keys) ...
+            && numel(d.selfIP.keys) == numel(d.selfIP.vals)
+        cache = d.selfIP;
+    else
+        cache = localSelfIpEmpty();
+    end
+end
+
+
+function key = localSelfIpKey(route, tsResolved, extra)
+%LOCALSELFIPKEY  Memo key for a self inner product.
+%
+%   Carries everything the value depends on beyond the density's own
+%   contents: the route (the Bulger and Möbius conventions differ by
+%   constant prefactors that cancel only within one route's triple),
+%   the resolved truncation budget, and any route-specific choices
+%   (EXTRA --- the Möbius route's per-attribute closed-form-vs-grid
+%   selections, which change the per-attribute prefactor). Chunking
+%   granularity is deliberately not keyed: it perturbs only the
+%   floating-point accumulation order, within the toolbox-wide
+%   <= 1e-12 parity discipline.
+    key = sprintf('%s|%.17g|%s', route, tsResolved, extra);
+end
+
+
+function [hit, val] = localSelfIpGet(cache, key)
+%LOCALSELFIPGET  Look up a memoised self inner product.
+    idx = find(strcmp(cache.keys, key), 1);
+    hit = ~isempty(idx);
+    if hit
+        val = cache.vals(idx);
+    else
+        val = [];
+    end
+end
+
+
+function cache = localSelfIpSet(cache, key, val)
+%LOCALSELFIPSET  Store a self inner product under its key.
+    idx = find(strcmp(cache.keys, key), 1);
+    if isempty(idx)
+        cache.keys{end + 1} = key;
+        cache.vals(end + 1) = val;
+    else
+        cache.vals(idx) = val;
+    end
+end
+
+
+function hit = localSelfIpHas(cache, key)
+%LOCALSELFIPHAS  True when the key is memoised.
+    hit = any(strcmp(cache.keys, key));
+end
+
+
+function hit = localSelfIpHasRoute(cache, route)
+%LOCALSELFIPHASROUTE  True when any entry of the given route is memoised.
+    hit = any(strncmp(cache.keys, [route '|'], numel(route) + 1));
+end
+
+
+function cache = localSelfIpPurgeRoute(cache, route)
+%LOCALSELFIPPURGEROUTE  Drop every entry of the given route (used when
+%   the post-hoc guard rejects a Möbius run, so a broken run never
+%   seeds the memo).
+    keep = ~strncmp(cache.keys, [route '|'], numel(route) + 1);
+    cache.keys = cache.keys(keep);
+    cache.vals = cache.vals(keep);
 end

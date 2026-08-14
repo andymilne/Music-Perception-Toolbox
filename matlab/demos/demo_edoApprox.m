@@ -36,7 +36,7 @@ nMin = 2;
 nMax = 102;
 
 % Expectation tensor parameters
-sigma  = 1.5;      % Gaussian smoothing width (cents)
+sigma  = 6;      % Gaussian smoothing width (cents)
 r      = 2;       % dyad expectation tensor
 isRel  = 1;       % relative (transposition-invariant)
 isPer  = 1;       % periodic (pitch-class equivalence)

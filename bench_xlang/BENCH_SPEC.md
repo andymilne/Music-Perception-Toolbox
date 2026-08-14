@@ -64,3 +64,50 @@ and prints:
 - Time ratio: `matlab_elapsed_s / python_elapsed_s` per row.
 - Flags rows where value disagreement exceeds a tolerance or time
   ratio exceeds a factor-of-10 in either direction.
+
+## Sweep and cost-model benches (v2.2 sweep work)
+
+`bench_sweep.{py,m}` time the point-set query sweep (all-r = 1,
+one value per event) in three variants — `broadcast` (the batched
+kernel pass), `loop_memo` (scalar calls with the self-IP memo carried:
+object persistence in Python, the cache-carrying outputs in MATLAB),
+and `loop_fresh` (scalar calls with no cross-pair memo) — under both
+normalisations, at N in {300, 1200, 5000} with M = 100 three-event
+queries. Inputs are deterministic formulae shared by both languages;
+the `checksum` column (sum of the sweep's similarities) is the
+cross-language value-parity check, and `compare_sweep.py` enforces it
+at 1e-9 relative when joining the CSVs. Timing uses each language's
+repeated-measurement helper (`adaptive_time` / `internal.timeRepeated`);
+every Python variant's timed closure is one complete operation from a
+cold memo — broadcast and `loop_memo` clear the caches at the top of
+each timed call, `loop_fresh` before every pair — matching the MATLAB
+bench, whose value-semantics memo cannot cross calls. Python's
+object-attached memo would otherwise persist across the timer's
+repetitions, and the `cosine` rows would compare Python-warm against
+MATLAB-cold (the state of the first delivered revision, whose cosine
+ratios were confounded exactly so). In the MATLAB cost-model bench the
+warm regimes seed the memo once outside the timed closure via the
+cache-carrying outputs.
+
+`bench_cost_model.{py,m}` audit the self-matrix skip flags added to the
+Bulger-vs-Möbius pricing. Part 1 is deterministic: the selector is
+called across symmetric and asymmetric (broadcast-shaped: a large
+shared operand against a small fixed query) grids with the flags off
+and on, and the rows where the routing flips are the cells the flags
+exist for — on the symmetric grid both prices shrink near-
+proportionally, so flips concentrate on the asymmetric grid, where the
+shared self matrix dominates the full-triple Bulger price. Part 2
+times `method='mobius'` under three memo regimes (three, two, and one
+matrices computed) to measure per-matrix costs against the pricing's
+`n_matrices / 3` scaling of the fitted whole-triple constants. Part 3
+times both forced routes at each flip cell in the warm-selves regime;
+a `MISPICK` verdict means the flags-on choice was not the measured
+faster route at that near-crossover cell. Flip cells are the model's
+weakest points by construction and the deliberate bias is toward
+Bulger (the cheap-to-mispick side), so isolated small-magnitude
+mispicks are expected; systematic large ones on the reference machine
+indicate the per-language constants want a refit.
+
+The per-language fitted constants make the two languages' flip cells
+legitimately different; `compare_sweep.py` reports routing differences
+as informative, not as defects.

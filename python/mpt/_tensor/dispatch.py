@@ -597,7 +597,8 @@ def _select_ma_inner_product_method(
         # working-set bytes ≈ n_J · (2·Σr_a) · 8 (perm + centres + index
         # arrays, mirroring the single-multiset row-factor), capped to avoid overflow.
         if n_J_max * (2 * max(dim_sum, 1)) * 8 > _CENTRES_WORKING_SET_SOFT_BUDGET:
-            return 'mobius'
+            return ('mobius', float('nan'), float('nan')) \
+                if return_costs else 'mobius'
     # Wrap-based override for rel-per attributes at high sigma/P (v3+).
     # ``wrap='single-image'`` means the user wants (A) minimum-image
     # pairwise-wrap, computed by Bulger's method. ``wrap='full-image'``

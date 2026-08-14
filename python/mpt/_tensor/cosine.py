@@ -1906,6 +1906,79 @@ def _ip_full_ma(
 
 
 
+def _gram_is_accurate_enough(U, V, sigma, truncation_sigmas):
+    """Whether the Gram form's rounding sits inside the accuracy floor.
+
+    The Gram identity forms ``|u|^2 + |v|^2 - 2 u.v``, so its rounding is
+    relative to the size of those squares rather than to the distance
+    they encode. After the shared shift the coordinates are of the order
+    of the attribute's own spread ``s``, giving an error in the exponent
+    of about ``eps * s^2 / (4 sigma^2)``. That is negligible whenever
+    the spread is comparable to sigma, and grows as sigma shrinks
+    against it --- measured at 1.6e-12 for a spread of ~20 at
+    ``sigma = 0.1``. Compared against the floor ``truncation_sigmas``
+    implies, so a caller asking for accuracy-floor accuracy gets the
+    difference form and one asking for the default gets the fast one.
+    """
+    from .._defaults import truncation_floor
+
+    s2 = 0.0
+    for M in (U, V):
+        if M.size:
+            origin = float(U.flat[0])
+            s2 = max(s2, float(np.max(np.abs(M - origin))) ** 2)
+    if s2 == 0.0:
+        return True
+    predicted = np.finfo(np.float64).eps * s2 / (4.0 * float(sigma) ** 2)
+    return predicted <= 0.1 * truncation_floor(truncation_sigmas)
+
+
+def _gram_quadratic_form(U, V, block):
+    """``Q(u_j - v_k)`` for a non-periodic attribute, without the tensor.
+
+    In every non-periodic mode the quadratic form is a squared Euclidean
+    distance between (possibly quotiented) coordinates, so it is a Gram
+    matrix: ``|u|^2 + |v|^2 - 2 u.v``, one ``gemm`` in place of an
+    ``(r, nJ, nK)`` difference array. ``block`` selects the quotient ---
+    ``0`` for absolute (raw coordinates), the tuple length for relative
+    (the whole tuple's all-ones removed), or the co-transposition unit
+    size for a nested attribute (each block's own all-ones removed, the
+    form being the sum over blocks).
+
+    Both operands are shifted by one of the attribute's own values
+    first. The Gram identity cancels two large numbers when the
+    coordinates sit far from the origin, which costs significant digits
+    -- measured against the difference form, the log-kernel departed by
+    4e-3 at magnitude 1e6 and 5e-1 at 1e7. Everything here depends on
+    the operands only through their differences, so a shift shared by
+    both is exact; taking it from the data rather than from a mean makes
+    the subtraction itself exact as well (Sterbenz), where a mean would
+    inject a rounding error at just those magnitudes.
+    """
+    r = int(U.shape[0])
+    origin = float(U.flat[0]) if U.size else 0.0
+    U = U - origin
+    V = V - origin
+    if block <= 0 or block >= r:
+        parts = [(U, V)] if block <= 0 else [
+            (U - U.mean(axis=0)[None, :], V - V.mean(axis=0)[None, :])]
+    else:
+        parts = []
+        for b in range(r // block):
+            sl = slice(b * block, (b + 1) * block)
+            Ub, Vb = U[sl], V[sl]
+            parts.append((Ub - Ub.mean(axis=0)[None, :],
+                          Vb - Vb.mean(axis=0)[None, :]))
+    Q = None
+    for Ub, Vb in parts:
+        blk = (np.einsum("ij,ij->j", Ub, Ub)[:, None]
+               + np.einsum("ij,ij->j", Vb, Vb)[None, :]
+               - 2.0 * (Ub.T @ Vb))
+        Q = blk if Q is None else Q + blk
+    np.maximum(Q, 0.0, out=Q)
+    return Q
+
+
 def _ma_log_kernel(
     u_cell, v_cell, n_j, n_k,
     A, r_vec, sigma, is_rel, is_per, period,
@@ -1933,9 +2006,21 @@ def _ma_log_kernel(
     log_kernel = np.zeros((int(n_j), int(n_k)), dtype=np.float64)
     for a in range(A):
         r_a = int(r_vec[a])
+        r_in = 0 if inner_r is None else int(inner_r[a])
+
+        # Non-periodic modes: the quadratic form is a squared Euclidean
+        # distance, so it comes out of one gemm rather than an
+        # (r_a, nJ, nK) difference array. Periodic attributes keep the
+        # tensor path below, where the wrap makes the form non-Euclidean.
+        if not bool(is_per[a]) and _gram_is_accurate_enough(
+                u_cell[a], v_cell[a], float(sigma[a]), truncation_sigmas):
+            block = r_in if r_in > 0 else (r_a if bool(is_rel[a]) else 0)
+            Q_a = _gram_quadratic_form(u_cell[a], v_cell[a], block)
+            log_kernel = log_kernel - Q_a / (4 * float(sigma[a]) ** 2)
+            continue
+
         D = u_cell[a][:, :, None] - v_cell[a][:, None, :]  # (r_a, nJ, nK)
 
-        r_in = 0 if inner_r is None else int(inner_r[a])
         if r_in > 0:
             # Inner unit: block-diagonal sum of per-event quotient forms.
             # _compute_Q applies the pairwise wrap inside, so the full

@@ -78,7 +78,7 @@ class SweepNotEligible(Exception):
     """
 
 
-def sweep_eligibility(dens_x, dens_y, offsets):
+def sweep_eligibility(dens_x, dens_y, offsets, truncation_sigmas=None):
     """Whether ``offsets`` can be reduced to a mixture on these densities.
 
     Returns ``(True, None)`` when the reduction applies, and
@@ -109,21 +109,24 @@ def sweep_eligibility(dens_x, dens_y, offsets):
     inner_r = _inner_r_vec(dens_x)
     swept = np.any(off != 0.0, axis=1)
     for a in range(A):
-        # Relative-and-periodic attributes are refused whether or not
-        # they are swept. Above sigma/P ~ 0.03 the pairwise and orbit
-        # routes compute genuinely different measures there --- the
-        # single-wrap and the transposition-average kernel --- and the
-        # reduction's fixed factor commits to the single-wrap form. A
-        # sweep must not decide that question silently on the caller's
-        # behalf, so the choice is left with the per-offset path, where
-        # ``method`` selects it explicitly.
-        if bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a]):
-            return False, (
-                f"attribute {a} is both relative and periodic; the "
-                f"single-wrap and transposition-average kernels differ "
-                f"there, and the reduction would fix that choice silently"
-            )
         if not swept[a]:
+            # A relative-and-periodic attribute contributes an
+            # offset-independent factor, and the reduction computes it
+            # through the pairwise wrapped-difference form. That form is
+            # one of two measures which coincide only below a sigma/P
+            # limit, so the same limit the inner-product dispatcher uses
+            # governs acceptance here: below it the two agree inside the
+            # floor ``truncation_sigmas`` implies, and there is no choice
+            # left to make silently. Above it, an explicit
+            # ``wrap='single-image'`` names the measure this form
+            # computes and is honoured; the default full-image reading
+            # is refused, and the per-offset path decides it by
+            # ``method``.
+            if bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a]):
+                ok, why = _rel_per_measure_admissible(
+                    dens_x, a, truncation_sigmas)
+                if not ok:
+                    return False, why
             continue
         if bool(dens_x.is_rel[a]):
             return False, (
@@ -139,8 +142,11 @@ def sweep_eligibility(dens_x, dens_y, offsets):
             )
         if inner_r is not None and int(inner_r[a]) > 0:
             return False, (
-                f"attribute {a} is nested and swept; its quadratic form is "
-                f"a block-diagonal quotient, not a sum of squared components"
+                f"attribute {a} is nested at an inner or intermediate "
+                f"co-transposition unit and swept; each block removes its "
+                f"own all-ones, so a uniform translation cancels within "
+                f"every block and there is nothing to sweep (the attribute "
+                f"is supported when it is not translated)"
             )
     for d, nm in ((dens_x, "context"), (dens_y, "query")):
         if getattr(d, "kernel_cov", None) is not None:
@@ -160,10 +166,61 @@ def sweep_eligibility(dens_x, dens_y, offsets):
 # -------------------------------------------------------------------
 
 
-def _tuple_means_and_centred(u):
-    """Split an ``(r, n)`` tuple array into means and centred residuals."""
-    mean = u.mean(axis=0)
-    return mean, u - mean[None, :]
+def _rel_per_measure_admissible(dens, a, truncation_sigmas):
+    """Whether an untranslated relative-periodic attribute is unambiguous.
+
+    The wrapped-difference (single-wrap) form and the transposition-
+    average (all-image) form are different measures that agree only at
+    small ``sigma / P``. The limit is not a constant of this module: it
+    is the one the inner-product dispatcher already calibrates, which
+    tightens as ``truncation_sigmas`` asks for more accuracy and is
+    capped by the positive-definiteness ceiling. Reusing it keeps the
+    sweep held to the same standard as every other route.
+    """
+    from .dispatch import _orbit_sigma_over_p_threshold
+
+    sigma = float(dens.sigma[a])
+    period = float(dens.period[a]) if dens.period[a] is not None else 0.0
+    if period <= 0.0:
+        return True, None
+    sop = sigma / period
+    limit, binding = _orbit_sigma_over_p_threshold(
+        truncation_sigmas, return_binding=True)
+    if sop <= limit:
+        return True, None
+    wrap_a = "full-image"
+    wrap_all = getattr(dens, "wrap", None)
+    if wrap_all is not None and a < len(wrap_all):
+        wrap_a = str(wrap_all[a])
+    if wrap_a == "single-image":
+        # The caller has named the measure this form computes.
+        return True, None
+    return False, (
+        f"attribute {a} is relative and periodic at sigma/P = {sop:.3f}, "
+        f"above the {binding} limit of {limit:.3f} for this "
+        f"truncation_sigmas; the single-wrap and transposition-average "
+        f"kernels differ there, so pass wrap='single-image' to name the "
+        f"former or compare offset by offset, where method selects it"
+    )
+
+
+
+def _shape_blocks(u, block):
+    """Within-block centred residuals of an ``(r, n)`` tuple array.
+
+    ``block`` is the row count of one co-transposition unit: 0 (or the
+    whole tuple) for a flat attribute, or the nested attribute's inner
+    unit size. The quadratic form removes each block's own all-ones, so
+    the shape term is the sum over blocks of the squared distance
+    between block-centred residuals --- one Gram matrix per block.
+    """
+    r = int(u.shape[0])
+    if block <= 0 or block >= r:
+        return [u - u.mean(axis=0)[None, :]]
+    n_blocks = r // block
+    return [u[b * block:(b + 1) * block]
+            - u[b * block:(b + 1) * block].mean(axis=0)[None, :]
+            for b in range(n_blocks)]
 
 
 def _splittable(dens, inner_r, a):
@@ -175,13 +232,15 @@ def _splittable(dens, inner_r, a):
     mode. Absolute contributes both terms; relative contributes the
     shape term alone, since the relative quadratic form *is* the shape
     term --- a uniform translation cancels in every within-tuple
-    difference, which is the same statement as having no placement term.
+    difference, which is the same statement as having no placement term. A nested
+    attribute resolved to an inner or intermediate co-transposition unit
+    is that same case read per block: its form is the sum over blocks of
+    each block's relative form, so it contributes one shape term per
+    block and no placement term, and cannot be swept either.
     Handling both here keeps the generic log-kernel out of everything
     but the periodic and nested cases.
     """
     if bool(dens.is_per[a]):
-        return False
-    if inner_r is not None and int(inner_r[a]) > 0:
         return False
     kc = getattr(dens, "kernel_cov", None)
     return kc is None or kc[a] is None
@@ -212,8 +271,13 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
     # weight and it costs the mixture no axis at all --- which keeps the
     # cull as sharp as it would be if the attribute were handled by the
     # generic log-kernel, without calling it.
-    swept_idx = [a for a in split_idx
-                 if swept[a] and not bool(dens_x.is_rel[a])]
+    blocks = {a: (int(inner_r[a]) if inner_r is not None else 0)
+              for a in split_idx}
+    # An attribute carries a placement term only where its quadratic
+    # form keeps the tuple's own mean: absolute, and not block-quotiented.
+    has_placement = {a: (not bool(dens_x.is_rel[a])) and blocks[a] == 0
+                     for a in split_idx}
+    swept_idx = [a for a in split_idx if swept[a] and has_placement[a]]
     still_idx = [a for a in split_idx if not swept[a]]
     fixed_idx = [a for a in range(A) if a not in split_idx]
 
@@ -231,8 +295,26 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
     # and within-tuple-centred residuals (which set the shape weights).
     means_u, means_v, cu, cv = {}, {}, {}, {}
     for a in split_idx:
-        means_u[a], cu[a] = _tuple_means_and_centred(u_perm[a])
-        means_v[a], cv[a] = _tuple_means_and_centred(v_comb[a])
+        # Everything below depends on the two operands only through
+        # their differences, so a shift shared by both is exact --- and
+        # it keeps the shape term well conditioned. That term is a Gram
+        # form, ||u||^2 + ||v||^2 - 2u.v, whose cancellation costs
+        # significant digits when the coordinates are far from the
+        # origin: measured against the difference form, the log-kernel
+        # departed by 4e-3 at magnitude 1e6 and 5e-1 at 1e7, and sat at
+        # the floor once shifted. The shift is one of the attribute's
+        # own values rather than their mean, because a data value is
+        # exactly representable and subtracting it from a nearby value
+        # is itself exact (Sterbenz), where a mean would inject a
+        # rounding error at just those magnitudes.
+        origin = float(u_perm[a].flat[0]) if u_perm[a].size else 0.0
+        u_a = u_perm[a] - origin
+        v_a = v_comb[a] - origin
+        cu[a] = _shape_blocks(u_a, blocks[a])
+        cv[a] = _shape_blocks(v_a, blocks[a])
+        if has_placement[a]:
+            means_u[a] = u_a.mean(axis=0)
+            means_v[a] = v_a.mean(axis=0)
 
     if fixed_idx:
         inner_r_fixed = (None if inner_r is None
@@ -262,14 +344,19 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
             inv = 1.0 / (4.0 * float(sigma[a]) ** 2)
             # Shape term: ||cu_j - cv_k||^2 as a Gram matrix, avoiding
             # the (r_a, n_j, n_k) difference tensor entirely.
-            U, V = cu[a], cv[a][:, c0:c1]
-            spread = (np.einsum("ij,ij->j", U, U)[:, None]
-                      + np.einsum("ij,ij->j", V, V)[None, :]
-                      - 2.0 * (U.T @ V))
+            spread = None
+            for U, V_full in zip(cu[a], cv[a]):
+                V = V_full[:, c0:c1]
+                blk = (np.einsum("ij,ij->j", U, U)[:, None]
+                       + np.einsum("ij,ij->j", V, V)[None, :]
+                       - 2.0 * (U.T @ V))
+                spread = blk if spread is None else spread + blk
             np.maximum(spread, 0.0, out=spread)
             log_fixed -= spread * inv
-            if bool(dens_x.is_rel[a]):
-                # No placement term: the relative form is the shape term.
+            if not has_placement[a]:
+                # No placement term: for a relative attribute the form
+                # *is* the shape term, and for a block-quotiented nested
+                # one each block removes its own all-ones.
                 continue
             dbar = means_u[a][:, None] - means_v[a][None, c0:c1]
             if a in swept_set:
@@ -414,6 +501,314 @@ def _evaluate_dense(centres, log_w, amp, scales, threshold, offsets):
 
 
 
+#: Work-unit ratio at which the orbit route overtakes the mixture.
+#:
+#: The two estimates count different things --- tuple pairs for the
+#: mixture, orbit contractions over the value kernel for the orbit route
+#: --- so the crossover is not at a ratio of one, and the constant
+#: converts between them. Measured on a single-attribute sweep, minimum
+#: of three runs, at (K, r) of (6, 3), (6, 4), (8, 3), (8, 4), (9, 4),
+#: (10, 4), and (10, 5): the routes came out level at a ratio near 40,
+#: with the mixture ahead by 4.6x at 270 and 22x at 443, and the orbit
+#: route ahead by 4.5x at 9.4, 16x at 4.2, and 33x at 2.4. Only the
+#: constant is machine-specific; the scaling either side of it is not,
+#: and near the crossover the two routes are within a small factor, so
+#: a misplaced choice there costs little.
+_ORBIT_WORK_RATIO = 64.0
+
+#: Tuple-pair count below which the mixture always wins.
+#:
+#: The ratio above models per-unit work, not the orbit route's fixed
+#: per-call cost, so on small problems it can favour the orbit route
+#: where the mixture is in fact several times faster. Measured crossover
+#: sat between (6, 4) at 8.6e5 pairs, where the mixture led by 22x, and
+#: (8, 3) at 3.0e6 pairs, where the orbit route led.
+_ORBIT_MIN_PAIRS = 1.0e6
+
+
+
+# -------------------------------------------------------------------
+#  Orbit route
+# -------------------------------------------------------------------
+
+
+def orbit_sweep_supported(dens_x, dens_y, offsets=None,
+                          truncation_sigmas=None):
+    """Whether the orbit route can carry this sweep.
+
+    The route evaluates the Möbius/orbit inner product at the shifted
+    values, so it never forms the placement/shape split and is
+    indifferent to periodicity, which the wrapped kernel absorbs. It
+    computes both self inner products through the same per-attribute
+    routine as the numerator, so the two carry one convention and a
+    relative attribute is admissible here --- untranslated, since a
+    uniform shift cancels in every within-tuple difference either way.
+
+    On a relative-*and*-periodic attribute the route computes the
+    transposition-average (all-image) kernel. Below the dispatcher's
+    sigma/P limit that agrees with the single-wrap form inside the
+    accuracy floor. Above it the two differ, and the attribute's
+    ``wrap`` decides: ``'full-image'`` (the default) is the measure this
+    route computes and is accepted, while ``'single-image'`` names the
+    other one and is declined, exactly as the per-offset dispatcher
+    resolves the same question.
+    """
+    from .dispatch import _inner_r_vec, _orbit_sigma_over_p_threshold
+
+    A = int(dens_x.n_attrs)
+    inner_r = _inner_r_vec(dens_x)
+    swept = (np.zeros(A, dtype=bool) if offsets is None
+             else np.any(np.asarray(offsets) != 0.0, axis=1))
+    for a in range(A):
+        if inner_r is not None and int(inner_r[a]) > 0:
+            return False
+        if bool(dens_x.is_rel[a]) and swept[a]:
+            # A uniform translation cancels in every within-tuple
+            # difference; there is nothing to sweep.
+            return False
+        if bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a]):
+            period = (float(dens_x.period[a])
+                      if dens_x.period[a] is not None else 0.0)
+            if period > 0.0:
+                sop = float(dens_x.sigma[a]) / period
+                if sop > _orbit_sigma_over_p_threshold(truncation_sigmas):
+                    wrap_all = getattr(dens_x, "wrap", None)
+                    wrap_a = ("full-image" if wrap_all is None
+                              or a >= len(wrap_all) else str(wrap_all[a]))
+                    if wrap_a != "full-image":
+                        return False
+    for d in (dens_x, dens_y):
+        if getattr(d, "kernel_cov", None) is not None:
+            if any(c is not None for c in d.kernel_cov):
+                return False
+    return True
+
+
+def _orbit_attr_matrix_sweep(Px, Wx, Py, Wy, sigma, r, mus, is_per, period,
+                             wrap, truncation_sigmas):
+    """Per-attribute inner-product matrices at every offset.
+
+    Returns ``(N_x, N_y, M)``: entry ``(n_x, n_y, m)`` is the
+    per-attribute inner product between event ``n_x`` of *X* and event
+    ``n_y`` of *Y* translated by ``mus[m]``. This is the sweep form of
+    :func:`~mpt._tensor._mobius_inner._ma_per_attr_inner_matrix`'s
+    absolute branch: the (event pair, offset) index rides the orbit
+    routine's batch axis, so the tuple enumeration never appears and
+    the cost scales with the orbit count rather than with
+    ``[C(K, r) r!]^2``.
+    """
+    from .._defaults import get_default
+    from .._mobius import inner_product_orbit_pw_batched
+    from .._utils import kernel_chunk_bytes_resolved
+    from .._wrapped_kernel import wrapped_gaussian_1d
+    from ._mobius_inner import _trunc_kernel_exp, _zero_pad_nan
+
+    Px, Wx, Py, Wy = _zero_pad_nan(Px, Wx, Py, Wy)
+    K_x, N_x = Px.shape
+    K_y, N_y = Py.shape
+    M = int(mus.size)
+    prefactor = (sigma * np.sqrt(np.pi)) ** r
+    use_orbit = int(r) >= 2      # r = 1 has no orbit decomposition
+    out = np.empty((N_x, N_y, M), dtype=np.float64)
+
+    full_image = bool(is_per) and str(wrap) == "full-image"
+    if full_image:
+        trunc_eff = float(get_default("truncation_sigmas")
+                          if truncation_sigmas is None
+                          else truncation_sigmas)
+
+    # Chunk the offsets: the transient kernel block is
+    # (K_x, N_x, K_y, N_y, chunk), with a few live copies.
+    per_offset = 4 * K_x * N_x * K_y * N_y * 8
+    chunk = max(1, int(kernel_chunk_bytes_resolved() // max(per_offset, 1)))
+
+    w_a = np.broadcast_to(Wx.T[:, None, :], (N_x, N_y, K_x))
+    w_b = np.broadcast_to(Wy.T[None, :, :], (N_x, N_y, K_y))
+
+    for m0 in range(0, M, chunk):
+        m1 = min(m0 + chunk, M)
+        mc = m1 - m0
+        # (K_x, N_x, K_y, N_y, mc)
+        diffs = (Px[:, :, None, None, None]
+                 - Py[None, None, :, :, None]
+                 - mus[m0:m1][None, None, None, None, :])
+        if full_image:
+            K_tens = wrapped_gaussian_1d(
+                diffs, sigma, period, trunc_eff, exponent_denominator=4,
+            )
+        else:
+            if is_per:
+                diffs = diffs - period * np.floor(diffs / period + 0.5)
+            K_tens = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
+        # -> (N_x, N_y, mc, K_x, K_y), then flatten the batch axis.
+        K_pairs = np.transpose(K_tens, (1, 3, 4, 0, 2)).reshape(
+            N_x * N_y * mc, K_x, K_y,
+        )
+        wa = np.broadcast_to(
+            w_a[:, :, None, :], (N_x, N_y, mc, K_x),
+        ).reshape(-1, K_x)
+        wb = np.broadcast_to(
+            w_b[:, :, None, :], (N_x, N_y, mc, K_y),
+        ).reshape(-1, K_y)
+        if use_orbit:
+            flat = inner_product_orbit_pw_batched(
+                K_pairs, wa, wb, r, prefactor=prefactor,
+            )
+        else:
+            # r = 1: each event contributes a single kernel, so the
+            # per-attribute matrix is the weighted kernel sum directly.
+            flat = prefactor * np.einsum(
+                "gx,gxy,gy->g", wa, K_pairs, wb, optimize=True)
+        out[:, :, m0:m1] = flat.reshape(N_x, N_y, mc)
+    return out
+
+
+def _orbit_sweep(dens_x, dens_y, off, truncation_sigmas):
+    """Numerator of the sweep via the orbit decomposition.
+
+    The multi-attribute inner product is a sum over event pairs of a
+    product over attributes, so each attribute contributes an
+    ``(N_x, N_y, M)`` block and the blocks multiply. An attribute that
+    is never translated contributes the same block at every offset, so
+    it is computed once and broadcast.
+    """
+    from ._mobius_inner import _ma_per_attr_inner_matrix
+
+    A = int(dens_x.n_attrs)
+    M = off.shape[1]
+    P = np.ones((int(dens_x.n), int(dens_y.n), M), dtype=np.float64)
+    for a in range(A):
+        sigma = float(dens_x.sigma[a])
+        r_a = int(dens_x.r[a])
+        is_per = bool(dens_x.is_per[a])
+        period = float(dens_x.period[a]) if dens_x.period[a] is not None else 0.0
+        wrap_a = (str(dens_x.wrap[a])
+                  if getattr(dens_x, "wrap", None) is not None
+                  else "full-image")
+        Px, Wx = dens_x.p_attr[a], dens_x.w[a]
+        Py, Wy = dens_y.p_attr[a], dens_y.w[a]
+        if not np.any(off[a] != 0.0):
+            block = _ma_per_attr_inner_matrix(
+                Px, Wx, Py, Wy, sigma, r_a, bool(dens_x.is_rel[a]),
+                is_per, period,
+                truncation_sigmas=truncation_sigmas, wrap=wrap_a,
+            )
+            P *= block[:, :, None]
+        else:
+            P *= _orbit_attr_matrix_sweep(
+                Px, Wx, Py, Wy, sigma, r_a, off[a], is_per, period,
+                wrap_a, truncation_sigmas,
+            )
+    return P.sum(axis=(0, 1))
+
+
+
+def _orbit_self_ip(dens, truncation_sigmas):
+    """<T, T> through the same per-attribute routine as the numerator.
+
+    The orbit path's own similarity triple chooses per attribute between
+    the closed-form centres route and the grid contraction, and the two
+    differ by a constant per-attribute prefactor that cancels only
+    within one route's own triple. Taking the self terms from the
+    routine the numerator uses keeps numerator and denominator on one
+    convention, and is what lets a relative attribute ride this route at
+    all.
+    """
+    from ._mobius_inner import _ma_per_attr_inner_matrix
+
+    A = int(dens.n_attrs)
+    P = np.ones((int(dens.n), int(dens.n)), dtype=np.float64)
+    for a in range(A):
+        period = (float(dens.period[a])
+                  if dens.period[a] is not None else 0.0)
+        wrap_a = (str(dens.wrap[a])
+                  if getattr(dens, "wrap", None) is not None
+                  else "full-image")
+        P *= _ma_per_attr_inner_matrix(
+            dens.p_attr[a], dens.w[a], dens.p_attr[a], dens.w[a],
+            float(dens.sigma[a]), int(dens.r[a]),
+            bool(dens.is_rel[a]), bool(dens.is_per[a]), period,
+            truncation_sigmas=truncation_sigmas, wrap=wrap_a,
+        )
+    return float(P.sum())
+
+
+def _finalise_orbit_sweep(dx, dy, off, ts, *, normalize, truncation_sigmas,
+                          verbose):
+    """Sweep numerator and denominators, all in one convention."""
+    from .cosine import _finalise_normalisation
+
+    ip_xy = _orbit_sweep(dx, dy, off, truncation_sigmas)
+    ip_yy = _orbit_self_ip(dy, truncation_sigmas)
+    ip_xx = (_orbit_self_ip(dx, truncation_sigmas)
+             if normalize == "cosine" else None)
+    return np.array(
+        [_finalise_normalisation(float(v), ip_xx, ip_yy, normalize)
+         for v in ip_xy],
+        dtype=np.float64,
+    )
+
+
+def _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok):
+    """Pick between the mixture and the orbit route.
+
+    The two scale differently in the same problem. The mixture pays one
+    pass over the tuple pairs --- ``n_J * n_K``, which grows as
+    ``[C(K, r) r!]^2`` --- and must also *store* the survivors, so it is
+    the memory-bound route at high tuple order. The orbit route pays
+    per offset instead, but its unit of work is an orbit contraction
+    over the ``K_x * K_y`` value kernel, with no tuple enumeration
+    anywhere. The comparison below is between those two products.
+    """
+    if not orbit_ok:
+        return "mixture"
+    if not mixture_ok:
+        return "orbit"
+    from .._mobius import get_orbit_table
+
+    n_pairs = float(dx.n_j) * float(dy.n_k)
+    M = float(off.shape[1])
+    A = int(dx.n_attrs)
+    orbit_work = 0.0
+    for a in range(A):
+        if not np.any(off[a] != 0.0):
+            continue
+        r_a = int(dx.r[a])
+        # r = 1 has no orbit decomposition to reduce: the per-attribute
+        # matrix is a plain kernel sum, and the mixture handles that
+        # shape at least as cheaply.
+        if r_a < 2:
+            return "mixture"
+        n_orb = float(len(get_orbit_table(r_a)))
+        k_x = float(dx.p_attr[a].shape[0])
+        k_y = float(dy.p_attr[a].shape[0])
+        orbit_work += n_orb * k_x * k_y * r_a
+    if orbit_work <= 0.0:
+        return "mixture"
+    orbit_total = M * float(dx.n) * float(dy.n) * orbit_work
+
+    # Memory decides before speed does. The mixture must hold its
+    # surviving components --- one centre per swept attribute, plus a
+    # weight and an amplitude, per tuple pair --- and at high tuple
+    # order that array is what fails first, whatever the timings say.
+    from .._utils import kernel_chunk_bytes_resolved
+
+    n_swept = sum(1 for a in range(A) if np.any(off[a] != 0.0))
+    mixture_bytes = n_pairs * (n_swept + 2) * 8.0
+    if mixture_bytes > float(kernel_chunk_bytes_resolved()):
+        return "orbit"
+
+    # Below this the mixture's whole pass is cheap in absolute terms and
+    # the orbit route's fixed per-call overhead --- orbit-table lookup
+    # and |omega_r| contractions, which the ratio above does not model
+    # --- dominates whatever the ratio says.
+    if n_pairs < _ORBIT_MIN_PAIRS:
+        return "mixture"
+    return ("orbit" if orbit_total < _ORBIT_WORK_RATIO * n_pairs
+            else "mixture")
+
+
+
 # -------------------------------------------------------------------
 #  Public entry point
 # -------------------------------------------------------------------
@@ -424,6 +819,7 @@ def sweep_cos_sim_exp_tens(
     dens_y,
     offsets,
     *,
+    method: str = "auto",
     normalize: str = "cosine",
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
@@ -454,6 +850,18 @@ def sweep_cos_sim_exp_tens(
         ``(A, M)`` array of per-attribute translations, or a 1-D
         length-``M`` vector when ``A == 1``. One column per sweep index.
         A row of zeros leaves that attribute untranslated.
+    method : {'auto', 'mixture', 'orbit'}, default 'auto'
+        Which decomposition carries the sweep. ``'mixture'`` is the
+        placement/shape split described above: one pass over the tuple
+        pairs, then a mixture evaluation per offset. ``'orbit'``
+        evaluates the Möbius/orbit inner product at the shifted values,
+        with the (event pair, offset) index riding the orbit routine's
+        batch axis; its cost scales with the orbit count rather than
+        with the tuple-pair count :math:`[C(K, r) r!]^2`, which the
+        mixture must both enumerate and store. ``'auto'`` compares the
+        two costs and picks. The orbit route also covers a swept
+        *periodic* attribute, which the mixture refuses: it never forms
+        the split, so the wrapped kernel absorbs the periodicity.
     normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
         As in :func:`~mpt.cos_sim_exp_tens`. Both self inner products
         are translation-invariant here, so each is computed once for the
@@ -496,24 +904,51 @@ def sweep_cos_sim_exp_tens(
             f"offsets must be 1-D or 2-D; got ndim = {off.ndim}."
         )
 
-    ok, reason = sweep_eligibility(dens_x, dens_y, off)
-    if not ok:
+    if method not in ("auto", "mixture", "orbit"):
         raise ValueError(
-            f"This sweep cannot be reduced to a mixture in the offset: "
-            f"{reason}. Translate the query with translate_attributes "
-            f"and compare offset by offset instead."
+            f"method must be 'auto', 'mixture', or 'orbit'; got {method!r}."
         )
+    # Shape and finiteness are contract violations, not routing
+    # questions, so they are checked before any route is considered.
+    A_in = int(dens_x.n_attrs)
+    if off.shape[0] != A_in:
+        raise ValueError(
+            f"offsets must be an (A, M) array with A = {A_in}; got shape "
+            f"{off.shape}."
+        )
+    if not np.all(np.isfinite(off)):
+        raise ValueError("offsets must be finite.")
 
     dx = dens_x.pruned()
     dy = dens_y.pruned()
-    ok, reason = sweep_eligibility(dx, dy, off)
-    if not ok:
+    mixture_ok, mixture_reason = sweep_eligibility(
+        dx, dy, off, truncation_sigmas)
+    orbit_ok = orbit_sweep_supported(
+        dx, dy, off, truncation_sigmas)
+
+    if method == "auto":
+        chosen = _choose_sweep_route(dx, dy, off, mixture_ok, orbit_ok)
+    else:
+        chosen = method
+    if chosen == "mixture" and not mixture_ok:
         raise ValueError(
             f"This sweep cannot be reduced to a mixture in the offset: "
-            f"{reason}."
+            f"{mixture_reason}. Translate the query with "
+            f"translate_attributes and compare offset by offset instead."
+        )
+    if chosen == "orbit" and not orbit_ok:
+        raise ValueError(
+            "The orbit route does not support a relative, nested, or "
+            "anisotropic attribute in a sweep."
         )
 
     ts = resolve_truncation_sigmas(truncation_sigmas)
+
+    if chosen == "orbit":
+        return _finalise_orbit_sweep(
+            dx, dy, off, ts, normalize=normalize,
+            truncation_sigmas=truncation_sigmas, verbose=verbose,
+        )
     A = int(dx.n_attrs)
     swept = np.any(off != 0.0, axis=1)
     centres, log_w, amp, threshold, swept_idx = _build_mixture(

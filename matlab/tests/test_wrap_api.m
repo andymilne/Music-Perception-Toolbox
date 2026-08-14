@@ -203,6 +203,36 @@ results(end+1, :) = { ...
     abs(cF - cS) < 1e-8};
 
 
+% --- The wrap choice survives density transformations ------------------
+%
+%  Both transformations rebuild the density, and buildExpTens defaults
+%  wrap to 'full-image', so a density built with 'single-image' silently
+%  reverted --- changing the measure rather than the speed. It surfaces
+%  only above the sigma/period threshold, where the two forms diverge,
+%  which is why it went unnoticed: below it the two agree to the floor
+%  and nothing looks wrong.
+
+pW = {[1 5 9 2; 3 7 11 4]};
+wW = {[1 1 0 1; 1 1 0 1]};
+dW = buildExpTens(pW, wW, 1.2, 2, true, true, 12, true, ...
+                  'wrap', 'single-image', 'verbose', false);
+
+dWmat = internal.ensureExpTensExpensive(dW);
+results(end+1, :) = { ...
+    'wrap api: survives materialising the expensive fields', ...
+    strcmp(char(dWmat.wrap{1}), 'single-image')};
+
+dWpruned = internal.prunedExpTens(dW);
+results(end+1, :) = { ...
+    'wrap api: survives event pruning', ...
+    strcmp(char(dWpruned.wrap{1}), 'single-image')};
+
+dWboth = internal.ensureExpTensExpensive(internal.prunedExpTens(dW));
+results(end+1, :) = { ...
+    'wrap api: survives pruning then materialising', ...
+    strcmp(char(dWboth.wrap{1}), 'single-image')};
+
+
 clear wrapCleanup;   % restore warning state via onCleanup
 
 if standalone

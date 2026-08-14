@@ -770,3 +770,38 @@ def test_ma_log_kernel_is_unchanged_by_the_gram_route(is_rel, A):
     exact = _ma_log_kernel(u, v, n_j, n_k, A, *args,
                            truncation_sigmas=np.inf)
     assert np.max(np.abs(fast - exact)) <= 1e-11
+
+
+# -------------------------------------------------------------------
+#  The wrap choice survives density transformations
+# -------------------------------------------------------------------
+
+
+def test_pruning_preserves_the_wrap_choice():
+    """A pruned density must keep the measure it was built with.
+
+    ``pruned()`` rebuilds the density, and the constructor defaults
+    ``wrap`` to ``'full-image'``, so a density built with
+    ``'single-image'`` silently reverted --- changing the *measure*
+    rather than the speed. It surfaces only above the sigma/period
+    threshold, where the two forms diverge, which is why it went
+    unnoticed: below it the two agree to the floor and nothing looks
+    wrong.
+    """
+    p = [np.array([[1.0, 5.0, 9.0, 2.0], [3.0, 7.0, 11.0, 4.0]])]
+    w = [np.array([[1.0, 1.0, 0.0, 1.0], [1.0, 1.0, 0.0, 1.0]])]
+    dens = build_exp_tens(p, w, [1.2], [2], [1], [1], [12.0], [1],
+                          wrap=["single-image"], verbose=False)
+    pruned = dens.pruned()
+    assert pruned is not dens          # an event really was dropped
+    assert pruned.n < dens.n
+    assert list(pruned.wrap) == ["single-image"]
+
+
+def test_pruning_preserves_wrap_for_every_attribute():
+    p = [np.array([[0.0, 4.0, 8.0]]), np.array([[1.0, 5.0, 9.0]])]
+    w = [np.array([[1.0, 0.0, 1.0]]), np.array([[1.0, 0.0, 1.0]])]
+    dens = build_exp_tens(p, w, [1.0, 1.2], [1, 1], [0, 1], [1, 1],
+                          [12.0, 12.0], [1, 1],
+                          wrap=["single-image", "full-image"], verbose=False)
+    assert list(dens.pruned().wrap) == ["single-image", "full-image"]

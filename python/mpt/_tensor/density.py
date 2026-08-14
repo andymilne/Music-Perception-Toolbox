@@ -342,6 +342,12 @@ class MaetDensity:
             names=self.names,
             _build_lazy=_build_lazy,
         )
+        # Per-attribute wrap. The constructor defaults it to
+        # 'full-image', so without this a density built with
+        # 'single-image' silently reverts when pruned --- changing the
+        # measure rather than the speed. It shows up only above the
+        # sigma/period threshold, where the two forms diverge.
+        out.wrap = self.wrap
         out.kernel_cov = self.kernel_cov
         out.kernel_chol = self.kernel_chol
         return out

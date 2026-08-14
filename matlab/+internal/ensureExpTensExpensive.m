@@ -78,6 +78,19 @@ function dens = ensureExpTensExpensive(dens)
         hadCov = true;
     end
 
+    % Per-attribute wrap. The rebuild below does not carry it, and the
+    % default is 'full-image', so without this a density built with
+    % 'single-image' silently reverts when its expensive fields are
+    % materialised --- changing the measure rather than the speed. It
+    % shows up only above the sigma/period threshold, where the two
+    % forms diverge, which is why it went unnoticed. Twin of the same
+    % carry in internal.prunedExpTens.
+    savedWrap = {}; hadWrap = false;
+    if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+        savedWrap = dens.wrap;
+        hadWrap = true;
+    end
+
     switch dens.tag
         case 'MaetDensity'
             dens = buildExpTens( ...
@@ -93,6 +106,9 @@ function dens = ensureExpTensExpensive(dens)
                   'Unknown density tag: %s', dens.tag);
     end
 
+    if hadWrap
+        dens.wrap = savedWrap;
+    end
     if hadCov
         dens.kernelCov = savedCov;
         dens.kernelChol = savedChol;

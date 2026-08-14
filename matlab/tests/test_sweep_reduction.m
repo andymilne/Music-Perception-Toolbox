@@ -439,6 +439,117 @@ results{end+1,1} = 'sweep: carried offsets drive the reduction';
 results{end,2} = max(abs(gotT - refT) ./ max(abs(refT), 1e-12)) <= tol;
 
 
+% --- Orbit route --------------------------------------------------------
+%
+%  The orbit route evaluates the Mobius decomposition at the shifted
+%  values instead of forming the placement/shape split, so its cost
+%  scales with the orbit count rather than with the tuple-pair count.
+%  It is a different decomposition of the same quantity, so it is
+%  compared against the orbit reference at the parity floor.
+%
+%  Deviations are judged in absolute terms: a cosine lives in [-1, 1],
+%  and at offsets where the two densities barely overlap its value falls
+%  to 1e-16, where a ratio to that value reports noise rather than error.
+
+orbShapes = {[3 2], [4 3], [4 4]};
+orbOff = [-2.6, -0.9, 0.0, 1.3, 3.4];
+for si = 1:numel(orbShapes)
+    K = orbShapes{si}(1);
+    r = orbShapes{si}(2);
+    rng(800 + si);
+    pXo = {randn(K, 5) * 3};
+    pYo = {randn(K, 3) * 3};
+    dXo = buildExpTens(pXo, [], 0.9, r, false, false, NaN, true, ...
+                       'verbose', false);
+    dYo = buildExpTens(pYo, [], 0.9, r, false, false, NaN, true, ...
+                       'verbose', false);
+    gotO = sweepCosSimExpTens(dXo, dYo, orbOff, 'method', 'orbit', ...
+                              'truncationSigmas', Inf, 'verbose', false);
+    refO = zeros(1, numel(orbOff));
+    for m = 1:numel(orbOff)
+        dYm = buildExpTens({pYo{1} + orbOff(m)}, [], 0.9, r, false, ...
+                           false, NaN, true, 'verbose', false);
+        refO(m) = cosSimExpTens(dXo, dYm, 'method', 'mobius', ...
+                                'truncationSigmas', Inf, 'verbose', false);
+    end
+    results{end+1,1} = sprintf( ...
+        'sweep: orbit route K=%d r=%d matches per-offset', K, r); %#ok<*SAGROW>
+    results{end,2} = max(abs(gotO - refO)) <= 1e-12;
+    if ~results{end,2}
+        fprintf('  [diagnostic] orbit K=%d r=%d: max abs dev %.3e\n', ...
+                K, r, max(abs(gotO - refO)));
+    end
+end
+
+% The two routes are two decompositions of one quantity.
+rng(810);
+pXm = {randn(3, 5) * 3, randn(3, 5) * 3};
+pYm = {randn(3, 3) * 3, randn(3, 3) * 3};
+svM = [0.9 0.9]; rvM = [2 2]; zM = [false false]; pdM = [NaN NaN];
+symM = [true true];
+offM = [orbOff; 0.4 * orbOff];
+dXm = buildExpTens(pXm, [], svM, rvM, zM, zM, pdM, symM, 'verbose', false);
+dYm2 = buildExpTens(pYm, [], svM, rvM, zM, zM, pdM, symM, 'verbose', false);
+gotMix = sweepCosSimExpTens(dXm, dYm2, offM, 'method', 'mixture', ...
+                            'truncationSigmas', Inf, 'verbose', false);
+gotOrb = sweepCosSimExpTens(dXm, dYm2, offM, 'method', 'orbit', ...
+                            'truncationSigmas', Inf, 'verbose', false);
+results{end+1,1} = 'sweep: orbit and mixture routes agree';
+results{end,2} = max(abs(gotMix - gotOrb)) <= 1e-11;
+if ~results{end,2}
+    fprintf('  [diagnostic] orbit vs mixture: max abs dev %.3e\n', ...
+            max(abs(gotMix - gotOrb)));
+end
+
+% A swept periodic attribute: the mixture refuses it, the orbit route
+% carries it, and 'auto' therefore reaches it.
+rng(820);
+pXp3 = {mod(randn(3, 5) * 4, 12)};
+pYp3 = {mod(randn(3, 2) * 4, 12)};
+dXp3 = buildExpTens(pXp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
+dYp3 = buildExpTens(pYp3, [], 0.6, 3, false, true, 12, true, 'verbose', false);
+gotP3 = sweepCosSimExpTens(dXp3, dYp3, orbOff, 'method', 'orbit', ...
+                           'truncationSigmas', Inf, 'verbose', false);
+refP3 = zeros(1, numel(orbOff));
+for m = 1:numel(orbOff)
+    dYm = buildExpTens({pYp3{1} + orbOff(m)}, [], 0.6, 3, false, true, ...
+                       12, true, 'verbose', false);
+    refP3(m) = cosSimExpTens(dXp3, dYm, 'method', 'mobius', ...
+                             'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'sweep: orbit route carries a swept periodic attribute';
+results{end,2} = max(abs(gotP3 - refP3)) <= 1e-12;
+if ~results{end,2}
+    fprintf('  [diagnostic] orbit swept periodic: max abs dev %.3e\n', ...
+            max(abs(gotP3 - refP3)));
+end
+
+ok = false;
+try
+    sweepCosSimExpTens(dXp3, dYp3, orbOff, 'method', 'mixture', ...
+                       'verbose', false);
+catch ME
+    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:periodicAttribute');
+end
+results{end+1,1} = 'sweep: mixture still refuses a swept periodic attribute';
+results{end,2} = ok;
+
+gotAuto = sweepCosSimExpTens(dXp3, dYp3, orbOff, ...
+                             'truncationSigmas', Inf, 'verbose', false);
+results{end+1,1} = 'sweep: auto reaches the swept periodic case via orbit';
+results{end,2} = max(abs(gotAuto - refP3)) <= 1e-12;
+
+ok = false;
+try
+    sweepCosSimExpTens(dXo, dYo, orbOff, 'method', 'nonsense', ...
+                       'verbose', false);
+catch
+    ok = true;
+end
+results{end+1,1} = 'sweep: an unknown method is rejected';
+results{end,2} = ok;
+
+
 % --- Standalone summary ---
 if standalone
     nPass = sum([results{:, 2}]);

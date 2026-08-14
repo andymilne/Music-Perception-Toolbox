@@ -71,6 +71,23 @@ function s = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
 %                 A row of zeros leaves that attribute untranslated.
 %
 %   Name-value pairs
+%       'method'            - 'auto' (default), 'mixture', or 'orbit'.
+%                             Which decomposition carries the sweep.
+%                             'mixture' is the placement/shape split
+%                             described above: one pass over the tuple
+%                             pairs, then a mixture evaluation per
+%                             offset. 'orbit' evaluates the Mobius/orbit
+%                             inner product at the shifted values, with
+%                             the (event pair, offset) index riding the
+%                             orbit routine's batch axis; its cost scales
+%                             with the orbit count rather than with the
+%                             tuple-pair count [C(K, r) r!]^2, which the
+%                             mixture must both enumerate and store.
+%                             'auto' compares the two costs and picks.
+%                             The orbit route also covers a swept
+%                             PERIODIC attribute, which the mixture
+%                             refuses: it never forms the split, so the
+%                             wrapped kernel absorbs the periodicity.
 %       'normalize'         - 'cosine' (default) or 'oneSidedDenom'. Both
 %                             self inner products are invariant under a
 %                             uniform translation of their own values, so
@@ -97,6 +114,8 @@ arguments
     densX struct
     densY struct
     offsets double
+    nvArgs.method (1, :) char {mustBeMember(nvArgs.method, ...
+        {'auto', 'mixture', 'orbit'})} = 'auto'
     nvArgs.normalize (1, :) char = 'cosine'
     nvArgs.truncationSigmas = []
     nvArgs.verbose (1, 1) logical = true
@@ -126,12 +145,6 @@ M = size(off, 2);
 
 densX = internal.prunedExpTens(densX);
 densY = internal.prunedExpTens(densY);
-% The mixture reads the per-tuple fields directly, so a skinny density
-% from buildExpTens's default lazy build must be materialised first.
-densX = internal.ensureExpTensExpensive(densX);
-densY = internal.ensureExpTensExpensive(densY);
-
-localCheckEligible(densX, densY, off, A, nvArgs.truncationSigmas);
 
 if isempty(nvArgs.truncationSigmas)
     tsResolved = mptDefaults('truncationSigmas');
@@ -139,6 +152,59 @@ else
     tsResolved = nvArgs.truncationSigmas;
 end
 tsResolved = internal.accuracyFloor('resolve', tsResolved);
+
+% --- Route selection ----------------------------------------------------
+orbitOk = localOrbitSupported(densX, densY, off, A, nvArgs.truncationSigmas);
+mixtureOk = true;
+mixtureErr = [];
+try
+    localCheckEligible(densX, densY, off, A, nvArgs.truncationSigmas);
+catch mixtureErr
+    mixtureOk = false;
+end
+
+switch nvArgs.method
+    case 'auto'
+        chosen = localChooseRoute(densX, densY, off, A, mixtureOk, orbitOk);
+    otherwise
+        chosen = nvArgs.method;
+end
+if strcmp(chosen, 'mixture') && ~mixtureOk
+    rethrow(mixtureErr);
+end
+if strcmp(chosen, 'orbit') && ~orbitOk
+    error('sweepCosSimExpTens:orbitUnsupported', ...
+          ['The orbit route does not support a swept relative, a ' ...
+           'nested, or an anisotropic attribute in a sweep, nor a ' ...
+           'relative-periodic attribute above the sigma/P limit whose ' ...
+           'wrap names the single-image measure.']);
+end
+
+if strcmp(chosen, 'orbit')
+    % The orbit route reads only the cheap per-event fields, so the
+    % expensive per-tuple arrays are never materialised for it.
+    ipXYorb = localOrbitSweep(densX, densY, off, A, ...
+                              nvArgs.truncationSigmas, tsResolved);
+    ipYYorb = localOrbitSelfIp(densY, A, nvArgs.truncationSigmas);
+    switch nvArgs.normalize
+        case 'cosine'
+            ipXXorb = localOrbitSelfIp(densX, A, nvArgs.truncationSigmas);
+            denomOrb = sqrt(max(ipXXorb * ipYYorb, 0));
+        case 'oneSidedDenom'
+            denomOrb = ipYYorb;
+    end
+    if denomOrb == 0
+        s = NaN(1, M);
+    else
+        s = ipXYorb(:).' / denomOrb;
+    end
+    return;
+end
+
+% The mixture reads the per-tuple fields directly, so a skinny density
+% from buildExpTens's default lazy build must be materialised first.
+densX = internal.ensureExpTensExpensive(densX);
+densY = internal.ensureExpTensExpensive(densY);
 
 % --- Build the mixture once ---------------------------------------------
 [centres, logW, amp, threshold, sweptIdx] = ...
@@ -255,6 +321,294 @@ function localCheckEligible(densX, densY, off, A, tsRaw)
                    'kernel per attribute.']);
         end
     end
+end
+
+
+function chosen = localChooseRoute(densX, densY, off, A, mixtureOk, orbitOk)
+%LOCALCHOOSEROUTE  Pick between the mixture and the orbit route.
+%
+%   The two scale differently on the same problem. The mixture pays one
+%   pass over the tuple pairs --- nJ * nK, which grows as
+%   [C(K, r) r!]^2 --- and must also STORE the survivors, so it is the
+%   memory-bound route at high tuple order. The orbit route pays per
+%   offset instead, but its unit of work is an orbit contraction over
+%   the Kx * Ky value kernel, with no tuple enumeration anywhere.
+%
+%   The two constants below convert between those units and set a floor
+%   below which the mixture always wins. They were calibrated on the
+%   Python twin's timings and are machine-specific in the same way as
+%   mptDefaults('orbitCostIntercept'); tools/ recalibration on this
+%   machine is worthwhile before relying on near-crossover routing.
+%   Away from the crossover the two routes differ by 10x or more, where
+%   a misplaced constant changes nothing.
+%
+%   Twin of Python _tensor.sweep._choose_sweep_route.
+    ORBIT_WORK_RATIO = 64;
+    ORBIT_MIN_PAIRS = 1e6;
+
+    if ~orbitOk
+        chosen = 'mixture'; return;
+    end
+    if ~mixtureOk
+        chosen = 'orbit'; return;
+    end
+
+    % nJ / nK are lazy fields, and forcing them here would build the very
+    % arrays the orbit route exists to avoid. Predict the tuple counts
+    % from the geometry instead, exactly as the pairwise cost model does:
+    % nJ = N * prod_a r_a! * C(K_a, r_a).
+    % X enters on the perm side and Y on the comb side, so the two
+    % counts differ by prod_a r_a!: nJ = N_x * prod_a r_a! C(K_a, r_a)
+    % and nK = N_y * prod_a C(K_a, r_a). Verified against the built
+    % densities' own nJ / nK.
+    tuplesX = 1; tuplesY = 1;
+    for a = 1:A
+        r_a = double(densX.r(a));
+        cX = nchoosek(double(size(densX.pAttr{a}, 1)), r_a);
+        cY = nchoosek(double(size(densY.pAttr{a}, 1)), r_a);
+        tuplesX = tuplesX * factorial(r_a) * cX;
+        tuplesY = tuplesY * cY;
+    end
+    nPairs = double(densX.N) * tuplesX * double(densY.N) * tuplesY;
+    M = size(off, 2);
+    orbitWork = 0;
+    for a = 1:A
+        if ~any(off(a, :) ~= 0)
+            continue;
+        end
+        r_a = double(densX.r(a));
+        if r_a < 2
+            % r = 1 has no orbit decomposition to reduce: the
+            % per-attribute matrix is a plain kernel sum, and the
+            % mixture handles that shape at least as cheaply.
+            chosen = 'mixture'; return;
+        end
+        nOrb = double(numel(mobius.getOrbitTable(r_a)));
+        kX = double(size(densX.pAttr{a}, 1));
+        kY = double(size(densY.pAttr{a}, 1));
+        orbitWork = orbitWork + nOrb * kX * kY * r_a;
+    end
+    if orbitWork <= 0
+        chosen = 'mixture'; return;
+    end
+    orbitTotal = M * double(densX.N) * double(densY.N) * orbitWork;
+
+    % Memory decides before speed does: the mixture must hold its
+    % surviving components, and at high tuple order that array is what
+    % fails first, whatever the timings say.
+    nSwept = 0;
+    for a = 1:A
+        if any(off(a, :) ~= 0), nSwept = nSwept + 1; end
+    end
+    mixtureBytes = nPairs * (nSwept + 2) * 8;
+    if mixtureBytes > internal.kernelChunkBytesResolved()
+        chosen = 'orbit'; return;
+    end
+
+    if nPairs < ORBIT_MIN_PAIRS
+        chosen = 'mixture'; return;
+    end
+    if orbitTotal < ORBIT_WORK_RATIO * nPairs
+        chosen = 'orbit';
+    else
+        chosen = 'mixture';
+    end
+end
+
+
+function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
+%LOCALORBITSUPPORTED  Whether the orbit route can carry this sweep.
+%
+%   The route evaluates the Mobius/orbit inner product at the shifted
+%   values, so it never forms the placement/shape split and is
+%   indifferent to periodicity, which the wrapped kernel absorbs. It
+%   computes both self inner products through the same per-attribute
+%   routine as the numerator, so the two carry one convention and a
+%   relative attribute is admissible here --- untranslated, since a
+%   uniform shift cancels in every within-tuple difference either way.
+%
+%   On a relative-and-periodic attribute the route computes the
+%   transposition-average (all-image) kernel. Below the dispatcher's
+%   sigma/P limit that agrees with the single-wrap form inside the
+%   accuracy floor. Above it the two differ and the attribute's wrap
+%   decides: 'full-image' (the default) is the measure this route
+%   computes and is accepted, while 'single-image' names the other one
+%   and is declined --- the same resolution the per-offset dispatcher
+%   reaches for the same inputs.
+%
+%   Twin of Python _tensor.sweep.orbit_sweep_supported.
+    ok = true;
+    swept = any(off ~= 0, 2);
+    for a = 1:A
+        if localInnerBlock(densX, a) > 0
+            ok = false; return;                % nested: no orbit form here
+        end
+        if densX.isRel(a) && swept(a)
+            ok = false; return;                % nothing to sweep
+        end
+        if densX.isRel(a) && densX.isPer(a)
+            P_a = densX.period(a);
+            if isfinite(P_a) && P_a > 0
+                sop = densX.sigma(a) / P_a;
+                if sop > internal.relPerSigmaOverPThreshold(tsRaw)
+                    wrapA = 'full-image';
+                    if isfield(densX, 'wrap') && ~isempty(densX.wrap) ...
+                            && numel(densX.wrap) >= a
+                        wrapA = char(densX.wrap{a});
+                    end
+                    if ~strcmp(wrapA, 'full-image')
+                        ok = false; return;
+                    end
+                end
+            end
+        end
+    end
+    if internal.densityHasKernelCov(densX) ...
+            || internal.densityHasKernelCov(densY)
+        ok = false;
+    end
+end
+
+
+function out = localOrbitAttrMatrixSweep(Px, Wx, Py, Wy, sigma, r, mus, ...
+                                         isPer, period, wrapA, tsResolved)
+%LOCALORBITATTRMATRIXSWEEP  Per-attribute IP matrices at every offset.
+%
+%   Returns (N_x, N_y, M): entry (n_x, n_y, m) is the per-attribute
+%   inner product between event n_x of X and event n_y of Y translated
+%   by mus(m). This is the sweep form of mobius.maPerAttrInnerMatrix's
+%   absolute branch: the (event pair, offset) index rides the orbit
+%   routine's batch axis, so the tuple enumeration never appears and the
+%   cost scales with the orbit count rather than with [C(K, r) r!]^2.
+%
+%   Twin of Python _tensor.sweep._orbit_attr_matrix_sweep.
+    nanX = isnan(Px) | isnan(Wx);
+    if any(nanX(:)), Px(nanX) = 0; Wx(nanX) = 0; end
+    nanY = isnan(Py) | isnan(Wy);
+    if any(nanY(:)), Py(nanY) = 0; Wy(nanY) = 0; end
+
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
+    M = numel(mus);
+    prefactor = (sigma * sqrt(pi))^r;
+    useOrbit = r >= 2;      % r = 1 has no orbit decomposition
+    out = zeros(Nx, Ny, M);
+
+    fullImage = isPer && strcmp(wrapA, 'full-image');
+
+    % Chunk the offsets: the transient kernel block is
+    % (Kx, Nx, Ky, Ny, chunk), with a few live copies.
+    perOffset = 4 * Kx * Nx * Ky * Ny * 8;
+    memLimit = internal.kernelChunkBytesResolved();
+    chunk = max(1, floor(memLimit / max(perOffset, 1)));
+
+    for m0 = 1:chunk:M
+        m1 = min(m0 + chunk - 1, M);
+        mIdx = m0:m1;
+        mc = numel(mIdx);
+
+        % (Kx, Nx, Ky, Ny, mc)
+        diffs = reshape(Px, Kx, Nx, 1, 1, 1) ...
+              - reshape(Py, 1, 1, Ky, Ny, 1) ...
+              - reshape(mus(mIdx), 1, 1, 1, 1, mc);
+        if fullImage
+            K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
+                                                 tsResolved, 4);
+        else
+            if isPer
+                diffs = diffs - period * floor(diffs / period + 0.5);
+            end
+            K_tens = internal.truncKernelExp(diffs .^ 2, sigma, tsResolved);
+        end
+
+        % -> (Nx, Ny, mc, Kx, Ky), then flatten the batch axis.
+        K_perm  = permute(K_tens, [2, 4, 5, 1, 3]);
+        K_pairs = reshape(K_perm, Nx * Ny * mc, Kx, Ky);
+
+        Wx_t = Wx.';                                    % (Nx, Kx)
+        Wx_pairs = reshape(repmat(reshape(Wx_t, Nx, 1, 1, Kx), ...
+                                  1, Ny, mc, 1), Nx * Ny * mc, Kx);
+        Wy_t = Wy.';                                    % (Ny, Ky)
+        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny, 1, Ky), ...
+                                  Nx, 1, mc, 1), Nx * Ny * mc, Ky);
+
+        if useOrbit
+            flat = mobius.innerProductOrbitPwBatched( ...
+                K_pairs, Wx_pairs, Wy_pairs, r, 'prefactor', prefactor);
+        else
+            % r = 1: each event contributes a single kernel, so the
+            % per-attribute matrix is the weighted kernel sum directly.
+            flat = prefactor * sum(sum( ...
+                K_pairs .* reshape(Wx_pairs, [], Kx, 1) ...
+                        .* reshape(Wy_pairs, [], 1, Ky), 3), 2);
+        end
+        out(:, :, mIdx) = reshape(flat, Nx, Ny, mc);
+    end
+end
+
+
+function ipXY = localOrbitSweep(densX, densY, off, A, tsRaw, tsResolved)
+%LOCALORBITSWEEP  Sweep numerator via the orbit decomposition.
+%
+%   The multi-attribute inner product is a sum over event pairs of a
+%   product over attributes, so each attribute contributes an
+%   (N_x, N_y, M) block and the blocks multiply. An attribute that is
+%   never translated contributes the same block at every offset, so it
+%   is computed once and broadcast.
+    M = size(off, 2);
+    P = ones(densX.N, densY.N, M);
+    for a = 1:A
+        sigma = densX.sigma(a);
+        r_a = densX.r(a);
+        isPer = densX.isPer(a);
+        period = densX.period(a);
+        if ~isfinite(period), period = 0; end
+        wrapA = 'full-image';
+        if isfield(densX, 'wrap') && ~isempty(densX.wrap) ...
+                && numel(densX.wrap) >= a
+            wrapA = char(densX.wrap{a});
+        end
+        if ~any(off(a, :) ~= 0)
+            block = mobius.maPerAttrInnerMatrix( ...
+                densX.pAttr{a}, densX.w{a}, densY.pAttr{a}, densY.w{a}, ...
+                sigma, r_a, densX.isRel(a), isPer, period, ...
+                'truncationSigmas', tsRaw, 'wrap', wrapA);
+            P = P .* block;
+        else
+            P = P .* localOrbitAttrMatrixSweep( ...
+                densX.pAttr{a}, densX.w{a}, densY.pAttr{a}, densY.w{a}, ...
+                sigma, r_a, off(a, :), isPer, period, wrapA, tsResolved);
+        end
+    end
+    ipXY = reshape(sum(sum(P, 1), 2), 1, M);
+end
+
+
+function val = localOrbitSelfIp(dens, A, tsRaw)
+%LOCALORBITSELFIP  <T, T> through the same per-attribute routine as the
+%   numerator.
+%
+%   The orbit path's own similarity triple chooses per attribute between
+%   the closed-form centres route and the grid contraction, and the two
+%   differ by a constant per-attribute prefactor that cancels only
+%   within one route's own triple. Taking the self terms from the
+%   routine the numerator uses keeps numerator and denominator on one
+%   convention, and is what lets a relative attribute ride this route.
+    P = ones(dens.N, dens.N);
+    for a = 1:A
+        period = dens.period(a);
+        if ~isfinite(period), period = 0; end
+        wrapA = 'full-image';
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
+                && numel(dens.wrap) >= a
+            wrapA = char(dens.wrap{a});
+        end
+        P = P .* mobius.maPerAttrInnerMatrix( ...
+            dens.pAttr{a}, dens.w{a}, dens.pAttr{a}, dens.w{a}, ...
+            dens.sigma(a), dens.r(a), dens.isRel(a), dens.isPer(a), ...
+            period, 'truncationSigmas', tsRaw, 'wrap', wrapA);
+    end
+    val = sum(P(:));
 end
 
 

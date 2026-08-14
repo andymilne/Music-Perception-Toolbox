@@ -805,3 +805,67 @@ def test_pruning_preserves_wrap_for_every_attribute():
                           [12.0, 12.0], [1, 1],
                           wrap=["single-image", "full-image"], verbose=False)
     assert list(dens.pruned().wrap) == ["single-image", "full-image"]
+
+
+def test_orbit_route_declines_ordered_attributes():
+    """The orbit decomposition is symmetric-only.
+
+    It sums over unordered value subsets with multiplicity, and the
+    per-attribute routine it calls takes no symmetry flag. On an ordered
+    attribute it therefore computes a *different* quantity rather than
+    an approximation of the right one --- measured departures up to 0.22
+    --- so the route must decline and ``'auto'`` must fall back.
+    """
+    from mpt._tensor.sweep import orbit_sweep_supported
+
+    p_x, p_y = _random_case(5, 6, 3, 2, seed=830)
+    off = _offsets(2, swept=(0, 1))
+    dx, dy, args = _densities(p_x, p_y, 0.9, 3, is_sym=[0, 0])
+    dxp, dyp = dx.pruned(), dy.pruned()
+    assert not orbit_sweep_supported(dxp, dyp, off, np.inf)
+    with pytest.raises(ValueError, match="orbit route does not support"):
+        sweep_cos_sim_exp_tens(dx, dy, off, method="orbit",
+                               truncation_sigmas=np.inf, verbose=False)
+    # 'auto' falls back to the mixture and stays exact.
+    got = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+                                 verbose=False)
+    ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
+    assert _rel_dev(got, ref) <= PARITY
+
+
+@pytest.mark.parametrize("is_sym", [0, 1])
+def test_auto_is_exact_for_both_symmetry_settings(is_sym):
+    """Whichever route ``'auto'`` picks, the answer is the same one."""
+    p_x, p_y = _random_case(4, 6, 3, 2, seed=840 + is_sym)
+    off = _offsets(2, swept=(0, 1))
+    dx, dy, args = _densities(p_x, p_y, 0.9, 2, is_sym=[is_sym] * 2)
+    got = sweep_cos_sim_exp_tens(dx, dy, off, truncation_sigmas=np.inf,
+                                 verbose=False)
+    ref = _reference(p_x, p_y, off, args, truncation_sigmas=np.inf)
+    assert _rel_dev(got, ref) <= PARITY
+
+
+@pytest.mark.parametrize("method", ["mixture", "orbit", "auto"])
+def test_default_truncation_reaches_every_route(method):
+    """Every other test names ``truncation_sigmas`` explicitly.
+
+    The default therefore never reached the routes' internals, which is
+    how a MATLAB-side defect slipped through: the Möbius entry points
+    require a scalar and reject an empty value, a failure about the
+    argument's *shape* that no accuracy test can find.
+    """
+    p_x, p_y = _random_case(4, 6, 3, 1, seed=840)
+    off = _offsets(1)
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
+    out = sweep_cos_sim_exp_tens(dx, dy, off, method=method, verbose=False)
+    assert out.shape == (off.shape[1],)
+    assert np.all(np.isfinite(out))
+
+
+def test_routes_agree_at_the_default_truncation():
+    p_x, p_y = _random_case(4, 6, 3, 1, seed=841)
+    off = _offsets(1)
+    dx, dy, _ = _densities(p_x, p_y, 0.9, 3)
+    mix = sweep_cos_sim_exp_tens(dx, dy, off, method="mixture", verbose=False)
+    orb = sweep_cos_sim_exp_tens(dx, dy, off, method="orbit", verbose=False)
+    assert np.max(np.abs(mix - orb)) <= 1e-8

@@ -183,12 +183,11 @@ end
 if strcmp(chosen, 'orbit')
     % The orbit route reads only the cheap per-event fields, so the
     % expensive per-tuple arrays are never materialised for it.
-    ipXYorb = localOrbitSweep(densX, densY, off, A, ...
-                              nvArgs.truncationSigmas, tsResolved);
-    ipYYorb = localOrbitSelfIp(densY, A, nvArgs.truncationSigmas);
+    ipXYorb = localOrbitSweep(densX, densY, off, A, tsResolved);
+    ipYYorb = localOrbitSelfIp(densY, A, tsResolved);
     switch nvArgs.normalize
         case 'cosine'
-            ipXXorb = localOrbitSelfIp(densX, A, nvArgs.truncationSigmas);
+            ipXXorb = localOrbitSelfIp(densX, A, tsResolved);
             denomOrb = sqrt(max(ipXXorb * ipYYorb, 0));
         case 'oneSidedDenom'
             denomOrb = ipYYorb;
@@ -439,6 +438,16 @@ function ok = localOrbitSupported(densX, densY, off, A, tsRaw)
 %   Twin of Python _tensor.sweep.orbit_sweep_supported.
     ok = true;
     swept = any(off ~= 0, 2);
+    % The orbit decomposition sums over unordered value subsets with
+    % multiplicity, and mobius.maPerAttrInnerMatrix takes no symmetry
+    % flag: it computes the symmetrised inner product and nothing else.
+    % On an ordered attribute that is a different quantity, not an
+    % approximation of the right one --- measured departures up to 0.22
+    % --- so the route declines rather than silently symmetrising.
+    if isfield(densX, 'isSym') && ~isempty(densX.isSym) ...
+            && ~all(logical(densX.isSym))
+        ok = false; return;
+    end
     for a = 1:A
         if localInnerBlock(densX, a) > 0
             ok = false; return;                % nested: no orbit form here
@@ -547,7 +556,7 @@ function out = localOrbitAttrMatrixSweep(Px, Wx, Py, Wy, sigma, r, mus, ...
 end
 
 
-function ipXY = localOrbitSweep(densX, densY, off, A, tsRaw, tsResolved)
+function ipXY = localOrbitSweep(densX, densY, off, A, tsResolved)
 %LOCALORBITSWEEP  Sweep numerator via the orbit decomposition.
 %
 %   The multi-attribute inner product is a sum over event pairs of a
@@ -572,7 +581,7 @@ function ipXY = localOrbitSweep(densX, densY, off, A, tsRaw, tsResolved)
             block = mobius.maPerAttrInnerMatrix( ...
                 densX.pAttr{a}, densX.w{a}, densY.pAttr{a}, densY.w{a}, ...
                 sigma, r_a, densX.isRel(a), isPer, period, ...
-                'truncationSigmas', tsRaw, 'wrap', wrapA);
+                'truncationSigmas', tsResolved, 'wrap', wrapA);
             P = P .* block;
         else
             P = P .* localOrbitAttrMatrixSweep( ...
@@ -584,7 +593,7 @@ function ipXY = localOrbitSweep(densX, densY, off, A, tsRaw, tsResolved)
 end
 
 
-function val = localOrbitSelfIp(dens, A, tsRaw)
+function val = localOrbitSelfIp(dens, A, tsResolved)
 %LOCALORBITSELFIP  <T, T> through the same per-attribute routine as the
 %   numerator.
 %
@@ -606,7 +615,7 @@ function val = localOrbitSelfIp(dens, A, tsRaw)
         P = P .* mobius.maPerAttrInnerMatrix( ...
             dens.pAttr{a}, dens.w{a}, dens.pAttr{a}, dens.w{a}, ...
             dens.sigma(a), dens.r(a), dens.isRel(a), dens.isPer(a), ...
-            period, 'truncationSigmas', tsRaw, 'wrap', wrapA);
+            period, 'truncationSigmas', tsResolved, 'wrap', wrapA);
     end
     val = sum(P(:));
 end

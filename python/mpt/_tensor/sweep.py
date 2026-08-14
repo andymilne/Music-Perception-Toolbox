@@ -559,6 +559,16 @@ def orbit_sweep_supported(dens_x, dens_y, offsets=None,
     inner_r = _inner_r_vec(dens_x)
     swept = (np.zeros(A, dtype=bool) if offsets is None
              else np.any(np.asarray(offsets) != 0.0, axis=1))
+    # The orbit decomposition sums over unordered value subsets with
+    # multiplicity, and the per-attribute routine it calls takes no
+    # symmetry flag: it computes the symmetrised inner product and
+    # nothing else. On an ordered attribute that is a different
+    # quantity, not an approximation of the right one --- measured
+    # departures up to 0.22 --- so the route declines rather than
+    # silently symmetrising.
+    is_sym = getattr(dens_x, "is_sym", None)
+    if is_sym is not None and not all(bool(v) for v in np.atleast_1d(is_sym)):
+        return False
     for a in range(A):
         if inner_r is not None and int(inner_r[a]) > 0:
             return False

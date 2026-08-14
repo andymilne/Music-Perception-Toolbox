@@ -303,12 +303,12 @@ dYhigh = buildExpTens(pYrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
                       'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dXhigh, dYhigh, offRP, ...
+    sweepCosSimExpTens(dXhigh, dYhigh, offRP, 'method', 'mixture', ...
                        'truncationSigmas', Inf, 'verbose', false);
 catch ME
     ok = strcmp(ME.identifier, 'sweepCosSimExpTens:relativePeriodic');
 end
-results{end+1,1} = 'sweep: rel-per above the sigma/P limit is refused';
+results{end+1,1} = 'sweep: mixture refuses rel-per above the sigma/P limit';
 results{end,2} = ok;
 
 dXsi = buildExpTens(pXrp, [], svHigh, rvRP, relRP, perRP, pdRP, symRP, ...
@@ -359,11 +359,12 @@ dPer = buildExpTens({randn(3, 4)}, [], 0.9, 3, false, true, 12, true, ...
     'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dPer, dPer, [0 1.5], 'verbose', false);
+    sweepCosSimExpTens(dPer, dPer, [0 1.5], 'method', 'mixture', ...
+                       'verbose', false);
 catch ME
     ok = strcmp(ME.identifier, 'sweepCosSimExpTens:periodicAttribute');
 end
-results{end+1,1} = 'sweep: swept periodic attribute is refused';
+results{end+1,1} = 'sweep: mixture refuses a swept periodic attribute';
 results{end,2} = ok;
 
 % An unswept periodic attribute is accepted, so the refusal above is
@@ -381,11 +382,12 @@ dRP = buildExpTens({randn(2, 4)}, [], 0.9, 2, true, true, 12, true, ...
     'verbose', false);
 ok = false;
 try
-    sweepCosSimExpTens(dRP, dRP, [0 0], 'verbose', false);
+    sweepCosSimExpTens(dRP, dRP, [0 0], 'method', 'mixture', ...
+                       'verbose', false);
 catch ME
     ok = strcmp(ME.identifier, 'sweepCosSimExpTens:relativePeriodic');
 end
-results{end+1,1} = 'sweep: relative-periodic is refused even unswept';
+results{end+1,1} = 'sweep: mixture refuses relative-periodic even unswept';
 results{end,2} = ok;
 
 ok = false;
@@ -548,6 +550,90 @@ catch
 end
 results{end+1,1} = 'sweep: an unknown method is rejected';
 results{end,2} = ok;
+
+
+% --- The orbit route declines ordered attributes ------------------------
+%
+%  The orbit decomposition sums over unordered value subsets with
+%  multiplicity, and mobius.maPerAttrInnerMatrix takes no symmetry flag:
+%  it computes the symmetrised inner product and nothing else. On an
+%  ordered attribute that is a different quantity rather than an
+%  approximation of the right one, so the route must decline instead of
+%  silently symmetrising, and 'auto' must fall back to the mixture.
+
+rng(830);
+pXord = {randn(5, 6) * 3, randn(5, 6) * 3};
+pYord = {randn(5, 3) * 3, randn(5, 3) * 3};
+svO = [0.9 0.9]; rvO = [3 3]; zO = [false false]; pdO = [NaN NaN];
+offOrd = [baseOff; 0.5 * baseOff];
+dXord = buildExpTens(pXord, [], svO, rvO, zO, zO, pdO, [false false], ...
+                     'verbose', false);
+dYord = buildExpTens(pYord, [], svO, rvO, zO, zO, pdO, [false false], ...
+                     'verbose', false);
+ok = false;
+try
+    sweepCosSimExpTens(dXord, dYord, offOrd, 'method', 'orbit', ...
+                       'truncationSigmas', Inf, 'verbose', false);
+catch ME
+    ok = strcmp(ME.identifier, 'sweepCosSimExpTens:orbitUnsupported');
+end
+results{end+1,1} = 'sweep: orbit route declines an ordered attribute';
+results{end,2} = ok;
+
+gotOrd = sweepCosSimExpTens(dXord, dYord, offOrd, ...
+                            'truncationSigmas', Inf, 'verbose', false);
+refOrd = zeros(1, size(offOrd, 2));
+for m = 1:size(offOrd, 2)
+    dYm = buildExpTens({pYord{1} + offOrd(1, m), pYord{2} + offOrd(2, m)}, ...
+                       [], svO, rvO, zO, zO, pdO, [false false], ...
+                       'verbose', false);
+    refOrd(m) = cosSimExpTens(dXord, dYm, 'method', 'bulger', ...
+                              'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'sweep: auto falls back to the mixture when ordered';
+results{end,2} = max(abs(gotOrd - refOrd)) <= tol;
+
+
+% --- Default truncation reaches every route -----------------------------
+%
+%  Every other test here names truncationSigmas explicitly, so the
+%  default ([]) never reached the routes' internals. It has to: the
+%  Mobius entry points require a scalar and would reject an empty value,
+%  which is a failure no accuracy test can find because it is about the
+%  argument's shape rather than its value.
+
+rng(840);
+pXd = {randn(4, 6) * 3};
+pYd = {randn(4, 3) * 3};
+dXd = buildExpTens(pXd, [], 0.9, 3, false, false, NaN, true, ...
+                   'verbose', false);
+dYd = buildExpTens(pYd, [], 0.9, 3, false, false, NaN, true, ...
+                   'verbose', false);
+offD = [-2.6, -0.9, 0.0, 1.3, 3.4];
+for methodName = {'mixture', 'orbit', 'auto'}
+    mn = methodName{1};
+    ok = true;
+    try
+        vD = sweepCosSimExpTens(dXd, dYd, offD, 'method', mn, ...
+                                'verbose', false);
+        ok = all(isfinite(vD)) && numel(vD) == numel(offD);
+    catch ME
+        ok = false;
+        fprintf('  [diagnostic] default truncation, method %s: %s: %s\n', ...
+                mn, ME.identifier, ME.message);
+    end
+    results{end+1,1} = sprintf( ...
+        'sweep: default truncationSigmas works with method %s', mn); %#ok<*SAGROW>
+    results{end,2} = ok;
+end
+
+% The routes must also agree with each other at the default.
+vMixD = sweepCosSimExpTens(dXd, dYd, offD, 'method', 'mixture', ...
+                           'verbose', false);
+vOrbD = sweepCosSimExpTens(dXd, dYd, offD, 'method', 'orbit', ...
+                           'verbose', false);
+results{end+1,1} = 'sweep: routes agree at the default truncation';
+results{end,2} = max(abs(vMixD - vOrbD)) <= 1e-8;
 
 
 % --- Standalone summary ---

@@ -923,6 +923,38 @@ print(S)
 
 The query E G, with mean time 0.5, is translated at each sweep centre $c$ to lie at times $(c-0.5, c+0.5)$. The melody contains the E–G pair at events $(t=2, t=3)$ and again at $(t=5, t=6)$, with respective mean times 2.5 and 5.5, so the profile peaks at $c = 2.5$ and $c = 5.5$. Positions between and outside these (including the passing-tone E at $t=2$ alone, without a G at its successor) produce graded similarity determined by how closely the translated query aligns with nearby melody events. See [Section 7.5](#75-recurrence-of-interval-content-across-a-melody) for a fuller worked example including transposition-invariant comparison of interval content via event differencing.
 
+#### Sweeping a query along a context in one pass
+
+The example above uses post-tensor windowing. The complementary pre-tensor route translates the query itself and compares it against the whole context at each offset, which is what `translateAttributes` produces. Because every value of an attribute moves by the same amount, the comparison at all offsets can be computed in one pass rather than one inner product per offset.
+
+The identity behind this is a separation. On an absolute attribute the exponent of each tuple pair's contribution splits into two terms:
+
+$$Q_a(d - \mu_a \mathbf{1}) = \underbrace{r_a (\mu_a - \bar{d})^2}_{\text{placement}} + \underbrace{\sum_i (d_i - \bar{d})^2}_{\text{shape}},$$
+
+where $d$ is the difference between the two tuples and $\bar{d}$ its mean. Only the placement term involves the offset $\mu_a$. So each pair of tuples contributes, as a function of the offset, a single Gaussian centred at the pair's mean difference with effective width $\sigma_a / \sqrt{r_a}$, carrying a fixed weight set by the pair's within-tuple shape. The whole sweep is a weighted Gaussian mixture in the offset, built once and then evaluated at each offset in turn. Reading the same separation in the other direction: integrating the profile over all offsets recovers the relative-mode inner product, since the shape term *is* the relative quadratic form.
+
+`sweepCosSimExpTens` / `sweep_cos_sim_exp_tens` computes a sweep this way:
+
+**MATLAB:**
+```matlab
+offsets = [zeros(1, 29); linspace(-1.0, 6.0, 29)];   % translate in time only
+S = sweepCosSimExpTens(melody, query, offsets);
+```
+
+**Python:**
+```python
+offsets = np.vstack([np.zeros(29), np.linspace(-1.0, 6.0, 29)])
+S = mpt.sweep_cos_sim_exp_tens(melody, query, offsets)
+```
+
+In Python the reduction is also reached without changing the call site: a sweep built by `translate_attributes` carries the offsets that produced it, and `cos_sim_exp_tens` uses them. In MATLAB, where a cell array cannot carry attached data, `translateAttributes` returns the same information as a fourth output for the caller to pass on. The offsets are carried rather than recovered from the translated values, since recovering them would require a floating-point tolerance, and no tolerance both admits every honestly translated sweep and preserves the toolbox parity floor; a sweep assembled by hand therefore takes the ordinary per-offset path.
+
+**Which attributes can be swept.** An attribute may be *translated* only if its quadratic form keeps the tuple's own mean, which is to say only in absolute mode. In relative mode a uniform translation cancels in every within-tuple difference, so there is nothing to sweep — the attribute still contributes, through its shape term alone. The same holds per block for a nested attribute at an inner or intermediate co-transposition unit, whose form is the sum over blocks of each block's relative form. A periodic attribute contributes an offset-independent factor when it is not translated; when it *is* translated, the wrapped kernel admits no such separation and the sweep is carried instead by the orbit route below.
+
+**Two routes.** The `method` argument selects the decomposition. `'mixture'` is the separation above: one pass over the tuple pairs, then a mixture evaluation per offset. `'orbit'` evaluates the Möbius/orbit inner product at the shifted values, at a cost that scales with the orbit count rather than with the tuple-pair count $[C(K_{a,n}, r_a) \, r_a!]^2$, which the mixture must both enumerate and store; it is the route for high tuple order, and the only one that covers a swept periodic attribute. It is symmetric-only, so it declines an ordered attribute. `'auto'`, the default, compares the two costs and picks; `matlab/tools/calibrateSweepRoute.m` measures the crossover on a given machine, though correctness does not depend on it since both routes compute the same quantity.
+
+**Relative-and-periodic attributes** raise a question of measure rather than of speed. The single-wrap and transposition-average kernels agree only below a $\sigma / P$ limit, and above it the attribute's `wrap` selects between them — `'single-image'` for the former, `'full-image'` for the latter — exactly as it does for a comparison made offset by offset.
+
 ---
 
 ## 6. Function reference

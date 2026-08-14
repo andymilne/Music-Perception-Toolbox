@@ -615,6 +615,208 @@ def cos_sim_exp_tens(*args,
 
 
 
+def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
+                       truncation_sigmas=None, kernel_precision=None):
+    """Batched broadcast for the all-r = 1 shape, or ``None``.
+
+    Applies when one operand is shared across every pair and all
+    densities are flat ``MaetDensity`` structures of identical
+    geometry with every ``r_a = 1`` (no nesting, no ordered-at-r>1
+    concern — r = 1 symmetrisation is vacuous — no kernel covariance
+    mismatch). The cross inner products of the whole sweep are then
+    one kernel evaluation over the concatenated query columns, and
+    the self terms go through the same memo keys the per-pair route
+    uses, so a subsequent per-pair call sees the same cache state.
+
+    Per-pair equality: each attribute's log-kernel column block is
+    computed by the same expressions in the same order as
+    :func:`_ip_r1_direct`, and the truncation threshold is applied
+    per column segment with that pair's own ``n_terms``, so the set
+    of zeroed entries matches the per-pair path exactly. The only
+    floating-point difference is the contraction association
+    (``(w_x @ E) . w_y`` here versus ``w_x @ (E @ w_y)`` per pair),
+    within the toolbox-wide ≤ 1e-12 parity discipline.
+
+    Returns the per-pair similarity array, or ``None`` when any
+    condition fails — the caller's ordinary loops then run and raise
+    the errors a genuine mismatch deserves.
+    """
+    from .._defaults import resolve_truncation_sigmas
+    from .aniso import density_has_kernel_cov
+
+    if len(pairs) == 0:
+        return None
+    shared = pairs[0][0] if shared_is_x else pairs[0][1]
+    entries = [(p[1] if shared_is_x else p[0]) for p in pairs]
+
+    dens_all = [shared] + entries
+    for d in dens_all:
+        if not isinstance(d, MaetDensity) or \
+                isinstance(d, WindowedMaetDensity):
+            return None
+        if density_has_kernel_cov(d):
+            return None
+        nested = getattr(d, "nested", None)
+        if nested is not None and any(s is not None for s in nested):
+            return None
+
+    shared_p = shared.pruned()
+    A = shared_p.n_attrs
+    if A == 0 or not all(int(r) == 1 for r in shared_p.r):
+        return None
+    if any(int(x) != 0 for x in _inner_r_vec(shared_p)):
+        return None
+
+    entries_p = [d.pruned() for d in entries]
+    for d in entries_p:
+        if (d.n_attrs != A
+                or not np.array_equal(d.r, shared_p.r)
+                or not np.array_equal(d.sigma, shared_p.sigma)
+                or not np.array_equal(d.is_rel, shared_p.is_rel)
+                or not np.array_equal(d.is_per, shared_p.is_per)):
+            return None
+        per_mask = shared_p.is_per.astype(bool)
+        if np.any(d.period[per_mask] != shared_p.period[per_mask]):
+            return None
+        wrap_d = list(getattr(d, "wrap", ["full-image"] * A))
+        wrap_s = list(getattr(shared_p, "wrap", ["full-image"] * A))
+        if [str(v) for v in wrap_d] != [str(v) for v in wrap_s]:
+            return None
+
+    ts = resolve_truncation_sigmas(truncation_sigmas)
+    sigma = shared_p.sigma
+    is_rel = shared_p.is_rel
+    is_per = shared_p.is_per
+    period = shared_p.period
+    wrap = list(getattr(shared_p, "wrap", ["full-image"] * A))
+    need_xx_shared = (normalize == "cosine") if shared_is_x else True
+    key = _self_ip_cache_key("bulger", truncation_sigmas, kernel_precision)
+
+    if shared_p.n == 0:
+        return np.zeros(len(entries), dtype=np.float64)
+
+    n_j = shared_p.n_j
+    u_cell = shared_p.u_perm
+    w_u = shared_p.w_j
+
+    # Concatenate the entries' comb-side columns; record segment
+    # boundaries and per-segment n_terms for the truncation threshold.
+    seg_len = np.array([d.n_k if d.n != 0 else 0 for d in entries_p],
+                       dtype=np.intp)
+    T = int(seg_len.sum())
+    starts = np.concatenate([[0], np.cumsum(seg_len)])
+    live = [d for d in entries_p if d.n != 0]
+    if T > 0:
+        v_cell = [np.concatenate([d.v_comb[a] for d in live], axis=1)
+                  for a in range(A)]
+        w_v = np.concatenate([d.wv_comb for d in live])
+        # Per-column log-space threshold: -k^2/2 - log(n_j * m_i) for
+        # the segment the column belongs to (matching each pair's own
+        # _trunc_log_kernel_exp threshold; n_terms = 1 keeps the bare
+        # floor, as there).
+        thr_col = np.empty(T, dtype=np.float64)
+        for i, d in enumerate(entries_p):
+            if seg_len[i] == 0:
+                continue
+            n_terms = int(n_j) * int(d.n_k)
+            t = -0.5 * ts ** 2
+            if n_terms > 1:
+                t -= math.log(float(n_terms))
+            thr_col[starts[i]:starts[i + 1]] = t
+
+        # One kernel pass over the concatenated columns. Chunk width is
+        # the smaller of the memory-limit heuristic and a cache-resident
+        # cap: the per-pair path's skinny blocks stay in cache, and a
+        # single (n_j, T) block at large n_j leaves it, dropping kernel
+        # throughput by ~2-3x. A few MB per block keeps the batched
+        # path's locality while amortising the per-chunk Python cost.
+        bytes_per_col = 3 * int(n_j) * 8
+        mem_limit = kernel_chunk_bytes_resolved()
+        cache_cap = max(1, int(4_000_000 // max(int(n_j) * 8, 1)))
+        chunk = max(1, min(int(mem_limit // max(bytes_per_col, 1)),
+                           cache_cap))
+        row = np.empty(T, dtype=np.float64)   # (w_u @ E) per column
+        for c0 in range(0, T, chunk):
+            c1 = min(c0 + chunk, T)
+            L = np.zeros((int(n_j), c1 - c0), dtype=np.float64)
+            for a in range(A):
+                if bool(is_rel[a]):
+                    continue
+                d = (u_cell[a][0][:, None] - v_cell[a][0][None, c0:c1])
+                wrap_a = str(wrap[a]) if a < len(wrap) else 'full-image'
+                if bool(is_per[a]) and wrap_a == 'full-image':
+                    from .._wrapped_kernel import wrapped_gaussian_1d
+                    theta = wrapped_gaussian_1d(
+                        d, float(sigma[a]), float(period[a]), ts,
+                        exponent_denominator=4,
+                    )
+                    L += np.log(theta)
+                    continue
+                if bool(is_per[a]):
+                    p_a = float(period[a])
+                    d = d - p_a * np.floor(d / p_a + 0.5)
+                L -= (d * d) / (4 * float(sigma[a]) ** 2)
+            below = L < thr_col[None, c0:c1]
+            np.exp(L, out=L)
+            L[below] = 0.0
+            row[c0:c1] = w_u @ L
+        ip_xy = np.array([
+            float(row[starts[i]:starts[i + 1]]
+                  @ entries_p[i].wv_comb) if seg_len[i] else 0.0
+            for i in range(len(entries_p))
+        ])
+    else:
+        ip_xy = np.zeros(len(entries_p), dtype=np.float64)
+
+    # Shared operand's self term, through the same memo key the
+    # per-pair route uses. As X under 'oneSidedDenom' it is not
+    # consumed and not computed.
+    ip_shared = None
+    if key in shared._self_ip_cache:
+        ip_shared = shared._self_ip_cache[key]
+    elif need_xx_shared:
+        ip_shared = _ip_core_ma(
+            shared_p.u_perm, shared_p.w_j, shared_p.n_j,
+            shared_p.v_comb, shared_p.wv_comb, shared_p.n_k,
+            A, shared_p.r, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=_inner_r_vec(shared_p), wrap=wrap,
+        )
+        shared._self_ip_cache[key] = ip_shared
+        shared_p._self_ip_cache[key] = ip_shared
+
+    # Entries' self terms: as Y (shared_is_x) always consumed; as X,
+    # consumed only under 'cosine'.
+    need_self_entry = shared_is_x or (normalize == "cosine")
+    out = np.empty(len(entries_p), dtype=np.float64)
+    for i, (d_orig, d) in enumerate(zip(entries, entries_p)):
+        if d.n == 0 or shared_p.n == 0:
+            out[i] = 0.0
+            continue
+        if key in d._self_ip_cache:
+            ip_self = d._self_ip_cache[key]
+        elif need_self_entry:
+            ip_self = _ip_core_ma(
+                d.u_perm, d.w_j, d.n_j, d.v_comb, d.wv_comb, d.n_k,
+                A, d.r, sigma, is_rel, is_per, period,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
+                inner_r=_inner_r_vec(d), wrap=wrap,
+            )
+            d._self_ip_cache[key] = ip_self
+            d_orig._self_ip_cache[key] = ip_self
+        else:
+            ip_self = None
+        if shared_is_x:
+            ip_xx, ip_yy = ip_shared, ip_self
+        else:
+            ip_xx, ip_yy = ip_self, ip_shared
+        out[i] = _finalise_normalisation(
+            float(ip_xy[i]), ip_xx, ip_yy, normalize)
+    return out
+
+
 def _all_single_multiset_pairs(pairs):
     """Return True iff every (a, b) pair consists of two single-multiset
     densities (A = 1, flat), for which canonical-form dedup applies."""
@@ -881,6 +1083,26 @@ def _cos_sim_density_path(
         else:
             pairs = [(a, b) for a in list_x for b in list_y]
             out_shape = (m, n)
+
+    # Batched all-r = 1 broadcast: one shared operand against many
+    # queries of identical geometry evaluates every cross term in a
+    # single kernel pass (per-segment truncation thresholds keep each
+    # pair's threshold equal to its per-pair value), amortising the
+    # per-pair dispatch that otherwise dominates point-set-shaped
+    # sweeps. Returns None whenever any structural condition fails, and
+    # the ordinary per-pair loops below then run — raising exactly the
+    # errors a genuine mismatch deserves.
+    if (is_x_scalar != is_y_scalar) and method in ("auto", "bulger",
+                                                   "direct"):
+        fast = _r1_broadcast_fast(
+            pairs,
+            shared_is_x=is_x_scalar,
+            normalize=normalize,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
+        if fast is not None:
+            return np.asarray(fast, dtype=np.float64).reshape(out_shape)
 
     if dedup and _all_single_multiset_pairs(pairs):
         results = _compute_pair_results_with_dedup(

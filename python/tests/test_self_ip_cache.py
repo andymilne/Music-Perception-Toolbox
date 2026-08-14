@@ -164,3 +164,75 @@ def test_cached_self_ip_is_reused_and_keyed():
 def test_pruned_is_memoised():
     d = _r1_density(RNG.uniform(40, 90, 10), np.sort(RNG.uniform(0, 5, 10)))
     assert d.pruned() is d.pruned()
+
+
+# ------------------------------------------------------------------
+#  Batched r = 1 broadcast path == per-pair loop
+# ------------------------------------------------------------------
+
+@pytest.mark.parametrize("norm", ["cosine", "oneSidedDenom"])
+@pytest.mark.parametrize("shared_is_x", [True, False])
+@pytest.mark.parametrize("is_per,period", [
+    ((False, False), (0.0, 0.0)),
+    ((True, False), (12.0, 0.0)),
+    ((True, True), (12.0, 4.0)),
+])
+def test_r1_broadcast_batched_matches_loop(norm, shared_is_x, is_per,
+                                           period):
+    P = RNG.uniform(40, 90, 120)
+    T = np.sort(RNG.uniform(0, 40, 120))
+    qP = np.array([60.0, 63.0, 68.0])
+    qT = np.array([0.0, 1.0, 3.0])
+
+    def mk(pp, tt):
+        return _r1_density(pp, tt, sigma=(0.25, 0.08), is_per=is_per,
+                           period=period)
+
+    dS = mk(P, T)
+    ents = [mk(qP + 0.7 * k, qT + 1.3 * k) for k in range(5)]
+    args = (dS, ents) if shared_is_x else (ents, dS)
+    fast = mpt.cos_sim_exp_tens(*args, normalize=norm, verbose=False)
+
+    orig = C._r1_broadcast_fast
+    C._r1_broadcast_fast = lambda *a, **k: None
+    try:
+        dS2 = mk(P, T)
+        ents2 = [mk(qP + 0.7 * k, qT + 1.3 * k) for k in range(5)]
+        args2 = (dS2, ents2) if shared_is_x else (ents2, dS2)
+        slow = mpt.cos_sim_exp_tens(*args2, normalize=norm, verbose=False)
+    finally:
+        C._r1_broadcast_fast = orig
+    np.testing.assert_allclose(fast, slow, rtol=1e-13, atol=0)
+
+
+def test_r1_broadcast_batched_mismatch_still_raises():
+    dS = _r1_density(RNG.uniform(40, 90, 30),
+                     np.sort(RNG.uniform(0, 10, 30)))
+    good = _r1_density([60.0, 64.0], [0.0, 1.0])
+    bad = mpt.build_exp_tens(
+        [np.array([[60.0, 64.0]]), np.array([[0.0, 1.0]])], None,
+        [0.5, 0.08], [1, 1], [False, False], [False, False], [0.0, 0.0],
+        verbose=False)  # different sigma
+    with pytest.raises(ValueError):
+        mpt.cos_sim_exp_tens(dS, [good, bad], verbose=False)
+
+
+def test_r1_build_fast_path_matches_general_fields():
+    # The all-r = 1, K = 1 lazy-build shortcut produces the same
+    # per-tuple fields as an equivalent K > 1 general-path build
+    # restricted to one value (cross-checked at the similarity level:
+    # a K = 1 density equals itself embedded with a NaN pad row, which
+    # forces the general enumeration path).
+    P = RNG.uniform(40, 90, 25)
+    T = np.sort(RNG.uniform(0, 10, 25))
+    d_fast = _r1_density(P, T)
+    pad = np.full((1, 25), np.nan)
+    d_gen = mpt.build_exp_tens(
+        [np.vstack([P, pad[0]]).reshape(2, -1),
+         np.vstack([T, pad[0]]).reshape(2, -1)], None,
+        [0.25, 0.08], [1, 1], [False, False], [False, False], [0.0, 0.0],
+        verbose=False)
+    q = _r1_density([60.0, 64.0, 67.0], [0.0, 1.0, 2.0])
+    v_fast = mpt.cos_sim_exp_tens(d_fast, q, verbose=False)
+    v_gen = mpt.cos_sim_exp_tens(d_gen, q, verbose=False)
+    assert v_fast == pytest.approx(v_gen, rel=1e-13)

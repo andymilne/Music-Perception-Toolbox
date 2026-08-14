@@ -933,6 +933,55 @@ function dens = localFillMAExpensive(dens, verbose)
         nested = cell(1, A);
     end
 
+    % --- All-r = 1, K = 1-per-event fast fill --------------------------
+    % One value per event per attribute at r_a = 1 means every event's
+    % tuple set is the event's own value: the perm and comb sides are
+    % the input value matrices themselves, the per-tuple weight is the
+    % product of the event's per-attribute weights, and the tuple index
+    % is the event index. The general per-(n, a) enumeration below
+    % computes exactly this through N x A rounds of small-array
+    % machinery, which dominates the build cost of point-set-shaped
+    % densities (one note per event); assembling the fields directly
+    % produces identical arrays. NaN values (a dead event) fall through
+    % to the general path, which raises the K < r error the fast path
+    % must not silently bypass. Mirrors the Python _ma_build_perm_arrays
+    % fast path.
+    allR1K1 = all(rVec == 1) && all(cellfun(@isempty, nested));
+    if allR1K1
+        for a = 1:A
+            if size(pAttr{a}, 1) ~= 1 || any(isnan(pAttr{a}(1, :)))
+                allR1K1 = false;
+                break;
+            end
+        end
+    end
+    if allR1K1
+        Uc = cell(1, A);
+        Vc = cell(1, A);
+        Cc = cell(1, A);
+        wJ = ones(1, N);
+        for a = 1:A
+            Uc{a} = double(pAttr{a});
+            Vc{a} = Uc{a};
+            wJ = wJ .* double(wCell{a}(1, :));
+            if isRelVec(a)
+                Cc{a} = zeros(0, N);
+            else
+                Cc{a} = Uc{a};
+            end
+        end
+        dens.nJ       = N;
+        dens.nK       = N;
+        dens.Centres  = Cc;
+        dens.U_perm   = Uc;
+        dens.V_comb   = Vc;
+        dens.wJ       = wJ;
+        dens.wv_comb  = wJ;
+        dens.eventOfJ = 1:N;
+        dens.eventOfK = 1:N;
+        return;
+    end
+
     % --- Single flat attribute (A = 1) fast fill -----------------------
     % One attribute means nothing to Cartesian-product across attributes,
     % so the general per-(n,a) machinery below is overhead. Enumerate the

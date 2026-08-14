@@ -84,10 +84,13 @@ for mi = 1:3
             fresh(k) = cosSimExpTens(dXf, dYs{k}, ...
                 'normalize', nrm, 'verbose', false);
         end
+        % The sweep routes through the batched kernel pass, whose final
+        % contraction association differs from the scalar calls at
+        % machine epsilon; equality is asserted at the parity floor.
         results{end+1,1} = sprintf( ...
-            'selfIP.r1 %s %s: sweep matches fresh scalars (0 diff)', ...
+            'selfIP.r1 %s %s: sweep matches fresh scalars (1e-13 rel)', ...
             modesName{mi}, nrm); %#ok<*SAGROW>
-        results{end,2}   = max(abs(sweep - fresh)) == 0;
+        results{end,2}   = max(abs(sweep - fresh) ./ max(abs(fresh), 1e-300)) < 1e-13;
 
         g = golden.(modesName{mi}).(nrm);
         results{end+1,1} = sprintf( ...
@@ -112,8 +115,10 @@ sLoop = zeros(1, 3);
 for k = 1:3
     [sLoop(k), dRef] = cosSimExpTens(dRef, dYs{k}, 'verbose', false);
 end
-results{end+1,1} = 'selfIP.threaded loop via 2nd output matches sweep (0 diff)';
-results{end,2}   = max(abs(sLoop - sweep)) == 0;
+% Scalar calls contract per pair; the sweep contracts batched --- same
+% epsilon-level association difference as above.
+results{end+1,1} = 'selfIP.threaded loop via 2nd output matches sweep (1e-13 rel)';
+results{end,2}   = max(abs(sLoop - sweep) ./ max(abs(sweep), 1e-300)) < 1e-13;
 results{end+1,1} = 'selfIP.returned struct carries a populated selfIP field';
 results{end,2}   = isfield(dRef, 'selfIP') && isstruct(dRef.selfIP) ...
     && numel(dRef.selfIP.keys) >= 1;
@@ -146,6 +151,70 @@ for nrmC = {'cosine', 'oneSidedDenom'}
     results{end,2}   = abs(sFresh - goldMob.(nrm)) ...
         / abs(goldMob.(nrm)) < 1e-9;
 end
+
+%% ---- Batched r = 1 broadcast == per-pair scalar calls ----
+
+% The broadcast list forms route the all-r = 1 shape through one
+% batched kernel pass (localR1BroadcastFast); the values must equal
+% fresh per-pair scalar calls, in both orientations, to the toolbox
+% parity floor (the association of the final contraction differs, so
+% exact zero is not required here, unlike the loop-path checks above).
+
+for mi = 1:3
+    isPerM = modesPer{mi};
+    prdM   = modesPrd{mi};
+    dS = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+        isPerM, prdM, 'verbose', false);
+    dQ = cell(1, 3);
+    for k = 0:2
+        dQ{k+1} = buildExpTens({qP + 0.6*k, qT + 0.9*k}, [], ...
+            [0.9 0.35], [1 1], [false false], isPerM, prdM, ...
+            'verbose', false);
+    end
+    for nrmC = {'cosine', 'oneSidedDenom'}
+        nrm = nrmC{1};
+        batXS = cell2mat(cosSimExpTens(dS, dQ, ...
+            'normalize', nrm, 'verbose', false));
+        batYS = cell2mat(cosSimExpTens(dQ, dS, ...
+            'normalize', nrm, 'verbose', false));
+        refXS = zeros(1, 3); refYS = zeros(1, 3);
+        for k = 1:3
+            dSa = buildExpTens({P, T}, [], [0.9 0.35], [1 1], ...
+                [false false], isPerM, prdM, 'verbose', false);
+            refXS(k) = cosSimExpTens(dSa, dQ{k}, ...
+                'normalize', nrm, 'verbose', false);
+            dSb = buildExpTens({P, T}, [], [0.9 0.35], [1 1], ...
+                [false false], isPerM, prdM, 'verbose', false);
+            refYS(k) = cosSimExpTens(dQ{k}, dSb, ...
+                'normalize', nrm, 'verbose', false);
+        end
+        results{end+1,1} = sprintf( ...
+            'selfIP.batched %s %s: X-shared matches scalar calls (1e-13 rel)', ...
+            modesName{mi}, nrm);
+        results{end,2}   = max(abs(batXS - refXS) ./ abs(refXS)) < 1e-13;
+        results{end+1,1} = sprintf( ...
+            'selfIP.batched %s %s: Y-shared matches scalar calls (1e-13 rel)', ...
+            modesName{mi}, nrm);
+        results{end,2}   = max(abs(batYS - refYS) ./ abs(refYS)) < 1e-13;
+    end
+end
+
+%% ---- Batched path: structural mismatch in the list still raises ----
+
+badSigma = buildExpTens({qP, qT}, [], [0.5 0.35], [1 1], ...
+    [false false], [false false], [0 0], 'verbose', false);
+dS = buildExpTens({P, T}, [], [0.9 0.35], [1 1], [false false], ...
+    [false false], [0 0], 'verbose', false);
+dQ1 = buildExpTens({qP, qT}, [], [0.9 0.35], [1 1], [false false], ...
+    [false false], [0 0], 'verbose', false);
+okMismatch = false;
+try
+    cosSimExpTens(dS, {dQ1, badSigma}, 'verbose', false);
+catch ME
+    okMismatch = strcmp(ME.identifier, 'cosSimExpTens:sigmaMismatch');
+end
+results{end+1,1} = 'selfIP.batched list with sigma mismatch raises sigmaMismatch';
+results{end,2}   = okMismatch;
 
 %% ---- Cache-carrying outputs refused outside the scalar struct form ----
 

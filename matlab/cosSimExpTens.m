@@ -585,12 +585,27 @@ elseif nArgs == 9
             isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
         M = numel(listPAttr);
         s = cell(1, M);
+        densList = cell(1, M);
+        for m = 1:M
+            densList{m} = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
+                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', false);
+        end
+        % Batched all-r = 1 sweep (see localR1BroadcastFast); the
+        % per-pair loop below is the fallback for every other shape.
+        if any(strcmp(method, {'auto', 'bulger', 'direct'}))
+            [okFast, sFast] = localR1BroadcastFast(dens_scalar, densList, ...
+                scalarFirst, normalize, localSelfIpEmpty(), ...
+                truncationSigmas);
+            if okFast
+                s = sFast;
+                return;
+            end
+        end
         % Thread the scalar side's self-IP memo across the sweep so its
         % self inner product is paid once, not once per entry.
         cacheScalar = localSelfIpEmpty();
         for m = 1:M
-            dens_m = buildExpTens(listPAttr{m}, listW, sigmaVec, rVec, ...
-                isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', false);
+            dens_m = densList{m};
             if scalarFirst
                 [s{m}, cacheScalar] = localCosSimMA(dens_scalar, dens_m, ...
                                      method, ...
@@ -1226,54 +1241,11 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 
     function ipval = ipR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
                                 truncResolved)
-        % Direct MA inner product for the all-r = 1 shape. The
-        % truncation threshold matches internal.truncLogKernelExp
-        % exactly: resolve through the accuracy floor, threshold
-        % -0.5 k^2 in log space, tightened by -log(nTerms) for the
-        % summed count.
-        tsR = internal.accuracyFloor('resolve', truncResolved);
-        threshold = -0.5 * tsR^2;
-        nTerms = double(nJ) * double(nK);
-        if nTerms > 1
-            threshold = threshold - log(nTerms);
-        end
-
-        bytesPerCol = 3 * double(nJ) * 8;
-        memLimit = internal.kernelChunkBytesResolved();
-        chunkSize = max(1, floor(memLimit / bytesPerCol));
-
-        wVcol = wV(:);
-        acc = zeros(nJ, 1);
-        for c = 1:chunkSize:nK
-            cEnd = min(c + chunkSize - 1, nK);
-            idx  = c:cEnd;
-            L = zeros(nJ, numel(idx));
-            for a = 1:A
-                if isRelG(a)
-                    % Vanishing quadratic form at r_a = 1: no
-                    % contribution to the log-kernel.
-                    continue;
-                end
-                d = reshape(U_cell{a}, nJ, 1) ...
-                  - reshape(V_cell{a}(1, idx), 1, numel(idx));
-                if isPerG(a) && strcmp(char(wrapG{a}), 'full-image')
-                    theta = internal.wrappedGaussian1d( ...
-                        d, sigmaG(a), periodG(a), tsR, 4);
-                    L = L + log(theta);
-                    continue;
-                end
-                if isPerG(a)
-                    P_g = periodG(a);
-                    d = d - P_g .* floor(d / P_g + 0.5);
-                end
-                L = L - d.^2 / (4 * sigmaG(a)^2);
-            end
-            below = L < threshold;
-            E = exp(L);
-            E(below) = 0;
-            acc = acc + E * wVcol(idx);
-        end
-        ipval = wU(:).' * acc;
+        % Delegates to the file-scope implementation so the batched
+        % broadcast path (localR1BroadcastFast) and this per-pair core
+        % share one source.
+        ipval = localIpR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
+            A, sigmaG, isRelG, isPerG, periodG, wrapG, truncResolved);
     end
 
     function ipval = ipFullMA(U_cell, wU, nJ, V_cell, wV, nK, truncResolved)
@@ -1631,6 +1603,21 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
     n = numel(cellArg);
     sCell = cell(1, n);
     cacheScalar = localSelfIpFromStruct(scalarArg);
+
+    % Batched all-r = 1 broadcast: one shared operand against many
+    % queries of identical geometry evaluates every cross term in a
+    % single kernel pass, amortising the per-pair dispatch that
+    % otherwise dominates point-set-shaped sweeps. ok = false whenever
+    % any structural condition fails, and the ordinary per-pair loop
+    % below then runs --- raising exactly the errors a genuine mismatch
+    % deserves.
+    [okFast, sFast] = localR1BroadcastFast(scalarArg, cellArg, ...
+        scalarLeft, normalize, cacheScalar);
+    if okFast
+        sCell = sFast;
+        return;
+    end
+
     for i = 1:n
         if ~isstruct(cellArg{i})
             error('cosSimExpTens:listNonStruct', ...
@@ -2122,4 +2109,315 @@ function cache = localSelfIpPurgeRoute(cache, route)
     keep = ~strncmp(cache.keys, [route '|'], numel(route) + 1);
     cache.keys = cache.keys(keep);
     cache.vals = cache.vals(keep);
+end
+
+% =========================================================================
+%  All-r = 1 direct inner product and batched broadcast.
+% =========================================================================
+
+function ipval = localIpR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
+    A, sigmaG, isRelG, isPerG, periodG, wrapG, truncResolved)
+%LOCALIPR1DIRECT  Direct MA inner product for the all-r = 1 shape.
+%
+%   Computes the same quantity as the generic maLogKernel path ---
+%   per-attribute terms accumulated in the same order, with the same
+%   truncation threshold (resolve through the accuracy floor,
+%   -0.5 k^2 in log space, tightened by -log(nTerms) for the summed
+%   count) --- with a single accumulator and a plain exponential.
+%   Chunking along the comb side follows the generic path's memory
+%   heuristic. Relative attributes at r_a = 1 have a vanishing
+%   quadratic form and contribute nothing.
+
+    tsR = internal.accuracyFloor('resolve', truncResolved);
+    threshold = -0.5 * tsR^2;
+    nTerms = double(nJ) * double(nK);
+    if nTerms > 1
+        threshold = threshold - log(nTerms);
+    end
+
+    bytesPerCol = 3 * double(nJ) * 8;
+    memLimit = internal.kernelChunkBytesResolved();
+    chunkSize = max(1, floor(memLimit / bytesPerCol));
+
+    wVcol = wV(:);
+    acc = zeros(nJ, 1);
+    for c = 1:chunkSize:nK
+        cEnd = min(c + chunkSize - 1, nK);
+        idx  = c:cEnd;
+        L = zeros(nJ, numel(idx));
+        for a = 1:A
+            if isRelG(a)
+                continue;
+            end
+            d = reshape(U_cell{a}, nJ, 1) ...
+              - reshape(V_cell{a}(1, idx), 1, numel(idx));
+            if isPerG(a) && strcmp(char(wrapG{a}), 'full-image')
+                theta = internal.wrappedGaussian1d( ...
+                    d, sigmaG(a), periodG(a), tsR, 4);
+                L = L + log(theta);
+                continue;
+            end
+            if isPerG(a)
+                P_g = periodG(a);
+                d = d - P_g .* floor(d / P_g + 0.5);
+            end
+            L = L - d.^2 / (4 * sigmaG(a)^2);
+        end
+        below = L < threshold;
+        E = exp(L);
+        E(below) = 0;
+        acc = acc + E * wVcol(idx);
+    end
+    ipval = wU(:).' * acc;
+end
+
+
+function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
+    sharedIsX, normalize, cacheShared, truncationSigmas)
+%LOCALR1BROADCASTFAST  Batched broadcast for the all-r = 1 shape.
+%
+%   Applies when one operand is shared across every pair and all
+%   densities are flat MaetDensity structs of identical geometry with
+%   every r_a = 1 (no nesting, no kernel covariance; r = 1
+%   symmetrisation is vacuous). The cross inner products of the whole
+%   sweep are then one kernel pass over the concatenated query
+%   columns, with the truncation threshold applied per column segment
+%   using that pair's own nTerms, so the set of zeroed entries matches
+%   the per-pair path exactly. Self terms use the same memo keys the
+%   per-pair route uses (seeded from each struct's selfIP field where
+%   present); as X under 'oneSidedDenom' a self term is not consumed
+%   and not computed. The only floating-point difference from the
+%   per-pair path is the contraction association ((wU * E) . wV here
+%   versus wU * (E * wV) per pair), within the toolbox-wide <= 1e-12
+%   parity discipline.
+%
+%   OK = false whenever any structural condition fails; the caller's
+%   ordinary per-pair loop then runs and raises the errors a genuine
+%   mismatch deserves.
+
+    if nargin < 6
+        truncationSigmas = [];
+    end
+    ok = false;
+    sCell = {};
+
+    n = numel(entryCell);
+    if n == 0
+        return;
+    end
+    densAll = [{sharedDens}, entryCell(:).'];
+    for i = 1:numel(densAll)
+        d = densAll{i};
+        if ~isstruct(d) || ~isfield(d, 'tag') ...
+                || ~strcmp(d.tag, 'MaetDensity')
+            return;
+        end
+        if isfield(d, 'kernelCov') && ~isempty(d.kernelCov)
+            return;
+        end
+        if isfield(d, 'nested') && iscell(d.nested) ...
+                && any(~cellfun(@isempty, d.nested))
+            return;
+        end
+    end
+
+    sharedP = internal.prunedExpTens(sharedDens);
+    A = sharedP.nAttrs;
+    if A < 1 || ~all(sharedP.r == 1)
+        return;
+    end
+    entriesP = cell(1, n);
+    for i = 1:n
+        entriesP{i} = internal.prunedExpTens(entryCell{i});
+    end
+
+    if isfield(sharedP, 'wrap') && ~isempty(sharedP.wrap)
+        wrapG = sharedP.wrap;
+    else
+        wrapG = repmat({'full-image'}, 1, A);
+    end
+    perMask = logical(sharedP.isPer);
+    for i = 1:n
+        d = entriesP{i};
+        if d.nAttrs ~= A ...
+                || ~isequal(d.r, sharedP.r) ...
+                || ~isequal(d.sigma, sharedP.sigma) ...
+                || ~isequal(logical(d.isRel), logical(sharedP.isRel)) ...
+                || ~isequal(logical(d.isPer), logical(sharedP.isPer))
+            return;
+        end
+        if any(d.period(perMask) ~= sharedP.period(perMask))
+            return;
+        end
+        if isfield(d, 'wrap') && ~isempty(d.wrap)
+            wrapD = d.wrap;
+        else
+            wrapD = repmat({'full-image'}, 1, A);
+        end
+        for a = 1:A
+            if ~strcmp(char(wrapD{a}), char(wrapG{a}))
+                return;
+            end
+        end
+    end
+
+    % Every structural condition holds: from here the fast path is
+    % committed and computes the values.
+    ok = true;
+    sCell = cell(1, n);
+
+    sigmaG  = sharedP.sigma;
+    isRelG  = logical(sharedP.isRel);
+    isPerG  = logical(sharedP.isPer);
+    periodG = sharedP.period;
+    if isempty(truncationSigmas)
+        truncResolved = mptDefaults('truncationSigmas');
+    else
+        truncResolved = truncationSigmas;
+    end
+    tsR = internal.accuracyFloor('resolve', truncResolved);
+    bulgerKey = localSelfIpKey('bulger', tsR, '');
+    needSharedSelf = ~sharedIsX || strcmp(normalize, 'cosine');
+    needEntrySelf  = sharedIsX || strcmp(normalize, 'cosine');
+
+    if sharedP.N == 0
+        for i = 1:n
+            sCell{i} = 0.0;
+        end
+        return;
+    end
+
+    sharedP = internal.ensureExpTensExpensive(sharedP);
+    nJ = sharedP.nJ;
+    U_cell = sharedP.U_perm;
+    wU = sharedP.wJ;
+
+    % Shared operand's self term, through the same memo key the
+    % per-pair route uses.
+    ipShared = [];
+    [hitS, valS] = localSelfIpGet(cacheShared, bulgerKey);
+    if hitS
+        ipShared = valS;
+    elseif needSharedSelf
+        ipShared = localIpR1Direct(U_cell, wU, nJ, ...
+            sharedP.V_comb, sharedP.wv_comb, sharedP.nK, ...
+            A, sigmaG, isRelG, isPerG, periodG, wrapG, truncResolved);
+    end
+
+    % Concatenate the live entries' comb-side columns; record segment
+    % boundaries and per-column thresholds (that pair's own nTerms).
+    segLen = zeros(1, n);
+    for i = 1:n
+        if entriesP{i}.N ~= 0
+            entriesP{i} = internal.ensureExpTensExpensive(entriesP{i});
+            segLen(i) = entriesP{i}.nK;
+        end
+    end
+    T = sum(segLen);
+    starts = [0, cumsum(segLen)];
+    ipXY = zeros(1, n);
+    if T > 0
+        Vc = cell(1, A);
+        for a = 1:A
+            cols = cell(1, n);
+            for i = 1:n
+                if segLen(i) > 0
+                    cols{i} = entriesP{i}.V_comb{a};
+                end
+            end
+            Vc{a} = [cols{:}];
+        end
+        thrCol = zeros(1, T);
+        for i = 1:n
+            if segLen(i) == 0
+                continue;
+            end
+            nTerms = double(nJ) * double(entriesP{i}.nK);
+            t = -0.5 * tsR^2;
+            if nTerms > 1
+                t = t - log(nTerms);
+            end
+            thrCol(starts(i) + 1 : starts(i + 1)) = t;
+        end
+
+        % One kernel pass over the concatenated columns. Chunk width is
+        % the smaller of the memory-limit heuristic and a
+        % cache-resident cap: a single (nJ, T) block at large nJ leaves
+        % cache and drops kernel throughput; a few MB per block keeps
+        % locality while amortising the per-chunk cost.
+        bytesPerCol = 3 * double(nJ) * 8;
+        memLimit = internal.kernelChunkBytesResolved();
+        cacheCap = max(1, floor(4e6 / max(double(nJ) * 8, 1)));
+        chunkSize = max(1, min(floor(memLimit / bytesPerCol), cacheCap));
+        rowSums = zeros(1, T);          % (wU * E) per column
+        for c = 1:chunkSize:T
+            cEnd = min(c + chunkSize - 1, T);
+            idx = c:cEnd;
+            L = zeros(nJ, numel(idx));
+            for a = 1:A
+                if isRelG(a)
+                    continue;
+                end
+                d = reshape(U_cell{a}, nJ, 1) ...
+                  - reshape(Vc{a}(1, idx), 1, numel(idx));
+                if isPerG(a) && strcmp(char(wrapG{a}), 'full-image')
+                    theta = internal.wrappedGaussian1d( ...
+                        d, sigmaG(a), periodG(a), tsR, 4);
+                    L = L + log(theta);
+                    continue;
+                end
+                if isPerG(a)
+                    P_g = periodG(a);
+                    d = d - P_g .* floor(d / P_g + 0.5);
+                end
+                L = L - d.^2 / (4 * sigmaG(a)^2);
+            end
+            below = L < thrCol(idx);
+            E = exp(L);
+            E(below) = 0;
+            rowSums(idx) = wU(:).' * E;
+        end
+        for i = 1:n
+            if segLen(i) > 0
+                seg = starts(i) + 1 : starts(i + 1);
+                ipXY(i) = rowSums(seg) * entriesP{i}.wv_comb(:);
+            end
+        end
+    end
+
+    for i = 1:n
+        d = entriesP{i};
+        if d.N == 0
+            sCell{i} = 0.0;
+            continue;
+        end
+        ipSelf = [];
+        cacheE = localSelfIpFromStruct(entryCell{i});
+        [hitE, valE] = localSelfIpGet(cacheE, bulgerKey);
+        if hitE
+            ipSelf = valE;
+        elseif needEntrySelf
+            ipSelf = localIpR1Direct(d.U_perm, d.wJ, d.nJ, ...
+                d.V_comb, d.wv_comb, d.nK, ...
+                A, sigmaG, isRelG, isPerG, periodG, wrapG, truncResolved);
+        end
+        if sharedIsX
+            ipXX = ipShared;
+            ipYY = ipSelf;
+        else
+            ipXX = ipSelf;
+            ipYY = ipShared;
+        end
+        switch normalize
+            case 'cosine'
+                denom = sqrt(max(ipXX * ipYY, 0));
+            case 'oneSidedDenom'
+                denom = ipYY;
+        end
+        if denom == 0
+            sCell{i} = NaN;
+        else
+            sCell{i} = ipXY(i) / denom;
+        end
+    end
 end

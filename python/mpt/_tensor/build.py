@@ -1083,6 +1083,46 @@ def _ma_build_perm_arrays(
     if nested is None:
         nested = [None] * A
 
+    # --- All-r = 1, K = 1-per-event fast path -----------------------
+    # One value per event per attribute at r_a = 1 means every event's
+    # tuple set is the event's own value: the perm and comb sides are
+    # the input value matrices themselves, the per-tuple weight is the
+    # product of the event's per-attribute weights, and the tuple index
+    # is the event index. The general per-(n, a) enumeration below
+    # computes exactly this through N x A rounds of small-array
+    # machinery, which dominates the build cost of point-set-shaped
+    # densities (one note per event); assembling the fields directly
+    # produces identical arrays. NaN values (a dead event) fall through
+    # to the general path, which raises the K < r error the fast path
+    # must not silently bypass.
+    all_r1_k1 = (
+        A >= 1
+        and all(s is None for s in nested)
+        and all(int(r_vec[a]) == 1 for a in range(A))
+        and all(p_attr[a].shape[0] == 1 for a in range(A))
+        and not any(np.isnan(p_attr[a]).any() for a in range(A))
+    )
+    if all_r1_k1:
+        u_perm = [np.array(p_attr[a], dtype=np.float64, copy=True)
+                  for a in range(A)]
+        v_comb = [u.copy() for u in u_perm]
+        w_j = np.ones(N, dtype=np.float64)
+        for a in range(A):
+            w_j *= np.asarray(w_list[a][0, :], dtype=np.float64)
+        wv_comb = w_j.copy()
+        event_ids = np.arange(N, dtype=np.intp)
+        centres = []
+        for a in range(A):
+            if is_rel_vec[a]:
+                centres.append(np.empty((0, N), dtype=np.float64))
+            else:
+                centres.append(u_perm[a].copy())
+        return dict(
+            n_j=N, n_k=N, centres=centres, u_perm=u_perm, v_comb=v_comb,
+            w_j=w_j, wv_comb=wv_comb,
+            event_of_j=event_ids, event_of_k=event_ids.copy(),
+        )
+
     # --- Single flat attribute (A = 1) fast path --------------------
     # One attribute means there is nothing to Cartesian-product across
     # attributes, so the general per-(n, a) cell machinery is overhead.

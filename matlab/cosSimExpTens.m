@@ -1056,8 +1056,15 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % Announce the decision, as the Python multi-attribute path does. The
     % single-multiset stack announced at its own dispatch point; that
     % stack is no longer reached, so without this the message is lost for
-    % every single multiset.
-    internal.maybeShowDispatchMsg('cosSimExpTens', chosen, 'ma cost model');
+    % every single multiset. On an ordered attribute the tuple-pair path
+    % has no permutation expansion to exploit (the perm side equals the
+    % comb side), so Bulger's combinations-vs-permutations organisation
+    % never runs there and the announce says so.
+    chosenLabel = chosen;
+    if exist('sxOrd', 'var') && (sxOrd || syOrd) && strcmp(chosen, 'bulger')
+        chosenLabel = 'bulger (direct on ordered attributes)';
+    end
+    internal.maybeShowDispatchMsg('cosSimExpTens', chosenLabel, 'ma cost model');
 
     ranOrbit = false;
     if ~isempty(contractTriple)

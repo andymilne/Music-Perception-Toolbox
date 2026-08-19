@@ -41,6 +41,7 @@ import pytest
 import mpt
 from mpt import build_exp_tens, eval_exp_tens
 from mpt._tensor.dispatch import _select_ma_eval
+from math import comb as _math_comb
 
 
 # The largest factor by which a *chosen* centres route may be slower
@@ -333,3 +334,42 @@ def test_ip_forced_bulger_feasible_does_not_raise():
     collection), no error is raised."""
     # r = 1 forces Bulger and is always feasible (monad inner product).
     assert _single_multiset_ip_select(K=100, r=1)[0] == "bulger"
+
+
+# -------------------------------------------------------------------
+#  Ordered attributes in the joint working-set estimate
+# -------------------------------------------------------------------
+
+
+def test_joint_working_set_ordered_attr_counts_combinations():
+    """An ordered attribute contributes C(K, r) joint tuples, not
+    K!/(K-r)!: at r = K that is one tuple, so the estimate collapses
+    from far past the budget (unordered) to a handful of bytes
+    (ordered)."""
+    from mpt._tensor.dispatch import _estimate_ma_joint_working_set_bytes
+    b_unord = _estimate_ma_joint_working_set_bytes(
+        [11], [20], [False])
+    b_ord = _estimate_ma_joint_working_set_bytes(
+        [11], [20], [False], sym_vec=[False])
+    assert b_unord > (1 << 40)
+    assert b_ord == _math_comb(20, 11) * 11 * 2 * 8
+    b_ord_full = _estimate_ma_joint_working_set_bytes(
+        [11], [11], [False], sym_vec=[False])
+    assert b_ord_full == 1 * 11 * 2 * 8
+
+
+def test_ma_eval_ordered_r11_routes_centres_and_evaluates():
+    """A bound ordered 11-tuple (one tuple per event) routes to the
+    centres path on the ordered hard rule -- before the feasibility
+    bound is consulted -- and evaluates without tripping any
+    infeasibility guard, its joint tuple set being one tuple."""
+    from mpt import bind_events, build_exp_tens, eval_exp_tens
+    x = np.arange(11, dtype=float)
+    p_b, w_b, sp_b = bind_events([x[None, :]], None, 11)
+    dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3],
+                          is_per=[False], period=[None], verbose=False)
+    chosen, reason = _select_ma_eval(dens, 200, method="auto")
+    assert chosen == "centres"
+    assert "ordered" in reason
+    val = eval_exp_tens(dens, x[:, None], verbose=False)
+    assert np.isfinite(val).all() and float(np.max(val)) > 0.0

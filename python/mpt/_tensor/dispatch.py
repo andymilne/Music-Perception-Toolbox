@@ -464,6 +464,7 @@ def _select_ma_inner_product_method(
     guard_forced_bulger=True,
     wrap_vec=None,
     k_vec_y=None,
+    sym_vec=None,
     truncation_sigmas=None,
     return_costs=False,
     pw_skip_xx=False, pw_skip_yy=False,
@@ -556,7 +557,7 @@ def _select_ma_inner_product_method(
             _guard_forced_bulger_feasible_ma(
                 k_vec, r_vec, rel_vec, N_x, N_y,
                 reason="r above the shipped orbit order",
-                k_vec_y=k_vec_y,
+                k_vec_y=k_vec_y, sym_vec=sym_vec,
             )
         return ('bulger', float('nan'), float('nan')) \
             if return_costs else 'bulger'
@@ -581,12 +582,15 @@ def _select_ma_inner_product_method(
                       and sigma_over_P_max
                       > _orbit_sigma_over_p_threshold(truncation_sigmas)):
         k_y = k_vec if k_vec_y is None else k_vec_y
+        sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
         tuples_x = 1.0
         tuples_y = 1.0
         dim_sum = 0
         for a in range(A):
             r_a = int(r_vec[a])
-            f_a = float(factorial(r_a))
+            # Enumerated tuple count: r_a!·C on an unordered attribute,
+            # C alone on an ordered one (perm side = comb side).
+            f_a = float(factorial(r_a)) if sym[a] else 1.0
             tuples_x *= f_a * float(_math_comb(int(k_vec[a]), r_a))
             tuples_y *= f_a * float(_math_comb(int(k_y[a]), r_a))
             dim_sum += r_a
@@ -1252,15 +1256,18 @@ def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
 
 
 def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
-                                     reason, k_vec_y=None):
+                                     reason, k_vec_y=None, sym_vec=None):
     """Raise if a *forced* multi-attribute Bulger inner product would be
     infeasible.
 
     Bulger's MA inner product materialises each side's joint perm-side
-    working set ``n_J = N * prod_a nj_a`` with ``nj_a = K_a! / (K_a -
-    r_a)!``, and the tuple-pair kernel is ``n_J_x * n_J_y`` float64
-    entries. When the Möbius method is *forced* off (r above the
-    shipped orbit order) there is no
+    working set ``n_J = N * prod_a nj_a``, where ``nj_a`` is the
+    attribute's enumerated tuple count: ``K_a! / (K_a - r_a)!`` on an
+    unordered attribute (every ordering of every combination) and
+    ``C(K_a, r_a)`` on an ordered one (the perm side is the comb side;
+    see :func:`mpt._tensor.build._enum_flat_attr`). The tuple-pair
+    kernel is ``n_J_x * n_J_y`` float64 entries. When the Möbius method
+    is *forced* off (r above the shipped orbit order) there is no
     cheaper all-image substitute; at high tuple order the pair kernel
     can exhaust memory. Rather than let it crash the process, raise a
     clear error naming the shape. Explicit ``method='bulger'`` overrides
@@ -1269,9 +1276,12 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
 
     Each side is sized from its own density's per-attribute value counts,
     since the two need not agree; ``k_vec_y`` omitted means they do.
+    ``sym_vec`` omitted treats every attribute as unordered, the
+    conservative (larger) count.
     """
     A = len(r_vec)
     k_y = k_vec if k_vec_y is None else k_vec_y
+    sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
 
     def _nj_side(N, k_side):
         n_j = float(N)
@@ -1280,9 +1290,9 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
             r_a = int(r_vec[a])
             if K_a < r_a:
                 return 0.0
-            fac = 1.0
-            for k in range(K_a - r_a + 1, K_a + 1):
-                fac *= k
+            fac = float(_math_comb(K_a, r_a))
+            if sym[a]:
+                fac *= float(factorial(r_a))
             n_j *= fac
             if n_j > 1e18:      # already hopeless; stop growing
                 return 1e18
@@ -1301,30 +1311,37 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
         )
 
 
-def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel) -> int:
+def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
+                                         sym_vec=None) -> int:
     """Estimate the multi-attribute joint-centres working set in bytes.
 
     The multi-attribute centres path materialises the *joint* tuple
-    set: the product across attributes of each attribute's ordered-tuple
-    count ``r_a! * C(K_a, r_a)``. The stored joint centres array is
-    ``(D, n_joint)`` with ``D = sum_a (r_a - [rel]_a)``, plus per-attribute
-    index bookkeeping of the same ``n_joint`` length; a row factor of
-    ``2 * D`` over-counts honestly for a memory guard. Used only to
-    detect when a convention- or precision-forced centres pick would be
-    infeasible, so an over-count is the right bias.
+    set: the product across attributes of each attribute's enumerated
+    tuple count --- ``r_a! * C(K_a, r_a)`` on an unordered attribute,
+    ``C(K_a, r_a)`` on an ordered one (the perm side is the comb side;
+    see :func:`mpt._tensor.build._enum_flat_attr`). The stored joint
+    centres array is ``(D, n_joint)`` with ``D = sum_a (r_a - [rel]_a)``,
+    plus per-attribute index bookkeeping of the same ``n_joint``
+    length; a row factor of ``2 * D`` over-counts honestly for a memory
+    guard. Used only to detect when a convention- or precision-forced
+    centres pick would be infeasible, so an over-count is the right
+    bias. ``sym_vec`` omitted treats every attribute as unordered, the
+    conservative (larger) count.
     """
     A = len(r_vec)
     n_joint = 1
     D = 0
+    sym = [True] * A if sym_vec is None else [bool(s) for s in sym_vec]
     for a in range(A):
         r_a = int(r_vec[a])
         K_a = int(k_vec[a])
         if K_a < r_a:
             return 0
-        # ordered-tuple count r_a! * C(K_a, r_a) = K_a! / (K_a - r_a)!
-        cnt = 1
-        for k in range(K_a - r_a + 1, K_a + 1):
-            cnt *= k
+        # enumerated tuple count: r_a! * C(K_a, r_a) unordered,
+        # C(K_a, r_a) ordered (perm side = comb side)
+        cnt = _math_comb(K_a, r_a)
+        if sym[a]:
+            cnt *= factorial(r_a)
         n_joint *= max(cnt, 1)
         D += r_a - (1 if bool(is_rel[a]) else 0)
         # Cap to avoid unbounded big-int growth in the estimate itself;
@@ -1716,7 +1733,9 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         # the only route. Guard it: if the joint tuple set is too large
         # to materialise, there is no cheaper fallback (Möbius is
         # refused here), so raise rather than OOM.
-        joint_ws = _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel)
+        joint_ws = _estimate_ma_joint_working_set_bytes(
+            r_vec, k_vec, is_rel,
+            sym_vec=getattr(dens, "is_sym", None))
         if joint_ws > _CENTRES_PROBE_MEM_BUDGET:
             raise SingleImageInfeasibleError(
                 f"eval_exp_tens requires the single-image centres route "

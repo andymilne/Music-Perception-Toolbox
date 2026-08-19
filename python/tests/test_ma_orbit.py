@@ -612,3 +612,73 @@ def test_ma_orbit_pairwise_bare_ratio_is_consistent():
     cos_o = ip_xy_o / np.sqrt(ip_xx_o * ip_yy_o)
     cos_p = ip_xy_p / np.sqrt(ip_xx_p * ip_yy_p)
     assert abs(cos_o - cos_p) < 1e-12
+
+
+# -------------------------------------------------------------------
+#  Ordered attributes and the forced-Bulger feasibility guard
+# -------------------------------------------------------------------
+
+
+def test_ma_dispatcher_ordered_attrs_not_spuriously_infeasible():
+    """Ordered attributes taken whole are one tuple each, not K!.
+
+    An ordered ([sym] = 0) attribute's enumerated tuple set is its
+    C(K, r) combinations (the perm side equals the comb side; see
+    _enum_flat_attr), so at r = K it holds exactly one tuple. The
+    forced-Bulger feasibility guard must therefore not raise for
+    ordered attributes above the shipped orbit order, however many of
+    them there are. The returned 'bulger' token names the tuple-pair
+    path, which on ordered attributes is direct evaluation of the
+    admitted tuples -- Bulger's combinations-vs-permutations
+    organisation has no permutation expansion to exploit there.
+    """
+    kw = _disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1,
+                      K=_ORBIT_R_MAX_SHIPPED + 1, A=3)
+    kw["sym_vec"] = [False, False, False]
+    assert _select_ma_inner_product_method(**kw) == "bulger"
+
+
+def test_ma_dispatcher_mixed_sym_still_guards_the_unordered_factor():
+    """One unordered attribute at large K restores the K!/(K-r)! factor,
+    so the guard fires even when the remaining attributes are ordered
+    (their factors are the modest C(K, r))."""
+    from mpt._tensor.dispatch import SingleImageInfeasibleError
+    kw = _disp_kwargs(r_max=_ORBIT_R_MAX_SHIPPED + 1, K=12, A=3)
+    kw["sym_vec"] = [True, False, False]
+    with pytest.raises(SingleImageInfeasibleError, match="single-image"):
+        _select_ma_inner_product_method(**kw)
+
+
+def test_ordered_bound_r9_cos_sim_end_to_end():
+    """A bound ordered 9-tuple density (three attributes, one read
+    relative) passes auto-dispatch and matches the closed-form
+    single-pair cosine: exp(-sum_a Q_a(delta_a) / (4 sigma_a^2)), with
+    the relative attribute's delta projected off the common shift.
+    Before the sym-aware guard this shape raised
+    SingleImageInfeasibleError from a K!-per-attribute overcount.
+    """
+    from mpt import bind_events, build_exp_tens, cos_sim_exp_tens
+    rng = np.random.default_rng(3)
+    L = 9
+    sig = [0.3, 0.4, 0.5]
+    x = [rng.normal(0, 1, L) for _ in range(3)]
+    y = [xi + rng.normal(0, 0.2, L) for xi in x]
+
+    def dens(vals):
+        p_attr = [v[None, :] for v in vals]
+        p_b, w_b, sp_b = bind_events(p_attr, None, L,
+                                     rel_outer=[False, True, False])
+        return build_exp_tens(p_b, w_b, specs=sp_b, sigma=sig,
+                              is_per=[False] * 3, period=[None] * 3,
+                              verbose=False)
+
+    got = cos_sim_exp_tens(dens(x), dens(y), verbose=False)
+
+    q = 0.0
+    for a, (xa, ya) in enumerate(zip(x, y)):
+        d = xa - ya
+        if a == 1:                      # relative attribute
+            d = d - d.mean()
+        q += float(d @ d) / (4.0 * sig[a] ** 2)
+    want = np.exp(-q)
+    assert abs(got - want) < 1e-10

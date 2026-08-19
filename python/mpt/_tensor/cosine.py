@@ -1589,6 +1589,7 @@ def _cos_sim_exp_tens_ma(
         rel_vec=rel_vec, nu_vec=nu_vec,
         guard_forced_bulger=not nested_any,
         wrap_vec=wrap_vec_x,
+        sym_vec=getattr(dens_x, "is_sym", None),
         truncation_sigmas=truncation_sigmas,
         pw_skip_xx=pw_skip_xx, pw_skip_yy=pw_skip_yy,
         orbit_skip_xx=orbit_skip_xx, orbit_skip_yy=orbit_skip_yy,
@@ -1607,7 +1608,6 @@ def _cos_sim_exp_tens_ma(
     )
     if ordered_any:
         chosen = "bulger"
-
     # Nested attributes are not handled by the flat orbit/Möbius entry
     # point: that path would have to flatten the levels into one value set,
     # but the inner unit's metric is block-diagonal (positions couple only
@@ -1637,10 +1637,17 @@ def _cos_sim_exp_tens_ma(
     # toolbox-wide show_hints flag and throttled once per
     # (function, chosen) per top-level call; not gated by per-call
     # verbose. The multi-attribute selector does not run the empirical
-    # probe, so no time estimate accompanies the message.
+    # probe, so no time estimate accompanies the message. On an ordered
+    # attribute the tuple-pair path has no permutation expansion to
+    # exploit (the perm side equals the comb side), so Bulger's
+    # combinations-vs-permutations organisation never runs there and
+    # the announce says so.
     from .._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
-        "cos_sim_exp_tens", chosen, "ma_select",
+        "cos_sim_exp_tens",
+        ("bulger (direct on ordered attributes)"
+         if (ordered_any and chosen == "bulger") else chosen),
+        "ma_select",
     )
 
     if chosen == "mobius":

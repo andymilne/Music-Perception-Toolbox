@@ -193,6 +193,7 @@ def _explain_cosine(dens_x, dens_y, ts, sop, limit, limit_set_by,
         any_rel_per=bool((is_rel & is_per).any()),
         sigma_over_P_max=(sop or 0.0), user_method=method,
         rel_vec=is_rel, k_vec_y=k_y, truncation_sigmas=ts,
+        sym_vec=getattr(dens_x, "is_sym", None),
         return_costs=True,
     )
     priced = not (math.isnan(pw_ms) or math.isnan(orbit_ms))

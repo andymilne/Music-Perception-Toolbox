@@ -111,3 +111,21 @@ class TestRendering:
         monkeypatch.setattr(mpt, "eval_exp_tens", counting)
         mpt.explain_dispatch(d, n_q=200)
         assert called["n"] == 0
+
+
+def test_explain_dispatch_ordered_r9_does_not_raise():
+    """explain_dispatch on a bound ordered 9-tuple density must reach
+    the same routing the real call does: the selector's forced-Bulger
+    guard receives the density's [sym] flags, so the ordered
+    C(K, r) = 1 tuple count passes where the unordered K! count would
+    spuriously raise."""
+    import numpy as np
+    from mpt import bind_events, build_exp_tens, explain_dispatch
+    x = np.arange(9, dtype=float)
+    p_b, w_b, sp_b = bind_events([x[None, :], x[None, :]], None, 9,
+                                 rel_outer=[False, True])
+    dens = build_exp_tens(p_b, w_b, specs=sp_b, sigma=[0.3, 0.3],
+                          is_per=[False] * 2, period=[None] * 2,
+                          verbose=False)
+    report = explain_dispatch(dens, dens)
+    assert report is not None

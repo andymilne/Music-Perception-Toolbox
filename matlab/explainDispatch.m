@@ -139,10 +139,20 @@ function report = localCosine(dX, dY, ts, floorV, sop, limit, setBy, method)
     isPer = logical(dX.isPer(:).');
     nX = double(dX.N);  nY = double(dY.N);
     if isempty(sop), sopArg = 0; else, sopArg = sop; end
+    % Thread the per-attribute [sym] flags so the selector's
+    % forced-Bulger feasibility guard counts an ordered attribute's
+    % C(K_a, r_a) tuples, matching the real call's routing. Twin of
+    % the Python explain path's sym_vec.
+    if isfield(dX, 'isSym')
+        symVecEx = logical(dX.isSym(:).');
+    else
+        symVecEx = [];
+    end
     [chosen, pwMs, orbMs] = internal.selectMaInnerProductMethod( ...
         rVec, kVec, numel(rVec), nX, nY, any(isPer), ...
         any(isRel & ~isPer), any(isRel & isPer), sopArg, method, ...
-        false, isRel, [], kVecY, {}, ts);
+        false, isRel, [], kVecY, {}, ts, ...
+        [], [], [], [], symVecEx);
     priced = all(isfinite([pwMs, orbMs]));
     report = struct( ...
         'call', 'cosSimExpTens', ...

@@ -2,7 +2,8 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
         verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas, ...
-        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY)
+        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY, ...
+        symVec, guardForcedBulger)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without pricing (an explicit
@@ -77,6 +78,14 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     if nargin < 18 || isempty(pwSkipYY);    pwSkipYY = false;    end
     if nargin < 19 || isempty(orbitSkipXX); orbitSkipXX = false; end
     if nargin < 20 || isempty(orbitSkipYY); orbitSkipYY = false; end
+    % Per-attribute [sym] flags for the forced-Bulger feasibility guard
+    % (empty -> every attribute treated as unordered, the conservative
+    % count), and the guard flag itself (false for nested densities,
+    % which route through the hierarchical contraction instead of the
+    % flat Bulger pairwise path). Twins of the Python selector's
+    % sym_vec and guard_forced_bulger.
+    if nargin < 21 || isempty(symVec);            symVec = [];             end
+    if nargin < 22 || isempty(guardForcedBulger); guardForcedBulger = true; end
     % NaN until the priced comparison sets them, so a caller can tell a
     % structural decision from a costed one.
     pwCostOut = NaN;
@@ -94,6 +103,14 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         chosen = 'bulger'; return;
     end
     if r_max > 8                        % _ORBIT_R_MAX_SHIPPED
+        % No orbit table ships above r = 8, so Bulger is forced with no
+        % cheaper all-image substitute: guard against an infeasible
+        % tuple-pair kernel rather than let it exhaust memory. Twin of
+        % the Python selector's forced-Bulger guard.
+        if guardForcedBulger
+            internal.guardForcedBulgerFeasible(kVec, rVec, Nx, Ny, ...
+                'r above the shipped orbit order', kVecY, symVec);
+        end
         chosen = 'bulger'; return;
     end
     % Accuracy is governed by truncationSigmas, not by the collection

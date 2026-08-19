@@ -938,6 +938,29 @@ function out = localEvaluateMixture(centres, logW, amp, scales, ...
     lo = localLowerBound(key, offs(axisSel, :) - radii(axisSel));
     hi = localUpperBound(key, offs(axisSel, :) + radii(axisSel));
 
+    % Two regimes. The culled loop visits one offset at a time and pays a
+    % fixed per-offset cost, which is the right trade when each offset
+    % sees a small slice of a large mixture. When the mixture is small or
+    % the cull excludes little, that per-offset cost dominates the
+    % arithmetic it saves, and evaluating every component against a block
+    % of offsets at once is faster. The threshold compares the two
+    % directly rather than guessing: dense work is P per offset, culled
+    % work is the mean slice plus the per-offset overhead expressed in
+    % component-equivalents. The constant is calibrated against both
+    % regimes: sparse mixtures (point-set-seeded sweeps, where each offset
+    % sees a slice of order ten components out of thousands) and dense ones
+    % (a single wide-kernel attribute, where nearly every component is
+    % live). Culling's advantage where it wins reaches an order of
+    % magnitude, dense's is under a factor of two, so the constant is set
+    % to favour culling when the two are close.
+    offsetOverheadInComponents = 512;
+    meanSlice = mean(max(hi - lo + 1, 0));
+    if P <= meanSlice + offsetOverheadInComponents
+        out = localEvaluateDense(cenS, logWS, ampS, scales, threshold, ...
+                                 offs, M);
+        return;
+    end
+
     for m = 1:M
         i0 = lo(m);
         i1 = hi(m);
@@ -953,6 +976,36 @@ function out = localEvaluateMixture(centres, logW, amp, scales, ...
         Lm = L(live);
         Am = ampS(i0:i1);
         out(m) = exp(Lm).' * Am(live);
+    end
+end
+
+
+function out = localEvaluateDense(centres, logW, amp, scales, ...
+                                  threshold, offs, M)
+%LOCALEVALUATEDENSE  Evaluate every component against a block of offsets.
+%
+%   Computes exactly what the culled loop computes --- same threshold,
+%   same terms --- without the per-offset dispatch. Blocked over the
+%   offsets so the transient (block, P) array honours the kernel memory
+%   budget.
+    P = size(centres, 1);
+    S = size(centres, 2);
+    out = zeros(1, M);
+    memLimit = internal.kernelChunkBytesResolved();
+    block = max(1, floor(memLimit / max(P * 8 * 4, 1)));
+    for m0 = 1:block:M
+        m1 = min(m0 + block - 1, M);
+        nb = m1 - m0 + 1;
+        % (nb, P) accumulated over the swept axes.
+        L = repmat(reshape(logW, 1, P), nb, 1);
+        for i = 1:S
+            d = reshape(centres(:, i), 1, P) - reshape(offs(i, m0:m1), nb, 1);
+            L = L - scales(i) * (d .^ 2);
+        end
+        below = L < threshold;
+        L = exp(L);
+        L(below) = 0;
+        out(m0:m1) = (L * amp).';
     end
 end
 

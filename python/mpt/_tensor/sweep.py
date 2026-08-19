@@ -452,8 +452,14 @@ def _evaluate_mixture(centres, log_w, amp, scales, threshold, offsets):
     # of offsets at once is faster. The threshold compares the two
     # directly rather than guessing: dense work is P per offset, culled
     # work is the mean slice plus the per-offset overhead expressed in
-    # component-equivalents.
-    _OFFSET_OVERHEAD_IN_COMPONENTS = 4096
+    # component-equivalents. The constant is calibrated against both
+    # regimes: sparse mixtures (point-set-seeded sweeps, where each offset
+    # sees a slice of order ten components out of thousands) and dense ones
+    # (a single wide-kernel attribute, where nearly every component is
+    # live). Culling's advantage where it wins reaches an order of
+    # magnitude, dense's is under a factor of two, so the constant is set
+    # to favour culling when the two are close.
+    _OFFSET_OVERHEAD_IN_COMPONENTS = 512
     mean_slice = float(np.mean(np.maximum(hi - lo, 0))) if M else 0.0
     if P <= mean_slice + _OFFSET_OVERHEAD_IN_COMPONENTS:
         return _evaluate_dense(cen_s, logw_s, amp_s, scales, threshold,

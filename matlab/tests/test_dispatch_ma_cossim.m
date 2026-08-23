@@ -51,6 +51,40 @@ end
 results{end+1,1} = 'dispatch.MA cossim: bad method string raises cosSimExpTens:badMethod';
 results{end,2}   = ok_badMethod;
 
+% Parity guard: every method string Python accepts must be accepted here
+% too. 'direct' was previously missing from the validation list although
+% the docstring listed it and the downstream branches handled it, so a
+% call that worked in Python errored in MATLAB. 'contract' is accepted by
+% the validator and rejected later, by design, on a non-nested density.
+acceptedMethods = {'auto', 'bulger', 'mobius', 'direct'};
+ok_acceptedMethods = true;
+for iM = 1:numel(acceptedMethods)
+    try
+        cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+            isRel, isPer, period, 'method', acceptedMethods{iM}, ...
+            'verbose', false);
+    catch ME
+        if strcmp(ME.identifier, 'cosSimExpTens:badMethod')
+            ok_acceptedMethods = false;
+        else
+            rethrow(ME);
+        end
+    end
+end
+results{end+1,1} = 'dispatch.MA cossim: auto/bulger/mobius/direct all accepted (Python parity)';
+results{end,2}   = ok_acceptedMethods;
+
+% The four routes must agree: on a single multiset 'direct' coincides
+% with 'bulger', and both with the orbit route and with auto's choice.
+sVals = zeros(1, numel(acceptedMethods));
+for iM = 1:numel(acceptedMethods)
+    sVals(iM) = cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+        isRel, isPer, period, 'method', acceptedMethods{iM}, ...
+        'truncationSigmas', Inf, 'verbose', false);
+end
+results{end+1,1} = 'dispatch.MA cossim: auto/bulger/mobius/direct agree to 1e-12';
+results{end,2}   = max(abs(sVals - sVals(1))) <= 1e-12;
+
 %% ---- r_max >= 3 abs nonper: auto routes to orbit; agrees with Bulger ----
 
 rng(51, 'twister');

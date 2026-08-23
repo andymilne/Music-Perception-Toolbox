@@ -32,6 +32,12 @@ Protocol notes (these matter for comparability):
 * Repetitions are auto-scaled so each timed unit takes ~TARGET_MS,
   after a warm-up call that absorbs first-call costs (orbit-table load,
   einsum path setup, BLAS thread spin-up).
+* The relative modes' orbit route is pinned with --rel-route. The toolbox
+  otherwise chooses between a materialised tuple-centres route and a
+  translation-grid route on a cost estimate, and the two have very
+  different profiles: leaving it on 'auto' makes the 'mobius' column a
+  mixture of two implementations, which shows up as non-monotonic timings
+  in K. Run once per route and report them separately.
 * Each method is forced explicitly. The aim is the real-world cost and
   feasibility of the three routes in each regime, so the toolbox's
   automatic dispatch is deliberately bypassed: timing 'auto' would
@@ -188,9 +194,12 @@ def pair_count(method, r, K):
     if K < r:
         return 0
     ordered = factorial(r) * comb(K, r)
-    if method == 'direct':
-        return ordered * ordered
-    if method == 'bulger':
+    if method in ('direct', 'bulger'):
+        # In the single-multiset path 'direct' routes through the same core
+        # as 'bulger' (the distinction surfaces only in the windowed paths),
+        # so both are priced at the restricted count. Pricing 'direct' at
+        # the unrestricted ordered^2 put it over budget almost everywhere
+        # and it dropped out of the grid entirely.
         return comb(K, r) * ordered
     return None                       # mobius: |Omega_r| contractions
 
@@ -270,10 +279,18 @@ def main():
                     help='comma-separated tuple sizes, e.g. 2,3,4,5')
     ap.add_argument('--ks', type=str, default=None,
                     help='comma-separated multiset sizes, e.g. 6,12,20,34,48')
+    ap.add_argument('--rel-route', choices=('auto', 'centres', 'grid'),
+                    default='auto', dest='rel_route',
+                    help="pin the relative-attribute route inside the orbit "
+                         "method; 'auto' mixes the two and is not "
+                         "recommended for benchmarking")
     ap.add_argument('--budget', type=float, default=CELL_BUDGET_S,
                     help='predicted seconds per cell per method; cells above are skipped')
-    ap.add_argument('--out', default='bench_mobius_python.csv')
+    ap.add_argument('--out', default=None,
+                    help='CSV path; defaults to bench_mobius_python_<route>.csv')
     args = ap.parse_args()
+    if args.out is None:
+        args.out = f'bench_mobius_python_{args.rel_route}.csv'
 
     rs = tuple(int(x) for x in args.rs.split(',')) if args.rs else \
         ((2, 3) if args.quick else RS)
@@ -289,6 +306,11 @@ def main():
     print(f'python {platform.python_version()} | numpy {np.__version__} | '
           f'mpt {getattr(mpt, "__version__", "?")}')
     print(f'{platform.platform()}')
+    try:
+        mpt.set_default(rel_attr_route=args.rel_route)
+    except Exception:
+        if args.rel_route != 'auto':
+            print(f"warning: could not pin rel_attr_route={args.rel_route}")
     rate = calibrate_rate()
     est = 0.0
     for is_rel, is_per, _ in modes:
@@ -311,7 +333,13 @@ def main():
     if args.truncation:
         est *= 2.0
     print(f'calibrated at {rate * 1e9:.1f} ns per tuple pair; '
-          f'cell budget {args.budget:g} s; estimated run {est / 60:.1f} min\n')
+          f'cell budget {args.budget:g} s; rel route {args.rel_route}; '
+          f'estimated run {est / 60:.1f} min')
+    if args.rel_route == 'auto':
+        print('note: the relative modes mix two orbit routes on auto; '
+              'rerun with --rel-route centres and --rel-route grid\n')
+    else:
+        print()
     header = f"{'mode':<22}{'r':>3}{'K':>5}  " + ''.join(f'{m:>12}' for m in METHODS) + '   winner'
     print(header)
     print('-' * len(header))
@@ -358,6 +386,7 @@ def main():
                         times[m] = t
                         rows.append(dict(language='python', mode=mlabel, is_rel=is_rel,
                                          is_per=is_per, r=r, K=K, method=m,
+                                         rel_route=args.rel_route,
                                          truncation='inf', seconds=t, reps=n,
                                          value=vals[m], rel_dev=devs.get(m, float('nan'))))
                     except Exception as exc:
@@ -370,6 +399,7 @@ def main():
                             t, n = timed(lambda: call(A2, B2, m, 6.0))
                             rows.append(dict(language='python', mode=mlabel, is_rel=is_rel,
                                              is_per=is_per, r=r, K=K, method=m,
+                                             rel_route=args.rel_route,
                                              truncation='6', seconds=t, reps=n,
                                              value=call(A2, B2, m, 6.0),
                                              rel_dev=float('nan')))
@@ -397,6 +427,22 @@ def main():
                 e = fit_exponent([k for k, _ in sel], [t for _, t in sel])
                 line += f'{e:>10.2f}' if np.isfinite(e) else f'{"-":>10}'
             print(line + f'     {2 * r} / {2 * r} / 2')
+
+    print('\nmonotonicity of the orbit method in K (a fall signals a '
+          'route change, not noise):')
+    for is_rel, is_per, mlabel in modes:
+        for r in rs:
+            seq = sorted(((rw['K'], rw['seconds']) for rw in rows
+                          if rw['mode'] == mlabel and rw['r'] == r
+                          and rw['method'] == 'mobius'
+                          and rw['truncation'] == 'inf'))
+            ts = [t for _, t in seq]
+            if len(ts) < 3:
+                continue
+            drops = [f'K={seq[i + 1][0]}' for i in range(len(ts) - 1)
+                     if ts[i + 1] < ts[i] * 0.85]
+            if drops:
+                print(f'   {mlabel:<22} r={r}   falls at {", ".join(drops)}')
 
     print('\nagreement with Bulger (relative deviation, untruncated); '
           'large values indicate cancellation, not error:')

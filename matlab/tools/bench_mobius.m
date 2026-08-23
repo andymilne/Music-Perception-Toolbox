@@ -1,10 +1,20 @@
 function bench_mobius(varargin)
 %BENCH_MOBIUS  MATLAB twin of bench_mobius.py.
 %
-%   Wall-time comparison of the three inner-product routes -- direct
-%   enumeration, Bulger's within-r-ad decomposition, and the
-%   Moebius-orbit decomposition -- across tuple size r, multiset size K,
-%   and the four modes.
+%   Wall-time comparison of the toolbox's alternative routes, across
+%   tuple size r, multiset size K, and the four modes.
+%
+%   Two tasks, selected with the 'task' parameter:
+%
+%     'ip'    the inner product (cosSimExpTens): 'centres' (unrestricted
+%             enumeration of the tuple centres, the O(K^(2r)) baseline),
+%             'bulger' (the within-r-ad decomposition), and 'mobius'
+%             (the Moebius-orbit decomposition).
+%     'eval'  point evaluation (evalExpTens): 'centres' (the centres
+%             array) and 'mobius' (the Moebius point evaluator).
+%             Bulger's identity has no analogue here, there being no
+%             two-sided pairing to exploit.
+%     'both'  (default) runs each in turn.
 %
 %   The comparison of interest is the RELATIVE timing and its scaling
 %   with K; absolute times establish only feasibility, and are not
@@ -13,6 +23,14 @@ function bench_mobius(varargin)
 %   Each method is forced explicitly rather than routed by the toolbox's
 %   automatic dispatch: the aim is the real-world cost and feasibility of
 %   the three routes in each regime, not the routing policy.
+%
+%   'centres' is the toolbox's own unrestricted enumeration -- the
+%   O(K^(2r)) baseline the Supplement's cost accounting starts from.
+%   'referenceR' is the SAME enumeration written here in plain MATLAB
+%   with the X side restricted to combinations and multiplied by r!;
+%   timed against a local unrestricted twin it isolates Bulger's saving,
+%   the two differing only in the restriction. (Before v2.2 the toolbox
+%   had no unrestricted route: 'direct' named Bulger's method.)
 %
 %   The relative modes' orbit route is pinned with the 'relRoute'
 %   parameter. The toolbox otherwise chooses between a materialised
@@ -55,6 +73,7 @@ function bench_mobius(varargin)
 ip = inputParser;
 ip.addParameter('quick', false, @islogical);
 ip.addParameter('truncation', false, @islogical);
+ip.addParameter('task', 'both', @(s) any(strcmp(s, {'ip','eval','both'})));
 ip.addParameter('relRoute', 'auto', @(s) any(strcmp(s, {'auto','centres','grid'})));
 ip.addParameter('out', '', @ischar);
 ip.parse(varargin{:});
@@ -72,15 +91,14 @@ MODES = { false false 'absolute non-periodic'
           false true  'absolute periodic'
           true  false 'relative non-periodic'
           true  true  'relative periodic' };
-% MATLAB's cosSimExpTens validates 'method' against
-% {'auto','bulger','mobius','contract'} and rejects 'direct', although its
-% own docstring lists 'direct' as accepted (a documentation/validation
-% mismatch, reported). Python accepts 'direct'. Since in the
-% single-multiset path 'direct' routes through the same core as 'bulger',
-% nothing is lost by omitting it here: the Python run supplies the
-% direct-versus-bulger comparison, and the two languages remain
-% comparable on the two methods that matter.
-METHODS = {'bulger', 'mobius'};            % forced; dispatch bypassed
+IP_METHODS = {'centres', 'reference', 'referenceR', 'bulger', 'mobius'};
+EVAL_METHODS = {'centres', 'mobius'};
+% 'centres' is the toolbox's own unrestricted enumeration. 'reference'
+% and 'referenceR' are a local pair -- the same enumeration unrestricted
+% and with the X side restricted to combinations -- whose ratio isolates
+% Bulger's r! saving, the two differing only in the restriction.
+N_QUERIES = 64;   % query points per evaluation cell, held fixed
+METHODS = IP_METHODS;
 
 SIGMA  = 30.0;
 PERIOD = 1200.0;
@@ -138,6 +156,7 @@ fprintf('%-22s%3s%5s  ', 'mode', 'r', 'K');
 fprintf('%12s', METHODS{:}); fprintf('   winner\n');
 fprintf('%s\n', repmat('-', 1, 22 + 8 + 12 * numel(METHODS) + 9));
 
+if any(strcmp(opt.task, {'ip', 'both'}))
 for mi = 1:size(modes, 1)
     isRel = modes{mi, 1}; isPer = modes{mi, 2}; mlabel = modes{mi, 3};
     for r = RS
@@ -152,13 +171,21 @@ for mi = 1:size(modes, 1)
             vals = containers.Map();
             for k = 1:numel(METHODS)
                 m = METHODS{k};
+                if strcmp(m, 'referenceR') && (isRel || isPer)
+                    continue;          % local twin defined for the plain case
+                end
                 pS = predictS(m, r, K, rate, isRel, isPer, ORBIT_S, PER_SCALE, REL_SCALE);
                 if pS > CELL_BUDGET_S
                     nSkipped = nSkipped + 1;
                     continue;
                 end
                 try
-                    vals(m) = callSim(densA, densB, m, Inf);
+                    if strncmp(m, 'reference', 9)
+                        vals(m) = referenceIp(p, wp, q, wq, r, SIGMA, isRel, ...
+                                              isPer, strcmp(m, 'referenceR'));
+                    else
+                        vals(m) = callSim(densA, densB, m, Inf);
+                    end
                 catch err
                     failures{end+1} = sprintf('%s r=%d K=%d %s: %s', ...
                         mlabel, r, K, m, err.message); %#ok<AGROW>
@@ -189,7 +216,12 @@ for mi = 1:size(modes, 1)
             times = containers.Map('KeyType', 'char', 'ValueType', 'double');
             for k = 1:numel(ks)
                 m = ks{k};
-                fn = @() callSim(densA, densB, m, Inf);
+                if strncmp(m, 'reference', 9)
+                    fn = @() referenceIp(p, wp, q, wq, r, SIGMA, isRel, ...
+                                         isPer, strcmp(m, 'referenceR'));
+                else
+                    fn = @() callSim(densA, densB, m, Inf);
+                end
                 try
                     [t, n] = timeIt(fn, TARGET_MS);
                     times(m) = t;
@@ -232,6 +264,75 @@ for mi = 1:size(modes, 1)
         end
     end
 end
+
+end   % task 'ip'
+
+% --- point evaluation ---------------------------------------------------
+if any(strcmp(opt.task, {'eval', 'both'}))
+fprintf('\npoint evaluation, %d query points per cell\n\n', N_QUERIES);
+fprintf('%-22s%3s%5s  ', 'mode', 'r', 'K');
+fprintf('%12s', EVAL_METHODS{:}); fprintf('   winner\n');
+fprintf('%s\n', repmat('-', 1, 22 + 8 + 12 * numel(EVAL_METHODS) + 9));
+for mi = 1:size(modes, 1)
+    isRel = modes{mi, 1}; isPer = modes{mi, 2}; mlabel = modes{mi, 3};
+    for r = RS
+        for K = KS
+            if K < r + 1, continue; end
+            [p, wp, state] = draw(K, PERIOD, state);
+            dens = buildExpTens(p, wp, SIGMA, r, isRel, isPer, PERIOD, ...
+                                'verbose', false);
+            dim = max(r - double(isRel), 1);
+            [u, state] = lcg(dim * N_QUERIES, state);
+            pts = reshape(u, dim, N_QUERIES) * PERIOD;
+
+            vals = containers.Map(); tms = containers.Map();
+            for k = 1:numel(EVAL_METHODS)
+                mm = EVAL_METHODS{k};
+                try
+                    vals(mm) = sum(sum(evalExpTens(dens, pts, 'method', mm, ...
+                        'truncationSigmas', Inf, 'verbose', false)));
+                    fn = @() evalExpTens(dens, pts, 'method', mm, ...
+                        'truncationSigmas', Inf, 'verbose', false);
+                    [t, n] = timeIt(fn, TARGET_MS);
+                    tms(mm) = t;
+                    rows{end+1} = {'matlab', mlabel, isRel, isPer, r, K, mm, ...
+                                   'inf', t, n, vals(mm), NaN, opt.relRoute, ...
+                                   'eval', N_QUERIES}; %#ok<AGROW>
+                catch err
+                    failures{end+1} = sprintf('eval %s r=%d K=%d %s: %s', ...
+                        mlabel, r, K, mm, err.message); %#ok<AGROW>
+                end
+            end
+            % centres is the reference for evaluation. The comparison
+            % needs an absolute floor as well as a relative one: at query
+            % points far from every centre the centres route returns
+            % exactly 0 while the alternating Moebius sum returns dust of
+            % order 1e-16, and a purely relative measure divides by zero.
+            if vals.isKey('centres') && vals.isKey('mobius')
+                dev = abs(vals('mobius') - vals('centres')) / ...
+                      max(abs(vals('centres')), 1);
+                if dev > TOL
+                    failures{end+1} = sprintf( ...
+                        'eval %s r=%d K=%d mobius deviates from centres by %.2e', ...
+                        mlabel, r, K, dev); %#ok<AGROW>
+                end
+            end
+            fprintf('%-22s%3d%5d  ', mlabel, r, K);
+            bestE = ''; bestT = Inf;
+            for k = 1:numel(EVAL_METHODS)
+                mm = EVAL_METHODS{k};
+                if tms.isKey(mm)
+                    fprintf('%11.3fm', tms(mm) * 1e3);
+                    if tms(mm) < bestT, bestT = tms(mm); bestE = mm; end
+                else
+                    fprintf('%12s', '-');
+                end
+            end
+            fprintf('   %s\n', bestE);
+        end
+    end
+end
+end   % task 'eval'
 
 % --- scaling fits -------------------------------------------------------
 fprintf('\nfitted exponent of K over the three largest K, untruncated:\n');
@@ -296,6 +397,70 @@ end
 
 % =======================================================================
 
+function s = referenceIp(p, w, q, wq, r, sigma, isRel, isPer, restrict)
+%REFERENCEIP  Unrestricted double enumeration over D x D, in plain MATLAB.
+%
+%   The O(K^(2r)) baseline the Supplement's cost accounting starts from:
+%   every ordered r-tuple of distinct indices on each side against every
+%   such tuple on the other, with no restriction to combinations and no
+%   partition algebra. The toolbox has no unrestricted route ('direct'
+%   and 'bulger' both enter the same core, which is always called
+%   permutation-side against combination-side), so without this the
+%   factor r! is asserted rather than measured. It also shares no code
+%   with the toolbox, making agreement with it a stronger check than
+%   Bulger against Moebius, which share a core.
+%
+%   Absolute non-periodic only, and small K only.
+%   With `restrict` set, the X side is reduced to increasing tuples and
+%   the result multiplied by r! (Supplement Eq. S8). That is the ONLY
+%   difference from the unrestricted form, so the timing ratio between
+%   the two isolates Bulger's saving rather than an implementation gap.
+s = NaN;
+if isRel || isPer, return; end
+if nargin < 9, restrict = false; end
+fac = 1; if restrict, fac = factorial(r); end
+[cxR, wxR] = localTuples(p(:), w(:), r, restrict);
+[cyR, wyR] = localTuples(q(:), wq(:), r, restrict);
+[cx,  wx ] = localTuples(p(:), w(:), r, false);
+[cy,  wy ] = localTuples(q(:), wq(:), r, false);
+xy = fac * localIp(cxR, wxR, cy, wy, sigma);
+xx = fac * localIp(cxR, wxR, cx, wx, sigma);
+yy = fac * localIp(cyR, wyR, cy, wy, sigma);
+s = xy / sqrt(xx * yy);
+end
+
+function [C, W] = localTuples(pos, wt, r, restrict)
+if restrict
+    idx = nchoosek(1:numel(pos), r);        % increasing tuples
+else
+    idx = localOrderedTuples(numel(pos), r);
+end
+C = pos(idx);
+W = prod(wt(idx), 2);
+if r == 1, C = C(:); W = W(:); end
+end
+
+function idx = localOrderedTuples(K, r)
+idx = (1:K)';
+for d = 2:r
+    n = size(idx, 1);
+    idx = [repmat(idx, K, 1), reshape(repmat(1:K, n, 1), [], 1)]; %#ok<AGROW>
+    keep = true(size(idx, 1), 1);
+    for c = 1:(d - 1)
+        keep = keep & (idx(:, c) ~= idx(:, d));
+    end
+    idx = idx(keep, :);
+end
+end
+
+function v = localIp(ca, wa, cb, wb, sigma)
+d2 = zeros(size(ca, 1), size(cb, 1));
+for c = 1:size(ca, 2)
+    d2 = d2 + (ca(:, c) - cb(:, c)').^2;
+end
+v = sum(sum((wa * wb') .* exp(-d2 / (4 * sigma^2))));
+end
+
 function [p, w, state] = draw(K, period, state)
 %DRAW  Positions and weights from a plain LCG, identical across languages.
 [u, state] = lcg(2 * K, state);
@@ -330,6 +495,10 @@ function s = predictS(method, r, K, rate, isRel, isPer, orbitS, perScale, relSca
 if K < r, s = 0; return; end
 ordered = factorial(r) * nchoosek(K, r);
 switch method
+    case {'centres', 'reference'}
+        n = ordered * ordered;         % unrestricted: both sides enumerated
+    case 'referenceR'
+        n = nchoosek(K, r) * ordered;  % same code, X side restricted
     case {'direct', 'bulger'}
         % Both are priced at the restricted count: in the single-multiset
         % path they route through the same core. ('direct' is unavailable
@@ -399,12 +568,13 @@ end
 
 function writeCsv(path, rows)
 fid = fopen(path, 'w');
-fprintf(fid, 'language,mode,is_rel,is_per,r,K,method,rel_route,truncation,seconds,reps,value,rel_dev\n');
+fprintf(fid, 'language,task,mode,is_rel,is_per,r,K,n_queries,method,rel_route,truncation,seconds,reps,value,rel_dev\n');
 for i = 1:numel(rows)
     x = rows{i};
-    fprintf(fid, '%s,%s,%d,%d,%d,%d,%s,%s,%s,%.9g,%d,%.15g,%.3e\n', ...
-            x{1}, x{2}, x{3}, x{4}, x{5}, x{6}, x{7}, x{13}, x{8}, x{9}, ...
-            x{10}, x{11}, x{12});
+    if numel(x) >= 15, task = x{14}; nq = x{15}; else, task = 'ip'; nq = 0; end
+    fprintf(fid, '%s,%s,%s,%d,%d,%d,%d,%d,%s,%s,%s,%.9g,%d,%.15g,%.3e\n', ...
+            x{1}, task, x{2}, x{3}, x{4}, x{5}, x{6}, nq, x{7}, x{13}, ...
+            x{8}, x{9}, x{10}, x{11}, x{12});
 end
 fclose(fid);
 end

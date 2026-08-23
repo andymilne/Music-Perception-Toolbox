@@ -49,7 +49,7 @@
 %  tempos, some with small onset-timing perturbations as well, plus two
 %  foils. Each candidate rhythm occupies a 3-interval cell; the stream
 %  is scanned by its overlapping log-IOI trigrams, each an ordered
-%  K = 3 value multiset read at r = 3 (the matrix covariance requires
+%  K = 3 atom multiset read at r = 3 (the matrix covariance requires
 %  r == K), with an onset time as a second attribute that only places
 %  the sliding window ('windowAttr', 'dropWindowAttr' = true); each
 %  trigram is timed at the onset that completes its first interval,
@@ -164,7 +164,7 @@ fprintf('  Motif IOIs (s): [%.2f %.2f %.2f]  (long-short-short)\n', ...
     dMotif);
 fprintf(['  Stream: %d cells x 4 onsets, 1 s gaps -> %d onsets, ' ...
     '%d overlapping log-IOI trigrams.\n'], nCells, numel(onsets), nTri);
-fprintf('  Each trigram is one event: an ordered K = 3 value multiset\n');
+fprintf('  Each trigram is one event: an ordered K = 3 atom multiset\n');
 fprintf('  read at r = 3, timed at the onset that completes its first\n');
 fprintf('  interval (the window-placing attribute).\n');
 

@@ -7,7 +7,7 @@ function [pAttrDiff, wDiff, specs] = differenceEvents(pAttr, w, diffOrders, nvAr
 %   attribute; the returned (pAttrDiff, wDiff, specs) chains into another
 %   pre-MAET operation or into buildExpTens(..., 'specs', specs).
 %
-%   Differencing pairs values position by position: event i's value at
+%   Differencing pairs positions row by row: event i's position at
 %   position k differences against event
 %   i+1's value at position k. This is well-defined exactly when the positions
 %   have stable
@@ -133,7 +133,7 @@ else
     end
 end
 
-% --- Difference each attribute's value matrix (position by position; NaN propagates) ---
+% --- Difference each attribute's position matrix (row by row; NaN propagates) ---
 pAttrDiff = cell(1, A);
 for a = 1:A
     k = double(ordersPerAttr(a));

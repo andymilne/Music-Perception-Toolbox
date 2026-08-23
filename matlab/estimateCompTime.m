@@ -60,14 +60,21 @@ persistent rateCache;  % numeric vector indexed by dim: pairsPerSec.
 % path --- no cell dereference, no Java-map hash lookup, no
 % dictionary type inference. estimateCompTime is called on every
 % top-level user call, so this fast path is worth chasing.
+%
+% Cache slot: dim + 1, so the degenerate dim = 0 case (every attribute
+% relative at r_a = 1; the density is constant, and the kernel work is
+% the exp and matrix multiply alone) calibrates and caches like any
+% other dimensionality instead of indexing rateCache(0). The Python
+% twin's dict cache keys dim = 0 directly.
+cacheIdx = dim + 1;
 if isempty(rateCache)
-    rateCache = nan(1, max(dim, 4));
-elseif dim > numel(rateCache)
-    rateCache(end+1:dim) = NaN;
+    rateCache = nan(1, max(cacheIdx, 4));
+elseif cacheIdx > numel(rateCache)
+    rateCache(end+1:cacheIdx) = NaN;
 end
 
 % Calibrate for this dimensionality if not already cached
-if isnan(rateCache(dim))
+if isnan(rateCache(cacheIdx))
     % Run a small representative workload that exactly mirrors the
     % dominant operations in evalExpTens / cosSimExpTens:
     %   1. Implicit-expansion subtraction  (dim x nCal x nCal)
@@ -98,11 +105,11 @@ if isnan(rateCache(dim))
 
     % Pairs processed in the benchmark
     calPairs = double(nCal) * double(nCal);
-    rateCache(dim) = calPairs / elapsed;
+    rateCache(cacheIdx) = calPairs / elapsed;
 end
 
 % Estimate time
-pairsPerSec = rateCache(dim);
+pairsPerSec = rateCache(cacheIdx);
 estSec = double(nPairs) / pairsPerSec;
 
 % Print estimate (skip if not verbose, label empty, or estimate

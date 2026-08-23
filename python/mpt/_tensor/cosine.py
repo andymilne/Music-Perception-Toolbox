@@ -2872,7 +2872,7 @@ def _ma_ip_per_event_factors(dens, side, skip=None):
     Each event enumerates its own non-NaN values, so variable cardinality
     (NaN-padded ``p_attr``) is handled per event without a common-slab
     zero-pad. Attributes in ``skip`` are left as ``None``: a
-    culled-nested attribute is served from its raw per-event values
+    culled-nested attribute is served from its raw per-event positions
     without enumerating its (blow-up) tuple set, so pre-enumerating it
     here would defeat the cull.
     """
@@ -3422,7 +3422,7 @@ def _cos_sim_raw_single_multiset_batch(
     Parameters
     ----------
     p_mat_a, p_mat_b : 2-D arrays
-        Multiset values per row. NaN entries are ignored.
+        Multiset positions per row. NaN entries are ignored.
     sigma, r, is_rel, is_per, period :
         Tensor parameters.
     weights_a, weights_b : 2-D arrays or None

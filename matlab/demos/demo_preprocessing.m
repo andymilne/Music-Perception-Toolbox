@@ -194,13 +194,13 @@ fprintf('  (peak at t = 6; falls off symmetrically by exp(-(t-6)^2/2).)\n\n');
 fprintf('=== 6. B o D == D o B (pipeline commutation) ===\n');
 
 % Both pre-MAET operators speak the (pAttr, w, specs) triple, so the
-% two routes coincide. Differencing pairs values position by position across (super-)events and
+% two routes coincide. Differencing pairs positions row by row across (super-)events and
 % the sliding bind window commutes with it, on the ordered/K=1 domain where
 % differencing is defined.
 %   D then B: difference each attribute (order 1), then bind 2-grams.
 [pD1, wD1, sD1] = differenceEvents(pAttr, w, [1 1]);
 [pDB, wDB, sDB] = bindEvents(pD1, wD1, [2 2], 'specs', sD1);
-%   B then D: bind 2-grams, then difference each nested attribute position by position.
+%   B then D: bind 2-grams, then difference each nested attribute row by row.
 [pB1, wB1, sB1] = bindEvents(pAttr, w, [2 2]);
 [pBD, wBD, sBD] = differenceEvents(pB1, wB1, [1 1], 'specs', sB1);
 
@@ -211,7 +211,7 @@ fprintf('  D(pitch) intervals, bound (stacked L*K x N''):\n');
 disp(pDB{1});
 fprintf('  values agree (both routes): %d\n', valsAgree);
 fprintf('  specs  agree (both routes): %d\n', specsAgree);
-fprintf(['  (Differencing position by position commutes with the sliding bind window;\n' ...
+fprintf(['  (Differencing row by row commutes with the sliding bind window;\n' ...
          '   the two routes share one nested representation.)\n\n']);
 
 

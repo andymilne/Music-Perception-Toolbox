@@ -40,10 +40,10 @@ function dens = buildExpTens(varargin)
 %                 analyses).
 %
 %   Inputs (multi-attribute path):
-%     pAttr     - 1 x A cell array of K_a x N matrices (attribute values).
+%     pAttr     - 1 x A cell array of K_a x N matrices (attribute positions).
 %                 Shapes are honoured literally: a [K x 1] column is
-%                 K values of one event, a [1 x N] row is one value of N
-%                 events, and a [K x N] matrix is K values of N events.
+%                 K atoms of one event, a [1 x N] row is one atom of N
+%                 events, and a [K x N] matrix is K atoms of N events.
 %                 No flattening is applied.
 %     w         - Weights. One of:
 %                   []       -> all ones
@@ -489,7 +489,7 @@ function dens = localBuildSingleMultiset(posArgs, verbose, lazy, wrap)
     end
 
     % Canonicalise to the A = N = 1 multi-attribute build: the collection
-    % is a single flat attribute (K values, one event), scalar parameters
+    % is a single flat attribute (K atoms, one event), scalar parameters
     % become length-1 vectors. Every consumer reads the resulting
     % MaetDensity either natively or through internal.singleMultisetView.
     wrapCell = internal.normaliseWrapMa(wrap, 1);
@@ -533,8 +533,8 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
 
     % Coerce each attribute input to its 2-D K_a x N shape. MATLAB
     % treats everything as at least 2-D, so a user-supplied column
-    % vector [K x 1] is read as K values / 1 event, a row vector [1 x N]
-    % as 1 value / N events, and a matrix [K x N] as K values / N events,
+    % vector [K x 1] is read as K atoms / 1 event, a row vector [1 x N]
+    % as 1 atom / N events, and a matrix [K x N] as K atoms / N events,
     % with no ambiguity. (A bare scalar is 1 x 1 and fills the K=N=1
     % case.) No flattening is applied — flattening a 2-D input would
     % silently reinterpret columns as rows.
@@ -787,7 +787,7 @@ function dens = localBuildMA(posArgs, verbose, lazy, nested, names, wrap)
 
     % --- Single-multiset collapse (MAET-base optimisation) ------------
     % A single flat (non-nested) attribute read at r = 1 is one pooled
-    % multiset: a tuple is a lone value, so which event a value came from
+    % multiset: a tuple is a lone atom, so which event an atom came from
     % is irrelevant and cross-event tuples never arise. Collapse the
     % events into one here, at the base, so every downstream consumer only
     % ever meets the canonical A = N = 1 form (no N > 1 single-multiset
@@ -990,7 +990,7 @@ function dens = localFillMAExpensive(dens, verbose)
     % value pattern is the same every event and r >= 2 (the build has
     % already reduced any r = 1, N > 1 case to N = 1), the tuple-index
     % structure is event-invariant: compute it once and reuse it,
-    % recomputing only the per-event values and weights. Mirrors the
+    % recomputing only the per-event positions and weights. Mirrors the
     % Python _ma_build_perm_arrays A = 1 fast path.
     if A == 1 && isempty(nested{1})
         r_a = rVec(1);
@@ -1370,7 +1370,7 @@ function idxCell = localCartesianIndices(sizes)
     A = numel(sizes);
     idxCell = cell(1, A);
     for a = 1:A
-        repInner = prod(sizes(1:a - 1));   % consecutive repeats of each value
+        repInner = prod(sizes(1:a - 1));   % consecutive repeats of each atom
         repOuter = prod(sizes(a + 1:end));  % tiles of the full cycle
         row = 1:sizes(a);
         if repInner > 1

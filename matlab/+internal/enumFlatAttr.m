@@ -49,7 +49,7 @@ function [permMat, combMat, permW, combW] = ...
         end
     end
 
-    % Per-tuple products of the values' weights.
+    % Per-tuple products of the atoms' weights.
     wCol = wColLocal;
     if r_a == 1
         permW = reshape(wCol(permMat), 1, []);

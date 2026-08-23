@@ -1134,7 +1134,7 @@ def _ma_eval_factored(
 
     # Per-attribute tuple-index structure, enumerated once over the
     # ever-valid indices (non-NaN in at least one event). The index
-    # pattern is event-invariant; only the per-event values and weights
+    # pattern is event-invariant; only the per-event positions and weights
     # change, so this is built a single time per attribute.
     perm = []
     for a in range(A):
@@ -1201,7 +1201,7 @@ def _tuple_values_repeat(c_a, n_q, min_queries=100, min_entries=256,
                          min_saving=4):
     """Does tabulating the kernel on the distinct values pay?
 
-    Every coordinate of an r-tuple is a value of the same multiset, so
+    Every coordinate of an r-tuple is an atom of the same multiset, so
     the distinct arguments number the multiset size rather than the
     tuple count, and the saving per query grows with the tuple count.
     Against that stands the sort that finds the distinct values, which
@@ -1621,7 +1621,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
             # (image-sum or Fourier, whichever is cheaper).
             from .._wrapped_kernel import wrapped_gaussian_1d
             if value_table is not None:
-                # Every coordinate of an r-tuple is a value of the same
+                # Every coordinate of an r-tuple is an atom of the same
                 # multiset, so the distinct arguments number K rather
                 # than one per tuple. Evaluating the wrapped Gaussian
                 # once per distinct value and reading the tuple layout

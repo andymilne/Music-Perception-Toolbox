@@ -200,10 +200,10 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
     Parameters (single-multiset path)
     ----------------------------------
     p : array-like
-        Pitch or position values (1-D, length *N*).
+        Positions, e.g. pitches in cents or times in beats (1-D, length *N*).
     w : None, scalar, or array-like
         Weights. ``None`` or a scalar for all ones or a uniform
-        broadcast; a length-*N* vector for per-event values. See the
+        broadcast; a length-*N* vector of per-event weights. See the
         toolbox's standard broadcast convention in User Guide §4.
     sigma : float
         Standard deviation of the Gaussian kernel.
@@ -716,7 +716,7 @@ def _build_exp_tens_ma(
 
     # --- Single-multiset collapse (MAET-base optimisation) ------------
     # A single flat attribute read at r = 1 is one pooled multiset: a
-    # tuple is a lone value, so which event a value came from is
+    # tuple is a lone atom, so which event an atom came from is
     # irrelevant and cross-event tuples never arise. Collapse the events
     # into one here, at the base, so every downstream consumer only ever
     # meets the canonical A = N = 1 form (no N > 1 single-multiset case

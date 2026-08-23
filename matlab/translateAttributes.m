@@ -1,9 +1,9 @@
 function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs)
-%TRANSLATEATTRIBUTES Translate attributes' values by per-value offsets.
+%TRANSLATEATTRIBUTES Translate attributes' positions by per-row offsets.
 %
 %   [pOut, w, specs] = translateAttributes(pAttr, w, offsets, ...)
 %   is per-attribute preprocessing on the (pAttr, w, specs) triple.
-%   Selected attributes' values are shifted by a chosen offset and the
+%   Selected attributes' positions are shifted by a chosen offset and the
 %   transformed triple feeds straight into buildExpTens (or a further
 %   pre-MAET step). Weights and specs pass through unchanged; only the
 %   values move.
@@ -33,9 +33,9 @@ function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs
 %   sweep-column entries broadcast across the call's M).
 %
 %   Sweep. When any entry implies M > 1 the call is a batched sweep: it
-%   returns M translated copies --- a 1 x M cell of 1 x A value-cells ---
+%   returns M translated copies --- a 1 x M cell of 1 x A position-cells ---
 %   each a separate pre-MAET input, sharing one w and one specs. With M = 1
-%   it returns a single 1 x A value-cell.
+%   it returns a single 1 x A position-cell.
 %
 %   Relative attributes. is_rel is read per-attribute from specs (no
 %   separate argument). A uniform shift cancels in every within-tuple
@@ -65,7 +65,7 @@ function [pOut, w, specs, sweep] = translateAttributes(pAttr, w, offsets, nvArgs
 %               sweepCosSimExpTens: .offsets is an A x M matrix of the
 %               per-attribute uniform translations, with NaN in any
 %               (attribute, sweep index) cell whose offset was not
-%               uniform across that attribute's values, and .base is the
+%               uniform across that attribute's positions, and .base is the
 %               1 x A cell of untranslated value matrices. Empty for a
 %               single translation (M = 1). The offsets are carried
 %               rather than recovered: recovering them from the
@@ -239,7 +239,7 @@ function [matrixMode, M, blocks] = localNormaliseOffsets(offsets, K, A)
         if any(isinf(o(:)))
             error('translateAttributes:offsetInf', ...
                   ['offsets{%d} contains +/-Inf; entries must be finite ' ...
-                   'or NaN (NaN skips a value).'], a);
+                   'or NaN (NaN skips a row).'], a);
         end
         if isscalar(o)
             raw{a} = o;                   % broadcast to all values

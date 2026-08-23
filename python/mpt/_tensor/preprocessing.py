@@ -167,7 +167,7 @@ def difference_events(p_attr, w, diff_orders, *, circular=False, specs=None):
                 f"count: max order = {max_order} but N = {n_events}."
             )
 
-    # --- Difference each value matrix (position by position; NaN propagates) -----
+    # --- Difference each position matrix (row by row; NaN propagates) -----
     p_attr_diff = []
     for a, M in enumerate(p_attr):
         k = int(orders[a])
@@ -504,7 +504,7 @@ def bind_events(
     ``L_a`` consecutive events are nested into a single output attribute
     (toolbox spec §6.1): the bound events form an **ordered outer level**
     (event order; ``sym_outer = 0`` by default, lossless), and each
-    event's own value multiset is the **inner level**.
+    event's own atom multiset is the **inner level**.
 
     The inner level's geometry (``r``/``rel``/``sym``) is read from the
     incoming ``specs`` --- the attribute's existing specification supplies
@@ -1477,7 +1477,7 @@ class TranslatedSweep(list):
     sweep_offsets : ndarray
         ``(A, M)`` array of per-attribute uniform translations, with
         ``NaN`` in any (attribute, sweep index) cell whose offset was
-        not uniform across the attribute's values.
+        not uniform across the attribute's positions.
     sweep_base : list of ndarray
         The length-*A* untranslated value matrices.
     """
@@ -1530,13 +1530,13 @@ def _multiply_weights(w_existing, factor, attr_idx):
 
 
 def translate_attributes(p_attr, w, offsets, *, specs=None):
-    """Translate attributes' values by per-value offsets.
+    """Translate attributes' positions by per-row offsets.
 
     Per-attribute preprocessing on the ``(p_attr, w, specs)`` triple.
-    Selected attributes' values are shifted by a chosen offset and the
+    Selected attributes' positions are shifted by a chosen offset and the
     transformed triple feeds straight into :func:`build_exp_tens` (or a
     further pre-MAET step). Weights and specs pass through unchanged;
-    only the values move.
+    only the positions move.
 
     **Value-axis alignment (read this first).** Everything hangs off one
     axis: the **value axis** of an attribute, whose length is ``K_total``
@@ -1744,7 +1744,7 @@ def _normalise_translate_offsets(offsets, K, A):
         if np.any(np.isinf(arr)):
             raise ValueError(
                 f"offsets[{a}] contains +/-inf; entries must be finite or "
-                f"NaN (NaN skips a value)."
+                f"NaN (NaN skips a row)."
             )
         if arr.ndim == 0:
             raw.append(arr.reshape(1, 1))

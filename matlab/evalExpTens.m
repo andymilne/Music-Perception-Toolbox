@@ -1036,7 +1036,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             Pg = cast(periodG(a), qDtype);
 
             % Abs-per full-image factorises over tuple positions, and
-            % every coordinate of an r-tuple is a value of the same
+            % every coordinate of an r-tuple is an atom of the same
             % multiset, so the distinct arguments number K rather than
             % one per tuple. Evaluating the wrapped Gaussian once per
             % distinct value and reading the tuple layout off that table
@@ -1453,7 +1453,7 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
 
     % Per-attribute tuple-index structure, enumerated once over the
     % ever-valid indices (non-NaN in at least one event). The index pattern
-    % is event-invariant; only the per-event values and weights change.
+    % is event-invariant; only the per-event positions and weights change.
     permCell = cell(1, A);
     for a = 1:A
         everValid = find(any(~isnan(P{a}), 2)).';

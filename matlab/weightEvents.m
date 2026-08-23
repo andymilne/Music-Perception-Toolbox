@@ -265,7 +265,7 @@ function [pAttrOut, wOut, specsOut] = weightEvents( ...
               'period must be > 0 when isPer is true; got %g.', period);
     end
 
-    % --- Compute factor h(delta) from input attribute values ---
+    % --- Compute factor h(delta) from input attribute positions ---
     valRow = pAttr{inputAttr};         % (1, N)
     delta = valRow - centre;
     if isPer

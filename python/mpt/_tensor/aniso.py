@@ -1,7 +1,7 @@
 """Anisotropic (matrix-valued) kernel covariance support.
 
 A per-attribute kernel covariance ``Sigma`` (a ``dim x dim`` symmetric
-positive-definite matrix, in squared units of the attribute's values)
+positive-definite matrix, in squared units of the attribute's positions)
 generalizes the isotropic ``sigma**2 * I`` kernel on ordered,
 absolute-mode, non-periodic attributes whose tuple is the whole
 multiset (``r == K``). The kernel is
@@ -33,7 +33,7 @@ Constraints (validated at build time):
 - ``is_per`` must be False (componentwise wrapping does not commute
   with the whitening change of coordinates);
 - ``r == K`` (``Sigma`` is the covariance of the whole ordered tuple,
-  so each event's tuple must be its full value multiset);
+  so each event's tuple must be its full atom multiset);
 - the attribute must not be nested, except degenerately: a two-level
   spec whose nesting encodes nothing beyond an ordered tuple of
   scalars (every group a singleton read whole, both levels absolute,
@@ -389,7 +389,7 @@ def whiten_query(dens, x):
 
 
 def whiten_p_attr(p_attr, chol_list):
-    """Whiten the matrix-sigma attributes of one MA value structure.
+    """Whiten the matrix-sigma attributes of one MA position structure.
 
     ``chol_list`` is length-A with ``None`` for isotropic attributes;
     matrix-sigma attributes' value matrices (``r x N``) are transformed

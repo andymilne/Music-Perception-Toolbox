@@ -10,7 +10,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   on a single attribute.
 %
 %   Inputs:
-%     PX, WX     (K_x, N_x) per-event values and weights for
+%     PX, WX     (K_x, N_x) per-event positions and weights for
 %                density X. NaN entries indicate ragged events; they
 %                are routed and handled per-pair as appropriate.
 %     PY, WY     (K_y, N_y) same for Y.
@@ -47,7 +47,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %
 %   Output:
 %     I          (N_x, N_y) double; entry (n_X, n_Y) is the
-%                per-attribute inner product over the values of
+%                per-attribute inner product over the atoms of
 %                event n_X (X-side) against those of n_Y (Y-side).
 %
 %   Strategy:

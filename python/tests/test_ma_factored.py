@@ -164,3 +164,25 @@ class TestFactoredIsExercised:
         x = _query_near_mass(d, 80, 7.5, 3)
         got = _ma_eval_factored(d, x)
         assert got is not None and got.shape == (80,)
+
+
+def test_dim0_fully_relative_r1_density_evaluates_constant():
+    """A density whose every attribute is relative at r = 1 has effective
+    dimensionality 0 and is constant. Both eval routes must return that
+    constant (the total tuple mass) at zero-dimensional queries. Pins
+    the behaviour the MATLAB twin regressed on: its calibration cache
+    indexed by dim errored at dim = 0 (fixed by the dim + 1 cache
+    slot in estimateCompTime)."""
+    import warnings
+    rng = np.random.default_rng(0)
+    P = [np.sort(3600 * rng.random((8, 1)), axis=0) for _ in range(2)]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        d = mpt.build_exp_tens(P, None, [15.0, 15.0], [1, 1], [True, True],
+                           [False, False], [0.0, 0.0], verbose=False)
+    x = np.zeros((0, 5))
+    v_c = np.asarray(mpt.eval_exp_tens(d, x, method="centres", verbose=False))
+    v_m = np.asarray(mpt.eval_exp_tens(d, x, method="mobius", verbose=False))
+    assert v_c.size == 5 and v_m.size == 5
+    assert np.allclose(v_c, 64.0, atol=1e-9)   # 8 x 8 unit-weight tuples
+    assert np.allclose(v_m, v_c, atol=1e-9)

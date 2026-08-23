@@ -1,7 +1,7 @@
 """Möbius-method inner-product matrices for the multi-attribute path.
 
 The per-attribute inner-product machinery of the Möbius decomposition
-(Milne 2026, Sec. 4): given two densities' values and weights for one
+(Milne 2026, Sec. 4): given two densities' positions and weights for one
 attribute, each routine here returns the matrix of that attribute's
 contribution to the inner product between every pair of events, which the
 cosine path then combines across attributes.
@@ -226,7 +226,7 @@ def _ma_per_attr_inner_matrix(
 
     ``Px`` is (K, N_x), ``Wx`` is (K, N_x); same shape for Y. Returns
     an (N_x, N_y) matrix where entry (n_X, n_Y) is the per-attribute
-    inner product over the K values of event n_X (X-side) against
+    inner product over the K atoms of event n_X (X-side) against
     those of n_Y (Y-side).
 
     Strategy (in parity with MATLAB ``mobius.maPerAttrInnerMatrix``):

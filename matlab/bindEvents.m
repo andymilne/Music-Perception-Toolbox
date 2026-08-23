@@ -7,7 +7,7 @@ function [pAttrBound, wBound, specs] = bindEvents(pAttr, w, bindOrders, nvArgs)
 %   is laid across the event axis and the L_a consecutive events are nested
 %   into a single output attribute (toolbox spec §6.1/§6.5): the bound
 %   events form an ordered outer level (symOuter = 0 by default, lossless),
-%   each event's own value multiset is the inner level.
+%   each event's own atom multiset is the inner level.
 %
 %   The inner level's geometry (r/rel/sym) is read from the incoming
 %   specifications --- the attribute's existing specification supplies the inner

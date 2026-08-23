@@ -1,6 +1,6 @@
 %% test_translate.m — translateAttributes on the (pAttr, w, specs) triple (3c-iv-d)
 %
-%  translateAttributes shifts attribute values by per-position offsets.
+%  translateAttributes shifts attribute positions by per-row offsets.
 %  Everything hangs off the position axis (the rows of the value matrix, length
 %  K_total): the offset is one value per position held constant across the event
 %  axis (which makes D(T(p)) == D(p)). A scalar broadcasts to all positions; a

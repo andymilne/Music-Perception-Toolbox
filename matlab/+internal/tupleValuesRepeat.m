@@ -5,7 +5,7 @@ function tf = tupleValuesRepeat(C, nQ, minQueries, minEntries, minSaving)
 %   kernel once per distinct value in C and reading the tuple layout off
 %   that table costs less than evaluating it once per tuple.
 %
-%   Every coordinate of an r-tuple is a value of the same multiset, so
+%   Every coordinate of an r-tuple is an atom of the same multiset, so
 %   the distinct arguments number the multiset size rather than the tuple
 %   count, and the saving per query grows with the tuple count. Against
 %   that stands the sort that finds the distinct values, which is paid

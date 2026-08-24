@@ -249,8 +249,7 @@ def _ma_per_attr_inner_matrix(
     ratio is 1.0.
 
     ``truncation_sigmas`` is honoured in every kernel-evaluation
-    branch (r=1 abs, r>=2 abs safe, r>=2 abs unsafe via
-    :func:`_batched_direct_enum_abs`, and rel-per via
+    branch (r=1 abs, r>=2 abs, and rel-per via
     :func:`_rel_inner_batched`): kernel entries whose
     underlying squared distance exceeds the truncation cutoff are
     zeroed without evaluating ``np.exp``. ``None`` resolves to the
@@ -394,24 +393,18 @@ def _ma_per_attr_inner_matrix(
             truncation_sigmas=truncation_sigmas,
         )
 
-    # --- r >= 2 abs: hybrid safe/unsafe partition ---
-
-    # Per-event K_eff (count of non-NaN values), per side.
-    K_eff_x = np.sum(~(np.isnan(Px) | np.isnan(Wx)), axis=0)   # (N_x,)
-    K_eff_y = np.sum(~(np.isnan(Py) | np.isnan(Wy)), axis=0)   # (N_y,)
-
-    # Accuracy is governed by ``truncationSigmas``, not by the collection
-    # size, so no size-based partition is applied: every event takes the
-    # vectorised batched Möbius route, which is also the faster one.
-    # Events whose non-NaN value count falls below r contribute no
-    # r-tuples; zero-weight padding makes every orbit term containing a
-    # padded value vanish, so those entries come out as zero.
-    safe_x_mask = np.ones(N_x, dtype=bool)
-    safe_y_mask = np.ones(N_y, dtype=bool)
-    safe_x_idx = np.where(safe_x_mask)[0]
-    unsafe_x_idx = np.where(~safe_x_mask)[0]
-    safe_y_idx = np.where(safe_y_mask)[0]
-    unsafe_y_idx = np.where(~safe_y_mask)[0]
+    # --- r >= 2 abs ---
+    #
+    # Every event takes the vectorised batched Möbius route. Accuracy is
+    # governed by ``truncationSigmas``, not by the collection size, so no
+    # size-based partition is applied. Events whose non-NaN value count
+    # falls below r contribute no r-tuples; zero-weight padding makes
+    # every orbit term containing a padded value vanish, so those entries
+    # come out as zero. Where the alternating sum is ill-conditioned the
+    # caller may ask for the reference route instead, which enumerates
+    # the tuple centres unrestricted (``method='centres'``).
+    safe_x_idx = np.arange(N_x)
+    safe_y_idx = np.arange(N_y)
 
     out = np.zeros((N_x, N_y), dtype=np.float64)
     worst_ratio = 1.0
@@ -554,97 +547,9 @@ def _ma_per_attr_inner_matrix(
                     safe_flat[n_start:n_end, :] = flat.reshape(n_chunk, N_ys)
                 out[np.ix_(safe_x_idx, safe_y_idx)] = safe_flat
 
-    # --- Pairs involving any unsafe event: K-grouped batched direct ---
-    # All pairs not in (safe_x, safe_y) flow through ordered-r-tuple
-    # direct enumeration. Was previously a Python double-loop
-    # (one ``_inner_product_direct_abs`` call per pair); for
-    # variable-K_a workloads with many unsafe events this dominated
-    # the runtime by 10–100× over the actual computation.
-    #
-    # K_a grouping: partition the unsafe-involved event-index union
-    # by K_eff value per side, then batch direct enumeration per
-    # (K_eff_x, K_eff_y) sub-block. Within a sub-block, every event
-    # shares an ordered-r-tuple shape (nJ = K_eff! / (K_eff - r)!),
-    # so the IP matrix can be computed as a single contracted
-    # tensor op. This removes the Python per-pair overhead entirely.
-    #
-    # Coverage: (unsafe_x, all_y) ∪ (safe_x, unsafe_y) covers every
-    # pair where at least one side is unsafe, without double counting.
-    needed_x_idx = np.concatenate([unsafe_x_idx, safe_x_idx]) \
-        if unsafe_x_idx.size > 0 else np.array([], dtype=np.intp)
-    needed_y_idx_full = np.arange(N_y)
-    # Split needed pairs into two coverage zones to mirror the
-    # inline-method structure exactly, preserving fill ordering.
-    _ma_fill_direct_enum_groups(
-        out, Px, Wx, Py, Wy,
-        unsafe_x_idx, np.arange(N_y),
-        K_eff_x, K_eff_y, sigma, r, is_per, period,
-        truncation_sigmas=truncation_sigmas,
-    )
-    if unsafe_y_idx.size > 0 and safe_x_idx.size > 0:
-        _ma_fill_direct_enum_groups(
-            out, Px, Wx, Py, Wy,
-            safe_x_idx, unsafe_y_idx,
-            K_eff_x, K_eff_y, sigma, r, is_per, period,
-            truncation_sigmas=truncation_sigmas,
-        )
-
     if return_cancellation_ratio:
         return out, worst_ratio
     return out
-
-
-def _ma_fill_direct_enum_groups(
-    out, Px, Wx, Py, Wy, x_idx, y_idx,
-    K_eff_x, K_eff_y, sigma, r, is_per, period,
-    *, truncation_sigmas=None,
-):
-    """K-grouped batched direct-enum fill into ``out`` for a rectangle
-    of (x_idx, y_idx) pairs.
-
-    Partitions ``x_idx`` by K_eff_x value and ``y_idx`` by K_eff_y
-    value, then computes each (K_x_val, K_y_val) sub-block as a single
-    vectorised tensor contraction. Output entries at (x_idx[i],
-    y_idx[j]) are filled in place.
-
-    ``truncation_sigmas`` is forwarded to
-    :func:`_batched_direct_enum_abs`; ``None`` resolves to the
-    global default.
-
-    No-op if either side is empty.
-    """
-    if x_idx.size == 0 or y_idx.size == 0:
-        return
-
-    # Unique K_eff values present on each side (within the index sets).
-    unique_K_x = np.unique(K_eff_x[x_idx])
-    unique_K_y = np.unique(K_eff_y[y_idx])
-
-    for K_x_val in unique_K_x:
-        x_grp = x_idx[K_eff_x[x_idx] == K_x_val]
-        if x_grp.size == 0 or int(K_x_val) < r:
-            # K < r: ordered r-tuple set is empty; IP = 0.
-            continue
-        # Pack non-NaN values to the top of each group column. The
-        # build_exp_tens convention has NaN already at the bottom, so
-        # in the common case this is a memory-cheap slice; in the
-        # general case _pack_nan_top handles arbitrary NaN positions.
-        Px_grp, Wx_grp = _pack_nan_top(Px[:, x_grp], Wx[:, x_grp])
-        Px_grp = Px_grp[:int(K_x_val), :]
-        Wx_grp = Wx_grp[:int(K_x_val), :]
-        for K_y_val in unique_K_y:
-            y_grp = y_idx[K_eff_y[y_idx] == K_y_val]
-            if y_grp.size == 0 or int(K_y_val) < r:
-                continue
-            Py_grp, Wy_grp = _pack_nan_top(Py[:, y_grp], Wy[:, y_grp])
-            Py_grp = Py_grp[:int(K_y_val), :]
-            Wy_grp = Wy_grp[:int(K_y_val), :]
-            sub_ip = _batched_direct_enum_abs(
-                Px_grp, Wx_grp, Py_grp, Wy_grp,
-                sigma, r, is_per, period,
-                truncation_sigmas=truncation_sigmas,
-            )
-            out[np.ix_(x_grp, y_grp)] = sub_ip
 
 
 def _pack_nan_top(P, W):
@@ -841,6 +746,18 @@ def _rel_per_inner_sparse(Px, Wx, Py, Wy, sigma, r, period, u_grid, du,
 _SPECTRAL_IP_ENABLED = True
 
 
+#: Bypasses the spectral branch's cost gate (never its memory guard).
+#: The gate declines the branch when gridSize > COST_C * K^2 * nPairs,
+#: which models the translation-grid route as costing K^2 per event
+#: pair -- omitting the node count N_u, which scales with span/sigma.
+#: Where the data span many sigmas the grid route is far dearer than the
+#: gate believes, and the branch is declined where it would have won.
+#: Benchmarking the decomposition rather than the routing pins this, as
+#: it pins the method and the relative-attribute route. Mirror of MATLAB
+#: internal.spectralIpForce.
+_SPECTRAL_IP_FORCE = False
+
+
 #: Mode-cutoff width in sigmas for the spectral inner product. The
 #: block spectra are truncated where the Gaussian envelope reaches
 #: machine precision rather than the requested accuracy floor: the
@@ -1008,10 +925,14 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     if grid_size > _SPECTRAL_IP_MAX_POINTS:
         return None
     # Cost gate: the grid path pays K^2 per event pair, the branch pays
-    # the mode grid. Decline where the mode grid is not repaid.
+    # the mode grid. Decline where the mode grid is not repaid. The
+    # memory guard above is never bypassed; this comparison is, under
+    # _SPECTRAL_IP_FORCE, because it misroutes outside the shapes it was
+    # calibrated on (see that flag).
     k_slots = float(Px.shape[0])
     n_pairs = float(Px.shape[1]) * float(Py.shape[1])
-    if grid_size > _SPECTRAL_IP_COST_C * k_slots ** 2 * n_pairs:
+    if (not _SPECTRAL_IP_FORCE
+            and grid_size > _SPECTRAL_IP_COST_C * k_slots ** 2 * n_pairs):
         return None
     axes = [np.arange(-M, M + 1, dtype=np.int64)] * (r - 1)
     grids = np.meshgrid(*axes, indexing='ij')
@@ -1549,7 +1470,8 @@ def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per):
 
 
 def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
-                                 truncation_sigmas=None):
+                                 truncation_sigmas=None,
+                                 user_forced_mobius=False):
     """True when a relative attribute's inner matrices should use the
     pairwise closed form over tuple-centres rather than the
     translation-grid contraction.
@@ -1605,7 +1527,17 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
     empty_tuple_set = K_x < r_a or K_y < r_a
 
     forced = get_default("rel_attr_route")
-    if forced == "grid":
+    if forced == "auto" and user_forced_mobius:
+        # An explicit method='mobius' means the Moebius decomposition, not
+        # merely the cheapest route to the same number. The cost gate below
+        # may substitute unrestricted enumeration over tuple centres on a
+        # relative attribute, which is a different algorithm; substituting
+        # it silently would make the method name describe something other
+        # than what ran. This mirrors the top-level rule, where an explicit
+        # method returns from the selector ahead of the cost model. 'auto'
+        # is unaffected, and the lever still overrides when set explicitly.
+        return False
+    if forced in ("mobius", "grid"):     # 'grid' retained as a deprecated alias
         return False
     if forced == "centres":
         if blocked_by_measure:

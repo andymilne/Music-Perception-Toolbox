@@ -289,7 +289,7 @@ def test_ma_dispatcher_routes_correctly_in_each_mode(
     assert chosen == expected
 
 
-@pytest.mark.parametrize("forced", ['bulger', 'direct', 'mobius'])
+@pytest.mark.parametrize("forced", ['bulger', 'centres', 'mobius'])
 def test_ma_dispatcher_user_overrides_bypass_logic(forced):
     """Explicit method bypasses everything (e.g. the σ/P guard)."""
     chosen = _select_ma_inner_product_method(

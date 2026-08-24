@@ -59,11 +59,17 @@ results{end,2}   = max(abs(v_auto - v_centres)) < 1e-10;
 results{end+1,1} = 'dispatch.single multiset eval: r=3 abs nonper Möbius matches centres (within 1e-8)';
 results{end,2}   = max(abs(v_orbit - v_centres)) < 1e-8;
 
-% --- 'direct' is a synonym for 'centres' ---
-v_direct = evalExpTens(p, w, sigma, r, false, false, 0, X, ...
-    'method', 'direct', 'verbose', false);
-results{end+1,1} = 'dispatch.single multiset eval: ''direct'' alias produces same result as ''centres''';
-results{end,2}   = isequal(v_direct, v_centres);
+% --- 'direct' is retired: it was a synonym for 'centres' here, and named
+% Bulger's method on the inner product, so one word meant two things. ---
+ok_directRetired = false;
+try
+    evalExpTens(p, w, sigma, r, false, false, 0, X, ...
+        'method', 'direct', 'verbose', false);
+catch ME
+    ok_directRetired = strcmp(ME.identifier, 'evalExpTens:badMethod');
+end
+results{end+1,1} = 'dispatch.single multiset eval: retired ''direct'' raises evalExpTens:badMethod';
+results{end,2}   = ok_directRetired;
 
 %% ---- Auto agrees with centres for small r=2 ----
 % The cost model routes small-K r=2 (abs) to the Möbius path: its factored

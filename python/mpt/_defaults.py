@@ -437,9 +437,15 @@ def _validate_one(name: str, value: Any) -> Any:
             ) from None
     if name == "rel_attr_route":
         v = str(value)
-        if v not in ("auto", "centres", "grid"):
+        # 'grid' was the former name for the Moebius sub-route; it named
+        # the shift quadrature the decomposition runs under rather than
+        # the decomposition itself. Accepted as an alias and normalised,
+        # so that one word means one algorithm at both levels.
+        if v == "grid":
+            v = "mobius"
+        if v not in ("auto", "centres", "mobius"):
             raise ValueError(
-                f"'rel_attr_route' must be 'auto', 'centres', or 'grid' "
+                f"'rel_attr_route' must be 'auto', 'centres', or 'mobius' "
                 f"(got {value!r})"
             )
         return v

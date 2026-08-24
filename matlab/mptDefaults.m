@@ -282,13 +282,19 @@ function S = setOne(S, name, value)
             if ~(ischar(value) || isstring(value))
                 error('mptDefaults:badValue', ...
                     ['''relAttrRoute'' must be ''auto'', ''centres'', ' ...
-                     'or ''grid''.']);
+                     'or ''mobius''.']);
             end
             v = lower(char(value));
-            if ~ismember(v, {'auto', 'centres', 'grid'})
+            % 'grid' was the former name for the Moebius sub-route; it
+            % named the shift quadrature the decomposition runs under
+            % rather than the decomposition itself. Accepted as an alias
+            % and normalised, so one word means one algorithm at both
+            % levels.
+            if strcmp(v, 'grid'), v = 'mobius'; end
+            if ~ismember(v, {'auto', 'centres', 'mobius'})
                 error('mptDefaults:badValue', ...
                     ['''relAttrRoute'' must be ''auto'', ''centres'', ' ...
-                     'or ''grid''; got ''%s''.'], char(value));
+                     'or ''mobius''; got ''%s''.'], char(value));
             end
             S.relAttrRoute = v;
         case 'posthocguards'

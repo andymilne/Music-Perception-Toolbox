@@ -170,16 +170,18 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
-%     'method'  — 'auto' (default), 'bulger', 'mobius', 'direct', or
+%     'method'  — 'auto' (default), 'bulger', 'centres', 'mobius', or
 %                 'contract' (force the nested tree-contraction).
 %                 Inner-product decomposition. 'auto' selects via a
 %                 per-call cost model between Bulger's method (small r
 %                 and small K) and the Möbius method (large r
 %                 or large K). 'bulger' / 'mobius' force the named
-%                 method; 'direct' enumerates every ordered r-tuple on
-%                 each side (expensive, immune to cancellation,
-%                 primarily for benchmarking). See User Guide §4
-%                 ("Method selection").
+%                 method; 'centres' enumerates every ordered r-tuple on
+%                 each side without restriction (the O(K^(2r)) reference
+%                 route: far slower than either at any appreciable K,
+%                 but free of the alternating sum and so immune to the
+%                 cancellation the Möbius route can suffer). See User
+%                 Guide §4 ("Method selection").
 %     'cancellationThreshold' — Positive scalar (default: 1e-12).
 %                 Guards the Möbius alternating-sum against
 %                 catastrophic cancellation: when the cancellation
@@ -279,12 +281,11 @@ while i <= numel(varargin)
             case 'method'
                 method = lower(char(varargin{i + 1}));
                 if ~ismember(method, ...
-                        {'auto', 'bulger', 'mobius', 'direct', 'contract'})
+                        {'auto', 'bulger', 'centres', 'mobius', 'contract'})
                     error('cosSimExpTens:badMethod', ...
                           ['''method'' must be ''auto'', ''bulger'', ' ...
-                           '''mobius'', ''direct'', or ''contract''; ' ...
-                           'got ''%s''.'], ...
-                          method);
+                           '''centres'', ''mobius'', or ''contract''; ' ...
+                           'got ''%s''.'], method);
                 end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
@@ -593,7 +594,7 @@ elseif nArgs == 9
         end
         % Batched all-r = 1 sweep (see localR1BroadcastFast); the
         % per-pair loop below is the fallback for every other shape.
-        if any(strcmp(method, {'auto', 'bulger', 'direct'}))
+        if any(strcmp(method, {'auto', 'bulger'}))
             [okFast, sFast] = localR1BroadcastFast(dens_scalar, densList, ...
                 scalarFirst, normalize, localSelfIpEmpty(), ...
                 truncationSigmas);
@@ -1088,9 +1089,34 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         ranOrbit = true;   % skip both the orbit and the pairwise enumeration
     end
 
-    if strcmp(chosen, 'mobius')
+    if strcmp(chosen, 'centres')
+        % Unrestricted enumeration of the tuple centres: the O(K^(2r))
+        % baseline. It differs from Bulger's route in exactly one
+        % respect -- the permutation side is used on BOTH sides, where
+        % Bulger uses permutation against combination and multiplies by
+        % r!. Everything else is shared: the same ipCoreMA, hence the
+        % same truncation, kernel precision, wrap convention and
+        % accumulation. Routing through the shared core is what makes
+        % the two comparable; an independent re-implementation would
+        % measure its own constants rather than the algorithms', and
+        % would ignore settings the core honours.
+        dens_x = internal.ensureExpTensExpensive(dens_x);
+        dens_y = internal.ensureExpTensExpensive(dens_y);
+        ip_xy = ipCoreMA(dens_x.U_perm, dens_x.wJ, dens_x.nJ, ...
+                         dens_y.U_perm, dens_y.wJ, dens_y.nJ);
+        if needXX
+            ip_xx = ipCoreMA(dens_x.U_perm, dens_x.wJ, dens_x.nJ, ...
+                             dens_x.U_perm, dens_x.wJ, dens_x.nJ);
+        else
+            ip_xx = [];
+        end
+        ip_yy = ipCoreMA(dens_y.U_perm, dens_y.wJ, dens_y.nJ, ...
+                         dens_y.U_perm, dens_y.wJ, dens_y.nJ);
+        ranOrbit = true;   % triple already computed; skip the other arms
+    elseif strcmp(chosen, 'mobius')
         [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
-            dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY);
+            dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY, ...
+            strcmp(method, 'mobius'));
 
         % Post-hoc correctness check only (mirrors single multiset path);
         % accuracy is governed by truncationSigmas, so no route is
@@ -1421,7 +1447,9 @@ end
 
 
 function [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
-    dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY)
+    dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY, ...
+    userForcedMobius)
+if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
 %LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute Möbius method.
 %
 %   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
@@ -1467,7 +1495,7 @@ function [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
         choices(a) = flatAttrA && mobius.maRelAttrPrefersCentres( ...
             dens_x.pAttr{a}, dens_y.pAttr{a}, dens_x.sigma(a), ...
             dens_x.r(a), dens_x.isRel(a), dens_x.isPer(a), ...
-            dens_x.period(a), truncationSigmas);
+            dens_x.period(a), truncationSigmas, userForcedMobius);
     end
     tsKey = internal.accuracyFloor('resolve', truncResolved);
     orbitKey = localSelfIpKey('mobius', tsKey, char('0' + choices));

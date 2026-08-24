@@ -1,5 +1,6 @@
 function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
-                                        isPer, period, truncationSigmas)
+                                        isPer, period, truncationSigmas, ...
+                                        userForcedMobius)
 %MARELATTRPREFERSCENTRES  Centres route vs translation grid, per attribute.
 %
 %   Mirror of Python _mobius_inner._ma_rel_attr_prefers_centres. True
@@ -85,9 +86,23 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
     K_y = size(Py, 1);
     emptyTupleSet = K < r_a || K_y < r_a;
 
+    if nargin < 9 || isempty(userForcedMobius), userForcedMobius = false; end
+
     forced = mptDefaults('relAttrRoute');
+    if strcmp(forced, 'auto') && userForcedMobius
+        % An explicit method='mobius' means the Moebius decomposition,
+        % not merely the cheapest route to the same number. The cost
+        % gate below may substitute unrestricted enumeration over tuple
+        % centres on a relative attribute, which is a different
+        % algorithm; substituting it silently would make the method name
+        % describe something other than what ran. This mirrors the
+        % top-level rule, where an explicit method returns from the
+        % selector ahead of the cost model. 'auto' is unaffected, and
+        % the lever still overrides when set explicitly.
+        return;
+    end
     switch forced
-        case 'grid'
+        case 'mobius'
             return;
         case 'centres'
             if blockedByMeasure

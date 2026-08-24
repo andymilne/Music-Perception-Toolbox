@@ -536,7 +536,7 @@ def _select_ma_inner_product_method(
     any_rel_per : bool
     sigma_over_P_max : float
         Maximum σ/P across periodic-relative groups.
-    user_method : {'auto', 'bulger', 'mobius', 'direct'}
+    user_method : {'auto', 'bulger', 'centres', 'mobius'}
     return_costs : bool, default False
         Also return the two predicted wall times in milliseconds that the
         comparison rests on, as ``(chosen, pw_cost_ms, orbit_cost_ms)``.
@@ -891,11 +891,15 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #                     product at all. The transposition average, being
 #                     an average of Gaussians, is positive-definite at
 #                     every sigma/P.
-#    method='direct' : forces direct enumeration (no Möbius cancellation;
-#                     useful for diagnosing near-zero cosines).
-#                     In the single-multiset path, 'direct' coincides
-#                     with 'bulger' (both route through ``_ip_core``);
-#                     the distinction surfaces in later windowed paths.
+#    method='centres': forces unrestricted enumeration of the tuple
+#                     centres. No alternating sum, so no Möbius
+#                     cancellation; the reference route, and useful for
+#                     diagnosing near-zero cosines. ('direct' named this
+#                     route in earlier versions but resolved to Bulger's
+#                     method, which enumerates the same centres with one
+#                     side restricted to combinations; the name is
+#                     retired, and 'centres' now means the same thing in
+#                     the inner product as it does in evaluation.)
 #
 #  cancellation_threshold : accepted for backward compatibility; it
 #    affects neither the result nor the route. Accuracy is governed by
@@ -1660,7 +1664,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     n_q : int
         Number of query points (scales both costs equally; retained for
         the estimate and for parity with the single-multiset selector signature).
-    method : {'auto', 'centres', 'direct', 'mobius'}
+    method : {'auto', 'centres', 'mobius'}
         User override or ``'auto'`` for the cost model.
 
     Returns
@@ -1669,14 +1673,14 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         ``chosen`` is ``'centres'`` or ``'mobius'``; ``routing_reason``
         is a short explanation for the dispatch message.
     """
-    if method in ("centres", "direct"):
+    if method == "centres":
         return "centres", "user override"
     if method == "mobius":
         _reject_ordered_for_mobius(dens)
         return "mobius", "user override"
     if method != "auto":
         raise ValueError(
-            f"method must be 'auto', 'centres', 'direct', or 'mobius'; "
+            f"method must be 'auto', 'centres', or 'mobius'; "
             f"got {method!r}."
         )
 

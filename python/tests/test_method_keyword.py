@@ -1,9 +1,10 @@
-"""Tests for the v2.2 ``method`` keyword on ``cos_sim_exp_tens``.
+"""Tests for the ``method`` keyword on ``cos_sim_exp_tens``.
 
 Each documented value of ``method`` must produce the documented
-behaviour. With perceptually typical parameters all three values
-(``'auto'``, ``'bulger'``, ``'direct'``) must agree to floating-point
-precision; the keyword exists as an escape hatch, not as a knob.
+behaviour. With perceptually typical parameters ``'auto'``,
+``'bulger'``, ``'centres'``, and ``'mobius'`` must agree to
+floating-point precision; the keyword exists as an escape hatch, not as
+a knob.
 """
 from __future__ import annotations
 
@@ -56,13 +57,31 @@ def test_method_values_agree_in_normal_use(r, n, is_per, is_rel):
 
     cos_auto = cos_sim_exp_tens(T_a, T_b, method='auto', verbose=False)
     cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
-    cos_dir = cos_sim_exp_tens(T_a, T_b, method='direct', verbose=False)
-
-    # Pairwise and direct route through _ip_core in single-multiset mode and so are
-    # bit-identical. Auto routes through orbit at r >= 3 or large n.
-    assert cos_pw == cos_dir, (
-        f"r={r}, n={n}: pairwise={cos_pw}, direct={cos_dir} differ"
+    # 'centres' enumerates the tuple centres unrestricted -- no
+    # combination restriction, no partition algebra -- so it agrees with
+    # Bulger's method up to floating-point accumulation rather than
+    # bit-identically. It is the reference route: it shares no reduction
+    # with either of the others.
+    cos_cen = cos_sim_exp_tens(T_a, T_b, method='centres',
+                               truncation_sigmas=float('inf'), verbose=False)
+    cos_pw_exact = cos_sim_exp_tens(T_a, T_b, method='bulger',
+                                    truncation_sigmas=float('inf'),
+                                    verbose=False)
+    # Absolute escape hatch, as for the auto/pairwise comparison below:
+    # for near-orthogonal pairs (cosine at 1e-15 and below) the two
+    # routes' accumulation dust dominates the relative difference while
+    # the absolute difference is far inside any meaningful tolerance.
+    abs_err = abs(cos_cen - cos_pw_exact)
+    rel_err = abs_err / max(abs(cos_cen), abs(cos_pw_exact), 1e-300)
+    assert abs_err < 1e-12 or rel_err < 1e-10, (
+        f"r={r}, n={n}: centres={cos_cen}, bulger={cos_pw_exact} differ"
     )
+
+    # 'direct' named Bulger's method while promising an unrestricted
+    # enumeration it never performed; the name is retired, and the
+    # enumeration it promised is now 'centres'.
+    with pytest.raises(ValueError):
+        cos_sim_exp_tens(T_a, T_b, method='direct', verbose=False)
     abs_err = abs(cos_auto - cos_pw)
     rel_err = abs_err / max(abs(cos_auto), abs(cos_pw), 1e-300)
     # The absolute escape hatch sits at the translation-grid quadrature

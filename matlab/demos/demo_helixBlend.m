@@ -140,7 +140,7 @@ function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
     % per-sigma_reg loop. Each iteration calls windowedTensorSimilarity as
     % an independent top-level entry; without this guard, each entry
     % would reset the dispatch-announce throttle, re-emitting the
-    % same "windowedTensorSimilarity: chose 'direct' path." message per
+    % same "windowedTensorSimilarity: chose 'closed-form' path." message per
     % iteration. Holding a scope guard here keeps every iteration
     % nested at depth >= 1, so the throttle deduplicates announces
     % across the sweep. See internal.dispatchScope.

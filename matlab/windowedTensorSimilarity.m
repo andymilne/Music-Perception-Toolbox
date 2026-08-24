@@ -322,7 +322,7 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
     % windowed inner product (no Bulger / Möbius / centres choice to
     % make). The announce reads 'chose direct path' to surface the
     % method to the user; throttled to once per top-level call.
-    internal.maybeShowDispatchMsg('windowedTensorSimilarity', 'direct', ...
+    internal.maybeShowDispatchMsg('windowedTensorSimilarity', 'closed-form', ...
         'closed-form windowed inner product (single algorithmic path)');
 
     % --- Pre-compute the unwindowed L2 norm of the query (denominator) ---

@@ -151,8 +151,8 @@ function vals = evalExpTens(varargin)
 %   Optional name-value pair (all calling conventions):
 %     'verbose' — Logical (default: true). If false, suppresses console
 %                 output (time estimates, progress messages).
-%     'method'  — 'auto' (default), 'centres', 'mobius', or 'direct'
-%                 (synonym for 'centres'). Point-evaluation strategy:
+%     'method'  — 'auto' (default), 'centres', or 'mobius'.
+%                 Point-evaluation strategy:
 %                 'auto' selects via a per-call cost model; 'centres'
 %                 forces the centres-array path (fast at low r);
 %                 'mobius' forces the Möbius point evaluator (faster
@@ -192,7 +192,7 @@ function vals = evalExpTens(varargin)
 guard = internal.callGuard(); %#ok<NASGU>
 
 verbose = true;  % default
-method = 'auto';  % 'auto' | 'centres' (alias 'direct') | 'mobius'
+method = 'auto';  % 'auto' | 'centres' | 'mobius'
 truncationSigmas = [];   % []: use mptDefaults at the helper level
 kernelPrecision  = [];   % []: use mptDefaults at the helper level
 
@@ -213,10 +213,10 @@ while i <= numel(varargin)
                 continue;
             case 'method'
                 method = lower(char(varargin{i + 1}));
-                if ~ismember(method, {'auto', 'centres', 'direct', 'mobius'})
+                if ~ismember(method, {'auto', 'centres', 'mobius'})
                     error('evalExpTens:badMethod', ...
                           ['''method'' must be ''auto'', ''centres'', ' ...
-                           '''direct'', or ''mobius''; got ''%s''.'], method);
+                           'or ''mobius''; got ''%s''.'], method);
                 end
                 removeIdx(i)     = true;
                 removeIdx(i + 1) = true;
@@ -505,7 +505,7 @@ nQ = size(X, 2);
 % entropyExpTens scalar, etc.
 
 % ---- Routing axis ----
-if strcmp(method, 'centres') || strcmp(method, 'direct')
+if strcmp(method, 'centres')
     chosen = 'centres';
 elseif strcmp(method, 'mobius')
     % An ordered ([sym] = 0) attribute at r > 1 has no orbit: the Möbius
@@ -537,7 +537,7 @@ elseif strcmp(method, 'auto')
     internal.maybeShowDispatchMsg('evalExpTens', chosen, routingReason);
 else
     error('evalExpTens:badMethod', ...
-          ['''method'' must be ''auto'', ''centres'', ''direct'', ' ...
+          ['''method'' must be ''auto'', ''centres'', ' ...
            'or ''mobius''; got ''%s''.'], method);
 end
 
@@ -572,7 +572,7 @@ if strcmp(chosen, 'mobius')
 end
 
 if ~ranOrbit
-    % Centres branch (also entered for explicit 'centres'/'direct'
+    % Centres branch (also entered for explicit 'centres'
     % method, and for Möbius-then-fallback). Heavy fields needed: ensure
     % them on the density, then re-view for the flat kernel.
     dens = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
@@ -892,7 +892,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
     % factored evaluator (mobius.evalMaOrbit) returns the raw density,
     % which the shared normalisation block below scales identically to
     % the centres path, so the two routes agree up to that normalisation.
-    if strcmp(method, 'centres') || strcmp(method, 'direct')
+    if strcmp(method, 'centres')
         maChosen = 'centres';
         maReason = 'user override';
     elseif strcmp(method, 'mobius')
@@ -1270,7 +1270,7 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
     end
 
     % Path dispatch (skinny cost model; user override honoured).
-    if strcmp(method, 'centres') || strcmp(method, 'direct')
+    if strcmp(method, 'centres')
         maChosen = 'centres'; maReason = 'user override';
     elseif strcmp(method, 'mobius')
         maChosen = 'mobius'; maReason = 'user override';

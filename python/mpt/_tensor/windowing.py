@@ -493,11 +493,11 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
     # --- Dispatch announce ---
     # windowed_tensor_similarity uses a single algorithmic path: the closed-form
     # windowed inner product (no Bulger / Möbius / centres choice to
-    # make). The announce reads 'chose direct path' to surface the
-    # method to the user; throttled to once per top-level call.
+    # make). The announce names the single path; throttled to once per
+    # top-level call.
     from .._defaults import _maybe_show_dispatch_msg
     _maybe_show_dispatch_msg(
-        "windowed_tensor_similarity", "direct",
+        "windowed_tensor_similarity", "closed-form",
         "closed-form windowed inner product (single algorithmic path)",
     )
 

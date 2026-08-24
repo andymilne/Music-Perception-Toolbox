@@ -4,7 +4,7 @@ Public entry points:
 
 * :func:`cos_sim_exp_tens` --- compute cosine similarity between two
   expectation tensor densities (scalar, list-list, or batched-raw),
-  with dispatch over Bulger / Möbius / direct methods.
+  with dispatch over Bulger / Möbius / centres methods.
 * :func:`batch_cos_sim_exp_tens` --- the fully batched path with
   canonical-form dedup.
 * :func:`cos_sim_exp_tens_raw` --- deprecated shim; raw-array
@@ -240,14 +240,18 @@ def cos_sim_exp_tens(*args,
         Round canonical pitch and weight values to this many decimal
         places, to absorb FP noise when deduplicating. Only valid in
         raw single-multiset batched mode.
-    method : {'auto', 'bulger', 'mobius', 'direct'}, default 'auto'
+    method : {'auto', 'bulger', 'centres', 'mobius'}, default 'auto'
         Inner-product method; threaded through to the per-pair single-multiset/multi-attribute
         core. ``'auto'`` lets the dispatcher pick between Bulger's
         method (the partition-pair decomposition; small r and small K)
         and the Möbius method (large r or large K).
         ``'bulger'`` forces Bulger's method; ``'mobius'`` forces the
-        Möbius method; ``'direct'`` forces direct ordered-tuple
-        enumeration.
+        Möbius method; ``'centres'`` forces unrestricted enumeration of
+        the tuple centres, the O(K^(2r)) route that reads the definition
+        directly. ``'centres'`` is far slower than either at any
+        appreciable K and is intended as a reference: it involves no
+        alternating sum, so it is immune to the cancellation the Möbius
+        route can suffer, and it shares no reduction with the other two.
     normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
         Selects the denominator applied to the inner product
         :math:`\\langle X, Y \\rangle`. ``'cosine'`` (default) gives the
@@ -1092,8 +1096,7 @@ def _cos_sim_density_path(
     # sweeps. Returns None whenever any structural condition fails, and
     # the ordinary per-pair loops below then run — raising exactly the
     # errors a genuine mismatch deserves.
-    if (is_x_scalar != is_y_scalar) and method in ("auto", "bulger",
-                                                   "direct"):
+    if (is_x_scalar != is_y_scalar) and method in ("auto", "bulger"):
         fast = _r1_broadcast_fast(
             pairs,
             shared_is_x=is_x_scalar,
@@ -1445,10 +1448,10 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic attributes."
         )
 
-    if method not in ("auto", "bulger", "direct", "mobius", "contract",
+    if method not in ("auto", "bulger", "centres", "mobius", "contract",
                       "factored"):
         raise ValueError(
-            f"method must be one of 'auto', 'bulger', 'direct', 'mobius', "
+            f"method must be one of 'auto', 'bulger', 'centres', 'mobius', "
             f"'contract', 'factored'; got {method!r}."
         )
 
@@ -1652,7 +1655,7 @@ def _cos_sim_exp_tens_ma(
 
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
-            dens_x, dens_y, truncation_sigmas=truncation_sigmas,
+            dens_x, dens_y, user_forced_mobius=(method == "mobius"), truncation_sigmas=truncation_sigmas,
             need_xx=need_xx,
         )
         # Post-hoc correctness check only. Accuracy is governed by
@@ -1694,7 +1697,14 @@ def _cos_sim_exp_tens_ma(
                 kernel_precision=kernel_precision,
                 need_xx=need_xx,
             )
-    else:  # 'bulger' or 'direct' (coincide in MA mode)
+    elif chosen == "centres":
+        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_centres(
+            dens_x, dens_y, verbose=verbose,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            need_xx=need_xx,
+        )
+    else:  # 'bulger'
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
@@ -2205,7 +2215,8 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
 
 
 def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
-                               need_xx: bool = True):
+                               need_xx: bool = True,
+                               user_forced_mobius: bool = False):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
     Möbius method (JMM Eq. 3.4 plus Rem. 3.1).
 
@@ -2247,6 +2258,7 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
             bool(dens_x.is_rel[a]), bool(dens_x.is_per[a]),
             float(dens_x.period[a]),
             truncation_sigmas=truncation_sigmas,
+            user_forced_mobius=user_forced_mobius,
         ))
         for a in range(A)
     )
@@ -2732,6 +2744,75 @@ def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
     from .._defaults import resolve_truncation_sigmas
     return (route, float(resolve_truncation_sigmas(truncation_sigmas)),
             kernel_precision, extra)
+
+
+def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
+                                 truncation_sigmas=None,
+                                 kernel_precision=None, need_xx: bool = True):
+    """Inner-product triple by unrestricted enumeration of tuple centres.
+
+    The O(K^(2r)) baseline: every ordered r-tuple of distinct atoms on
+    each side against every such tuple on the other. It differs from
+    Bulger's route in exactly one respect -- the permutation side is used
+    on *both* sides, where Bulger uses the permutation side against the
+    combination side and multiplies by r!. Everything else is shared:
+    the same ``_ip_core_ma``, so the same truncation, kernel precision,
+    wrap convention, chunking and log-space accumulation.
+
+    Routing through the shared core is what makes the two comparable.
+    An independent re-implementation would measure its own constants
+    rather than the algorithms', and would silently ignore settings the
+    core honours; the independent enumeration is kept in the test suite,
+    where sharing no code with the core is the point.
+    """
+    from .._defaults import _maybe_show_dispatch_msg
+
+    _maybe_show_dispatch_msg(
+        "cos_sim_exp_tens", "centres",
+        "unrestricted enumeration of tuple centres (reference route)",
+    )
+
+    A = int(dens_x.n_attrs)
+    r_vec = np.atleast_1d(dens_x.r)
+    sigma = np.atleast_1d(dens_x.sigma)
+    is_rel = np.atleast_1d(dens_x.is_rel)
+    is_per = np.atleast_1d(dens_x.is_per)
+    period = np.atleast_1d(dens_x.period)
+    inner_r = _inner_r_vec(dens_x)
+    n_jx, n_jy = dens_x.n_j, dens_y.n_j
+
+    def core(dx, nx, dy, ny):
+        return _ip_core_ma(
+            dx.u_perm, dx.w_j, nx,
+            dy.u_perm, dy.w_j, ny,
+            A, r_vec, sigma, is_rel, is_per, period,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+            inner_r=inner_r,
+            wrap=getattr(dx, 'wrap', None),
+        )
+
+    # Memoise the self terms under a route-specific key, exactly as the
+    # pairwise arm does. Without this the route recomputes <X,X> and
+    # <Y,Y> on every call while Bulger's arm reuses them, so a repeated
+    # comparison would time three products against one and the ratio
+    # between the routes would not be r!.
+    key = _self_ip_cache_key("centres", truncation_sigmas, kernel_precision)
+    ip_xy = core(dens_x, n_jx, dens_y, n_jy)
+    if need_xx:
+        if key in dens_x._self_ip_cache:
+            ip_xx = dens_x._self_ip_cache[key]
+        else:
+            ip_xx = core(dens_x, n_jx, dens_x, n_jx)
+            dens_x._self_ip_cache[key] = ip_xx
+    else:
+        ip_xx = None
+    if key in dens_y._self_ip_cache:
+        ip_yy = dens_y._self_ip_cache[key]
+    else:
+        ip_yy = core(dens_y, n_jy, dens_y, n_jy)
+        dens_y._self_ip_cache[key] = ip_yy
+    return ip_xy, ip_xx, ip_yy
 
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
@@ -3434,7 +3515,7 @@ def _cos_sim_raw_single_multiset_batch(
         places, to absorb FP noise when deduplicating.
     dedup : bool, default True
         Apply pair-level canonical-form dedup at Phase 3.
-    method : {'auto', 'bulger', 'direct'}, default 'auto'
+    method : {'auto', 'bulger', 'centres'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
         single-multiset core via the inner ``cos_sim_exp_tens`` call.
     cancellation_threshold : float, default 1e-12

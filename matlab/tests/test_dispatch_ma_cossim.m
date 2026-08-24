@@ -51,12 +51,13 @@ end
 results{end+1,1} = 'dispatch.MA cossim: bad method string raises cosSimExpTens:badMethod';
 results{end,2}   = ok_badMethod;
 
-% Parity guard: every method string Python accepts must be accepted here
-% too. 'direct' was previously missing from the validation list although
-% the docstring listed it and the downstream branches handled it, so a
-% call that worked in Python errored in MATLAB. 'contract' is accepted by
-% the validator and rejected later, by design, on a non-nested density.
-acceptedMethods = {'auto', 'bulger', 'mobius', 'direct'};
+% Method-name vocabulary. Three algorithms, one name each: 'centres'
+% (unrestricted enumeration of the tuple centres), 'bulger' (the
+% within-r-ad decomposition), 'mobius' (the partition-lattice sum).
+% 'direct' is retired: it named Bulger's method here while promising an
+% unrestricted enumeration, and named the centres route in evalExpTens,
+% so one word meant two things and neither matched its docstring.
+acceptedMethods = {'auto', 'bulger', 'centres', 'mobius'};
 ok_acceptedMethods = true;
 for iM = 1:numel(acceptedMethods)
     try
@@ -71,18 +72,27 @@ for iM = 1:numel(acceptedMethods)
         end
     end
 end
-results{end+1,1} = 'dispatch.MA cossim: auto/bulger/mobius/direct all accepted (Python parity)';
+results{end+1,1} = 'dispatch.MA cossim: auto/bulger/centres/mobius all accepted';
 results{end,2}   = ok_acceptedMethods;
 
-% The four routes must agree: on a single multiset 'direct' coincides
-% with 'bulger', and both with the orbit route and with auto's choice.
-sVals = zeros(1, numel(acceptedMethods));
-for iM = 1:numel(acceptedMethods)
+ok_directRetired = false;
+try
+    cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
+        isRel, isPer, period, 'method', 'direct', 'verbose', false);
+catch ME
+    ok_directRetired = strcmp(ME.identifier, 'cosSimExpTens:badMethod');
+end
+results{end+1,1} = 'dispatch.MA cossim: retired ''direct'' raises cosSimExpTens:badMethod';
+results{end,2}   = ok_directRetired;
+
+% The three routes must agree: they compute the same inner product.
+sVals = zeros(1, 3); routeNames = {'bulger', 'centres', 'mobius'};
+for iM = 1:3
     sVals(iM) = cosSimExpTens(pAttr, wA, pAttr, wA, sigma, rVec, ...
-        isRel, isPer, period, 'method', acceptedMethods{iM}, ...
+        isRel, isPer, period, 'method', routeNames{iM}, ...
         'truncationSigmas', Inf, 'verbose', false);
 end
-results{end+1,1} = 'dispatch.MA cossim: auto/bulger/mobius/direct agree to 1e-12';
+results{end+1,1} = 'dispatch.MA cossim: bulger/centres/mobius agree to 1e-12';
 results{end,2}   = max(abs(sVals - sVals(1))) <= 1e-12;
 
 %% ---- r_max >= 3 abs nonper: auto routes to orbit; agrees with Bulger ----

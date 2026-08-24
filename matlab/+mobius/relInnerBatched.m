@@ -98,7 +98,8 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
     % whose mode grid would be too large (the helper returns []).
     if internal.spectralIpEnabled() && r >= 2 && r <= 4 && ~wantRatio
         Ispec = mobius.spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, ...
-                                              isPer, period);
+                                              isPer, period, ...
+                                              internal.spectralIpForce());
         if ~isempty(Ispec)
             I = Ispec;
             return;

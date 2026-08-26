@@ -16,9 +16,23 @@ function Sigma = intervalKernelCov(r, nvArgs)
 %   for an ordered attribute whose event tuples are r consecutive
 %   differences (intervals) of r + 1 underlying positions, where D is
 %   the r x (r + 1) first-differencing map (so D * D' is tridiagonal:
-%   2 on the diagonal, -1 on the first off-diagonals). The three terms
-%   are three independently specified sources of perceptual
-%   uncertainty, added because their sources are independent:
+%   2 on the diagonal, -1 on the first off-diagonals).
+%
+%   This parametrization is meaningful ONLY for first-differenced
+%   multisets. sdPosition builds D * D', whose off-diagonal entries
+%   encode the endpoints that neighbouring differences share; an
+%   undifferenced multiset has no such shared endpoints, so on one the
+%   term imposes correlations the data do not contain. Nothing here
+%   inspects the multiset, so passing the result for an undifferenced
+%   attribute raises no error: the caller is responsible for applying
+%   it only to interval tuples. For an undifferenced attribute,
+%   independent per-value noise is what the ordinary scalar sigma
+%   already provides, and a matrix covariance is warranted only for a
+%   common-shift ridge.
+%
+%   The three terms are three independently specified sources of
+%   perceptual uncertainty, added because their sources are
+%   independent:
 %
 %     sdPosition — uncertainty on the underlying *positions* from
 %       which the differences are formed. Shared endpoints propagate

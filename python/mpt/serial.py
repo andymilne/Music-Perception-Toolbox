@@ -421,9 +421,23 @@ def interval_kernel_cov(r, sd_position=0.0, sd_interval=0.0, sd_shift=0.0):
 
     for an ordered attribute whose event tuples are *r* consecutive
     differences (intervals) of ``r + 1`` underlying positions, where
-    ``D`` is the ``r x (r + 1)`` first-differencing map. The three
-    terms are three independently specified sources of perceptual
-    uncertainty, added because their sources are independent:
+    ``D`` is the ``r x (r + 1)`` first-differencing map.
+
+    This parametrization is meaningful **only for first-differenced
+    multisets**. ``sd_position`` builds ``D D^T``, whose off-diagonal
+    entries encode the endpoints that neighbouring differences share;
+    an undifferenced multiset has no such shared endpoints, so on one
+    the term imposes correlations the data do not contain. Nothing
+    here inspects the multiset, so passing the result for an
+    undifferenced attribute raises no error: the caller is responsible
+    for applying it only to interval tuples. For an undifferenced
+    attribute, independent per-value noise is what the ordinary scalar
+    ``sigma`` already provides, and a matrix covariance is warranted
+    only for a common-shift ridge.
+
+    The three terms are three independently specified sources of
+    perceptual uncertainty, added because their sources are
+    independent:
 
     - ``sd_position``: uncertainty on the underlying *positions* from
       which the differences are formed. Shared endpoints propagate it

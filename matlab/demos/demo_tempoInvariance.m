@@ -29,9 +29,8 @@
 %                 neighbour by the same amount. On log-IOIs this
 %                 models onset-level timing jitter that scales with
 %                 the local inter-onset interval (Weber-like motor
-%                 noise); the shared-endpoint reading is exact when
-%                 the adjacent intervals are equal and holds to first
-%                 order otherwise.
+%                 noise); the shared-endpoint reading is exact only
+%                 when the adjacent intervals are equal.
 %    sdInterval   Independent uncertainty on each interval itself
 %                 (central-timekeeper variance in the Wing &
 %                 Kristofferson 1973 reading; on log-IOIs,

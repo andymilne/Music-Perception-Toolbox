@@ -30,8 +30,8 @@ musically distinct tolerances:
                 neighbour by the same amount. On log-IOIs this models
                 onset-level timing jitter that scales with the local
                 inter-onset interval (Weber-like motor noise); the
-                shared-endpoint reading is exact when the adjacent
-                intervals are equal and holds to first order otherwise.
+                shared-endpoint reading is exact only when the
+                adjacent intervals are equal.
   sd_interval   Independent uncertainty on each interval itself
                 (central-timekeeper variance in the Wing &
                 Kristofferson 1973 reading; on log-IOIs, proportional

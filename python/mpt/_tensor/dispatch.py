@@ -943,9 +943,10 @@ _REL_PER_DEPARTURE = (
 #: Hard ceiling on σ/P for the wrapped-difference form, whatever
 #: accuracy is asked for.
 #:
-#: Beyond it the kernel stops being positive-definite: its induced
-#: cosine similarity exceeds 1, so Cauchy-Schwarz fails and the quantity
-#: is not a similarity at all. That is a failure of admissibility rather
+#: The wrapped-difference kernel is not positive-definite at any
+#: sigma/P > 0; beyond this ceiling the failure becomes visible, its
+#: induced cosine similarity exceeding 1, so Cauchy-Schwarz fails and
+#: the quantity is not a similarity at all. That is a failure of admissibility rather
 #: than of accuracy, and no ``truncation_sigmas`` setting has authority
 #: to loosen it. Three searches over the same grid have first reached a
 #: violation at σ/P = 0.06, 0.07 and 0.08 respectively. A search only
@@ -1002,7 +1003,7 @@ def _orbit_sigma_over_p_threshold(truncation_sigmas=None,
 #: measure departs materially from the full-image measure --- the sum of
 #: the Gaussian kernel over every periodic image of the difference.
 #:
-#: Set at 0.05 on two independent grounds, whichever binds first:
+#: Set at 0.04 on two independent grounds, whichever binds first:
 #:
 #: - Accuracy. Below it the two measures agree to within the toolbox's
 #:   own floor: the cosine differs by 0.0 up to σ/P = 0.03 and by 2.5e-13
@@ -1010,12 +1011,20 @@ def _orbit_sigma_over_p_threshold(truncation_sigmas=None,
 #:   ``truncation_sigmas=inf`` and ~1.5e-8 at the default of 6. It rises
 #:   to 2.6e-6 at σ/P = 0.08 and 8.5e-5 at 0.10.
 #: - Positive definiteness. The single-image kernel's Fourier
-#:   coefficients on the circle are non-negative only up to about this
-#:   point; above it they go negative (-4.9e-5 at σ/P = 0.10, -1.4e-2 at
-#:   0.20), so by Bochner's theorem the kernel is not the autocorrelation
-#:   of any density and the form it induces is not an inner product.
-#:   Cauchy-Schwarz then fails: cosines of 1.07 at σ/P = 0.20 and 1.12 at
-#:   0.30 are reachable with ordinary non-negative weights.
+#:   coefficients on the circle are negative at high harmonics for every
+#:   sigma/P, not only above some onset: computed at 60 digits the most
+#:   negative stands at ~1e-68 of the leading coefficient at sigma/P =
+#:   0.02 and ~1e-29 at 0.045, far below anything double precision can
+#:   represent. By Bochner's theorem the kernel is therefore never the
+#:   autocorrelation of any density and the form it induces is never an
+#:   inner product; what changes with sigma/P is only whether the failure
+#:   is representable. Taking the inner-product kernel (width sqrt(2)
+#:   sigma), the worst case over equally spaced densities crosses machine
+#:   epsilon at sigma/P ~ 0.043, and the coefficients grow to -4.9e-5 at
+#:   0.10 and -1.4e-2 at 0.20, where Cauchy-Schwarz fails visibly:
+#:   cosines of 1.07 at sigma/P = 0.20 and 1.12 at 0.30 are reachable
+#:   with ordinary non-negative weights. So this threshold is where the
+#:   failure becomes measurable, not where it begins.
 _ABS_PER_SIGMA_OVER_P_THRESHOLD = 0.04
 
 

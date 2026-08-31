@@ -1003,6 +1003,15 @@ def _orbit_sigma_over_p_threshold(truncation_sigmas=None,
 #: measure departs materially from the full-image measure --- the sum of
 #: the Gaussian kernel over every periodic image of the difference.
 #:
+#: This constant gates a diagnostic, not a computation. Nothing routes on
+#: it: the absolute-periodic image count is derived from the caller's
+#: ``truncation_sigmas`` by ``_image_count_L``, so the full-image kernel
+#: needs no threshold in sigma/P and keeping the nearest image alone is
+#: simply the case where one term already meets the floor (true up to
+#: sigma/P ~ 0.06 at the default). This value decides only when a user who
+#: has *forced* ``wrap='single-image'`` is told that the choice has begun
+#: to depart from the default measure.
+#:
 #: Set at 0.04 on two independent grounds, whichever binds first:
 #:
 #: - Accuracy. Below it the two measures agree to within the toolbox's

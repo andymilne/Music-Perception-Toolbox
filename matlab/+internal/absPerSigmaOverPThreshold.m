@@ -7,6 +7,14 @@ function sop = absPerSigmaOverPThreshold()
 %   (nearest-image) kernel that ``wrap = 'single-image'`` opts into
 %   approximates it, and the two agree only while sigma/P is small.
 %
+%   This constant gates a diagnostic, not a computation. Nothing routes
+%   on it: the absolute-periodic image count is derived from the
+%   caller's truncationSigmas, so the full-image kernel needs no
+%   threshold in sigma/P and keeping the nearest image alone is simply
+%   the case where one term already meets the floor. This value decides
+%   only when a user who has forced wrap = 'single-image' is told that
+%   the choice has begun to depart from the default measure.
+%
 %   Fixed rather than resolved from truncationSigmas, because what
 %   settles it is positive-definiteness rather than accuracy. The
 %   single-image kernel is a product of one-dimensional nearest-image

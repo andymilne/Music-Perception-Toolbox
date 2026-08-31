@@ -281,6 +281,9 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
         A = len(p)
         r_vec, is_rel_vec, is_sym_vec, nested_list, names = _normalise_specs(
             specs, A)
+        # The specs form takes wrap= exactly as the positional form does;
+        # without this it was accepted, dropped, and never validated.
+        wrap_vec = _normalise_wrap_ma(wrap, A)
         if has_kc:
             p, sigma, cov_list, chol_list = _resolve_aniso_ma(
                 p, sigma, r_vec, is_rel_vec, is_per, is_sym_vec,
@@ -288,14 +291,15 @@ def build_exp_tens(p, w, *args, specs=None, sigma=None, is_per=None,
             )
             dens = _build_exp_tens_ma(
                 p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
-                nested=nested_list, names=names, verbose=verbose,
+                nested=nested_list, names=names, wrap=wrap_vec,
+                verbose=verbose,
             )
             dens.kernel_cov = cov_list
             dens.kernel_chol = chol_list
             return dens
         return _build_exp_tens_ma(
             p, w, sigma, r_vec, is_rel_vec, is_per, period, is_sym_vec,
-            nested=nested_list, names=names, verbose=verbose,
+            nested=nested_list, names=names, wrap=wrap_vec, verbose=verbose,
         )
     if sigma is not None or is_per is not None or period is not None:
         raise ValueError(

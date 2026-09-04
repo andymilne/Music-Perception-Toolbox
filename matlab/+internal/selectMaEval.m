@@ -78,7 +78,20 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     % factor. The asymmetry is deliberate -- Möbius is failure-safe (flat,
     % bounded cost) while centres materialises the joint tuple set and can
     % exhaust memory -- so a near-tie breaks toward Möbius.
+    %
+    % The justification is memory, not time, so the factor applies only
+    % where the risk it insures against exists: when the centres path's
+    % estimated joint working set exceeds CENTRES_WORKING_SET_SOFT_BUDGET.
+    % Below that budget the centres array is a few megabytes and cannot
+    % exhaust anything, so a near-tie is a pure time comparison and the
+    % cheaper estimate wins outright (MA_MOBIUS_SAFETY_SMALL). Applied
+    % unconditionally, the factor flipped small shapes the model had
+    % correctly ranked in centres' favour (Python: r = 2, K = 12,
+    % abs-per, nQ = 24, measured 1.6x for centres). Twin of the Python
+    % _MA_MOBIUS_SAFETY / _MA_MOBIUS_SAFETY_SMALL gate.
     MA_MOBIUS_SAFETY                  = 1.5;
+    MA_MOBIUS_SAFETY_SMALL            = 1.0;
+    CENTRES_WORKING_SET_SOFT_BUDGET   = 256 * 1024^2;   % bytes; Python twin
 
     A       = double(dens.nAttrs);
     rVec    = double(dens.r(:).');
@@ -201,11 +214,28 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     elseif measureForcesMobius
         chosen = 'mobius';
         routingReason = 'rel-per full-image measure';
-    elseif mobiusMs < centresMs * MA_MOBIUS_SAFETY
-        chosen = 'mobius';
-        routingReason = 'cost model (factored Möbius cheaper)';
     else
-        chosen = 'centres';
-        routingReason = 'cost model (joint centres cheaper)';
+        % The near-tie safety factor insures against the centres path's
+        % memory blow-up, so it applies only where that blow-up is
+        % possible: a joint working set above the soft budget.
+        if isfield(dens, 'isSym') && ~isempty(dens.isSym)
+            symArg = logical(dens.isSym(:).');
+        else
+            symArg = [];
+        end
+        jointWsSafety = internal.estimateMaJointWorkingSetBytes( ...
+            rVec, kVec, isRel, symArg);
+        if jointWsSafety > CENTRES_WORKING_SET_SOFT_BUDGET
+            safety = MA_MOBIUS_SAFETY;
+        else
+            safety = MA_MOBIUS_SAFETY_SMALL;
+        end
+        if mobiusMs < centresMs * safety
+            chosen = 'mobius';
+            routingReason = 'cost model (factored Möbius cheaper)';
+        else
+            chosen = 'centres';
+            routingReason = 'cost model (joint centres cheaper)';
+        end
     end
 end

@@ -239,7 +239,15 @@ class MaetDensity:
         # similarity calls against the same density (the broadcast /
         # sweep case) resolve to the *same* pruned object and its
         # self-IP cache persists across the sweep.
+        #
+        # ``_nested_centres_cache`` memoises the per-attribute
+        # materialised tuple-centres rebuild
+        # (``_mobius_inner._closed_form_attr_centres``), keyed by
+        # attribute index. The rebuild is a pure function of this
+        # density's own (immutable) contents, and the nested cosine
+        # asks for it once per inner product in its triple.
         self._self_ip_cache: dict = {}
+        self._nested_centres_cache: dict = {}
         self._pruned_cached = None
 
         # Lazy fields

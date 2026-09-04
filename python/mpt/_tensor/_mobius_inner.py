@@ -749,12 +749,13 @@ _SPECTRAL_IP_ENABLED = True
 #: Bypasses the spectral branch's cost gate (never its memory guard).
 #: The gate declines the branch when gridSize > COST_C * K^2 * nPairs,
 #: which models the translation-grid route as costing K^2 per event
-#: pair -- omitting the node count N_u, which scales with span/sigma.
-#: Where the data span many sigmas the grid route is far dearer than the
-#: gate believes, and the branch is declined where it would have won.
-#: Benchmarking the decomposition rather than the routing pins this, as
-#: it pins the method and the relative-attribute route. Mirror of MATLAB
-#: internal.spectralIpForce.
+#: pair, the node count N_u appearing nowhere in the comparison. Adding
+#: it was measured and does not help -- N_u is nearly a function of
+#: gridSize and r, so it carries no information the comparison lacks;
+#: see the calibration note on ``_SPECTRAL_IP_COST_C``. What the flag is
+#: for is benchmarking the decomposition rather than the routing, as the
+#: method and the relative-attribute route are separately pinnable.
+#: Mirror of MATLAB internal.spectralIpForce.
 _SPECTRAL_IP_FORCE = False
 
 
@@ -815,6 +816,39 @@ _SPECTRAL_IP_MAX_POINTS = 4_000_000
 #: only on the sign near zero. Offset families (a separate constant per
 #: isPer, per r, or per (r, isPer)) all fit the full data better and
 #: generalise worse.
+#:
+#: The form was re-tested outside the fitted range, on the specific
+#: charge that it omits the translation-node count ``N_u`` and so
+#: under-prices the grid route where the data span many sigmas: 145
+#: cells, r = 2..4, K = 6..200, event counts 1..16, both periodic modes,
+#: span/sigma from 4 to 360 (three octaves at sigma = 10). Every subset
+#: of {log gridSize, log K, log nPairs, log N_u, isPer, r} was refitted
+#: and scored by cross-validated routing regret over 40 random halves.
+#: The pinned-exponent form above scored 1.016 of oracle; the best
+#: fitted subset (which does include log N_u) scored 1.041, and the
+#: ``gridSize > C * N_u * K^2 * nPairs`` form the charge proposes scored
+#: 1.044. Its own optimum sits at C = 1189, inside the plateau recorded
+#: above.
+#:
+#: The reason ``N_u`` does not help is that it is not independent
+#: information here. Both quantities are driven by span/sigma: the mode
+#: grid is ``(2M + 1)^(r-1)`` with M proportional to L/sigma, so within
+#: a fixed r, log N_u tracks log gridSize with correlation 0.92 to 0.96
+#: and slope 0.92, 0.49, 0.20 at r = 2, 3, 4 -- the ``1/(r-1)`` the
+#: algebra predicts. Dividing by N_u therefore does not restore a
+#: missing factor; it lowers the exponent on gridSize to
+#: ``1 - 1/(r-1)``, which at r = 2 removes the gridSize dependence
+#: altogether.
+#:
+#: Two cells in that sweep are misrouted by more than 1.5x, and they
+#: point in opposite directions, so no single constant fixes both:
+#: r = 3, K = 40, sigma = 10 over three octaves (grid taken, spectral
+#: 1.53x faster) and r = 4, K = 48, sigma = 20 over 400 cents (spectral
+#: taken, grid 1.68x faster). A separate constant per r closes both
+#: (geometric-mean regret 1.004, worst 1.38, at C = 30 / 1189 / 633),
+#: but that is the offset family the paragraph above records as fitting
+#: better and generalising worse, and the r = 2 and r = 4 evidence here
+#: is 36 and 13 cells. Left as measured. Single machine, 2 cores.
 _SPECTRAL_IP_COST_C = 1100.0
 
 
@@ -925,10 +959,12 @@ def _spectral_rel_inner_matrix(Px, Wx, Py, Wy, sigma, r, is_per, period):
     if grid_size > _SPECTRAL_IP_MAX_POINTS:
         return None
     # Cost gate: the grid path pays K^2 per event pair, the branch pays
-    # the mode grid. Decline where the mode grid is not repaid. The
-    # memory guard above is never bypassed; this comparison is, under
-    # _SPECTRAL_IP_FORCE, because it misroutes outside the shapes it was
-    # calibrated on (see that flag).
+    # the mode grid. Decline where the mode grid is not repaid. The node
+    # count N_u is deliberately absent: it is nearly a function of the
+    # mode-grid size and r, so adding it measures worse rather than
+    # better (see _SPECTRAL_IP_COST_C). The memory guard above is never
+    # bypassed; this comparison is, under _SPECTRAL_IP_FORCE, to
+    # benchmark the decomposition rather than the routing.
     k_slots = float(Px.shape[0])
     n_pairs = float(Px.shape[1]) * float(Py.shape[1])
     if (not _SPECTRAL_IP_FORCE
@@ -1572,6 +1608,64 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
     return c_wall_ns < g_wall_ns
 
 
+def _comb_side_restriction(da, spec, r_a, is_rel):
+    """Bulger's restriction for the X side of the centres sub-route.
+
+    The tuple kernel depends on the two tuples only through the
+    difference ``d_i = x_i - y_i``, and every quadratic form the route
+    evaluates -- ``sum_i d_i^2`` (absolute, and its per-coordinate
+    wrapped-Gaussian product in the periodic case), ``sum_i d_i^2 -
+    (sum_i d_i)^2 / r`` (relative non-periodic) and ``sum_{i<j}
+    wrap(d_i - d_j)^2 / r`` (relative periodic) -- is a symmetric
+    function of ``(d_1, ..., d_r)``. Permuting *both* tuples by the same
+    permutation permutes ``d`` and so leaves the kernel unchanged.
+
+    For a symmetric flat attribute the perm side is the comb side tiled
+    by all ``r_a!`` permutations, and the tuple weights are products
+    over the tuple's atoms, hence constant on each orbit. Fixing an
+    X-side orbit and summing the kernel over the whole Y side therefore
+    gives the same total for every representative of that orbit, so
+
+        sum_{j_x in perm} sum_{j_y in perm} K = r_a! *
+        sum_{k_x in comb} sum_{j_y in perm} K,
+
+    exactly -- not up to a constant. Restricting the X side to
+    combinations and multiplying by ``r_a!`` costs
+    ``C(K, r) * r! C(K, r)`` kernel evaluations in place of
+    ``(r! C(K, r))^2``, a factor ``r_a!``: 2 at r = 2, 24 at r = 4. The
+    result is bit-comparable to the unrestricted sum up to
+    floating-point summation order.
+
+    The restriction is declined -- ``None``, leaving the caller on the
+    unrestricted perm-vs-perm form -- in three cases:
+
+    * ``r_a < 2``: there is no orbit.
+    * an **ordered** attribute (``is_sym = False``): the build sets the
+      perm side equal to the comb side, so there is no orbit to collapse
+      and multiplying by ``r_a!`` would be wrong. Detected structurally,
+      by ``n_j != r_a! * n_k``, which is exactly the condition the
+      identity needs.
+    * a **nested** attribute: its perm side is a product of per-level
+      orbits, not a single ``S_{r_a}`` tiling of the comb side, and the
+      kernel is the block form of :func:`_compute_Q_inner_blocks` rather
+      than the flat quadratic above. The two-line identity does not
+      carry over unexamined, so this path is left alone.
+
+    Returns ``(centres, weights, event_of, mult)`` in the same
+    conventions as the perm-side fields, or ``None``.
+    """
+    import math
+    if spec is not None or int(r_a) < 2:
+        return None
+    mult = math.factorial(int(r_a))
+    if int(da.n_j) != mult * int(da.n_k):
+        return None                      # ordered attribute: perm == comb
+    v = np.asarray(da.v_comb[0], dtype=np.float64)
+    c = (v[1:, :] - v[:1, :]) if is_rel else v
+    return (c, np.asarray(da.wv_comb, dtype=np.float64),
+            np.asarray(da.event_of_k), mult)
+
+
 def _closed_form_attr_centres(dens, a):
     """Materialised tuple-centres and metric parameters for attribute ``a``,
     rebuilt in isolation as a single-multiset density.
@@ -1588,11 +1682,22 @@ def _closed_form_attr_centres(dens, a):
     :func:`_closed_form_attr_matrix_from`).
 
     Returns ``(centres, w_j, event_of_j, inner_block_size, is_per, period,
-    r_a, is_rel, sigma, n_events)``. Variable-K (NaN-padded) values are carried
-    by the rebuild, which drops every tuple touching a padded value to zero
-    weight.
+    r_a, is_rel, sigma, n_events, comb_side)``. Variable-K (NaN-padded) values
+    are carried by the rebuild, which drops every tuple touching a padded value
+    to zero weight. ``comb_side`` is the X-side restriction to combinations
+    described in :func:`_comb_side_restriction`, or ``None`` where the
+    restriction does not apply.
     """
     from .build import build_exp_tens as _bld
+    # The rebuild depends only on this density's own immutable contents,
+    # and the nested cosine asks for it once per inner product in its
+    # (xy, xx, yy) triple -- three times per density per call, plus once
+    # more on every later call against the same density. Memoise it: the
+    # rebuild materialises the attribute's permutation arrays, which at
+    # small r is the dominant cost of the whole nested route.
+    _cache = getattr(dens, "_nested_centres_cache", None)
+    if _cache is not None and a in _cache:
+        return _cache[a]
     nested = getattr(dens, "nested", None)
     spec = nested[a] if nested is not None else None
     sigma = float(dens.sigma[a])
@@ -1609,19 +1714,29 @@ def _closed_form_attr_centres(dens, a):
         da = _bld([dens.p_attr[a]], [dens.w[a]], [sigma], [int(dens.r[a])],
                   [bool(dens.is_rel[a])], [is_per], [period],
                   [bool(is_sym_vec[a])], verbose=False)
-    return (da.centres[0], da.w_j, da.event_of_j, int(_inner_r_vec(da)[0]),
-            is_per, period, int(da.r[0]), bool(da.is_rel[0]), sigma,
-            int(da.n))
+    out = (da.centres[0], da.w_j, da.event_of_j, int(_inner_r_vec(da)[0]),
+           is_per, period, int(da.r[0]), bool(da.is_rel[0]), sigma,
+           int(da.n),
+           _comb_side_restriction(da, spec, int(da.r[0]),
+                                  bool(da.is_rel[0])))
+    if _cache is not None:
+        _cache[a] = out
+    return out
 
 
 def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
                                   wrap_a='full-image'):
     """(N_x, N_y) per-attribute inner matrix from precomputed tuple-centres.
 
-    The full pairwise centre-overlap is formed as one ``(n_jx, n_jy)`` array
+    The pairwise centre-overlap is formed as one ``(n_kx, n_jy)`` array
     and aggregated to events by two incidence matmuls, vectorising the
     event-pair grid that the per-event-pair contraction loops scalar-wise. The
-    constant per-attribute Gaussian prefactor is dropped: it is identical
+    X side is restricted to one representative per permutation orbit and the
+    sum scaled by the orbit size ``r_a!`` -- Bulger's restriction, exact per
+    event pair; see :func:`_comb_side_restriction`, which also lists the cases
+    (ordered, nested, ``r_a < 2``) where the restriction is declined and the
+    array is the unrestricted ``(n_jx, n_jy)`` one. The constant per-attribute
+    Gaussian prefactor is dropped: it is identical
     across this matrix and the self matrices, so it cancels in the cosine and
     one-sided ratios.
 
@@ -1647,10 +1762,22 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     all-image tau-grid contraction instead -- a deliberate measure change,
     documented there.
     """
-    (Cx, Wx, Ex, bs, is_per, period, r_a, is_rel, sigma, Nx) = cx
-    (Cy, Wy, Ey, _bs, _ip, _pe, _ra, _ir, _sg, Ny) = cy
+    (Cx, Wx, Ex, bs, is_per, period, r_a, is_rel, sigma, Nx) = cx[:10]
+    (Cy, Wy, Ey, _bs, _ip, _pe, _ra, _ir, _sg, Ny) = cy[:10]
+    # Bulger's restriction on the X side: one representative per S_r
+    # orbit, the sum scaled by the orbit size. Exact, and it removes a
+    # factor r_a! of kernel evaluations. The Y side stays unrestricted;
+    # see :func:`_comb_side_restriction` for the identity and for the
+    # three cases where it is declined (there ``comb`` is None and this
+    # is the unrestricted perm-vs-perm form as before).
+    comb = cx[10] if len(cx) > 10 else None
+    mult = 1.0
+    if comb is not None:
+        Cx, Wx, Ex, mult = comb[0], comb[1], comb[2], float(comb[3])
     Wx = np.ones(Cx.shape[1]) if Wx is None else np.asarray(Wx, float).ravel()
     Wy = np.ones(Cy.shape[1]) if Wy is None else np.asarray(Wy, float).ravel()
+    if mult != 1.0:
+        Wx = Wx * mult
     d = Cx.shape[0]
     njx, njy = Cx.shape[1], Cy.shape[1]
     Ex = np.asarray(Ex)

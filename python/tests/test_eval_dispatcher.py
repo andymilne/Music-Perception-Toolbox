@@ -124,3 +124,72 @@ def test_eval_orbit_memory_efficient_at_high_r():
     v_orbit = eval_exp_tens(T, x, method='mobius', verbose=False)
     # At low cancellation, orbit should match centres at FP.
     assert np.allclose(v_centres, v_orbit, atol=ATOL, rtol=1e-9)
+
+
+# -------------------------------------------------------------------
+#  Near-tie safety factor is gated on the centres memory risk
+# -------------------------------------------------------------------
+
+
+def _small_dens(r, K, is_rel, is_per, sigma_over_P=0.0083):
+    rng = np.random.default_rng(0)
+    p = np.sort(rng.uniform(0.0, P, K))
+    w = 0.2 + 0.8 * rng.random(K)
+    return build_exp_tens(p, w, sigma_over_P * P, r, is_rel, is_per,
+                          P if is_per else 0.0, verbose=False)
+
+
+@pytest.mark.parametrize("r,K,is_rel,is_per", [
+    (2, 12, False, True),    # abs-periodic: measured 1.6x in centres' favour
+    (3, 12, False, False),   # abs-non-periodic: measured 1.4x
+])
+def test_small_shape_near_tie_follows_the_cheaper_estimate(
+        r, K, is_rel, is_per):
+    """Below the centres working-set soft budget the near-tie safety
+    factor does not apply, so 'auto' follows the cost model's own
+    ranking rather than being pushed to Möbius by the multiplier.
+
+    Both cells sit inside the multiplier's old reach: the model ranks
+    centres cheaper, and ``_MA_MOBIUS_SAFETY`` used to flip them.
+    """
+    from mpt._tensor.dispatch import (
+        _ma_eval_costs_ms, _select_ma_eval,
+        _estimate_ma_joint_working_set_bytes,
+        _CENTRES_WORKING_SET_SOFT_BUDGET, _MA_MOBIUS_SAFETY,
+    )
+    dens = _small_dens(r, K, is_rel, is_per)
+    n_q = 24
+    ws = _estimate_ma_joint_working_set_bytes([r], [K], [is_rel])
+    assert ws <= _CENTRES_WORKING_SET_SOFT_BUDGET
+    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
+    # The cell is a near tie the old unconditional factor would flip.
+    assert centres_ms < mobius_ms < centres_ms * _MA_MOBIUS_SAFETY
+    chosen, _ = _select_ma_eval(dens, n_q, method="auto")
+    assert chosen == "centres"
+
+
+def test_large_working_set_keeps_the_mobius_safety_margin():
+    """Above the soft budget the safety factor still applies: the
+    centres path can exhaust memory there, so a near tie must break
+    toward the bounded-cost Möbius route."""
+    from mpt._tensor.dispatch import (
+        _select_ma_eval, _estimate_ma_joint_working_set_bytes,
+        _CENTRES_WORKING_SET_SOFT_BUDGET, _MA_MOBIUS_SAFETY_SMALL,
+        _MA_MOBIUS_SAFETY,
+    )
+    assert _MA_MOBIUS_SAFETY_SMALL < _MA_MOBIUS_SAFETY
+    # r = 4, K = 200: 24 * C(200, 4) tuples, working set ~2.5 GB, far
+    # above the soft budget; Möbius must be selected.
+    ws = _estimate_ma_joint_working_set_bytes([4], [200], [False])
+    assert ws > _CENTRES_WORKING_SET_SOFT_BUDGET
+    dens = _small_dens(4, 200, False, True)
+    chosen, _ = _select_ma_eval(dens, 24, method="auto")
+    assert chosen == "mobius"
+
+
+def test_forced_methods_still_override_the_cost_model():
+    """The gate changes only the 'auto' comparison."""
+    from mpt._tensor.dispatch import _select_ma_eval
+    dens = _small_dens(2, 12, False, True)
+    assert _select_ma_eval(dens, 24, method="centres")[0] == "centres"
+    assert _select_ma_eval(dens, 24, method="mobius")[0] == "mobius"

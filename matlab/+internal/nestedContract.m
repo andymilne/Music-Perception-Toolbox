@@ -150,29 +150,18 @@ function triple = nestedContract(densX, densY, normalize, truncationSigmas, forc
         return;   % enumeration is the faster route (auto only)
     end
 
-    if isRel && isPer
-        if isfinite(ts)
-            tol = max(exp(-0.5 * ts^2), 1e-12);
-        else
-            tol = 1e-12;
-        end
-        if tol < 1
-            sopMax = 0.85 / (4 * sqrt(log(1 / tol)));
-        else
-            sopMax = Inf;
-        end
-        if sigma / period > sopMax
-            warning('mpt:nestedSurrogateResolution', ...
-                ['Nested relative-periodic similarity at sigma/period = ' ...
-                 '%.3f exceeds the surrogate accuracy threshold %.3f ' ...
-                 'implied by truncationSigmas (tolerance %.1e); the ' ...
-                 'transposition-average value may depart from the exact ' ...
-                 'inner product. Pass method=''bulger'' for the exact ' ...
-                 'enumeration.'], sigma / period, sopMax, tol);
-        end
-    end
+    % No sigma/period warning here any more. The mpt:nestedSurrogateResolution
+    % warning fired above 0.85 of the sigma/P at which the accuracy floor
+    % first asks for a second periodic image -- exactly where the
+    % nearest-image kernel this branch used to average over tau stopped
+    % being the wrapped Gaussian. relPerKernel now averages the wrapped
+    % Gaussian itself, so the transposition average is the all-image
+    % measure at every sigma/P, to spectral quadrature accuracy; the
+    % surrogate the warning described no longer exists. Python has no such
+    % warning.
 
-    quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts);
+    quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts, ...
+                          wrapOf(densX, 1));
 
     ipxy = tripSum(recipeX, recipeY, PX, WX, PY, WY, sigma, period, ts, quad, false);
     ipxx = tripSum(recipeX, recipeX, PX, WX, PX, WX, sigma, period, ts, quad, true);
@@ -323,8 +312,7 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
         elseif isRelPer
             d = reshape(vx, [nb, nX, 1, 1]) ...
                 - (reshape(vy, [nb, 1, nY, 1]) + reshape(taus, [1, 1, 1, T]));
-            d = d - period * round(d / period);
-            K = exp(-d.^2 / (4 * sigma^2));
+            K = relPerKernel(d, sigma, period, ts, quad);
             K = K .* (reshape(wx, [nb, nX, 1, 1]) .* reshape(wy, [nb, 1, nY, 1]));
             % (nb, nX, nY, T) -> (nb, T, nX, nY) -> (nb*T, nX, nY). The
             % merge is column-major, so the pair index runs fastest; the
@@ -336,10 +324,7 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
             vc = sum(reshape(vc, [nb, T]), 2);   % common dtau cancels
         else
             d = reshape(vx, [nb, nX, 1]) - reshape(vy, [nb, 1, nY]);
-            if quad.isPer
-                d = d - period * round(d / period);
-            end
-            K = exp(-d.^2 / (4 * sigma^2));
+            K = absKernel(d, sigma, period, ts, quad);
             K = K .* (reshape(wx, [nb, nX, 1]) .* reshape(wy, [nb, 1, nY]));
             K = truncK(K, ts);
             vc = contractNode(recipeA, recipeB, K);
@@ -565,20 +550,10 @@ function triple = nestedContractMA(densX, densY, normalize, truncationSigmas, fo
         end
         vmin = min(min(PXa(:)), min(PYa(:)));
         vmax = max(max(PXa(:)), max(PYa(:)));
-        if isRel && isPer
-            if isfinite(ts); tol = max(exp(-0.5 * ts^2), 1e-12); else; tol = 1e-12; end
-            if tol < 1; sopMax = 0.85 / (4 * sqrt(log(1 / tol))); else; sopMax = Inf; end
-            if sigma / period > sopMax
-                warning('mpt:nestedSurrogateResolution', ...
-                    ['Nested relative-periodic similarity at sigma/period = ' ...
-                     '%.3f exceeds the surrogate accuracy threshold %.3f ' ...
-                     'implied by truncationSigmas (tolerance %.1e); the ' ...
-                     'transposition-average value may depart from the exact ' ...
-                     'inner product. Pass method=''bulger'' for the exact ' ...
-                     'enumeration.'], sigma / period, sopMax, tol);
-            end
-        end
-        quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts);
+        % (The former mpt:nestedSurrogateResolution warning is gone: see the
+        % note at the single-attribute site above.)
+        quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts, ...
+                              wrapOf(densX, a));
         P_xy = P_xy .* nestedAttrInnerMatrix(recipeX, recipeY, ...
             PXa, PYa, WXa, WYa, sigma, period, ts, quad, false);
         P_xx = P_xx .* nestedAttrInnerMatrix(recipeX, recipeX, ...
@@ -1177,10 +1152,7 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
             % finite: an absolute non-periodic attribute may carry a finite
             % period.
             d = reshape(vX, [1, nX, 1]) - reshape(vY, [1, 1, nY]);   % 1 x nX x nY
-            if quad.isPer
-                d = d - period * round(d / period);
-            end
-            K = exp(-d.^2 / (4 * sigma^2));
+            K = absKernel(d, sigma, period, ts, quad);
             K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
             v = contractNode(recipeX, recipeY, K);
@@ -1190,8 +1162,7 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
             T = numel(taus);
             d = reshape(vX, [1, nX, 1]) ...
                 - (reshape(vY, [1, 1, nY]) + reshape(taus, [T, 1, 1]));  % T x nX x nY
-            d = d - period * round(d / period);
-            K = exp(-d.^2 / (4 * sigma^2));
+            K = relPerKernel(d, sigma, period, ts, quad);
             K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
             ipv = sum(contractNode(recipeX, recipeY, K));   % common dtau cancels
@@ -1311,9 +1282,76 @@ end
 % ----------------------------------------------------------------------
 %  Quadrature (shared across event-pairs and the IP triple)
 % ----------------------------------------------------------------------
-function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts)
+function K = absKernel(d, sigma, period, ts, quad)
+    % Per-coordinate absolute kernel on the differences d. Periodicity comes
+    % from the density's [per] flag (carried in the quadrature struct), not
+    % from whether period happens to be finite.
+    %
+    % Absolute-periodic full-image: the per-coordinate 1-D kernel is the
+    % wrapped Gaussian theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2)), the
+    % same object the flat abs-per path and mobius.closedFormAttrMatrixFrom
+    % compute through internal.wrappedGaussian1d. Reducing d to the nearest
+    % image and exponentiating drops every image but the nearest, which is
+    % the 'single-image' measure: it agrees with the full-image kernel only
+    % while the accuracy floor puts the image count at zero (sigma/P below
+    % ~0.05 at the default truncation) and departs above it (5e-5 in the
+    % cosine at sigma/P = 0.1, 4e-2 at 0.2, measured in Python). Going
+    % through the shared helper keeps the image-sum / Fourier choice
+    % identical to the flat path's. Mirror of the Python
+    % _nested_contraction._nested_attr_matrix_impl.
+    if quad.isPer && ~strcmp(quad.wrap, 'single-image')
+        K = internal.wrappedGaussian1d(d, sigma, period, ts, 4);
+        return;
+    end
+    if quad.isPer
+        d = d - period * round(d / period);
+    end
+    K = exp(-d.^2 / (4 * sigma^2));
+end
+
+
+function K = relPerKernel(d, sigma, period, ts, quad)
+    % Per-coordinate kernel under one transposition for the relative-periodic
+    % all-image route. The transposition average of the wrapped Gaussian
+    % theta is the lattice-sum (full-image) measure this route is
+    % documented to compute, and the one the flat Moebius integrator
+    % computes (it sums relPerImageCount images before averaging for the
+    % same reason). Averaging the nearest-image Gaussian instead is a
+    % different measure once the floor asks for one image or more: 1.4e-5
+    % in the cosine at sigma/P = 0.1, 1.8e-3 at 0.2 (measured in Python,
+    % whose branch this mirrors). theta is also smooth in tau, where the
+    % nearest-image kernel has a kink at |d| = P/2 that costs the
+    % trapezoidal rule its spectral convergence (1e-6 at sigma/P = 0.15 on
+    % the auto grid). The 'single-image' opt-in keeps the nearest image.
+    if ~strcmp(quad.wrap, 'single-image')
+        K = internal.wrappedGaussian1d(d, sigma, period, ts, 4);
+        return;
+    end
+    d = d - period * round(d / period);
+    K = exp(-d.^2 / (4 * sigma^2));
+end
+
+
+function w = wrapOf(dens, a)
+    % The attribute's declared wrap, 'full-image' where the density carries
+    % none (legacy structs).
+    w = 'full-image';
+    if isfield(dens, 'wrap') && iscell(dens.wrap) && numel(dens.wrap) >= a ...
+            && ~isempty(dens.wrap{a})
+        w = char(dens.wrap{a});
+    end
+end
+
+
+function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts, wrapA)
+    % wrapA is the attribute's declared wrap ('full-image' by default, or
+    % 'single-image'); it is read only by the absolute-periodic kernel.
+    if nargin < 8 || isempty(wrapA)
+        wrapA = 'full-image';
+    end
     if ~isRel
-        quad = struct('mode', 'abs', 'isPer', logical(isPer));
+        quad = struct('mode', 'abs', 'isPer', logical(isPer), ...
+                      'wrap', char(wrapA));
         return;
     end
     if isfinite(ts)
@@ -1324,7 +1362,8 @@ function quad = makeQuadrature(isRel, isPer, sigma, period, vmin, vmax, ts)
     if isPer
         ntau = internal.autoNtauDefault(period, sigma);
         t = linspace(0, period, ntau + 1);
-        quad = struct('mode', 'relper', 'taus', t(1:end - 1));  % endpoint=false
+        quad = struct('mode', 'relper', 'taus', t(1:end - 1), ...
+                      'wrap', char(wrapA));                     % endpoint=false
     else
         spread = vmax - vmin;
         pad = (6 + 0.5 * max(0, -log10(max(tol, 1e-16)))) * sigma;

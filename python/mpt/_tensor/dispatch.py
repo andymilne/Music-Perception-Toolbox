@@ -240,6 +240,40 @@ _ORBIT_ABS_PER_ATTR_MS = {
 }
 
 
+#: Setup floor for the Möbius method on one **relative** attribute, in
+#: milliseconds, as ``(fixed, per_matrix)`` by tuple order; the floor for
+#: a call computing ``n_matrices`` of the three inner matrices is
+#: ``fixed + per_matrix * n_matrices``. Orders above 4 reuse the r = 4
+#: row.
+#:
+#: Both laws in ``_REL_COST_LAW`` are multiplicative --- ``exp(a) *
+#: term ** b`` --- so neither carries an additive setup term, and as the
+#: term shrinks both extrapolate below a wall time the route cannot go
+#: under: the orbit-table fetch, the quadrature-node construction and
+#: the per-attribute dispatch are paid whatever the value count is. That
+#: is not a mis-fitted exponent, it is a missing degree of freedom, and
+#: it bites at r = 2, where the term is smallest.
+#:
+#: Measured as the Möbius route's wall time at the smallest feasible K
+#: for each order (A = 1, one event per side, relative-periodic,
+#: sigma/P = 0.025), where it is flat in K: at r = 2, 0.32 ms with both
+#: self inner products memoised (n_matrices = 1, flat over K = 3..24)
+#: and 0.60 ms with neither (n_matrices = 3, flat over K = 4..8); at
+#: r = 3, 0.68 and 1.35 ms; at r = 4, 7.0 and 18.1 ms.
+#: Relative-non-periodic measures the same or higher at r = 2 (0.73 ms
+#: at n_matrices = 3), so the periodic value is the conservative one and
+#: is the one carried here.
+#:
+#: Without it the r = 2 comparison misroutes on a cold pair: at K = 10,
+#: sigma/P = 0.025 the fitted law predicts 0.32 ms for the Möbius side
+#: against 0.44 ms for Bulger's method and picks Möbius, where the
+#: measured times are 0.66 ms and 0.52 ms. The floor is applied with
+#: ``max``, not added, so it changes nothing wherever the fitted law
+#: already predicts above it --- which is everywhere at r >= 3 in the
+#: fitted range.
+_ORBIT_REL_FLOOR_MS = {2: (0.18, 0.14), 3: (0.34, 0.34), 4: (1.45, 5.55)}
+
+
 # Möbius method (relative modes): each relative attribute's
 # (event_X, event_Y) inner matrices are computed by whichever of two
 # routes is cheaper per event pair (see
@@ -402,8 +436,12 @@ def _predict_orbit_cost_ms(
     depend on the value count at all is the subject of the pending
     bench_ip_unit_cost extension.
     """
-    # No flat relative base: each route's law carries its own intercept,
-    # so adding one would double-count the setup it already prices.
+    # No flat relative base is *added*: each route's law carries its own
+    # multiplicative intercept, so adding one would double-count the
+    # setup it already prices. A per-attribute floor is applied instead
+    # (``_ORBIT_REL_FLOOR_MS``), because a multiplicative intercept is
+    # not a fixed cost and the laws extrapolate below the route's
+    # measured per-call minimum once the term is small.
     #
     # ``skip_xx`` / ``skip_yy`` exclude the corresponding self matrix
     # from the pricing (memoised on the density, or not consumed by the
@@ -447,6 +485,12 @@ def _predict_orbit_cost_ms(
                     per_pair,
                     _rel_route_cost_ms("centres", r_a, centres_size),
                 )
+            # Setup floor. Both laws are multiplicative in their term, so
+            # neither carries the route's fixed per-attribute setup; as
+            # the term shrinks they extrapolate below a cost the route
+            # cannot go under. See _ORBIT_REL_FLOOR_MS.
+            _f, _pm = _ORBIT_REL_FLOOR_MS[min(max(r_a, 2), 4)]
+            per_pair = max(per_pair, _f + _pm * n_matrices)
             total += per_pair
         elif r_a >= 2:
             total += float(_ORBIT_ABS_PER_ATTR_MS[r_a]) * (n_matrices / 3.0)
@@ -1258,7 +1302,23 @@ _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 6.953e-6
 #: bounded cost) while the centres path materialises the joint tuple
 #: set and can exhaust memory, so a near-tie should break toward
 #: Möbius rather than risk the explosive path.
+#:
+#: The justification is memory, not time, so the factor is applied only
+#: where the risk it insures against exists: when the centres path's
+#: estimated joint working set exceeds
+#: ``_CENTRES_WORKING_SET_SOFT_BUDGET``. Below that budget the centres
+#: array is a few megabytes and cannot exhaust anything, so a near-tie
+#: is a pure time comparison and the cheaper estimate wins outright
+#: (``_MA_MOBIUS_SAFETY_SMALL``). Applying 1.5 unconditionally was
+#: measurably wrong at small shapes: the model ranked centres cheaper
+#: at (r=2, K=12, abs-per, n_q=24) and at (r=3, K=12, abs-non-per) --
+#: correctly, the measured ratios there being 1.6x and 1.4x in centres'
+#: favour -- and the multiplier flipped both to Möbius, one of them by
+#: 0.6 per cent of the estimate. The cost model's *ratio* is accurate on
+#: those cells (predicted 1.49 and 1.39 against measured 1.61 and 1.42);
+#: it was the unconditional multiplier that misrouted them.
 _MA_MOBIUS_SAFETY = 1.5
+_MA_MOBIUS_SAFETY_SMALL = 1.0
 
 
 
@@ -1658,6 +1718,10 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     ``(2^{r_a} - 1) · r_a · K_a``, with relative attributes further
     multiplied by a u-grid node count estimated from the geometry. The
     constant factors are the module-level ``_MA_COST_*`` calibration.
+    A near-tie breaks toward Möbius only where the centres path's joint
+    working set exceeds ``_CENTRES_WORKING_SET_SOFT_BUDGET``; below that
+    the memory risk the safety factor insures against does not exist and
+    the cheaper estimate wins outright (see ``_MA_MOBIUS_SAFETY``).
     The product-vs-sum contrast means the factored path wins decisively
     as soon as more than one attribute has a non-trivial tuple set,
     while single-attribute relative shapes favour the centres path far
@@ -1797,7 +1861,17 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # u-grid node count from the geometry. ----
     centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
 
-    if mobius_ms < centres_ms * _MA_MOBIUS_SAFETY:
+    # The near-tie safety factor insures against the centres path's
+    # memory blow-up, so it applies only where that blow-up is possible:
+    # a joint working set above the soft budget. Below it the comparison
+    # is a pure time comparison and the cheaper estimate wins.
+    joint_ws = _estimate_ma_joint_working_set_bytes(
+        r_vec, k_vec, is_rel, sym_vec=getattr(dens, "is_sym", None))
+    safety = (_MA_MOBIUS_SAFETY
+              if joint_ws > _CENTRES_WORKING_SET_SOFT_BUDGET
+              else _MA_MOBIUS_SAFETY_SMALL)
+
+    if mobius_ms < centres_ms * safety:
         return "mobius", "cost model (factored Möbius cheaper)"
     return "centres", "cost model (joint centres cheaper)"
 

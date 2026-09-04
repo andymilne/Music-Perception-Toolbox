@@ -244,7 +244,18 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
     # each get a smaller array with better cache behaviour. Output
     # bit-identical to the joint form. ~25% faster at K=50, more at
     # larger K where the 3-D tensor no longer fits in cache.
-    if is_per and not is_rel and wrap != 'single-image':
+    #
+    # Under truncation the image budget can admit no image beyond the
+    # nearest one (L = 0). theta(d) is then exactly the nearest-image
+    # Gaussian, so the per-coordinate product below computes the same
+    # number as the joint Q-form path -- but pays one exp per coordinate
+    # instead of one on the summed form. Measured 1.3-1.7x dearer at
+    # sigma/P <= 0.01 (r = 2, 3, nJ = 1500-2000, nQ = 200), so take the
+    # joint path there; the two agree to ~3e-16.
+    from ._wrapped_kernel import _image_count_L
+    if (is_per and not is_rel and wrap != 'single-image'
+            and _image_count_L(float(sigma), float(period),
+                               truncation_sigmas, 2) > 0):
         from ._wrapped_kernel import wrapped_gaussian_1d
         d_k = C[0, :, None] - Xq[0, None, :]
         E = wrapped_gaussian_1d(

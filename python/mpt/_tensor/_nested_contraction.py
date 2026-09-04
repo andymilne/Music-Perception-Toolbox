@@ -930,6 +930,7 @@ def _tau_window(vx, vy, taus, sigma, truncation_sigmas):
 def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                        is_per, period, truncation_sigmas, *, taus=None,
                        periodic_taus=True, taus_reduce="mean",
+                       wrap_a='full-image',
                        mem_budget=16_000_000):
     """(N_x, N_y) per-attribute inner matrix via the per-level contraction,
     vectorised over the whole event-pair grid.
@@ -948,7 +949,12 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     zero-weight. The mode is set by ``taus``:
 
     - ``taus=None`` -- the absolute (``is_per=False``) or absolute-periodic
-      (``is_per=True``) inner product, a one-body product per coordinate.
+      (``is_per=True``) inner product, a one-body product per coordinate. The
+      absolute-periodic per-coordinate kernel is the wrapped Gaussian
+      ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``, the same
+      full-image object the reference :func:`_ip_absolute` and the
+      materialised-centres path compute, unless ``wrap_a='single-image'``
+      opts this attribute into the nearest-image kernel.
     - ``taus`` given with ``periodic_taus=True``, ``taus_reduce='mean'`` -- the
       relative-periodic transposition average over the period (the all-image
       torus measure, which is what makes the per-level orbit reduction
@@ -969,13 +975,14 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
             recipe_x, recipe_y, PX, PY, WX, WY, sigma,
             is_per, period, truncation_sigmas, taus=taus,
             periodic_taus=periodic_taus,
-            taus_reduce=taus_reduce, mem_budget=mem_budget)
+            taus_reduce=taus_reduce, wrap_a=wrap_a, mem_budget=mem_budget)
 
 
 def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                              is_per, period, truncation_sigmas, *,
                              taus=None, periodic_taus=True,
                              taus_reduce="mean",
+                             wrap_a='full-image',
                              mem_budget=16_000_000):
     """Body of nested_attr_matrix, run inside the accuracy scope."""
     PX = np.asarray(PX, dtype=np.float64)
@@ -1015,9 +1022,27 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
         wx, wy = WX[:, mi], WY[:, ni]
         if taus is None:
             d = vx.T[:, :, None] - vy.T[:, None, :]  # (nb, nX, nY)
-            if is_per:
-                d = _wrap(d, period)
-            K = np.exp(-(d ** 2) * inv)
+            if is_per and wrap_a != 'single-image':
+                # Absolute-periodic full-image: the per-coordinate 1D
+                # kernel is the wrapped Gaussian theta, not the
+                # nearest-image Gaussian. Reducing d to [-P/2, P/2) and
+                # exponentiating drops every image but the nearest, which
+                # is a *different measure* -- it agrees with the full-image
+                # kernel only while the accuracy floor puts L at 0
+                # (sigma/P below ~0.05 at the default truncation) and
+                # departs from it above, by 5e-5 in the cosine at
+                # sigma/P = 0.1 and 4e-2 at 0.2. The reference
+                # :func:`_ip_absolute` and the materialised-centres path
+                # both sum the images; this is the same object, via the
+                # shared helper so the image-sum/Fourier choice matches
+                # the flat path's exactly.
+                from .._wrapped_kernel import wrapped_gaussian_1d
+                K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
+                                        exponent_denominator=4)
+            else:
+                if is_per:
+                    d = _wrap(d, period)
+                K = np.exp(-(d ** 2) * inv)
             K = K * (wx.T[:, :, None] * wy.T[:, None, :])
             _trunc(K, sigma, truncation_sigmas)
             out[s:e] = _contract(recipe_x, recipe_y, K)
@@ -1029,14 +1054,32 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
             if tw is None:
                 d = (vx.T[:, :, None, None]
                      - (vy.T[:, None, :, None] + taus[None, None, None, :]))
-                if periodic_taus:
-                    d = _wrap(d, period)
                 W = T
             else:
                 d = (vx.T[:, :, None, None]
                      - (vy.T[:, None, :, None] + tw[:, None, None, :]))
                 W = tw.shape[1]
-            K = np.exp(-(d ** 2) * inv)
+            if periodic_taus and wrap_a != 'single-image':
+                # Relative-periodic all-image: the per-coordinate kernel
+                # under each transposition is the wrapped Gaussian theta,
+                # and averaging theta over tau is what makes this the
+                # lattice-sum (full-image) measure the module docstring
+                # declares and the flat Möbius integrator computes (it sums
+                # _rel_per_image_count images before averaging for the same
+                # reason). Averaging the nearest-image Gaussian instead is a
+                # different measure once the floor asks for L >= 1: 1.4e-5
+                # in the cosine at sigma/P = 0.1, 1.8e-3 at 0.2. theta is
+                # also smooth in tau, where the nearest-image kernel has a
+                # kink at |d| = P/2 that costs the trapezoidal rule its
+                # spectral convergence (1e-6 at sigma/P = 0.15 on the auto
+                # grid).
+                from .._wrapped_kernel import wrapped_gaussian_1d
+                K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
+                                        exponent_denominator=4)
+            else:
+                if periodic_taus:
+                    d = _wrap(d, period)
+                K = np.exp(-(d ** 2) * inv)
             K = K * (wx.T[:, :, None, None] * wy.T[:, None, :, None])
             nb = e - s
             K = K.transpose(0, 3, 1, 2).reshape(nb * W, nX, nY)
@@ -1200,8 +1243,16 @@ def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
     if mode == "relper":
         taus = quad["taus"]
         d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
-        d = _wrap(d, period)
-        K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)
+        if wrap_a == 'single-image':
+            d = _wrap(d, period)
+            K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
+        else:
+            # All-image per-coordinate kernel; see the taugrid branch of
+            # _nested_attr_matrix_impl.
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
+                                    exponent_denominator=4)
+        K = K.transpose(2, 0, 1)
         K = K * (wX[None, :, None] * wY[None, None, :])
         _trunc(K, sigma, truncation_sigmas)
         return float(_contract(recipe_x, recipe_y, K).sum())

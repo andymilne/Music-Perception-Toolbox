@@ -1,6 +1,6 @@
 %% bench_spectral_ip_gate.m
 %  Timing-grid harness for the spectral IP gate constant
-%  (COST_C in mobius.spectralRelInnerMatrix, currently 1000).
+%  (COST_C in mobius.spectralRelInnerMatrix).
 %
 %  WHY THIS EXISTS
 %  ---------------
@@ -12,9 +12,8 @@
 %
 %  COST_C absorbs the per-op cost ratio between the two paths, which is
 %  a per-language, per-machine quantity: BLAS, JIT, column-major layout
-%  and copy-on-write all differ from NumPy. The shipped value is
-%  transcribed from Python and is therefore a starting point, not a
-%  measurement on this machine.
+%  and copy-on-write all differ from NumPy, so the constant is fitted on
+%  MATLAB timings rather than transcribed from Python.
 %
 %  This is now purely a SPEED question. Before the full-image work the
 %  two routes computed different measures, so a gate that fired on
@@ -44,11 +43,14 @@
 %      r, K, N, sigmaOverP, isPer, gridSize, msSpectral, msGrid, ratio
 %
 %  ratio = msGrid / msSpectral. The branch is worth taking where
-%  ratio > 1. With the cost gate removed the branch now runs wherever
-%  the mode grid fits in MAXPOINTS, so this sweep is a CHECK rather than
-%  a fit: on the Python data only 6 cells of 320 ran the branch and
-%  lost, the worst by 1.09x. Cells with ratio well below 1 would mean
-%  that conclusion does not carry to MATLAB.
+%  ratio > 1. The spectral arm is timed with the cost gate bypassed
+%  (internal.spectralIpForce), so every cell measures the branch itself
+%  against the grid; the constant is then fitted by routing regret over
+%  these timings. A cell whose two arms agree to within noise is one the
+%  gate can route either way at no cost.
+%
+%  This grid stops at K = 30. bench_spectral_ip_gate_ext covers larger K
+%  at the shape where the shipped constant was found to misroute.
 
 fprintf('\n=== bench_spectral_ip_gate ===\n');
 fprintf('Measuring the spectral branch against the translation grid.\n');
@@ -134,7 +136,16 @@ for bsg_isPer = bsg_isPers
                 % median while cells already costing seconds are timed
                 % fewer times (the extended low-sigma/P grid has a few
                 % very heavy ones and their magnitude dwarfs jitter).
+                % The spectral arm must BYPASS the cost gate, not merely
+                % enable the branch: spectralIpEnabled(true) leaves the
+                % gate in force, so on every cell the shipped constant
+                % declines both arms would run the grid and the ratio
+                % would read 1.0 by construction -- which is what an
+                % earlier run of this harness reported on all 80 such
+                % cells. spectralIpForce bypasses the comparison only,
+                % never the MAX_POINTS memory guard.
                 internal.spectralIpEnabled(true);
+                internal.spectralIpForce(true);
                 bsg_t0 = tic; bsg_call(); bsg_first = toc(bsg_t0);
                 if bsg_first > 2.0
                     bsg_nrep = 1;
@@ -151,6 +162,7 @@ for bsg_isPer = bsg_isPers
                 end
 
                 % --- translation grid ---
+                internal.spectralIpForce(false);
                 internal.spectralIpEnabled(false);
                 bsg_call();
                 bsg_tG = zeros(1, bsg_nrep);

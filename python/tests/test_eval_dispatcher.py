@@ -140,32 +140,32 @@ def _small_dens(r, K, is_rel, is_per, sigma_over_P=0.0083):
 
 
 @pytest.mark.parametrize("r,K,is_rel,is_per", [
-    (2, 12, False, True),    # abs-periodic: measured 1.6x in centres' favour
-    (3, 12, False, False),   # abs-non-periodic: measured 1.4x
+    (2, 12, False, True),
+    (3, 12, False, False),
 ])
 def test_small_shape_near_tie_follows_the_cheaper_estimate(
-        r, K, is_rel, is_per):
+        r, K, is_rel, is_per, monkeypatch):
     """Below the centres working-set soft budget the near-tie safety
     factor does not apply, so 'auto' follows the cost model's own
     ranking rather than being pushed to Möbius by the multiplier.
 
-    Both cells sit inside the multiplier's old reach: the model ranks
-    centres cheaper, and ``_MA_MOBIUS_SAFETY`` used to flip them.
+    The cost estimates are stubbed to a near tie inside the multiplier's
+    reach (centres 1.0, Möbius 1.2 at a factor of 1.5), so the test pins
+    the gate and not the calibration: the calibrated constants move on
+    every refit, and whether a given shape happens to sit near a tie is
+    a property of the machine they were fitted on.
     """
-    from mpt._tensor.dispatch import (
-        _ma_eval_costs_ms, _select_ma_eval,
-        _estimate_ma_joint_working_set_bytes,
-        _CENTRES_WORKING_SET_SOFT_BUDGET, _MA_MOBIUS_SAFETY,
-    )
+    import mpt._tensor.dispatch as D
     dens = _small_dens(r, K, is_rel, is_per)
     n_q = 24
-    ws = _estimate_ma_joint_working_set_bytes([r], [K], [is_rel])
-    assert ws <= _CENTRES_WORKING_SET_SOFT_BUDGET
-    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
-    # The cell is a near tie the old unconditional factor would flip.
-    assert centres_ms < mobius_ms < centres_ms * _MA_MOBIUS_SAFETY
-    chosen, _ = _select_ma_eval(dens, n_q, method="auto")
+    ws = D._estimate_ma_joint_working_set_bytes([r], [K], [is_rel])
+    assert ws <= D._CENTRES_WORKING_SET_SOFT_BUDGET
+    assert 1.2 < 1.0 * D._MA_MOBIUS_SAFETY
+    monkeypatch.setattr(D, "_ma_eval_costs_ms",
+                        lambda dens, n_q, *a, **k: (1.0, 1.2))
+    chosen, reason = D._select_ma_eval(dens, n_q, method="auto")
     assert chosen == "centres"
+    assert "cost model" in reason
 
 
 def test_large_working_set_keeps_the_mobius_safety_margin():

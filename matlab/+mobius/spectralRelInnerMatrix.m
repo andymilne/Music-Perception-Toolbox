@@ -54,35 +54,43 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period, for
 %   guard), or when the cost gate judges the mode grid unrepaid against
 %   the grid route's K^2 per event pair.
 %
-%   COST_C is PER-LANGUAGE, and the MATLAB value (282) differs from the
-%   Python value (3160). Both routes compute the same full-image measure,
-%   so which one runs affects only time, not the answer -- the constant
-%   is therefore recalibrated per language rather than matched. The
-%   form is shared: the same K^2 * N_x * N_y product and the same
-%   exponents (1, -2, -2), pinned by the cost algebra, selected on the
-%   Python data against every subset of {log gridSize, log K, log N,
-%   log N_u, log P(r), log B(r), isPer} by BIC and by cross-validated
-%   regret. Only the multiplier is machine- and language-dependent, the
-%   MATLAB branch being relatively dearer against its own grid than the
-%   NumPy branch is against a BLAS-backed grid.
+%   COST_C is PER-LANGUAGE in principle -- both routes compute the same
+%   full-image measure, so which one runs affects only time, and the
+%   multiplier absorbs BLAS, JIT and layout differences -- but the
+%   September 2026 refit landed on the Python value. The form is shared:
+%   the same K^2 * N_x * N_y product and the same exponents (1, -2, -2),
+%   pinned by the cost algebra and selected on the Python data against
+%   every subset of {log gridSize, log K, log N, log N_u, log P(r),
+%   log B(r), isPer} by BIC and by cross-validated regret.
 %
-%   282 is fitted on measured MATLAB wall times spanning both periodic
-%   modes, r = 2..4, K = 4..30 and event counts 1..16. It sits on a flat
-%   plateau (C in 282..447 all give ~1.07x of oracle with a 2.84x worst
-%   case), so the exact value is not delicate. The earlier shared 3160
-%   was far too permissive here: it fired the branch on shapes where the
-%   MATLAB branch loses by up to 8x.
+%   1100 is fitted by routing regret against an oracle on measured MATLAB
+%   wall times: the bench_spectral_ip_gate grid (r = 2..4, K = 4..30,
+%   N = 1..16, both periodic modes, 480 cells) plus bench_spectral_ip_gate_ext
+%   (r = 3, sigma = 10 cents over three octaves, K = 24..140, N = 1..2),
+%   with the gate bypassed on the spectral arm. The optimum is C = 1096
+%   (geometric-mean regret 1.029 of oracle, worst 6.5x); 282, the
+%   previous value, scores 1.048 with a worst case of 6.9x and misroutes
+%   the extension sweep badly (1.75 of oracle there: at K = 80 it runs
+%   the grid at 298 ms where the branch takes 43 ms, and it declines the
+%   branch until K = 86 at that shape). The earlier 282 fit was made on a
+%   harness that enabled the branch without bypassing the gate, so every
+%   cell the gate declined timed the grid twice and read as a tie; that
+%   is why the constant sat at the bottom of an apparent plateau.
 %
-%   Because the constants differ by language, the two decline on
-%   different shapes. That is expected and correct: what must agree
-%   across languages is the VALUE when the branch runs, not which shapes
-%   run it. The parity test checks value agreement only, on cells both
-%   languages fire.
+%   The residual is at r = 4: the branch loses on every r = 4 cell with
+%   K <= 8 and a large mode grid (worst 811 ms against 125 ms at K = 4,
+%   N = 16, sigma/P = 0.05 non-periodic), and the r-wise optima are
+%   ~1600 at r = 3 and ~220 at r = 4 -- the branch's cost grows with r
+%   faster than gridSize alone carries. A per-r constant ({1600, 1600,
+%   250}) scores 1.018 with a worst case of 3.4x and cross-validates
+%   marginally better (1.032 against 1.035 over random halves). It was
+%   not adopted, to keep one form and one constant across the languages;
+%   the r = 4 loss is bounded and confined to tiny K.
 %
-%   Constants match Python cosine._SPECTRAL_IP_* exactly, so both
-%   languages decline on the same shapes: route parity here is a
-%   correctness matter, not merely a performance one, because the two
-%   routes must return the same measure.
+%   MODE_SIGMAS and MAX_POINTS match Python _SPECTRAL_IP_MODE_SIGMAS and
+%   _SPECTRAL_IP_MAX_POINTS exactly (they size the mode grid, which sets
+%   the value's accuracy). The parity test checks value agreement only,
+%   on cells both languages fire.
 %
 %   Mirror of Python cosine._spectral_rel_inner_matrix.
 
@@ -91,7 +99,7 @@ function I = spectralRelInnerMatrix(Px, Wx, Py, Wy, sigma, r, isPer, period, for
     end
     MODE_SIGMAS = 8.6;      % _SPECTRAL_IP_MODE_SIGMAS
     MAX_POINTS  = 4e6;      % _SPECTRAL_IP_MAX_POINTS
-    COST_C      = 282.0;    % per-language; see the note in the header
+    COST_C      = 1100.0;   % refit Sep 2026; see the note in the header
     ENV_FLOOR   = 1e-18;
 
     I = [];

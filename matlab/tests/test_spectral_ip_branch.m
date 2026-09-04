@@ -12,8 +12,9 @@
 %  Two things are checked. First, VALUE parity with Python against
 %  spectral_ip_parity.json: wherever the branch runs, the spectral value
 %  must match the Python reference. Decline parity is deliberately NOT
-%  checked -- the cost gate is per-language (Python 3160, MATLAB 282),
-%  so the two legitimately route different shapes; only the value has to
+%  checked -- the cost gate's constant is fitted per language (both are
+%  1100 since the September 2026 refit, but they need not stay so), so
+%  the two may legitimately route different shapes; only the value has to
 %  agree, and forceBranch is used to compare it on cells the gates split
 %  on. Second, route parity within MATLAB: the branch and the
 %  translation grid must agree, since both compute the full-image
@@ -47,8 +48,8 @@ else
         siGet = @(k) siFix.cases(k);
         siN   = numel(siFix.cases);
     end
-    % Value parity only. The cost gate is per-language (Python 3160,
-    % MATLAB 282), so the two decline on different shapes -- that is
+    % Value parity only. The cost gate's constant is fitted per language
+    % and the two may decline on different shapes -- that is
     % expected and is NOT checked. What must agree is the spectral VALUE
     % wherever the branch runs, so forceBranch skips MATLAB's cost gate
     % and the value is compared against the Python reference on every

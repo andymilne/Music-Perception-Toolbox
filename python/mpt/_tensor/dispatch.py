@@ -1208,24 +1208,58 @@ _BELL_NUMBERS = {
 
 
 #: Calibrated constants for the MA eval cost model, in milliseconds.
-#: Fitted to the selection-quality grid (single-attribute, r = 2..4,
-#: K = 6..48, all four mode combinations, n_q = 1 and 200, sigma = 15
-#: and 100 cents over spans of 1200--3600 cents; July 2026 harness).
+#:
+#: Refit September 2026 by ``tools/fit_ma_eval_cost.py`` on 441 cells
+#: measured in the Cowork Linux VM on the maintainer's Mac (4 cores):
+#: the ``tools/calibrate_ma_eval_cost.py`` grid plus its Section E, the
+#: relative-periodic r = 3 family around the K = 34 miss that prompted
+#: the refit. Fit quality on those cells, predicted over measured:
+#: centres geometric mean 0.92 (spread 1.48, worst 4.7), Möbius 0.92
+#: (spread 1.60, worst 13.5 --- the residual is rel-per r = 4, K >= 24
+#: at high n_q, under-priced 6--13x but routed to Möbius regardless, so
+#: it costs estimate accuracy rather than routing). Routing regret
+#: against the measured oracle, geometric mean over cells with both arms
+#: timed: 1.026 (13 cells beyond 1.3x, worst 3.55x) against 1.053 (22,
+#: worst 4.4x) for the July values. To re-measure and re-fit::
+#:
+#:     PYTHONPATH=. python3 tools/calibrate_ma_eval_cost.py > cal.txt
+#:     PYTHONPATH=. python3 tools/fit_ma_eval_cost.py cal.txt
+#:
+#: What the refit is *not* provisional about is the functional change it
+#: forced (see ``_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER``): the
+#: relative-periodic centres kernel needs its own per-query slope and a
+#: superlinear exponent, and no refit of the previous shared linear term
+#: reaches the measurements. Holding the form fixed and refitting alone
+#: left the routing regret against a measured oracle unchanged at 1.53
+#: with a worst cell 5.4x slower than the oracle's pick; with the split
+#: and the exponent it falls to 1.05, worst cell 3.9x.
+#:
+#: Previous values (July 2026 harness, maintainer's machine), kept so the
+#: refit can be reverted in one edit: CENTRES_SETUP 0.0250,
+#: CALL_PER_JOINT 4.877e-5, QUERY_BASE 1.158e-3, QUERY_PER_JOINT
+#: 9.805e-6, QUERY_BASE_PER 2.854e-4, QUERY_PER_JOINT_PER 8.822e-6,
+#: FACTORED_QUERY_BASE 1.5e-3, CULL_C 26.2, MOBIUS_SETUP 0.0541,
+#: SETUP_PER_BELL 0.0208, QUERY_PER_OP 1.732e-6, REL_NODE_DIRECT_BASE
+#: 2.0e-4, REL_NODE_DIRECT_PER_OP 1.528e-6, REL_NODE_DIRECT_PER_OP_PER
+#: 2.532e-6, REL_NODE_FACTORED_PER_BELL 5.069e-5,
+#: REL_TABULATION_PER_NODE 6.953e-6, SPECTRAL_PER_MODE (r = 2, 3, 4)
+#: 2.613e-5, 4.522e-4, 1.138e-4, SPECTRAL_PERIODIC_K 4.897e-5, 1.501e-4,
+#: 0. The relative-periodic per-query constants are new and have no
+#: previous value.
+#:
 #: Absolute values are machine-specific; selection depends only on
 #: their ratios, which are stable across the grid. MATLAB carries its
-#: own constants in ``internal.selectMaEval`` (same functional form,
+#: own constants in ``internal.maEvalCostsMs`` (same functional form,
 #: per-language calibration): its non-periodic centres kernel culls more
 #: aggressively, so there the joint-count growth surfaces in the per-call
 #: term rather than the per-query one, but the form is identical.
 #:
-#: Centres: a per-call materialisation term and a per-query kernel term,
-#: both linear in the joint tuple count. The non-periodic kernel is
-#: bucket-culled, the periodic kernel dense; at the calibration scales
-#: their per-tuple constants are of the same order, so one pair of
-#: constants serves both (the cull's growing advantage at very large
-#: shapes only strengthens a centres pick already made).
-_MA_COST_CENTRES_SETUP_MS = 0.0250
-_MA_COST_CENTRES_CALL_PER_JOINT_MS = 4.877e-5
+#: Centres: a per-call materialisation term and a per-query kernel term.
+#: The per-call term is linear in the joint tuple count; the per-query
+#: term is split three ways by kernel (see
+#: :func:`_centres_query_slope`).
+_MA_COST_CENTRES_SETUP_MS = 0.03846
+_MA_COST_CENTRES_CALL_PER_JOINT_MS = 2.396e-05
 #: Per-query cost has a floor no culling removes --- the bucket lookup
 #: and gather each query pays --- plus a term linear in the joint tuple
 #: count, and the two kernels carry different constants: the
@@ -1235,15 +1269,41 @@ _MA_COST_CENTRES_CALL_PER_JOINT_MS = 4.877e-5
 #: Fitted on 220 cells of tools/calibrate_ma_eval_cost.py spanning sigma
 #: from 3 to 120 cents over spans of 600 to 9600 cents. MATLAB carries
 #: its own values, fitted the same way on its own measurements.
-_MA_COST_CENTRES_QUERY_BASE_MS = 1.158e-3
-_MA_COST_CENTRES_QUERY_PER_JOINT_MS = 9.805e-6
-_MA_COST_CENTRES_QUERY_BASE_PER_MS = 2.854e-4
-_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 8.822e-6
+_MA_COST_CENTRES_QUERY_BASE_MS = 0.0006694
+_MA_COST_CENTRES_QUERY_PER_JOINT_MS = 1.806e-05
+_MA_COST_CENTRES_QUERY_BASE_PER_MS = 0.0001238
+_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 1.441e-06
+#: The dense *periodic* per-query term is split again, absolute against
+#: relative, and each half carries an exponent on the tuple count.
+#:
+#: The two periodic kernels are not one kernel: the absolute one measures
+#: a wrapped distance per coordinate, the relative one forms wrapped
+#: differences first, and their measured per-tuple costs differ by an
+#: order of magnitude and grow differently. Over the calibration grid
+#: (tuple counts from 30 to 1.0e5) the absolute-periodic per-query cost
+#: is essentially linear in the count --- fitted exponents 0.64, 0.86 and
+#: 1.05 at dimensions 2, 3 and 4 --- while the relative-periodic one is
+#: markedly superlinear: 1.07 at dimension 1 and 1.31, 1.33 at
+#: dimensions 2 and 3. Sharing one linear term between them is what
+#: under-priced large relative-periodic shapes: predicted over actual on
+#: rel-per r = 3 fell from about 0.3 at K = 12 to 0.08 at K = 34, and no
+#: refit of a shared linear constant can remove that, because the two
+#: halves pull the same constant in opposite directions.
+#:
+#: The absolute-periodic exponent is carried for symmetry but is left at
+#: 1.0: profiling it moves the centres log-ratio error by under one per
+#: cent and the routing regret not at all, and the raw per-tuple
+#: regression on that half is if anything sublinear, so the grid does not
+#: support moving it. Set both exponents to 1.0 to recover the earlier
+#: purely linear form.
+_MA_COST_CENTRES_QUERY_JOINT_EXP_PER = 1.05
+_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS = 1.594e-06
+_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER = 1.2
 
 #: Per-attribute per-query overhead of the factored centres route
 #: (bucket lookup and gather in the culled per-attribute kernel),
 #: fitted to measured wall times of that route.
-_MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3
+_MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 0.0015
 # Culling geometry factor for the non-periodic kernels. The truncated
 # kernel visits only the centres inside a ball of radius k*sigma about
 # the query, so the surviving share is a volume ratio in the attribute's
@@ -1251,11 +1311,16 @@ _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3
 # term only --- all joint centres are still materialised, so the setup
 # and call terms are unculled.
 #
-# Fitted independently in each language and agreeing to about 2 per cent
-# (25.6 in MATLAB against 26.2 here), which is what a geometric factor
-# should do: it describes the truncation ball, not the implementation.
-# Held one geometry out at a time it lands between 24.3 and 44.5.
-_MA_COST_CENTRES_CULL_C = 26.2
+# Fitted independently in each language and landing on the same value:
+# 14.32 here (Cowork VM on the maintainer's Mac, September 2026) and
+# 14.32 in MATLAB on the same machine, both profiled over a log-spaced
+# grid from 4 to 120 --- which is what a geometric factor should do: it
+# describes the truncation ball, not the implementation. The July 2026
+# fits agreed with each other in the same way (26.2 here, 25.6 in
+# MATLAB); the change between the two calibrations tracks the rest of
+# the refit (the per-query slopes it multiplies moved with it) rather
+# than the ball, and a two-core sandbox fit in between gave 16.
+_MA_COST_CENTRES_CULL_C = 14.32
 
 #: Möbius: a per-call setup that scales with the partition count B_r,
 #: and per-query work linear in the distinct-block op count
@@ -1264,9 +1329,9 @@ _MA_COST_CENTRES_CULL_C = 26.2
 #: per-query work by the u-grid node count; each node costs the cheaper
 #: of the direct strategy (op-count linear) and, non-periodically, the
 #: factored strategy (K-free after tabulation).
-_MA_COST_MOBIUS_SETUP_MS = 0.0541
-_MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.0208
-_MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.732e-6
+_MA_COST_MOBIUS_SETUP_MS = 0.08384
+_MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.02509
+_MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.269e-06
 #: Relative-mode u-grid node costs, per distinct-block op per query.
 #: Periodic direct nodes cost more per op than non-periodic ones
 #: (per-component wrapping inside the kernel, and no factored
@@ -1277,10 +1342,10 @@ _MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.732e-6
 #: pure per-op form underprices small-r relative attributes, whose node
 #: cost is floor-bound rather than op-bound, so a base term is carried
 #: alongside the per-op slope.
-_MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 2.0e-4
-_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 1.528e-6
-_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 2.532e-6
-_MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.069e-5
+_MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 0
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 3.538e-06
+_MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 2.406e-06
+_MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.52e-05
 
 #: u-grid tabulation setup, paid once per call: building the interpolation
 #: table costs K source evaluations over the N_u grid nodes. In Python the
@@ -1289,7 +1354,20 @@ _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 5.069e-5
 #: this constant is ~0; MATLAB's lean per-query readback leaves the setup
 #: as the dominant Möbius cost at small n_q, so its twin constant is
 #: nonzero. Same term, per-language magnitude.
-_MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 6.953e-6
+_MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 1.296e-06
+
+#: Spectral (Fourier) strategy inside the Möbius relative evaluator,
+#: per tuple order. ``PER_MODE`` is the K-free per-query slope against
+#: the mode count (window/sigma); ``PERIODIC_K`` is the additional
+#: periodic-only slope in K, which the fixed-period window does not
+#: absorb. Previously local literals inside the model; module constants
+#: so the calibration fitter can carry them like the rest.
+_MA_COST_MOBIUS_SPECTRAL_PER_MODE_MS_R2 = 1.801e-05
+_MA_COST_MOBIUS_SPECTRAL_PER_MODE_MS_R3 = 0.0003324
+_MA_COST_MOBIUS_SPECTRAL_PER_MODE_MS_R4 = 0.002476
+_MA_COST_MOBIUS_SPECTRAL_PERIODIC_K_MS_R2 = 4.321e-05
+_MA_COST_MOBIUS_SPECTRAL_PERIODIC_K_MS_R3 = 0.0001388
+_MA_COST_MOBIUS_SPECTRAL_PERIODIC_K_MS_R4 = 0
 
 #: u-grid nodes per sigma for the relative-mode node-count estimate are
 #: derived per attribute via
@@ -1434,7 +1512,155 @@ def _estimate_ma_joint_working_set_bytes(r_vec, k_vec, is_rel,
 
 
 
-def _ma_eval_costs_ms(dens, n_q):
+#: Names of the linear (fittable-by-least-squares) cost constants, in a
+#: fixed order. ``_MA_COST_CENTRES_CULL_C`` is deliberately absent: it
+#: sits inside a power, so the model is *not* linear in it and it is
+#: settled by profiling rather than by the linear solve. The names are
+#: the module constants with the ``_MA_COST_`` prefix stripped, which is
+#: also how ``tools/fit_ma_eval_cost.py`` labels its output.
+_MA_COST_LINEAR_NAMES = (
+    "CENTRES_SETUP_MS",
+    "CENTRES_CALL_PER_JOINT_MS",
+    "CENTRES_QUERY_BASE_MS",
+    "CENTRES_QUERY_PER_JOINT_MS",
+    "CENTRES_QUERY_BASE_PER_MS",
+    "CENTRES_QUERY_PER_JOINT_PER_MS",
+    "CENTRES_QUERY_PER_JOINT_REL_PER_MS",
+    "CENTRES_FACTORED_QUERY_BASE_MS",
+    "MOBIUS_SETUP_MS",
+    "MOBIUS_SETUP_PER_BELL_MS",
+    "MOBIUS_QUERY_PER_OP_MS",
+    "MOBIUS_REL_NODE_DIRECT_BASE_MS",
+    "MOBIUS_REL_NODE_DIRECT_PER_OP_MS",
+    "MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS",
+    "MOBIUS_REL_NODE_FACTORED_PER_BELL_MS",
+    "MOBIUS_REL_TABULATION_PER_NODE_MS",
+    "MOBIUS_SPECTRAL_PER_MODE_MS_R2",
+    "MOBIUS_SPECTRAL_PER_MODE_MS_R3",
+    "MOBIUS_SPECTRAL_PER_MODE_MS_R4",
+    "MOBIUS_SPECTRAL_PERIODIC_K_MS_R2",
+    "MOBIUS_SPECTRAL_PERIODIC_K_MS_R3",
+    "MOBIUS_SPECTRAL_PERIODIC_K_MS_R4",
+)
+
+#: The non-linear cost constants: shape parameters the model is not
+#: linear in, so a least-squares refit has to profile over them.
+_MA_COST_NONLINEAR_NAMES = (
+    "CENTRES_CULL_C",
+    "CENTRES_QUERY_JOINT_EXP_PER",
+    "CENTRES_QUERY_JOINT_EXP_REL_PER",
+)
+
+
+def _ma_cost_constants(overrides=None):
+    """The calibrated cost constants as a plain ``{name: value}`` dict.
+
+    ``name`` is the module constant without its ``_MA_COST_`` prefix.
+    ``overrides`` replaces individual entries, which is how
+    ``tools/fit_ma_eval_cost.py`` prices a candidate constant vector
+    without mutating the module.
+    """
+    g = globals()
+    C = {n: g["_MA_COST_" + n]
+         for n in _MA_COST_LINEAR_NAMES + _MA_COST_NONLINEAR_NAMES}
+    if overrides:
+        C.update(overrides)
+    return C
+
+
+class _Lin:
+    """A float that also carries its decomposition into cost constants.
+
+    ``value`` is computed by exactly the same float operations, in
+    exactly the same order, as the untracked model, so a tracked run is
+    bit-for-bit identical to an untracked one; ``coef`` accumulates the
+    partial derivative with respect to each linear constant. Used only
+    by :func:`_ma_eval_cost_features` --- the shipped code path never
+    constructs one.
+    """
+
+    __slots__ = ("value", "coef")
+
+    def __init__(self, value, coef=None):
+        self.value = value
+        self.coef = {} if coef is None else coef
+
+    @staticmethod
+    def _parts(x):
+        return (x.value, x.coef) if isinstance(x, _Lin) else (x, None)
+
+    def __add__(self, other):
+        ov, oc = _Lin._parts(other)
+        coef = dict(self.coef)
+        if oc:
+            for k, v in oc.items():
+                coef[k] = coef.get(k, 0.0) + v
+        return _Lin(self.value + ov, coef)
+
+    __radd__ = __add__
+
+    def __mul__(self, other):
+        ov, oc = _Lin._parts(other)
+        if oc is not None:
+            raise TypeError("cost model is not linear in the constants")
+        return _Lin(self.value * ov, {k: v * ov for k, v in self.coef.items()})
+
+    def __rmul__(self, other):
+        ov, oc = _Lin._parts(other)
+        if oc is not None:
+            raise TypeError("cost model is not linear in the constants")
+        return _Lin(ov * self.value, {k: ov * v for k, v in self.coef.items()})
+
+    def __lt__(self, other):
+        return self.value < _Lin._parts(other)[0]
+
+    def __gt__(self, other):
+        return self.value > _Lin._parts(other)[0]
+
+    def __bool__(self):
+        return bool(self.value)
+
+
+def _centres_query_slope(C, T, is_per, is_rel):
+    """Per-query centres slope and the tuple count it multiplies.
+
+    Three kernels, three constants. The non-periodic kernel is
+    bucket-culled and linear in the (culled) tuple count. The two
+    periodic kernels run dense and each carries its own slope and its
+    own exponent on the tuple count: the absolute one measures a wrapped
+    distance per coordinate and is close to linear, the relative one
+    forms wrapped differences first and is markedly superlinear (see
+    ``_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER``). Returns
+    ``(slope, T_effective)``; the caller applies the culling factor,
+    which is 1 on either periodic kernel.
+    """
+    if is_per and is_rel:
+        return (C["CENTRES_QUERY_PER_JOINT_REL_PER_MS"],
+                T ** C["CENTRES_QUERY_JOINT_EXP_REL_PER"])
+    if is_per:
+        return (C["CENTRES_QUERY_PER_JOINT_PER_MS"],
+                T ** C["CENTRES_QUERY_JOINT_EXP_PER"])
+    return C["CENTRES_QUERY_PER_JOINT_MS"], T
+
+
+def _ma_eval_cost_features(dens, n_q, consts=None):
+    """Feature decomposition of the two cost estimates.
+
+    Returns ``(centres_ms, centres_feats, mobius_ms, mobius_feats)``
+    where each ``*_feats`` is a ``{constant name: coefficient}`` dict
+    with ``sum(consts[n] * feats[n]) == *_ms``. The branch structure
+    (cull factor, spectral engagement, the ``min()`` over node
+    strategies) is resolved with ``consts`` before the decomposition, so
+    the features are the model's local linearisation at that point ---
+    which is exactly what a linear refit needs. Exposed for
+    ``tools/fit_ma_eval_cost.py`` so the fitter never duplicates the
+    model's feature logic.
+    """
+    cen, mob = _ma_eval_costs_ms(dens, n_q, consts=consts, _track=True)
+    return cen.value, cen.coef, mob.value, mob.coef
+
+
+def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     """Closed-form ``(centres_ms, mobius_ms)`` cost estimates for a flat
     multi-attribute density, in milliseconds on the calibration machine.
 
@@ -1444,7 +1670,17 @@ def _ma_eval_costs_ms(dens, n_q):
     and by the up-front time estimate (which scales the chosen one by a
     per-session machine factor). Keeping one implementation guarantees
     the estimate and the dispatch decision price identical work.
+
+    ``consts`` overrides individual calibration constants (see
+    :func:`_ma_cost_constants`); ``_track`` additionally returns the two
+    estimates as :class:`_Lin` objects carrying their decomposition into
+    those constants. Both are calibration-only hooks: with the defaults
+    the arithmetic, and so the result, is unchanged bit for bit.
     """
+    C = _ma_cost_constants(consts)
+    if _track:
+        C = {k: (_Lin(v, {k: 1.0}) if k in _MA_COST_LINEAR_NAMES else v)
+             for k, v in C.items()}
     A = int(dens.n_attrs)
     r_vec = [int(v) for v in np.atleast_1d(dens.r)]
     k_vec = [int(v) for v in np.atleast_1d(dens.k)]
@@ -1494,7 +1730,7 @@ def _ma_eval_costs_ms(dens, n_q):
         if spread <= 0:
             return 1.0
         dim = max(1, int(r_vec[a]) - (1 if is_rel[a] else 0))
-        return min(1.0, (_MA_COST_CENTRES_CULL_C * sigma[a] / spread) ** dim)
+        return min(1.0, (C["CENTRES_CULL_C"] * sigma[a] / spread) ** dim)
 
     # The factored centres route (all r_a >= 2, scalar sigma) never
     # materialises the joint tuple set: cost is the SUM of per-attribute
@@ -1509,19 +1745,18 @@ def _ma_eval_costs_ms(dens, n_q):
         and getattr(dens, "kernel_cov", None) is None
     )
     if factored_supported:
-        centres_ms = _MA_COST_CENTRES_SETUP_MS
+        centres_ms = C["CENTRES_SETUP_MS"]
         for a in range(A):
             r_a, K_a = r_vec[a], k_vec[a]
             T_a = float(factorial(r_a)) * float(_math_comb(K_a, r_a))
+            q_slope, T_q = _centres_query_slope(C, T_a, is_per[a], is_rel[a])
             centres_ms += (
-                _MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a
+                C["CENTRES_CALL_PER_JOINT_MS"] * T_a
                 + n_q_eff * (
-                    _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS
-                    + (_MA_COST_CENTRES_QUERY_BASE_PER_MS if is_per[a]
-                       else _MA_COST_CENTRES_QUERY_BASE_MS)
-                    + (_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS if is_per[a]
-                       else _MA_COST_CENTRES_QUERY_PER_JOINT_MS)
-                    * T_a * _attr_cull(a)
+                    C["CENTRES_FACTORED_QUERY_BASE_MS"]
+                    + (C["CENTRES_QUERY_BASE_PER_MS"] if is_per[a]
+                       else C["CENTRES_QUERY_BASE_MS"])
+                    + q_slope * T_q * _attr_cull(a)
                 )
             )
     else:
@@ -1532,25 +1767,27 @@ def _ma_eval_costs_ms(dens, n_q):
         for a in range(A):
             cull_joint *= _attr_cull(a)
         any_per = any(bool(is_per[a]) for a in range(A))
-        q_base = (_MA_COST_CENTRES_QUERY_BASE_PER_MS if any_per
-                  else _MA_COST_CENTRES_QUERY_BASE_MS)
-        q_per_joint = (_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS if any_per
-                       else _MA_COST_CENTRES_QUERY_PER_JOINT_MS)
+        any_rel_per = any(bool(is_per[a]) and bool(is_rel[a])
+                          for a in range(A))
+        q_base = (C["CENTRES_QUERY_BASE_PER_MS"] if any_per
+                  else C["CENTRES_QUERY_BASE_MS"])
+        q_per_joint, joint_q = _centres_query_slope(
+            C, joint_tuples, any_per, any_rel_per)
         centres_ms = (
-            _MA_COST_CENTRES_SETUP_MS
-            + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint_tuples
-            + n_q_eff * (q_base + q_per_joint * joint_tuples * cull_joint)
+            C["CENTRES_SETUP_MS"]
+            + C["CENTRES_CALL_PER_JOINT_MS"] * joint_tuples
+            + n_q_eff * (q_base + q_per_joint * joint_q * cull_joint)
         )
 
-    mobius_ms = _MA_COST_MOBIUS_SETUP_MS
+    mobius_ms = C["MOBIUS_SETUP_MS"]
     for a in range(A):
         r_a, K_a = r_vec[a], k_vec[a]
         if r_a < 2:
             continue  # r_a <= 1: a plain kernel sum either way
         B_r = float(_BELL_NUMBERS.get(r_a, float("inf")))
         ops = float(2 ** r_a - 1) * r_a * K_a
-        mobius_ms += _MA_COST_MOBIUS_SETUP_PER_BELL_MS * B_r
-        per_query_ms = _MA_COST_MOBIUS_QUERY_PER_OP_MS * ops
+        mobius_ms += C["MOBIUS_SETUP_PER_BELL_MS"] * B_r
+        per_query_ms = C["MOBIUS_QUERY_PER_OP_MS"] * ops
         if is_rel[a]:
             # The spectral (Fourier) strategy engages inside the mobius
             # relative evaluator for r_a in 2..4 above its query
@@ -1564,7 +1801,11 @@ def _ma_eval_costs_ms(dens, n_q):
             # calibration configs (window/sigma 270 and 131), whose
             # setup shares differ; the crude linear-in-modes model sits
             # within ~2x of both.
-            _four_per_mode = {2: 2.613e-5, 3: 4.522e-4, 4: 1.138e-4}
+            _four_per_mode = {
+                2: C["MOBIUS_SPECTRAL_PER_MODE_MS_R2"],
+                3: C["MOBIUS_SPECTRAL_PER_MODE_MS_R3"],
+                4: C["MOBIUS_SPECTRAL_PER_MODE_MS_R4"],
+            }
             # Periodic-only K term (per r) added to the K-free slope: the
             # per-event spectrum build carries K, which the fixed-period
             # window does not absorb. In periodic mode the spectral branch
@@ -1574,7 +1815,11 @@ def _ma_eval_costs_ms(dens, n_q):
             # bench_ma_eval_calibration: the per-query cost rises linearly
             # in K with slope ~0.28 ms/K at r = 2 and ~0.60 at r = 3 over
             # window/sigma = 80, nQ = 200.
-            _FOUR_PER_PERIODIC_K_MS = {2: 4.897e-5, 3: 1.501e-4, 4: 0.0}
+            _FOUR_PER_PERIODIC_K_MS = {
+                2: C["MOBIUS_SPECTRAL_PERIODIC_K_MS_R2"],
+                3: C["MOBIUS_SPECTRAL_PERIODIC_K_MS_R3"],
+                4: C["MOBIUS_SPECTRAL_PERIODIC_K_MS_R4"],
+            }
             _four_minq = {2: 16, 3: 32, 4: 64}
             spread = 0.0
             p_a = getattr(dens, "p_attr", None)
@@ -1618,14 +1863,14 @@ def _ma_eval_costs_ms(dens, n_q):
                 if is_per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
                     four_ms += (_FOUR_PER_PERIODIC_K_MS[r_a] * k_vec[a]
                                 * (window / max(sigma[a], 1e-12)) * n_q_eff)
-                mobius_ms += _MA_COST_MOBIUS_SETUP_MS + four_ms
+                mobius_ms += C["MOBIUS_SETUP_MS"] + four_ms
                 continue
             from .._defaults import resolve_samples_per_sigma
             sps = float(resolve_samples_per_sigma(None, r_a, None))
             if is_per[a] and period[a] > 0:
                 n_u = max(64.0, np.ceil(sps * period[a] / sigma[a]))
                 node_ms = (
-                    _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS * ops)
+                    C["MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS"] * ops)
             else:
                 spread = 0.0
                 p_a = getattr(dens, "p_attr", None)
@@ -1636,12 +1881,12 @@ def _ma_eval_costs_ms(dens, n_q):
                 window = 2.0 * spread + 16.0 * sigma[a]
                 n_u = max(64.0, np.ceil(sps * window / sigma[a]))
                 node_ms = min(
-                    _MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS
-                    + _MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS * ops,
-                    _MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS * B_r,
+                    C["MOBIUS_REL_NODE_DIRECT_BASE_MS"]
+                    + C["MOBIUS_REL_NODE_DIRECT_PER_OP_MS"] * ops,
+                    C["MOBIUS_REL_NODE_FACTORED_PER_BELL_MS"] * B_r,
                 )
             # Tabulation setup is paid once per call, not per query.
-            mobius_ms += _MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS * K_a * n_u
+            mobius_ms += C["MOBIUS_REL_TABULATION_PER_NODE_MS"] * K_a * n_u
             per_query_ms = n_u * node_ms
         mobius_ms += per_query_ms * n_q_eff
 

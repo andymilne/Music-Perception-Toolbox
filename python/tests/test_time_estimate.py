@@ -26,7 +26,10 @@ from mpt._tensor.dispatch import (
     _MA_COST_CENTRES_QUERY_BASE_MS,
     _MA_COST_CENTRES_QUERY_BASE_PER_MS,
     _MA_COST_CENTRES_QUERY_PER_JOINT_MS,
+    _MA_COST_CENTRES_QUERY_JOINT_EXP_PER,
+    _MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER,
     _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS,
+    _MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS,
     _MA_COST_CENTRES_SETUP_MS,
     _ma_eval_costs_ms,
     _predict_ma_eval_cost_ms,
@@ -130,21 +133,32 @@ class TestCullingCorrection:
         assert _predict_ma_eval_cost_ms(d, 2000, "centres") == centres_ms
         assert _predict_ma_eval_cost_ms(d, 2000, "mobius") == mobius_ms
 
-    def test_periodic_single_multiset_is_unculled(self):
+    @pytest.mark.parametrize("is_rel", [True, False])
+    def test_periodic_single_multiset_is_unculled(self, is_rel):
         # Periodic single-multiset runs dense (the pairwise wrap is not a
         # tail-truncatable ball), so it takes no culling discount: its
-        # centres cost must equal the plain unculled form.
+        # centres cost must equal the plain unculled form. The per-query
+        # slope and the exponent on the tuple count are the periodic
+        # kernel's own, and relative and absolute carry different ones ---
+        # the relative kernel forms wrapped differences first and its
+        # measured cost is superlinear in the tuple count where the
+        # absolute kernel's is not.
         K, nq = 30, 4000
+        r = 2 if is_rel else 1
         p = [np.linspace(0.0, 1150.0, K).reshape(-1, 1)]
         d = mpt.build_exp_tens(
-            p, None, [22.0], [2], [True], [True], [1200.0], verbose=False,
+            p, None, [22.0], [r], [is_rel], [True], [1200.0], verbose=False,
         )
-        joint = 2 * (K * (K - 1) // 2)
+        joint = 2 * (K * (K - 1) // 2) if is_rel else K
+        slope = (_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS if is_rel
+                 else _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS)
+        exp = (_MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER if is_rel
+               else _MA_COST_CENTRES_QUERY_JOINT_EXP_PER)
         expected = (
             _MA_COST_CENTRES_SETUP_MS
             + _MA_COST_CENTRES_CALL_PER_JOINT_MS * joint
             + nq * (_MA_COST_CENTRES_QUERY_BASE_PER_MS
-                    + _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS * joint)
+                    + slope * joint ** exp)
         )
         centres_ms, _ = _ma_eval_costs_ms(d, nq)
         assert centres_ms == pytest.approx(expected, rel=1e-12)

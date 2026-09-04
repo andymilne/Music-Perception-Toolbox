@@ -18,10 +18,19 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
 %   See also INTERNAL.SELECTMAEVAL, MOBIUS.EVALMAORBIT.
 
     % --- Calibrated cost-model constants, in milliseconds ---
-    % Fitted to the selection-quality grid (single-attribute, r = 2..4,
-    % K = 6..48, all four mode combinations, nQ = 1 and 200, sigma = 15
-    % over spans of 1200--3600 cents; July 2026 MATLAB harness
-    % bench_ma_eval_calibration.m). Absolute values are machine-specific;
+    % Refit September 2026 by python/tools/fit_ma_eval_cost.py on the
+    % 442-cell bench_ma_eval_calibration grid (Sections A--E; the July
+    % grid plus the geometry, node-count, spectral and K = 34 sweeps),
+    % second run in one MATLAB session on the maintainer's Mac. Fit
+    % quality, predicted over measured: centres geometric mean 0.94
+    % (spread 1.41, worst 3.0), Moebius 0.90 (spread 1.61, worst 6.3 ---
+    % the residual is rel-per r = 4, K >= 24 at high nQ, under-priced
+    % 5--6x but routed to Moebius regardless). Routing regret against the
+    % measured oracle, geometric mean over the 328 cells with both arms
+    % timed: 1.007 (3 cells beyond 1.3x, worst 1.94x) against 1.018 (9,
+    % worst 3.9x) for the July values. Previous values kept in the
+    % comments beside each constant so the refit reverts in one edit.
+    % Absolute values are machine-specific;
     % selection depends only on their ratios. Python carries its own
     % constants (same functional form, per-language calibration). The two
     % fits distribute the joint-count growth differently: MATLAB's puts it
@@ -35,10 +44,11 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % truncation under the same conditions, so neither language culls
     % where the other does not.
     %
-    % Centres: a per-call materialisation term and a per-query kernel
-    % term, both linear in the joint tuple count.
-    MA_COST_CENTRES_SETUP_MS          = 0.2096;
-    MA_COST_CENTRES_CALL_PER_JOINT_MS = 6.907e-5;
+    % Centres: a per-call materialisation term, linear in the joint tuple
+    % count, and a per-query kernel term split three ways by kernel (see
+    % localCentresQuerySlope below).
+    MA_COST_CENTRES_SETUP_MS = 0.1994;   % was 0.2096
+    MA_COST_CENTRES_CALL_PER_JOINT_MS = 6.925e-05;   % was 6.907e-5
     % Per-query cost has a floor that no culling removes (the bucket
     % lookup and gather each query pays) plus a term linear in the joint
     % tuple count, and the two kernels carry different constants: the
@@ -46,25 +56,54 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % One shared pair cannot express that --- at 255024 joint tuples the
     % measured per-query costs differ by a factor of 300 --- so they are
     % calibrated separately.
-    MA_COST_CENTRES_QUERY_BASE_MS       = 1.220e-3;
-    MA_COST_CENTRES_QUERY_PER_JOINT_MS  = 6.893e-6;
-    MA_COST_CENTRES_QUERY_BASE_PER_MS   = 7.442e-4;
-    MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 3.658e-6;
+    MA_COST_CENTRES_QUERY_BASE_MS = 0.001329;   % was 1.220e-3
+    MA_COST_CENTRES_QUERY_PER_JOINT_MS = 1.699e-05;   % was 6.893e-6
+    MA_COST_CENTRES_QUERY_BASE_PER_MS = 0.0004084;   % was 7.442e-4
+    MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 2.319e-06;   % was 3.658e-6
+    % The dense periodic per-query term is split again, absolute against
+    % relative, and each half carries an exponent on the tuple count.
+    % The two periodic kernels are not one kernel: the absolute one
+    % measures a wrapped distance per coordinate, the relative one forms
+    % wrapped differences first. On the Python side their measured
+    % per-tuple costs differ by an order of magnitude and grow
+    % differently --- absolute essentially linear in the tuple count,
+    % relative going as count^1.3 over counts from 30 to 1e5 --- and
+    % sharing one linear term between them under-priced large
+    % relative-periodic shapes badly enough to misroute them.
+    %
+    % The form is carried here so the twins stay structurally identical;
+    % the values are MATLAB's own. On the MATLAB grid both periodic
+    % exponents fit at 1: the rel-per per-query cost is linear here
+    % (K = 12 -> 28 at nQ = 200 multiplies the tuple count by 15 and the
+    % time by 9.5), the fitter's profile over 1.0..1.2 moves the centres
+    % log-ratio error by under 1 per cent, and 1.0 keeps the K = 40 cell
+    % of Section E on centres, which is the measured winner there (6.5 ms
+    % against 9.5). What distinguishes the rel-per kernel in MATLAB is
+    % its slope, 1.5x the abs-per one, not its exponent. The Section E
+    % family never actually misroutes in MATLAB --- centres wins through
+    % K = 48, where it ties --- so the audit's K = 34 finding was a
+    % Python-only miss.
+    MA_COST_CENTRES_QUERY_JOINT_EXP_PER = 1;
+    MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS = 3.425e-06;   % was 3.658e-6
+    MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER = 1;
     % Culling geometry factor for the non-periodic kernels. The truncated
     % kernel visits only the centres inside a ball of radius k*sigma, so
     % the surviving fraction is a volume ratio in the attribute's own
     % dimension: (c*sigma/spread) raised to r_a - [rel]_a, capped at 1.
-    % Fitted on 124 (shape, geometry) cells of
-    % bench_ma_eval_calibration spanning sigma from 5 to 60 cents over
-    % spans of 1200 to 9600 cents. Leaving the exponent free returns
-    % 2.5 and fits worse than pinning it to the dimension, so the volume
-    % reading is the one the measurements prefer. Held one geometry out
-    % at a time, c lands between 24.9 and 29.5 across all nine folds.
-    MA_COST_CENTRES_CULL_C            = 25.6;
+    % Profiled by the September 2026 refit over a log-spaced grid from
+    % 4 to 120 and landing on 14.32 --- the same value the Python fit
+    % lands on from its own measurements, which is what a geometric
+    % factor should do: it describes the truncation ball, not the
+    % implementation. (The July 2026 fits agreed with each other in the
+    % same way, at 25.6 here and 26.2 in Python; the exponent left free
+    % then returned 2.5 and fitted worse than pinning it to the
+    % dimension, so the volume reading is the one the measurements
+    % prefer.)
+    MA_COST_CENTRES_CULL_C = 14.32;   % was 25.6
     % Per-attribute per-query overhead of the factored centres route
     % (bucket lookup and gather). Seeded from the Python fit; re-derive
     % with bench_ma_eval_calibration on this side if picks look off.
-    MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 1.5e-3;
+    MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 0.0015;   % was 1.5e-3
 
     % Refitted on 150 cells of bench_ma_eval_calibration spanning sigma
     % from 3 to 80 cents over spans of 1200 to 9600 cents, absolute and
@@ -86,9 +125,9 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % u-grid node count; each node costs the cheaper of the direct
     % strategy (a fixed per-node floor plus op-count-linear work) and,
     % non-periodically, the factored strategy (K-free after tabulation).
-    MA_COST_MOBIUS_SETUP_MS           = 0.1200;
-    MA_COST_MOBIUS_SETUP_PER_BELL_MS  = 0.01493;
-    MA_COST_MOBIUS_QUERY_PER_OP_MS    = 2.719e-6;
+    MA_COST_MOBIUS_SETUP_MS = 0.1321;   % was 0.1200
+    MA_COST_MOBIUS_SETUP_PER_BELL_MS = 0.01048;   % was 0.01493
+    MA_COST_MOBIUS_QUERY_PER_OP_MS = 1.988e-06;   % was 2.719e-6
     % Relative-mode u-grid node costs. Periodic direct nodes and the two
     % non-periodic strategies are calibrated separately. The non-periodic
     % direct node carries a fixed per-node floor (the alignment shift and
@@ -106,16 +145,16 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % finds the node cost floor-bound at low op counts, this is where it
     % goes, and it must then be fitted alongside the per-op term rather
     % than set beside it.
-    MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS        = 0;
-    MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS      = 1.237e-6;
-    MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS  = 3.027e-6;
-    MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS  = 5.936e-5;
+    MA_COST_MOBIUS_REL_NODE_DIRECT_BASE_MS = 0;
+    MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_MS = 3.538e-06;   % was 1.237e-6
+    MA_COST_MOBIUS_REL_NODE_DIRECT_PER_OP_PER_MS = 1.245e-06;   % was 3.027e-6
+    MA_COST_MOBIUS_REL_NODE_FACTORED_PER_BELL_MS = 1.748e-05;   % was 5.936e-5
     % u-grid tabulation setup (once per call): building the interpolation
     % table costs K source evaluations over the N_u grid nodes. MATLAB's
     % lean per-query readback leaves this setup as the dominant Möbius cost
     % at small nQ, so it is modelled explicitly; Python's larger per-query
     % node cost absorbs it, so its twin constant is ~0.
-    MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS     = 3.516e-5;
+    MA_COST_MOBIUS_REL_TABULATION_PER_NODE_MS = 3.232e-05;   % was 3.516e-5
 
     BELL = [1 2 5 15 52 203 877 4140 21147 115975];  % B_1..B_10
 
@@ -172,15 +211,20 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             T_a = factorial(r_a) * localComb(K_a, r_a);
             if isPer(a)
                 qBase = MA_COST_CENTRES_QUERY_BASE_PER_MS;
-                qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS;
             else
                 qBase = MA_COST_CENTRES_QUERY_BASE_MS;
-                qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_MS;
             end
+            [qPer, T_q] = localCentresQuerySlope( ...
+                T_a, isPer(a), isRel(a), ...
+                MA_COST_CENTRES_QUERY_PER_JOINT_MS, ...
+                MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS, ...
+                MA_COST_CENTRES_QUERY_JOINT_EXP_PER, ...
+                MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS, ...
+                MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER);
             centresMs = centresMs ...
                 + MA_COST_CENTRES_CALL_PER_JOINT_MS * T_a ...
                 + nQeff * (MA_COST_CENTRES_FACTORED_QUERY_BASE_MS ...
-                           + qBase + qPer * T_a * cullOf(a));
+                           + qBase + qPer * T_q * cullOf(a));
         end
     else
         % Joint materialisation. The per-query term takes the geometry of
@@ -190,20 +234,27 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
         % joint culled fraction is the product of the per-attribute ones.
         cullJoint = 1.0;
         anyPer = false;
+        anyRelPer = false;
         for a = 1:A
             cullJoint = cullJoint * cullOf(a);
             anyPer = anyPer || isPer(a);
+            anyRelPer = anyRelPer || (isPer(a) && isRel(a));
         end
         if anyPer
             qBase = MA_COST_CENTRES_QUERY_BASE_PER_MS;
-            qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS;
         else
             qBase = MA_COST_CENTRES_QUERY_BASE_MS;
-            qPer  = MA_COST_CENTRES_QUERY_PER_JOINT_MS;
         end
+        [qPer, jointQ] = localCentresQuerySlope( ...
+            jointTuples, anyPer, anyRelPer, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_MS, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS, ...
+            MA_COST_CENTRES_QUERY_JOINT_EXP_PER, ...
+            MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS, ...
+            MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER);
         centresMs = MA_COST_CENTRES_SETUP_MS ...
             + MA_COST_CENTRES_CALL_PER_JOINT_MS * jointTuples ...
-            + nQeff * (qBase + qPer * jointTuples * cullJoint);
+            + nQeff * (qBase + qPer * jointQ * cullJoint);
     end
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
@@ -229,7 +280,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             % with window/sigma (session-calibrated on the Python side;
             % re-derive here via bench_ma_eval_calibration if picks
             % look off).
-            FOUR_PER_MODE = [2.491e-5, 4.909e-4, 9.671e-3]; % r = 2, 3, 4
+            FOUR_PER_MODE = [1.509e-05, 0.0002111, 0.001757]; % r = 2, 3, 4   % was [2.491e-5, 4.909e-4, 9.671e-3]
             % Periodic-only K term (per r) added to the K-free slope: the
             % per-event spectrum build A_m(eta) = sum_i w^m exp(-i eta p_i)
             % carries K, which the fixed-period window does not absorb. In
@@ -237,7 +288,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             % r = 4 mode grid exceeds the memory guard and falls to the
             % node path, so its K growth is priced there). Fitted from the
             % periodic engaging cells of bench_ma_eval_calibration.
-            FOUR_PERIODIC_K_MS = [4.836e-5, 1.535e-4, 0.0]; % r = 2, 3, 4
+            FOUR_PERIODIC_K_MS = [3.272e-05, 6.648e-05, 0]; % r = 2, 3, 4   % was [4.836e-5, 1.535e-4, 0.0]
             FOUR_MIN_Q = [16, 32, 64];
             FOUR_MIN_K = [2, 8, 16];
             spreadF = 0.0;
@@ -308,6 +359,29 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
         mobiusMs = mobiusMs + perQueryMs * nQeff;
     end
 end
+
+function [slope, Tq] = localCentresQuerySlope(T, isPerA, isRelA, ...
+        qNonPer, qPer, expPer, qRelPer, expRelPer)
+%LOCALCENTRESQUERYSLOPE  Per-query centres slope and the count it scales.
+%
+%   Three kernels, three constants. The non-periodic kernel is
+%   bucket-culled and linear in the (culled) tuple count. The two
+%   periodic kernels run dense and each carries its own slope and its own
+%   exponent on the tuple count: the absolute one measures a wrapped
+%   distance per coordinate, the relative one forms wrapped differences
+%   first and is the superlinear of the two. The caller applies the
+%   culling factor, which is 1 on either periodic kernel.
+%
+%   Twin of the Python _centres_query_slope.
+    if isPerA && isRelA
+        slope = qRelPer;  Tq = T ^ expRelPer;
+    elseif isPerA
+        slope = qPer;     Tq = T ^ expPer;
+    else
+        slope = qNonPer;  Tq = T;
+    end
+end
+
 
 function cullA = localCentresCull(dens, a, isPerA, sigmaA, r_a, isRelA, cullC)
 %LOCALCENTRESCULL  Share of an attribute's tuple set a query reaches.

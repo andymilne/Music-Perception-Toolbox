@@ -63,7 +63,15 @@ def _grid_size(sigma, r, is_per):
 
 def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
     prev = _mobius_inner._SPECTRAL_IP_ENABLED
+    prev_force = _mobius_inner._SPECTRAL_IP_FORCE
     _mobius_inner._SPECTRAL_IP_ENABLED = spectral
+    # The spectral arm must bypass the cost gate, not merely enable the
+    # branch: with the gate in force every cell the shipped constant
+    # declines would run the grid in both arms and read a ratio of 1.0
+    # by construction (the MATLAB twin was found doing exactly that on
+    # all 80 of its declined cells). _SPECTRAL_IP_FORCE bypasses the
+    # comparison only, never the _SPECTRAL_IP_MAX_POINTS memory guard.
+    _mobius_inner._SPECTRAL_IP_FORCE = bool(spectral)
     try:
         period = PERIOD if is_per else 0.0
         # One warm-up call, discarded, which also gauges the cost.
@@ -92,6 +100,7 @@ def _time(Px, Wx, Py, Wy, sigma, r, is_per, spectral):
         return 1e3 * float(np.median(ts))
     finally:
         _mobius_inner._SPECTRAL_IP_ENABLED = prev
+        _mobius_inner._SPECTRAL_IP_FORCE = prev_force
 
 
 def main():

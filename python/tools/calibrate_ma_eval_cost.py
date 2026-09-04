@@ -30,7 +30,7 @@ WHAT TO SEND BACK
 Everything between the BEGIN_CSV and END_CSV markers, inclusive of the
 header row. That block alone is sufficient to fit the constants.
 
-FOUR SECTIONS
+FIVE SECTIONS
 -------------
 Section A sweeps shape -- mode, tuple order, value count, query count --
 at one reference geometry.
@@ -56,6 +56,10 @@ at least P/78 periodically, or a short span with a wide kernel
 otherwise. Sections A and B satisfy that in one cell per periodicity at
 r = 4, so its constant would rest on two measurements; these geometries
 are chosen so every tuple order gets a proper sample.
+
+Section E walks the relative-periodic r = 3 family through the K = 34
+crossover at sigma/P = 0.0083, the cell the September 2026 audit found
+misrouted; it is what constrains the rel-per per-query exponent.
 
 Single-attribute cells only: the multi-attribute contrast is
 product-against-sum, structurally Moebius-dominated and insensitive to
@@ -216,6 +220,17 @@ def _run():
             for K in (16, 24, 48):
                 _cell(rows, rng, True, False, r, K, [100, 400],
                       sigma, span)
+
+    print("\n--- Section E: relative-periodic r = 3 family around K = 34 ---")
+    print(header)
+    # The September 2026 audit found auto picking centres at rel-per
+    # r = 3, K = 34, sigma/P = 0.0083 where Moebius was faster: the
+    # rel-per centres per-query cost grows superlinearly in the joint
+    # tuple count (~T^1.3) and the shared linear slope could not express
+    # it. This family walks K through the crossover at that geometry so
+    # a refit sees it.
+    for K in (12, 20, 28, 34, 40, 48):
+        _cell(rows, rng, True, True, 3, K, [24, 200], 10.0, PERIOD)
 
     print("\nBEGIN_CSV")
     print("rel,per,r,K,nQ,sigma,span,joint,cen_ms,mob_ms")

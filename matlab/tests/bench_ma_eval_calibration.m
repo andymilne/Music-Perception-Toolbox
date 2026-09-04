@@ -36,8 +36,8 @@
 %  row format now carries sigma and span alongside the shape, so earlier
 %  CSV blocks (which do not) are not interchangeable with this one.
 %
-%  TWO SECTIONS
-%  ------------
+%  FIVE SECTIONS
+%  -------------
 %  Section A sweeps shape (mode, r, K, nQ) at one reference geometry,
 %  sigma = 15 cents over a 3600-cent span. It is unchanged, so its rows
 %  remain comparable with earlier runs.
@@ -60,6 +60,14 @@
 %  evaluator, whose per-mode constants are per tuple order. The branch
 %  engages only above its thresholds and only where the mode grid fits
 %  under the memory guard, so it needs geometries picked for it.
+%
+%  Section E walks the relative-periodic r = 3 family through the K = 34
+%  crossover at sigma/P = 0.0083, the cell the September 2026 audit found
+%  misrouted; it is what constrains the rel-per per-query exponent.
+%
+%  Fitting: python/tools/fit_ma_eval_cost.py reads this CSV block
+%  directly (--lang matlab) and prints the constants in this file's
+%  names for internal.maEvalCostsMs.
 %
 %  Single-attribute cells only: the multi-attribute behaviour is the
 %  product-vs-sum contrast, structurally Möbius-dominated and insensitive
@@ -238,6 +246,20 @@ for gi = 1:size(geomValsDNP, 1)
                 JOINT_SKIP, nReps, WORK_SKIP);
         end
     end
+end
+
+fprintf('\n--- Section E: relative-periodic r = 3 family around K = 34 ---\n');
+fprintf('%-4s %-4s %-3s %-4s %-5s %10s %10s %10s %-8s\n', ...
+    'rel', 'per', 'r', 'K', 'nQ', 'joint', 'cen_ms', 'mob_ms', 'faster');
+fprintf('%s\n', repmat('-', 1, 66));
+% The September 2026 audit found auto picking centres at rel-per r = 3,
+% K = 34, sigma/P = 0.0083 where Moebius was faster: the rel-per centres
+% per-query cost grows superlinearly in the joint tuple count (~T^1.3)
+% and the shared linear slope could not express it. This family walks K
+% through the crossover at that geometry so a refit sees it.
+for K = [12 20 28 34 40 48]
+    rows = sweepCell(rows, true, true, 3, K, [24 200], ...
+        10.0, periodP, periodP, JOINT_SKIP, nReps, WORK_SKIP);
 end
 
 % ---- Parseable block to send back ----

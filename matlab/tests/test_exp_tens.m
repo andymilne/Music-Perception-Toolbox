@@ -54,7 +54,7 @@ results{end,2}   = all(~isnan(s));
 results{end+1,1} = 'batchCosSimExpTens: major > minor fit';
 results{end,2}   = s(1) > s(2);
 
-% --- v2.1 unified dispatch: list mode and batched-raw mode ----
+% --- v3 unified dispatch: list mode and batched-raw mode ----
 
 % List mode (single-multiset): cell of density structs in, cell of values out
 d1 = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
@@ -98,7 +98,7 @@ results{end+1,1} = 'cosSimExpTens batched: returns vector of correct length';
 results{end,2}   = isnumeric(sBatched) && numel(sBatched) == 2;
 
 % Batched-raw mode: numerically equivalent to batchCosSimExpTens
-% (suppress the v2.1 deprecation warning while we make the comparison)
+% (suppress the v3 deprecation warning while we make the comparison)
 warnState = warning('off', 'batchCosSimExpTens:deprecated');
 sBatchOld = batchCosSimExpTens(A2, B2, 10, 1, false, true, 1200, ...
     'verbose', false);
@@ -178,7 +178,7 @@ results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens(densMA_x, densMA_y, 'spectrum', spec_fwd, 'verbose', false), ...
     'cosSimExpTens:spectrumNotApplicable');
 
-% --- Broadcasting in batched-raw mode (v2.1.1+) ---
+% --- Broadcasting in batched-raw mode (v3+) ---
 % Reference multiset broadcast against M candidate rows: should match
 % the explicit repmat formulation row-by-row.
 ref_pitches = [0, 386.31, 701.96];
@@ -233,7 +233,7 @@ results{end,2}   = throwsErrorWithId( ...
         10, 1, false, true, 1200, 'verbose', false), ...
     'cosSimExpTens:batchedRowMismatch');
 
-% --- List-mode broadcasting (v2.1.1+) ---
+% --- List-mode broadcasting (v3+) ---
 % Build a small population of density structs.
 dRef = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
 dC1  = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
@@ -276,7 +276,7 @@ results{end,2}   = throwsErrorWithId( ...
     @() cosSimExpTens({dC1, dC2}, 42, 'verbose', false), ...
     'cosSimExpTens:listBadBroadcast');
 
-% --- v2.1 unified dispatch: evalExpTens list and batched-raw modes ----
+% --- v3 unified dispatch: evalExpTens list and batched-raw modes ----
 
 % List mode: cell of density structs returns cell of value vectors
 de1 = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);

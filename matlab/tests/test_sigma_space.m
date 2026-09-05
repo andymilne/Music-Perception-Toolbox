@@ -1,6 +1,6 @@
-%% test_sigma_space.m — sigmaSpace position-aware soft measures (v2.1)
+%% test_sigma_space.m — sigmaSpace position-aware soft measures (v3)
 %
-%  Tests for sigmaSpace position-aware soft measures (v2.1).
+%  Tests for sigmaSpace position-aware soft measures (v3).
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.
@@ -18,7 +18,7 @@ end
 
 %
 %  Tests for the sigma + sigmaSpace additions to sameness,
-%  coherence, and nTupleEntropy (v2.1.0). Insert after the existing
+%  coherence, and nTupleEntropy (v3). Insert after the existing
 %  Circular measures and Entropy sections.
 
 % --- internal.positionVariance helper: signed-coefficient cases --------------
@@ -61,7 +61,7 @@ results{end,2}   = abs(sqP - sqI) < 1e-12;
 %
 %  Reference numbers from the Python verification of the same
 %  implementation (computed at the same sigma values) — see
-%  the v2.1 design discussion. These pin down the soft-path
+%  the v3 design discussion. These pin down the soft-path
 %  computation against future regressions.
 
 [sqP, ~] = sameness([0, 2, 4, 5, 7, 9, 11], 12, 0.5, ...

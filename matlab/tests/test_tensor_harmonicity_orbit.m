@@ -1,12 +1,12 @@
-%% test_tensor_harmonicity_orbit.m — v2.2 tensorHarmonicity rewrite
+%% test_tensor_harmonicity_orbit.m — v3 tensorHarmonicity rewrite
 %
-%  Tests for the v2.2 rewrite of tensorHarmonicity, which bypasses
+%  Tests for the v3 rewrite of tensorHarmonicity, which bypasses
 %  buildExpTens entirely and routes through mobius.evalOrbitRel.
 %  Covers:
 %    - Numerical equivalence to a hand-rolled call to mobius.evalOrbitRel
 %      (the rewrite must not introduce extra factors).
 %    - Cardinality > 3 (4-pitch chord with auto duplicate=4): the
-%      v2.0/v2.1 centres path could not handle this without millions of
+%      v2.0 centres path could not handle this without millions of
 %      r-tuples; the Möbius method makes it routine.
 %    - Batched dedup: rows whose canonical (sorted, translation-removed)
 %      pitch sequences coincide return the same harmonicity.
@@ -48,7 +48,7 @@ h_orbit = mobius.evalOrbitRel(tmpl_p(:), tmpl_w(:), sigma, ...
     numel(p), intervals, 'is_per', false, 'period', 0);
 h_orbit = h_orbit(1);
 
-results{end+1,1} = 'tensorHarmonicity v2.2: matches direct mobius.evalOrbitRel call (1e-12)';
+results{end+1,1} = 'tensorHarmonicity v3: matches direct mobius.evalOrbitRel call (1e-12)';
 results{end,2}   = abs(h_th - h_orbit) < 1e-12;
 
 %% ---- Cardinality > 3 (the killer feature) ----
@@ -59,13 +59,13 @@ results{end,2}   = abs(h_th - h_orbit) < 1e-12;
 % (3, 4.7M) ~= 110 MB just for the centres. The Möbius method skips this.
 p4 = [0, 400, 700, 1200];   % major triad with octave on top
 h4 = tensorHarmonicity(p4, [], sigma, 'spectrum', spec, 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2: 4-pitch chord (K=4) returns finite scalar';
+results{end+1,1} = 'tensorHarmonicity v3: 4-pitch chord (K=4) returns finite scalar';
 results{end,2}   = isfinite(h4) && isscalar(h4) && h4 > 0;
 
 % Same chord transposed up an octave: same canonical key -> same value.
 p4_up = p4 + 1200;
 h4_up = tensorHarmonicity(p4_up, [], sigma, 'spectrum', spec, 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2: transposition invariance on K=4 chord (1e-12)';
+results{end+1,1} = 'tensorHarmonicity v3: transposition invariance on K=4 chord (1e-12)';
 results{end,2}   = abs(h4 - h4_up) < 1e-12;
 
 %% ---- Batched dedup: canonical key collapses transpositions ----
@@ -77,7 +77,7 @@ P_dedup = [0,    400,  700;     %#ok<NASGU>  major triad
            -100, 300,  600];
 h_dedup = tensorHarmonicity(P_dedup, [], sigma, 'spectrum', spec, ...
     'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2 batched: transposition-equivalent rows agree (1e-12)';
+results{end+1,1} = 'tensorHarmonicity v3 batched: transposition-equivalent rows agree (1e-12)';
 results{end,2}   = isequal(size(h_dedup), [3, 1]) ...
                 && abs(h_dedup(1) - h_dedup(2)) < 1e-12 ...
                 && abs(h_dedup(1) - h_dedup(3)) < 1e-12;
@@ -85,7 +85,7 @@ results{end,2}   = isequal(size(h_dedup), [3, 1]) ...
 % Cross-check: scalar single-row matches.
 h_scalar = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
     'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2 batched: dedup matches scalar (1e-12)';
+results{end+1,1} = 'tensorHarmonicity v3 batched: dedup matches scalar (1e-12)';
 results{end,2}   = abs(h_dedup(1) - h_scalar) < 1e-12;
 
 %% ---- Cache key includes sigma and dup ----
@@ -96,7 +96,7 @@ P_two = [0, 400, 700;
          0, 400, 700];
 h_s12 = tensorHarmonicity(P_two, [], 12, 'spectrum', spec, 'verbose', false);
 h_s20 = tensorHarmonicity(P_two, [], 20, 'spectrum', spec, 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2 batched: sigma=12 vs sigma=20 disambiguate';
+results{end+1,1} = 'tensorHarmonicity v3 batched: sigma=12 vs sigma=20 disambiguate';
 results{end,2}   = abs(h_s12(1) - h_s20(1)) > 1e-6;
 
 % Same chord, different duplicate -> different result.
@@ -104,7 +104,7 @@ h_dup_auto = tensorHarmonicity(P_two, [], 12, 'spectrum', spec, ...
     'duplicate', 0, 'verbose', false);  % auto -> dup=3
 h_dup_1    = tensorHarmonicity(P_two, [], 12, 'spectrum', spec, ...
     'duplicate', 1, 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2 batched: duplicate=0 vs 1 disambiguate';
+results{end+1,1} = 'tensorHarmonicity v3 batched: duplicate=0 vs 1 disambiguate';
 results{end,2}   = abs(h_dup_auto(1) - h_dup_1(1)) > 1e-6;
 
 %% ---- Normalize='gaussian' and 'pdf' apply consistent constants ----
@@ -120,7 +120,7 @@ h_none = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
     'normalize', 'none', 'verbose', false);
 h_gauss = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
     'normalize', 'gaussian', 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2: gaussian normalize applies (2 pi sigma^2)^{-dim/2} sqrt(1/r)';
+results{end+1,1} = 'tensorHarmonicity v3: gaussian normalize applies (2 pi sigma^2)^{-dim/2} sqrt(1/r)';
 results{end,2}   = abs(h_gauss - h_none * gaussConst) < 1e-10 * abs(h_gauss);
 
 % normalize='pdf' additionally divides by sum(tmpl_w).
@@ -128,7 +128,7 @@ results{end,2}   = abs(h_gauss - h_none * gaussConst) < 1e-10 * abs(h_gauss);
 sumW = sum(tmpl_w_test);
 h_pdf = tensorHarmonicity([0, 400, 700], [], sigma, 'spectrum', spec, ...
     'normalize', 'pdf', 'verbose', false);
-results{end+1,1} = 'tensorHarmonicity v2.2: pdf = gaussian / sum(tmpl_w) (1e-10 rel)';
+results{end+1,1} = 'tensorHarmonicity v3: pdf = gaussian / sum(tmpl_w) (1e-10 rel)';
 results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 
 %% ---- Verbose flag emits the dispatch announce ----
@@ -144,7 +144,7 @@ results{end,2}   = abs(h_pdf - h_gauss / sumW) < 1e-10 * abs(h_pdf);
 prevSH_thv2on = mptDefaults('showHints', true);
 outScalarVerb = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', true);']);
-results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=true prints eval message';
+results{end+1,1} = 'tensorHarmonicity v3 scalar: verbose=true prints eval message';
 results{end,2}   = contains(outScalarVerb, 'chose');
 mptDefaults(prevSH_thv2on);  % restore
 
@@ -154,7 +154,7 @@ mptDefaults(prevSH_thv2on);  % restore
 prevSH_thv2 = mptDefaults('showHints', false);
 outScalarSilent = evalc(['tensorHarmonicity([0, 400, 700], [], 12, ' ...
     '''spectrum'', spec, ''verbose'', false);']);
-results{end+1,1} = 'tensorHarmonicity v2.2 scalar: verbose=false silent';
+results{end+1,1} = 'tensorHarmonicity v3 scalar: verbose=false silent';
 results{end,2}   = isempty(strtrim(outScalarSilent));
 mptDefaults(prevSH_thv2);  % restore
 

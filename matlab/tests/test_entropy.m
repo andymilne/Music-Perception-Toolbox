@@ -35,7 +35,7 @@ H = entropyExpTens(0:11, ones(1,12), 100, 1, false, true, 12, ...
 results{end+1,1} = 'entropyExpTens normalized: uniform ≈ 1';
 results{end,2}   = H > 0.95;
 
-% --- v2.1 unified dispatch: entropyExpTens list and batched-raw modes ----
+% --- v3 unified dispatch: entropyExpTens list and batched-raw modes ----
 
 % List mode: cell of density structs returns cell of entropy values
 de1 = buildExpTens([0, 4, 7], [], 50, 1, false, true, 1200, 'verbose', false);
@@ -91,7 +91,7 @@ H_short = entropyExpTens(P_h_short, [], 50, 2, false, true, 1200, 'nPointsPerDim
 results{end+1,1} = 'entropyExpTens batched: row with too few pitches returns NaN';
 results{end,2}   = ~isnan(H_short(1)) && isnan(H_short(2));
 
-% --- v2.1 fix: single multiset entropy with dim > 1 (previously errored) -----------
+% --- v3 fix: single multiset entropy with dim > 1 (previously errored) -----------
 
 % r = 2, isRel = false: dim = 2. Build a periodic dyad density and
 % compute its entropy via the new Cartesian grid path.

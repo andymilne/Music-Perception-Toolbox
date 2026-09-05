@@ -113,7 +113,7 @@ function dens = prunedExpTens(dens)
             dens             = out;
 
         otherwise
-            % WindowedMaetDensity or unknown tag: no event-level prune.
+            % Unknown tag: no event-level prune.
             return;
     end
 end

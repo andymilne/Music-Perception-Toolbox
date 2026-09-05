@@ -31,7 +31,7 @@ H_edo = spectralEntropy([0, 400, 700], [], 12, 'spectrum', spec, 'verbose', fals
 results{end+1,1} = 'spectralEntropy: JI < EDO';
 results{end,2}   = H_ji < H_edo;
 
-% --- spectralEntropy 2-D batched dispatch (Bundle 2, v2.1+) ---
+% --- spectralEntropy 2-D batched dispatch (Bundle 2, v3+) ---
 P_se = [0, 386.31, 701.96; 0, 400, 700; 0, 100, 200];
 H_se_batch = spectralEntropy(P_se, [], 12, 'spectrum', spec, 'verbose', false);
 results{end+1,1} = 'spectralEntropy batched: returns column vector of length nRows';
@@ -159,7 +159,7 @@ results{end,2}   = abs(vp_p1(i_max1) - 400) < 5;
 results{end+1,1} = 'virtualPitches: octave peak at lower note';
 results{end,2}   = abs(vp_p2(i_max2)) < 5;
 
-% --- v2.1 unified dispatch: harmony wrappers batched mode ---
+% --- v3 unified dispatch: harmony wrappers batched mode ---
 
 % tensorHarmonicity: 2-D matrix dispatch returns column vector
 P_h = [0, 1200, 0, 0;     % unison-with-octave (4-pitch); cardinality 4
@@ -193,7 +193,7 @@ h_th_short = tensorHarmonicity(P_th_short, [], 12, 'spectrum', spec_th, 'verbose
 results{end+1,1} = 'tensorHarmonicity batched: insufficient pitches return NaN';
 results{end,2}   = ~isnan(h_th_short(1)) && isnan(h_th_short(2)) && isnan(h_th_short(3));
 
-% --- tensorHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
+% --- tensorHarmonicity verbose / estimateCompTime integration (v3+) ---
 % Scalar verbose=true forwards to buildExpTens, which prints its own estimate
 % (and the inner evalExpTens emits the dispatch announce). The announce is
 % gated by mptDefaults('showHints'), which test_mpt.m silences at suite
@@ -248,7 +248,7 @@ results{end,2}   = abs(hMax_b(1) - hMax_oct)  < 1e-12 ...
                    && abs(hMax_b(2) - hMax_maj3) < 1e-12 ...
                    && abs(hEnt_b(2) - hEnt_maj3) < 1e-12;
 
-% --- templateHarmonicity batched: chord-side dedup (v2.2+) ---
+% --- templateHarmonicity batched: chord-side dedup (v3+) ---
 % Two rows that are transpositions of each other must produce
 % identical hMax and hEntropy (template-harmonicity transposes
 % internally so any shift cancels). Same for permutations.
@@ -271,7 +271,7 @@ results{end,2}   = abs(hEntP_th(1) - hEntP_th(2)) < 1e-12 ...
                 && abs(hEntP_th(1) - hEntP_th(3)) < 1e-12;
 clear P_th_trans P_th_perm hMaxT_th hEntT_th hMaxP_th hEntP_th
 
-% --- templateHarmonicity verbose / estimateCompTime integration (v2.1.1+) ---
+% --- templateHarmonicity verbose / estimateCompTime integration (v3+) ---
 % Note (commit 14+): estimateCompTime default minPrintSec is 10, so
 % verbose=true for fast inputs is silent for the cost-estimate. The
 % dispatch announce (gated by showHints, not verbose) would fire under
@@ -350,7 +350,7 @@ h_scalar_check = tensorHarmonicity([0, 400, 700], [], 12, 'spectrum', spec_th, '
 results{end+1,1} = 'tensorHarmonicity scalar: row vector still works (backward compat)';
 results{end,2}   = isscalar(h_scalar_check) && abs(h_scalar_check - h_maj3) < 1e-14;
 
-% --- virtualPitches verbose / estimateCompTime integration (v2.1.1+) ---
+% --- virtualPitches verbose / estimateCompTime integration (v3+) ---
 % Note (commit 14+): estimateCompTime default minPrintSec is 10, so
 % verbose=true for fast inputs is silent for the cost-estimate. The
 % dispatch announce (gated by showHints, not verbose) is suppressed

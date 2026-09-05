@@ -167,7 +167,7 @@ def _chord_canonical_key(
     ``(p, w, sigma, r, is_rel, is_per, period)``-determined density),
     regardless of input-side permutation or, in relative modes,
     in-batch translation. Used by the consumer-level deduplication in
-    :func:`cos_sim_exp_tens`, :func:`windowed_tensor_similarity`, and the
+    :func:`cos_sim_exp_tens` and the
     harmony wrappers when given batched chord input.
 
     Parameters

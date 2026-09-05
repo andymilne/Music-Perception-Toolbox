@@ -1,6 +1,6 @@
-%% test_tier1_batched.m — Tier-1 batched dispatch (v2.1+): dftCircular, meanOffset, edges, projCentroid, circApm
+%% test_tier1_batched.m — Tier-1 batched dispatch (v3+): dftCircular, meanOffset, edges, projCentroid, circApm
 %
-%  Tests for Tier-1 batched dispatch (v2.1+): dftCircular, meanOffset, edges, projCentroid, circApm.
+%  Tests for Tier-1 batched dispatch (v3+): dftCircular, meanOffset, edges, projCentroid, circApm.
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.

@@ -1,6 +1,6 @@
-%% test_orbit_vectorisation.m — v2.2.x batched orbit evaluators
+%% test_orbit_vectorisation.m — v3 batched orbit evaluators
 %
-%  Verifies the v2.2.x extensions:
+%  Verifies the v3 extensions:
 %
 %    - mobius.evalOrbitAbs accepts x of shape (r, ...) with arbitrary
 %      trailing dimensions; output shape matches the trailing dims.
@@ -84,7 +84,7 @@ results{end, 2} = ok;
 
 % For each (r, is_per), run mobius.evalOrbitRel and compare to a
 % hand-rolled sequential u-grid quadrature using evalOrbitAbs on
-% (r, n_q) inputs (the pre-v2.2.x path).
+% (r, n_q) inputs (the pre-v3 path).
 for cfg = {[2, false], [3, false], [2, true], [3, true]}
     cfgArr = cfg{1};
     r_test = cfgArr(1);

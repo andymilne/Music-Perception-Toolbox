@@ -1,7 +1,7 @@
 """Integration tests: Möbius–orbit cosine similarity vs existing toolbox.
 
-These are the regression tests that v2.2's drop-in replacement must pass.
-The orbit-path cosine values must match the v2.1 ``cos_sim_exp_tens`` to
+These are the regression tests that v3's drop-in replacement must pass.
+The orbit-path cosine values must match the v2.0 ``cos_sim_exp_tens`` to
 floating-point precision in all four mode combinations and across a range
 of r and n.
 """
@@ -199,7 +199,7 @@ def test_regression_diatonic_triad_pair():
     sigma = 12.0
     r = 2
     cos = cos_sim_orbit_abs(p_A, w_A, p_B, w_B, sigma, r, False, 1200)
-    # The frozen value is computed on the toolbox v2.1 path.
+    # The frozen value is computed on the toolbox v2.0 (Bulger) path.
     T_A = build_exp_tens(p_A, w_A, sigma, r, False, False, 1200, verbose=False)
     T_B = build_exp_tens(p_B, w_B, sigma, r, False, False, 1200, verbose=False)
     cos_toolbox = float(cos_sim_exp_tens(T_A, T_B))

@@ -365,7 +365,7 @@ results{end,2}   = throwsError(@() entropyExpTens( ...
     'method', 'renyi2', 'verbose', false));
 
 
-%% ---- v2.2 migration error: 'normalize' kwarg removed ------------------
+%% ---- v3 migration error: 'normalize' kwarg removed ------------------
 
 % Passing 'normalize' (any value) to entropyExpTens raises a TypeError-
 % equivalent (id entropyExpTens:normalizeRemoved). Tested across each

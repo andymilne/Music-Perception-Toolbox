@@ -1,4 +1,4 @@
-%% test_rect_window_and_renyi2_degenerate.m — two v2.1 out-of-band fixes
+%% test_rect_window_and_renyi2_degenerate.m — two v3 out-of-band fixes
 %
 %  #20  weightEvents' rectangular window uses a half-open support
 %       [c - W/2, c + W/2): a regular pulse grid yields exactly N pulses

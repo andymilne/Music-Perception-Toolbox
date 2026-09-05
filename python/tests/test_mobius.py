@@ -343,7 +343,7 @@ def test_grid_evaluator_matches_static_at_zero_shift():
 
 
 # ----------------------------------------------------------------------
-# v2.2: build-cost preview before Tier 4 falls through to building
+# v3: build-cost preview before Tier 4 falls through to building
 # ----------------------------------------------------------------------
 
 
@@ -363,7 +363,7 @@ class TestBuildCostPreview:
 
     def test_message_above_shipped(self, capfd, monkeypatch):
         monkeypatch.delenv("MPT_NO_BUILD_WARN", raising=False)
-        # r=9 is above the shipped range (r=2..8 in v2.2) and triggers
+        # r=9 is above the shipped range (r=2..8 in v3) and triggers
         # the build-cost preview.
         _maybe_warn_build_cost(9)
         captured = capfd.readouterr()

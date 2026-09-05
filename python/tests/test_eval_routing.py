@@ -5,7 +5,7 @@ Verifies, on a battery of representative densities and queries, that:
 
 - Default settings (``truncation_sigmas=inf``, ``kernel_precision='double'``)
   produce FP-bit-identical output to a frozen reference implementation
-  matching v2.0/v2.1 behaviour.
+  matching v2.0 behaviour.
 - ``truncation_sigmas=6`` agrees with the reference to bounded relative
   error (cumulative bound proportional to ``sum(|wJ|) * exp(-18)``).
 - ``kernel_precision='single'`` agrees within ~1e-5 relative.
@@ -14,7 +14,7 @@ Verifies, on a battery of representative densities and queries, that:
   per-call kwargs are absent.
 
 The reference implementation is a plain broadcast-subtract-exp-sum,
-matching what ``_eval_core`` did in v2.0/v2.1 — kept here as a stable
+matching what ``_eval_core`` did in v2.0 — kept here as a stable
 local-frozen check rather than relying on the now-routed production
 code.
 """
@@ -66,7 +66,7 @@ from mpt.tensor import build_exp_tens, eval_exp_tens
 
 
 # ---------------------------------------------------------------------
-# Reference (frozen v2.0/v2.1 body)
+# Reference (frozen v2.0 body)
 # ---------------------------------------------------------------------
 
 def _ref_eval(dens, x):

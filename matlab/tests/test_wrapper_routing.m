@@ -12,7 +12,7 @@ function tests = test_wrapper_routing
 %   Stage 2c is the work that rerouted tensorHarmonicity through
 %   evalExpTens (removing a wrapper-level algorithm-choice violation)
 %   and threaded truncationSigmas / kernelPrecision through all four
-%   wrappers so that the v2.2 helper-accelerated centres path is reached
+%   wrappers so that the v3 helper-accelerated centres path is reached
 %   from any user-facing entry point.
 
     tests = functiontests(localfunctions);

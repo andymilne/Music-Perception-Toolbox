@@ -1,4 +1,4 @@
-"""Tests for MaetDensity lazy materialisation (v2.2).
+"""Tests for MaetDensity lazy materialisation (v3).
 
 Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
 
@@ -14,7 +14,7 @@ Parallel to ``test_lazy_density.py`` for the single-multiset path. Verifies:
    do not materialise.
 5. MA centres-path / pairwise consumers do materialise.
 6. Lazy build produces numerically identical output to the eager
-   v2.1 path (regression check via cosine self-similarity = 1 and
+   v2.0 path (regression check via cosine self-similarity = 1 and
    orbit-vs-pairwise agreement).
 7. Eager input-validation errors (insufficient non-NaN values,
    wrong-shaped vectors) still fire at the ``build_exp_tens`` call

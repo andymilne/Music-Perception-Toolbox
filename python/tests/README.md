@@ -29,11 +29,11 @@ The test suite expects the `mpt` package to be importable. Install it in editabl
 
 Tests are flat (no subdirectories) and named by topic:
 
-- `test_maet.py`, `test_lazy_density.py`, `test_lazy_density_ma.py`, `test_centre_scalar_broadcast.py` — multi-attribute tensor density and lazy evaluation
+- `test_maet.py`, `test_lazy_density.py`, `test_lazy_density_ma.py` — multi-attribute tensor density and lazy evaluation
 - `test_eval_*.py` — `eval_exp_tens` paths (centres / orbit / fast), dispatcher routing, unified raw-array signature
 - `test_cos_sim_*.py`, `test_batch_cos_sim_thinning.py` — `cos_sim_exp_tens` paths, polymorphic forms, canonical-form dedup
 - `test_dispatcher*.py` — path-selection cost model and dispatch messages
-- `test_windowed_*.py`, `test_window_*.py` — `window_tensor`, `windowed_similarity`, cross-correlation
+- `test_windowed_*.py`, `test_window_*.py` — `windowed_similarity`, `windowed_entropy`, and `weight_events` (event weighting)
 - `test_circular*.py`, `test_balance_sigma.py`, `test_evenness_sigma.py`, `test_*_sigma_space.py`, `test_dft_circular_simulate.py`, `test_proj_centroid_sigma.py` — DFT, scale-structure, and pulse-level circular measures
 - `test_ma_*.py`, `test_orbit_*.py`, `test_tier*.py`, `test_mobius*.py` — orbit-table / Möbius IP paths, including cross-validation against the toolbox
 - `test_entropy*.py`, `test_ntuple_entropy_sigma_space.py`, `test_renyi2_entropy.py` — Shannon and Rényi-2 entropy
@@ -63,12 +63,12 @@ This is a benchmark-style test that measures the speedup of truncated-Gaussian k
 pytest tests/test_cossim_centres_routing.py -k "not speedup"
 ```
 
-## Test counts at v2.2.0
+## Test counts at v3.0.0
 
-Across the 58 test files in `python/tests/`:
+Across the 110 test files in `python/tests/`:
 
-- 1,235 tests pass
-- 13 tests skip (platform-conditional or feature-conditional)
+- 2,367 tests pass
+- 14 tests skip (platform-conditional or feature-conditional)
 - 1 test is environment-sensitive (the OOM-prone benchmark above)
 
 ## Adding tests

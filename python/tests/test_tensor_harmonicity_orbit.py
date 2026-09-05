@@ -1,13 +1,13 @@
-"""Tests for ``tensor_harmonicity`` after the v2.2 orbit-eval refactor.
+"""Tests for ``tensor_harmonicity`` after the v3 orbit-eval refactor.
 
-Pre-v2.2, ``tensor_harmonicity`` materialised a centres array of size
+Pre-v3, ``tensor_harmonicity`` materialised a centres array of size
 ``(r-1, K!/(K-r)!)`` inside ``build_exp_tens``. With the default
 64-partial harmonic template, a 4-pitch chord blew the build to
 ~9·10⁸ four-tuples (~25 GB just for the index tensor), so the function
 emitted a "computation time grows rapidly" warning at K > 3 and
 typically OOM'd on a 4-pitch chord with the default spectrum.
 
-The v2.2 refactor routes ``tensor_harmonicity`` directly to
+The v3 refactor routes ``tensor_harmonicity`` directly to
 :func:`mpt._mobius.eval_orbit_rel`, which evaluates the rel-mode
 template tensor at the chord's interval vector via Möbius point
 evaluation. Memory is independent of ``K!/(K-r)!``; runtime grows
@@ -18,7 +18,7 @@ These tests verify:
    positive value within a sane time budget.
 2. Numerical agreement with the centres path on small chords where
    the centres path is still feasible (regression check).
-3. The musical-intuition rankings the v2.1 tests asserted at K ≤ 3
+3. The musical-intuition rankings the earlier tests asserted at K ≤ 3
    continue to hold at K = 4 (smell-test the new path's plausibility).
 """
 import time
@@ -49,7 +49,7 @@ def test_tensor_harmonicity_4pitch_default_spectrum_runs():
 
 def test_tensor_harmonicity_matches_centres_at_K_eq_2():
     """At a 2-pitch chord with a small spectrum (12 partials), the
-    centres path is feasible. Verify the v2.2 orbit path returns the
+    centres path is feasible. Verify the v3 orbit path returns the
     same value to FP precision."""
     chord = np.array([0.0, 700.0])  # perfect fifth
     sigma = 12.0

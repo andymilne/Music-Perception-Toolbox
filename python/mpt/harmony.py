@@ -137,7 +137,7 @@ def spectral_entropy(
     - ``method='renyi2'``: analytical (grid-independent) Rényi-2 /
       collision entropy via the inner-product / Möbius machinery.
 
-    The ``normalize`` kwarg of v2.1 has been removed; pick the
+    The ``normalize`` kwarg of v2.0 has been removed; pick the
     appropriate ``method`` instead (a migration error is raised if
     ``normalize`` is passed).
 
@@ -946,7 +946,7 @@ def _tensor_harmonicity_via_eval(
 
     Normalisation note: ``tensor_harmonicity``'s 'pdf' divides the
     gaussian-normalised value by ``sum(tmpl_w)`` — sum of single-
-    partial weights — to preserve v2.0/v2.1 numerical convention.
+    partial weights — to preserve v2.0 numerical convention.
     This differs from :func:`eval_exp_tens`'s own 'pdf' (which
     divides by ``sum(wJ)``, the sum of r-tuple weight products);
     the difference is a factor of ``(K-1)·(K-2)·...·(K-r+1)`` for

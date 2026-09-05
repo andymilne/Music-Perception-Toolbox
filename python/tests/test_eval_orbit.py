@@ -33,7 +33,7 @@ from mpt.tensor import build_exp_tens, eval_exp_tens
 
 # Tolerance for orbit-vs-centres comparison on clean cells (ratio > 1e-10).
 # In the abs path the worst-case loss is at the noise floor of the
-# alternating sum; 1e-6 reflects user-tolerance practice for v2.2.
+# alternating sum; 1e-6 reflects user-tolerance practice for v3.
 TOL_CLEAN = 1e-6
 # FP tolerance for the rel path and for cells that don't cancel.
 TOL_FP = 1e-10
@@ -119,7 +119,7 @@ def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
     w = rng.uniform(0.5, 1.5, K)
 
     T = build_exp_tens(p, w, sigma, r, False, is_per, period, verbose=False)
-    # eval_exp_tens now has a method dispatcher (v2.2 wiring). Force
+    # eval_exp_tens now has a method dispatcher (v3 wiring). Force
     # centres explicitly so the variable name matches what the call
     # returns.
     v_centres = eval_exp_tens(T, x, method='centres', verbose=False)
@@ -149,7 +149,7 @@ def test_eval_orbit_abs_matches_centres_on_clean_cells(r, K, is_per):
     )
 
     # The orbit path floor-truncates at the accuracy-floor width in every
-    # mode (periodic included, v2.2+), so like the centres path its error
+    # mode (periodic included, v3+), so like the centres path its error
     # against the exhaustive direct sum is a peak-relative absolute floor,
     # not a per-cell relative bound.
     abs_err_orbit = np.abs(v_orbit[clean] - v_direct[clean])

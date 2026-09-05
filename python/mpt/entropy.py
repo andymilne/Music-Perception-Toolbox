@@ -13,7 +13,6 @@ from .spectra import add_spectra
 from ._tensor.density import is_single_multiset
 from .tensor import (
     MaetDensity,
-    WindowedMaetDensity,
     bind_events,
     build_exp_tens,
     difference_events,
@@ -37,21 +36,21 @@ _DIFF_CELL_BLOCK = int(8e6)
 
 
 # ===================================================================
-#  v2.2 migration: 'normalize' kwarg removed
+#  v3 migration: 'normalize' kwarg removed
 # ===================================================================
 #  The 'normalize' boolean kwarg on entropy_exp_tens and
-#  spectral_entropy was the v2.1 mechanism for selecting between raw
+#  spectral_entropy was the v2.0 mechanism for selecting between raw
 #  discrete Shannon (normalize=False) and the Pielou-style ratio
-#  H/log_b(N) in [0, 1] (normalize=True, the legacy default). In v2.2
+#  H/log_b(N) in [0, 1] (normalize=True, the legacy default). In v3
 #  the four-method API supersedes it: method='shannon' for raw H and
 #  method='normalized' for the [0, 1] ratio. The continuous methods
 #  ('differential', 'renyi2') had no [0, 1] reference and triggered an
-#  error under the v2.1 default. Detection of the removed kwarg in
+#  error under the v2.0 default. Detection of the removed kwarg in
 #  callers raises this message with the calling function name spliced
 #  in via .format(fn=...).
 _NORMALIZE_REMOVED_MSG = (
-    "{fn}: the 'normalize' kwarg has been removed in v2.2. "
-    "Use method='normalized' for H/log_b(N) in [0, 1] (the v2.1 "
+    "{fn}: the 'normalize' kwarg has been removed in v3. "
+    "Use method='normalized' for H/log_b(N) in [0, 1] (the v2.0 "
     "default behaviour), or method='shannon' for raw H = -sum q log_b q. "
     "method='differential' and method='renyi2' are continuous-form "
     "entropies and have no [0, 1] reference."
@@ -111,13 +110,9 @@ def _raise_if_any_sigma_zero(dens, *, method_name: str) -> None:
     differential h_hat -> -inf, analytical Rényi-2 -log<f,f> -> -inf.
     The discrete forms ('shannon', 'normalized') handle sigma=0
     correctly (delta masses sit exactly in their cells) and are not
-    guarded here. Reads sigma from any density-object form
-    (MaetDensity, WindowedMaetDensity).
+    guarded here.
     """
-    if isinstance(dens, WindowedMaetDensity):
-        sigma = dens.dens.sigma
-    else:
-        sigma = dens.sigma
+    sigma = dens.sigma
     sigma_arr = np.asarray(sigma, dtype=np.float64)
     if sigma_arr.size > 0 and np.any(sigma_arr <= 0.0):
         raise ValueError(
@@ -450,7 +445,7 @@ def entropy_exp_tens(
       path would exhaust memory. Currently restricted to single-density
       input. Errors at ``sigma=0`` (the continuous form diverges).
 
-    The ``normalize`` kwarg of v2.1 has been removed; pick the
+    The ``normalize`` kwarg of v2.0 has been removed; pick the
     appropriate ``method`` instead (a migration error is raised if
     ``normalize`` is passed).
 
@@ -564,7 +559,7 @@ def entropy_exp_tens(
     For ``method='shannon'``, accuracy is set by the grid resolution
     ``n_points_per_dim`` and is independent of the Möbius method.
     """
-    # Detect the legacy normalize kwarg (removed in v2.2) and emit a
+    # Detect the legacy normalize kwarg (removed in v3) and emit a
     # migration error pointing to the four-method API. Other unknown
     # kwargs surface as a standard TypeError.
     if "normalize" in legacy_kwargs:
@@ -641,7 +636,7 @@ def _entropy_exp_tens_shannon_dispatch(
     list of densities, MA raw args, single-multiset raw args, single-multiset batched 2-D matrix).
     """
     # --- Density inputs first (scalar or list) ---
-    if isinstance(p_or_dens, (MaetDensity, WindowedMaetDensity)):
+    if isinstance(p_or_dens, MaetDensity):
         if len(args) > 0:
             raise TypeError(
                 f"Precomputed density takes no further positional args; "
@@ -666,9 +661,7 @@ def _entropy_exp_tens_shannon_dispatch(
     if isinstance(p_or_dens, (list, tuple)):
         if len(p_or_dens) == 0:
             intends_density_list = True
-        elif isinstance(
-            p_or_dens[0], (MaetDensity, WindowedMaetDensity)
-        ):
+        elif isinstance(p_or_dens[0], MaetDensity):
             intends_density_list = True
     elif isinstance(p_or_dens, np.ndarray) and p_or_dens.dtype == object:
         intends_density_list = True
@@ -807,15 +800,11 @@ def _entropy_exp_tens_renyi2_dispatch(
     Analytical Rényi-2 (collision) entropy via the orbit-Möbius
     inner-product machinery. Restricted to single-density input
     (scalar density object, raw scalar single-multiset, or raw scalar MA). List
-    and batched input forms raise ``NotImplementedError``. Windowed
-    MA is also not yet supported.
+    and batched input forms raise ``NotImplementedError``.
     """
     # Reject list inputs explicitly with a helpful message.
     if isinstance(p_or_dens, (list, tuple)):
-        if len(p_or_dens) > 0 and isinstance(
-            p_or_dens[0],
-            (MaetDensity, WindowedMaetDensity),
-        ):
+        if len(p_or_dens) > 0 and isinstance(p_or_dens[0], MaetDensity):
             raise NotImplementedError(
                 "method='renyi2' does not yet support list input. "
                 "Apply it to each density individually."
@@ -826,10 +815,7 @@ def _entropy_exp_tens_renyi2_dispatch(
             "Apply it to each density individually."
         )
     # Reject 2-D raw single-multiset input (batched) explicitly.
-    if (not isinstance(
-            p_or_dens,
-            (MaetDensity, WindowedMaetDensity),
-        )
+    if (not isinstance(p_or_dens, MaetDensity)
         and not _looks_like_ma_p(p_or_dens)):
         try:
             p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
@@ -1076,14 +1062,11 @@ def _entropy_exp_tens_differential_dispatch(
     """Adaptive differential entropy dispatch (parallel to renyi2 path).
 
     Single-density input only; list and batched input forms raise
-    NotImplementedError. Windowed MA is also not yet supported.
+    NotImplementedError.
     """
     # Reject list inputs.
     if isinstance(p_or_dens, (list, tuple)):
-        if len(p_or_dens) > 0 and isinstance(
-            p_or_dens[0],
-            (MaetDensity, WindowedMaetDensity),
-        ):
+        if len(p_or_dens) > 0 and isinstance(p_or_dens[0], MaetDensity):
             raise NotImplementedError(
                 "method='differential' does not yet support list input. "
                 "Apply it to each density individually."
@@ -1094,10 +1077,7 @@ def _entropy_exp_tens_differential_dispatch(
             "Apply it to each density individually."
         )
     # Reject 2-D raw single-multiset input (batched).
-    if (not isinstance(
-            p_or_dens,
-            (MaetDensity, WindowedMaetDensity),
-        )
+    if (not isinstance(p_or_dens, MaetDensity)
         and not _looks_like_ma_p(p_or_dens)):
         try:
             p_arr_check = np.asarray(p_or_dens, dtype=np.float64)
@@ -1117,14 +1097,6 @@ def _entropy_exp_tens_differential_dispatch(
 
     dens = _resolve_density(p_or_dens, args, spectrum)
     _raise_if_any_sigma_zero(dens, method_name="differential")
-
-    if isinstance(dens, WindowedMaetDensity):
-        raise NotImplementedError(
-            "method='differential' with WindowedMaetDensity is not yet "
-            "implemented. Apply differential entropy to the unwindowed "
-            "density, or use a Shannon/normalized path with an explicit "
-            "grid for windowed densities."
-        )
 
     # Resolve to a finite width uniformly with the eval/cosine/Möbius
     # paths: ``None`` -> global default; ``math.inf`` -> the finite
@@ -1156,14 +1128,6 @@ def _entropy_exp_tens_scalar(
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
     )
-    if isinstance(dens, WindowedMaetDensity):
-        return _entropy_exp_tens_ma(
-            dens,
-            normalize=normalize, base=base,
-            n_points_per_dim=n_points_per_dim,
-            x_min=x_min, x_max=x_max, grid_limit=grid_limit,
-            **eval_kw,
-        )
     if isinstance(dens, MaetDensity):
         return _entropy_exp_tens_ma(
             dens,
@@ -1173,8 +1137,7 @@ def _entropy_exp_tens_scalar(
             **eval_kw,
         )
     raise TypeError(
-        f"dens must be a MaetDensity or "
-        f"WindowedMaetDensity; got {type(dens).__name__}."
+        f"dens must be a MaetDensity; got {type(dens).__name__}."
     )
 
 
@@ -1222,9 +1185,7 @@ def _entropy_exp_tens_density_list(
             out[i] = result_cache[key]
     else:
         for i, d in enumerate(dens_list):
-            if not isinstance(
-                d, (MaetDensity, WindowedMaetDensity)
-            ):
+            if not isinstance(d, MaetDensity):
                 raise TypeError(
                     f"Density list element {i} must be a density object; "
                     f"got {type(d).__name__}."
@@ -1407,8 +1368,7 @@ def _entropy_exp_tens_raw_single_multiset_batch(
 def _resolve_density(p_or_dens, args, spectrum):
     """Coerce the ``entropy_exp_tens`` first argument plus tail args
     into a
-    :class:`MaetDensity` / :class:`WindowedMaetDensity` (MA),
-    independent of the entropy estimator. Returns the resolved ``dens``.
+    :class:`MaetDensity`, independent of the entropy estimator. Returns the resolved ``dens``.
 
     Centralises the build_exp_tens / spectrum / passthrough logic so
     that both the Shannon and renyi2 branches see a uniform input.
@@ -1417,12 +1377,6 @@ def _resolve_density(p_or_dens, args, spectrum):
     inputs separately.
     """
     # --- Dispatch on precomputed densities first ---
-    if isinstance(p_or_dens, WindowedMaetDensity):
-        if len(args) > 0:
-            raise TypeError(
-                "Precomputed WindowedMaetDensity takes no further positional args."
-            )
-        return p_or_dens
     if isinstance(p_or_dens, MaetDensity):
         if len(args) > 0:
             raise TypeError(
@@ -1603,7 +1557,7 @@ def _renyi2_per_attr_numerical(dens, a):
     return I_a, Z_a
 
 
-def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
+def _renyi2_exp_tens_ma(dens, *, base: float) -> float:
     """Analytical Rényi-2 entropy of an MA expectation tensor.
 
     Uses the per-attribute Möbius IP factorisation
@@ -1625,28 +1579,20 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     (``A = N = 1``) inherits the value 0 from this general loop rather
     than owning a convention of its own. The MATLAB twin
     (``entropyExpTens`` MA loop) applies the same rule.
-
-    Windowed densities are not yet supported on this path; raises
-    NotImplementedError.
     """
     from ._mobius import total_mass_abs, total_mass_rel
 
-    if isinstance(dens_or_windowed, WindowedMaetDensity):
-        raise NotImplementedError(
-            "method='renyi2' is not yet implemented for "
-            "WindowedMaetDensity. Use method='shannon' for windowed "
-            "MA densities, or compute on the underlying MaetDensity."
-        )
-    dens = dens_or_windowed.pruned()
+    dens = dens.pruned()
     A = dens.n_attrs
     N = dens.n
     if A == 0:
         return 0.0
     if N == 0:
-        # Every event pruned away: a zero-mass density (e.g. a windowed
-        # sweep centre with no event in support). Collision entropy is
-        # undefined; return NaN rather than 0, matching the single-multiset path and
-        # the value a windowed sweep wants at out-of-support centres.
+        # Every event pruned away: a zero-mass density (e.g. an event-
+        # weighted sweep centre with no event in support). Collision
+        # entropy is undefined; return NaN rather than 0, matching the
+        # single-multiset path and the value a windowed sweep wants at
+        # out-of-support centres.
         return float("nan")
 
     # Per-attribute inner matrices compose as
@@ -1766,17 +1712,9 @@ def _entropy_exp_tens_ma(
     for each attribute), evaluates the density at every grid point,
     normalises to a pmf, and returns Shannon entropy.
 
-    Accepts either a :class:`MaetDensity` or a
-    :class:`WindowedMaetDensity`. Structural fields (dim, dim_per_attr,
-    etc.) are read from the underlying density; evaluation
-    itself calls :func:`eval_exp_tens` on the input object, so window
-    application (if present) is handled automatically.
+    Accepts a :class:`MaetDensity`.
     """
-    # Structural fields — same on windowed or unwindowed objects.
-    if isinstance(dens, WindowedMaetDensity):
-        base_dens = dens.dens
-    else:
-        base_dens = dens
+    base_dens = dens
     dim      = int(base_dens.dim)
     dim_per  = base_dens.dim_per_attr
     A        = base_dens.n_attrs
@@ -1839,18 +1777,15 @@ def _entropy_exp_tens_ma(
     X = np.stack([m.ravel() for m in mesh], axis=0)  # (dim, total_points)
 
     # --- Evaluate density on the grid ---
-    # For absolute-mode unwindowed densities (is_rel=False everywhere)
+    # For absolute-mode densities (is_rel=False everywhere)
     # the categorical pmf is the genuine bin masses (int_{cell} f dx),
     # obtained analytically via per-axis erf differences. For
     # relative-mode densities the bin integral is a multivariate-
     # normal box probability (off-diagonal covariance in the effective
     # coordinates); pending the v2.3 covariance machinery we fall back
     # to point-evaluation, which agrees with bin-integration to ~1e-4
-    # on the fine grids relative-mode use-cases require. Windowed
-    # densities also use point-evaluation here -- windowed
-    # cell-integration is a separate problem not yet addressed.
-    is_windowed = isinstance(dens, WindowedMaetDensity)
-    if not is_windowed and not bool(np.any(np.asarray(base_dens.is_rel))):
+    # on the fine grids relative-mode use-cases require.
+    if not bool(np.any(np.asarray(base_dens.is_rel))):
         # The resolved width (None -> the default, inf -> the accuracy
         # floor) governs the image count of a full-image periodic axis.
         from ._defaults import resolve_truncation_sigmas

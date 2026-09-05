@@ -4,7 +4,7 @@ function [vals, ratios, termMass] = innerProductOrbitPwBatched(K_g, w_A_g, w_B_g
 %   VALS = MOBIUS.INNERPRODUCTORBITPWBATCHED(K_G, W_A_G, W_B_G, R)
 %   evaluates the orbit-Möbius inner product at each batch index,
 %   allowing the source weights to differ per batch. This is the
-%   v2.2 multi-attribute path: each grid point represents one
+%   v3 multi-attribute path: each grid point represents one
 %   (event_X, event_Y) pair and per-attribute weights vary per event.
 %
 %   The standard MOBIUS.INNERPRODUCTORBITGRID requires shared W_A and

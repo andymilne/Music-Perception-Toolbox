@@ -1,10 +1,10 @@
-%% test_eval_routing.m — v2.2 evalExpTens centres-path routing parity
+%% test_eval_routing.m — v3 evalExpTens centres-path routing parity
 %
 %  Mirrors python/tests/test_eval_routing.py. Verifies that the
-%  v2.2.x refactor of localEvalSingleMultisetCentres (routing through
+%  v3 refactor of localEvalSingleMultisetCentres (routing through
 %  internal.gaussianKernelSum) is:
 %
-%    - Within the accuracy-floor truncation bound of the v2.0/v2.1
+%    - Within the accuracy-floor truncation bound of the v2.0
 %      untruncated reference at default settings (Inf resolves to the
 %      ~7.43 sigma floor; kernelPrecision='double').
 %    - Within bounded relative error at finite truncationSigmas.
@@ -75,7 +75,7 @@ for ic = 1:size(er_cases, 1)
         X = 1000 * rand(dim, nQ);
     end
 
-    % --- Reference: frozen v2.0/v2.1 body ---
+    % --- Reference: frozen v2.0 body ---
     ref = local_ref_eval(dens, X);
 
     % --- Default / explicit Inf: the reference sums untruncated, but Inf
@@ -191,7 +191,7 @@ end
 
 
 function v = local_ref_eval(dens, X)
-%LOCAL_REF_EVAL  Frozen v2.0/v2.1 evalFull body for parity reference.
+%LOCAL_REF_EVAL  Frozen v2.0 evalFull body for parity reference.
 %   Assumes `dens` already has its heavy fields materialised (caller
 %   has invoked internal.ensureExpTensExpensive). The frozen body reads
 %   the flat single-multiset layout, so present the density through the

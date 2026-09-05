@@ -33,7 +33,7 @@ What it affects: every density evaluation routes through the Gaussian kernel
 sum, so ``truncation_sigmas`` governs the accuracy of ``eval_exp_tens``,
 ``cos_sim_exp_tens``, ``entropy_exp_tens``, ``tensor_harmonicity``,
 ``template_harmonicity``, ``spectral_entropy``, ``virtual_pitches``,
-``windowed_tensor_similarity``, and ``weight_events``, together with the
+``windowed_similarity``, and ``weight_events``, together with the
 orbit evaluators those functions call. It does not affect any non-kernel
 computation.
 

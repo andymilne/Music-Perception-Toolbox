@@ -29,7 +29,7 @@ function bench_mobius(varargin)
 %   'referenceR' is the SAME enumeration written here in plain MATLAB
 %   with the X side restricted to combinations and multiplied by r!;
 %   timed against a local unrestricted twin it isolates Bulger's saving,
-%   the two differing only in the restriction. (Before v2.2 the toolbox
+%   the two differing only in the restriction. (Before v3 the toolbox
 %   had no unrestricted route: 'direct' named Bulger's method.)
 %
 %   The relative modes' orbit route is pinned with the 'relRoute'

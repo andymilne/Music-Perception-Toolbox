@@ -9,23 +9,14 @@ offsets to their nearest image first, so it is invariant to whole-period
 shifts of a centre, and then integrates the density the attribute's
 ``wrap`` declares: the wrapped normal under the default
 ``'full-image'``, the minimum-image Gaussian of Eq. (1) under
-``'single-image'``. The wrapped-window factor
-(:func:`mpt._tensor.windowing._wrapped_window_factor_1d`) and the windowed
-inner-product image sum
-(:func:`mpt._tensor.windowing._periodic_image_sum_contribution`) sum
-Gaussian images across the period, reducing the offset to its minimum
-image first so the dominant image is reached. These tests lock in both
-the period-invariance and the wrap semantics of the entropy cell mass.
+``'single-image'``. These tests lock in both the period-invariance and
+the wrap semantics of the entropy cell mass.
 """
 import warnings
 
 import numpy as np
 
 from mpt import entropy_exp_tens, add_spectra
-from mpt._tensor.windowing import (
-    _wrapped_window_factor_1d,
-    _periodic_image_sum_contribution,
-)
 
 PERIOD = 1200.0  # one octave in cents
 
@@ -101,35 +92,3 @@ def test_differential_periodic_follows_the_wrap():
     assert abs(htb_full - h_wrap) < 1e-3       # and matches it to grid precision
     assert abs(htb_single - h_min) < abs(htb_single - h_wrap)  # opt-in: min-image
     assert abs(htb_single - h_min) < 1e-3
-
-
-def test_wrapped_window_factor_period_invariant():
-    # The wrapped window is periodic in its offset; shifting the offset by
-    # whole periods must not change the value, even when the near images
-    # underflow to zero.
-    a_, b_, tol = 0.0, 100.0, 1e-12  # pure Gaussian window, width 100
-    base = float(_wrapped_window_factor_1d(
-        np.array([0.3 * PERIOD]), a_, b_, PERIOD, tol)[0])
-    assert base > 0.0
-    for k in (3.3, 10.3, -7.7, 41.3):
-        val = float(_wrapped_window_factor_1d(
-            np.array([k * PERIOD]), a_, b_, PERIOD, tol)[0])
-        assert np.isclose(val, base, rtol=0, atol=1e-15)
-
-
-def test_windowed_inner_product_period_invariant():
-    # The windowed inner-product image sum depends on (midpoint - centre)
-    # modulo the period; shifting the window centre by whole periods must
-    # leave the per-pair contribution unchanged.
-    cx = np.array([[100.0, 500.0]])
-    cy = np.array([[300.0]])
-    tol = 1e-12
-
-    def contrib(centre):
-        return _periodic_image_sum_contribution(
-            cx, cy, np.array([centre]), 1.0, 0.0, 100.0,
-            False, 1, 1, PERIOD, tol)[0]
-
-    base = contrib(200.0)
-    for k in (1, 7, 33):
-        assert np.allclose(base, contrib(200.0 + k * PERIOD), atol=1e-12)

@@ -10,7 +10,7 @@ and ``markov_s`` functions.
 
 from __future__ import annotations
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"
 
 # --- Pitch/frequency conversion ---
 from .convert import convert_pitch
@@ -21,7 +21,6 @@ from .spectra import add_spectra
 # --- Expectation tensors ---
 from .tensor import (
     MaetDensity,
-    WindowedMaetDensity,
     batch_cos_sim_exp_tens,
     build_exp_tens,
     cos_sim_exp_tens,
@@ -37,8 +36,6 @@ from .tensor import (
     weight_events,
     TranslateAttributesNoOpWarning,
     TranslatedSweep,
-    window_tensor,
-    windowed_tensor_similarity,
     windowed_similarity,
     windowed_entropy,
 )
@@ -115,11 +112,8 @@ __all__ = [
     "TranslatedSweep",
     "weight_events",
     "TranslateAttributesNoOpWarning",
-    "window_tensor",
-    "windowed_tensor_similarity",
     "windowed_similarity",
     "windowed_entropy",
-    "WindowedMaetDensity",
     # circular
     "dft_circular",
     "dft_circular_simulate",

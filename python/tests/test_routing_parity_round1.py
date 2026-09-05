@@ -20,9 +20,7 @@ number for the same input:
   evaluation routes, and forwarded on the entropy list form;
 * B-5 -- the factored MA evaluation route passes the attribute's wrap;
 * A-17 -- ``eval_exp_tens`` validates ``normalize``; the sweep orbit route
-  receives a resolved width;
-* B-15 -- ``windowed_tensor_similarity`` honours ``truncation_sigmas`` and
-  ``kernel_precision``.
+  receives a resolved width.
 """
 import warnings
 
@@ -31,8 +29,7 @@ import pytest
 
 import mpt
 from mpt import (build_exp_tens, cos_sim_exp_tens, entropy_exp_tens,
-                 eval_exp_tens, sweep_cos_sim_exp_tens,
-                 windowed_tensor_similarity)
+                 eval_exp_tens, sweep_cos_sim_exp_tens)
 from mpt._tensor import eval as _ev
 from mpt._tensor.cosine import (_nested_admissible_routes,
                                 _nested_enumeration_admissible)
@@ -310,40 +307,3 @@ def test_sweep_orbit_route_resolves_an_explicit_inf():
                                truncation_sigmas=accuracy_floor_sigmas(),
                                verbose=False)
     assert np.array_equal(a, b)
-
-
-# --------------------------------------------------------------------- B-15
-
-
-def _windowed_case():
-    rng = np.random.default_rng(41)
-    ctx = build_exp_tens([np.sort(rng.uniform(0.0, 40.0, size=(6, 4)),
-                                  axis=0)],
-                         None, [1.5], [2], [False], [False], [0.0],
-                         verbose=False)
-    qry = build_exp_tens([np.sort(rng.uniform(10.0, 20.0, size=(4, 2)),
-                                  axis=0)],
-                         None, [1.5], [2], [False], [False], [0.0],
-                         verbose=False)
-    spec = {"size": [4.0], "mix": [0.0]}
-    off = np.vstack([np.linspace(-10.0, 10.0, 9)] * 2)
-    return ctx, qry, spec, off
-
-
-def test_windowed_similarity_truncates_at_the_per_call_width():
-    ctx, qry, spec, off = _windowed_case()
-    ref = windowed_tensor_similarity(ctx, qry, spec, off, verbose=False)
-    coarse = windowed_tensor_similarity(ctx, qry, spec, off,
-                                        truncation_sigmas=1.0, verbose=False)
-    assert coarse.shape == ref.shape
-    assert np.max(np.abs(coarse - ref)) > 1e-6
-
-
-def test_windowed_similarity_honours_single_precision():
-    ctx, qry, spec, off = _windowed_case()
-    ref = windowed_tensor_similarity(ctx, qry, spec, off, verbose=False)
-    single = windowed_tensor_similarity(ctx, qry, spec, off,
-                                        kernel_precision="single",
-                                        verbose=False)
-    assert single == pytest.approx(ref, rel=1e-4)
-    assert np.max(np.abs(single - ref)) > 0.0

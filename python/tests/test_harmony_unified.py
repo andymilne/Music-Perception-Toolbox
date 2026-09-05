@@ -255,7 +255,7 @@ class TestVirtualPitchesBatched:
         assert len(vp_w_list) == 1
 
     def test_transposition_dedup(self):
-        """v2.2+: structurally-identical canonical chords share a
+        """v3+: structurally-identical canonical chords share a
         cached vp_w. Two rows that are transpositions of each other
         must produce identical vp_w arrays and vp_p arrays that
         differ by exactly the transposition amount."""
@@ -306,7 +306,7 @@ class TestErrors:
 
 
 class TestTemplateHarmonicityVerboseEstimate:
-    """v2.1.1+: template_harmonicity prints a time estimate via
+    """v3+: template_harmonicity prints a time estimate via
     estimate_comp_time when ``verbose=True`` (default), and is silent
     when ``verbose=False``.
     """

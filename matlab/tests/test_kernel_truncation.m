@@ -1,4 +1,4 @@
-%% test_kernel_truncation.m — v2.2 internal.gaussianKernelSum and mptDefaults
+%% test_kernel_truncation.m — v3 internal.gaussianKernelSum and mptDefaults
 %
 %  Mirrors python/tests/test_kernel_truncation.py.
 %

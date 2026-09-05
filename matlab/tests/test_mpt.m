@@ -78,7 +78,7 @@ testsDir = fileparts(mfilename('fullpath'));
 % Core (pitch, spectra, circular measures)
 core = {'test_convert_pitch.m', 'test_add_spectra.m', 'test_circular.m'};
 
-% Tier-1/2/4 batched dispatch (v2.1+)
+% Tier-1/2/4 batched dispatch (v3+)
 batched = {'test_tier1_batched.m', 'test_tier2_batched.m', 'test_tier4_batched.m'};
 
 % Expectation tensors and entropy
@@ -92,16 +92,16 @@ harmony = {'test_harmony.m'};
 cost = {'test_estimate_comp_time.m', 'test_print_batched_estimate.m', ...
         'test_input_validation.m'};
 
-% Serial module (v2.1.0)
+% Serial module (v3)
 serial = {'test_serial_continuity.m', 'test_serial_seq_weights.m'};
 
-% Multi-Attribute Expectation Tensor (MAET, v2.1.0)
-maet = {'test_maet.m', 'test_windowed_similarity_offset.m', 'test_windowed_premaet.m', 'test_windowed_nested.m', 'test_periodic_unfolded_centres.m', 'test_sym.m', 'test_nested.m', 'test_nesting_L3.m', 'test_nested_unequal_cardinality.m', 'test_nested_ma_contraction.m', 'test_nested_abs_per_full_image.m', 'test_nested_rel_per_full_image.m', 'test_nested_measure_rule.m', 'test_nested_cost_model.m', 'test_nested_spectral_factor.m', 'test_specs.m', 'test_bind.m', 'test_bind_by_attribute.m', 'test_difference.m', 'test_translate.m', 'test_sweep_reduction.m', 'test_gram_quadratic_form.m'};
+% Multi-Attribute Expectation Tensor (MAET, v3)
+maet = {'test_maet.m', 'test_windowed_premaet.m', 'test_windowed_nested.m', 'test_periodic_unfolded_centres.m', 'test_sym.m', 'test_nested.m', 'test_nesting_L3.m', 'test_nested_unequal_cardinality.m', 'test_nested_ma_contraction.m', 'test_nested_abs_per_full_image.m', 'test_nested_rel_per_full_image.m', 'test_nested_measure_rule.m', 'test_nested_cost_model.m', 'test_nested_spectral_factor.m', 'test_specs.m', 'test_bind.m', 'test_bind_by_attribute.m', 'test_difference.m', 'test_translate.m', 'test_sweep_reduction.m', 'test_gram_quadratic_form.m'};
 
 % Geometry helpers
 geom = {'test_simplex_vertices.m'};
 
-% v2.2 features
+% v3 features
 v22 = {'test_mobius_combinatorics.m', 'test_mobius_orbit_table.m', ...
        'test_mobius_ip.m', 'test_mobius_eval.m', ...
        'test_orbit_sparse.m', ...

@@ -1,4 +1,4 @@
-"""Tests for v2.1 batched dispatch in Tier-2 structural functions:
+"""Tests for v3 batched dispatch in Tier-2 structural functions:
 ``coherence``, ``sameness``, ``n_tuple_entropy``.
 
 All three accept a 2-D ``(M, K)`` matrix in addition to 1-D ``p`` and

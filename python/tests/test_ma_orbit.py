@@ -1,4 +1,4 @@
-"""Tests for the v2.2 multi-attribute orbit dispatcher.
+"""Tests for the v3 multi-attribute orbit dispatcher.
 
 The MA inner product factorises per attribute and per event pair (JMM
 Eq. 3.4 with the per-attribute integral separation), so orbit Möbius

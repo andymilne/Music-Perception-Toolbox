@@ -13,10 +13,8 @@ fast, single-multiset centres chunked, single-multiset orbit, multi-attribute ce
 shape/normalise helpers (``_split_query_to_attr_list``,
 the normalisation helpers, etc.).
 
-The eval path reaches into :mod:`._tensor.windowing` for the per-query
-window evaluation (:func:`_evaluate_window_on_query`) when the input
-density is a :class:`WindowedMaetDensity`, and into
-:mod:`._tensor.dispatch` for path selection.
+The eval path reaches into :mod:`._tensor.dispatch` for path
+selection.
 
 See USER_GUIDE §4 ("Method selection") and :doc:`/ARCHITECTURE` §4
 ("Dispatcher pattern") for the conceptual description.
@@ -38,11 +36,10 @@ from ..spectra import add_spectra
 from .build import _looks_like_multi_attr, build_exp_tens
 from .canonical import _chord_canonical_key
 from .density import is_single_multiset
-from .density import MaetDensity, WindowedMaetDensity
+from .density import MaetDensity
 from .dispatch import (_compute_Q, _compute_Q_inner_blocks, _inner_r_vec,
                        _normalize_density_input,
                        _quadratic_form_det, _gaussian_mass_const)
-from .windowing import _evaluate_window_on_query
 
 
 
@@ -207,16 +204,12 @@ def eval_exp_tens(*args,
     # ------------------------------------------------------------------
     # Density input dispatch
     # ------------------------------------------------------------------
-    is_density_scalar = isinstance(
-        a, (MaetDensity, WindowedMaetDensity)
-    )
+    is_density_scalar = isinstance(a, MaetDensity)
     intends_density_list = False
     if isinstance(a, (list, tuple)):
         if len(a) == 0:
             intends_density_list = True
-        elif isinstance(
-            a[0], (MaetDensity, WindowedMaetDensity)
-        ):
+        elif isinstance(a[0], MaetDensity):
             intends_density_list = True
     elif isinstance(a, np.ndarray) and a.dtype == object:
         intends_density_list = True
@@ -430,24 +423,6 @@ def _eval_exp_tens_scalar(
     # ``normalize``: an unknown string used to act as 'gaussian' silently,
     # where the MATLAB twin rejects it.
     normalize = _validate_eval_normalize(normalize)
-    if isinstance(dens, WindowedMaetDensity):
-        if density_has_kernel_cov(dens.dens):
-            raise NotImplementedError(
-                "Matrix-valued kernel covariances are not supported on "
-                "windowed densities; use windowed_similarity, whose "
-                "internal builds accept them."
-            )
-        # Evaluate underlying density, multiply elementwise by window.
-        underlying = _eval_exp_tens_ma(
-            dens.dens, x, normalize,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-            verbose=verbose,
-        )
-        # Reconstruct per-attribute x_list so we can apply the window.
-        x_list = _split_query_to_attr_list(dens.dens, x)
-        W_vals = _evaluate_window_on_query(dens, x_list)
-        return underlying * W_vals
     _aniso = density_has_kernel_cov(dens)
     if _aniso:
         # Whitened coordinates: transform the query once; the internal
@@ -478,8 +453,7 @@ def _eval_exp_tens_scalar(
             vals = vals * np.exp(-0.5 * density_logdet_sum(dens))
         return vals
     raise TypeError(
-        f"dens must be a MaetDensity or "
-        f"WindowedMaetDensity; got {type(dens).__name__}."
+        f"dens must be a MaetDensity; got {type(dens).__name__}."
     )
 
 
@@ -1681,7 +1655,7 @@ def _eval_full(centres, w_j, n_j, x_q, n_qc, dim, sigma, r, is_rel, is_per, peri
 
     Uses the pairwise-wrap form (Eq 6 of the preprint) for
     periodic+relative, matching cosSimExpTens. The algebraic form
-    used by v2.0 / v2.1 in this mode silently differed from the
+    used by v2.0 in this mode silently differed from the
     inner-product convention; v2.X corrects it.
 
     ``truncation_sigmas`` applies the same kernel-value floor as the

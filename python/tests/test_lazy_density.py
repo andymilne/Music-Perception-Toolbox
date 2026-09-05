@@ -1,4 +1,4 @@
-"""Tests for MaetDensity lazy materialisation (v2.2+).
+"""Tests for MaetDensity lazy materialisation (v3+).
 
 ``build_exp_tens`` builds the per-tuple permutation arrays
 (``centres``, ``u_perm``, ``w_perm``, ``v_comb``, ``wv_comb``) lazily.
@@ -24,7 +24,7 @@ These tests verify:
    density lazy.
 5. Centres-path and pairwise-path consumers materialise the density.
 6. The lazily-built fields produce numerically identical output to
-   the v2.1 eager build (regression check via the orbit-vs-centres
+   the v2.0 eager build (regression check via the orbit-vs-centres
    eval comparison and self-similarity).
 7. The headline use case: building a K=256, r=4 density and
    evaluating via orbit succeeds without materialising the
@@ -99,7 +99,7 @@ def test_per_tuple_array_caches_across_reads():
 
 
 def test_w_j_aliases_w_perm():
-    """w_j and w_perm exposed the same array in v2.1; the lazy class
+    """w_j and w_perm exposed the same array in v2.0; the lazy class
     preserves this alias."""
     T = _make_dens()
     T = single_multiset_view(T)
@@ -107,7 +107,7 @@ def test_w_j_aliases_w_perm():
 
 
 def test_n_j_aliases_n_j_perm():
-    """n_j and n_j_perm exposed the same value in v2.1; preserved."""
+    """n_j and n_j_perm exposed the same value in v2.0; preserved."""
     T = _make_dens()
     T = single_multiset_view(T)
     assert T.n_j == T.n_j_perm
@@ -162,7 +162,7 @@ def test_cos_sim_pairwise_materialises():
 
 
 # -------------------------------------------------------------------
-#  6. Numerical identity with v2.1 eager build
+#  6. Numerical identity with v2.0 eager build
 # -------------------------------------------------------------------
 
 
@@ -197,7 +197,7 @@ def test_orbit_vs_centres_after_lazy_build():
 
 
 def test_high_K_high_r_orbit_eval_does_not_oom():
-    """K=256, r=4 yields n_j ≈ 9·10⁸ four-tuples — pre-v2.2 the
+    """K=256, r=4 yields n_j ≈ 9·10⁸ four-tuples — pre-v3 the
     eager build allocated arrays totalling >25 GB and OOM'd. Lazy
     materialisation skips the allocation entirely when only the
     Möbius method is exercised. Build time should be sub-millisecond

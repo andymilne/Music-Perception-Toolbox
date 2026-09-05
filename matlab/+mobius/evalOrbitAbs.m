@@ -219,7 +219,7 @@ function [vals, ratios] = evalOrbitAbs(p, w, sigma, r, x, opts)
     % Restore shape: trailing dims as in the input.
     if is2D
         % Caller passed (r, n_q); preserve column-vector return for
-        % v2.0/v2.1 compatibility.
+        % v2.0 compatibility.
         vals = total;
     else
         vals = reshape(total, outShape);

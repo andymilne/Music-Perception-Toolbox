@@ -35,8 +35,8 @@ function H = entropyExpTens(varargin)
 %       Currently restricted to single-density input. Errors at
 %       sigma=0.
 %
-%   v2.2 breaking change: the legacy 'normalize' boolean kwarg has
-%   been removed. Use method='normalized' for the v2.1 default
+%   v3 breaking change: the legacy 'normalize' boolean kwarg has
+%   been removed. Use method='normalized' for the v2.0 default
 %   behaviour (H/log_b(N) in [0, 1]) or method='shannon' for raw H.
 %   Passing 'normalize' raises a migration-error exception.
 %
@@ -65,9 +65,8 @@ function H = entropyExpTens(varargin)
 %       Pre-built density form. T is a struct as returned by
 %       buildExpTens. Dispatches on its tag and shape: a single-multiset
 %       MaetDensity (A = N = 1) -> single-multiset path, a general
-%       'MaetDensity' -> MA, 'WindowedMaetDensity' -> MA (Shannon
-%       only). When a struct is passed, no further positional
-%       arguments are required.
+%       'MaetDensity' -> MA. When a struct is passed, no further
+%       positional arguments are required.
 %
 %   Input forms (Shannon-only):
 %
@@ -141,7 +140,7 @@ function H = entropyExpTens(varargin)
 %                         for method='normalized'.
 %       'nPointsPerDim' - Required for method='shannon' and
 %                         method='normalized' (no toolbox-wide default
-%                         in v2.2); ignored by 'differential' and
+%                         in v3); ignored by 'differential' and
 %                         'renyi2'. Pass an explicit positive integer.
 %       'xMin'          - Discrete methods, non-periodic only.
 %                         single multiset: scalar. MA: scalar (broadcast to all
@@ -209,7 +208,7 @@ function H = entropyExpTens(varargin)
 % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
 guard = internal.callGuard(); %#ok<NASGU>
 
-% Detect the legacy 'normalize' kwarg (removed in v2.2). We scan
+% Detect the legacy 'normalize' kwarg (removed in v3). We scan
 % varargin directly *before* invoking localParseNVPairs (which would
 % otherwise treat 'normalize' as a positional argument once it's
 % gone from nvDefaults). A migration error then points users to
@@ -220,8 +219,8 @@ for kArg = 1:numel(varargin)
             && strcmpi(char(varargin{kArg}), 'normalize')
         error('entropyExpTens:normalizeRemoved', ...
               ['entropyExpTens: the ''normalize'' kwarg has been ' ...
-               'removed in v2.2. Use method=''normalized'' for ' ...
-               'H/log_b(N) in [0, 1] (the v2.1 default behaviour), ' ...
+               'removed in v3. Use method=''normalized'' for ' ...
+               'H/log_b(N) in [0, 1] (the v2.0 default behaviour), ' ...
                'or method=''shannon'' for raw H = -sum q log_b q. ' ...
                'method=''differential'' and method=''renyi2'' are ' ...
                'continuous-form entropies and have no [0, 1] reference.']);
@@ -345,10 +344,6 @@ function H = localEntropyShannonDispatch(posArgs, nvArgs)
                 else
                     H = localEntropyMA(firstArg, nvArgs);
                 end
-                return;
-            case 'WindowedMaetDensity'
-                localRequireExplicitGrid(nvArgs.nPointsPerDim);
-                H = localEntropyMA(firstArg, nvArgs);
                 return;
             otherwise
                 error('entropyExpTens:unknownTag', ...
@@ -572,25 +567,15 @@ end
 % =========================================================================
 
 function H = localEntropyMA(dens, nvArgs)
-%LOCALENTROPYMA  Shannon entropy of a MaetDensity or WindowedMaetDensity.
+%LOCALENTROPYMA  Shannon entropy of a MaetDensity.
 %
 %   Builds a Cartesian-product grid with one 1-D linspace per effective
 %   dimension of the density's domain (one per non-isRel coordinate for
 %   each attribute, each on its group's domain), evaluates the density
 %   at every grid point via evalExpTens, normalises to a pmf, and
 %   returns Shannon entropy.
-%
-%   Accepts either a MaetDensity or a WindowedMaetDensity. Structural
-%   fields are read from the underlying density; evaluation itself
-%   calls evalExpTens on the input object, so window application (if
-%   present) is handled automatically.
 
-    % Structural fields come from the underlying MaetDensity.
-    if isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity')
-        base_dens = dens.dens;
-    else
-        base_dens = dens;
-    end
+    base_dens = dens;
     A         = base_dens.nAttrs;
     dimPer    = base_dens.dimPerAttr;
     dim       = base_dens.dim;
@@ -656,7 +641,7 @@ function H = localEntropyMA(dens, nvArgs)
 
     % --- Evaluate density on the grid ---
     %
-    % For absolute-mode unwindowed densities (isRel=false everywhere)
+    % For absolute-mode densities (isRel=false everywhere)
     % the categorical pmf is the genuine bin masses (int_{cell} f dx),
     % obtained analytically via per-axis erf differences. This matches
     % Python's _cell_masses_ma_absolute and gives Python/MATLAB parity
@@ -665,11 +650,9 @@ function H = localEntropyMA(dens, nvArgs)
     % the effective coordinates); pending the v2.3 covariance machinery
     % we fall back to point-evaluation, which agrees with bin-
     % integration to ~1e-4 on the fine grids relative-mode use-cases
-    % require. Windowed densities also use point-evaluation here --
-    % windowed cell-integration is a separate problem.
-    isWindowed = isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity');
+    % require.
     isAbs = ~any(logical(base_dens.isRel));
-    if ~isWindowed && isAbs
+    if isAbs
         % Bin-integration cell-mass path (see the single multiset sibling
         % above: the resolved width fixes the full-image image count).
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
@@ -948,7 +931,7 @@ function nvPairs = localPackNVPairs(nvArgs)
 %   from the user-facing 'method' value (true for 'normalized', false
 %   for the other three methods), not a name-value pair the user is
 %   allowed to supply. Recursive entropyExpTens calls would otherwise
-%   see 'normalize' in varargin and trip the v2.2 migration error.
+%   see 'normalize' in varargin and trip the v3 migration error.
 %
 %   The 'isSym' field is likewise omitted: it is an internal-only
 %   carrier for the optional trailing positional flag, popped from the
@@ -1476,14 +1459,10 @@ function localRaiseIfAnySigmaZero(dens, methodName)
 %LOCALRAISEIFANYSIGMAZERO  Reject sigma=0 for continuous methods.
 %
 %   The continuous-form entropies ('differential', 'renyi2') diverge
-%   at sigma=0. Reads sigma from any density form (MaetDensity,
-%   WindowedMaetDensity) or the single-multiset view.
+%   at sigma=0. Reads sigma from a MaetDensity or the single-multiset
+%   view.
 
-    if isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity')
-        sigma = dens.dens.sigma;
-    else
-        sigma = dens.sigma;
-    end
+    sigma = dens.sigma;
     if ~isempty(sigma) && any(double(sigma(:)) <= 0)
         error('entropyExpTens:sigmaZeroNotSupported', ...
               ['method=''%s'' requires sigma > 0 for every group ' ...
@@ -1538,7 +1517,7 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
 %
 %   Single-density input only (scalar density struct, raw scalar single multiset,
 %   or raw scalar MA). List and batched input forms raise informative
-%   errors. WindowedMaetDensity is not yet supported.
+%   errors.
 
     nPos = numel(posArgs);
     firstArg = posArgs{1};
@@ -1567,10 +1546,6 @@ function H = localEntropyDifferentialDispatch(posArgs, nvArgs)
             case 'MaetDensity'
                 dens = firstArg;
                 singleMultisetInput = internal.isSingleMultiset(firstArg);
-            case 'WindowedMaetDensity'
-                error('entropyExpTens:differentialWindowedNotSupported', ...
-                    ['method=''differential'' with ' ...
-                     'WindowedMaetDensity is not yet implemented.']);
             otherwise
                 error('entropyExpTens:unknownTag', ...
                     'Unknown density struct tag: %s.', firstArg.tag);
@@ -1907,7 +1882,6 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
 %   inner-product machinery. Restricted to single-density input
 %   (scalar density struct, raw scalar single multiset, or raw scalar MA). List
 %   and batched input forms raise NotImplementedError-style errors.
-%   Windowed MA is also not yet supported.
 
     nPos = numel(posArgs);
     firstArg = posArgs{1};
@@ -1945,12 +1919,6 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                     H = localAnisoEntropyCorrection(H, firstArg, base);
                 end
                 return;
-            case 'WindowedMaetDensity'
-                error('entropyExpTens:renyi2WindowedNotSupported', ...
-                    ['method=''renyi2'' is not yet implemented for ' ...
-                     'WindowedMaetDensity. Use method=''shannon'' for ' ...
-                     'windowed MA densities, or compute on the ' ...
-                     'underlying MaetDensity.']);
             otherwise
                 error('entropyExpTens:unknownTag', ...
                     'Unknown density struct tag: %s.', firstArg.tag);
@@ -2186,14 +2154,6 @@ function H = localRenyi2MA(dens, base)
 %   (localRenyi2SingleMultiset, A = N = 1) inherits the value 0 from this
 %   general loop rather than owning a convention of its own. The Python
 %   twin (_renyi2_exp_tens_ma) applies the same rule.
-%
-%   Windowed densities are not supported on this path.
-
-    if strcmp(dens.tag, 'WindowedMaetDensity')
-        error('entropyExpTens:renyi2WindowedNotSupported', ...
-            ['method=''renyi2'' is not yet implemented for ' ...
-             'WindowedMaetDensity.']);
-    end
 
     dens = internal.prunedExpTens(dens);
     A = dens.nAttrs;
@@ -2203,8 +2163,8 @@ function H = localRenyi2MA(dens, base)
         return;
     end
     if N == 0
-        % Every event pruned away: a zero-mass density (e.g. a windowed
-        % sweep centre with no event in support). Collision entropy is
+        % Every event pruned away: a zero-mass density (e.g. an event-
+        % weighted sweep centre with no event in support). Collision entropy is
         % undefined; return NaN rather than 0, matching the single multiset path and
         % the value a windowed sweep wants at out-of-support centres.
         H = NaN;

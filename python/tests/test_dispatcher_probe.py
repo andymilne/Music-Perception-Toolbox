@@ -113,7 +113,7 @@ class TestVerboseDispatchMessage:
         assert "eval_exp_tens (MAET): chose 'centres' path" in captured.out
 
     def test_message_fires_even_when_verbose_false(self, capsys):
-        """v2.2.x: dispatch messages bypass per-call verbose; they're
+        """v3: dispatch messages bypass per-call verbose; they're
         gated by mpt.get_default('show_hints'), not by verbose. This
         ensures users see the routing decision even when called from
         internal code paths that defensively pass verbose=False."""

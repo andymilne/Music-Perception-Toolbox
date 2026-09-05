@@ -214,7 +214,7 @@ def test_renyi2_ma_relative_attribute():
 
 
 def test_renyi2_normalize_kwarg_raises_migration():
-    """Legacy ``normalize`` kwarg was removed in v2.2; passing it
+    """Legacy ``normalize`` kwarg was removed in v3; passing it
     (with any value) raises a migration-error TypeError pointing to
     the four-method API."""
     rng = np.random.default_rng(0)
@@ -223,9 +223,9 @@ def test_renyi2_normalize_kwarg_raises_migration():
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
-    with pytest.raises(TypeError, match="'normalize'.*removed in v2.2"):
+    with pytest.raises(TypeError, match="'normalize'.*removed in v3"):
         entropy_exp_tens(T, method='renyi2', normalize=False)
-    with pytest.raises(TypeError, match="'normalize'.*removed in v2.2"):
+    with pytest.raises(TypeError, match="'normalize'.*removed in v3"):
         entropy_exp_tens(T, method='renyi2', normalize=True)
 
 

@@ -1,6 +1,6 @@
 """Equivalence tests for precomputed-path orbit machinery.
 
-The v2.2 Python orbit IP path stores a precomputed contraction path
+The v3 Python orbit IP path stores a precomputed contraction path
 on each ``OrbitEntry`` (``einsum_path``, ``einsum_path_grid``,
 ``einsum_path_pw_batched``) and passes it as ``optimize=path`` to
 ``np.einsum``. This file verifies that path precomputation produces
@@ -41,7 +41,7 @@ def _make_kernel(K_x, K_y, seed=0):
 
 
 def _einsum_with_optimize_true(table, K, w_A, w_B):
-    """Reference computation: matches the v2.1 path (optimize=True)."""
+    """Reference computation: matches the un-precomputed path (optimize=True)."""
     total = 0.0
     for orb in table:
         operands = []

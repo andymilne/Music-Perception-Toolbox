@@ -8,7 +8,7 @@ function bench_orbit_xlang
 %   read into a comparison table.
 %
 %   Compare median wall times to gauge whether MATLAB is within ~2x
-%   of Python (the gating threshold for shipping the v2.2 MATLAB port
+%   of Python (the gating threshold for shipping the v3 MATLAB port
 %   as-is vs investing in precomputed contraction paths or a sharper
 %   greedy heuristic in the reference.contract test oracle).
 %

@@ -1,4 +1,4 @@
-%% test_dispatcher_ip_probe.m — v2.2.x single-multiset IP dispatcher
+%% test_dispatcher_ip_probe.m — v3 single-multiset IP dispatcher
 %
 %  Mirrors python/tests/test_dispatcher_ip_probe.py. The dispatcher
 %  (internal.selectMaInnerProductMethod) decides between the Möbius

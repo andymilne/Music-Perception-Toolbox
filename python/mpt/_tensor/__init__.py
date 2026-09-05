@@ -10,7 +10,7 @@ Module layout:
                     density is its A = N = 1 corner).
   preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
-  windowing.py      window_tensor, windowed_tensor_similarity, windowed IP.
+  windowed.py       windowed_similarity, windowed_entropy (event weighting).
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
   eval.py           eval_exp_tens (joint centres / factored / Möbius).
@@ -21,7 +21,6 @@ See ARCHITECTURE.md §3 ("Code layering") for the layered design.
 """
 from .density import (
     MaetDensity,
-    WindowedMaetDensity,
     _broadcast_attr_weight,
     _cartesian_indices,
     _coerce_attr_matrix,
@@ -49,12 +48,6 @@ from .preprocessing import (
     weight_events,
 )
 
-from .windowing import (
-    window_tensor,
-    windowed_tensor_similarity,
-    _evaluate_window_on_query,
-    _windowed_inner_product,
-)
 from .windowed import (
     windowed_similarity,
     windowed_entropy,
@@ -82,7 +75,6 @@ from .cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_
 __all__ = [
     # Density (public)
     "MaetDensity",
-    "WindowedMaetDensity",
     # Build / eval / cosine (public)
     "build_exp_tens",
     "eval_exp_tens",
@@ -98,8 +90,6 @@ __all__ = [
     "TranslateAttributesNoOpWarning",
     "weight_events",
     # Windowing (public)
-    "window_tensor",
-    "windowed_tensor_similarity",
     "windowed_similarity",
     "windowed_entropy",
 ]

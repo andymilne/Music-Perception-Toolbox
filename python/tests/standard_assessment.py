@@ -1,4 +1,4 @@
-"""Apply the standard test regime to each v2.2 quantity of interest.
+"""Apply the standard test regime to each v3 quantity of interest.
 
 This is the canonical "release-blocking" assessment: every shipping
 numerical quantity must pass every regime in
@@ -118,7 +118,7 @@ def renyi2(cell):
 # Quantity: eval_exp_tens orbit-vs-centres consistency.
 # Compute density at a small batch of query points via auto routing
 # and via forced centres; demand FP-precision agreement. single-multiset only —
-# the v2.2 orbit eval covers single-multiset; an MA orbit eval is on the roadmap.
+# the v3 orbit eval covers single-multiset; an MA orbit eval is on the roadmap.
 # -----------------------------------------------------------------
 
 _EVAL_N_Q = 16  # query batch size; small to keep centres path tractable

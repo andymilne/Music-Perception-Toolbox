@@ -1,4 +1,4 @@
-"""Tests for v2.1 Tier-4 (Monte-Carlo) batched dispatch:
+"""Tests for v3 Tier-4 (Monte-Carlo) batched dispatch:
 ``balance`` and ``evenness``.
 
 The new wrinkle vs Tiers 1/2 is RNG handling. The ``rng_scope``

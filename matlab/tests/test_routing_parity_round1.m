@@ -23,9 +23,7 @@
 %    B-5        the factored MA evaluation route passes the wrap;
 %    A-6 / B-3  the flat Möbius centres branch receives the per-call
 %               width (value unchanged by construction; smoke check);
-%    A-17       the sweep orbit route resolves an explicit Inf;
-%    B-15       windowedTensorSimilarity honours truncationSigmas and
-%               kernelPrecision.
+%    A-17       the sweep orbit route resolves an explicit Inf.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 %  mptTestIsolateDefaults sets truncationSigmas = Inf (accuracy floor).
@@ -266,27 +264,6 @@ swFloor = sweepCosSimExpTens(sx, sy, offS, 'method', 'orbit', ...
     'truncationSigmas', internal.accuracyFloor('sigmas'), 'verbose', false);
 results{end+1, 1} = 'parity round1: sweep orbit route resolves an explicit Inf';
 results{end, 2}   = isequal(swInf, swFloor);
-
-% --- B-15: windowedTensorSimilarity honours truncationSigmas and
-%     kernelPrecision ---
-rng(41, 'twister');
-ctx = buildExpTens({sort(40 * rand(6, 4), 1)}, [], 1.5, 2, false, false, ...
-                   0, 'verbose', false);
-qry = buildExpTens({sort(10 + 10 * rand(4, 2), 1)}, [], 1.5, 2, false, ...
-                   false, 0, 'verbose', false);
-wSpec = struct('size', 4.0, 'mix', 0.0);
-wOff = repmat(linspace(-10, 10, 9), 2, 1);
-wRef = windowedTensorSimilarity(ctx, qry, wSpec, wOff, 'verbose', false);
-wCoarse = windowedTensorSimilarity(ctx, qry, wSpec, wOff, ...
-    'truncationSigmas', 1.0, 'verbose', false);
-wSingle = windowedTensorSimilarity(ctx, qry, wSpec, wOff, ...
-    'kernelPrecision', 'single', 'verbose', false);
-results{end+1, 1} = 'parity round1: windowedTensorSimilarity truncates at the per-call width';
-results{end, 2}   = isequal(size(wCoarse), size(wRef)) ...
-    && max(abs(wCoarse - wRef)) > 1e-6;
-results{end+1, 1} = 'parity round1: windowedTensorSimilarity honours kernelPrecision=single';
-results{end, 2}   = max(abs(wSingle - wRef)) <= 1e-4 * max(abs(wRef)) ...
-    && max(abs(wSingle - wRef)) > 0;
 
 if standalone
     nPass = sum([results{:, 2}]);

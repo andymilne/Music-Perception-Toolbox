@@ -19,8 +19,7 @@ product (:func:`_impossible_value_reason`) is applied by the caller in
 The module also carries the small set of pure helpers
 (``_normalize_density_input``, ``_resolve_list_list_mode``,
 ``_compute_Q``, ``_compute_Q_inner_blocks``) shared between
-:mod:`._tensor.cosine`, :mod:`._tensor.eval`, and
-:mod:`._tensor.windowing`.
+:mod:`._tensor.cosine` and :mod:`._tensor.eval`.
 
 See USER_GUIDE §4 ("Method selection") for the user-facing description.
 This module is imported by ``cosine`` and ``eval``, so it imports
@@ -35,9 +34,7 @@ from math import comb as _math_comb, factorial
 import numpy as np
 
 from .._defaults import _maybe_show_dispatch_msg
-from .density import (
-    MaetDensity, WindowedMaetDensity,
-)
+from .density import MaetDensity
 
 
 
@@ -60,19 +57,17 @@ def _normalize_density_input(arg, *, name: str):
     if isinstance(arg, np.ndarray) and arg.dtype == object:
         arg = list(arg)
 
-    if isinstance(arg, (MaetDensity, WindowedMaetDensity)):
+    if isinstance(arg, MaetDensity):
         return True, (arg,)
 
     if isinstance(arg, (list, tuple)):
         if len(arg) == 0:
             return False, ()
         for i, elem in enumerate(arg):
-            if not isinstance(
-                elem, (MaetDensity, WindowedMaetDensity)
-            ):
+            if not isinstance(elem, MaetDensity):
                 raise TypeError(
-                    f"{name}[{i}] must be a MaetDensity "
-                    f"or WindowedMaetDensity; got {type(elem).__name__}."
+                    f"{name}[{i}] must be a MaetDensity; "
+                    f"got {type(elem).__name__}."
                 )
         return False, tuple(arg)
 
@@ -894,14 +889,14 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #
 #  The Möbius method is layered — a partition-decomposition with
 #  orbit collapse — on top of Bulger's existing ``_ip_core`` path
-#  (the v1 / v2.1 decomposition). See ``v22_specification.md`` and
+#  (the v1 / v2.0 decomposition). See
 #  ``mpt/_mobius.py`` for the combinatorial details.
 #
 #  The user-facing ``cos_sim_exp_tens`` gains two keywords:
 #
 #    method='auto'   : dispatcher chooses the Möbius method or Bulger's
 #                     method based on (r, n, mode, sigma/period).
-#    method='bulger' : forces Bulger's method (the v1 / v2.1
+#    method='bulger' : forces Bulger's method (the v1 / v2.0
 #                     decomposition; ``_ip_core``). In relative
 #                     periodic mode this evaluates the kernel that
 #                     wraps the pairwise component differences, which

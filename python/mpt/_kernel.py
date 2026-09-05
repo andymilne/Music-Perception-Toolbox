@@ -318,7 +318,7 @@ def _eval_chunk(C, wJ, Xq, is_rel, r, is_per, period, inv2s2, sigma,
         D = D - period * np.floor(D / period + 0.5)
     Q = _compute_Q(D, r, is_rel, is_per, period, reduced=is_rel)
     # Use the direct division (Q / (2*sigma^2)) rather than Q * inv2s2,
-    # to match v2.0/v2.1 ULP-for-ULP at default settings (in all modes
+    # to match v2.0 ULP-for-ULP at default settings (in all modes
     # except rel+per, where v2.X corrects an inherited v1 single-axis-
     # wrap form to the pairwise-wrap form, in line with cosSimExpTens).
     E = np.exp(-Q / (2 * sigma ** 2))      # (nJ, nQc)

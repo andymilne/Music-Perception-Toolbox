@@ -2,40 +2,25 @@
 
 This guide documents migration paths between major versions of the Music Perception Toolbox.
 
-- [v2.1 → v2.2](#v21--v22) — the Möbius method (alongside Bulger's), Rényi-2 entropy, routing and measure changes, exact `nTupleEntropy` position mode
-- [v2.0 → v2.1](#v20--v21) — soft (`sigma > 0`) structural measures, Argand-DFT Monte Carlo
+- [v2.0 → v3.0](#v20--v30) — multi-attribute expectation tensors, the Möbius method (alongside Bulger's), the four-method entropy API, soft (`sigma > 0`) structural measures, unified dispatch and batching
 - [v1 → v2](#v1--v2) — major rewrite (analytical methods, Python port, restructured core)
 
 ---
 
-## v2.1 → v2.2
+## v2.0 → v3.0
 
-v2.2.0 is largely additive: existing v2.1 calling conventions are preserved at the floating-point level for the default routing in standard regimes. One pre-MAET preprocessing primitive has a breaking signature change (see `differenceEvents` below); all other v2.1 code requires no changes.
+*Versions 2.1 and 2.2 were internal milestones that were never released; their changes are consolidated here.*
 
-### `differenceEvents` signature and periodicity convention (breaking)
+v3.0.0 is a major release relative to the last public line (2.0.x). At the v2.0 calling conventions it is largely additive — `buildExpTens`, `evalExpTens`, `cosSimExpTens`, `entropyExpTens`, and the circular, harmony, and structural families accept every v2.0 call unchanged — but a handful of defaults and one keyword have changed, so some v2.0 code needs attention. The breaking items, each detailed below, are:
 
-The v2.1 signature `differenceEvents(pAttr, w, groups, diffOrders, periods)` is now `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)`: four positional arguments, with `'circular'` as a Name-Value (MATLAB) / keyword-only (Python) flag and no trailing `periods` positional argument. The `circular` flag controls whether the difference operator wraps at the event-sequence boundary (the natural choice for cyclic event sequences — looped rhythms, ostinati); the default `false` preserves the v2.1 leading-event-drop convention for non-cyclic inputs.
+- the `normalize` kwarg is removed from `entropyExpTens`, `spectralEntropy`, and `nTupleEntropy` in favour of a four-method `method` API, and `entropyExpTens`'s default `method='shannon'` now returns raw $H$ rather than $H / \log_b N$;
+- `entropyExpTens` requires an explicit `n_points_per_dim` for the discrete methods;
+- `spectralEntropy`'s default method is `'differential'`, a different quantity from the v2.0 normalised Shannon entropy;
+- `nTupleEntropy` at `sigma > 0` reads `sigma` as positional uncertainty (`sigmaSpace = 'position'`) by default;
+- kernel truncation defaults to `truncation_sigmas = 6`, so default-configured output is a ~6-significant-figure approximation of the v2.0 untruncated value;
+- `evalExpTens` in periodic-relative mode uses the corrected pairwise-wrap quadratic form.
 
-Periodicity is no longer handled inside `differenceEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the mod-period wrap on periodic groups is applied by the kernel at MAET-construction time, downstream of `differenceEvents`. This aligns the function with the toolbox-wide convention that pre-MAET preprocessing primitives produce raw values and the kernel handles wrap downstream.
-
-**Migration.** v2.1 callers passing a `periods` positional argument must remove it. Three cases:
-
-```matlab
-% v2.1 — periods positional
-[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1, periods);
-
-% v2.2 — drop periods; kernel handles wrap
-[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1);
-```
-
-For analyses on cyclic event sequences (e.g. looped rhythms) that benefit from boundary wrap of the difference operator, opt in via the new flag:
-
-```matlab
-% v2.2 — circular differencing on a cyclic input
-[pDiff, wDiff] = differenceEvents(pAttr, w, groups, 1, 'circular', true);
-```
-
-Numerically equivalent v2.1 / v2.2 outputs on the standard `differenceEvents` → `buildExpTens` → MAET-consumer pipeline: the v2.1 wrap was to the shortest signed arc on $[-P/2, P/2)$, while v2.2 leaves the signed subtraction unwrapped; the kernel applies the same mod-$P$ wrap on either input at evaluation time, so downstream densities and all MAET-consumer outputs (cosine similarities, entropies, evaluations) are identical at floating-point precision. Only direct consumers of the pre-MAET values themselves see the wrapping difference, and the toolbox does not ship any such consumer.
+Everything else — multi-attribute expectation tensors, the pre-MAET preprocessing primitives, unified dispatch and batching, the Möbius method and its dispatcher, the kernel-evaluation controls, Rényi-2 and differential entropy, anisotropic kernels, and translation sweeps — is new surface that v2.0 code does not touch.
 
 ### `entropyExpTens` / `entropy_exp_tens` four-method API and `n_points_per_dim` default (breaking)
 
@@ -44,25 +29,25 @@ The entropy API has been refactored into four distinct methods — `'shannon'` (
 1. **`n_points_per_dim` is now required for the discrete methods** (`'shannon'`, `'normalized'`). A missing value at these methods raises `TypeError` with a message pointing to either supplying an explicit grid or switching to a grid-free method (`'differential'` or `'renyi2'`). The continuous methods ignore `n_points_per_dim` and need no migration.
 
    ```python
-   # v2.1 — implicit grid via the 1200 default
+   # v2.0 — implicit grid via the 1200 default
    H = entropy_exp_tens(dens)
 
-   # v2.2 — either pass the grid explicitly
+   # v3 — either pass the grid explicitly
    H = entropy_exp_tens(dens, n_points_per_dim=1200)
    # ... or switch to the grid-free continuous form
    h = entropy_exp_tens(dens, method='differential')
    ```
 
-2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.1 default behaviour (the Pielou-style ratio in $[0, 1]$, equivalent to the values reported in Milne et al. 2017 and Smit et al. 2019), pass `method='normalized'`:
+2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.0 default behaviour (the Pielou-style ratio in $[0, 1]$, equivalent to the values reported in Milne et al. 2017 and Smit et al. 2019), pass `method='normalized'`:
 
    ```python
-   # v2.1 default (normalised Shannon in [0, 1])
+   # v2.0 default (normalised Shannon in [0, 1])
    H = spectral_entropy(p, sigma=12)
 
-   # v2.2 — to reproduce the v2.1 default exactly
+   # v3 — to reproduce the v2.0 default exactly
    H = spectral_entropy(p, sigma=12, method='normalized')
 
-   # v2.2 default — the principled grid-independent differential entropy
+   # v3 default — the principled grid-independent differential entropy
    h = spectral_entropy(p, sigma=12)
    ```
 
@@ -70,10 +55,10 @@ The entropy API has been refactored into four distinct methods — `'shannon'` (
 
 ### `normalize` kwarg removed from `entropyExpTens`, `spectralEntropy`, and `nTupleEntropy`
 
-The v2.1 `normalize` boolean is **removed** from all three entropy entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.1 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of the three entry points raises a migration-error exception identifying the calling function and naming the replacement methods.
+The v2.0 `normalize` boolean is **removed** from all three entropy entry points. Pick the appropriate `method` instead: `'shannon'` for raw $H = -\sum q \log_b q$, `'normalized'` for $H/\log_b(N) \in [0, 1]$ (the v2.0 default behaviour). The continuous methods `'differential'` and `'renyi2'` have no $[0, 1]$ reference. Passing `normalize` to any of the three entry points raises a migration-error exception identifying the calling function and naming the replacement methods.
 
 ```python
-# Python — v2.1
+# Python — v2.0
 H = entropy_exp_tens(T, normalize=False)         # raw
 H = entropy_exp_tens(T)                          # H/log_b(N) (default)
 H = entropy_exp_tens(T, method='renyi2',
@@ -83,7 +68,7 @@ H, _ = n_tuple_entropy(p, period, n=2,
 H_spec = spectral_entropy(p, sigma=12,
                           normalize=False)       # raw
 
-# Python — v2.2
+# Python — v3
 H = entropy_exp_tens(T, method='shannon')        # raw
 H = entropy_exp_tens(T, method='normalized')     # H/log_b(N)
 H = entropy_exp_tens(T, method='renyi2')         # renyi2 (no normalize needed)
@@ -94,14 +79,14 @@ H_spec = spectral_entropy(p, sigma=12,
 ```
 
 ```matlab
-% MATLAB — v2.1
+% MATLAB — v2.0
 H = entropyExpTens(T, 'normalize', false);                       % raw
 H = entropyExpTens(T);                                           % H/log_b(N)
 H = entropyExpTens(T, 'method', 'renyi2', 'normalize', false);   % renyi2
 [H, tuples] = nTupleEntropy(p, period, 2, 'normalize', false);   % raw
 H_spec = spectralEntropy(p, [], 12, 'normalize', false);         % raw
 
-% MATLAB — v2.2
+% MATLAB — v3
 H = entropyExpTens(T, 'method', 'shannon');                      % raw
 H = entropyExpTens(T, 'method', 'normalized');                   % H/log_b(N)
 H = entropyExpTens(T, 'method', 'renyi2');                       % renyi2
@@ -111,17 +96,39 @@ H_spec = spectralEntropy(p, [], 12, 'method', 'shannon');        % raw
 
 The continuous methods (`'differential'`, `'renyi2'`) are rejected at `sigma=0` with an explicit error rather than silently producing $-\infty$.
 
-Note that the **default** of `entropy_exp_tens` / `entropyExpTens` is still `method='shannon'` but the semantics of `shannon` have changed: v2.1's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v2.2's `method='shannon'` returns raw $H$. To recover the v2.1 default value pass `method='normalized'` explicitly. The defaults of `n_tuple_entropy` and `spectral_entropy` already give the v2.1 default value without changes (`'normalized'` and `'differential'` respectively; the latter gives the same ordering as the v2.1 normalised Shannon for consonance work, on a different scale).
+Note that the **default** of `entropy_exp_tens` / `entropyExpTens` is still `method='shannon'` but the semantics of `shannon` have changed: v2.0's default was effectively shannon + normalize=true (i.e. $H/\log_b(N)$); v3's `method='shannon'` returns raw $H$. To recover the v2.0 default value pass `method='normalized'` explicitly. The default of `n_tuple_entropy` already gives the v2.0 default value without changes (`'normalized'`); `spectral_entropy` defaults to `'differential'`, which gives the same ordering as the v2.0 normalised Shannon for consonance work, on a different scale (see above).
 
-### `nTupleEntropy` `sigmaSpace = 'position'` now exact at all `n`
+### `nTupleEntropy` at `sigma > 0`: `sigmaSpace` and the exact position model
 
-v2.1.0 introduced `sigmaSpace = 'position'` (the default) but, at $n \ge 2$, approximated the shared-event correlation between adjacent steps by a marginal-matched widening ($\sigma_{\text{eff}} = \sigma\sqrt{2}$, slots independent), flagged by a one-time warning. v2.2 replaces this with the exact correlated model at every $n$: the `n` steps carry covariance $\sigma^2\,\mathrm{tridiag}(2, -1)$, obtained by binding the $n + 1$ underlying events and taking the window relative. The `marginal-matched` `UserWarning` (Python) and `nTupleEntropy:positionApprox` warning (MATLAB) are removed.
+In v2.0, `nTupleEntropy(p, period, n, 'sigma', s)` (MATLAB) and `mpt.n_tuple_entropy(p, period, n, sigma=s)` (Python) treated `s` as independent uncertainty on each derived step size — interval-space semantics in v3 terminology. v3 introduces a `sigmaSpace` flag with default `'position'`: `s` is now treated as positional uncertainty on each event, and the `n` steps of a tuple carry the exact correlated covariance $\sigma^2\,\mathrm{tridiag}(2, -1)$ (variance $2s^2$ per step, $-s^2$ between adjacent steps), obtained by binding the $n + 1$ underlying events and taking the window relative. To recover v2.0 numerical results, pass `sigmaSpace = 'interval'`:
 
-This changes `sigmaSpace = 'position'` output at `sigma > 0` for all `n`: exact rather than approximate at $n \ge 2$, and reported on the relative-quotient grid at $n = 1$, so the v2.1.0 identity `position(\sigma) = interval(\sigma\sqrt{2})` no longer holds. `sigma = 0` is unchanged, and `sigmaSpace = 'interval'` is unchanged at every `sigma`. The approximation is not retained as an option; code that must reproduce v2.1.0's `sigma > 0` position values should pin to v2.1.x.
+```matlab
+% v2.0 behaviour (interval-space sigma)
+H = nTupleEntropy(p, period, n, 'sigma', s);
+
+% v3: same numerical result via explicit flag
+H = nTupleEntropy(p, period, n, 'sigma', s, 'sigmaSpace', 'interval');
+
+% v3 default (position-space sigma) — different numerical result at sigma > 0
+H = nTupleEntropy(p, period, n, 'sigma', s);
+```
+
+```python
+# v2.0 behaviour (interval-space sigma)
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
+
+# v3: same numerical result via explicit flag
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s, sigma_space='interval')
+
+# v3 default (position-space sigma) — different numerical result at sigma > 0
+H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
+```
+
+The new default reflects the toolbox-wide convention that `sigma` describes uncertainty on the input quantity, which for `nTupleEntropy` is positions. The two semantics coincide at `sigma = 0`, so calls without an explicit `sigma` argument are unaffected, and `sigma = 0` continues to give the published integer-step histogram of Milne 2015bc / Milne & Dean 2016. Note that at $n = 1$ the position-mode value is reported on the relative-quotient grid, so `'position'` at $\sigma$ is not simply `'interval'` at $\sigma\sqrt{2}$.
 
 ### Routing and measure changes (September 2026)
 
-The routing-parity work that closed v2.2 changes a handful of numbers and rejects a handful of calls. Each item says what changed and what to do.
+The routing-parity work that closed v3 changes a handful of numbers and rejects a handful of calls. Each item says what changed and what to do.
 
 - **Shannon and normalized entropy on periodic attributes now honour `wrap`.** Under the default `wrap='full-image'` the cell masses sum the erf over every periodic image the truncation admits, so `method='shannon'` and `method='normalized'` values on a periodic attribute differ from earlier builds once σ/period exceeds about 0.06 (below that the two readings agree to within the accuracy floor). To recover the old numbers, declare `wrap='single-image'` on the attribute when building the density.
 
@@ -135,23 +142,35 @@ The routing-parity work that closed v2.2 changes a handful of numbers and reject
 
 - **MATLAB list and batched forms now honour `method`, `truncationSigmas`, and `kernelPrecision`.** A call in list or batched form that passed these keywords and relied on their being ignored will now route as the keywords say — a forced `'mobius'` or `'centres'` is applied to every entry, and a per-call `truncationSigmas` governs every entry. Remove the keyword, or pass `'auto'`, to keep the earlier behaviour.
 
+### Default kernel truncation (numerical change)
+
+The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalExpTens`, `cosSimExpTens` on Bulger's method, `entropyExpTens`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover exact v2.0 numerics, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, per call or globally:
+
+```matlab
+mptDefaults('truncationSigmas', Inf);
+```
+
+```python
+mpt.set_default(truncation_sigmas=math.inf)
+```
+
 ### What's new at the surface
 
-- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.1 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values on `cosSimExpTens`: `'bulger'` (v2.1 decomposition; IP-only), `'mobius'` (new in v2.2; IP, eval, total mass), `'centres'` (the unrestricted enumeration; the reference route), and `'contract'` (nested densities); on `evalExpTens`: `'centres'` and `'mobius'`. The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
+- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.0 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values on `cosSimExpTens`: `'bulger'` (v2.0 decomposition; IP-only), `'mobius'` (new in v3; IP, eval, total mass), `'centres'` (the unrestricted enumeration; the reference route), and `'contract'` (nested densities); on `evalExpTens`: `'centres'` and `'mobius'`. The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
 
-- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 / v2.1 (the inputs were both already analytical) but is newly exposed as a user-facing option in v2.2 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
+- **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 (the inputs were both already analytical) but is newly exposed as a user-facing option in v3 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
 
 - **Shipped orbit tables for $r \in \{2, \ldots, 8\}$.** Both Python and MATLAB ship pre-built tables for $r = 2$ through $r = 8$. The user-build path remains available for $r > 8$, gated by a cost-preview warning that prints the Bell-number scaling and estimated build time before construction begins. Set `MPT_NO_BUILD_WARN=1` (environment variable) to suppress the preview message in automation contexts. The user-build cache lives at `~/.mpt/orbit_tables/` (overridable via `MPT_CACHE_DIR`) and persists across sessions. The hard cap on $r$ is 12; beyond that, the build cost is prohibitive even for one-off use.
 
-- **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `cosSimExpTens`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.1 code requires no changes; the new default produces chunk sizes that differ from v2.1's fixed budget, so values differ from v2.1 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
+- **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `cosSimExpTens`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
 
-- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a width $w$ (standard deviation), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `deleteInput` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `deleteInput=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §3.7 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
+- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `deleteInput` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `deleteInput=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §3.7 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
 
-- **`circular` flag on `differenceEvents` / `difference_events`.** New Name-Value (MATLAB) / keyword-only (Python) flag on `differenceEvents`, paralleling the existing flag on `bindEvents`. Default `false` preserves the v2.1 leading-event-drop convention. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order. Note that v2.2 also drops the v2.1 trailing `periods` positional argument from `differenceEvents`' signature; see the breaking-change section above.
+- **`differenceEvents` / `difference_events` and its `circular` flag.** `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)` takes four positional arguments plus a `circular` Name-Value (MATLAB) / keyword-only (Python) flag, paralleling the flag on `bindEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the kernel applies the mod-period wrap downstream. Default `circular = false` drops the leading events at each order. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order.
 
 ### What's new under the hood
 
-- **Lazy density-struct.** `buildExpTens` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `cosSimExpTens` / `evalExpTens` / `entropyExpTens` is unaffected. If you have v2.1-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
+- **Lazy density-struct.** `buildExpTens` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `cosSimExpTens` / `evalExpTens` / `entropyExpTens` is unaffected. If you have v2.0-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
 
 - **`tensorHarmonicity` rewrite.** The function now bypasses `buildExpTens` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the Möbius method handles arbitrary K-template without the centres-array memory footprint.
 
@@ -161,70 +180,30 @@ The routing-parity work that closed v2.2 changes a handful of numbers and reject
 
 ### Numerical equivalence
 
-- v2.1 default routing chose Bulger's method implicitly. v2.2 default routing chooses `method='auto'`, which selects Bulger's method for the regimes where it dominates and the Möbius method elsewhere. In regimes where both methods are valid (the IP case), they agree to floating-point precision. User-visible cosine / entropy / eval values match v2.1 at default settings to floating-point reduction order — the dispatcher does not change the answer, only the route — with one exception, noted below. The `kernelChunkBytes` factory default (`'auto'`) produces chunk sizes that depend on the machine's available memory rather than v2.1's fixed budget, which alters reduction order and so introduces relative differences below $\sim 10^{-13}$ at otherwise-identical inputs. For bit-identity across machines or sessions, set `kernelChunkBytes` (or `kernel_chunk_bytes`) to an explicit integer.
+- v2.0 default routing chose Bulger's method implicitly. v3 default routing chooses `method='auto'`, which selects Bulger's method for the regimes where it dominates and the Möbius method elsewhere. In regimes where both methods are valid (the IP case), they agree to floating-point precision. User-visible cosine / entropy / eval values match v2.0 at default settings to floating-point reduction order — the dispatcher does not change the answer, only the route — with the exceptions noted below and the default kernel truncation described above. The `kernelChunkBytes` factory default (`'auto'`) produces chunk sizes that depend on the machine's available memory rather than v2.0's fixed budget, which alters reduction order and so introduces relative differences below $\sim 10^{-13}$ at otherwise-identical inputs. For bit-identity across machines or sessions, set `kernelChunkBytes` (or `kernel_chunk_bytes`) to an explicit integer.
 
-- **`evalExpTens` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalExpTens` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `cosSimExpTens` (the same fix that was applied to `cosSimExpTens` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.1 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `cosSimExpTens` / `entropyExpTens` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
+- **`evalExpTens` periodic-relative numerical change.** The centres-path quadratic form $Q$ in `evalExpTens` for the `isRel = true, isPer = true` case is corrected to the pairwise-wrap form of Eq 6, matching `cosSimExpTens` (the same fix that was applied to `cosSimExpTens` in v2.0.1). At typical perceptual $\sigma/P \le 0.03$ the corrected and prior forms agree as $O((\sigma/P)^{\infty})$, so most existing rel+per callers will see numerical output indistinguishable from v2.0 at default settings; above the threshold the difference becomes measurable. Non-periodic eval, absolute eval, and all `cosSimExpTens` / `entropyExpTens` modes are unchanged. See `CHANGELOG.md` under *Fixed* for the technical detail.
 
-- A previously-rejected configuration was relaxed: `buildExpTens` with `r=1, isRel=true` now emits a warning (id `buildExpTens:isRelDegenerate`) instead of raising. The configuration is well-defined under v2.2's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
+- A previously-rejected configuration was relaxed: `buildExpTens` with `r=1, isRel=true` now emits a warning (id `buildExpTens:isRelDegenerate`) instead of raising. The configuration is well-defined under v3's framework (constant 0-D space, total mass = $\sum w$, Rényi-2 = 0), so callers exploring degenerate parameter combinations no longer need a `try/catch`.
 
 ### Demo migrations
 
-- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the v2.1 `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v2.x principle of treating `buildExpTens` as a less user-facing entity. Three further demos (`demo_helixBlend`, `demo_maetWindowing`, `demo_windowingReference`) keep the explicit `buildExpTens` until `windowedSimilarity` gains a raw-array overload (deferred; tracked as a TODO comment in the `windowedSimilarity` source).
-
----
-
-## v2.0 → v2.1
-
-v2.1.0 is additive: existing v2.0 calling conventions are preserved unchanged at `sigma = 0` (or for functions that did not previously take `sigma`, with the unchanged signature). One numerical change exists at `sigma > 0` for `nTupleEntropy`. No code changes are required for v2.0 callers who do not touch the new features; users who do call `nTupleEntropy` with `sigma > 0` should read the *Numerical change in nTupleEntropy* note below.
-
-### Numerical change in `nTupleEntropy` at `sigma > 0`
-
-In v2.0, `nTupleEntropy(p, period, n, 'sigma', s)` (MATLAB) and `mpt.n_tuple_entropy(p, period, n, sigma=s)` (Python) treated `s` as independent uncertainty on each derived step size — interval-space semantics in v2.1.0 terminology. v2.1.0 introduces a `sigmaSpace` flag with default `'position'`: `s` is now treated as positional uncertainty on each event, and derived steps inherit a per-slot variance of $2s^2$ via the marginal-matched approximation.
-
-At `n = 1`, the two semantics are exactly related: `sigmaSpace = 'position'` with $\sigma$ produces identical entropy to `sigmaSpace = 'interval'` with $\sigma\sqrt{2}$. To recover v2.0.0 numerical results, pass `sigmaSpace = 'interval'`:
-
-```matlab
-% v2.0 behaviour (interval-space sigma)
-H = nTupleEntropy(p, period, n, 'sigma', s);
-
-% v2.1: same numerical result via explicit flag
-H = nTupleEntropy(p, period, n, 'sigma', s, 'sigmaSpace', 'interval');
-
-% v2.1 default (position-space sigma) — different numerical result at sigma > 0
-H = nTupleEntropy(p, period, n, 'sigma', s);
-```
-
-```python
-# v2.0 behaviour (interval-space sigma)
-H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
-
-# v2.1: same numerical result via explicit flag
-H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s, sigma_space='interval')
-
-# v2.1 default (position-space sigma) — different numerical result at sigma > 0
-H, _ = mpt.n_tuple_entropy(p, period, n, sigma=s)
-```
-
-The new default reflects the toolbox-wide convention that `sigma` describes uncertainty on the input quantity, which for `nTupleEntropy` is positions. The two semantics coincide at `sigma = 0`, so calls without an explicit `sigma` argument are unaffected.
-
-At `n \ge 2` with `sigmaSpace = 'position'`, a one-time warning fires noting that the current implementation uses the marginal-matched approximation (slots independent at $\sigma_{\text{eff}} = \sigma\sqrt{2}$) and that full position-aware $n \ge 2$ support is planned for a future release. Suppress via the standard MATLAB / Python warning-filter mechanisms (`warning('off', 'nTupleEntropy:positionApprox')`; `warnings.filterwarnings('ignore', message='.*marginal-matched.*')`).
-
-> **Superseded in v2.2.** The `n \ge 2` approximation and its warning described here are removed in v2.2: `sigmaSpace = 'position'` is exact at every `n`. See [v2.1 → v2.2](#v21--v22). The note above applies only to v2.1.x.
+- Five demos (`demo_triadConsonance` / `demo_triad_consonance`, `demo_bindEvents` / `demo_bind_events`, plus the Python `demo_bind_events` helper functions) were migrated from the `buildExpTens` + downstream pattern to direct raw-array calls on `evalExpTens`, `entropyExpTens`, and `cosSimExpTens`. This reflects the v3 principle of treating `buildExpTens` as a less user-facing entity.
 
 ### `sameness` and `coherence` gain optional `sigma`
 
 Both functions now accept an optional `sigma` argument and a `sigmaSpace` name-value flag. At `sigma = 0` (default), the v2.0 hard counts are recovered byte-for-byte; existing call sites are unaffected.
 
 ```matlab
-% v2.0 — still works in v2.1
+% v2.0 — still works in v3
 [sq, nDiff] = sameness(p, period);
 [c, nc] = coherence(p, period);
 
-% v2.1 — soft sigma version
+% v3 — soft sigma version
 [sq, nDiff] = sameness(p, period, sigma);
 [c, nc] = coherence(p, period, sigma);
 
-% v2.1 — interval-space sigma (different per-pair variance)
+% v3 — interval-space sigma (different per-pair variance)
 [sq, nDiff] = sameness(p, period, sigma, 'sigmaSpace', 'interval');
 ```
 
@@ -235,15 +214,15 @@ Float positions and float `period` are accepted when `sigma > 0`. The integer re
 Both functions now accept an optional `sigma` argument that triggers Monte Carlo estimation under positional jitter via the new `dftCircularSimulate`. At `sigma = 0` the v2.0 deterministic value is recovered exactly.
 
 ```matlab
-% v2.0 — still works in v2.1
+% v2.0 — still works in v3
 b = balanceCircular(p, w, period);
 e = evennessCircular(p, period);
 
-% v2.1 — expected balance / evenness under sigma jitter
+% v3 — expected balance / evenness under sigma jitter
 b = balanceCircular(p, w, period, sigma);
 e = evennessCircular(p, period, sigma);
 
-% v2.1 — also request standard deviation (MATLAB nargout idiom)
+% v3 — also request standard deviation (MATLAB nargout idiom)
 [b, bStd] = balanceCircular(p, w, period, sigma);
 [e, eStd] = evennessCircular(p, period, sigma);
 
@@ -254,15 +233,15 @@ e = evennessCircular(p, period, sigma);
 In Python, the SD is requested via an explicit `return_std=True` flag (Python lacks `nargout`):
 
 ```python
-# v2.0 — still works in v2.1
+# v2.0 — still works in v3
 b = mpt.balance(p, None, period)
 e = mpt.evenness(p, period)
 
-# v2.1 — scalar mean (backward-compatible signature)
+# v3 — scalar mean (backward-compatible signature)
 b = mpt.balance(p, None, period, sigma=s)
 e = mpt.evenness(p, period, sigma=s)
 
-# v2.1 — opt in to (mean, std) tuple
+# v3 — opt in to (mean, std) tuple
 b, b_std = mpt.balance(p, None, period, sigma=s, return_std=True)
 e, e_std = mpt.evenness(p, period, sigma=s, return_std=True)
 ```
@@ -272,10 +251,10 @@ e, e_std = mpt.evenness(p, period, sigma=s, return_std=True)
 Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under positional jitter, the mean projection has a clean closed form: $E[y(x)] = \alpha_1 \cdot y_{\text{deterministic}}(x)$ where $\alpha_1 = \exp(-2\pi^2 \sigma^2 / P^2)$ and $P$ is the period. No Monte Carlo is involved.
 
 ```matlab
-% v2.0 — still works in v2.1
+% v2.0 — still works in v3
 [y, centMag, centPhase] = projCentroid(p, w, period, x);
 
-% v2.1 — expected projection under sigma jitter (analytical)
+% v3 — expected projection under sigma jitter (analytical)
 [y, centMag, centPhase] = projCentroid(p, w, period, x, sigma);
 ```
 
@@ -285,7 +264,7 @@ Because $y(x)$ is linear in $F(0)$ and $F(0)$ is permutation-invariant under pos
 
 ### Unified dispatch on `evalExpTens`, `cosSimExpTens`, `entropyExpTens`
 
-In v2.1.0, the three core entry points are polymorphic. Each accepts:
+In v3, the three core entry points are polymorphic. Each accepts:
 
 - a single density object (the v2.0 case);
 - raw arguments for a single multiset (the v2.0 case);
@@ -295,29 +274,29 @@ In v2.1.0, the three core entry points are polymorphic. Each accepts:
 All forms produce byte-identical results to v2.0 for the v2.0 calling conventions; the new modes are dispatched on input shape and never collide with the existing paths.
 
 ```matlab
-% v2.0 — still works in v2.1
+% v2.0 — still works in v3
 s = cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period);
 
-% v2.1 — list mode (single context against many candidates)
+% v3 — list mode (single context against many candidates)
 densCtx = buildExpTens(pCtx, wCtx, sigma, r, isRel, isPer, period);
 densCands = arrayfun(@(i) buildExpTens(pCands{i}, wCands{i}, sigma, r, isRel, isPer, period), ...
                      1:nCands, 'UniformOutput', false);
 sims = cosSimExpTens(densCtx, densCands);   % 1-by-nCands cell
 
-% v2.1 — batched-raw mode (paired multisets row-by-row)
+% v3 — batched-raw mode (paired multisets row-by-row)
 sims = cosSimExpTens(P1, W1, P2, W2, sigma, r, isRel, isPer, period);   % length-nRows vector
 ```
 
 ```python
-# v2.0 — still works in v2.1
+# v2.0 — still works in v3
 s = mpt.cos_sim_exp_tens(p1, w1, p2, w2, sigma, r, is_rel, is_per, period)
 
-# v2.1 — list mode
+# v3 — list mode
 dens_ctx = mpt.build_exp_tens(p_ctx, w_ctx, sigma, r, is_rel, is_per, period)
 dens_cands = [mpt.build_exp_tens(p, w, sigma, r, is_rel, is_per, period) for p, w in cands]
 sims = mpt.cos_sim_exp_tens(dens_ctx, dens_cands)   # length-n_cands ndarray
 
-# v2.1 — batched-raw mode
+# v3 — batched-raw mode
 sims = mpt.cos_sim_exp_tens(P1, W1, P2, W2, sigma, r, is_rel, is_per, period)
 ```
 
@@ -327,9 +306,9 @@ In Python list × list mode, an additional `mode='cartesian'` returns the full `
 
 ### Deprecated entry points
 
-The following function names are deprecated in v2.1 and emit warnings on direct use. They continue to work, forwarding to the unified entry points:
+The following function names are deprecated in v3 and emit warnings on direct use. They continue to work, forwarding to the unified entry points:
 
-| Deprecated (v2.0)              | v2.1 replacement                                                       | Migration |
+| Deprecated (v2.0)              | v3 replacement                                                         | Migration |
 |:-------------------------------|:-----------------------------------------------------------------------|:----------|
 | `batchCosSimExpTens` (MATLAB)  | `cosSimExpTens` batched-raw mode                                       | Move weights from name-value pairs to positional arguments after each pitch matrix; pass `[]` for uniform |
 | `batch_cos_sim_exp_tens` (Python) | `cos_sim_exp_tens` batched-raw mode                                 | Same as above; `weights_a` / `weights_b` keyword-only → positional `w1` / `w2` |
@@ -340,7 +319,7 @@ The deprecation warnings will be emitted for at least one minor release before r
 
 ### Batched-input dispatch on harmony, DFT, and structural families
 
-The following functions gained batched-input dispatch in v2.1.0 and are fully backward-compatible at the v2.0 1-D calling convention. Pass a 2-D pitch matrix (rows are multisets) to get per-row results:
+The following functions gained batched-input dispatch in v3 and are fully backward-compatible at the v2.0 1-D calling convention. Pass a 2-D pitch matrix (rows are multisets) to get per-row results:
 
 - **Harmony / consonance:** `tensorHarmonicity`, `templateHarmonicity`, `virtualPitches`, `spectralEntropy`.
 - **DFT-equivariant:** `dftCircular`, `meanOffset`, `edges`, `projCentroid`, `circApm`.
@@ -351,13 +330,7 @@ NaN-padded rows are accepted for variable-cardinality inputs. Per-row dedup uses
 
 ### Verbose / time-estimate options on harmony and entropy wrappers
 
-`templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyExpTens` (SA batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
-
-### Summary of breaking changes
-
-- `nTupleEntropy` at `sigma > 0`: default semantics changed from interval-space to position-space. Pass `sigmaSpace = 'interval'` for v2.0 numerical equivalence.
-
-All other changes are additive: new optional arguments, new return-value options behind opt-in flags, no change to default behaviour at the v2.0 calling conventions.
+`templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`, `spectralEntropy`, and `entropyExpTens` (single-multiset batched) all gain a `verbose` name-value argument (MATLAB) / keyword argument (Python), default `true`, controlling whether the function prints an upfront time estimate. The estimate is suppressed by `verbose=false`. Numerical results are unchanged. Combined with `estimateCompTime`'s new `minPrintSec` parameter (default 10 s), short workloads (typical interactive use) are silent by default; long workloads earn a one-line estimate with a `Ctrl+C` cancellation reminder.
 
 ---
 
@@ -554,7 +527,7 @@ H = stepEntropy(p, period, k);
 ```matlab
 % v2 (k renamed to n; new options)
 H = nTupleEntropy(p, period, n);
-H = nTupleEntropy(p, period, n, 'sigma', 0.5, 'normalize', true);
+H = nTupleEntropy(p, period, n, 'sigma', 0.5, 'method', 'normalized');
 ```
 
 The v2 function also removes the dependency on the external `histcn` function.

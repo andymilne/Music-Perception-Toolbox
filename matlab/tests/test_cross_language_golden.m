@@ -1,10 +1,10 @@
-%% test_cross_language_golden.m — v2.2-dev cross-language equivalence
+%% test_cross_language_golden.m — v3 cross-language equivalence
 %
-%  Hardcodes outputs of representative v2.2 computations on
+%  Hardcodes outputs of representative v3 computations on
 %  deterministic inputs (no RNG). The companion Python file
 %  python/tests/test_cross_language_golden.py hardcodes the same
 %  values; running both pins down cross-language numerical agreement
-%  to 1e-8 relative on the v2.2 surface (Möbius cosine similarity single-multiset
+%  to 1e-8 relative on the v3 surface (Möbius cosine similarity single-multiset
 %  + MA Rényi-2 entropy single-multiset + MA,
 %  Möbius-method tensorHarmonicity, and Möbius-method evalExpTens).
 %

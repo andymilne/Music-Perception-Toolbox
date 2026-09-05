@@ -1,6 +1,6 @@
 """Tests for the unified :func:`entropy_exp_tens`.
 
-Coverage of the new v2.1 capabilities:
+Coverage of the new v3 capabilities:
 
 - Density list input — output shape ``(M,)``, with optional dedup.
 - Raw single-attribute batched input (2-D ``P``) — output shape ``(M,)``, with
@@ -62,7 +62,7 @@ class TestDensityScalar:
 
     def test_method_shannon_is_raw(self, density_set):
         # method='shannon' now returns raw H = -sum q log_b q
-        # (the v2.1 default normalize=True behaviour has been moved to
+        # (the v2.0 default normalize=True behaviour has been moved to
         # method='normalized'). Raw H is unbounded above; we only check
         # the return type here.
         h = entropy_exp_tens(

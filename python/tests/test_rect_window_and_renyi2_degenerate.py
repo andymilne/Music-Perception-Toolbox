@@ -1,4 +1,4 @@
-"""Regression tests for two v2.1 out-of-band fixes.
+"""Regression tests for two v3 out-of-band fixes.
 
 #20  weight_events' rectangular window uses a half-open support
      [c - W/2, c + W/2): a regular pulse grid yields exactly N pulses for

@@ -12,10 +12,7 @@ and §1 ("Overview") for the public API surface.
 from __future__ import annotations
 
 # --- Public API (re-exported by mpt/__init__.py) ---
-from ._tensor.density import (
-    MaetDensity,
-    WindowedMaetDensity,
-)
+from ._tensor.density import MaetDensity
 from ._tensor.build import build_exp_tens
 from ._tensor.eval import eval_exp_tens, eval_exp_tens_raw
 from ._tensor.cosine import (batch_cos_sim_exp_tens, cos_sim_exp_tens, cos_sim_exp_tens_raw)
@@ -29,10 +26,6 @@ from ._tensor.preprocessing import (
     simplex_vertices,
     translate_attributes,
     weight_events,
-)
-from ._tensor.windowing import (
-    window_tensor,
-    windowed_tensor_similarity,
 )
 from ._tensor.windowed import (
     windowed_similarity,
@@ -57,20 +50,13 @@ from ._tensor.density import (
 # Build-layer.
 from ._tensor.build import _looks_like_multi_attr
 
-# Windowing-layer.
-from ._tensor.windowing import (
-    _evaluate_window_on_query,
-    _window_width_params,
-    _windowed_inner_product,
-)
-
 # Canonical-key helpers (used by some tests via mpt.tensor).
 from ._tensor.canonical import (
     _chord_canonical_key,
     _pair_canonical_key,
 )
 
-# Dispatch-layer helpers (used by windowing's lazy imports and by tests).
+# Dispatch-layer helpers (used by tests).
 from ._tensor.dispatch import (
     _compute_Q,
     _normalize_density_input,

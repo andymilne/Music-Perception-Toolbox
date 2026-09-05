@@ -1,6 +1,6 @@
 %% test_mobius_combinatorics.m — Combinatorial primitives in +mobius/
 %
-%  Tests for the v2.2 Mobius-Bulger orbit-decomposition combinatorial
+%  Tests for the v3 Mobius-Bulger orbit-decomposition combinatorial
 %  primitives in matlab/+mobius/:
 %    integerPartitions, autSize, mobiusForBlocksizes,
 %    labelledPairsRealisingM, enumerateContingencyTables, canonicalForm.

@@ -8,7 +8,7 @@
 %  the orbit-IP consumers (mobius.innerProductOrbit,
 %  mobius.innerProductOrbitGrid, mobius.innerProductOrbitPwBatched).
 %
-%  The recipe path is structurally the v2.2 fast path: contraction
+%  The recipe path is structurally the v3 fast path: contraction
 %  graph is computed once at orbit-table-build time, runtime executes
 %  precomputed permutations and reshapes. The dynamic-dispatch
 %  contract path remains as a reference / fallback. Both must agree.

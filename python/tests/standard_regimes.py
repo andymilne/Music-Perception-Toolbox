@@ -14,7 +14,7 @@ is twofold:
 
 The regimes consolidate (a) the earlier audit scripts in
 ``tests/precision_audit/`` and (b) the seven-regime self-IP
-investigation that motivated the v2.2 MA-diagnostic simplification.
+investigation that motivated the v3 MA-diagnostic simplification.
 
 Usage
 -----
@@ -63,7 +63,7 @@ def regime_sm_sigma_to_zero(seeds=SEEDS_QUICK, P=P_DEFAULT):
     significant digits. Earlier audits established that:
 
     * abs_per: the diagnostic remains reliable.
-    * rel_per: the diagnostic over-fires (fixed in v2.1.0).
+    * rel_per: the diagnostic over-fires (fixed in v3).
     * abs_nonper: depends on K-r margin (see R3_abs_nonper).
 
     Parameters explored: r ∈ {2, 3, 4}, K ∈ {r+1, r+2, r+5},
@@ -141,7 +141,7 @@ def regime_sm_rel_per(seeds=SEEDS_QUICK, P=P_DEFAULT):
     Relative-mode densities depend only on within-tuple differences.
     Geometry is on a (r-1)-dimensional torus quotient. Per-u-point
     cancellation ratio is over-conservative here (false alarms);
-    earlier audit established this and the fix shipped in v2.1.0.
+    earlier audit established this and the fix shipped in v3.
     """
     cells = []
     for r in (2, 3, 4):
@@ -289,7 +289,7 @@ def regime_sm_spectral_weights(seeds=SEEDS_QUICK, P=P_DEFAULT):
 def regime_ma_self_ip(seeds=SEEDS_QUICK, P=P_DEFAULT):
     """MA: per-attribute self-IP across realistic configurations.
 
-    The 2025 v2.2 sweep established that the per-(n,m) cancellation
+    The v3 sweep established that the per-(n,m) cancellation
     ratio diagnostic over-fires here in 100% of typical musical
     regimes — values are correct to FP precision. This regime is
     retained as a regression check against any future per-cell

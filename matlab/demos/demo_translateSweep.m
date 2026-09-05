@@ -19,13 +19,13 @@
 % query once. The sweep is specified as a 1-by-A offsets cell, one row
 % of M candidate shifts per attribute; Section 3 builds it.
 %
-% Compare demo_maetWindowing (post-tensor sliding) and
-% demo_windowingReference (reference-point options for
-% windowedTensorSimilarity). The pre-tensor route used here returns a strict
-% cosine similarity (bounded in [0, 1] for non-negative weights) and
-% does not require choosing a window family; the post-tensor route
-% returns a magnitude-aware windowed similarity and decouples locality
-% from the query's own support.
+% Compare windowedSimilarity (see demo_helixBlend and
+% demo_tempoInvariance), which windows the context by event weighting
+% before each build --- the window multiplies per-event weights and the
+% window axis is then marginalized --- so that locality is decoupled from
+% the query's own support. The route used here returns a strict cosine
+% similarity (bounded in [0, 1] for non-negative weights) and does not
+% require choosing a window family.
 %
 % See also TRANSLATEATTRIBUTES, COSSIMEXPTENS, BUILDEXPTENS,
 % WINDOWEDSIMILARITY.

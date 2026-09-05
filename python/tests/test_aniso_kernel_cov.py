@@ -375,20 +375,6 @@ class TestWindowedSimilarity:
         num = np.exp(-0.25 * d @ Sinv @ d)
         assert abs(got_0 - num) < 1e-10
 
-    def test_guards_on_posttensor_windowing(self):
-        r = 2
-        Sigma = interval_kernel_cov(r, sd_interval=0.1)
-        P1 = np.array([[0.0], [1.0]])
-        P2 = np.array([[0.0]])
-        dens = mpt.build_exp_tens(
-            [P1, P2], [np.ones((r, 1)), np.ones((1, 1))],
-            [Sigma, 0.5], [r, 1], [False, False], [False, False],
-            [0.0, 0.0], [False, True], verbose=False)
-        spec = {"size": [np.nan, 2.0], "mix": 0.0,
-                "centre": [None, np.array([0.0])]}
-        with pytest.raises(NotImplementedError, match="whitened"):
-            mpt.window_tensor(dens, spec)
-
 
 class TestConstraints:
     """Mode-constraint and validation error paths."""
@@ -490,7 +476,7 @@ class TestOrderedTupleEqualsBoundSingletons:
 class TestDegenerateNestedFlattening:
     """A matrix-valued kernel covariance on a degenerate nested
     attribute -- bind_events over flat single-value events -- is
-    flattened to the equivalent flat ordered tuple (v2.2.1+). The
+    flattened to the equivalent flat ordered tuple (v3+). The
     bound and manually stacked flat triples must agree exactly;
     non-degenerate nesting is rejected, and outer-level sym/rel on a
     degenerate spec are rejected by the canonical constraint messages.

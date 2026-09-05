@@ -103,7 +103,7 @@ end
 function maybeWarnBuildCost(r)
 %MAYBEWARNBUILDCOST  Print a size + time estimate before building an
 %   orbit table. Fires only for r beyond the shipped range (r=2..8 in
-%   v2.2; bump SHIPPED_MAX below if more files are added later).
+%   v3; bump SHIPPED_MAX below if more files are added later).
 %   Suppressed when the environment variable MPT_NO_BUILD_WARN is set.
 %
 %   Output goes to stderr (fprintf(2, ...)) so it doesn't contaminate

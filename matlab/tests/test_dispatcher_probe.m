@@ -1,5 +1,5 @@
 function tests = test_dispatcher_probe
-%TEST_DISPATCHER_PROBE  v2.2.x — unified dispatcher + probe-based estimator.
+%TEST_DISPATCHER_PROBE  v3 — unified dispatcher + cost-model estimator.
 %
 %   Verifies hard rules decide without probing, probe-based selection
 %   activates for non-trivial workloads, the dispatch-decision message

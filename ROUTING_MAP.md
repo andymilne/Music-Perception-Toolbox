@@ -2,7 +2,7 @@
 
 > Supporting material in `docs/routing/`: the per-language maps this document was reconciled from (`routing_map_python.md`, `routing_map_matlab.md`), the decision-by-decision parity report with full evidence (`routing_parity.md`), the specification the mappers followed (`routing_map_spec.md`), and the decision trees as TikZ/forest figures (`routing_trees.tex`, compiled to `routing_trees.pdf`) for the user guide or the online supplement.
 
-> **Status (rounds 1–3, September 2026).** Every finding in §10 has since been resolved: A-2, A-3, A-4 and the `K_a` item in the first pass; A-1, A-6, A-7, A-9, A-10, A-11, A-17, B-1, B-3, B-5, B-8 to B-15 in round 1; A-5, A-8, A-12, A-13 (removed), A-14, A-15, A-16, B-6, B-7 in round 2; B-16, B-17, all C items, the D orphans (deleted, or moved under `tests/` as reference oracles), and `explain_dispatch`'s fidelity in round 3. The trees and tables below describe the code before those rounds where a `[Py]`/`[M]` tag marks a difference; after them the two languages share every rule. Terminology: what earlier drafts called the "SA path" is the single-multiset corner (A = N = 1) of the one density type, a speed branch of the general path.
+> **Status (rounds 1–3, September 2026).** Every finding in §10 has since been resolved: A-2, A-3, A-4 and the `K_a` item in the first pass; A-1, A-6, A-7, A-9, A-10, A-11, A-17, B-1, B-3, B-5, B-8 to B-14 in round 1; A-5, A-8, A-12, A-13 (removed), A-14, A-15, A-16, B-6, B-7 in round 2; B-16, B-17, all C items, the D orphans (deleted, or moved under `tests/` as reference oracles), and `explain_dispatch`'s fidelity in round 3. The trees and tables below describe the code before those rounds where a `[Py]`/`[M]` tag marks a difference; after them the two languages share every rule. Terminology: what earlier drafts called the "SA path" is the single-multiset corner (A = N = 1) of the one density type, a speed branch of the general path.
 
 ## 0. Preamble
 
@@ -70,9 +70,6 @@ Python: `py:_tensor/cosine.py:159`. MATLAB: `m:cosSimExpTens.m:1`.
 
 ```
 ENTRY cos_sim_exp_tens(a, b, …)                                (py:cosine.py:335 / m:cosSimExpTens.m:389)
-├─ IF either operand is a WindowedMaetDensity
-│    → ERROR TypeError (py, in _cos_sim_pair_core) / cosSimExpTens:windowedNotSupported (m)   [both]
-│      (directs to windowed_tensor_similarity, §5.2)
 ├─ IF 2 arguments and both are densities (or Python: a is a density, a density list, an empty list,
 │  or an object array)                                            → NODE density path (§1.2)
 │    ERROR when spectrum/precision are given (py TypeError / m *NotApplicable).
@@ -616,9 +613,6 @@ Python `_tensor/eval.py:62`; MATLAB `evalExpTens.m:1`.
 ### 3.2 Scalar density — `_eval_exp_tens_scalar` / `evalExpTens` struct branch
 
 ```
-├─ IF WindowedMaetDensity: kernel covariance → ERROR NotImplementedError / mpt:aniso:windowedEval;
-│  evaluate the underlying density with method = 'auto' (user method DROPPED, both languages, #75);
-│  × window factor
 ├─ IF kernel covariance → whiten the query; after evaluation × exp(−½·logdet) when normalize != 'none'
 ├─ [M] IF single-multiset → singleMultisetView → single-multiset dispatch (§3.3 single-multiset); ELSE localMaSkinnyDispatch (§3.3 MA)
 └─ [Py] → _eval_exp_tens_ma (§3.3)
@@ -818,26 +812,6 @@ Python `_tensor/windowed.py:319`; MATLAB `windowedSimilarity.m`. `[both]`
    [Py] windowed_entropy → ENTRY 4 entropy_exp_tens(dens, method, base) per position (default 'differential').
 ```
 
-### 5.2 `windowed_tensor_similarity` / `windowedTensorSimilarity`
-
-Python `_tensor/windowing.py:593`; MATLAB `windowedTensorSimilarity.m:318`, `+internal/windowedInnerProduct.m:329`. `[both]` — a single closed-form path, no method routing, no cost model, no memo beyond the per-call `<Q,Q>`.
-
-```
-├─ normalize default 'oneSidedDenom'; ERROR NotImplementedError on any kernel covariance; TypeError when an
-│  operand is not a plain MaetDensity; two-sided windowing → ERROR NotImplementedError / twoSidedWindowing
-├─ per pair, per offset: window_tensor → LEAF windowed_inner_product(dens_q, windowed_c, normalize):
-│    <Q,Q> computed once per pair (not the self-IP cache);
-│    <Q,C> = Bulger-style perm × comb log kernel per attribute: abs-per full-image →
-│    wrapped_gaussian_1d(D, σ, P, DEFAULT ts, 4) (C); abs-per single-image → nearest image + compute_Q (A);
-│    else compute_Q; non-uniform windowed centres → average over within-attribute permutations;
-│    window factor: periodic → image-summed erf (tol 1e-12; py caps at 100 image pairs with a warning;
-│    multi-D relative defers to the line formula); non-periodic → erf window (multi-relative with rho > 0 →
-│    ERROR NotImplementedError in py); exp(log kernel) with NO truncation (B-15)
-└─ 'oneSidedDenom' → <Q,C>/<Q,Q> (0 → NaN); 'cosine' → window squared (mix ∉ {0, 1} → ERROR) → <C,C>_h;
-   ÷ sqrt(<C,C>_h·<Q,Q>)
-[Py] truncation_sigmas and kernel_precision are accepted and never forwarded (docstring claims otherwise, D-7).
-```
-
 ---
 
 ## 6. `explain_dispatch` / `explainDispatch`
@@ -918,7 +892,6 @@ Column "Measure": A = minimum-image, C = all-image, NP = non-periodic (no wrappi
 | Leaf | Computes | Measure | Reached from |
 |---|---|---|---|
 | ENTRY 1 per position (`method='auto'`, default ts) | windowed cosine | as ENTRY 1 | `windowed_similarity` |
-| `_windowed_inner_product` → `_cos_sim_numerator_ma` / `internal.windowedInnerProduct` → `localCosSimNumeratorMACore` (`windowing.py:899, 1060` / `windowedInnerProduct.m:329`) | closed-form windowed perm × comb log kernel with erf window factors | A/C by wrap (abs-per, default ts); A (rel-per); NP; no truncation (B-15) | `windowed_tensor_similarity` |
 
 ---
 
@@ -992,7 +965,6 @@ Global defaults and levers (both languages unless tagged): `rel_attr_route` (`'c
 | `eval_orbit_rel` non-per window margin; factored constants | 8σ; `EPS_CEIL` 1e-3, `CALIB_A6` 1600, `SPP` 8/512, `READBACK_COST` 10 (`_mobius.py:1585-1602`) | same (`evalOrbitRel.m:157-158, 437-469`) | u-grid; factored gate |
 | sweep `ORBIT_WORK_RATIO` / `ORBIT_MIN_PAIRS` / dense-vs-culled overhead | 64 / 1e6 / 512 (`sweep.py:523, 532, 462`) | 64 / 1e6 / 512 (`sweepCosSimExpTens.m:345-346, 955`) | sweep chooser |
 | r = 1 broadcast cache cap | `4 000 000 // (n_j·8)` columns (`cosine.py:755`) | `floor(4e6/(nJ·8))` (`cosSimExpTens.m:2618`) | fast path |
-| windowed periodic image tolerance / cap | 1e-12 / 100 image pairs (`windowing.py:55, 1501`) | 1e-12 (`windowedInnerProduct.m:499`) | windowed image sum |
 | entropy `DEFAULT_GRID_LIMIT` / `DIFF_CELL_BLOCK` | 1e8 / 8e6 (`entropy.py:30, 38`) | gridLimit option / — | entropy grid guard, streaming |
 | differential `tol`, `max_iter`, stall factor | `max(exp(−ts²/2), 1e-12)`, 10, 0.95 (`entropy.py:915-1003`) | same (`entropyExpTens.m:1568-1700`) | differential convergence |
 | `innerProductOrbitSparse` density threshold | — | 0.34 (`+mobius/innerProductOrbitSparse.m:45`) | sparse contraction internals |
@@ -1045,7 +1017,6 @@ Condensed from `routing_parity.md` §2; the ids are kept so that the full eviden
 | B-12 | [3] | Dropped arguments in MATLAB list forms (A-10, A-11); docstrings do not say so (D-11). | MATLAB | `cosSimExpTens.m:1763-1766, 1801-1802, 1863-1864`; `evalExpTens.m:1785-1792, 1845-1868` |
 | B-13 | [3] | Dropped `kernel_precision` on the Python eval Möbius and single-multiset centres routes (A-9). | Python | `eval.py:893-898, 926-937` |
 | B-14 | [3] | Shared: nested routes compute `<X,X>` under `oneSidedDenom` whenever it is not memoised; flat routes skip it. | both | `cosine.py:2896-2907`; `nestedContract.m:319-324, 1148-1152` |
-| B-15 | [4] | Shared: `windowed_tensor_similarity` accepts ts/kp (Python) or resolves the default (MATLAB) and never truncates the log kernel. | both | `windowing.py:597-598, 822-827`; `windowedInnerProduct.m:444, 507` |
 | B-16 | [4] | Shared dead code: the "safe/unsafe" partition; the block-Q form of the closed form (`bs >= 2`); Python's unused `L_abs_per`. | both | `maPerAttrInnerMatrix.m:161-166, 471-540`; `_mobius_inner.py:555, 579, 1928-1937`; `closedFormAttrMatrixFrom.m:152-153, 180`; `cosine.py:2847-2848` |
 | B-17 | [4] | Shared vestigial constants (probe/prescreen in Python; `GRID_OP`/`CENTRES_OP`/`REL_BASE` in MATLAB). | both | `dispatch.py:217-223, 1188, 2221-2266`; `predictOrbitCostMs.m:39-43, 81, 88` |
 | K_a | — | `maEvalCostsMs.m` Möbius pricing loop carried a stale `K_a` from the previous loop; now `K_a = kVec(a)` in all three loops (`:199, 227, 279`). | MATLAB | fixed in this round (verified in source) |
@@ -1060,7 +1031,6 @@ Condensed from `routing_parity.md` §2; the ids are kept so that the full eviden
 | D-4 | `dispatch.py:536-537` says rel-per above threshold "warns and routes to Bulger"; the code routes by `wrap` (full-image → Möbius) with no warning. | Python only |
 | D-5 | `eval.py:158-162` claims a non-finite Möbius fallback; none exists. | Python only |
 | D-6 | Both eval cost models price a spectral `MAX_POINTS` decline that the evaluator never performs (`dispatch.py:1897-1903` vs `_mobius.py:2041-2060`; `maEvalCostsMs.m:323-338` vs `evalOrbitRel.m:187-203`). | both |
-| D-7 | `windowing.py:747-750` says ts/kp are forwarded; they are not (`:822-827`). | Python only |
 | D-8 | `selfIpMemoised.m:15-18` mentions a `'sweep'` key that only Python writes. | MATLAB only |
 | D-9 | `_mobius.py:1960-1963` describes a "cross-correlation strategy at r = 2" that does not exist. | Python only |
 | D-10 | `method='factored'` accepted (`cosine.py:1467`) but absent from the docstring (`:243`). | Python only |
@@ -1135,7 +1105,7 @@ Python: `_rel_contract_cheaper`; `_orbit_inner_abs`/`_orbit_inner_rel` (re-expor
 | `orbit_cost_model`, `orbit_cost_log_ratio` | §1.8.5 | `internal.orbitCostModel` — reached |
 | `_tensor/_centres_inner.py` (`centres_inner_product`) | **orphan** module (tests only) | none — not a gap |
 
-### 11.5 Python — `_tensor/sweep.py`, `eval.py`, `entropy.py`, `windowed.py`, `windowing.py`, `explain.py`
+### 11.5 Python — `_tensor/sweep.py`, `eval.py`, `entropy.py`, `windowed.py`, `explain.py`
 
 | Routine | Reached from | Twin |
 |---|---|---|
@@ -1144,7 +1114,6 @@ Python: `_rel_contract_cheaper`; `_orbit_inner_abs`/`_orbit_inner_rel` (re-expor
 | `eval_exp_tens`, `_eval_exp_tens_scalar`, `_eval_exp_tens_density_list`, `_eval_exp_tens_raw_ma_scalar`, `_eval_exp_tens_raw_single_multiset_scalar`, `_eval_exp_tens_raw_single_multiset_batch`, `_eval_exp_tens_ma`, `_ma_eval_factored`, `_ma_eval_full`, `_ma_value_tables`, `_tuple_values_repeat`, `_eval_core`, `_truncated_kernel_sum_culled`, `_eval_full`, `_distinct_value_table`, `_ma_eval_normalize`, `_maybe_warn_eval_time`, `eval_exp_tens_raw` (shim) | §3 | `evalExpTens`, `localMaSkinnyDispatch`, `localEvalMA`, `localMaEvalFactored`, `maetEvalFull`, `localMaNormaliseSkinny`, `localEvalBatchedRaw`, `internal.tupleValuesRepeat` — reached; `_eval_core` has no direct twin (MATLAB uses `gaussianKernelSum`) |
 | `entropy_exp_tens`, `_canonicalize_method`, `_entropy_exp_tens_shannon_dispatch`, `_entropy_exp_tens_scalar`, `_entropy_exp_tens_density_list`, `_entropy_exp_tens_raw_single_multiset_batch`, `_entropy_exp_tens_ma`, `_cell_masses_ma_absolute`, `_phi_diff_axis`, `_phi_diff_axis_periodic`, `_contract_cell_axes`, `_entropy_exp_tens_differential_dispatch`, `_differential_adaptive`, `_diff_spans_ma`, `_entropy_exp_tens_renyi2_dispatch`, `_renyi2_exp_tens_ma`, `_renyi2_per_attr_numerical`, `_renyi2_finalise`, `_resolve_density`, `_raise_if_any_sigma_zero`, `_looks_like_ma_p` | §4 | `entropyExpTens`, `localEntropySingleMultiset`, `localEntropyMA`, `localPhiDiffAxisPeriodic`, `localDifferentialAdaptive`, `localRenyi2SingleMultiset`, `localRenyi2MA`, `renyi2PerAttrNumerical`, `localCanonicalizeMethod` — reached; `localRenyi2SingleMultiset` has no Python twin (A-5) |
 | `windowed_similarity`, `_ws_multi`, `_ws_single`, `windowed_entropy` | §5.1 | `windowedSimilarity` — reached (no `windowedEntropy` twin noted) |
-| `windowed_tensor_similarity`, `_windowed_similarity_core`, `_windowed_similarity_pair`, `_windowed_inner_product`, `_cos_sim_numerator_ma`, `_periodic_image_sum_contribution`, `_windowed_group_contribution`, `_windowed_contribution_factorisable`, `_windowed_contribution_gaussian_multi_rel`, `_window_squared`, `_check_ma_compatibility`, `_evaluate_window_on_query` | §5.2, §3.2 | `windowedTensorSimilarity`, `internal.windowedInnerProduct`, `localCosSimNumeratorMACore`, `localPeriodicImageSumContribution`, `localWindowSquared` — reached |
 | `explain_dispatch` | §6 | `explainDispatch` — reached |
 
 ### 11.6 MATLAB — orphans and dead code with twin status

@@ -45,9 +45,9 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %       Rényi-2 / collision entropy via the inner-product / Möbius
 %       machinery used by entropyExpTens.
 %
-%   v2.2 breaking change: the legacy 'normalize' boolean kwarg has
+%   v3 breaking change: the legacy 'normalize' boolean kwarg has
 %   been removed from spectralEntropy. Use method='normalized' for
-%   the v2.1 default behaviour (H/log_b(N) in [0, 1]) or
+%   the v2.0 default behaviour (H/log_b(N) in [0, 1]) or
 %   method='shannon' for raw H. Passing 'normalize' raises a
 %   migration-error exception.
 %
@@ -163,21 +163,21 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
             {mustBeMember(nvArgs.kernelPrecision, {'double','single'})} ...
             = mptDefaults('kernelPrecision')
         nvArgs.verbose (1,1) logical = true
-        nvArgs.normalize = []  % v2.2 sentinel: any value triggers migration error
+        nvArgs.normalize = []  % v3 sentinel: any value triggers migration error
     end
 
     % Top-level call guard: dispatch throttle + kernelChunkBytes pin. See internal.callGuard.
     guard = internal.callGuard(); %#ok<NASGU>
 
-    % Detect the legacy 'normalize' kwarg (removed in v2.2). The empty
+    % Detect the legacy 'normalize' kwarg (removed in v3). The empty
     % default cannot be supplied by a caller; any value here means the
     % user explicitly passed 'normalize', ...  We emit a migration
     % error pointing to the four-method API.
     if ~isempty(nvArgs.normalize)
         error('spectralEntropy:normalizeRemoved', ...
               ['spectralEntropy: the ''normalize'' kwarg has been ' ...
-               'removed in v2.2. Use method=''normalized'' for ' ...
-               'H/log_b(N) in [0, 1] (the v2.1 default behaviour), ' ...
+               'removed in v3. Use method=''normalized'' for ' ...
+               'H/log_b(N) in [0, 1] (the v2.0 default behaviour), ' ...
                'or method=''shannon'' for raw H = -sum q log_b q. ' ...
                'method=''differential'' and method=''renyi2'' are ' ...
                'continuous-form entropies and have no [0, 1] reference.']);
@@ -265,7 +265,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %
 %   For 'shannon' and 'normalized', passes explicit non-periodic grid
 %   bounds (xMin = 0, xMax = max(spec_p) + 4*sigma) and an explicit
-%   nPointsPerDim = 1200 (matching the toolbox's pre-v2.2 default).
+%   nPointsPerDim = 1200 (matching the toolbox's pre-v3 default).
 %   For 'differential', the span auto-derives from event centres
 %   +/- truncationSigmas * sigma and the grid is refined adaptively.
 %   For 'renyi2', no grid is constructed (analytical inner-product

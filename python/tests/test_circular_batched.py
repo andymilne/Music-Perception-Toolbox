@@ -1,4 +1,4 @@
-"""Tests for v2.1 batched dispatch in circular measures.
+"""Tests for v3 batched dispatch in circular measures.
 
 Bundle 3 (Tier 1): the DFT-equivariant family — ``dft_circular``,
 ``mean_offset``, ``edges``, ``proj_centroid``, ``circ_apm``. All five
@@ -73,7 +73,7 @@ class TestDftCircularBatched:
         assert np.array_equal(mag_list[0], mag_list[1])
 
     def test_batched_no_transposition_dedup(self):
-        # Transposed copies are NOT dedup'd at this v2.1 stage —
+        # Transposed copies are NOT dedup'd at this v3 stage —
         # outputs differ in F's phases, identical only in mag.
         P = np.array([
             [0, 200, 400],

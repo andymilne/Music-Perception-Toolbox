@@ -1,4 +1,4 @@
-%% test_dft_montecarlo.m — dftCircularSimulate; balance/evenness/projCentroid sigma (v2.1)
+%% test_dft_montecarlo.m — dftCircularSimulate; balance/evenness/projCentroid sigma (v3)
 %
 %  Tests for dftCircularSimulate.
 %

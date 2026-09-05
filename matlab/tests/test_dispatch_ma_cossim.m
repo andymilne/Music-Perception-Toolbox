@@ -1,6 +1,6 @@
-%% test_dispatch_ma_cossim.m — v2.2 MA method dispatch in cosSimExpTens
+%% test_dispatch_ma_cossim.m — v3 MA method dispatch in cosSimExpTens
 %
-%  Tests for the MA-side method dispatch added in v2.2 (Commit 6c).
+%  Tests for the MA-side method dispatch added in v3 (Commit 6c).
 %  Covers:
 %    - Method kwarg validation: bad string raises informative error.
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
@@ -216,7 +216,7 @@ results{end+1,1} = 'dispatch.MA cossim: r=2 small-N auto = Bulger (exact)';
 results{end,2}   = isequal(s_autoS, s_pwiseS);
 
 % ---- r_max > _ORBIT_R_MAX_SHIPPED auto routes to Bulger ----
-% v2.2.0 verified this at r=7 by running cosSimExpTens end-to-end and
+% v3 verified this at r=7 by running cosSimExpTens end-to-end and
 % comparing auto vs forced Bulger. After Phase 5 extended shipped
 % tables to r=2..8, the natural boundary test would be r=9 — but
 % Bulger at r=9 builds a K!/(K-r)! ordered-tuple tensor that exceeds

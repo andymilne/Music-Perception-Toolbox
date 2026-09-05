@@ -1,6 +1,6 @@
 %% test_mobius_eval.m — set partitions and single multiset point evaluators
 %
-%  Tests for the v2.2 point-evaluator machinery in matlab/+mobius/:
+%  Tests for the v3 point-evaluator machinery in matlab/+mobius/:
 %    getSetPartitionsWithMobius, evalOrbitAbs, evalOrbitRel.
 %
 %  Mirrors the relevant sections of python/tests/test_mobius.py.

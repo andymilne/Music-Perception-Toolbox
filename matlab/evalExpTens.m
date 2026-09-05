@@ -295,8 +295,8 @@ firstArg = varargin{1};
 %        - 2-D with both dims > 1 -> BATCHED-RAW (rows = multisets)
 %        - vector or scalar       -> single multiset raw
 %   4. Otherwise -> usage error.
-% MA-routed branches (general MaetDensity, WindowedMaetDensity, LIST,
-% MA raw, BATCHED-RAW) return early. Single-multiset branches (a
+% MA-routed branches (general MaetDensity, LIST, MA raw, BATCHED-RAW)
+% return early. Single-multiset branches (a
 % single-multiset MaetDensity, single-multiset raw) set `dens` (a flat
 % view) and `X` and fall through to the shared single-multiset dispatch
 % below. Each detector is positive (no reliance on a preceding check
@@ -341,25 +341,6 @@ if isstruct(firstArg) && isfield(firstArg, 'tag')
                 end
                 return;
             end
-        case 'WindowedMaetDensity'
-            if internal.densityHasKernelCov(firstArg.dens)
-                error('mpt:aniso:windowedEval', ...
-                    ['Matrix-valued kernel covariances are not ' ...
-                     'supported on windowed densities; use ' ...
-                     'windowedSimilarity, whose internal builds ' ...
-                     'accept them.']);
-            end
-            [handled, underlying] = localMaSkinnyDispatch(firstArg.dens, ...
-                X, normalize, verbose, truncationSigmas, kernelPrecision, ...
-                'auto');
-            if ~handled
-                underlying = localEvalMA( ...
-                    internal.ensureExpTensExpensive(firstArg.dens), X, ...
-                    normalize, verbose, truncationSigmas, kernelPrecision);
-            end
-            W_vals = localEvaluateWindowOnQuery(firstArg, X);
-            vals = underlying .* W_vals;
-            return;
         otherwise
             error('evalExpTens:unknownTag', ...
                 'Unknown density struct tag: %s.', firstArg.tag);
@@ -463,7 +444,7 @@ end
 % per-attribute cell query form {X_1} as well as a plain matrix, and (for
 % a 1-D attribute) a bare vector. Normalise to the flat matrix the fast
 % kernels expect, mirroring the general MA path (localEvalMA). Only the
-% single-multiset path reaches here; every general-MA / windowed / MA-raw
+% single-multiset path reaches here; every general-MA / MA-raw
 % branch returned early above.
 if iscell(X)
     if numel(X) ~= 1
@@ -1595,165 +1576,6 @@ function Q_a = localQInnerBlocksReduced(D_a, rIn, isPer, Pg)
         end
         Q_a = Q_a + Qb;
     end
-end
-
-
-% =========================================================================
-%  Window pointwise evaluator (for WindowedMaetDensity dispatch)
-% =========================================================================
-
-function W_vals = localEvaluateWindowOnQuery(wmd, X)
-%LOCALEVALUATEWINDOWONQUERY  Evaluate the window function W(x) on query
-%points, returning a 1 x nQ vector of window values.
-%
-%   For periodic groups, the window is the wrapped Gaussian (or
-%   wrapped rect-conv-Gaussian for mix > 0): the sum of line-case
-%   window functions at all periodic images of the centre. The sum
-%   is truncated adaptively when successive image-pair contributions
-%   fall below 1e-12 of the running maximum.
-
-    dens       = wmd.dens;
-    A          = dens.nAttrs;
-    dimPerAttr = dens.dimPerAttr;
-    dim        = dens.dim;
-    sigmaG     = dens.sigma;
-    isPerG     = logical(dens.isPer);
-    periodG    = dens.period;
-
-    % --- Normalise X to per-attribute cell form (mirrors localEvalMA) ---
-    if iscell(X)
-        Xc = cell(1, A);
-        for a = 1:A
-            Xa = X{a};
-            if isvector(Xa) && dimPerAttr(a) == 1
-                Xa = Xa(:).';
-            end
-            Xc{a} = double(Xa);
-        end
-    else
-        Xs = X;
-        if isvector(Xs) && dim == 1
-            Xs = Xs(:).';
-        end
-        Xc = cell(1, A);
-        rowStart = 1;
-        for a = 1:A
-            rowEnd = rowStart + dimPerAttr(a) - 1;
-            Xc{a} = double(Xs(rowStart:rowEnd, :));
-            rowStart = rowEnd + 1;
-        end
-    end
-
-    if A == 0 || isempty(Xc{1})
-        W_vals = zeros(1, 0);
-        return;
-    end
-    nQ = size(Xc{1}, 2);
-    W_vals = ones(1, nQ);
-
-    IMAGE_SUM_TOL = 1e-12;   % FP-precision tolerance (matches Python)
-
-    for a = 1:A
-        if ~localIsWindowedAttr(wmd.size(a), wmd.mix(a))
-            continue;
-        end
-        [a_, b_] = localWindowWidthParams(wmd.size(a), wmd.mix(a), sigmaG(a));
-        da = dimPerAttr(a);
-        centre_a = wmd.centre{a};    % (da, 1)
-        centre_a = centre_a(:);
-        Xa = Xc{a};                   % (da, nQ)
-        per = isPerG(a);
-        if per
-            P_g = double(periodG(a));
-        else
-            P_g = 0;
-        end
-        for i = 1:da
-            u = Xa(i, :) - centre_a(i);
-            if per
-                w_axis = localWrappedWindowFactor1D(u, a_, b_, P_g, ...
-                    IMAGE_SUM_TOL);
-            else
-                w_axis = localWindowFactor1D(u, a_, b_);
-            end
-            W_vals = W_vals .* w_axis;
-        end
-    end
-end
-
-
-function tf = localIsWindowedAttr(size_g, mix_g)
-    tf = isfinite(size_g) && size_g > 0;
-end
-
-
-function [a_rect, b_conv] = localWindowWidthParams(size_g, mix_g, sigma_g)
-    s = double(size_g) * double(sigma_g);
-    a_rect = s * sqrt(3 * double(mix_g));
-    b_conv = s * sqrt(1 - double(mix_g));
-end
-
-
-function W = localWindowFactor1D(u, a_rect, b_conv)
-%LOCALWINDOWFACTOR1D  Evaluate the 1-D window function at u.
-%   Window = rect(half-a) convolved with Gaussian(b).
-    if b_conv == 0
-        % Pure rectangular.
-        W = double(abs(u) <= a_rect);
-    elseif a_rect == 0
-        % Pure Gaussian.
-        W = exp(-u.^2 / (2 * b_conv^2));
-    else
-        % Rect-conv-Gaussian, normalised to peak 1.
-        arg_plus  = (a_rect + u) / (sqrt(2) * b_conv);
-        arg_minus = (a_rect - u) / (sqrt(2) * b_conv);
-        numer = 0.5 * (erf(arg_plus) + erf(arg_minus));
-        peak = erf(a_rect / (b_conv * sqrt(2)));
-        W = numer / peak;
-    end
-end
-
-
-function W = localWrappedWindowFactor1D(u, a_rect, b_conv, period, image_tol)
-%LOCALWRAPPEDWINDOWFACTOR1D  Sum of line-case window factors at all
-%periodic images of u.
-%
-%   Equivalent to evaluating a wrapped Gaussian (or wrapped rect-conv-
-%   Gaussian for mix > 0) at u. Truncates adaptively when the latest
-%   image-pair's largest contribution falls below image_tol times the
-%   running max.
-
-    n_max_cap = 100;
-    % Reduce to the minimal image so the n=0 term is dominant; an offset
-    % many periods from the centre would otherwise underflow the near
-    % images to 0 and the sum would terminate before the dominant image.
-    if period > 0
-        u = u - period * round(u / period);
-    end
-    acc = localWindowFactor1D(u, a_rect, b_conv);
-    running_max = max(abs(acc(:)));
-    for n = 1:n_max_cap
-        shift = n * period;
-        f_pos = localWindowFactor1D(u + shift, a_rect, b_conv);
-        f_neg = localWindowFactor1D(u - shift, a_rect, b_conv);
-        acc = acc + f_pos + f_neg;
-        new_max = max(max(abs(f_pos(:))), max(abs(f_neg(:))));
-        running_max = max(running_max, max(abs(acc(:))));
-        if running_max == 0
-            W = acc;
-            return;
-        end
-        if new_max / running_max < image_tol
-            W = acc;
-            return;
-        end
-    end
-    warning('evalExpTens:wrappedWindowCap', ...
-        ['Wrapped window evaluation hit the safety cap of %d image ' ...
-         'pairs without converging to relative tolerance %g. This ' ...
-         'usually indicates sigma_w >> P; consider evaluating ' ...
-         'without a window.'], n_max_cap, image_tol);
-    W = acc;
 end
 
 

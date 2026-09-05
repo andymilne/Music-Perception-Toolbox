@@ -1,6 +1,6 @@
-%% test_tier4_batched.m — Tier-4 batched dispatch (v2.1+): balanceCircular, evennessCircular
+%% test_tier4_batched.m — Tier-4 batched dispatch (v3+): balanceCircular, evennessCircular
 %
-%  Tests for Tier-4 batched dispatch (v2.1+): balanceCircular, evennessCircular.
+%  Tests for Tier-4 batched dispatch (v3+): balanceCircular, evennessCircular.
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.

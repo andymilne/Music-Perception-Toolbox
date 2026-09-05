@@ -1,6 +1,6 @@
-# v2.2 precision audit
+# v3 precision audit
 
-Standalone investigation scripts and reference outputs for the v2.2 Möbius
+Standalone investigation scripts and reference outputs for the v3 Möbius
 release's precision behaviour. These are not pytest tests — they are
 exploratory sweeps producing tabular output for inspection. Each script has a
 companion `*.out.txt` capturing its reference output at the time of last run.

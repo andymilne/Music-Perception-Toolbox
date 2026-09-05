@@ -1,8 +1,8 @@
-%% test_entropy_renyi2.m — v2.2 Rényi-2 entropy in entropyExpTens
+%% test_entropy_renyi2.m — v3 Rényi-2 entropy in entropyExpTens
 %
-%  Tests for the new method='renyi2' kwarg added in v2.2 (Commit 6e).
+%  Tests for the new method='renyi2' kwarg added in v3 (Commit 6e).
 %  Covers:
-%    - method kwarg validation (bad string; v2.2 migration error on
+%    - method kwarg validation (bad string; v3 migration error on
 %      the removed normalize kwarg).
 %    - single-multiset Rényi-2 closed-form correctness against a hand-rolled
 %      reference for r=1 abs and r>=2 abs/rel.
@@ -45,11 +45,11 @@ end
 results{end+1,1} = 'entropy.renyi2: bad method string raises entropyExpTens:badMethod';
 results{end,2}   = ok_badMethod;
 
-% v2.2: passing 'normalize' to entropyExpTens (any value, any method)
-% raises the migration error. Under v2.1 this same call combination
-% (renyi2 with the default normalize=true) raised
-% entropyExpTens:renyi2NormalizeNotSupported; v2.2 unifies all
-% normalize-kwarg paths under the migration error.
+% v3: passing 'normalize' to entropyExpTens (any value, any method)
+% raises the migration error. An earlier internal build raised
+% entropyExpTens:renyi2NormalizeNotSupported for renyi2 with the
+% default normalize=true; v3 unifies all normalize-kwarg paths under
+% the migration error.
 ok_normMigration_false = false;
 try
     entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
@@ -70,7 +70,7 @@ results{end+1,1} = 'entropy.renyi2: legacy normalize kwarg raises migration erro
 results{end,2}   = ok_normMigration_false && ok_normMigration_true;
 
 % method='renyi2' without any normalize kwarg works and returns a finite
-% value (the v2.2 design — renyi2 is continuous, no [0, 1] reference).
+% value (the v3 design — renyi2 is continuous, no [0, 1] reference).
 H_rny_default = entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'entropy.renyi2: default call returns finite value';

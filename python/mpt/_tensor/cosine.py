@@ -58,7 +58,6 @@ from ._mobius_inner import (
 )
 from .density import (
     MaetDensity,
-    WindowedMaetDensity,
     is_single_multiset,
 )
 from .dispatch import (
@@ -72,9 +71,8 @@ from .dispatch import (
 
 
 # -------------------------------------------------------------------
-#  Normalisation helpers (shared by cos_sim_exp_tens and
-#  windowed_tensor_similarity, which expose the same ``normalize`` keyword
-#  with the same set of values).
+#  Normalisation helpers for the ``normalize`` keyword of
+#  cos_sim_exp_tens (and, through it, windowed_similarity).
 # -------------------------------------------------------------------
 
 #: The canonical value set for the ``normalize`` keyword. ``'cosine'`` is
@@ -232,9 +230,7 @@ def cos_sim_exp_tens(*args,
     dedup : bool, default True
         Apply canonical-form deduplication. Currently supported for
         single-multiset pairs only; pairs involving ``MaetDensity``
-        bypass dedup transparently. (``WindowedMaetDensity`` operands
-        are rejected at the top of the function — use
-        :func:`windowed_tensor_similarity` instead.)
+        bypass dedup transparently.
     spectrum : list/tuple, optional
         Per-row spectral augmentation parameters passed to
         :func:`mpt.spectra.add_spectra`. Only valid in raw single-multiset modes
@@ -351,16 +347,12 @@ def cos_sim_exp_tens(*args,
     # ------------------------------------------------------------------
     # Detect density-input intent based on the first argument.
     # ------------------------------------------------------------------
-    is_density_scalar = isinstance(
-        a, (MaetDensity, WindowedMaetDensity)
-    )
+    is_density_scalar = isinstance(a, MaetDensity)
     intends_density_list = False
     if isinstance(a, (list, tuple)):
         if len(a) == 0:
             intends_density_list = True
-        elif isinstance(
-            a[0], (MaetDensity, WindowedMaetDensity)
-        ):
+        elif isinstance(a[0], MaetDensity):
             intends_density_list = True
     elif isinstance(a, np.ndarray) and a.dtype == object:
         intends_density_list = True
@@ -680,8 +672,7 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
 
     dens_all = [shared] + entries
     for d in dens_all:
-        if not isinstance(d, MaetDensity) or \
-                isinstance(d, WindowedMaetDensity):
+        if not isinstance(d, MaetDensity):
             return None
         if density_has_kernel_cov(d):
             return None
@@ -1013,18 +1004,7 @@ def _cos_sim_pair_core(
     ``normalize``, ``truncation_sigmas`` and ``kernel_precision``
     through; that routine
     handles both the single-multiset and multi-attribute cases.
-    ``WindowedMaetDensity`` operands are rejected here; user code
-    reaches the windowed inner product via :func:`windowed_tensor_similarity`.
     """
-    if isinstance(dens_x, WindowedMaetDensity) or \
-            isinstance(dens_y, WindowedMaetDensity):
-        raise TypeError(
-            "cos_sim_exp_tens does not accept WindowedMaetDensity "
-            "operands. Use windowed_tensor_similarity(dens_context, "
-            "dens_query, window_spec, offsets) — pass a single-column "
-            "offsets array for the scalar single-offset case, or a "
-            "(dim, M) array for the M-offset sweep."
-        )
     from .aniso import density_has_kernel_cov, density_kernel_covs_compatible
     if density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y):
         if not density_kernel_covs_compatible(dens_x, dens_y):
@@ -1049,9 +1029,8 @@ def _cos_sim_pair_core(
             verbose=verbose,
         )
     raise TypeError(
-        f"Both arguments must be MaetDensity or "
-        f"WindowedMaetDensity; got {type(dens_x).__name__} and "
-        f"{type(dens_y).__name__}."
+        f"Both arguments must be MaetDensity; got "
+        f"{type(dens_x).__name__} and {type(dens_y).__name__}."
     )
 
 
@@ -1601,7 +1580,7 @@ def _cos_sim_exp_tens_ma(
     """Multi-attribute cosine similarity.
 
     A ``method`` keyword routes between Bulger's method
-    — the v1 / v2.1 decomposition with periodic pairwise-wrap form
+    — the v1 / v2.0 decomposition with periodic pairwise-wrap form
     (``_ip_core_ma``) — and the Möbius method. With the default
     ``method='auto'`` the flat selector
     (:func:`~mpt._tensor.dispatch._select_ma_inner_product_method`)
@@ -1621,11 +1600,11 @@ def _cos_sim_exp_tens_ma(
     dens_y = dens_y.pruned()
 
     # An empty operand has no events to overlap, so the inner product -- and
-    # hence the similarity -- is zero. A windowed density whose window caught
-    # nothing prunes to zero events here; without this guard it reaches the
-    # nested contraction's value-range scan, which has no identity over an
+    # hence the similarity -- is zero. An event-weighted density whose window
+    # caught nothing prunes to zero events here; without this guard it reaches
+    # the nested contraction's value-range scan, which has no identity over an
     # empty attribute column. (The raw single-multiset path is unaffected: it
-    # is reached only without specs, and an empty windowed density always
+    # is reached only without specs, and an empty weighted density always
     # carries specs.)
     if dens_x.n == 0 or dens_y.n == 0:
         return 0.0

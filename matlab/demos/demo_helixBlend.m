@@ -49,7 +49,7 @@
 %    (c) three overlaid profile curves at representative sigma_reg
 %        values.
 %
-%  Uses: buildExpTens, windowedTensorSimilarity, convertPitch.
+%  Uses: windowedSimilarity (event weighting), convertPitch.
 
 clear; clc; close all;
 
@@ -63,7 +63,7 @@ WIN_MIX          = 0.5;                              % rectangular x Gaussian
 
 % -- Part 1 (synthetic) --
 SIG_TIME_1       = 0.10;                             % sec
-WIN_SIZE_TIME_1  = 6.0;                              % eff. sd in units of sigma_time
+WIN_SIZE_TIME_1  = 6.0;                              % window sd in units of sigma_time
 OFFSETS_1        = -0.5 : 0.02 : 12.5;
 
 % -- Part 2 (fugal texture) --
@@ -114,52 +114,68 @@ plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
 %  Local functions
 % =====================================================================
 
-function dens = build2Group(pitch_cents, time_sec, sigma_pc, sigma_reg, sigma_time)
-%BUILD2GROUP  MAET density with pitch routed through two groups plus time.
+function [pAttr, sigma] = helixSurface(pitch_cents, time_sec, sigma_pc, sigma_reg, sigma_time)
+%HELIXSURFACE  Pre-build (pAttr, sigma) with pitch routed through two attributes plus time.
 %
-%   Attributes: (pitch, pitch, time). Groups: (pc, reg, time), with pc
-%   periodic at 1200 cents and the other two linear. All r = 1.
+%   Attributes: (pitch, pitch, time), read as (pc, reg, time): the first
+%   pitch copy is periodic at 1200 cents, the second and the time axis
+%   are linear. All r = 1. The remaining per-attribute geometry (r,
+%   isRel, isPer, period) is fixed in sweepProfiles.
     p = pitch_cents(:).';
     t = time_sec(:).';
-    dens = buildExpTens({p, p, t}, [], ...
-        [sigma_pc, sigma_reg, sigma_time], ...
-        [1, 1, 1], ...
-        [false, false, false], ...
-        [true,  false, false], ...
-        [1200, 0, 0], ...
-        'verbose', false);
+    pAttr = {p, p, t};
+    sigma = [sigma_pc, sigma_reg, sigma_time];
 end
 
 function prof = sweepProfiles(q_cents, q_t, c_cents, c_t, ...
                               sigma_pc, sigma_reg_values, sigma_time, ...
                               win_size_time, win_mix, offsets)
 %SWEEPPROFILES  Return a length(sigma_reg_values) x length(offsets) array
-%   of cross-correlation windowed-similarity profiles.
+%   of windowed-similarity profiles (a cross-correlation of the query
+%   against the time-windowed context).
+%
+%   Windowing is event weighting: at each sweep position the window,
+%   centred on that position along the time axis, multiplies the
+%   per-event weights of the context before its density is built, and
+%   the query is translated so that its time centroid lands on the same
+%   position. The window has standard deviation win_size_time * sigma_time
+%   and shape win_mix (0 Gaussian, 1 rectangular).
 
     % Acquire a top-level dispatch scope for the duration of the
-    % per-sigma_reg loop. Each iteration calls windowedTensorSimilarity as
-    % an independent top-level entry; without this guard, each entry
-    % would reset the dispatch-announce throttle, re-emitting the
-    % same "windowedTensorSimilarity: chose 'closed-form' path." message per
-    % iteration. Holding a scope guard here keeps every iteration
-    % nested at depth >= 1, so the throttle deduplicates announces
-    % across the sweep. See internal.dispatchScope.
+    % per-sigma_reg loop, so the dispatch-announce throttle deduplicates
+    % the cosine path's announce across the sweep rather than re-emitting
+    % it per iteration. See internal.dispatchScope.
     guard = internal.dispatchScope(); %#ok<NASGU>
 
-    windowSpec = struct('size', [Inf, Inf, win_size_time], ...
-                        'mix',  [0,   0,   win_mix]);
-    % Offsets: pc and reg offsets = 0; sweep time offset
-    N = numel(offsets);
-    offsets_3d = [zeros(1, N); zeros(1, N); offsets(:).'];
+    r      = [1, 1, 1];
+    isRel  = [false, false, false];
+    isPer  = [true,  false, false];
+    period = [1200, 0, 0];
+    TIME   = 3;                                  % the swept (window) axis
+
+    % The window family has fixed variance sd^2 for every shape; the
+    % width argument is the rectangle-equivalent full width 2*sqrt(3)*sd.
+    sd_time = win_size_time * sigma_time;
+    contextWindow = {win_mix, 2 * sqrt(3) * sd_time};
+
+    % Sweep positions are absolute times on the context axis; the plotted
+    % offset is the position relative to the query's time centroid.
+    centres = offsets(:).' + mean(q_t);
 
     nS = numel(sigma_reg_values);
+    N  = numel(offsets);
     prof = zeros(nS, N);
+    wq = {ones(1, numel(q_t)), ones(1, numel(q_t)), ones(1, numel(q_t))};
+    wc = {ones(1, numel(c_t)), ones(1, numel(c_t)), ones(1, numel(c_t))};
     for i = 1:nS
         sr = sigma_reg_values(i);
-        dq = build2Group(q_cents, q_t, sigma_pc, sr, sigma_time);
-        dc = build2Group(c_cents, c_t, sigma_pc, sr, sigma_time);
-        prof(i, :) = windowedTensorSimilarity(dc, dq, windowSpec, offsets_3d, ...
-            'verbose', false);
+        [pq, sigma] = helixSurface(q_cents, q_t, sigma_pc, sr, sigma_time);
+        pc          = helixSurface(c_cents, c_t, sigma_pc, sr, sigma_time);
+        prof(i, :) = windowedSimilarity(pc, wc, pq, wq, ...
+            sigma, r, isRel, isPer, period, centres, ...
+            'windowAttr', TIME, 'dropWindowAttr', false, ...
+            'contextWindow', contextWindow, 'locate', 'centroid', ...
+            'normalize', 'oneSidedDenom', 'verbose', false);
     end
 end
 
@@ -349,7 +365,7 @@ function plotPart(fig, suptitle_str, ctx_midi, ctx_t, marker_idx, ...
         xline(ax3, po, '--', 'Color', [0.53, 0.53, 0.53], 'LineWidth', 0.7);
     end
     xlabel(ax3, 'Query time offset (s)');
-    ylabel(ax3, 'Cosine similarity');
+    ylabel(ax3, 'Windowed similarity');
     legend(ax3, legendStrs, ...
         'Position', [LEG_L, ROW_C_Y + ROW_C_H - 0.095, LEG_W, 0.085], ...
         'FontSize', 9);

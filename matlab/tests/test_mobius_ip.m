@@ -1,6 +1,6 @@
 %% test_mobius_ip.m — Orbit IP evaluators and total mass formulae
 %
-%  Tests for the v2.2 orbit-IP machinery in matlab/+mobius/:
+%  Tests for the v3 orbit-IP machinery in matlab/+mobius/:
 %    contract, innerProductOrbit, innerProductOrbitGrid,
 %    innerProductOrbitPwBatched, totalMassAbs, totalMassRel.
 %

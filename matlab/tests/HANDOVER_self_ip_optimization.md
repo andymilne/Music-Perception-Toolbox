@@ -1,6 +1,6 @@
 # Handover: self-IP memoisation, oneSidedDenom skip, and the r = 1 route
 
-## What shipped (both languages, v2.2)
+## What shipped (both languages, v3)
 
 Origin: `HANDOVER_sweep_optimization.md` measured ~42 ms/offset on the
 point-set-sweep shape (N = 1200 context, 3-event query,

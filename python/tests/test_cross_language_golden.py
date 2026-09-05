@@ -1,10 +1,10 @@
-"""Cross-language golden-value tests for v2.2 paths.
+"""Cross-language golden-value tests for v3 paths.
 
-Hardcodes outputs of representative v2.2 computations on deterministic
+Hardcodes outputs of representative v3 computations on deterministic
 inputs (no RNG). The companion MATLAB file
 ``matlab/tests/test_cross_language_golden.m`` hardcodes the same
 values; running both pins down cross-language numerical agreement to
-1e-8 relative on the v2.2 surface (orbit cosine similarity single-multiset + MA
+1e-8 relative on the v3 surface (orbit cosine similarity single-multiset + MA
 Rényi-2 entropy single-multiset + MA, orbit-path
 :func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
 

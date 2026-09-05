@@ -1,11 +1,9 @@
 """Density classes and multi-attribute input preprocessing helpers.
 
-This module defines the three density data structures used throughout
-the toolbox:
+This module defines the density data structure used throughout the
+toolbox:
 
 * :class:`MaetDensity` --- multi-attribute expectation tensor density
-* :class:`WindowedMaetDensity` --- a :class:`MaetDensity` paired with a
-  post-tensor windowing spec
 
 It also exposes the small set of multi-attribute input-coercion and
 weight-normalisation helpers consumed by ``build_exp_tens`` and by the
@@ -20,7 +18,6 @@ layering) for the layered design.
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass, field
 from itertools import permutations
 from math import factorial
 
@@ -447,52 +444,6 @@ class MaetDensity:
             f"MaetDensity(A={self.n_attrs}, "
             f"N={self.n}, dim={self.dim}, {built})"
         )
-
-
-# -------------------------------------------------------------------
-#  WindowedMaetDensity  (MAET with a post-tensor window applied)
-# -------------------------------------------------------------------
-
-
-@dataclass
-class WindowedMaetDensity:
-    """A MaetDensity together with a post-tensor window specification.
-
-    Returned by :func:`window_tensor`. Bundles an underlying
-    :class:`MaetDensity` with per-group window parameters. No math is
-    performed at construction time — the window is applied lazily by
-    :func:`eval_exp_tens` (pointwise multiplication by the window
-    function) and by :func:`cos_sim_exp_tens` (closed-form windowed
-    inner product).
-
-    See the MAET specification §4.3 for the full semantics.
-
-    Fields
-    ------
-    tag : str
-        Always ``"WindowedMaetDensity"``.
-    dens : MaetDensity
-        Underlying unwindowed density.
-    size : (A,) float64
-        Per-attribute window effective standard deviation in multiples
-        of that attribute's ``sigma``. NaN or Inf means the attribute is
-        not windowed.
-    mix : (A,) float64
-        Per-attribute shape parameter in [0, 1]: 0 = pure Gaussian,
-        1 = pure rectangular, in between = rectangular-convolved-with-
-        Gaussian. Ignored for attributes with ``size`` NaN/Inf.
-    centre : list of ndarray
-        Length-A list; entry *a* is a 1-D array of length
-        ``dim_per_attr[a]`` giving the per-attribute centre point in
-        that attribute's effective subspace. Ignored for attributes
-        with ``size`` NaN/Inf.
-    """
-
-    tag: str
-    dens: "MaetDensity"
-    size: np.ndarray                     # (A,) float64
-    mix: np.ndarray                      # (A,) float64
-    centre: list                         # list of length A; each (dim_per_attr[a],)
 
 
 # -------------------------------------------------------------------

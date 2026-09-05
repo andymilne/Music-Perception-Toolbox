@@ -2,7 +2,7 @@ function maybeShowKernelEvalHint()
 %INTERNAL.MAYBESHOWKERNELEVALHINT  Print the kernel-evaluation hint once.
 %
 %   internal.maybeShowKernelEvalHint() prints a one-time-per-session
-%   informational tip about the v2.2 kernel-evaluation controls
+%   informational tip about the v3 kernel-evaluation controls
 %   (truncationSigmas, kernelPrecision) for users who have not yet
 %   opted in.
 %
@@ -14,7 +14,7 @@ function maybeShowKernelEvalHint()
 %     - the hint has already fired this session
 %
 %   Called by evalExpTens (centres path) and cosSimExpTens (Bulger
-%   path) at the chokepoint just before the v2.1-bit-identical bypass.
+%   path) at the chokepoint just before the untruncated-double bypass.
 %
 %   See also: MPTDEFAULTS.
 

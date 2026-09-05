@@ -1,6 +1,6 @@
-%% test_tier2_batched.m — Tier-2 batched dispatch (v2.1+): coherence, sameness, nTupleEntropy
+%% test_tier2_batched.m — Tier-2 batched dispatch (v3+): coherence, sameness, nTupleEntropy
 %
-%  Tests for Tier-2 batched dispatch (v2.1+): coherence, sameness, nTupleEntropy.
+%  Tests for Tier-2 batched dispatch (v3+): coherence, sameness, nTupleEntropy.
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.

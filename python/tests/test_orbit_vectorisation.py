@@ -1,6 +1,6 @@
 """Vectorisation tests for the orbit-Möbius point evaluators.
 
-Verifies the v2.2.x extensions:
+Verifies the v3 extensions:
 
 - :func:`mpt._mobius.eval_orbit_abs` accepts ``x`` of shape ``(r, ...)``
   with arbitrary trailing dimensions; output shape matches the
@@ -93,7 +93,7 @@ def test_eval_orbit_abs_bad_first_dim_raises():
 
 
 def _manual_sequential_orbit_rel(p, w, sigma, r, x_rel, is_per, period):
-    """Mimic the pre-v2.2.x sequential u-grid loop for cross-check."""
+    """Mimic the pre-v3 sequential u-grid loop for cross-check."""
     samples_per_sigma = 10
     n_q = x_rel.shape[1]
     if is_per:

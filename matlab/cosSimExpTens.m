@@ -426,24 +426,6 @@ if ~willBatch
     end
 end
 
-% --- Windowed contract check (preserved at top, before canonical dispatch) ---
-% As of v2.2, cosSimExpTens does not accept WindowedMaetDensity
-% operands. The windowed inner product is a magnitude-aware similarity
-% (not a strict cosine similarity in [0, 1]) and is therefore not
-% within cosSimExpTens's contract. Use windowedTensorSimilarity for both
-% single-offset and multi-offset windowed-similarity calls.
-if nArgs == 2 && isstruct(varargin{1}) && isstruct(varargin{2}) ...
-        && isfield(varargin{1}, 'tag') && isfield(varargin{2}, 'tag') ...
-        && (strcmp(varargin{1}.tag, 'WindowedMaetDensity') ...
-         || strcmp(varargin{2}.tag, 'WindowedMaetDensity'))
-    error('cosSimExpTens:windowedNotSupported', ...
-          ['cosSimExpTens does not accept WindowedMaetDensity ' ...
-           'operands. Use windowedTensorSimilarity(densQuery, densContext, ' ...
-           'windowSpec, offsets) --- pass a single-column offsets ' ...
-           'vector for the scalar single-offset case, or a dim x M ' ...
-           'matrix for the M-offset sweep.']);
-end
-
 % ==================================================================
 % Canonical dispatch order (mirrors entropyExpTens and evalExpTens):
 %   nArgs == 2:  precomputed-density forms or LIST.
@@ -917,11 +899,11 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     dens_y = internal.prunedExpTens(dens_y);
 
     % An empty operand has no events to overlap, so the inner product -- and
-    % hence the similarity -- is zero. A windowed density whose window caught
+    % hence the similarity -- is zero. An event-weighted density whose window caught
     % nothing prunes to zero events here; without this guard it reaches the
     % nested contraction's value-range scan, which has no identity over an
     % empty attribute column. (The raw single-multiset form is unaffected: it
-    % is reached only without specs, and an empty windowed density always
+    % is reached only without specs, and an empty weighted density always
     % carries specs.)
     if dens_x.N == 0 || dens_y.N == 0
         s = 0.0;
@@ -1754,9 +1736,7 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
 %   is paid once across the whole sweep (and, under
 %   normalize = 'oneSidedDenom' with the shared operand on the left,
 %   not at all). Mixed-kind pairs are not prevented at this level;
-%   compatibility is checked downstream. `WindowedMaetDensity` entries
-%   are rejected at the top of cosSimExpTens (use
-%   windowedTensorSimilarity instead).
+%   compatibility is checked downstream.
 %
 %   ``normalize``, ``method``, ``truncationSigmas`` and
 %   ``kernelPrecision`` are forwarded to each per-pair computation so
@@ -1926,15 +1906,6 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
     if ~isfield(dx, 'tag') || ~isfield(dy, 'tag')
         error('cosSimExpTens:untaggedStruct', ...
             'Both density structs must carry a ''tag'' field.');
-    end
-    if strcmp(dx.tag, 'WindowedMaetDensity') ...
-            || strcmp(dy.tag, 'WindowedMaetDensity')
-        error('cosSimExpTens:windowedNotSupported', ...
-              ['cosSimExpTens does not accept WindowedMaetDensity ' ...
-               'operands. Use windowedTensorSimilarity(densQuery, densContext, ' ...
-               'windowSpec, offsets) --- pass a single-column offsets ' ...
-               'vector for the scalar single-offset case, or a dim x M ' ...
-               'matrix for the M-offset sweep.']);
     end
     if ~strcmp(dx.tag, 'MaetDensity') || ~strcmp(dy.tag, 'MaetDensity')
         error('cosSimExpTens:tagMismatch', ...

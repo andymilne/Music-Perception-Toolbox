@@ -351,7 +351,7 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     end
     % Use direct Q / (2*sigma^2) division (not the precomputed inv2s2
     % shortcut) so the default-path output is FP-bit-identical to the
-    % v2.0/v2.1 evalFull implementation (in all modes except
+    % v2.0 evalFull implementation (in all modes except
     % periodic+relative, where v2.X uses the pairwise-wrap form).
     E = reshape(exp(-Qvec(:) / (2 * sigma^2)), nJ, nQc);
     v = wJ(:)' * E;

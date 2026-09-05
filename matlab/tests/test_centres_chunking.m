@@ -1,4 +1,4 @@
-%% test_centres_chunking.m — v2.2 single multiset centres-path n_q chunking
+%% test_centres_chunking.m — v3 single multiset centres-path n_q chunking
 %
 %  Regression test. Catches the OOM that surfaced when
 %  demo_triadConsonance ran at the 10-cent grid: K=72, r=3, rel,

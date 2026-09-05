@@ -238,7 +238,7 @@ class TestEdgeCases:
     def test_verbose_output_does_not_crash(self, chord_corpus, capsys):
         """verbose=True must produce sensible output without crashing.
 
-        Note: as of the v2.2 refactor the batched-raw implementation
+        Note: as of the v3 refactor the batched-raw implementation
         lives inside cos_sim_exp_tens (batch_cos_sim_exp_tens is a
         thin shim that forwards), so console output is labelled
         'cos_sim_exp_tens:' rather than 'batch_cos_sim_exp_tens:'.

@@ -1,6 +1,6 @@
-%% test_dispatch_sm_cossim.m — v2.2 single multiset method dispatch in cosSimExpTens
+%% test_dispatch_sm_cossim.m — v3 single multiset method dispatch in cosSimExpTens
 %
-%  Tests for the method keyword introduced in v2.2 (Commit 6a). Covers:
+%  Tests for the method keyword introduced in v3 (Commit 6a). Covers:
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
 %      regimes (r in {3, 4}, abs and rel modes, periodic and non-periodic).
 %    - Auto dispatch picks the expected path given r, n, mode.
@@ -99,9 +99,9 @@ results{end,2}   = abs(s_orb - s_pair) < 1e-6;
 %% ---- Auto routes to Bulger in expected cases ----
 
 % --- r=2 small-n: auto matches Bulger to numerical precision ---
-% Under v2.2.0 the analytical heuristic forced r=2 with n_max<=8 to
-% Bulger, so auto and Bulger were bit-identical here. Under v2.2.x
-% the probe-based dispatcher decides empirically; at K=6 r=2 the
+% An earlier build forced r=2 with n_max<=8 to Bulger, so auto and
+% Bulger were bit-identical here. Under the v3 cost model the
+% dispatcher decides from structure and the cost model; at K=6 r=2 the
 % analytical pre-screen (ratio K^2/2 = 18 > 10) routes auto to the Möbius method.
 % Both paths compute the same IP mathematically; round-off differs at
 % machine epsilon. Result must still match to numerical precision.

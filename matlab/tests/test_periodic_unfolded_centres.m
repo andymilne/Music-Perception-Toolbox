@@ -1,15 +1,12 @@
 %% test_periodic_unfolded_centres.m — periodic image sums on unfolded coords
 %
-%  A family of periodic routines build their result by summing Gaussian
-%  images across the period: the differential/Shannon grid cell mass
-%  (localPhiDiffAxisPeriodic in entropyExpTens), the wrapped-window factor
-%  (localWrappedWindowFactor1D in evalExpTens), and the windowed
-%  inner-product image sum (localPeriodicImageSumContribution in
-%  internal.windowedInnerProduct). Each must reduce its input coordinate
-%  modulo the period first. Otherwise a coordinate many periods from the
-%  canonical [0, period) window --- for example an absolute spectral
-%  partial thousands of cents above the grid --- never contributes, and
-%  the routine returns a degenerate, input-independent value. These tests
+%  The differential/Shannon grid cell mass (localPhiDiffAxisPeriodic in
+%  entropyExpTens) builds its result by summing Gaussian images across
+%  the period, and must reduce its input coordinate modulo the period
+%  first. Otherwise a coordinate many periods from the canonical
+%  [0, period) window --- for example an absolute spectral partial
+%  thousands of cents above the grid --- never contributes, and the
+%  routine returns a degenerate, input-independent value. These tests
 %  lock in the modulo reduction.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
@@ -75,36 +72,6 @@ results{end,2}   = abs(hMin - hWrap) > 1e-4 ...
 results{end+1,1} = 'periodic differential: single-image wrap tracks minimum-image';
 results{end,2}   = abs(hTbSingle - hMin) < abs(hTbSingle - hWrap) ...
                    && abs(hTbSingle - hMin) < 1e-3;
-
-% --- Site 2: wrapped-window factor in evalExpTens. A windowed periodic
-% density must return identical values at periodic-equivalent query points
-% even when the shift is many periods (the near images underflow to 0, so
-% an unfolded sum would terminate before reaching the dominant image).
-
-P_test = 12;
-dens_per = buildExpTens({[3, 7]}, [], 1, 1, false, true, P_test, 'verbose', false);
-spec_eval = struct('size', 3, 'mix', 0, 'centre', {{2}});
-wmd_eval = windowTensor(dens_per, spec_eval);
-v0     = evalExpTens(wmd_eval, 0.5);
-v_far  = evalExpTens(wmd_eval, 0.5 + 50 * P_test);   % 50 periods away
-results{end+1,1} = 'evalExpTens: periodic window equivalence at large shift';
-results{end,2}   = abs(v0 - v_far) <= 1e-10 * max(abs([v0, v_far])) && v0 > 0;
-
-% --- Site 3: windowed inner-product image sum. A periodic windowed
-% attribute whose window centre is shifted by whole periods must give the
-% same windowed inner product (the per-pair midpoint-minus-centre offset
-% is many periods otherwise).
-
-pitch_w = [60, 62, 64, 65];
-time_w  = [0, 1, 2, 3];
-dens_w = buildExpTens({pitch_w, time_w}, [], [10, 0.1], [1, 1], ...
-    [false, false], [true, false], [1200, 0], 'lazy', false, 'verbose', false);
-spec_near = struct('size', [3, Inf], 'mix', [0, 0], 'centre', {{62, 0}});
-spec_far  = struct('size', [3, Inf], 'mix', [0, 0], 'centre', {{62 + 24000, 0}}); % +20 P
-s_near = internal.windowedInnerProduct(dens_w, windowTensor(dens_w, spec_near), false);
-s_far  = internal.windowedInnerProduct(dens_w, windowTensor(dens_w, spec_far), false);
-results{end+1,1} = 'windowedInnerProduct: periodic window centre-shift invariance';
-results{end,2}   = abs(s_near - s_far) < 1e-9 * max(1, abs(s_near));
 
 
 %% ---- Standalone summary ----

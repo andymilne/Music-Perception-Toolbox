@@ -43,7 +43,7 @@ At the broadest level the toolbox stacks three computational tiers:
                       │  Density objects                   │
                       │  (MaetDensity – of which the       │
                       │  single multiset is the A = N = 1  │
-                      │  corner – and WindowedMaetDensity) │
+                      │  corner)                           │
                       └────────────────────────────────────┘
 ```
 
@@ -68,8 +68,6 @@ A weighted multiset $(\mathbf{p}, \mathbf{w})$ of $K$ values at tuple order $r$ 
 - `MaetDensity` (Python class; MATLAB struct with `tag == 'MaetDensity'`): $A$ attributes, $N$ events, per-attribute tuple order $r_a$, kernel width $\sigma_a$, periodicity flag and period, relativity flag, symmetry flag (`is_sym`: exchangeable tuples, or ordered), periodic measure declaration (`wrap`: `'full-image'` or `'single-image'`, §4), and an optional *nested* specification (a tag tree with per-level `r` and `sym` vectors, as produced by `bind_events`). An attribute may also carry an anisotropic kernel covariance (`kernel_cov`; the attribute's values are stored whitened with $\sigma = 1$). The effective space is the product of per-attribute effective spaces, each $\mathbb{R}^{r_a}$ (absolute) or its $(r_a - 1)$-dimensional translation quotient (relative).
 
 - The **single-multiset corner** is `A = N = 1` with a flat first attribute. `is_single_multiset` tests exactly that shape; `single_multiset_view` exposes the flat names (`p`, `w`, scalar `sigma`, `r`, `is_rel`, `is_per`, `period`, and the per-tuple arrays) over the underlying `MaetDensity` so that the single-multiset kernels read one layout. The view is idempotent and, in Python, cached on the density by weak reference so that batch deduplication (which pairs operands by identity) stays stable. The `A = 1, r = 1, N > 1` case never reaches the corner as such: the build collapses it into one pooled event, so every downstream consumer meets the canonical `N = 1` form. Evaluation strategy for the corner is *shape-gated, not type-gated*: the corner offers speed (the direct kernel-sum leaf in evaluation, the single-attribute helper route in the Python inner product, canonical-key deduplication in batched forms), never a different value.
-
-- `WindowedMaetDensity`: a `MaetDensity` paired with a per-attribute window specification (size, mix, optional centre). The window is applied lazily at evaluation or inner-product time; the windowed density is *not* materialized at construction.
 
 The build step (`build_exp_tens` / `buildExpTens`) is where the source multiset is consumed. The expensive per-tuple fields (`n_j`, `n_k`, `centres`, `u_perm`, `v_comb`, `w_j`, `wv_comb`, `event_of_j`, `event_of_k`) are *lazy*. In Python they are materialized on first attribute access and cached (`materialised` reports the state without triggering the build); in MATLAB, where structs have value semantics, `buildExpTens` returns a skinny struct by default (`'lazy', true`) and pairwise and centres consumers call `internal.ensureExpTensExpensive` before reading the per-tuple fields. Deferring the build keeps construction cheap and lets calls that route through the Möbius method – which reads only the cheap fields – skip the tuple-centres array entirely, whose footprint at high $r$ or high $K$ would otherwise dominate memory. See [§5](#5-the-orbit-table-system) for why this matters.
 
@@ -101,11 +99,11 @@ The decompositions are alternatives for the same analytical integral; their resu
 
 The consumer wrappers compose the tier-2 primitives into measures with musical interpretation:
 
-- **Similarity**: `cos_sim_exp_tens`, `sweep_cos_sim_exp_tens` (one density against uniformly translated copies of another, as a Gaussian mixture in the offset), `windowed_similarity` (a pre-MAET sliding window over raw events, each position routed through `cos_sim_exp_tens`), and `windowed_tensor_similarity` (post-tensor windowing with a single closed-form inner product) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
+- **Similarity**: `cos_sim_exp_tens`, `sweep_cos_sim_exp_tens` (one density against uniformly translated copies of another, as a Gaussian mixture in the offset), and `windowed_similarity` (a pre-MAET sliding window over raw events – the window reweights the events before each build – with each position routed through `cos_sim_exp_tens`) are themselves primitives or thin compositions of them; the spectral-enrichment wrapper (`add_spectra` applied before the cosine, producing spectral pitch-class similarity) is a consumer.
 
 - **Harmonicity and consonance**: `template_harmonicity` cross-correlates a chord's composite spectrum against a harmonic template; `tensor_harmonicity` queries the density of interval patterns within a single harmonic series; `spectral_entropy` computes Shannon entropy of a spectral density; `roughness` (sensory roughness) is a direct frequency-pair calculation independent of the tensor framework; `virtual_pitches` extracts likely fundamentals via template harmonicity.
 
-- **Entropy**: `entropy_exp_tens` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative and windowed ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form via the Möbius per-attribute matrices and total mass); `windowed_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_exp_tens` + `entropy_exp_tens` for the integer-step n-gram entropy of Milne & Dean (2016).
+- **Entropy**: `entropy_exp_tens` evaluates the density's entropy (Shannon or normalized Shannon by cell masses on absolute densities or by grid evaluation on relative ones, differential by adaptive grid refinement with Richardson extrapolation, or Rényi-2 in closed form via the Möbius per-attribute matrices and total mass); `windowed_entropy` sweeps it across a window; `n_tuple_entropy` is a convenience wrapper composing `difference_events` + `bind_events` + `build_exp_tens` + `entropy_exp_tens` for the integer-step n-gram entropy of Milne & Dean (2016).
 
 - **Circular measures**: `balance`, `evenness`, `coherence`, `sameness`, `edges`, `proj_centroid`, `mean_offset`, `circ_apm`, `markov_s`, with the DFT engine `dft_circular` and `dft_circular_simulate`. Some compose tensor primitives; others are direct DFT-based or symbolic computations independent of the tensor stack.
 
@@ -131,7 +129,7 @@ mpt/
 │                          developer-facing private names – continue to work)
 ├── _tensor/
 │   ├── __init__.py        Re-exports the sub-modules' names
-│   ├── density.py         MaetDensity, WindowedMaetDensity, is_single_multiset,
+│   ├── density.py         MaetDensity, is_single_multiset,
 │   │                      single_multiset_view, and the MA-input preprocessing
 │   │                      helpers
 │   ├── build.py           build_exp_tens (single-multiset and multi-attribute
@@ -170,9 +168,6 @@ mpt/
 │   │                      Gaussian mixture in the offset, with an orbit route
 │   ├── windowed.py        Pre-MAET windowed sweeps: windowed_similarity,
 │   │                      windowed_entropy
-│   ├── windowing.py       Post-tensor windowing: window_tensor,
-│   │                      windowed_tensor_similarity, the windowed inner
-│   │                      product
 │   ├── explain.py         explain_dispatch: reports a call's routing and why
 │   └── _timeest.py        Self-calibrated up-front time estimate for eval
 ├── circular.py            Re-export shim over _circular/
@@ -230,8 +225,8 @@ matlab/
 │                          (relPerSigmaOverPThreshold, accuracyFloor,
 │                          guardForcedBulgerFeasible, dispatchMemBudget),
 │                          the nested contraction (nestedContract), the
-│                          kernels (gaussianKernelSum, wrappedGaussian1d,
-│                          windowedInnerProduct), the single-multiset corner
+│                          kernels (gaussianKernelSum, wrappedGaussian1d),
+│                          the single-multiset corner
 │                          (isSingleMultiset, singleMultisetView,
 │                          ensureExpTensExpensive), memo keys (selfIpKey,
 │                          selfIpMemoised), canonical keys, and the
@@ -465,7 +460,7 @@ At very small σ relative to the period $P$, the Gaussian kernel approaches a de
 
 ### Cross-language parity
 
-The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hard-code the outputs of a fixed set of deterministic cases – single-multiset and multi-attribute cosine similarity on the Möbius method, Rényi-2 entropy, orbit-path `tensor_harmonicity`, orbit-path `eval_exp_tens`, and Shannon entropy – and require both languages to reproduce them to $10^{-8}$ relative ($10^{-12}$ absolute), the standard tolerance used throughout the v2.2 suite for orbit-vs-pairwise agreement on shared regimes. The cosine cases force `method='mobius'` so the Möbius machinery is genuinely exercised rather than the cost model's fallback. Either language drifting fails its own suite.
+The cross-language golden tests (`test_cross_language_golden.py` and `.m`) hard-code the outputs of a fixed set of deterministic cases – single-multiset and multi-attribute cosine similarity on the Möbius method, Rényi-2 entropy, orbit-path `tensor_harmonicity`, orbit-path `eval_exp_tens`, and Shannon entropy – and require both languages to reproduce them to $10^{-8}$ relative ($10^{-12}$ absolute), the standard tolerance used throughout the v3 suite for orbit-vs-pairwise agreement on shared regimes. The cosine cases force `method='mobius'` so the Möbius machinery is genuinely exercised rather than the cost model's fallback. Either language drifting fails its own suite.
 
 Beyond the goldens, the parity commitment is that the two languages apply the *same rules and routes* to the same input (§7); the cases where they currently do not are enumerated with evidence in ROUTING_MAP §10.
 
@@ -511,7 +506,6 @@ The function-name mapping is the most consequential. Every public Python functio
 | Per-row spectrum kwargs | cell array | list/tuple |
 | Density | struct with `.tag == 'MaetDensity'` | `MaetDensity` instance |
 | Single-multiset view | struct with `.tag == 'SingleMultisetView'` | `_SingleMultisetView` instance |
-| Windowed density | struct | `WindowedMaetDensity` instance |
 | Self-IP memo | `selfIP` field keyed by `'route|ts|extra'` strings; the updated structs are returned as extra outputs (`[s, densXOut, densYOut] = cosSimExpTens(...)`) because structs have value semantics | `_self_ip_cache` dict keyed by `(route, ts, kp, extra)` tuples, updated in place |
 
 MATLAB structs and Python instances are used interchangeably for the density data structure; field names match up to case convention (`n_attrs` ↔ `nAttrs`, `p_attr` ↔ `pAttr`, `is_rel` ↔ `isRel`). This is non-idiomatic Python (a real Python implementation would use `__slots__` and properties throughout), but is the path of least resistance for twin-language parity. The one structural difference follows from value semantics: Python densities materialize lazy fields in place, whereas MATLAB consumers must call `internal.ensureExpTensExpensive` and keep the returned struct.
@@ -657,16 +651,16 @@ Deprecations follow a two-release cycle:
 
 2. *Release N+1 or later*: remove the deprecated function. The CHANGELOG `### Removed` section documents the removal.
 
-Active examples in v2.2:
+Active examples in v3:
 
-- `batch_cos_sim_exp_tens` (Python) / `batchCosSimExpTens` (MATLAB): deprecated as of v2.1, still functional as thin shims forwarding to `cos_sim_exp_tens` batched-raw mode.
-- `cos_sim_exp_tens_raw` and `eval_exp_tens_raw` (Python): deprecated as of v2.1, still functional as thin shims forwarding to the unified entry points.
+- `batch_cos_sim_exp_tens` (Python) / `batchCosSimExpTens` (MATLAB): deprecated as of v3, still functional as thin shims forwarding to `cos_sim_exp_tens` batched-raw mode.
+- `cos_sim_exp_tens_raw` and `eval_exp_tens_raw` (Python): deprecated as of v3, still functional as thin shims forwarding to the unified entry points.
 
 These shims will be removed in a future release; the timing is left open.
 
 ### Release artefact list
 
-A v2.x release includes:
+A release includes:
 
 - Source code at the tagged commit on GitHub.
 - A Zenodo deposit minted from the GitHub release, with the concept DOI preserved across versioned deposits.

@@ -1,4 +1,4 @@
-%% test_orbit_sparse.m — Sparse-culled orbit inner product (v2.2)
+%% test_orbit_sparse.m — Sparse-culled orbit inner product (v3)
 %
 %  Tests for the sparse-orbit fast path in matlab/+mobius/:
 %    innerProductOrbitSparse (min-degree elimination on a sparse kernel)

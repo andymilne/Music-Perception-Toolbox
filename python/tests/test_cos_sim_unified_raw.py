@@ -365,7 +365,7 @@ class TestDeprecatedShims:
 
 
 class TestRawSABroadcast:
-    """v2.1.1+ broadcasting in batched-raw mode.
+    """v3+ broadcasting in batched-raw mode.
 
     When one of P1, P2 is a vector of length K (1-D, ``(1, K)``,
     or ``(K, 1)``) and the other is an ``(M, K)`` matrix with

@@ -1,4 +1,4 @@
-"""v2.2.x — single-multiset centres-path n_q chunking regression test.
+"""v3 — single-multiset centres-path n_q chunking regression test.
 
 Catches the OOM that surfaced when demo_triadConsonance ran at the
 10-cent grid: K=72, r=3, rel, non-periodic, n_q=29161 — the

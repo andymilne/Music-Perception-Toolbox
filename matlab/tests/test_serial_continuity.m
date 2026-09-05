@@ -73,7 +73,7 @@ results{end+1,1} = 'continuity: theta out of range errors';
 results{end,2}   = throwsError(@() continuity([3;5;7], 8, 0, ...
     'theta', 2));
 
-% --- Weight argument (v2.1.0) ---
+% --- Weight argument (v3) ---
 
 % w = [] matches default
 [c1, m1] = continuity([3;5;7;7;9], 11, 0, 'mode', 'lenient');

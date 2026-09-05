@@ -311,16 +311,6 @@ results{end+1,1} = 'aniso: cosine rejects cov-vs-scalar density pair';
 results{end,2}   = errorMessageContains(@() cosSimExpTens(d1, d3, ...
     'verbose', false), 'kernel');
 
-% window_tensor guard (MA density with an aniso attribute).
-P1m = [0; 1]; P2m = 0;
-densMAw = buildExpTens({P1m, P2m}, {ones(2, 1), 1}, {eye(2) * 0.04, 0.5}, ...
-    [2, 1], [false, false], [false, false], [0, 0], [false, true], ...
-    'verbose', false);
-spec = struct('size', [NaN, 2.0], 'mix', 0, 'centre', {{[], 0}});
-results{end+1,1} = 'aniso: windowTensor rejects kernel-cov densities';
-results{end,2}   = errorMessageContains(@() windowTensor(densMAw, spec), ...
-    'whitened');
-
 % Ordered K-tuple with diagonal covariance == bound singleton attributes.
 s1 = 0.4; s2 = 0.9;
 PX2 = [0.0, 1.0; 2.0, 3.0];
@@ -338,7 +328,7 @@ results{end,2}   = abs(vA - vT) <= 1e-12;
 
 % =====================================================================
 %  Degenerate nested flattening (bindEvents over flat single-value
-%  events + matrix sigma; v2.2.1+)
+%  events + matrix sigma; v3+)
 % =====================================================================
 
 rngSeed = RandStream('mt19937ar', 'Seed', 7);

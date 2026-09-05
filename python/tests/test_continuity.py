@@ -75,7 +75,7 @@ class TestContinuity:
         with pytest.raises(ValueError, match="mode"):
             mpt.continuity([3, 5, 7], [8], 0, mode="wibble")
 
-    # --- Weight-argument tests (v2.1.0) ---
+    # --- Weight-argument tests (v3) ---
 
     def test_w_none_equals_default(self):
         c1, m1 = mpt.continuity([3, 5, 7, 7, 9], [11], 0,

@@ -892,7 +892,7 @@ def sweep_cos_sim_exp_tens(
 
     See Also
     --------
-    cos_sim_exp_tens, translate_attributes, windowed_tensor_similarity
+    cos_sim_exp_tens, translate_attributes, windowed_similarity
     """
     from .._defaults import resolve_truncation_sigmas
     from .cosine import _finalise_normalisation

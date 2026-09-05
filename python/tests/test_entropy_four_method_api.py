@@ -653,12 +653,12 @@ class TestRenyi2InputForms:
 
 
 # ----------------------------------------------------------------------
-# Migration error: 'normalize' kwarg removed in v2.2
+# Migration error: 'normalize' kwarg removed in v3
 # ----------------------------------------------------------------------
 
 
 class TestNormalizeKwargMigrationError:
-    """Passing the v2.1 ``normalize`` kwarg (any value, on any entry
+    """Passing the v2.0 ``normalize`` kwarg (any value, on any entry
     point that previously accepted it) raises a ``TypeError`` whose
     message points to the four-method API."""
 
@@ -670,34 +670,34 @@ class TestNormalizeKwargMigrationError:
         )
 
     def test_entropy_exp_tens_normalize_true_rejected(self, dens):
-        with pytest.raises(TypeError, match=r"'normalize'.*removed in v2\.2"):
+        with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
             entropy_exp_tens(
                 dens, method='shannon', n_points_per_dim=100,
                 normalize=True, verbose=False,
             )
 
     def test_entropy_exp_tens_normalize_false_rejected(self, dens):
-        with pytest.raises(TypeError, match=r"'normalize'.*removed in v2\.2"):
+        with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
             entropy_exp_tens(
                 dens, method='shannon', n_points_per_dim=100,
                 normalize=False, verbose=False,
             )
 
     def test_entropy_exp_tens_normalize_rejected_under_renyi2(self, dens):
-        # Under v2.1 this was the combination that triggered the
-        # NotImplementedError; in v2.2 it triggers the migration error.
-        with pytest.raises(TypeError, match=r"'normalize'.*removed in v2\.2"):
+        # In an earlier internal build this combination triggered a
+        # NotImplementedError; in v3 it triggers the migration error.
+        with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
             entropy_exp_tens(dens, method='renyi2', normalize=False, verbose=False)
 
     def test_spectral_entropy_normalize_true_rejected(self):
-        with pytest.raises(TypeError, match=r"'normalize'.*removed in v2\.2"):
+        with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
             spectral_entropy(
                 np.array([0., 400., 700.]), sigma=12.0,
                 method='normalized', normalize=True, verbose=False,
             )
 
     def test_spectral_entropy_normalize_false_rejected(self):
-        with pytest.raises(TypeError, match=r"'normalize'.*removed in v2\.2"):
+        with pytest.raises(TypeError, match=r"'normalize'.*removed in v3"):
             spectral_entropy(
                 np.array([0., 400., 700.]), sigma=12.0,
                 method='shannon', normalize=False, verbose=False,

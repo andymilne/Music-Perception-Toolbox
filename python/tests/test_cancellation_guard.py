@@ -3,11 +3,9 @@
 Accuracy is governed by ``truncationSigmas``: the Möbius route's
 agreement with enumeration tracks the truncation budget, and a small
 cosine is a legitimate value rather than a symptom. No route is
-diverted on the size of the result, so ``cancellation_threshold`` is
-accepted for backward compatibility and affects neither the value nor
-the route. What remains is a post-hoc correctness check for
-unambiguous corruption (non-finite inner product, negative Gram
-diagonal, or a cosine outside [-1, 1]).
+diverted on the size of the result; what remains is a post-hoc
+correctness check for unambiguous corruption (non-finite inner
+product, negative Gram diagonal, or a cosine outside [-1, 1]).
 """
 from __future__ import annotations
 
@@ -48,13 +46,14 @@ def test_default_threshold_does_not_perturb_result(seed):
 
 
 # ----------------------------------------------------------------------
-# A high threshold forces the guard to fire and route to pairwise
+# The two routes agree to within the truncation budget
 # ----------------------------------------------------------------------
 
 
-def test_threshold_does_not_affect_result_or_route():
-    """``cancellation_threshold`` is inert: no value of it changes the
-    answer, because no route is chosen on the size of the result."""
+def test_auto_and_bulger_agree_within_truncation_budget():
+    """The auto route and Bulger's method agree to within the accuracy
+    ``truncation_sigmas`` asks for; no keyword adjusts the route on
+    the size of the result."""
     rng = np.random.default_rng(seed=20260505)
     n = 12
     p_a = np.sort(rng.uniform(0, 5000, n))
@@ -66,42 +65,9 @@ def test_threshold_does_not_affect_result_or_route():
     T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
 
     cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    cos_high = cos_sim_exp_tens(
-        T_a, T_b, cancellation_threshold=1.0, verbose=False,
-    )
     cos_pw = cos_sim_exp_tens(T_a, T_b, method='bulger', verbose=False)
-
-    assert cos_high == cos_default, (
-        f"cancellation_threshold perturbed the result: "
-        f"default={cos_default!r}, high={cos_high!r}"
-    )
-    # The two routes agree to within the accuracy truncationSigmas asks
-    # for; a cosine has value scale 1, so the floor applies directly.
+    # A cosine has value scale 1, so the floor applies directly.
     assert abs(cos_default - cos_pw) <= 10 * truncation_floor(None)
-
-
-def test_threshold_zero_disables_guard():
-    """cancellation_threshold=0.0 means no fallback ever triggers; the
-    orbit estimate is used as-is.
-    """
-    rng = np.random.default_rng(seed=7)
-    n = 16
-    p_a = np.sort(rng.uniform(0, 4000, n))
-    p_b = np.sort(rng.uniform(0, 4000, n))
-    w_a = rng.uniform(0.5, 1.5, n)
-    w_b = rng.uniform(0.5, 1.5, n)
-    sigma = 25.0
-    T_a = build_exp_tens(p_a, w_a, sigma, 3, False, False, 1200.0, verbose=False)
-    T_b = build_exp_tens(p_b, w_b, sigma, 3, False, False, 1200.0, verbose=False)
-
-    # With threshold=0 the orbit estimate is final; with the default
-    # threshold the same input does not trigger the guard either; both
-    # values should agree.
-    cos_no_guard = cos_sim_exp_tens(
-        T_a, T_b, cancellation_threshold=0.0, verbose=False,
-    )
-    cos_default = cos_sim_exp_tens(T_a, T_b, verbose=False)
-    assert cos_no_guard == cos_default
 
 
 # ----------------------------------------------------------------------

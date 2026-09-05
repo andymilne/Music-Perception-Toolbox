@@ -4,18 +4,21 @@ Several periodic routines must remain correct when their input
 coordinates lie far from the canonical ``[0, period)`` window --- for
 example absolute spectral partials thousands of cents above the grid.
 The differential/Shannon grid cell mass
-(:func:`mpt.entropy._phi_diff_axis_periodic`) uses the minimum-image
-Gaussian: it wraps the per-edge offsets to ``[-period/2, period/2)``, so
-it is invariant to whole-period shifts of a centre and matches the
-density of Eq. (1) at every ``sigma/period``. The wrapped-window factor
+(:func:`mpt.entropy._phi_diff_axis_periodic`) reduces the per-edge
+offsets to their nearest image first, so it is invariant to whole-period
+shifts of a centre, and then integrates the density the attribute's
+``wrap`` declares: the wrapped normal under the default
+``'full-image'``, the minimum-image Gaussian of Eq. (1) under
+``'single-image'``. The wrapped-window factor
 (:func:`mpt._tensor.windowing._wrapped_window_factor_1d`) and the windowed
 inner-product image sum
 (:func:`mpt._tensor.windowing._periodic_image_sum_contribution`) sum
 Gaussian images across the period, reducing the offset to its minimum
 image first so the dominant image is reached. These tests lock in both
-the period-invariance and the minimum-image semantics of the entropy
-cell mass.
+the period-invariance and the wrap semantics of the entropy cell mass.
 """
+import warnings
+
 import numpy as np
 
 from mpt import entropy_exp_tens, add_spectra
@@ -59,9 +62,12 @@ def test_differential_periodic_varies_with_harmony():
     assert not np.isclose(he, hb, atol=1e-3)
 
 
-def test_differential_periodic_is_minimum_image():
-    # At non-negligible sigma/period the periodic differential entropy must
-    # track the minimum-image density of Eq. (1), not the wrapped normal.
+def test_differential_periodic_follows_the_wrap():
+    # At non-negligible sigma/period the periodic differential entropy
+    # must track the density the wrap declares: the wrapped normal under
+    # the default 'full-image', the minimum-image density of Eq. (1)
+    # under 'single-image'.
+    from mpt import build_exp_tens
     c = np.array([0.0, 400.0, 700.0, 1100.0])
     w = np.ones(4)
 
@@ -79,12 +85,22 @@ def test_differential_periodic_is_minimum_image():
         return -(f * np.log(f + 1e-300)).sum() * (PERIOD / G)
 
     s = 300.0  # sigma/period = 0.25, where the two forms visibly differ
-    htb = entropy_exp_tens(c, w, s, 1, False, True, PERIOD,
-                           method="differential", base=np.e, verbose=False)
+    htb_full = entropy_exp_tens(c, w, s, 1, False, True, PERIOD,
+                                method="differential", base=np.e,
+                                verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        d_single = build_exp_tens([c.reshape(-1, 1)], [w.reshape(-1, 1)],
+                                  [s], [1], [False], [True], [PERIOD],
+                                  wrap=['single-image'], verbose=False)
+    htb_single = entropy_exp_tens(d_single, method="differential",
+                                  base=np.e, verbose=False)
     h_min, h_wrap = fine("min", s), fine("wrap", s)
     assert abs(h_min - h_wrap) > 1e-4          # the two forms really differ here
-    assert abs(htb - h_min) < abs(htb - h_wrap)  # toolbox tracks minimum-image
-    assert abs(htb - h_min) < 1e-3             # and matches it to grid precision
+    assert abs(htb_full - h_wrap) < abs(htb_full - h_min)   # default: wrapped
+    assert abs(htb_full - h_wrap) < 1e-3       # and matches it to grid precision
+    assert abs(htb_single - h_min) < abs(htb_single - h_wrap)  # opt-in: min-image
+    assert abs(htb_single - h_min) < 1e-3
 
 
 def test_wrapped_window_factor_period_invariant():

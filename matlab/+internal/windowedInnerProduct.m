@@ -2,7 +2,8 @@
 %  windowedInnerProduct — closed-form windowed inner product (internal)
 % =========================================================================
 
-function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
+function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize, ...
+                                  truncationSigmas, kernelPrecision)
 %WINDOWEDINNERPRODUCT  Closed-form windowed similarity (internal helper).
 %
 %   s = internal.windowedInnerProduct(densQ, wmd, verbose)
@@ -63,6 +64,17 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
 %   ``normalize`` (default ``'oneSidedDenom'``) selects the
 %   denominator as described above.
 %
+%   The sixth and seventh arguments, ``truncationSigmas`` ([] = the
+%   mptDefaults default; Inf = the accuracy-floor width) and
+%   ``kernelPrecision`` ([] = the default; 'double' or 'single'), govern
+%   every inner product formed here. The pairwise log kernel is
+%   truncated at the resolved width exactly as the flat Bulger core
+%   truncates it (internal.truncLogKernelExp: floor tightened by the
+%   entry count); the same width sets the abs-per wrapped Gaussian.
+%   'single' evaluates the exponential in single precision and loosens
+%   the periodic image-sum tolerance to float32 resolution. Twin of the
+%   Python windowing._cos_sim_numerator_ma.
+%
 %   See also windowedTensorSimilarity, windowTensor.
 
     if nargin < 5 || isempty(normalize)
@@ -71,11 +83,14 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
     if nargin < 4
         cachedIpQQ = [];
     end
+    if nargin < 6; truncationSigmas = []; end
+    if nargin < 7; kernelPrecision = []; end
+    prec = localResolvePrecision(truncationSigmas, kernelPrecision);
 
     % Norm-only mode: return <a, a>_unwindowed.
     if nargin >= 2 && isempty(b)
         a = internal.ensureExpTensExpensive(a);
-        s = localCosSimNumeratorMA(a, a, [], false);
+        s = localCosSimNumeratorMA(a, a, [], false, prec);
         return;
     end
 
@@ -117,11 +132,11 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
     if ~isempty(cachedIpQQ)
         ip_qq = cachedIpQQ;
     else
-        ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose);
+        ip_qq = localCosSimNumeratorMA(dens_q, dens_q, [], verbose, prec);
     end
 
     % Windowed cross inner product: <h * dens_c, dens_q>.
-    ip_qc = localCosSimNumeratorMA(dens_q, dens_c, wmd, verbose);
+    ip_qc = localCosSimNumeratorMA(dens_q, dens_c, wmd, verbose, prec);
 
     switch normalize
         case 'oneSidedDenom'
@@ -138,7 +153,8 @@ function s = windowedInnerProduct(a, b, verbose, cachedIpQQ, normalize)
             % Gaussian with size scaled by 1/sqrt(2)) or pure-boxcar
             % (mix = 1; h^2 = h). Intermediate mix raises.
             wmd_squared = localWindowSquared(wmd);
-            ip_cc_h = localCosSimNumeratorMA(dens_c, dens_c, wmd_squared, verbose);
+            ip_cc_h = localCosSimNumeratorMA(dens_c, dens_c, wmd_squared, ...
+                                             verbose, prec);
             denom = sqrt(max(ip_cc_h * ip_qq, 0));
             if denom == 0
                 s = NaN;
@@ -233,7 +249,31 @@ function localCheckMACompat(dx, dy)
 end
 
 
-function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
+function prec = localResolvePrecision(truncationSigmas, kernelPrecision)
+%LOCALRESOLVEPRECISION  Resolved (ts, kernelPrecision, imageTol) for the
+%   windowed closed form. Twin of the Python _resolve_windowed_precision.
+    prec = struct();
+    prec.ts = internal.accuracyFloor('resolve', truncationSigmas);
+    if isempty(kernelPrecision)
+        kernelPrecision = mptDefaults('kernelPrecision');
+    end
+    kp = lower(char(kernelPrecision));
+    if ~ismember(kp, {'double', 'single'})
+        error('internal:windowedInnerProduct:badKernelPrecision', ...
+              '''kernelPrecision'' must be ''double'' or ''single''.');
+    end
+    prec.kernelPrecision = kp;
+    % Periodic image-sum tolerance: below float32 resolution further
+    % images add nothing representable.
+    if strcmp(kp, 'single')
+        prec.imageTol = 1e-7;
+    else
+        prec.imageTol = 1e-12;
+    end
+end
+
+
+function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose, prec)
 %LOCALCOSSIMNUMERATORMA  Public-internal wrapper around
 %LOCALCOSSIMNUMERATORMACORE that handles within-attribute centre
 %symmetrisation in the windowed case.
@@ -253,8 +293,11 @@ function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
 %   case) bypass this and take the existing fast path.
 %
 %   See also localCosSimNumeratorMACore.
+    if nargin < 5 || isempty(prec)
+        prec = localResolvePrecision([], []);
+    end
     if isempty(wmd)
-        ip = localCosSimNumeratorMACore(dx, dy, wmd, verbose);
+        ip = localCosSimNumeratorMACore(dx, dy, wmd, verbose, prec);
         return;
     end
 
@@ -282,7 +325,7 @@ function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
     end
 
     if isempty(nuAttrs)
-        ip = localCosSimNumeratorMACore(dx, dy, wmd, verbose);
+        ip = localCosSimNumeratorMACore(dx, dy, wmd, verbose, prec);
         return;
     end
 
@@ -302,7 +345,8 @@ function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
         end
         wmd_perm = wmd;
         wmd_perm.centre = centre_perm;
-        ip_combo = localCosSimNumeratorMACore(dx, dy, wmd_perm, verbose);
+        ip_combo = localCosSimNumeratorMACore(dx, dy, wmd_perm, verbose, ...
+                                              prec);
         total_ip = total_ip + ip_combo;
         n_combos = n_combos + 1;
 
@@ -326,7 +370,7 @@ function ip = localCosSimNumeratorMA(dx, dy, wmd, verbose)
 end
 
 
-function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
+function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~, prec)
 %LOCALCOSSIMNUMERATORMACORE  Compute sum_{j,k} w_j^x w_k^y * prod_g (factor),
 %where the factor is the unwindowed U_g by default, or U_g * F_g for
 %windowed groups when wmd is non-empty.
@@ -356,8 +400,14 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
 %
 %   This is the inner core of localCosSimNumeratorMA. Within-attribute
 %   centre symmetrisation is handled by the wrapper; this function
-%   computes the IP for a single concrete wmd.
+%   computes the IP for a single concrete wmd. PREC carries the
+%   resolved truncation width, kernel precision and image-sum tolerance
+%   (localResolvePrecision).
 
+    if nargin < 5 || isempty(prec)
+        prec = localResolvePrecision([], []);
+    end
+    ts = prec.ts;
     A         = dx.nAttrs;
     rVec      = dx.r;
     sigmaG    = dx.sigma;
@@ -441,7 +491,6 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
                 % attribute (its full-image kernel does not factor
                 % through Q).
                 P_g = periodG(a);
-                ts = internal.accuracyFloor('resolve', []);
                 theta_per_position = internal.wrappedGaussian1d( ...
                     D, sigmaG(a), P_g, ts, 4);      % (r_a, n_jx, n_ky)
                 log_kernel = log_kernel + ...
@@ -456,6 +505,18 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
         Qa = localComputeQ(D, a, r_a, isRelG, isPerG, periodG);
         log_kernel = log_kernel - reshape(Qa, n_jx, n_ky) / (4 * sigmaG(a)^2);
     end
+
+    % Truncation mask on the unwindowed pairwise kernel, at the resolved
+    % width tightened by the entry count (the flat Bulger core's rule,
+    % internal.truncLogKernelExp). Decided here, before the window
+    % factors are added, because the window multiplies each entry by at
+    % most 1: an entry below the floor now stays below it.
+    threshold = -0.5 * ts^2;
+    nTerms = double(n_jx) * double(n_ky);
+    if nTerms > 1
+        threshold = threshold - log(nTerms);
+    end
+    keep = log_kernel >= threshold;
 
     % --- Add windowed contributions (log F_a per pair) ---
     if ~isempty(wmd)
@@ -495,7 +556,7 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
                 log_F = localPeriodicImageSumContribution( ...
                     cx_sub, cy_sub, centre_sub, ...
                     s_g, mix_g, sigma_g, is_rel, r_a, d_g, ...
-                    double(periodG(a)), 1e-12);
+                    double(periodG(a)), prec.imageTol);
             else
                 log_F = localWindowedContribution( ...
                     cx_sub, cy_sub, centre_sub, ...
@@ -505,7 +566,15 @@ function ip = localCosSimNumeratorMACore(dx, dy, wmd, ~)
         end
     end
 
-    E = exp(log_kernel);
+    % Truncated entries are zeroed without evaluating their exponential;
+    % under 'single' the exponential runs in single precision, as the
+    % centres kernel (internal.gaussianKernelSum) casts its hot loop.
+    E = zeros(n_jx, n_ky);
+    if strcmp(prec.kernelPrecision, 'single')
+        E(keep) = double(exp(single(log_kernel(keep))));
+    else
+        E(keep) = exp(log_kernel(keep));
+    end
     w_u = dx.wJ;
     w_v = dy.wv_comb;
     ip = w_u(:).' * (E * w_v(:));

@@ -22,7 +22,11 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   density's contents (inner-product route, resolved
 %   truncationSigmas, and the Möbius route's per-attribute
 %   closed-form-vs-grid choices), so stale reuse is structurally
-%   impossible; an unrecognised key simply recomputes. The extra
+%   impossible; an unrecognised key simply recomputes. The same field
+%   also carries, in an optional 'nestedCentres' cell, the materialised
+%   tuple-centres bundles the centres routes build per attribute
+%   (INTERNAL.NESTEDCENTRESMEMOISED), so a threaded struct also skips
+%   that rebuild on later calls. The extra
 %   outputs are available only in this density-struct scalar form. In
 %   the scalar-vs-cell (sweep) and raw sweep forms the memoisation is
 %   applied internally across the sweep, so no threading is needed
@@ -37,7 +41,9 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %   List mode. Iterates over paired entries of two cell arrays of
 %   density structs, returning a 1-by-n cell array of similarity values.
 %   Each pair is dispatched to the appropriate scalar form based on its
-%   tag (single multiset or MA). Shape rule: a length-1 input returns a length-1
+%   tag (single multiset or MA), with the caller's 'method',
+%   'truncationSigmas', 'kernelPrecision' and 'normalize' forwarded to
+%   every pair. Shape rule: a length-1 input returns a length-1
 %   cell (no collapse to scalar).
 %
 %   Scalar-vs-list broadcasting. Either operand may be a single
@@ -182,13 +188,25 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 but free of the alternating sum and so immune to the
 %                 cancellation the Möbius route can suffer). See User
 %                 Guide §4 ("Method selection").
-%     'cancellationThreshold' — Positive scalar (default: 1e-12).
-%                 Guards the Möbius alternating-sum against
-%                 catastrophic cancellation: when the cancellation
-%                 ratio |IP| / sqrt(<A,A>*<B,B>) drops below this
-%                 fraction, the dispatcher falls back to Bulger's
-%                 method. Lower to relax the guard; raise to force
-%                 Bulger's method more aggressively.
+%
+%                 On a NESTED density the names select among that
+%                 path's own routes, since the flat orbit entry point
+%                 cannot represent a nested attribute's block-diagonal
+%                 inner metric. 'bulger' is still the joint-tuple
+%                 enumeration. 'contract' forces the hierarchical
+%                 contraction plan, raising rather than falling back on
+%                 any case it does not cover; it is rejected on a
+%                 non-nested density. 'mobius' names the same plan ---
+%                 the per-level orbit (Möbius) reduction is exactly what
+%                 the contraction applies at every symmetric level, so
+%                 for a nested density 'mobius' and 'contract' coincide.
+%                 'centres' forces the materialised-centres route for
+%                 every nested attribute; on a relative-periodic
+%                 attribute whose declared measure is the default
+%                 full-image one, that route is admissible only up to
+%                 the sigma/P threshold, above which 'centres' errors
+%                 (cosSimExpTens:centresUnavailable) naming the
+%                 wrap = 'single-image' opt-in.
 %     'truncationSigmas' — Numeric scalar or []. Override the toolbox-
 %                 wide mptDefaults('truncationSigmas') setting for this
 %                 call. Applies on the centres path (Bulger's method
@@ -198,11 +216,17 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 means use the global default (factory: Inf). No
 %                 effect on Möbius-method calls.
 %     'kernelPrecision' — 'double', 'single', or [] for the global
-%                 default. Override the toolbox-wide kernelPrecision
-%                 setting for this call. Centres path only; 'single'
-%                 casts the kernel matrix to float32 for a ~2x speedup
-%                 at ~7 sig fig precision. No effect on Möbius-method
-%                 calls.
+%                 default. Forwarded through every input form (list,
+%                 broadcast and batched-raw) and honoured on one
+%                 inner-product route, as in the Python twin: the
+%                 single-attribute helper route of Bulger's method and
+%                 the centres route (one flat attribute that is not
+%                 relative-periodic), which evaluates its kernel sum
+%                 through internal.gaussianKernelSum and keys its
+%                 self-IP memo on the precision. The multi-attribute
+%                 log-kernel core has no float32 form, so the value is
+%                 not read on any other route. Point evaluation
+%                 (evalExpTens) honours it too.
 %     'normalize' / 'normalise' — 'cosine' (default) or 'oneSidedDenom'.
 %                 Selects the denominator applied to the inner product
 %                 <X, Y>. 'cosine' gives the strict shape-only cosine
@@ -238,10 +262,10 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 % === Parse arguments ===
 
 % Extract optional name-value pairs that may follow the positional
-% args. 'verbose' applies to all dispatch arms; 'method' and
-% 'cancellationThreshold' apply to single multiset and MA struct/raw-args paths
-% (Möbius dispatch) and are forwarded to the per-pair inner calls of
-% the batched-raw path; 'spectrum', 'precision', and 'dedup' are
+% args. 'verbose' applies to all dispatch arms; 'method' applies to
+% the struct and raw-args paths (Möbius dispatch) and is forwarded to
+% the per-pair inner calls of the batched-raw path; 'spectrum',
+% 'precision', and 'dedup' are
 % valid only for the batched-raw path and are forwarded to
 % batchCosSimExpTens. Each is captured (with its index range) and
 % removed from varargin before the dispatch sees it, so the dispatch
@@ -256,7 +280,6 @@ guard = internal.callGuard(); %#ok<NASGU>
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
 normalize = 'cosine';           % 'cosine' | 'oneSidedDenom'
-cancellationThreshold = 1e-12;  % accepted for compatibility; inert
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
@@ -286,16 +309,6 @@ while i <= numel(varargin)
                           ['''method'' must be ''auto'', ''bulger'', ' ...
                            '''centres'', ''mobius'', or ''contract''; ' ...
                            'got ''%s''.'], method);
-                end
-                keepMask(i)     = false;
-                keepMask(i + 1) = false;
-                i = i + 2;
-                continue;
-            case 'cancellationthreshold'
-                cancellationThreshold = double(varargin{i + 1});
-                if ~isscalar(cancellationThreshold) || cancellationThreshold <= 0
-                    error('cosSimExpTens:badCancellationThreshold', ...
-                          '''cancellationThreshold'' must be a positive scalar.');
                 end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
@@ -493,8 +506,8 @@ if nArgs == 2
                 maet_y = internal.prunedExpTens(b);
             else
                 [s, cacheX, cacheY] = localCosSimMA(a, b, method, normalize, ...
-                                  cancellationThreshold, verbose, ...
-                                  truncationSigmas, cacheX, cacheY);
+                                  verbose, truncationSigmas, cacheX, cacheY, ...
+                                  kernelPrecision);
                 if nargout > 1
                     densXOut = a; densXOut.selfIP = cacheX;
                     densYOut = b; densYOut.selfIP = cacheY;
@@ -518,7 +531,8 @@ if nArgs == 2
                  'density-struct scalar form; list-mode sweeps memoise ' ...
                  'internally and need no threading.']);
         end
-        s = localCosSimDensityList(a, b, normalize, verbose);
+        s = localCosSimDensityList(a, b, normalize, verbose, method, ...
+                                   truncationSigmas, kernelPrecision);
         return;
     else
         error('cosSimExpTens:badPairTypes', USAGE_MSG);
@@ -567,8 +581,8 @@ elseif nArgs == 9
             dens_y_ma = buildExpTens(pAttr2, w2, sigmaVec, rVec, ...
                 isRelVec, isPerVec, periodVec, symArgs{:}, 'verbose', verbose);
             s = localCosSimMA(dens_x_ma, dens_y_ma, method, normalize, ...
-                              cancellationThreshold, verbose, ...
-                              truncationSigmas);
+                              verbose, truncationSigmas, [], [], ...
+                              kernelPrecision);
             return;
         end
         % Scalar-vs-list broadcast. Build the scalar side once, iterate
@@ -610,16 +624,14 @@ elseif nArgs == 9
             dens_m = densList{m};
             if scalarFirst
                 [s{m}, cacheScalar] = localCosSimMA(dens_scalar, dens_m, ...
-                                     method, ...
-                                     normalize, cancellationThreshold, false, ...
+                                     method, normalize, false, ...
                                      truncationSigmas, cacheScalar, ...
-                                     localSelfIpEmpty());
+                                     localSelfIpEmpty(), kernelPrecision);
             else
                 [s{m}, ~, cacheScalar] = localCosSimMA(dens_m, dens_scalar, ...
-                                     method, ...
-                                     normalize, cancellationThreshold, false, ...
+                                     method, normalize, false, ...
                                      truncationSigmas, localSelfIpEmpty(), ...
-                                     cacheScalar);
+                                     cacheScalar, kernelPrecision);
             end
         end
         return;
@@ -629,17 +641,64 @@ elseif nArgs == 9
     end
     if willBatch
         % --- BATCHED-RAW (with optional broadcast) ---
-        if internal.isKernelCov(varargin{5})
-            error('mpt:aniso:batchedUnsupported', ...
-                ['Batched-raw (2-D) input is not supported with a ' ...
-                 'matrix-valued kernel covariance; carry the tuples ' ...
-                 'as events of an ordered multi-attribute form, or ' ...
-                 'build per-row density objects.']);
-        end
         P1 = varargin{1};
         W1 = varargin{2};
         P2 = varargin{3};
         W2 = varargin{4};
+        sigmaBatched = varargin{5};
+        % Matrix-valued kernel covariance: whiten both operands here, at
+        % the batched-raw entry, and fall through to the isotropic
+        % machinery with sigma = 1 (the prefactors cancel under either
+        % normalization). This is the Python route (cosine.py whitens
+        % before its batched dispatch); the per-row density builds below
+        % then see ordinary whitened values. The mode constraints
+        % (ordered, absolute, non-periodic, r == K) are enforced per
+        % operand first, so a bad covariance raises the same mpt:aniso:*
+        % error as the scalar-raw form.
+        if internal.isKernelCov(sigmaBatched)
+            if spectrumGiven
+                error('mpt:aniso:spectrumUnsupported', ...
+                    ['''spectrum'' is not supported with a matrix-valued ' ...
+                     'kernel covariance (spectral augmentation changes ' ...
+                     'the multiset size, breaking r == K).']);
+            end
+            rIn = varargin{6}; isRelIn = varargin{7}; isPerIn = varargin{8};
+            if isempty(isSymRaw)
+                isSymIn = true;
+            else
+                isSymIn = isSymRaw;
+            end
+            for opIdx = 1:2
+                if opIdx == 1
+                    opArr = P1; opName = 'sigma (P1)';
+                else
+                    opArr = P2; opName = 'sigma (P2)';
+                end
+                if isvector(opArr)
+                    kSide = numel(opArr);
+                else
+                    kSide = size(opArr, 2);
+                end
+                internal.checkAnisoConstraints(rIn, kSide, isRelIn, ...
+                    isPerIn, isSymIn, false, opName);
+            end
+            [~, Rw] = internal.validateKernelCov(sigmaBatched, round(rIn), ...
+                                                 'sigma');
+            % whitenValues works on (dim x n) columns: rows are tuples
+            % here, so whiten the transpose and transpose back; a vector
+            % operand is one tuple and keeps its orientation.
+            if isvector(P1)
+                P1 = internal.whitenValues(Rw, P1);
+            else
+                P1 = internal.whitenValues(Rw, P1.').';
+            end
+            if isvector(P2)
+                P2 = internal.whitenValues(Rw, P2);
+            else
+                P2 = internal.whitenValues(Rw, P2.').';
+            end
+            sigmaBatched = 1.0;
+        end
 
         isP1Mat = size(P1, 1) > 1 && size(P1, 2) > 1;
         isP2Mat = size(P2, 1) > 1 && size(P2, 2) > 1;
@@ -671,8 +730,8 @@ elseif nArgs == 9
         end
 
         s = localCosSimBatchedRaw(P1, W1, P2, W2, ...
-            varargin{5}, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
-            isSymRaw, method, cancellationThreshold, normalize, verbose, ...
+            sigmaBatched, varargin{6}, varargin{7}, varargin{8}, varargin{9}, ...
+            isSymRaw, method, normalize, verbose, ...
             spectrumGiven, spectrumOpt, ...
             precisionGiven, precisionOpt, ...
             dedupGiven, dedupOpt, ...
@@ -720,8 +779,7 @@ if nargout > 1 && ~structScalarInputs
          'buildExpTens).']);
 end
 [s, cacheX, cacheY] = localCosSimMA(maet_x, maet_y, method, normalize, ...
-                  cancellationThreshold, verbose, truncationSigmas, ...
-                  cacheX, cacheY);
+                  verbose, truncationSigmas, cacheX, cacheY, kernelPrecision);
 if nargout > 1
     densXOut = varargin{1}; densXOut.selfIP = cacheX;
     densYOut = varargin{2}; densYOut.selfIP = cacheY;
@@ -800,8 +858,8 @@ end
 % =========================================================================
 
 function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
-                            normalize, cancellationThreshold, verbose, ...
-                            truncationSigmas, cacheX, cacheY)
+                            normalize, verbose, truncationSigmas, ...
+                            cacheX, cacheY, kernelPrecision)
 %LOCALCOSSIMMA  Cosine similarity between two MaetDensities.
 %
 %   The inner product factors as an elementwise product of per-attribute
@@ -839,8 +897,12 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
 %   attributes, group assignment, per-attribute r, and per-group sigma,
 %   isRel, isPer, period. Weights and event/value counts may differ.
 
-    if nargin < 8 || isempty(cacheX); cacheX = localSelfIpEmpty(); end
-    if nargin < 9 || isempty(cacheY); cacheY = localSelfIpEmpty(); end
+    if nargin < 7 || isempty(cacheX); cacheX = localSelfIpEmpty(); end
+    if nargin < 8 || isempty(cacheY); cacheY = localSelfIpEmpty(); end
+    % kernelPrecision ([] = the helper's mptDefaults value) is consumed
+    % by the single-attribute helper route of ipCoreMA alone, as in the
+    % Python core, and keyed into that route's self-IP memo.
+    if nargin < 9; kernelPrecision = []; end
     needXX = strcmp(normalize, 'cosine');
 
     % --- Structural compatibility (cheap fields only) ---
@@ -858,7 +920,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % hence the similarity -- is zero. A windowed density whose window caught
     % nothing prunes to zero events here; without this guard it reaches the
     % nested contraction's value-range scan, which has no identity over an
-    % empty attribute column. (The raw single-attribute path is unaffected: it
+    % empty attribute column. (The raw single-multiset form is unaffected: it
     % is reached only without specs, and an empty windowed density always
     % carries specs.)
     if dens_x.N == 0 || dens_y.N == 0
@@ -900,17 +962,15 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     isPerG   = logical(dens_x.isPer);
     periodG  = dens_x.period;
 
-    % Per-attribute wrap opt-in (v3+). The density's wrap cell selects the
-    % abs-per measure: 'full-image' (default) uses the torus (all-image)
-    % 1-D wrapped Gaussian per coordinate; 'single-image' uses the nearest-image
-    % reduction, the pre-v3 behaviour. Non-periodic and rel attributes
-    % ignore this axis. The two densities' wrap cells were compared for
-    % structural compatibility at the entry to cosSimExpTens.
-    if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap)
-        wrapG = dens_x.wrap;
-    else
-        wrapG = repmat({'full-image'}, 1, A);
-    end
+    % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
+    % The selector's inputs (value counts, sigma/P, grid node counts, the
+    % declared wrap vector with its mismatch check, the memo flags read
+    % from the caches, and the [sym] flags) are built by
+    % INTERNAL.FLATSELECTORINPUTS, shared with explainDispatch so the
+    % report cannot drift from the route this call takes.
+    [selIn, orderedAny, nestedAny] = internal.flatSelectorInputs( ...
+        dens_x, dens_y, normalize, truncationSigmas, cacheX, cacheY);
+    wrapG = selIn.wrapVec;
 
     % Per-attribute co-transposition block size s_u = prod(r(1:u)) where
     % attribute a is a nested attribute resolved to an inner or
@@ -928,119 +988,35 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         end
     end
 
-    % --- Method dispatch (mirrors Python _select_ma_inner_product_method) ---
-    % One value-count vector per density: the two need not carry the same
-    % number of values in an attribute, and a chord against a scale, or a
-    % reference tuning against an equal division, is the ordinary case.
-    kVec = zeros(1, A);
-    kVecY = zeros(1, A);
-    for a = 1:A
-        kVec(a)  = size(dens_x.pAttr{a}, 1);
-        kVecY(a) = size(dens_y.pAttr{a}, 1);
-    end
-    anyPer = false; anyRelNonper = false; anyRelPer = false; sigmaOverPMax = 0;
-    for a = 1:A
-        if isPerG(a); anyPer = true; end
-        if isRelG(a)
-            if isPerG(a)
-                anyRelPer = true;
-                if periodG(a) > 0
-                    sigmaOverPMax = max(sigmaOverPMax, sigmaG(a) / periodG(a));
-                end
-            else
-                anyRelNonper = true;
-            end
-        end
-    end
-    % Per-attribute vectors for the Möbius-side cost model: which
-    % attributes are relative, and each one's translation-grid node
-    % estimate. Periodic attributes use the shared node-count source;
-    % non-periodic attributes use a representative default (their true
-    % node count is span-dependent; the span plumbing arrives with the
-    % tuple-centres route port).
-    relVecSel = false(1, A);
-    nuVecSel = 2000 * ones(1, max(A, 1));
-    nuVecSel = nuVecSel(1:A);
-    for a = 1:A
-        relVecSel(a) = logical(isRelG(a));
-        if isRelG(a) && rVec(a) >= 2
-            if isPerG(a)
-                nuVecSel(a) = internal.autoNtauDefault(periodG(a), sigmaG(a));
-            else
-                PxA = dens_x.pAttr{a};
-                PyA = dens_y.pAttr{a};
-                marginA = internal.relWindowMargin( ...
-                    mptDefaults('truncationSigmas'));
-                span = (max(PxA(:), [], 'omitnan') ...
-                        - min(PxA(:), [], 'omitnan')) ...
-                     + (max(PyA(:), [], 'omitnan') ...
-                        - min(PyA(:), [], 'omitnan')) ...
-                     + 2 * marginA * sigmaG(a);
-                nuVecSel(a) = max(64, ...
-                    ceil(max(span, 1.0) / sigmaG(a) * 10));
-            end
-        end
-    end
-    % A self inner product costs nothing at call time when it is
-    % memoised, or (for <X,X>) when the requested normalisation does
-    % not consume it; tell the selector so its pricing reflects the
-    % work this call will actually perform. The flags are per route
-    % because the two routes' memoised values live under different
-    % keys. The Möbius key includes per-attribute closed-form-vs-grid
-    % choices not known before routing, so any existing Möbius-route
-    % entry is treated as a hit --- an approximation that can only
-    % misfire when a new partner flips a per-attribute choice, and
-    % then only by under-pricing the Möbius side of a near-crossover
-    % call.
     tsKeyResolved = truncationSigmas;
     if isempty(tsKeyResolved)
         tsKeyResolved = mptDefaults('truncationSigmas');
     end
     tsKeyResolved = internal.accuracyFloor('resolve', tsKeyResolved);
-    bulgerKey = localSelfIpKey('bulger', tsKeyResolved, '');
-    pwSkipXX = ~needXX || localSelfIpHas(cacheX, bulgerKey);
-    pwSkipYY = localSelfIpHas(cacheY, bulgerKey);
-    orbitSkipXX = ~needXX || localSelfIpHasRoute(cacheX, 'mobius');
-    orbitSkipYY = localSelfIpHasRoute(cacheY, 'mobius');
-    % Nested densities route through the hierarchical contraction below,
-    % not the flat Bulger pairwise path, so the flat forced-Bulger
-    % feasibility guard must not fire for them; the selector receives
-    % that as its guard flag. The per-attribute sym flags let the guard
-    % count an ordered attribute's C(K_a, r_a) tuples rather than the
-    % unordered K_a!/(K_a - r_a)!. Twin of the Python call site.
-    nestedAny = (isfield(dens_x, 'nested') && iscell(dens_x.nested) ...
-                 && any(~cellfun(@isempty, dens_x.nested))) ...
-             || (isfield(dens_y, 'nested') && iscell(dens_y.nested) ...
-                 && any(~cellfun(@isempty, dens_y.nested)));
-    if isfield(dens_x, 'isSym')
-        symVecSel = logical(dens_x.isSym(:).');
+    % The Bulger and centres arms key their memo on the kernel precision
+    % as well (Python: ('bulger', ts, kp, None)): the single-attribute
+    % helper route of ipCoreMA honours 'single', and a float32 self
+    % inner product must not be served to a double-precision call.
+    if isempty(kernelPrecision)
+        kpKeyExtra = '';
     else
-        symVecSel = true(1, A);
+        kpKeyExtra = char(kernelPrecision);
     end
     chosen = internal.selectMaInnerProductMethod( ...
-        rVec, kVec, A, dens_x.N, dens_y.N, anyPer, anyRelNonper, anyRelPer, ...
-        sigmaOverPMax, method, verbose, relVecSel, nuVecSel, kVecY, ...
-        wrapG, truncationSigmas, ...
-        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY, ...
-        symVecSel, ~nestedAny);
+        selIn.rVec, selIn.kVec, selIn.A, selIn.Nx, selIn.Ny, ...
+        selIn.anyPer, selIn.anyRelNonper, selIn.anyRelPer, ...
+        selIn.sigmaOverPMax, method, verbose, selIn.relVec, selIn.nuVec, ...
+        selIn.kVecY, selIn.wrapVec, selIn.truncationSigmas, ...
+        selIn.skipXX, selIn.skipYY, selIn.symVec, ...
+        selIn.guardForcedBulger, selIn.perVec);
 
     % Ordered (isSym = false) attributes are not symmetrised, so the
     % orbit (Möbius) per-attribute inner product does not represent
     % them. Force the pairwise/centres path whenever any attribute is
     % ordered at r_a > 1 (r_a = 1 is vacuous). The centres path reads the
     % actual stored per-attribute centres and is correct either way.
-    if isfield(dens_x, 'isSym') || isfield(dens_y, 'isSym')
-        rRow = rVec(:).';
-        sxOrd = false; syOrd = false;
-        if isfield(dens_x, 'isSym')
-            sxOrd = any(~logical(dens_x.isSym(:).') & (rRow > 1));
-        end
-        if isfield(dens_y, 'isSym')
-            syOrd = any(~logical(dens_y.isSym(:).') & (rRow > 1));
-        end
-        if sxOrd || syOrd
-            chosen = 'bulger';
-        end
+    if orderedAny
+        chosen = 'bulger';
     end
 
     % Nested attributes are not handled by the flat orbit/Möbius entry
@@ -1057,13 +1033,50 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
             ['method=''contract'' applies to a nested attribute only; ' ...
              'use ''auto'' or ''bulger'' for non-nested densities.']);
     end
+    % ``method`` semantics on a nested density:
+    %   'bulger'   -- the joint-tuple enumeration, as for a flat density.
+    %   'contract' -- the nested contraction plan, forced: an uncovered
+    %                 case raises rather than falling back.
+    %   'mobius'   -- the same plan. The per-level orbit (Möbius)
+    %                 reduction *is* what the contraction applies at every
+    %                 symmetric level, so on a nested density 'mobius' and
+    %                 'contract' name one route; there is no separate flat
+    %                 orbit entry point to ask for (the flat one would have
+    %                 to re-enumerate the levels into a single value set,
+    %                 which the block-diagonal inner metric forbids).
+    %   'centres'  -- the plan with the materialised-centres route forced
+    %                 for every nested attribute; raises where that route
+    %                 cannot carry the attribute's declared measure.
+    % 'centres' and 'mobius' formerly fell through to 'bulger', so the
+    % method name described something other than what ran.
     contractTriple = [];
+    contractRoutes = {};
     if nestedAny
-        if any(strcmp(method, {'auto', 'contract'}))
-            contractTriple = internal.nestedContract( ...
-                dens_x, dens_y, normalize, truncationSigmas, ...
-                strcmp(method, 'contract'));
+        if any(strcmp(method, {'auto', 'contract', 'mobius', 'centres'}))
+            % Built field by field: struct() with a struct-valued field
+            % is safe but reads ambiguously beside the cell-valued case.
+            % Clear the price record first, so the announce below cannot
+            % read a stale decision from an earlier call when this one
+            % declines before it is ever priced.
+            internal.lastNestedCosts([]);
+            ncOpts = struct();
+            ncOpts.methodName = method;
+            ncOpts.cacheX = cacheX;
+            ncOpts.cacheY = cacheY;
+            if strcmp(method, 'centres')
+                ncOpts.forceRoute = 'centres';
+            end
+            [contractTriple, contractRoutes, cacheX, cacheY] = ...
+                internal.nestedContract(dens_x, dens_y, normalize, ...
+                    truncationSigmas, ~strcmp(method, 'auto'), ncOpts);
         end
+        % An empty triple here means method = 'auto' and either the case
+        % is not covered by the plan (the forced methods raise instead)
+        % or the plan lost the price comparison against the joint-tuple
+        % enumeration inside INTERNAL.NESTEDCONTRACT --- the nested twin
+        % of the flat selector's Bulger-versus-Moebius choice, whose
+        % prices INTERNAL.LASTNESTEDCOSTS records. Either way the
+        % enumeration takes it.
         chosen = 'bulger';
     end
 
@@ -1076,10 +1089,39 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % comb side), so Bulger's combinations-vs-permutations organisation
     % never runs there and the announce says so.
     chosenLabel = chosen;
-    if exist('sxOrd', 'var') && (sxOrd || syOrd) && strcmp(chosen, 'bulger')
+    chosenReason = 'ma cost model';
+    if nestedAny && isempty(contractTriple) && strcmp(method, 'auto')
+        % A nested density that reaches the enumeration under 'auto' did
+        % not get here through the flat MA selector: either the plan
+        % declined the case or it lost the nested price comparison (the
+        % forced methods raise rather than fall back, and
+        % method = 'bulger' never asks the plan at all). Say which,
+        % rather than crediting a selector that never ran. (Python leaves its
+        % "ma_select" reason in place here; the string is diagnostic
+        % only, and naming the model that actually decided is worth the
+        % divergence.)
+        ncCosts = internal.lastNestedCosts();
+        if isstruct(ncCosts) && isfield(ncCosts, 'chosen') ...
+                && strcmp(ncCosts.chosen, 'bulger')
+            chosenReason = 'nested cost model';
+        else
+            chosenReason = 'nested plan declined';
+        end
+    end
+    if orderedAny && strcmp(chosen, 'bulger')
         chosenLabel = 'bulger (direct on ordered attributes)';
     end
-    internal.maybeShowDispatchMsg('cosSimExpTens', chosenLabel, 'ma cost model');
+    if ~isempty(contractTriple)
+        % Announce what actually ran. The nested plan is not the flat
+        % Bulger enumeration, and saying 'bulger' here described the route
+        % the contraction had displaced. The per-attribute routes are the
+        % informative part, so they are the reason. Mirror of the Python
+        % _maybe_show_dispatch_msg("cos_sim_exp_tens", "contract",
+        % "nested: ...").
+        chosenLabel = 'contract';
+        chosenReason = ['nested: ' strjoin(contractRoutes, ',')];
+    end
+    internal.maybeShowDispatchMsg('cosSimExpTens', chosenLabel, chosenReason);
 
     ranOrbit = false;
     if ~isempty(contractTriple)
@@ -1102,16 +1144,34 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % would ignore settings the core honours.
         dens_x = internal.ensureExpTensExpensive(dens_x);
         dens_y = internal.ensureExpTensExpensive(dens_y);
+        % Memoise the self terms under this route's own key, exactly as
+        % the Bulger arm does. Without this the route recomputes <X,X>
+        % and <Y,Y> on every call while the other routes reuse theirs,
+        % so a repeated comparison would time three products against
+        % one, and a forced 'centres' call would leave no memo for the
+        % shared pricing flag to see. Twin of the Python
+        % _cos_sim_exp_tens_ma_centres.
+        centresKey = localSelfIpKey('centres', tsKeyResolved, kpKeyExtra);
+        [xxHit, xxVal] = localSelfIpGet(cacheX, centresKey);
+        [yyHit, yyVal] = localSelfIpGet(cacheY, centresKey);
         ip_xy = ipCoreMA(dens_x.U_perm, dens_x.wJ, dens_x.nJ, ...
                          dens_y.U_perm, dens_y.wJ, dens_y.nJ);
-        if needXX
+        if ~needXX
+            ip_xx = [];
+        elseif xxHit
+            ip_xx = xxVal;
+        else
             ip_xx = ipCoreMA(dens_x.U_perm, dens_x.wJ, dens_x.nJ, ...
                              dens_x.U_perm, dens_x.wJ, dens_x.nJ);
-        else
-            ip_xx = [];
+            cacheX = localSelfIpSet(cacheX, centresKey, ip_xx);
         end
-        ip_yy = ipCoreMA(dens_y.U_perm, dens_y.wJ, dens_y.nJ, ...
-                         dens_y.U_perm, dens_y.wJ, dens_y.nJ);
+        if yyHit
+            ip_yy = yyVal;
+        else
+            ip_yy = ipCoreMA(dens_y.U_perm, dens_y.wJ, dens_y.nJ, ...
+                             dens_y.U_perm, dens_y.wJ, dens_y.nJ);
+            cacheY = localSelfIpSet(cacheY, centresKey, ip_yy);
+        end
         ranOrbit = true;   % triple already computed; skip the other arms
     elseif strcmp(chosen, 'mobius')
         [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
@@ -1173,7 +1233,11 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % --- Three inner products, with memoised self terms ---
         % The estimate covers only the kernel work this call performs:
         % memoised self terms cost nothing here, and a skipped <X,X>
-        % (oneSidedDenom) is never evaluated.
+        % (oneSidedDenom) is never evaluated. The memo is read and
+        % written under this route's own key: the routes' values are
+        % related by a known constant but are not the same number, so
+        % none of them crosses (see localSelfIpKey).
+        bulgerKey = localSelfIpKey('bulger', tsKeyResolved, kpKeyExtra);
         [xxHit, xxVal] = localSelfIpGet(cacheX, bulgerKey);
         [yyHit, yyVal] = localSelfIpGet(cacheY, bulgerKey);
         computeXX = needXX && ~xxHit;
@@ -1250,6 +1314,27 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         % Relative attributes at r_a = 1 have a vanishing quadratic
         % form (a 1-tuple has no within-tuple differences) and
         % contribute nothing, exactly as computeQaMA evaluates them.
+        % Single-attribute helper route (twin of the Python core's
+        % _ip_via_helper): one attribute, no inner [rel] unit, and not
+        % relative-periodic (whose pairwise-wrap form the helper cannot
+        % take) goes through internal.gaussianKernelSum. The helper
+        % computes g(q) = sum_j wV(j) exp(-Q(v_j - u_q) / (2 sigma_eff^2))
+        % with sigma_eff = sigma sqrt(2), so its exponent is the
+        % centres-IP's Q / (4 sigma^2), and the inner product is wU' g.
+        % It carries the spatial-index truncation (and the circular
+        % 1-D path on an absolute-periodic attribute), honours
+        % kernelPrecision, and takes the same cutoff as the log-kernel
+        % form: nTerms = nJ * nK widens the width to
+        % sqrt(k^2 + 2 log(nTerms)) inside the helper, which is the
+        % -k^2/2 - log(nTerms) threshold of truncLogKernelExp. The
+        % numbers agree with the log-kernel form within the accuracy
+        % floor; this is the leaf both languages now take.
+        if A == 1 && innerR(1) == 0 && ~(isRelG(1) && isPerG(1))
+            ipval = ipViaHelper(U_cell{1}, wU, V_cell{1}, wV, ...
+                                truncResolved);
+            return;
+        end
+
         if all(rVec == 1) && all(innerR == 0)
             ipval = ipR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
                                truncResolved);
@@ -1284,6 +1369,28 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
             end
             ipval = wU(:).' * acc;
         end
+    end
+
+    function ipval = ipViaHelper(U, wU, V, wV, truncResolved)
+        % Route the single-attribute centres-IP through
+        % internal.gaussianKernelSum (see ipCoreMA). The kernel sum is
+        % reduced to one inner product, so the truncation floor has to
+        % bound the summed discarded mass over all centre-query pairs
+        % rather than each pair individually: nTerms = |U| |V|.
+        wrapA = 'full-image';
+        if ~isempty(wrapG)
+            wrapA = char(wrapG{1});
+        end
+        kw = {'isRel', logical(isRelG(1)), 'r', double(rVec(1)), ...
+              'isPer', logical(isPerG(1)), 'period', double(periodG(1)), ...
+              'wrap', wrapA, 'truncationSigmas', truncResolved, ...
+              'nTerms', double(size(U, 2)) * double(size(V, 2))};
+        if ~isempty(kernelPrecision)
+            kw = [kw, {'kernelPrecision', char(kernelPrecision)}];
+        end
+        sigmaEff = double(sigmaG(1)) * sqrt(2);
+        g = internal.gaussianKernelSum(V, wV(:), U, sigmaEff, kw{:});
+        ipval = g(:).' * wU(:);
     end
 
     function ipval = ipR1Direct(U_cell, wU, nJ, V_cell, wV, nK, ...
@@ -1356,11 +1463,26 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
                     tsA = truncationSigmas;
                 end
                 tsA = internal.accuracyFloor('resolve', tsA);
-                theta = internal.wrappedGaussian1d( ...
-                    D, sigmaG(a), periodG(a), tsA, 4);
-                logK = logK + reshape( ...
-                    sum(log(theta), 1), nJ, nK);
-                continue;
+                % Single-image short-circuit. When the truncation budget
+                % admits no image beyond the nearest one (L = 0, which
+                % at the 6-sigma default holds for sigma/P <= 0.059 in
+                % this convention), theta(d) *is* the nearest-image
+                % Gaussian exp(-d^2 / (4 sigma^2)), so sum_k log
+                % theta(d_k) is -Qa / (4 sigma^2) on the nearest-image-
+                % reduced differences --- exactly what the Q-form path
+                % below computes, without the exp-then-log round trip
+                % on the (r_a, nJ, nK) array. Same measure, same number
+                % to ~3e-16; measured 1.6x (r = 2) to 3.3x (r = 3)
+                % cheaper in Python. Twin of the Python _ma_log_kernel
+                % gate.
+                if internal.wrappedKernelImageCount( ...
+                        sigmaG(a), periodG(a), tsA, 4) > 0
+                    theta = internal.wrappedGaussian1d( ...
+                        D, sigmaG(a), periodG(a), tsA, 4);
+                    logK = logK + reshape( ...
+                        sum(log(theta), 1), nJ, nK);
+                    continue;
+                end
             end
 
             % The outer wrap is only needed when computeQaMA does not
@@ -1539,21 +1661,32 @@ if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
         % attributes keep the grid path (their contraction routes
         % handle the closed form separately).
         if choices(a)
-            cxB = mobius.closedFormAttrCentres(dens_x, a);
-            cyB = mobius.closedFormAttrCentres(dens_y, a);
-            % Per-attribute wrap opt-in (default full-image). Use
-            % dens_x's wrap as authoritative if it and dens_y's differ.
+            % Bundles memoised on the threaded memo structs (twin of the
+            % Python _nested_centres_cache; see
+            % INTERNAL.NESTEDCENTRESMEMOISED).
+            [cxB, cacheX] = internal.nestedCentresMemoised(cacheX, dens_x, a);
+            [cyB, cacheY] = internal.nestedCentresMemoised(cacheY, dens_y, a);
+            % Per-attribute wrap opt-in (default full-image); the two
+            % densities' declarations were checked to agree at the
+            % selector site. The per-call width goes with it, as the
+            % memo key above already assumes (Python twin:
+            % _closed_form_attr_matrix_from(cx, cy, truncation_sigmas,
+            % wrap_a)); the closed form reads it only on an abs-per
+            % attribute, which the flat gate does not admit today.
             wrapA = 'full-image';
             if isfield(dens_x, 'wrap') && ~isempty(dens_x.wrap) ...
                     && a <= numel(dens_x.wrap)
                 wrapA = char(dens_x.wrap{a});
             end
-            P_xy = P_xy .* mobius.closedFormAttrMatrixFrom(cxB, cyB, wrapA);
+            P_xy = P_xy .* mobius.closedFormAttrMatrixFrom( ...
+                cxB, cyB, wrapA, truncResolved);
             if ~isempty(P_xx)
-                P_xx = P_xx .* mobius.closedFormAttrMatrixFrom(cxB, cxB, wrapA);
+                P_xx = P_xx .* mobius.closedFormAttrMatrixFrom( ...
+                    cxB, cxB, wrapA, truncResolved);
             end
             if ~isempty(P_yy)
-                P_yy = P_yy .* mobius.closedFormAttrMatrixFrom(cyB, cyB, wrapA);
+                P_yy = P_yy .* mobius.closedFormAttrMatrixFrom( ...
+                    cyB, cyB, wrapA, truncResolved);
             end
         else
             % Per-attribute wrap opt-in (default full-image). Use
@@ -1604,7 +1737,9 @@ end
 %  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
-function sCell = localCosSimDensityList(a, b, normalize, verbose)
+function sCell = localCosSimDensityList(a, b, normalize, verbose, ...
+                                        method, truncationSigmas, ...
+                                        kernelPrecision)
 %LOCALCOSSIMDENSITYLIST List-mode density-struct cosine similarities.
 %
 %   Three accepted shapes:
@@ -1623,9 +1758,16 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
 %   are rejected at the top of cosSimExpTens (use
 %   windowedTensorSimilarity instead).
 %
-%   The ``normalize`` argument is forwarded to each per-pair
-%   computation so every list entry uses the same denominator.
+%   ``normalize``, ``method``, ``truncationSigmas`` and
+%   ``kernelPrecision`` are forwarded to each per-pair computation so
+%   every list entry takes the route and the width the caller asked
+%   for, as the Python list form does. (Earlier versions forwarded
+%   ``normalize`` and ``verbose`` alone, so a forced method or a
+%   per-call width was silently ignored in list mode.)
 
+    if nargin < 5 || isempty(method); method = 'auto'; end
+    if nargin < 6; truncationSigmas = []; end
+    if nargin < 7; kernelPrecision = []; end
     aIsCell = iscell(a);
     bIsCell = iscell(b);
 
@@ -1645,8 +1787,60 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
                      'density structs from buildExpTens; entry %d is not ' ...
                      'a struct.'], i);
             end
+        end
+        % Canonical-form dedup (twin of the Python density-list
+        % dedup): when every pair is two single-multiset densities,
+        % pairs that share a canonical chord pair and the same
+        % structural parameters are evaluated once and the value
+        % reused. The key is the batched-raw form's pair canonical form
+        % (INTERNAL.PAIRCANONICALKEY) plus each side's density
+        % parameters; pairs involving a multi-attribute density are
+        % computed one by one, as in Python.
+        allSingle = n > 0;
+        for i = 1:n
+            % A whitened (kernel-covariance) density stores values in
+            % its own coordinates, which the chord canonical form does
+            % not describe; such pairs are computed one by one.
+            if ~(internal.isSingleMultiset(a{i}) ...
+                    && internal.isSingleMultiset(b{i})) ...
+                    || internal.densityHasKernelCov(a{i}) ...
+                    || internal.densityHasKernelCov(b{i})
+                allSingle = false;
+                break;
+            end
+        end
+        if allSingle
+            pairKeys = cell(1, n);
+            for i = 1:n
+                pairKeys{i} = localDensityPairKey(a{i}, b{i});
+            end
+            [~, firstIdx, mapIdx] = unique(pairKeys, 'stable');
+            nUnique = numel(firstIdx);
+            if verbose
+                fprintf(['cosSimExpTens: %d pairs, %d unique after ' ...
+                         'canonical-form dedup.\n'], n, nUnique);
+            end
+            uniqueVals = cell(1, nUnique);
+            for u = 1:nUnique
+                i = firstIdx(u);
+                uniqueVals{u} = cosSimExpTens(a{i}, b{i}, ...
+                                     'normalize', normalize, ...
+                                     'method', method, ...
+                                     'truncationSigmas', truncationSigmas, ...
+                                     'kernelPrecision', kernelPrecision, ...
+                                     'verbose', false);
+            end
+            for i = 1:n
+                sCell{i} = uniqueVals{mapIdx(i)};
+            end
+            return;
+        end
+        for i = 1:n
             sCell{i} = cosSimExpTens(a{i}, b{i}, ...
                                      'normalize', normalize, ...
+                                     'method', method, ...
+                                     'truncationSigmas', truncationSigmas, ...
+                                     'kernelPrecision', kernelPrecision, ...
                                      'verbose', verbose);
         end
         return;
@@ -1682,12 +1876,17 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
     % otherwise dominates point-set-shaped sweeps. ok = false whenever
     % any structural condition fails, and the ordinary per-pair loop
     % below then runs --- raising exactly the errors a genuine mismatch
-    % deserves.
-    [okFast, sFast] = localR1BroadcastFast(scalarArg, cellArg, ...
-        scalarLeft, normalize, cacheScalar);
-    if okFast
-        sCell = sFast;
-        return;
+    % deserves. The fast path is Bulger's kernel pass, so it is offered
+    % only where 'auto' or 'bulger' asked for it, as the raw-MA form
+    % and the Python twin gate it; a forced 'mobius' or 'centres' takes
+    % the per-pair loop and its named route.
+    if any(strcmp(method, {'auto', 'bulger'}))
+        [okFast, sFast] = localR1BroadcastFast(scalarArg, cellArg, ...
+            scalarLeft, normalize, cacheScalar, truncationSigmas);
+        if okFast
+            sCell = sFast;
+            return;
+        end
     end
 
     for i = 1:n
@@ -1699,29 +1898,30 @@ function sCell = localCosSimDensityList(a, b, normalize, verbose)
         if scalarLeft
             [sCell{i}, cacheScalar] = localScalarPairDispatch( ...
                 scalarArg, cellArg{i}, normalize, verbose, ...
-                cacheScalar, localSelfIpEmpty(), true);
+                cacheScalar, localSelfIpEmpty(), true, ...
+                method, truncationSigmas, kernelPrecision);
         else
             [sCell{i}, cacheScalar] = localScalarPairDispatch( ...
                 cellArg{i}, scalarArg, normalize, verbose, ...
-                localSelfIpEmpty(), cacheScalar, false);
+                localSelfIpEmpty(), cacheScalar, false, ...
+                method, truncationSigmas, kernelPrecision);
         end
     end
 end
 
 
 function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
-    verbose, cacheX, cacheY, sharedIsX)
+    verbose, cacheX, cacheY, sharedIsX, method, truncationSigmas, ...
+    kernelPrecision)
 %LOCALSCALARPAIRDISPATCH  One density-struct pair with memo threading.
 %
 %   Replicates the scalar dispatch cosSimExpTens applies to a
 %   two-struct call (the single-multiset corner prunes both operands
 %   before the shared multi-attribute inner product; every other shape
-%   goes straight to it), with method / cancellationThreshold /
-%   truncationSigmas at their defaults --- exactly what the previous
-%   per-pair recursion through the public entry point produced, which
-%   forwarded only ``normalize`` and ``verbose``. Returns the shared
-%   operand's updated memo cache (its side selected by SHAREDISX) so
-%   the list loop can thread it.
+%   goes straight to it), with the caller's METHOD, TRUNCATIONSIGMAS and
+%   KERNELPRECISION (defaults 'auto', [] and []). Returns the shared
+%   operand's updated memo cache (its side selected by SHAREDISX) so the
+%   list loop can thread it.
 
     if ~isfield(dx, 'tag') || ~isfield(dy, 'tag')
         error('cosSimExpTens:untaggedStruct', ...
@@ -1741,12 +1941,15 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
             ['Both density structs must carry the ''MaetDensity'' ' ...
              'tag. Got %s and %s.'], dx.tag, dy.tag);
     end
+    if nargin < 8 || isempty(method); method = 'auto'; end
+    if nargin < 9; truncationSigmas = []; end
+    if nargin < 10; kernelPrecision = []; end
     if internal.isSingleMultiset(dx) && internal.isSingleMultiset(dy)
         dx = internal.prunedExpTens(dx);
         dy = internal.prunedExpTens(dy);
     end
-    [s, cacheX, cacheY] = localCosSimMA(dx, dy, 'auto', normalize, ...
-        1e-12, verbose, [], cacheX, cacheY);
+    [s, cacheX, cacheY] = localCosSimMA(dx, dy, method, normalize, ...
+        verbose, truncationSigmas, cacheX, cacheY, kernelPrecision);
     if sharedIsX
         cacheShared = cacheX;
     else
@@ -1755,8 +1958,49 @@ function [s, cacheShared] = localScalarPairDispatch(dx, dy, normalize, ...
 end
 
 
+function key = localDensityPairKey(dx, dy)
+%LOCALDENSITYPAIRKEY  Canonical-form key for a single-multiset density pair.
+%
+%   Twin of the key the Python density-list dedup builds: the pair's
+%   canonical chord forms from INTERNAL.PAIRCANONICALKEY (independent
+%   per side in a relative mode, joint co-transposition in an absolute
+%   one; no re-rounding, as the values come from built densities) with
+%   the density parameters (sigma, r, isRel, isPer, period) and the
+%   per-density declarations (wrap, isSym) of both sides baked in, so
+%   two pairs share a key only when the pair core would return the same
+%   number for both.
+    px = dx.pAttr{1}(:, 1).'; wx = dx.w{1}(:, 1).';
+    py = dy.pAttr{1}(:, 1).'; wy = dy.w{1}(:, 1).';
+    isRel = logical(dx.isRel(1)); isPer = logical(dx.isPer(1));
+    period = double(dx.period(1));
+    [pxc, wxc, pyc, wyc] = internal.pairCanonicalKey(px, wx, py, wy, ...
+                                                     isRel, isPer, period, []);
+    key = sprintf('%s|%s|%s|%s|%s|%s', ...
+        sprintf('%.17g,', pxc), sprintf('%.17g,', wxc), ...
+        sprintf('%.17g,', pyc), sprintf('%.17g,', wyc), ...
+        localDensityParamKey(dx), localDensityParamKey(dy));
+end
+
+
+function key = localDensityParamKey(d)
+%LOCALDENSITYPARAMKEY  The density-determining parameters of a
+%   single-multiset density as one string (see localDensityPairKey).
+    wrapA = 'full-image';
+    if isfield(d, 'wrap') && ~isempty(d.wrap)
+        wrapA = char(d.wrap{1});
+    end
+    isSymA = true;
+    if isfield(d, 'isSym') && ~isempty(d.isSym)
+        isSymA = logical(d.isSym(1));
+    end
+    key = sprintf('%.17g|%d|%d|%d|%.17g|%s|%d', double(d.sigma(1)), ...
+        double(d.r(1)), logical(d.isRel(1)), logical(d.isPer(1)), ...
+        double(d.period(1)), wrapA, isSymA);
+end
+
+
 function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, period, ...
-    isSym, method, cancellationThreshold, normalize, verbose, ...
+    isSym, method, normalize, verbose, ...
     spectrumGiven, spectrumOpt, precisionGiven, precisionOpt, dedupGiven, dedupOpt, ...
     truncationSigmas, kernelPrecision)
 %LOCALCOSSIMBATCHEDRAW Batched cosine similarity from paired 2-D inputs.
@@ -1775,8 +2019,8 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 %     5. Call cosSimExpTens once per unique (A, B) pair, mapping results
 %        back to all matching rows.
 
-    if nargin < 21, truncationSigmas = []; end
-    if nargin < 22, kernelPrecision  = []; end
+    if nargin < 20, truncationSigmas = []; end
+    if nargin < 21, kernelPrecision  = []; end
 
     if size(P1, 1) ~= size(P2, 1)
         error('cosSimExpTens:batchedRowMismatch', ...
@@ -2026,7 +2270,6 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
         dA_w = densA{uniquePairs(sampleIdx(1), 1)};
         dB_w = densB{uniquePairs(sampleIdx(1), 2)};
         cosSimExpTens(dA_w, dB_w, 'method', method, ...
-                      'cancellationThreshold', cancellationThreshold, ...
                       'normalize', normalize, 'verbose', false);
 
         % Timed calibration over the sample.
@@ -2035,7 +2278,6 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
             dA_s = densA{uniquePairs(sampleIdx(cs), 1)};
             dB_s = densB{uniquePairs(sampleIdx(cs), 2)};
             cosSimExpTens(dA_s, dB_s, 'method', method, ...
-                          'cancellationThreshold', cancellationThreshold, ...
                           'normalize', normalize, 'verbose', false);
         end
         tCalTotal = toc(tCalStart);
@@ -2048,7 +2290,6 @@ function s = localCosSimBatchedRaw(P1, W1, P2, W2, sigma, r, isRel, isPer, perio
 
     % === Phase 4: Compute similarity for each unique pair ===
     pairKw = {'method', method, ...
-              'cancellationThreshold', cancellationThreshold, ...
               'normalize', normalize, 'verbose', false};
     if ~isempty(truncationSigmas)
         pairKw = [pairKw, {'truncationSigmas', truncationSigmas}];
@@ -2097,7 +2338,10 @@ end
 %  localSelfIpKey. It is carried by value: within one cosSimExpTens
 %  call the sweep loops thread it across pairs, and the density-struct
 %  scalar form optionally returns it attached to the operand structs
-%  (a 'selfIP' field) so a caller's own loop can thread it too.
+%  (a 'selfIP' field) so a caller's own loop can thread it too. The
+%  optional 'nestedCentres' field (1-by-A cell) memoises the centres
+%  routes' tuple-centres bundles on the same channel; see
+%  INTERNAL.NESTEDCENTRESMEMOISED.
 % =========================================================================
 
 function cache = localSelfIpEmpty()
@@ -2108,17 +2352,8 @@ end
 
 function cache = localSelfIpFromStruct(d)
 %LOCALSELFIPFROMSTRUCT  Read a memo cache from a density struct's
-%   'selfIP' field, or return an empty cache when the field is absent
-%   or malformed (an unrecognised shape simply recomputes; it can never
-%   produce a wrong value).
-    if isstruct(d) && isfield(d, 'selfIP') && isstruct(d.selfIP) ...
-            && isfield(d.selfIP, 'keys') && isfield(d.selfIP, 'vals') ...
-            && iscell(d.selfIP.keys) ...
-            && numel(d.selfIP.keys) == numel(d.selfIP.vals)
-        cache = d.selfIP;
-    else
-        cache = localSelfIpEmpty();
-    end
+%   'selfIP' field (INTERNAL.SELFIPFROMSTRUCT).
+    cache = internal.selfIpFromStruct(d);
 end
 
 
@@ -2211,16 +2446,12 @@ end
 function key = localSelfIpKey(route, tsResolved, extra)
 %LOCALSELFIPKEY  Memo key for a self inner product.
 %
-%   Carries everything the value depends on beyond the density's own
-%   contents: the route (the Bulger and Möbius conventions differ by
-%   constant prefactors that cancel only within one route's triple),
-%   the resolved truncation budget, and any route-specific choices
-%   (EXTRA --- the Möbius route's per-attribute closed-form-vs-grid
-%   selections, which change the per-attribute prefactor). Chunking
-%   granularity is deliberately not keyed: it perturbs only the
-%   floating-point accumulation order, within the toolbox-wide
-%   <= 1e-12 parity discipline.
-    key = sprintf('%s|%.17g|%s', route, tsResolved, extra);
+%   Delegates to INTERNAL.SELFIPKEY, which documents the key's contents.
+%   The scheme lives in a package function because
+%   INTERNAL.NESTEDCONTRACT memoises into the same caches and must spell
+%   its keys the same way; a local function cannot be shared across
+%   files.
+    key = internal.selfIpKey(route, tsResolved, extra);
 end
 
 
@@ -2248,15 +2479,14 @@ function cache = localSelfIpSet(cache, key, val)
 end
 
 
-function hit = localSelfIpHas(cache, key)
-%LOCALSELFIPHAS  True when the key is memoised.
-    hit = any(strcmp(cache.keys, key));
-end
-
-
-function hit = localSelfIpHasRoute(cache, route)
-%LOCALSELFIPHASROUTE  True when any entry of the given route is memoised.
-    hit = any(strncmp(cache.keys, [route '|'], numel(route) + 1));
+function hit = localSelfIpMemoised(cache)
+%LOCALSELFIPMEMOISED  True when any inner-product route has memoised this
+%   density's self inner product.
+%
+%   Delegates to INTERNAL.SELFIPMEMOISED, which documents why the flag is
+%   shared by the routes a selector compares rather than read off each
+%   route's own memo. Twin of the Python cosine._self_ip_memoised.
+    hit = internal.selfIpMemoised(cache);
 end
 
 

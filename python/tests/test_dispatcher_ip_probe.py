@@ -5,8 +5,7 @@ Method selection is a pure cost model
 between the Möbius method and Bulger's method: hard rules (correctness /
 feasibility) decide first, then the cost model. What remains here are
 the tests that exercise that choice through the public API and the
-dispatch-message behaviour; the tests that drove the former timing
-probe directly were retired with it.
+dispatch-message behaviour.
 """
 from __future__ import annotations
 
@@ -19,10 +18,6 @@ import pytest
 
 import mpt
 from mpt import build_exp_tens, cos_sim_exp_tens
-from mpt.tensor import (
-    _PROBE_K_IP_TARGET,
-    _PRESCREEN_IP_DOMINANCE,
-)
 
 
 def _dens(K: int, r: int, sigma: float = 1.0,
@@ -35,22 +30,13 @@ def _dens(K: int, r: int, sigma: float = 1.0,
 
 
 # ----------------------------------------------------------------------
-# Hard rules
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# Analytical pre-screen
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# Probe execution
-# ----------------------------------------------------------------------
-# ----------------------------------------------------------------------
-# Semantic equivalence with the analytical-heuristic decision
+# Semantic equivalence with the explicit overrides
 # ----------------------------------------------------------------------
 
 
 class TestSemanticEquivalence:
-    """The probe-based dispatcher must produce the same cos_sim_exp_tens
-    output as the analytical heuristic for any reasonable workload —
+    """The cost-model dispatcher must produce the same cos_sim_exp_tens
+    output as either explicit override for any reasonable workload ---
     the dispatcher only chooses which mathematically-equivalent path to
     use, not what to compute."""
 
@@ -80,8 +66,8 @@ class TestSemanticEquivalence:
 
 
 class TestVerboseDispatchMessage:
-    def test_message_prints_when_probe_fires(self):
-        """Probe-firing region (r=2 K=5, ratio just under dominance) →
+    def test_message_prints_when_cost_model_decides(self):
+        """Cost-model region (r=2 K=5, no structural rule fires) →
         message printed."""
         dens_x, dens_y = _dens(5, 2, seed=0), _dens(5, 2, seed=1)
         mpt.reset_defaults()
@@ -89,12 +75,12 @@ class TestVerboseDispatchMessage:
         with redirect_stdout(buf):
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
-        # Probe should fire here, giving the dispatch message.
+        # The cost race decides here, and the dispatch message names it.
         assert "cos_sim_exp_tens" in out and "chose" in out
 
     def test_message_appears_when_hard_rule_decides(self):
-        """r=1 → hard rule → no probe, but a dispatch message still
-        fires. Under the current contract, the unprobed message names
+        """r=1 → hard rule, and a dispatch message still fires. Under
+        the current contract the message names
         only the path (the routing reason is no longer part of the
         throttle key — see the throttling contract test below)."""
         dens_x, dens_y = _dens(8, 1, seed=0), _dens(8, 1, seed=1)
@@ -104,11 +90,11 @@ class TestVerboseDispatchMessage:
             cos_sim_exp_tens(dens_x, dens_y, method="auto", verbose=True)
         out = buf.getvalue()
         assert "cos_sim_exp_tens: chose 'bulger' path." in out
-        # Unprobed format: no parenthetical, no time estimate.
+        # No parenthetical, no time estimate.
         assert "estimated" not in out
 
     def test_message_appears_for_user_override(self):
-        """Explicit method → unprobed message fires; format names only
+        """Explicit method → message fires; format names only
         the path (the routing reason for the user override is no
         longer part of the throttle key)."""
         dens_x, dens_y = _dens(20, 3, seed=0), _dens(20, 3, seed=1)

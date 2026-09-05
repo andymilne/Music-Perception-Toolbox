@@ -44,8 +44,8 @@ function table = buildOrbitTable(r)
     % builder runs once per orbit at table-build time and the results
     % are embedded so MOBIUS.INNERPRODUCTORBIT* can call
     % MOBIUS.EXECUTERECIPE at runtime without re-deriving the
-    % contraction graph (which is the dominant per-call cost in
-    % MOBIUS.CONTRACT). The three recipes correspond to the three
+    % contraction graph (which is the dominant per-call cost of a
+    % dynamic contraction; see the REFERENCE.CONTRACT test oracle). The three recipes correspond to the three
     % consumer call patterns (IP / Grid / PwBatched).
     template = struct( ...
         'weight', 0, ...

@@ -26,10 +26,8 @@ from __future__ import annotations
 
 import math
 import warnings
-from itertools import permutations
 
 import numpy as np
-from scipy.special import comb as _comb
 
 from .._defaults import _with_dispatch_scope
 from .._kernel import gaussian_kernel_sum
@@ -61,7 +59,6 @@ from ._mobius_inner import (
 from .density import (
     MaetDensity,
     WindowedMaetDensity,
-    _nchoosek_indices,
     is_single_multiset,
 )
 from .dispatch import (
@@ -164,7 +161,6 @@ def cos_sim_exp_tens(*args,
                      method: str = "auto",
                      normalize: str | None = None,
                      normalise: str | None = None,
-                     cancellation_threshold: float = 1e-12,
                      truncation_sigmas: float | None = None,
                      kernel_precision: str | None = None,
                      verbose: bool = True) -> float | np.ndarray:
@@ -217,7 +213,14 @@ def cos_sim_exp_tens(*args,
       list operand once per entry. Weights for the list side are
       shared across every entry — a single ``w`` value, not a list of
       weights. Returns an ``ndarray`` of length M. The output index
-      matches the order of entries in the list operand.
+      matches the order of entries in the list operand. When every
+      ``r_a = 1`` and ``method`` is ``'auto'`` or ``'bulger'`` the whole
+      list is evaluated in one batched kernel pass (the same fast path
+      the density scalar-vs-list form and MATLAB's
+      ``localR1BroadcastFast`` take). *Python only:* a list tagged by
+      :func:`translate_attributes` with ``method='auto'`` is first
+      reduced to one mixture in the offset through
+      :func:`sweep_cos_sim_exp_tens`; MATLAB has no tagged-sweep type.
 
     Parameters
     ----------
@@ -240,7 +243,7 @@ def cos_sim_exp_tens(*args,
         Round canonical pitch and weight values to this many decimal
         places, to absorb FP noise when deduplicating. Only valid in
         raw single-multiset batched mode.
-    method : {'auto', 'bulger', 'centres', 'mobius'}, default 'auto'
+    method : {'auto', 'bulger', 'centres', 'mobius', 'contract'}, default 'auto'
         Inner-product method; threaded through to the per-pair single-multiset/multi-attribute
         core. ``'auto'`` lets the dispatcher pick between Bulger's
         method (the partition-pair decomposition; small r and small K)
@@ -252,6 +255,22 @@ def cos_sim_exp_tens(*args,
         appreciable K and is intended as a reference: it involves no
         alternating sum, so it is immune to the cancellation the Möbius
         route can suffer, and it shares no reduction with the other two.
+
+        On a **nested** density the names select among that path's own
+        routes, since the flat orbit entry point cannot represent a nested
+        attribute's block-diagonal inner metric. ``'bulger'`` is still the
+        joint-tuple enumeration. ``'contract'`` forces the hierarchical
+        contraction plan, raising rather than falling back on any case it
+        does not cover; it is rejected on a non-nested density.
+        ``'mobius'`` names the same plan --- the per-level orbit (Möbius)
+        reduction is exactly what the contraction applies at every symmetric
+        level, so for a nested density ``'mobius'`` and ``'contract'``
+        coincide. ``'centres'`` forces the materialised-centres route for
+        every nested attribute; on a relative-periodic attribute whose
+        declared measure is the default full-image one, that route is
+        admissible only up to the sigma/period threshold, above which
+        ``'centres'`` raises a ``ValueError`` naming the
+        ``wrap='single-image'`` opt-in.
     normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
         Selects the denominator applied to the inner product
         :math:`\\langle X, Y \\rangle`. ``'cosine'`` (default) gives the
@@ -265,10 +284,21 @@ def cos_sim_exp_tens(*args,
         and is sensitive to scalar reweightings of ``X``. The British
         spelling ``'normalise'`` is also accepted as an alias for the
         keyword name, and matching is case-insensitive on the value.
-    cancellation_threshold : float, default 1e-12
-        Accepted for backward compatibility; it does not affect the
-        result or the route. Accuracy is governed by
-        ``truncationSigmas``, and the method is chosen on cost.
+    truncation_sigmas : float, optional
+        Per-call kernel truncation width in sigmas (``None`` takes the
+        global default; ``inf`` resolves to the accuracy-floor width).
+        Honoured on every route, flat and nested, and forwarded through
+        every input form; it also sizes the quadrature grids the routes
+        are priced on.
+    kernel_precision : {'double', 'single'}, optional
+        Forwarded through every input form, but consumed by one
+        inner-product leaf only: the single-attribute kernel-sum helper
+        (``A == 1``, not relative-periodic), which evaluates in float32
+        under ``'single'``. The multi-attribute log-kernel core and the
+        Möbius and nested routes have no float32 form and do not read
+        it. The MATLAB twin takes the same helper leaf
+        (``internal.gaussianKernelSum``) and honours it there too; both
+        point evaluators honour it.
     verbose : bool, default True
         Print progress.
 
@@ -354,7 +384,6 @@ def cos_sim_exp_tens(*args,
             mode=mode, dedup=dedup,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -454,7 +483,6 @@ def cos_sim_exp_tens(*args,
                 *args,
                 method=method,
                 normalize=normalize,
-                cancellation_threshold=cancellation_threshold,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=verbose,
@@ -476,7 +504,6 @@ def cos_sim_exp_tens(*args,
             b_is_list=b_is_list,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -591,7 +618,6 @@ def cos_sim_exp_tens(*args,
             dedup=dedup,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -611,7 +637,6 @@ def cos_sim_exp_tens(*args,
         *args, spectrum=spectrum,
         method=method,
         normalize=normalize,
-        cancellation_threshold=cancellation_threshold,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,
@@ -713,7 +738,6 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
     if T > 0:
         v_cell = [np.concatenate([d.v_comb[a] for d in live], axis=1)
                   for a in range(A)]
-        w_v = np.concatenate([d.wv_comb for d in live])
         # Per-column log-space threshold: -k^2/2 - log(n_j * m_i) for
         # the segment the column belongs to (matching each pair's own
         # _trunc_log_kernel_exp threshold; n_terms = 1 keeps the bare
@@ -833,7 +857,6 @@ def _all_single_multiset_pairs(pairs):
 
 def _compute_pair_results_with_dedup(
     pairs, *, method: str, normalize: str = "cosine",
-    cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for single-multiset density pairs with
@@ -851,6 +874,17 @@ def _compute_pair_results_with_dedup(
             bool(d.is_rel[0]), bool(d.is_per[0]), float(d.period[0]),
         )
 
+    def _declared(d):
+        # The per-density declarations the pair core reads beyond the
+        # chord and its parameters: the wrap names the measure on a
+        # periodic attribute and [sym] the tuple reading, so two pairs
+        # may share a key only when both agree (the MATLAB twin
+        # localDensityPairKey bakes in the same two).
+        wrap = getattr(d, "wrap", None)
+        sym = getattr(d, "is_sym", None)
+        return (str(wrap[0]) if wrap is not None else "full-image",
+                bool(sym[0]) if sym is not None else True)
+
     for a, b in pairs:
         pa, wa, sig_a, r_a, rel_a, per_a, period_a = _fields(a)
         pb, wb, sig_b, r_b, rel_b, per_b, period_b = _fields(b)
@@ -863,6 +897,7 @@ def _compute_pair_results_with_dedup(
             key_a,
             key_b,
             (sig_b, r_b, rel_b, per_b, period_b),
+            _declared(a), _declared(b),
         )
         if pk not in pair_key_to_idx:
             pair_key_to_idx[pk] = len(unique_pair_list)
@@ -895,7 +930,6 @@ def _compute_pair_results_with_dedup(
             a_w, b_w,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=False,
@@ -907,7 +941,6 @@ def _compute_pair_results_with_dedup(
                 a_s, b_s,
                 method=method,
                 normalize=normalize,
-                cancellation_threshold=cancellation_threshold,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=False,
@@ -928,7 +961,6 @@ def _compute_pair_results_with_dedup(
             a, b,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=False,
@@ -943,7 +975,6 @@ def _compute_pair_results_with_dedup(
 
 def _compute_pair_results_no_dedup(
     pairs, *, method: str, normalize: str = "cosine",
-    cancellation_threshold: float,
     truncation_sigmas=None, kernel_precision=None, verbose: bool,
 ):
     """Compute cos_sim for a list of pairs without dedup.
@@ -960,7 +991,6 @@ def _compute_pair_results_no_dedup(
             a, b,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=False,
@@ -973,7 +1003,6 @@ def _cos_sim_pair_core(
     dens_x, dens_y, *,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool,
@@ -981,8 +1010,8 @@ def _cos_sim_pair_core(
     """Internal: dispatch a single pair to the correct core IP routine.
 
     Routes to :func:`_cos_sim_exp_tens_ma`, threading ``method``,
-    ``normalize``, ``cancellation_threshold``,
-    ``truncation_sigmas`` and ``kernel_precision`` through; that routine
+    ``normalize``, ``truncation_sigmas`` and ``kernel_precision``
+    through; that routine
     handles both the single-multiset and multi-attribute cases.
     ``WindowedMaetDensity`` operands are rejected here; user code
     reaches the windowed inner product via :func:`windowed_tensor_similarity`.
@@ -1015,7 +1044,6 @@ def _cos_sim_pair_core(
             dens_x, dens_y,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -1034,7 +1062,6 @@ def _cos_sim_density_path(
     dedup: bool = True,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -1049,7 +1076,6 @@ def _cos_sim_density_path(
             list_x[0], list_y[0],
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -1112,7 +1138,6 @@ def _cos_sim_density_path(
             pairs,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -1127,7 +1152,6 @@ def _cos_sim_density_path(
             pairs,
             method=method,
             normalize=normalize,
-            cancellation_threshold=cancellation_threshold,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
             verbose=verbose,
@@ -1144,7 +1168,6 @@ def _cos_sim_raw_single_multiset_scalar(
     spectrum=None,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -1181,7 +1204,6 @@ def _cos_sim_raw_single_multiset_scalar(
         dx, dy,
         method=method,
         normalize=normalize,
-        cancellation_threshold=cancellation_threshold,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,
@@ -1195,7 +1217,6 @@ def _cos_sim_raw_ma_scalar(
     *,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -1213,7 +1234,6 @@ def _cos_sim_raw_ma_scalar(
         dx, dy,
         method=method,
         normalize=normalize,
-        cancellation_threshold=cancellation_threshold,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,
@@ -1228,7 +1248,6 @@ def _cos_sim_raw_ma_broadcast(
     b_is_list: bool,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -1239,6 +1258,24 @@ def _cos_sim_raw_ma_broadcast(
     blocks (cell-of-cells). The scalar operand is built once and reused
     against every list entry. Weights for the list operand are shared
     across all entries (one ``w`` value, not a list of weights).
+
+    Route order on this form:
+
+    1. **Python only.** A list tagged by
+       :func:`~mpt.translate_attributes` (a
+       :class:`~mpt._tensor.preprocessing.TranslatedSweep`) is reduced to
+       one mixture in the offset through :func:`sweep_cos_sim_exp_tens`
+       when ``method='auto'`` and the sweep is eligible. The MATLAB
+       toolbox has no tagged-sweep type, so this reduction has no twin
+       there; an untagged list never reaches it.
+    2. The all-``r = 1`` broadcast fast path (:func:`_r1_broadcast_fast`),
+       when ``method in ('auto', 'bulger')`` and every density is a flat
+       ``MaetDensity`` of identical geometry with every ``r_a = 1``. This
+       is the twin of MATLAB's ``localR1BroadcastFast`` on the same form,
+       gated identically, so an untagged raw-MA list takes the same route
+       in both languages.
+    3. Otherwise the per-entry loop through :func:`_cos_sim_pair_core`
+       with the caller's ``method`` and widths.
 
     Returns a 1-D ``ndarray`` of length M, the list length.
     """
@@ -1284,18 +1321,44 @@ def _cos_sim_raw_ma_broadcast(
         return fast
 
     M = len(list_pAttr)
-    out = np.empty(M, dtype=np.float64)
-    for m in range(M):
-        dens_m = build_exp_tens(
+    dens_list = [
+        build_exp_tens(
             list_pAttr[m], list_w, sigma_vec, r_vec,
             is_rel_vec, is_per_vec, period_vec, is_sym_vec, verbose=False,
         )
+        for m in range(M)
+    ]
+
+    # Batched all-r = 1 broadcast (twin of MATLAB's localR1BroadcastFast
+    # on this form): one shared operand against many queries of
+    # identical geometry evaluates every cross term in a single kernel
+    # pass, with per-segment truncation thresholds so each pair's
+    # threshold equals its per-pair value. Gated on the same methods as
+    # the density-list form; a forced 'mobius'/'centres'/'contract'
+    # names a route through the per-pair core and is honoured there.
+    # Returns None whenever any structural condition fails, and the
+    # per-entry loop below then runs unchanged.
+    if M > 0 and method in ("auto", "bulger"):
+        pairs = ([(dens_scalar, d) for d in dens_list] if scalar_first
+                 else [(d, dens_scalar) for d in dens_list])
+        fast = _r1_broadcast_fast(
+            pairs,
+            shared_is_x=scalar_first,
+            normalize=normalize,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
+        )
+        if fast is not None:
+            return np.asarray(fast, dtype=np.float64).reshape(M)
+
+    out = np.empty(M, dtype=np.float64)
+    for m in range(M):
+        dens_m = dens_list[m]
         if scalar_first:
             out[m] = _cos_sim_pair_core(
                 dens_scalar, dens_m,
                 method=method,
                 normalize=normalize,
-                cancellation_threshold=cancellation_threshold,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=False,
@@ -1305,7 +1368,6 @@ def _cos_sim_raw_ma_broadcast(
                 dens_m, dens_scalar,
                 method=method,
                 normalize=normalize,
-                cancellation_threshold=cancellation_threshold,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
                 verbose=False,
@@ -1387,13 +1449,151 @@ contraction work."""
 
 
 
+def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
+    """The flat selector's inputs for a cosine between two pruned densities.
+
+    Returns ``(kwargs, ordered_any, nested_any)``: the keyword arguments
+    :func:`~mpt._tensor.dispatch._select_ma_inner_product_method` is
+    called with (everything but ``user_method``), whether any attribute
+    on either side is ordered at ``r > 1`` --- which overrides the
+    selector's choice with Bulger's method --- and whether either density
+    is nested. One function builds these for the real call and for
+    :func:`~mpt._tensor.explain.explain_dispatch`, so the report cannot
+    drift from the route the call takes (the report used to omit the
+    wrap vector, the grid node counts, and the memo flags, and so named
+    the wrong route wherever those decided).
+    """
+    A = dens_x.n_attrs
+    r_vec = dens_x.r
+    is_rel = dens_x.is_rel
+    is_per = dens_x.is_per
+    sigma = dens_x.sigma
+    period = dens_x.period
+
+    # Maximum σ/P across attributes that are both relative AND periodic.
+    sop_max = 0.0
+    any_per = False
+    any_rel_nonper = False
+    any_rel_per = False
+    for a in range(A):
+        if bool(is_per[a]):
+            any_per = True
+        if bool(is_rel[a]):
+            if bool(is_per[a]):
+                any_rel_per = True
+                if float(period[a]) > 0:
+                    sop_max = max(
+                        sop_max,
+                        float(sigma[a]) / float(period[a]),
+                    )
+            else:
+                any_rel_nonper = True
+
+    # Per-attribute slab dimension K_a (the kernel slab size; events
+    # within an attribute may have lower K_eff via NaN padding, which
+    # the Möbius per-attribute matrix carries as zero-weight padding).
+    # One vector per density: the two need not carry the same number of
+    # values in an attribute, and a chord against a scale, or a reference
+    # tuning against an equal division, is the ordinary case.
+    k_vec = np.array(
+        [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
+    ) if A > 0 else np.zeros(0, dtype=np.intp)
+    k_vec_y = np.array(
+        [int(M.shape[0]) for M in dens_y.p_attr], dtype=np.intp,
+    ) if A > 0 else np.zeros(0, dtype=np.intp)
+
+    # Per-attribute vectors for the Möbius-side cost model: which
+    # attributes are relative, and each one's translation-grid node
+    # estimate (matching the grid rules of the batched rel helper; 1
+    # for absolute attributes, where no grid exists).
+    from ._nested_contraction import auto_ntau_default
+    from .._defaults import resolve_truncation_sigmas as _resolve_ts
+    # The per-call truncation width sizes the grids the routes are priced
+    # on, as it sizes the kernels they run: pricing at the global default
+    # while truncating at the per-call width would race the routes on a
+    # grid neither of them uses (MATLAB: cosSimExpTens nuVecSel).
+    _ts_sel = _resolve_ts(truncation_sigmas)
+    rel_vec = np.array([bool(is_rel[a]) for a in range(A)], dtype=bool)
+    nu_vec = np.ones(max(A, 1))[:A]
+    for a in range(A):
+        if not rel_vec[a] or int(r_vec[a]) < 2:
+            continue
+        if bool(is_per[a]):
+            nu_vec[a] = auto_ntau_default(
+                float(period[a]), float(sigma[a]), _ts_sel)
+        else:
+            Pxa = dens_x.p_attr[a]
+            Pya = dens_y.p_attr[a]
+            _margin = _rel_window_margin(_ts_sel)
+            span = (float(np.nanmax(Pxa) - np.nanmin(Pxa))
+                    + float(np.nanmax(Pya) - np.nanmin(Pya))
+                    + 2.0 * _margin * float(sigma[a]))
+            nu_vec[a] = max(
+                64,
+                int(np.ceil(max(span, 1.0) / float(sigma[a]) * 10.0)),
+            )
+
+    # Nested densities route through the hierarchical contraction
+    # (_try_nested_contract), not the flat Bulger pairwise path, so the
+    # flat forced-Bulger feasibility guard must not fire for them. Detect
+    # nesting before the selector runs.
+    nested_x = getattr(dens_x, "nested", None)
+    nested_y = getattr(dens_y, "nested", None)
+    nested_any = (
+        (nested_x is not None and any(s is not None for s in nested_x))
+        or (nested_y is not None and any(s is not None for s in nested_y))
+    )
+
+    # Rel-per wrap axis (v3+): the two densities must agree, because the
+    # wrap declares the measure and a cosine between two measures is not
+    # a cosine. A disagreement is an error rather than a silent reading
+    # of dens_x's declaration (MATLAB: mpt:wrapMismatch).
+    wrap_vec_x = [_declared_wrap(dens_x, dens_y, a) for a in range(A)]
+
+    # A self inner product costs nothing at call time when it is
+    # memoised on its density, or (for <X,X>) when the requested
+    # normalisation does not consume it; tell the selector so its
+    # pricing reflects the work this call will actually perform. The
+    # flags are *shared* by the two routes' prices --- see
+    # :func:`_self_ip_memoised` for why a per-route flag makes the
+    # comparison unfair, and :func:`_self_ip_cache_key` for why the
+    # memoised values themselves stay per route.
+    need_xx = (normalize == "cosine")
+    skip_xx = (not need_xx) or _self_ip_memoised(dens_x)
+    skip_yy = _self_ip_memoised(dens_y)
+
+    # Ordered ([sym]=0) attributes at r_a > 1 on either side.
+    is_sym_x = np.asarray(getattr(dens_x, "is_sym", np.ones(A, dtype=bool)))
+    is_sym_y = np.asarray(getattr(dens_y, "is_sym", np.ones(A, dtype=bool)))
+    ordered_any = bool(
+        np.any((~is_sym_x) & (r_vec > 1))
+        or np.any((~is_sym_y) & (r_vec > 1))
+    )
+
+    kwargs = dict(
+        r_vec=r_vec, k_vec=k_vec, k_vec_y=k_vec_y, A=A,
+        N_x=int(dens_x.n), N_y=int(dens_y.n),
+        any_per=any_per,
+        any_rel_nonper=any_rel_nonper,
+        any_rel_per=any_rel_per,
+        sigma_over_P_max=sop_max,
+        rel_vec=rel_vec, nu_vec=nu_vec,
+        guard_forced_bulger=not nested_any,
+        wrap_vec=wrap_vec_x,
+        per_vec=[bool(is_per[a]) for a in range(A)],
+        sym_vec=getattr(dens_x, "is_sym", None),
+        truncation_sigmas=truncation_sigmas,
+        skip_xx=skip_xx, skip_yy=skip_yy,
+    )
+    return kwargs, ordered_any, nested_any
+
+
 def _cos_sim_exp_tens_ma(
     dens_x: MaetDensity,
     dens_y: MaetDensity,
     *,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas=None,
     kernel_precision=None,
     verbose: bool = True,
@@ -1402,13 +1602,14 @@ def _cos_sim_exp_tens_ma(
 
     A ``method`` keyword routes between Bulger's method
     — the v1 / v2.1 decomposition with periodic pairwise-wrap form
-    (``_ip_core_ma``) — and the Möbius method.
-    With the default ``method='auto'`` and perceptually typical
-    parameters (no NaN-padded ``p_attr``, r_a ≤
-    ``_ORBIT_R_MAX_SHIPPED``, σ/P within
-    :func:`_orbit_sigma_over_p_threshold`
-    for periodic-relative groups), the Möbius method is selected and
-    the result agrees with v2.1 to floating-point precision.
+    (``_ip_core_ma``) — and the Möbius method. With the default
+    ``method='auto'`` the flat selector
+    (:func:`~mpt._tensor.dispatch._select_ma_inner_product_method`)
+    decides: structural rules first (tuple order, feasibility, the
+    working-set guard, the rel-per wrap rule above
+    :func:`_orbit_sigma_over_p_threshold`), then the cost race. Where
+    both methods are admissible they agree to within the truncation
+    floor.
 
     Both densities must share the full parameter structure: number of
     attributes, group assignment, per-attribute ``r``, and per-group
@@ -1448,167 +1649,24 @@ def _cos_sim_exp_tens_ma(
             "Both MaetDensities must have the same period for periodic attributes."
         )
 
-    if method not in ("auto", "bulger", "centres", "mobius", "contract",
-                      "factored"):
+    if method not in ("auto", "bulger", "centres", "mobius", "contract"):
         raise ValueError(
             f"method must be one of 'auto', 'bulger', 'centres', 'mobius', "
-            f"'contract', 'factored'; got {method!r}."
+            f"'contract'; got {method!r}."
         )
-
-    # Explicit factored-cull route: computes the triple through the
-    # per-attribute / per-event-pair factorisation without materialising
-    # the joint tuple set. Covers every mode except relative-periodic
-    # (minimum-image), whose per-position factor the culled helper cannot take.
-    if method == "factored":
-        if not _ma_factored_ip_supported(dens_x, dens_y):
-            raise ValueError(
-                "method='factored' does not support relative-and-periodic "
-                "attributes under the minimum-image convention; use 'auto', "
-                "'bulger', or 'mobius'."
-            )
-        from .._defaults import _maybe_show_dispatch_msg
-        _maybe_show_dispatch_msg("cos_sim_exp_tens", "factored", "user")
-        ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_factored(
-            dens_x, dens_y, verbose=verbose,
-            truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision,
-        )
-        return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
 
     # --- Dispatcher ---
-    A = dens_x.n_attrs
-    r_vec = dens_x.r
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
-    sigma = dens_x.sigma
-    period = dens_x.period
-
-    # Maximum σ/P across attributes that are both relative AND periodic.
-    sop_max = 0.0
-    any_per = False
-    any_rel_nonper = False
-    any_rel_per = False
-    for a in range(A):
-        if bool(is_per[a]):
-            any_per = True
-        if bool(is_rel[a]):
-            if bool(is_per[a]):
-                any_rel_per = True
-                if float(period[a]) > 0:
-                    sop_max = max(
-                        sop_max,
-                        float(sigma[a]) / float(period[a]),
-                    )
-            else:
-                any_rel_nonper = True
-
-    # Per-attribute slab dimension K_a (the kernel slab size; events
-    # within an attribute may have lower K_eff via NaN padding, which
-    # the Möbius-method wrapper handles via per-event safe/unsafe partition).
-    # One vector per density: the two need not carry the same number of
-    # values in an attribute, and a chord against a scale, or a reference
-    # tuning against an equal division, is the ordinary case.
-    k_vec = np.array(
-        [int(M.shape[0]) for M in dens_x.p_attr], dtype=np.intp,
-    ) if A > 0 else np.zeros(0, dtype=np.intp)
-    k_vec_y = np.array(
-        [int(M.shape[0]) for M in dens_y.p_attr], dtype=np.intp,
-    ) if A > 0 else np.zeros(0, dtype=np.intp)
-
-    # Per-attribute vectors for the Möbius-side cost model: which
-    # attributes are relative, and each one's translation-grid node
-    # estimate (matching the grid rules of the batched rel helper; 1
-    # for absolute attributes, where no grid exists).
-    from ._nested_contraction import auto_ntau_default
-    rel_vec = np.array([bool(is_rel[a]) for a in range(A)], dtype=bool)
-    nu_vec = np.ones(max(A, 1))[:A]
-    for a in range(A):
-        if not rel_vec[a] or int(r_vec[a]) < 2:
-            continue
-        if bool(is_per[a]):
-            nu_vec[a] = auto_ntau_default(
-                float(period[a]), float(sigma[a]))
-        else:
-            Pxa = dens_x.p_attr[a]
-            Pya = dens_y.p_attr[a]
-            from .._defaults import get_default as _gd
-            _margin = _rel_window_margin(_gd('truncation_sigmas'))
-            span = (float(np.nanmax(Pxa) - np.nanmin(Pxa))
-                    + float(np.nanmax(Pya) - np.nanmin(Pya))
-                    + 2.0 * _margin * float(sigma[a]))
-            nu_vec[a] = max(
-                64,
-                int(np.ceil(max(span, 1.0) / float(sigma[a]) * 10.0)),
-            )
-
-    # Nested densities route through the hierarchical contraction
-    # (_try_nested_contract), not the flat Bulger pairwise path, so the
-    # flat forced-Bulger feasibility guard must not fire for them. Detect
-    # nesting before the selector runs.
-    nested_x = getattr(dens_x, "nested", None)
-    nested_y = getattr(dens_y, "nested", None)
-    nested_any = (
-        (nested_x is not None and any(s is not None for s in nested_x))
-        or (nested_y is not None and any(s is not None for s in nested_y))
-    )
-
-    # Rel-per wrap axis (v3+): prefer both densities' wrap agree; use
-    # dens_x's as authoritative if they differ, so downstream routing is
-    # deterministic. Non-periodic and abs-per attributes are unaffected
-    # (their wrap axis has no meaning here).
-    wrap_vec_x = list(getattr(dens_x, 'wrap', ['full-image'] * A))
-
-    # A self inner product costs nothing at call time when it is
-    # memoised on its density, or (for <X,X>) when the requested
-    # normalisation does not consume it; tell the selector so its
-    # pricing reflects the work this call will actually perform. The
-    # flags are per route because the two routes' memoised values live
-    # under different keys. The Möbius key includes per-attribute
-    # closed-form-vs-grid choices that are not known before routing, so
-    # any existing Möbius-route entry is treated as a hit — an
-    # approximation that can only misfire when a new partner flips a
-    # per-attribute choice, and then only by under-pricing the Möbius
-    # side of a near-crossover call.
+    sel_kw, ordered_any, nested_any = _flat_selector_inputs(
+        dens_x, dens_y, normalize=normalize,
+        truncation_sigmas=truncation_sigmas)
+    chosen = _select_ma_inner_product_method(user_method=method, **sel_kw)
     need_xx = (normalize == "cosine")
-    _b_key = _self_ip_cache_key("bulger", truncation_sigmas,
-                                kernel_precision)
-    _has_mobius = lambda d: any(
-        isinstance(k, tuple) and len(k) > 0 and k[0] == "mobius"
-        for k in d._self_ip_cache
-    )
-    pw_skip_xx = (not need_xx) or (_b_key in dens_x._self_ip_cache)
-    pw_skip_yy = _b_key in dens_y._self_ip_cache
-    orbit_skip_xx = (not need_xx) or _has_mobius(dens_x)
-    orbit_skip_yy = _has_mobius(dens_y)
-
-    chosen = _select_ma_inner_product_method(
-        r_vec=r_vec, k_vec=k_vec, k_vec_y=k_vec_y, A=A,
-        N_x=int(dens_x.n), N_y=int(dens_y.n),
-        any_per=any_per,
-        any_rel_nonper=any_rel_nonper,
-        any_rel_per=any_rel_per,
-        sigma_over_P_max=sop_max,
-        user_method=method,
-        rel_vec=rel_vec, nu_vec=nu_vec,
-        guard_forced_bulger=not nested_any,
-        wrap_vec=wrap_vec_x,
-        sym_vec=getattr(dens_x, "is_sym", None),
-        truncation_sigmas=truncation_sigmas,
-        pw_skip_xx=pw_skip_xx, pw_skip_yy=pw_skip_yy,
-        orbit_skip_xx=orbit_skip_xx, orbit_skip_yy=orbit_skip_yy,
-    )
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
     # (Möbius) per-attribute inner product does not represent them. Force
     # the pairwise/centres path whenever any attribute is ordered at
     # r_a > 1 (r_a = 1 is vacuous). The centres path reads the actual
     # stored per-attribute centres and is correct for either reading.
-    is_sym_x = np.asarray(getattr(dens_x, "is_sym", np.ones(A, dtype=bool)))
-    is_sym_y = np.asarray(getattr(dens_y, "is_sym", np.ones(A, dtype=bool)))
-    ordered_any = (
-        np.any((~is_sym_x) & (r_vec > 1))
-        or np.any((~is_sym_y) & (r_vec > 1))
-    )
     if ordered_any:
         chosen = "bulger"
     # Nested attributes are not handled by the flat orbit/Möbius entry
@@ -1625,14 +1683,36 @@ def _cos_sim_exp_tens_ma(
             "'auto' or 'bulger' for non-nested densities."
         )
     if nested_any:
-        if method in ("auto", "contract"):
+        # ``method`` semantics on a nested density:
+        #   'bulger'   -- the joint-tuple enumeration, as for a flat density.
+        #   'contract' -- the nested contraction plan, forced: an uncovered
+        #                 case raises rather than falling back.
+        #   'mobius'   -- the same plan. The per-level orbit (Möbius)
+        #                 reduction *is* what the contraction applies at every
+        #                 symmetric level, so on a nested density 'mobius' and
+        #                 'contract' name one route; there is no separate flat
+        #                 orbit entry point to ask for (the flat one would have
+        #                 to re-enumerate the levels into a single value set,
+        #                 which the block-diagonal inner metric forbids).
+        #   'centres'  -- the plan with the materialised-centres route forced
+        #                 for every nested attribute; raises where that route
+        #                 cannot carry the attribute's declared measure.
+        # 'centres' and 'mobius' formerly fell through to 'bulger', so the
+        # method name described something other than what ran.
+        if method in ("auto", "contract", "mobius", "centres"):
             triple = _try_nested_contract(
                 dens_x, dens_y, normalize=normalize, verbose=verbose,
-                force=(method == "contract"))
+                force=(method != "auto"), method_name=method,
+                force_route=("centres" if method == "centres" else None),
+                truncation_sigmas=truncation_sigmas)
             if triple is not None:
+                from .._defaults import _maybe_show_dispatch_msg as _msg
+                _msg("cos_sim_exp_tens", "contract",
+                     "nested: " + ",".join(_LAST_NESTED_ROUTES))
                 return _finalise_normalisation(*triple, normalize)
-            # When forced, _try_nested_contract raises on any uncovered case,
-            # so a None here means method == "auto" chose the centres path.
+            # A None here means method == 'auto' and the case is not covered
+            # by the contraction (the forced methods raise instead), so the
+            # joint-tuple enumeration takes it.
         chosen = "bulger"
 
     # Dispatch-decision message: announce which inner-product path ran,
@@ -2120,26 +2200,16 @@ def _ma_log_kernel(
 #  N² · A · |Ω_{r_a}| · K_a², a substantial saving when K_a is
 #  non-trivial.
 #
-#  Limitations of the Möbius method:
-#  - NaN-padded ``p_attr`` (variable K_a per event) is not yet
-#    supported by the per-event Möbius loop; dispatcher detects and
-#    falls back to Bulger's method.
-#  - Per-attribute r_a > _ORBIT_R_MAX_SHIPPED falls back (no orbit
-#    table shipped at that order).
+#  NaN-padded ``p_attr`` (variable K_a per event) is handled inside
+#  ``_ma_per_attr_inner_matrix`` by zero-weight padding, which makes
+#  every orbit term containing a padded value vanish; the selector does
+#  not route on it. Per-attribute r_a > _ORBIT_R_MAX_SHIPPED falls back
+#  to Bulger's method (no orbit table shipped at that order).
 #
 #  Per-attribute Möbius calls apply the single-multiset convention's
 #  (σ_a √π)^{r_a} prefactor, so the Möbius-method MA bare triple
 #  (ip_xy, ip_xx, ip_yy) differs from Bulger's MA triple by
 #  Π_a (σ_a √π)^{r_a} · r_a! — which cancels in the cosine.
-
-
-def _ma_has_nan(dens):
-    """True if any p_attr matrix has NaN entries (variable K_a per event)."""
-    return any(np.isnan(M).any() for M in dens.p_attr)
-
-
-
-
 
 
 def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
@@ -2251,9 +2321,9 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
     individual Möbius cells, but the cosine consumes only the
     sums Σ_{n,m} P[n,m], where individual entries with bad ratios
     contribute negligibly when their absolute value is small. Removed
-    in favour of relying on the cross-cancellation guard
-    and the post-hoc impossible-value check (see
-    ``_impossible_value_reason``) at the dispatcher level.
+    in favour of the post-hoc impossible-value check (see
+    ``_impossible_value_reason``) at the dispatcher level; accuracy
+    short of impossibility is governed by ``truncation_sigmas``.
     """
     A = dens_x.n_attrs
     N_x = dens_x.n
@@ -2354,75 +2424,83 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
     return ip_xy, ip_xx, ip_yy
 
 
+def _declared_wrap(dens_x, dens_y, a):
+    """The wrap the two densities declare on attribute ``a``.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _attr_value_range(dens_x, dens_y, a):
-    """(vmin, vmax) over both densities' values for attribute ``a``,
-    ignoring NaN padding -- the span the relative-non-periodic translation grid
-    must cover."""
-    px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
-    py = np.asarray(dens_y.p_attr[a], dtype=np.float64)
-    return float(min(np.nanmin(px), np.nanmin(py))), \
-        float(max(np.nanmax(px), np.nanmax(py)))
-
-
-def _rel_contract_cheaper(spec_x, spec_y, sigma, period, is_per, vmin, vmax):
-    """True when a relative attribute's per-level contraction is cheaper than
-    its materialised-centres path.
-
-    The relative kernel couples all positions within a tuple, so the centres path
-    must materialise every tuple -- including each symmetric level's full orbit,
-    and every selection at an ``r = 1`` level compounded across the ordered
-    positions above it (the spectral-cell case: one partial per note across the
-    cell). The contraction sidesteps this: each transposition/translation node
-    is a one-body product, so a symmetric level reduces by the orbit (Möbius)
-    and an ``r = 1`` level by an einsum, never materialising the tuple set. This
-    compares the costs directly -- materialised pairwise tuples (centres)
-    against quadrature nodes times per-level contraction work -- using the
-    analytic :func:`tuple_counts` and :func:`recipe_work`, deterministic in both
-    languages.
-
-    For relative-non-periodic the two routes compute the same measure (the
-    translation grid converges to the analytic relative quadratic), so this is a
-    pure speed choice. For relative-periodic the contraction is the all-image
-    tau-grid, a different measure from the minimum-image centres path (they
-    coincide for sigma << period); the caller documents that switch.
+    The wrap declares a measure, and the measure of an inner product must
+    be one thing, so the two densities must agree wherever the wrap is
+    read --- on a periodic attribute. A disagreement there raises rather
+    than being resolved in favour of ``dens_x``, which made the result
+    depend on operand order. On a non-periodic attribute the wrap axis has
+    no meaning and is not compared. Twin of the MATLAB ``wrapPair``
+    helpers (``mpt:wrapMismatch``).
     """
-    from ._nested_contraction import (
-        tuple_counts, build_recipe, recipe_work, quad_nodes)
-    from .._defaults import get_default
-    r_levels = np.asarray(spec_x["r"]).ravel()
-    sym_levels = np.asarray(spec_x["sym"]).ravel()
-    tags_x = np.asarray(spec_x["tags"])
-    tags_y = np.asarray(spec_y["tags"])
-    m_perm_x = float(tuple_counts(r_levels, sym_levels, tags_x)[0])
-    m_perm_y = float(tuple_counts(r_levels, sym_levels, tags_y)[0])
-    centres_cost = m_perm_x * m_perm_y
-    ts = get_default("truncation_sigmas")
-    n_tau = quad_nodes(True, is_per, sigma, period, vmin, vmax, ts)
-    rx = build_recipe(r_levels, sym_levels, tags_x, True, is_per)
-    same = (tags_x.shape == tags_y.shape
-            and bool(np.array_equal(tags_x, tags_y)))
-    ry = rx if same else build_recipe(r_levels, sym_levels, tags_y, True,
-                                      is_per)
-    contract_cost = float(n_tau) * float(max(recipe_work(rx), recipe_work(ry)))
-    return contract_cost < centres_cost
+    def _wrap_of(d):
+        w = getattr(d, 'wrap', None)
+        return (str(w[a]) if w is not None and a < len(w) else 'full-image')
+    wx, wy = _wrap_of(dens_x), _wrap_of(dens_y)
+    if wx != wy and bool(dens_x.is_per[a]):
+        raise ValueError(
+            f"wrap mismatch on attribute {a}: dens_x declares {wx!r} and "
+            f"dens_y declares {wy!r}. The wrap declares the measure, so "
+            f"the two densities must declare the same wrap on every "
+            f"periodic attribute."
+        )
+    return wx
 
 
-def _nested_attr_plan(dens_x, dens_y, a):
+def _nested_admissible_routes(dens_x, dens_y, a, ts=None):
+    """The routes for nested attribute ``a`` that carry its declared measure.
+
+    This is the measure rule and nothing else: it says which routes are on
+    offer, never which is taken. :func:`_nested_attr_route` applies
+    ``force_route`` and, where more than one route survives, the cost model of
+    :mod:`~mpt._tensor._nested_cost` picks among them.
+
+    An absolute attribute reports ``['contract']`` alone. The materialised
+    centres carry the absolute measure too (both routes read the attribute's
+    declared ``wrap``), but ``auto`` has always kept absolute attributes on
+    the contraction and still does; ``method='centres'`` reaches the centres
+    route there through ``force_route``.
+
+    A relative-periodic attribute is governed by ``wrap`` and by the
+    sigma/period threshold together, and the rule is symmetric in the two
+    declarations, exactly as on the flat path:
+
+    * above the threshold the two readings differ by more than the truncation
+      floor, so only the route that computes the declared one is admissible
+      --- the tau-grid under ``wrap='full-image'``, the centres under
+      ``wrap='single-image'``;
+    * below it they agree inside the floor, so **both** routes are admissible
+      under **either** declaration and the price decides. This is what
+      :func:`~mpt._tensor.dispatch._select_ma_inner_product_method` does with
+      Bulger's method and the Möbius method: its ``wrap`` override is reached
+      only above the threshold, and below it the two are raced whatever
+      ``wrap`` says.
+
+    ``ts`` is the resolved per-call truncation width (``None`` resolves
+    the default); the threshold is a function of it.
+    """
+    is_rel = bool(dens_x.is_rel[a])
+    is_per = bool(dens_x.is_per[a])
+    if not is_rel:
+        return ["contract"]
+    if not is_per:
+        return ["centres", "contract_relnonper"]
+    from .dispatch import _orbit_sigma_over_p_threshold
+    from .._defaults import resolve_truncation_sigmas
+    wrap_a = _declared_wrap(dens_x, dens_y, a)
+    sigma = float(dens_x.sigma[a])
+    period = float(dens_x.period[a])
+    limit = _orbit_sigma_over_p_threshold(resolve_truncation_sigmas(ts))
+    if period > 0.0 and sigma / period > limit:
+        # Beyond the floor the declared measure has exactly one carrier.
+        return ["centres"] if wrap_a == 'single-image' else ["taugrid"]
+    return ["centres", "taugrid"]
+
+
+def _nested_attr_plan(dens_x, dens_y, a, force_route=None,
+                      skip_xx=False, skip_yy=False, ts=None):
     """Route plus the *shared* quadrature grid for a nested attribute, decided
     once from the (x, y) pair.
 
@@ -2431,32 +2509,37 @@ def _nested_attr_plan(dens_x, dens_y, a):
     value-dependent, so a per-call grid would discretise the three inner
     products differently and the ratio would drift off 1 (breaking, e.g.,
     transposition invariance). One grid spanning both densities is used for all
-    three. See :func:`_nested_attr_route` for the route meanings.
+    three. See :func:`_nested_attr_route` for the route meanings and for what
+    ``force_route`` may ask for.
+
+    ``skip_xx`` / ``skip_yy`` are passed to the cost model so a memoised (or
+    unconsumed) self inner product is not priced, mirroring the flat
+    selector's per-route skip flags. ``ts`` is the resolved per-call
+    truncation width (``None`` resolves the default); it sets the
+    quadrature tolerance and the tau-grid node count.
     """
-    route = _nested_attr_route(dens_x, dens_y, a)
+    from .._defaults import resolve_truncation_sigmas, truncation_floor
+    ts = resolve_truncation_sigmas(ts)
+    route = _nested_attr_route(dens_x, dens_y, a, force_route=force_route,
+                               skip_xx=skip_xx, skip_yy=skip_yy, ts=ts)
     if route in ("centres", "contract"):
         return route, None
     from ._nested_contraction import (auto_ntau_default, auto_taus_line)
-    from .._defaults import get_default, truncation_floor
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
     # Same kernel-value floor as every other truncation path
     # (:func:`truncation_floor` resolves None -> default; inf ->
     # accuracy-floor width; ``accuracy_floor_context`` honoured).
-    tol = truncation_floor(get_default("truncation_sigmas"))
+    tol = truncation_floor(ts)
     if route == "taugrid":
-        # The taugrid route computes (C) full-image via the tau-average
-        # of the wrapped Gaussian (v3+). If the user has opted this
-        # attribute into ``wrap='single-image'`` the centres route
-        # (which gives (A)) is used instead.
-        wrap = getattr(dens_x, 'wrap', None)
-        wrap_a = (str(wrap[a]) if wrap is not None and a < len(wrap)
-                  else 'full-image')
-        if wrap_a == 'single-image':
-            return "centres", None
+        # The taugrid route computes (C) full-image via the tau-average of the
+        # wrapped Gaussian (v3+). The ``wrap='single-image'`` opt-in, which
+        # asks for (A) instead, is honoured in :func:`_nested_attr_route`, so
+        # by here the declared measure is full-image.
         # Period-only grid; node count from the shared helper so the flat and
         # nested all-image grids coincide exactly.
-        return route, np.linspace(0.0, period, auto_ntau_default(period, sigma),
+        return route, np.linspace(0.0, period,
+                                  auto_ntau_default(period, sigma, ts),
                                   endpoint=False)
     # contract_relnonper: one line grid spanning both densities' values.
     px = np.asarray(dens_x.p_attr[a], dtype=np.float64)
@@ -2466,7 +2549,90 @@ def _nested_attr_plan(dens_x, dens_y, a):
     return route, auto_taus_line(allv, allv, sigma, tol)
 
 
-def _nested_attr_route(dens_x, dens_y, a):
+#: Per-attribute nested routes taken by the most recent nested-contraction
+#: call, in attribute order (``'-'`` for an attribute that took neither a
+#: nested nor an ordered-flat route). Diagnostic only: it feeds the
+#: dispatch-decision message's routing reason and gives the tests a way to
+#: assert which route ran without timing it. Nothing routes on it.
+_LAST_NESTED_ROUTES: list = []
+
+#: Prices behind the most recent nested plan-versus-enumeration decision:
+#: ``chosen``, ``plan_ms``, ``enum_ms`` and the per-attribute ``detail`` of
+#: :func:`~mpt._tensor._nested_cost.select_nested_method`. Diagnostic only,
+#: like ``_LAST_NESTED_ROUTES``; :func:`~mpt._tensor.explain.explain_dispatch`
+#: reports the same quantities by re-running the model rather than by reading
+#: this.
+_LAST_NESTED_COSTS: dict = {}
+
+
+def _nested_self_ip_skip_flags(dens_x, dens_y, normalize):
+    """``(skip_xx, skip_yy)`` for the nested cost model.
+
+    A self inner product that is already memoised on its density, or that the
+    requested normalisation does not consume, costs nothing at call time and
+    must not be priced. As on the flat path the flags are shared by the two
+    sides of the comparison --- the contraction plan and the joint-tuple
+    enumeration --- rather than read off each side's own memo; see
+    :func:`_self_ip_memoised` for why an asymmetric flag locks the first
+    winner in, and what the shared flag trades for that.
+    """
+    need_xx = (normalize == "cosine")
+    return (((not need_xx) or _self_ip_memoised(dens_x)),
+            _self_ip_memoised(dens_y))
+
+
+def _nested_enumeration_admissible(dens_x, dens_y, ts=None):
+    """True when the joint-tuple enumeration carries the declared measure.
+
+    The enumeration evaluates the minimum-image wrapped-difference kernel on a
+    relative-periodic attribute --- measure (A). It may therefore serve a
+    ``wrap='full-image'`` attribute only below the sigma/period threshold,
+    where the two readings agree inside the truncation floor, and serves a
+    ``wrap='single-image'`` attribute at any sigma/period. This is the rule
+    :func:`~mpt._tensor.dispatch._select_ma_inner_product_method` applies to
+    Bulger's method on the flat path, read off both densities instead of
+    a wrap vector. ``ts`` is the resolved per-call truncation width
+    (``None`` resolves the default).
+    """
+    from .dispatch import _orbit_sigma_over_p_threshold
+    from .._defaults import resolve_truncation_sigmas
+    limit = _orbit_sigma_over_p_threshold(resolve_truncation_sigmas(ts))
+    for a in range(int(dens_x.n_attrs)):
+        if not (bool(dens_x.is_rel[a]) and bool(dens_x.is_per[a])):
+            continue
+        if _declared_wrap(dens_x, dens_y, a) == 'single-image':
+            continue
+        period = float(dens_x.period[a])
+        if period > 0.0 and float(dens_x.sigma[a]) / period > limit:
+            return False
+    return True
+
+
+def _nested_prefers_enumeration(dens_x, dens_y, routes_by_attr, *,
+                                skip_xx, skip_yy, ts=None):
+    """True when the enumeration is priced cheaper than the planned routes.
+
+    ``routes_by_attr`` maps each nested attribute to the route already chosen
+    for it by the measure rule and the per-attribute cost model, so the plan
+    is priced as what would actually run rather than re-raced here. The
+    comparison mirrors the flat selector's Bulger-versus-Möbius one and
+    records its prices in ``_LAST_NESTED_COSTS``.
+    """
+    from ._nested_cost import select_nested_method
+    chosen, plan_ms, enum_ms, detail = select_nested_method(
+        dens_x, dens_y,
+        admissible_by_attr={a: [rt] for a, rt in routes_by_attr.items()},
+        enumeration_ok=_nested_enumeration_admissible(dens_x, dens_y, ts),
+        skip_xx=skip_xx, skip_yy=skip_yy,
+        return_costs=True, truncation_sigmas=ts)
+    _LAST_NESTED_COSTS.clear()
+    _LAST_NESTED_COSTS.update(chosen=chosen, plan_ms=plan_ms,
+                              enum_ms=enum_ms, detail=detail)
+    return chosen == "bulger"
+
+
+def _nested_attr_route(dens_x, dens_y, a, force_route=None,
+                       skip_xx=False, skip_yy=False, ts=None):
     """Per-attribute route for a nested attribute, decided once so xy, xx and
     yy share a single measure.
 
@@ -2475,52 +2641,99 @@ def _nested_attr_route(dens_x, dens_y, a):
       contraction applies the orbit (Möbius) reduction at symmetric levels and
       enumeration at ordered ones, mirroring the flat per-attribute matrix and
       never materialising the tuple set.
-    - ``'centres'`` -- relative modes when the materialised-centres path is the
-      cheaper route; for relative-non-periodic this is its exact analytic
-      quadratic, for relative-periodic the minimum-image measure.
+    - ``'centres'`` -- relative modes on the materialised-centres path; for
+      relative-non-periodic its exact analytic quadratic, for relative-periodic
+      the minimum-image measure.
     - ``'contract_relnonper'`` -- relative-non-periodic when the translation-grid
       contraction is cheaper (large ``r = 1`` or symmetric levels, e.g. spectral
       cells). Same measure as the centres quadratic, to grid accuracy; a pure
       speed choice.
-    - ``'taugrid'`` -- relative-periodic when the all-image tau-grid contraction
-      is cheaper than the minimum-image centres path (see
-      :func:`_rel_contract_cheaper`). This is the one place the toolbox's
-      relative-periodic measure depends on the dispatch: it computes the
-      all-image transposition average rather than minimum-image (the two
-      coincide for sigma << period), accepted because no structurally cheap
-      minimum-image route exists once the centres materialisation dominates.
+    - ``'taugrid'`` -- relative-periodic on the all-image tau-grid contraction,
+      the transposition average over the period.
+
+    **The measure is declared by ``wrap``, not by the dispatch.** This mirrors
+    the rule the flat relative-periodic path already enforces in
+    :func:`~mpt._tensor.dispatch._select_ma_inner_product_method`:
+
+    - ``wrap='single-image'`` on a relative-periodic attribute declares the (A)
+      minimum-image measure; ``wrap='full-image'`` (the default) declares the
+      (C) all-image measure.
+    - Above ``sigma/period = _orbit_sigma_over_p_threshold(truncation_sigmas)``
+      the two readings differ by more than the truncation floor, so each
+      declaration has exactly one carrier and that route is taken whatever it
+      costs: the centres route under (A), the tau-grid under (C). A cheaper
+      route to a different number is not a cheaper route.
+    - At or below the threshold the two agree inside the floor, so both routes
+      serve either declaration and the price decides --- as on the flat path,
+      whose ``wrap`` override is likewise reached only above the threshold.
+
+    Only where both routes carry the declared measure does the cost model of
+    :mod:`~mpt._tensor._nested_cost` decide, by pricing each survivor in
+    milliseconds from its fitted law and diverting the materialising centres
+    route where its bundle exceeds
+    ``dispatch._CENTRES_WORKING_SET_SOFT_BUDGET``. That model prices in wall
+    time rather than by a raw operation count, because a kernel entry and a
+    unit of quadrature work do not cost the same. Relative-non-periodic
+    attributes offer only same-measure choices, so they stay cost-driven
+    throughout; absolute attributes stay on the contraction.
+
+    ``force_route`` names a route the caller has forced (``method='centres'``
+    forces ``'centres'``); it overrides the cost race but not the measure rule,
+    which raises instead of silently returning a different measure. ``ts``
+    is the resolved per-call truncation width (``None`` resolves the
+    default).
     """
     is_rel = bool(dens_x.is_rel[a])
     is_per = bool(dens_x.is_per[a])
     if not is_rel:
+        if force_route == "centres":
+            return "centres"
         return "contract"
-    spec_x = dens_x.nested[a]
-    spec_y = dens_y.nested[a]
     sigma = float(dens_x.sigma[a])
     period = float(dens_x.period[a])
-    vmin, vmax = ((0.0, period) if is_per
-                  else _attr_value_range(dens_x, dens_y, a))
-    if _rel_contract_cheaper(spec_x, spec_y, sigma, period, is_per, vmin, vmax):
-        return "taugrid" if is_per else "contract_relnonper"
-    return "centres"
+    admissible = _nested_admissible_routes(dens_x, dens_y, a, ts)
+    if is_per and admissible == ["taugrid"]:
+        if force_route == "centres":
+            from .dispatch import _orbit_sigma_over_p_threshold
+            from .._defaults import resolve_truncation_sigmas
+            limit = _orbit_sigma_over_p_threshold(
+                resolve_truncation_sigmas(ts))
+            raise ValueError(
+                f"method='centres' cannot be honoured on relative-periodic "
+                f"nested attribute {a} at sigma/period = "
+                f"{sigma / period:.4g}: above {limit:g} the minimum-image "
+                f"centres route no longer computes the declared "
+                f"full-image measure. Pass wrap='single-image' on this "
+                f"attribute to ask for the minimum-image measure, or use "
+                f"method='auto'."
+            )
+        return "taugrid"
+    if force_route == "centres":
+        return "centres"
+    if len(admissible) == 1:
+        return admissible[0]
+    from ._nested_cost import price_nested_attr
+    return price_nested_attr(dens_x, dens_y, a, admissible,
+                             skip_xx=skip_xx, skip_yy=skip_yy,
+                             truncation_sigmas=ts)[0]
 
 
 def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     """(N_x, N_y) per-attribute inner matrix for a nested attribute, on the
     given ``route`` and shared ``taus`` from :func:`_nested_attr_plan` (passed
-    in so xy, xx and yy share one measure and one grid)."""
+    in so xy, xx and yy share one measure and one grid).
+
+    ``truncation_sigmas`` is the per-call width (``None`` resolves the
+    default); every kernel on every route is truncated at it, as in the
+    MATLAB ``nestedContract``, which resolves it once at entry."""
+    from .._defaults import resolve_truncation_sigmas
+    ts = resolve_truncation_sigmas(truncation_sigmas)
     if route == "centres":
-        from .._defaults import get_default
-        ts = (get_default("truncation_sigmas")
-              if truncation_sigmas is None else truncation_sigmas)
         cx = _closed_form_attr_centres(dens_x, a)
         cy = _closed_form_attr_centres(dens_y, a)
-        wrap_a = (str(dens_x.wrap[a])
-                  if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
-                  else 'full-image')
+        wrap_a = _declared_wrap(dens_x, dens_y, a)
         return _closed_form_attr_matrix_from(cx, cy, ts, wrap_a)
     from ._nested_contraction import build_recipe, nested_attr_matrix
-    from .._defaults import get_default
     is_rel = bool(dens_x.is_rel[a])
     is_per = bool(dens_x.is_per[a])
     sigma = float(dens_x.sigma[a])
@@ -2529,7 +2742,6 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
     spec_y = dens_y.nested[a]
     r_levels = np.asarray(spec_x["r"]).ravel()
     sym_levels = np.asarray(spec_x["sym"]).ravel()
-    ts = get_default("truncation_sigmas")
     tags_x = np.asarray(spec_x["tags"])
     tags_y = np.asarray(spec_y["tags"])
     rx = build_recipe(r_levels, sym_levels, tags_x, is_rel, is_per)
@@ -2549,42 +2761,56 @@ def _nested_attr_matrix(dens_x, dens_y, a, route, taus, truncation_sigmas=None):
                                   periodic_taus=False, taus_reduce="sum")
     # 'contract': absolute / absolute-periodic. The abs-per kernel is the
     # attribute's declared wrap (full-image by default), the same object
-    # the centres route above takes from ``dens_x.wrap``.
-    wrap_a = (str(dens_x.wrap[a])
-              if getattr(dens_x, 'wrap', None) is not None
-              and a < len(dens_x.wrap) else 'full-image')
+    # the centres route above reads.
+    wrap_a = _declared_wrap(dens_x, dens_y, a)
     return nested_attr_matrix(rx, ry, PX, PY, dens_x.w[a], dens_y.w[a],
                               sigma, is_per, period, ts, taus=None,
                               wrap_a=wrap_a)
 
 
-def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
+def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
+                         force_route=None, method_name="contract",
+                         truncation_sigmas=None):
     """Closed-form inner product of a single nested attribute.
 
     Returns (ip_xy, ip_xx, ip_yy) when the case is covered -- one nested
     attribute, outer/no ``[rel]``, cosine or one-sided normalisation,
     NaN-padded (variable-K) values included -- via the per-level dispatch of
     :func:`_nested_attr_plan` / :func:`_nested_attr_matrix`; otherwise ``None``,
-    and the caller routes to the exact enumeration. The route, decided once so
-    xy, xx and yy share one measure, is the cheaper of the event-pair
-    contraction and the materialised centres: absolute and absolute-periodic go
-    to the contraction (exact, per-level Möbius/Bulger); relative-non-periodic
-    to the centres analytic quadratic or, when cheaper, the translation-grid
-    contraction (same measure, to grid accuracy); relative-periodic to the
-    minimum-image centres or, when the centres materialisation dominates, the
-    all-image tau-grid contraction -- the one route that changes the measure
-    (all-image rather than minimum-image; identical for sigma << period). Every
-    route costs no more than the equivalent flat attribute.
+    and the caller routes to the exact enumeration. The route is decided once
+    so xy, xx and yy share one measure: absolute and absolute-periodic go to the
+    contraction (exact, per-level Möbius/Bulger); relative-non-periodic to the
+    centres analytic quadratic or, when cheaper, the translation-grid
+    contraction (same measure, to grid accuracy); relative-periodic to the route
+    its declared ``wrap`` calls for -- the all-image tau-grid for the default
+    full-image measure above the sigma/period threshold, the minimum-image
+    centres under ``wrap='single-image'``, and whichever is cheaper below the
+    threshold, where the two agree inside the truncation floor (see
+    :func:`_nested_attr_route`). Every route costs no more than the equivalent
+    flat attribute.
+
+    ``force_route`` is passed through to :func:`_nested_attr_plan`; it forces a
+    route for every nested attribute, and raises where that route cannot carry
+    the declared measure.
+
+    ``truncation_sigmas`` is the caller's per-call width. It is resolved
+    once here (``None`` -> the default, ``inf`` -> the accuracy-floor
+    width) and the resolved value passed down to the measure rule, the
+    quadrature tolerance, every kernel, the centres route, the cost model
+    and the memo key, exactly as the MATLAB ``nestedContract`` resolves
+    ``truncationSigmas`` at entry.
     """
     def _decline(reason):
         if force:
             raise ValueError(
-                f"method='contract' is not available here: {reason}. "
+                f"method={method_name!r} is not available here: {reason}. "
                 f"Use method='auto' (which falls back automatically) or "
                 f"method='bulger'."
             )
         return None
 
+    from .._defaults import resolve_truncation_sigmas
+    ts = resolve_truncation_sigmas(truncation_sigmas)
     if normalize not in ("cosine", "oneSidedDenom"):
         return _decline(f"unsupported normalisation {normalize!r}")
     if dens_x.n_attrs != dens_y.n_attrs:
@@ -2595,7 +2821,9 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
         # nested factor goes through the contraction and the rest through the
         # per-attribute MA matrices, instead of enumerating the joint tuple.
         return _try_nested_contract_ma(
-            dens_x, dens_y, normalize=normalize, verbose=verbose, force=force)
+            dens_x, dens_y, normalize=normalize, verbose=verbose, force=force,
+            force_route=force_route, method_name=method_name,
+            truncation_sigmas=ts)
     spec = dens_x.nested[0]
     spec_y = dens_y.nested[0]
     if spec is None or spec_y is None:
@@ -2615,12 +2843,28 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
 
     # Per-level dispatch (see _nested_attr_route / _nested_attr_matrix):
     # absolute and absolute-periodic reduce through the event-pair-vectorised
-    # per-level Möbius/Bulger contraction; relative-non-periodic and
-    # minimum-image relative-periodic through the materialised centres; a large
-    # compounded symmetric relative-periodic level falls back to the all-image
-    # tau-grid. The route is decided once so xy, xx and yy share one measure.
-    route, taus = _nested_attr_plan(dens_x, dens_y, 0)
-    ip_xy = float(_nested_attr_matrix(dens_x, dens_y, 0, route, taus).sum())
+    # per-level Möbius/Bulger contraction; relative-non-periodic through the
+    # materialised centres or, when cheaper, the translation grid;
+    # relative-periodic through whichever route carries its declared ``wrap``
+    # measure. The route is decided once so xy, xx and yy share one measure.
+    skip_xx, skip_yy = _nested_self_ip_skip_flags(
+        dens_x, dens_y, normalize)
+    route, taus = _nested_attr_plan(dens_x, dens_y, 0,
+                                    force_route=force_route,
+                                    skip_xx=skip_xx, skip_yy=skip_yy, ts=ts)
+    # The plan is a candidate, not a conclusion: under ``auto`` it is priced
+    # against the joint-tuple enumeration and the cheaper is taken, mirroring
+    # the flat selector's Bulger-versus-Möbius comparison. Declining here
+    # returns the caller to the enumeration, which is what a ``None`` has
+    # always meant. A forced method is never diverted.
+    if not force and _nested_prefers_enumeration(
+            dens_x, dens_y, {0: route},
+            skip_xx=skip_xx, skip_yy=skip_yy, ts=ts):
+        _LAST_NESTED_ROUTES[:] = []
+        return None
+    _LAST_NESTED_ROUTES[:] = [route]
+    ip_xy = float(_nested_attr_matrix(dens_x, dens_y, 0, route, taus,
+                                      truncation_sigmas=ts).sum())
     # The two self inner products are memoised on their densities, as the
     # flat Bulger, centres and Möbius routes already do -- a sweep against
     # one prototype, or any repeated call on the same pair, then pays for
@@ -2629,27 +2873,33 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False):
     # product too: a different partner can widen the grid (the
     # relative-non-periodic line spans both densities' values), and a value
     # taken under one grid must never be reused under another.
-    from .._defaults import get_default as _gd_nc
     _tau_sig = (None if taus is None
                 else (int(np.size(taus)), float(taus[0]), float(taus[-1])))
-    _key = _self_ip_cache_key("contract", _gd_nc("truncation_sigmas"),
-                              None, (route, _tau_sig))
+    _key = _self_ip_cache_key("contract", ts, None, (route, _tau_sig))
+    # <X,X> is consumed by the cosine only: under 'oneSidedDenom' it is
+    # neither computed nor memoised, as on the flat routes, and the
+    # finaliser receives None for it.
+    need_xx = (normalize == "cosine")
     if _key in dens_x._self_ip_cache:
         ip_xx = dens_x._self_ip_cache[_key]
+    elif not need_xx:
+        ip_xx = None
     else:
-        ip_xx = float(_nested_attr_matrix(dens_x, dens_x, 0, route,
-                                          taus).sum())
+        ip_xx = float(_nested_attr_matrix(dens_x, dens_x, 0, route, taus,
+                                          truncation_sigmas=ts).sum())
         dens_x._self_ip_cache[_key] = ip_xx
     if _key in dens_y._self_ip_cache:
         ip_yy = dens_y._self_ip_cache[_key]
     else:
-        ip_yy = float(_nested_attr_matrix(dens_y, dens_y, 0, route,
-                                          taus).sum())
+        ip_yy = float(_nested_attr_matrix(dens_y, dens_y, 0, route, taus,
+                                          truncation_sigmas=ts).sum())
         dens_y._self_ip_cache[_key] = ip_yy
     return ip_xy, ip_xx, ip_yy
 
 
-def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
+def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
+                            force=False, force_route=None,
+                            method_name="contract", truncation_sigmas=None):
     """MA cosine when one or more attributes are nested or ordered.
 
     The MAET cross-event inner product factorises per event-pair across
@@ -2659,8 +2909,9 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     :func:`_nested_attr_matrix`): the event-pair contraction for absolute and
     absolute-periodic and for the cost-selected relative grids, the
     materialised centres otherwise -- with the route decided once so its xy, xx
-    and yy share one measure (see the relative-periodic minimum-image vs
-    all-image note there). An ordered-flat attribute (``[sym]=0``, r>1, not
+    and yy share one measure, and, on a relative-periodic attribute, decided by
+    the declared ``wrap`` rather than by cost wherever the two differ (see
+    :func:`_nested_attr_route`). An ordered-flat attribute (``[sym]=0``, r>1, not
     nested) goes through the centres path
     (:func:`_closed_form_attr_matrix_from`): a single ordered level has no
     symmetric orbit to reduce, and routing it through the orbit/Möbius matrix
@@ -2671,12 +2922,13 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     are constant and cancel, so mixing the matrix conventions is exact.
 
     Returns the (ip_xy, ip_xx, ip_yy) triple, or ``None`` (route to the exact
-    enumeration) for an uncovered nested case.
+    enumeration) for an uncovered nested case. ``truncation_sigmas`` is the
+    per-call width, resolved here as in :func:`_try_nested_contract`.
     """
     def _decline(reason):
         if force:
             raise ValueError(
-                f"method='contract' is not available here: {reason}. "
+                f"method={method_name!r} is not available here: {reason}. "
                 f"Use method='auto' (which falls back automatically) or "
                 f"method='bulger'."
             )
@@ -2698,29 +2950,23 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
     P_xx = np.ones((N_x, N_x), dtype=np.float64)
     P_yy = np.ones((N_y, N_y), dtype=np.float64)
 
+    # ---- Pass 1: validate and plan. The per-attribute routes and shared
+    # quadrature grids are settled before any matrix is formed, so the two
+    # self inner products can be looked up in the densities' memo before the
+    # work that would produce them is done. Splitting the pass is what makes
+    # the memoisation possible at all: the MA self inner product is a product
+    # across *all* attributes, so its cache key is not known until every
+    # attribute has been planned.
+    plans = []
+    from .._defaults import resolve_truncation_sigmas
+    _ts_ma = resolve_truncation_sigmas(truncation_sigmas)
+    _skip_xx, _skip_yy = _nested_self_ip_skip_flags(
+        dens_x, dens_y, normalize)
     for a in range(A):
         is_nested = (nested_x[a] is not None) or (nested_y[a] is not None)
         r_a = int(dens_x.r[a])
         ordered_flat = ((not is_nested) and (not bool(is_sym_x[a]))
                         and (r_a > 1))
-
-        if not (is_nested or ordered_flat):
-            # Flat-symmetric or r=1: the orbit/Möbius per-attribute matrix,
-            # which correctly symmetrises these readings.
-            sigma = float(dens_x.sigma[a])
-            is_rel = bool(dens_x.is_rel[a])
-            is_per = bool(dens_x.is_per[a])
-            period = float(dens_x.period[a])
-            Pxa, Pya = dens_x.p_attr[a], dens_y.p_attr[a]
-            Wxa, Wya = dens_x.w[a], dens_y.w[a]
-            P_xy *= _ma_per_attr_inner_matrix(
-                Pxa, Wxa, Pya, Wya, sigma, r_a, is_rel, is_per, period)
-            P_xx *= _ma_per_attr_inner_matrix(
-                Pxa, Wxa, Pxa, Wxa, sigma, r_a, is_rel, is_per, period)
-            P_yy *= _ma_per_attr_inner_matrix(
-                Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period)
-            continue
-
         if is_nested:
             if nested_x[a] is None or nested_y[a] is None:
                 return _decline("an attribute is nested on only one side")
@@ -2734,15 +2980,92 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
                     or not np.array_equal(
                         sym_levels, np.asarray(nested_y[a]["sym"]).ravel())):
                 return _decline("the two nested attributes differ in [r]/[sym]")
-            # Nested: the mode-aware per-level dispatch (contraction for
-            # absolute/abs-periodic and the large-symmetric rel-periodic
-            # tau-grid; centres for relative-non-periodic and minimum-image
-            # rel-periodic). Route decided once so xy, xx and yy share one
-            # measure.
-            route, taus = _nested_attr_plan(dens_x, dens_y, a)
-            P_xy *= _nested_attr_matrix(dens_x, dens_y, a, route, taus)
-            P_xx *= _nested_attr_matrix(dens_x, dens_x, a, route, taus)
-            P_yy *= _nested_attr_matrix(dens_y, dens_y, a, route, taus)
+            route, taus = _nested_attr_plan(dens_x, dens_y, a,
+                                            force_route=force_route,
+                                            skip_xx=_skip_xx,
+                                            skip_yy=_skip_yy, ts=_ts_ma)
+            plans.append(("nested", a, route, taus))
+        elif ordered_flat:
+            plans.append(("ordered", a, None, None))
+        else:
+            plans.append(("flat", a, None, None))
+    # The plan is priced against the joint-tuple enumeration, as in the
+    # one-attribute plan (_try_nested_contract): the per-attribute routes chosen above are what
+    # the plan would run, and their prices plus the flat companions' are what
+    # the enumeration has to beat. A forced method is never diverted.
+    if not force and _nested_prefers_enumeration(
+            dens_x, dens_y,
+            {a: route for kind, a, route, _t in plans if kind == "nested"},
+            skip_xx=_skip_xx, skip_yy=_skip_yy, ts=_ts_ma):
+        _LAST_NESTED_ROUTES[:] = []
+        return None
+    _LAST_NESTED_ROUTES[:] = [
+        (route if kind == "nested" else "-") for kind, _a, route, _t in plans]
+
+    # The self-inner-product memo key carries every attribute's route and
+    # shared grid, for the reason the one-attribute plan records: a grid
+    # route discretises the self inner product too, and a different partner
+    # can widen the grid, so a value taken under one grid must never be
+    # reused under another. ``wrap`` is part of each density's own immutable
+    # contents, so it needs no separate key entry.
+    _ma_sig = tuple(
+        (kind, int(a), route,
+         (None if taus is None
+          else (int(np.size(taus)), float(taus[0]), float(taus[-1]))))
+        for kind, a, route, taus in plans)
+    _ma_key = _self_ip_cache_key("contract_ma", _ts_ma, None, _ma_sig)
+    _have_xx = _ma_key in dens_x._self_ip_cache
+    _have_yy = _ma_key in dens_y._self_ip_cache
+    # <X,X> is consumed by the cosine only: under 'oneSidedDenom' it is
+    # neither formed nor memoised, as on the flat routes.
+    _need_xx = (normalize == "cosine")
+    _form_xx = _need_xx and not _have_xx
+
+    # ---- Pass 2: form the matrices.
+    for kind, a, route, taus in plans:
+        r_a = int(dens_x.r[a])
+
+        if kind == "flat":
+            # Flat-symmetric or r=1: the orbit/Möbius per-attribute matrix,
+            # which correctly symmetrises these readings.
+            sigma = float(dens_x.sigma[a])
+            is_rel = bool(dens_x.is_rel[a])
+            is_per = bool(dens_x.is_per[a])
+            period = float(dens_x.period[a])
+            Pxa, Pya = dens_x.p_attr[a], dens_y.p_attr[a]
+            Wxa, Wya = dens_x.w[a], dens_y.w[a]
+            # The attribute's declared wrap and the truncation width go
+            # with it, as on every other route: without them an abs-per
+            # attribute declared 'single-image' was computed full-image
+            # whenever it shared a density with a nested attribute (the
+            # MATLAB twin, nestedContract.m, has always passed both).
+            wrap_a = _declared_wrap(dens_x, dens_y, a)
+            P_xy *= _ma_per_attr_inner_matrix(
+                Pxa, Wxa, Pya, Wya, sigma, r_a, is_rel, is_per, period,
+                truncation_sigmas=_ts_ma, wrap=wrap_a)
+            if _form_xx:
+                P_xx *= _ma_per_attr_inner_matrix(
+                    Pxa, Wxa, Pxa, Wxa, sigma, r_a, is_rel, is_per, period,
+                    truncation_sigmas=_ts_ma, wrap=wrap_a)
+            if not _have_yy:
+                P_yy *= _ma_per_attr_inner_matrix(
+                    Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period,
+                    truncation_sigmas=_ts_ma, wrap=wrap_a)
+            continue
+
+        if kind == "nested":
+            # Nested: the mode-aware per-level dispatch planned above
+            # (contraction for absolute/abs-periodic and for the
+            # cost-selected relative grids; centres otherwise), with the
+            # route decided once so xy, xx and yy share one measure.
+            P_xy *= _nested_attr_matrix(dens_x, dens_y, a, route, taus,
+                                        truncation_sigmas=_ts_ma)
+            if _form_xx:
+                P_xx *= _nested_attr_matrix(dens_x, dens_x, a, route, taus,
+                                            truncation_sigmas=_ts_ma)
+            if not _have_yy:
+                P_yy *= _nested_attr_matrix(dens_y, dens_y, a, route, taus,
+                                            truncation_sigmas=_ts_ma)
             continue
 
         # Ordered flat ([sym]=0, r>1, not nested): the materialised centres,
@@ -2752,20 +3075,73 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose, force=False):
         # symmetric orbit to reduce, so there is no per-level Möbius to gain.
         cx = _closed_form_attr_centres(dens_x, a)
         cy = _closed_form_attr_centres(dens_y, a)
-        wrap_a = (str(dens_x.wrap[a])
-                  if hasattr(dens_x, 'wrap') and dens_x.wrap is not None
-                  else 'full-image')
-        from .._defaults import get_default
-        _ts_flat = get_default("truncation_sigmas")
-        P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_flat, wrap_a)
-        P_xx *= _closed_form_attr_matrix_from(cx, cx, _ts_flat, wrap_a)
-        P_yy *= _closed_form_attr_matrix_from(cy, cy, _ts_flat, wrap_a)
+        wrap_a = _declared_wrap(dens_x, dens_y, a)
+        P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_ma, wrap_a)
+        if _form_xx:
+            P_xx *= _closed_form_attr_matrix_from(cx, cx, _ts_ma, wrap_a)
+        if not _have_yy:
+            P_yy *= _closed_form_attr_matrix_from(cy, cy, _ts_ma, wrap_a)
 
-    # The joint-tuple enumeration (bulger) mis-shapes a nested attribute's
-    # per-event tuples in the MA tensor build, so a nested multi-attribute
-    # density must not fall back to it. Every per-attribute route here costs no
-    # more than the equivalent flat attribute, so always return the triple.
-    return float(P_xy.sum()), float(P_xx.sum()), float(P_yy.sum())
+    # The two self inner products are memoised on their densities, as the
+    # single-nested-attribute path and the flat Bulger, centres and Möbius
+    # routes already do: a sweep against one prototype then pays for the
+    # cross term alone.
+    if _have_xx:
+        ip_xx = dens_x._self_ip_cache[_ma_key]
+    elif not _need_xx:
+        ip_xx = None
+    else:
+        ip_xx = float(P_xx.sum())
+        dens_x._self_ip_cache[_ma_key] = ip_xx
+    if _have_yy:
+        ip_yy = dens_y._self_ip_cache[_ma_key]
+    else:
+        ip_yy = float(P_yy.sum())
+        dens_y._self_ip_cache[_ma_key] = ip_yy
+
+    # No enumeration fallback from *here*: the comparison with the
+    # enumeration was made before any matrix was formed, above, where
+    # declining still costs nothing. ``method='bulger'`` on a multi-attribute
+    # nested density agrees with this route to floating point in every mode
+    # (``tests/test_nested_measure_rule.py``), so the choice between them is
+    # a matter of price and of per-attribute measure control, not of shape.
+    return float(P_xy.sum()), ip_xx, ip_yy
+
+
+#: Cache-key prefixes of the routes that memoise a self inner product
+#: consumed by an inner-product triple. A memo under any of them means
+#: "some route has already paid for this density's self inner product",
+#: which is what :func:`_self_ip_memoised` reports and what both sides
+#: of every route comparison are priced against. The sweep path's own
+#: ``'sweep'`` memo is deliberately absent: it is produced by a different
+#: evaluator and is consumed by neither route here, so it would not spare
+#: either of them any work.
+_SELF_IP_ROUTES = ("bulger", "centres", "mobius", "contract", "contract_ma")
+
+
+def _self_ip_memoised(dens):
+    """True when any inner-product route has memoised ``dens``'s self IP.
+
+    The flag is shared by the routes a selector compares, rather than read
+    off each route's own memo, and that is deliberate. The memoised
+    *values* are per route (see :func:`_self_ip_cache_key`), so a route
+    that finds only another route's memo will still recompute its own self
+    matrices on this call. Pricing each route against its own memo
+    nonetheless makes the comparison unfair in a way that compounds: the
+    first call seeds only the winner's memo, so on the second call the
+    winner is priced at one matrix and the loser at three, and the choice
+    locks in even where the loser, once warm, is the cheaper route. Sharing
+    the flag prices the comparison on the routes' per-matrix costs, which
+    is what the selector is meant to decide on.
+
+    The trade is per-call: on the one call where the comparison flips, the
+    newly chosen route does pay for the self matrices the flag priced as
+    free. It memoises them, so the flag is honest from the next call
+    onwards; the mispricing is bounded by a single call per crossover, and
+    it buys amortised correctness over the repeated calls a sweep makes.
+    """
+    return any(isinstance(k, tuple) and len(k) > 0 and k[0] in _SELF_IP_ROUTES
+               for k in dens._self_ip_cache)
 
 
 def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
@@ -2773,15 +3149,54 @@ def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
     """Cache key for a memoised self inner product on a density.
 
     The key carries everything the value depends on beyond the
-    density's own (immutable) contents: the route (the Bulger and
-    Möbius conventions differ by a constant prefactor that cancels only
-    within one route's triple), the resolved truncation budget, the
-    kernel precision, and any route-specific choices (``extra`` — the
-    Möbius route's per-attribute closed-form-vs-grid selections, which
-    change the per-attribute prefactor). Chunking granularity is
-    deliberately not keyed: it perturbs only the floating-point
-    accumulation order, within the toolbox-wide ≤ 1e-12 parity
-    discipline.
+    density's own (immutable) contents: the route, the resolved
+    truncation budget, the kernel precision, and any route-specific
+    choices (``extra`` — the Möbius route's per-attribute
+    closed-form-vs-grid selections, or a nested route's quadrature grid
+    signature). Chunking granularity is deliberately not keyed: it
+    perturbs only the floating-point accumulation order, within the
+    toolbox-wide ≤ 1e-12 parity discipline.
+
+    Why the route stays in the key, when the routes' scales are related
+    in closed form. The bare triples differ by a constant that cancels
+    within one route's triple, and the constant is known exactly:
+    per attribute, Bulger's enumeration against the Möbius per-attribute
+    matrix is ``r_a! (sigma_a sqrt(pi))^{r_a}`` in an absolute mode and
+    ``r_a! (sigma_a sqrt(pi))^{r_a - 1} sqrt(r_a)`` in relative
+    non-periodic; against the tuple-centres closed form (and the
+    unrestricted centres route) it is ``r_a!``; against a nested
+    attribute's per-level contraction it is 1, and against the nested
+    centres route the wreath-product orbit order of
+    :func:`~mpt._tensor._mobius_inner._nested_orbit_mult`. Converting a
+    memo to a canonical scale is therefore arithmetically possible.
+
+    It is not *numerically* possible. Each route applies the truncation
+    budget to its own arrays --- a different threshold tightening for a
+    different array size, a different set of kernel entries dropped, and
+    for the Möbius route an alternating sum where the enumeration has a
+    plain one --- so after the exact rescaling the routes hold different
+    numbers, not the same number in different units. Measured on the
+    self inner product with the shipped 6-sigma default: the Möbius
+    route departs from Bulger's by up to 3e-9 relative (absolute
+    non-periodic, r = 2..3, K = 6..9), the centres route by up to 1e-12,
+    and at ``truncation_sigmas=4`` those become 9e-5 and 2e-8; at the
+    accuracy floor (``inf``) they fall to 1e-13 and 1e-16. A shared memo
+    would put that difference into the returned cosine whenever a route
+    consumed a value another route produced, so two identical calls with
+    the same forced ``method`` would return different numbers depending
+    on what ran before them. Route-keyed values keep each route's answer
+    reproducible; the *pricing* is shared instead, via
+    :func:`_self_ip_memoised`.
+
+    The one case where sharing is not even arithmetically available is
+    worth naming separately, because it is a difference of measure
+    rather than of accuracy: on a relative-periodic attribute the
+    tau-grid computes the all-image transposition average (C) while the
+    enumeration and the tuple-centres closed form compute the
+    minimum-image reading (A). Below the sigma/period threshold they
+    agree inside the truncation floor but are still not the same number
+    (measured 1.9e-5 relative at sigma/P = 0.058, 4.8e-2 at 0.125), and
+    above it they are different quantities.
     """
     from .._defaults import resolve_truncation_sigmas
     return (route, float(resolve_truncation_sigmas(truncation_sigmas)),
@@ -2950,7 +3365,6 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
 def cos_sim_exp_tens_raw(
     p1, w1, p2, w2, *args,
     method: str = "auto",
-    cancellation_threshold: float = 1e-12,
     verbose: bool = True,
 ) -> float:
     """Deprecated. Use :func:`cos_sim_exp_tens` directly with raw input.
@@ -2975,330 +3389,9 @@ def cos_sim_exp_tens_raw(
     return cos_sim_exp_tens(
         p1, w1, p2, w2, *args,
         method=method,
-        cancellation_threshold=cancellation_threshold,
         verbose=verbose,
     )
 
-
-
-def _ma_ip_per_event_factors(dens, side, skip=None):
-    """Per-attribute, per-event centres and weights for the factored IP.
-
-    Returns ``factors[a]`` = list over the density's events of
-    ``(centres, w)``, where ``centres`` is the ``(r_a, M)`` array of the
-    attribute's r-ad centres for that event and ``w`` the matching
-    ``(M,)`` weight-product vector. ``side='perm'`` enumerates the
-    permutation side (the X convention), ``side='comb'`` the combination
-    side (the Y convention); the r_a! ratio between them cancels in the
-    cosine, exactly as in the joint build.
-
-    Each event enumerates its own non-NaN values, so variable cardinality
-    (NaN-padded ``p_attr``) is handled per event without a common-slab
-    zero-pad. Attributes in ``skip`` are left as ``None``: a
-    culled-nested attribute is served from its raw per-event positions
-    without enumerating its (blow-up) tuple set, so pre-enumerating it
-    here would defeat the cull.
-    """
-    A = dens.n_attrs
-    N = dens.n
-    r_vec = dens.r
-    skip = set() if skip is None else set(skip)
-    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
-    nested = dens.nested if getattr(dens, "nested", None) is not None \
-        else [None] * A
-    want_perm = (side == "perm")
-    factors = [[None] * N for _ in range(A)]
-    for a in range(A):
-        if a in skip:
-            continue
-        r_a = int(r_vec[a])
-        P = dens.p_attr[a]
-        W = dens.w[a]
-        spec = nested[a]
-        for n in range(N):
-            val_col = P[:, n]
-            w_col = W[:, n]
-            valid = np.nonzero(~np.isnan(val_col))[0].astype(np.intp)
-            if spec is not None:
-                tags_valid = np.asarray(spec["tags"])[valid]
-                perm_mat, comb_mat = _nested_enum_indices(
-                    valid, tags_valid,
-                    np.asarray(spec["r"]).ravel(),
-                    np.asarray(spec["sym"]).ravel(),
-                )
-                idx = perm_mat if want_perm else comb_mat
-            else:
-                perm_mat, comb_mat, _, _ = _enum_flat_attr(
-                    val_col, valid, r_a, bool(is_sym[a]), w_col)
-                idx = perm_mat if want_perm else comb_mat
-            factors[a][n] = (val_col[idx], np.prod(w_col[idx], axis=0))
-    return factors
-
-
-def _nested_factor_cullable(spec, is_per, a):
-    """True when a nested attribute's IP factor admits the leaf cull.
-
-    Cullable when the co-transposition is absolute or at the innermost
-    (leaf) unit, at any nesting depth. The metric then lives only at the
-    leaf, so the factor separates into leaf group-vs-group inner products
-    (flat multiset IPs the culled helper computes), which the levels above
-    contract combinatorially. A leaf co-transposition needs a non-periodic
-    leaf (the helper does not take the relative-periodic minimum-image
-    form). An outer or intermediate co-transposition spreads the metric
-    across a multi-level block, so those stay on the dense factor.
-    """
-    r_levels = np.asarray(spec["r"]).ravel()
-    L = int(r_levels.size)
-    if L < 2:
-        return False
-    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), L, a)
-    if rel_unit is None:
-        return True
-    if rel_unit == 0:
-        return not bool(is_per)
-    return False
-
-
-def _ma_ip_factor_nested_culled(spec, Xval, Xw, Yval, Yw, sigma, is_per,
-                                period, a, *, truncation_sigmas,
-                                kernel_precision):
-    """One nested attribute's IP factor, leaf-culled, at any depth.
-
-    With the metric at the leaf, the factor is the leaf group-vs-group
-    inner product contracted up the tag tree. Each leaf inner product is a
-    flat multiset IP taken through the culled helper; every level above
-    contracts its children's inner-product matrix with the nested cosine's
-    own ``_combine_pair`` (perm x comb, or the Moebius reduction when a
-    level's span makes it cheaper). The spatial cull therefore fires once,
-    at the leaf; the levels above carry no metric and are pure
-    combinatorial contraction. The value equals the dense block-diagonal
-    factor at the accuracy floor.
-    """
-    from ._nested_contraction import _combine_pair, _orbit_eligible
-    r_levels = [int(x) for x in np.asarray(spec["r"]).ravel()]
-    sym_levels = [bool(x) for x in np.asarray(spec["sym"]).ravel()]
-    L = len(r_levels)
-    rel_unit, _ = _canonicalise_nested_rel(spec.get("rel", None), L, a)
-    is_rel_leaf = (rel_unit == 0)
-    r0, sym0 = r_levels[0], sym_levels[0]
-
-    tags = np.asarray(spec["tags"])
-    if tags.ndim == 1:
-        tags = tags.reshape(-1, 1)          # (K_total, L-1)
-
-    def group_by(val_idx, col):
-        keys = tags[val_idx, col]
-        order = np.argsort(keys, kind="stable")
-        val_idx_s = val_idx[order]
-        keys_s = keys[order]
-        bounds = np.nonzero(np.diff(keys_s))[0] + 1
-        return np.split(val_idx_s, bounds)
-
-    def leaf_ip(sx, sy):
-        if sx.size < r0 or sy.size < r0:
-            return 0.0
-        pm, _, pw, _ = _enum_flat_attr(Xval, sx, r0, sym0, Xw)
-        _, cm, _, cw = _enum_flat_attr(Yval, sy, r0, sym0, Yw)
-        return _ip_via_helper(
-            Xval[pm], pw, Yval[cm], cw, r0, float(sigma), is_rel_leaf,
-            bool(is_per), float(period), truncation_sigmas=truncation_sigmas,
-            kernel_precision=kernel_precision)
-
-    def contract(sx, sy, level):
-        if level == 0:
-            return leaf_ip(sx, sy)
-        gx = group_by(sx, level - 1)
-        gy = group_by(sy, level - 1)
-        r_l, sym_l = r_levels[level], sym_levels[level]
-        if len(gx) < r_l or len(gy) < r_l:
-            return 0.0
-        M = np.empty((len(gx), len(gy)), dtype=np.float64)
-        for i, cx in enumerate(gx):
-            for j, cy in enumerate(gy):
-                M[i, j] = contract(cx, cy, level - 1)
-        use_orbit = (_orbit_eligible(len(gx), r_l, sym_l, False, False)
-                     and _orbit_eligible(len(gy), r_l, sym_l, False, False))
-        return float(_combine_pair(M[None], r_l, sym_l, use_orbit)[0])
-
-    xv = np.nonzero(~np.isnan(Xval))[0].astype(np.intp)
-    yv = np.nonzero(~np.isnan(Yval))[0].astype(np.intp)
-    return contract(xv, yv, L - 1)
-
-
-def _ma_ip_factor_dense(u, wU, v, wV, r, sigma, is_rel, is_per, period, r_in,
-                        truncation_sigmas=None, wrap_a='full-image'):
-    """One attribute's IP factor by dense evaluation.
-
-    Serves the forms the culled helper does not: the relative-periodic
-    pairwise-wrap quadratic and the nested block-diagonal metric
-    (``r_in > 0``).
-
-    Absolute-periodic uses the full-image r-tuple kernel
-    ``prod_a theta(d_a)`` (product of 1D wrapped Gaussians across
-    coordinates). At sigma/P below the accuracy-floor threshold ``L = 0`` and
-    the product-of-theta reduces to the single-Gaussian form; the image
-    sum switches on only when the floor requires it. When the user has
-    opted this attribute into ``wrap_a='single-image'`` the L is forced
-    to 0 regardless.
-    """
-    D = u[:, :, None] - v[:, None, :]                 # (r, M_u, M_v)
-    if r_in > 0:
-        Q = _compute_Q_inner_blocks(D, r_in, bool(is_per), float(period),
-                                    reduced=False)
-        K = np.exp(-Q / (4.0 * float(sigma) ** 2))
-    elif is_per and not is_rel:
-        p = float(period)
-        if wrap_a == 'single-image':
-            D = D - p * np.floor(D / p + 0.5)
-            Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
-            K = np.exp(-Q / (4.0 * float(sigma) ** 2))
-        else:
-            from .._wrapped_kernel import wrapped_gaussian_1d
-            from .._defaults import get_default
-            ts = (get_default("truncation_sigmas")
-                  if truncation_sigmas is None else truncation_sigmas)
-            theta_per_position = wrapped_gaussian_1d(
-                D, float(sigma), p, ts, exponent_denominator=4
-            )
-            K = theta_per_position.prod(axis=0)
-    else:
-        Q = _compute_Q(D, r, bool(is_rel), bool(is_per), float(period))
-        K = np.exp(-Q / (4.0 * float(sigma) ** 2))
-    return float(wU @ K @ wV)
-
-
-def _ma_ip_factored(dens_perm, dens_comb, *, truncation_sigmas=None,
-                    kernel_precision=None):
-    """One MA inner product ``<perm density, comb density>`` factored
-    over attributes and event pairs, without materialising the joint
-    tuple set.
-
-    Uses the per-attribute inner-product factorisation
-    ``<T_X, T_Y> = sum_{n, m} prod_a I_a(n, m)``: each event pair's joint
-    tuples are the Cartesian product of the per-attribute tuples, so the
-    joint bilinear form distributes into a product of per-attribute
-    factors, and the whole is summed over event pairs.
-
-    A flat, non-relative-periodic attribute's factor routes through the
-    spatially-culled ``gaussian_kernel_sum`` helper (the same cull the
-    single-attribute centres path uses). A two-level nested attribute
-    whose co-transposition is absolute or at the leaf is culled at the
-    leaf and contracted over the outer level. Relative-periodic flat
-    attributes, and nested attributes outside the cullable class, use the
-    dense factor.
-    """
-    A = dens_perm.n_attrs
-    r_vec = dens_perm.r
-    sigma = dens_perm.sigma
-    is_rel = dens_perm.is_rel
-    is_per = dens_perm.is_per
-    period = dens_perm.period
-    inner_r = _inner_r_vec(dens_perm)
-    nested = dens_perm.nested if getattr(dens_perm, "nested", None) is not None \
-        else [None] * A
-
-    # Per-attribute route: 'flat' (culled helper), 'nested_cull' (leaf
-    # cull), or 'dense'.
-    kind = [""] * A
-    for a in range(A):
-        spec = nested[a]
-        if spec is None:
-            kind[a] = "dense" if (bool(is_rel[a]) and bool(is_per[a])) \
-                else "flat"
-        elif _nested_factor_cullable(spec, bool(is_per[a]), a):
-            kind[a] = "nested_cull"
-        else:
-            kind[a] = "dense"
-    skip = {a for a in range(A) if kind[a] == "nested_cull"}
-
-    pf = _ma_ip_per_event_factors(dens_perm, "perm", skip=skip)
-    cf = _ma_ip_per_event_factors(dens_comb, "comb", skip=skip)
-    Nx = dens_perm.n
-    Ny = dens_comb.n
-
-    ip = 0.0
-    for n in range(Nx):
-        for m in range(Ny):
-            prod = 1.0
-            for a in range(A):
-                if kind[a] == "nested_cull":
-                    factor = _ma_ip_factor_nested_culled(
-                        nested[a],
-                        dens_perm.p_attr[a][:, n], dens_perm.w[a][:, n],
-                        dens_comb.p_attr[a][:, m], dens_comb.w[a][:, m],
-                        float(sigma[a]), bool(is_per[a]), float(period[a]), a,
-                        truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision)
-                elif kind[a] == "flat":
-                    u, wU = pf[a][n]
-                    v, wV = cf[a][m]
-                    wrap_a = (str(dens_perm.wrap[a])
-                              if hasattr(dens_perm, 'wrap')
-                              and dens_perm.wrap is not None
-                              else 'full-image')
-                    factor = _ip_via_helper(
-                        u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
-                        bool(is_rel[a]), bool(is_per[a]), float(period[a]),
-                        truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision,
-                        wrap_a=wrap_a)
-                else:
-                    u, wU = pf[a][n]
-                    v, wV = cf[a][m]
-                    wrap_a = (str(dens_perm.wrap[a])
-                              if hasattr(dens_perm, 'wrap')
-                              and dens_perm.wrap is not None
-                              else 'full-image')
-                    factor = _ma_ip_factor_dense(
-                        u, wU, v, wV, int(r_vec[a]), float(sigma[a]),
-                        bool(is_rel[a]), bool(is_per[a]), float(period[a]),
-                        int(inner_r[a]), truncation_sigmas, wrap_a)
-                prod *= factor
-                if prod == 0.0:
-                    break
-            ip += prod
-    return ip
-
-
-def _ma_factored_ip_supported(dens_x, dens_y):
-    """True when the factored culled IP covers this density pair.
-
-    The factored path serves every attribute mode except relative-and-
-    periodic under the minimum-image convention, whose per-position factor
-    does not admit the culled helper. Ordered ([sym]=0) and nested
-    attributes are supported: a two-level nested attribute with an
-    absolute or leaf co-transposition is culled at the leaf, and any
-    other nested attribute uses the dense block-diagonal factor.
-    """
-    from .aniso import density_has_kernel_cov
-    if density_has_kernel_cov(dens_x) or density_has_kernel_cov(dens_y):
-        return False
-    A = dens_x.n_attrs
-    is_rel = dens_x.is_rel
-    is_per = dens_x.is_per
-    return not any(bool(is_rel[a]) and bool(is_per[a]) for a in range(A))
-
-
-def _cos_sim_exp_tens_ma_factored(dens_x, dens_y, *, verbose=True,
-                                  truncation_sigmas=None,
-                                  kernel_precision=None):
-    """Factored-cull twin of :func:`_cos_sim_exp_tens_ma_pairwise`.
-
-    Computes the ``(ip_xy, ip_xx, ip_yy)`` triple through
-    :func:`_ma_ip_factored`, so the joint tuple set is never built. The
-    value equals the pairwise (joint) triple exactly at the accuracy
-    floor; at a finite truncation the two differ only in the cull region
-    (the factored form truncates each attribute independently, enclosing
-    a superset of the joint form's culled pairs).
-    """
-    return (
-        _ma_ip_factored(dens_x, dens_y, truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision),
-        _ma_ip_factored(dens_x, dens_x, truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision),
-        _ma_ip_factored(dens_y, dens_y, truncation_sigmas=truncation_sigmas,
-                        kernel_precision=kernel_precision),
-    )
 
 
 def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
@@ -3330,183 +3423,6 @@ def _ip_via_helper(U, wU, V, wV, r, sigma, is_rel, is_per, period,
     return float(np.asarray(g).ravel() @ wU.ravel())
 
 
-
-def _orbit_inner_abs(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
-                     *, return_cancellation_ratio=False,
-                     truncation_sigmas=None, wrap_a='full-image'):
-    """<T_A, T_B> in absolute mode via the Möbius method.
-
-    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``
-    where ratio is ``|sum| / max(|term|)`` from the Möbius alternating
-    partition sum (1.0 means no cancellation; <<1 means digits lost). See
-    :func:`mpt._mobius.inner_product_orbit` for full semantics.
-
-    ``truncation_sigmas`` is honoured on the kernel; ``None`` resolves
-    to the global default.
-
-    ``wrap_a`` selects the abs-per measure: ``'full-image'`` (default)
-    uses the torus (all-image) 1-D wrapped Gaussian per coordinate, delivered
-    by :func:`_wrapped_kernel.wrapped_gaussian_1d` in overlap
-    convention. The r-tuple full-image kernel factors as
-    :math:`\\prod_a \\theta(d_a)`, delivered by the orbit reduction
-    over the 1-D theta values. ``'single-image'`` opts into the
-    nearest-image kernel unchanged. Ignored when ``is_per=False``.
-    """
-    from .._mobius import inner_product_orbit
-    from .._defaults import get_default
-    from .._wrapped_kernel import wrapped_gaussian_1d
-
-    if truncation_sigmas is None:
-        truncation_sigmas = get_default('truncation_sigmas')
-
-    diffs = p_a[:, None] - p_b[None, :]
-    if is_per and wrap_a == 'full-image':
-        # Overlap-kernel convention (exponent_denominator = 4). The
-        # (sigma sqrt(pi))^r prefactor stays: the 1-D wrapped Gaussian's
-        # integral over the circle equals the single Gaussian's over the
-        # line, so the r-tuple normalisation is identical.
-        K = wrapped_gaussian_1d(diffs, sigma, period, truncation_sigmas,
-                                exponent_denominator=4)
-    else:
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-    return inner_product_orbit(
-        K, w_a, w_b, r, prefactor=(sigma * np.sqrt(np.pi)) ** r,
-        return_cancellation_ratio=return_cancellation_ratio,
-    )
-
-
-
-def _inner_product_direct_abs(p_x, w_x, p_y, w_y, sigma, r,
-                                   is_per, period):
-    """<T_X, T_Y> in absolute mode via direct r-tuple enumeration.
-
-    Computes the single-multiset inner product
-        <T_X, T_Y> = (sigma * sqrt(pi))**r *
-                     sum_{J, K} wJ_x[J] * wJ_y[K] *
-                                exp(-||centres_x[:, J] - centres_y[:, K]||^2
-                                    / (4 sigma^2))
-    by enumerating ordered r-tuples on each side. No Möbius
-    alternating sum is involved, so the result is exact for any
-    K_x, K_y >= r. This is a reference/direct implementation, retained
-    as the enumerated comparison point for the Möbius route.
-
-    NaN tolerance: NaN entries in ``p_x`` / ``w_x`` / ``p_y`` / ``w_y``
-    are dropped per side before enumeration. If the dropped count
-    leaves either side with fewer than r valid values, returns 0 by
-    convention (cannot form an r-tuple).
-
-    Cost: O(K_x! / (K_x - r)! * K_y! / (K_y - r)! * r) per call. Cheap
-    when K is close to r (the unsafe regime).
-    """
-    p_x = np.asarray(p_x, dtype=np.float64).ravel()
-    w_x = np.asarray(w_x, dtype=np.float64).ravel()
-    p_y = np.asarray(p_y, dtype=np.float64).ravel()
-    w_y = np.asarray(w_y, dtype=np.float64).ravel()
-
-    valid_x = ~(np.isnan(p_x) | np.isnan(w_x))
-    valid_y = ~(np.isnan(p_y) | np.isnan(w_y))
-    p_x = p_x[valid_x]; w_x = w_x[valid_x]
-    p_y = p_y[valid_y]; w_y = w_y[valid_y]
-    K_x = p_x.size
-    K_y = p_y.size
-
-    if K_x < r or K_y < r:
-        return 0.0
-
-    if r == 1:
-        diffs = p_x[:, None] - p_y[None, :]
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_mat = np.exp(-(diffs ** 2) / (4 * sigma ** 2))
-        return float(sigma * np.sqrt(np.pi) *
-                     np.einsum('i,ij,j->', w_x, K_mat, w_y))
-
-    # r >= 2: enumerate ordered r-tuples and contract.
-    U_x, wJ_x = _build_ordered_r_tuples(p_x, w_x, r)   # (r, nJ_x), (nJ_x,)
-    U_y, wJ_y = _build_ordered_r_tuples(p_y, w_y, r)
-
-    diffs = U_x[:, :, None] - U_y[:, None, :]   # (r, nJ_x, nJ_y)
-    if is_per:
-        diffs = diffs - period * np.floor(diffs / period + 0.5)
-    Q = np.sum(diffs ** 2, axis=0)              # (nJ_x, nJ_y)
-    K_mat = np.exp(-Q / (4 * sigma ** 2))
-
-    return float((sigma * np.sqrt(np.pi)) ** r *
-                 np.einsum('i,ij,j->', wJ_x, K_mat, wJ_y))
-
-
-def _build_ordered_r_tuples(p, w, r):
-    """Ordered r-tuple construction for a single multiset.
-
-    Returns ``(U, wJ)`` where ``U`` is ``(r, nJ)`` of position values
-    along ordered r-tuples and ``wJ`` is ``(nJ,)`` of weight products.
-    Used by :func:`_inner_product_direct_abs` and any other helper
-    that needs single-event ordered tuples without going through the
-    full :func:`build_exp_tens` API.
-    """
-    import math
-    K = p.size
-    n_perms = math.factorial(r)
-    n_combs = int(_comb(K, r, exact=True))
-    n_j = n_perms * n_combs
-
-    nck = _nchoosek_indices(K, r)             # r x n_combs
-    all_perms = np.array(
-        list(permutations(range(r))), dtype=np.intp,
-    ).T                                        # r x r!
-
-    j_idx = np.empty((r, n_j), dtype=np.intp)
-    offset = 0
-    for i in range(n_perms):
-        j_idx[:, offset:offset + n_combs] = nck[all_perms[:, i], :]
-        offset += n_combs
-
-    U = p[j_idx]                               # r x nJ
-    wJ = np.prod(w[j_idx], axis=0)             # (nJ,)
-    return U, wJ
-
-
-
-def _orbit_inner_rel(p_a, w_a, p_b, w_b, sigma, r, is_per, period,
-                     samples_per_sigma=None, *,
-                     return_cancellation_ratio=False,
-                     truncation_sigmas=None):
-    """<T_A, T_B> in relative mode: the single-multiset (N = 1)
-    specialisation of :func:`_rel_inner_batched`.
-
-    All conventions are the batched core's: the shared ``[0, P)``
-    grid with :func:`auto_ntau_default` nodes in periodic mode; in
-    non-periodic mode a window of width
-    ``spread_a + spread_b + 2 * _rel_window_margin(t) * sigma``
-    centred on the weighted-mean offset, with ``samples_per_sigma``
-    nodes per sigma, evaluated by plain Riemann sum (the margin places
-    every kernel entry strictly outside the truncation radius at the
-    window edges, so the endpoint integrand is exactly zero and the
-    Riemann sum equals the trapezoidal rule exactly);
-    slab-bounded contraction; and, when requested, the mass-aware
-    cancellation diagnostic
-    ``|sum_u F_u| / sum_u max_orb(|term_orb_u|)``.
-
-    With ``return_cancellation_ratio=True``, returns ``(value, ratio)``.
-    """
-    Pa = np.asarray(p_a, dtype=np.float64).reshape(-1, 1)
-    Pb = np.asarray(p_b, dtype=np.float64).reshape(-1, 1)
-    Wa = np.asarray(w_a, dtype=np.float64).reshape(-1, 1)
-    Wb = np.asarray(w_b, dtype=np.float64).reshape(-1, 1)
-    out = _rel_inner_batched(
-        Pa, Wa, Pb, Wb, sigma, r, is_per, period,
-        return_cancellation_ratio=return_cancellation_ratio,
-        truncation_sigmas=truncation_sigmas,
-        samples_per_sigma=samples_per_sigma,
-    )
-    if return_cancellation_ratio:
-        I, ratio = out
-        return float(I[0, 0]), float(ratio)
-    return float(out[0, 0])
-
-
 def _cos_sim_raw_single_multiset_batch(
     p_mat_a: np.ndarray,
     p_mat_b: np.ndarray,
@@ -3524,7 +3440,6 @@ def _cos_sim_raw_single_multiset_batch(
     dedup: bool = True,
     method: str = "auto",
     normalize: str = "cosine",
-    cancellation_threshold: float = 1e-12,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -3539,8 +3454,7 @@ def _cos_sim_raw_single_multiset_batch(
     constructs each unique density once (chord-level dedup); Phase 3
     delegates pair-level dedup to the polymorphic
     :func:`cos_sim_exp_tens` (in pairwise list-vs-list mode), which
-    in turn threads ``method`` and ``cancellation_threshold`` through
-    to the per-pair Möbius-vs-Bulger dispatcher.
+    in turn threads ``method`` through to the per-pair dispatcher.
 
     Parameters
     ----------
@@ -3560,8 +3474,6 @@ def _cos_sim_raw_single_multiset_batch(
     method : {'auto', 'bulger', 'centres'}, default 'auto'
         Inner-product evaluation path; threaded through to the per-pair
         single-multiset core via the inner ``cos_sim_exp_tens`` call.
-    cancellation_threshold : float, default 1e-12
-        Orbit-path cancellation guard threshold.
     verbose : bool
         Print progress.
 
@@ -3718,7 +3630,6 @@ def _cos_sim_raw_single_multiset_batch(
         mode="pairwise", dedup=dedup,
         method=method,
         normalize=normalize,
-        cancellation_threshold=cancellation_threshold,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
         verbose=verbose,

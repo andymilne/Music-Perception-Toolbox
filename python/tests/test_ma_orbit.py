@@ -22,7 +22,6 @@ from mpt.tensor import (
     _ORBIT_R_MAX_SHIPPED,
     _cos_sim_exp_tens_ma_orbit,
     _cos_sim_exp_tens_ma_pairwise,
-    _ma_has_nan,
     _select_ma_inner_product_method,
 )
 
@@ -46,8 +45,8 @@ def _disp_kwargs(r_max=3, A=1, K=8, N_x=8, N_y=8,
     four (rel, per) combinations).
 
     Ragged K_{a,n} (NaN-padded events) is handled inside the per-attr
-    IP wrapper via the safe/unsafe partition; the dispatcher does not
-    receive a ``has_nan`` flag.
+    IP wrapper by zero-weight padding; the dispatcher does not receive
+    a ``has_nan`` flag.
     """
     r_vec = np.array([r_max] * A, dtype=np.intp)
     k_vec = np.array([K] * A, dtype=np.intp)
@@ -515,7 +514,7 @@ def test_nan_in_p_attr_low_k_margin_routes_pairwise():
         verbose=False,
     )
     # Sanity: at least one density carries NaN in p_attr.
-    assert _ma_has_nan(dens_x)
+    assert any(np.isnan(M).any() for M in dens_x.p_attr)
     cos_default = cos_sim_exp_tens(dens_x, dens_y, verbose=False)
     cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert cos_default == cos_pw
@@ -558,29 +557,11 @@ def test_nan_in_p_attr_orbit_matches_pairwise_via_hybrid():
         [False], [False], [0.0],
         verbose=False,
     )
-    assert _ma_has_nan(dens_x) and _ma_has_nan(dens_y)
+    assert all(any(np.isnan(M).any() for M in d.p_attr)
+               for d in (dens_x, dens_y))
     cos_orbit = cos_sim_exp_tens(dens_x, dens_y, method='mobius', verbose=False)
     cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
     assert abs(cos_orbit - cos_pw) < 1e-8
-
-
-# ----------------------------------------------------------------------
-# Cancellation guard wired correctly on MA path
-# ----------------------------------------------------------------------
-
-
-def test_high_threshold_forces_ma_fallback():
-    """With cancellation_threshold=1.0, the guard always trips and
-    routes through pairwise; the result must equal method='bulger'.
-    """
-    rng = np.random.default_rng(seed=20260505)
-    dens_x = _build_ma_pitch_time(rng, N=6, K_pitch=4, r_pitch=2)
-    dens_y = _build_ma_pitch_time(rng, N=6, K_pitch=4, r_pitch=2)
-    cos_forced = cos_sim_exp_tens(
-        dens_x, dens_y, cancellation_threshold=1.0, verbose=False,
-    )
-    cos_pw = cos_sim_exp_tens(dens_x, dens_y, method='bulger', verbose=False)
-    assert cos_forced == cos_pw
 
 
 # ----------------------------------------------------------------------

@@ -1,6 +1,6 @@
 %% test_eval_ma_orbit.m — factored MA Möbius evaluator (mobius.evalMaOrbit)
 %
-%  Verifies the factored evaluator f(x) = sum_n prod_a [per-attribute SA
+%  Verifies the factored evaluator f(x) = sum_n prod_a [per-attribute single-multiset
 %  density](x_a) against two references:
 %    1. the existing joint-centres MA path (evalExpTens 'method','centres'),
 %       for internal consistency across abs/rel/mixed/periodic and N>1;

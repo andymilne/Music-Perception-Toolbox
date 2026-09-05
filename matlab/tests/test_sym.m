@@ -3,7 +3,7 @@
 %  Mirror of the Python tests/test_sym.py. Covers the sym-flag
 %  specification §10:
 %
-%   * r = 1: the flag is vacuous; isSym true/false coincide (SA + MA).
+%   * r = 1: the flag is vacuous; isSym true/false coincide (single-multiset + MA).
 %   * r = K: isSym = false deposits the single ordered tuple; isSym =
 %     true deposits the full S_K orbit (K! tuples).
 %   * 1 < r < K: isSym = false is the de-reflected isSym = true density,
@@ -41,7 +41,7 @@ d_sym = buildExpTens(p4, [], 1, 1, false, false, 0, true,  'verbose', false);
 d_ord = buildExpTens(p4, [], 1, 1, false, false, 0, false, 'verbose', false);
 v_sym = evalExpTens(d_sym, xg, 'verbose', false);
 v_ord = evalExpTens(d_ord, xg, 'verbose', false);
-results{end+1,1} = 'sym: r=1 vacuous (SA eval coincides)';
+results{end+1,1} = 'sym: r=1 vacuous (single-multiset eval coincides)';
 results{end,2}   = max(abs(v_sym(:) - v_ord(:))) < 1e-12;
 
 Pma = {[0 4 7]};   % one attribute, 1 value, 3 events
@@ -73,7 +73,7 @@ for ii = 1:numel(rTests)
         && size(do_.U_perm{1}, 2) == expOrd(ii) ...
         && size(ds_.U_perm{1}, 2) == expSym(ii);
 end
-results{end+1,1} = 'sym: SA u_perm column counts (ordered vs symmetric)';
+results{end+1,1} = 'sym: single-multiset u_perm column counts (ordered vs symmetric)';
 results{end,2}   = okCounts;
 
 % r = K: single ordered tuple in listed order.
@@ -138,7 +138,7 @@ sL_ord = cosSimExpTens( ...
     buildExpTens(ascL,  [], 50, 2, false, false, 0, false, 'verbose', false), ...
     buildExpTens(descL, [], 50, 2, false, false, 0, false, 'verbose', false), ...
     'verbose', false);
-results{end+1,1} = 'sym: large-K ordered cosine not symmetrised (SA routing)';
+results{end+1,1} = 'sym: large-K ordered cosine not symmetrised (single-multiset routing)';
 results{end,2}   = abs(sL_sym - 1) < 1e-9 && sL_ord < 1 - 1e-4;
 
 ML  = {(0:5).'};        % 6 values, 1 event
@@ -295,18 +295,18 @@ results{end,2}   = errorMessageContains( ...
 %  Ordered renyi2 at r > 1 computes (no orbit); golden vs Python
 % ---------------------------------------------------------------------
 
-% SA raw form: ordered absolute r=2, sigma=1, base 2 (default).
+% single-multiset raw form: ordered absolute r=2, sigma=1, base 2 (default).
 hOrdSingleMultiset = entropyExpTens(p3, [], 1, 2, false, false, 0, false, ...
                         'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'sym: renyi2 SA ordered r2 finite';
+results{end+1,1} = 'sym: renyi2 single-multiset ordered r2 finite';
 results{end,2}   = isfinite(hOrdSingleMultiset);
-results{end+1,1} = 'sym: renyi2 SA ordered r2 matches Python golden';
+results{end+1,1} = 'sym: renyi2 single-multiset ordered r2 matches Python golden';
 results{end,2}   = abs(hOrdSingleMultiset - 5.120408605589989) < 1e-6;
 
 % r = 1 ordered is exempt ([sym] vacuous) and must still compute.
 hOrdR1 = entropyExpTens(p3, [], 1, 1, false, false, 0, false, ...
                         'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'sym: renyi2 SA ordered r1 finite';
+results{end+1,1} = 'sym: renyi2 single-multiset ordered r1 finite';
 results{end,2}   = isfinite(hOrdR1);
 
 % MA flat-ordered attribute (positional form): r=2 absolute, sigma=2.

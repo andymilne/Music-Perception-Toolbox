@@ -1,7 +1,11 @@
 function R = contract(operands, opAxes, freeAxes)
-%MOBIUS.CONTRACT  Generic tensor contraction over labelled axes.
+%REFERENCE.CONTRACT  Generic tensor contraction over labelled axes.
 %
-%   R = MOBIUS.CONTRACT(OPERANDS, OPAXES, FREEAXES) contracts a list of
+%   Test oracle only (tests/reference): the dynamic-dispatch form that
+%   MOBIUS.EXECUTERECIPE / MOBIUS.BUILDCONTRACTRECIPE replaced at
+%   runtime, kept so the recipe path can be checked against it.
+%
+%   R = REFERENCE.CONTRACT(OPERANDS, OPAXES, FREEAXES) contracts a list of
 %   tensors into a single tensor by summing over all axis labels that
 %   are not in FREEAXES. The contraction is performed greedily by
 %   pairwise merges, mirroring what np.einsum(..., optimize=True) does
@@ -38,7 +42,7 @@ function R = contract(operands, opAxes, freeAxes)
 
     N = numel(operands);
     if N ~= numel(opAxes)
-        error('mobius:contract:countMismatch', ...
+        error('reference:contract:countMismatch', ...
             'numel(operands) must equal numel(opAxes).');
     end
 
@@ -195,11 +199,11 @@ function [merged, mergedAxes] = mergePair(A, axA, B, axB, otherAxes, freeAxes)
 
     % Sanity: keep and contract sizes must match.
     if ~isequal(szKeepA, szKeepB)
-        error('mobius:contract:keepShapeMismatch', ...
+        error('reference:contract:keepShapeMismatch', ...
             'keep-shared axis sizes differ between operands.');
     end
     if ~isequal(szContractA, szContractB)
-        error('mobius:contract:contractShapeMismatch', ...
+        error('reference:contract:contractShapeMismatch', ...
             'contraction axis sizes differ between operands.');
     end
 

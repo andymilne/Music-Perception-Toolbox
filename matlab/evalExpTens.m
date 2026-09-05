@@ -26,8 +26,10 @@ function vals = evalExpTens(varargin)
 %   List mode. Iterates over a cell array of density structs,
 %   returning a 1-by-n cell array of value vectors. The X argument is
 %   broadcast to all densities, or a length-n cell of per-density query
-%   matrices may be passed for per-density evaluation. Option II shape
-%   rule: a length-1 list returns a length-1 cell.
+%   matrices may be passed for per-density evaluation; 'method',
+%   'truncationSigmas' and 'kernelPrecision' are forwarded to every
+%   entry. Option II shape rule: a length-1 list returns a length-1
+%   cell.
 %
 %   vals = evalExpTens(P, W, sigma, r, isRel, isPer, period, X [, normalize]):
 %   Batched-raw mode. P is an nRows-by-K matrix of pitches (rows
@@ -168,9 +170,14 @@ function vals = evalExpTens(varargin)
 %                 the global default (factory: 6).
 %     'kernelPrecision' — 'double', 'single', or [] for the global
 %                 default. Override the toolbox-wide kernelPrecision
-%                 setting for this call. Centres path only; 'single'
-%                 casts the kernel matrix to float32 for a ~2x speedup
-%                 at ~7 sig fig precision.
+%                 setting for this call. Honoured on every route ---
+%                 the Möbius evaluator and each centres leaf (the
+%                 single-multiset kernel, the factored per-attribute
+%                 kernel and the joint accumulator) --- and forwarded
+%                 through the list and batched forms; 'single' casts
+%                 the hot-loop arrays to float32 for a ~2x speedup at
+%                 ~7 sig fig precision. The Python twin honours it on
+%                 the same routes.
 %
 %   See also buildExpTens, cosSimExpTens.
 
@@ -365,7 +372,8 @@ elseif iscell(firstArg) && ~isempty(firstArg)
         if nArgs ~= 2
             error(USAGE_MSG);
         end
-        vals = localEvalDensityList(firstArg, varargin{2}, normalize, verbose);
+        vals = localEvalDensityList(firstArg, varargin{2}, normalize, ...
+            verbose, method, truncationSigmas, kernelPrecision);
         return;
     end
     if isnumeric(firstArg{1})
@@ -417,7 +425,8 @@ elseif isnumeric(firstArg)
         vals = localEvalBatchedRaw( ...
             varargin{1}, varargin{2}, varargin{3}, varargin{4}, ...
             varargin{5}, varargin{6}, varargin{7}, varargin{8}, ...
-            isSymRaw, normalize, verbose, truncationSigmas, kernelPrecision);
+            isSymRaw, normalize, verbose, truncationSigmas, kernelPrecision, ...
+            method);
         return;
     end
     % single multiset raw: numeric vector or scalar.
@@ -555,16 +564,10 @@ vals = [];
 ranOrbit = false;
 if strcmp(chosen, 'mobius')
     vals = localEvalSingleMultisetOrbit(dens, X, false, truncationSigmas, kernelPrecision);
-    % Post-hoc finiteness fallback. Mirrors the cosine-path safety net:
-    % if the Möbius alternating partition sum produces non-finite output (extreme
-    % sigma -> 0 regime), fall back to centres rather than propagating
-    % NaN/Inf into the user's result.
-    if ~all(isfinite(vals(:)))
-        if verbose
-            warning('evalExpTens:mobiusNonFiniteFallback', ...
-                    ['evalExpTens Möbius method produced non-finite ' ...
-                     'values; falling back to centres path.']);
-        end
+    % Post-hoc finiteness guard, shared with the multi-attribute routes
+    % (localMobiusNonFinite): this corner keeps its own Möbius stack, so
+    % it calls the one guard rather than owning a copy of it.
+    if localMobiusNonFinite(vals)
         chosen = 'centres';
     else
         ranOrbit = true;
@@ -896,6 +899,7 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
         maChosen = 'centres';
         maReason = 'user override';
     elseif strcmp(method, 'mobius')
+        localRejectOrderedForMobius(dens);
         maChosen = 'mobius';
         maReason = 'user override';
     else
@@ -923,27 +927,24 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
             vArgs = [vArgs, {'kernelPrecision', kernelPrecision}];
         end
         valsRaw = mobius.evalMaOrbit(dens, Xjoint, vArgs{:});
-        vals = valsRaw(:).';   % row, matching the centres path shape
-        vals = localMaNormalise(vals, dens, normalize, ...
-            dimPerAttr, innerR, sigmaG, wJ, A);
-        return;
+        % Post-hoc finiteness guard: on a trip, fall through to the
+        % centres routes below rather than return NaN/Inf.
+        if ~localMobiusNonFinite(valsRaw)
+            vals = valsRaw(:).';   % row, matching the centres path shape
+            vals = localMaNormalise(vals, dens, normalize, ...
+                dimPerAttr, innerR, sigmaG, wJ, A);
+            return;
+        end
+        internal.maybeShowDispatchMsg('evalExpTens (MAET)', 'centres', ...
+            'post-hoc guard: non-finite Möbius output');
     end
 
-    % --- Multi-attribute factored centres path ---
-    % The joint density factors within each event as a product across
-    % attributes, so eval = sum_events prod_attributes S_a^(event). Each
-    % per-attribute factor is evaluated through the culled kernel from the
-    % same per-attribute (pAttr, w) fields the mobius path uses, so the
-    % joint tuple set (the product of per-attribute counts) is not
-    % accumulated. Falls back to the joint accumulator below when
-    % unsupported (any r_a < 2, or a matrix-valued kernel covariance).
-    factored = localMaEvalFactored(dens, Xc, nQ, innerR, ...
-        truncationSigmas, kernelPrecision);
-    if ~isempty(factored)
-        vals = localMaNormalise(factored, dens, normalize, ...
-            dimPerAttr, innerR, sigmaG, wJ, A);
-        return;
-    end
+    % --- Joint-centres accumulator ---
+    % The factored centres route (localMaEvalFactored) is not retried
+    % here: this function is reached only after localMaSkinnyDispatch
+    % has declined the shape, which happens exactly when that route is
+    % unsupported (any r_a < 2, or a matrix-valued kernel covariance),
+    % so a second attempt could only return empty.
 
     % --- Estimated computation time (use total dim as a conservative proxy) ---
     nPairs = double(N_J) * double(nQ);
@@ -1273,6 +1274,7 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
     if strcmp(method, 'centres')
         maChosen = 'centres'; maReason = 'user override';
     elseif strcmp(method, 'mobius')
+        localRejectOrderedForMobius(dens);
         maChosen = 'mobius'; maReason = 'user override';
     else
         [maChosen, maReason] = internal.selectMaEval( ...
@@ -1296,10 +1298,17 @@ function [handled, vals] = localMaSkinnyDispatch(dens, X, normalize, ...
             vArgs = [vArgs, {'kernelPrecision', kernelPrecision}];
         end
         valsRaw = mobius.evalMaOrbit(dens, Xjoint, vArgs{:});
-        vals = localMaNormaliseSkinny(valsRaw(:).', dens, normalize, ...
-            dimPerAttr, innerR, A);
-        handled = true;
-        return;
+        % Post-hoc finiteness guard: a non-finite Möbius value is not a
+        % density value, so fall through to the centres routes below
+        % (factored here, else the joint accumulator in localEvalMA).
+        if ~localMobiusNonFinite(valsRaw)
+            vals = localMaNormaliseSkinny(valsRaw(:).', dens, normalize, ...
+                dimPerAttr, innerR, A);
+            handled = true;
+            return;
+        end
+        maChosen = 'centres';
+        maReason = 'post-hoc guard: non-finite Möbius output';
     end
 
     % Centres route: try the factored evaluator (no joint build). If the
@@ -1523,6 +1532,15 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
                 end
                 if isPerV(a)
                     kw = [kw, {'isPer', true, 'period', periodV(a)}];
+                    % The attribute's declared wrap goes with it, as on
+                    % the single-multiset and joint centres routes:
+                    % without it a 'single-image' abs-per attribute was
+                    % evaluated full-image whenever this route was taken.
+                    if isfield(dens, 'wrap') && iscell(dens.wrap) ...
+                            && numel(dens.wrap) >= a ...
+                            && ~isempty(dens.wrap{a})
+                        kw = [kw, {'wrap', char(dens.wrap{a})}];
+                    end
                 end
                 if ~isempty(truncationSigmas)
                     kw = [kw, {'truncationSigmas', truncationSigmas}];
@@ -1743,12 +1761,28 @@ end
 %  Unified dispatch helpers: density-list and batched-raw modes.
 % =====================================================================
 
-function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
+function valsCell = localEvalDensityList(densCell, Xarg, normalize, ...
+                                         verbose, method, ...
+                                         truncationSigmas, kernelPrecision)
 %LOCALEVALDENSITYLIST Evaluate a list of density structs at query points.
 %
 %   X is either broadcast (a single matrix or non-cell input) or
-%   per-density (a cell array of length numel(densCell)).
+%   per-density (a cell array of length numel(densCell)). METHOD,
+%   TRUNCATIONSIGMAS and KERNELPRECISION are forwarded to every entry,
+%   as the Python list form forwards them (earlier versions forwarded
+%   ``normalize`` and ``verbose`` alone, so a forced route or a per-call
+%   width was silently ignored in list mode).
 
+    if nargin < 5 || isempty(method); method = 'auto'; end
+    if nargin < 6; truncationSigmas = []; end
+    if nargin < 7; kernelPrecision = []; end
+    entryKw = {'verbose', verbose, 'method', method};
+    if ~isempty(truncationSigmas)
+        entryKw = [entryKw, {'truncationSigmas', truncationSigmas}];
+    end
+    if ~isempty(kernelPrecision)
+        entryKw = [entryKw, {'kernelPrecision', kernelPrecision}];
+    end
     n = numel(densCell);
 
     % Decide whether Xarg is per-density or broadcast.
@@ -1787,23 +1821,24 @@ function valsCell = localEvalDensityList(densCell, Xarg, normalize, verbose)
         else
             Xi = Xarg;
         end
-        valsCell{i} = evalExpTens(densCell{i}, Xi, normalize, ...
-            'verbose', verbose);
+        valsCell{i} = evalExpTens(densCell{i}, Xi, normalize, entryKw{:});
     end
 end
 
 
-function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose, truncationSigmas, kernelPrecision)
+function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isSym, normalize, verbose, truncationSigmas, kernelPrecision, method)
 %LOCALEVALBATCHEDRAW Batched evaluation from a 2-D pitch matrix.
 %
 %   P is nRows-by-K; X is shared across all rows. Returns an
 %   nRows-by-nQ matrix of values (one row per multiset).
 %
-%   truncationSigmas and kernelPrecision are forwarded to the per-row
-%   evaluation so a caller-supplied kernel width applies uniformly across
-%   every row (an empty value defers to the toolbox default downstream).
+%   truncationSigmas, kernelPrecision and method are forwarded to the
+%   per-row evaluation so a caller-supplied kernel width and route apply
+%   uniformly across every row (an empty value defers to the toolbox
+%   default downstream), as the Python batched form forwards them.
     if nargin < 12, truncationSigmas = []; end
     if nargin < 13, kernelPrecision  = []; end
+    if nargin < 14 || isempty(method), method = 'auto'; end
 
     % The per-row dedup keys rows by a multiset canonical form, which
     % collapses rows that share a multiset but differ in order. That is
@@ -1843,7 +1878,7 @@ function vals = localEvalBatchedRaw(P, W, sigma, r, isRel, isPer, period, X, isS
         end
     end
 
-    rowKw = {'verbose', verbose};
+    rowKw = {'verbose', verbose, 'method', method};
     if ~isempty(truncationSigmas)
         rowKw = [rowKw, {'truncationSigmas', truncationSigmas}];
     end
@@ -1901,5 +1936,49 @@ function vals = localMaNormalise(vals, dens, normalize, ...
             warning('evalExpTens:zeroSumW', ...
                     'Sum of weight products is zero; cannot normalise to pdf.');
         end
+    end
+end
+
+
+function tripped = localMobiusNonFinite(vals)
+%LOCALMOBIUSNONFINITE  Post-hoc guard on a Möbius point-evaluation result.
+%   True (with a warning) when any value is non-finite --- an overflowed
+%   alternating sum, or a NaN from a degenerate block --- so the caller
+%   re-evaluates through the centres path, which never cancels. One
+%   guard for every route (single-multiset, skinny and joint), gated
+%   like the cosine path's guard on mptDefaults('postHocGuards'). Twin
+%   of the guard in the Python _eval_exp_tens_ma.
+    tripped = false;
+    if ~logical(mptDefaults('postHocGuards'))
+        return;
+    end
+    if all(isfinite(vals(:)))
+        return;
+    end
+    tripped = true;
+    warning('evalExpTens:mobiusNonFiniteFallback', ...
+            ['evalExpTens: the Möbius evaluator returned non-finite ' ...
+             'values; falling back to the centres path for this call.']);
+end
+
+
+function localRejectOrderedForMobius(dens)
+%LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered attribute.
+%
+%   The Möbius decomposition sums over set partitions of {1, ..., r},
+%   which realises the symmetrised tuple set; on an ordered ([sym]=0)
+%   attribute at r > 1 that is a different density, not a faster route
+%   to the same one, so an explicit request is an error rather than a
+%   silent symmetrisation. The single-multiset path carries the same
+%   check inline; this is its MA twin, and the twin of the Python
+%   _reject_ordered_for_mobius, which runs for every density shape.
+    if internal.hasOrderedAttr(dens)
+        error('mpt:evalExpTens:orderedMobius', ...
+            ['method=''mobius'' is not available for an ordered ' ...
+             '([sym]=0) attribute at r > 1: the Möbius decomposition ' ...
+             'sums over set partitions of {1, ..., r}, which ' ...
+             'realises the symmetrised tuple set and so evaluates a ' ...
+             'different density. Use method=''centres'' (or ' ...
+             'method=''auto'', which selects it).']);
     end
 end

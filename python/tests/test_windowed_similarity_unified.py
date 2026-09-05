@@ -101,8 +101,8 @@ class TestScalarScalar:
         the v2.2.0 temporary-defaults stop-gap). At
         truncation_sigmas=inf and kernel_precision='double', the result
         must be identical to the default-mode call. At a tight
-        truncation (e.g., 6 sigma), the result must match the default
-        to numerical precision."""
+        truncation (e.g., 6 sigma), the result must match the
+        untruncated one inside the truncation error."""
         prof_default = windowed_tensor_similarity(context_dens, queries_three[0], window_spec, offsets_grid,
             verbose=False,
         )
@@ -112,11 +112,14 @@ class TestScalarScalar:
             verbose=False,
         )
         np.testing.assert_array_equal(prof_default, prof_inf)
-        # Tight truncation: still matches default to high precision.
+        # Tight truncation is honoured (the log kernel is cut at the
+        # resolved width), so the result is not bit-identical to the
+        # untruncated one; it matches it inside the truncation error,
+        # of order exp(-6^2 / 2) ~ 1.5e-8 per kernel entry.
         prof_trunc = windowed_tensor_similarity(context_dens, queries_three[0], window_spec, offsets_grid,
             truncation_sigmas=6.0, verbose=False,
         )
-        np.testing.assert_allclose(prof_default, prof_trunc, atol=1e-12)
+        np.testing.assert_allclose(prof_inf, prof_trunc, atol=1e-6)
 
     def test_peak_location_is_meaningful(
         self, context_dens, queries_three, offsets_grid, window_spec,

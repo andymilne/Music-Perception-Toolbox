@@ -164,7 +164,14 @@ function H = entropyExpTens(varargin)
 %                         (kernel floor exp(-k^2/2)). For
 %                         method='differential' this also anchors the
 %                         convergence tolerance
-%                         max(exp(-truncationSigmas^2/2), 1e-12).
+%                         max(exp(-truncationSigmas^2/2), 1e-12). On the
+%                         Shannon / normalized cell-mass path of an
+%                         absolute density the resolved width fixes how
+%                         many periodic images a wrap = 'full-image'
+%                         attribute's wrapped-Gaussian cell masses sum
+%                         (INTERNAL.WRAPPEDKERNELIMAGECOUNT, density
+%                         convention); a 'single-image' attribute takes
+%                         the minimum-image cell mass.
 %                         [] (default) means use the global default
 %                         (factory: Inf).
 %       'kernelPrecision' - 'double' (default via mptDefaults), 'single',
@@ -514,13 +521,11 @@ function H = localEntropySingleMultiset(maet, nvArgs)
     % covariance in the effective coordinates); pending the v2.3
     % covariance machinery we fall back to point-evaluation here too.
     if ~logical(T.isRel)
-        % Bin-integration cell-mass path. truncationSigmas is
-        % plumbed for signature parity with the point-evaluation
-        % branches --- localCellMassesSingleMultisetAbsolute's per-axis erf
-        % differences are exact and do not truncate --- but is
-        % still resolved via the contract helper so a user Inf
-        % never propagates to the interior. Empty resolves to the
-        % global default; Inf resolves to the accuracy-floor width.
+        % Bin-integration cell-mass path. The resolved truncationSigmas
+        % (empty resolves to the global default, Inf to the accuracy-
+        % floor width) fixes the image count of a full-image periodic
+        % axis's wrapped-Gaussian cell masses; a non-periodic axis's erf
+        % differences are exact and never truncate.
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         Tx = internal.singleMultisetView(internal.ensureExpTensExpensive(maet));
         t = localCellMassesSingleMultisetAbsolute(Tx, x1, ts);
@@ -665,8 +670,8 @@ function H = localEntropyMA(dens, nvArgs)
     isWindowed = isfield(dens, 'tag') && strcmp(dens.tag, 'WindowedMaetDensity');
     isAbs = ~any(logical(base_dens.isRel));
     if ~isWindowed && isAbs
-        % Bin-integration cell-mass path (see the single multiset sibling above for
-        % the truncationSigmas contract note).
+        % Bin-integration cell-mass path (see the single multiset sibling
+        % above: the resolved width fixes the full-image image count).
         ts = internal.accuracyFloor('resolve', nvArgs.truncationSigmas);
         densX = internal.ensureExpTensExpensive(base_dens);
         t = localCellMassesMAAbsolute(densX, axes1D, ts);
@@ -1008,30 +1013,68 @@ function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
 end
 
 
-function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, period, truncationSigmas) %#ok<INUSD>
-%LOCALPHIDIFFAXISPERIODIC  Periodic per-axis erf-difference cell mass (minimum-image).
+function Mat = localPhiDiffAxisPeriodic(centres, edgesLo, edgesHi, sigma, ...
+                                        period, truncationSigmas, wrap)
+%LOCALPHIDIFFAXISPERIODIC  Periodic per-axis erf-difference cell mass, on
+%   the declared wrap.
 %
-%   The kernel is the minimum-image Gaussian on the circle of
-%   circumference period: each edge offset is wrapped componentwise to
-%   [-period/2, period/2), the same wrap of the difference used by
-%   evalExpTens and the cosine inner product. A bin straddling a centre's
-%   antipode --- where the wrap flips the edge order --- receives the full
-%   wrap-around mass erf(period / (2 sqrt(2) sigma)). The masses are
-%   renormalized to sum to one by the entropy cores (which divide by their
-%   total), absorbing the sub-unit mass of the truncated circle.
-%   truncationSigmas is accepted for call-signature parity with the
-%   non-periodic path and is unused.
+%   wrap = 'full-image' (the default measure of an absolute-periodic
+%   attribute) integrates the *wrapped* Gaussian, the density the
+%   attribute declares and the one evalExpTens and the cosine inner
+%   product evaluate under that wrap: each cell's mass is the erf
+%   difference summed over the periodic images n = -L..L of the centre,
+%   with L the image count the resolved truncation width admits under
+%   the density-kernel convention (INTERNAL.WRAPPEDKERNELIMAGECOUNT with
+%   exponent denominator 2; the first omitted image lies below the
+%   truncation floor). The lower edge offset is reduced to its nearest
+%   image first, so the symmetric image set is centred on the dominant
+%   term, and the upper edge follows it at the cell width, so no cell is
+%   ever split by the wrap. Because the wrapped density is normalised on
+%   the circle, the masses of a full grid sum to the total weight (to
+%   the floor); L = 0 --- the regime where the nearest image alone meets
+%   the floor --- is the single Gaussian on the nearest image.
+%
+%   wrap = 'single-image' is the minimum-image reading: each edge offset
+%   is wrapped componentwise to [-period/2, period/2), the same wrap of
+%   the difference the single-image kernel applies, and a bin straddling
+%   a centre's antipode --- where the wrap flips the edge order ---
+%   receives the full wrap-around mass erf(period / (2 sqrt(2) sigma)).
+%   The masses are renormalized to sum to one by the entropy cores
+%   (which divide by their total), absorbing the sub-unit mass of the
+%   truncated circle.
+%
+%   Below the sigma/period regime where images overlap the two readings
+%   agree inside the floor; above it they are different measures, and
+%   the attribute's wrap picks the one wanted, as it does on every other
+%   route. Mirror of Python entropy._phi_diff_axis_periodic.
 
+    if nargin < 7 || isempty(wrap)
+        wrap = 'full-image';
+    end
     centres = centres(:);
     edgesLo = edgesLo(:).';
     edgesHi = edgesHi(:).';
     inv = 1.0 / (sigma * sqrt(2));
+    if strcmp(wrap, 'single-image')
+        a = edgesLo - centres;
+        a = a - period * round(a / period);
+        b = edgesHi - centres;
+        b = b - period * round(b / period);
+        Mat = 0.5 * (erf(b * inv) - erf(a * inv));
+        Mat = Mat + (a > b) .* erf((0.5 * period) * inv);
+        return;
+    end
+    L = internal.wrappedKernelImageCount(sigma, period, truncationSigmas, 2);
+    width = edgesHi - edgesLo;
     a = edgesLo - centres;
     a = a - period * round(a / period);
-    b = edgesHi - centres;
-    b = b - period * round(b / period);
+    b = a + width;
     Mat = 0.5 * (erf(b * inv) - erf(a * inv));
-    Mat = Mat + (a > b) .* erf((0.5 * period) * inv);
+    for n = 1:L
+        shift = n * period;
+        Mat = Mat + 0.5 * (erf((b + shift) * inv) - erf((a + shift) * inv));
+        Mat = Mat + 0.5 * (erf((b - shift) * inv) - erf((a - shift) * inv));
+    end
 end
 
 
@@ -1164,8 +1207,10 @@ end
 
 function M = localAxisMat(spec, sel, truncationSigmas)
 %LOCALAXISMAT  Per-axis (nJ x nCells) erf-difference cell-mass matrix for
-%   one axis spec (fields: cents, lo, hi, sigma, isPer, per). sel selects
-%   a subset of cells; pass [] for all cells.
+%   one axis spec (fields: cents, lo, hi, sigma, isPer, per, wrap). sel
+%   selects a subset of cells; pass [] for all cells. truncationSigmas
+%   is the resolved width whose floor fixes a full-image periodic axis's
+%   image count.
     if isempty(sel)
         lo = spec.lo;
         hi = spec.hi;
@@ -1174,8 +1219,12 @@ function M = localAxisMat(spec, sel, truncationSigmas)
         hi = spec.hi(sel);
     end
     if spec.isPer
+        wrapA = 'full-image';
+        if isfield(spec, 'wrap') && ~isempty(spec.wrap)
+            wrapA = char(spec.wrap);
+        end
         M = localPhiDiffAxisPeriodic(spec.cents, lo, hi, spec.sigma, ...
-                                     spec.per, truncationSigmas);
+                                     spec.per, truncationSigmas, wrapA);
     else
         M = localPhiDiffAxis(spec.cents, lo, hi, spec.sigma);
     end
@@ -1280,11 +1329,21 @@ function cells = localCellMassesSingleMultisetAbsolute(T, ax, truncationSigmas)
     % single axis repeated across the dim effective dimensions) but a
     % different centres row. Stream the leading axis in cell blocks for
     % dim <= 2 via the shared contraction.
+    % The declared wrap (the single-multiset view carries it as a bare
+    % char) selects the periodic cell mass, as on the general path.
+    wrapA = 'full-image';
+    if isfield(T, 'wrap') && ~isempty(T.wrap)
+        if iscell(T.wrap)
+            wrapA = char(T.wrap{1});
+        else
+            wrapA = char(T.wrap);
+        end
+    end
     [lo, hi] = localAxisEdges(ax, isPer, per);
     axisSpecs = cell(1, dim);
     for d = 1:dim
         axisSpecs{d} = struct('cents', C(d, :), 'lo', lo, 'hi', hi, ...
-            'sigma', sig, 'isPer', isPer, 'per', per);
+            'sigma', sig, 'isPer', isPer, 'per', per, 'wrap', wrapA);
     end
     cells = localContractCellAxes(wJ, axisSpecs, truncationSigmas);
 end
@@ -1327,7 +1386,11 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
     end
 
     % Collect per-effective-axis specs; the shared contraction streams
-    % the leading axis in cell blocks for D <= 2.
+    % the leading axis in cell blocks for D <= 2. Each periodic axis
+    % carries its attribute's declared wrap: the cell masses are those
+    % of the density the attribute declares (wrapped Gaussian under
+    % 'full-image', minimum-image under 'single-image'), as on every
+    % other route that reads the wrap.
     axisSpecs = {};
     axisD = 0;
     for a = 1:A
@@ -1339,13 +1402,24 @@ function cells = localCellMassesMAAbsolute(dens, axes, truncationSigmas)
         else
             perA = 0.0;
         end
+        wrapA = 'full-image';
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+            if iscell(dens.wrap)
+                if a <= numel(dens.wrap) && ~isempty(dens.wrap{a})
+                    wrapA = char(dens.wrap{a});
+                end
+            else
+                wrapA = char(dens.wrap);
+            end
+        end
         Ca = double(Centres{a});  % (da x nJ)
         for sub = 1:da
             axisD = axisD + 1;
             ax = axes{axisD};
             [lo, hi] = localAxisEdges(ax, isPerA, perA);
             axisSpecs{axisD} = struct('cents', Ca(sub, :), 'lo', lo, ...
-                'hi', hi, 'sigma', sig, 'isPer', isPerA, 'per', perA); %#ok<AGROW>
+                'hi', hi, 'sigma', sig, 'isPer', isPerA, 'per', perA, ...
+                'wrap', wrapA); %#ok<AGROW>
         end
     end
 
@@ -2008,12 +2082,14 @@ function H = localRenyi2SingleMultiset(maet, base)
         return;
     end
 
-    % r=1 rel is degenerate: the relative density lives on a 0-D space
-    % (one position has no internal relative structure); H_2 is
-    % undefined as a continuous quantity. Return 0 by convention,
-    % matching the MA path's empty-density short circuit.
+    % r = 1 rel is degenerate: the relative density lives on a 0-D space
+    % (one position has no internal relative structure). The convention
+    % (no entropy: unit overlap, unit mass, hence H_2 = 0) is owned by the
+    % general per-attribute loop in localRenyi2MA; delegate so that the
+    % corner returns exactly what the same attribute returns inside any
+    % multi-attribute density.
     if r == 1 && isRel
-        H = 0;
+        H = localRenyi2MA(maet, base);
         return;
     end
 
@@ -2098,6 +2174,19 @@ function H = localRenyi2MA(dens, base)
 %   where each Z_a^{(n)} is the closed-form single multiset total mass evaluated on
 %   event n's attribute-a pitches and weights.
 %
+%   A *relative* attribute at r = 1 is a 0-dimensional point mass: a
+%   single value has no internal relative structure, so the attribute's
+%   kernel is a delta at the origin of a 0-D space and its collision
+%   entropy is undefined as a continuous quantity. By convention it
+%   contributes *no* entropy, which in the product factorisation means
+%   I_a(n, m) = 1 for every event pair and Z_a^{(n)} = 1 for every event
+%   (a unit point mass whose self-overlap is 1). A density whose only
+%   attribute is of this kind therefore has H_2 = -log_b(N^2 / N^2) = 0
+%   for any number of events, and the single-multiset corner
+%   (localRenyi2SingleMultiset, A = N = 1) inherits the value 0 from this
+%   general loop rather than owning a convention of its own. The Python
+%   twin (_renyi2_exp_tens_ma) applies the same rule.
+%
 %   Windowed densities are not supported on this path.
 
     if strcmp(dens.tag, 'WindowedMaetDensity')
@@ -2160,6 +2249,14 @@ function H = localRenyi2MA(dens, base)
         orderedFlat = ~isNested(a) && ~isSymVec(a) && (rVec(a) > 1);
         if isNested(a) || orderedFlat
             [I_xx, Z_a] = localRenyi2PerAttrNumerical(dens, a);
+        elseif dens.isRel(a) && dens.r(a) == 1
+            % Relative r = 1: a 0-D point mass with no entropy by
+            % convention (see the header). Unit overlap and unit mass
+            % leave the product factorisation untouched, so the attribute
+            % neither raises nor lowers H_2; a density consisting of this
+            % attribute alone yields exactly 0.
+            I_xx = ones(N, N);
+            Z_a = ones(N, 1);
         else
             r_a = dens.r(a);
             sigma_g = dens.sigma(a);

@@ -1,15 +1,6 @@
-"""v2.2.x — unified dispatcher + probe-based estimator.
-
-Verifies:
-    * Hard rules decide without probing (user override, r<=1,
-      K-r<2, tiny n_q, centres-memory budget).
-    * Probing fires for non-trivial workloads and produces an estimate.
-    * The dispatch-decision message prints when ``verbose=True`` and a
-      probe ran, and is silent otherwise.
-    * Probe-based path selection produces FP-identical results to
-      explicit method= overrides (the dispatcher only picks a path; it
-      does not mutate the answer).
-"""
+"""Multi-attribute eval dispatcher: the dispatch message and the
+FP-identity of the auto-selected path with the explicit overrides (the
+selector only picks a path; it does not mutate the answer)."""
 from __future__ import annotations
 
 import numpy as np
@@ -17,11 +8,6 @@ import pytest
 
 import mpt
 from mpt import add_spectra, build_exp_tens, eval_exp_tens
-from mpt.tensor import (
-    _estimate_centres_array_bytes,
-    _CENTRES_PROBE_MEM_BUDGET,
-    _PROBE_MIN_N_Q,
-)
 
 
 # -----------------------------------------------------------------------
@@ -30,7 +16,7 @@ from mpt.tensor import (
 
 
 def _make_dens(K=12, r=3, is_rel=True, is_per=False, sigma=12.0):
-    """Build a small single-multiset density for probing."""
+    """Build a small single-multiset density."""
     if K <= 3:
         p = np.linspace(0, 1200, K, endpoint=False)
     else:
@@ -51,36 +37,12 @@ def _make_dens(K=12, r=3, is_rel=True, is_per=False, sigma=12.0):
 
 
 # -----------------------------------------------------------------------
-# Hard rules (no probe)
-# -----------------------------------------------------------------------
-# -----------------------------------------------------------------------
-# Memory budget rule
-# -----------------------------------------------------------------------
-
-
-class TestCentresMemoryBudget:
-
-    def test_estimate_centres_array_bytes_simple(self):
-        # K=10, r=3, abs → 10*9*8 = 720 tuples × 3 dim × 8 bytes
-        n_bytes = _estimate_centres_array_bytes(10, 3, False)
-        assert n_bytes == 10 * 9 * 8 * 3 * 8
-
-    def test_estimate_centres_array_bytes_rel(self):
-        # K=10, r=3, rel → dim=r-1=2
-        n_bytes = _estimate_centres_array_bytes(10, 3, True)
-        assert n_bytes == 10 * 9 * 8 * 2 * 8
-
-    def test_k_lt_r_returns_zero(self):
-        assert _estimate_centres_array_bytes(2, 3, False) == 0
-
-
-# -----------------------------------------------------------------------
-# Probing
+# Dispatch message
 # -----------------------------------------------------------------------
 class TestVerboseDispatchMessage:
 
-    def test_message_prints_when_probed(self, capsys):
-        # K=6 r=3 abs falls through to probe (see TestProbing notes).
+    def test_message_prints_when_cost_model_decides(self, capsys):
+        # K=6 r=3 abs reaches the cost model (no structural rule fires).
         p = np.linspace(0, 1200, 6, endpoint=False)
         dens = build_exp_tens(p, np.ones(6), 12.0, 3, False, False, 0.0)
         x = np.random.uniform(0, 1200, (3, 500))
@@ -89,20 +51,19 @@ class TestVerboseDispatchMessage:
         captured = capsys.readouterr()
         assert "chose" in captured.out
         assert "path" in captured.out
-        # The message announces the routing DECISION only. The timing
-        # estimate ("estimated ... Ctrl+C to cancel") came from the probe,
-        # which was removed with the single-multiset path; time estimation
-        # is now a separate concern emitted by the executing path.
+        # The message announces the routing DECISION only; the time
+        # estimate ("estimated ... Ctrl+C to cancel") is a separate
+        # concern emitted by the executing path.
 
     def test_message_appears_when_tiny(self, capsys):
-        """Tiny workload skips probing but the dispatch message still
-        fires (unprobed format: path only, no time estimate)."""
+        """Tiny workload: the dispatch message still fires (path only,
+        no time estimate)."""
         dens = _make_dens(K=12, r=3, is_rel=True)
         x = np.random.uniform(0, 1200, (2, 50))
         mpt.reset_defaults()
         eval_exp_tens(dens, x, verbose=True)
         captured = capsys.readouterr()
-        # Unprobed format: "eval_exp_tens (MAET): chose 'centres' path." (no
+        # Format: "eval_exp_tens (MAET): chose 'centres' path." (no
         # parenthetical, no time estimate).
         assert "eval_exp_tens (MAET): chose 'centres' path." in captured.out
         assert "estimated" not in captured.out

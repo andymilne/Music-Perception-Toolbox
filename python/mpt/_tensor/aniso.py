@@ -72,10 +72,11 @@ def is_kernel_cov(sigma_entry) -> bool:
 def sigma_vec_has_kernel_cov(sigma_vec) -> bool:
     """True if any entry of a per-attribute sigma vector is a matrix."""
     if is_kernel_cov(sigma_vec):
-        # A bare 2-D array as the whole sigma_vec is ambiguous; the MA
-        # path requires a list/tuple with one entry per attribute, so a
-        # 2-D ndarray here is a single-attribute matrix only when it is
-        # the single-attribute path's scalar value -- callers handle that separately.
+        # A bare 2-D array as the whole sigma_vec is ambiguous; the
+        # multi-attribute form requires a list/tuple with one entry per
+        # attribute, so a 2-D ndarray here is one attribute's matrix only
+        # in the scalar (single-multiset) form -- callers handle that
+        # separately.
         return True
     if isinstance(sigma_vec, (list, tuple)):
         return any(is_kernel_cov(s) for s in sigma_vec)
@@ -336,8 +337,9 @@ def density_kernel_covs_compatible(dens_x, dens_y) -> bool:
     if (a is None) and (b is None):
         return True
     if isinstance(a, (list, tuple)) != isinstance(b, (list, tuple)):
-        # SA vs MA pairing is rejected elsewhere on type grounds; a
-        # bare-vs-list mismatch here means one side is scalar-form.
+        # A scalar-form against list-form pairing is rejected elsewhere
+        # on type grounds; a bare-vs-list mismatch here means one side
+        # is scalar-form.
         if a is None or b is None:
             return not (density_has_kernel_cov(dens_x)
                         or density_has_kernel_cov(dens_y))
@@ -350,8 +352,8 @@ def density_kernel_covs_compatible(dens_x, dens_y) -> bool:
 def whiten_query(dens, x):
     """Whiten a query array for a density built with kernel covariance.
 
-    SA: ``x`` is ``(dim, nQ)`` (1-D accepted when ``dim == 1``).
-    MA: ``x`` is ``(D, nQ)`` with per-attribute row blocks in attribute
+    Single-multiset: ``x`` is ``(dim, nQ)`` (1-D accepted when
+    ``dim == 1``). Multi-attribute: ``x`` is ``(D, nQ)`` with per-attribute row blocks in attribute
     order; only blocks whose attribute carries a covariance are
     transformed.
     """

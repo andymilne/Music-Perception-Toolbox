@@ -170,10 +170,24 @@ def gaussian_kernel_sum(
                 C_w, wJ_w, X_w, sigma_w,
                 float(truncation_sigmas), inv2s2,
             )
-        else:
+        elif _bucket_index_worthwhile(dim_w, nJ, nQ):
             v = _truncated_kernel_sum(
                 C_w, wJ_w, X_w, sigma_w, is_rel, r,
                 float(truncation_sigmas), inv2s2,
+            )
+        else:
+            # The bucket index costs 3**dim neighbour lookups per query
+            # before any kernel entry is touched; where that exceeds the
+            # centre count there is nothing to save, and at high
+            # dimension the (dim, nQ, 3**dim) neighbour expansion alone
+            # can exceed memory (r = 8 tuple centres against 9 centres:
+            # 142 GiB). The exact path visits every pair, chunked to the
+            # kernel budget, and agrees with the bucketed sum inside the
+            # truncation floor, which is the only scale either is
+            # stated on.
+            v = _exact_kernel_sum(
+                C_w, wJ_w, X_w, is_rel, r, is_per, dtype(period), inv2s2,
+                sigma_w, truncation_sigmas, wrap,
             )
     elif use_truncation and is_per and C_w.shape[0] == 1 and not is_rel:
         # Circular 1-D truncation, valid only when the window is
@@ -199,6 +213,22 @@ def gaussian_kernel_sum(
         )
 
     return v.astype(np.float64, copy=False)
+
+
+def _bucket_index_worthwhile(dim: int, nJ: int, nQ: int) -> bool:
+    """Whether the grid-bucket spatial index pays for itself.
+
+    Bucketing replaces a scan of all ``nJ`` centres per query by
+    ``3**dim`` neighbour-bucket lookups, so it is worthwhile only when
+    ``3**dim < nJ``; and the vectorised implementation materialises the
+    ``(dim, nQ, 3**dim)`` neighbour expansion, which must fit the kernel
+    chunk budget. Twin of MATLAB ``internal.gaussianKernelSum``'s
+    ``localBucketIndexWorthwhile``.
+    """
+    n_offsets = 3 ** int(dim)
+    if n_offsets >= int(nJ):
+        return False
+    return int(dim) * n_offsets * 8 * int(nQ) <= kernel_chunk_bytes_resolved()
 
 
 # ---------------------------------------------------------------------

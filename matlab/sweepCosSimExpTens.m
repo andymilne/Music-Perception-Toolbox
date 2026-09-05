@@ -1,4 +1,4 @@
-function s = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
+function [s, densXOut, densYOut] = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
 %SWEEPCOSSIMEXPTENS Similarity against uniform translates of a density.
 %
 %   s = sweepCosSimExpTens(densX, densY, offsets)
@@ -97,6 +97,13 @@ function s = sweepCosSimExpTens(densX, densY, offsets, nvArgs)
 %
 %   Outputs
 %       s - 1 x M similarities, indexed as the columns of offsets.
+%       densXOut, densYOut - (optional) the two input structs with the
+%                 mixture route's self inner product memoised in their
+%                 'selfIP' field under the 'sweep' route key
+%                 (INTERNAL.SELFIPKEY), as cosSimExpTens returns its
+%                 memo. Pass them back in on a later sweep to skip the
+%                 self terms; the key never crosses the pairwise or
+%                 orbit memos. Twin of the Python sweep's 'sweep' memo.
 %
 %   Errors when the sweep cannot be reduced: a swept relative attribute
 %   or a swept nested inner/intermediate one (a uniform translation
@@ -142,6 +149,13 @@ if any(~isfinite(off(:)))
           'offsets must be finite.');
 end
 M = size(off, 2);
+
+% The caller's structs, kept for the memo outputs (the pruned and
+% materialised copies below are working views, as in cosSimExpTens).
+densXIn = densX;
+densYIn = densY;
+densXOut = densXIn;
+densYOut = densYIn;
 
 densX = internal.prunedExpTens(densX);
 densY = internal.prunedExpTens(densY);
@@ -221,10 +235,13 @@ ipXY = localEvaluateMixture(centres, logW, amp, scales, threshold, ...
                             off(sweptIdx, :), M);
 
 % --- Denominators: one per sweep, not one per offset --------------------
-ipYY = localSelfIp(densY, A, tsResolved);
+% Each self term is memoised on its density under the sweep route's
+% own key, so a repeated sweep against the same context pays it once;
+% the updated structs are returned through densXOut / densYOut.
+[ipYY, densYOut] = localSelfIpMemoised(densYIn, densY, A, tsResolved);
 switch nvArgs.normalize
     case 'cosine'
-        ipXX = localSelfIp(densX, A, tsResolved);
+        [ipXX, densXOut] = localSelfIpMemoised(densXIn, densX, A, tsResolved);
         denom = sqrt(max(ipXX * ipYY, 0));
     case 'oneSidedDenom'
         denom = ipYY;
@@ -1057,6 +1074,38 @@ function idx = localUpperBound(key, q)
         hi(active & ~take) = mid(active & ~take);
     end
     idx = lo - 1;
+end
+
+
+function [val, densOut] = localSelfIpMemoised(densIn, dens, A, tsResolved)
+%LOCALSELFIPMEMOISED  Memoised <T, T> for one density (the 'sweep' key).
+%
+%   DENSIN is the caller's struct (whose 'selfIP' field, if any, is the
+%   memo to read and extend); DENS is its materialised twin the mixture
+%   reads. Returns the value and DENSIN with the memo updated. The key
+%   carries the route and the resolved truncation width, spelled by
+%   INTERNAL.SELFIPKEY so it never collides with the pairwise or orbit
+%   memos, which hold the same quantity on a different convention.
+    key = internal.selfIpKey('sweep', tsResolved, '');
+    densOut = densIn;
+    cache = struct('keys', {{}}, 'vals', zeros(1, 0));
+    if isstruct(densIn) && isfield(densIn, 'selfIP') ...
+            && isstruct(densIn.selfIP) ...
+            && isfield(densIn.selfIP, 'keys') ...
+            && isfield(densIn.selfIP, 'vals') ...
+            && iscell(densIn.selfIP.keys) ...
+            && numel(densIn.selfIP.keys) == numel(densIn.selfIP.vals)
+        cache = densIn.selfIP;
+    end
+    idx = find(strcmp(cache.keys, key), 1);
+    if ~isempty(idx)
+        val = cache.vals(idx);
+        return;
+    end
+    val = localSelfIp(dens, A, tsResolved);
+    cache.keys{end + 1} = key;
+    cache.vals(end + 1) = val;
+    densOut.selfIP = cache;
 end
 
 

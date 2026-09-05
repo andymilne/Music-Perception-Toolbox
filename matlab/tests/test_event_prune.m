@@ -18,7 +18,7 @@
 %  remains present (all-ones) on the others.
 %
 %  Liveness rule (single predicate: finite and nonzero):
-%    * SA: an element is live iff its weight is finite and nonzero.
+%    * single-multiset: an element is live iff its weight is finite and nonzero.
 %    * MA: an event is live iff EVERY attribute has at least one finite,
 %      nonzero value in that event's column (per-attribute factors
 %      multiply; an all-zero / all-NaN column kills, a partly-zero
@@ -51,7 +51,7 @@ mptDefaults('reset');
 densSingleMultiset = buildExpTens([60 62 64 66 68], [1 0 0 2 -3], 0.5, 1, ...
                       false, false, 0);
 prSingleMultiset = internal.singleMultisetView(internal.prunedExpTens(densSingleMultiset));
-results{end+1,1} = 'SA prune drops zero-weight elements, keeps finite nonzero';
+results{end+1,1} = 'single-multiset prune drops zero-weight elements, keeps finite nonzero';
 results{end,2}   = isequal(prSingleMultiset.p(:).', [60 66 68]) ...
                    && isequal(prSingleMultiset.w(:).', [1 2 -3]);
 
@@ -87,7 +87,7 @@ results{end,2}   = (prMA2.N == 2) ...
 %% -----------------------------------------------------------------
 
 densLiveSingleMultiset = buildExpTens([60 62 64], [1 1 2], 0.5, 1, false, false, 0);
-results{end+1,1} = 'SA prune returns density unchanged when all live';
+results{end+1,1} = 'single-multiset prune returns density unchanged when all live';
 results{end,2}   = isequaln(internal.prunedExpTens(densLiveSingleMultiset), densLiveSingleMultiset);
 
 densLiveMA = buildExpTens({[60 62 64], [0 1 2]}, {ones(1,3), ones(1,3)}, ...
@@ -101,7 +101,7 @@ results{end,2}   = isequaln(internal.prunedExpTens(densLiveMA), densLiveMA);
 %% Numerical invariance: dead events change nothing
 %% -----------------------------------------------------------------
 
-% --- SA Rényi-2 ---
+% --- single-multiset Rényi-2 ---
 pSingleMultiset = [60 62 64 66 68 70];
 wSingleMultiset = [1.0 0.7 1.3 0.9 1.1 0.5];
 deadSingleMultiset = [2 5];                 % zero these
@@ -113,7 +113,7 @@ H_sa_with = entropyExpTens(buildExpTens(pSingleMultiset, wSingleMultisetd, 0.5, 
 H_sa_without = entropyExpTens( ...
     buildExpTens(pSingleMultiset(keepSingleMultiset), wSingleMultiset(keepSingleMultiset), 0.5, 1, false, false, 0), ...
     'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'SA renyi2 invariant to dead events';
+results{end+1,1} = 'single-multiset renyi2 invariant to dead events';
 results{end,2}   = H_sa_with == H_sa_without;
 
 % --- MA Rényi-2 (cross-attribute kill: zero on pitch, ones on time) ---
@@ -136,7 +136,7 @@ H_ma_without = entropyExpTens(dMA_without, 'method', 'renyi2', 'verbose', false)
 results{end+1,1} = 'MA renyi2 invariant to dead events';
 results{end,2}   = H_ma_with == H_ma_without;
 
-% --- SA cosine similarity ---
+% --- single-multiset cosine similarity ---
 pX = [60 62 64 66 68];
 wX = [1 0 1 0 1];               % events 2, 4 dead
 keepX = wX ~= 0;
@@ -146,7 +146,7 @@ s_sa_with = cosSimExpTens( ...
 s_sa_without = cosSimExpTens( ...
     buildExpTens(pX(keepX), wX(keepX), 0.5, 1, false, false, 0), dQ, ...
     'verbose', false);
-results{end+1,1} = 'SA cosine invariant to dead events';
+results{end+1,1} = 'single-multiset cosine invariant to dead events';
 results{end,2}   = s_sa_with == s_sa_without;
 
 % --- MA cosine similarity ---
@@ -234,13 +234,13 @@ H_dead_ma = entropyExpTens(densDeadMA, 'method', 'renyi2', 'verbose', false);
 results{end+1,1} = 'all-dead MA renyi2 is NaN';
 results{end,2}   = isnan(H_dead_ma);
 
-% An entirely zero-mass SA density is genuinely degenerate: collision
+% An entirely zero-mass single-multiset density is genuinely degenerate: collision
 % entropy of zero mass is undefined, so renyi2 returns NaN (matching the
 % MA path and the value a windowed sweep wants at out-of-support centres)
 % rather than erroring.
 densDeadSingleMultiset = buildExpTens([60 62 64], [0 0 0], 0.5, 1, false, false, 0);
 H_dead_sa = entropyExpTens(densDeadSingleMultiset, 'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'all-dead SA renyi2 is NaN';
+results{end+1,1} = 'all-dead single-multiset renyi2 is NaN';
 results{end,2}   = isnan(H_dead_sa);
 
 

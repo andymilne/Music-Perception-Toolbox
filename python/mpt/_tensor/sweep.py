@@ -69,15 +69,6 @@ __all__ = ["sweep_cos_sim_exp_tens", "sweep_eligibility"]
 # -------------------------------------------------------------------
 
 
-class SweepNotEligible(Exception):
-    """A sweep cannot be reduced to a mixture in the offset.
-
-    Carries a human-readable reason. The explicit entry point turns it
-    into a raised error; the automatic route catches it and falls back
-    to the per-offset path.
-    """
-
-
 def sweep_eligibility(dens_x, dens_y, offsets, truncation_sigmas=None):
     """Whether ``offsets`` can be reduced to a mixture on these densities.
 
@@ -278,7 +269,6 @@ def _build_mixture(dens_x, dens_y, swept, *, truncation_sigmas):
     has_placement = {a: (not bool(dens_x.is_rel[a])) and blocks[a] == 0
                      for a in split_idx}
     swept_idx = [a for a in split_idx if swept[a] and has_placement[a]]
-    still_idx = [a for a in split_idx if not swept[a]]
     fixed_idx = [a for a in range(A) if a not in split_idx]
 
     threshold = -0.5 * float(truncation_sigmas) ** 2
@@ -961,11 +951,13 @@ def sweep_cos_sim_exp_tens(
     ts = resolve_truncation_sigmas(truncation_sigmas)
 
     if chosen == "orbit":
+        # The resolved width goes to the kernels: an explicit ``inf``
+        # must reach them as the finite accuracy-floor width, as on
+        # every other route (MATLAB: localOrbitSweep receives tsResolved).
         return _finalise_orbit_sweep(
             dx, dy, off, ts, normalize=normalize,
-            truncation_sigmas=truncation_sigmas, verbose=verbose,
+            truncation_sigmas=ts, verbose=verbose,
         )
-    A = int(dx.n_attrs)
     swept = np.any(off != 0.0, axis=1)
     centres, log_w, amp, threshold, swept_idx = _build_mixture(
         dx, dy, swept, truncation_sigmas=ts,

@@ -1118,10 +1118,10 @@ results{end+1,1} = 'windowedTensorSimilarity: output is 1 x M';
 results{end,2}   = isequal(size(prof_lm), [1, 7]);
 
 % -- windowedTensorSimilarity: truncationSigmas / kernelPrecision threaded --
-% v2.2.x: replaces the v2.2.0 mptDefaults stop-gap. Explicit Inf
-% truncation + double precision must produce identical results to
-% the default call; tight finite truncation must match the default
-% to numerical precision.
+% Explicit Inf truncation + double precision must produce identical
+% results to the default call (the isolated default is Inf); tight
+% finite truncation must match the untruncated result inside the
+% truncation error.
 prof_default_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
     offsets_vec, 'verbose', false);
 prof_inf_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
@@ -1130,10 +1130,14 @@ prof_inf_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
 results{end+1,1} = 'windowedTensorSimilarity: explicit Inf/double matches default';
 results{end,2}   = isequal(prof_default_thread, prof_inf_thread);
 
+% Tight truncation is honoured (the log kernel is cut at the resolved
+% width), so the result is not bit-identical to the untruncated one; it
+% matches it inside the truncation error, of order exp(-6^2/2) ~ 1.5e-8
+% per kernel entry.
 prof_trunc_thread = windowedTensorSimilarity(dens_w, dens_w, spec_lm, ...
     offsets_vec, 'truncationSigmas', 6, 'verbose', false);
-results{end+1,1} = 'windowedTensorSimilarity: truncationSigmas=6 matches default to 1e-12';
-results{end,2}   = all(abs(prof_default_thread - prof_trunc_thread) < 1e-12);
+results{end+1,1} = 'windowedTensorSimilarity: truncationSigmas=6 matches untruncated to 1e-6';
+results{end,2}   = all(abs(prof_inf_thread - prof_trunc_thread) < 1e-6);
 
 clear prof_default_thread prof_inf_thread prof_trunc_thread
 

@@ -38,25 +38,15 @@ import numpy as np
 import pytest
 from scipy.special import erf
 
-# This file's reference implementation uses v2.2 orbit-Möbius internals
-# (`_orbit_inner_abs`, `_window_width_params`) that are not present on
-# the v2.1 dev branch. Skip the whole module cleanly when those names
-# are unavailable so the rest of the test suite remains runnable. When
-# the v2.2 work lands these imports will resolve and the tests will
-# activate.
-try:
-    from mpt.tensor import (
-        build_exp_tens,
-        window_tensor,
-        _orbit_inner_abs,
-        _window_width_params,
-        _windowed_inner_product,
-    )
-except ImportError as _exc:
-    pytest.skip(
-        f"v2.2 orbit-Möbius internals not present on this branch: {_exc}",
-        allow_module_level=True,
-    )
+from mpt.tensor import (
+    build_exp_tens,
+    window_tensor,
+    _window_width_params,
+    _windowed_inner_product,
+)
+# The unwindowed self inner product of the reference normaliser comes
+# from the single-multiset Möbius oracle in the test tree.
+from tests.references.mobius_ip_reference import orbit_inner_abs
 
 
 # -------------------------------------------------------------------
@@ -140,7 +130,7 @@ def _direct_windowed_cosine_sm(p_a, w_a, p_b, w_b, sigma, r,
     # Normaliser (i): divide by the query's own unwindowed self inner
     # product. f_a is the unwindowed query here (the toolbox passes
     # dens_q = dens_a).
-    ip_qq = _orbit_inner_abs(p_a, w_a, p_a, w_a, sigma, r, False, 0.0)
+    ip_qq = orbit_inner_abs(p_a, w_a, p_a, w_a, sigma, r, False, 0.0)
     return ip_xy / ip_qq
 
 

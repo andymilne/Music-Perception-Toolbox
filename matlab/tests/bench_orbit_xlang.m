@@ -10,7 +10,7 @@ function bench_orbit_xlang
 %   Compare median wall times to gauge whether MATLAB is within ~2x
 %   of Python (the gating threshold for shipping the v2.2 MATLAB port
 %   as-is vs investing in precomputed contraction paths or a sharper
-%   greedy heuristic in mobius.contract).
+%   greedy heuristic in the reference.contract test oracle).
 %
 %   Run from the matlab/ directory after addpath('+mobius'):
 %     >> bench_orbit_xlang

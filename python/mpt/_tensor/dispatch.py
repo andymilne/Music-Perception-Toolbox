@@ -1,23 +1,31 @@
-"""Path-selection cost model and dispatch helpers.
+"""Path-selection cost models and dispatch helpers.
 
-This module hosts the toolbox's path-selection policy --- the cost-
-model + timing-probe logic that decides between the centres path and
-the Möbius path for a given evaluation or inner-product call, plus the
-small set of pure helpers (``_normalize_density_input``,
-``_resolve_list_list_mode``, ``_compute_Q``, ``_format_time``) that
-are shared between :mod:`._tensor.cosine`,
-:mod:`._tensor.eval`, and :mod:`._tensor.windowing`.
+This module hosts the toolbox's path-selection policy: the two pure
+cost models that decide between Bulger's method and the Möbius method
+for a flat multi-attribute inner product
+(:func:`_select_ma_inner_product_method`) and between the joint-centres
+path and the factored Möbius evaluator for a multi-attribute point
+evaluation (:func:`_select_ma_eval`). Nothing is timed at call time:
+each selector applies its structural rules (user override, tuple order,
+feasibility, the rel-per wrap/measure rule) and then compares two
+closed-form wall-time predictions built from the shape ``(r_a, K_a,
+N)``, the geometry, and the query count, with constants calibrated
+off-line by the scripts under ``tools/``. The single-multiset density
+(``A = N = 1``) is a corner of the same selectors, not a separate
+dispatcher. The post-hoc impossible-value guard on the Möbius inner
+product (:func:`_impossible_value_reason`) is applied by the caller in
+:mod:`._tensor.cosine` after the chosen route has run.
 
-See :doc:`/ARCHITECTURE` §4 ("Dispatcher pattern") for the per-call
-flow (pre-screen / cost-model / timing-probe / cancellation-guard) and
-USER_GUIDE §4 ("Method selection") for the user-facing description.
+The module also carries the small set of pure helpers
+(``_normalize_density_input``, ``_resolve_list_list_mode``,
+``_compute_Q``, ``_compute_Q_inner_blocks``) shared between
+:mod:`._tensor.cosine`, :mod:`._tensor.eval`, and
+:mod:`._tensor.windowing`.
 
-Cross-module dependencies: the probe functions
-(:func:`_probe_eval_path`, :func:`_probe_ip_path`) reach back into
-:mod:`._tensor.cosine` / :mod:`._tensor.eval` / :mod:`._tensor.build`
-to time the actual implementations. Those imports are deferred to
-call time to avoid an import cycle at package load (this module is
-imported by ``cosine`` and ``eval``).
+See USER_GUIDE §4 ("Method selection") for the user-facing description.
+This module is imported by ``cosine`` and ``eval``, so it imports
+nothing from them at module load; the few lookups it needs from
+:mod:`._mobius_inner` and :mod:`.._defaults` are deferred to call time.
 """
 from __future__ import annotations
 
@@ -100,48 +108,26 @@ def _resolve_list_list_mode(mode: str, m: int, n: int) -> str:
 
 
 
-def _orbit_ips_impossible(ip_xy, ip_xx, ip_yy):
-    """Cheap post-hoc check on Möbius-method-computed inner products.
-
-    True when the three inner products take a combination of values no
-    inner product can take. See ``_impossible_value_reason`` for the
-    three conditions and the phrase each produces.
-
-    The Möbius method's alternating partition sum can break down in two
-    regimes:
-
-    * σ → 0 with low K and r ≥ 3 (music-theoretical exact-match regime):
-      auto-inner-product terms cancel to a value with magnitude near
-      machine epsilon, and floating-point overflow can then produce
-      arbitrary values when the cosine ratio is taken. This check
-      catches that.
-    * σ small relative to the data range: auto-inner-products lose 4–8
-      decimal digits of precision while remaining finite and of
-      plausible magnitude. This check does NOT catch that, because
-      such values are merely inaccurate, not impossible. Accuracy in
-      that regime is governed by ``truncationSigmas``.
-
-    Parameters
-    ----------
-    ip_xy, ip_xx, ip_yy : float
-        Cross and auto inner products from the Möbius method.
-
-    Returns
-    -------
-    bool
-        True if the inner products are unusable and the caller should
-        fall back to Bulger's method.
-    """
-    return _impossible_value_reason(ip_xy, ip_xx, ip_yy) is not None
-
-
 def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
     """Describe why these inner products cannot be correct, or None.
 
-    Returns a phrase naming the specific impossibility, for the warning
-    the caller raises before rerouting. The three conditions are
-    mathematically impossible rather than merely inaccurate, so the
-    message says a defect occurred, not that accuracy was lost.
+    Post-hoc check on Möbius-method inner products. Returns a phrase
+    naming the specific impossibility, for the warning the caller raises
+    before rerouting to Bulger's method. The three conditions (a
+    non-finite value, a negative self inner product, a cosine outside
+    [-1, 1]) are mathematically impossible rather than merely
+    inaccurate, so the message says a defect occurred, not that accuracy
+    was lost.
+
+    The Möbius method's alternating partition sum can break down in two
+    regimes. At σ → 0 with low K and r ≥ 3 (the music-theoretical
+    exact-match regime) the self inner product cancels to a value of
+    machine-epsilon magnitude and the cosine ratio can then take any
+    value; this check catches that. At σ small relative to the data
+    range the self inner products lose several decimal digits while
+    remaining finite and of plausible magnitude; this check does not
+    catch that, because such values are inaccurate rather than
+    impossible, and accuracy there is governed by ``truncation_sigmas``.
 
     ``ip_xx`` may be ``None`` when the first operand's self inner
     product was not computed (``normalize='oneSidedDenom'`` does not
@@ -170,68 +156,23 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
         return (f"the cosine similarity is {ip_xy / denom:.6f}, outside "
                 f"[-1, 1]")
     return None
+
+
 # Routing for the nested contraction is settled by _orbit_cost, a power-law
 # model in the quantities each route works on, which additionally takes the
-# batch extent. The measured K threshold tables that used to drive it are
-# gone: they covered r = 2..6 only, and could not express a crossover that
-# moves by up to 11 in K across the batch range. The flat multi-attribute and
-# single-multiset inner-product paths make a whole-call decision instead,
-# through the cost model and probe below, which account for N as well.
-
-
-# Cost-model constants for the dispatcher. Refit on a 328-cell wall-time
-# benchmark covering all four modes (abs/rel × per/nonper) at A ∈ {1, 2},
-# r ∈ {2, 3, 4}, N ∈ {2, 4, 8, 16}, K spanning each mode's feasible
-# range. r ∈ {5, 6} extrapolated from |Ω_r| growth (4, 10, 33, 92, 306,
-# 948). Predicts Bulger and Möbius wall times in milliseconds and picks
-# the smaller. Validated against 277 measured cells: 94 % within 5 % of
-# optimal, 0 mis-routes to Bulger's method (no OOM-zone violations), 7
-# close-call mis-routes to the Möbius method (max 3.9 × slowdown, all at
-# < 100 ms absolute).
-
-# Bulger: per-entry cost of the (n_J × n_K) kernel matrix in ms. The
-# periodic branches build a wrapped-difference tensor, which empirically
-# costs ~2.0–2.3 × the non-periodic branch (modular arithmetic plus
-# index-array growth). Verified across both abs and rel modes.
-# Bulger's method: per-entry cost of the joint tuple-pair kernel in
-# the cost model's n_J·n_K units (perm side × comb side; the r!
-# asymmetry between the two sides is absorbed into the constant, so
-# it rises mildly with r). Measured on the Python implementation at
-# representative scale (K = 12, n_J·n_K = 1.4e7-4.2e7): r = 2
-# ~110 ns, r = 3 ~145 ns non-periodic; the periodic wrap adds
-# ~10-20 % (not the multiples an earlier small-workload calibration
-# suggested). Values sit at the lower end of the measured band so
-# near-crossover routing under-prices Bulger's method — the
-# cheap-to-mispick side. Orders above 3 reuse the r = 3 value.
-#
-# Those measurements gave the two densities the same value count and the
-# same event count, where the three matrices the inner product needs are
-# each the size of the cross matrix. The fit was performed against the
-# cross matrix alone, so the fitted figures (110 and 145 ns non-periodic,
-# and the periodic pair) each absorb that factor of three. They are
-# written below as those figures divided by three, which leaves every
-# equal-count workload predicting exactly what it predicted when the fit
-# was made, while _predict_pairwise_kernel_size now returns the total
-# across the three matrices and so responds correctly when the counts
-# differ.
-_PW_PER_ENTRY_MS_NONPER = {2: 1.0e-4 / 3.0, 3: 1.4e-4 / 3.0}
-
-_PW_PER_ENTRY_MS_PER = {2: 1.1e-4 / 3.0, 3: 1.6e-4 / 3.0}
-
-
-
-def _pw_per_entry_ms(any_per, r_max=3):
-    """Per-entry cost for Bulger's method: wrap mode and tensor order."""
-    table = _PW_PER_ENTRY_MS_PER if any_per else _PW_PER_ENTRY_MS_NONPER
-    r_key = min(max(int(r_max), 2), max(table))
-    return table[r_key]
-
-
+# batch extent. The flat inner-product selector below makes a whole-call
+# decision instead, from the cost laws that follow, which account for N as
+# well. Bulger's method is priced by the fitted ``_REL_COST_LAW['bulger']``
+# on the tuple-pair count of the three kernel matrices; the Möbius method
+# by the per-attribute constants and laws below.
 
 # Möbius method (absolute modes, both per and nonper — empirically
-# within ±5 % of each other). Vectorised across event pairs, so cost
-# is roughly constant in N_x · N_y; linear in A at r = 2, 3 and slightly
-# sub-linear at r = 4. Per-r baseline at A = 1. Entries for r >= 7
+# within ±5 % of each other). Fitted on a 328-cell wall-time benchmark
+# covering all four modes at A ∈ {1, 2}, r ∈ {2, 3, 4}, N ∈ {2, 4, 8,
+# 16}, K spanning each mode's feasible range; r ∈ {5, 6} extrapolated
+# from |Ω_r| growth (4, 10, 33, 92, 306, 948). Vectorised across event
+# pairs, so cost is roughly constant in N_x · N_y; linear in A at r = 2,
+# 3 and slightly sub-linear at r = 4. Per-r baseline at A = 1. Entries for r >= 7
 # extrapolated from the empirical 3× orbit-class count growth per r (anchored
 # to measured r=2..6 values); these are conservative and may be refined later.
 _ORBIT_ABS_PER_ATTR_MS = {
@@ -256,22 +197,34 @@ _ORBIT_ABS_PER_ATTR_MS = {
 #:
 #: Measured as the Möbius route's wall time at the smallest feasible K
 #: for each order (A = 1, one event per side, relative-periodic,
-#: sigma/P = 0.025), where it is flat in K: at r = 2, 0.32 ms with both
-#: self inner products memoised (n_matrices = 1, flat over K = 3..24)
-#: and 0.60 ms with neither (n_matrices = 3, flat over K = 4..8); at
-#: r = 3, 0.68 and 1.35 ms; at r = 4, 7.0 and 18.1 ms.
-#: Relative-non-periodic measures the same or higher at r = 2 (0.73 ms
-#: at n_matrices = 3), so the periodic value is the conservative one and
-#: is the one carried here.
+#: sigma/P = 0.025), where it is flat in K, on the same machine the
+#: other cost constants in this module were fitted on
+#: (``tools/calibrate_ma_eval_cost.py``), by
+#: ``tools/calibrate_orbit_rel_floor.py``: the median wall time of the
+#: cosine call alone (densities built outside the timer) on a cold pair
+#: (n_matrices = 3) and on a pair with both self inner products memoised
+#: (n_matrices = 1), minimised over K, and solved for the two
+#: coefficients. At r = 2, 0.25 ms cold and 0.12 ms warm; at r = 3, 0.60
+#: and 0.26 ms; at r = 4, 7.9 and 2.6 ms (the r = 4 fixed part solves to
+#: slightly below zero and is clamped). Relative-non-periodic measures
+#: the same or higher, so the periodic value is the conservative one and
+#: is the one carried here. An earlier row measured on a different
+#: machine differed by factors of two to three either way, which is the
+#: spread a fixed cost has across machines; the floor is a guard against
+#: extrapolating the laws below the route's setup, not a fitted term,
+#: and it only matters at r = 2, where the fitted law's term is small
+#: enough to fall under it.
 #:
-#: Without it the r = 2 comparison misroutes on a cold pair: at K = 10,
-#: sigma/P = 0.025 the fitted law predicts 0.32 ms for the Möbius side
-#: against 0.44 ms for Bulger's method and picks Möbius, where the
-#: measured times are 0.66 ms and 0.52 ms. The floor is applied with
-#: ``max``, not added, so it changes nothing wherever the fitted law
-#: already predicts above it --- which is everywhere at r >= 3 in the
-#: fitted range.
-_ORBIT_REL_FLOOR_MS = {2: (0.18, 0.14), 3: (0.34, 0.34), 4: (1.45, 5.55)}
+#: Without it the r = 2 comparison can misroute a small cold pair
+#: toward the Möbius method (the fitted law extrapolates to a fraction
+#: of the route's setup at K below about 8), where Bulger's method is
+#: the cheaper call. The floor is applied with ``max``, not added, so it
+#: changes nothing wherever the fitted law already predicts above it
+#: --- at r = 3 that is everywhere above K = 5, at r = 4 everywhere. MATLAB
+#: carries its own measured row in ``internal.predictOrbitCostMs``
+#: (``ORBIT_REL_FLOOR_MS``), measured by
+#: ``tests/bench_orbit_rel_floor.m``.
+_ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 
 
 # Möbius method (relative modes): each relative attribute's
@@ -511,48 +464,59 @@ def _select_ma_inner_product_method(
     sym_vec=None,
     truncation_sigmas=None,
     return_costs=False,
-    pw_skip_xx=False, pw_skip_yy=False,
-    orbit_skip_xx=False, orbit_skip_yy=False,
+    skip_xx=False, skip_yy=False,
+    per_vec=None,
 ):
     """Pick the inner-product method for the MA case using a cost model.
 
     Routing rules, in order:
 
-    1. ``user_method`` keyword override (anything other than 'auto').
-    2. Hard fallbacks where the Möbius method cannot or should not run:
-       - r_max ≤ 1: no within-tuple structure to exploit.
-       - r_max > _ORBIT_R_MAX_SHIPPED: no orbit table available.
-    3. Soft fallback: rel + per with σ/P beyond the integration-exact
-       regime warns and routes to Bulger's method.
-    4. Otherwise predict both wall times (in ms) and pick the smaller;
+    1. ``user_method`` keyword override (anything other than 'auto') is
+       returned unchanged.
+    2. r_max ≤ 1: Bulger's method (no within-tuple structure for the
+       Möbius decomposition to exploit).
+    3. r_max > ``_ORBIT_R_MAX_SHIPPED``: Bulger's method (no orbit
+       table), after :func:`_guard_forced_bulger_feasible_ma` has
+       checked that the forced tuple-pair kernel fits in memory (it
+       raises :class:`SingleImageInfeasibleError` otherwise).
+    4. Working-set guard: below the rel-per σ/P threshold, a density
+       whose perm-side working set exceeds
+       ``_CENTRES_WORKING_SET_SOFT_BUDGET`` routes to the Möbius method
+       regardless of price, because Bulger's method would materialise
+       that working set.
+    5. Wrap/measure rule for relative-periodic attributes above the
+       σ/P threshold of :func:`_orbit_sigma_over_p_threshold`: the two
+       methods compute different measures there, so the declared
+       ``wrap`` decides --- ``'single-image'`` to Bulger's method,
+       ``'full-image'`` (the default) to the Möbius method. Mixed wraps
+       across a density's rel-per attributes raise. No warning is
+       emitted; the route follows the declaration.
+    6. Otherwise predict both wall times (in ms) and pick the smaller;
        ties favour Bulger's method (no orbit-table fetch, no Möbius
        cancellation risk).
 
-    Ragged K_{a,n} (NaN-padded events) is handled inside
-    :func:`_ma_per_attr_inner_matrix` via a per-event safe/unsafe
-    partition: events with K_eff - r >= 2 (the Möbius-method precision margin)
-    flow through the vectorised batched Möbius evaluator; pairs
-    involving any K_eff - r < 2 event flow through direct r-tuple
-    enumeration (no Möbius alternating sum, hence no cancellation).
-    The dispatcher therefore does not route on the presence of NaN entries.
+    Accuracy is governed by ``truncation_sigmas``, not by the value
+    count: no rule reads ``K_a - r_a``. Ragged K_{a,n} (NaN-padded
+    events) is handled inside :func:`_ma_per_attr_inner_matrix`, which
+    prunes the padding before the batched Möbius evaluator runs, so the
+    selector does not route on the presence of NaN entries either.
 
     The four modes (abs+nonper, abs+per, rel+nonper, rel+per) are
-    routed as follows:
+    priced as follows:
 
-    - abs + nonper: cost model with `_PW_PER_ENTRY_MS_NONPER` and
-      `_ORBIT_ABS_PER_ATTR_MS`.
-    - abs + per: cost model with `_PW_PER_ENTRY_MS_PER` (wrap on δ
-      tensor adds ~2 × Bulger overhead) and same Möbius constants
-      (Möbius cost is mode-independent in benchmark, ±5 %).
-    - rel (per and nonper): per-attribute cost model pricing each
-      relative attribute at the cheaper of its two Möbius routes
-      (tuple-centres closed form vs slab-batched translation-grid
-      contraction; see `_predict_orbit_cost_ms`), against Bulger's
-      `_PW_PER_ENTRY_MS_*`. The Möbius method's per-attribute
-      factorisation grows additively across attributes where Bulger's
-      ∏_a r_a!·C(K_a, r_a)² compounds, so multi-attribute relative
-      densities route to the Möbius method once that compounding
-      bites.
+    - Bulger's method, all modes: ``_REL_COST_LAW['bulger']`` on the
+      tuple-pair count of the three kernel matrices
+      (:func:`_predict_pairwise_kernel_size`).
+    - Möbius method, absolute attributes: the per-order constants
+      ``_ORBIT_ABS_PER_ATTR_MS`` (mode-independent in benchmark, ±5 %).
+    - Möbius method, relative attributes (per and nonper): each
+      attribute at the cheaper of its two Möbius routes (tuple-centres
+      closed form vs slab-batched translation-grid contraction; see
+      :func:`_predict_orbit_cost_ms`). The Möbius method's
+      per-attribute factorisation grows additively across attributes
+      where Bulger's ∏_a r_a!·C(K_a, r_a)² compounds, so
+      multi-attribute relative densities route to the Möbius method
+      once that compounding bites.
 
     Parameters
     ----------
@@ -561,8 +525,7 @@ def _select_ma_inner_product_method(
     k_vec : (A,) intp
         First density's per-attribute value count K_a (the kernel slab
         size; events within an attribute may have lower K_eff via NaN
-        padding, which the Möbius-method wrapper handles via
-        per-event safe/unsafe partition).
+        padding, which :func:`_ma_per_attr_inner_matrix` prunes).
     k_vec_y : (A,) intp, optional
         Second density's per-attribute value count. The two densities
         need not agree — a chord against a scale, or a reference tuning
@@ -581,6 +544,12 @@ def _select_ma_inner_product_method(
     sigma_over_P_max : float
         Maximum σ/P across periodic-relative groups.
     user_method : {'auto', 'bulger', 'centres', 'mobius'}
+    skip_xx, skip_yy : bool, default False
+        Whether ``<X,X>`` / ``<Y,Y>`` costs this call nothing --- because
+        some route has already memoised it on the density, or (for
+        ``<X,X>``) because the requested normalisation does not consume
+        it. Both routes are priced with the same pair of flags; see
+        :func:`~mpt._tensor.cosine._self_ip_memoised`.
     return_costs : bool, default False
         Also return the two predicted wall times in milliseconds that the
         comparison rests on, as ``(chosen, pw_cost_ms, orbit_cost_ms)``.
@@ -655,13 +624,22 @@ def _select_ma_inner_product_method(
     # either method is fine; above the threshold they diverge and the
     # wrap axis picks the intended measure. Legacy callers without a
     # wrap vector see no change: the pre-v3 dispatch order stands.
+    # Only a relative-periodic attribute's wrap declares a measure here,
+    # so only those are scanned: a relative-non-periodic attribute at the
+    # default wrap must not turn a single-image rel-per attribute into a
+    # "mixed" declaration. ``per_vec`` is optional for older callers;
+    # without it every relative attribute is treated as periodic, the
+    # pre-fix reading.
     if wrap_vec is not None and any_rel_per and rel_vec is not None:
+        def _rel_per(a):
+            return bool(rel_vec[a]) and (per_vec is None
+                                         or bool(per_vec[a]))
         wants_single = any(
-            (wrap_vec is not None and w == 'single-image' and rel_vec[a])
+            (w == 'single-image' and _rel_per(a))
             for a, w in enumerate(wrap_vec) if a < len(rel_vec)
         )
         wants_full = any(
-            (w == 'full-image' and rel_vec[a])
+            (w == 'full-image' and _rel_per(a))
             for a, w in enumerate(wrap_vec) if a < len(rel_vec)
         )
         if wants_single and wants_full:
@@ -678,13 +656,18 @@ def _select_ma_inner_product_method(
                     if return_costs else 'mobius'
     # A self inner product that is memoised on its density, or that the
     # requested normalisation does not consume, costs nothing at call
-    # time; the per-route skip flags exclude it from that route's price.
-    # The flags are per-route because the two routes' memoised values
-    # live under different cache keys (their self-IP scales differ by a
-    # constant prefactor that cancels only within one route's triple).
+    # time; ``skip_xx`` / ``skip_yy`` exclude it from *both* routes'
+    # prices. The flags are shared rather than per route: the memoised
+    # values are route-keyed (the routes' scales are related in closed
+    # form but their truncated numbers are not the same number --- see
+    # :func:`~mpt._tensor.cosine._self_ip_cache_key`), but pricing each
+    # route against its own memo would decide the comparison on which
+    # route ran first rather than on what the routes cost, and would
+    # lock that first choice in. See
+    # :func:`~mpt._tensor.cosine._self_ip_memoised`.
     pw_size = _predict_pairwise_kernel_size(
         r_vec, k_vec, A, N_x, N_y, k_vec_y=k_vec_y,
-        skip_xx=pw_skip_xx, skip_yy=pw_skip_yy)
+        skip_xx=skip_xx, skip_yy=skip_yy)
     # Priced by the same fitted law. The per-entry form this replaces
     # assumed a fixed cost per kernel entry; measurement contradicts that,
     # the per-entry cost falling as the arrays grow, which is what the
@@ -711,7 +694,7 @@ def _select_ma_inner_product_method(
         centres_ok=(sigma_over_P_max
                     <= _orbit_sigma_over_p_threshold(truncation_sigmas)),
         k_vec_y=k_vec_y,
-        skip_xx=orbit_skip_xx, skip_yy=orbit_skip_yy,
+        skip_xx=skip_xx, skip_yy=skip_yy,
     )
     chosen = 'bulger' if pw_cost_ms <= orbit_cost_ms else 'mobius'
     if return_costs:
@@ -944,12 +927,6 @@ def _compute_Q(D, r, is_rel, is_per, period, *, reduced=False):
 #                     side restricted to combinations; the name is
 #                     retired, and 'centres' now means the same thing in
 #                     the inner product as it does in evaluation.)
-#
-#  cancellation_threshold : accepted for backward compatibility; it
-#    affects neither the result nor the route. Accuracy is governed by
-#    ``truncationSigmas`` --- the Möbius method's agreement with
-#    enumeration tracks the truncation budget --- and the route is
-#    chosen on cost.
 
 _ORBIT_R_MAX_SHIPPED = 8  # orbit tables r=2..8 ship pre-built
 
@@ -1122,17 +1099,6 @@ def _warn_abs_per_single_image(sigma_over_P, *, stacklevel=3):
     )
 
 
-def _warn_rel_per_all_image(*args, **kwargs):
-    """Retired in v3.
-
-    Retained as a no-op for backward compatibility with any external
-    call sites; the substitution it warned about is no longer a
-    substitution: rel-per full-image (C) is the toolbox's default
-    measure and the ``wrap='single-image'`` opt-in gives (A) explicitly.
-    """
-    return None
-
-
 class SingleImageInfeasibleError(MemoryError):
     """Raised when the single-image (minimum-image) measure is the only
     available route but its materialisation would exhaust memory.
@@ -1150,29 +1116,17 @@ class SingleImageInfeasibleError(MemoryError):
     """
 
 
-def _format_time(t_sec: float) -> str:
-    """Human-readable short form of a duration in seconds."""
-    if t_sec < 1:
-        return f"{t_sec * 1000:.0f} ms"
-    if t_sec < 60:
-        return f"{t_sec:.1f} s"
-    if t_sec < 3600:
-        return f"{t_sec / 60:.1f} min"
-    return f"{t_sec / 3600:.1f} hr"
-
-
-
-# Probing parameters.
-_PROBE_MIN_N_Q = 200    # below this many queries, skip probing entirely
-
-# Centres-path memory budget (bytes). The probe refuses to materialise
-# the centres array if it would exceed this; the Möbius method is chosen instead.
-_CENTRES_PROBE_MEM_BUDGET = 4 * 1024**3
+# Hard memory budget (bytes) for a route that has no cheaper substitute:
+# the forced Bulger tuple-pair kernel of the inner product and the forced
+# joint-centres tuple set of the point evaluation. A shape whose only
+# available route would exceed it raises ``SingleImageInfeasibleError``
+# rather than crashing the process. MATLAB's ``internal.dispatchMemBudget``
+# clamps the same budget to available memory; Python keeps it fixed.
+_DISPATCH_MEM_BUDGET = 4 * 1024**3
 
 
 # Soft centres working-set budget (bytes). Distinct from the 4 GB hard
-# ceiling above: that ceiling only fires when the centres array alone
-# exceeds it, and it estimates the *final* centres array only. But
+# budget above, which fires only where no cheaper route exists.
 # _build_perm_arrays materialises the full ordered-tuple working set
 # (j_idx, u_perm, and centres each scale as n_j = K!/(K-r)!), so the true
 # peak is several times the centres-array estimate. When that working set
@@ -1248,7 +1202,14 @@ _BELL_NUMBERS = {
 #: previous value.
 #:
 #: Absolute values are machine-specific; selection depends only on
-#: their ratios, which are stable across the grid. MATLAB carries its
+#: their ratios, which are stable across the grid. Measured, September
+#: 2026, by ``tools/fit_ma_eval_cost.py --score-on``: constants fitted on
+#: a two-core sandbox and scored on the maintainer's VM route it at 1.020
+#: to 1.030 of the measured oracle, against 1.030 for the VM's own
+#: constants, while their prediction log-ratio error there is 1.22 --- a
+#: factor of three in absolute time. Fitted on the VM and scored on the
+#: sandbox: 1.078, log-ratio error 1.50. The numbers do not transfer; what
+#: routing consumes does. MATLAB carries its
 #: own constants in ``internal.maEvalCostsMs`` (same functional form,
 #: per-language calibration): its non-periodic centres kernel culls more
 #: aggressively, so there the joint-count growth surfaces in the per-call
@@ -1258,8 +1219,8 @@ _BELL_NUMBERS = {
 #: The per-call term is linear in the joint tuple count; the per-query
 #: term is split three ways by kernel (see
 #: :func:`_centres_query_slope`).
-_MA_COST_CENTRES_SETUP_MS = 0.03846
-_MA_COST_CENTRES_CALL_PER_JOINT_MS = 2.396e-05
+_MA_COST_CENTRES_SETUP_MS = 0.03843
+_MA_COST_CENTRES_CALL_PER_JOINT_MS = 2.399e-05
 #: Per-query cost has a floor no culling removes --- the bucket lookup
 #: and gather each query pays --- plus a term linear in the joint tuple
 #: count, and the two kernels carry different constants: the
@@ -1269,10 +1230,10 @@ _MA_COST_CENTRES_CALL_PER_JOINT_MS = 2.396e-05
 #: Fitted on 220 cells of tools/calibrate_ma_eval_cost.py spanning sigma
 #: from 3 to 120 cents over spans of 600 to 9600 cents. MATLAB carries
 #: its own values, fitted the same way on its own measurements.
-_MA_COST_CENTRES_QUERY_BASE_MS = 0.0006694
+_MA_COST_CENTRES_QUERY_BASE_MS = 0.0006691
 _MA_COST_CENTRES_QUERY_PER_JOINT_MS = 1.806e-05
-_MA_COST_CENTRES_QUERY_BASE_PER_MS = 0.0001238
-_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 1.441e-06
+_MA_COST_CENTRES_QUERY_BASE_PER_MS = 0.000103
+_MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 2.191e-06
 #: The dense *periodic* per-query term is split again, absolute against
 #: relative, and each half carries an exponent on the tuple count.
 #:
@@ -1290,14 +1251,38 @@ _MA_COST_CENTRES_QUERY_PER_JOINT_PER_MS = 1.441e-06
 #: refit of a shared linear constant can remove that, because the two
 #: halves pull the same constant in opposite directions.
 #:
-#: The absolute-periodic exponent is carried for symmetry but is left at
+#: The absolute-periodic exponent is carried for symmetry and is pinned at
 #: 1.0: profiling it moves the centres log-ratio error by under one per
 #: cent and the routing regret not at all, and the raw per-tuple
 #: regression on that half is if anything sublinear, so the grid does not
-#: support moving it. Set both exponents to 1.0 to recover the earlier
-#: purely linear form.
-_MA_COST_CENTRES_QUERY_JOINT_EXP_PER = 1.05
-_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS = 1.594e-06
+#: support moving it. Set the relative exponent to 1.0 as well to recover
+#: the earlier purely linear form.
+#:
+#: **Cross-validated** September 2026 by
+#: ``tools/fit_ma_eval_cost.py --compare-forms``, which scores each choice
+#: of the model's three non-linear parameters by held-out routing regret
+#: over 40 random halves (everything else in the model is linear and is
+#: solved, not chosen, so pinning one of these three is the only
+#: simplification available short of deleting a term). Pinning this
+#: exponent at 1.0 is free on all three datasets --- 1.0425 +- 0.0287
+#: against 1.0432 +- 0.0288 profiled on the maintainer's VM, indis-
+#: tinguishable on the MATLAB cells, 1.0447 +- 0.0283 against 1.0473 +-
+#: 0.0305 on a two-core sandbox --- so it is pinned rather than profiled,
+#: and the 1.05 it had been left at is gone.
+#:
+#: Pinning the *relative* exponent at 1.0 is not free, and that is the
+#: same finding on three machines: 1.0978 +- 0.0360 on the VM against
+#: 1.0410 +- 0.0253 at 1.15, and 1.4283 +- 0.3624 on the sandbox. It also
+#: fails in transfer --- constants fitted on the VM and scored on the
+#: sandbox give 1.078 at 1.15 or above and 1.527 at 1.0 --- so the
+#: superlinearity is a fact about this implementation, not about one
+#: machine. 1.2 and 1.3 are within noise of each other on the VM (1.0335
+#: +- 0.0160, 1.0323 +- 0.0151) and 1.2 is kept. MATLAB's own cells prefer
+#: 1.0 there (1.0231 +- 0.0120 against 1.0326 +- 0.0172 at 1.2), so the
+#: two languages keep different values of this one exponent, as they keep
+#: different values of every other fitted constant.
+_MA_COST_CENTRES_QUERY_JOINT_EXP_PER = 1.0
+_MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS = 1.599e-06
 _MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER = 1.2
 
 #: Per-attribute per-query overhead of the factored centres route
@@ -1320,6 +1305,15 @@ _MA_COST_CENTRES_FACTORED_QUERY_BASE_MS = 0.0015
 # MATLAB); the change between the two calibrations tracks the rest of
 # the refit (the per-query slopes it multiplies moved with it) rather
 # than the ball, and a two-core sandbox fit in between gave 16.
+#
+# Pinned here rather than profiled. Cross-validated September 2026 by
+# tools/fit_ma_eval_cost.py --compare-forms: fixing it at 14.32 instead of
+# profiling it over the log-spaced grid costs nothing on held-out routing
+# regret over 40 random halves --- 1.0413 +- 0.0275 against 1.0432 +-
+# 0.0288 on the maintainer's VM, 1.0312 +- 0.0174 against 1.0314 +- 0.0175
+# on the MATLAB cells, 1.0479 +- 0.0304 against 1.0473 +- 0.0305 on a
+# two-core sandbox --- and it is the one constant the two languages agree
+# on, which is what a geometric factor should do.
 _MA_COST_CENTRES_CULL_C = 14.32
 
 #: Möbius: a per-call setup that scales with the partition count B_r,
@@ -1400,21 +1394,6 @@ _MA_MOBIUS_SAFETY_SMALL = 1.0
 
 
 
-def _estimate_centres_array_bytes(K: int, r: int, is_rel: bool) -> int:
-    """Estimate the dominant centres-array allocation in bytes.
-
-    Returns ``K!/(K-r)! * dim * 8`` where ``dim`` is the effective
-    centres dimensionality (``r`` for abs, ``r-1`` for rel).
-    """
-    if K < r:
-        return 0
-    n_j = 1
-    for k in range(K - r + 1, K + 1):
-        n_j *= k
-    dim = r - 1 if is_rel else r
-    return n_j * max(dim, 1) * 8
-
-
 def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
                                      reason, k_vec_y=None, sym_vec=None):
     """Raise if a *forced* multi-attribute Bulger inner product would be
@@ -1461,7 +1440,7 @@ def _guard_forced_bulger_feasible_ma(k_vec, r_vec, rel_vec, N_x, N_y, *,
     nj_x = _nj_side(N_x, k_vec)
     nj_y = _nj_side(N_y, k_y)
     pair_bytes = nj_x * nj_y * 8
-    if pair_bytes > _CENTRES_PROBE_MEM_BUDGET:
+    if pair_bytes > _DISPATCH_MEM_BUDGET:
         raise SingleImageInfeasibleError(
             f"The inner product requires the single-image Bulger route "
             f"({reason}, so the Möbius method is not available), but its "
@@ -1808,13 +1787,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
             }
             # Periodic-only K term (per r) added to the K-free slope: the
             # per-event spectrum build carries K, which the fixed-period
-            # window does not absorb. In periodic mode the spectral branch
-            # fires for r = 2 and 3 (the r = 4 mode grid exceeds the memory
-            # guard and falls to the node path, so its K growth is priced
-            # there, not here). Fitted from the periodic engaging cells of
-            # bench_ma_eval_calibration: the per-query cost rises linearly
-            # in K with slope ~0.28 ms/K at r = 2 and ~0.60 at r = 3 over
-            # window/sigma = 80, nQ = 200.
+            # window does not absorb. Fitted from the periodic engaging
+            # cells of bench_ma_eval_calibration: the per-query cost rises
+            # linearly in K with slope ~0.28 ms/K at r = 2 and ~0.60 at
+            # r = 3 over window/sigma = 80, nQ = 200; the r = 4 constant
+            # is zero because no periodic r = 4 cell was measured on the
+            # spectral branch when the term was fitted.
             _FOUR_PER_PERIODIC_K_MS = {
                 2: C["MOBIUS_SPECTRAL_PERIODIC_K_MS_R2"],
                 3: C["MOBIUS_SPECTRAL_PERIODIC_K_MS_R3"],
@@ -1831,33 +1809,26 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
                 window = float(period[a])
             else:
                 window = 2.0 * spread + 16.0 * sigma[a]
-            # The spectral branch stands down when its own mode grid would
-            # exceed the memory guard (see _SPECTRAL_IP_MAX_POINTS in
-            # cosine.py): the grid is (r_a - 1)-dimensional, so at small
-            # sigma/P and r_a = 4 it can pass the query/K thresholds yet
-            # still decline, falling through to the u-grid node path. Mirror
-            # that decline here so the cost model prices the path that
-            # actually runs, not the spectral one it would otherwise assume.
-            from ._mobius_inner import (_SPECTRAL_IP_MODE_SIGMAS as _mode_sig, _SPECTRAL_IP_MAX_POINTS as _max_pts)
-            if is_per[a] and period[a] > 0:
-                _L = float(period[a])
-            else:
-                _L = 2.0 * spread + 2.0 * (_mode_sig + 2.0) * sigma[a]
-            _M = int(np.ceil(_mode_sig / np.sqrt(2.0)
-                             * _L / (2.0 * np.pi * sigma[a]))) + 2
-            _spectral_fits = (2 * _M + 1) ** (r_a - 1) <= _max_pts
+            # The gate below mirrors eval_orbit_rel's own: order, query
+            # count, and value count. The evaluator's spectral form works
+            # in 1-D mode series and per-block FFTs chunked against the
+            # kernel budget; it never builds an (r_a - 1)-dimensional mode
+            # grid, so --- unlike the inner-product spectral route, which
+            # has a ``_SPECTRAL_IP_MAX_POINTS`` decline --- there is no
+            # grid-size decline to price here. (The evaluator also
+            # requires the periodic query span to fit in half the circle;
+            # that depends on the queries, which the cost model does not
+            # see, and it holds for the ordinary evaluation grid.)
             if (r_a in _four_per_mode and n_q >= _four_minq[r_a]
-                    and k_vec[a] >= (2, 8, 16)[r_a - 2]
-                    and _spectral_fits):
+                    and k_vec[a] >= (2, 8, 16)[r_a - 2]):
                 # The K-free slope prices the per-pair matmul, but the
                 # per-event spectrum build A_m(eta) = sum_i w^m
                 # exp(-i eta p_i) carries K. In periodic mode the window
                 # is fixed at the period, so that K-dependence is not
                 # already absorbed through the window and shows up as an
                 # underprice growing with K (measured pred/actual ~0.1 by
-                # K = 48). Add a periodic K term where the spectral branch
-                # fires (r = 2 and 3); r = 4 declines to the node path in
-                # periodic mode and is priced there.
+                # K = 48). Add the fitted periodic K term (zero at r = 4,
+                # where no periodic cell was measured).
                 four_ms = (_four_per_mode[r_a]
                            * (window / max(sigma[a], 1e-12)) * n_q_eff)
                 if is_per[a] and _FOUR_PER_PERIODIC_K_MS.get(r_a, 0.0):
@@ -1951,11 +1922,12 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     single-multiset density by the Möbius decomposition and takes the
     product per event).
 
-    Unlike the single-multiset eval selector, this is a *pure cost
-    model with no probe*: the MAET density factorises across attributes
-    (Milne 2026, Eq. maet-density), so both paths' costs are estimated
-    in closed form from the shape ``(r_a, K_a, N)``, the geometry, and
-    the query count. Each estimate is a per-call setup term plus
+    This is a pure cost model with no timing: the MAET density
+    factorises across attributes (Milne 2026, Eq. maet-density), so both
+    paths' costs are estimated in closed form from the shape
+    ``(r_a, K_a, N)``, the geometry, and the query count. The
+    single-multiset density (``A = N = 1``) is the corner case of the
+    same selector. Each estimate is a per-call setup term plus
     per-query work: the joint-centres path's work is linear in the
     joint tuple count ``prod_a [r_a! · C(K_a, r_a)]``, which grows as a
     *product* across attributes; the factored path's work is the *sum*
@@ -1973,16 +1945,20 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     beyond the absolute-mode crossover, the u-grid multiplying the
     factored path's per-query cost by hundreds to thousands of nodes.
 
-    Hard rules first: a user override is honoured; any attribute whose
-    ``K_a - r_a`` is too small for the Möbius cancellation floor, or
-    whose ``r_a`` exceeds the feasible orbit bound, forces the
-    joint-centres path (the factored evaluator would lose precision or
-    be infeasible on that attribute); and periodic-relative attributes
-    whose ``sigma/P`` exceeds the convention threshold keep the
-    joint-centres path, whose wrapped-difference form is the exact
-    convention there (the Möbius relative evaluator yields the
-    transposition-average form, which departs above that threshold ---
-    Milne 2026, Sec. maet-nesting).
+    Hard rules first, in order: a user override is honoured
+    (``'mobius'`` is refused on an ordered attribute); an ordered
+    (``[sym] = 0``) attribute at ``r > 1``, a nested attribute, or
+    ``r <= 1`` on every attribute keeps the joint-centres path; an
+    attribute whose ``r_a`` exceeds the feasible orbit bound forces the
+    joint-centres path (guarded by ``_DISPATCH_MEM_BUDGET``, since no
+    cheaper route exists there); and a periodic-relative attribute whose
+    ``sigma/P`` exceeds the threshold of
+    :func:`_orbit_sigma_over_p_threshold` routes by its declared
+    ``wrap`` --- ``'single-image'`` to the joint-centres path, whose
+    wrapped-difference form is that measure, ``'full-image'`` (the
+    default) to the Möbius evaluator, whose transposition average is the
+    other (Milne 2026, Sec. maet-nesting). Accuracy is governed by
+    ``truncation_sigmas``; no rule reads ``K_a - r_a``.
 
     Parameters
     ----------
@@ -2067,7 +2043,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
         joint_ws = _estimate_ma_joint_working_set_bytes(
             r_vec, k_vec, is_rel,
             sym_vec=getattr(dens, "is_sym", None))
-        if joint_ws > _CENTRES_PROBE_MEM_BUDGET:
+        if joint_ws > _DISPATCH_MEM_BUDGET:
             raise SingleImageInfeasibleError(
                 f"eval_exp_tens requires the single-image centres route "
                 f"({force_centres_reason}, so the Möbius method is not "
@@ -2119,89 +2095,3 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     if mobius_ms < centres_ms * safety:
         return "mobius", "cost model (factored Möbius cheaper)"
     return "centres", "cost model (joint centres cheaper)"
-
-
-
-# -----------------------------------------------------------------------
-# Probe-based dispatcher for the single-multiset cos_sim_exp_tens IP path.
-#
-# Parallels :func:`_select_ma_eval` for the inner-product side:
-# hard rules first (correctness / feasibility), then an analytical
-# pre-screen (catches clear-winner cases without paying probe overhead),
-# then actually time both paths on a small subset of each density and
-# pick the faster. The probe time, extrapolated to the full workload,
-# becomes the user-facing time estimate (printed in verbose mode) and
-# auto-adapts to future optimisations of either path.
-#
-# Probe extrapolation. Both paths compute three inner products (cross
-# term plus both self-norms), so the cost models count all three:
-# pairwise cost scales as ``P_x*P_y + P_x^2 + P_y^2`` with
-# ``P = falling_factorial(K, r)`` (ordered r-tuple enumeration on each
-# side); orbit cost scales as ``B_r * (N_xy*K_x*K_y + N_xx*K_x^2 +
-# N_yy*K_y^2)`` where the ``N`` factors are the relative-mode
-# translation-grid sizes (1 in absolute mode). The probe uses
-# ``(min(K_x, target), min(K_y, target))`` events — per side, so an
-# asymmetric workload is probed with the same asymmetry — and
-# extrapolates by the ratio of the corresponding op counts. The
-# pairwise estimate removes its fixed per-call cost with a two-point
-# fit before scaling, and the probe decision requires the orbit
-# estimate to beat the pairwise estimate by
-# ``_PROBE_IP_MOBIUS_DECISION_MARGIN``.
-# -----------------------------------------------------------------------
-
-# Target per-side subset size for the IP probe. Small enough that probe
-# cost is negligible, large enough that the K_probe-choose-r tuple count
-# is meaningful (e.g., 12-choose-3 = 220) and the Möbius method's
-# precision guard (n_min - r >= 2) is not contended. Each side's probe
-# size is capped to its own K at call time; the hard precision rule
-# (``n_min - r < 2``) fires upstream so neither probe size drops below
-# r+2.
-_PROBE_K_IP_TARGET = 12
-
-_PROBE_TIME_CACHE: dict = {}
-"""Per-session cache of probe timings, keyed by the probe's structural
-parameters (path, r, probe sizes, mode flags, sigma, period,
-truncation, precision). Within a batched sweep every pair probes at
-identical structure, so re-measuring per pair adds cost without
-information — and where the probed path is intrinsically slow (an
-uncalibrated order routing via the probe), the repeated measurement
-would dominate the sweep. Pitch values differ across cache hits; probe
-timings depend on them only through kernel sparsity, which is
-immaterial at routing precision."""
-
-_PROBE_IP_MOBIUS_DECISION_MARGIN = 1.4
-"""Margin the orbit probe estimate must beat the pairwise probe estimate
-by before the probe routes to the Möbius method. The orbit probe's
-working set is cache-resident while the full-size rel-mode path is
-memory-bound, so the probe systematically under-measures the full-scale
-per-op cost by ~1.3x; the pairwise estimate carries no matching bias
-(its fixed per-call cost is removed by the two-point fit). Near-tie
-estimates therefore route to the pairwise path, the cheap-to-mispick
-side, mirroring the asymmetric pre-screen margins."""
-
-
-# Pre-screen: skip the probe if one path's analytical cost dominates
-# the other by this margin. Mirrors the eval-side pre-screen
-# constants.
-_PRESCREEN_IP_DOMINANCE = 3.0
-
-# Fixed-overhead term for the Möbius inner-product cost estimate, in units of
-# K^2 (i.e. added to the grid-scaled kernel-op count inside the orbit-cost
-# expression). The Möbius method carries a per-call setup cost (orbit-table
-# lookup, einsum planning, partition iteration) that scales with the partition
-# count B_r but is independent of K; the bare operation count omits it and so
-# under-estimates Möbius at small K, making the analytical pre-screen route to
-# Möbius well before it is actually faster than Bulger's method. Adding
-# B_r*_ORBIT_IP_FIXED_OVERHEAD to the orbit cost shifts the analytical
-# equal-cost point to (just below) the empirically measured Bulger/Möbius
-# crossover per r, so the pre-screen never claims 'mobius' prematurely; the
-# probe still has the final word in the near-crossover region. The value is
-# calibrated for the three-inner-product cost model (cross term plus both
-# self-norms, so 3*K^2 kernel-op units at symmetric K in absolute mode): it is
-# 3x the per-IP setup constant calibrated against measured absolute-mode
-# crossovers K_cross = {r2:14, r3:9, r4:8, r5:8, r6:8}, which keeps the
-# symmetric-K absolute-mode equal-cost point at those measured values.
-_ORBIT_IP_FIXED_OVERHEAD = 24000.0
-
-
-

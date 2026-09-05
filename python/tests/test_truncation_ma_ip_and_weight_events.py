@@ -6,9 +6,9 @@ Covers, on the MA per-attribute inner-product matrix
 sub-helpers):
 
 - r = 1 abs (single-shot and chunked)
-- r >= 2 abs safe (vectorised batched Möbius)
-- r >= 2 abs unsafe (batched direct r-tuple enumeration)
-- r >= 2 abs mixed safe/unsafe
+- r >= 2 abs with K well above r (vectorised batched Möbius)
+- r >= 2 abs with K = r (the same route)
+- r >= 2 abs ragged K_eff
 - rel-per (relative periodic, u-grid integrated)
 
 For each, the truncated path at ``truncation_sigmas=6`` agrees with
@@ -30,7 +30,7 @@ import pytest
 
 import mpt
 from mpt import weight_events
-from mpt._tensor._mobius_inner import (_ma_per_attr_inner_matrix, _batched_direct_enum_abs)
+from mpt._tensor._mobius_inner import _ma_per_attr_inner_matrix
 
 
 # ---------------------------------------------------------------------
@@ -133,13 +133,13 @@ def test_r1_abs_periodic_truncation_parity():
 
 
 # ---------------------------------------------------------------------
-# r >= 2 abs (safe / unsafe / rel-per)
+# r >= 2 abs (K well above r / K = r / ragged) and rel-per
 # ---------------------------------------------------------------------
 
-def test_r2_abs_safe_truncation_parity():
-    """All events K_eff >= r+2 -> safe path (batched Möbius)."""
+def test_r2_abs_truncation_parity():
+    """All events K_eff well above r (batched Möbius)."""
     rng = np.random.default_rng(3)
-    K, N = 6, 8       # K=6, r=2 -> K-r=4 >= 2 -> safe
+    K, N = 6, 8
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
     ip_inf = _ma_per_attr_inner_matrix(
@@ -153,43 +153,44 @@ def test_r2_abs_safe_truncation_parity():
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
 
 
-def test_r2_abs_unsafe_truncation_parity():
-    """All events K_eff = r -> all unsafe -> batched direct enum."""
+def test_r2_abs_k_equal_r_truncation_parity():
+    """All events K_eff = r: the same batched route, at its shortest
+    alternating sum."""
     rng = np.random.default_rng(4)
-    K, N = 2, 8       # K=2, r=2 -> K-r=0 -> all unsafe
+    K, N = 2, 8
     sigma = 1.0
     Px, Wx, Py, Wy = _make_inputs(K, N, N, sigma, rng)
-    ip_inf = _batched_direct_enum_abs(
-        Px, Wx, Py, Wy, sigma, r=2, is_per=False, period=0.0,
+    ip_inf = _ma_per_attr_inner_matrix(
+        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
         truncation_sigmas=float('inf'),
     )
-    ip_6 = _batched_direct_enum_abs(
-        Px, Wx, Py, Wy, sigma, r=2, is_per=False, period=0.0,
+    ip_6 = _ma_per_attr_inner_matrix(
+        Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
         truncation_sigmas=6.0,
     )
     assert np.max(np.abs(ip_6 - ip_inf)) < _abs_tol(6.0, ip_inf)
 
 
-def test_r2_abs_mixed_truncation_parity():
-    """Mix of safe and unsafe events on each side; exercises both
-    the safe-Möbius sub-block and the unsafe direct-enum fill."""
+def test_r2_abs_ragged_truncation_parity():
+    """Ragged K_eff on each side (5 and 2 at r = 2), zero-padded through
+    the one batched route."""
     rng = np.random.default_rng(5)
-    K_safe, K_unsafe = 5, 2     # r=2: K=5 safe, K=2 unsafe
+    K_big, K_small = 5, 2
     sigma = 1.0
-    # Build a ragged (K, N) matrix with NaN-fill where event K < K_safe.
+    # Build a ragged (K, N) matrix with NaN-fill where event K < K_big.
     N = 8
-    Px = np.full((K_safe, N), np.nan)
-    Wx = np.full((K_safe, N), np.nan)
-    Py = np.full((K_safe, N), np.nan)
-    Wy = np.full((K_safe, N), np.nan)
-    safe_pos = rng.uniform(0.0, 40.0, size=(K_safe, N))
-    safe_w = rng.uniform(0.1, 1.0, size=(K_safe, N))
+    Px = np.full((K_big, N), np.nan)
+    Wx = np.full((K_big, N), np.nan)
+    Py = np.full((K_big, N), np.nan)
+    Wy = np.full((K_big, N), np.nan)
+    pos = rng.uniform(0.0, 40.0, size=(K_big, N))
+    wts = rng.uniform(0.1, 1.0, size=(K_big, N))
     for n in range(N):
-        k_this = K_safe if (n % 2 == 0) else K_unsafe
-        Px[:k_this, n] = safe_pos[:k_this, n]
-        Wx[:k_this, n] = safe_w[:k_this, n]
-        Py[:k_this, n] = safe_pos[:k_this, n] + 0.5
-        Wy[:k_this, n] = safe_w[:k_this, n] + 0.05
+        k_this = K_big if (n % 2 == 0) else K_small
+        Px[:k_this, n] = pos[:k_this, n]
+        Wx[:k_this, n] = wts[:k_this, n]
+        Py[:k_this, n] = pos[:k_this, n] + 0.5
+        Wy[:k_this, n] = wts[:k_this, n] + 0.05
     ip_inf = _ma_per_attr_inner_matrix(
         Px, Wx, Py, Wy, sigma, r=2, is_rel=False, is_per=False, period=0.0,
         truncation_sigmas=float('inf'),

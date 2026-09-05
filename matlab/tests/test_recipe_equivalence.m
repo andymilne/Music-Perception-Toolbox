@@ -3,7 +3,7 @@
 %  Targeted regression tests confirming that
 %    out_recipe = mobius.executeRecipe(operands, mobius.buildContractRecipe(opAxes, freeAxes))
 %  agrees with
-%    out_contract = mobius.contract(operands, opAxes, freeAxes)
+%    out_contract = reference.contract(operands, opAxes, freeAxes)
 %  to floating-point precision across the call patterns used by
 %  the orbit-IP consumers (mobius.innerProductOrbit,
 %  mobius.innerProductOrbitGrid, mobius.innerProductOrbitPwBatched).
@@ -21,6 +21,7 @@ if ~exist('results', 'var')
     % Defaults isolation when run standalone (when invoked from
     % test_mpt.m the outer wrapper has already isolated defaults).
     addpath(fileparts(mfilename('fullpath')));
+    addpath(fullfile(fileparts(mfilename('fullpath')), 'reference'));
     clear cleanupDefaults
     cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 else
@@ -38,7 +39,7 @@ B = randn(5, 6);
 opAxes = {[1 2], [2 3]};
 freeAxes = [1 3];
 operands = {A, B};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: matmul (2 ops, free=2 axes)';
@@ -52,7 +53,7 @@ B = randn(5, 5);
 opAxes = {[1 2], [2 1]};
 freeAxes = [];
 operands = {A, B};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: trace (full contract)';
@@ -67,7 +68,7 @@ v = randn(4, 1);
 opAxes = {1, [1 2], 2};
 freeAxes = [];
 operands = {u, K, v};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: bilinear u'' K v';
@@ -82,7 +83,7 @@ u = randn(4, 1);
 opAxes = {[1 2], [1 3], 1};
 freeAxes = [];
 operands = {A, B, u};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: 3-operand shared axis';
@@ -99,7 +100,7 @@ K = exp(-rand(n_A, n_B));   % positive kernel
 opAxes = {1, 2, [1 2]};   % qA=1, qB=1, 1 edge
 freeAxes = [];
 operands = {w_A.^2, w_B.^2, K.^1};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: orbit-like r=2 single-block';
@@ -116,7 +117,7 @@ K = exp(-rand(n_A, n_B));
 opAxes = {1, 2, 3, [1 3], [2 3]};
 freeAxes = [];
 operands = {w_A.^2, w_A.^1, w_B.^3, K.^2, K.^1};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: orbit-like r=3 (qA=2, qB=1)';
@@ -134,7 +135,7 @@ K_u = exp(-rand(N_u, n_A, n_B));
 opAxes = {1, 2, [U_LABEL, 1, 2]};
 freeAxes = U_LABEL;
 operands = {w_A, w_B, K_u};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: Grid-pattern (U on kernels only)';
@@ -151,7 +152,7 @@ K_g = exp(-rand(N, n_A, n_B));
 opAxes = {[U_LABEL, 1], [U_LABEL, 2], [U_LABEL, 1, 2]};
 freeAxes = U_LABEL;
 operands = {w_A_g, w_B_g, K_g};
-out_c = mobius.contract(operands, opAxes, freeAxes);
+out_c = reference.contract(operands, opAxes, freeAxes);
 recipe = mobius.buildContractRecipe(opAxes, freeAxes);
 out_r = mobius.executeRecipe(operands, recipe);
 results{end+1, 1} = 'recipe equiv: PwBatched-pattern (U on every operand)';
@@ -172,7 +173,7 @@ for trial = 1:5
     K = randn(n_A, n_B);
     v = randn(n_B, 1);
     operands = {u, v, K};
-    out_c = mobius.contract(operands, opAxes, freeAxes);
+    out_c = reference.contract(operands, opAxes, freeAxes);
     out_r = mobius.executeRecipe(operands, recipe);
     if abs(out_c - out_r) > ATOL + RTOL * abs(out_c)
         allOK = false;

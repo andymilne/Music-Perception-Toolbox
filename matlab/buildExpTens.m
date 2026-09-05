@@ -24,7 +24,7 @@ function dens = buildExpTens(varargin)
 %   The fast single-multiset kernels operate on this corner via
 %   internal.singleMultisetView.
 %
-%   Inputs (single-attribute path):
+%   Inputs (single-multiset form, the A = N = 1 corner):
 %     p         - Pitch or position values (vector of length N).
 %     w         - Weights (vector of length N, empty, or scalar — see
 %                 the toolbox's standard broadcast convention in

@@ -1,0 +1,167 @@
+% routing_trees.tex — decision trees of the Music Perception Toolbox's
+% method-selection dispatchers (Python and MATLAB; the two implementations
+% share every rule below, fitted constants excepted). Generated from the
+% source-verified routing map (ROUTING_MAP.md); compile with pdflatex.
+%
+% Legend: rounded boxes are decisions (predicates in the notation of
+% ROUTING_MAP.md); rectangles are leaves (the routine that computes);
+% red-edged boxes are errors; dashed edges are user overrides (the
+% `method' keyword), solid edges the 'auto' rules in the order tested.
+% After the September 2026 parity rounds every rule below is shared by
+% the two languages.
+\documentclass[10pt]{article}
+\usepackage[landscape,margin=8mm,a3paper]{geometry}
+\usepackage[edges]{forest}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\pagestyle{empty}
+
+\definecolor{dec}{RGB}{235,242,250}
+\definecolor{leaf}{RGB}{240,240,240}
+\definecolor{err}{RGB}{200,40,40}
+\definecolor{ovr}{RGB}{120,60,160}
+
+\forestset{
+  routing/.style={
+    for tree={
+      font=\scriptsize\sffamily,
+      draw, rounded corners=2pt, fill=dec,
+      align=left, anchor=west,
+      edge={-{Stealth[length=2mm]}, semithick},
+      grow'=east, child anchor=west, parent anchor=east,
+      l sep=10mm, s sep=1.6mm,
+      inner xsep=3pt, inner ysep=2pt,
+      edge path={\noexpand\path[\forestoption{edge}]
+        (!u.parent anchor) -- ++(4mm,0) |- (.child anchor)\forestoption{edge label};},
+    },
+  },
+  leaf/.style={rounded corners=0pt, fill=leaf, font=\scriptsize\ttfamily},
+  err/.style={rounded corners=0pt, fill=white, draw=err, thick, font=\scriptsize\sffamily\itshape},
+  ovr/.style={edge={dashed, draw=ovr}, edge label={node[pos=0.75,above,font=\tiny\sffamily,color=ovr,inner sep=1pt]{#1}}},
+  when/.style={edge label={node[pos=0.75,above,font=\tiny\sffamily,inner sep=1pt]{#1}}},
+}
+\usetikzlibrary{arrows.meta}
+
+\begin{document}
+
+% ---------------------------------------------------------------- Figure 1
+\noindent\textbf{Figure R1. Cosine similarity: \texttt{cos\_sim\_exp\_tens} / \texttt{cosSimExpTens}.}
+Rules are tested top to bottom; the first that fires decides. Dashed edges are \texttt{method} overrides. Both languages share every rule; only fitted constants differ.
+\vspace{2mm}
+
+\begin{forest} routing
+[{\textbf{cosine}(x, y, method)\\input forms: density pair; density lists (per pair);\\raw arrays (build, then pair); batched single-multiset rows (per row)}
+  [{empty operand} [{\textit{any side has no events}\\$0$}, leaf]]
+  [{\textit{yes}\\ordered attribute ([sym]=0, $r>1$)\\on either side}
+    [{\textit{overrides 'mobius'/'centres' silently}\\Bulger enumeration\\(perm $\times$ comb, $r!$)}, leaf]]
+  [{nested attribute present\\and method $\neq$ 'bulger'}
+    [{\textit{auto / contract / mobius / centres}\\\textbf{nested plan} (Figure R3)\\declines $\to$ Bulger under 'auto',\\error under a forced method}]]
+  [{method $\neq$ 'auto' (flat)}
+    [{Bulger}, leaf, ovr={bulger}]
+    [{unrestricted centres\\(perm $\times$ perm)}, leaf, ovr={centres}]
+    [{M\"obius per-attribute\\(Figure R2)}, leaf, ovr={mobius}]
+    [{'contract' on a non-nested density}, err, ovr={contract}]]
+  [{\textbf{flat selector} ('auto'), rules in order}
+    [{1. $r_{\max}\le 1$} [{Bulger}, leaf]]
+    [{2. $r_{\max}>8$} [{Bulger; feasibility guard\\$n_J^x n_J^y\cdot 8 > $ budget $\to$ error}, leaf]]
+    [{3. working set $n_J\,2\Sigma r\cdot 8 > 256$\,MB\\(and not rel-per above threshold)} [{M\"obius}, leaf]]
+    [{4. rel-per and $\sigma/P > \mathrm{thr}(t_s)$}
+      [{\textit{wrap='single-image'}\\Bulger (minimum-image measure)}, leaf]
+      [{\textit{wrap='full-image'}\\M\"obius (all-image measure)}, leaf]
+      [{mixed wrap on one density}, err]]
+    [{5. cost race\\$c_\mathrm{B}=$ law(bulger, tuple-pair entries)\\$c_\mathrm{M}=\sum_a \max(\min(\mathrm{centres},\mathrm{grid}),\ \mathrm{floor})$\\(memoised self products skipped on both sides)}
+      [{\textit{$c_\mathrm{B}\le c_\mathrm{M}$}\\Bulger}, leaf]
+      [{\textit{$c_\mathrm{B}> c_\mathrm{M}$}\\M\"obius (Figure R2)\\post-hoc guard: impossible value $\to$ Bulger}, leaf]]]
+]
+\end{forest}
+
+\vspace{4mm}
+\noindent\textbf{Kernel core shared by the Bulger and centres arms} (per attribute, log kernel over tuple pairs):
+Gram form when non-periodic and accurate enough; inner-[rel] block form when $r_\mathrm{in}>0$;
+abs-per full-image $\theta$ (wrapped Gaussian, image sum or Fourier) when wrap='full-image' and $L>0$;
+otherwise nearest-image reduction and the quadratic form $Q$ (rel-per: pairwise minimum-image wrap). All-$r=1$ densities take the direct kernel sum.
+
+\newpage
+% ---------------------------------------------------------------- Figure 2
+\noindent\textbf{Figure R2. The M\"obius arm: one $(N_x\times N_y)$ matrix per attribute.}
+\vspace{2mm}
+
+\begin{forest} routing
+[{\textbf{per attribute} $a$}
+  [{$r_a = 1$} [{direct kernel sum (abs kernel;\\wrap honoured)}, leaf]]
+  [{absolute, $r_a\ge 2$}
+    [{\textit{non-per, $K_xK_y\ge 2\cdot10^5$, nnz $\le 0.2K_xK_y$}\\sparse orbit sub-matrix}, leaf]
+    [{\textit{else}\\dense orbit (pw-batched)}, leaf]]
+  [{relative, $r_a\ge 2$:\\centres-vs-grid gate\\(\texttt{\_ma\_rel\_attr\_prefers\_centres})}
+    [{\textit{admissible and $c_\mathrm{centres}<c_\mathrm{grid}$ (or rel\_attr\_route='centres')}\\tuple-centres closed form\\comb-side restriction; $L=0$ short-circuit}, leaf]
+    [{translation grid\\$N_u$ nodes; image sum on periodic}
+      [{\textit{$2\le r\le4$, grid $\le 4\cdot10^6$, grid $\le 1100\,K_x^2\,N_xN_y$}\\spectral (Fourier) contraction}, leaf]
+      [{\textit{else}\\lattice contraction\\(orbit grid / pw-batched)}, leaf]]
+    [{'centres' requested above $\sigma/P$ threshold\\on a full-image attribute}, err]]
+]
+\end{forest}
+
+\vspace{4mm}
+The centres route is blocked by measure when rel-per and $\sigma/P>\mathrm{thr}(t_s)$ (it computes the minimum-image reading), and by cost otherwise; a forced 'mobius' keeps the grid. Both routes memoise the self products under the key \texttt{mobius|}$t_s$\texttt{|choices}.
+
+\newpage
+% ---------------------------------------------------------------- Figure 3
+\noindent\textbf{Figure R3. The nested plan (\texttt{\_try\_nested\_contract} / \texttt{nestedContract}).}
+\vspace{2mm}
+
+\begin{forest} routing
+[{\textbf{nested density}}
+  [{not covered: normalize, attribute count,\\inner [rel] unit, [r]/[sym] mismatch}
+    [{\textit{'auto'}\\Bulger}, leaf] [{\textit{forced}\\error}, err]]
+  [{\textbf{admissible routes} per attribute (measure rule)}
+    [{absolute} [{contract}, leaf]]
+    [{relative, non-periodic} [{centres | line grid: cheaper by cost law}, leaf]]
+    [{relative, periodic, $\sigma/P > \mathrm{thr}(t_s)$}
+      [{\textit{wrap='full-image'}\\$\tau$-grid (all-image)}, leaf]
+      [{\textit{wrap='single-image'}\\centres (minimum-image)}, leaf]]
+    [{relative, periodic, $\sigma/P \le \mathrm{thr}(t_s)$} [{centres | $\tau$-grid: cheaper by cost law\\(memory guard: centres working set $> 256$\,MB $\to$ excluded)}, leaf]]
+    [{forced 'centres' where only the $\tau$-grid carries the measure}, err, ovr={centres}]]
+  [{\textbf{plan vs enumeration}\\plan $=\sum_a$ route price $+$ flat companions;\\enum $=$ Bulger law on the joint pair size\\(inf if a full-image rel-per attribute is above threshold)}
+    [{\textit{$2\,\mathrm{enum} < \mathrm{plan}$ and 'auto'}\\Bulger}, leaf]
+    [{\textit{else}\\run the plan}
+      [{contract: per level, orbit reduction or enumeration\\(orbit cost model); accuracy guard $\to$ enumeration}, leaf]
+      [{materialised centres}, leaf]
+      [{$\tau$-grid / line grid contraction}, leaf]]]
+  [{nested-MA (nested $\otimes$ flat attributes)\\per attribute: nested $\to$ plan above; flat symmetric $\to$ M\"obius matrix (Figure R2);\\ordered flat $\to$ tuple-centres closed form}]
+]
+\end{forest}
+
+\newpage
+% ---------------------------------------------------------------- Figure 4
+\noindent\textbf{Figure R4. Point evaluation: \texttt{eval\_exp\_tens} / \texttt{evalExpTens}.}
+\vspace{2mm}
+
+\begin{forest} routing
+[{\textbf{eval}(dens, X, method)}
+  [{centres branch}, ovr={centres}]
+  [{M\"obius branch}, ovr={mobius} [{\textit{raises}\\ordered attribute}, err]]
+  [{\textbf{eval selector} ('auto'), rules in order}
+    [{1. ordered attribute} [{centres}, leaf]]
+    [{2. nested attribute} [{centres}, leaf]]
+    [{3. all $r\le1$} [{centres}, leaf]]
+    [{4. $r>10$} [{centres; working-set guard $> 4$\,GB $\to$ error}, leaf]]
+    [{5. rel-per and $\sigma/P>\mathrm{thr}(t_s)$}
+      [{\textit{wrap='single-image'}\\centres}, leaf] [{\textit{wrap='full-image'}\\M\"obius}, leaf]]
+    [{6. cost: $c_\mathrm{M} < c_\mathrm{C}\cdot s$,\\$s=1.5$ if joint working set $> 256$\,MB else $1$}
+      [{\textit{yes}\\M\"obius}, leaf] [{\textit{no}\\centres}, leaf]]]
+  [{\textbf{centres branch}}
+    [{single multiset: kernel sum\\1-D vectorised | bucketed | circular | exact chunks\\chunk: $\theta$ product ($L>0$) | tabulated $\theta$ | nearest-image $Q$}, leaf]
+    [{MA, all $r\ge2$, no kernel covariance: factored\\(per-attribute kernel sums)}, leaf]
+    [{MA otherwise: joint tuple centres\\(tabulated $\theta$ when values repeat)}, leaf]]
+  [{\textbf{M\"obius branch}}
+    [{absolute: partition sum, reduction rule}, leaf]
+    [{relative: $u$-grid; direct | factored (non-per) | Fourier ($2\le r\le4$)}, leaf]]
+]
+\end{forest}
+
+\vspace{4mm}
+\noindent\textbf{Entropy} (\texttt{entropy\_exp\_tens}): 'differential' $\to$ adaptive grid of point evaluations (eval 'auto'); 'shannon' / 'normalized' $\to$ erf cell masses on absolute densities (minimum-image on periodic axes), grid via eval otherwise; 'renyi2' $\to$ $\langle T,T\rangle$ from the per-attribute M\"obius matrices (Figure R2), numerical for nested or ordered attributes.
+\textbf{Windowed similarity}: every window position is a cosine call under 'auto'; \texttt{windowed\_tensor\_similarity} has a single closed-form path.
+\textbf{Sweep}: mixture (dedup pairs) vs orbit sweep by pair count and chunk budget; the orbit sweep reuses Figure R2's per-attribute matrices.
+
+\end{document}

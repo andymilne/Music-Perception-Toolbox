@@ -1,8 +1,10 @@
 function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, r, ...
                                             isPer, period)
-%MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET  Direct-enumeration single-multiset IP, abs mode.
+%REFERENCE.INNERPRODUCTDIRECTABSSINGLEMULTISET  Direct-enumeration single-multiset IP, abs mode.
 %
-%   IPVAL = MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET(P_X, W_X, P_Y, W_Y, SIGMA, R,
+%   Test oracle only (tests/reference); nothing shipped calls it.
+%
+%   IPVAL = REFERENCE.INNERPRODUCTDIRECTABSSINGLEMULTISET(P_X, W_X, P_Y, W_Y, SIGMA, R,
 %                                            IS_PER, PERIOD)
 %   computes <T_X, T_Y> for two single-multiset absolute-mode densities at order
 %   R >= 1 by enumerating ordered R-tuples on each side and summing
@@ -11,10 +13,10 @@ function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, 
 %                               exp(-||centres_x[:,J] - centres_y[:,K]||^2 / (4 sigma^2))
 %
 %   No Möbius alternating sum is involved, so the result is exact
-%   (no catastrophic cancellation) for any K_x, K_y >= R. This is
-%   the "unsafe" path of the MA per-attribute IP matrix, used for
-%   event pairs where at least one event has K_eff - R below the
-%   enumerated comparison point for the Mobius route.
+%   (no catastrophic cancellation) for any K_x, K_y >= R. It is the
+%   enumerated comparison point for the batched Möbius route of
+%   MOBIUS.MAPERATTRINNERMATRIX, which no longer partitions events by
+%   K_eff (accuracy is governed by truncationSigmas).
 %
 %   NaN tolerance: NaN entries in P_X / W_X / P_Y / W_Y are dropped
 %   per event before enumeration. If the dropped count leaves either
@@ -22,7 +24,6 @@ function ipval = innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, sigma, 
 %   (can't form an R-tuple).
 %
 %   Cost: O(K_x! / (K_x - R)! * K_y! / (K_y - R)! * R) per call.
-%   Cheap when K is close to R (the unsafe regime).
 %
 %   See also MOBIUS.ORBITINNERABSSINGLEMULTISET, MOBIUS.MAPERATTRINNERMATRIX.
 

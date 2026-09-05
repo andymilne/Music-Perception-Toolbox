@@ -29,11 +29,10 @@ def _tuple_centres(p, w, r):
     p, w = p[valid], w[valid]
     if p.size < r:
         return np.zeros((0, r)), np.zeros(0)
-    # The existing single-multiset builder returns (r, nJ) positions and
-    # (nJ,) weight products; transpose to (nJ, r) for the pair algebra
-    # below.
-    from mpt._tensor.cosine import _build_ordered_r_tuples
-    u, w_j = _build_ordered_r_tuples(p, w, r)
+    # The reference tuple builder returns (r, nJ) positions and (nJ,)
+    # weight products; transpose to (nJ, r) for the pair algebra below.
+    from tests.references.mobius_ip_reference import build_ordered_r_tuples
+    u, w_j = build_ordered_r_tuples(p, w, r)
     return np.asarray(u).T, np.asarray(w_j)
 
 
@@ -53,7 +52,7 @@ def _kernel(c_a, c_b, r, sigma, is_rel, is_per, period):
     In the relative modes the form couples the coordinates, so no such
     factorisation is available; the minimum-image convention is used,
     which is what the other routes compute there (see the note on the
-    wrapped-difference kernel in :mod:`_centres_inner`).
+    wrapped-difference kernel in :func:`_kernel`).
     """
     delta = c_a[:, None, :] - c_b[None, :, :]
     if is_rel:

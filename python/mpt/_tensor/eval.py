@@ -156,10 +156,23 @@ def eval_exp_tens(*args,
 
     Accuracy is governed by ``truncationSigmas``: the Möbius point
     evaluator's agreement with the centres path tracks the truncation
-    budget, and how close ``K`` is to ``r`` does not bear on it. The
-    dispatcher falls back to the centres path when ``σ/P > 0.03`` in
-    periodic-relative mode, and when the Möbius output contains
-    non-finite values; otherwise it chooses on cost.
+    budget, and how close ``K`` is to ``r`` does not bear on it. Above
+    the periodic-relative σ/P threshold the two paths compute different
+    measures, so the dispatcher routes by the attribute's declared
+    ``wrap`` (``'single-image'`` to the centres path, the default
+    ``'full-image'`` to the Möbius evaluator); otherwise it chooses on
+    cost. After the
+    Möbius evaluator has run, a post-hoc guard (``post_hoc_guards``
+    default) checks its output and, when any value is non-finite, warns
+    and re-evaluates through the centres path; every shape reaches this
+    guard through the one multi-attribute evaluator, so the
+    single-multiset corner inherits it (MATLAB: ``evalExpTens``).
+
+    ``kernel_precision='single'`` is honoured on the Möbius route and on
+    every centres leaf (the single-multiset kernel, the factored
+    per-attribute kernel and the joint kernel), which cast their hot-loop
+    arrays to single precision; the MATLAB twins honour it on the same
+    routes.
 
     What is *not* currently caught: a finite, but slightly inaccurate
     output from accumulated Möbius per-term error. None has been
@@ -382,6 +395,24 @@ def eval_exp_tens(*args,
 
 
 
+_EVAL_NORMALIZE_VALUES = ("none", "gaussian", "pdf")
+
+
+def _validate_eval_normalize(normalize) -> str:
+    """Canonical ``normalize`` for point evaluation, or ``ValueError``.
+
+    Twin of the MATLAB ``evalExpTens`` check: the value must be one of
+    ``'none'``, ``'gaussian'`` or ``'pdf'`` (case-insensitive).
+    """
+    if not isinstance(normalize, str) \
+            or normalize.lower() not in _EVAL_NORMALIZE_VALUES:
+        raise ValueError(
+            f"normalize must be one of {_EVAL_NORMALIZE_VALUES!r}; "
+            f"got {normalize!r}."
+        )
+    return normalize.lower()
+
+
 def _eval_exp_tens_scalar(
     dens, x, normalize: str, *, method: str = "auto",
     truncation_sigmas: float | None = None,
@@ -395,6 +426,10 @@ def _eval_exp_tens_scalar(
     """
     from .aniso import density_has_kernel_cov, whiten_query, \
         density_logdet_sum
+    # Every input form ends here, so this is the one place to validate
+    # ``normalize``: an unknown string used to act as 'gaussian' silently,
+    # where the MATLAB twin rejects it.
+    normalize = _validate_eval_normalize(normalize)
     if isinstance(dens, WindowedMaetDensity):
         if density_has_kernel_cov(dens.dens):
             raise NotImplementedError(
@@ -897,8 +932,26 @@ def _eval_exp_tens_ma(
         xq = _ma_join_query(dens, x)
         vals = eval_ma_orbit(
             dens, xq, truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
-        return _ma_eval_normalize(dens, vals, normalize)
+        # Post-hoc guard, on the one evaluator every shape reaches so
+        # that the single-multiset corner inherits it rather than owning
+        # a copy: a non-finite Möbius value (an overflowed alternating
+        # sum, or a NaN from a degenerate block) is not a density value,
+        # so warn and re-evaluate through the centres path, which never
+        # cancels. Twin of the MATLAB evalExpTens guard.
+        from .._defaults import get_default as _gd_guard
+        if _gd_guard("post_hoc_guards") and not np.all(np.isfinite(vals)):
+            warnings.warn(
+                "eval_exp_tens: the Möbius evaluator returned non-finite "
+                "values; falling back to the centres path for this call.",
+                RuntimeWarning, stacklevel=2,
+            )
+            _maybe_show_dispatch_msg(
+                "eval_exp_tens (MAET)", "centres",
+                "post-hoc guard: non-finite Möbius output")
+        else:
+            return _ma_eval_normalize(dens, vals, normalize)
 
     # --- Single-multiset centres fast path -------------------------------
     # For the single-multiset corner (A = 1, flat) the general per-
@@ -928,6 +981,7 @@ def _eval_exp_tens_ma(
             float(dens.sigma[0]), int(dens.r[0]),
             bool(dens.is_rel[0]), bool(dens.is_per[0]), float(dens.period[0]),
             truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             wrap=(str(dens.wrap[0]) if hasattr(dens, 'wrap')
                   and dens.wrap is not None else 'full-image'),
         )
@@ -941,6 +995,7 @@ def _eval_exp_tens_ma(
     # Falls back to the joint materialisation below when unsupported.
     factored = _ma_eval_factored(
         dens, x, truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision,
         prune_zero_weight_events=prune_zero_weight_events,
     )
     if factored is not None:
@@ -1075,7 +1130,8 @@ def _eval_exp_tens_ma(
 
 
 def _ma_eval_factored(
-    dens, x, *, truncation_sigmas=None, prune_zero_weight_events=True,
+    dens, x, *, truncation_sigmas=None, kernel_precision=None,
+    prune_zero_weight_events=True,
 ):
     """Factored multi-attribute centres evaluation.
 
@@ -1103,6 +1159,11 @@ def _ma_eval_factored(
     ``r_a == 1`` attribute, whose event-dependent equal-value collapse
     breaks the shared enumeration), signalling a fall-back to the joint
     :func:`_ma_eval_full` route.
+
+    ``kernel_precision`` is forwarded to the flat per-attribute kernel,
+    as the MATLAB ``localMaEvalFactored`` forwards it to
+    ``gaussianKernelSum``; the nested block form is evaluated in double
+    (it is small, and the MATLAB twin does likewise).
     """
     from .._defaults import resolve_truncation_sigmas
     from .build import _enum_flat_attr, _nested_enum_indices
@@ -1131,6 +1192,7 @@ def _ma_eval_factored(
     inner_r = _inner_r_vec(dens)
     nested = dens.nested
     ts = resolve_truncation_sigmas(truncation_sigmas)
+    wrap_dens = getattr(dens, 'wrap', None)
 
     # Per-attribute tuple-index structure, enumerated once over the
     # ever-valid indices (non-NaN in at least one event). The index
@@ -1186,11 +1248,18 @@ def _ma_eval_factored(
                 s_a = (w_tuple[:, None] * np.exp(-q)).sum(axis=0)
             else:
                 c = (u[1:, :] - u[:1, :]) if is_rel[a] else u
+                # The attribute's declared wrap goes with it, as on the
+                # single-multiset and joint centres routes: without it a
+                # 'single-image' abs-per attribute was evaluated
+                # full-image whenever this route was taken.
+                wrap_a = (str(wrap_dens[a]) if wrap_dens is not None
+                          and a < len(wrap_dens) else 'full-image')
                 s_a = _eval_core(
                     c, w_tuple, int(w_tuple.size), x_list[a], n_q,
                     int(c.shape[0]), sigma[a], r_vec[a],
                     is_rel[a], is_per[a], period[a],
-                    truncation_sigmas=ts,
+                    truncation_sigmas=ts, kernel_precision=kernel_precision,
+                    wrap=wrap_a,
                 )
             prod *= s_a
         total += prod
@@ -1542,9 +1611,22 @@ def _truncated_kernel_sum_culled(centres, w_j, x_q, sigma, is_rel, r, k_sigma):
 
 def _eval_core(
     centres, w_j, n_j, x, n_q, dim, sigma, r, is_rel, is_per, period,
-    *, truncation_sigmas=None, wrap='full-image',
+    *, truncation_sigmas=None, wrap='full-image', kernel_precision=None,
 ):
-    """Evaluate with automatic memory-aware chunking (single-multiset path)."""
+    """Evaluate with automatic memory-aware chunking (single-multiset path).
+
+    ``kernel_precision='single'`` casts the centres, weights and queries
+    to single precision before the kernel, so the hot-loop arithmetic
+    runs in float32 as in the MATLAB ``internal.gaussianKernelSum``;
+    ``None`` takes the global default. The result is returned in double.
+    """
+    if kernel_precision is None:
+        from .._defaults import get_default
+        kernel_precision = get_default("kernel_precision")
+    if str(kernel_precision).lower() == "single":
+        centres = np.asarray(centres, dtype=np.float32)
+        w_j = np.asarray(w_j, dtype=np.float32)
+        x = np.asarray(x, dtype=np.float32)
     # Non-periodic + finite truncation: bucket-grid spatial cull (mirrors MATLAB
     # internal.gaussianKernelSum). Only tuples within the Q-ball of each query
     # are evaluated, avoiding the dense n_j x n_q kernel; value-identical to the

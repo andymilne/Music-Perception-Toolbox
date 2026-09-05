@@ -2,7 +2,7 @@
 
 This guide documents migration paths between major versions of the Music Perception Toolbox.
 
-- [v2.1 → v2.2](#v21--v22) — the Möbius method (alongside Bulger's), Rényi-2 entropy, ragged-K hybrid, exact `nTupleEntropy` position mode
+- [v2.1 → v2.2](#v21--v22) — the Möbius method (alongside Bulger's), Rényi-2 entropy, routing and measure changes, exact `nTupleEntropy` position mode
 - [v2.0 → v2.1](#v20--v21) — soft (`sigma > 0`) structural measures, Argand-DFT Monte Carlo
 - [v1 → v2](#v1--v2) — major rewrite (analytical methods, Python port, restructured core)
 
@@ -119,13 +119,27 @@ v2.1.0 introduced `sigmaSpace = 'position'` (the default) but, at $n \ge 2$, app
 
 This changes `sigmaSpace = 'position'` output at `sigma > 0` for all `n`: exact rather than approximate at $n \ge 2$, and reported on the relative-quotient grid at $n = 1$, so the v2.1.0 identity `position(\sigma) = interval(\sigma\sqrt{2})` no longer holds. `sigma = 0` is unchanged, and `sigmaSpace = 'interval'` is unchanged at every `sigma`. The approximation is not retained as an option; code that must reproduce v2.1.0's `sigma > 0` position values should pin to v2.1.x.
 
+### Routing and measure changes (September 2026)
+
+The routing-parity work that closed v2.2 changes a handful of numbers and rejects a handful of calls. Each item says what changed and what to do.
+
+- **Shannon and normalized entropy on periodic attributes now honour `wrap`.** Under the default `wrap='full-image'` the cell masses sum the erf over every periodic image the truncation admits, so `method='shannon'` and `method='normalized'` values on a periodic attribute differ from earlier builds once σ/period exceeds about 0.06 (below that the two readings agree to within the accuracy floor). To recover the old numbers, declare `wrap='single-image'` on the attribute when building the density.
+
+- **Rényi-2 entropy of a relative $r = 1$ attribute is 0.** A relative monad is a zero-dimensional point mass and contributes no entropy; the value is now 0 by convention where it was previously undefined. Code that special-cased this configuration can drop the special case.
+
+- **`method='factored'` removed** (Python). The name is rejected with the usual bad-method error. Use `'auto'` (or one of the documented names): the route was an undocumented Python-only entry point that bypassed the selector, the measure rule, and the post-hoc guard, and it computed the same value the documented routes compute.
+
+- **`cancellation_threshold` (Python) / `'cancellationThreshold'` (MATLAB) removed** from `cos_sim_exp_tens` / `cosSimExpTens`. The keyword had been inert; passing it now raises `TypeError` (Python) or the argument-count usage error `cosSimExpTens:wrongArgCount` (MATLAB). Delete it from the call — nothing replaces it, `'auto'` is the whole of the routing, and accuracy is governed by `truncation_sigmas`.
+
+- **Mixed `wrap` across the two operands is now an error.** Declaring `'full-image'` on an attribute of one density and `'single-image'` on the same attribute of the other raises `ValueError` (Python) / `mpt:wrapMismatch` (MATLAB); previously the first operand's declaration was taken silently. Build both densities with the same declaration.
+
+- **MATLAB list and batched forms now honour `method`, `truncationSigmas`, and `kernelPrecision`.** A call in list or batched form that passed these keywords and relied on their being ignored will now route as the keywords say — a forced `'mobius'` or `'centres'` is applied to every entry, and a per-call `truncationSigmas` governs every entry. Remove the keyword, or pass `'auto'`, to keep the earlier behaviour.
+
 ### What's new at the surface
 
-- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.1 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values: `'bulger'` (v2.1 decomposition; IP-only), `'mobius'` (new in v2.2; IP, eval, total mass), `'centres'` (eval only), `'direct'` (small problems). The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
+- **`method` keyword** on `cosSimExpTens`, `evalExpTens`, `entropyExpTens` (and Python equivalents). Default `'auto'` runs a per-call cost model that picks between **Bulger's method** (the v2.1 inner-product decomposition) and the new **Möbius method** (partition decomposition with orbit collapse in the IP case). Explicit values on `cosSimExpTens`: `'bulger'` (v2.1 decomposition; IP-only), `'mobius'` (new in v2.2; IP, eval, total mass), `'centres'` (the unrestricted enumeration; the reference route), and `'contract'` (nested densities); on `evalExpTens`: `'centres'` and `'mobius'`. The Möbius and Bulger methods agree to floating-point precision in the regimes where both are valid (the IP case); the dispatcher chooses based on speed without changing answers.
 
 - **`method='renyi2'`** on `entropyExpTens`. Closed-form Rényi-2 differential entropy via the Möbius method's inner product and total mass. The analytical route was conceptually available in v2.0 / v2.1 (the inputs were both already analytical) but is newly exposed as a user-facing option in v2.2 and made efficient at high $r$ / $K$ via the Möbius method. Continuous-form: returns $H_2 \in (-\infty, \log_b V]$, no $[0, 1]$ reference. The legacy `normalize` kwarg is removed across all entropy entry points (see above).
-
-- **`cancellationThreshold`** keyword on `cosSimExpTens` (default `1e-12`). Guards the Möbius method's alternating partition sum against catastrophic cancellation; if the cancellation ratio drops below the threshold, the dispatcher falls back to Bulger's method. Most callers will not need to touch it.
 
 - **Shipped orbit tables for $r \in \{2, \ldots, 8\}$.** Both Python and MATLAB ship pre-built tables for $r = 2$ through $r = 8$. The user-build path remains available for $r > 8$, gated by a cost-preview warning that prints the Bell-number scaling and estimated build time before construction begins. Set `MPT_NO_BUILD_WARN=1` (environment variable) to suppress the preview message in automation contexts. The user-build cache lives at `~/.mpt/orbit_tables/` (overridable via `MPT_CACHE_DIR`) and persists across sessions. The hard cap on $r$ is 12; beyond that, the build cost is prohibitive even for one-off use.
 
@@ -138,10 +152,6 @@ This changes `sigmaSpace = 'position'` output at `sigma > 0` for all `n`: exact 
 ### What's new under the hood
 
 - **Lazy density-struct.** `buildExpTens` now defaults to `lazy=true`: the expensive density fields (`U_perm`, `wJ`, `V_comb`, `wV_comb`) are deferred until a consumer needs them. Consumers that read these fields directly should call `ensureExpTensExpensive(dens)` first; this is wired through the toolbox internally, so user-level code that goes through `cosSimExpTens` / `evalExpTens` / `entropyExpTens` is unaffected. If you have v2.1-era code that pokes at `dens.U_perm` directly, add an `ensureExpTensExpensive(dens)` call before the read.
-
-- **Ragged-K hybrid for MA Möbius inner product.** The MA per-attribute IP wrapper now handles NaN-padded events natively via a per-event safe/unsafe partition. The dispatcher no longer routes on the presence of NaN entries. The v2.2.x unsafe-direct-enum path is K-grouped and batched (a single vectorised tensor contraction per `(K_eff_x, K_eff_y)` sub-block, replacing the v2.2.0 per-pair scalar loop), giving 1.5–2.4× end-to-end speedup on variable-cardinality MA workloads at no API change. Uniform-cardinality workloads are unaffected. No user-visible change unless you previously relied on the `has_nan` → Bulger fallback for some side-effect reason.
-
-- **SA cosine-similarity dispatcher gains a timing probe.** When the cost-model pre-screen does not decisively favour one method (i.e., neither cost estimate dominates the other by ≥10× at the call's parameters), the dispatcher times each candidate method on a small subset of the workload and routes the full call accordingly. This is future-proof against incremental optimisations on either side. The user-visible default behaviour is unchanged in the regimes where the pre-screen was already decisive (which is the majority of typical workloads); only edge-case calls that previously got the wrong method now route correctly.
 
 - **`tensorHarmonicity` rewrite.** The function now bypasses `buildExpTens` entirely and routes through the Möbius relative-mode evaluator (`mobius.evalOrbitRel`) with per-template caching. Output is unchanged at the floating-point level. The previous "consider K_template > 3" warning is removed since the Möbius method handles arbitrary K-template without the centres-array memory footprint.
 

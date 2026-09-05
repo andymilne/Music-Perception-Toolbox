@@ -1,30 +1,22 @@
 %% test_ma_per_attr_hybrid.m — ragged-event handling in MA per-attr IP
 %
-%  Tests for the hybrid safe/unsafe partition in
-%  mobius.maPerAttrInnerMatrix (added when we addressed the Python/MATLAB
-%  ragged-K parity gap). Strategy:
-%    - Every event takes the vectorised batched Mobius route with
-%      zero-weight padding; accuracy is governed by truncationSigmas,
-%      so no size-based partition is applied.
-%    - Safe-vs-safe pairs flow through the vectorised batched Möbius method
-%      with zero-pad within the safe group.
-%    - Pairs involving any unsafe event flow through
-%      mobius.innerProductDirectAbsSingleMultiset (direct r-tuple enumeration; no
-%      Möbius alternating sum, so no cancellation).
+%  Tests for ragged (NaN-padded) events in mobius.maPerAttrInnerMatrix.
+%  Every event takes the vectorised batched Mobius route with
+%  zero-weight padding; accuracy is governed by truncationSigmas, so no
+%  size-based partition is applied. The direct r-tuple enumeration
+%  reference.innerProductDirectAbsSingleMultiset (tests/reference; no
+%  Mobius alternating sum) is the comparison point.
 %
 %  Tests:
 %    - innerProductDirectAbsSingleMultiset standalone correctness (matches a
 %      hand-rolled centres-array IP).
-%    - All-safe ragged: hybrid produces same matrix as the prior
-%      zero-pad-everything approach (since safe group covers all events).
-%    - All-unsafe (every event has K_eff = r): hybrid equals an
-%      explicit per-pair direct-enum reference.
-%    - Mixed safe/unsafe: cosSimExpTens with method='mobius' agrees with
-%      method='bulger' to high precision (the hybrid's correctness
-%      claim).
+%    - Ragged events well above r: the batched matrix equals the per-pair
+%      direct-enum reference.
+%    - Every event at K_eff = r: the batched matrix equals the per-pair
+%      direct-enum reference.
+%    - Mixed K_eff: cosSimExpTens with method='mobius' agrees with
+%      method='bulger' to high precision.
 %    - r=1 ragged: zero-pad path unchanged, still matches Bulger.
-%    - Edge: K_eff = r exactly (single ordered tuple per event,
-%      direct-enum trivially exact).
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 
@@ -34,6 +26,7 @@ if ~exist('results', 'var')
     % Defaults isolation when run standalone (when invoked from
     % test_mpt.m the outer wrapper has already isolated defaults).
     addpath(fileparts(mfilename('fullpath')));
+    addpath(fullfile(fileparts(mfilename('fullpath')), 'reference'));
     clear cleanupDefaults
     cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 else
@@ -43,7 +36,7 @@ end
 %% ---- innerProductDirectAbsSingleMultiset correctness ----
 
 % Compare direct enumeration to a hand-rolled centres-array IP for a
-% small abs-mode SA case. The hand-rolled version uses buildExpTens to
+% small abs-mode single-multiset case. The hand-rolled version uses buildExpTens to
 % generate ordered tuples + weight products and computes the IP via
 % explicit kernel matmul.
 rng(81, 'twister');
@@ -53,7 +46,7 @@ p_y = sort(2000 * rand(5, 1));
 w_y = ones(5, 1);
 sigma = 30;
 
-ip_direct = mobius.innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, ...
+ip_direct = reference.innerProductDirectAbsSingleMultiset(p_x, w_x, p_y, w_y, ...
     sigma, 3, false, 0);
 
 % Hand-rolled reference via buildExpTens centres
@@ -66,93 +59,86 @@ diffs_ref = reshape(densX.U_perm{1}, 3, densX.nJ, 1) ...
 Q_ref = reshape(sum(diffs_ref.^2, 1), densX.nJ, densY.nJ);
 ip_ref = (sigma * sqrt(pi))^3 * (densX.wJ * exp(-Q_ref / (4*sigma^2)) * densY.wJ.');
 
-results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: matches centres-array IP (1e-12)';
+results{end+1,1} = 'reference.innerProductDirectAbsSingleMultiset: matches centres-array IP (1e-12)';
 results{end,2}   = abs(ip_direct - ip_ref) < 1e-12 * abs(ip_ref);
 
 % NaN-tolerance: NaN entries are dropped per side.
 p_x_nan = [p_x; NaN; NaN];   w_x_nan = [w_x; NaN; NaN];
-ip_direct_nan = mobius.innerProductDirectAbsSingleMultiset(p_x_nan, w_x_nan, p_y, w_y, ...
+ip_direct_nan = reference.innerProductDirectAbsSingleMultiset(p_x_nan, w_x_nan, p_y, w_y, ...
     sigma, 3, false, 0);
-results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: NaN-padded input dropped per side';
+results{end+1,1} = 'reference.innerProductDirectAbsSingleMultiset: NaN-padded input dropped per side';
 results{end,2}   = abs(ip_direct_nan - ip_direct) < 1e-12 * abs(ip_direct);
 
 % K_eff < r returns 0 by convention.
-ip_zero = mobius.innerProductDirectAbsSingleMultiset([0; 1], [1; 1], [0; 1], [1; 1], ...
+ip_zero = reference.innerProductDirectAbsSingleMultiset([0; 1], [1; 1], [0; 1], [1; 1], ...
     sigma, 3, false, 0);
-results{end+1,1} = 'mobius.innerProductDirectAbsSingleMultiset: K_eff < r returns 0';
+results{end+1,1} = 'reference.innerProductDirectAbsSingleMultiset: K_eff < r returns 0';
 results{end,2}   = ip_zero == 0;
 
-%% ---- All-safe ragged: hybrid equals safe-only Möbius ----
+%% ---- Ragged events well above r: batched matrix equals direct enum ----
 
-% Two events, both with K_eff = 6 (well above r+2 = 5); the hybrid
-% should not invoke the unsafe branch at all.
+% Four events, all with K_eff = 6 (well above r = 3).
 rng(83, 'twister');
-P_safe = sort(2000 * rand(6, 4));   W_safe = ones(6, 4);   % all K_eff = 6
+P_big = sort(2000 * rand(6, 4));   W_big = ones(6, 4);   % all K_eff = 6
 sigma = 30; r = 3;
-I_hybrid_safe = mobius.maPerAttrInnerMatrix(P_safe, W_safe, P_safe, W_safe, ...
+I_big = mobius.maPerAttrInnerMatrix(P_big, W_big, P_big, W_big, ...
     sigma, r, false, false, 0);
 
 % Reference: a single buildExpTens-style direct computation per pair
 % (gives the gold-standard IP; no Möbius cancellation since we're
 % summing positive terms).
-N_safe = 4;
-I_ref_safe = zeros(N_safe, N_safe);
-for nx = 1:N_safe
-    for ny = 1:N_safe
-        I_ref_safe(nx, ny) = mobius.innerProductDirectAbsSingleMultiset( ...
-            P_safe(:, nx), W_safe(:, nx), P_safe(:, ny), W_safe(:, ny), ...
+N_big = 4;
+I_ref_big = zeros(N_big, N_big);
+for nx = 1:N_big
+    for ny = 1:N_big
+        I_ref_big(nx, ny) = reference.innerProductDirectAbsSingleMultiset( ...
+            P_big(:, nx), W_big(:, nx), P_big(:, ny), W_big(:, ny), ...
             sigma, r, false, 0);
     end
 end
-results{end+1,1} = 'maPerAttrInnerMatrix all-safe ragged: hybrid matches direct-enum reference (1e-10)';
-results{end,2}   = max(abs(I_hybrid_safe(:) - I_ref_safe(:))) < 1e-10 * max(abs(I_ref_safe(:)));
+results{end+1,1} = 'maPerAttrInnerMatrix K_eff well above r: batched Mobius matches direct-enum reference (1e-10)';
+results{end,2}   = max(abs(I_big(:) - I_ref_big(:))) < 1e-10 * max(abs(I_ref_big(:)));
 
-%% ---- All-unsafe: hybrid uses direct enum on every pair ----
+%% ---- Every event at K_eff = r: batched matrix equals direct enum ----
 
 % Compared at 1e-13 rtol (near bit-parity). Under the default (Inf)
 % truncation, which now resolves to the 1e-12 accuracy floor, the
-% hybrid and the direct-enum reference can drop marginally different
-% far-tail contributions and diverge at ~1e-12, above this tolerance.
-% Widen the floor to 1e-300 (effectively exhaustive) so the two are
-% compared exactly, then restore.
+% batched matrix and the direct-enum reference can drop marginally
+% different far-tail contributions and diverge at ~1e-12, above this
+% tolerance. Widen the floor to 1e-300 (effectively exhaustive) so the
+% two are compared exactly, then restore.
 hyb_prevEps = internal.accuracyFloor('setEps', 1e-300);
 
-% Two events, both with K_eff = 3 (= r, so K_eff - r = 0 < 2 -> unsafe).
-P_unsafe = [0 100; 4 200; 7 300];   % (3, 2), all events K_eff = 3
-W_unsafe = ones(3, 2);
-I_hybrid_unsafe = mobius.maPerAttrInnerMatrix( ...
-    P_unsafe, W_unsafe, P_unsafe, W_unsafe, sigma, r, false, false, 0);
+% Two events, both with K_eff = 3 (= r).
+P_kr = [0 100; 4 200; 7 300];   % (3, 2), all events K_eff = 3
+W_kr = ones(3, 2);
+I_kr = mobius.maPerAttrInnerMatrix( ...
+    P_kr, W_kr, P_kr, W_kr, sigma, r, false, false, 0);
 
 % Reference: every pair via direct enumeration.
-I_ref_unsafe = zeros(2, 2);
+I_ref_kr = zeros(2, 2);
 for nx = 1:2
     for ny = 1:2
-        I_ref_unsafe(nx, ny) = mobius.innerProductDirectAbsSingleMultiset( ...
-            P_unsafe(:, nx), W_unsafe(:, nx), P_unsafe(:, ny), W_unsafe(:, ny), ...
+        I_ref_kr(nx, ny) = reference.innerProductDirectAbsSingleMultiset( ...
+            P_kr(:, nx), W_kr(:, nx), P_kr(:, ny), W_kr(:, ny), ...
             sigma, r, false, 0);
     end
 end
-% v2.2.0 used a per-pair MATLAB double-loop; v2.2.x replaces it with
-% a single vectorised tensor contraction per (K_eff_x, K_eff_y)
-% sub-block (K-grouped batched direct enum). The two produce
-% mathematically identical results but accumulate Q sums in a
-% different order, so individual entries can differ by ~1 ULP.
+% The batched Mobius route and the enumeration accumulate their sums
+% in a different order, so individual entries can differ by ~1 ULP.
 results{end+1,1} = 'maPerAttrInnerMatrix K_eff = r: batched Mobius matches direct-enum on the value scale';
 % Judge by absolute error on the scale the inner product lives on:
 % entries span many orders of magnitude, so a relative tolerance would
 % be dominated by near-zero cross terms.
-results{end,2}   = all(abs(I_hybrid_unsafe(:) - I_ref_unsafe(:)) <= ...
-                        1e-13 * max(abs(I_ref_unsafe(:))));
+results{end,2}   = all(abs(I_kr(:) - I_ref_kr(:)) <= ...
+                        1e-13 * max(abs(I_ref_kr(:))));
 
 % Restore the accuracy floor (paired with the setEps above).
 internal.accuracyFloor('setEps', hyb_prevEps);
 
-% --- v2.2.x: K-grouped batched direct-enum primitive correctness ---
-% The localBatchedDirectEnumAbsSingleMultiset local function (not exported) is
-% exercised via the all-unsafe and mixed-K paths above. Here we test
-% the variable-K_eff Möbius-vs-Bulger equivalence explicitly: a
-% density with events at multiple K_eff values must produce the same
-% cosine under the Möbius method as under Bulger.
+% --- Variable-K_eff Mobius-vs-Bulger equivalence through the public
+% API: a density with events at several K_eff values must produce the
+% same cosine under the Mobius method as under Bulger's.
 rng(7, 'twister');
 N_kg = 12;
 K_max_kg = 6;
@@ -172,21 +158,20 @@ s_orbit_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'mobius', ...
     'verbose', false);
 s_pw_kg = cosSimExpTens(dens_kg, dens_kg, 'method', 'bulger', ...
     'verbose', false);
-results{end+1,1} = 'maPerAttrInnerMatrix v2.2.x: K-grouped Möbius matches Bulger (1e-12)';
+results{end+1,1} = 'maPerAttrInnerMatrix ragged K_eff: Möbius matches Bulger (1e-12)';
 results{end,2}   = abs(s_orbit_kg - s_pw_kg) < 1e-12;
 
-clear P_unsafe W_unsafe I_hybrid_unsafe I_ref_unsafe ...
+clear P_kr W_kr I_kr I_ref_kr ...
       N_kg K_max_kg r_kg sigma_kg P_kg W_kg K_dist K_eff_n n dens_kg ...
       s_orbit_kg s_pw_kg
 
-%% ---- Mixed safe/unsafe: cosSim orbit equals pairwise ----
+%% ---- Mixed K_eff: cosSim orbit equals pairwise ----
 
-% This is the killer test: the hybrid claim is that for any ragged-K
-% input, the orbit method produces an answer equal to pairwise (the
-% gold standard) within tolerance. We exercise that on a deliberately
+% For any ragged-K input the orbit method must produce an answer equal
+% to pairwise (the gold standard) within tolerance; a deliberately
 % mixed case.
 
-% Three events: K_eff = 3 (unsafe), 6 (safe), 4 (unsafe). r = 3.
+% Three events: K_eff = 3, 6, 4. r = 3.
 P_mix = [10  100  500;
          30  200  600;
          50  300  700;
@@ -207,13 +192,13 @@ dy = buildExpTens({P_mix}, {W_mix}, 30, 3, ...
 s_orbit = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
 s_pwise = cosSimExpTens(dx, dy, 'method', 'bulger', 'verbose', false);
 
-results{end+1,1} = 'cosSimExpTens mixed safe/unsafe MA Möbius matches Bulger (1e-8)';
+results{end+1,1} = 'cosSimExpTens mixed K_eff MA Möbius matches Bulger (1e-8)';
 results{end,2}   = abs(s_orbit - s_pwise) < 1e-8;
 
 %% ---- r=1 ragged still matches pairwise ----
 
-% At r=1 there is no orbit alternating sum, so zero-pad-everything is
-% used and unchanged in the hybrid rewrite.
+% At r=1 there is no orbit alternating sum; the zero-pad kernel sum is
+% used.
 P_r1 = [10 100 200; 30 NaN 400; 50 NaN NaN];
 W_r1 = [1 1 1; 1 NaN 1; 1 NaN NaN];
 dx_r1 = buildExpTens({P_r1}, {W_r1}, 30, 1, ...

@@ -4,8 +4,8 @@
 %  deterministic inputs (no RNG). The companion Python file
 %  python/tests/test_cross_language_golden.py hardcodes the same
 %  values; running both pins down cross-language numerical agreement
-%  to 1e-8 relative on the v2.2 surface (Möbius cosine similarity SA
-%  + MA including the safe/unsafe hybrid, Rényi-2 entropy SA + MA,
+%  to 1e-8 relative on the v2.2 surface (Möbius cosine similarity single-multiset
+%  + MA Rényi-2 entropy single-multiset + MA,
 %  Möbius-method tensorHarmonicity, and Möbius-method evalExpTens).
 %
 %  Inputs use 'method', 'mobius' on the cosine cases so the Möbius method
@@ -35,7 +35,7 @@ end
 RTOL = 1e-8;
 ATOL = 1e-12;
 
-%% ---- Case A: SA cosSim, abs r=3, Möbius ----
+%% ---- Case A: single-multiset cosSim, abs r=3, Möbius ----
 
 p1 = [0; 400; 700];
 p2 = [0; 300; 700];
@@ -43,18 +43,18 @@ w  = [1; 1; 1];
 sA = cosSimExpTens(p1, w, p2, w, 80, 3, false, false, 0, ...
     'method', 'mobius', 'verbose', false);
 GOLDEN_A = 0.67614851033133;
-results{end+1, 1} = 'cross-language golden A: SA cosSim abs r=3 Möbius';
+results{end+1, 1} = 'cross-language golden A: single-multiset cosSim abs r=3 Möbius';
 results{end, 2}   = abs(sA - GOLDEN_A) < RTOL * abs(GOLDEN_A) + ATOL;
 
-%% ---- Case B: SA cosSim, rel r=3 per, Möbius ----
+%% ---- Case B: single-multiset cosSim, rel r=3 per, Möbius ----
 
 sB = cosSimExpTens(p1, w, p2, w, 80, 3, true, true, 1200, ...
     'method', 'mobius', 'verbose', false);
 GOLDEN_B = 0.98878587398645;
-results{end+1, 1} = 'cross-language golden B: SA cosSim rel r=3 per Möbius';
+results{end+1, 1} = 'cross-language golden B: single-multiset cosSim rel r=3 per Möbius';
 results{end, 2}   = abs(sB - GOLDEN_B) < RTOL * abs(GOLDEN_B) + ATOL;
 
-%% ---- Case C: MA cosSim ragged-K hybrid ----
+%% ---- Case C: MA cosSim ragged-K ----
 
 P_x = [ 50  100  200  300  400  500;
        150  250  350  450  550  650;
@@ -74,15 +74,15 @@ dy = buildExpTens({P_y}, {W_y}, 25, 3, false, false, 0, ...
     'verbose', false);
 sC = cosSimExpTens(dx, dy, 'method', 'mobius', 'verbose', false);
 GOLDEN_C = 0.12066345091832;
-results{end+1, 1} = 'cross-language golden C: MA cosSim ragged-K hybrid';
+results{end+1, 1} = 'cross-language golden C: MA cosSim ragged-K';
 results{end, 2}   = abs(sC - GOLDEN_C) < RTOL * abs(GOLDEN_C) + ATOL;
 
-%% ---- Case D: SA entropy Rényi-2, abs r=2 ----
+%% ---- Case D: single-multiset entropy Rényi-2, abs r=2 ----
 
 HD = entropyExpTens(p1, w, 20, 2, false, false, 0, ...
     'method', 'renyi2', 'base', 2);
 GOLDEN_D = 14.88031481996820;
-results{end+1, 1} = 'cross-language golden D: SA entropy Rényi-2 abs r=2';
+results{end+1, 1} = 'cross-language golden D: single-multiset entropy Rényi-2 abs r=2';
 results{end, 2}   = abs(HD - GOLDEN_D) < RTOL * abs(GOLDEN_D) + ATOL;
 
 %% ---- Case E: MA entropy Rényi-2 ----
@@ -118,7 +118,7 @@ GOLDEN_G = 2.07507623760499e-06;
 results{end+1, 1} = 'cross-language golden G: evalExpTens rel orbit';
 results{end, 2}   = abs(v - GOLDEN_G) < RTOL * abs(GOLDEN_G) + ATOL;
 
-%% ---- Case H: SA Shannon entropy abs r=2 dim=2 (bin-integration path) ----
+%% ---- Case H: single-multiset Shannon entropy abs r=2 dim=2 (bin-integration path) ----
 % These cases lock in the bin-integration parity for the discrete entropy
 % methods. The bin-integration path was added to Python without a
 % parallel MATLAB port for a release window; these goldens catch any
@@ -129,25 +129,25 @@ dens_h = buildExpTens([100; 200; 300], [], 20, 2, false, false, 0, ...
 HH = entropyExpTens(dens_h, 'method', 'shannon', ...
     'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
 GOLDEN_H = 9.383611317877847;
-results{end+1, 1} = 'cross-language golden H: SA shannon abs r=2 dim=2 bin-integration';
+results{end+1, 1} = 'cross-language golden H: single-multiset shannon abs r=2 dim=2 bin-integration';
 results{end, 2}   = abs(HH - GOLDEN_H) < RTOL * abs(GOLDEN_H) + ATOL;
 
-%% ---- Case I: SA normalized (Pielou ratio) ----
+%% ---- Case I: single-multiset normalized (Pielou ratio) ----
 
 HI = entropyExpTens(dens_h, 'method', 'normalized', ...
     'nPointsPerDim', 40, 'xMin', 50, 'xMax', 350, 'verbose', false);
 GOLDEN_I = 0.8815988444951405;
-results{end+1, 1} = 'cross-language golden I: SA normalized abs r=2 dim=2';
+results{end+1, 1} = 'cross-language golden I: single-multiset normalized abs r=2 dim=2';
 results{end, 2}   = abs(HI - GOLDEN_I) < RTOL * abs(GOLDEN_I) + ATOL;
 
-%% ---- Case J: SA Shannon periodic r=1 ----
+%% ---- Case J: single-multiset Shannon periodic r=1 ----
 
 dens_j = buildExpTens([0; 3; 7], [], 0.7, 1, false, true, 12, ...
     'verbose', false);
 HJ = entropyExpTens(dens_j, 'method', 'shannon', ...
     'nPointsPerDim', 24, 'verbose', false);
 GOLDEN_J = 4.093676510565166;
-results{end+1, 1} = 'cross-language golden J: SA shannon periodic r=1';
+results{end+1, 1} = 'cross-language golden J: single-multiset shannon periodic r=1';
 results{end, 2}   = abs(HJ - GOLDEN_J) < RTOL * abs(GOLDEN_J) + ATOL;
 
 %% ---- Case K: MA Shannon abs dim=2 ----
@@ -162,7 +162,7 @@ GOLDEN_K = 9.347143263809102;
 results{end+1, 1} = 'cross-language golden K: MA shannon abs dim=2';
 results{end, 2}   = abs(HK - GOLDEN_K) < RTOL * abs(GOLDEN_K) + ATOL;
 
-%% ---- Case L: SA differential entropy (adaptive) ----
+%% ---- Case L: single-multiset differential entropy (adaptive) ----
 % Adaptive convergence tolerance is ~exp(-18) ~ 1.5e-8;
 % allow 1e-5 absolute as a comfortable bound.
 
@@ -170,7 +170,7 @@ dens_l = buildExpTens([0; 400; 700], [], 20, 1, false, false, 0, ...
     'verbose', false);
 HL = entropyExpTens(dens_l, 'method', 'differential', 'verbose', false);
 GOLDEN_L = 7.953986161000217;
-results{end+1, 1} = 'cross-language golden L: SA differential r=1 adaptive';
+results{end+1, 1} = 'cross-language golden L: single-multiset differential r=1 adaptive';
 results{end, 2}   = abs(HL - GOLDEN_L) < 1e-5;
 
 %% ---- Case M: MA differential entropy (adaptive, D==2) ----

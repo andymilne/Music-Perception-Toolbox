@@ -46,7 +46,9 @@ results{end+1,1} = 'periodic differential: varies with content (not degenerate)'
 results{end,2}   = abs(hUnfolded - hB) > 1e-3;
 
 % At non-negligible sigma/period the periodic differential entropy must
-% track the minimum-image density (Eq. 1), not the wrapped normal.
+% track the density the wrap declares: the wrapped normal under the
+% default 'full-image', the minimum-image density (Eq. 1) under
+% 'single-image'.
 cMi = [0, 400, 700, 1100];  wMi = ones(1, 4);  sMi = 300;  % sigma/period = 0.25
 G = 200000;  xs = (0:G-1) * (1200 / G);
 dMin = xs - cMi.';  dMin = dMin - 1200 * round(dMin / 1200);
@@ -58,12 +60,21 @@ end
 dx = 1200 / G;
 hMin  = -sum((fMin  / sum(fMin)  ) .* log(fMin  / (sum(fMin)  * dx) + 1e-300)) ;
 hWrap = -sum((fWrap / sum(fWrap) ) .* log(fWrap / (sum(fWrap) * dx) + 1e-300)) ;
-hTbMi = entropyExpTens(cMi, wMi, sMi, 1, false, true, 1200, ...
+hTbFull = entropyExpTens(cMi, wMi, sMi, 1, false, true, 1200, ...
     'method', 'differential', 'base', exp(1), 'verbose', false);
-results{end+1,1} = 'periodic differential: tracks minimum-image (not wrapped normal)';
+absPerWarn = warning('off', 'buildExpTens:absPerSingleImage');
+dSingleMi = buildExpTens({cMi(:)}, {wMi(:)}, sMi, 1, false, true, 1200, ...
+    'wrap', {'single-image'}, 'verbose', false);
+warning(absPerWarn);
+hTbSingle = entropyExpTens(dSingleMi, 'method', 'differential', ...
+    'base', exp(1), 'verbose', false);
+results{end+1,1} = 'periodic differential: default wrap tracks the wrapped normal';
 results{end,2}   = abs(hMin - hWrap) > 1e-4 ...
-                   && abs(hTbMi - hMin) < abs(hTbMi - hWrap) ...
-                   && abs(hTbMi - hMin) < 1e-3;
+                   && abs(hTbFull - hWrap) < abs(hTbFull - hMin) ...
+                   && abs(hTbFull - hWrap) < 1e-3;
+results{end+1,1} = 'periodic differential: single-image wrap tracks minimum-image';
+results{end,2}   = abs(hTbSingle - hMin) < abs(hTbSingle - hWrap) ...
+                   && abs(hTbSingle - hMin) < 1e-3;
 
 % --- Site 2: wrapped-window factor in evalExpTens. A windowed periodic
 % density must return identical values at periodic-equivalent query points

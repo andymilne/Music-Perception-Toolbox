@@ -1,14 +1,24 @@
-function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
+function M = closedFormAttrMatrixFrom(cx, cy, wrapA, truncationSigmas)
 %CLOSEDFORMATTRMATRIXFROM  (N_x, N_y) per-attribute inner matrix from centres.
 %
-%   Mirror of Python cosine._closed_form_attr_matrix_from (flat
-%   attributes). The attribute's expectation tensor is a finite
-%   Gaussian mixture over its materialised tuple-centres, so its inner
-%   matrix is the pairwise Gaussian overlap of the two centre sets,
-%   aggregated to events by incidence sums. The constant per-attribute
-%   Gaussian prefactor is dropped: it multiplies the cross and both
-%   self matrices of the attribute identically, so it cancels in every
-%   supported normalisation.
+%   M = MOBIUS.CLOSEDFORMATTRMATRIXFROM(CX, CY) uses the toolbox
+%   default wrap and truncation width; CX, CY are bundles from
+%   MOBIUS.CLOSEDFORMATTRCENTRES. WRAPA ('full-image' by default) is
+%   the attribute's declared wrap and TRUNCATIONSIGMAS an optional
+%   per-call accuracy width ([] takes the default). The Python twin
+%   orders its two optional arguments the other way round
+%   (truncation_sigmas then wrap_a); the MATLAB order is fixed by the
+%   existing call sites, which pass the wrap alone.
+%
+%   Mirror of Python _mobius_inner._closed_form_attr_matrix_from, for
+%   flat attributes and for the nested attributes
+%   MOBIUS.CLOSEDFORMATTRCENTRES accepts. The attribute's expectation
+%   tensor is a finite Gaussian mixture over its materialised
+%   tuple-centres, so its inner matrix is the pairwise Gaussian overlap
+%   of the two centre sets, aggregated to events by incidence sums. The
+%   constant per-attribute Gaussian prefactor is dropped: it multiplies
+%   the cross and both self matrices of the attribute identically, so
+%   it cancels in every supported normalisation.
 %
 %   Absolute-periodic uses the full-image (torus) measure: the r-tuple
 %   kernel is the product across coordinates of the 1-D wrapped Gaussian
@@ -21,24 +31,88 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
 %   image kernel unchanged.
 %
 %   Relative-periodic uses the minimum-image pairwise-wrap quadratic
-%   (exactly period-shift invariant) — the toolbox's defined
-%   relative-periodic measure, which coincides with the all-image
-%   translation-grid reading below the sigma/P threshold
-%   (MOBIUS.MARELATTRPREFERSCENTRES enforces that condition).
+%   (exactly period-shift invariant) — measure (A), *not* the toolbox's
+%   defined relative-periodic measure. The measure is declared by the
+%   attribute's wrap: the v3+ default 'full-image' declares (C), the
+%   all-image transposition average over the torus, which the
+%   translation-grid routes compute. The two coincide for sigma << P and
+%   diverge as sigma approaches it, so this route may serve a full-image
+%   attribute only below INTERNAL.RELPERSIGMAOVERPTHRESHOLD, where the
+%   difference sits inside the truncation floor; above that threshold
+%   only wrap = 'single-image', which declares (A), reaches here. The
+%   two predicates that enforce this are
+%   MOBIUS.MARELATTRPREFERSCENTRES on the flat path and the nested
+%   route rule inside INTERNAL.NESTEDCONTRACT.
 %   Relative-non-periodic uses the exact relative quadratic.
+%
+%   A co-transposition unit at an inner or intermediate level carries a
+%   block-diagonal metric that this flat quadratic form does not. No
+%   caller can deliver one: INTERNAL.NESTEDCONTRACT declines an inner
+%   unit before any centres bundle is built, and the flat MA
+%   orchestrator sends only flat attributes, so CX.innerBlockSize is 0
+%   at every call site in the toolbox. A bundle carrying one is refused
+%   (mobius:closedFormAttrMatrixFrom:innerUnit) rather than computed
+%   with a silently wrong flat metric.
 %
 %   The X-tuple axis is chunked so the pairwise overlap block never
 %   exceeds a fixed element budget, mirroring the Python chunk rule.
+%
+%   The X side is restricted to one representative per tuple-symmetry
+%   orbit and the sum scaled by the orbit size |G| — r_a! for a flat
+%   symmetric attribute, the nested wreath-product order of
+%   INTERNAL.NESTEDORBITMULT for a nested one. Bulger's restriction,
+%   exact per event pair. See LOCALCOMBRESTRICTION inside
+%   MOBIUS.CLOSEDFORMATTRCENTRES for the identity and for the cases
+%   (ordered flat attribute, a trivial orbit, an unexpected tiling)
+%   where it is declined; there cx.comb is empty and this is the
+%   unrestricted (nJx, nJy) perm-vs-perm form as before.
 
     if nargin < 3 || isempty(wrapA)
         wrapA = 'full-image';
+    end
+    if nargin < 4
+        truncationSigmas = [];
     end
 
     Cx = cx.Centres;   wx = cx.wJ(:);   Ex = cx.eventOfJ(:);
     Cy = cy.Centres;   wy = cy.wJ(:);   Ey = cy.eventOfJ(:);
     Nx = cx.N;  Ny = cy.N;
+
+    % Bulger's restriction on the X side. The identity needs the *Y*
+    % perm side to be stable under the same permutation group, i.e. the
+    % two densities to carry the same tuple symmetry. Guaranteed by
+    % every caller (the two densities share r_a and isSym), and checked
+    % structurally: the Y side must be the same orbit tiling of its own
+    % comb side. Twin of the Python guard.
+    combX = localCombOf(cx);
+    combY = localCombOf(cy);
+    if ~isempty(combX)
+        if isempty(combY) || combY.mult ~= combX.mult ...
+                || size(Cy, 2) ~= combX.mult * size(combY.Centres, 2)
+            combX = [];
+        end
+    end
+    if ~isempty(combX)
+        Cx = combX.Centres;
+        wx = combX.wJ(:) * double(combX.mult);
+        Ex = combX.eventOfJ(:);
+    end
     sigma = cx.sigma;  r_a = cx.r;
     isRel = cx.isRel;  isPer = cx.isPer;  period = cx.period;
+    % Co-transposition block size (0 = flat metric). Bundles assembled
+    % before the field existed read as 0, which is the flat path they
+    % were built for.
+    if isfield(cx, 'innerBlockSize') && ~isempty(cx.innerBlockSize)
+        bs = double(cx.innerBlockSize);
+    else
+        bs = 0;
+    end
+    if bs >= 2
+        error('mobius:closedFormAttrMatrixFrom:innerUnit', ...
+              ['the tuple-centres closed form does not carry an inner ' ...
+               '[rel] unit; the nested plan should have declined this ' ...
+               'attribute']);
+    end
 
     d = size(Cx, 1);
     njx = size(Cx, 2);
@@ -47,8 +121,24 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
     GY = sparse(1:njy, Ey, 1, njy, Ny);      % (njy, Ny) incidence
     inv4s2 = 1 / (4 * sigma^2);
 
-    truncationSigmas = mptDefaults('truncationSigmas');
-    absPerFullImage = isPer && ~isRel && strcmp(wrapA, 'full-image');
+    if isempty(truncationSigmas)
+        truncationSigmas = mptDefaults('truncationSigmas');
+    end
+    % Single-image short-circuit. Under truncation the image budget can
+    % admit no image beyond the nearest one (L = 0, which at the
+    % 6-sigma default holds for sigma/P <= 0.059 in this convention).
+    % theta(d) is then exactly the nearest-image Gaussian
+    % exp(-d^2 / (4 sigma^2)), so the per-coordinate product below
+    % computes the same number as the joint Q-form path -- but pays one
+    % exp per coordinate of the (d, nc, njy) difference array instead
+    % of one on the summed (nc, njy) form. Fall through to
+    % localComputeQFlat there (which applies the nearest-image
+    % reduction itself, as the wrap = 'single-image' opt-in does); the
+    % two agree to ~3e-16. wrappedGaussian1d cannot prefer Fourier at
+    % L = 0 (M >= 1 fails the M < 2L + 1 test), so the gate is exact.
+    absPerFullImage = isPer && ~isRel && strcmp(wrapA, 'full-image') ...
+        && internal.wrappedKernelImageCount(sigma, period, ...
+                                            truncationSigmas, 4) > 0;
 
     chunk = max(1, min(njx, floor(16e6 / max(njy * max(d, 1), 1))));
     M = zeros(Nx, Ny);
@@ -71,6 +161,20 @@ function M = closedFormAttrMatrixFrom(cx, cy, wrapA)
         ov = (wx(idx) * wy.') .* kernelBlock;
         GXc = sparse(Ex(idx), 1:nc, 1, Nx, nc);   % (Nx, nc) incidence
         M = M + GXc * (ov * GY);
+    end
+end
+
+
+function comb = localCombOf(c)
+%LOCALCOMBOF  The bundle's comb-side restriction, or [] when absent.
+%
+%   Tolerates a bundle built before the field existed (or one a caller
+%   assembled by hand), which simply leaves the route unrestricted.
+
+    if isfield(c, 'comb')
+        comb = c.comb;
+    else
+        comb = [];
     end
 end
 

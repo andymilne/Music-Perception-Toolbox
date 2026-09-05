@@ -144,11 +144,14 @@ function tf = maRelAttrPrefersCentres(Px, Py, sigma, r_a, isRel, ...
     end
     cWallNs = perEl * n_e;
 
-    % Grid wall (ns): fixed setup + per-r_a coefficient * N_u * K.
+    % Grid wall (ns): fixed setup + per-r_a coefficient * N_u * K. The
+    % grid the route would run is sized from the per-call width, so the
+    % estimate is too (Python twin: _predicted_grid_wall_ns).
+    tsGrid = internal.accuracyFloor('resolve', truncationSigmas);
     if isPer
-        n_u = internal.autoNtauDefault(period, sigma);
+        n_u = internal.autoNtauDefault(period, sigma, tsGrid);
     else
-        margin = internal.relWindowMargin(mptDefaults('truncationSigmas'));
+        margin = internal.relWindowMargin(tsGrid);
         span = (max(Px(:), [], 'omitnan') - min(Px(:), [], 'omitnan')) ...
              + (max(Py(:), [], 'omitnan') - min(Py(:), [], 'omitnan')) ...
              + 2 * margin * sigma;

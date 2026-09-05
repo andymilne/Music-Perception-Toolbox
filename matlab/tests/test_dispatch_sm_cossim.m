@@ -1,7 +1,6 @@
 %% test_dispatch_sm_cossim.m — v2.2 single multiset method dispatch in cosSimExpTens
 %
-%  Tests for the new method/cancellationThreshold keywords introduced in
-%  v2.2 (Commit 6a). Covers:
+%  Tests for the method keyword introduced in v2.2 (Commit 6a). Covers:
 %    - Möbius and Bulger methods agree to numerical tolerance on healthy
 %      regimes (r in {3, 4}, abs and rel modes, periodic and non-periodic).
 %    - Auto dispatch picks the expected path given r, n, mode.
@@ -39,22 +38,11 @@ end
 results{end+1,1} = 'dispatch.single multiset: bad method string raises cosSimExpTens:badMethod';
 results{end,2}   = ok_badMethod;
 
-% Bad cancellationThreshold raises informative error.
-ok_badCT = false;
-try
-    cosSimExpTens([0 4 7], [], [0 4 7], [], 12, 2, false, true, 1200, ...
-        'cancellationThreshold', -1, 'verbose', false);
-catch ME
-    ok_badCT = strcmp(ME.identifier, 'cosSimExpTens:badCancellationThreshold');
-end
-results{end+1,1} = 'dispatch.single multiset: negative cancellationThreshold raises error';
-results{end,2}   = ok_badCT;
-
 %% ---- Auto routing decisions (verify path used) ----
 %
 % We can't easily intercept the dispatcher's choice without re-architecting,
-% so we verify routing indirectly: Möbius-method-only fields like the cancellation
-% ratio aren't observable from outside, but agreement with method='bulger'
+% so we verify routing indirectly: the route taken is not observable from
+% outside, but agreement with method='bulger'
 % within tolerance is a strong consistency signal. The structural coverage
 % below ensures no path fails silently.
 
@@ -181,25 +169,6 @@ s_mob_warn = cosSimExpTens(p_x, w_x, p_y, w_y, 60, 3, true, true, 1200, ...
     'method', 'mobius', 'verbose', false);
 results{end+1,1} = 'dispatch.single multiset: rel+per sigma/P=0.05 result matches Möbius';
 results{end,2}   = abs(s_warn - s_mob_warn) < 1e-12;
-
-%% ---- Cross-cancellation guard fires fallback ----
-
-% With a cancellationThreshold set absurdly high (e.g., 0.99), almost any
-% real cosine value will be deemed "cancellation-suspect" and force fallback
-% to pairwise. The Möbius-vs-Bulger agreement on healthy data means both
-% paths return the same value — verifying no wrong-answer path leaks out.
-rng(23, 'twister');
-p_x = sort(2000 * rand(8, 1));
-w_x = ones(8, 1);
-p_y = sort(2000 * rand(8, 1));
-w_y = ones(8, 1);
-s_pair_g = cosSimExpTens(p_x, w_x, p_y, w_y, 30, 3, false, false, 0, ...
-    'method', 'bulger', 'verbose', false);
-% Force Möbius method, but with threshold 0.99 trigger fallback.
-s_high_ct = cosSimExpTens(p_x, w_x, p_y, w_y, 30, 3, false, false, 0, ...
-    'method', 'mobius', 'cancellationThreshold', 0.99, 'verbose', false);
-results{end+1,1} = 'dispatch.single multiset: high cancellationThreshold falls back to Bulger';
-results{end,2}   = abs(s_high_ct - s_pair_g) < 1e-12;
 
 %% ---- Skinny dens flows through dispatch transparently ----
 

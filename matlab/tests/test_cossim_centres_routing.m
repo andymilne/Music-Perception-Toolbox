@@ -1,7 +1,7 @@
 function tests = test_cossim_centres_routing
 %TEST_COSSIM_CENTRES_ROUTING  Stage 2b: cosSimExpTens centres-IP routing.
 %
-%   Verifies that cosSimExpTens routes the SA centres-IP through
+%   Verifies that cosSimExpTens routes the single-multiset centres-IP through
 %   internal.gaussianKernelSum for the abs (±periodic) and rel
 %   non-periodic modes, and that the truncationSigmas / kernelPrecision
 %   kwargs reach the helper from the public entry point.

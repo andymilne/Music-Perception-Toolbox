@@ -25,7 +25,8 @@ import mpt
 from mpt import build_exp_tens
 from mpt._tensor.cosine import _nested_attr_matrix
 from mpt._tensor._nested_contraction import (
-    auto_ntau_default, build_recipe, make_quadrature, nested_ip)
+    auto_ntau_default, build_recipe)
+from tests.references.nested_ip_reference import make_quadrature, nested_ip
 from mpt._wrapped_kernel import wrapped_gaussian_1d
 
 

@@ -207,12 +207,11 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
         end
     end
 
-    % truncationSigmas and kernelPrecision are accepted for API
-    % compatibility but currently unused: the closed-form windowed
-    % inner product (internal.windowedInnerProduct) does not yet
-    % expose kernel-precision or truncation controls. In list mode
-    % they continue to be forwarded to recursive windowedTensorSimilarity
-    % calls so the API contract on the recursive form is unchanged.
+    % truncationSigmas and kernelPrecision are forwarded to every
+    % closed-form inner product below (internal.windowedInnerProduct
+    % truncates the pairwise log kernel at the resolved width and
+    % honours 'single'), and in list mode to the recursive
+    % windowedTensorSimilarity calls.
 
     % --- LIST mode ------------------------------------------
     % Either or both of densContext, densQuery may be a cell array of
@@ -333,7 +332,8 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
     % window offset, so we compute it once and cache it across the
     % sweep, letting every per-offset call to
     % internal.windowedInnerProduct skip the redundant work.
-    ipQQcache = internal.windowedInnerProduct(densQuery, [], false);
+    ipQQcache = internal.windowedInnerProduct(densQuery, [], false, [], ...
+        [], truncationSigmas, kernelPrecision);
 
     % --- Up-front time estimate + adaptive progress stride ---
     % Calibrate empirically (warm-up + timed sample) and extrapolate to
@@ -362,7 +362,7 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
         spec_w.centre = centre_cell_w;
         wmd_w = windowTensor(densContext, spec_w);
         internal.windowedInnerProduct(densQuery, wmd_w, false, ...
-            ipQQcache, normalize);
+            ipQQcache, normalize, truncationSigmas, kernelPrecision);
 
         % Timed calibration sample over the same indices.
         tCalStart = tic;
@@ -379,7 +379,7 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
             spec_s.centre = centre_cell_s;
             wmd_s = windowTensor(densContext, spec_s);
             internal.windowedInnerProduct(densQuery, wmd_s, false, ...
-                ipQQcache, normalize);
+                ipQQcache, normalize, truncationSigmas, kernelPrecision);
         end
         tCalTotal  = toc(tCalStart);
         tPerPoint  = tCalTotal / numel(sampleIdx);
@@ -404,7 +404,7 @@ function profile = windowedTensorSimilarity(densContext, densQuery, windowSpec, 
         spec_m.centre = centre_cell;
         wmd = windowTensor(densContext, spec_m);
         profile(m) = internal.windowedInnerProduct(densQuery, wmd, false, ...
-            ipQQcache, normalize);
+            ipQQcache, normalize, truncationSigmas, kernelPrecision);
 
         if verbose && showProgress && (mod(m, progStride) == 0 || m == M)
             fprintf('  %d / %d points computed.\n', m, M);

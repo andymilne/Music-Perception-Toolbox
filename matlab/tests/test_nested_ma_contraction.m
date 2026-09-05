@@ -53,7 +53,7 @@ for ri = [1 2]
     Y = sadens(Ysa, ri);
     cC = cosSimExpTens(X, Y, 'method', 'contract', 'verbose', false);
     cB = cosSimExpTens(X, Y, 'method', 'bulger',   'verbose', false);
-    results{end+1, 1} = sprintf('nested-ma: SA ri=%d contract==bulger==Python', ri); %#ok<*SAGROW>
+    results{end+1, 1} = sprintf('nested-ma: single-multiset ri=%d contract==bulger==Python', ri); %#ok<*SAGROW>
     results{end, 2}   = abs(cC - cB) < ATOL && abs(cC - ref_sa(ri)) < GTOL;
 end
 
@@ -95,7 +95,7 @@ end
 %     returns the bare (xy, xx, yy) triple and the denominator is chosen
 %     downstream, so it is correct for either normalisation. Doubled chords
 %     (IVI2) against the single voicing (IVI), flags matching, give a clean
-%     magnitude golden (Python: 8 at rIn=1, 64 at rIn=2; SA and MA alike).
+%     magnitude golden (Python: 8 at rIn=1, 64 at rIn=2; single-multiset and MA alike).
 ref_os = containers.Map({1, 2}, {8.0, 64.0});
 for ri = [1 2]
     g = ref_os(ri); aTol = ATOL * max(1, g); gTol = GTOL * max(1, g);
@@ -104,7 +104,7 @@ for ri = [1 2]
     osC = cosSimExpTens(Xs, Ys, 'method', 'contract', 'normalize', 'oneSidedDenom', 'verbose', false);
     osB = cosSimExpTens(Xs, Ys, 'method', 'bulger',   'normalize', 'oneSidedDenom', 'verbose', false);
     osA = cosSimExpTens(Xs, Ys, 'normalize', 'oneSidedDenom', 'verbose', false);
-    results{end+1, 1} = sprintf('nested-ma: SA one-sided ri=%d contract==bulger==auto==Python', ri);
+    results{end+1, 1} = sprintf('nested-ma: single-multiset one-sided ri=%d contract==bulger==auto==Python', ri);
     results{end, 2}   = abs(osC - osB) < aTol && abs(osA - osB) < aTol && abs(osB - g) < gTol;
     % nested (x) flag (internal.nestedContractMA)
     Xm = madens({IVI2}, 0.5, ri); Ym = madens({IVI}, 0.5, ri);

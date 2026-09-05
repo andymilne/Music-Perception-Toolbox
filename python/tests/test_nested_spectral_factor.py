@@ -13,9 +13,9 @@ import pytest
 
 import mpt
 from mpt import add_spectra, bind_events, build_exp_tens, cos_sim_exp_tens
-from mpt._tensor._nested_contraction import (
-    build_recipe, auto_taus_line, _ip_rel_nonper, _ip_rel_nonper_generic,
-    _ip_rel_nonper_factored,
+from mpt._tensor._nested_contraction import build_recipe, auto_taus_line
+from tests.references.nested_ip_reference import (
+    _ip_rel_nonper, _ip_rel_nonper_generic, _ip_rel_nonper_factored,
 )
 
 SIG = 0.15

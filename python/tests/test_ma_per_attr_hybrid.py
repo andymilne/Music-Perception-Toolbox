@@ -5,20 +5,19 @@ through the vectorised batched orbit with zero-weight padding for NaN
 entries; accuracy is governed by ``truncationSigmas`` rather than by how
 close K_eff is to r, so no size-based partition is applied. The
 direct-enumeration reference
-:func:`mpt.tensor._inner_product_direct_abs` is retained as the
+``tests/references/mobius_ip_reference.inner_product_direct_abs`` is the
 comparison point.
 
 Tests cover:
 
-- ``_inner_product_direct_abs`` standalone correctness against a
+- ``inner_product_direct_abs`` standalone correctness against a
   hand-rolled centres-array IP.
 - NaN-tolerance: NaN-padded input gives the same result as NaN-stripped
   input.
 - ``K_eff < r`` returns 0.
-- All-safe ragged: hybrid output matches a per-pair direct-enum reference.
-- All-unsafe: hybrid output matches per-pair direct-enum exactly.
-- Mixed safe/unsafe via cos_sim_exp_tens: orbit and pairwise agree
-  to 1e-8 (the killer test for the hybrid claim).
+- Ragged events at every K_eff, including K_eff = r: the batched matrix
+  matches a per-pair direct-enum reference.
+- Mixed K_eff via cos_sim_exp_tens: Möbius and Bulger agree.
 - r=1 ragged: still matches pairwise (regression check on the
   unchanged path).
 """
@@ -31,16 +30,16 @@ import pytest
 from mpt.tensor import (
     build_exp_tens,
     cos_sim_exp_tens,
-    _inner_product_direct_abs,
-    _build_ordered_r_tuples,
     _ma_per_attr_inner_matrix,
-    _batched_direct_enum_abs,
-    _pack_nan_top,
+)
+from tests.references.mobius_ip_reference import (
+    build_ordered_r_tuples,
+    inner_product_direct_abs,
 )
 
 
 # ----------------------------------------------------------------------
-# _inner_product_direct_abs standalone
+# inner_product_direct_abs standalone
 # ----------------------------------------------------------------------
 
 
@@ -54,13 +53,13 @@ def test_inner_product_direct_matches_centres_array_ip():
     sigma = 30.0
     r = 3
 
-    ip_direct = _inner_product_direct_abs(
+    ip_direct = inner_product_direct_abs(
         p_x, w_x, p_y, w_y, sigma, r, False, 0.0,
     )
 
     # Hand-rolled reference via the ordered-tuple builder.
-    U_x, wJ_x = _build_ordered_r_tuples(p_x, w_x, r)
-    U_y, wJ_y = _build_ordered_r_tuples(p_y, w_y, r)
+    U_x, wJ_x = build_ordered_r_tuples(p_x, w_x, r)
+    U_y, wJ_y = build_ordered_r_tuples(p_y, w_y, r)
     diffs = U_x[:, :, None] - U_y[:, None, :]
     Q = np.sum(diffs ** 2, axis=0)
     K_mat = np.exp(-Q / (4 * sigma ** 2))
@@ -82,12 +81,12 @@ def test_inner_product_direct_drops_nan_per_side():
     sigma = 30.0
     r = 3
 
-    ip_clean = _inner_product_direct_abs(
+    ip_clean = inner_product_direct_abs(
         p_x, w_x, p_y, w_y, sigma, r, False, 0.0,
     )
     p_x_nan = np.concatenate([p_x, [np.nan, np.nan]])
     w_x_nan = np.concatenate([w_x, [np.nan, np.nan]])
-    ip_nan = _inner_product_direct_abs(
+    ip_nan = inner_product_direct_abs(
         p_x_nan, w_x_nan, p_y, w_y, sigma, r, False, 0.0,
     )
     assert abs(ip_nan - ip_clean) < 1e-12 * abs(ip_clean)
@@ -95,7 +94,7 @@ def test_inner_product_direct_drops_nan_per_side():
 
 def test_inner_product_direct_returns_zero_when_keff_below_r():
     """K_eff < r returns 0 (no r-tuple can be formed)."""
-    ip = _inner_product_direct_abs(
+    ip = inner_product_direct_abs(
         np.array([0.0, 1.0]), np.array([1.0, 1.0]),
         np.array([0.0, 1.0]), np.array([1.0, 1.0]),
         30.0, 3, False, 0.0,
@@ -108,14 +107,9 @@ def test_inner_product_direct_returns_zero_when_keff_below_r():
 # ----------------------------------------------------------------------
 
 
-def test_all_safe_ragged_matches_direct_enum_reference():
-    """All-safe: hybrid output equals a per-pair direct-enum reference.
-
-    With every event having ``K_eff - r >= 2``, the hybrid uses the
-    vectorised orbit branch on the entire matrix. Comparing against
-    a per-pair direct-enum reference proves the safe-orbit branch
-    is mathematically equivalent (within FP).
-    """
+def test_ragged_matches_direct_enum_reference():
+    """Ragged events well above r: the batched matrix equals a per-pair
+    direct-enum reference (within FP)."""
     rng = np.random.default_rng(83)
     N = 4
     K = 6
@@ -124,41 +118,42 @@ def test_all_safe_ragged_matches_direct_enum_reference():
     sigma = 30.0
     r = 3
 
-    I_hybrid = _ma_per_attr_inner_matrix(
+    I_batched = _ma_per_attr_inner_matrix(
         P, W, P, W, sigma, r, False, False, 0.0,
     )
     I_ref = np.empty((N, N))
     for nx in range(N):
         for ny in range(N):
-            I_ref[nx, ny] = _inner_product_direct_abs(
+            I_ref[nx, ny] = inner_product_direct_abs(
                 P[:, nx], W[:, nx], P[:, ny], W[:, ny],
                 sigma, r, False, 0.0,
             )
-    assert np.max(np.abs(I_hybrid - I_ref)) < 1e-10 * np.max(np.abs(I_ref))
+    assert np.max(np.abs(I_batched - I_ref)) < 1e-10 * np.max(np.abs(I_ref))
 
 
-def test_all_unsafe_matches_direct_enum():
-    """All-unsafe: hybrid output equals direct-enum on every pair."""
+def test_k_equal_r_matches_direct_enum():
+    """K_eff = r on every event: the batched matrix equals direct-enum on
+    every pair (the alternating sum at its shortest)."""
     P = np.array([[0.0, 100.0],
                   [4.0, 200.0],
                   [7.0, 300.0]])         # (3, 2), every K_eff = 3
     W = np.ones_like(P)
     # Under the default (inf) truncation -- which resolves to the 1e-12
-    # accuracy floor -- the hybrid and the direct-enum reference can drop
-    # marginally different far-tail contributions and diverge at ~1e-12,
-    # above this tolerance. Widen the floor so the two are compared
-    # exhaustively, as the MATLAB twin does around its all-unsafe block.
+    # accuracy floor -- the batched matrix and the direct-enum reference
+    # can drop marginally different far-tail contributions and diverge at
+    # ~1e-12, above this tolerance. Widen the floor so the two are
+    # compared exhaustively, as the MATLAB twin does.
     with accuracy_floor_context(1e-300):
         sigma = 30.0
         r = 3
 
-        I_hybrid = _ma_per_attr_inner_matrix(
+        I_batched = _ma_per_attr_inner_matrix(
             P, W, P, W, sigma, r, False, False, 0.0,
         )
         I_ref = np.empty((2, 2))
         for nx in range(2):
             for ny in range(2):
-                I_ref[nx, ny] = _inner_product_direct_abs(
+                I_ref[nx, ny] = inner_product_direct_abs(
                     P[:, nx], W[:, nx], P[:, ny], W[:, ny],
                     sigma, r, False, 0.0,
                 )
@@ -168,12 +163,12 @@ def test_all_unsafe_matches_direct_enum():
         # near-zero cross terms, which contribute nothing at the scale
         # of the matrix.
         np.testing.assert_allclose(
-            I_hybrid, I_ref, rtol=0.0,
+            I_batched, I_ref, rtol=0.0,
             atol=1e-13 * float(np.max(np.abs(I_ref))))
 
 
-def test_mixed_safe_unsafe_cossim_orbit_matches_pairwise():
-    """Mixed safe/unsafe: cos_sim_exp_tens with method='mobius' agrees
+def test_mixed_k_eff_cossim_orbit_matches_pairwise():
+    """Mixed K_eff: cos_sim_exp_tens with method='mobius' agrees
     with method='bulger' on a deliberately mixed case (K_eff = 3,
     6, 4 across three events; r = 3).
     """
@@ -214,115 +209,24 @@ def test_r1_ragged_orbit_matches_pairwise():
 
 
 # ----------------------------------------------------------------------
-# v2.2.x: K-grouped batched direct enumeration (Item 3a)
+# Ragged K_eff through the public API
 # ----------------------------------------------------------------------
 
 
-class TestBatchedDirectEnum:
-    """The batched primitive must match a per-pair direct-enum reference
-    to numerical precision, across r, K_x, K_y, periodic / non-periodic,
-    and various event-count combinations.
+class TestRaggedDispatch:
+    """Variable-K_eff workloads through the public API."""
 
-    Operation ordering differs (einsum vs per-pair einsum + accumulator),
-    so bit-equality is too strict; rtol=1e-13 is the appropriate band
-    for r-tuple direct enumeration in float64.
-    """
-
-    @pytest.mark.parametrize("r", [1, 2, 3])
-    @pytest.mark.parametrize("K_x,K_y", [(3, 3), (4, 4), (3, 5), (5, 3)])
-    def test_matches_per_pair_direct_enum_nonper(self, r, K_x, K_y):
-        # Under the default (inf) truncation -- which resolves to the
-        # 1e-12 accuracy floor -- the batched contraction and the
-        # per-pair reference can drop marginally different far-tail
-        # contributions and diverge at ~1e-12, above this tolerance.
-        # Widen the floor so the two are compared exhaustively, exactly
-        # as the MATLAB twin (test_ma_per_attr_hybrid.m) does with
-        # internal.accuracyFloor('setEps', 1e-300). The residual ~1 ULP
-        # drift is the differing Q-sum accumulation order.
-        with accuracy_floor_context(1e-300):
-            if K_x < r or K_y < r:
-                return
-            rng = np.random.default_rng(0)
-            N_x, N_y = 5, 7
-            Px = rng.uniform(0, 1000, (K_x, N_x))
-            Wx = np.ones((K_x, N_x))
-            Py = rng.uniform(0, 1000, (K_y, N_y))
-            Wy = np.ones((K_y, N_y))
-            sigma = 25.0
-
-            I_batched = _batched_direct_enum_abs(
-                Px, Wx, Py, Wy, sigma, r, False, 0.0,
-            )
-            I_ref = np.empty((N_x, N_y))
-            for nx in range(N_x):
-                for ny in range(N_y):
-                    I_ref[nx, ny] = _inner_product_direct_abs(
-                        Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
-                        sigma, r, False, 0.0,
-                    )
-            np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
-
-    @pytest.mark.parametrize("r", [1, 2, 3])
-    def test_matches_per_pair_direct_enum_periodic(self, r):
-        # Under the default (inf) truncation -- which resolves to the
-        # 1e-12 accuracy floor -- the batched contraction and the
-        # per-pair reference can drop marginally different far-tail
-        # contributions and diverge at ~1e-12, above this tolerance.
-        # Widen the floor so the two are compared exhaustively, exactly
-        # as the MATLAB twin (test_ma_per_attr_hybrid.m) does with
-        # internal.accuracyFloor('setEps', 1e-300). The residual ~1 ULP
-        # drift is the differing Q-sum accumulation order.
-        with accuracy_floor_context(1e-300):
-            K = max(3, r)
-            rng = np.random.default_rng(1)
-            N_x, N_y = 4, 6
-            Px = rng.uniform(0, 1200, (K, N_x))
-            Wx = np.ones((K, N_x))
-            Py = rng.uniform(0, 1200, (K, N_y))
-            Wy = np.ones((K, N_y))
-            sigma = 80.0
-            period = 1200.0
-
-            I_batched = _batched_direct_enum_abs(
-                Px, Wx, Py, Wy, sigma, r, True, period,
-            )
-            I_ref = np.empty((N_x, N_y))
-            for nx in range(N_x):
-                for ny in range(N_y):
-                    I_ref[nx, ny] = _inner_product_direct_abs(
-                        Px[:, nx], Wx[:, nx], Py[:, ny], Wy[:, ny],
-                        sigma, r, True, period,
-                    )
-            np.testing.assert_allclose(I_batched, I_ref, atol=0.0, rtol=1e-13)
-
-    def test_zero_when_K_below_r(self):
-        """K_x < r => IP = 0 (no r-tuples to enumerate)."""
-        Px = np.array([[0.0], [10.0]])
-        Wx = np.ones_like(Px)
-        Py = np.zeros((3, 1))
-        Wy = np.ones_like(Py)
-        I = _batched_direct_enum_abs(
-            Px, Wx, Py, Wy, 20.0, r=3, is_per=False, period=0.0,
-        )
-        assert I.shape == (1, 1)
-        assert I[0, 0] == 0.0
-
-
-class TestKGroupedDispatch:
-    """Variable-K_eff workloads — the optimization target."""
-
-    def test_mixed_K_eff_matches_v21_pairwise_at_machine_precision(self):
-        """Hybrid Möbius method with K-grouped direct enum must match the
-        v2.1 Bulger's method (which has no NaN issues at any K_eff) to
-        numerical precision."""
+    def test_mixed_K_eff_matches_pairwise_at_machine_precision(self):
+        """The Möbius method on a ragged density must match Bulger's
+        method (which enumerates each event's own tuples) to numerical
+        precision."""
         rng = np.random.default_rng(7)
         N = 12
         K_max = 6
         r = 3
         Px = np.full((K_max, N), np.nan)
         Wx = np.full((K_max, N), np.nan)
-        # 4 events at K_eff=3 (unsafe at r=3), 4 at K_eff=4 (unsafe),
-        # 4 at K_eff=6 (safe at r=3).
+        # 4 events at K_eff=3 (= r), 4 at K_eff=4, 4 at K_eff=6.
         K_distribution = [3, 3, 3, 3, 4, 4, 4, 4, 6, 6, 6, 6]
         for n, K_eff in enumerate(K_distribution):
             Px[:K_eff, n] = rng.uniform(0, 1200, K_eff)
@@ -336,28 +240,3 @@ class TestKGroupedDispatch:
         s_pw = cos_sim_exp_tens(dens, dens, method='bulger',
                                  verbose=False)
         assert abs(s_orbit - s_pw) < 1e-12
-
-
-class TestPackNanTop:
-    """The packing helper must place valid values at the top of each
-    column regardless of the user's NaN pattern."""
-
-    def test_already_top_packed_is_preserved(self):
-        P = np.array([[1.0, 2.0],
-                      [3.0, 4.0],
-                      [np.nan, 5.0]])
-        W = np.where(np.isnan(P), np.nan, 1.0)
-        Pp, Wp = _pack_nan_top(P, W)
-        np.testing.assert_array_equal(Pp[:2, 0], [1.0, 3.0])
-        np.testing.assert_array_equal(Pp[:3, 1], [2.0, 4.0, 5.0])
-
-    def test_interleaved_nan_gets_packed(self):
-        P = np.array([[1.0, 2.0],
-                      [np.nan, 4.0],
-                      [3.0, np.nan]])
-        W = np.where(np.isnan(P), np.nan, 1.0)
-        Pp, Wp = _pack_nan_top(P, W)
-        np.testing.assert_array_equal(Pp[:2, 0], [1.0, 3.0])
-        np.testing.assert_array_equal(Pp[:2, 1], [2.0, 4.0])
-        assert np.isnan(Pp[2, 0]) and np.isnan(Pp[2, 1])
-

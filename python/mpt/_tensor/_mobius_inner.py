@@ -31,7 +31,6 @@ import numpy as np
 from .._utils import kernel_chunk_bytes_resolved
 from .dispatch import (
     _compute_Q,
-    _compute_Q_inner_blocks,
     _inner_r_vec,
     _orbit_sigma_over_p_threshold,
 )
@@ -177,12 +176,12 @@ def _build_sparse_kernel_rel_per(pX, c3, j3, pY, sigma, cutoff, period, u):
     return K
 
 
-def _orbit_safe_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
+def _orbit_submatrix_sparse(Px_s, Wx_s, Py_s, Wy_s, sigma, r,
                                  prefactor, truncation_sigmas,
                                  return_cancellation_ratio):
-    """Safe-submatrix orbit inner products via the sparse per-pair path.
+    """Orbit inner products via the sparse per-pair path.
 
-    Mirrors the dense batched safe-submatrix output: returns the flattened
+    Mirrors the dense batched output: returns the flattened
     ``(N_xs * N_ys,)`` vector in row-major (x, y) order and the worst
     cancellation ratio. Each event uses only its non-zero-weight values, so
     variable cardinality is handled naturally (a zero-weight value
@@ -239,9 +238,10 @@ def _ma_per_attr_inner_matrix(
       governed by ``truncationSigmas`` rather than by how close K is to
       r, so no size-based partition is applied.
 
-    - r >= 2 rel: per-event-pair loop with zero-pad. Auto dispatch
-      routes any rel group globally to Bulger's method; this path runs
-      only on explicit ``method='mobius'`` opt-in.
+    - r >= 2 rel: the slab-batched translation-grid contraction of
+      :func:`_rel_inner_batched`, with zero-weight padding for NaN
+      entries (the caller may instead take the tuple-centres closed
+      form, see :func:`_ma_rel_attr_prefers_centres`).
 
     With ``return_cancellation_ratio=True``, additionally returns the
     worst-case (minimum) cancellation ratio across the (N_x, N_y)
@@ -393,278 +393,107 @@ def _ma_per_attr_inner_matrix(
             truncation_sigmas=truncation_sigmas,
         )
 
-    # --- r >= 2 abs ---
+    # --- r >= 2 abs: vectorised batched Möbius method ---
     #
-    # Every event takes the vectorised batched Möbius route. Accuracy is
-    # governed by ``truncationSigmas``, not by the collection size, so no
-    # size-based partition is applied. Events whose non-NaN value count
-    # falls below r contribute no r-tuples; zero-weight padding makes
-    # every orbit term containing a padded value vanish, so those entries
-    # come out as zero. Where the alternating sum is ill-conditioned the
-    # caller may ask for the reference route instead, which enumerates
-    # the tuple centres unrestricted (``method='centres'``).
-    safe_x_idx = np.arange(N_x)
-    safe_y_idx = np.arange(N_y)
-
-    out = np.zeros((N_x, N_y), dtype=np.float64)
+    # Every event takes the batched route. Accuracy is governed by
+    # ``truncationSigmas``, not by the collection size, so no size-based
+    # partition is applied. Events whose non-NaN value count falls below
+    # r contribute no r-tuples; zero-weight padding makes every orbit
+    # term containing a padded value vanish, so those entries come out as
+    # zero. Where the alternating sum is ill-conditioned the caller may
+    # ask for the reference route instead, which enumerates the tuple
+    # centres unrestricted (``method='centres'``).
+    if N_x == 0 or N_y == 0:
+        out = np.zeros((N_x, N_y), dtype=np.float64)
+        return (out, 1.0) if return_cancellation_ratio else out
+    Px_, Wx_, Py_, Wy_ = _zero_pad_nan(Px, Wx, Py, Wy)
+    prefactor = (sigma * np.sqrt(np.pi)) ** r
     worst_ratio = 1.0
 
-    # --- Safe x Safe submatrix: vectorised batched Möbius method ---
-    if safe_x_idx.size > 0 and safe_y_idx.size > 0:
-        Px_s = Px[:, safe_x_idx]
-        Wx_s = Wx[:, safe_x_idx]
-        Py_s = Py[:, safe_y_idx]
-        Wy_s = Wy[:, safe_y_idx]
-        # Within-safe zero-pad (K still varies per event in safe group).
-        Px_s, Wx_s, Py_s, Wy_s = _zero_pad_nan(Px_s, Wx_s, Py_s, Wy_s)
+    # Sparse-orbit fast path: when the value kernel is large and the
+    # (non-periodic) values are well-separated, a spatially-culled
+    # per-pair orbit beats the dense batched contraction. Gate on a
+    # cheap density probe from one representative pair.
+    use_sparse = False
+    if (not is_per) and r >= 2 \
+            and K_x_max * K_y_max >= _ORBIT_SPARSE_MIN_KERNEL:
+        vx0 = Wx_[:, 0] != 0.0
+        vy0 = Wy_[:, 0] != 0.0
+        K0 = _build_sparse_kernel_abs(
+            Px_[vx0, 0], Py_[vy0, 0], sigma, truncation_sigmas)
+        if K0.nnz <= _ORBIT_SPARSE_MAX_DENSITY * K_x_max * K_y_max:
+            use_sparse = True
 
-        N_xs = safe_x_idx.size
-        N_ys = safe_y_idx.size
-        prefactor = (sigma * np.sqrt(np.pi)) ** r
+    if use_sparse:
+        flat, wr = _orbit_submatrix_sparse(
+            Px_, Wx_, Py_, Wy_, sigma, r, prefactor,
+            truncation_sigmas, return_cancellation_ratio)
+        if return_cancellation_ratio:
+            worst_ratio = min(worst_ratio, float(wr))
+        out = flat.reshape(N_x, N_y)
+    else:
+        # Memory: each of diffs, diffs**2, K_tens is
+        # (K_x_max, chunk_N_x, K_y_max, N_y) * 8 bytes; ~3 live.
+        # K_pairs reshape adds N_pairs * K_x_max * K_y_max * 8.
+        per_row_bytes = 4 * K_x_max * K_y_max * N_y * 8
+        mem_limit = kernel_chunk_bytes_resolved()
+        chunk_N_x = max(1, min(N_x, mem_limit // max(per_row_bytes, 1)))
+        # Abs-per full-image: 1-D wrapped Gaussian kernel per value
+        # (overlap convention, exponent_denominator=4). Single-image
+        # opt-in reduces to the nearest image; the pre-v3 code did the
+        # reduction unconditionally.
+        abs_per_full_image = is_per and str(wrap) == 'full-image'
+        if abs_per_full_image:
+            from .._wrapped_kernel import wrapped_gaussian_1d
+            trunc_eff = float(get_default('truncation_sigmas')
+                              if truncation_sigmas is None
+                              else truncation_sigmas)
 
-        # Sparse-orbit fast path: when the value kernel is large and the
-        # (non-periodic) values are well-separated, a spatially-culled
-        # per-pair orbit beats the dense batched contraction. Gate on a
-        # cheap density probe from one representative safe pair.
-        use_sparse = False
-        if (not is_per) and r >= 2 \
-                and K_x_max * K_y_max >= _ORBIT_SPARSE_MIN_KERNEL:
-            vx0 = Wx_s[:, 0] != 0.0
-            vy0 = Wy_s[:, 0] != 0.0
-            K0 = _build_sparse_kernel_abs(
-                Px_s[vx0, 0], Py_s[vy0, 0], sigma, truncation_sigmas)
-            if K0.nnz <= _ORBIT_SPARSE_MAX_DENSITY * K_x_max * K_y_max:
-                use_sparse = True
-
-        if use_sparse:
-            flat, wr = _orbit_safe_submatrix_sparse(
-                Px_s, Wx_s, Py_s, Wy_s, sigma, r, prefactor,
-                truncation_sigmas, return_cancellation_ratio)
-            if return_cancellation_ratio:
-                worst_ratio = min(worst_ratio, float(wr))
-            out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
-
-        else:
-            # Memory: each of diffs, diffs**2, K_tens is
-            # (K_x_max, chunk_N_xs, K_y_max, N_ys) * 8 bytes; ~3 live.
-            # K_pairs reshape adds N_pairs * K_x_max * K_y_max * 8.
-            per_row_bytes = 4 * K_x_max * K_y_max * N_ys * 8
-            mem_limit = kernel_chunk_bytes_resolved()
-            chunk_N_xs = max(1, min(N_xs, mem_limit // max(per_row_bytes, 1)))
-
-            if chunk_N_xs >= N_xs:
-                # Fast path: single shot.
-                diffs = Px_s[:, :, None, None] - Py_s[None, None, :, :]
-                # Abs-per full-image: 1-D wrapped Gaussian kernel per
-                # value (overlap convention, exponent_denominator=4).
-                # Single-image opt-in reduces to the nearest image; the
-                # pre-v3 code did the reduction unconditionally.
-                if is_per and str(wrap) == 'full-image':
-                    from .._wrapped_kernel import wrapped_gaussian_1d
-                    trunc_eff = float(get_default('truncation_sigmas')
-                                       if truncation_sigmas is None
-                                       else truncation_sigmas)
-                    K_tens = wrapped_gaussian_1d(
-                        diffs, sigma, period, trunc_eff,
-                        exponent_denominator=4,
-                    )
-                else:
-                    if is_per:
-                        diffs = diffs - period * np.floor(
-                            diffs / period + 0.5)
-                    K_tens = _trunc_kernel_exp(
-                        diffs ** 2, sigma, truncation_sigmas)
-                K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-                    N_xs * N_ys, K_x_max, K_y_max,
+        out = np.empty((N_x, N_y), dtype=np.float64)
+        for n_start in range(0, N_x, chunk_N_x):
+            n_end = min(n_start + chunk_N_x, N_x)
+            n_chunk = n_end - n_start
+            Px_chunk = Px_[:, n_start:n_end]
+            Wx_chunk = Wx_[:, n_start:n_end]
+            diffs = Px_chunk[:, :, None, None] - Py_[None, None, :, :]
+            if abs_per_full_image:
+                K_tens = wrapped_gaussian_1d(
+                    diffs, sigma, period, trunc_eff,
+                    exponent_denominator=4,
                 )
-                w_A_pairs = np.broadcast_to(
-                    Wx_s.T[:, None, :], (N_xs, N_ys, K_x_max),
-                ).reshape(N_xs * N_ys, K_x_max)
-                w_B_pairs = np.broadcast_to(
-                    Wy_s.T[None, :, :], (N_xs, N_ys, K_y_max),
-                ).reshape(N_xs * N_ys, K_y_max)
-
-                if return_cancellation_ratio:
-                    flat, ratios = inner_product_orbit_pw_batched(
-                        K_pairs, w_A_pairs, w_B_pairs, r,
-                        prefactor=prefactor,
-                        return_cancellation_ratio=True,
-                    )
-                    worst_ratio = min(worst_ratio, float(np.min(ratios)))
-                else:
-                    flat = inner_product_orbit_pw_batched(
-                        K_pairs, w_A_pairs, w_B_pairs, r,
-                        prefactor=prefactor,
-                    )
-                out[np.ix_(safe_x_idx, safe_y_idx)] = flat.reshape(N_xs, N_ys)
             else:
-                # Chunked path: process safe_x_idx in chunks of chunk_N_xs.
-                safe_flat = np.empty((N_xs, N_ys), dtype=np.float64)
-                for n_start in range(0, N_xs, chunk_N_xs):
-                    n_end = min(n_start + chunk_N_xs, N_xs)
-                    n_chunk = n_end - n_start
-                    Px_chunk = Px_s[:, n_start:n_end]
-                    Wx_chunk = Wx_s[:, n_start:n_end]
-                    diffs = Px_chunk[:, :, None, None] - Py_s[None, None, :, :]
-                    if is_per and str(wrap) == 'full-image':
-                        from .._wrapped_kernel import wrapped_gaussian_1d
-                        trunc_eff = float(
-                            get_default('truncation_sigmas')
-                            if truncation_sigmas is None
-                            else truncation_sigmas)
-                        K_tens = wrapped_gaussian_1d(
-                            diffs, sigma, period, trunc_eff,
-                            exponent_denominator=4,
-                        )
-                    else:
-                        if is_per:
-                            diffs = diffs - period * np.floor(
-                                diffs / period + 0.5)
-                        K_tens = _trunc_kernel_exp(
-                            diffs ** 2, sigma, truncation_sigmas)
-                    K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
-                        n_chunk * N_ys, K_x_max, K_y_max,
-                    )
-                    w_A_pairs = np.broadcast_to(
-                        Wx_chunk.T[:, None, :], (n_chunk, N_ys, K_x_max),
-                    ).reshape(n_chunk * N_ys, K_x_max)
-                    w_B_pairs = np.broadcast_to(
-                        Wy_s.T[None, :, :], (n_chunk, N_ys, K_y_max),
-                    ).reshape(n_chunk * N_ys, K_y_max)
+                if is_per:
+                    diffs = diffs - period * np.floor(
+                        diffs / period + 0.5)
+                K_tens = _trunc_kernel_exp(
+                    diffs ** 2, sigma, truncation_sigmas)
+            K_pairs = np.transpose(K_tens, (1, 3, 0, 2)).reshape(
+                n_chunk * N_y, K_x_max, K_y_max,
+            )
+            w_A_pairs = np.broadcast_to(
+                Wx_chunk.T[:, None, :], (n_chunk, N_y, K_x_max),
+            ).reshape(n_chunk * N_y, K_x_max)
+            w_B_pairs = np.broadcast_to(
+                Wy_.T[None, :, :], (n_chunk, N_y, K_y_max),
+            ).reshape(n_chunk * N_y, K_y_max)
 
-                    if return_cancellation_ratio:
-                        flat, ratios = inner_product_orbit_pw_batched(
-                            K_pairs, w_A_pairs, w_B_pairs, r,
-                            prefactor=prefactor,
-                            return_cancellation_ratio=True,
-                        )
-                        worst_ratio = min(worst_ratio, float(np.min(ratios)))
-                    else:
-                        flat = inner_product_orbit_pw_batched(
-                            K_pairs, w_A_pairs, w_B_pairs, r,
-                            prefactor=prefactor,
-                        )
-                    safe_flat[n_start:n_end, :] = flat.reshape(n_chunk, N_ys)
-                out[np.ix_(safe_x_idx, safe_y_idx)] = safe_flat
+            if return_cancellation_ratio:
+                flat, ratios = inner_product_orbit_pw_batched(
+                    K_pairs, w_A_pairs, w_B_pairs, r,
+                    prefactor=prefactor,
+                    return_cancellation_ratio=True,
+                )
+                worst_ratio = min(worst_ratio, float(np.min(ratios)))
+            else:
+                flat = inner_product_orbit_pw_batched(
+                    K_pairs, w_A_pairs, w_B_pairs, r,
+                    prefactor=prefactor,
+                )
+            out[n_start:n_end, :] = flat.reshape(n_chunk, N_y)
 
     if return_cancellation_ratio:
         return out, worst_ratio
     return out
-
-
-def _pack_nan_top(P, W):
-    """Pack non-NaN values to the top of each column.
-
-    Returns ``(P_packed, W_packed)`` of the same shape, where for each
-    column ``n`` the first ``K_eff[n]`` rows are the valid values
-    (preserving their original order) and the rest are NaN. The
-    ``build_exp_tens`` convention already places NaN at the bottom, in
-    which case this is mathematically a no-op (still copies for
-    cleanliness). Per-event packing handles user-constructed densities
-    with arbitrary NaN positions.
-    """
-    K, N = P.shape
-    P_packed = np.full_like(P, np.nan)
-    W_packed = np.full_like(W, np.nan)
-    for n in range(N):
-        valid = ~(np.isnan(P[:, n]) | np.isnan(W[:, n]))
-        k = int(valid.sum())
-        if k == 0:
-            continue
-        P_packed[:k, n] = P[valid, n]
-        W_packed[:k, n] = W[valid, n]
-    return P_packed, W_packed
-
-
-def _batched_direct_enum_abs(
-    Px_group, Wx_group, Py_group, Wy_group,
-    sigma, r, is_per, period,
-    *, truncation_sigmas=None,
-):
-    """Batched direct r-tuple enumeration IP for groups at fixed K_x, K_y.
-
-    Vectorised replacement for repeated calls to
-    :func:`_inner_product_direct_abs` when every event in
-    ``Px_group`` has the same ``K_x = K_eff_x`` and every event in
-    ``Py_group`` has the same ``K_y = K_eff_y`` (no NaN within the
-    first K rows of either side).
-
-    Inputs
-    ------
-    Px_group : (K_x, N_x) ndarray
-        Values, no NaN.
-    Wx_group : (K_x, N_x) ndarray
-        Value weights, no NaN.
-    Py_group, Wy_group : (K_y, N_y) ndarrays
-        Same for Y side.
-    sigma, r, is_per, period
-        Group parameters.
-    truncation_sigmas : float, optional
-        Kernel-truncation cutoff in σ units. Kernel entries whose
-        squared distance exceeds the cutoff are zeroed without
-        evaluating ``np.exp``. ``None`` resolves to the global default
-        ``mpt.get_default('truncation_sigmas')``.
-
-    Returns
-    -------
-    ip : (N_x, N_y) ndarray
-        Inner-product matrix (no Möbius alternating sum; exact for any
-        K_x, K_y >= r).
-    """
-    from .._defaults import get_default
-
-    if truncation_sigmas is None:
-        truncation_sigmas = get_default('truncation_sigmas')
-
-    K_x, N_x = Px_group.shape
-    K_y, N_y = Py_group.shape
-
-    if K_x < r or K_y < r:
-        return np.zeros((N_x, N_y), dtype=np.float64)
-
-    if r == 1:
-        diffs = Px_group[:, :, None, None] - Py_group[None, None, :, :]
-        if is_per:
-            diffs = diffs - period * np.floor(diffs / period + 0.5)
-        K_mat = _trunc_kernel_exp(diffs ** 2, sigma, truncation_sigmas)
-        ip = np.einsum(
-            'xn,xnym,ym->nm', Wx_group, K_mat, Wy_group, optimize=True,
-        )
-        return ip * (sigma * np.sqrt(np.pi))
-
-    # --- r >= 2: enumerate ordered r-tuple indices ---
-    from itertools import permutations
-    idx_x = np.array(list(permutations(range(K_x), r)),
-                     dtype=np.intp)        # (nJ_x, r)
-    idx_y = np.array(list(permutations(range(K_y), r)),
-                     dtype=np.intp)        # (nJ_y, r)
-    nJ_x = idx_x.shape[0]                  # K_x! / (K_x - r)!
-    nJ_y = idx_y.shape[0]
-
-    # Gather tuple value indices and weights per event. The fancy
-    # index Px_group[idx_x.T, :] has shape (r, nJ_x, N_x); we want
-    # U_x of shape (r, N_x, nJ_x) and Wj_x of shape (N_x, nJ_x).
-    U_x = Px_group[idx_x.T, :].transpose(0, 2, 1)
-    U_y = Py_group[idx_y.T, :].transpose(0, 2, 1)
-    Wj_x = np.prod(Wx_group[idx_x.T, :], axis=0).T  # (N_x, nJ_x)
-    Wj_y = np.prod(Wy_group[idx_y.T, :], axis=0).T  # (N_y, nJ_y)
-
-    # Memory estimate: the difference tensor is (r, N_x, nJ_x, N_y, nJ_y).
-    # For unsafe events (K_eff in {r, r+1}), nJ_x = r! or (r+1)!/(1!),
-    # which is small. For r=3, K=4 -> nJ=24; r=4, K=5 -> nJ=120. Even
-    # with N_x = N_y = 100 this is <100 MB at worst. No chunking needed
-    # in the unsafe regime. Document so future use on safe-K paths
-    # adds a chunking guard.
-    diffs = U_x[:, :, :, None, None] - U_y[:, None, None, :, :]
-    if is_per:
-        diffs = diffs - period * np.floor(diffs / period + 0.5)
-    Q = np.sum(diffs ** 2, axis=0)                  # (N_x, nJ_x, N_y, nJ_y)
-    K_mat = _trunc_kernel_exp(Q, sigma, truncation_sigmas)
-
-    ip = np.einsum(
-        'xj,xjyk,yk->xy', Wj_x, K_mat, Wj_y, optimize=True,
-    )
-    return ip * (sigma * np.sqrt(np.pi)) ** r
 
 
 def _zero_pad_nan(Px, Wx, Py, Wy):
@@ -1097,15 +926,13 @@ def _rel_inner_batched(
     ``_ORBIT_GRID_SLAB_ELEMS`` kernel entries, built directly in the
     contraction's (batch, K, K) layout — no transposition copies — so
     the working set stays memory-resident and the per-op cost of the
-    batched Möbius contraction is flat in N and K (mirroring the
-    single-multiset slabbing in ``_orbit_inner_rel``).
+    batched Möbius contraction is flat in N and K.
 
     Ragged (NaN-padded) events arrive zero-padded: a zero-weight value
     contributes a zero factor to every Möbius term in which its axis
     value appears, so the result is exact for the K_eff events.
-    Events with K_eff - r below the precision margin in this regime
-    may lose precision in the alternating sum; ``method='auto'``
-    routing accounts for this via the dispatcher's precision guard.
+    Accuracy is governed by ``truncation_sigmas``, not by how close
+    K_eff is to r; no selector rule reads that margin.
 
     With ``return_cancellation_ratio=True``, additionally returns the
     minimum across event pairs of the per-pair mass-aware cancellation
@@ -1169,7 +996,7 @@ def _rel_inner_batched(
     shared_w = (np.all(Wx == Wx[:, :1]) and np.all(Wy == Wy[:, :1]))
 
     if is_per:
-        N_u = auto_ntau_default(period, sigma)
+        N_u = auto_ntau_default(period, sigma, truncation_sigmas)
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
         du = period / N_u
         centres = np.zeros((N_x, N_y), dtype=np.float64)
@@ -1482,17 +1309,22 @@ def _predicted_centres_wall_ns(K_x, K_y, r_a, is_per):
     return per_el * n_e
 
 
-def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per):
+def _predicted_grid_wall_ns(K, r_a, sigma, span_or_period, is_per,
+                            truncation_sigmas=None):
     """Nanosecond wall-time estimate for one event pair on the grid
     (spectral or u-grid) path. ``span_or_period`` is the period in the
     periodic case, or the sum of the two side spans in the
-    non-periodic case (matching the current N_u sizing)."""
+    non-periodic case (matching the current N_u sizing).
+    ``truncation_sigmas`` is the per-call width (``None`` takes the
+    default): the grid the route would run is sized from it, so the
+    estimate must be too."""
     from ._nested_contraction import auto_ntau_default
+    from .._defaults import resolve_truncation_sigmas
+    truncation_sigmas = resolve_truncation_sigmas(truncation_sigmas)
     if is_per:
-        n_u = auto_ntau_default(span_or_period, sigma)
+        n_u = auto_ntau_default(span_or_period, sigma, truncation_sigmas)
     else:
-        from .._defaults import get_default
-        margin = _rel_window_margin(get_default('truncation_sigmas'))
+        margin = _rel_window_margin(truncation_sigmas)
         span = span_or_period + 2.0 * margin * sigma
         n_u = max(64, int(np.ceil(max(span, 1.0) / sigma * 10.0)))
     # Extrapolate calibrated r_a in {2, 3, 4} to r_a >= 5 by tripling
@@ -1573,7 +1405,7 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
         # method returns from the selector ahead of the cost model. 'auto'
         # is unaffected, and the lever still overrides when set explicitly.
         return False
-    if forced in ("mobius", "grid"):     # 'grid' retained as a deprecated alias
+    if forced == "mobius":     # set_default normalises the 'grid' alias to this
         return False
     if forced == "centres":
         if blocked_by_measure:
@@ -1603,9 +1435,73 @@ def _ma_rel_attr_prefers_centres(Px, Py, sigma, r_a, is_rel, is_per, period,
                           + float(np.nanmax(Py) - np.nanmin(Py)))
     c_wall_ns = _predicted_centres_wall_ns(K_x, K_y, r_a, is_per)
     g_wall_ns = _predicted_grid_wall_ns(
-        K_x, r_a, sigma, span_or_period, is_per,
+        K_x, r_a, sigma, span_or_period, is_per, truncation_sigmas,
     )
     return c_wall_ns < g_wall_ns
+
+
+# Internal switch for the X-side comb restriction of the centres
+# sub-route. Always True in normal use; the tests flip it to False to
+# recompute a matrix on the unrestricted perm-vs-perm form and compare.
+# :func:`_closed_form_attr_centres` memoises its bundle on the density,
+# so a flip takes effect on freshly built densities. Mirrored by MATLAB
+# ``internal.combRestrictionEnabled``.
+_COMB_RESTRICTION_ENABLED = True
+
+
+def _nested_orbit_mult(r_levels, sym_levels):
+    """Order of the nested attribute's tuple-symmetry group.
+
+    A nested tuple is a tree: ``r_levels[l]`` nodes of level ``l - 1``
+    under every level-``l`` node, innermost-outward, with
+    ``prod(r_levels[l + 1:])`` nodes at level ``l``. The build's
+    enumeration (:func:`~mpt._tensor.build._nested_enum_indices`)
+    symmetrises level ``l`` independently at each of those nodes when
+    ``sym_levels[l]`` is set, so the group acting on the leaf positions
+    is the iterated wreath product
+
+        G = prod_{l : sym} (S_{r_levels[l]}) ^ (prod_{m > l} r_levels[m])
+
+    of order ``prod_{l : sym} r_levels[l]! ** prod(r_levels[l + 1:])``.
+    Ordered levels contribute no factor. Returns ``|G|``.
+    """
+    r_levels = [int(x) for x in np.asarray(r_levels).ravel()]
+    sym_levels = [bool(x) for x in np.asarray(sym_levels).ravel()]
+    mult = 1
+    for l, s in enumerate(sym_levels):
+        if not s:
+            continue
+        nodes = 1
+        for m in range(l + 1, len(r_levels)):
+            nodes *= r_levels[m]
+        mult *= math.factorial(r_levels[l]) ** nodes
+    return int(mult)
+
+
+def _reduced_centres_from_values(V, spec_a, r_a, is_rel):
+    """Centres array for a value matrix ``V`` (``r_a`` rows), in the same
+    reduction the build applies to the perm side.
+
+    Mirrors the ``centres`` block of
+    :func:`~mpt._tensor.build._ma_build_perm_arrays` for the attributes
+    that reach the closed form: a whole-tuple relative reading anchors
+    at position 0; absolute keeps the values. Used to build the
+    comb-side centres so both sides of the overlap array are in the
+    same coordinates. An inner / intermediate co-transposition unit
+    (block-reduced per level) never reaches here: every nested plan
+    declines it before a centres bundle is built, and
+    :func:`_closed_form_attr_matrix_from` refuses such a bundle.
+    """
+    if (spec_a is not None
+            and spec_a.get("proj") in ("inner", "intermediate")):
+        raise ValueError(
+            "the tuple-centres closed form does not carry an inner [rel] "
+            "unit; the nested plan should have declined this attribute")
+    if is_rel:
+        if int(r_a) < 2:
+            return np.empty((0, V.shape[1]), dtype=np.float64)
+        return V[1:, :] - V[:1, :]
+    return V
 
 
 def _comb_side_restriction(da, spec, r_a, is_rel):
@@ -1615,53 +1511,100 @@ def _comb_side_restriction(da, spec, r_a, is_rel):
     difference ``d_i = x_i - y_i``, and every quadratic form the route
     evaluates -- ``sum_i d_i^2`` (absolute, and its per-coordinate
     wrapped-Gaussian product in the periodic case), ``sum_i d_i^2 -
-    (sum_i d_i)^2 / r`` (relative non-periodic) and ``sum_{i<j}
-    wrap(d_i - d_j)^2 / r`` (relative periodic) -- is a symmetric
-    function of ``(d_1, ..., d_r)``. Permuting *both* tuples by the same
-    permutation permutes ``d`` and so leaves the kernel unchanged.
+    (sum_i d_i)^2 / r`` (relative non-periodic), ``sum_{i<j}
+    wrap(d_i - d_j)^2 / r`` (relative periodic) and the block-diagonal
+    sum of those relative forms over a nested attribute's level-``u``
+    sub-tuples (:func:`_compute_Q_inner_blocks`) -- is invariant under
+    permuting *both* tuples by the same element of the tuple's symmetry
+    group ``G``. For the flat forms ``G`` may be all of ``S_{r_a}``
+    (the form is a symmetric function of ``d``); for the block form
+    ``G`` may be any permutation that maps the level-``u`` block
+    partition to itself, permuting whole blocks and permuting within
+    them, since the form is a sum of within-block symmetric functions.
+    The anchoring of the stored centres (``u[1:] - u[0]``, or the
+    per-block first value) costs nothing: every form depends on ``d``
+    only through differences ``d_i - d_j``, which the reduced
+    representation preserves.
 
-    For a symmetric flat attribute the perm side is the comb side tiled
-    by all ``r_a!`` permutations, and the tuple weights are products
-    over the tuple's atoms, hence constant on each orbit. Fixing an
-    X-side orbit and summing the kernel over the whole Y side therefore
-    gives the same total for every representative of that orbit, so
+    The build's perm side is exactly the free ``G``-orbit tiling of the
+    comb side, with one comb representative per orbit:
 
-        sum_{j_x in perm} sum_{j_y in perm} K = r_a! *
+    * **flat symmetric**: ``G = S_{r_a}``, ``|G| = r_a!``
+      (:func:`~mpt._tensor.build._enum_flat_attr` tiles the combinations
+      by all ``r_a!`` permutations);
+    * **nested**: ``G`` is the iterated wreath product of
+      :func:`_nested_orbit_mult` -- each level's chosen sub-units are
+      permuted into their orbit independently at every node of that
+      level when the level is symmetric, and left in listed order when
+      it is ordered. Every element of that group permutes leaves within
+      each level-``u`` block and permutes level-``u`` blocks as wholes,
+      so it is a symmetry of the block kernel as well as of the flat
+      ones.
+
+    The tuple weights are products over the tuple's atoms, hence
+    constant on each orbit, and the Y side -- being the same union of
+    full ``G``-orbits -- is ``G``-stable. Fixing an X-side orbit ``O``
+    with representative ``k_x``,
+
+        sum_{j_x in O} sum_{j_y} K(x_{j_x}, y_{j_y})
+          = sum_{g in G} sum_{j_y} K(g x_{k_x}, y_{j_y})
+          = sum_{g in G} sum_{j_y} K(x_{k_x}, g^{-1} y_{j_y})
+          = |G| sum_{j_y} K(x_{k_x}, y_{j_y}),
+
+    the middle step by ``G``-invariance of the kernel and the last by
+    ``G`` permuting the Y perm side bijectively. Summing over orbits,
+
+        sum_{j_x in perm} sum_{j_y in perm} K = |G| *
         sum_{k_x in comb} sum_{j_y in perm} K,
 
-    exactly -- not up to a constant. Restricting the X side to
-    combinations and multiplying by ``r_a!`` costs
-    ``C(K, r) * r! C(K, r)`` kernel evaluations in place of
-    ``(r! C(K, r))^2``, a factor ``r_a!``: 2 at r = 2, 24 at r = 4. The
-    result is bit-comparable to the unrestricted sum up to
-    floating-point summation order.
+    exactly -- not up to a constant. Restricting the X side to the comb
+    side and multiplying by ``|G|`` costs ``n_k * n_j`` kernel
+    evaluations in place of ``n_j * n_j``, a factor ``|G|``: 2 at flat
+    r = 2, 24 at flat r = 4, and ``prod_l r_l!^{nodes_l}`` over the
+    symmetric levels of a nested attribute (8 for ``r = [2, 2]``,
+    ``sym = [1, 1]``). The result is bit-comparable to the unrestricted
+    sum up to floating-point summation order.
 
     The restriction is declined -- ``None``, leaving the caller on the
-    unrestricted perm-vs-perm form -- in three cases:
+    unrestricted perm-vs-perm form -- when there is no orbit to
+    collapse:
 
-    * ``r_a < 2``: there is no orbit.
-    * an **ordered** attribute (``is_sym = False``): the build sets the
-      perm side equal to the comb side, so there is no orbit to collapse
-      and multiplying by ``r_a!`` would be wrong. Detected structurally,
-      by ``n_j != r_a! * n_k``, which is exactly the condition the
-      identity needs.
-    * a **nested** attribute: its perm side is a product of per-level
-      orbits, not a single ``S_{r_a}`` tiling of the comb side, and the
-      kernel is the block form of :func:`_compute_Q_inner_blocks` rather
-      than the flat quadratic above. The two-line identity does not
-      carry over unexamined, so this path is left alone.
+    * ``r_a < 2`` for a flat attribute, or ``|G| < 2`` for a nested one
+      (every level ordered);
+    * an **ordered** flat attribute (``is_sym = False``): the build sets
+      the perm side equal to the comb side, so multiplying by ``r_a!``
+      would be wrong;
+    * any density whose materialised sides do not satisfy
+      ``n_j == |G| * n_k`` (with ``n_k > 0``), which is exactly the
+      structural condition the identity needs. This is checked rather
+      than assumed, so a build that ever departed from the orbit tiling
+      above would decline rather than compute a wrong number.
+
+    ``spec`` is accepted for call-site symmetry; the level structure is
+    read from ``da`` itself, which is authoritative (the build may
+    collapse a degenerate nested spec to a flat attribute).
 
     Returns ``(centres, weights, event_of, mult)`` in the same
     conventions as the perm-side fields, or ``None``.
     """
-    import math
-    if spec is not None or int(r_a) < 2:
+    if not _COMB_RESTRICTION_ENABLED:
         return None
-    mult = math.factorial(int(r_a))
-    if int(da.n_j) != mult * int(da.n_k):
-        return None                      # ordered attribute: perm == comb
+    nested_da = getattr(da, "nested", None)
+    spec_a = nested_da[0] if nested_da is not None else None
+    r_a = int(r_a)
+    if spec_a is None:
+        if r_a < 2:
+            return None
+        mult = math.factorial(r_a)
+    else:
+        mult = _nested_orbit_mult(spec_a["r"], spec_a["sym"])
+        if mult < 2:
+            return None
+    n_k = int(da.n_k)
+    if n_k <= 0 or int(da.n_j) != mult * n_k:
+        return None        # ordered attribute, or an unexpected tiling
     v = np.asarray(da.v_comb[0], dtype=np.float64)
-    c = (v[1:, :] - v[:1, :]) if is_rel else v
+    c = _reduced_centres_from_values(v, spec_a, r_a, is_rel)
     return (c, np.asarray(da.wv_comb, dtype=np.float64),
             np.asarray(da.event_of_k), mult)
 
@@ -1676,10 +1619,10 @@ def _closed_form_attr_centres(dens, a):
     Gaussian overlap of those centres. This is exact for the absolute and
     absolute-periodic readings, the analytic relative quadratic (also exact)
     for relative-non-periodic, and the minimum-image pairwise-wrap for
-    relative-periodic -- a deliberate measure choice, not the all-image torus
-    inner product the tau-grid contraction computes (consistent with the flat
-    per-attribute matrix; see the note in
-    :func:`_closed_form_attr_matrix_from`).
+    relative-periodic -- measure (A), which serves a ``wrap='full-image'``
+    attribute only below the sigma/period threshold and is the declared measure
+    under ``wrap='single-image'`` (consistent with the flat per-attribute
+    matrix; see the note in :func:`_closed_form_attr_matrix_from`).
 
     Returns ``(centres, w_j, event_of_j, inner_block_size, is_per, period,
     r_a, is_rel, sigma, n_events, comb_side)``. Variable-K (NaN-padded) values
@@ -1731,10 +1674,12 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     The pairwise centre-overlap is formed as one ``(n_kx, n_jy)`` array
     and aggregated to events by two incidence matmuls, vectorising the
     event-pair grid that the per-event-pair contraction loops scalar-wise. The
-    X side is restricted to one representative per permutation orbit and the
-    sum scaled by the orbit size ``r_a!`` -- Bulger's restriction, exact per
-    event pair; see :func:`_comb_side_restriction`, which also lists the cases
-    (ordered, nested, ``r_a < 2``) where the restriction is declined and the
+    X side is restricted to one representative per tuple-symmetry orbit and the
+    sum scaled by the orbit size (``r_a!`` for a flat symmetric attribute, the
+    nested wreath-product order of :func:`_nested_orbit_mult` for a nested
+    one) -- Bulger's restriction, exact per event pair; see
+    :func:`_comb_side_restriction`, which also lists the cases (ordered,
+    ``r_a < 2``, trivial orbit) where the restriction is declined and the
     array is the unrestricted ``(n_jx, n_jy)`` one. The constant per-attribute
     Gaussian prefactor is dropped: it is identical
     across this matrix and the self matrices, so it cancels in the cosine and
@@ -1750,28 +1695,54 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
 
     Relative-periodic uses the minimum-image pairwise-wrap metric of
     :func:`_compute_Q` (exactly period-shift invariant, and matching the flat
-    per-attribute path). This is the toolbox's defined relative-periodic
-    measure. It does not equal the all-image transposition average (the torus
-    inner product), which the tau-grid contraction computes; the two coincide
-    for sigma << period and diverge as sigma approaches the period. Because the
-    minimum-image kernel couples all positions within a tuple (a pairwise quadratic
-    form), it does not factor per level, so the per-level orbit (Möbius)
-    reduction is unavailable here and a symmetric level is enumerated over its
-    full orbit. When that enumeration becomes the dominant cost, the dispatch
-    in :func:`_nested_attr_matrix_dispatch` routes the attribute to the
-    all-image tau-grid contraction instead -- a deliberate measure change,
-    documented there.
+    per-attribute path). This is measure (A), *not* the toolbox's defined
+    relative-periodic measure: the measure is declared by the attribute's
+    ``wrap``, and the v3+ default ``wrap='full-image'`` declares (C), the
+    all-image transposition average over the torus, which the tau-grid
+    contraction computes. The two coincide for sigma << period and diverge as
+    sigma approaches it, so this route may serve a full-image attribute only
+    below ``dispatch._orbit_sigma_over_p_threshold(truncation_sigmas)``, where
+    the difference sits inside the truncation floor; above that threshold only
+    ``wrap='single-image'`` --- which declares (A) --- reaches this route.
+    Because the minimum-image kernel couples all positions within a tuple (a
+    pairwise quadratic form), it does not factor per level, so the per-level
+    orbit (Möbius) reduction is unavailable here and a symmetric level is
+    enumerated over its full orbit. Where both measures are admissible, the
+    dispatch in :func:`~mpt._tensor.cosine._nested_attr_route` decides between
+    this route and the tau-grid contraction on cost alone.
     """
     (Cx, Wx, Ex, bs, is_per, period, r_a, is_rel, sigma, Nx) = cx[:10]
     (Cy, Wy, Ey, _bs, _ip, _pe, _ra, _ir, _sg, Ny) = cy[:10]
-    # Bulger's restriction on the X side: one representative per S_r
-    # orbit, the sum scaled by the orbit size. Exact, and it removes a
-    # factor r_a! of kernel evaluations. The Y side stays unrestricted;
-    # see :func:`_comb_side_restriction` for the identity and for the
-    # three cases where it is declined (there ``comb`` is None and this
-    # is the unrestricted perm-vs-perm form as before).
+    # An inner ``[rel]`` co-transposition unit (``bs >= 2``) has a
+    # block-diagonal metric that this flat quadratic form does not
+    # carry. No caller can deliver one: every nested plan declines such
+    # a unit before any centres bundle is built (see the decline in
+    # ``cosine._try_nested_contract`` and its MA twin), and flat
+    # attributes have none. Refuse rather than compute a wrong number.
+    if int(bs) >= 2 or int(_bs) >= 2:
+        raise ValueError(
+            "the tuple-centres closed form does not carry an inner [rel] "
+            "unit; the nested plan should have declined this attribute")
+    # Bulger's restriction on the X side: one representative per
+    # tuple-symmetry orbit, the sum scaled by the orbit size. Exact, and
+    # it removes a factor |G| of kernel evaluations (r_a! flat, the
+    # wreath-product order nested). The Y side stays unrestricted; see
+    # :func:`_comb_side_restriction` for the identity and for the cases
+    # where it is declined (there ``comb`` is None and this is the
+    # unrestricted perm-vs-perm form as before).
     comb = cx[10] if len(cx) > 10 else None
+    comb_y = cy[10] if len(cy) > 10 else None
     mult = 1.0
+    if comb is not None:
+        # The identity needs the *Y* perm side to be stable under the
+        # same group, i.e. the two densities to carry the same tuple
+        # symmetry. Guaranteed by every caller (a flat attribute's
+        # is_sym and a nested one's [r]/[sym] are checked equal before
+        # the pair reaches here), and checked structurally: the Y side
+        # must be the same orbit tiling of its own comb side.
+        if (comb_y is None or int(comb_y[3]) != int(comb[3])
+                or Cy.shape[1] != int(comb[3]) * comb_y[0].shape[1]):
+            comb = None
     if comb is not None:
         Cx, Wx, Ex, mult = comb[0], comb[1], comb[2], float(comb[3])
     Wx = np.ones(Cx.shape[1]) if Wx is None else np.asarray(Wx, float).ravel()
@@ -1786,21 +1757,6 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     GY = np.zeros((njy, Ny))
     GY[np.arange(njy), Ey] = 1.0
     inv4s2 = 1.0 / (4.0 * sigma ** 2)
-    # Abs-per full-image: per-position image sum before the r-tuple product.
-    # L = 0 at sigma/P below the accuracy-floor threshold, so this
-    # collapses to the single-Gaussian route unchanged. When the user
-    # has opted this attribute into ``wrap='single-image'`` the L is
-    # forced to 0 regardless.
-    if is_per and not is_rel:
-        if wrap_a == 'full-image':
-            from .._defaults import get_default
-            ts = (get_default("truncation_sigmas")
-                  if truncation_sigmas is None else truncation_sigmas)
-            L_abs_per = _rel_per_image_count(sigma, period, ts)
-        else:
-            L_abs_per = 0
-    else:
-        L_abs_per = 0
     # Chunk the X-tuple axis so the pairwise difference array never exceeds a
     # fixed budget: the full (njx, njy) overlap is materialised only one
     # |chunk| x njy block at a time, which keeps the materialised-centre path
@@ -1812,24 +1768,38 @@ def _closed_form_attr_matrix_from(cx, cy, truncation_sigmas=None,
     for s in range(0, njx, chunk):
         e = min(s + chunk, njx)
         D = Cx[:, s:e, None] - Cy[:, None, :]
-        if bs >= 2:
-            Q = _compute_Q_inner_blocks(D, bs, is_per, period, reduced=True)
-            kernel_val = np.exp(-Q * inv4s2)
-        elif is_per and not is_rel:
+        if is_per and not is_rel:
             # Abs-per full-image via the shared wrapped-Gaussian helper,
             # which picks image-sum or Fourier by cost (crossover at
             # sigma/P ~ 0.2). ``wrap_a='single-image'`` forces the
             # single-image path.
-            if wrap_a == 'single-image':
+            #
+            # Single-image short-circuit. Under truncation the image
+            # budget can admit no image beyond the nearest one (L = 0,
+            # which at the 6-sigma default holds for sigma/P <= 0.059
+            # in this convention). theta(d) is then exactly the
+            # nearest-image Gaussian exp(-d^2 / (4 sigma^2)), so the
+            # per-position product below computes the same number as
+            # the joint Q-form path -- but pays one exp per position
+            # of the (r_a, nc, njy) difference tensor instead of one
+            # on the summed (nc, njy) form. Take the joint path there;
+            # the two agree to ~3e-16. The helper cannot prefer
+            # Fourier at L = 0 (M >= 1 fails the M < 2L + 1 test), so
+            # the gate is the same one cosine._ma_log_kernel and
+            # _kernel._eval_chunk apply.
+            from .._defaults import get_default
+            from .._wrapped_kernel import _image_count_L
+            ts = (get_default("truncation_sigmas")
+                  if truncation_sigmas is None else truncation_sigmas)
+            if (wrap_a == 'single-image'
+                    or _image_count_L(float(sigma), float(period), ts,
+                                      4) == 0):
                 D = D - period * np.floor(D / period + 0.5)
                 Q = _compute_Q(D, r_a, is_rel, is_per, period,
                                reduced=is_rel)
                 kernel_val = np.exp(-Q * inv4s2)
             else:
                 from .._wrapped_kernel import wrapped_gaussian_1d
-                from .._defaults import get_default
-                ts = (get_default("truncation_sigmas")
-                      if truncation_sigmas is None else truncation_sigmas)
                 theta_per_position = wrapped_gaussian_1d(
                     D, sigma, period, ts, exponent_denominator=4
                 )

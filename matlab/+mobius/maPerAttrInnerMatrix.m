@@ -12,7 +12,7 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   Inputs:
 %     PX, WX     (K_x, N_x) per-event positions and weights for
 %                density X. NaN entries indicate ragged events; they
-%                are routed and handled per-pair as appropriate.
+%                are carried as zero-weight padding.
 %     PY, WY     (K_y, N_y) same for Y.
 %     SIGMA      positive scalar.
 %     R          integer >= 1.
@@ -26,11 +26,10 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %                              distance exceeds the cutoff are zeroed
 %                              without evaluating exp() in every
 %                              kernel-evaluation branch (r=1 abs, r>=2
-%                              abs safe via batched Möbius, r>=2 abs
-%                              unsafe via direct enumeration, and the
-%                              r>=2 rel per-pair fallback). Threshold
-%                              matches: kernel value falls below
-%                              exp(-truncationSigmas^2 / 2).
+%                              abs via the batched Möbius method, and
+%                              r>=2 rel via the translation grid).
+%                              Threshold matches: kernel value falls
+%                              below exp(-truncationSigmas^2 / 2).
 %     pruneZeroWeightEvents    (1,1) logical, default true. Drops
 %                              events with column-wise weight
 %                              identically zero (treating NaN as
@@ -55,29 +54,23 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
 %   - r = 1: direct kernel sum (no Möbius decomposition; cancellation impossible).
 %     Zero-pad NaN entries (zero weight kills any contribution).
 %
-%   - r >= 2 abs: hybrid safe/unsafe partition. An event is "safe" on
-%     this attribute iff its non-NaN value count K_eff satisfies
-%     accuracy is governed by truncationSigmas (no size margin
-%     used elsewhere in the Möbius machinery). Safe-vs-safe pairs flow
-%     through the vectorised batched Möbius method with within-safe-group
-%     zero-padding. Pairs involving any unsafe event flow through the
-%     direct-enumeration helper MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET, which
-%     is exact for any K >= R (no Möbius alternating sum).
+%   - r >= 2 abs: every event takes the vectorised batched Möbius
+%     method, with zero-weight padding for NaN entries. Accuracy is
+%     governed by truncationSigmas rather than by how close K_eff is to
+%     R, so no size-based partition is applied; an event with fewer
+%     than R non-NaN values contributes no R-tuples and its entries
+%     come out as zero. A sparse per-pair orbit is taken instead when
+%     the value kernel is large and (non-periodic) well separated.
 %
 %   - r >= 2 rel: batched translation-grid integration with zero-pad
 %     (all event pairs at once, slab-bounded; MOBIUS.RELINNERBATCHED,
 %     the single relative-mode evaluator, of which the
-%     single-multiset form is the N = 1 specialisation).
-%     Auto dispatch routes most small-K rel groups to
-%     Bulger globally; this path runs only on explicit
-%     method='mobius' opt-in. Events with K_eff - R below the precision
-%     margin in this niche regime may lose precision in the Möbius
-%     alternating sum; users who care about exact rel + ragged
-%     Möbius-mode behaviour should either filter events to K_eff >=
-%     R + 2 or use method='auto' (which routes to Bulger's method).
+%     single-multiset form is the N = 1 specialisation). The caller
+%     may take the tuple-centres closed form instead where
+%     MOBIUS.MARELATTRPREFERSCENTRES says it is cheaper.
 %
-%   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.INNERPRODUCTDIRECTABSSINGLEMULTISET,
-%            MOBIUS.ORBITINNERRELSINGLEMULTISET, INTERNAL.TRUNCKERNELEXP.
+%   See also MOBIUS.INNERPRODUCTORBITPWBATCHED, MOBIUS.RELINNERBATCHED,
+%            MOBIUS.INNERPRODUCTORBITSPARSE, INTERNAL.TRUNCKERNELEXP.
 
     arguments
         Px double
@@ -96,8 +89,8 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
             = 'full-image'
     end
 
-    [Kx, Nx] = size(Px); %#ok<ASGLU>
-    [Ky, Ny] = size(Py); %#ok<ASGLU>
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
 
     % --- Zero-weight-event pruning (auto, before dispatch) ---
     % An event contributes zero to every output entry iff its weight
@@ -147,80 +140,37 @@ function I = maPerAttrInnerMatrix(Px, Wx, Py, Wy, sigma, r, isRel, ...
     end
 
     % --- r >= 2 abs: every event takes the batched Mobius route ---
-
-    % Per-event K_eff (count of non-NaN values), per side.
-    K_eff_x = sum(~isnan(Px) & ~isnan(Wx), 1);   % (1, Nx)
-    K_eff_y = sum(~isnan(Py) & ~isnan(Wy), 1);   % (1, Ny)
-
+    %
     % Accuracy is governed by truncationSigmas, not by the collection
     % size, so no size-based partition is applied: every event takes the
     % vectorised batched Mobius route, which is also the faster one.
     % Events whose non-NaN value count falls below r contribute no
     % r-tuples; zero-weight padding makes every orbit term containing a
     % padded value vanish, so those entries come out as zero.
-    safe_x_mask = true(1, Nx);
-    safe_y_mask = true(1, Ny);
-    safe_x_idx   = find(safe_x_mask);
-    unsafe_x_idx = find(~safe_x_mask);
-    safe_y_idx   = find(safe_y_mask);
-    unsafe_y_idx = find(~safe_y_mask);
-
-    I = zeros(Nx, Ny);
-
-    % --- Safe x Safe submatrix: vectorised batched Möbius method ---
-    if ~isempty(safe_x_idx) && ~isempty(safe_y_idx)
-        Pxs = Px(:, safe_x_idx); Wxs = Wx(:, safe_x_idx);
-        Pys = Py(:, safe_y_idx); Wys = Wy(:, safe_y_idx);
-        KxMax = size(Pxs, 1); KyMax = size(Pys, 1);
-
-        % Sparse-orbit fast path: when the value kernel is large and the
-        % (non-periodic) values are well-separated, a spatially-culled
-        % per-pair orbit beats the dense batched contraction. Gate on a
-        % cheap density probe from one representative safe pair.
-        [minKernel, maxDensity] = localOrbitSparseThresholds();
-        useSparse = false;
-        if ~isPer && r >= 2 && KxMax * KyMax >= minKernel
-            vx0 = ~isnan(Pxs(:, 1)) & ~isnan(Wxs(:, 1)) & (Wxs(:, 1) ~= 0);
-            vy0 = ~isnan(Pys(:, 1)) & ~isnan(Wys(:, 1)) & (Wys(:, 1) ~= 0);
-            K0 = localBuildSparseKernelAbs( ...
-                Pxs(vx0, 1), Pys(vy0, 1), sigma, truncationSigmas);
-            if nnz(K0) <= maxDensity * KxMax * KyMax
-                useSparse = true;
-            end
-        end
-
-        if useSparse
-            I(safe_x_idx, safe_y_idx) = localSafeSafeOrbitSparse( ...
-                Pxs, Wxs, Pys, Wys, sigma, r, truncationSigmas);
-        else
-            I(safe_x_idx, safe_y_idx) = localSafeSafeOrbit( ...
-                Pxs, Wxs, Pys, Wys, sigma, r, isPer, period, ...
-                truncationSigmas, wrap);
+    if Nx == 0 || Ny == 0
+        I = zeros(Nx, Ny);
+        return;
+    end
+    % Sparse-orbit fast path: when the value kernel is large and the
+    % (non-periodic) values are well-separated, a spatially-culled
+    % per-pair orbit beats the dense batched contraction. Gate on a
+    % cheap density probe from one representative pair.
+    [minKernel, maxDensity] = localOrbitSparseThresholds();
+    useSparse = false;
+    if ~isPer && r >= 2 && Kx * Ky >= minKernel
+        vx0 = ~isnan(Px(:, 1)) & ~isnan(Wx(:, 1)) & (Wx(:, 1) ~= 0);
+        vy0 = ~isnan(Py(:, 1)) & ~isnan(Wy(:, 1)) & (Wy(:, 1) ~= 0);
+        K0 = localBuildSparseKernelAbs( ...
+            Px(vx0, 1), Py(vy0, 1), sigma, truncationSigmas);
+        if nnz(K0) <= maxDensity * Kx * Ky
+            useSparse = true;
         end
     end
 
-    % --- Pairs involving any unsafe event: K-grouped batched direct ---
-    % Under v2.2.0 this was a pair-by-pair MATLAB double-loop calling
-    % mobius.innerProductDirectAbsSingleMultiset per (n_x, n_y); for variable-K_a
-    % workloads with many unsafe events that dominated runtime by
-    % 10-100x over the actual numerical work.
-    %
-    % K_a grouping: partition the unsafe-involved event-index union by
-    % K_eff value per side, then batch direct enumeration per
-    % (K_eff_x, K_eff_y) sub-block. Within a sub-block every event
-    % shares an ordered-r-tuple shape, so the IP matrix is a single
-    % contracted tensor op. Coverage is (unsafe_x, all_y) plus
-    % (safe_x, unsafe_y), the same partition as v2.2.0.
-    if ~isempty(unsafe_x_idx)
-        I = localFillDirectEnumGroups(I, ...
-            Px, Wx, Py, Wy, unsafe_x_idx, 1:Ny, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period, ...
-            truncationSigmas, wrap);
-    end
-    if ~isempty(unsafe_y_idx) && ~isempty(safe_x_idx)
-        I = localFillDirectEnumGroups(I, ...
-            Px, Wx, Py, Wy, safe_x_idx, unsafe_y_idx, ...
-            K_eff_x, K_eff_y, sigma, r, isPer, period, ...
+    if useSparse
+        I = localOrbitSparse(Px, Wx, Py, Wy, sigma, r, truncationSigmas);
+    else
+        I = localOrbit(Px, Wx, Py, Wy, sigma, r, isPer, period, ...
             truncationSigmas, wrap);
     end
 end
@@ -289,48 +239,48 @@ function I = localR1ZeroPad(Px, Wx, Py, Wy, sigma, isPer, period, ...
 end
 
 
-function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
-                                  sigma, r, isPer, period, truncationSigmas, wrap)
-%LOCALSAFESAFEORBIT  Vectorised Möbius-method IP on the safe submatrix.
+function I = localOrbit(Px, Wx, Py, Wy, ...
+                          sigma, r, isPer, period, truncationSigmas, wrap)
+%LOCALORBIT  Vectorised Möbius-method IP over the whole event-pair grid.
 %
 %   K still varies per event; zero-pad to the slab Kx / Ky dimensions.
 %   The waste factor is K_max/mean(K).
 
-    [Kx, Nx_safe] = size(Px_safe);
-    [Ky, Ny_safe] = size(Py_safe);
+    [Kx, Nx] = size(Px);
+    [Ky, Ny] = size(Py);
 
-    nanX = isnan(Px_safe) | isnan(Wx_safe);
+    nanX = isnan(Px) | isnan(Wx);
     if any(nanX(:))
-        Px_safe(nanX) = 0;
-        Wx_safe(nanX) = 0;
+        Px(nanX) = 0;
+        Wx(nanX) = 0;
     end
-    nanY = isnan(Py_safe) | isnan(Wy_safe);
+    nanY = isnan(Py) | isnan(Wy);
     if any(nanY(:))
-        Py_safe(nanY) = 0;
-        Wy_safe(nanY) = 0;
+        Py(nanY) = 0;
+        Wy(nanY) = 0;
     end
 
     prefactor = (sigma * sqrt(pi))^r;
     absPerFullImage = isPer && strcmp(wrap, 'full-image');
 
     % Memory: each of diffs, diffs.^2, K_tens is
-    % (Kx, chunk_Nxs, Ky, Ny_safe) * 8 bytes; ~3 live arrays.
+    % (Kx, chunk_Nx, Ky, Ny) * 8 bytes; ~3 live arrays.
     % The K_pairs reshape adds another N_pairs * Kx * Ky * 8.
-    perRowBytes = 4 * Kx * Ky * Ny_safe * 8;
+    perRowBytes = 4 * Kx * Ky * Ny * 8;
     memLimit = internal.kernelChunkBytesResolved();
-    chunkNxs = max(1, min(Nx_safe, floor(memLimit / max(perRowBytes, 1))));
+    chunkNx = max(1, min(Nx, floor(memLimit / max(perRowBytes, 1))));
 
-    I = zeros(Nx_safe, Ny_safe);
-    for nStart = 1:chunkNxs:Nx_safe
-        nEnd = min(nStart + chunkNxs - 1, Nx_safe);
+    I = zeros(Nx, Ny);
+    for nStart = 1:chunkNx:Nx
+        nEnd = min(nStart + chunkNx - 1, Nx);
         idxX = nStart:nEnd;
         nc = numel(idxX);
 
-        Px_chunk = Px_safe(:, idxX);
-        Wx_chunk = Wx_safe(:, idxX);
+        Px_chunk = Px(:, idxX);
+        Wx_chunk = Wx(:, idxX);
 
         diffs = reshape(Px_chunk, Kx, nc, 1, 1) ...
-              - reshape(Py_safe, 1, 1, Ky, Ny_safe);
+              - reshape(Py, 1, 1, Ky, Ny);
         if absPerFullImage
             % Full-image 1-D wrapped Gaussian in overlap convention.
             % innerProductOrbitPwBatched consumes the per-position pair
@@ -346,20 +296,20 @@ function I = localSafeSafeOrbit(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
             K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
         end
 
-        K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (nc, Ny_safe, Kx, Ky)
-        K_pairs = reshape(K_perm, nc*Ny_safe, Kx, Ky);
+        K_perm  = permute(K_tens, [2, 4, 1, 3]);     % (nc, Ny, Kx, Ky)
+        K_pairs = reshape(K_perm, nc*Ny, Kx, Ky);
 
         Wx_t = Wx_chunk.';                            % (nc, Kx)
-        Wx_pairs = reshape(repmat(reshape(Wx_t, nc, 1, Kx), 1, Ny_safe, 1), ...
-                            nc*Ny_safe, Kx);
-        Wy_t = Wy_safe.';                            % (Ny_safe, Ky)
-        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny_safe, Ky), nc, 1, 1), ...
-                            nc*Ny_safe, Ky);
+        Wx_pairs = reshape(repmat(reshape(Wx_t, nc, 1, Kx), 1, Ny, 1), ...
+                            nc*Ny, Kx);
+        Wy_t = Wy.';                            % (Ny, Ky)
+        Wy_pairs = reshape(repmat(reshape(Wy_t, 1, Ny, Ky), nc, 1, 1), ...
+                            nc*Ny, Ky);
 
         flat = mobius.innerProductOrbitPwBatched( ...
             K_pairs, Wx_pairs, Wy_pairs, r, ...
             'prefactor', prefactor);
-        I(idxX, :) = reshape(flat, nc, Ny_safe);
+        I(idxX, :) = reshape(flat, nc, Ny);
     end
 end
 
@@ -375,34 +325,34 @@ function [minKernel, maxDensity] = localOrbitSparseThresholds()
 end
 
 
-function I = localSafeSafeOrbitSparse(Px_safe, Wx_safe, Py_safe, Wy_safe, ...
-                                        sigma, r, truncationSigmas)
-%LOCALSAFESAFEORBITSPARSE  Safe submatrix via the sparse per-pair orbit.
+function I = localOrbitSparse(Px, Wx, Py, Wy, ...
+                                sigma, r, truncationSigmas)
+%LOCALORBITSPARSE  Whole event-pair grid via the sparse per-pair orbit.
 %
 %   Absolute mode only. Each event uses just its non-zero-weight,
 %   non-NaN values, so variable cardinality is handled naturally (a
 %   zero-weight value contributes zero to every orbit term). Mirrors the
-%   dense LOCALSAFESAFEORBIT output.
+%   dense LOCALORBIT output.
 
-    [~, Nx_safe] = size(Px_safe);
-    [~, Ny_safe] = size(Py_safe);
+    [~, Nx] = size(Px);
+    [~, Ny] = size(Py);
     prefactor = (sigma * sqrt(pi))^r;
 
-    yPts = cell(Ny_safe, 1);
-    yWts = cell(Ny_safe, 1);
-    for j = 1:Ny_safe
-        py = Py_safe(:, j); wy = Wy_safe(:, j);
+    yPts = cell(Ny, 1);
+    yWts = cell(Ny, 1);
+    for j = 1:Ny
+        py = Py(:, j); wy = Wy(:, j);
         vy = ~isnan(py) & ~isnan(wy) & (wy ~= 0);
         yPts{j} = py(vy);
         yWts{j} = wy(vy);
     end
 
-    I = zeros(Nx_safe, Ny_safe);
-    for i = 1:Nx_safe
-        px = Px_safe(:, i); wx = Wx_safe(:, i);
+    I = zeros(Nx, Ny);
+    for i = 1:Nx
+        px = Px(:, i); wx = Wx(:, i);
         vx = ~isnan(px) & ~isnan(wx) & (wx ~= 0);
         pxi = px(vx); wxi = wx(vx);
-        for j = 1:Ny_safe
+        for j = 1:Ny
             Ksp = localBuildSparseKernelAbs( ...
                 pxi, yPts{j}, sigma, truncationSigmas);
             I(i, j) = mobius.innerProductOrbitSparse( ...
@@ -465,196 +415,4 @@ function idx = localLowerBound(sortedVec, val)
         end
     end
     idx = lo;
-end
-
-
-function I = localFillDirectEnumGroups(I, Px, Wx, Py, Wy, x_idx, y_idx, ...
-                                         K_eff_x, K_eff_y, sigma, r, ...
-                                         isPer, period, truncationSigmas, wrap)
-%LOCALFILLDIRECTENUMGROUPS  K-grouped batched direct-enum fill.
-%
-%   Partitions x_idx by K_eff_x value and y_idx by K_eff_y value, then
-%   computes each (K_x_val, K_y_val) sub-block via a single vectorised
-%   tensor contraction in localBatchedDirectEnumAbsSingleMultiset. Replaces the
-%   v2.2.0 per-pair MATLAB double loop.
-
-    if isempty(x_idx) || isempty(y_idx)
-        return;
-    end
-
-    uniqueKx = unique(K_eff_x(x_idx));
-    uniqueKy = unique(K_eff_y(y_idx));
-
-    for Kx_val = uniqueKx
-        xMask = K_eff_x(x_idx) == Kx_val;
-        x_grp = x_idx(xMask);
-        if isempty(x_grp) || Kx_val < r
-            continue;
-        end
-        [Px_grp, Wx_grp] = localPackNanTop(Px(:, x_grp), Wx(:, x_grp));
-        Px_grp = Px_grp(1:double(Kx_val), :);
-        Wx_grp = Wx_grp(1:double(Kx_val), :);
-        for Ky_val = uniqueKy
-            yMask = K_eff_y(y_idx) == Ky_val;
-            y_grp = y_idx(yMask);
-            if isempty(y_grp) || Ky_val < r
-                continue;
-            end
-            [Py_grp, Wy_grp] = localPackNanTop(Py(:, y_grp), Wy(:, y_grp));
-            Py_grp = Py_grp(1:double(Ky_val), :);
-            Wy_grp = Wy_grp(1:double(Ky_val), :);
-            sub_ip = localBatchedDirectEnumAbsSingleMultiset( ...
-                Px_grp, Wx_grp, Py_grp, Wy_grp, ...
-                sigma, r, isPer, period, truncationSigmas, wrap);
-            I(x_grp, y_grp) = sub_ip;
-        end
-    end
-end
-
-
-function [Pp, Wp] = localPackNanTop(P, W)
-%LOCALPACKNANTOP  Pack non-NaN values to the top of each column.
-%
-%   Returns P_packed, W_packed where for each column n the first
-%   K_eff(n) rows hold the valid values (preserving their original
-%   order) and the rest are NaN. The buildExpTens convention already
-%   places NaN at the bottom, in which case this is mathematically a
-%   no-op; per-column packing handles user-constructed densities with
-%   arbitrary NaN positions.
-
-    [K, N] = size(P);
-    Pp = nan(K, N);
-    Wp = nan(K, N);
-    for n = 1:N
-        valid = ~(isnan(P(:, n)) | isnan(W(:, n)));
-        k = sum(valid);
-        if k == 0
-            continue;
-        end
-        Pp(1:k, n) = P(valid, n);
-        Wp(1:k, n) = W(valid, n);
-    end
-end
-
-
-function I = localBatchedDirectEnumAbsSingleMultiset(Px, Wx, Py, Wy, sigma, r, ...
-                                          isPer, period, truncationSigmas, wrap)
-%LOCALBATCHEDDIRECTENUMABSSINGLEMULTISET  Batched direct r-tuple enumeration IP.
-%
-%   Vectorised replacement for repeated calls to
-%   mobius.innerProductDirectAbsSingleMultiset when every event in Px has the
-%   same K_x = K_eff_x and every event in Py has the same
-%   K_y = K_eff_y (no NaN within the first K rows of either side).
-%
-%   Inputs:
-%       Px : (K_x, N_x), no NaN
-%       Wx : (K_x, N_x), no NaN
-%       Py : (K_y, N_y), no NaN
-%       Wy : (K_y, N_y), no NaN
-%   Returns:
-%       I  : (N_x, N_y) inner-product matrix
-%
-%   No Möbius alternating sum; exact for any K_x, K_y >= r.
-
-    [Kx, Nx] = size(Px);
-    [Ky, Ny] = size(Py);
-
-    if Kx < r || Ky < r
-        I = zeros(Nx, Ny);
-        return;
-    end
-
-    absPerFullImage = isPer && strcmp(wrap, 'full-image');
-
-    if r == 1
-        % r=1: direct kernel sum without r-tuple enumeration.
-        diffs = reshape(Px, Kx, Nx, 1, 1) - reshape(Py, 1, 1, Ky, Ny);
-        if absPerFullImage
-            K_tens = internal.wrappedGaussian1d(diffs, sigma, period, ...
-                                                 truncationSigmas, 4);
-        else
-            if isPer
-                diffs = diffs - period * floor(diffs / period + 0.5);
-            end
-            K_tens = internal.truncKernelExp(diffs.^2, sigma, truncationSigmas);
-        end
-        I = zeros(Nx, Ny);
-        for n_x = 1:Nx
-            slab = squeeze(K_tens(:, n_x, :, :));   % (Kx, Ky, Ny)
-            tmp = reshape(Wx(:, n_x).' * reshape(slab, Kx, Ky*Ny), Ky, Ny);
-            I(n_x, :) = sum(tmp .* Wy, 1);
-        end
-        I = I * sigma * sqrt(pi);
-        return;
-    end
-
-    % --- r >= 2: enumerate ordered r-tuple indices ---
-    idx_x = perms(1:Kx);
-    % perms returns rows in reverse lex order; keep only the leading r
-    % columns to match Python's permutations(range(K_x), r).
-    idx_x = idx_x(:, 1:r);
-    % perms gives all permutations of K_x elements; we need K_x! / (K_x-r)!
-    % ordered r-tuples. Drop duplicates that arise from permutations
-    % differing only in trailing columns.
-    idx_x = unique(idx_x, 'rows', 'stable');
-    idx_y = perms(1:Ky);
-    idx_y = idx_y(:, 1:r);
-    idx_y = unique(idx_y, 'rows', 'stable');
-
-    nJ_x = size(idx_x, 1);                % K_x! / (K_x - r)!
-    nJ_y = size(idx_y, 1);
-
-    % Gather tuple value indices per event. Px(idx_x.', :) is
-    % (r, nJ_x, N_x); we want U_x of shape (r, N_x, nJ_x).
-    U_x = permute(Px(idx_x.', :), [1 3 2]);  % (r, N_x, nJ_x)... wait
-    % MATLAB: Px(idx_x.', :) with idx_x.' (r, nJ_x) — fancy index is
-    % (r*nJ_x, N_x). Need to reshape carefully.
-    Pxgath = Px(idx_x.', :);                 % ((r*nJ_x), N_x)
-    Pxgath = reshape(Pxgath, r, nJ_x, Nx);   % (r, nJ_x, N_x)
-    U_x = permute(Pxgath, [1 3 2]);          % (r, N_x, nJ_x)
-
-    Pygath = Py(idx_y.', :);
-    Pygath = reshape(Pygath, r, nJ_y, Ny);
-    U_y = permute(Pygath, [1 3 2]);          % (r, N_y, nJ_y)
-
-    Wxgath = Wx(idx_x.', :);                 % ((r*nJ_x), N_x)
-    Wxgath = reshape(Wxgath, r, nJ_x, Nx);   % (r, nJ_x, N_x)
-    Wj_x = reshape(prod(Wxgath, 1), nJ_x, Nx).';  % (N_x, nJ_x)
-
-    Wygath = Wy(idx_y.', :);
-    Wygath = reshape(Wygath, r, nJ_y, Ny);
-    Wj_y = reshape(prod(Wygath, 1), nJ_y, Ny).';  % (N_y, nJ_y)
-
-    % Differences: (r, N_x, nJ_x, N_y, nJ_y)
-    diffs = reshape(U_x, r, Nx, nJ_x, 1, 1) ...
-          - reshape(U_y, r, 1, 1, Ny, nJ_y);
-    if absPerFullImage
-        % Full-image r-tuple kernel factors across coordinates: per-coordinate
-        % theta then product across coordinates. Overlap convention.
-        theta = internal.wrappedGaussian1d(diffs, sigma, period, ...
-                                            truncationSigmas, 4);
-        Kmat = reshape(prod(theta, 1), Nx, nJ_x, Ny, nJ_y);
-    else
-        if isPer
-            diffs = diffs - period * floor(diffs / period + 0.5);
-        end
-        Q = reshape(sum(diffs.^2, 1), Nx, nJ_x, Ny, nJ_y);
-        Kmat = internal.truncKernelExp(Q, sigma, truncationSigmas);
-    end
-
-    % Contract: ip(n_x, n_y) = sum_{jx, jy}
-    %               Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy) * Wj_y(n_y, jy)
-    % MATLAB has no named tensor-contraction primitive; do it as two reduction steps.
-    %   step 1: T1(n_x, n_y, jy) = sum_jx Wj_x(n_x, jx) * Kmat(n_x, jx, n_y, jy)
-    %   step 2: I(n_x, n_y)      = sum_jy T1(n_x, n_y, jy) * Wj_y(n_y, jy)
-    % Reshape for compact bsxfun-style products.
-
-    Kperm = permute(Kmat, [1 3 4 2]);        % (N_x, N_y, nJ_y, nJ_x)
-    Wj_x_b = reshape(Wj_x, Nx, 1, 1, nJ_x);  % (N_x, 1, 1, nJ_x)
-    T1 = sum(Kperm .* Wj_x_b, 4);            % (N_x, N_y, nJ_y)
-
-    Wj_y_b = reshape(Wj_y, 1, Ny, nJ_y);     % (1, N_y, nJ_y)
-    I = sum(T1 .* Wj_y_b, 3);                % (N_x, N_y)
-
-    I = I * (sigma * sqrt(pi))^r;
 end

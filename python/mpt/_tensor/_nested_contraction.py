@@ -569,24 +569,6 @@ def _wrap(d, period):
     return d - period * np.round(d / period)
 
 
-def _theta_truncation_L(sigma, period, truncation_sigmas):
-    """Number of periodic-image shifts per side to include in the 1D
-    wrapped Gaussian ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``
-    so the first omitted term is below the truncation floor. Callers
-    are responsible for having reduced ``d`` to ``[-P/2, P/2]`` first
-    (``_wrap``), so the worst-case first-omitted term is at
-    ``|d + n P| >= (L + 1/2) P``.
-    """
-    from .._defaults import truncation_floor
-    if sigma <= 0.0 or period <= 0.0:
-        return 0
-    floor = truncation_floor(truncation_sigmas)
-    if floor <= 0.0 or floor >= 1.0:
-        floor = 1e-15
-    rhs = 2.0 * sigma / period * math.sqrt(-math.log(floor))
-    return max(0, int(math.ceil(rhs - 0.5)))
-
-
 def _trunc(K, sigma, truncation_sigmas):
     """Zero kernel entries below the truncation floor exp(-k^2/2).
 
@@ -601,48 +583,6 @@ def _trunc(K, sigma, truncation_sigmas):
     return K
 
 
-def _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma, is_per, period,
-                 truncation_sigmas, wrap_a='full-image'):
-    """Absolute-mode inner product for one nested attribute.
-
-    The absolute-mode r-tuple kernel factors across coordinates (unlike
-    relative-mode, whose ``Q`` couples them via the projected form),
-    so the per-position 1D kernel here is the object the outer contraction
-    multiplies across the r_a coordinates. In periodic mode that per-coordinate 1D
-    kernel is the wrapped Gaussian (theta):
-    ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``. Reducing
-    ``d`` to ``[-P/2, P/2]`` first lets ``L = 0`` — i.e. reduce to the
-    single-image Gaussian — cover the small-sigma regime, and the
-    image sum switches on only when the accuracy floor requires it.
-    When the user has opted this attribute into
-    ``wrap_a='single-image'`` the L is forced to 0 regardless.
-
-    The abs-per r-tuple kernel is ``prod_a theta(d_a)``. Its lattice
-    representation is the sum over ``Z^r`` of Gaussians in the shifted
-    r-tuple; the product-of-theta form is the cheaper one to compute
-    (``(2L+1) * r`` vs ``(2L+1)^r`` per pair). The r-dim outer product
-    is applied downstream in ``_contract``, so this function returns
-    the 1D per-position kernel matrix.
-    """
-    d = vX[:, None] - vY[None, :]
-    if is_per:
-        d = _wrap(d, period)
-        L = (_theta_truncation_L(sigma, period, truncation_sigmas)
-             if wrap_a == 'full-image' else 0)
-        if L == 0:
-            K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-        else:
-            n_shift = np.arange(-L, L + 1, dtype=np.float64) * period
-            d_shift = d[..., None] + n_shift               # (nX, nY, 2L+1)
-            K = np.exp(-d_shift ** 2 / (4.0 * sigma ** 2)).sum(axis=-1)
-    else:
-        K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-    K = K[None, :, :]                                       # (1, nX, nY)
-    K = K * (wX[None, :, None] * wY[None, None, :])
-    _trunc(K, sigma, truncation_sigmas)
-    return float(_contract(recipe_x, recipe_y, K)[0])
-
-
 def auto_ntau(period, sigma, tol):
     """Trapezoidal nodes for the transposition average.
 
@@ -655,23 +595,29 @@ def auto_ntau(period, sigma, tol):
     return int(max(64, math.ceil(base * margin)))
 
 
-def auto_ntau_default(period, sigma):
-    """Transposition-average node count with ``tol`` taken from the global
-    ``truncation_sigmas`` default.
+def auto_ntau_default(period, sigma, truncation_sigmas=None):
+    """Transposition-average node count with ``tol`` taken from the
+    truncation width.
 
     This is the single source of the all-image (relative-periodic) node count
     for every path that evaluates it -- the flat single-multiset and
     multi-attribute Möbius integrators and the nested contraction -- so their
     transposition grids coincide exactly and the same level returns the same
     value whether reached flat or nested.
+
+    ``truncation_sigmas`` is the per-call width where the caller has one
+    (``None`` takes the global default). Every route that honours a
+    per-call width on its kernel cutoff must size its tau grid from the
+    same width, or the grid density and the route price stay pinned to
+    the default while the kernel moves; the MATLAB twin
+    ``internal.autoNtauDefault`` takes the same optional argument.
     """
-    from .._defaults import get_default, truncation_floor
-    ts = get_default("truncation_sigmas")
+    from .._defaults import truncation_floor
     # ``truncation_floor`` resolves None -> default and inf -> the
     # accuracy-floor width, so ``tol`` is the same kernel-value floor
     # every other truncation path uses --- and honours
     # :func:`accuracy_floor_context` when goldens are being regenerated.
-    tol = truncation_floor(ts)
+    tol = truncation_floor(truncation_sigmas)
     return auto_ntau(period, sigma, tol)
 
 
@@ -729,46 +675,6 @@ def _shared_leaf_template(node, v, w):
     return ref_vals, off, w0
 
 
-def _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                            truncation_sigmas, taus):
-    """Closed-form inner-partial reduction of the relative-non-periodic inner
-    product for spectrally-augmented ordered cells.
-
-    When each side is an ordered cell (outer ``[sym] = 0`` with tuple size equal
-    to the cell length) whose tones carry a shared partial template, the inner
-    partial index sums analytically into the template cross-correlation
-    ``g(delta) = sum_{p,q} wX_p wY_q exp(-(delta + offX_p - offY_q)^2 / 4 sigma^2)``,
-    and the cell overlap reduces to the reference-value differences alone:
-    ``sum_tau prod_a g(refX_a - refY_a - tau)``. This evaluates only the
-    per-position note overlaps, never the full partial-by-partial kernel, and is
-    exact to floating-point summation order. Returns ``None`` when the structure
-    is not of this form (then the caller uses the generic contraction).
-    """
-    if recipe_x.sym or recipe_y.sym:
-        return None                    # need ordered cells (outer [sym] = 0)
-    if (int(recipe_x.r) != len(recipe_x.children)
-            or int(recipe_y.r) != len(recipe_y.children)):
-        return None                    # need the whole cell as one ordered tuple
-    tx = _shared_leaf_template(recipe_x, vX, wX)
-    ty = _shared_leaf_template(recipe_y, vY, wY)
-    if tx is None or ty is None:
-        return None
-    cX, offX, wtX = tx
-    cY, offY, wtY = ty
-    if cX.size != cY.size:             # diagonal needs equal cell lengths
-        return None
-    dpq = offX[:, None] - offY[None, :]                     # (Kx, Ky)
-    wpq = wtX[:, None] * wtY[None, :]
-    delta = (cX - cY)[None, :] - taus[:, None]              # (T, r)
-    K = np.exp(-(delta[..., None, None] + dpq) ** 2
-               / (4.0 * sigma ** 2)) * wpq                  # (T, r, Kx, Ky)
-    from .._defaults import truncation_floor
-    floor = truncation_floor(truncation_sigmas)
-    K[K < floor] = 0.0             # per-term floor, matching _trunc exactly
-    m_diag = K.sum(axis=(-1, -2))                           # (T, r)
-    return float(m_diag.prod(axis=1).sum())   # common dtau cancels in the cosine
-
-
 def _all_shared_templates(recipe, P, W):
     """Per-event shared-leaf-template detection across one whole side.
 
@@ -811,9 +717,10 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     correlation -- the offsets and weights are common to every event -- and
     the matrix forms only the per-position note overlaps over the whole
     event-pair grid, never the full partial-by-partial value kernel. This is
-    the matrix-form, whole-grid counterpart of
-    :func:`_ip_rel_nonper_factored`, evaluated by the same expression and so
-    equal to it up to floating-point summation order. Returns ``None`` when
+    the matrix-form, whole-grid counterpart of the per-pair reference
+    ``tests/references/nested_ip_reference._ip_rel_nonper_factored``,
+    evaluated by the same expression and so equal to it up to
+    floating-point summation order. Returns ``None`` when
     the structure is not of this form (then the caller uses the generic
     kernel); a NaN-padded (ragged) cell fails detection and so falls back.
     """
@@ -855,25 +762,6 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
         m_diag = K.sum(axis=(-1, -2))                      # (nb, r, T)
         out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over r, sum over T
     return out.reshape(Nx, Ny)
-
-
-def _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                           truncation_sigmas, taus):
-    d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
-    K = np.exp(-d ** 2 / (4.0 * sigma ** 2)).transpose(2, 0, 1)   # (T, nX, nY)
-    K = K * (wX[None, :, None] * wY[None, None, :])
-    _trunc(K, sigma, truncation_sigmas)
-    return float(_contract(recipe_x, recipe_y, K).sum())  # common dtau cancels
-
-
-def _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                   truncation_sigmas, taus):
-    fast = _ip_rel_nonper_factored(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                                   truncation_sigmas, taus)
-    if fast is not None:
-        return fast
-    return _ip_rel_nonper_generic(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                                  truncation_sigmas, taus)
 
 
 def _tau_window(vx, vy, taus, sigma, truncation_sigmas):
@@ -935,8 +823,9 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     """(N_x, N_y) per-attribute inner matrix via the per-level contraction,
     vectorised over the whole event-pair grid.
 
-    This is the matrix form of :func:`nested_ip`: instead of looping the
-    event-pair grid in Python, the grid is folded into the leading batch axis
+    This is the matrix form of the per-pair reference
+    ``tests/references/nested_ip_reference.nested_ip`` (the MATLAB
+    ``nestedIp`` twin): instead of looping the event-pair grid in Python, the grid is folded into the leading batch axis
     of :func:`_contract`, so every (i, j) entry is reduced per level -- the
     orbit (Möbius) reduction at symmetric levels, enumeration at ordered ones,
     selected by :func:`build_recipe` -- exactly as the flat per-attribute
@@ -952,7 +841,7 @@ def nested_attr_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
       (``is_per=True``) inner product, a one-body product per coordinate. The
       absolute-periodic per-coordinate kernel is the wrapped Gaussian
       ``theta(d) = sum_n exp(-(d + n P)^2 / (4 sigma^2))``, the same
-      full-image object the reference :func:`_ip_absolute` and the
+      full-image object the per-pair reference and the
       materialised-centres path compute, unless ``wrap_a='single-image'``
       opts this attribute into the nearest-image kernel.
     - ``taus`` given with ``periodic_taus=True``, ``taus_reduce='mean'`` -- the
@@ -1031,9 +920,8 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                 # kernel only while the accuracy floor puts L at 0
                 # (sigma/P below ~0.05 at the default truncation) and
                 # departs from it above, by 5e-5 in the cosine at
-                # sigma/P = 0.1 and 4e-2 at 0.2. The reference
-                # :func:`_ip_absolute` and the materialised-centres path
-                # both sum the images; this is the same object, via the
+                # sigma/P = 0.1 and 4e-2 at 0.2. The per-pair reference
+                # and the materialised-centres path both sum the images; this is the same object, via the
                 # shared helper so the image-sum/Fourier choice matches
                 # the flat path's exactly.
                 from .._wrapped_kernel import wrapped_gaussian_1d
@@ -1197,65 +1085,3 @@ def quad_nodes(is_rel, is_per, sigma, period, vmin, vmax, truncation_sigmas):
     spread = float(vmax - vmin)
     pad = (6.0 + 0.5 * max(0.0, -math.log10(max(tol, 1e-16)))) * sigma
     return int(max(64, math.ceil(2.0 * (spread + pad) / (sigma / 4.0))))
-
-
-# ----------------------------------------------------------------------
-#  Per-event-pair bare inner product (mode dispatch; shared quadrature)
-# ----------------------------------------------------------------------
-def make_quadrature(is_rel, is_per, sigma, period, vmin, vmax,
-                    truncation_sigmas):
-    """Shared quadrature grid for all event-pairs and the IP triple.
-
-    A common grid means the constant dtau / 1-over-ntau factor is identical
-    across XY, XX, YY and cancels in the cosine. Returns a dict the IP
-    helper consumes.
-    """
-    if not is_rel:
-        return {"mode": "abs", "is_per": bool(is_per)}
-    tol = max(math.exp(-0.5 * (truncation_sigmas or math.inf) ** 2), 1e-12)
-    if is_per:
-        ntau = auto_ntau(period, sigma, tol)
-        return {"mode": "relper",
-                "taus": np.linspace(0.0, period, ntau, endpoint=False)}
-    spread = float(vmax - vmin)
-    pad = (6.0 + 0.5 * max(0.0, -math.log10(max(tol, 1e-16)))) * sigma
-    hi = spread + pad
-    n = int(max(64, math.ceil(2.0 * hi / (sigma / 4.0))))
-    return {"mode": "relnonper", "taus": np.linspace(-hi, hi, n)}
-
-
-def nested_ip(recipe_x, recipe_y, vX, vY, wX, wY, sigma, period,
-              truncation_sigmas, quad, wrap_a='full-image'):
-    """Bare inner product for one event-pair, on the shared quadrature.
-
-    ``recipe_x`` indexes the X (``vX``) axis of the rectangular kernel,
-    ``recipe_y`` the Y (``vY``) axis; pass the same recipe for both when the
-    two densities share their nested structure.
-    """
-    mode = quad["mode"]
-    if mode == "abs":
-        # Periodicity comes from the density's [per] flag (threaded through the
-        # quadrature dict), not from whether ``period`` happens to be finite:
-        # an absolute non-periodic attribute may still carry a finite period.
-        return _ip_absolute(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                            bool(quad["is_per"]), period, truncation_sigmas,
-                            wrap_a)
-    if mode == "relper":
-        taus = quad["taus"]
-        d = vX[:, None, None] - (vY[None, :, None] + taus[None, None, :])
-        if wrap_a == 'single-image':
-            d = _wrap(d, period)
-            K = np.exp(-d ** 2 / (4.0 * sigma ** 2))
-        else:
-            # All-image per-coordinate kernel; see the taugrid branch of
-            # _nested_attr_matrix_impl.
-            from .._wrapped_kernel import wrapped_gaussian_1d
-            K = wrapped_gaussian_1d(d, sigma, period, truncation_sigmas,
-                                    exponent_denominator=4)
-        K = K.transpose(2, 0, 1)
-        K = K * (wX[None, :, None] * wY[None, None, :])
-        _trunc(K, sigma, truncation_sigmas)
-        return float(_contract(recipe_x, recipe_y, K).sum())
-    # relnonper
-    return _ip_rel_nonper(recipe_x, recipe_y, vX, vY, wX, wY, sigma,
-                          truncation_sigmas, quad["taus"])

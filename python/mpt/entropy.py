@@ -18,8 +18,6 @@ from .tensor import (
     build_exp_tens,
     difference_events,
     eval_exp_tens,
-    _orbit_inner_abs,
-    _orbit_inner_rel,
     _ma_per_attr_inner_matrix,
 )
 
@@ -173,27 +171,61 @@ def _phi_diff_axis(centres: np.ndarray, edges_lo: np.ndarray,
 def _phi_diff_axis_periodic(centres: np.ndarray, edges_lo: np.ndarray,
                             edges_hi: np.ndarray, sigma: float,
                             period: float,
-                            truncation_sigmas: float = 6.0) -> np.ndarray:
-    """Periodic per-axis erf-difference cell mass (minimum-image).
+                            truncation_sigmas: float = 6.0,
+                            wrap: str = 'full-image') -> np.ndarray:
+    """Periodic per-axis erf-difference cell mass, on the declared wrap.
 
-    The kernel is the minimum-image Gaussian on the circle of
-    circumference ``period``: each edge offset is wrapped componentwise
-    to ``[-period/2, period/2)``, the same wrap of the difference used by
-    ``eval_exp_tens`` and the cosine inner product. A bin straddling a
-    centre's antipode---where the wrap flips the edge order---receives the
-    full wrap-around mass ``erf(period / (2 sqrt(2) sigma))``. The masses
-    are renormalized to sum to one by the entropy cores (which divide by
-    their total), absorbing the sub-unit mass of the truncated circle.
-    ``truncation_sigmas`` is accepted for call-signature parity with the
-    non-periodic path and is unused.
+    ``wrap='full-image'`` (the default measure of an absolute-periodic
+    attribute) integrates the *wrapped* Gaussian, the density the
+    attribute declares and the one :func:`eval_exp_tens` and the cosine
+    inner product evaluate under that wrap: each cell's mass is the erf
+    difference summed over the periodic images ``n = -L..L`` of the
+    centre, with ``L`` the image count the resolved truncation width
+    admits under the density-kernel convention
+    (:func:`~mpt._wrapped_kernel._image_count_L` with exponent
+    denominator 2; the first omitted image lies below the truncation
+    floor). The lower edge offset is reduced to its nearest image first,
+    so the symmetric image set is centred on the dominant term, and the
+    upper edge follows it at the cell width, so no cell is ever split by
+    the wrap. Because the wrapped density is normalised on the circle,
+    the masses of a full grid sum to the total weight (to the floor);
+    ``L = 0`` --- the regime where the nearest image alone meets the
+    floor --- is the single Gaussian on the nearest image.
+
+    ``wrap='single-image'`` is the minimum-image reading: each edge
+    offset is wrapped componentwise to ``[-period/2, period/2)``, the
+    same wrap of the difference the single-image kernel applies, and a
+    bin straddling a centre's antipode --- where the wrap flips the edge
+    order --- receives the full wrap-around mass
+    ``erf(period / (2 sqrt(2) sigma))``. The masses are renormalised to
+    sum to one by the entropy cores (which divide by their total),
+    absorbing the sub-unit mass of the truncated circle.
+
+    Below the sigma/period regime where images overlap the two readings
+    agree inside the floor; above it they are different measures, and
+    the attribute's ``wrap`` picks the one wanted, as it does on every
+    other route.
     """
     inv = 1.0 / (sigma * _SQRT2)
+    if wrap == 'single-image':
+        a = edges_lo[None, :] - centres[:, None]
+        a = a - period * np.round(a / period)
+        b = edges_hi[None, :] - centres[:, None]
+        b = b - period * np.round(b / period)
+        out = 0.5 * (_erf(b * inv) - _erf(a * inv))
+        out = out + (a > b) * _erf((0.5 * period) * inv)
+        return out
+    from ._wrapped_kernel import _image_count_L
+    L = _image_count_L(float(sigma), float(period), truncation_sigmas, 2)
+    width = (edges_hi - edges_lo)[None, :]
     a = edges_lo[None, :] - centres[:, None]
     a = a - period * np.round(a / period)
-    b = edges_hi[None, :] - centres[:, None]
-    b = b - period * np.round(b / period)
+    b = a + width
     out = 0.5 * (_erf(b * inv) - _erf(a * inv))
-    out = out + (a > b) * _erf((0.5 * period) * inv)
+    for n in range(1, L + 1):
+        shift = n * period
+        out += 0.5 * (_erf((b + shift) * inv) - _erf((a + shift) * inv))
+        out += 0.5 * (_erf((b - shift) * inv) - _erf((a - shift) * inv))
     return out
 
 
@@ -225,8 +257,10 @@ def _axis_edges(ax: np.ndarray, is_per: bool, period: float):
 def _contract_cell_axes(w_j, axis_specs, truncation_sigmas):
     """Contract per-axis erf-difference cell masses into a flat grid.
 
-    ``axis_specs`` is a list of ``(cents, lo, hi, sigma, is_per, per)``,
-    one per effective axis; ``w_j`` holds the per-tuple weights. Returns
+    ``axis_specs`` is a list of ``(cents, lo, hi, sigma, is_per, per,
+    wrap)``, one per effective axis; ``w_j`` holds the per-tuple weights.
+    ``truncation_sigmas`` is the resolved width that fixes the image
+    count of a full-image periodic axis. Returns
     the flat ``(prod n_cells,)`` cell masses in C order, each cell's
     contribution summed in full over tuples.
 
@@ -248,10 +282,11 @@ def _contract_cell_axes(w_j, axis_specs, truncation_sigmas):
     mass.
     """
     def axis_mat(spec, sl=slice(None)):
-        cents, lo, hi, sig, is_per_a, per_a = spec
+        cents, lo, hi, sig, is_per_a, per_a, wrap_a = spec
         if is_per_a:
             return _phi_diff_axis_periodic(
-                cents, lo[sl], hi[sl], sig, per_a, truncation_sigmas)
+                cents, lo[sl], hi[sl], sig, per_a, truncation_sigmas,
+                wrap=wrap_a)
         return _phi_diff_axis(cents, lo[sl], hi[sl], sig)
 
     D = len(axis_specs)
@@ -293,7 +328,10 @@ def _cell_masses_ma_absolute(dens, axes: list,
     ``int_{cell} f dx`` (via per-axis erf differences) instead of
     point-evaluated density values. Restricted to absolute-mode
     densities (every group ``is_rel=False``); the caller is responsible
-    for routing relative-mode densities elsewhere.
+    for routing relative-mode densities elsewhere. A periodic attribute's
+    cells integrate the density its ``wrap`` declares (see
+    :func:`_phi_diff_axis_periodic`); ``truncation_sigmas`` is the
+    resolved width whose floor fixes the full-image image count.
 
     The output is flat ``(prod(n_axis_d),)`` in C order, matching the
     layout of ``numpy.meshgrid(*axes, indexing='ij').ravel()`` so it
@@ -328,18 +366,26 @@ def _cell_masses_ma_absolute(dens, axes: list,
     # (n_tuples, n_cells) erf-difference matrices yet, so the leading
     # axis can be streamed in cell blocks rather than peaking at
     # n_tuples * n_cells elements.
-    axis_specs = []  # (cents, lo, hi, sig, is_per_a, per_a)
+    # Each periodic axis carries its attribute's declared wrap: the
+    # cell masses are those of the density the attribute declares
+    # (wrapped Gaussian under 'full-image', minimum-image under
+    # 'single-image'), as on every other route that reads the wrap.
+    wrap_g = getattr(dens, "wrap", None)
+    axis_specs = []  # (cents, lo, hi, sig, is_per_a, per_a, wrap_a)
     axis_d = 0
     for a in range(A):
         da = int(dim_per[a])
         sig = float(sigma_per_attr[a])
         is_per_a = bool(is_per_g[a])
         per_a = float(period_g[a]) if is_per_a else 0.0
+        wrap_a = (str(wrap_g[a]) if wrap_g is not None and a < len(wrap_g)
+                  else 'full-image')
         Ca = np.asarray(centres[a], dtype=float)  # (da, n_j)
         for sub in range(da):
             ax = axes[axis_d]
             lo, hi = _axis_edges(ax, is_per_a, per_a)
-            axis_specs.append((Ca[sub, :], lo, hi, sig, is_per_a, per_a))
+            axis_specs.append((Ca[sub, :], lo, hi, sig, is_per_a, per_a,
+                               wrap_a))
             axis_d += 1
 
     D = axis_d
@@ -476,7 +522,13 @@ def entropy_exp_tens(
     truncation_sigmas : float, optional
         Truncate the kernel beyond this many sigmas. For
         ``method='differential'`` this also anchors the convergence
-        tolerance ``max(exp(-truncation_sigmas^2 / 2), 1e-12)``.
+        tolerance ``max(exp(-truncation_sigmas^2 / 2), 1e-12)``. On the
+        Shannon / normalized cell-mass path of an absolute density the
+        resolved width fixes how many periodic images a
+        ``wrap='full-image'`` attribute's wrapped-Gaussian cell masses
+        sum (the density-kernel image count of
+        :func:`~mpt._wrapped_kernel._image_count_L`); a
+        ``'single-image'`` attribute takes the minimum-image cell mass.
 
     Returns
     -------
@@ -638,6 +690,8 @@ def _entropy_exp_tens_shannon_dispatch(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
 
     # --- Raw args: dispatch on type of p ---
@@ -672,6 +726,8 @@ def _entropy_exp_tens_shannon_dispatch(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
         )
 
     # Single-multiset raw args. Distinguish scalar (1-D) from batched (2-D) by shape.
@@ -727,6 +783,8 @@ def _entropy_exp_tens_shannon_dispatch(
             normalize=normalize, base=base,
             n_points_per_dim=n_points_per_dim,
             x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+            truncation_sigmas=truncation_sigmas,
+            kernel_precision=kernel_precision,
             verbose=verbose,
         )
     raise TypeError(
@@ -1122,14 +1180,17 @@ def _entropy_exp_tens_scalar(
 
 def _entropy_exp_tens_density_list(
     dens_list, *, dedup, normalize, base, n_points_per_dim,
-    x_min, x_max, grid_limit,
+    x_min, x_max, grid_limit, truncation_sigmas=None, kernel_precision=None,
 ):
     """List-of-densities entropy dispatch.
 
     With ``dedup=True``, structurally-identical single-multiset densities are
     computed once (canonical-form dedup); MA densities bypass dedup.
-    Returns ``(M,)``.
+    Returns ``(M,)``. ``truncation_sigmas`` and ``kernel_precision`` are
+    forwarded to every entry, as the MATLAB LIST recursion forwards them.
     """
+    eval_kw = dict(truncation_sigmas=truncation_sigmas,
+                   kernel_precision=kernel_precision)
     # Import lazily to avoid circular import at module load time.
     from .tensor import _chord_canonical_key
 
@@ -1156,6 +1217,7 @@ def _entropy_exp_tens_density_list(
                     d, normalize=normalize, base=base,
                     n_points_per_dim=n_points_per_dim,
                     x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+                    **eval_kw,
                 )
             out[i] = result_cache[key]
     else:
@@ -1171,6 +1233,7 @@ def _entropy_exp_tens_density_list(
                 d, normalize=normalize, base=base,
                 n_points_per_dim=n_points_per_dim,
                 x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+                **eval_kw,
             )
     return out
 
@@ -1179,7 +1242,7 @@ def _entropy_exp_tens_raw_single_multiset_batch(
     P, W, sigma, r, is_rel, is_per, period, is_sym=None,
     *, spectrum, precision, dedup,
     normalize, base, n_points_per_dim, x_min, x_max, grid_limit,
-    verbose=True,
+    truncation_sigmas=None, kernel_precision=None, verbose=True,
 ):
     """Raw single-multiset batched entropy dispatch.
 
@@ -1255,6 +1318,8 @@ def _entropy_exp_tens_raw_single_multiset_batch(
                 T, normalize=normalize, base=base,
                 n_points_per_dim=n_points_per_dim,
                 x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
             return True
 
@@ -1319,6 +1384,8 @@ def _entropy_exp_tens_raw_single_multiset_batch(
                 dens_cache[key], normalize=normalize, base=base,
                 n_points_per_dim=n_points_per_dim,
                 x_min=x_min, x_max=x_max, grid_limit=grid_limit,
+                truncation_sigmas=truncation_sigmas,
+                kernel_precision=kernel_precision,
             )
         row_to_key[i] = key
 
@@ -1546,6 +1613,19 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
     Single-multiset total mass evaluated on event ``n``'s attribute-``a`` value
     pitches and weights.
 
+    A *relative* attribute at ``r = 1`` is a 0-dimensional point mass: a
+    single value has no internal relative structure, so the attribute's
+    kernel is a delta at the origin of a 0-D space and its collision
+    entropy is undefined as a continuous quantity. By convention it
+    contributes *no* entropy, which in the product factorisation means
+    ``I_a[n, m] = 1`` for every event pair and ``Z_a^(n) = 1`` for every
+    event (a unit point mass whose self-overlap is 1). A density whose
+    only attribute is of this kind therefore has ``H_2 = -log_b(N^2 / N^2)
+    = 0`` for any number of events, and the single-multiset corner
+    (``A = N = 1``) inherits the value 0 from this general loop rather
+    than owning a convention of its own. The MATLAB twin
+    (``entropyExpTens`` MA loop) applies the same rule.
+
     Windowed densities are not yet supported on this path; raises
     NotImplementedError.
     """
@@ -1597,6 +1677,14 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
             and (int(r_vec[a]) > 1)
         if nested[a] is not None or ordered_flat:
             I_xx, Z_a = _renyi2_per_attr_numerical(dens, a)
+        elif bool(dens.is_rel[a]) and int(dens.r[a]) == 1:
+            # Relative r = 1: a 0-D point mass with no entropy by
+            # convention (see the docstring). Unit overlap and unit mass
+            # leave the product factorisation untouched, so the attribute
+            # neither raises nor lowers H_2; a density consisting of this
+            # attribute alone yields exactly 0.
+            I_xx = np.ones((N, N), dtype=np.float64)
+            Z_a = np.ones(N, dtype=np.float64)
         else:
             r_a = int(dens.r[a])
             sigma = float(dens.sigma[a])
@@ -1605,8 +1693,15 @@ def _renyi2_exp_tens_ma(dens_or_windowed, *, base: float) -> float:
             period = float(dens.period[a])
             Pa = dens.p_attr[a]
             Wa = dens.w[a]
+            # Per-attribute wrap opt-in (default full-image), as the MATLAB
+            # twin has always passed; without it a 'single-image' abs-per
+            # attribute was computed full-image here.
+            wrap_a = (str(dens.wrap[a])
+                      if getattr(dens, 'wrap', None) is not None
+                      and a < len(dens.wrap) else 'full-image')
             I_xx = _ma_per_attr_inner_matrix(
                 Pa, Wa, Pa, Wa, sigma, r_a, is_rel, is_per, period,
+                wrap=wrap_a,
             )
             Z_a = np.empty(N, dtype=np.float64)
             for n in range(N):
@@ -1756,8 +1851,10 @@ def _entropy_exp_tens_ma(
     # cell-integration is a separate problem not yet addressed.
     is_windowed = isinstance(dens, WindowedMaetDensity)
     if not is_windowed and not bool(np.any(np.asarray(base_dens.is_rel))):
-        ts = (6.0 if truncation_sigmas is None
-              else float(truncation_sigmas))
+        # The resolved width (None -> the default, inf -> the accuracy
+        # floor) governs the image count of a full-image periodic axis.
+        from ._defaults import resolve_truncation_sigmas
+        ts = resolve_truncation_sigmas(truncation_sigmas)
         t = _cell_masses_ma_absolute(base_dens, axes, truncation_sigmas=ts)
     else:
         t = eval_exp_tens(

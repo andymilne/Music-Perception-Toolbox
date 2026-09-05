@@ -1,6 +1,6 @@
-%% test_exp_tens.m — buildExpTens / evalExpTens / cosSimExpTens — SA core
+%% test_exp_tens.m — buildExpTens / evalExpTens / cosSimExpTens — single-multiset core
 %
-%  Tests for SA core.
+%  Tests for single-multiset core.
 %
 %  Standalone-runnable; appends to `results` when called from
 %  test_mpt.m.
@@ -56,7 +56,7 @@ results{end,2}   = s(1) > s(2);
 
 % --- v2.1 unified dispatch: list mode and batched-raw mode ----
 
-% List mode (SA): cell of density structs in, cell of values out
+% List mode (single-multiset): cell of density structs in, cell of values out
 d1 = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
 d2 = buildExpTens([0, 3, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
 d3 = buildExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, 'verbose', false);
@@ -123,7 +123,7 @@ results{end,2}   = throwsErrorWithId( ...
         'verbose', false), ...
     'cosSimExpTens:batchedRowMismatch');
 
-% Row vector still uses scalar SA raw path (backward compatibility)
+% Row vector still uses scalar single-multiset raw path (backward compatibility)
 % Despite being a 1-by-3 matrix, [0 4 7] is a vector and dispatches to
 % the existing scalar form, returning a scalar.
 sScalarFromRow = cosSimExpTens([0, 4, 7], [], [0, 4, 7], [], ...
@@ -335,7 +335,7 @@ valsNan = evalExpTens(P_e_nan, [], 0.5, 1, false, true, 12, xq, ...
 results{end+1,1} = 'evalExpTens batched: NaN-padded rows match unpadded rows';
 results{end,2}   = max(abs(valsNan(:) - valsBatched(:))) < 1e-14;
 
-% Row vector falls through to scalar SA raw path (backward compatibility)
+% Row vector falls through to scalar single-multiset raw path (backward compatibility)
 vals_row_compat = evalExpTens([0, 4, 7], [], 0.5, 1, false, true, 12, xq, ...
     'verbose', false);
 results{end+1,1} = 'evalExpTens batched: row vector falls through to scalar';

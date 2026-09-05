@@ -6,7 +6,7 @@ Two regimes are pinned, and they are pinned for opposite reasons.
    modes). The alternating partition sum cancels to near machine
    epsilon and the ratio then overflows, so the Möbius route can
    return a non-finite inner product or one of impossible sign.
-   ``_orbit_ips_impossible`` detects this and the dispatcher reroutes;
+   ``_impossible_value_reason`` detects this and the dispatcher reroutes;
    the tests here assert that ``method='auto'`` agrees with Bulger's
    method throughout.
 
@@ -26,9 +26,14 @@ import numpy as np
 import pytest
 
 from mpt.tensor import (
-    build_exp_tens, cos_sim_exp_tens, _orbit_ips_impossible,
+    build_exp_tens, cos_sim_exp_tens,
     _cos_sim_exp_tens_ma_orbit,
 )
+from mpt._tensor.dispatch import _impossible_value_reason
+
+
+def _orbit_ips_impossible(ip_xy, ip_xx, ip_yy):
+    return _impossible_value_reason(ip_xy, ip_xx, ip_yy) is not None
 
 
 P = 1200.0
@@ -78,7 +83,8 @@ def test_sigma_to_zero_auto_matches_pairwise(is_per, sigma_over_P):
 
 
 def test_orbit_ips_impossible_signals():
-    """Direct test of the impossible-value predicate."""
+    """Direct test of the impossible-value predicate the dispatcher
+    applies post hoc to the Möbius route."""
     # Healthy case: positive auto-IPs, cross IP within bound
     assert not _orbit_ips_impossible(0.5, 1.0, 1.0)
     # NaN

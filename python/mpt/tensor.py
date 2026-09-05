@@ -73,21 +73,20 @@ from ._tensor.canonical import (
 # Dispatch-layer helpers (used by windowing's lazy imports and by tests).
 from ._tensor.dispatch import (
     _compute_Q,
-    _estimate_centres_array_bytes,
     _normalize_density_input,
-    _orbit_ips_impossible,
     _resolve_list_list_mode,
     _select_ma_inner_product_method,
     # Policy constants (imported by dispatcher tests).
-    _CENTRES_PROBE_MEM_BUDGET,
     _CENTRES_WORKING_SET_SOFT_BUDGET,
+    _DISPATCH_MEM_BUDGET,
     _ORBIT_R_MAX_SHIPPED,
     _orbit_sigma_over_p_threshold,
-    _PRESCREEN_IP_DOMINANCE,
-    _PROBE_K_IP_TARGET,
-    _PROBE_MIN_N_Q,
 )
 
-# Cosine-layer MA-method dispatchers and IP helpers (imported by tests).
-from ._tensor.cosine import (_build_ordered_r_tuples, _cos_sim_exp_tens_ma_orbit, _cos_sim_exp_tens_ma_pairwise, _inner_product_direct_abs, _ma_has_nan, _orbit_inner_abs, _orbit_inner_rel)
-from ._tensor._mobius_inner import (_batched_direct_enum_abs, _ma_per_attr_inner_matrix, _pack_nan_top)
+# Cosine-layer MA-method dispatchers and the Möbius per-attribute matrix
+# (imported by tests).
+from ._tensor.cosine import (
+    _cos_sim_exp_tens_ma_orbit,
+    _cos_sim_exp_tens_ma_pairwise,
+)
+from ._tensor._mobius_inner import _ma_per_attr_inner_matrix

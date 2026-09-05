@@ -29,6 +29,35 @@ Useful options::
     --cull-grid 12,14,...         candidate values of CENTRES_CULL_C
     --fix NAME=VALUE              pin a constant instead of fitting it
     --no-exp                      shorthand for --exp-grid 1.0
+    --cv [N]                      random-half cross-validation, N repeats
+    --compare-forms               cross-validate every form in CV_FORMS
+    --score-on FILE               fit here, score there (cross-machine)
+
+CROSS-VALIDATION
+----------------
+The constants are per-machine, so a fit that scores well on the machine it
+was measured on says nothing about the machine it will run on. ``--cv``
+answers the first half of that: half the cells fit the constants, the other
+half score them, forty independent halves, and what is reported is the mean
+and spread of the *held-out routing regret* --- wall time the model's picks
+would have cost over the oracle's --- beside the held-out prediction
+log-ratio error of each route.
+
+Regret is the number to read. Routing compares two estimates, so a form that
+mis-prices both arms by one common factor routes perfectly; a form can lose
+on log-ratio error and still be the one to ship, and a form can win on it
+and route worse.
+
+``--compare-forms`` runs that over ``CV_FORMS``, which is where the model's
+only shape freedom lives: the two per-query exponents and the culling
+constant, fitted or pinned at round values. Everything else in the model is
+linear and is solved rather than chosen, so pinning one of those three is the
+only simplification available that does not delete a term.
+
+``--score-on`` answers the second half: fit on one machine's cells, score on
+another's. Expect the log-ratio error to be large across machines --- the
+constants really are per-machine --- and the regret to survive, since the
+ratio is what routing consumes.
 
 WHAT IT FITS
 ------------
@@ -91,6 +120,7 @@ import mpt
 from mpt._tensor.dispatch import (
     _CENTRES_WORKING_SET_SOFT_BUDGET,
     _MA_COST_LINEAR_NAMES,
+    _MA_COST_NONLINEAR_NAMES,
     _MA_MOBIUS_SAFETY,
     _MA_MOBIUS_SAFETY_SMALL,
     _estimate_ma_joint_working_set_bytes,
@@ -168,6 +198,39 @@ def design(rows, consts):
         for j, name in enumerate(MOBIUS_NAMES):
             Xm[i, j] = mf.get(name, 0.0)
     return Xc, Xm
+
+
+_CENTRES_DESIGN_CACHE = {}
+
+
+def centres_design(all_rows, consts):
+    """Centres features over ``all_rows``, memoised on the non-linear triple.
+
+    The centres branch is exactly linear in the centres constants once
+    ``CENTRES_CULL_C`` and the two per-query exponents are fixed --- that is
+    why the profile in :func:`fit_route` does one linear solve per grid point
+    rather than iterating --- so its feature matrix depends on the constant
+    vector *only* through those three. Cross-validation refits the same grid
+    of triples on forty different halves of one row set, so the matrix is
+    computed once per triple and the halves index into it. Without this the
+    profile is rebuilt forty times over and the run costs hours rather than
+    minutes.
+
+    ``all_rows`` must therefore be the *same* list on every call --- the whole
+    row set --- with the training subset selected by the mask, not by passing
+    a shorter list.
+    """
+    key = tuple(float(consts[n]) for n in _MA_COST_NONLINEAR_NAMES)
+    X = _CENTRES_DESIGN_CACHE.get(key)
+    if X is None:
+        X = np.zeros((len(all_rows), len(CENTRES_NAMES)))
+        for i, row in enumerate(all_rows):
+            _, cf, _, _ = _ma_eval_cost_features(row["dens"], row["nq"],
+                                                 consts=consts)
+            for j, name in enumerate(CENTRES_NAMES):
+                X[i, j] = cf.get(name, 0.0)
+        _CENTRES_DESIGN_CACHE[key] = X
+    return X
 
 
 def nnls_relative(X, y, names, held, w=None):
@@ -253,6 +316,7 @@ def fit_route(all_rows, mask, names, consts0, fixed, nonlin_grid,
     """
     y_key = "cen" if route == "centres" else "mob"
     rows = [r for r, m in zip(all_rows, mask) if m]
+    idx = np.flatnonzero(np.asarray(mask, dtype=bool))
     y = np.array([r[y_key] for r in rows])
     keep = np.ones(len(rows), dtype=bool)
     best = None
@@ -261,8 +325,10 @@ def fit_route(all_rows, mask, names, consts0, fixed, nonlin_grid,
         consts.update(dict(zip(nonlin_names, combo)))
         w = None
         for _ in range(passes):
-            Xc, Xm = design(rows, consts)
-            X = Xc if route == "centres" else Xm
+            if route == "centres":
+                X = centres_design(all_rows, consts)[idx]
+            else:
+                X = design(rows, consts)[1]
             for _ in range(irls):
                 beta = nnls_relative(
                     X, y, names,
@@ -336,6 +402,107 @@ def routing(rows, cen_p, mob_p, both):
                 worst = t_model / t_oracle
                 worst_row = row
     return tot_model / tot_oracle, misses, worst, worst_row
+
+
+NONLIN = ("CENTRES_CULL_C", "CENTRES_QUERY_JOINT_EXP_PER",
+          "CENTRES_QUERY_JOINT_EXP_REL_PER")
+
+#: The forms compared under cross-validation, as
+#: ``(name, cull_grid, abs_exp_grid, rel_exp_grid)`` with ``None`` meaning
+#: "profile over this run's default grid". The three non-linear parameters
+#: are the only shape freedom the model has; everything else is linear and is
+#: solved, not chosen. Pinning one of them at a round value is therefore the
+#: only simplification available short of deleting a term, and the pinned
+#: candidates are the values the two languages might share: exponent 1, which
+#: is what the per-query cost would be if the query loop were linear in the
+#: joint tuple count and is what MATLAB ships, and the fitted Python values
+#: 1.15 and 1.3 bracketing its 1.2.
+CV_FORMS = (
+    ("exps fitted, cull profiled",   None,    None,   None),
+    ("abs exp 1.0, rel fitted",      None,    [1.0],  None),
+    ("abs fitted, rel exp 1.0",      None,    None,   [1.0]),
+    ("abs fitted, rel exp 1.15",     None,    None,   [1.15]),
+    ("abs fitted, rel exp 1.3",      None,    None,   [1.3]),
+    ("both exps 1.0, cull profiled", None,    [1.0],  [1.0]),
+    ("exps fitted, cull 14.32",      [14.32], None,   None),
+    ("both exps 1.0, cull 14.32",    [14.32], [1.0],  [1.0]),
+    ("abs 1.0, rel 1.15, cull 14.32", [14.32], [1.0], [1.15]),
+    ("abs 1.0, rel 1.2, cull 14.32",  [14.32], [1.0], [1.2]),
+    ("abs 1.0, rel 1.3, cull 14.32",  [14.32], [1.0], [1.3]),
+)
+
+
+def fit_centres(all_rows, mask, base, fixed, cull_grid, exp_grid,
+                rel_exp_grid):
+    grid = [(c, e, er) for c in cull_grid for e in exp_grid
+            for er in rel_exp_grid]
+    rms, beta, nl = fit_route(all_rows, mask, CENTRES_NAMES, base, fixed,
+                              grid, NONLIN, "centres", passes=1,
+                              model_score=False)
+    return rms, beta, nl
+
+
+def fit_mobius(all_rows, mask, base, fixed):
+    return fit_route(all_rows, mask, MOBIUS_NAMES, base, fixed, [()], (),
+                     "mobius", passes=5)
+
+
+def score_held_out(rows, sel, consts):
+    """``(regret, centres log-ratio rms, Moebius log-ratio rms)`` on ``sel``.
+
+    Regret is the number to read: routing compares the two estimates, so a
+    form that mis-prices both arms by one factor routes as well as a form
+    that prices them exactly. The two log-ratio errors are reported beside it
+    because a form can buy regret with a wild fit that happens to keep the
+    ratio, and that is worth seeing.
+    """
+    sub = [r for r, m in zip(rows, sel) if m]
+    if not sub:
+        return float("nan"), float("nan"), float("nan")
+    cen, mob = predict(sub, consts)
+    cen_ok = np.array([r["cen"] > 0 for r in sub])
+    mob_ok = np.array([r["mob"] > 0 for r in sub])
+    both = cen_ok & mob_ok
+    cen_m = np.array([r["cen"] for r in sub])
+    mob_m = np.array([r["mob"] for r in sub])
+    reg = routing(sub, cen, mob, both)[0] if both.any() else float("nan")
+    return (reg,
+            log_rms(cen, cen_m, cen_ok) if cen_ok.any() else float("nan"),
+            log_rms(mob, mob_m, mob_ok) if mob_ok.any() else float("nan"))
+
+
+def cv_forms(rows, cen_ok, mob_ok, base, fixed, forms, cull_grid, exp_grid,
+             rel_exp_grid, repeats, seed=20260904):
+    """Random-half cross-validation of several forms on one row set.
+
+    Each repeat splits the cells in half, fits on one half and scores on the
+    other. The Moebius constants are fitted once per repeat and shared by
+    every form: no form here touches a Moebius parameter, and the Moebius
+    features do not depend on the centres constants, so refitting them per
+    form would spend the time to reach the same numbers.
+    """
+    rng = np.random.default_rng(seed)
+    n = len(rows)
+    acc = {name: [] for name, *_ in forms}
+    for _ in range(repeats):
+        perm = rng.permutation(n)
+        train = np.zeros(n, dtype=bool)
+        train[perm[:n // 2]] = True
+        test = ~train
+        _, beta_m, _ = fit_mobius(rows, mob_ok & train, base, fixed)
+        for name, cull, eg, reg_ in forms:
+            _, beta_c, nl_c = fit_centres(
+                rows, cen_ok & train, base, fixed,
+                cull if cull is not None else cull_grid,
+                eg if eg is not None else exp_grid,
+                reg_ if reg_ is not None else rel_exp_grid)
+            C = dict(base)
+            C.update(nl_c)
+            C.update(beta_c)
+            C.update(beta_m)
+            acc[name].append(score_held_out(rows, test, C))
+    return {k: (np.array(v).mean(axis=0), np.array(v).std(axis=0))
+            for k, v in acc.items()}
 
 
 def label(row):
@@ -418,6 +585,15 @@ def main(argv=None):
     ap.add_argument("--no-exp", action="store_true")
     ap.add_argument("--fix", action="append", default=[])
     ap.add_argument("--list-worst", type=int, default=8)
+    ap.add_argument("--cv", type=int, nargs="?", const=40, default=0,
+                    metavar="N",
+                    help="random-half cross-validation, N repeats "
+                         "(default 40 when given without a value)")
+    ap.add_argument("--compare-forms", action="store_true",
+                    help="cross-validate every form in CV_FORMS and stop")
+    ap.add_argument("--score-on", metavar="FILE", action="append", default=[],
+                    help="fit on the CSVs above, score on this one "
+                         "(repeatable; cross-machine transfer)")
     args = ap.parse_args(argv)
 
     fixed = {}
@@ -452,6 +628,51 @@ def main(argv=None):
     cen0, mob0 = predict(rows, shipped)
     base = dict(shipped)
     base.update(fixed)
+
+    if args.compare_forms or args.cv:
+        reps = args.cv or 40
+        forms = (CV_FORMS if args.compare_forms
+                 else (("as invoked", cull_grid, exp_grid, rel_exp_grid),))
+        print(f"\n--- random-half cross-validation, {reps} repeats, "
+              f"{len(rows)} cells ---")
+        print(f"{'form':<30s} {'held-out regret':>21s} "
+              f"{'centres log rms':>21s} {'Moebius log rms':>21s}")
+        out = cv_forms(rows, cen_ok, mob_ok, base, fixed, forms, cull_grid,
+                       exp_grid, rel_exp_grid, reps)
+        for name, *_ in forms:
+            mean, sd = out[name]
+            print(f"{name:<30s} "
+                  f"{mean[0]:>12.4f} +- {sd[0]:<6.4f} "
+                  f"{mean[1]:>12.4f} +- {sd[1]:<6.4f} "
+                  f"{mean[2]:>12.4f} +- {sd[2]:<6.4f}")
+        if args.compare_forms:
+            return 0
+
+    if args.score_on:
+        test = read_rows(args.score_on, args.spread)
+        for row in test:
+            row["dens"] = build_density(row)
+        print(f"\n--- transfer: fit on {len(rows)} cells, score on "
+              f"{len(test)} cells of {', '.join(args.score_on)} ---")
+        print(f"{'form':<30s} {'regret':>9s} {'centres log rms':>17s} "
+              f"{'Moebius log rms':>17s}")
+        all_test = np.ones(len(test), dtype=bool)
+        _, beta_m, _ = fit_mobius(rows, mob_ok, base, fixed)
+        for name, cull, eg, reg_ in CV_FORMS:
+            _, beta_c, nl_c = fit_centres(
+                rows, cen_ok, base, fixed,
+                cull if cull is not None else cull_grid,
+                eg if eg is not None else exp_grid,
+                reg_ if reg_ is not None else rel_exp_grid)
+            C = dict(base)
+            C.update(nl_c)
+            C.update(beta_c)
+            C.update(beta_m)
+            r, lc, lm = score_held_out(test, all_test, C)
+            print(f"{name:<30s} {r:>9.4f} {lc:>17.4f} {lm:>17.4f}")
+        r, lc, lm = score_held_out(test, all_test, shipped)
+        print(f"{'shipped constants':<30s} {r:>9.4f} {lc:>17.4f} {lm:>17.4f}")
+        return 0
 
     # Centres: profile (cull C, periodic exponent). The centres branch
     # structure does not depend on the centres constants, so one linear

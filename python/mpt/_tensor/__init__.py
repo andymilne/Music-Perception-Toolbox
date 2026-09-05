@@ -6,13 +6,14 @@ re-export shim over this sub-package).
 
 Module layout:
   density.py        Density classes + MA-input helpers.
-  build.py          build_exp_tens (SA + MA paths).
+  build.py          build_exp_tens (multi-attribute; the single-multiset
+                    density is its A = N = 1 corner).
   preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
   windowing.py      window_tensor, windowed_tensor_similarity, windowed IP.
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
-  eval.py           eval_exp_tens (SA centres / orbit / fast, MA).
+  eval.py           eval_exp_tens (joint centres / factored / Möbius).
   cosine.py         cos_sim_exp_tens + batch_cos_sim_exp_tens.
   sweep.py          Translation sweeps as a mixture in the offset.
 

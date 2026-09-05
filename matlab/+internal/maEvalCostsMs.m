@@ -83,6 +83,23 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % family never actually misroutes in MATLAB --- centres wins through
     % K = 48, where it ties --- so the audit's K = 34 finding was a
     % Python-only miss.
+    %
+    % Cross-validated September 2026 by
+    % python/tools/fit_ma_eval_cost.py --compare-forms on the MATLAB
+    % measurement CSV, scoring each choice of the model's three
+    % non-linear parameters by held-out routing regret over 40 random
+    % halves. Both exponents pinned at 1 with the culling constant fixed
+    % at 14.32 --- the form below, with nothing profiled --- is the BEST
+    % of the eleven, 1.0231 +- 0.0120 against 1.0314 +- 0.0175 for
+    % profiling all three, so nothing here is refitted. On the Python
+    % side the same sweep says the opposite about the relative exponent
+    % (pinning it at 1.0 costs 0.055 there, and 0.4 on a two-core
+    % sandbox), so the two languages keep different values of it, as
+    % they keep different values of every other fitted constant.
+    % Cross-machine, the constants transfer badly and the routing does
+    % not: prediction log-ratio error between machines is 1.2 to 1.5,
+    % a factor of three or four in absolute time, while held-out regret
+    % stays near 1.03.
     MA_COST_CENTRES_QUERY_JOINT_EXP_PER = 1;
     MA_COST_CENTRES_QUERY_PER_JOINT_REL_PER_MS = 3.425e-06;   % was 3.658e-6
     MA_COST_CENTRES_QUERY_JOINT_EXP_REL_PER = 1;
@@ -259,7 +276,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
     for a = 1:A
-        r_a = rVec(a);
+        r_a = rVec(a); K_a = kVec(a);
         if r_a < 2
             continue;  % r_a <= 1: a plain kernel sum either way
         end
@@ -283,11 +300,11 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             FOUR_PER_MODE = [1.509e-05, 0.0002111, 0.001757]; % r = 2, 3, 4   % was [2.491e-5, 4.909e-4, 9.671e-3]
             % Periodic-only K term (per r) added to the K-free slope: the
             % per-event spectrum build A_m(eta) = sum_i w^m exp(-i eta p_i)
-            % carries K, which the fixed-period window does not absorb. In
-            % periodic mode the spectral branch fires for r = 2 and 3 (the
-            % r = 4 mode grid exceeds the memory guard and falls to the
-            % node path, so its K growth is priced there). Fitted from the
-            % periodic engaging cells of bench_ma_eval_calibration.
+            % carries K, which the fixed-period window does not absorb.
+            % Fitted from the periodic engaging cells of
+            % bench_ma_eval_calibration; the r = 4 constant is zero
+            % because no periodic r = 4 cell was measured on the
+            % spectral branch when the term was fitted.
             FOUR_PERIODIC_K_MS = [3.272e-05, 6.648e-05, 0]; % r = 2, 3, 4   % was [4.836e-5, 1.535e-4, 0.0]
             FOUR_MIN_Q = [16, 32, 64];
             FOUR_MIN_K = [2, 8, 16];
@@ -303,26 +320,20 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
             else
                 windowF = 2.0 * spreadF + 16.0 * sigmaG(a);
             end
-            % Mirror the spectral branch's own MAX_POINTS decline (see
-            % _SPECTRAL_IP_MAX_POINTS in the Python cosine module and
-            % spectralRelInnerMatrix on this side): the mode grid is
-            % (r_a - 1)-dimensional, so at small sigma/P and r_a = 4 it
-            % can pass the query/K thresholds yet still stand down,
-            % falling through to the u-grid node path. Price the path
-            % that actually runs.
-            MODE_SIGMAS = 8.6;   MAX_POINTS = 4e6;
-            if isPer(a) && periodG(a) > 0
-                Lspec = periodG(a);
-            else
-                Lspec = 2.0 * spreadF + 2.0 * (MODE_SIGMAS + 2.0) * sigmaG(a);
-            end
-            Mspec = ceil(MODE_SIGMAS / sqrt(2) ...
-                         * Lspec / (2 * pi * sigmaG(a))) + 2;
-            spectralFits = (2 * Mspec + 1)^(r_a - 1) <= MAX_POINTS;
+            % The gate below mirrors mobius.evalOrbitRel's own: order,
+            % query count, and value count. The evaluator's spectral form
+            % works in 1-D mode series and per-block FFTs chunked against
+            % the kernel budget; it never builds an (r_a - 1)-dimensional
+            % mode grid, so --- unlike the inner-product spectral route
+            % (mobius.spectralRelInnerMatrix), which has a MAX_POINTS
+            % decline --- there is no grid-size decline to price here.
+            % (The evaluator also requires the periodic query span to fit
+            % in half the circle; that depends on the queries, which the
+            % cost model does not see, and holds for the ordinary
+            % evaluation grid.)
             if r_a >= 2 && r_a <= 4 ...
                     && nQ >= FOUR_MIN_Q(r_a - 1) ...
-                    && K_a >= FOUR_MIN_K(r_a - 1) ...
-                    && spectralFits
+                    && K_a >= FOUR_MIN_K(r_a - 1)
                 fourMs = FOUR_PER_MODE(r_a - 1) ...
                     * (windowF / max(sigmaG(a), 1e-12)) * nQeff;
                 if isPer(a) && FOUR_PERIODIC_K_MS(r_a - 1) > 0

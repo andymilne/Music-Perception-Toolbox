@@ -78,7 +78,9 @@ def test_batched_contraction_matches_the_reference_ip():
     """The (N_x, N_y) batched matrix equals the per-event-pair reference
     inner product, which sums the images explicitly."""
     from mpt._tensor._nested_contraction import (
-        build_recipe, nested_attr_matrix, make_quadrature, nested_ip)
+        build_recipe, nested_attr_matrix)
+    from tests.references.nested_ip_reference import (
+        make_quadrature, nested_ip)
     sigma = 0.2 * P
     x, y = _dens(1, sigma), _dens(2, sigma)
     r_levels = np.asarray(SPEC["r"])

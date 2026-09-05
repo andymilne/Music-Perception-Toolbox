@@ -2,8 +2,7 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         rVec, kVec, A, Nx, Ny, ...
         anyPer, anyRelNonper, anyRelPer, sigmaOverPMax, userMethod, ...
         verbose, relVec, nuVec, kVecY, wrapVec, truncationSigmas, ...
-        pwSkipXX, pwSkipYY, orbitSkipXX, orbitSkipYY, ...
-        symVec, guardForcedBulger)
+        skipXX, skipYY, symVec, guardForcedBulger, perVec)
 %   [CHOSEN, PWCOST, ORBITCOST] = ... also returns the two predicted
 %   wall times in milliseconds that the comparison rests on. They are
 %   NaN on the early returns that decide without pricing (an explicit
@@ -14,13 +13,16 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %SELECTMAINNERPRODUCTMETHOD  Pick the MA inner-product method (cost model).
 %   Mirror of Python dispatch._select_ma_inner_product_method. Routing
 %   rules, in order: (1) userMethod override; (2) r_max <= 1 -> Bulger;
-%   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger; (4) K-vs-r precision guard
-%   (accuracy is governed by truncationSigmas, so cost decides) ->
-%   Bulger; (5) predict both wall times (ms) and take the faster path
-%   (ties favour Bulger). Above the rel+per sigma/P threshold the two
-%   methods compute different measures rather than the same one at
-%   different speeds, so the wrap axis decides which is wanted; below
-%   it they agree and cost decides.
+%   (3) r_max > _ORBIT_R_MAX_SHIPPED -> Bulger (with the forced-Bulger
+%   feasibility guard); (4) working-set guard: either side's perm-side
+%   working set above CENTRES_WORKING_SET_SOFT_BUDGET, unless a
+%   relative-periodic attribute sits above the sigma/P threshold ->
+%   Möbius; (5) the rel-per wrap rule above that threshold; (6) predict
+%   both wall times (ms) and take the faster path (ties favour Bulger).
+%   Above the rel+per sigma/P threshold the two methods compute
+%   different measures rather than the same one at different speeds, so
+%   the wrap axis decides which is wanted; below it they agree and cost
+%   decides.
 %
 %   The Möbius side is priced per attribute: absolute r_a >= 2
 %   attributes cost the vectorised-batch constant for their order;
@@ -48,8 +50,15 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
 %   the Möbius side -> near-crossover bias toward Bulger's method,
 %   the cheap-to-mispick side) with a representative node count.
 %
-%   Constants are provisional Python-shape values pending MATLAB
-%   calibration from matlab/tests/bench_ma_dispatch.m.
+%   SKIPXX and SKIPYY say whether <X,X> and <Y,Y> cost this call
+%   nothing --- because some route has already memoised the value on the
+%   density, or (for <X,X>) because the requested normalisation does not
+%   consume it. Both routes are priced with the same pair of flags; see
+%   INTERNAL.SELFIPMEMOISED.
+%
+%   The cost laws are per-language (INTERNAL.RELROUTECOSTMS, refit with
+%   tools/calibrateRelIpCost.m); the absolute-attribute constants and
+%   the relative setup floor live in INTERNAL.PREDICTORBITCOSTMS.
     if nargin < 11; verbose = true; end
     if nargin < 12 || isempty(relVec)
         relVec = (anyRelNonper || anyRelPer) & (rVec(:).' >= 2);
@@ -69,23 +78,30 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     end
     % A self inner product that is memoised on its density, or that the
     % requested normalisation does not consume, costs nothing at call
-    % time; the per-route skip flags exclude it from that route's
-    % price. The flags are per route because the two routes' memoised
-    % values live under different keys (their self-IP scales differ by
-    % constant prefactors that cancel only within one route's triple).
+    % time; skipXX / skipYY exclude it from *both* routes' prices. The
+    % flags are shared rather than per route: the memoised values are
+    % route-keyed (the routes' scales are related in closed form but
+    % their truncated numbers are not the same number --- see
+    % localSelfIpKey in cosSimExpTens), yet pricing each route against
+    % its own memo would decide the comparison on which route ran first
+    % rather than on what the routes cost, and would lock that first
+    % choice in. Twin of the Python selector's skip_xx / skip_yy.
     % Defaults false reproduce the full-triple pricing exactly.
-    if nargin < 17 || isempty(pwSkipXX);    pwSkipXX = false;    end
-    if nargin < 18 || isempty(pwSkipYY);    pwSkipYY = false;    end
-    if nargin < 19 || isempty(orbitSkipXX); orbitSkipXX = false; end
-    if nargin < 20 || isempty(orbitSkipYY); orbitSkipYY = false; end
+    if nargin < 17 || isempty(skipXX); skipXX = false; end
+    if nargin < 18 || isempty(skipYY); skipYY = false; end
     % Per-attribute [sym] flags for the forced-Bulger feasibility guard
     % (empty -> every attribute treated as unordered, the conservative
     % count), and the guard flag itself (false for nested densities,
     % which route through the hierarchical contraction instead of the
     % flat Bulger pairwise path). Twins of the Python selector's
     % sym_vec and guard_forced_bulger.
-    if nargin < 21 || isempty(symVec);            symVec = [];             end
-    if nargin < 22 || isempty(guardForcedBulger); guardForcedBulger = true; end
+    if nargin < 19 || isempty(symVec);            symVec = [];             end
+    if nargin < 20 || isempty(guardForcedBulger); guardForcedBulger = true; end
+    % Per-attribute isPer flags for the wrap rule below: only a
+    % relative-PERIODIC attribute's wrap declares a measure. Empty (older
+    % callers) treats every relative attribute as periodic, the pre-fix
+    % reading. Twin of the Python selector's per_vec.
+    if nargin < 21; perVec = []; end
     % NaN until the priced comparison sets them, so a caller can tell a
     % structural decision from a costed one.
     pwCostOut = NaN;
@@ -117,6 +133,51 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     % size: the Mobius method's agreement with enumeration tracks the
     % truncation budget and is closest at K_a = r_a. The route is
     % therefore chosen on cost alone from here on.
+    % ---- Memory-safety guard (explicit invariant) ----
+    % Bulger's MA IP materialises each side's joint perm-side working
+    % set n_J = N * prod_a r_a! * C(K_a, r_a) (lazy, built on first
+    % access); the Möbius MA IP is n_J-free (per-event, per-attribute
+    % additive work). The cost race below already routes large workloads
+    % to Möbius, because its Bulger cost keys on the tuple-pair size
+    % n_J^X * n_J^Y --- the square of the per-side working set --- so any
+    % density big enough to blow memory is diverted on cost alone. This
+    % guard makes that invariant explicit: if either side's perm-side
+    % working set exceeds the soft budget and Möbius is convention-safe
+    % (no relative-periodic attribute above the sigma/P threshold, where
+    % the wrap rule below owns the decision), take Möbius now. Same
+    % position in the rule order, same working-set formula
+    % n_J_max * 2 * max(sum r_a, 1) * 8 (perm + centres + index arrays),
+    % and same budget as the Python selector and INTERNAL.SELECTMAEVAL.
+    CENTRES_WORKING_SET_SOFT_BUDGET = 256 * 1024^2;   % bytes; Python twin
+    if A > 0 && ~(anyRelPer && sigmaOverPMax > ...
+                  internal.relPerSigmaOverPThreshold(truncationSigmas))
+        if isempty(symVec)
+            symGuard = true(1, A);
+        else
+            symGuard = logical(symVec(:).');
+        end
+        tuplesX = 1; tuplesY = 1; dimSum = 0;
+        for a = 1:A
+            ra = rVec(a);
+            % Enumerated tuple count: r_a! * C on an unordered attribute,
+            % C alone on an ordered one (perm side = comb side).
+            if symGuard(a)
+                fa = factorial(ra);
+            else
+                fa = 1;
+            end
+            tuplesX = tuplesX * fa * combCount(kVec(a), ra);
+            tuplesY = tuplesY * fa * combCount(kVecY(a), ra);
+            dimSum = dimSum + ra;
+        end
+        % "Either side" is meant literally: each density's working set is
+        % its own event count times its own tuple count, and the two
+        % densities need not carry the same number of values.
+        nJMax = max(Nx * tuplesX, Ny * tuplesY);
+        if nJMax * (2 * max(dimSum, 1)) * 8 > CENTRES_WORKING_SET_SOFT_BUDGET
+            chosen = 'mobius'; return;
+        end
+    end
     % Relative-periodic measure note. The relative periodic density is
     % defined as the transposition average of the absolute periodic
     % density, which the Möbius method computes at every sigma/P.
@@ -142,6 +203,12 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
         wantsFull = false;
         for a = 1:min(numel(wrapVec), numel(relVec))
             if ~relVec(a), continue; end
+            % A relative-non-periodic attribute at the default wrap must
+            % not turn a single-image rel-per attribute into a "mixed"
+            % declaration: its wrap axis has no meaning.
+            if ~isempty(perVec) && a <= numel(perVec) && ~perVec(a)
+                continue;
+            end
             if strcmp(char(wrapVec{a}), 'single-image')
                 wantsSingle = true;
             elseif strcmp(char(wrapVec{a}), 'full-image')
@@ -165,17 +232,17 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     end
 
     pwSize = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
-                                       pwSkipXX, pwSkipYY);
+                                       skipXX, skipYY);
     % Priced by the same fitted law. The per-entry form this replaces
     % assumed a fixed cost per kernel entry; measurement contradicts
     % that, the per-entry cost falling as the arrays grow, which is what
     % the fitted exponent below 1 carries.
-    pwCost = relRouteCostMs('bulger', r_max, pwSize);
+    pwCost = internal.relRouteCostMs('bulger', r_max, pwSize);
     centresOk = sigmaOverPMax <= ...
         internal.relPerSigmaOverPThreshold(truncationSigmas);
-    orbitCost = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
-                                   nuVec, centresOk, kVecY, ...
-                                   orbitSkipXX, orbitSkipYY);
+    orbitCost = internal.predictOrbitCostMs(rVec, kVec, A, Nx, Ny, ...
+                                   relVec, nuVec, centresOk, kVecY, ...
+                                   skipXX, skipYY);
     pwCostOut = pwCost;
     orbitCostOut = orbitCost;
     if pwCost <= orbitCost
@@ -183,54 +250,6 @@ function [chosen, pwCostOut, orbitCostOut] = selectMaInnerProductMethod( ...
     else
         chosen = 'mobius';
     end
-end
-
-
-function ms = relRouteCostMs(route, r_a, term)
-%RELROUTECOSTMS  Predicted wall time (ms) for one route, from its law.
-%
-%   Cost model for the method comparison: one power law per route and
-%   tuple order,
-%
-%       t_ms = exp(a_r) * term ^ b_r
-%
-%   on the quantity each route works over -- Bulger's method and the
-%   tuple-centres route on the tuple-pair entries they materialise, the
-%   translation grid on the node count times the larger value count.
-%   Every term carries the event-pair count, since both methods price
-%   per pair. The Mobius side takes the smaller of its two routes, as
-%   the orchestrator does. Each law is fitted against the quantity the
-%   caller passes, not an idealisation of it, so the intercepts absorb
-%   the constant factors between them; a refit must use the same terms.
-%   Orders above 4 reuse the r = 4 row.
-%
-%   Fitted on 684 cells: r in {2, 3, 4}, value counts 5 to 40, event
-%   counts 1 to 64, three kernel widths, both periodicities, three
-%   weight profiles, equal and unequal value counts, each route timed in
-%   isolation with relAttrRoute pinning it. Cross-validated on the
-%   routing decision, eight-fold: 0.93 against 0.62 for the count-based
-%   model it replaces.
-%
-%   Constants are per-language: the two implementations amortise
-%   differently. Refit with tools/calibrateRelIpCost.m, and run it with
-%   'check', true first -- three earlier fits shipped badly because an
-%   axis was missing from the sweep, and the check asserts that each
-%   axis varies what it claims to.
-    switch route
-        case 'bulger'
-            A = [-7.2149, -8.0168, -7.7822];
-            B = [ 0.6970,  0.7493,  0.7500];
-        case 'centres'
-            A = [-7.7429, -8.6263, -8.8269];
-            B = [ 0.6800,  0.7781,  0.8029];
-        case 'grid'
-            A = [-4.1388, -2.1985, -0.5409];
-            B = [ 0.3916,  0.5021,  0.5768];
-        otherwise
-            error('mpt:badRoute', 'Unknown route ''%s''.', route);
-    end
-    idx = min(max(r_a, 2), 4) - 1;
-    ms = exp(A(idx)) * max(term, 1)^B(idx);
 end
 
 
@@ -281,79 +300,6 @@ function sz = predictPairwiseKernelSize(rVec, kVec, A, Nx, Ny, kVecY, ...
     end
     if ~skipYY
         sz = sz + permY * combY;
-    end
-end
-
-
-function ms = predictOrbitCostMs(rVec, kVec, A, Nx, Ny, relVec, ...
-                                  nuVec, centresOk, kVecY, ...
-                                  skipXX, skipYY)
-    % Per-attribute sum, mirror of Python _predict_orbit_cost_ms:
-    % relative attributes are priced at the cheaper of the
-    % tuple-centres closed form and the batched grid contraction
-    % (three matrices each), with the centres term blocked above the
-    % sigma/P threshold. Constants provisional pending
-    % bench_ma_dispatch calibration; measured entries cover r = 2, 3,
-    % doubling per order above (over-pricing the Möbius side —
-    % routing bias toward Bulger's method, the cheap-to-mispick
-    % side).
-    %
-    % SKIPXX / SKIPYY exclude a self matrix that is memoised or not
-    % consumed (mirroring predictPairwiseKernelSize). The centres term
-    % drops the skipped self work exactly; the grid term and the
-    % per-order absolute constants were fitted on the full
-    % three-matrix computation, so they are scaled by the fraction of
-    % matrices still to be computed --- an approximation that
-    % under-discounts (setup is not per-matrix), biasing near-crossover
-    % routing toward Bulger's method, the cheap-to-mispick side.
-    % Defaults false reproduce the full-triple pricing exactly.
-    ABS        = [NaN, 3.0, 11.2, 45.0, 150.0, 500.0, 1500.0, 4500.0];
-    GRID_OP    = [NaN, 3.0e-5, 5.0e-5];    % r = 2, 3
-    CENTRES_OP = [NaN, 4.0e-5, 9.0e-5];    % r = 2, 3
-    % No flat relative base: each route's law carries its own intercept,
-    % so adding one would double-count the setup it already prices.
-    REL_BASE = 0.0;
-    if nargin < 9 || isempty(kVecY)
-        kVecY = kVec;
-    end
-    if nargin < 10 || isempty(skipXX); skipXX = false; end
-    if nargin < 11 || isempty(skipYY); skipYY = false; end
-    nMatrices = 1 + double(~skipXX) + double(~skipYY);
-    ms = 0;
-    if any(relVec)
-        ms = REL_BASE;
-    end
-    pairs = Nx * Ny;
-    for a = 1:A
-        ra = rVec(a); Ka = kVec(a); KaY = kVecY(a);
-        if relVec(a) && ra >= 2
-            gridOp = GRID_OP(min(max(ra, 2), numel(GRID_OP)));
-            if ra > 3    % beyond tabulated orders: double per order
-                gridOp = gridOp * 2^(ra - 3);
-            end
-            perPair = relRouteCostMs('grid', ra, ...
-                pairs * nuVec(a) * max(Ka, KaY) * (nMatrices / 3));
-            if centresOk && Ka >= ra && KaY >= ra
-                centresOp = CENTRES_OP(min(max(ra, 2), numel(CENTRES_OP)));
-                if ra > 3
-                    centresOp = centresOp * 2^(ra - 3);
-                end
-                mX = factorial(ra) * combCount(Ka, ra);
-                mY = factorial(ra) * combCount(KaY, ra);
-                centresSize = pairs * mX * mY;
-                if ~skipXX
-                    centresSize = centresSize + pairs * mX * mX;
-                end
-                if ~skipYY
-                    centresSize = centresSize + pairs * mY * mY;
-                end
-                perPair = min(perPair, relRouteCostMs('centres', ra, ...
-                    centresSize));
-            end
-            ms = ms + perPair;
-        elseif ra >= 2
-            ms = ms + ABS(ra) * (nMatrices / 3);
-        end
     end
 end
 

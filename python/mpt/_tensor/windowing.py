@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import warnings
 
+import math
 import numpy as np
 
 from .._utils import maybe_print_batched_estimate, validate_weights
@@ -53,6 +54,32 @@ from .density import (
 # cancellation-guard convention (1e-12) for double precision,
 # documented in USER_GUIDE §3.1.
 _IMAGE_SUM_TOL_DOUBLE = 1e-12
+# The same tolerance under ``kernel_precision='single'``: below float32
+# resolution further images add nothing representable.
+_IMAGE_SUM_TOL_SINGLE = 1e-7
+
+
+def _resolve_windowed_precision(truncation_sigmas, kernel_precision):
+    """``(ts, kp, image_tol)`` for the windowed closed form.
+
+    ``ts`` is the resolved truncation width, ``kp`` the lower-cased
+    precision name and ``image_tol`` the periodic image-sum tolerance
+    that precision implies. Twin of the MATLAB ``windowedInnerProduct``
+    resolution.
+    """
+    from .._defaults import resolve_truncation_sigmas, get_default
+    ts = resolve_truncation_sigmas(truncation_sigmas)
+    if kernel_precision is None:
+        kernel_precision = get_default("kernel_precision")
+    kp = str(kernel_precision).lower()
+    if kp not in ("double", "single"):
+        raise ValueError(
+            f"kernel_precision must be 'double' or 'single' (got "
+            f"{kernel_precision!r})"
+        )
+    image_tol = (_IMAGE_SUM_TOL_SINGLE if kp == "single"
+                 else _IMAGE_SUM_TOL_DOUBLE)
+    return ts, kp, image_tol
 
 
 def window_tensor(dens, window_spec) -> WindowedMaetDensity:
@@ -519,7 +546,12 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
     # geometric mean). It depends only on dens_query, not on the
     # window offset, so we compute it once and pass it as a cache to
     # every per-offset _windowed_inner_product call.
-    norms_cache = _cos_sim_numerator_ma(dens_query, dens_query, windowed_c=None)
+    norms_cache = _cos_sim_numerator_ma(
+        dens_query, dens_query, windowed_c=None,
+        truncation_sigmas=truncation_sigmas,
+        kernel_precision=kernel_precision)
+    _ip_kw = dict(truncation_sigmas=truncation_sigmas,
+                  kernel_precision=kernel_precision)
 
     if verbose and M >= 2:
         n_cal = min(5, M)
@@ -544,7 +576,7 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
         wmd_w = _build_wmd_for_idx(sample_idx[0])
         _windowed_inner_product(dens_query, wmd_w, verbose=False,
                                 _cached_norms=norms_cache,
-                                normalize=normalize)
+                                normalize=normalize, **_ip_kw)
 
         # Timed calibration sample.
         t_cal_start = time.perf_counter()
@@ -552,7 +584,7 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
             wmd_s = _build_wmd_for_idx(cs)
             _windowed_inner_product(dens_query, wmd_s, verbose=False,
                                     _cached_norms=norms_cache,
-                                    normalize=normalize)
+                                    normalize=normalize, **_ip_kw)
         t_cal_total = time.perf_counter() - t_cal_start
         t_per_point = t_cal_total / len(sample_idx)
         est_total = t_cal_total + t_per_point * M
@@ -576,7 +608,7 @@ def _windowed_similarity_pair(dens_context, dens_query, window_spec, offsets,
         wmd = window_tensor(dens_context, spec_m)
         profile[m] = _windowed_inner_product(dens_query, wmd, verbose=False,
                                              _cached_norms=norms_cache,
-                                             normalize=normalize)
+                                             normalize=normalize, **_ip_kw)
 
         if verbose and show_progress and (
             (m + 1) % prog_stride == 0 or (m + 1) == M
@@ -898,7 +930,8 @@ def _windowed_similarity_core(dens_context, dens_query, window_spec, offsets, *,
 
 def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
                             _cached_norms=None,
-                            normalize: str = "oneSidedDenom"):
+                            normalize: str = "oneSidedDenom",
+                            truncation_sigmas=None, kernel_precision=None):
     """Closed-form windowed similarity with one operand windowed.
 
     The numerator is the windowed inner product
@@ -932,7 +965,12 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
     product depends only on ``dens_q`` and can be computed once
     outside the loop. Callers may pass it as
     ``_cached_norms = ip_qq`` to skip the redundant per-call work.
+
+    ``truncation_sigmas`` and ``kernel_precision`` are forwarded to every
+    inner product formed here (see :func:`_cos_sim_numerator_ma`).
     """
+    _ip_kw = dict(truncation_sigmas=truncation_sigmas,
+                  kernel_precision=kernel_precision)
     a_win = isinstance(dens_a, WindowedMaetDensity)
     b_win = isinstance(dens_b, WindowedMaetDensity)
     if a_win and b_win:
@@ -959,10 +997,11 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
         else:
             ip_qq = _cached_norms
     else:
-        ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None)
+        ip_qq = _cos_sim_numerator_ma(dens_q, dens_q, windowed_c=None,
+                                      **_ip_kw)
 
     # --- Windowed cross inner product: <h * dens_c, dens_q> ---
-    ip_qc = _cos_sim_numerator_ma(dens_q, dens_c, windowed_c=wmd)
+    ip_qc = _cos_sim_numerator_ma(dens_q, dens_c, windowed_c=wmd, **_ip_kw)
 
     if normalize == "oneSidedDenom":
         if ip_qq == 0:
@@ -976,7 +1015,8 @@ def _windowed_inner_product(dens_a, dens_b, *, verbose: bool,
         # with size scaled by 1/sqrt(2)) and pure boxcar (mix = 1;
         # h^2 = h). Intermediate mix raises.
         wmd_squared = _window_squared(wmd)
-        ip_cc_h = _cos_sim_numerator_ma(dens_c, dens_c, windowed_c=wmd_squared)
+        ip_cc_h = _cos_sim_numerator_ma(dens_c, dens_c,
+                                        windowed_c=wmd_squared, **_ip_kw)
         denom = float(np.sqrt(max(ip_cc_h * ip_qq, 0.0)))
         if denom == 0:
             return float("nan")
@@ -1058,10 +1098,22 @@ def _check_ma_compatibility(dens_x: MaetDensity, dens_y: MaetDensity):
 
 
 def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
-                          windowed_c, _skip_symmetrisation=False):
+                          windowed_c, _skip_symmetrisation=False,
+                          truncation_sigmas=None, kernel_precision=None):
     """Compute a single inner product <f_x, W f_y> as a sum over (j, k)
     pairs. If *windowed_c* is None, it's the plain unwindowed inner
     product (used for norms and for unwindowed comparisons).
+
+    ``truncation_sigmas`` governs the pairwise log kernel exactly as in
+    the flat Bulger kernel core (:func:`~mpt._tensor.cosine._trunc_log_kernel_exp`):
+    an entry whose unwindowed kernel sits below the floor, tightened by
+    the number of summed entries, is zeroed. The window factor never
+    raises an entry (a window is at most 1 pointwise), so the truncated
+    entries are below the floor with or without it. The same width sets
+    the abs-per wrapped Gaussian. ``kernel_precision='single'`` evaluates
+    the exponential in single precision and loosens the periodic
+    image-sum tolerance to float32 resolution; ``None`` on either takes
+    the global default.
 
     Implements the full (size, mix) family closed-form for 1-D groups
     and multi-D absolute groups, and the Gaussian-only case for multi-D
@@ -1141,12 +1193,17 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 ip_combo = _cos_sim_numerator_ma(
                     dens_x, dens_y, windowed_c=wmd_perm,
                     _skip_symmetrisation=True,
+                    truncation_sigmas=truncation_sigmas,
+                    kernel_precision=kernel_precision,
                 )
                 total_ip += ip_combo
                 n_combos += 1
 
             return total_ip / n_combos
     # ----- end symmetrisation wrapper -----
+
+    ts, kp, image_tol = _resolve_windowed_precision(
+        truncation_sigmas, kernel_precision)
 
     A          = dens_x.n_attrs
     r_vec      = dens_x.r
@@ -1274,8 +1331,6 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                 # Abs-per full-image via shared wrapped-Gaussian helper.
                 # Accumulate log(theta) per coordinate into log_kernel.
                 from .._wrapped_kernel import wrapped_gaussian_1d
-                from .._defaults import get_default
-                ts = get_default("truncation_sigmas")
                 theta_per_position = wrapped_gaussian_1d(
                     D, sigma_a, p_g, ts, exponent_denominator=4
                 )
@@ -1287,6 +1342,17 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
         Q_a = _compute_Q(D, r_a, bool(is_rel_g[a]), bool(is_per_g[a]),
                          float(period_g[a]))
         log_kernel = log_kernel - Q_a / (4.0 * float(sigma_g[a]) ** 2)
+
+    # Truncation mask on the unwindowed pairwise kernel, at the resolved
+    # width tightened by the entry count (the flat Bulger core's rule).
+    # Decided here, before the window factors are added, because the
+    # window multiplies each entry by at most 1: an entry below the
+    # floor now stays below it.
+    threshold = -0.5 * ts ** 2
+    n_terms = int(n_jy_side) * int(n_ky_side)
+    if n_terms > 1:
+        threshold -= math.log(float(n_terms))
+    keep = log_kernel >= threshold
 
     # ---- Windowed-factor contributions per attribute (cross-correlation
     # substitution applied). ----
@@ -1329,7 +1395,7 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
                     s_g, mix_g, sigma_gv, is_rel,
                     int(r_vec[a]), d_g,
                     float(period_g[a]),
-                    _IMAGE_SUM_TOL_DOUBLE,    # FP-precision relative tolerance
+                    image_tol,    # FP-precision relative tolerance
                 )
             else:
                 contrib, log_D = _windowed_group_contribution(
@@ -1340,8 +1406,14 @@ def _cos_sim_numerator_ma(dens_x: MaetDensity, dens_y: MaetDensity, *,
             log_kernel = log_kernel + contrib
             log_prefactor = log_prefactor + log_D
 
-    # Assemble numerator from log_kernel + prefactor.
-    E = np.exp(log_kernel + log_prefactor)
+    # Assemble numerator from log_kernel + prefactor, truncated entries
+    # zeroed without evaluating their exponential; under 'single' the
+    # exponential runs in float32, as the MATLAB twin casts it.
+    total = log_kernel + log_prefactor
+    if kp == "single":
+        total = total.astype(np.float32)
+    E = np.zeros(total.shape, dtype=np.float64)
+    E[keep] = np.exp(total[keep])
     w_u = dens_x.w_j       # (nJ_x,)
     w_v = dens_y.wv_comb   # (nK_y,)
     return float(w_u @ (E @ w_v))

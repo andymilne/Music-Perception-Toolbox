@@ -15,6 +15,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %   the caller before this is reached (evalExpTens passes 'auto' here).
 %
 %   Hard rules (in order):
+%     - ordered ([sym]=0) attribute -> centres (no orbit to collapse)
 %     - nested attribute            -> centres (flat Möbius not applicable)
 %     - all r <= 1                  -> centres (Möbius degenerate)
 %     - feasibility bound on any attribute forces the

@@ -61,7 +61,7 @@ function report = explainDispatch(dens, varargin)
 
     if ~isempty(other)
         report = localCosine(dens, other, ts, floorV, sop, limit, ...
-                             limitSetBy, method);
+                             limitSetBy, method, truncationSigmas);
     else
         report = localEval(dens, nQ, ts, floorV, sop, limit, ...
                            limitSetBy, method);
@@ -131,42 +131,306 @@ function report = localEval(dens, nQ, ts, floorV, sop, limit, setBy, method)
 end
 
 
-function report = localCosine(dX, dY, ts, floorV, sop, limit, setBy, method)
-    rVec = double(dX.r(:).');
-    kVec = double(dX.K(:).');
-    kVecY = double(dY.K(:).');
-    isRel = logical(dX.isRel(:).');
-    isPer = logical(dX.isPer(:).');
-    nX = double(dX.N);  nY = double(dY.N);
-    if isempty(sop), sopArg = 0; else, sopArg = sop; end
-    % Thread the per-attribute [sym] flags so the selector's
-    % forced-Bulger feasibility guard counts an ordered attribute's
-    % C(K_a, r_a) tuples, matching the real call's routing. Twin of
-    % the Python explain path's sym_vec.
-    if isfield(dX, 'isSym')
-        symVecEx = logical(dX.isSym(:).');
-    else
-        symVecEx = [];
+function report = localCosine(dX, dY, ts, floorV, sop, limit, setBy, ...
+                              method, truncationSigmas)
+%LOCALCOSINE  Route report for a flat cosine, built from the call's own
+%   inputs.
+%
+%   The densities are pruned and the empty-operand rule applied first,
+%   as cosSimExpTens's localCosSimMA does; the flat selector then
+%   receives exactly the inputs the call gives it --- the wrap vector,
+%   the per-attribute grid node counts, and the memo flags read from
+%   the structs' self-IP caches (INTERNAL.FLATSELECTORINPUTS) --- and
+%   the ordered-attribute override is applied after it. The report
+%   therefore names the route the call takes, including the rel-per
+%   wrap rule above the sigma/P threshold, which decides without
+%   pricing. Twin of the Python explain._explain_cosine.
+    if localAnyNested(dX) || localAnyNested(dY)
+        report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
+                                   setBy, method);
+        return;
     end
+    dX = internal.prunedExpTens(dX);
+    dY = internal.prunedExpTens(dY);
+    kVecY = double(dY.K(:).');
+    shape = sprintf('%s against K=%s', localShape(dX), mat2str(kVecY));
+    if dX.N == 0 || dY.N == 0
+        % No events to overlap: the call returns 0 before any selector
+        % runs, so there is no route to report.
+        report = struct( ...
+            'call', 'cosSimExpTens', 'shape', shape, ...
+            'truncationSigmas', ts, 'floor', floorV, ...
+            'sigmaOverP', sop, 'sigmaOverPLimit', limit, ...
+            'limitSetBy', setBy, 'measure', '', ...
+            'routeNames', {{'bulger', 'mobius'}}, ...
+            'routeMs', [NaN, NaN], 'chosen', '', ...
+            'decidedBy', 'empty operand (the similarity is 0 without a route)', ...
+            'priced', false);
+        return;
+    end
+    % The raw per-call width goes in, as on the real call; the selector
+    % resolves it where it needs a number (ts is the resolved value the
+    % report prints).
+    [selIn, orderedAny, ~] = internal.flatSelectorInputs( ...
+        dX, dY, 'cosine', truncationSigmas);
     [chosen, pwMs, orbMs] = internal.selectMaInnerProductMethod( ...
-        rVec, kVec, numel(rVec), nX, nY, any(isPer), ...
-        any(isRel & ~isPer), any(isRel & isPer), sopArg, method, ...
-        false, isRel, [], kVecY, {}, ts, ...
-        [], [], [], [], symVecEx);
+        selIn.rVec, selIn.kVec, selIn.A, selIn.Nx, selIn.Ny, ...
+        selIn.anyPer, selIn.anyRelNonper, selIn.anyRelPer, ...
+        selIn.sigmaOverPMax, method, false, selIn.relVec, selIn.nuVec, ...
+        selIn.kVecY, selIn.wrapVec, selIn.truncationSigmas, ...
+        selIn.skipXX, selIn.skipYY, selIn.symVec, ...
+        selIn.guardForcedBulger, selIn.perVec);
     priced = all(isfinite([pwMs, orbMs]));
+    if orderedAny
+        % An ordered ([sym]=0) attribute has no orbit, so the call takes
+        % Bulger's method whatever the selector said (and whatever the
+        % user asked for).
+        chosen = 'bulger';
+        decidedBy = 'ordered ([sym]=0) attribute (no orbit to collapse)';
+    elseif ~strcmp(method, 'auto')
+        decidedBy = 'user method';
+    elseif priced
+        decidedBy = 'cost model';
+    else
+        decidedBy = 'structural rule';
+    end
     report = struct( ...
         'call', 'cosSimExpTens', ...
-        'shape', sprintf('%s against K=%s', localShape(dX), ...
-                         mat2str(kVecY)), ...
+        'shape', shape, ...
         'truncationSigmas', ts, 'floor', floorV, ...
         'sigmaOverP', sop, 'sigmaOverPLimit', limit, ...
         'limitSetBy', setBy, 'measure', localMeasure(sop, chosen), ...
         'routeNames', {{'bulger', 'mobius'}}, ...
         'routeMs', [pwMs, orbMs], ...
         'chosen', chosen, ...
-        'decidedBy', localTernary(priced, 'cost model', ...
-                                  'structural rule'), ...
+        'decidedBy', decidedBy, ...
         'priced', priced);
+end
+
+
+function tf = localAnyNested(dens)
+%LOCALANYNESTED  Whether the density carries a nested attribute.
+    tf = isfield(dens, 'nested') && iscell(dens.nested) ...
+        && any(~cellfun(@isempty, dens.nested));
+end
+
+
+function report = localCosineNested(dX, dY, ts, floorV, sop, limit, ...
+                                    setBy, method)
+%LOCALCOSINENESTED  Route report for a cosine on a nested density.
+%
+%   A nested attribute never reaches the flat orbit (Möbius) entry
+%   point, so the two routes the flat report prices are not the two on
+%   offer here. The candidates are the hierarchical contraction plan ---
+%   which itself picks a route per nested attribute --- and the
+%   joint-tuple enumeration.
+%
+%   Both are priced, as the flat report prices Bulger's method against
+%   the Moebius method: each nested attribute's admissible routes are
+%   costed in milliseconds by INTERNAL.NESTEDCOST, the chosen ones summed
+%   with the flat companions' cost to give the plan's price, and that
+%   compared with the enumeration's. The per-attribute prices are
+%   reported as the contraction route's reason, an Inf there marking a
+%   centres route diverted by the working-set guard. Where the measure
+%   rule leaves a nested attribute one admissible route the price is
+%   still shown, but the decision was not a cost decision and the report
+%   says so. Twin of the Python explain._explain_cosine_nested.
+
+    ncOpts = struct('routesOnly', true, 'methodName', char(method));
+    if strcmpi(method, 'centres')
+        ncOpts.forceRoute = 'centres';
+    end
+    blocked = '';
+    routes = {};
+    try
+        [~, routes] = internal.nestedContract(dX, dY, 'cosine', ts, ...
+                                              false, ncOpts);
+    catch err
+        % The measure rule refusing a forced route is a report-worthy
+        % answer, not a failure of the report. Mirrors the Python
+        % explain path, which catches the same ValueError.
+        blocked = err.message;
+    end
+    parts = {};
+    anyTaugrid = false;
+    A = double(dX.nAttrs);
+    admByAttr = cell(1, A);
+    for a = 1:numel(routes)
+        if strcmp(routes{a}, '-')
+            continue;   % neither a nested nor an ordered-flat route
+        end
+        anyTaugrid = anyTaugrid || strcmp(routes{a}, 'taugrid');
+        if localIsNestedAttr(dX, a) || localIsNestedAttr(dY, a)
+            admByAttr{a} = routes(a);
+        end
+    end
+
+    planMs = NaN;
+    enumMs = NaN;
+    priced = false;
+    enumWhy = 'not selected';
+    if isempty(blocked) && any(~cellfun(@isempty, admByAttr))
+        % Price the plan as it would run, and the enumeration against it.
+        % Guarded: this is a report, so a cost model that cannot price
+        % this shape must leave the column blank rather than fail the
+        % call, as the eval report's pricing is guarded.
+        try
+            enumOk = localNestedEnumOk(dX, ts);
+            [~, planMs, enumMs] = internal.nestedCost( ...
+                'selectNestedMethod', dX, dY, admByAttr, enumOk, ts);
+            priced = true;
+        catch
+            planMs = NaN;  enumMs = NaN;
+        end
+    end
+    if priced
+        for a = 1:numel(routes)
+            if isempty(admByAttr{a})
+                continue;
+            end
+            % Quote every route the measure rule admits, not only the one
+            % taken: an attribute with a single admissible route was not
+            % a cost decision, and the reader should see that it had no
+            % alternative to price.
+            adm = localNestedAdmissible(dX, a, ts);
+            [~, ~, prices] = internal.nestedCost('priceNestedAttr', ...
+                dX, dY, a, adm, ts);
+            quoted = cell(1, numel(adm));
+            for k = 1:numel(adm)
+                quoted{k} = sprintf('%s %.3f ms', adm{k}, prices.(adm{k}));
+            end
+            parts{end + 1} = sprintf('attr %d: %s (%s)', a, routes{a}, ...
+                                     strjoin(quoted, ', ')); %#ok<AGROW>
+        end
+    else
+        for a = 1:numel(routes)
+            if strcmp(routes{a}, '-')
+                continue;
+            end
+            parts{end + 1} = sprintf('attr %d: %s', a, routes{a}); %#ok<AGROW>
+        end
+    end
+
+    if ~isempty(blocked)
+        reason = blocked;
+    elseif isempty(parts)
+        reason = 'not covered by the contraction plan';
+    else
+        reason = strjoin(parts, '; ');
+    end
+    if strcmpi(method, 'bulger')
+        chosen = 'bulger';
+        enumWhy = 'forced';
+    elseif ~strcmpi(method, 'auto') || ~priced
+        chosen = 'contract';
+        if isempty(blocked) && isempty(parts)
+            chosen = 'bulger';
+        end
+    elseif enumMs * internal.nestedCost('enumSafety') < planMs
+        chosen = 'bulger';
+    else
+        chosen = 'contract';
+    end
+    if strcmpi(method, 'bulger')
+        % already set
+    elseif priced && ~isfinite(enumMs)
+        enumWhy = ['inadmissible: it computes the minimum-image ' ...
+                   'measure, which is not the declared one above the ' ...
+                   'sigma/P limit'];
+        enumMs = NaN;
+    elseif priced
+        enumWhy = 'priced';
+    end
+    if isempty(sop)
+        measure = '';
+    elseif anyTaugrid
+        measure = 'transposition average (the definition)';
+    else
+        measure = 'wrapped-difference approximation';
+    end
+    if ~strcmpi(method, 'auto')
+        decidedBy = 'user method';
+    elseif ~isempty(blocked)
+        decidedBy = 'measure rule';
+    else
+        decidedBy = 'measure rule, then the nested cost model';
+    end
+    report = struct( ...
+        'call', 'cosSimExpTens', ...
+        'shape', [localShape(dX) ' (nested)'], ...
+        'truncationSigmas', ts, 'floor', floorV, ...
+        'sigmaOverP', sop, 'sigmaOverPLimit', limit, ...
+        'limitSetBy', setBy, 'measure', measure, ...
+        'routeNames', {{'contract', 'bulger'}}, ...
+        'routeMs', [planMs, enumMs], ...
+        'routeWhy', {{reason, enumWhy}}, ...
+        'chosen', chosen, 'decidedBy', decidedBy, 'priced', priced);
+end
+
+
+function tf = localIsNestedAttr(dens, a)
+%LOCALISNESTEDATTR  Whether attribute A of DENS carries a nested spec.
+    tf = isfield(dens, 'nested') && iscell(dens.nested) ...
+        && numel(dens.nested) >= a && ~isempty(dens.nested{a});
+end
+
+
+function adm = localNestedAdmissible(dens, a, ts)
+%LOCALNESTEDADMISSIBLE  The routes the measure rule admits for nested
+%   attribute A. Report-side twin of NESTEDADMISSIBLEROUTES inside
+%   INTERNAL.NESTEDCONTRACT, which is a local function there; the rule is
+%   three lines and stating it twice is cheaper than widening that file's
+%   interface for a diagnostic. TESTS/TEST_NESTED_COST_MODEL checks the
+%   two agree.
+    isRel = logical(dens.isRel(a));
+    isPer = logical(dens.isPer(a));
+    if ~isRel
+        adm = {'contract'};
+        return;
+    end
+    if ~isPer
+        adm = {'centres', 'contract_relnonper'};
+        return;
+    end
+    period = double(dens.period(a));
+    if period > 0 && double(dens.sigma(a)) / period ...
+            > internal.relPerSigmaOverPThreshold(ts)
+        if isfield(dens, 'wrap') && iscell(dens.wrap) ...
+                && numel(dens.wrap) >= a ...
+                && strcmp(char(dens.wrap{a}), 'single-image')
+            adm = {'centres'};
+        else
+            adm = {'taugrid'};
+        end
+        return;
+    end
+    adm = {'centres', 'taugrid'};
+end
+
+
+function tf = localNestedEnumOk(dens, ts)
+%LOCALNESTEDENUMOK  Whether the joint-tuple enumeration carries the
+%   declared measure: it computes the minimum-image reading, so a
+%   wrap = 'full-image' relative-periodic attribute above the sigma/P
+%   threshold rules it out. Report-side twin of
+%   NESTEDENUMERATIONADMISSIBLE inside INTERNAL.NESTEDCONTRACT.
+    tf = true;
+    limit = internal.relPerSigmaOverPThreshold(ts);
+    for a = 1:double(dens.nAttrs)
+        if ~(logical(dens.isRel(a)) && logical(dens.isPer(a)))
+            continue;
+        end
+        if isfield(dens, 'wrap') && iscell(dens.wrap) ...
+                && numel(dens.wrap) >= a ...
+                && strcmp(char(dens.wrap{a}), 'single-image')
+            continue;
+        end
+        period = double(dens.period(a));
+        if period > 0 && double(dens.sigma(a)) / period > limit
+            tf = false;
+            return;
+        end
+    end
 end
 
 
@@ -229,12 +493,24 @@ function localPrint(rep)
         end
         if strcmp(rep.routeNames{a}, rep.chosen)
             mark = '*';
-            why  = rep.decidedBy;
         else
             mark = ' ';
-            why  = localTernary(rep.priced, 'priced', 'not selected');
+        end
+        % A report that carries a per-route reason (the nested cosine
+        % does: each route has its own, as in the Python Route records)
+        % shows it for every row. The others keep the older shape, where
+        % only the chosen row carries the decision.
+        if isfield(rep, 'routeWhy') && numel(rep.routeWhy) >= a ...
+                && ~isempty(rep.routeWhy{a})
+            why = rep.routeWhy{a};
+        elseif mark == '*'
+            why = rep.decidedBy;
+        else
+            why = localTernary(rep.priced, 'priced', 'not selected');
         end
         fprintf('%s%-11s%12s   %s\n', mark, rep.routeNames{a}, pred, why);
     end
-    fprintf('\nchosen        %s  (%s)\n', rep.chosen, rep.decidedBy);
+    fprintf('\nchosen        %s  (%s)\n', ...
+            localTernary(isempty(rep.chosen), 'none', rep.chosen), ...
+            rep.decidedBy);
 end

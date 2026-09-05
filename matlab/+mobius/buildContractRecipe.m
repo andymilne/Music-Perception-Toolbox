@@ -2,15 +2,16 @@ function recipe = buildContractRecipe(opAxes, freeAxes)
 %MOBIUS.BUILDCONTRACTRECIPE  Precompute a contraction recipe for executeRecipe.
 %
 %   RECIPE = MOBIUS.BUILDCONTRACTRECIPE(OPAXES, FREEAXES) precomputes
-%   the sequence of merge steps that MOBIUS.CONTRACT would have
-%   performed dynamically, given a list of operand axis labels and a
+%   the sequence of merge steps that a dynamic contraction (the
+%   REFERENCE.CONTRACT test oracle under tests/reference) would have
+%   performed, given a list of operand axis labels and a
 %   set of free (output) axis labels. The recipe records, per step,
 %   the operand-list indices to merge, the permutations to apply, and
 %   the dimension classifications (kept-shared, contracted, A-solo,
 %   B-solo). The result is consumed by MOBIUS.EXECUTERECIPE at
 %   runtime, which does not invoke any set operations
 %   (intersect/setdiff/unique/ismember) and therefore avoids the bulk
-%   of MOBIUS.CONTRACT's per-call dispatch overhead.
+%   of a dynamic contraction's per-call dispatch overhead.
 %
 %   This is intended to be called once per orbit at table-build time;
 %   the recipe is then embedded in the orbit table struct. The cost
@@ -67,7 +68,7 @@ function recipe = buildContractRecipe(opAxes, freeAxes)
 %   cached tables rebuild recipes whose version predates the current
 %   builder.
 %
-%   See also MOBIUS.EXECUTERECIPE, MOBIUS.CONTRACT, MOBIUS.BUILDORBITTABLE.
+%   See also MOBIUS.EXECUTERECIPE, MOBIUS.BUILDORBITTABLE.
 
     arguments
         opAxes cell

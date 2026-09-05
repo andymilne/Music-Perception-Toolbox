@@ -147,9 +147,21 @@ function v = gaussianKernelSum(C, wJ, X, sigma, opts)
         if size(C_w, 1) == 1 && ~opts.isRel
             v_w = localTruncatedKernelSum1D(C_w, wJ_w, X_w, sigma_w, ...
                 opts.truncationSigmas, inv2s2);
-        else
+        elseif localBucketIndexWorthwhile(size(C_w, 1), nJ, nQ)
             v_w = localTruncatedKernelSum(C_w, wJ_w, X_w, sigma_w, ...
                 opts.isRel, opts.r, opts.truncationSigmas, inv2s2);
+        else
+            % The bucket index costs 3^dim neighbour lookups per query
+            % before any kernel entry is touched; where that exceeds the
+            % centre count there is nothing to save, and at high
+            % dimension the (dim, 3^dim, nQ) neighbour expansion alone
+            % can exhaust memory (r = 8 tuple centres against 9 centres).
+            % The exact path visits every pair, chunked to the kernel
+            % budget, and agrees with the bucketed sum inside the
+            % truncation floor, the only scale either is stated on.
+            v_w = localExactKernelSum(C_w, wJ_w, X_w, ...
+                opts.isRel, opts.r, opts.isPer, period_w, inv2s2, sigma_w, ...
+                opts.wrap, opts.truncationSigmas);
         end
     elseif useTruncation && opts.isPer && size(C_w, 1) == 1 && ~opts.isRel
         % Circular 1-D truncation, valid only when the window is narrower
@@ -182,6 +194,24 @@ end
 % =========================================================================
 %  Exact path — the v2.0 centres-array body, chunked for memory bounds
 % =========================================================================
+
+function tf = localBucketIndexWorthwhile(dim, nJ, nQ)
+%LOCALBUCKETINDEXWORTHWHILE  Whether the grid-bucket index pays for itself.
+%
+%   Bucketing replaces a scan of all nJ centres per query by 3^dim
+%   neighbour-bucket lookups, so it is worthwhile only when 3^dim < nJ;
+%   and the vectorised implementation materialises the (dim, 3^dim, nQ)
+%   neighbour expansion, which must fit the kernel chunk budget. Twin of
+%   the Python _kernel._bucket_index_worthwhile.
+    nOff = 3^double(dim);
+    if nOff >= double(nJ)
+        tf = false;
+        return;
+    end
+    tf = double(dim) * nOff * 8 * double(nQ) ...
+        <= internal.kernelChunkBytesResolved();
+end
+
 
 function v = localExactKernelSum(C, wJ, X, isRel, r, isPer, period, ...
                                   inv2s2, sigma, wrap, truncationSigmas)
@@ -238,8 +268,21 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
     % exponent_denominator = 2). Single-image opt-in reduces to the
     % nearest image and evaluates that Gaussian only, matching pre-v3
     % behaviour.
+    %
+    % Single-image short-circuit. Under truncation the image budget can
+    % admit no image beyond the nearest one (L = 0); theta(d) is then
+    % exactly the nearest-image Gaussian, so the per-coordinate product
+    % computes the same number as the joint Q-form path below, but pays
+    % one exp per coordinate on the (dim, nJ, nQc) array instead of one
+    % on the summed form (measured 1.3-1.7x dearer in Python at
+    % sigma/P <= 0.01; the two agree to ~3e-16). Take the joint path
+    % there. The tabulated form (uInv non-empty) is kept at L = 0: its
+    % exp runs on the K distinct values, not the joint array, so it has
+    % no such overhead. Twin of the Python _kernel._eval_chunk gate.
     if isPer && ~isRel
-        if strcmp(wrap, 'full-image')
+        if strcmp(wrap, 'full-image') && (~isempty(uInv) ...
+                || internal.wrappedKernelImageCount(sigma, period, ...
+                                                    truncationSigmas, 2) > 0)
             % Per-coordinate theta then product across coordinates.
             % wrappedGaussian1d handles nearest-image reduction
             % internally and picks the cheaper of image-sum and Fourier
@@ -276,8 +319,9 @@ function v = evalChunk(C, wJ, Xq, nQc, dim, nJ, isRel, r, isPer, period, ...
             v = wJ(:)' * E;
             return
         end
-        % Single-image opt-in: reduce to nearest image and fall through
-        % to the sum-of-squares path below.
+        % Single-image opt-in, or full-image at L = 0 (the same number):
+        % reduce to nearest image and fall through to the sum-of-squares
+        % path below.
         D = reshape(C, dim, nJ, 1) - reshape(Xq, dim, 1, nQc);
         D = D - period .* floor(D / period + 0.5);
     else

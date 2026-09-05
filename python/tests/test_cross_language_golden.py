@@ -5,7 +5,7 @@ inputs (no RNG). The companion MATLAB file
 ``matlab/tests/test_cross_language_golden.m`` hardcodes the same
 values; running both pins down cross-language numerical agreement to
 1e-8 relative on the v2.2 surface (orbit cosine similarity single-multiset + MA
-including the safe/unsafe hybrid, Rényi-2 entropy single-multiset + MA, orbit-path
+Rényi-2 entropy single-multiset + MA, orbit-path
 :func:`tensor_harmonicity`, and orbit-path :func:`eval_exp_tens`).
 
 Inputs use ``method='mobius'`` on the cosine cases so the Möbius method's
@@ -70,16 +70,15 @@ def test_golden_sa_cossim_rel_r3_per():
 
 
 # ----------------------------------------------------------------------
-# Case C: MA cosSim with ragged-K hybrid (the killer cross-language case)
+# Case C: MA cosSim with ragged K (the killer cross-language case)
 # ----------------------------------------------------------------------
 
-def test_golden_ma_cossim_ragged_k_hybrid():
-    """Mixed safe/unsafe ragged-K MA (single multiset, K=8, r=3,
-    two unsafe events on each side via NaN padding to K_eff=4).
+def test_golden_ma_cossim_ragged_k():
+    """Ragged-K MA (single multiset, K=8, r=3, two events on each side
+    NaN-padded to K_eff=4).
 
-    Exercises the per-event safe/unsafe partition: safe pairs go
-    through the vectorised orbit, unsafe pairs through direct
-    enumeration. Identical hybrid logic in both languages.
+    Exercises the zero-weight padding of ragged events through the one
+    batched Möbius route, identically in both languages.
     """
     P_x = np.array([
         [50.0,  100.0,  200.0,  300.0,  400.0,  500.0],
@@ -90,7 +89,7 @@ def test_golden_ma_cossim_ragged_k_hybrid():
         [np.nan, 1050.0, 1150.0, np.nan, 1350.0, 1450.0],
         [np.nan, 1250.0, 1350.0, np.nan, 1550.0, 1650.0],
         [np.nan, 1450.0, 1550.0, np.nan, 1750.0, 1850.0],
-    ])  # (8, 6); columns 0 and 3 have K_eff=4 (unsafe at r=3)
+    ])  # (8, 6); columns 0 and 3 have K_eff=4
     W_x = np.where(np.isnan(P_x), np.nan, 1.0)
     P_y = P_x + 50.0
     W_y = W_x.copy()
@@ -126,7 +125,7 @@ def test_golden_sa_renyi2_abs_r2():
 
 def test_golden_ma_renyi2():
     """MA Rényi-2 entropy on a 2-attribute density (pitch + time),
-    r=3 on pitch (K=5, safe), r=1 on time."""
+    r=3 on pitch (K=5), r=1 on time."""
     pitch = np.array([
         [0.0,    200.0,  400.0,  600.0],
         [400.0,  600.0,  700.0,  900.0],

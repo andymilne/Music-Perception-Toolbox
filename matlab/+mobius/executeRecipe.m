@@ -5,14 +5,15 @@ function R = executeRecipe(operands, recipe)
 %   array of tensors OPERANDS together with a recipe produced by
 %   MOBIUS.BUILDCONTRACTRECIPE and returns the contracted tensor R.
 %
-%   Equivalent to MOBIUS.CONTRACT(OPERANDS, OPAXES, FREEAXES) where
+%   Equivalent to the dynamic contraction REFERENCE.CONTRACT(OPERANDS,
+%   OPAXES, FREEAXES) (a test oracle under tests/reference) where
 %   OPAXES and FREEAXES were the inputs originally passed to
 %   MOBIUS.BUILDCONTRACTRECIPE, but executed without any
 %   intersect / setdiff / unique / ismember calls. This eliminates
-%   the per-merge dispatch overhead that dominates MOBIUS.CONTRACT's
-%   wall time for the orbit-IP use case.
+%   the per-merge dispatch overhead that dominates a dynamic
+%   contraction's wall time for the orbit-IP use case.
 %
-%   See also MOBIUS.BUILDCONTRACTRECIPE, MOBIUS.CONTRACT.
+%   See also MOBIUS.BUILDCONTRACTRECIPE.
 
     nOps = numel(operands);
     if nOps == 0

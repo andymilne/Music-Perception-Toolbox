@@ -88,10 +88,10 @@ v_cen2  = evalExpTens(p2, w2, 30, 2, false, false, 0, X2, ...
 results{end+1,1} = 'dispatch.single multiset eval: r=2 small-K auto agrees with centres (rtol 1e-8)';
 results{end,2}   = all(abs(v_auto2 - v_cen2) <= 1e-11 + 1e-8 * abs(v_cen2));
 
-%% ---- K-vs-r margin guard ----
+%% ---- K close to r is not a routing rule ----
 
-% n=4, r=3. A collection barely larger than the tuple size is no longer
-% a reason to refuse the Mobius method, so auto now routes on cost. The
+% n=4, r=3. A collection barely larger than the tuple size is not a
+% reason to refuse the Mobius method, so auto routes on cost. The
 % two routes agree to within the accuracy truncationSigmas asks for,
 % judged as absolute error on the scale the density lives on.
 p_small = [0; 100; 400; 700];
@@ -105,7 +105,7 @@ v_centres_sm = evalExpTens(p_small, w_small, 50, 3, false, false, 0, X_small, ..
 % density sums many entries, so allow a small multiple of floor times
 % the value scale.
 tolSm = 10 * internal.truncationFloor([]) * max(abs(v_centres_sm(:)));
-results{end+1,1} = 'dispatch.single multiset eval: K-r margin <2 auto agrees with centres on the value scale';
+results{end+1,1} = 'dispatch.single multiset eval: K close to r: auto agrees with centres on the value scale';
 results{end,2}   = all(abs(v_auto_sm(:) - v_centres_sm(:)) <= tolSm);
 
 %% ---- Relative mode below the sigma/P threshold: auto and centres agree ----

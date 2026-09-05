@@ -45,7 +45,12 @@ Four changes, mirrored across Python and MATLAB:
    selectors (`_select_ma_inner_product_method`,
    `internal.selectMaInnerProductMethod`) gained per-route skip flags
    threaded into both pricing formulae. Defaults reproduce legacy
-   pricing exactly. The absolute-attribute Möbius constants and the
+   pricing exactly. *(Superseded: the flags are now shared by the two
+   routes' prices --- per-route flags priced the first route to run at
+   one matrix and its rival at three, which locked that first choice in.
+   The memoised values stay route-keyed; only the pricing is shared. See
+   `cosine._self_ip_memoised` / `internal.selfIpMemoised` and
+   `tests/test_self_ip_memo_sharing.*`.)* The absolute-attribute Möbius constants and the
    grid term are scaled by n_matrices/3 under skips — an admitted
    approximation, biased toward Bulger (cheap-to-mispick side).
 

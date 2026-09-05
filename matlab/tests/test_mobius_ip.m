@@ -14,6 +14,7 @@ if ~exist('results', 'var')
     % Defaults isolation when run standalone (when invoked from
     % test_mpt.m the outer wrapper has already isolated defaults).
     addpath(fileparts(mfilename('fullpath')));
+    addpath(fullfile(fileparts(mfilename('fullpath')), 'reference'));
     clear cleanupDefaults
     cleanupDefaults = mptTestIsolateDefaults(); %#ok<NASGU>
 else
@@ -25,35 +26,35 @@ end
 
 % T1: simple 2-matrix matmul.  A_ij B_jk -> C_ik
 A = reshape(1:15, 5, 3); B = reshape(1:21, 3, 7);
-got = mobius.contract({A, B}, {[1 2], [2 3]}, [1 3]);
-results{end+1, 1} = 'mobius.contract: matmul';
+got = reference.contract({A, B}, {[1 2], [2 3]}, [1 3]);
+results{end+1, 1} = 'reference.contract: matmul';
 results{end, 2}   = isequal(size(got), [5 7]) && max(abs(got(:) - reshape(A*B, [], 1))) < 1e-10;
 
 % T2: trace via contract.
 A = reshape(1:20, 4, 5); B = reshape(1:20, 5, 4);
-got = mobius.contract({A, B}, {[1 2], [2 1]}, []);
-results{end+1, 1} = 'mobius.contract: trace';
+got = reference.contract({A, B}, {[1 2], [2 1]}, []);
+results{end+1, 1} = 'reference.contract: trace';
 results{end, 2}   = isscalar(got) && abs(got - trace(A*B)) < 1e-10;
 
 % T3: bilinear form u' K v.
 u = (1:5)'; K = reshape(1:20, 5, 4); v = (1:4)';
-got = mobius.contract({u, K, v}, {[1], [1 2], [2]}, []);
-results{end+1, 1} = 'mobius.contract: bilinear form';
+got = reference.contract({u, K, v}, {[1], [1 2], [2]}, []);
+results{end+1, 1} = 'reference.contract: bilinear form';
 results{end, 2}   = isscalar(got) && abs(got - u' * K * v) < 1e-10;
 
 % T4: shared-keep axis (3 operands sharing the same axis).
 A = ones(2, 3); B = ones(2, 4); u = ones(2, 1);
-got = mobius.contract({A, B, u}, {[1 2], [1 3], [1]}, []);
+got = reference.contract({A, B, u}, {[1 2], [1 3], [1]}, []);
 % sum_{i,j,k} u_i A_ij B_ik with all ones = 2 * 3 * 4 = 24
-results{end+1, 1} = 'mobius.contract: shared axis across 3 operands';
+results{end+1, 1} = 'reference.contract: shared axis across 3 operands';
 results{end, 2}   = isscalar(got) && abs(got - 24) < 1e-10;
 
 % T5: orbit-like pattern (axis appears in 1 weight + 2 kernels).
 n_A = 5; n_B = 4;
 u = (1:n_A)'; v = (1:n_B)'; K = reshape(linspace(0.1, 2, n_A*n_B), n_A, n_B);
-got = mobius.contract({u, v, v, K, K}, {[1], [2], [3], [1 2], [1 3]}, []);
+got = reference.contract({u, v, v, K, K}, {[1], [2], [3], [1 2], [1 3]}, []);
 expected = sum(u .* (K*v) .* (K*v));
-results{end+1, 1} = 'mobius.contract: orbit-like (axis in 1 weight + 2 K)';
+results{end+1, 1} = 'reference.contract: orbit-like (axis in 1 weight + 2 K)';
 results{end, 2}   = isscalar(got) && abs(got - expected) < 1e-10;
 
 

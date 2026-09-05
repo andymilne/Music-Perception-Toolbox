@@ -23,21 +23,21 @@ def _clustered(n, rng, ncl=8, span=70.0, gap=600.0):
 @pytest.fixture
 def _restore_threshold():
     lo = _mobius_inner._ORBIT_SPARSE_MIN_KERNEL
-    orig = _mobius_inner._orbit_safe_submatrix_sparse
+    orig = _mobius_inner._orbit_submatrix_sparse
     yield
     _mobius_inner._ORBIT_SPARSE_MIN_KERNEL = lo
-    _mobius_inner._orbit_safe_submatrix_sparse = orig
+    _mobius_inner._orbit_submatrix_sparse = orig
 
 
 def _patch_counter():
     calls = {"n": 0}
-    orig = _mobius_inner._orbit_safe_submatrix_sparse
+    orig = _mobius_inner._orbit_submatrix_sparse
 
     def wrapped(*a, **k):
         calls["n"] += 1
         return orig(*a, **k)
 
-    _mobius_inner._orbit_safe_submatrix_sparse = wrapped
+    _mobius_inner._orbit_submatrix_sparse = wrapped
     return calls
 
 

@@ -1,6 +1,6 @@
 # Python test suite
 
-The full Python suite lives under `python/tests/` and is run with `pytest`. Tests cover both correctness (numerical agreement with closed-form expectations and with the MATLAB implementation where applicable) and dispatch behaviour (path selection, kernel-precision controls, cancellation guards).
+The full Python suite lives under `python/tests/` and is run with `pytest`. Tests cover both correctness (numerical agreement with closed-form expectations and with the MATLAB implementation where applicable) and dispatch behaviour (path selection, kernel-precision controls, post-hoc guards).
 
 ## Running the suite
 
@@ -32,7 +32,7 @@ Tests are flat (no subdirectories) and named by topic:
 - `test_maet.py`, `test_lazy_density.py`, `test_lazy_density_ma.py`, `test_centre_scalar_broadcast.py` — multi-attribute tensor density and lazy evaluation
 - `test_eval_*.py` — `eval_exp_tens` paths (centres / orbit / fast), dispatcher routing, unified raw-array signature
 - `test_cos_sim_*.py`, `test_batch_cos_sim_thinning.py` — `cos_sim_exp_tens` paths, polymorphic forms, canonical-form dedup
-- `test_dispatcher*.py` — path-selection cost model and timing probes
+- `test_dispatcher*.py` — path-selection cost model and dispatch messages
 - `test_windowed_*.py`, `test_window_*.py` — `window_tensor`, `windowed_similarity`, cross-correlation
 - `test_circular*.py`, `test_balance_sigma.py`, `test_evenness_sigma.py`, `test_*_sigma_space.py`, `test_dft_circular_simulate.py`, `test_proj_centroid_sigma.py` — DFT, scale-structure, and pulse-level circular measures
 - `test_ma_*.py`, `test_orbit_*.py`, `test_tier*.py`, `test_mobius*.py` — orbit-table / Möbius IP paths, including cross-validation against the toolbox

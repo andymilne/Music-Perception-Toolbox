@@ -4,7 +4,7 @@
 %  Covers:
 %    - method kwarg validation (bad string; v2.2 migration error on
 %      the removed normalize kwarg).
-%    - SA Rényi-2 closed-form correctness against a hand-rolled
+%    - single-multiset Rényi-2 closed-form correctness against a hand-rolled
 %      reference for r=1 abs and r>=2 abs/rel.
 %    - MA Rényi-2 closed-form correctness against a hand-rolled
 %      per-attribute reference (cosSimExpTens on (dens, dens) gives 1
@@ -13,7 +13,7 @@
 %    - Input-form gating: list and 2-D batched inputs raise informative
 %      errors under method='renyi2'.
 %    - Skinny dens flows through transparently (no eager build needed).
-%    - r=1 rel SA is degenerate and returns 0 by convention.
+%    - r=1 rel single-multiset is degenerate and returns 0 by convention.
 %    - Self-similarity check: -log_b(<T,T>/Z^2) reduces to known values
 %      for tractable small examples.
 %
@@ -76,7 +76,7 @@ H_rny_default = entropyExpTens([0 4 7], [], 30, 2, false, false, 0, ...
 results{end+1,1} = 'entropy.renyi2: default call returns finite value';
 results{end,2}   = isfinite(H_rny_default);
 
-%% ---- SA r=1 abs: agrees with hand-rolled direct formula ----
+%% ---- single-multiset r=1 abs: agrees with hand-rolled direct formula ----
 
 rng(71, 'twister');
 p1 = sort(2000 * rand(6, 1));
@@ -94,10 +94,10 @@ ip_xx = sigma * sqrt(pi) * sum(sum((w1 * w1.') .* K));
 Z = mobius.totalMassAbs(p1, w1, sigma, 1);
 H_ref = -log2(ip_xx / (Z * Z));
 
-results{end+1,1} = 'entropy.renyi2 SA r=1 abs: matches hand-rolled (1e-10)';
+results{end+1,1} = 'entropy.renyi2 single-multiset r=1 abs: matches hand-rolled (1e-10)';
 results{end,2}   = abs(H_renyi - H_ref) < 1e-10;
 
-%% ---- SA r=1 rel: degenerate, returns 0 ----
+%% ---- single-multiset r=1 rel: degenerate, returns 0 ----
 
 % Suppress the buildExpTens:isRelDegenerate warning for this test —
 % the warning is informational, not a failure. The renyi2 path is
@@ -106,10 +106,10 @@ ws = warning('off', 'buildExpTens:isRelDegenerate');
 H_deg = entropyExpTens(p1, w1, sigma, 1, true, false, 0, ...
     'method', 'renyi2', 'verbose', false);
 warning(ws);
-results{end+1,1} = 'entropy.renyi2 SA r=1 rel: degenerate, returns 0';
+results{end+1,1} = 'entropy.renyi2 single-multiset r=1 rel: degenerate, returns 0';
 results{end,2}   = isequal(H_deg, 0);
 
-%% ---- SA r=3 abs nonper: agrees with mobius.orbitInnerAbsSingleMultiset ----
+%% ---- single-multiset r=3 abs nonper: agrees with mobius.orbitInnerAbsSingleMultiset ----
 
 p3 = sort(2000 * rand(8, 1));
 w3 = ones(8, 1);
@@ -120,10 +120,10 @@ ip_ref = mobius.orbitInnerAbsSingleMultiset(p3, w3, p3, w3, sigma, 3, false, 0);
 Z_ref = mobius.totalMassAbs(p3, w3, sigma, 3);
 H_ref3 = -log2(ip_ref / (Z_ref * Z_ref));
 
-results{end+1,1} = 'entropy.renyi2 SA r=3 abs: matches direct orbit IP + total mass (1e-10)';
+results{end+1,1} = 'entropy.renyi2 single-multiset r=3 abs: matches direct orbit IP + total mass (1e-10)';
 results{end,2}   = abs(H_r3 - H_ref3) < 1e-10;
 
-%% ---- SA r=3 rel periodic: agrees with mobius.orbitInnerRelSingleMultiset ----
+%% ---- single-multiset r=3 rel periodic: agrees with mobius.orbitInnerRelSingleMultiset ----
 
 period_p = 1200;
 pP = sort(period_p * rand(8, 1));
@@ -135,28 +135,28 @@ ip_rel = mobius.orbitInnerRelSingleMultiset(pP, wP, pP, wP, sigma, 3, true, peri
 Z_rel = mobius.totalMassRel(pP, wP, sigma, 3);
 H_rel_ref = -log2(ip_rel / (Z_rel * Z_rel));
 
-results{end+1,1} = 'entropy.renyi2 SA r=3 rel per: matches direct orbit IP + total mass (1e-8)';
+results{end+1,1} = 'entropy.renyi2 single-multiset r=3 rel per: matches direct orbit IP + total mass (1e-8)';
 results{end,2}   = abs(H_rel - H_rel_ref) < 1e-8;
 
-%% ---- SA: base argument flows through ----
+%% ---- single-multiset: base argument flows through ----
 
 H_b2 = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'base', 2, 'verbose', false);
 H_be = entropyExpTens(p3, w3, sigma, 3, false, false, 0, ...
     'method', 'renyi2', 'base', exp(1), 'verbose', false);
 % H_e * log_e(2) == H_2 exactly (change-of-base).
-results{end+1,1} = 'entropy.renyi2 SA: base=2 vs base=e differ by log(2) factor (1e-10)';
+results{end+1,1} = 'entropy.renyi2 single-multiset: base=2 vs base=e differ by log(2) factor (1e-10)';
 results{end,2}   = abs(H_b2 - H_be / log(2)) < 1e-10 * abs(H_b2);
 
-%% ---- SA struct input flows through (skinny dens) ----
+%% ---- single-multiset struct input flows through (skinny dens) ----
 
 dens_skinny = buildExpTens(p3, w3, sigma, 3, false, false, 0, 'verbose', false);
-results{end+1,1} = 'entropy.renyi2 SA: skinny dens has no Centres before call';
+results{end+1,1} = 'entropy.renyi2 single-multiset: skinny dens has no Centres before call';
 results{end,2}   = ~isfield(dens_skinny, 'Centres');
 
 H_struct = entropyExpTens(dens_skinny, ...
     'method', 'renyi2', 'verbose', false);
-results{end+1,1} = 'entropy.renyi2 SA: skinny dens path matches raw-args path';
+results{end+1,1} = 'entropy.renyi2 single-multiset: skinny dens path matches raw-args path';
 results{end,2}   = abs(H_struct - H_r3) < 1e-12;
 
 %% ---- MA: agrees with hand-rolled per-attribute factorisation ----

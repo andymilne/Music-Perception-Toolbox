@@ -18,9 +18,8 @@ import numpy as np
 import pytest
 
 from mpt import build_exp_tens, cos_sim_exp_tens
-from mpt._tensor._nested_contraction import (
-    build_recipe, make_quadrature, nested_ip,
-)
+from mpt._tensor._nested_contraction import build_recipe
+from tests.references.nested_ip_reference import make_quadrature, nested_ip
 
 P = 1200.0
 

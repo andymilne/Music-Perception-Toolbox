@@ -107,7 +107,10 @@ function [I, ratio] = relInnerBatched(Px, Wx, Py, Wy, sigma, r, ...
     end
 
     if isPer
-        N_u = internal.autoNtauDefault(period, sigma);
+        % Sized from the per-call width, so the grid the kernel is cut at
+        % and the grid it is integrated on move together (Python twin:
+        % _rel_inner_batched).
+        N_u = internal.autoNtauDefault(period, sigma, truncationSigmas);
         uGrid = (0:N_u-1) * (period / N_u);
         du = period / N_u;
         centres = zeros(Nx, Ny);

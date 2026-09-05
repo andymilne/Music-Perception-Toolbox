@@ -1385,7 +1385,6 @@ def eval_orbit_abs(
         return empty
     x_flat = x.reshape(r, n_q_total)
 
-    N = p.shape[0]
     inv_2s2 = 1.0 / (2.0 * sigma * sigma)
 
     # Resolve truncation_sigmas against the global default. ``None``
@@ -1898,14 +1897,23 @@ def eval_orbit_rel(
     Möbius realisation of relative mode: the alternating partition sum
     only factorises across {1, ..., r} at fixed ``u``, and integrating it
     analytically re-expands into the ``O(K^r)`` tuple enumeration the
-    decomposition exists to avoid. The grid mirrors
-    :func:`mpt.tensor._orbit_inner_rel`: periodic uses ``[0, P)``
+    decomposition exists to avoid. The grid mirrors the inner product's
+    (:func:`mpt._tensor._mobius_inner._rel_inner_batched`): periodic uses ``[0, P)``
     sampled at ``samples_per_sigma`` points per σ; non-periodic uses
     a Gaussian-supported window extending 8σ beyond the alignment of
     the source positions and the query trajectory.
 
-    Two integrand-evaluation strategies are available:
+    Three evaluation strategies are available:
 
+    - **Spectral** (``r = 2..4``, auto selection only) — no u-grid at
+      all: every partition's translation integral is evaluated in
+      closed form from the Fourier coefficients of the wrapped Gaussian
+      mixture, by :func:`_eval_orbit_rel_fourier`. Engaged above
+      per-order query-count and value-count thresholds; in periodic
+      mode also only when the truncation window and every query's
+      position span fit inside half the circle. There is no grid-size
+      decline: the block spectra are 1-D series and the multi-block
+      products are per-block FFTs chunked against the kernel budget.
     - **Direct** — each u-node costs one :func:`eval_orbit_abs`
       evaluation; per-query cost ``O(B_r · r · K · N_u)``.
     - **Factored** (non-periodic only) — each partition block's factor
@@ -1922,13 +1930,14 @@ def eval_orbit_rel(
       noise level of the u-grid quadrature; under
       ``kernel_precision='single'`` the target is floored at ``1e-7``).
 
-    By default (``factored=None``) a cost gate picks the cheaper
-    strategy per call (direct for a single query at modest ``K``,
-    factored for batches or large ``K``). Periodic relative mode always
-    uses the direct strategy: with per-component wrapping a block whose
-    offsets straddle an image boundary does not separate into
-    variance and mean parts, so the factorisation identity does not
-    hold on the circle.
+    By default (``factored=None``), where the spectral strategy does
+    not engage a cost gate picks the cheaper of the other two per call
+    (direct for a single query at modest ``K``, factored for batches or
+    large ``K``). In periodic relative mode the factored strategy is
+    valid only where the truncation window and every query's position
+    span fit inside half the circle, since a block whose offsets straddle
+    an image boundary does not separate into variance and mean parts;
+    elsewhere the direct strategy is used.
 
     Memory: the direct strategy's intermediate is chunked along the
     query axis against the ``kernel_chunk_bytes`` budget; the factored
@@ -1957,10 +1966,10 @@ def eval_orbit_rel(
         semantics, they set the factored read-back accuracy target as
         described above.
     factored : bool or None, default None
-        ``None`` — a cost gate chooses per call; at ``r = 2`` (without a
-        cancellation-ratio request) the gate may select the
-        cross-correlation strategy, which tabulates the translation
-        integral itself once and reads it back per query.
+        ``None`` — the gates choose per call: the spectral strategy
+        where its order, query-count, and value-count thresholds are met
+        (and, when periodic, the half-circle conditions above), otherwise
+        the cost gate between direct and factored.
         ``True`` — force the factored strategy (raises ``ValueError``
         when the periodic validity conditions fail: truncation window or
         query span exceeding half the period). ``False`` — force the
@@ -2000,7 +2009,7 @@ def eval_orbit_rel(
         samples_per_sigma, r, truncation_sigmas
     )
 
-    # Build u-grid (mirrors _orbit_inner_rel).
+    # Build u-grid (mirrors _rel_inner_batched).
     if is_per:
         N_u = max(64, int(np.ceil(period / sigma * samples_per_sigma)))
         u_grid = np.linspace(0.0, period, N_u, endpoint=False)
@@ -2152,7 +2161,6 @@ def eval_orbit_rel(
                 )
             tables[m] = (lo, h_m, np.asarray(vals, dtype=np.float64).ravel())
 
-        partitions = get_set_partitions_with_mobius(r)
         inv_2s2 = 1.0 / (2.0 * sigma * sigma)
         deltas_all = np.vstack([np.zeros((1, n_q)), x_rel])
 

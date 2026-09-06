@@ -126,8 +126,9 @@ function [in, orderedAny, nestedAny] = flatSelectorInputs( ...
     % per-route flag makes the comparison unfair, and INTERNAL.SELFIPKEY
     % for why the memoised values themselves stay per route.
     needXX = strcmp(normalize, 'cosine');
+    needYY = ~strcmp(normalize, 'none');
     skipXX = ~needXX || internal.selfIpMemoised(cacheX);
-    skipYY = internal.selfIpMemoised(cacheY);
+    skipYY = ~needYY || internal.selfIpMemoised(cacheY);
 
     % Nested densities route through the hierarchical contraction, not
     % the flat Bulger pairwise path, so the flat forced-Bulger

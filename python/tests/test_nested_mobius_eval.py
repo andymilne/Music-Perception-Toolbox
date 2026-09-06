@@ -140,14 +140,66 @@ def test_nested_tensored_with_flat_attributes():
     _assert_routes_agree(d, X, 1e-7)
 
 
-def test_auto_keeps_centres_and_mobius_is_accepted():
+def test_single_query_column_is_one_query():
+    # A (dim, 1) query is one point, not dim one-dimensional queries (the
+    # MATLAB twin once transposed it; the bench script's n_q = 1 cells hit
+    # this).
+    d = _density(T2, [1, 2], [True, True], [0, 0], False, 6, seed=8)
+    X = _queries(d, seed=8)[:, :1]
+    assert X.shape == (2, 1)
+    _assert_routes_agree(d, X, 1e-10)
+
+
+def test_auto_follows_the_nested_cost_row():
+    """'auto' prices the two routes with the nested row: 'auto' runs
+    the route it names, a shape with thousands of tuple centres per
+    event goes to the per-level Möbius evaluator, and a relative shape
+    with many queries (where the translation grid multiplies the Möbius
+    cost) stays on centres."""
+    from mpt._tensor.dispatch import _select_ma_eval, _nested_eval_costs_ms
     d = _density(T2, [1, 2], [True, True], [0, 0], False, 6, seed=6)
     X = _queries(d, seed=6)
-    va = eval_exp_tens(d, X, method="auto", verbose=False)
-    vc = eval_exp_tens(d, X, method="centres", verbose=False)
-    vm = eval_exp_tens(d, X, method="mobius", verbose=False)
+    chosen = _select_ma_eval(d, X.shape[1], method="auto")[0]
+    assert chosen in ("centres", "mobius")
+    va = eval_exp_tens(d, X, method="auto", truncation_sigmas=40.0,
+                       verbose=False)
+    vc = eval_exp_tens(d, X, method=chosen, truncation_sigmas=40.0,
+                       verbose=False)
     np.testing.assert_allclose(va, vc, rtol=1e-12)
-    np.testing.assert_allclose(vm, vc, rtol=0, atol=1e-10 * np.max(np.abs(vc)))
+
+    big = _density(np.repeat(np.arange(4), 3), [2, 3], [True, True], [0, 0],
+                   False, 12, seed=16)          # 5184 tuple centres per event
+    c_ms, m_ms = _nested_eval_costs_ms(big, 20)
+    assert m_ms < c_ms
+    assert _select_ma_eval(big, 20, method="auto")[0] == "mobius"
+    Xb = _queries(big, seed=16)
+    va = eval_exp_tens(big, Xb, method="auto", truncation_sigmas=40.0,
+                       verbose=False)
+    vc = eval_exp_tens(big, Xb, method="centres", truncation_sigmas=40.0,
+                       verbose=False)
+    np.testing.assert_allclose(va, vc, rtol=0, atol=1e-9 * np.max(np.abs(vc)))
+
+    rel = _density(T3, [2, 2], [True, True], [0, 1], True, 9, seed=17)
+    assert _select_ma_eval(rel, 200, method="auto")[0] == "centres"
+
+
+def test_nested_tuple_count_matches_the_enumeration():
+    from mpt._tensor.dispatch import nested_tuple_count
+    for tags, r, sym, expect in [
+        (T2, [1, 2], [True, True], 18),
+        (T2, [1, 2], [True, False], 9),
+        (T2, [3, 2], [False, True], 2),
+        (T3, [2, 3], [True, True], 1296),
+        (np.repeat(np.arange(4), 3), [2, 4], [False, True], 1944),
+        (T3L, [2, 2, 2], [True, True, True], 2 * 2 * 4 * 4 * 2 * 2 // 2),
+    ]:
+        assert nested_tuple_count(tags, r, sym) == expect
+    # ragged groups: the elementary symmetric polynomial over the children
+    tags = np.array([0, 0, 0, 1, 1])
+    assert nested_tuple_count(tags, [2, 2], [True, True]) == 2 * (6 * 2)
+    # and the density's own count agrees
+    d = _density(T3, [2, 3], [True, True], [0, 0], False, 9, seed=18)
+    assert d.n_j == nested_tuple_count(T3, [2, 3], [True, True]) * d.p_attr[0].shape[1]
 
 
 def test_ordered_flat_attribute_still_refuses_mobius():

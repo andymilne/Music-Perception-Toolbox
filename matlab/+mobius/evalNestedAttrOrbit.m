@@ -93,9 +93,10 @@ function vals = evalNestedAttrOrbit(p, w, tags, rLevels, symLevels, relUnit, ...
     elseif size(tags, 1) ~= K && size(tags, 2) == K
         tags = tags.';
     end
-    if isvector(x) && size(x, 1) ~= 1 && size(x, 2) == 1
-        x = x.';   % a single reduced coordinate row given as a column
-    end
+    % x is (dim_a x n_q), a column being one query, as in the Python twin
+    % (which reshapes only a 1-D array into a single row). Transposing
+    % every column vector here would misread a single query of a
+    % two-or-more-dimensional attribute as many one-dimensional ones.
     n_q = size(x, 2);
     if n_q == 0
         vals = zeros(0, 1);

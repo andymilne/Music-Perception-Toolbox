@@ -742,6 +742,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
     wpq = wtX[:, None] * wtY[None, :]
     Kx, Ky = dpq.shape
     T = int(len(taus))
+    dtau = float(taus[1] - taus[0]) if T > 1 else 1.0
     Nx, Ny = cX.shape[0], cY.shape[0]
     from .._defaults import truncation_floor
     floor = truncation_floor(truncation_sigmas)
@@ -760,7 +761,7 @@ def _shared_template_matrix(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                    / (4.0 * sigma ** 2)) * wpq             # (nb, r, T, Kx, Ky)
         K[K < floor] = 0.0
         m_diag = K.sum(axis=(-1, -2))                      # (nb, r, T)
-        out[s0:e0] = m_diag.prod(axis=1).sum(axis=1)       # prod over r, sum over T
+        out[s0:e0] = m_diag.prod(axis=1).sum(axis=1) * dtau  # prod over r, trapezoid over T
     return out.reshape(Nx, Ny)
 
 
@@ -898,6 +899,8 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
         WY = np.where(mY | np.isnan(WY), 0.0, WY)
     inv = 1.0 / (4.0 * sigma ** 2)
     T = 0 if taus is None else int(len(taus))
+    dtau = (float(taus[1] - taus[0]) if (taus is not None and T > 1)
+            else 1.0)
     m_idx = np.repeat(np.arange(Nx), Ny)
     n_idx = np.tile(np.arange(Ny), Nx)
     B = Nx * Ny
@@ -980,7 +983,13 @@ def _nested_attr_matrix_impl(recipe_x, recipe_y, PX, PY, WX, WY, sigma,
                 # full node count, not by the window width.
                 out[s:e] = vals.sum(1) / T
             else:
-                out[s:e] = vals.sum(1)
+                # Trapezoid over the uniform line grid: the node spacing
+                # makes the value an integral over tau rather than a node
+                # count, so its scale no longer depends on whether the
+                # grid was clamped to its minimum node count (a common
+                # factor within one call, hence invisible to a cosine, but
+                # not to the bare inner product).
+                out[s:e] = vals.sum(1) * dtau
     return out.reshape(Nx, Ny)
 
 

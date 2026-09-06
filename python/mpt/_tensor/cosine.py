@@ -82,7 +82,12 @@ from .dispatch import (
 #: product, yielding a magnitude-aware reading that takes the value 1
 #: on a perfect self-match at full coverage and may exceed 1 when the
 #: first operand carries more matching mass than the second.
-_NORMALIZE_VALUES = ("cosine", "oneSidedDenom")
+#: ``'none'`` returns the bare inner product :math:`\langle X, Y \rangle`
+#: on the canonical scale (see :func:`_ip_canonical_scale`), whichever
+#: route ran; no self inner product is formed. It is what the Rényi-2
+#: entropy consumes, and what a caller who wants magnitudes rather than
+#: a ratio asks for.
+_NORMALIZE_VALUES = ("cosine", "oneSidedDenom", "none")
 
 
 def _canonical_normalize(normalize: str) -> str:
@@ -102,9 +107,108 @@ def _canonical_normalize(normalize: str) -> str:
         return "cosine"
     if s.lower() == "onesideddenom":
         return "oneSidedDenom"
+    if s.lower() == "none":
+        return "none"
     raise ValueError(
         f"normalize must be one of {_NORMALIZE_VALUES!r}; got {normalize!r}."
     )
+
+
+def _ip_canonical_scale(dens, chosen, nested_routes=None):
+    """Factor that puts a route's bare inner product on the canonical scale.
+
+    The canonical scale is the physical one: :math:`\langle X, Y \rangle =
+    \int T_X T_Y` with each event's density the sum, over the attribute's
+    full ordered tuple set (every arrangement a symmetric level admits),
+    of unnormalised Gaussian kernels :math:`\exp(-Q(x - c)/2\sigma^2)`. It
+    is the scale on which the Möbius per-attribute matrix and the
+    closed-form total masses of :mod:`mpt._mobius` already agree, and so
+    the one the Rényi-2 entropy has always been computed on.
+
+    Every route drops constant per-attribute prefactors because they
+    cancel in a ratio. Per attribute, with :math:`g_a = (\sigma_a
+    \sqrt\pi)^{d_a}` for an absolute attribute of tuple dimension
+    :math:`d_a` and :math:`g_a = \big[(\sigma_a \sqrt\pi)^{s_u - 1}
+    \sqrt{s_u}\big]^{d_a / (s_u - 1)}` for a relative one whose
+    co-transposition blocks have :math:`s_u` slots (the block metric's
+    determinant), the factors are:
+
+    * flat Möbius matrix: 1;
+    * flat centres closed form, and the ordered-flat centres inside the
+      nested plan: :math:`g_a`;
+    * Bulger's enumeration: :math:`r_a!\, g_a` on a symmetric flat
+      attribute, :math:`g_a` on an ordered one, :math:`|G_a|\, g_a` on a
+      nested one (the wreath-product orbit order of
+      :func:`~mpt._tensor._mobius_inner._nested_orbit_mult`);
+    * nested contraction of an absolute attribute: :math:`|G_a|\, g_a`;
+      the nested centres route: :math:`g_a`; the relative non-periodic
+      contraction (a trapezoid over the alignment line of the product of
+      the :math:`s` leaf kernels): :math:`|G_a|\, s\, (\sigma_a
+      \sqrt\pi)^{s - 2} / 2`; the relative-periodic τ-grid (the mean over
+      the period of the same integrand): :math:`P_a |G_a|\, s\,
+      (\sigma_a \sqrt\pi)^{s - 2} / 2`.
+
+    These are the constants :func:`_self_ip_cache_key` lists; they are
+    pinned by ``tests/test_inner_product_scale.py``, which checks every
+    route against an enumeration reference on every shape.
+    """
+    import math as _m
+    from ._mobius_inner import _nested_orbit_mult
+    A = int(dens.n_attrs)
+    nested = getattr(dens, "nested", None) or [None] * A
+    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool))).ravel()
+    scale = 1.0
+    for a in range(A):
+        sigma = float(dens.sigma[a])
+        is_rel = bool(dens.is_rel[a])
+        sp = sigma * _m.sqrt(_m.pi)
+        spec = nested[a]
+        if spec is None:
+            r_a = int(dens.r[a])
+            if is_rel and r_a < 2:
+                continue       # 0-D point mass: no kernel, no prefactor
+            g = (sp ** (r_a - 1) * _m.sqrt(r_a)) if is_rel else sp ** r_a
+            ordered = (not bool(is_sym[a])) and r_a > 1
+            if chosen == "mobius":
+                f = 1.0
+            elif chosen == "centres":
+                f = g
+            elif chosen == "bulger":
+                f = g if ordered else _m.factorial(r_a) * g
+            else:  # nested plan: flat attributes take the Möbius matrix,
+                f = g if ordered else 1.0       # ordered ones the centres
+            scale *= f
+            continue
+        r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+        s_tot = int(np.prod(r_levels))
+        rel_unit = spec.get("rel_unit")
+        if rel_unit is None:
+            g = sp ** s_tot
+        else:
+            s_u = int(np.prod(r_levels[:int(rel_unit) + 1]))
+            g = (sp ** (s_u - 1) * _m.sqrt(s_u)) ** (s_tot // s_u)
+        G = float(_nested_orbit_mult(r_levels, spec["sym"]))
+        if chosen == "bulger":
+            f = G * g
+        elif chosen == "centres":
+            f = g
+        else:
+            route = (nested_routes[a] if nested_routes is not None
+                     and a < len(nested_routes) else "contract")
+            if route == "centres":
+                f = g
+            elif route == "contract_relnonper":
+                # Trapezoid over the alignment line: an integral over the
+                # translation of the s leaf kernels, in the ones direction.
+                f = G * s_tot * sp ** (s_tot - 2) / 2.0
+            elif route == "taugrid":
+                # Mean over the period of the same integrand.
+                f = (float(dens.period[a]) * G * s_tot
+                     * sp ** (s_tot - 2) / 2.0)
+            else:
+                f = G * g
+        scale *= f
+    return scale
 
 
 def _finalise_normalisation(
@@ -121,8 +225,11 @@ def _finalise_normalisation(
     ``ip_xx`` may be ``None`` under ``'oneSidedDenom'``, whose
     denominator does not consume it (the triple routines skip its
     computation in that case); passing ``None`` under ``'cosine'`` is a
-    caller defect and raises.
+    caller defect and raises. Under ``'none'`` the bare ``ip_xy`` is
+    returned; the caller has already put it on the canonical scale.
     """
+    if normalize == "none":
+        return float(ip_xy)
     if normalize == "cosine":
         if ip_xx is None:
             raise ValueError(
@@ -267,7 +374,7 @@ def cos_sim_exp_tens(*args,
         admissible only up to the sigma/period threshold, above which
         ``'centres'`` raises a ``ValueError`` naming the
         ``wrap='single-image'`` opt-in.
-    normalize : {'cosine', 'oneSidedDenom'}, default 'cosine'
+    normalize : {'cosine', 'oneSidedDenom', 'none'}, default 'cosine'
         Selects the denominator applied to the inner product
         :math:`\\langle X, Y \\rangle`. ``'cosine'`` (default) gives the
         strict shape-only cosine similarity, dividing by the geometric
@@ -277,9 +384,17 @@ def cos_sim_exp_tens(*args,
         by the second operand's self inner product
         :math:`\\langle Y, Y \\rangle` alone, yielding a magnitude-aware
         reading that takes the value 1 on a self-match (``X == Y``)
-        and is sensitive to scalar reweightings of ``X``. The British
-        spelling ``'normalise'`` is also accepted as an alias for the
-        keyword name, and matching is case-insensitive on the value.
+        and is sensitive to scalar reweightings of ``X``. ``'none'``
+        returns the bare inner product :math:`\\langle X, Y \\rangle`
+        itself, on one canonical scale whichever route computed it (the
+        physical integral of the two densities' product, each event's
+        density being the sum of unnormalised Gaussian kernels over its
+        full ordered tuple set); no self inner product is formed, and
+        the value is what ``entropy_exp_tens(method='renyi2')`` is
+        computed from. Batched fast paths decline it and the per-pair
+        route runs instead. The British spelling ``'normalise'`` is also
+        accepted as an alias for the keyword name, and matching is
+        case-insensitive on the value.
     truncation_sigmas : float, optional
         Per-call kernel truncation width in sigmas (``None`` takes the
         global default; ``inf`` resolves to the accuracy-floor width).
@@ -662,6 +777,8 @@ def _r1_broadcast_fast(pairs, *, shared_is_x, normalize,
     condition fails — the caller's ordinary loops then run and raise
     the errors a genuine mismatch deserves.
     """
+    if normalize == "none":
+        return None            # the per-pair route puts the bare value on scale
     from .._defaults import resolve_truncation_sigmas
     from .aniso import density_has_kernel_cov
 
@@ -1391,6 +1508,8 @@ def _try_sweep_reduction(
     # Y by -mu with the operands exchanged (the inner product is
     # symmetric, and 'oneSidedDenom' divides by the second operand,
     # which is the tagged one either way).
+    if normalize == "none":
+        return None
     if scalar_first:
         dens_x, dens_y, off_use = dens_scalar, dens_base, off
     else:
@@ -1538,8 +1657,10 @@ def _flat_selector_inputs(dens_x, dens_y, *, normalize, truncation_sigmas):
     # comparison unfair, and :func:`_self_ip_cache_key` for why the
     # memoised values themselves stay per route.
     need_xx = (normalize == "cosine")
+    need_yy = (normalize != "none")
+    need_yy = (normalize != "none")
     skip_xx = (not need_xx) or _self_ip_memoised(dens_x)
-    skip_yy = _self_ip_memoised(dens_y)
+    skip_yy = (not need_yy) or _self_ip_memoised(dens_y)
 
     # Ordered ([sym]=0) attributes at r_a > 1 on either side.
     is_sym_x = np.asarray(getattr(dens_x, "is_sym", np.ones(A, dtype=bool)))
@@ -1640,6 +1761,7 @@ def _cos_sim_exp_tens_ma(
         truncation_sigmas=truncation_sigmas)
     chosen = _select_ma_inner_product_method(user_method=method, **sel_kw)
     need_xx = (normalize == "cosine")
+    need_yy = (normalize != "none")
 
     # Ordered ([sym]=0) attributes are not symmetrised, so the orbit
     # (Möbius) per-attribute inner product does not represent them. Force
@@ -1688,7 +1810,11 @@ def _cos_sim_exp_tens_ma(
                 from .._defaults import _maybe_show_dispatch_msg as _msg
                 _msg("cos_sim_exp_tens", "contract",
                      "nested: " + ",".join(_LAST_NESTED_ROUTES))
-                return _finalise_normalisation(*triple, normalize)
+                ip_xy, ip_xx, ip_yy = triple
+                if normalize == "none":
+                    ip_xy = float(ip_xy) * _ip_canonical_scale(
+                        dens_x, "contract", list(_LAST_NESTED_ROUTES))
+                return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
             # A None here means method == 'auto' and the case is not covered
             # by the contraction (the forced methods raise instead), so the
             # joint-tuple enumeration takes it.
@@ -1715,7 +1841,7 @@ def _cos_sim_exp_tens_ma(
     if chosen == "mobius":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_orbit(
             dens_x, dens_y, user_forced_mobius=(method == "mobius"), truncation_sigmas=truncation_sigmas,
-            need_xx=need_xx,
+            need_xx=need_xx, need_yy=need_yy,
         )
         # Post-hoc correctness check only. Accuracy is governed by
         # truncationSigmas: the Möbius route's agreement with
@@ -1754,23 +1880,25 @@ def _cos_sim_exp_tens_ma(
                 dens_x, dens_y, verbose=verbose,
                 truncation_sigmas=truncation_sigmas,
                 kernel_precision=kernel_precision,
-                need_xx=need_xx,
+                need_xx=need_xx, need_yy=need_yy,
             )
     elif chosen == "centres":
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_centres(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
-            need_xx=need_xx,
+            need_xx=need_xx, need_yy=need_yy,
         )
     else:  # 'bulger'
         ip_xy, ip_xx, ip_yy = _cos_sim_exp_tens_ma_pairwise(
             dens_x, dens_y, verbose=verbose,
             truncation_sigmas=truncation_sigmas,
             kernel_precision=kernel_precision,
-            need_xx=need_xx,
+            need_xx=need_xx, need_yy=need_yy,
         )
 
+    if normalize == "none":
+        ip_xy = float(ip_xy) * _ip_canonical_scale(dens_x, chosen)
     return _finalise_normalisation(ip_xy, ip_xx, ip_yy, normalize)
 
 
@@ -2278,6 +2406,7 @@ def _trunc_log_kernel_exp(log_kernel, truncation_sigmas, *, n_terms=None):
 
 def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
                                need_xx: bool = True,
+                               need_yy: bool = True,
                                user_forced_mobius: bool = False):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via per-attribute
     Möbius method (JMM Eq. 3.4 plus Rem. 3.1).
@@ -2328,10 +2457,11 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
     xx_cached = key in dens_x._self_ip_cache
     yy_cached = key in dens_y._self_ip_cache
     compute_xx = need_xx and not xx_cached
+    compute_yy = need_yy and not yy_cached
 
     P_xy = np.ones((N_x, N_y), dtype=np.float64)
     P_xx = np.ones((N_x, N_x), dtype=np.float64) if compute_xx else None
-    P_yy = np.ones((N_y, N_y), dtype=np.float64) if not yy_cached else None
+    P_yy = np.ones((N_y, N_y), dtype=np.float64) if compute_yy else None
 
     for a in range(A):
         r_a = int(dens_x.r[a])
@@ -2397,9 +2527,11 @@ def _cos_sim_exp_tens_ma_orbit(dens_x, dens_y, *, truncation_sigmas=None,
         ip_xx = None
     if yy_cached:
         ip_yy = dens_y._self_ip_cache[key]
-    else:
+    elif compute_yy:
         ip_yy = float(P_yy.sum())
         dens_y._self_ip_cache[key] = ip_yy
+    else:
+        ip_yy = None
     return ip_xy, ip_xx, ip_yy
 
 
@@ -2556,8 +2688,9 @@ def _nested_self_ip_skip_flags(dens_x, dens_y, normalize):
     winner in, and what the shared flag trades for that.
     """
     need_xx = (normalize == "cosine")
+    need_yy = (normalize != "none")
     return (((not need_xx) or _self_ip_memoised(dens_x)),
-            _self_ip_memoised(dens_y))
+            ((not need_yy) or _self_ip_memoised(dens_y)))
 
 
 def _nested_enumeration_admissible(dens_x, dens_y, ts=None):
@@ -2790,7 +2923,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
 
     from .._defaults import resolve_truncation_sigmas
     ts = resolve_truncation_sigmas(truncation_sigmas)
-    if normalize not in ("cosine", "oneSidedDenom"):
+    if normalize not in ("cosine", "oneSidedDenom", "none"):
         return _decline(f"unsupported normalisation {normalize!r}")
     if dens_x.n_attrs != dens_y.n_attrs:
         return _decline("the two densities have different attribute counts")
@@ -2859,6 +2992,7 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
     # neither computed nor memoised, as on the flat routes, and the
     # finaliser receives None for it.
     need_xx = (normalize == "cosine")
+    need_yy = (normalize != "none")
     if _key in dens_x._self_ip_cache:
         ip_xx = dens_x._self_ip_cache[_key]
     elif not need_xx:
@@ -2869,6 +3003,8 @@ def _try_nested_contract(dens_x, dens_y, *, normalize, verbose, force=False,
         dens_x._self_ip_cache[_key] = ip_xx
     if _key in dens_y._self_ip_cache:
         ip_yy = dens_y._self_ip_cache[_key]
+    elif not need_yy:
+        ip_yy = None
     else:
         ip_yy = float(_nested_attr_matrix(dens_y, dens_y, 0, route, taus,
                                           truncation_sigmas=ts).sum())
@@ -2913,7 +3049,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             )
         return None
 
-    if normalize not in ("cosine", "oneSidedDenom"):
+    if normalize not in ("cosine", "oneSidedDenom", "none"):
         return _decline(f"unsupported normalisation {normalize!r}")
     A = int(dens_x.n_attrs)
     nested_x = getattr(dens_x, "nested", None) or [None] * A
@@ -2999,6 +3135,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
     # neither formed nor memoised, as on the flat routes.
     _need_xx = (normalize == "cosine")
     _form_xx = _need_xx and not _have_xx
+    _form_yy = (normalize != "none") and not _have_yy
 
     # ---- Pass 2: form the matrices.
     for kind, a, route, taus in plans:
@@ -3026,7 +3163,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
                 P_xx *= _ma_per_attr_inner_matrix(
                     Pxa, Wxa, Pxa, Wxa, sigma, r_a, is_rel, is_per, period,
                     truncation_sigmas=_ts_ma, wrap=wrap_a)
-            if not _have_yy:
+            if _form_yy:
                 P_yy *= _ma_per_attr_inner_matrix(
                     Pya, Wya, Pya, Wya, sigma, r_a, is_rel, is_per, period,
                     truncation_sigmas=_ts_ma, wrap=wrap_a)
@@ -3042,7 +3179,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
             if _form_xx:
                 P_xx *= _nested_attr_matrix(dens_x, dens_x, a, route, taus,
                                             truncation_sigmas=_ts_ma)
-            if not _have_yy:
+            if _form_yy:
                 P_yy *= _nested_attr_matrix(dens_y, dens_y, a, route, taus,
                                             truncation_sigmas=_ts_ma)
             continue
@@ -3058,7 +3195,7 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
         P_xy *= _closed_form_attr_matrix_from(cx, cy, _ts_ma, wrap_a)
         if _form_xx:
             P_xx *= _closed_form_attr_matrix_from(cx, cx, _ts_ma, wrap_a)
-        if not _have_yy:
+        if _form_yy:
             P_yy *= _closed_form_attr_matrix_from(cy, cy, _ts_ma, wrap_a)
 
     # The two self inner products are memoised on their densities, as the
@@ -3074,9 +3211,11 @@ def _try_nested_contract_ma(dens_x, dens_y, *, normalize, verbose,
         dens_x._self_ip_cache[_ma_key] = ip_xx
     if _have_yy:
         ip_yy = dens_y._self_ip_cache[_ma_key]
-    else:
+    elif _form_yy:
         ip_yy = float(P_yy.sum())
         dens_y._self_ip_cache[_ma_key] = ip_yy
+    else:
+        ip_yy = None
 
     # No enumeration fallback from *here*: the comparison with the
     # enumeration was made before any matrix was formed, above, where
@@ -3184,7 +3323,8 @@ def _self_ip_cache_key(route, truncation_sigmas, kernel_precision=None,
 
 def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
                                  truncation_sigmas=None,
-                                 kernel_precision=None, need_xx: bool = True):
+                                 kernel_precision=None, need_xx: bool = True,
+                                 need_yy: bool = True):
     """Inner-product triple by unrestricted enumeration of tuple centres.
 
     The O(K^(2r)) baseline: every ordered r-tuple of distinct atoms on
@@ -3245,16 +3385,19 @@ def _cos_sim_exp_tens_ma_centres(dens_x, dens_y, *, verbose: bool = True,
         ip_xx = None
     if key in dens_y._self_ip_cache:
         ip_yy = dens_y._self_ip_cache[key]
-    else:
+    elif need_yy:
         ip_yy = core(dens_y, n_jy, dens_y, n_jy)
         dens_y._self_ip_cache[key] = ip_yy
+    else:
+        ip_yy = None
     return ip_xy, ip_xx, ip_yy
 
 
 def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
                                   truncation_sigmas=None,
                                   kernel_precision=None,
-                                  need_xx: bool = True):
+                                  need_xx: bool = True,
+                                  need_yy: bool = True):
     """Compute (ip_xy, ip_xx, ip_yy) for the MA case via the
     Bulger's method (``_ip_core_ma``).
 
@@ -3283,6 +3426,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
     xx_cached = key in dens_x._self_ip_cache
     yy_cached = key in dens_y._self_ip_cache
     compute_xx = need_xx and not xx_cached
+    compute_yy = need_yy and not yy_cached
 
     # The estimate covers only the kernel work this call performs:
     # memoised self terms cost nothing here, and a skipped <X,X>
@@ -3290,7 +3434,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
     total_pairs = n_jx * n_ky
     if compute_xx:
         total_pairs += n_jx * n_kx
-    if not yy_cached:
+    if compute_yy:
         total_pairs += n_jy * n_ky
     max_r = int(np.max(r_vec)) if A > 0 else 1
     estimate_comp_time(total_pairs, max_r, "cos_sim_exp_tens (MAET)", verbose)
@@ -3321,7 +3465,7 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
         ip_xx = None
     if yy_cached:
         ip_yy = dens_y._self_ip_cache[key]
-    else:
+    elif compute_yy:
         ip_yy = _ip_core_ma(
             dens_y.u_perm, dens_y.w_j, n_jy,
             dens_y.v_comb, dens_y.wv_comb, n_ky,
@@ -3332,6 +3476,8 @@ def _cos_sim_exp_tens_ma_pairwise(dens_x, dens_y, *, verbose: bool = True,
             wrap=getattr(dens_y, 'wrap', None),
         )
         dens_y._self_ip_cache[key] = ip_yy
+    else:
+        ip_yy = None
     return ip_xy, ip_xx, ip_yy
 
 

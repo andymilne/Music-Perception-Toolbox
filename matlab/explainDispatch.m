@@ -112,6 +112,9 @@ function report = localEval(dens, nQ, ts, floorV, sop, limit, setBy, method)
     % explain_dispatch, which calls _ma_eval_costs_ms in a try/except.
     try
         [centresMs, mobiusMs] = internal.maEvalCostsMs(dens, nQ);
+        [cN, mN] = internal.nestedEvalCostsMs(dens, nQ);
+        centresMs = centresMs + cN;
+        mobiusMs = mobiusMs + mN;
     catch
         centresMs = NaN;  mobiusMs = NaN;
     end

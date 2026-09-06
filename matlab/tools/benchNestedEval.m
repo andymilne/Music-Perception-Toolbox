@@ -72,7 +72,13 @@ function benchNestedEval(outFile)
                             if d.dim == 0
                                 continue;
                             end
-                            mPerm = d.nJ / N;
+                            % buildExpTens is lazy: nJ is an expensive field.
+                            % Materialise once, as Python's cached d.n_j does,
+                            % and time the centres route on the materialised
+                            % density so that neither language pays the tuple
+                            % enumeration inside the timed call.
+                            dm = internal.ensureExpTensExpensive(d);
+                            mPerm = dm.nJ / N;
                             bellSum = 0;
                             for l = 1:2
                                 if sym(l) && rLevels(l) >= 2
@@ -85,7 +91,7 @@ function benchNestedEval(outFile)
                                 if mPerm * N * nQ > 4e7
                                     tC = NaN;
                                 else
-                                    tC = localMedianMs(@() evalExpTens(d, X, 'method', 'centres', 'verbose', false));
+                                    tC = localMedianMs(@() evalExpTens(dm, X, 'method', 'centres', 'verbose', false));
                                 end
                                 tM = localMedianMs(@() evalExpTens(d, X, 'method', 'mobius', 'verbose', false));
                                 if isempty(relUnit), ru = -1; else, ru = relUnit - 1; end

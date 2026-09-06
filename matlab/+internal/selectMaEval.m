@@ -16,7 +16,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %
 %   Hard rules (in order):
 %     - ordered ([sym]=0) attribute -> centres (no orbit to collapse)
-%     - nested attribute            -> centres (per-level Möbius not yet priced)
+%     - nested attributes           -> their own cost row (INTERNAL.NESTEDEVALCOSTSMS)
 %     - all r <= 1                  -> centres (Möbius degenerate)
 %     - feasibility bound on any attribute forces the
 %       single-image centres route, GUARDED: if its joint tuple set is
@@ -115,17 +115,30 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         return;
     end
 
-    % ---- Nested attributes: the per-level Möbius evaluator serves a
-    % forced 'mobius'; under 'auto' the joint-centres path is kept until
-    % the per-level route has a fitted cost row. ----
+    % ---- Nested attributes: priced by their own row (the per-level
+    % Möbius evaluator against the tag-tree centres enumeration; see
+    % internal.nestedEvalCostsMs). A density that is nested throughout
+    % is decided here on that row alone; a mixed density falls through
+    % to the shared comparison below, where the nested row is added to
+    % the flat law. ----
+    nestedMask = false(1, A);
     if isfield(dens, 'nested') && ~isempty(dens.nested)
-        for a = 1:A
-            if ~isempty(dens.nested{a})
-                chosen = 'centres';
-                routingReason = 'nested attribute (per-level Möbius not yet priced)';
-                return;
-            end
+        for a = 1:min(A, numel(dens.nested))
+            nestedMask(a) = ~isempty(dens.nested{a});
         end
+    end
+    if all(nestedMask)
+        [centresMs, mobiusMs] = internal.nestedEvalCostsMs(dens, nQ);
+        centresMsOut = centresMs;
+        mobiusMsOut  = mobiusMs;
+        if mobiusMs < centresMs
+            chosen = 'mobius';
+            routingReason = 'cost model (per-level Möbius cheaper)';
+        else
+            chosen = 'centres';
+            routingReason = 'cost model (tag-tree centres cheaper)';
+        end
+        return;
     end
 
     % ---- Hard rule: all r <= 1 -> centres (Möbius degenerate). ----
@@ -140,8 +153,8 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     forceCentresReason = '';
     for a = 1:A
         r_a = rVec(a);
-        if r_a < 2
-            continue;
+        if r_a < 2 || nestedMask(a)
+            continue;   % nested attributes are priced by their own row
         end
         if r_a > ORBIT_R_MAX_FEASIBLE
             forceCentresReason = sprintf( ...
@@ -208,6 +221,11 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
     % internal.maEvalCostsMs, which EXPLAINDISPATCH also calls so that
     % the report and the decision price identical work. ----
     [centresMs, mobiusMs] = internal.maEvalCostsMs(dens, nQ);
+    if any(nestedMask)
+        [cN, mN] = internal.nestedEvalCostsMs(dens, nQ);
+        centresMs = centresMs + cN;
+        mobiusMs = mobiusMs + mN;
+    end
 
     centresMsOut = centresMs;
     mobiusMsOut  = mobiusMs;

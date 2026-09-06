@@ -194,8 +194,22 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % spread is unknown at selection time, so the source spread stands in
     % for the alignment window). ----
     nQeff = max(double(nQ), 1);
+    % Nested attributes are priced by internal.nestedEvalCostsMs; here
+    % they are skipped (their r is the leaf-slot total, not a flat order).
+    flatAttrs = 1:A;
+    if isfield(dens, 'nested') && ~isempty(dens.nested)
+        keep = true(1, A);
+        for a = 1:min(A, numel(dens.nested))
+            keep(a) = isempty(dens.nested{a});
+        end
+        flatAttrs = find(keep);
+        if isempty(flatAttrs)
+            centresMs = 0;  mobiusMs = 0;   % nothing flat to price
+            return;
+        end
+    end
     jointTuples = 1.0;
-    for a = 1:A
+    for a = flatAttrs
         r_a = rVec(a); K_a = kVec(a);
         if r_a < 1
             continue;
@@ -213,7 +227,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     % take the bucket-grid culling discount min(1, c*sigma/spread);
     % periodic ones run dense (the pairwise wrap is not a
     % tail-truncatable ball).
-    factoredSupported = (A > 1) && all(rVec >= 2) ...
+    factoredSupported = (A > 1) && all(rVec(flatAttrs) >= 2) ...
         && ~internal.densityHasKernelCov(dens);
     % Culled fraction for attribute A: the surviving share of its tuple
     % set per query. Dimensionless, in (0, 1].
@@ -223,7 +237,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
 
     if factoredSupported
         centresMs = MA_COST_CENTRES_SETUP_MS;
-        for a = 1:A
+        for a = flatAttrs
             r_a = rVec(a); K_a = kVec(a);
             T_a = factorial(r_a) * localComb(K_a, r_a);
             if isPer(a)
@@ -252,7 +266,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
         cullJoint = 1.0;
         anyPer = false;
         anyRelPer = false;
-        for a = 1:A
+        for a = flatAttrs
             cullJoint = cullJoint * cullOf(a);
             anyPer = anyPer || isPer(a);
             anyRelPer = anyRelPer || (isPer(a) && isRel(a));
@@ -275,7 +289,7 @@ function [centresMs, mobiusMs] = maEvalCostsMs(dens, nQ)
     end
 
     mobiusMs = MA_COST_MOBIUS_SETUP_MS;
-    for a = 1:A
+    for a = flatAttrs
         r_a = rVec(a); K_a = kVec(a);
         if r_a < 2
             continue;  % r_a <= 1: a plain kernel sum either way

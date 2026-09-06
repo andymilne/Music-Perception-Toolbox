@@ -1911,13 +1911,8 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         switch firstArg.tag
             case 'MaetDensity'
                 localRaiseIfAnySigmaZero(firstArg, 'renyi2');
-                if internal.isSingleMultiset(firstArg)
-                    H = localRenyi2SingleMultiset(firstArg, base);
-                    H = localAnisoEntropyCorrection(H, firstArg, base);
-                else
-                    H = localRenyi2MA(firstArg, base);
-                    H = localAnisoEntropyCorrection(H, firstArg, base);
-                end
+                H = localRenyi2(firstArg, base);
+                H = localAnisoEntropyCorrection(H, firstArg, base);
                 return;
             otherwise
                 error('entropyExpTens:unknownTag', ...
@@ -1938,7 +1933,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
                             posArgs{5}, posArgs{6}, posArgs{7}, symArgs{:}, ...
                             'verbose', false);
         localRaiseIfAnySigmaZero(dens, 'renyi2');
-        H = localRenyi2MA(dens, base);
+        H = localRenyi2(dens, base);
         H = localAnisoEntropyCorrection(H, dens, base);
         return;
     end
@@ -1978,7 +1973,7 @@ function H = localEntropyRenyi2Dispatch(posArgs, nvArgs)
         p, w, sigma, r, isRel, isPer, period, symArgs{:}, ...
         'verbose', false);
     localRaiseIfAnySigmaZero(maet, 'renyi2');
-    H = localRenyi2SingleMultiset(maet, base);
+    H = localRenyi2(maet, base);
     H = localAnisoEntropyCorrection(H, maet, base);
 end
 
@@ -2021,392 +2016,140 @@ function H = localAnisoEntropyCorrection(H, dens, base)
 end
 
 
-function H = localRenyi2SingleMultiset(maet, base)
-%LOCALRENYI2SINGLEMULTISET  Analytical Rényi-2 entropy of the single-multiset corner.
+function H = localRenyi2(dens, base)
+%LOCALRENYI2  Analytical Rényi-2 entropy of an expectation tensor.
 %
-%   Computes H_2 = -log_b(<T,T> / Z^2) where <T,T> is evaluated via
-%   the orbit-Möbius inner product machinery (or a direct pairwise
-%   formula at r=1 where the orbit table is undefined) and
-%   Z = integral T(x) dx via the closed-form total-mass formulae in
-%   the +mobius package.
-
-    dens = internal.singleMultisetView(internal.prunedExpTens(maet));
-    p = dens.p; w = dens.w;
-    sigma = dens.sigma; r = dens.r;
-    isRel = dens.isRel; isPer = dens.isPer; period = dens.period;
-
-    % An ordered (isSym = false) density at r > 1 has no orbit, so the
-    % Möbius collision inner product (which presumes symmetrisation) does
-    % not apply. Compute it numerically via the direct double sum of
-    % Gaussian overlaps over the C(K, r) ordered tuples, reusing the
-    % shared per-attribute machinery on a single-attribute, single-event
-    % density. r = 1 is exempt ([sym] vacuous; ordered and symmetric
-    % coincide) and falls through to the closed-form path below.
-    if isfield(dens, 'isSym') && ~all(logical(dens.isSym)) && r > 1
-        da = buildExpTens({p(:)}, {w(:)}, sigma, r, isRel, isPer, period, ...
-                          false, 'lazy', false, 'verbose', false);
-        [I_a, Z_a] = localRenyi2PerAttrNumerical(da, 1);
-        H = localRenyi2Finalise(I_a(1, 1), Z_a(1), base);
-        return;
-    end
-
-    % r = 1 rel is degenerate: the relative density lives on a 0-D space
-    % (one position has no internal relative structure). The convention
-    % (no entropy: unit overlap, unit mass, hence H_2 = 0) is owned by the
-    % general per-attribute loop in localRenyi2MA; delegate so that the
-    % corner returns exactly what the same attribute returns inside any
-    % multi-attribute density.
-    if r == 1 && isRel
-        H = localRenyi2MA(maet, base);
-        return;
-    end
-
-    if r == 1
-        % Direct r=1 abs path: T = sum_i w_i G_sigma(x - p_i), so
-        %   <T,T> = sigma*sqrt(pi) * sum_{i,j} w_i w_j K(p_i - p_j)
-        % where K is the 1-D overlap kernel: exp(-d^2/(4 sigma^2)) in
-        % single-image mode, or its wrapped-Gaussian counterpart
-        % theta(d) in full-image mode. The (sigma sqrt(pi)) prefactor
-        % is the 1-D Gaussian overlap normaliser and is the same in
-        % both measures (the 1-D wrapped Gaussian integrates to
-        % sigma sqrt(pi) over the circle, matching the line integral
-        % of the single Gaussian).
-        internal.maybeShowDispatchMsg('entropyExpTens', 'pairwise', ...
-            sprintf('renyi2, r=1 abs (direct pairwise sum)'));
-        p = p(:); w = w(:);
-        diffs = p - p.';
-        wrap = 'full-image';
-        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
-            if iscell(dens.wrap)
-                wrap = char(dens.wrap{1});
-            else
-                wrap = char(dens.wrap);
-            end
-        end
-        if isPer && strcmp(wrap, 'full-image')
-            ts = internal.accuracyFloor('resolve', []);
-            K = internal.wrappedGaussian1d(diffs, sigma, period, ts, 4);
-        else
-            if isPer
-                diffs = diffs - period * floor(diffs / period + 0.5);
-            end
-            K = exp(-(diffs.^2) / (4 * sigma^2));
-        end
-        ip_xx = sigma * sqrt(pi) * sum(sum((w * w.') .* K));
-        Z = mobius.totalMassAbs(p, w, sigma, r);
-    else
-        % r >= 2: orbit machinery. Empirical sweeps in the Python audit
-        % corpus show the orbit self-IP is robust at every tested
-        % musical sigma; the per-orbit-class cancellation ratio in abs
-        % mode dips to ~0.13 in the worst tested case, well above the
-        % 1e-10 threshold. We rely on a post-hoc finite/
-        % positive check rather than a ratio-based fallback. The
-        % pairwise fallback explored earlier was abandoned: orbit and
-        % pairwise use different normalisation conventions in rel mode,
-        % so the fallback gave a different (also wrong) answer rather
-        % than recovering the correct value.
-        internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
-            sprintf('renyi2, r=%d (orbit-Möbius IP)', r));
-        if isRel
-            ip_xx = mobius.orbitInnerRelSingleMultiset(p, w, p, w, sigma, r, isPer, period);
-            Z = mobius.totalMassRel(p, w, sigma, r);
-        else
-            % dens here may be a single-multiset view (wrap as bare
-            % char) or an MA density (wrap as cell); handle both.
-            wrapA = 'full-image';
-            if isfield(dens, 'wrap') && ~isempty(dens.wrap)
-                if iscell(dens.wrap)
-                    wrapA = char(dens.wrap{1});
-                else
-                    wrapA = char(dens.wrap);
-                end
-            end
-            ip_xx = mobius.orbitInnerAbsSingleMultiset(p, w, p, w, sigma, r, ...
-                isPer, period, 'wrap', wrapA);
-            Z = mobius.totalMassAbs(p, w, sigma, r);
-        end
-    end
-
-    H = localRenyi2Finalise(ip_xx, Z, base);
-end
-
-
-function H = localRenyi2MA(dens, base)
-%LOCALRENYI2MA  Analytical Rényi-2 entropy of an MA expectation tensor.
-%
-%   Uses the per-attribute orbit IP factorisation
-%       <T,T> = sum_{n,m} prod_a I_a[n,m]
-%   with the per-attribute matrix coming from mobius.maPerAttrInnerMatrix
-%   (the same machinery cosSimExpTens uses), and
-%       Z = sum_n prod_a Z_a^{(n)}
-%   where each Z_a^{(n)} is the closed-form single multiset total mass evaluated on
-%   event n's attribute-a pitches and weights.
+%   H_2 = -log_b(<T,T> / Z^2): the self inner product comes from the
+%   inner-product machinery --- cosSimExpTens(dens, dens, 'normalize',
+%   'none'), which runs the same selector, routes, cost models and memo
+%   as every cosine and returns the bare value on the canonical scale
+%   (INTERNAL.IPCANONICALSCALE) --- and the total mass Z = sum_n prod_a
+%   Z_a^(n) is closed-form per event and attribute: the Möbius masses of
+%   the +mobius package for a flat attribute, and for a nested one the
+%   weighted tuple count down its tag tree (INTERNAL.NESTEDTUPLECOUNT)
+%   times the kernel's volume under the attribute's (block) metric.
+%   Nothing here chooses a route, so every improvement to the inner
+%   product is an improvement to this entropy; the numerical enumeration
+%   this file once carried for nested and ordered attributes survives
+%   only as the reference of tests/test_inner_product_scale.m. The
+%   single-multiset density is the A = N = 1 corner of the same code.
 %
 %   A *relative* attribute at r = 1 is a 0-dimensional point mass: a
 %   single value has no internal relative structure, so the attribute's
 %   kernel is a delta at the origin of a 0-D space and its collision
 %   entropy is undefined as a continuous quantity. By convention it
-%   contributes *no* entropy, which in the product factorisation means
-%   I_a(n, m) = 1 for every event pair and Z_a^{(n)} = 1 for every event
-%   (a unit point mass whose self-overlap is 1). A density whose only
-%   attribute is of this kind therefore has H_2 = -log_b(N^2 / N^2) = 0
-%   for any number of events, and the single-multiset corner
-%   (localRenyi2SingleMultiset, A = N = 1) inherits the value 0 from this
-%   general loop rather than owning a convention of its own. The Python
-%   twin (_renyi2_exp_tens_ma) applies the same rule.
+%   contributes *no* entropy (unit overlap, unit mass); the inner-product
+%   routes do not share one reading of that degenerate attribute, so it
+%   is left out of the density handed to them, and with nothing else
+%   left <T,T> = N^2. A density whose only attribute is of this kind
+%   therefore has H_2 = 0. Twin of the Python _renyi2_exp_tens_ma.
 
     dens = internal.prunedExpTens(dens);
-    A = dens.nAttrs;
-    N = dens.N;
+    A = double(dens.nAttrs);
+    N = double(dens.N);
     if A == 0
         H = 0;
         return;
     end
     if N == 0
-        % Every event pruned away: a zero-mass density (e.g. an event-
-        % weighted sweep centre with no event in support). Collision entropy is
-        % undefined; return NaN rather than 0, matching the single multiset path and
-        % the value a windowed sweep wants at out-of-support centres.
-        H = NaN;
+        H = NaN;    % zero-mass density: collision entropy undefined
         return;
     end
-
-    % Per-attribute inner matrices compose as
-    % <T,T> = sum_{n,m} prod_a I_a[n,m] and Z = sum_n prod_a Z_a^(n).
-    % Symmetric flat attributes take the Möbius per-attribute matrix and
-    % closed-form total mass (the fast path; orbit-collapse assumes
-    % symmetrisation). Nested attributes, and ordered (isSym = false) flat
-    % attributes at r > 1, take the numerical inner matrix
-    % (localRenyi2PerAttrNumerical): an ordered attribute has no orbit, so
-    % its tuples are summed directly. r = 1 flat attributes are symmetric-
-    % equivalent ([sym] vacuous) and stay on the Möbius path.
-    nested = {};
-    if isfield(dens, 'nested'); nested = dens.nested; end
+    nested = cell(1, A);
+    if isfield(dens, 'nested') && ~isempty(dens.nested)
+        for a = 1:min(A, numel(dens.nested)); nested{a} = dens.nested{a}; end
+    end
     isNested = false(1, A);
     for a = 1:A
-        if numel(nested) >= a && ~isempty(nested{a}) && isstruct(nested{a}) ...
-                && isfield(nested{a}, 'tags')
-            isNested(a) = true;
-        end
+        isNested(a) = ~isempty(nested{a}) && isstruct(nested{a}) && isfield(nested{a}, 'tags');
     end
-    if isfield(dens, 'isSym')
+    if isfield(dens, 'isSym') && ~isempty(dens.isSym)
         isSymVec = logical(dens.isSym(:).');
     else
         isSymVec = true(1, A);
     end
-    rVec = dens.r(:).';
+    rVec = double(dens.r(:).');
+    relR1 = ~isNested & logical(dens.isRel(:).') & (rVec == 1);
+    live = find(~relR1);
 
-    internal.maybeShowDispatchMsg('entropyExpTens', 'mobius', ...
-        sprintf('renyi2 MA, A=%d (per-attribute orbit IP)', A));
+    internal.maybeShowDispatchMsg('entropyExpTens', 'ip', ...
+        sprintf('renyi2, A=%d (self inner product via cosSimExpTens)', A));
 
-    % --- <T, T> and Z, per attribute ---
-    % Per-(n,m) cancellation ratios were shown empirically to fire
-    % spuriously for self-IPs in typical musical regimes; we rely on a
-    % post-hoc finite/positive check rather than a ratio fallback.
-    P_xx = ones(N, N);
-    Z_per_event_attr = zeros(N, A);
-    for a = 1:A
-        orderedFlat = ~isNested(a) && ~isSymVec(a) && (rVec(a) > 1);
-        if isNested(a) || orderedFlat
-            [I_xx, Z_a] = localRenyi2PerAttrNumerical(dens, a);
-        elseif dens.isRel(a) && dens.r(a) == 1
-            % Relative r = 1: a 0-D point mass with no entropy by
-            % convention (see the header). Unit overlap and unit mass
-            % leave the product factorisation untouched, so the attribute
-            % neither raises nor lowers H_2; a density consisting of this
-            % attribute alone yields exactly 0.
-            I_xx = ones(N, N);
-            Z_a = ones(N, 1);
-        else
-            r_a = dens.r(a);
-            sigma_g = dens.sigma(a);
-            isRel_g = dens.isRel(a);
-            isPer_g = dens.isPer(a);
-            period_g = dens.period(a);
-            Pa = dens.pAttr{a};
-            Wa = dens.w{a};
-            % Per-attribute wrap opt-in (default full-image).
-            wrapA = 'full-image';
-            if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
-                    && a <= numel(dens.wrap)
-                wrapA = char(dens.wrap{a});
-            end
-            I_xx = mobius.maPerAttrInnerMatrix(Pa, Wa, Pa, Wa, ...
-                sigma_g, r_a, isRel_g, isPer_g, period_g, 'wrap', wrapA);
-            Z_a = zeros(N, 1);
-            for n = 1:N
-                pn = Pa(:, n);
-                wn = Wa(:, n);
-                valid = ~(isnan(pn) | isnan(wn));
-                pn = pn(valid);
-                wn = wn(valid);
-                if isRel_g
-                    Z_a(n) = mobius.totalMassRel(pn, wn, sigma_g, r_a);
-                else
-                    Z_a(n) = mobius.totalMassAbs(pn, wn, sigma_g, r_a);
-                end
+    if isempty(live)
+        ip_xx = N^2;
+    elseif numel(live) < A
+        specs = cell(1, numel(live));
+        for i = 1:numel(live)
+            a = live(i);
+            if isNested(a)
+                specs{i} = nested{a};
+            else
+                specs{i} = struct('r', rVec(a), 'sym', isSymVec(a), ...
+                                  'rel', logical(dens.isRel(a)));
             end
         end
-        P_xx = P_xx .* I_xx;
-        Z_per_event_attr(:, a) = Z_a;
+        bArgs = {};
+        if isfield(dens, 'wrap') && ~isempty(dens.wrap)
+            bArgs = {'wrap', dens.wrap(live)};
+        end
+        sub = buildExpTens(dens.pAttr(live), dens.w(live), 'specs', specs, ...
+                           'sigma', dens.sigma(live), 'isPer', logical(dens.isPer(live)), ...
+                           'period', dens.period(live), bArgs{:}, 'verbose', false);
+        ip_xx = cosSimExpTens(sub, sub, 'normalize', 'none', 'verbose', false);
+    else
+        ip_xx = cosSimExpTens(dens, dens, 'normalize', 'none', 'verbose', false);
     end
-    ip_xx = sum(P_xx(:));
 
-    Z = sum(prod(Z_per_event_attr, 2));
+    % ---- Z = sum_n prod_a Z_a^(n) ----
+    Zpe = ones(N, A);
+    for a = 1:A
+        sig = double(dens.sigma(a));
+        isRel = logical(dens.isRel(a));
+        r_a = rVec(a);
+        Pa = dens.pAttr{a};
+        Wa = dens.w{a};
+        if isNested(a)
+            spec = nested{a};
+            rLevels = double(spec.r(:).');
+            sTot = prod(rLevels);
+            blockSize = 0;
+            dA = sTot;
+            if isfield(spec, 'relUnit') && ~isempty(spec.relUnit) ...
+                    && ~any(isnan(spec.relUnit)) && spec.relUnit > 0
+                sU = prod(rLevels(1:spec.relUnit));
+                dA = sTot - sTot / sU;
+                if isfield(spec, 'proj') && any(strcmp(spec.proj, {'inner', 'intermediate'}))
+                    blockSize = sU;
+                end
+            end
+            detM = internal.quadraticFormDet(sTot, blockSize, isRel);
+            vol = internal.gaussianMassConst(sig, dA, detM);
+            tg = double(spec.tags);
+            if isvector(tg); tg = tg(:); end
+        end
+        for n = 1:N
+            col = Pa(:, n);
+            valid = ~isnan(col);
+            wv = Wa(valid, n);
+            if isNested(a)
+                Zpe(n, a) = vol * internal.nestedTupleCount(tg(valid, :), rLevels, spec.sym, wv);
+            elseif relR1(a)
+                Zpe(n, a) = 1;
+            else
+                pv = col(valid);
+                if isRel
+                    z = mobius.totalMassRel(pv, wv, sig, r_a);
+                else
+                    z = mobius.totalMassAbs(pv, wv, sig, r_a);
+                end
+                if ~isSymVec(a) && r_a > 1
+                    z = z / factorial(r_a);   % one arrangement per combination
+                end
+                Zpe(n, a) = z;
+            end
+        end
+    end
+    Z = sum(prod(Zpe, 2));
 
     H = localRenyi2Finalise(ip_xx, Z, base);
-end
-
-
-function [I_a, Z_a] = localRenyi2PerAttrNumerical(dens, a)
-%LOCALRENYI2PERATTRNUMERICAL  Per-attribute (event, event) inner matrix and
-%per-event total mass computed numerically via explicit tuple enumeration
-%and the (block-diagonal) co-transposition metric. Handles both *nested*
-%attributes and *ordered* (isSym = false) flat attributes at r > 1.
-%
-%   Returns I_a (N x N), where I_a(n,m) = integral k_a^n(x) k_a^m(x), and
-%   Z_a (N x 1), where Z_a(n) = integral k_a^n. These compose with the
-%   flat-symmetric Möbius matrices in the MA Rényi-2 factorisation. The
-%   flat Möbius matrix presumes a single symmetric tuple and re-derives the
-%   full S_{r} orbit; that orbit is wrong for an ordered attribute (no
-%   symmetrisation) and, for a nested attribute, both wrong and infeasible.
-%   The numerical reading builds the attribute's density, whose tuples and
-%   metric are correct in either case. For two kernels of common metric M
-%   and width sigma the Gaussian overlap is
-%   (pi sigma^2)^{d/2}/sqrt(det M) * exp(-Q_M(c_t - c_s)/(4 sigma^2)) and
-%   the single-kernel mass is (2 pi sigma^2)^{d/2}/sqrt(det M).
-    sig  = dens.sigma(a);
-    isper = dens.isPer(a);
-    per  = dens.period(a);
-    isNestedA = isfield(dens, 'nested') && numel(dens.nested) >= a ...
-        && ~isempty(dens.nested{a}) && isstruct(dens.nested{a}) ...
-        && isfield(dens.nested{a}, 'tags');
-    if isNestedA
-        % Nested attribute: rebuild from its resolved spec.
-        spec = dens.nested{a};
-        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, 'specs', {spec}, ...
-                          'sigma', sig, 'isPer', isper, 'period', per, ...
-                          'lazy', false, 'verbose', false);
-    else
-        % Flat ordered attribute: rebuild from its flat parameters with
-        % isSym = false, so the materialised tuples are the C(K, r_a)
-        % ordered sub-tuples (one kernel each, no orbit).
-        spec = [];
-        r_a0   = dens.r(a);
-        isRel0 = dens.isRel(a);
-        da = buildExpTens({dens.pAttr{a}}, {dens.w{a}}, sig, r_a0, ...
-                          isRel0, isper, per, false, ...
-                          'lazy', false, 'verbose', false);
-    end
-    C   = da.Centres{1};         % (d_a x nJ) reduced centres
-    wj  = da.wJ(:);              % (nJ x 1)
-    eoj = da.eventOfJ(:);        % (nJ x 1) 1-based event index
-    d_a = size(C, 1);
-    nj  = numel(wj);
-    N   = dens.N;
-
-    blockSize = 0;
-    if ~isempty(spec) && isfield(spec, 'proj') ...
-            && (strcmp(spec.proj, 'inner') || strcmp(spec.proj, 'intermediate'))
-        u = spec.relUnit;
-        blockSize = prod(spec.r(1:u));
-    end
-    isRel = da.isRel(1);
-    r_a   = da.r(1);
-    detM = internal.quadraticFormDet(r_a, blockSize, isRel);
-    vol  = internal.gaussianMassConst(sig, d_a, detM);          % single-kernel mass
-    pref = internal.gaussianMassConst(sig, d_a, detM, true);    % overlap prefactor
-
-    I_a = zeros(N, N);
-    Z_a = zeros(N, 1);
-    if nj > 0
-        % Abs-per full-image path: compute the pairwise overlap matrix
-        % O directly from per-position theta products, bypassing the Q ->
-        % exp(-Q/(4 sigma^2)) formulation which is single-image. This
-        % applies only to flat abs-per (blockSize < 2 and not rel);
-        % other configurations use the block-diagonal quadratic form
-        % below (either always full-image via pairwise wrap for rel,
-        % or nested/block-metric that keeps its own semantics).
-        wrapA = 'full-image';
-        if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
-                && a <= numel(dens.wrap)
-            wrapA = char(dens.wrap{a});
-        end
-        useAbsPerFullImage = isper && ~isRel && blockSize < 2 ...
-            && strcmp(wrapA, 'full-image');
-        if useAbsPerFullImage
-            D = reshape(C, d_a, nj, 1) - reshape(C, d_a, 1, nj);
-            ts = internal.accuracyFloor('resolve', []);
-            theta = internal.wrappedGaussian1d(D, sig, per, ts, 4);
-            O = pref .* reshape(prod(theta, 1), nj, nj);
-        else
-            Q = localBlockMetricQ(C, blockSize, isRel, r_a, isper, per);  % nJ x nJ
-            O = pref .* exp(-Q ./ (4 * sig^2));
-        end
-        WO = (wj * wj.') .* O;
-        G = zeros(N, nj);
-        G(sub2ind([N, nj], eoj.', 1:nj)) = 1;
-        I_a = G * WO * G.';
-        Z_a = vol .* (G * wj);
-    end
-end
-
-
-function Q = localBlockMetricQ(C, blockSize, isRel, r_a, isPer, per)
-%LOCALBLOCKMETRICQ  Pairwise block-diagonal co-transposition quadratic
-%form on reduced centres. Mirrors the reduced-convention block metric used
-%in evalExpTens (qInnerBlocksReducedLocal) and the whole-tuple _compute_Q,
-%but operates on the (nJ x nJ) pairwise difference tensor.
-    d_a = size(C, 1);
-    nj  = size(C, 2);
-    % D(k,i,j) = C(k,i) - C(k,j).
-    D = reshape(C, d_a, nj, 1) - reshape(C, d_a, 1, nj);
-    Q = zeros(nj, nj);
-    if blockSize >= 2
-        blk = blockSize - 1;          % reduced rows per block
-        nBlocks = d_a / blk;
-        for b = 1:nBlocks
-            rows = (b - 1) * blk + (1:blk);
-            Db = D(rows, :, :);
-            if isPer
-                position0Wrapped = Db - per .* floor(Db ./ per + 0.5);
-                Qb = reshape(sum(position0Wrapped .^ 2, 1), nj, nj);
-                for i = 1:blk
-                    for j = i + 1:blk
-                        delta = reshape(Db(i, :, :) - Db(j, :, :), nj, nj);
-                        delta = delta - per .* floor(delta ./ per + 0.5);
-                        Qb = Qb + delta .^ 2;
-                    end
-                end
-                Qb = Qb / blockSize;
-            else
-                Qb = reshape(sum(Db .^ 2, 1), nj, nj) ...
-                   - reshape(sum(Db, 1) .^ 2, nj, nj) / blockSize;
-            end
-            Q = Q + Qb;
-        end
-    elseif isRel && r_a >= 2
-        % Whole-tuple reduced relative quotient (outer unit).
-        if isPer
-            position0Wrapped = D - per .* floor(D ./ per + 0.5);
-            Q = reshape(sum(position0Wrapped .^ 2, 1), nj, nj);
-            for i = 1:d_a
-                for j = i + 1:d_a
-                    delta = reshape(D(i, :, :) - D(j, :, :), nj, nj);
-                    delta = delta - per .* floor(delta ./ per + 0.5);
-                    Q = Q + delta .^ 2;
-                end
-            end
-            Q = Q / r_a;
-        else
-            Q = reshape(sum(D .^ 2, 1), nj, nj) ...
-              - reshape(sum(D, 1) .^ 2, nj, nj) / r_a;
-        end
-    else
-        % Absolute.
-        if isPer
-            D = D - per .* floor(D ./ per + 0.5);
-        end
-        Q = reshape(sum(D .^ 2, 1), nj, nj);
-    end
 end

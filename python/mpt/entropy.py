@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 
+import math
 import numpy as np
 from scipy.special import erf as _erf
 
@@ -17,7 +18,6 @@ from .tensor import (
     build_exp_tens,
     difference_events,
     eval_exp_tens,
-    _ma_per_attr_inner_matrix,
 )
 
 
@@ -1450,137 +1450,41 @@ def _renyi2_finalise(ip_xx, Z, base):
     return -float(np.log(ip_xx / (Z * Z)) / np.log(base))
 
 
-def _renyi2_per_attr_numerical(dens, a):
-    """Per-attribute (event, event) inner matrix and per-event total mass
-    computed numerically via explicit tuple enumeration and the (block-
-    diagonal) co-transposition metric. Handles both *nested* attributes
-    and *ordered* (``[sym] = 0``) flat attributes at ``r > 1``.
-
-    Returns ``(I_a, Z_a)`` where ``I_a[n, m] = integral k_a^n(x) k_a^m(x)``
-    over event *n*'s and event *m*'s attribute-*a* kernels, and
-    ``Z_a[n] = integral k_a^n`` is event *n*'s total mass. These compose
-    with the flat-symmetric Möbius matrices in the MA Rényi-2
-    factorisation ``integral p^2 = sum_{n,m} prod_a I_a[n,m]`` and
-    ``Z = sum_n prod_a Z_a[n]``.
-
-    The flat Möbius per-attribute matrix presumes a single *symmetric*
-    ``r_a``-tuple over the values and re-derives the full S_{r_a} orbit;
-    that orbit is wrong for an ordered attribute (no symmetrisation) and,
-    for a nested attribute (``r_a = prod(r_levels)``), both wrong and
-    infeasible. The numerical reading here builds the attribute's density,
-    whose tuples and metric are correct in either case, and forms the
-    overlap integrals in closed form: for two kernels of common metric
-    ``M`` and width ``sigma`` the Gaussian overlap is
-    ``(pi sigma^2)^{d/2} / sqrt(det M) * exp(-Q_M(c_t - c_s) / (4 sigma^2))``
-    and the single-kernel mass is ``(2 pi sigma^2)^{d/2} / sqrt(det M)``.
-    """
-    from ._tensor.build import build_exp_tens
-    from ._tensor.dispatch import (
-        _compute_Q_inner_blocks, _compute_Q, _inner_r_vec,
-        _quadratic_form_det, _gaussian_mass_const,
-    )
-
-    nested = getattr(dens, "nested", None)
-    spec = nested[a] if nested is not None else None
-    sigma = float(dens.sigma[a])
-    is_per = bool(dens.is_per[a])
-    period = float(dens.period[a])
-    if spec is not None:
-        # Nested attribute: rebuild from its resolved spec.
-        da = build_exp_tens(
-            [dens.p_attr[a]], [dens.w[a]], specs=[spec],
-            sigma=[sigma], is_per=[is_per], period=[period], verbose=False,
-        )
-    else:
-        # Flat ordered attribute: rebuild from its flat parameters with
-        # is_sym=False, so the materialised tuples are the C(K, r_a)
-        # ordered sub-tuples (one kernel each, no orbit).
-        r_a0 = int(dens.r[a])
-        is_rel0 = bool(dens.is_rel[a])
-        da = build_exp_tens(
-            [dens.p_attr[a]], [dens.w[a]],
-            [sigma], [r_a0], [is_rel0], [is_per], [period], [False],
-            verbose=False,
-        )
-    centres = da.centres[0]            # (d_a, n_j) reduced centres
-    w_j = da.w_j                       # (n_j,)
-    event_of_j = da.event_of_j         # (n_j,) -> event index 0..N-1
-    d_a = centres.shape[0]
-    n_j = w_j.shape[0]
-    N = int(dens.n)
-
-    block_size = int(_inner_r_vec(da)[0])   # s_u (inner/intermediate) or 0
-    is_rel = bool(da.is_rel[0])
-    r_a = int(da.r[0])
-    det_m = _quadratic_form_det(r_a, block_size, is_rel)
-    vol = _gaussian_mass_const(sigma, d_a, det_m)              # mass
-    pref = _gaussian_mass_const(sigma, d_a, det_m, half=True)  # overlap
-
-    I_a = np.zeros((N, N), dtype=np.float64)
-    Z_a = np.zeros(N, dtype=np.float64)
-    if n_j > 0:
-        # Pairwise (block-)metric quadratic form on the reduced centres.
-        D = centres[:, :, None] - centres[:, None, :]   # (d_a, n_j, n_j)
-        if block_size >= 2:
-            Q = _compute_Q_inner_blocks(
-                D, block_size, is_per, period, reduced=True)
-            overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-        elif is_per and not is_rel:
-            # Abs-per: full-image via shared helper (image-sum or
-            # Fourier by cost); single-image opt-in evaluates the
-            # nearest image only.
-            wrap_a = 'full-image'
-            if hasattr(dens, 'wrap') and dens.wrap is not None:
-                wrap_a = str(dens.wrap[a])
-            if wrap_a == 'single-image':
-                D = D - period * np.floor(D / period + 0.5)
-                Q = _compute_Q(D, r_a, is_rel, is_per, period,
-                               reduced=is_rel)
-                overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-            else:
-                from ._wrapped_kernel import wrapped_gaussian_1d
-                from ._defaults import get_default
-                ts = get_default("truncation_sigmas")
-                theta_per_position = wrapped_gaussian_1d(
-                    D, sigma, period, ts, exponent_denominator=4
-                )
-                overlap = pref * theta_per_position.prod(axis=0)
-        else:
-            Q = _compute_Q(D, r_a, is_rel, is_per, period, reduced=is_rel)
-            overlap = pref * np.exp(-Q / (4 * sigma ** 2))
-        wo = (w_j[:, None] * w_j[None, :]) * overlap
-        # Aggregate tuples into their events (G is the N x n_j incidence).
-        G = np.zeros((N, n_j), dtype=np.float64)
-        G[event_of_j, np.arange(n_j)] = 1.0
-        I_a = G @ wo @ G.T
-        Z_a = vol * (G @ w_j)
-    return I_a, Z_a
-
-
 def _renyi2_exp_tens_ma(dens, *, base: float) -> float:
     """Analytical Rényi-2 entropy of an MA expectation tensor.
 
-    Uses the per-attribute Möbius IP factorisation
-    ``<T,T> = Σ_{n,m} Π_a I_a[n,m]``, with the per-attribute matrix
-    coming from the same machinery the cosine path uses, and
-    ``Z = Σ_n Π_a Z_a^(n)`` where each ``Z_a^(n)`` is the closed-form
-    Single-multiset total mass evaluated on event ``n``'s attribute-``a`` value
-    pitches and weights.
+    ``H_2 = -log_b(<T,T> / Z^2)``: the self inner product comes from the
+    inner-product machinery --- ``cos_sim_exp_tens(dens, dens,
+    normalize='none')``, which runs the same selector, routes, cost
+    models, and memo as every cosine and returns the bare value on the
+    canonical scale --- and the total mass ``Z = sum_n prod_a Z_a^(n)`` is
+    closed-form per event and attribute: the Möbius masses of
+    :mod:`mpt._mobius` for a flat attribute, and for a nested one the
+    weighted tuple count down its tag tree
+    (:func:`~mpt._tensor.dispatch.nested_tuple_count`) times the
+    kernel's volume under the attribute's (block) metric. Nothing here
+    chooses a route, so every improvement to the inner product is an
+    improvement to this entropy; the numerical enumeration this function
+    once carried for nested and ordered attributes survives only as the
+    reference of ``tests/test_inner_product_scale.py``.
 
     A *relative* attribute at ``r = 1`` is a 0-dimensional point mass: a
     single value has no internal relative structure, so the attribute's
     kernel is a delta at the origin of a 0-D space and its collision
     entropy is undefined as a continuous quantity. By convention it
-    contributes *no* entropy, which in the product factorisation means
-    ``I_a[n, m] = 1`` for every event pair and ``Z_a^(n) = 1`` for every
-    event (a unit point mass whose self-overlap is 1). A density whose
-    only attribute is of this kind therefore has ``H_2 = -log_b(N^2 / N^2)
-    = 0`` for any number of events, and the single-multiset corner
-    (``A = N = 1``) inherits the value 0 from this general loop rather
-    than owning a convention of its own. The MATLAB twin
+    contributes *no* entropy: ``I_a[n, m] = 1`` for every event pair and
+    ``Z_a^(n) = 1`` for every event (a unit point mass whose
+    self-overlap is 1), which is what the inner-product routes and the
+    masses below both do, so a density whose only attribute is of this
+    kind has ``H_2 = -log_b(N^2 / N^2) = 0``. The MATLAB twin
     (``entropyExpTens`` MA loop) applies the same rule.
     """
     from ._mobius import total_mass_abs, total_mass_rel
+    from ._tensor.cosine import cos_sim_exp_tens
+    from ._tensor.dispatch import (
+        nested_tuple_count, _inner_r_vec, _quadratic_form_det,
+        _gaussian_mass_const,
+    )
 
     dens = dens.pruned()
     A = dens.n_attrs
@@ -1595,79 +1499,90 @@ def _renyi2_exp_tens_ma(dens, *, base: float) -> float:
         # out-of-support centres.
         return float("nan")
 
-    # Per-attribute inner matrices compose as
-    # <T,T> = sum_{n,m} prod_a I_a[n,m] and Z = sum_n prod_a Z_a^(n).
-    # Symmetric flat attributes take the Möbius per-attribute matrix and
-    # closed-form total mass (the fast path; orbit-collapse assumes
-    # symmetrisation). Nested attributes, and ordered ([sym] = 0) flat
-    # attributes at r > 1, take the numerical inner matrix
-    # (:func:`_renyi2_per_attr_numerical`): an ordered attribute has no
-    # orbit, so its tuples are summed directly. r = 1 flat attributes are
-    # symmetric-equivalent ([sym] vacuous) and stay on the Möbius path.
-    #
-    # The per-(n, m) cancellation ratio aggregated across attributes was
-    # empirically shown to fire spuriously in 100% of typical musical
-    # regimes for self-IPs (sweep_self_ip.py): off-diagonal entries can
-    # have low ratios while the diagonal entries (which dominate the sum)
-    # are clean, so the sum Σ P_xx[n,m] is correct even when some entries
-    # are noisy. We therefore rely solely on a post-hoc finite/positive
-    # check. The Bulger fallback was abandoned for the same convention-
-    # mismatch reason as in the single-multiset path.
-    is_sym = np.asarray(getattr(dens, "is_sym", np.ones(A, dtype=bool)))
-    r_vec = np.asarray(dens.r)
     nested = getattr(dens, "nested", [None] * A)
-    P_xx = np.ones((N, N), dtype=np.float64)
+    # A relative r = 1 attribute is a unit factor in both <T,T> and Z (see
+    # the docstring); the inner-product routes do not share one reading
+    # of that degenerate attribute, so it is left out of the density
+    # handed to them. With nothing else left, <T,T> = N^2 (every event
+    # pair overlaps with unit weight).
+    live = [a for a in range(A)
+            if not (nested[a] is None and bool(dens.is_rel[a])
+                    and int(dens.r[a]) == 1)]
+    if not live:
+        ip_xx = float(N) ** 2
+    elif len(live) < A:
+        from ._tensor.build import build_exp_tens
+        specs = []
+        for a in live:
+            if nested[a] is not None:
+                specs.append(dict(nested[a]))
+            else:
+                specs.append({"r": int(dens.r[a]),
+                              "sym": bool(np.atleast_1d(getattr(
+                                  dens, "is_sym", np.ones(A, bool)))[a]),
+                              "rel": bool(dens.is_rel[a])})
+        wrap = getattr(dens, "wrap", None)
+        sub = build_exp_tens(
+            [dens.p_attr[a] for a in live], [dens.w[a] for a in live],
+            specs=specs, sigma=[dens.sigma[a] for a in live],
+            is_per=[bool(dens.is_per[a]) for a in live],
+            period=[float(dens.period[a]) for a in live],
+            wrap=(None if wrap is None else [wrap[a] for a in live]),
+            verbose=False)
+        ip_xx = float(cos_sim_exp_tens(sub, sub, normalize="none",
+                                       verbose=False))
+    else:
+        ip_xx = float(cos_sim_exp_tens(dens, dens, normalize="none",
+                                       verbose=False))
+
+    inner_r = _inner_r_vec(dens)
     Z_per_event_attr = np.empty((N, A), dtype=np.float64)
     for a in range(A):
-        ordered_flat = (nested[a] is None) and (not bool(is_sym[a])) \
-            and (int(r_vec[a]) > 1)
-        if nested[a] is not None or ordered_flat:
-            I_xx, Z_a = _renyi2_per_attr_numerical(dens, a)
-        elif bool(dens.is_rel[a]) and int(dens.r[a]) == 1:
-            # Relative r = 1: a 0-D point mass with no entropy by
-            # convention (see the docstring). Unit overlap and unit mass
-            # leave the product factorisation untouched, so the attribute
-            # neither raises nor lowers H_2; a density consisting of this
-            # attribute alone yields exactly 0.
-            I_xx = np.ones((N, N), dtype=np.float64)
-            Z_a = np.ones(N, dtype=np.float64)
-        else:
-            r_a = int(dens.r[a])
-            sigma = float(dens.sigma[a])
-            is_rel = bool(dens.is_rel[a])
-            is_per = bool(dens.is_per[a])
-            period = float(dens.period[a])
-            Pa = dens.p_attr[a]
-            Wa = dens.w[a]
-            # Per-attribute wrap opt-in (default full-image), as the MATLAB
-            # twin has always passed; without it a 'single-image' abs-per
-            # attribute was computed full-image here.
-            wrap_a = (str(dens.wrap[a])
-                      if getattr(dens, 'wrap', None) is not None
-                      and a < len(dens.wrap) else 'full-image')
-            I_xx = _ma_per_attr_inner_matrix(
-                Pa, Wa, Pa, Wa, sigma, r_a, is_rel, is_per, period,
-                wrap=wrap_a,
-            )
-            Z_a = np.empty(N, dtype=np.float64)
-            for n in range(N):
-                # Drop NaN-padded values: in a ragged (unequal-K) event
-                # set, short events are NaN-padded to the tallest column,
-                # and those padding values carry a placeholder weight that
-                # must not enter the closed-form total mass (the Moebius
-                # sum over value weights). The per-attribute inner matrix
-                # already excludes them; this keeps Z consistent.
-                col = Pa[:, n]
-                valid = ~np.isnan(col)
+        sigma = float(dens.sigma[a])
+        is_rel = bool(dens.is_rel[a])
+        r_a = int(dens.r[a])
+        Pa = dens.p_attr[a]
+        Wa = dens.w[a]
+        spec = nested[a]
+        if spec is not None:
+            r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+            s_tot = int(np.prod(r_levels))
+            rel_unit = spec.get("rel_unit")
+            if rel_unit is None:
+                d_a = s_tot
+            else:
+                s_u = int(np.prod(r_levels[:int(rel_unit) + 1]))
+                d_a = s_tot - s_tot // s_u
+            det_m = _quadratic_form_det(s_tot, int(inner_r[a]), is_rel)
+            vol = _gaussian_mass_const(sigma, d_a, det_m)
+            tags = np.asarray(spec["tags"])
+        for n in range(N):
+            # Drop NaN-padded values: in a ragged (unequal-K) event set,
+            # short events are NaN-padded to the tallest column, and
+            # those padding values carry a placeholder weight that must
+            # not enter the closed-form total mass.
+            col = Pa[:, n]
+            valid = ~np.isnan(col)
+            wv = Wa[:, n][valid]
+            if spec is not None:
+                t_n = tags[valid] if tags.ndim == 1 else tags[valid, :]
+                Z_per_event_attr[n, a] = vol * nested_tuple_count(
+                    t_n, r_levels, spec["sym"], weights=wv)
+            elif is_rel and r_a == 1:
+                Z_per_event_attr[n, a] = 1.0
+            else:
                 pv = col[valid]
-                wv = Wa[:, n][valid]
+                is_sym = bool(np.atleast_1d(
+                    getattr(dens, "is_sym", np.ones(A, dtype=bool)))[a])
                 if is_rel:
-                    Z_a[n] = total_mass_rel(pv, wv, sigma, r_a)
+                    z = total_mass_rel(pv, wv, sigma, r_a)
                 else:
-                    Z_a[n] = total_mass_abs(pv, wv, sigma, r_a)
-        P_xx *= I_xx
-        Z_per_event_attr[:, a] = Z_a
-    ip_xx = float(P_xx.sum())
+                    z = total_mass_abs(pv, wv, sigma, r_a)
+                if not is_sym and r_a > 1:
+                    # An ordered attribute lists each combination once,
+                    # not in all r! arrangements.
+                    z = z / math.factorial(r_a)
+                Z_per_event_attr[n, a] = z
 
     # ---- Z = Σ_n Π_a Z_a^(n) ----
     Z = float(np.prod(Z_per_event_attr, axis=1).sum())

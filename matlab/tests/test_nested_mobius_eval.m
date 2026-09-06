@@ -101,15 +101,51 @@ d = buildExpTens({p0, p1, p2}, {[], [], []}, 'specs', specs, ...
 results{end+1, 1} = 'nested mobius eval: nested tensored with flat attributes';
 results{end, 2} = nmeRoutesAgree(d, nmeQueries(d, 5), 1e-7);
 
-% --- auto keeps centres; mobius accepted ---
+% --- a single query of a multi-dimensional attribute is one column ---
+d = nmeDensity(nme_T2, [1 2], [true true], [0 0], false, 6, 8, 0.7, 'full-image', nme_P);
+X = nmeQueries(d, 8);
+results{end+1, 1} = 'nested mobius eval: single query column is not read as a row of queries';
+results{end, 2} = nmeRoutesAgree(d, X(:, 1), 1e-10);
+
+% --- 'auto' follows the nested cost row ---
 d = nmeDensity(nme_T2, [1 2], [true true], [0 0], false, 6, 6, 0.7, 'full-image', nme_P);
 X = nmeQueries(d, 6);
-va = evalExpTens(d, X, 'verbose', false);
-vc = evalExpTens(d, X, 'method', 'centres', 'verbose', false);
-vm = evalExpTens(d, X, 'method', 'mobius', 'verbose', false);
-results{end+1, 1} = 'nested mobius eval: auto keeps centres and mobius is accepted';
-results{end, 2} = max(abs(va(:) - vc(:))) <= 1e-12 * max(1, max(abs(vc(:)))) ...
-                  && max(abs(vm(:) - vc(:))) <= 1e-10 * max(abs(vc(:)));
+[nme_chosen, ~] = internal.selectMaEval(d, size(X, 2), []);
+va = evalExpTens(d, X, 'truncationSigmas', 40, 'verbose', false);
+vr = evalExpTens(d, X, 'method', nme_chosen, 'truncationSigmas', 40, 'verbose', false);
+results{end+1, 1} = 'nested mobius eval: auto runs the route the cost row names';
+results{end, 2} = any(strcmp(nme_chosen, {'centres', 'mobius'})) ...
+                  && max(abs(va(:) - vr(:))) <= 1e-12 * max(1, max(abs(vr(:))));
+
+d = nmeDensity(repelem(0:3, 3), [2 3], [true true], [0 0], false, 12, 16, 0.7, 'full-image', nme_P);
+[nme_c, nme_m] = internal.nestedEvalCostsMs(d, 20);
+[nme_chosen, ~] = internal.selectMaEval(d, 20, []);
+X = nmeQueries(d, 16);
+va = evalExpTens(d, X, 'truncationSigmas', 40, 'verbose', false);
+vc = evalExpTens(d, X, 'method', 'centres', 'truncationSigmas', 40, 'verbose', false);
+results{end+1, 1} = 'nested mobius eval: 5184 centres per event route to the per-level evaluator';
+results{end, 2} = nme_m < nme_c && strcmp(nme_chosen, 'mobius') ...
+                  && max(abs(va(:) - vc(:))) <= 1e-9 * max(abs(vc(:)));
+
+d = nmeDensity(nme_T3, [2 2], [true true], [0 1], true, 9, 17, 0.7, 'full-image', nme_P);
+[nme_chosen, ~] = internal.selectMaEval(d, 200, []);
+results{end+1, 1} = 'nested mobius eval: a relative shape at 200 queries stays on centres';
+results{end, 2} = strcmp(nme_chosen, 'centres');
+
+% --- tuple count matches the enumeration ---
+nme_T4 = repelem(0:3, 3);
+results{end+1, 1} = 'nested mobius eval: nestedTupleCount matches the enumeration';
+results{end, 2} = internal.nestedTupleCount(nme_T2, [1 2], [true true]) == 18 ...
+    && internal.nestedTupleCount(nme_T2, [1 2], [true false]) == 9 ...
+    && internal.nestedTupleCount(nme_T2, [3 2], [false true]) == 2 ...
+    && internal.nestedTupleCount(nme_T3, [2 3], [true true]) == 1296 ...
+    && internal.nestedTupleCount(nme_T4, [2 4], [false true]) == 1944 ...
+    && internal.nestedTupleCount(nme_T3L, [2 2 2], [true true true]) == 128 ...
+    && internal.nestedTupleCount([0 0 0 1 1], [2 2], [true true]) == 24;
+d = nmeDensity(nme_T3, [2 3], [true true], [0 0], false, 9, 18, 0.7, 'full-image', nme_P);
+dm = internal.ensureExpTensExpensive(d);
+results{end+1, 1} = 'nested mobius eval: nestedTupleCount agrees with nJ';
+results{end, 2} = dm.nJ == internal.nestedTupleCount(nme_T3, [2 3], [true true]) * size(d.pAttr{1}, 2);
 
 % --- ordered flat attribute still refuses mobius ---
 rng(7, 'twister');

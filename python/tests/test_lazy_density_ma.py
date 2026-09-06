@@ -107,9 +107,19 @@ def test_ma_cos_sim_orbit_does_not_materialise():
 
 
 def test_ma_renyi2_does_not_materialise():
+    # Rényi-2 is the self inner product through the ordinary selector; at
+    # this small size the selector prices Bulger's enumeration cheaper
+    # and that route materialises, exactly as a cosine on the same
+    # density would. The density stays lazy when the selector picks the
+    # Möbius route.
+    from mpt._tensor.dispatch import _select_ma_inner_product_method
+    from mpt._tensor.cosine import _flat_selector_inputs
     T = _make_ma()
+    sel, _, _ = _flat_selector_inputs(T, T, normalize="none",
+                                      truncation_sigmas=None)
+    chosen = _select_ma_inner_product_method(user_method="auto", **sel)
     entropy_exp_tens(T, method="renyi2")
-    assert T.materialised is False
+    assert T.materialised is (chosen != "mobius")
 
 
 # -------------------------------------------------------------------

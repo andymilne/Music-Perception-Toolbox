@@ -130,7 +130,7 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
             termsSkipXX, termsSkipYY);
         return;
     end
-    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom'}))
+    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom', 'none'}))
         declineContractIfForced(force, methodName, ...
             sprintf('unsupported normalisation ''%s''', normalize));
         return;
@@ -278,7 +278,9 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
     % neither computed nor memoised, as on the flat routes, and the
     % caller's finaliser receives [] for it.
     needXX = strcmp(normalize, 'cosine');
+    needYY = ~strcmp(normalize, 'none');
     formXX = needXX && ~xxHit;
+    formYY = needYY && ~yyHit;
 
     if strcmp(route, 'centres')
         % The materialised tuple centres. The per-attribute Gaussian
@@ -308,6 +310,8 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         end
         if yyHit
             ipyy = yyVal;
+        elseif ~needYY
+            ipyy = [];
         else
             ipyy = sum(sum(mobius.closedFormAttrMatrixFrom( ...
                 cyB, cyB, wrapA, ts)));
@@ -335,13 +339,15 @@ function [triple, routes, cacheX, cacheY] = nestedContract( ...
         end
         if yyHit
             ipyy = yyVal;
+        elseif ~needYY
+            ipyy = [];
         else
             ipyy = tripSum(recipeY, recipeY, PY, WY, PY, WY, sigma, ...
                            period, ts, quad, true);
         end
     end
     if formXX; cacheX = cacheSet(cacheX, key, ipxx); end
-    if ~yyHit; cacheY = cacheSet(cacheY, key, ipyy); end
+    if formYY; cacheY = cacheSet(cacheY, key, ipyy); end
     triple = struct('xy', ipxy, 'xx', ipxx, 'yy', ipyy);
 end
 
@@ -594,8 +600,9 @@ function [skipXX, skipYY] = selfIpSkipFlags(cacheX, cacheY, normalize)
 %   memo; see INTERNAL.SELFIPMEMOISED for why an asymmetric flag locks
 %   the first winner in, and what the shared flag trades for that.
     needXX = strcmp(normalize, 'cosine');
+    needYY = ~strcmp(normalize, 'none');
     skipXX = ~needXX || internal.selfIpMemoised(cacheX);
-    skipYY = internal.selfIpMemoised(cacheY);
+    skipYY = ~needYY || internal.selfIpMemoised(cacheY);
 end
 
 
@@ -861,7 +868,12 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
             vc = contractNode(recipeA, recipeB, K);
             vc = reshape(vc, [nb, W]);
             if ~isempty(valid); vc = vc .* valid; end
-            vc = sum(vc, 2);                     % common dtau cancels
+            % Trapezoid over the uniform line grid: the node spacing makes
+            % the value an integral over tau rather than a node count, so
+            % its scale does not depend on whether the grid was clamped to
+            % its minimum node count (invisible to a cosine, not to the bare
+            % inner product). Python twin: _nested_contraction 'sum' reduce.
+            vc = sum(vc, 2) * (taus(2) - taus(1));
         elseif isRelPer
             d = reshape(vx, [nb, nX, 1, 1]) ...
                 - (reshape(vy, [nb, 1, nY, 1]) + reshape(taus, [1, 1, 1, T]));
@@ -874,7 +886,10 @@ function v = pairValuesBatched(recipeA, recipeB, PA, WA, PB, WB, ...
             K = reshape(K, [nb * T, nX, nY]);
             K = truncK(K, ts);
             vc = contractNode(recipeA, recipeB, K);
-            vc = sum(reshape(vc, [nb, T]), 2);   % common dtau cancels
+            % Mean over the period grid, as the Python 'mean' reduce: the
+            % transposition average, so the bare value is on the same
+            % scale in both languages.
+            vc = sum(reshape(vc, [nb, T]), 2) / T;
         else
             d = reshape(vx, [nb, nX, 1]) - reshape(vy, [nb, 1, nY]);
             K = absKernel(d, sigma, period, ts, quad);
@@ -1031,7 +1046,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
 
     triple = [];
     routes = {};
-    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom'}))
+    if ~any(strcmp(normalize, {'cosine', 'oneSidedDenom', 'none'}))
         declineContractIfForced(force, methodName, ...
             sprintf('unsupported normalisation ''%s''', normalize));
         return;
@@ -1135,6 +1150,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     % neither formed nor memoised, as on the flat routes.
     needXX = strcmp(normalize, 'cosine');
     formXX = needXX && ~xxHit;
+    formYY = ~strcmp(normalize, 'none') && ~yyHit;
 
     P_xy = ones(N_x, N_y);
     P_xx = ones(N_x, N_x);
@@ -1167,7 +1183,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                         Px, Wx, sigma, r_a, isRel, isPer, period, ...
                         'truncationSigmas', ts, 'wrap', wrapA);
                 end
-                if ~yyHit
+                if formYY
                     P_yy = P_yy .* mobius.maPerAttrInnerMatrix(Py, Wy, ...
                         Py, Wy, sigma, r_a, isRel, isPer, period, ...
                         'truncationSigmas', ts, 'wrap', wrapA);
@@ -1191,7 +1207,7 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
                     P_xx = P_xx .* mobius.closedFormAttrMatrixFrom( ...
                         cxB, cxB, wrapA, ts);
                 end
-                if ~yyHit
+                if formYY
                     P_yy = P_yy .* mobius.closedFormAttrMatrixFrom( ...
                         cyB, cyB, wrapA, ts);
                 end
@@ -1199,10 +1215,10 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
             otherwise   % 'nested'
                 [Ixy, Ixx, Iyy, cacheX, cacheY] = nestedAttrMatrices( ...
                     densX, densY, a, attrRoutes{a}, quads{a}, ts, ...
-                    formXX, ~yyHit, cacheX, cacheY);
+                    formXX, formYY, cacheX, cacheY);
                 P_xy = P_xy .* Ixy;
                 if formXX; P_xx = P_xx .* Ixx; end
-                if ~yyHit; P_yy = P_yy .* Iyy; end
+                if formYY; P_yy = P_yy .* Iyy; end
         end
     end
 
@@ -1216,9 +1232,11 @@ function [triple, routes, cacheX, cacheY] = nestedContractMA( ...
     end
     if yyHit
         ip_yy = yyVal;
-    else
+    elseif formYY
         ip_yy = sum(P_yy(:));
         cacheY = cacheSet(cacheY, key, ip_yy);
+    else
+        ip_yy = [];
     end
 
     % The enumeration was already offered its chance, above: the plan is
@@ -1926,7 +1944,7 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
             K = relPerKernel(d, sigma, period, ts, quad);
             K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
             K = truncK(K, ts);
-            ipv = sum(contractNode(recipeX, recipeY, K));   % common dtau cancels
+            ipv = sum(contractNode(recipeX, recipeY, K)) / T;   % transposition mean
         case 'relnonper'
             taus = quad.taus(:);
             ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
@@ -1938,7 +1956,7 @@ function ipv = nestedIp(recipeX, recipeY, vX, vY, wX, wY, sigma, period, ts, qua
                 K = exp(-d.^2 / (4 * sigma^2));               % no wrap
                 K = K .* (reshape(wX, [1, nX, 1]) .* reshape(wY, [1, 1, nY]));
                 K = truncK(K, ts);
-                ipv = sum(contractNode(recipeX, recipeY, K));
+                ipv = sum(contractNode(recipeX, recipeY, K)) * (taus(2) - taus(1));
             end
     end
 end
@@ -2027,7 +2045,7 @@ function ipv = ipRelNonperFactored(recipeX, recipeY, vX, vY, wX, wY, ...
         K(K < floorv) = 0;
     end
     mDiag = sum(sum(K, 4), 3);                        % T x r
-    ipv = sum(prod(mDiag, 2));         % common dtau cancels in the cosine
+    ipv = sum(prod(mDiag, 2)) * (taus(2) - taus(1));  % trapezoid over tau
 end
 
 

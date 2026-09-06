@@ -129,6 +129,11 @@ def _impossible_value_reason(ip_xy, ip_xx, ip_yy):
     consume it); the checks that need it are then skipped and the
     remaining values are still validated.
     """
+    if ip_yy is None:
+        # normalize='none': only the cross term was formed.
+        if not np.isfinite(ip_xy):
+            return f"<X,Y> = {ip_xy!r} is not finite"
+        return None
     if ip_xx is None:
         if not (np.isfinite(ip_xy) and np.isfinite(ip_yy)):
             return (f"an inner product is not finite "
@@ -1672,8 +1677,14 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     period = [float(v) for v in np.atleast_1d(dens.period)]
 
     n_q_eff = float(max(int(n_q), 1))
+    # Nested attributes are priced by _nested_eval_costs_ms; here they
+    # are skipped (their r is the leaf-slot total, not a flat order).
+    nested = getattr(dens, "nested", None) or [None] * A
+    flat_attrs = [a for a in range(A) if nested[a] is None]
+    if not flat_attrs and not _track:
+        return 0.0, 0.0                     # nothing flat to price
     joint_tuples = 1.0
-    for a in range(A):
+    for a in flat_attrs:
         r_a, K_a = r_vec[a], k_vec[a]
         if r_a < 1:
             continue
@@ -1723,12 +1734,12 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
     # the support predicate of the evaluator that actually runs.
     factored_supported = (
         A > 1
-        and all(r_a >= 2 for r_a in r_vec)
+        and all(r_vec[a] >= 2 for a in flat_attrs)
         and getattr(dens, "kernel_cov", None) is None
     )
     if factored_supported:
         centres_ms = C["CENTRES_SETUP_MS"]
-        for a in range(A):
+        for a in flat_attrs:
             r_a, K_a = r_vec[a], k_vec[a]
             T_a = float(factorial(r_a)) * float(_math_comb(K_a, r_a))
             q_slope, T_q = _centres_query_slope(C, T_a, is_per[a], is_rel[a])
@@ -1746,11 +1757,11 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         # it reaches that centre in every attribute, so the joint culled
         # fraction is the product of the per-attribute ones.
         cull_joint = 1.0
-        for a in range(A):
+        for a in flat_attrs:
             cull_joint *= _attr_cull(a)
-        any_per = any(bool(is_per[a]) for a in range(A))
+        any_per = any(bool(is_per[a]) for a in flat_attrs)
         any_rel_per = any(bool(is_per[a]) and bool(is_rel[a])
-                          for a in range(A))
+                          for a in flat_attrs)
         q_base = (C["CENTRES_QUERY_BASE_PER_MS"] if any_per
                   else C["CENTRES_QUERY_BASE_MS"])
         q_per_joint, joint_q = _centres_query_slope(
@@ -1762,7 +1773,7 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
         )
 
     mobius_ms = C["MOBIUS_SETUP_MS"]
-    for a in range(A):
+    for a in flat_attrs:
         r_a, K_a = r_vec[a], k_vec[a]
         if r_a < 2:
             continue  # r_a <= 1: a plain kernel sum either way
@@ -1869,8 +1880,191 @@ def _ma_eval_costs_ms(dens, n_q, consts=None, _track=False):
 
 def _predict_ma_eval_cost_ms(dens, n_q, chosen):
     """Predicted cost (ms, calibration machine) of the chosen eval path."""
-    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
+    centres_ms, mobius_ms = _eval_costs_ms(dens, n_q)
     return mobius_ms if chosen == "mobius" else centres_ms
+
+
+#: Calibrated constants for the nested-attribute eval cost row, in
+#: milliseconds on the maintainer's machine.
+#:
+#: Fitted September 2026 by ``tools/fit_nested_eval_cost.py`` on the
+#: 3096-cell grid of ``tools/bench_nested_eval.py`` (two-level shapes of
+#: 2--4 groups of 3--5 values, r up to 2x4, every [sym] pattern, absolute
+#: and both co-transposition units, periodic and not, N = 4 and 32, 1 to
+#: 200 queries), excluding the 138 non-periodic cells the bucket-cull
+#: guard of the same date removed from the centres route. Two laws per
+#: nested attribute:
+#:
+#:     centres_ms = C0 + C1 * T + n_q * C2 * T**gamma * d**delta
+#:     mobius_ms  = M0 + N * (M1 + n_q * M2 * (K * s)**alpha * n_u)
+#:
+#: with ``T = m_perm * N`` the tuple-centre count, ``d`` the reduced
+#: dimension, ``s`` the leaf slots, ``K`` the values per event and
+#: ``n_u`` the translation-grid node count (1 when absolute). The
+#: Möbius per-event per-query cost is a near power law in ``K * s``
+#: (log residual 0.18--0.19 in both languages) and does not see the
+#: tuple count at all, which is the whole point of the route. Routing
+#: regret against the measured oracle on random half-splits by shape:
+#: 1.047 (Python), 1.036 (MATLAB), against 1.97 and 1.65 for the
+#: previous 'auto', which kept the centres route throughout. MATLAB
+#: carries its own constants in ``internal.nestedEvalCostsMs`` (same
+#: form; its centres kernel scales more gently with the dimension and
+#: its Möbius route more gently with ``K * s``).
+_NESTED_COST_MOBIUS_SETUP_MS = 0.0333867
+_NESTED_COST_MOBIUS_PER_EVENT_MS = 0.132549
+_NESTED_COST_MOBIUS_PER_OP_MS = 3.07189e-06
+_NESTED_COST_MOBIUS_OP_EXP = 1.3214
+_NESTED_COST_CENTRES_SETUP_MS = 0.347156
+_NESTED_COST_CENTRES_PER_TUPLE_MS = 0.000155252
+_NESTED_COST_CENTRES_PER_QUERY_MS = 1.83027e-05
+_NESTED_COST_CENTRES_TUPLE_EXP = 0.9278
+_NESTED_COST_CENTRES_DIM_EXP = 0.7242
+
+
+def nested_tuple_count(tags, r_levels, sym_levels, weights=None):
+    """Ordered tuple centres a nested attribute enumerates per event.
+
+    The centres route lists, at each symmetric level, every ordered
+    selection of ``r`` children (``n! / (n - r)!``) and, at each ordered
+    level, every selection in listed order (``C(n, r)``); the count is the
+    product down the tree. For ragged groups the per-level sum over
+    selections is the elementary symmetric polynomial of the children's
+    counts. ``tags`` is ``(K,)`` or ``(K, L - 1)`` as in the spec; NaN
+    values are the caller's to drop. With ``weights`` (one per value) the
+    same sum is taken over the products of the selected values' weights,
+    which is the density's total tuple weight --- its mass up to the
+    kernel's volume. Twin of MATLAB ``internal.nestedTupleCount``.
+    """
+    tags = np.asarray(tags)
+    K = int(tags.shape[0]) if tags.ndim else int(tags.size)
+    tags2 = tags.reshape(K, -1) if tags.ndim == 2 else tags.reshape(K, 1)
+    r_levels = [int(v) for v in np.atleast_1d(r_levels)]
+    sym_levels = [bool(v) for v in np.atleast_1d(sym_levels)]
+    L = len(r_levels)
+    wts = None if weights is None else np.asarray(weights, dtype=np.float64).ravel()
+
+    def esp(counts, r):
+        # elementary symmetric polynomial e_r of the children's counts
+        e = [1.0] + [0.0] * r
+        for c in counts:
+            for j in range(r, 0, -1):
+                e[j] += e[j - 1] * c
+        return e[r]
+
+    def count(level, idx):
+        r = r_levels[level]
+        if level == 0:
+            n = len(idx)
+            if r > n:
+                return 0.0
+            sel = (float(_math_comb(n, r)) if wts is None
+                   else esp([float(v) for v in wts[idx]], r))
+        else:
+            keys = tags2[idx, level - 1]
+            children = [count(level - 1, idx[keys == k])
+                        for k in np.unique(keys)]
+            if r > len(children):
+                return 0.0
+            sel = esp(children, r)
+        return sel * (float(factorial(r)) if sym_levels[level] else 1.0)
+
+    return count(L - 1, np.arange(K))
+
+
+def _nested_grid_nodes(spec, p_a, sigma_a, is_per_a, period_a):
+    """Translation-grid node count the per-level evaluator uses for a
+    nested attribute with a co-transposition unit (1 when absolute)."""
+    rel_unit = spec.get("rel_unit")
+    if rel_unit is None:
+        return 1.0
+    from .._defaults import resolve_samples_per_sigma
+    r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+    s_unit = int(np.prod(r_levels[:int(rel_unit) + 1]))
+    spp = float(resolve_samples_per_sigma(None, max(2, s_unit), None))
+    if is_per_a and period_a > 0:
+        return max(64.0, float(np.ceil(spp * period_a / sigma_a)))
+    arr = np.asarray(p_a, dtype=np.float64)
+    arr = arr[np.isfinite(arr)]
+    span = (float(arr.max() - arr.min()) if arr.size else 0.0) + 16.0 * sigma_a
+    return max(64.0, float(np.ceil(spp * max(span, 1.0) / sigma_a)))
+
+
+def _nested_eval_costs_ms(dens, n_q):
+    """Closed-form ``(centres_ms, mobius_ms)`` for the nested attributes
+    of ``dens`` (zero for a density without any), on the calibration
+    machine; see ``_NESTED_COST_*`` for the laws and their fit."""
+    A = int(dens.n_attrs)
+    nested = getattr(dens, "nested", None) or [None] * A
+    sigma = [float(v) for v in np.atleast_1d(dens.sigma)]
+    is_per = [bool(v) for v in np.atleast_1d(dens.is_per)]
+    period = [float(v) for v in np.atleast_1d(dens.period)]
+    n_q_eff = float(max(int(n_q), 1))
+    centres_ms = 0.0
+    mobius_ms = 0.0
+    for a in range(A):
+        spec = nested[a]
+        if spec is None:
+            continue
+        p_a = np.asarray(dens.p_attr[a], dtype=np.float64)
+        N = int(p_a.shape[1]) if p_a.ndim == 2 else 1
+        r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+        s = float(np.prod(r_levels))
+        tags = np.asarray(spec["tags"])
+        # Per-event tuple count from that event's live values; ragged
+        # events pad with NaN.
+        T = 0.0
+        K_sum = 0.0
+        for n in range(N):
+            live = ~np.isnan(p_a[:, n]) if p_a.ndim == 2 else np.ones(p_a.size, bool)
+            t_n = tags[live] if tags.ndim == 1 else tags[live, :]
+            T += nested_tuple_count(t_n, r_levels, spec["sym"])
+            K_sum += float(live.sum())
+        K = K_sum / max(N, 1)
+        d_a = _nested_attr_dim(dens, a)
+        n_u = _nested_grid_nodes(spec, p_a, sigma[a], is_per[a], period[a])
+        centres_ms += (
+            _NESTED_COST_CENTRES_SETUP_MS
+            + _NESTED_COST_CENTRES_PER_TUPLE_MS * T
+            + n_q_eff * _NESTED_COST_CENTRES_PER_QUERY_MS
+            * T ** _NESTED_COST_CENTRES_TUPLE_EXP
+            * max(d_a, 1) ** _NESTED_COST_CENTRES_DIM_EXP
+        )
+        mobius_ms += (
+            _NESTED_COST_MOBIUS_SETUP_MS
+            + N * (_NESTED_COST_MOBIUS_PER_EVENT_MS
+                   + n_q_eff * _NESTED_COST_MOBIUS_PER_OP_MS
+                   * (K * s) ** _NESTED_COST_MOBIUS_OP_EXP * n_u)
+        )
+    return centres_ms, mobius_ms
+
+
+def _nested_attr_dim(dens, a):
+    """Reduced dimension of attribute ``a`` (leaf slots less one per
+    co-transposition unit block)."""
+    spec = dens.nested[a]
+    r_levels = [int(v) for v in np.atleast_1d(spec["r"])]
+    s = int(np.prod(r_levels))
+    rel_unit = spec.get("rel_unit")
+    if rel_unit is None:
+        return s
+    s_unit = int(np.prod(r_levels[:int(rel_unit) + 1]))
+    return s - s // s_unit
+
+
+def _eval_costs_ms(dens, n_q):
+    """``(centres_ms, mobius_ms)`` for any MA density: the flat law over
+    its flat attributes plus the nested row over its nested ones. Both
+    routes factor across attributes, so the costs add."""
+    A = int(dens.n_attrs)
+    nested = getattr(dens, "nested", None) or [None] * A
+    if not any(spec is not None for spec in nested):
+        return _ma_eval_costs_ms(dens, n_q)
+    c_n, m_n = _nested_eval_costs_ms(dens, n_q)
+    if all(spec is not None for spec in nested):
+        return c_n, m_n
+    # Mixed density: the flat law skips the nested attributes itself.
+    c_f, m_f = _ma_eval_costs_ms(dens, n_q)
+    return c_n + c_f, m_n + m_f
 
 
 def _has_ordered_attr(dens) -> bool:
@@ -2008,12 +2202,18 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     if _has_ordered_attr(dens):
         return "centres", "ordered ([sym]=0) attribute (no orbit to collapse)"
 
-    # ---- Nested attributes: the per-level Möbius evaluator serves a
-    # forced 'mobius' (above); under 'auto' the joint-centres path is
-    # kept until the per-level route has a fitted cost row. ----
+    # ---- Nested attributes: priced by their own row (the per-level
+    # Möbius evaluator against the tag-tree centres enumeration; see
+    # ``_NESTED_COST_*``). A density that is nested throughout is decided
+    # here on that row alone; a mixed density falls through to the
+    # shared comparison below, where ``_eval_costs_ms`` adds the nested
+    # row to the flat law. ----
     nested = getattr(dens, "nested", [None] * A)
-    if any(nested[a] is not None for a in range(A)):
-        return "centres", "nested attribute (per-level Möbius not yet priced)"
+    if all(nested[a] is not None for a in range(A)):
+        centres_ms, mobius_ms = _nested_eval_costs_ms(dens, n_q)
+        if mobius_ms < centres_ms:
+            return "mobius", "cost model (per-level Möbius cheaper)"
+        return "centres", "cost model (tag-tree centres cheaper)"
 
     # ---- Hard rule: r <= 1 on every attribute => Möbius is degenerate
     # (one singleton partition); centres is trivially cheap. ----
@@ -2032,8 +2232,8 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     force_centres_reason = None
     for a in range(A):
         r_a = r_vec[a]
-        if r_a < 2:
-            continue  # r_a = 1 factor is exact either way
+        if r_a < 2 or nested[a] is not None:
+            continue  # r_a = 1 factor is exact either way; nested priced above
         if r_a > _ORBIT_R_MAX_FEASIBLE:
             force_centres_reason = (
                 f"attr {a}: r = {r_a} exceeds orbit feasibility bound")
@@ -2084,7 +2284,7 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     # across attributes); Möbius cost is the summed per-attribute
     # distinct-block work, with relative attributes multiplied by a
     # u-grid node count from the geometry. ----
-    centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
+    centres_ms, mobius_ms = _eval_costs_ms(dens, n_q)
 
     # The near-tie safety factor insures against the centres path's
     # memory blow-up, so it applies only where that blow-up is possible:

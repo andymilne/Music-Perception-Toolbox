@@ -308,13 +308,11 @@ def test_renyi2_sa_nan_on_orbit_negative(monkeypatch):
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
-    # The Rényi-2 path composes per-attribute inner matrices; patch the
-    # function it actually calls so the finite-and-positive guard sees a
-    # corrupt self-IP.
-    monkeypatch.setattr(
-        ent_mod, '_ma_per_attr_inner_matrix',
-        lambda *a, **k: np.full((1, 1), -1.0),
-    )
+    # The Rényi-2 path takes its self inner product from the inner-product
+    # machinery; patch that call so the finite-and-positive guard sees a
+    # corrupt value.
+    import mpt._tensor.cosine as cos_mod
+    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens', lambda *a, **k: -1.0)
     assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 
 
@@ -327,10 +325,9 @@ def test_renyi2_sa_nan_on_orbit_nonfinite(monkeypatch):
         rng.uniform(0, P, 5), rng.uniform(0.5, 1.5, 5),
         50.0, 2, False, True, P, verbose=False,
     )
-    monkeypatch.setattr(
-        ent_mod, '_ma_per_attr_inner_matrix',
-        lambda *a, **k: np.full((1, 1), float('nan')),
-    )
+    import mpt._tensor.cosine as cos_mod
+    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens',
+                        lambda *a, **k: float('nan'))
     assert np.isnan(entropy_exp_tens(T, method='renyi2'))
 
 
@@ -349,15 +346,11 @@ def test_renyi2_ma_nan_on_orbit_negative(monkeypatch):
         [False, False], [True, True], [P, 1.0], verbose=False,
     )
 
-    real_matrix = ent_mod._ma_per_attr_inner_matrix
-    call_count = [0]
+    import mpt._tensor.cosine as cos_mod
+    real = cos_mod.cos_sim_exp_tens
 
-    def fake_matrix(*args, **kwargs):
-        call_count[0] += 1
-        I = real_matrix(*args, **kwargs)
-        if call_count[0] == 1:
-            return -I
-        return I
-    monkeypatch.setattr(ent_mod, '_ma_per_attr_inner_matrix', fake_matrix)
+    def fake(*args, **kwargs):
+        return -real(*args, **kwargs)
+    monkeypatch.setattr(cos_mod, 'cos_sim_exp_tens', fake)
 
     assert np.isnan(entropy_exp_tens(dens, method='renyi2'))

@@ -1606,11 +1606,21 @@ def _eval_core(
     # are evaluated, avoiding the dense n_j x n_q kernel; value-identical to the
     # dense path up to the truncation floor. Periodic mode stays dense (the
     # pairwise wrap is not a tail-truncatable ball).
+    # The cull pays 3**dim neighbour-bucket lookups per query before it
+    # touches a kernel entry, so it is worthwhile only when that is below
+    # the tuple count (and the neighbour expansion fits the chunk budget);
+    # otherwise the dense truncated kernel below is cheaper. Same guard
+    # as mpt._kernel._bucket_index_worthwhile and MATLAB
+    # internal.gaussianKernelSum's localBucketIndexWorthwhile. Without it
+    # a 24-tuple, 9-dimensional nested attribute cost 1.2 ms per query
+    # here against 0.02 ms in MATLAB (benchNestedEval, September 2026).
+    from .._kernel import _bucket_index_worthwhile
     if (
         truncation_sigmas is not None
         and np.isfinite(truncation_sigmas)
         and truncation_sigmas > 0
         and not is_per
+        and _bucket_index_worthwhile(int(dim), int(n_j), int(n_q))
     ):
         return _truncated_kernel_sum_culled(
             centres, w_j, x, sigma, is_rel, r, float(truncation_sigmas)

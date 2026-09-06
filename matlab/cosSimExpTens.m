@@ -227,18 +227,28 @@ function [s, densXOut, densYOut] = cosSimExpTens(varargin)
 %                 log-kernel core has no float32 form, so the value is
 %                 not read on any other route. Point evaluation
 %                 (evalExpTens) honours it too.
-%     'normalize' / 'normalise' — 'cosine' (default) or 'oneSidedDenom'.
-%                 Selects the denominator applied to the inner product
-%                 <X, Y>. 'cosine' gives the strict shape-only cosine
-%                 similarity, dividing by the geometric mean
-%                 sqrt(<X, X> * <Y, Y>); the result is bounded in
-%                 [-1, 1] and invariant to a positive scalar on either
-%                 operand. 'oneSidedDenom' divides by the second
-%                 operand's self inner product <Y, Y> alone, giving a
-%                 magnitude-aware reading that takes the value 1 on a
-%                 self-match (X == Y) and is sensitive to scalar
-%                 reweightings of X. Either spelling of the keyword is
-%                 accepted; matching on the value is case-insensitive.
+%     'normalize' / 'normalise' — 'cosine' (default), 'oneSidedDenom',
+%                 or 'none'. Selects the denominator applied to the
+%                 inner product <X, Y>. 'cosine' gives the strict
+%                 shape-only cosine similarity, dividing by the
+%                 geometric mean sqrt(<X, X> * <Y, Y>); the result is
+%                 bounded in [-1, 1] and invariant to a positive scalar
+%                 on either operand. 'oneSidedDenom' divides by the
+%                 second operand's self inner product <Y, Y> alone,
+%                 giving a magnitude-aware reading that takes the value
+%                 1 on a self-match (X == Y) and is sensitive to scalar
+%                 reweightings of X. 'none' returns the bare inner
+%                 product <X, Y> itself, on one canonical scale whichever
+%                 route computed it (the physical integral of the two
+%                 densities' product, each event's density being the sum
+%                 of unnormalised Gaussian kernels over its full ordered
+%                 tuple set; see INTERNAL.IPCANONICALSCALE); no self
+%                 inner product is formed, and the value is what
+%                 entropyExpTens('method', 'renyi2') is computed from.
+%                 The batched all-r = 1 fast path declines it and the
+%                 per-pair route runs instead. Either spelling of the
+%                 keyword is accepted; matching on the value is
+%                 case-insensitive.
 %
 %   Output:
 %     s      — Cosine similarity (scalar in [0, 1] for non-negative
@@ -279,7 +289,7 @@ guard = internal.callGuard(); %#ok<NASGU>
 
 verbose = true;
 method = 'auto';                % 'auto' | 'bulger' | 'mobius'
-normalize = 'cosine';           % 'cosine' | 'oneSidedDenom'
+normalize = 'cosine';           % 'cosine' | 'oneSidedDenom' | 'none'
 truncationSigmas = [];          % []: use mptDefaults at the helper level
 kernelPrecision  = [];          % []: use mptDefaults at the helper level
 spectrumOpt = [];     % []  ⇒ no spectrum kwarg passed downstream
@@ -334,10 +344,12 @@ while i <= numel(varargin)
                     normalize = 'cosine';
                 elseif strcmpi(val, 'oneSidedDenom')
                     normalize = 'oneSidedDenom';
+                elseif strcmpi(val, 'none')
+                    normalize = 'none';
                 else
                     error('cosSimExpTens:badNormalize', ...
-                          ['''normalize'' must be ''cosine'' or ' ...
-                           '''oneSidedDenom''; got ''%s''.'], val);
+                          ['''normalize'' must be ''cosine'', ' ...
+                           '''oneSidedDenom'', or ''none''; got ''%s''.'], val);
                 end
                 keepMask(i)     = false;
                 keepMask(i + 1) = false;
@@ -794,6 +806,14 @@ function [impossible, reason] = localOrbitIPsImpossible(ip_xy, ip_xx, ip_yy)
 
     impossible = false;
     reason = '';
+    if isempty(ip_yy)
+        % normalize = 'none': only the cross term was formed.
+        if ~isfinite(ip_xy)
+            impossible = true;
+            reason = sprintf('<X,Y> = %g is not finite', ip_xy);
+        end
+        return;
+    end
     if isempty(ip_xx)
         if ~all(isfinite([ip_xy, ip_yy]))
             impossible = true;
@@ -886,6 +906,7 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
     % Python core, and keyed into that route's self-IP memo.
     if nargin < 9; kernelPrecision = []; end
     needXX = strcmp(normalize, 'cosine');
+    needYY = ~strcmp(normalize, 'none');
 
     % --- Structural compatibility (cheap fields only) ---
     if ~internal.kernelCovsCompatible(dens_x, dens_y)
@@ -1149,16 +1170,18 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         end
         if yyHit
             ip_yy = yyVal;
-        else
+        elseif needYY
             ip_yy = ipCoreMA(dens_y.U_perm, dens_y.wJ, dens_y.nJ, ...
                              dens_y.U_perm, dens_y.wJ, dens_y.nJ);
             cacheY = localSelfIpSet(cacheY, centresKey, ip_yy);
+        else
+            ip_yy = [];
         end
         ranOrbit = true;   % triple already computed; skip the other arms
     elseif strcmp(chosen, 'mobius')
         [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
             dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY, ...
-            strcmp(method, 'mobius'));
+            strcmp(method, 'mobius'), needYY);
 
         % Post-hoc correctness check only (mirrors single multiset path);
         % accuracy is governed by truncationSigmas, so no route is
@@ -1223,11 +1246,12 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         [xxHit, xxVal] = localSelfIpGet(cacheX, bulgerKey);
         [yyHit, yyVal] = localSelfIpGet(cacheY, bulgerKey);
         computeXX = needXX && ~xxHit;
+        computeYY = needYY && ~yyHit;
         totalPairs = double(nJx)*double(nKy);
         if computeXX
             totalPairs = totalPairs + double(nJx)*double(nKx);
         end
-        if ~yyHit
+        if computeYY
             totalPairs = totalPairs + double(nJy)*double(nKy);
         end
         maxR = max(rVec);
@@ -1244,17 +1268,27 @@ function [s, cacheX, cacheY] = localCosSimMA(dens_x, dens_y, method, ...
         end
         if yyHit
             ip_yy = yyVal;
-        else
+        elseif computeYY
             ip_yy = ipCoreMA(Uy_perm, wy_perm, nJy, Vy_comb, wvy_comb, nKy);
             cacheY = localSelfIpSet(cacheY, bulgerKey, ip_yy);
+        else
+            ip_yy = [];
         end
     end
 
     % Final cosine / one-sided-denominator normalisation. An empty
     % ip_xx is legal only under 'oneSidedDenom', whose denominator does
     % not consume it; reaching 'cosine' with it empty is an internal
-    % routing defect.
+    % routing defect. Under 'none' the bare cross term is returned on
+    % the canonical scale (internal.ipCanonicalScale).
     switch normalize
+        case 'none'
+            if ~isempty(contractTriple)
+                s = ip_xy * internal.ipCanonicalScale(dens_x, 'contract', contractRoutes);
+            else
+                s = ip_xy * internal.ipCanonicalScale(dens_x, chosen, {});
+            end
+            return;
         case 'cosine'
             if isempty(ip_xx)
                 error('cosSimExpTens:missingSelfIp', ...
@@ -1552,8 +1586,9 @@ end
 
 function [ip_xy, ip_xx, ip_yy, cacheX, cacheY] = localCosSimMAOrbit( ...
     dens_x, dens_y, truncationSigmas, needXX, cacheX, cacheY, ...
-    userForcedMobius)
+    userForcedMobius, needYY)
 if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
+if nargin < 8 || isempty(needYY), needYY = true; end
 %LOCALCOSSIMMAORBIT  Three MA inner products via per-attribute Möbius method.
 %
 %   Computes, for each attribute a, an (N_x, N_y) per-attribute inner
@@ -1606,6 +1641,7 @@ if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
     [xxHit, xxVal] = localSelfIpGet(cacheX, orbitKey);
     [yyHit, yyVal] = localSelfIpGet(cacheY, orbitKey);
     computeXX = needXX && ~xxHit;
+    computeYY = needYY && ~yyHit;
 
     P_xy = ones(N_x, N_y);
     if computeXX
@@ -1613,7 +1649,7 @@ if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
     else
         P_xx = [];
     end
-    if ~yyHit
+    if computeYY
         P_yy = ones(N_y, N_y);
     else
         P_yy = [];
@@ -1706,9 +1742,11 @@ if nargin < 7 || isempty(userForcedMobius), userForcedMobius = false; end
     end
     if yyHit
         ip_yy = yyVal;
-    else
+    elseif computeYY
         ip_yy = sum(P_yy(:));
         cacheY = localSelfIpSet(cacheY, orbitKey, ip_yy);
+    else
+        ip_yy = [];
     end
 end
 
@@ -2561,8 +2599,8 @@ function [ok, sCell] = localR1BroadcastFast(sharedDens, entryCell, ...
     sCell = {};
 
     n = numel(entryCell);
-    if n == 0
-        return;
+    if n == 0 || strcmp(normalize, 'none')
+        return;     % the per-pair route puts the bare value on scale
     end
     densAll = [{sharedDens}, entryCell(:).'];
     for i = 1:numel(densAll)

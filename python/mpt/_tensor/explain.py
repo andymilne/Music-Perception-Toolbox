@@ -127,7 +127,7 @@ def explain_dispatch(dens, other=None, *, n_q=None, method="auto",
     which prints as a short report.
     """
     from .dispatch import (
-        _ma_eval_costs_ms,
+        _eval_costs_ms,
         _orbit_sigma_over_p_threshold,
         _select_ma_eval,
     )
@@ -146,7 +146,7 @@ def explain_dispatch(dens, other=None, *, n_q=None, method="auto",
     chosen, reason = _select_ma_eval(
         dens, n_q, method=method, truncation_sigmas=truncation_sigmas)
     try:
-        centres_ms, mobius_ms = _ma_eval_costs_ms(dens, n_q)
+        centres_ms, mobius_ms = _eval_costs_ms(dens, n_q)
     except Exception:
         centres_ms = mobius_ms = None
 

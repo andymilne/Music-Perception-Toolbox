@@ -1785,7 +1785,7 @@ end
 
 
 function localRejectOrderedForMobius(dens)
-%LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered attribute.
+%LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered or nested attribute.
 %
 %   The Möbius decomposition sums over set partitions of {1, ..., r},
 %   which realises the symmetrised tuple set; on an ordered ([sym]=0)
@@ -1802,5 +1802,19 @@ function localRejectOrderedForMobius(dens)
              'realises the symmetrised tuple set and so evaluates a ' ...
              'different density. Use method=''centres'' (or ' ...
              'method=''auto'', which selects it).']);
+    end
+    % A nested attribute is the same case: the flat factored evaluator
+    % would read the nested values as one flat multiset and evaluate a
+    % density with a different tuple set. The point evaluator has no
+    % nested analogue of the inner-product contraction, so the joint
+    % centres are the only route.
+    if isfield(dens, 'nested') && iscell(dens.nested) ...
+            && any(~cellfun(@isempty, dens.nested))
+        error('mpt:evalExpTens:nestedMobius', ...
+            ['method=''mobius'' is not available for a nested ' ...
+             'attribute: the flat Möbius evaluator reads the nested ' ...
+             'values as one flat multiset and so evaluates a different ' ...
+             'density. Use method=''centres'' (or method=''auto'', ' ...
+             'which selects it).']);
     end
 end

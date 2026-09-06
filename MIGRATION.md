@@ -38,7 +38,7 @@ The entropy API has been refactored into four distinct methods — `'shannon'` (
    h = entropy_exp_tens(dens, method='differential')
    ```
 
-2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.0 default behaviour (the Pielou-style ratio in $[0, 1]$, equivalent to the values reported in Milne et al. 2017 and Smit et al. 2019), pass `method='normalized'`:
+2. **`spectralEntropy` / `spectral_entropy` default switched from `method='shannon'` (with `normalize=True`) to `method='differential'`.** The returned quantity is now the adaptive differential entropy $\hat h$ — a different quantity in different units, not a fourth-decimal numerical shift. To reproduce the v2.0 default behaviour (the Pielou-style ratio in $[0, 1]$ on the 1-cent grid of Milne et al. 2017 and Smit et al. 2019, agreeing with those values to about 1e-4 because v3 integrates cell masses where v2.0 summed point samples), pass `method='normalized'`; the grid spacing is the new `resolution` keyword (default 1 cent):
 
    ```python
    # v2.0 default (normalised Shannon in [0, 1])

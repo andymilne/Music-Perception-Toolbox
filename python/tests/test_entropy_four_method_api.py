@@ -765,3 +765,32 @@ class TestDifferentialTruncationSigmasContract:
             truncation_sigmas=3.0, verbose=False,
         )
         assert h_spread > h_conc
+
+
+def test_spectral_entropy_discrete_grid_is_resolution_based():
+    """The discrete spectral entropies are computed on the grid the
+    consonance literature used, 0 : resolution : max + 4 sigma (default
+    1 cent), not on a fixed point count. A discrete entropy depends on
+    its grid: the fixed 1200-point grid gave 0.643 for this triad where
+    the 1-cent grid gives 0.729, the value the published method yields.
+    The reference below is that method written out (point-sampled
+    density, N counting every bin); the cell-mass form agrees with it
+    to ~1e-4, the difference between a mass and a point sample at 1
+    cent."""
+    import numpy as np
+    from mpt import spectral_entropy, build_exp_tens, eval_exp_tens
+    p = np.array([0.0, 400.0, 700.0]); sigma = 12.0
+    d = build_exp_tens(p, np.ones(3), sigma, 1, False, False, 1200,
+                       verbose=False)
+    x = np.arange(0.0, p.max() + 4 * sigma + 1.0, 1.0)
+    t = eval_exp_tens(d, x[None, :], verbose=False)
+    q = t / t.sum(); n_bins = q.size; q = q[q > 0]
+    h_ref = -(q * np.log2(q)).sum()
+    h = spectral_entropy(p, None, sigma, method="shannon", verbose=False)
+    assert abs(h - h_ref) < 2e-3
+    hn = spectral_entropy(p, None, sigma, method="normalized", verbose=False)
+    assert abs(hn - h_ref / np.log2(n_bins)) < 2e-4
+    # A coarser grid is a different discrete measure, by design exposed.
+    hc = spectral_entropy(p, None, sigma, method="normalized",
+                          resolution=5.0, verbose=False)
+    assert abs(hc - hn) > 0.02

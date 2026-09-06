@@ -93,6 +93,7 @@ def spectral_entropy(
     spectrum: list | None = None,
     method: str = "differential",
     base: float = 2.0,
+    resolution: float = 1.0,
     truncation_sigmas: float | None = None,
     kernel_precision: str | None = None,
     verbose: bool = True,
@@ -128,10 +129,12 @@ def spectral_entropy(
       ``'normalized'`` (faster and the method established in the
       consonance literature).
     - ``method='normalized'`` (alias ``'normalised'``): the Pielou-style
-      ratio ``H / log_b(N)`` in ``[0, 1]``. Reproduces the values
-      reported in Milne et al. (2017) and Smit et al. (2019). Computed
-      on an explicit grid of resolution ``n_points_per_dim=1200`` over
-      ``[0, max(spec_p) + 4*sigma]``.
+      ratio ``H / log_b(N)`` in ``[0, 1]``, the method of Milne et al.
+      (2017) and Smit et al. (2019). Computed on a grid of spacing
+      ``resolution`` cents (default 1) over ``[0, max(spec_p) + 4*sigma]``,
+      the grid those papers used; a discrete entropy depends on its
+      grid, so the spacing is part of the measure's definition and is
+      exposed rather than fixed.
     - ``method='shannon'``: raw discrete Shannon entropy
       ``H = -Σ q log_b q`` on the same grid as ``'normalized'``.
     - ``method='renyi2'``: analytical (grid-independent) Rényi-2 /
@@ -141,9 +144,11 @@ def spectral_entropy(
     appropriate ``method`` instead (a migration error is raised if
     ``normalize`` is passed).
 
-    Users needing finer control over the grid resolution should call
-    :func:`entropy_exp_tens` directly with a pre-built density and
-    their own ``n_points_per_dim`` or ``grid_limit``.
+    ``resolution`` sets the grid spacing of the discrete methods in
+    cents; ``'differential'`` and ``'renyi2'`` do not read it. Users
+    needing other grid bounds should call :func:`entropy_exp_tens`
+    directly with a pre-built density and their own ``n_points_per_dim``
+    and ``x_min`` / ``x_max``.
 
     Accepts two input forms, dispatched on ``p``'s shape:
 
@@ -203,12 +208,12 @@ def spectral_entropy(
     p_arr = np.asarray(p, dtype=np.float64)
     if p_arr.ndim == 1:
         return _spectral_entropy_scalar(
-            p_arr, w, sigma, spectrum, method, base,
+            p_arr, w, sigma, spectrum, method, base, resolution,
             truncation_sigmas, kernel_precision, verbose,
         )
     if p_arr.ndim == 2:
         return _spectral_entropy_batched(
-            p_arr, w, sigma, spectrum, method, base,
+            p_arr, w, sigma, spectrum, method, base, resolution,
             truncation_sigmas, kernel_precision, verbose,
         )
     raise ValueError(
@@ -218,14 +223,14 @@ def spectral_entropy(
 
 
 def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
-                             truncation_sigmas, kernel_precision, verbose):
+                             resolution, truncation_sigmas,
+                             kernel_precision, verbose):
     """Single-chord scalar dispatch.
 
     Prepares ``(spec_p, spec_w)`` (transposition shift + optional
     add_spectra) and delegates to :func:`entropy_exp_tens`. For the
     grid-based methods (``'shannon'`` and ``'normalized'``), the wrapper
-    passes explicit non-periodic bounds ``x_min=0``,
-    ``x_max=max(spec_p) + 4*sigma`` and ``n_points_per_dim=1200``. For
+    passes the grid ``0 : resolution : max(spec_p) + 4*sigma``. For
     ``'differential'`` the span and grid are derived adaptively. For
     ``'renyi2'`` the analytical form is used and no grid is needed.
     """
@@ -239,20 +244,21 @@ def _spectral_entropy_scalar(p, w, sigma, spectrum, method, base,
         spec_p, spec_w = p.copy(), w.copy()
 
     return _spectral_entropy_delegate(
-        spec_p, spec_w, sigma, method, base,
+        spec_p, spec_w, sigma, method, base, resolution,
         truncation_sigmas, kernel_precision,
     )
 
 
 def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
-                               truncation_sigmas, kernel_precision):
+                               resolution, truncation_sigmas,
+                               kernel_precision):
     """Delegate the entropy computation to entropy_exp_tens.
 
     Used by both the scalar path and the batched per-row path.
 
     For grid-based methods ('shannon', 'normalized'), supplies explicit
-    bounds (``x_min=0``, ``x_max=max(spec_p) + 4*sigma``) and an
-    explicit ``n_points_per_dim=1200``. For 'differential', the span
+    the grid ``0 : resolution : max(spec_p) + 4*sigma``. For
+    'differential', the span
     auto-derives from event centres +/- ``truncation_sigmas * sigma``
     and the grid is refined adaptively. For 'renyi2', no grid is
     constructed (analytical inner-product form).
@@ -279,13 +285,21 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
     # Discrete methods: 'shannon' (raw H) or 'normalized' (H/log_b N).
     # Both share an explicit grid; the method kwarg selects the variant.
+    # The grid is 0 : resolution : max(spec_p) + 4 sigma, as in the
+    # consonance literature this measure comes from; its point count
+    # follows the spectrum's span, so a wide spectrum is not sampled
+    # more coarsely than a narrow one.
+    if not (resolution > 0):
+        raise ValueError("resolution must be positive (cents).")
     margin = 4 * sigma
-    x_max = float(np.max(spec_p)) + margin
+    n_points = int(np.floor((float(np.max(spec_p)) + margin) / resolution
+                            + 1e-9)) + 1
+    x_max = (n_points - 1) * resolution
     return entropy_exp_tens(
         spec_p, spec_w, sigma, 1, False, False, 1200,
         method=method,
         base=base,
-        n_points_per_dim=1200,
+        n_points_per_dim=n_points,
         x_min=0.0, x_max=x_max,
         truncation_sigmas=truncation_sigmas,
         kernel_precision=kernel_precision,
@@ -294,6 +308,7 @@ def _spectral_entropy_delegate(spec_p, spec_w, sigma, method, base,
 
 
 def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
+                              resolution,
                               truncation_sigmas, kernel_precision, verbose):
     """Batched dispatch over rows of a 2-D pitch matrix.
 
@@ -353,7 +368,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
                 w_valid_s = None
             _spectral_entropy_scalar(
                 p_valid_s, w_valid_s, sigma, spectrum, method, base,
-                truncation_sigmas, kernel_precision,
+                resolution, truncation_sigmas, kernel_precision,
                 verbose=False,
             )
             warmup_done = True
@@ -376,7 +391,7 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
                     w_valid_s = None
                 _spectral_entropy_scalar(
                     p_valid_s, w_valid_s, sigma, spectrum, method,
-                    base, truncation_sigmas, kernel_precision,
+                    base, resolution, truncation_sigmas, kernel_precision,
                     verbose=False,
                 )
                 n_valid_cal += 1
@@ -418,7 +433,8 @@ def _spectral_entropy_batched(P, W, sigma, spectrum, method, base,
         else:
             h = _spectral_entropy_scalar(
                 p_valid, w_valid, sigma, spectrum, method, base,
-                truncation_sigmas, kernel_precision, verbose=False,
+                resolution, truncation_sigmas, kernel_precision,
+                verbose=False,
             )
             result_cache[key] = h
             out[i] = h

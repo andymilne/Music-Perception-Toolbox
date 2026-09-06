@@ -35,8 +35,10 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %     method='normalized' (alias 'normalised') computes the Pielou-
 %       style ratio H / log_b(N) in [0, 1]. Reproduces the values
 %       reported in Milne et al. (2017) and Smit et al. (2019).
-%       Computed on an explicit grid of nPointsPerDim = 1200 over
-%       [0, max(spec_p) + 4*sigma].
+%       Computed on a grid of spacing 'resolution' cents (default 1)
+%       over [0, max(spec_p) + 4*sigma], the grid those papers used; a
+%       discrete entropy depends on its grid, so the spacing is part of
+%       the measure's definition and is exposed rather than fixed.
 %
 %     method='shannon' computes the raw discrete Shannon entropy
 %       H = -sum q log_b q on the same grid as 'normalized'.
@@ -98,10 +100,10 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %                    console output (time estimates, progress
 %                    messages).
 %
-%   Grid resolution for the discrete paths is fixed at
-%   nPointsPerDim = 1200 over [0, max(spec_p) + 4*sigma]. Users
-%   needing finer control should call entropyExpTens directly with a
-%   pre-built density and their own nPointsPerDim / gridLimit.
+%   'resolution' sets the grid spacing of the discrete paths in cents
+%   (default 1); 'differential' and 'renyi2' do not read it. Users
+%   needing other grid bounds should call entropyExpTens directly with
+%   a pre-built density and their own nPointsPerDim and xMin / xMax.
 %
 %   Output:
 %     H     — Spectral entropy. Scalar for a single chord, nRows-by-1
@@ -157,6 +159,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
                 {'differential','shannon','normalized','normalised','renyi2'})} ...
             = 'differential'
         nvArgs.base (1,1) {mustBePositive} = 2
+        nvArgs.resolution (1,1) {mustBePositive} = 1
         nvArgs.truncationSigmas (1,1) double {mustBePositive} ...
             = mptDefaults('truncationSigmas')
         nvArgs.kernelPrecision (1,:) char ...
@@ -244,10 +247,11 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
     % Up-front time estimate: dominated by the kernel-pair work in
     % evalExpTens (Shannon path) — numel(spec_p) * numel(grid). The
     % grid-free methods (differential, renyi2) bypass this; emit only
-    % for the discrete (shannon, normalized) paths. Use the same
-    % nPointsPerDim=1200 the delegate will pass downstream.
+    % for the discrete (shannon, normalized) paths, at the grid size the
+    % delegate will build.
     if any(strcmp(nvArgs.method, {'shannon', 'normalized'}))
-        nGrid = 1200;
+        nGrid = floor((max(spec_p) + 4 * sigma) / nvArgs.resolution ...
+                      + 1e-9) + 1;
         nPairs = double(numel(spec_p)) * double(nGrid);
         estimateCompTime(nPairs, 1, 'spectralEntropy', nvArgs.verbose);
     end
@@ -263,9 +267,11 @@ end
 function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
 %LOCALSPECTRALENTROPYDELEGATE  Delegate to entropyExpTens.
 %
-%   For 'shannon' and 'normalized', passes explicit non-periodic grid
-%   bounds (xMin = 0, xMax = max(spec_p) + 4*sigma) and an explicit
-%   nPointsPerDim = 1200 (matching the toolbox's pre-v3 default).
+%   For 'shannon' and 'normalized', passes the grid
+%   0 : resolution : max(spec_p) + 4*sigma, as in the consonance
+%   literature this measure comes from; its point count follows the
+%   spectrum's span, so a wide spectrum is not sampled more coarsely
+%   than a narrow one.
 %   For 'differential', the span auto-derives from event centres
 %   +/- truncationSigmas * sigma and the grid is refined adaptively.
 %   For 'renyi2', no grid is constructed (analytical inner-product
@@ -296,13 +302,14 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     end
 
     margin = 4 * sigma;
-    xMax = max(spec_p) + margin;
+    nPoints = floor((max(spec_p) + margin) / nvArgs.resolution + 1e-9) + 1;
+    xMax = (nPoints - 1) * nvArgs.resolution;
 
     if strcmp(nvArgs.method, 'normalized')
         H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
             'method', 'normalized', ...
             'base', nvArgs.base, ...
-            'nPointsPerDim', 1200, ...
+            'nPointsPerDim', nPoints, ...
             'xMin', 0, ...
             'xMax', xMax, ...
             'truncationSigmas', nvArgs.truncationSigmas, ...
@@ -315,7 +322,7 @@ function H = localSpectralEntropyDelegate(spec_p, spec_w, sigma, nvArgs)
     H = entropyExpTens(spec_p, spec_w, sigma, 1, false, false, 1200, ...
         'method', 'shannon', ...
         'base', nvArgs.base, ...
-        'nPointsPerDim', 1200, ...
+        'nPointsPerDim', nPoints, ...
         'xMin', 0, ...
         'xMax', xMax, ...
         'truncationSigmas', nvArgs.truncationSigmas, ...

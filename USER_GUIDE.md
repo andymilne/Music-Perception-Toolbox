@@ -1091,7 +1091,7 @@ Output weights are the product of each pitch's original weight and the spectral 
 
 These functions take pitches in cents as absolute pitches (not pitch classes). The functions transpose internally so the lowest pitch is 0.
 
-**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `convertPitch(f, 'hz', 'cents')` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum.
+**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `convertPitch(f, 'hz', 'cents')` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum. The discrete methods (`'shannon'`, `'normalized'`) are computed on the grid `0 : resolution : max + 4σ` with `resolution` in cents (default 1, the grid of Milne et al. 2017 and Smit et al. 2019); a discrete entropy depends on its grid, so change `resolution` only to change the measure.
 
 **templateHarmonicity(p, w, sigma, ...)** — Cross-correlates the chord's spectrum with a harmonic template. Returns hMax (maximum cosine similarity; Milne, 2013) and hEntropy (entropy of the cross-correlation; Harrison, 2020). Separate `'spectrum'` (for the template) and `'chordSpectrum'` (for the chord) parameters. See the comparison with `tensorHarmonicity` below.
 

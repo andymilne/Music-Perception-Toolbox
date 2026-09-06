@@ -1889,7 +1889,8 @@ def _has_ordered_attr(dens) -> bool:
 
 
 def _reject_ordered_for_mobius(dens) -> None:
-    """Raise if an explicit ``method='mobius'`` names an ordered density.
+    """Raise if an explicit ``method='mobius'`` names an ordered or a
+    nested density.
 
     Silently substituting the centres path would hide the fact that the
     requested method does not apply; silently proceeding would return
@@ -1902,6 +1903,19 @@ def _reject_ordered_for_mobius(dens) -> None:
             "partitions of {1, ..., r}, which realises the "
             "symmetrised tuple set and so evaluates a different density. "
             "Use method='centres' (or method='auto', which selects it)."
+        )
+    # A nested attribute is the same case: the flat factored evaluator
+    # would read the nested values as one flat multiset and evaluate a
+    # density with a different tuple set. The point evaluator has no
+    # nested analogue of the inner-product contraction, so the joint
+    # centres are the only route.
+    nested = getattr(dens, "nested", None)
+    if nested is not None and any(n is not None for n in nested):
+        raise ValueError(
+            "method='mobius' is not available for a nested attribute: the "
+            "flat Möbius evaluator reads the nested values as one flat "
+            "multiset and so evaluates a different density. Use "
+            "method='centres' (or method='auto', which selects it)."
         )
 
 

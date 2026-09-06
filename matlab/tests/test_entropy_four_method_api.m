@@ -237,6 +237,26 @@ results{end+1,1} = 'spectralEntropy: all four methods return finite values';
 results{end,2}   = isfinite(H_seDiff) && isfinite(H_seNorm) ...
                    && isfinite(H_seShan) && isfinite(H_seRny);
 
+% --- The discrete grid is 0 : resolution : max + 4 sigma (default 1 cent),
+%     the grid of the consonance literature, not a fixed point count.
+%     Reference: that method written out (point-sampled density, N
+%     counting every bin); the cell-mass form agrees to ~1e-4. ---
+seRefDens = buildExpTens(majorTriad, ones(1, 3), 12, 1, false, false, 1200, ...
+                         'verbose', false);
+seRefX = 0:1:(max(majorTriad) + 4 * 12);
+seRefT = evalExpTens(seRefDens, seRefX, 'verbose', false);
+seRefQ = seRefT(:) / sum(seRefT(:)); seRefN = numel(seRefQ);
+seRefQ = seRefQ(seRefQ > 0);
+seRefH = -sum(seRefQ .* log2(seRefQ));
+results{end+1,1} = 'spectralEntropy: shannon on the 1-cent grid matches the published method (2e-3)';
+results{end,2}   = abs(H_seShan - seRefH) < 2e-3;
+results{end+1,1} = 'spectralEntropy: normalized on the 1-cent grid matches the published method (2e-4)';
+results{end,2}   = abs(H_seNorm - seRefH / log2(seRefN)) < 2e-4;
+H_seCoarse = spectralEntropy(majorTriad, [], 12, 'method', 'normalized', ...
+                             'resolution', 5, 'verbose', false);
+results{end+1,1} = 'spectralEntropy: resolution changes the discrete measure';
+results{end,2}   = abs(H_seCoarse - H_seNorm) > 0.02;
+
 % --- 'normalised' alias ---
 H_seUK = spectralEntropy(majorTriad, [], 12, 'method', 'normalised', ...
                           'verbose', false);

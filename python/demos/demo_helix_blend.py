@@ -47,7 +47,7 @@ Each part produces three stacked panels:
   (b) a similarity heatmap over (time offset, sigma_reg),
   (c) three overlaid profile curves at representative sigma_reg values.
 
-Uses: build_exp_tens, windowed_similarity, convert_pitch.
+Uses: build_exp_tens, windowed_similarity, transform_attributes.
 """
 
 import numpy as np

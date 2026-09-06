@@ -18,8 +18,8 @@ function r = roughness(f, w, nvArgs)
 %   is the p-norm of all pairwise roughnesses.
 %
 %   IMPORTANT: Frequencies must be in Hz (not cents, MIDI, or other
-%   pitch scales). Use convertPitch to convert from other scales:
-%     f_hz = convertPitch(f_midi, 'midi', 'hz');
+%   pitch scales). Use transformAttributes to convert from other scales:
+%     f_hz = transformAttributes(f_midi, [], {'midi', 'hz'});
 %     r = roughness(f_hz, w);
 %
 %   Inputs:
@@ -54,8 +54,8 @@ function r = roughness(f, w, nvArgs)
 %     % Average pairwise roughness
 %     r = roughness(f, w, 'average', true);
 %
-%     % Using convertPitch to convert from MIDI
-%     f = convertPitch([60 64 67], 'midi', 'hz');  % C major triad
+%     % Using transformAttributes to convert from MIDI
+%     f = transformAttributes([60 64 67], [], {'midi', 'hz'});  % C major triad
 %     r = roughness(f, [1 1 1]);
 %
 %   References:

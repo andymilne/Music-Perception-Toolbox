@@ -132,8 +132,8 @@ function h = tensorHarmonicity(p, w, sigma, nvArgs)
 %     % Without duplication (unisons do not contribute)
 %     h = tensorHarmonicity([0, 400, 700], [], 12, 'duplicate', 1)
 %
-%     % Using convertPitch from MIDI
-%     p = convertPitch([60 64 67], 'midi', 'cents');
+%     % Using transformAttributes from MIDI
+%     p = transformAttributes([60 64 67], [], {'midi', 'cents'});
 %     h = tensorHarmonicity(p, [], 12)
 %
 %   References:

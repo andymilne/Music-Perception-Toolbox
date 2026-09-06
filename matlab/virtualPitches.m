@@ -47,7 +47,7 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %
 %   Inputs:
 %     p     — Pitch values in cents (vector). These are absolute
-%             pitches (e.g., MIDI 60 = 6000 cents via convertPitch),
+%             pitches (e.g., MIDI 60 = 6000 cents via transformAttributes),
 %             not pitch classes. The function transposes internally
 %             so the lowest pitch is 0.
 %     w     — Weights (vector same length as p, or empty for all ones).
@@ -117,15 +117,15 @@ function [vp_p, vp_w] = virtualPitches(p, w, sigma, nvArgs)
 %
 %     % Empirical audio peaks
 %     [f, a] = audioPeaks('audio/piano_Cmin_open.wav');
-%     p_cents = convertPitch(f, 'hz', 'cents');
+%     p_cents = transformAttributes(f, [], {'hz', 'cents'});
 %     [vp_p, vp_w] = virtualPitches(p_cents, a, 12);
 %
-%     % MIDI input via convertPitch
-%     p = convertPitch([60 64 67], 'midi', 'cents');
+%     % MIDI input via transformAttributes
+%     p = transformAttributes([60 64 67], [], {'midi', 'cents'});
 %     spec = {'harmonic', 36, 'powerlaw', 1};
 %     [vp_p, vp_w] = virtualPitches(p, [], 12, 'chordSpectrum', spec);
 %     % Plot with MIDI pitch axis
-%     plot(convertPitch(vp_p, 'cents', 'midi'), vp_w)
+%     plot(transformAttributes(vp_p, [], {'cents', 'midi'}), vp_w)
 %
 %     % Verify consistency with templateHarmonicity
 %     hMax = templateHarmonicity([0, 400, 700], [], 12, ...

@@ -52,13 +52,13 @@ print("=== 1. Pre-tensor inputs ===")
 # Reference: D-E-F-C-E-G-A at one note per second. The query C-E-G
 # appears exactly at times 3, 4, 5.
 ref_midi  = np.array([62, 64, 65, 60, 64, 67, 69])
-ref_pitch = mpt.convert_pitch(ref_midi, "midi", "cents").reshape(1, -1)
+ref_pitch = mpt.transform_attributes(ref_midi, None, ('midi', 'cents')).reshape(1, -1)
 ref_time  = np.arange(7, dtype=float).reshape(1, -1)
 ref_pAttr = [ref_pitch, ref_time]
 
 # Query: C-E-G triad, 1-second spacing.
 qry_midi  = np.array([60, 64, 67])
-qry_pitch = mpt.convert_pitch(qry_midi, "midi", "cents").reshape(1, -1)
+qry_pitch = mpt.transform_attributes(qry_midi, None, ('midi', 'cents')).reshape(1, -1)
 qry_time  = np.arange(3, dtype=float).reshape(1, -1)
 qry_pAttr = [qry_pitch, qry_time]
 

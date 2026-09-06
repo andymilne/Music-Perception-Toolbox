@@ -9,7 +9,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %   peaks. The output frequencies (in Hz) and normalised amplitudes
 %   (in [0, 1]) are designed for direct use with the Music Perception
 %   Toolbox after conversion to the desired pitch scale via
-%   convertPitch.
+%   transformAttributes.
 %
 %   By default, peaks are picked directly from the FFT magnitude
 %   spectrum (no smoothing). An optional Gaussian smoothing step is
@@ -33,7 +33,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %        spectral artefacts from abrupt onsets or offsets.
 %     3. Compute the single-sided magnitude spectrum via FFT.
 %     4. If sigma > 0: resample onto a uniform cents grid via
-%        convertPitch, smooth with a Gaussian kernel, and find peaks
+%        transformAttributes, smooth with a Gaussian kernel, and find peaks
 %        on the smoothed spectrum. Otherwise: find peaks directly on
 %        the magnitude spectrum.
 %     5. Normalise peak amplitudes to [0, 1] (tallest peak = 1).
@@ -48,7 +48,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %   pitch scale, then pass to toolbox functions. For example:
 %
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
-%     p = convertPitch(f, 'hz', 'cents');   % absolute MIDI cents
+%     p = transformAttributes(f, [], {'hz', 'cents'});   % absolute MIDI cents
 %     H = spectralEntropy(p, w, 12);        % no addSpectra needed
 %
 %   The Hz output also feeds directly into roughness, which requires
@@ -139,13 +139,13 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 %     % Spectral pitch similarity of two audio files
 %     [fA, wA] = audioPeaks('audio/piano_Emin.wav');
 %     [fB, wB] = audioPeaks('audio/piano_G7_3rd_inversion.wav');
-%     pA = convertPitch(fA, 'hz', 'cents');
-%     pB = convertPitch(fB, 'hz', 'cents');
+%     pA = transformAttributes(fA, [], {'hz', 'cents'});
+%     pB = transformAttributes(fB, [], {'hz', 'cents'});
 %     s = cosSimExpTens(pA, wA, pB, wB, 12, 2, true, true, 1200);
 %
 %     % Spectral entropy (no addSpectra needed)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
-%     p = convertPitch(f, 'hz', 'cents');
+%     p = transformAttributes(f, [], {'hz', 'cents'});
 %     H = spectralEntropy(p, w, 12);
 %
 %     % Roughness (Hz input — no conversion needed)
@@ -283,7 +283,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
         % conversion, a fixed-Hz kernel would over-smooth high
         % partials and under-smooth low ones.
 
-        cValid = convertPitch(fValid, 'hz', 'cents');
+        cValid = transformAttributes(fValid, [], {'hz', 'cents'});
 
         % Build uniform cents grid
         cMin = ceil(min(cValid) / step) * step;
@@ -388,7 +388,7 @@ function [f, w, detail] = audioPeaks(audioFile, nvArgs)
 
     if sigma > 0
         pkCents = cGrid(pkLocs);
-        f = convertPitch(pkCents, 'cents', 'hz');
+        f = transformAttributes(pkCents, [], {'cents', 'hz'});
     else
         f = fValid(pkLocs);
     end

@@ -142,6 +142,22 @@ The routing-parity work that closed v3 changes a handful of numbers and rejects 
 
 - **MATLAB list and batched forms now honour `method`, `truncationSigmas`, and `kernelPrecision`.** A call in list or batched form that passed these keywords and relied on their being ignored will now route as the keywords say — a forced `'mobius'` or `'centres'` is applied to every entry, and a per-call `truncationSigmas` governs every entry. Remove the keyword, or pass `'auto'`, to keep the earlier behaviour.
 
+### `convertPitch` / `convert_pitch` replaced by `transformAttributes` / `transform_attributes`
+
+The pitch and frequency conversions are now one case of the new elementwise preprocessing primitive `transformAttributes`, and the old names are removed. The replacement is mechanical:
+
+```matlab
+p = convertPitch(f, 'hz', 'cents');                 % v2.0
+p = transformAttributes(f, [], {'hz', 'cents'});    % v3.0
+```
+
+```python
+p = mpt.convert_pitch(f, 'hz', 'cents')                     # v2.0
+p = mpt.transform_attributes(f, None, ('hz', 'cents'))      # v3.0
+```
+
+The seven scales and their formulas are unchanged, so converted values are bit-identical. The same function applies logarithmic and other transforms to attributes of the `(pAttr, w, specs)` carrier, adds the `'octave'` pitch scale, and refuses out-of-domain values (a zero under `'log'`, a negative under `'power'`) with a message giving the remedies; see User Guide §3.7.5.
+
 ### Default kernel truncation (numerical change)
 
 The factory default of `truncation_sigmas` / `truncationSigmas` is `6`, not `Inf`. Every centres-path consumer (`evalExpTens`, `cosSimExpTens` on Bulger's method, `entropyExpTens`, `spectralEntropy`, `templateHarmonicity`, `virtualPitches`) therefore returns a ~6-significant-figure approximation of the untruncated v2.0 value by default; the worst-case absolute error at the default is about $2 \times 10^{-8}$ and falls at low-density query points. A one-time warning (`mpt:truncationDefault` / `mpt.TruncationDefaultWarning`) says so on first use. To recover exact v2.0 numerics, set `truncation_sigmas` / `truncationSigmas` to `math.inf` / `Inf`, per call or globally:
@@ -164,7 +180,7 @@ mpt.set_default(truncation_sigmas=math.inf)
 
 - **`kernel_chunk_bytes` (Python) / `kernelChunkBytes` (MATLAB) default.** Sets the per-chunk byte budget for the toolbox's memory-aware chunkers (the centres path, Bulger's method on `cosSimExpTens`, and the Möbius relative-mode evaluator). Factory value `'auto'` resolves at call time to half of currently available physical memory, queried from `/proc/meminfo` on Linux, `vm_stat` on macOS, and `memory().PhysicalMemory.Available` on Windows; a 4 GiB fallback covers the case where all platform queries fail. An explicit positive integer (in bytes) overrides globally via `mptDefaults('kernelChunkBytes', N)` / `mpt.set_default(kernel_chunk_bytes=N)`. v2.0 code requires no changes; the new default produces chunk sizes that differ from v2.0's fixed budget, so values differ from v2.0 at floating-point reduction order (relative differences below $\sim 10^{-13}$) — same answer, different bit pattern. Pin to a fixed integer if you need bit-identity across sessions or machines.
 
-- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `deleteInput` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `deleteInput=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §3.7 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
+- **`weightEvents` / `weight_events`.** New per-event preprocessing primitive. Computes a window factor from one attribute's values and multiplies it into the weight slot of another attribute, returning a transformed `(pAttr, wOut, groups)` three-tuple that feeds directly into `buildExpTens`. The signature names a single `inputAttr` (must have $K = 1$) supplying values to a window function specified by a centre $c$, a scale given as either `sd` (the window's standard deviation) or `width` (the full support of the rectangle at `shape = 1`; exactly one of the two must be supplied), and a shape $\gamma \in [0, 1]$ that interpolates between pure Gaussian and pure rectangle under the fixed-variance rect–Gaussian convolution family; the resulting $(1, N)$ factor is written into the slot of `targetAttr` (which may equal `inputAttr` or be a different attribute, and may itself carry $K_{\text{target}} > 1$). A mandatory keyword-only `dropInputAttr` flag (no default) selects whether the input attribute is dropped from the output (the usual idiom for windowed-entropy workflows where time scaffolds the window and is no longer needed downstream) or preserved. Multi-axis windowing is expressed as a sequence of calls with the same `targetAttr`. The canonical composition `weightEvents` (with `dropInputAttr=true`) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction — the principal new analysis pattern that this primitive supports. See USER_GUIDE §3.7 (Pre-MAET processing) for conceptual coverage and §6.1 for the API entry.
 
 - **`differenceEvents` / `difference_events` and its `circular` flag.** `differenceEvents(pAttr, w, groups, diffOrders, 'circular', false)` takes four positional arguments plus a `circular` Name-Value (MATLAB) / keyword-only (Python) flag, paralleling the flag on `bindEvents`. Differences are emitted as raw signed subtractions regardless of group periodicity; the kernel applies the mod-period wrap downstream. Default `circular = false` drops the leading events at each order. Set `circular = true` for cyclic event sequences (looped rhythms, ostinati) where the boundary difference is a genuine inter-event interval; the function then wraps at the sequence boundary and returns $N$ events at every order.
 
@@ -563,4 +579,4 @@ The following v2 functions are entirely new. See the User Guide for full documen
 
 **Consonance and harmonicity:** `templateHarmonicity`, `tensorHarmonicity`, `virtualPitches`
 
-**Utility:** `convertPitch`
+**Utility:** `transformAttributes` (absorbs `convertPitch`)

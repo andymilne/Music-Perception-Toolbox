@@ -12,11 +12,11 @@ from __future__ import annotations
 
 __version__ = "3.0.0"
 
-# --- Pitch/frequency conversion ---
-from .convert import convert_pitch
-
 # --- Spectral enrichment ---
 from .spectra import add_spectra
+
+# --- Symbolic scores (MIDI, MusicXML) ---
+from .score import read_score, events_from_score
 
 # --- Expectation tensors ---
 from .tensor import (
@@ -32,6 +32,7 @@ from .tensor import (
     bind_events,
     flat_specs,
     simplex_vertices,
+    transform_attributes,
     translate_attributes,
     weight_events,
     TranslateAttributesNoOpWarning,
@@ -91,8 +92,6 @@ from ._defaults import (
 
 __all__ = [
     "explain_dispatch",
-    # convert
-    "convert_pitch",
     # spectra
     "add_spectra",
     # tensor
@@ -108,6 +107,10 @@ __all__ = [
     "bind_events",
     "flat_specs",
     "simplex_vertices",
+    "transform_attributes",
+    # score
+    "read_score",
+    "events_from_score",
     "translate_attributes",
     "TranslatedSweep",
     "weight_events",

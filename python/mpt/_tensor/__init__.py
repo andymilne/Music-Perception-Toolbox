@@ -10,6 +10,8 @@ Module layout:
                     density is its A = N = 1 corner).
   preprocessing.py  difference_events, bind_events, translate_attributes,
                     simplex_vertices.
+  transform.py      transform_attributes (scale conversions and elementwise
+                    transforms).
   windowed.py       windowed_similarity, windowed_entropy (event weighting).
   canonical.py      Canonical-form key helpers for batched dedup.
   dispatch.py       Path-selection cost model + shared helpers.
@@ -47,6 +49,7 @@ from .preprocessing import (
     translate_attributes,
     weight_events,
 )
+from .transform import transform_attributes
 
 from .windowed import (
     windowed_similarity,
@@ -87,6 +90,7 @@ __all__ = [
     "difference_events",
     "simplex_vertices",
     "translate_attributes",
+    "transform_attributes",
     "TranslateAttributesNoOpWarning",
     "weight_events",
     # Windowing (public)

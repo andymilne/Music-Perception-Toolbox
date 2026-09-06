@@ -1482,7 +1482,7 @@ def roughness(
     (1993) parameterisation of Plomp and Levelt's (1965) empirical
     dissonance curve.
 
-    Frequencies must be in Hz. Use :func:`~mpt.convert.convert_pitch`
+    Frequencies must be in Hz. Use :func:`~mpt.transform_attributes`
     to convert from other scales.
 
     Parameters

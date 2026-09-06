@@ -41,13 +41,13 @@ fprintf('=== 1. Pre-tensor inputs ===\n');
 % Reference: D-E-F-C-E-G-A at one note per second. The query C-E-G
 % appears exactly at times 3, 4, 5.
 refMidi   = [62 64 65 60 64 67 69];
-refPitch  = convertPitch(refMidi, 'midi', 'cents');
+refPitch  = transformAttributes(refMidi, [], {'midi', 'cents'});
 refTime   = 0:6;
 refPAttr  = {refPitch, refTime};
 
 % Query: C-E-G triad, 1-second spacing, sweep across both axes.
 qryMidi   = [60 64 67];
-qryPitch  = convertPitch(qryMidi, 'midi', 'cents');
+qryPitch  = transformAttributes(qryMidi, [], {'midi', 'cents'});
 qryTime   = 0:2;
 qryPAttr  = {qryPitch, qryTime};
 

@@ -12,8 +12,9 @@
 %
 %  MATLAB's MA evaluation honoured method = 'mobius' on an ordered
 %  ([sym]=0) attribute, silently evaluating the symmetrised density,
-%  where its own single-multiset path and the Python twin raise; the last
-%  block pins the error.
+%  where its own single-multiset path and the Python twin raise; that
+%  block pins the error. The last block pins that a nested density under
+%  method = 'mobius' takes the per-level evaluator.
 %
 %  Standalone-runnable; appends to `results` when called from test_mpt.m.
 %  mptTestIsolateDefaults sets truncationSigmas = Inf (accuracy floor).
@@ -76,32 +77,24 @@ end
 results{end+1, 1} = 'parity fixes: MA evalExpTens method=mobius on an ordered attribute raises orderedMobius';
 results{end, 2}   = rpf_ok;
 
-% --- evalExpTens refuses method='mobius' on a nested density ---
-% A forced 'mobius' used to evaluate the flattened multiset silently; it
-% is refused, as on an ordered attribute, and 'auto' takes the centres.
-rpf_ok = false;
-try
-    rng(1, 'twister');
-    rpf_tags = repelem(0:1, 3);
-    rpf_p = sort(rpf_P * rand(6, 2), 1);
-    rpf_spec = struct('tags', rpf_tags, 'r', [1 2], 'sym', [true true], ...
-                      'rel', [0 1]);
-    dNest = buildExpTens({rpf_p}, {[]}, 'specs', {rpf_spec}, 'sigma', 0.5, ...
-                         'isPer', true, 'period', rpf_P, 'verbose', false);
-    evalExpTens(dNest, zeros(dNest.dim, 3), 'method', 'mobius', ...
-                'verbose', false);
-catch rpf_err
-    rpf_ok = strcmp(rpf_err.identifier, 'mpt:evalExpTens:nestedMobius');
-end
-results{end+1, 1} = 'parity fixes: evalExpTens method=mobius on a nested density raises nestedMobius';
-results{end, 2}   = rpf_ok;
-if rpf_ok
-    vA = evalExpTens(dNest, zeros(dNest.dim, 3), 'verbose', false);
-    vC = evalExpTens(dNest, zeros(dNest.dim, 3), 'method', 'centres', ...
-                     'verbose', false);
-    results{end+1, 1} = 'parity fixes: evalExpTens auto == centres on a nested density';
-    results{end, 2}   = max(abs(vA(:) - vC(:))) <= 1e-12 * max(1, max(abs(vC(:))));
-end
+% --- evalExpTens method='mobius' on a nested density takes the per-level route ---
+% A forced 'mobius' used to evaluate the flattened multiset silently and
+% was then refused; it now runs the per-level Möbius evaluator, which
+% agrees with the centres route, while 'auto' keeps the centres.
+rng(1, 'twister');
+rpf_tags = repelem(0:1, 3);
+rpf_p = sort(rpf_P * rand(6, 2), 1);
+rpf_spec = struct('tags', rpf_tags, 'r', [1 2], 'sym', [true true], ...
+                  'rel', [0 1]);
+dNest = buildExpTens({rpf_p}, {[]}, 'specs', {rpf_spec}, 'sigma', 0.5, ...
+                     'isPer', true, 'period', rpf_P, 'verbose', false);
+vM = evalExpTens(dNest, zeros(dNest.dim, 3), 'method', 'mobius', 'verbose', false);
+vA = evalExpTens(dNest, zeros(dNest.dim, 3), 'verbose', false);
+vC = evalExpTens(dNest, zeros(dNest.dim, 3), 'method', 'centres', 'verbose', false);
+results{end+1, 1} = 'parity fixes: evalExpTens auto == centres on a nested density';
+results{end, 2}   = max(abs(vA(:) - vC(:))) <= 1e-12 * max(1, max(abs(vC(:))));
+results{end+1, 1} = 'parity fixes: evalExpTens method=mobius on a nested density matches centres';
+results{end, 2}   = max(abs(vM(:) - vC(:))) <= 1e-7 * max(1, max(abs(vC(:))));
 
 if standalone
     nPass = sum([results{:, 2}]);

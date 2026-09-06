@@ -14,7 +14,7 @@
 %  just-intonation counterparts, illustrating how mistuning broadens
 %  and reduces virtual pitch peaks.
 %
-%  Uses: virtualPitches, convertPitch
+%  Uses: virtualPitches, transformAttributes
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -64,7 +64,7 @@ for i = 1:nChords
     label       = chordData{i, 2};
 
     % Convert MIDI to absolute cents
-    p = convertPitch(midiPitches(:), 'midi', 'cents');
+    p = transformAttributes(midiPitches(:), [], {'midi', 'cents'});
 
     % Compute virtual pitch salience profile
     [vp_p, vp_w] = virtualPitches(p, [], sigma, ...
@@ -88,7 +88,7 @@ figure('Name', 'Virtual pitch profiles', ...
 
 for i = 1:nChords
     midiPitches = results(i).midi;
-    vp_midi     = convertPitch(results(i).vp_p, 'cents', 'midi');
+    vp_midi     = transformAttributes(results(i).vp_p, [], {'cents', 'midi'});
     vp_w        = results(i).vp_w;
 
     subplot(nRows, nCols, i);
@@ -136,7 +136,7 @@ fprintf('%s\n', repmat('-', 1, 60));
 for i = 1:nChords
     [maxW, maxIdx] = max(results(i).vp_w);
     bestCents = results(i).vp_p(maxIdx);
-    bestMidi  = convertPitch(bestCents, 'cents', 'midi');
+    bestMidi  = transformAttributes(bestCents, [], {'cents', 'midi'});
 
     fprintf('%-25s  %10.1f  %10.2f  %10.3f\n', ...
         results(i).label, bestCents, bestMidi, maxW);

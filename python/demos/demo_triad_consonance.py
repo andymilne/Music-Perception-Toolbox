@@ -152,7 +152,7 @@ if do_spec_ent:
 if do_rough:
     rough_grid = np.full((n_ints, n_ints), np.nan)
 
-ref_cents = mpt.convert_pitch(f0, 'hz', 'cents')
+ref_cents = mpt.transform_attributes(f0, None, ('hz', 'cents'))
 
 if do_tensor:
     dup = dup_tens if dup_tens > 0 else 3
@@ -289,7 +289,7 @@ if do_rough:
             [ref_cents, ref_cents + int1k, ref_cents + int2k]
         )
         ep, ew = mpt.add_spectra(chord_cents, None, *spec_rough)
-        f_hz = mpt.convert_pitch(ep, 'cents', 'hz')
+        f_hz = mpt.transform_attributes(ep, None, ('cents', 'hz'))
         rough_lin[k] = mpt.roughness(f_hz, ew)
 
         n_done += 1

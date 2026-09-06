@@ -31,7 +31,7 @@
 %  intervals gives the same chord).
 %
 %  Uses: templateHarmonicity, tensorHarmonicity, spectralEntropy,
-%        roughness, addSpectra, evalExpTens, convertPitch
+%        roughness, addSpectra, evalExpTens, transformAttributes
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -110,7 +110,7 @@ if doSpecEnt, specEnt     = NaN(nInts, nInts); end
 if doRough,   rough       = NaN(nInts, nInts); end
 
 % Reference pitch in absolute cents (for roughness Hz conversion)
-refCents = convertPitch(f0, 'hz', 'cents');
+refCents = transformAttributes(f0, [], {'hz', 'cents'});
 
 %% === Precompute tensor harmonicity template (if selected) ===
 
@@ -262,7 +262,7 @@ if doRough
 
         chordCents = [refCents, refCents + int1k, refCents + int2k];
         [ep, ew] = addSpectra(chordCents(:), [], spec_rough{:});
-        fHz = convertPitch(ep, 'cents', 'hz');
+        fHz = transformAttributes(ep, [], {'cents', 'hz'});
         roughLin(k) = roughness(fHz, ew);
 
         nDone = nDone + 1;

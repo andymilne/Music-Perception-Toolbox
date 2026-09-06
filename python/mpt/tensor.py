@@ -27,6 +27,7 @@ from ._tensor.preprocessing import (
     translate_attributes,
     weight_events,
 )
+from ._tensor.transform import transform_attributes
 from ._tensor.windowed import (
     windowed_similarity,
     windowed_entropy,

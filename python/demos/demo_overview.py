@@ -18,9 +18,9 @@ np.set_printoptions(precision=3, suppress=True)
 # ===================================================================
 
 print("=== Pitch conversion ===")
-print(f"  MIDI 60 = {mpt.convert_pitch(60, 'midi', 'hz'):.2f} Hz")
-print(f"  440 Hz  = {mpt.convert_pitch(440, 'hz', 'cents'):.0f} cents")
-print(f"  440 Hz  = {mpt.convert_pitch(440, 'hz', 'erb'):.2f} ERB-rate")
+print(f"  MIDI 60 = {mpt.transform_attributes(60, None, ('midi', 'hz')):.2f} Hz")
+print(f"  440 Hz  = {mpt.transform_attributes(440, None, ('hz', 'cents')):.0f} cents")
+print(f"  440 Hz  = {mpt.transform_attributes(440, None, ('hz', 'erb')):.2f} ERB-rate")
 
 # ===================================================================
 #  2. Spectral enrichment  (User Guide §6.2)
@@ -84,9 +84,9 @@ for name, triad in [("JI", ji_triad), ("12-EDO", edo_triad)]:
     print(f"  {name:6s}  hMax={hMax:.4f}  specEntropy={H:.4f}")
 
 print("\n=== Roughness ===")
-p_cents = mpt.convert_pitch([60, 64, 67], "midi", "cents")
+p_cents = mpt.transform_attributes([60, 64, 67], None, ('midi', 'cents'))
 p_r, w_r = mpt.add_spectra(p_cents, None, "harmonic", 8, "powerlaw", 1)
-f_hz = mpt.convert_pitch(p_r, "cents", "hz")
+f_hz = mpt.transform_attributes(p_r, None, ('cents', 'hz'))
 r = mpt.roughness(f_hz, w_r)
 print(f"  C major triad (8 harmonics): roughness = {r:.4f}")
 

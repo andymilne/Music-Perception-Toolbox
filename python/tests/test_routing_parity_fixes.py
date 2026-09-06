@@ -80,10 +80,12 @@ def test_renyi2_flat_attribute_honours_wrap():
     assert abs(hf - hs) > 1e-4
 
 
-def test_eval_mobius_is_refused_on_a_nested_density():
-    """A forced ``method='mobius'`` on a nested density used to evaluate
-    the flattened multiset silently (8.67 against 3.78 for the centres
-    route on this density); it is refused, as on an ordered attribute."""
+def test_eval_mobius_on_a_nested_density_takes_the_per_level_route():
+    """A forced ``method='mobius'`` on a nested density once evaluated the
+    flattened multiset silently (8.67 against 3.78 for the centres route
+    on this density) and was then refused; it now runs the per-level
+    Möbius evaluator, which agrees with the centres route, while 'auto'
+    keeps the centres."""
     from mpt import eval_exp_tens
     rng = np.random.default_rng(1)
     tags = np.repeat(np.arange(2), 3)
@@ -92,8 +94,8 @@ def test_eval_mobius_is_refused_on_a_nested_density():
     d = build_exp_tens([p], None, specs=[spec], sigma=[0.5], is_per=[True],
                        period=[P], verbose=False)
     X = np.zeros((d.dim, 3))
-    with pytest.raises(ValueError, match="nested"):
-        eval_exp_tens(d, X, method="mobius", verbose=False)
+    v_mob = eval_exp_tens(d, X, method="mobius", verbose=False)
     v_auto = eval_exp_tens(d, X, method="auto", verbose=False)
     v_cent = eval_exp_tens(d, X, method="centres", verbose=False)
     np.testing.assert_allclose(v_auto, v_cent, rtol=1e-12)
+    np.testing.assert_allclose(v_mob, v_cent, rtol=1e-7)

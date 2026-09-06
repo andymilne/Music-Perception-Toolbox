@@ -1,6 +1,6 @@
 """demo_preprocessing -- Pre-MAET preprocessing operations and compositions.
 
-Demonstrates the four per-event preprocessing helpers in MPT,
+Demonstrates the five pre-MAET preprocessing helpers in MPT,
 applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,
 lieber Herre"). The fragment is cadence 1's three-chord approach
 (antepenult i, penult V, tonic I, at quarter-note positions
@@ -178,12 +178,12 @@ print("=== 5. weight_events (W) ===")
 # penult event (t = 6) with standard deviation 1 quarter-note and
 # gamma = 0 (pure Gaussian). The factor lands back on the time attribute
 # (target attribute 1), the in-place weighting case, and the input is
-# kept (delete_input=False).
+# kept (drop_input_attr=False).
 p_w, w_w, s_w = mpt.weight_events(
     p_attr, w,
     input_attr=1, target_attr=1,
     centre=6.0, sd=1.0, shape=0.0,    # gamma = 0 -> pure Gaussian
-    delete_input=False,
+    drop_input_attr=False,
 )
 
 print("  input_attr = 1 (time); target_attr = 1; centre = 6; sd = 1; shape = 0 (Gaussian)")
@@ -258,7 +258,7 @@ pT_path, _, _ = mpt.translate_attributes(
 _, w_path1, _ = mpt.weight_events(
     pT_path, w,
     input_attr=0, target_attr=0, centre=c_pitch, sd=width_w, shape=gamma_w,
-    delete_input=False,
+    drop_input_attr=False,
 )
 
 # Path 2: W centred at c - mu = 62 BEFORE T (T leaves weights
@@ -266,7 +266,7 @@ _, w_path1, _ = mpt.weight_events(
 _, w_path2, _ = mpt.weight_events(
     p_attr, w,
     input_attr=0, target_attr=0, centre=c_pitch - mu_pitch, sd=width_w,
-    shape=gamma_w, delete_input=False,
+    shape=gamma_w, drop_input_attr=False,
 )
 
 print(f"  T then W (centre c = {c_pitch}):")
@@ -278,6 +278,55 @@ print(f"    w_path2[0] = "
 print("  difference max = "
       f"{float(np.max(np.abs(np.asarray(w_path1[0]) - np.asarray(w_path2[0]))))}  "
       "(zero --- centre-shift rule holds)")
+
+# ===================================================================
+#  8b. transform_attributes: the measurement scale, and its order with D
+# ===================================================================
+
+print("\n=== 8b. transform_attributes (F): scale choice and order with D ===")
+
+# The kernel of build_exp_tens has a fixed width in whatever units the
+# values carry, so the choice of scale is made before the tensor. The
+# bare-array form converts a vector in one call (this replaces the
+# former convert_pitch):
+f_hz = np.array([392.00, 369.99, 329.63])          # G4, F#4, E4 in Hz
+p_cents = mpt.transform_attributes(f_hz, None, ('hz', 'cents'))
+print(f"  Hz -> cents: [{p_cents[0]:.1f} {p_cents[1]:.1f} {p_cents[2]:.1f}]")
+
+# Order with differencing carries meaning. (i) F then D on inter-onset
+# intervals in log2 gives log ratios: a doubling is +1, a halving -1.
+ioi = np.array([[0.25, 0.5, 0.5, 1.0]])            # seconds
+p_l, w_l, s_l = mpt.transform_attributes([ioi], None, [('log', {'base': 2})])
+p_ld, _, _ = mpt.difference_events(p_l, w_l, 1, specs=s_l)
+print(f"  log2(IOI) then D: {p_ld[0].ravel()}  (log ratios)")
+
+# (ii) D then a compressive transform on the signed pitch intervals.
+# log(x + 1) admits the zero of a repeated note with the constant written
+# down. Negative values are refused unless a sign attribute is requested:
+# with sign=True the transform is applied to |x| and a sign attribute
+# in {-1, 0, +1} is inserted right after its source, so the carrier
+# grows from one attribute to two (note the two sigmas below).
+p_dp, w_dp, s_dp = mpt.difference_events([p_attr[0]], w, 1)
+p_f, w_f, s_f = mpt.transform_attributes(p_dp, w_dp, [('log', {'offset': 1})], specs=s_dp,
+                                         sign=True)
+print(f"  D(pitch)        = {p_dp[0].ravel()}")
+print(f"  log(|D(pitch)|+1) = {np.round(p_f[0].ravel(), 4)}, "
+      f"sign = {p_f[1].ravel()} (spec name '{s_f[1]['name']}')")
+dens_f = mpt.build_exp_tens(p_f, w_f, specs=s_f, sigma=[0.2, 0.3],
+                            is_per=[False, False], period=[0, 0],
+                            verbose=False)
+print(f"  build_exp_tens on the two-attribute carrier: dim = {dens_f.dim}")
+
+# (iii) A zero under 'log' is an error with remedies, never -inf.
+try:
+    mpt.transform_attributes([np.array([[0.5, 0.0, 0.25]])], None, ['log'])
+except ValueError as err:
+    print(f"  zero IOI under 'log' -> {str(err).split(';')[0]}")
+
+# (iv) A callable is accepted alongside the named transforms.
+p_user, _, _ = mpt.transform_attributes([np.array([[1.0, 4.0, 9.0]])], None,
+                                        [lambda x: np.sqrt(x) + 1])
+print(f"  user function sqrt(x) + 1: {p_user[0].ravel()}\n")
 
 # ===================================================================
 #  9. Pre-MAET into the raw multi-attribute form (route (ii))

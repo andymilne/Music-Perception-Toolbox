@@ -112,6 +112,39 @@ function [total, ratio] = evalMaOrbit(dens, x, opts)
             P   = double(periodG(a));
             xa  = xBlocks{a};
 
+            spec = [];
+            if isfield(dens, 'nested') && iscell(dens.nested) ...
+                    && a <= numel(dens.nested)
+                spec = dens.nested{a};
+            end
+            if ~isempty(spec)
+                % Nested attribute: the per-level Möbius evaluator (twin of
+                % the Python _nested_mobius_eval.eval_nested_attr_orbit).
+                tg = double(spec.tags);
+                if isvector(tg)
+                    tg = tg(:);
+                elseif size(tg, 1) ~= numel(live) && size(tg, 2) == numel(live)
+                    tg = tg.';
+                end
+                tg = tg(live, :);
+                wrapA = 'full-image';
+                if isfield(dens, 'wrap') && ~isempty(dens.wrap) ...
+                        && a <= numel(dens.wrap)
+                    wrapA = char(dens.wrap{a});
+                end
+                relU = [];
+                if isfield(spec, 'relUnit') && ~isempty(spec.relUnit) ...
+                        && ~any(isnan(spec.relUnit))
+                    relU = spec.relUnit;
+                end
+                fa = mobius.evalNestedAttrOrbit(p, w, tg, spec.r, spec.sym, ...
+                        relU, sig, xa, 'is_per', per, 'period', P, ...
+                        'wrap', wrapA, ...
+                        'truncationSigmas', opts.truncationSigmas);
+                prodVal = prodVal .* fa(:);
+                continue;
+            end
+
             kw = [kwCommon, {'is_per', per, 'period', P}];
             % For abs-per attributes only, honour the density's wrap
             % opt-in. evalOrbitRel does not take wrap (relative-mode

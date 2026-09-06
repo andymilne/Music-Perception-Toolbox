@@ -42,7 +42,15 @@ function ms = relRouteCostMs(route, r_a, term)
 %   See also INTERNAL.SELECTMAINNERPRODUCTMETHOD, INTERNAL.PREDICTORBITCOSTMS.
     switch route
         case 'bulger'
-            A = [-7.2149, -8.0168, -7.7822];
+            % Intercepts at r = 2 and r = 3 re-anchored on the 2052-cell
+            % calibration of 6 September 2026 (tools/calibrateRelIpCost.m,
+            % seeds 1-3): a per-order multiplicative correction to the
+            % Bulger prediction, chosen to minimise routing regret, lowers
+            % the held-out regret over random halves from 30 s to 2.3 s
+            % (factors 0.459 at r = 2 and 0.522 at r = 3; r = 4 unchanged).
+            % A plain log-log refit of all nine laws on the same cells
+            % scores seven times the shipped regret, so the exponents stand.
+            A = [-7.9936, -8.6669, -7.7822];
             B = [ 0.6970,  0.7493,  0.7500];
         case 'centres'
             A = [-7.7429, -8.6263, -8.8269];

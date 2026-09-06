@@ -56,7 +56,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %   Inputs:
 %     p     — Pitch values in cents (vector for one chord; nRows-by-K
 %             matrix for a batch of nRows chords). Absolute pitches
-%             (e.g., MIDI 60 = 6000 cents via convertPitch). The
+%             (e.g., MIDI 60 = 6000 cents via transformAttributes). The
 %             function transposes internally so the lowest pitch is 0.
 %     w     — Weights (same shape as p; vector matching K for a
 %             column-broadcast batch input; or empty for all ones).
@@ -135,7 +135,7 @@ function H = spectralEntropy(p, w, sigma, nvArgs)
 %
 %     % Empirical peaks (no spectral enrichment — the default)
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
-%     p = convertPitch(f, 'hz', 'cents');
+%     p = transformAttributes(f, [], {'hz', 'cents'});
 %     H = spectralEntropy(p, w, 12)
 %
 %   References:

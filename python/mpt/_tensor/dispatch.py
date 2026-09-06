@@ -273,9 +273,17 @@ _ORBIT_REL_FLOOR_MS = {2: (0.05, 0.067), 3: (0.09, 0.17), 4: (0.0, 2.65)}
 #:
 #: Constants are per-language: the two implementations amortise
 #: differently. Refit with tools/calibrate_rel_ip_cost.py.
+# The Bulger intercepts at r = 3 and r = 4 were re-anchored on the
+# 2052-cell calibration of 6 September 2026 (tools/calibrate_rel_ip_cost.py,
+# seeds 1-3): a per-order multiplicative correction to the Bulger
+# prediction, chosen to minimise routing regret, lowers the held-out
+# regret over random halves from 52 s to 30 s (factors 0.354 at r = 3 and
+# 2.48 at r = 4; the r = 2 profile is flat and its intercept is kept). A
+# plain log-log refit of all nine laws on the same cells scores twice the
+# shipped regret, so the exponents stand.
 _REL_COST_LAW = {
-    "bulger":  {2: (-8.5858, 0.8245), 3: (-8.1774, 0.7890),
-                4: (-6.7951, 0.7278)},
+    "bulger":  {2: (-8.5858, 0.8245), 3: (-9.2159, 0.7890),
+                4: (-5.8852, 0.7278)},
     "centres": {2: (-8.8001, 0.8195), 3: (-10.0569, 0.9269),
                 4: (-9.7867, 0.9251)},
     "grid":    {2: (-5.0440, 0.4817), 3: (-3.6893, 0.5881),
@@ -1889,8 +1897,7 @@ def _has_ordered_attr(dens) -> bool:
 
 
 def _reject_ordered_for_mobius(dens) -> None:
-    """Raise if an explicit ``method='mobius'`` names an ordered or a
-    nested density.
+    """Raise if an explicit ``method='mobius'`` names an ordered density.
 
     Silently substituting the centres path would hide the fact that the
     requested method does not apply; silently proceeding would return
@@ -1903,19 +1910,6 @@ def _reject_ordered_for_mobius(dens) -> None:
             "partitions of {1, ..., r}, which realises the "
             "symmetrised tuple set and so evaluates a different density. "
             "Use method='centres' (or method='auto', which selects it)."
-        )
-    # A nested attribute is the same case: the flat factored evaluator
-    # would read the nested values as one flat multiset and evaluate a
-    # density with a different tuple set. The point evaluator has no
-    # nested analogue of the inner-product contraction, so the joint
-    # centres are the only route.
-    nested = getattr(dens, "nested", None)
-    if nested is not None and any(n is not None for n in nested):
-        raise ValueError(
-            "method='mobius' is not available for a nested attribute: the "
-            "flat Möbius evaluator reads the nested values as one flat "
-            "multiset and so evaluates a different density. Use "
-            "method='centres' (or method='auto', which selects it)."
         )
 
 
@@ -2014,11 +2008,12 @@ def _select_ma_eval(dens, n_q, *, method, truncation_sigmas=None):
     if _has_ordered_attr(dens):
         return "centres", "ordered ([sym]=0) attribute (no orbit to collapse)"
 
-    # ---- Hard rule: nested attributes are not handled by the flat
-    # factored evaluator; keep the joint-centres path. ----
+    # ---- Nested attributes: the per-level Möbius evaluator serves a
+    # forced 'mobius' (above); under 'auto' the joint-centres path is
+    # kept until the per-level route has a fitted cost row. ----
     nested = getattr(dens, "nested", [None] * A)
     if any(nested[a] is not None for a in range(A)):
-        return "centres", "nested attribute (flat Möbius not applicable)"
+        return "centres", "nested attribute (per-level Möbius not yet priced)"
 
     # ---- Hard rule: r <= 1 on every attribute => Möbius is degenerate
     # (one singleton partition); centres is trivially cheap. ----

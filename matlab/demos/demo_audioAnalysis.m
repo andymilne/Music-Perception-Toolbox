@@ -19,7 +19,7 @@
 %
 %  The audio files are in the audio/ subfolder.
 %
-%  Uses: audioPeaks, convertPitch, spectralEntropy, templateHarmonicity,
+%  Uses: audioPeaks, transformAttributes, spectralEntropy, templateHarmonicity,
 %        roughness, virtualPitches, cosSimExpTens
 %  (from the Music Perception Toolbox).
 
@@ -83,7 +83,7 @@ for i = 1:nFiles
     end
 
     [f, w] = audioPeaks(filepath, 'sigma', sigmaPeaks);
-    p = convertPitch(f, 'hz', 'cents');
+    p = transformAttributes(f, [], {'hz', 'cents'});
 
     idx = numel(results) + 1;
     results(idx).label = label;
@@ -180,7 +180,7 @@ for i = 1:nResults
     [vp_p, vp_w] = virtualPitches(results(i).p, results(i).w, sigma);
     [maxW, maxIdx] = max(vp_w);
     bestCents = vp_p(maxIdx);
-    bestMidi  = convertPitch(bestCents, 'cents', 'midi');
+    bestMidi  = transformAttributes(bestCents, [], {'cents', 'midi'});
 
     fprintf('%-25s  %10.1f  %10.2f  %10.3f\n', ...
         results(i).label, bestCents, bestMidi, maxW);

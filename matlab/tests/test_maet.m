@@ -650,7 +650,7 @@ results{end,2}   = abs(H_whole) < 1e-12;
 %    was removed with Commit 3c. --
 
 % -- weightEvents: per-event window factor (single-input API, target_attr,
-%    delete_input, three-tuple return). Mirrors Python tests/test_maet.py
+%    drop_input_attr, three-tuple return). Mirrors Python tests/test_maet.py
 %    `test_weight_*` for parity. --
 
 % gamma = 0 limit: pure Gaussian with std = width.
@@ -754,32 +754,32 @@ h_beat_seq = exp(-(([0 0.5 1] - 0.5) .^ 2) ./ 0.5);
 results{end+1,1} = 'weightEvents: sequential composition multiplies factors into target';
 results{end,2}   = max(abs(w_seq2{1} - h_time_seq .* h_beat_seq)) < 1e-12;
 
-% delete_input=true drops the input attribute.
+% drop_input_attr=true drops the input attribute.
 p_del = {[60 64 67], [0 1 2]};
 [p_del_out, w_del_out, g_del_out] = weightEvents(p_del, [], 2, 1, 1, 0, 'sd', 1, 'dropInputAttr', true);
-results{end+1,1} = 'weightEvents: delete_input=true drops the input attribute';
+results{end+1,1} = 'weightEvents: drop_input_attr=true drops the input attribute';
 results{end,2}   = numel(p_del_out) == 1 && numel(w_del_out) == 1 && ...
                    isequal(p_del_out{1}, [60 64 67]);
 
-% delete_input with inputAttr > targetAttr: input attribute's value,
+% drop_input_attr with inputAttr > targetAttr: input attribute's value,
 % weight, and spec are dropped; the target keeps its output index.
 % Input = attr 2, target = attr 1 (input after target).
 p_gc = {[1 2], [3 4], [5 6]};
 [p_gc_out, w_gc_out, s_gc_out] = weightEvents(p_gc, [], 2, 1, 3.5, 0, 'sd', 1, 'dropInputAttr', true);
 factor_gc = exp(-(([3 4] - 3.5) .^ 2) ./ 2);   % from input attr 2 values
-results{end+1,1} = 'weightEvents: delete_input (input after target) keeps target index';
+results{end+1,1} = 'weightEvents: drop_input_attr (input after target) keeps target index';
 results{end,2}   = numel(p_gc_out) == 2 && numel(w_gc_out) == 2 && ...
                    numel(s_gc_out) == 2 && ...
                    isequal(p_gc_out{1}, [1 2]) && isequal(p_gc_out{2}, [5 6]) && ...
                    max(abs(w_gc_out{1} - factor_gc)) < 1e-12;
 
-% delete_input with inputAttr < targetAttr: input attribute is dropped
+% drop_input_attr with inputAttr < targetAttr: input attribute is dropped
 % and the target shifts down one output index, carrying the factor.
 % Input = attr 1, target = attr 3 (input before target).
 p_gk = {[1 2], [3 4], [5 6]};
 [p_gk_out, w_gk_out, s_gk_out] = weightEvents(p_gk, [], 1, 3, 1.5, 0, 'sd', 1, 'dropInputAttr', true);
 factor_gk = exp(-(([1 2] - 1.5) .^ 2) ./ 2);   % from input attr 1 values
-results{end+1,1} = 'weightEvents: delete_input (input before target) shifts target index';
+results{end+1,1} = 'weightEvents: drop_input_attr (input before target) shifts target index';
 results{end,2}   = numel(p_gk_out) == 2 && numel(w_gk_out) == 2 && ...
                    numel(s_gk_out) == 2 && ...
                    isequal(p_gk_out{1}, [3 4]) && isequal(p_gk_out{2}, [5 6]) && ...
@@ -873,7 +873,7 @@ results{end,2}   = throwsErrorWithId( ...
     @() weightEvents({[1 2; 3 4]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', false), ...
     'weightEvents:inputAttrNotK1');
 
-results{end+1,1} = 'weightEvents: delete_input=true with input==target errors';
+results{end+1,1} = 'weightEvents: drop_input_attr=true with input==target errors';
 results{end,2}   = throwsErrorWithId( ...
     @() weightEvents({[1 2]}, [], 1, 1, 1, 0, 'sd', 1, 'dropInputAttr', true), ...
     'weightEvents:dropInputAttrIncoherent');
@@ -900,8 +900,8 @@ results{end,2}   = max(abs(w_first{1} - w_after_t{1})) < 1e-12;
 
 % -- cosSimExpTens raw-MA scalar-vs-list mode --
 
-p_ref     = {convertPitch([60 62 64 65 67 69 71], 'midi', 'cents'), 0:6};
-p_qry     = {convertPitch([60 64 67], 'midi', 'cents'),             0:2};
+p_ref     = {transformAttributes([60 62 64 65 67 69 71], [], {'midi', 'cents'}), 0:6};
+p_qry     = {transformAttributes([60 64 67], [], {'midi', 'cents'}),             0:2};
 sigma_ma  = [50 0.3];
 r_ma      = [1 1];
 groups_ma = [1 2];

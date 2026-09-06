@@ -109,9 +109,9 @@ The consumer wrappers compose the tier-2 primitives into measures with musical i
 
 - **Sequential utilities**: `continuity` (smoothed direction-continuity), `seq_weights` (named time-based decay profiles), `interval_kernel_cov` (an anisotropic kernel covariance for an ordered tuple of consecutive differences).
 
-- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `cos_sim_exp_tens` recognizes and reduces to a sweep.
+- **Cross-event preprocessing**: `difference_events`, `bind_events`, `translate_attributes`, `transform_attributes`, `weight_events`, `flat_specs` – transform $(\mathbf{p}, \mathbf{w})$ or its specification before the tensor stack consumes them, supporting interval-based, n-gram, and swept analyses. `translate_attributes` can return a `TranslatedSweep` (Python only) that `cos_sim_exp_tens` recognizes and reduces to a sweep.
 
-- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `convert_pitch` (seven-scale conversion), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
+- **Utility and diagnostics**: `simplex_vertices` (categorical-attribute encoding), `add_spectra` (spectral enrichment), `audio_peaks` (spectral peak extraction), `read_score` / `events_from_score` (MIDI and MusicXML input to the pre-MAET carrier), `estimate_comp_time`, `explain_dispatch` (reports how a call would be routed, without running it), and the defaults API (`get_default`, `set_default`, `get_defaults`, `reset_defaults`, `show_defaults` / `mptDefaults`).
 
 The consumer layer is where measure-specific documentation belongs (see USER_GUIDE §6); the layering in this document stops at the tier-2 primitives.
 
@@ -134,6 +134,7 @@ mpt/
 │   │                      helpers
 │   ├── build.py           build_exp_tens (single-multiset and multi-attribute
 │   │                      input forms; both produce a MaetDensity)
+│   ├── transform.py       transform_attributes (scale conversions, log and other elementwise maps)
 │   ├── preprocessing.py   difference_events, bind_events, translate_attributes,
 │   │                      weight_events, flat_specs, simplex_vertices
 │   ├── aniso.py           Anisotropic (matrix-valued) kernel covariance support
@@ -186,7 +187,7 @@ mpt/
 ├── serial.py              continuity, seq_weights, interval_kernel_cov
 ├── spectra.py             add_spectra
 ├── audio.py               audio_peaks, AudioPeaksDetail
-├── convert.py             convert_pitch
+├── score.py               read_score, events_from_score (MIDI, MusicXML)
 ├── _kernel.py             Gaussian-kernel sum helper: the single centres-path
 │                          numerical primitive (truncated 1-D, bucket-grid,
 │                          circular, and exact chunked branches)
@@ -316,7 +317,7 @@ The same pattern recurs in five places; the flat cosine selector is the canonica
 
 **The nested plan** (`_try_nested_contract` / `internal.nestedContract`, priced by `_nested_cost.py` / `internal.nestedCost`) handles densities with a nested attribute. Per attribute it lists the admissible routes under the measure rule – `contract` for absolute attributes; `centres` and `contract_relnonper` for relative non-periodic; for relative-periodic, `centres` and `taugrid` below the threshold and, above it, whichever the `wrap` declaration admits – and picks by a fitted law with a 256 MiB memory guard on the centres route. It then races the whole plan against joint-tuple enumeration (Bulger), choosing enumeration only when it is predicted cheaper by a safety factor of 2 and is itself admissible. A forced `method` raises when the route it names has no carrier rather than silently substituting. Within a contraction, each symmetric level re-decides orbit-vs-enumeration with the power-law `orbit_cost_model` (`_orbit_cost.py` / `internal.orbitCostModel`), whose intercept is the `orbit_cost_intercept` default.
 
-**The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_exp_tens`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes; ordered, nested, or all-$r_a \leq 1$ densities go to centres; $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` prices both, and Möbius wins when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
+**The eval selector** (`_select_ma_eval` / `internal.selectMaEval`) chooses between the centres branch and the Möbius evaluator for `eval_exp_tens`: `'centres'` returns at once; `'mobius'` returns after rejecting ordered attributes (on a nested density it runs the per-level Möbius evaluator, `_nested_mobius_eval.py` / `mobius.evalNestedAttrOrbit`, which applies the set-partition identity at every symmetric level of the tag tree and a dynamic programme at every ordered one, integrating a co-transposition unit over its own translation grid inside the recursion; it touches no tuple centre); under `'auto'`, ordered, nested, or all-$r_a \leq 1$ densities go to centres — nested ones until the per-level route has a fitted cost row (`tools/bench_nested_eval.py` / `benchNestedEval.m` measure the grid); $r_a > 10$ goes to centres after a feasibility guard on the joint working set; the measure rule on the first relative-periodic attribute above the threshold forces the arm; otherwise the cost model `_ma_eval_costs_ms` / `internal.maEvalCostsMs` prices both, and Möbius wins when it is predicted cheaper by a safety factor of 1.5 (when the centres working set exceeds 256 MiB) or 1.0. Inside the centres branch the shape rules pick the single-multiset kernel-sum leaf, the factored per-attribute form (every $r_a \geq 2$, no kernel covariance), or the joint materialization.
 
 **The sweep chooser** (`_choose_sweep_route` in `sweep.py` / `sweepCosSimExpTens`) decides between the mixture and orbit routes on eligibility and a work-ratio rule; it is the one selector whose routes have different admissibility sets rather than different costs alone.
 

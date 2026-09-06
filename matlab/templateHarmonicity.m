@@ -54,7 +54,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %
 %   Inputs:
 %     p     — Pitch values in cents (vector). These are absolute
-%             pitches (e.g., MIDI 60 = 6000 cents via convertPitch),
+%             pitches (e.g., MIDI 60 = 6000 cents via transformAttributes),
 %             not pitch classes. The function transposes internally
 %             so the lowest pitch is 0.
 %     w     — Weights (vector same length as p, or empty for all ones).
@@ -127,7 +127,7 @@ function [hMax, hEntropy] = templateHarmonicity(p, w, sigma, nvArgs)
 %
 %     % Empirical audio peaks
 %     [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
-%     p = convertPitch(f, 'hz', 'cents');
+%     p = transformAttributes(f, [], {'hz', 'cents'});
 %     [hMax, hEnt] = templateHarmonicity(p, w, 12)
 %
 %     % Custom template spectrum

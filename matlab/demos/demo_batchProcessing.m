@@ -22,7 +22,7 @@
 %  avoids redundant computation.
 %
 %  Uses: cosSimExpTens, spectralEntropy, templateHarmonicity,
-%        tensorHarmonicity, addSpectra, roughness, convertPitch
+%        tensorHarmonicity, addSpectra, roughness, transformAttributes
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -162,7 +162,7 @@ uTensHarm = tensorHarmonicity(uniqueChords, [], sigma, 'spectrum', spec);
 % rows.
 uRough = NaN(nUnique, 1);
 
-refCents = convertPitch(f0, 'hz', 'cents');
+refCents = transformAttributes(f0, [], {'hz', 'cents'});
 
 for ui = 1:nUnique
     p = uniqueChords(ui, :);
@@ -170,7 +170,7 @@ for ui = 1:nUnique
 
     % Roughness (needs Hz and enriched spectra)
     [pSpec, wSpec] = addSpectra(p(:), [], spec{:});
-    fHz = convertPitch(pSpec + refCents, 'cents', 'hz');
+    fHz = transformAttributes(pSpec + refCents, [], {'cents', 'hz'});
     uRough(ui) = roughness(fHz, wSpec);
 end
 

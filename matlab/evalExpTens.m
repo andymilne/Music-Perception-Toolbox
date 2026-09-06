@@ -1143,6 +1143,13 @@ function vals = localEvalMA(dens, X, normalize, verbose, ...
 end
 
 
+function tf = localIsNestedAttr(dens, a)
+%LOCALISNESTEDATTR  Whether attribute a carries a nested specification.
+    tf = isfield(dens, 'nested') && iscell(dens.nested) ...
+         && numel(dens.nested) >= a && ~isempty(dens.nested{a});
+end
+
+
 function innerR = localComputeInnerR(dens, A)
 %LOCALCOMPUTEINNERR  Per-attribute co-transposition block size s_u =
 %   prod(r(1:u)) where attribute a is a nested attribute resolved to an
@@ -1327,7 +1334,12 @@ function sumW = localFactoredSumW(dens, innerR)
             continue;
         end
         everValid = find(any(~isnan(P{a}), 2)).';
-        if innerR(a) > 0
+        if localIsNestedAttr(dens, a)
+            % Every nested attribute enumerates by its tag tree, whatever
+            % its co-transposition unit: an absolute (or outer-unit)
+            % nested attribute read as a flat D_a-tuple would be a
+            % different density, and at K_total = 12, D_a = 9 its flat
+            % enumeration is 80 million tuples.
             spec = dens.nested{a};
             tg = spec.tags;
             if isvector(tg), tg = tg(:); end
@@ -1450,7 +1462,8 @@ function vals = localMaEvalFactored(dens, Xc, nQ, innerR, ...
         if numel(everValid) < rVec(a)
             return;   % too few values for a full tuple; joint path errors
         end
-        if innerR(a) > 0
+        if localIsNestedAttr(dens, a)
+            % As in localMaEvalFactored: the tag tree, not a flat D_a-tuple.
             spec = dens.nested{a};
             tg = spec.tags;
             if isvector(tg)
@@ -1785,7 +1798,7 @@ end
 
 
 function localRejectOrderedForMobius(dens)
-%LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered or nested attribute.
+%LOCALREJECTORDEREDFORMOBIUS  Refuse method='mobius' on an ordered attribute.
 %
 %   The Möbius decomposition sums over set partitions of {1, ..., r},
 %   which realises the symmetrised tuple set; on an ordered ([sym]=0)
@@ -1802,19 +1815,5 @@ function localRejectOrderedForMobius(dens)
              'realises the symmetrised tuple set and so evaluates a ' ...
              'different density. Use method=''centres'' (or ' ...
              'method=''auto'', which selects it).']);
-    end
-    % A nested attribute is the same case: the flat factored evaluator
-    % would read the nested values as one flat multiset and evaluate a
-    % density with a different tuple set. The point evaluator has no
-    % nested analogue of the inner-product contraction, so the joint
-    % centres are the only route.
-    if isfield(dens, 'nested') && iscell(dens.nested) ...
-            && any(~cellfun(@isempty, dens.nested))
-        error('mpt:evalExpTens:nestedMobius', ...
-            ['method=''mobius'' is not available for a nested ' ...
-             'attribute: the flat Möbius evaluator reads the nested ' ...
-             'values as one flat multiset and so evaluates a different ' ...
-             'density. Use method=''centres'' (or method=''auto'', ' ...
-             'which selects it).']);
     end
 end

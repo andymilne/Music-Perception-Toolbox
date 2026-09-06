@@ -49,7 +49,7 @@
 %    (c) three overlaid profile curves at representative sigma_reg
 %        values.
 %
-%  Uses: windowedSimilarity (event weighting), convertPitch.
+%  Uses: windowedSimilarity (event weighting), transformAttributes.
 
 clear; clc; close all;
 

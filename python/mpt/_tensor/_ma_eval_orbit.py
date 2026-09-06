@@ -16,9 +16,11 @@ the value from the raw values via the set-partition Möbius decomposition
 --- polynomial in K rather than the O(K^r) of the materialised tuple
 centres.
 
-Scope: flat (non-nested) attributes. A nested attribute is stitched by
-contraction elsewhere; its per-attribute density is a recursive
-construction, not a single Möbius sum.
+A nested attribute's per-attribute density is a recursive construction
+over its tag tree rather than a single Möbius sum; it is evaluated by
+the per-level Möbius evaluator :func:`_nested_mobius_eval.eval_nested_attr_orbit`,
+which applies the same set-partition identity at every symmetric level
+and a dynamic programme at every ordered one.
 
 Twin of MATLAB ``mobius.evalMaOrbit``.
 """
@@ -49,6 +51,7 @@ def eval_ma_orbit(
     """
     from .._defaults import resolve_truncation_sigmas
     from .._mobius import eval_orbit_abs, eval_orbit_rel
+    from ._nested_mobius_eval import eval_nested_attr_orbit
 
     A = int(dens.n_attrs)
     N = int(dens.n)
@@ -88,6 +91,8 @@ def eval_ma_orbit(
 
     P = [np.asarray(p, dtype=np.float64) for p in dens.p_attr]
     W = [np.asarray(w, dtype=np.float64) for w in dens.w]
+    nested = getattr(dens, "nested", None) or [None] * A
+    wrap_dens = getattr(dens, 'wrap', None)
 
     total = np.zeros(n_q, dtype=np.float64)
     ratio = (np.ones(n_q, dtype=np.float64)
@@ -104,6 +109,21 @@ def eval_ma_orbit(
             live = ~np.isnan(p_an)
             p_an = p_an[live]
             w_an = w_an[live]
+
+            spec = nested[a]
+            if spec is not None:
+                tags = np.asarray(spec["tags"])
+                tags = tags[live] if tags.ndim == 1 else tags[live, :]
+                f_a = eval_nested_attr_orbit(
+                    p_an, w_an, tags, spec["r"], spec["sym"],
+                    spec.get("rel_unit"), sigma[a], x_blocks[a],
+                    is_per=is_per[a], period=period[a],
+                    wrap=(str(wrap_dens[a]) if wrap_dens is not None
+                          else 'full-image'),
+                    truncation_sigmas=ts,
+                )
+                prod *= np.asarray(f_a, dtype=np.float64).ravel()
+                continue
 
             evaluator = eval_orbit_rel if is_rel[a] else eval_orbit_abs
             kw = dict(

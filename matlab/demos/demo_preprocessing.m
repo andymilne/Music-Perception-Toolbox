@@ -1,7 +1,7 @@
 %% demo_preprocessing.m
 % Pre-MAET preprocessing operations and their compositions.
 %
-% Demonstrates the four per-event preprocessing helpers in MPT,
+% Demonstrates the five pre-MAET preprocessing helpers in MPT,
 % applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,
 % lieber Herre"). The fragment is cadence 1's three-chord approach
 % (antepenult i, penult V, tonic I, at quarter-note positions
@@ -20,6 +20,9 @@
 %       weightEvents      (W): per-event window via Design P (one
 %                              factor per input attribute, peak-
 %                              normalised fixed-variance family).
+%       transformAttributes (F): per-attribute elementwise maps
+%                              (log, scale conversion, user function)
+%                              and the sign attribute.
 %
 %   Compositions
 %       D o B == B o D    (n-tuple entropy pipeline commutation,
@@ -29,10 +32,14 @@
 %       T o W centre shift (W with centre c after T(mu) equals W with
 %                          centre c - mu before T; W leaves T
 %                          invariant on values).
+%       D o F vs F o D    (log then difference gives log ratios;
+%                          difference then log(x+1) + sign gives signed
+%                          compressed magnitudes).
 %
 % The Python mirror is demos/demo_preprocessing.py.
 %
-% See also DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS.
+% See also DIFFERENCEEVENTS, BINDEVENTS, TRANSLATEATTRIBUTES, WEIGHTEVENTS,
+% TRANSFORMATTRIBUTES.
 
 clear; clc;
 
@@ -258,6 +265,53 @@ fprintf('  W (centre c - mu = %g) before T:\n    wPath2{1} = [%g %g %g]\n', ...
         c_pitch - mu_pitch, wPath2{1});
 fprintf('  difference max = %g  (zero --- centre-shift rule holds)\n', ...
         max(abs(wPath1{1} - wPath2{1})));
+
+%% ===================================================================
+%  8b. transformAttributes: the measurement scale, and its order with D
+%  ===================================================================
+
+fprintf('\n=== 8b. transformAttributes (F): scale choice and order with D ===\n');
+
+% The kernel of buildExpTens has a fixed width in whatever units the
+% values carry, so the choice of scale is made before the tensor. The
+% bare-array form converts a vector in one call (this replaces the
+% former convertPitch):
+fHz     = [392.00 369.99 329.63];                 % G4, F#4, E4 in Hz
+pCents  = transformAttributes(fHz, [], {'hz', 'cents'});
+fprintf('  Hz -> cents: [%.1f %.1f %.1f]\n', pCents);
+
+% Order with differencing carries meaning. (i) F then D on inter-onset
+% intervals in log2 gives log ratios: a doubling is +1, a halving -1.
+ioi        = [0.25 0.5 0.5 1.0];                  % seconds
+[pL, wL, sL] = transformAttributes({ioi}, [], {{'log', 'base', 2}});
+[pLD, ~, ~]  = differenceEvents(pL, wL, 1, 'specs', sL);
+fprintf('  log2(IOI) then D: [%g %g %g]  (log ratios)\n', pLD{1});
+
+% (ii) D then a compressive transform on the signed pitch intervals.
+% log(x + 1) admits the zero of a repeated note with the constant written
+% down. Negative values are refused unless a sign attribute is requested:
+% with 'sign', true the transform is applied to |x| and a sign
+% attribute in {-1, 0, +1} is inserted right after its source, so the
+% carrier grows from one attribute to two (note the two sigmas below).
+[pDp, wDp, sDp] = differenceEvents(pAttr(1), w, 1);
+[pF, wF, sF]    = transformAttributes(pDp, wDp, {{'log', 'offset', 1}}, 'specs', sDp, 'sign', true);
+fprintf('  D(pitch)        = [%g %g]\n', pDp{1});
+fprintf('  log(|D(pitch)|+1) = [%.4f %.4f], sign = [%g %g] (spec name ''%s'')\n', ...
+        pF{1}, pF{2}, sF{2}.name);
+densF = buildExpTens(pF, wF, 'specs', sF, 'sigma', [0.2 0.3], ...
+                     'isPer', [false false], 'period', [0 0], 'verbose', false);
+fprintf('  buildExpTens on the two-attribute carrier: dim = %d\n', densF.dim);
+
+% (iii) A zero under 'log' is an error with remedies, never -Inf.
+try
+    transformAttributes({[0.5 0 0.25]}, [], {'log'});
+catch ME
+    fprintf('  zero IOI under ''log'' -> %s\n', strtok(ME.message, ';'));
+end
+
+% (iv) A function handle is accepted alongside the named transforms.
+pUser = transformAttributes({[1 4 9]}, [], {@(x) sqrt(x) + 1});
+fprintf('  user function sqrt(x) + 1: [%g %g %g]\n\n', pUser{1});
 
 %% ===================================================================
 %  9. Pre-MAET into the raw multi-attribute form (route (ii))

@@ -10,7 +10,7 @@ import numpy as np
 from scipy.interpolate import PchipInterpolator
 from scipy.signal import find_peaks
 
-from .convert import convert_pitch
+from ._tensor.transform import _convert_scale
 
 
 @dataclass
@@ -87,14 +87,14 @@ def audio_peaks(
 
         fA, wA, _ = mpt.audio_peaks('audio/piano_Emin.wav')
         fB, wB, _ = mpt.audio_peaks('audio/piano_G7_3rd_inversion.wav')
-        pA = mpt.convert_pitch(fA, 'hz', 'cents')
-        pB = mpt.convert_pitch(fB, 'hz', 'cents')
+        pA = mpt.transform_attributes(fA, None, ('hz', 'cents'))
+        pB = mpt.transform_attributes(fB, None, ('hz', 'cents'))
         s = mpt.cos_sim_exp_tens_raw(pA, wA, pB, wB, 12, 2, True, True, 1200)
 
     Spectral entropy (no add_spectra needed)::
 
         f, w, _ = mpt.audio_peaks('audio/piano_Cmin_open.wav')
-        p = mpt.convert_pitch(f, 'hz', 'cents')
+        p = mpt.transform_attributes(f, None, ('hz', 'cents'))
         H = mpt.spectral_entropy(p, w, 12)
 
     Roughness (Hz input — no conversion needed)::
@@ -157,7 +157,7 @@ def audio_peaks(
     # Peak picking
     if sigma > 0:
         # Smoothed in log-frequency (cents) space
-        c_valid = convert_pitch(f_valid, "hz", "cents")
+        c_valid = _convert_scale(f_valid, "hz", "cents")
         step = resolution
         c_min = np.ceil(c_valid.min() / step) * step
         c_max = np.floor(c_valid.max() / step) * step
@@ -230,7 +230,7 @@ def audio_peaks(
     # Convert to Hz
     if sigma > 0:
         pk_cents = c_grid[pk_locs]
-        f_out = convert_pitch(pk_cents, "cents", "hz")
+        f_out = _convert_scale(pk_cents, "cents", "hz")
     else:
         f_out = f_valid[pk_locs]
 

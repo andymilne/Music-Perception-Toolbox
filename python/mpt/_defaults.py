@@ -226,11 +226,13 @@ def resolve_samples_per_sigma(
     """
     if samples_per_sigma is not None:
         return int(samples_per_sigma)
-    eps = truncation_floor(truncation_sigmas)
+    # ln(1/eps) = k^2 / 2 at the resolved width k, so the bound reads
+    # k sqrt(r) / (2 pi); using k directly keeps a wide explicit width
+    # (whose floor underflows to 0) finite. Twin of the MATLAB
+    # internal.resolveSamplesPerSigma.
+    k = resolve_truncation_sigmas(truncation_sigmas)
     r_eff = max(int(r), 1)
-    spp = math.ceil(
-        math.sqrt(r_eff * math.log(1.0 / eps)) / (math.pi * math.sqrt(2.0))
-    )
+    spp = math.ceil(k * math.sqrt(r_eff) / (2.0 * math.pi))
     return max(2, spp + 1)
 
 

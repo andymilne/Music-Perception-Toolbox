@@ -16,7 +16,7 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
 %
 %   Hard rules (in order):
 %     - ordered ([sym]=0) attribute -> centres (no orbit to collapse)
-%     - nested attribute            -> centres (flat Möbius not applicable)
+%     - nested attribute            -> centres (per-level Möbius not yet priced)
 %     - all r <= 1                  -> centres (Möbius degenerate)
 %     - feasibility bound on any attribute forces the
 %       single-image centres route, GUARDED: if its joint tuple set is
@@ -115,12 +115,14 @@ function [chosen, routingReason, centresMsOut, mobiusMsOut] = ...
         return;
     end
 
-    % ---- Hard rule: nested attributes -> centres. ----
+    % ---- Nested attributes: the per-level Möbius evaluator serves a
+    % forced 'mobius'; under 'auto' the joint-centres path is kept until
+    % the per-level route has a fitted cost row. ----
     if isfield(dens, 'nested') && ~isempty(dens.nested)
         for a = 1:A
             if ~isempty(dens.nested{a})
                 chosen = 'centres';
-                routingReason = 'nested attribute (flat Möbius not applicable)';
+                routingReason = 'nested attribute (per-level Möbius not yet priced)';
                 return;
             end
         end

@@ -6,7 +6,7 @@
 %  the diatonic scale [0, 2, 4, 5, 7, 9, 11] in 12-EDO as running
 %  examples.
 %
-%  Uses: convertPitch, addSpectra, cosSimExpTens, templateHarmonicity,
+%  Uses: transformAttributes, addSpectra, cosSimExpTens, templateHarmonicity,
 %        tensorHarmonicity, spectralEntropy, roughness, balanceCircular,
 %        evennessCircular, coherence, sameness, nTupleEntropy, meanOffset,
 %        edges, markovS
@@ -15,9 +15,9 @@
 %% === 1. Pitch / frequency conversion (User Guide §6.6) ===
 
 fprintf('=== Pitch conversion ===\n');
-fprintf('  MIDI 60 = %.2f Hz\n', convertPitch(60, 'midi', 'hz'));
-fprintf('  440 Hz  = %.0f cents\n', convertPitch(440, 'hz', 'cents'));
-fprintf('  440 Hz  = %.2f ERB-rate\n', convertPitch(440, 'hz', 'erb'));
+fprintf('  MIDI 60 = %.2f Hz\n', transformAttributes(60, [], {'midi', 'hz'}));
+fprintf('  440 Hz  = %.0f cents\n', transformAttributes(440, [], {'hz', 'cents'}));
+fprintf('  440 Hz  = %.2f ERB-rate\n', transformAttributes(440, [], {'hz', 'erb'}));
 
 %% === 2. Spectral enrichment (User Guide §6.2) ===
 
@@ -79,9 +79,9 @@ for name = {"JI", "12-EDO"}
 end
 
 fprintf('\n=== Roughness ===\n');
-p_cents = convertPitch([60, 64, 67], 'midi', 'cents');
+p_cents = transformAttributes([60, 64, 67], [], {'midi', 'cents'});
 [p_r, w_r] = addSpectra(p_cents, [], 'harmonic', 8, 'powerlaw', 1);
-f_hz = convertPitch(p_r, 'cents', 'hz');
+f_hz = transformAttributes(p_r, [], {'cents', 'hz'});
 r = roughness(f_hz, w_r);
 fprintf('  C major triad (8 harmonics): roughness = %.4f\n', r);
 

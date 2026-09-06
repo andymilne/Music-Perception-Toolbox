@@ -39,7 +39,7 @@ Tests are flat (no subdirectories) and named by topic:
 - `test_entropy*.py`, `test_ntuple_entropy_sigma_space.py`, `test_renyi2_entropy.py` — Shannon and Rényi-2 entropy
 - `test_harmony*.py`, `test_tensor_harmonicity_orbit.py` — consonance and harmonicity measures
 - `test_continuity.py`, `test_seq_weights.py` — ordered-sequence utilities
-- `test_simplex_vertices.py`, `test_convert_pitch.py`, `test_add_spectra.py`, `test_kernel_truncation.py`, `test_cross_language_golden.py` — utility, kernel-precision, and MATLAB-vs-Python golden tests
+- `test_simplex_vertices.py`, `test_transform_attributes.py`, `test_add_spectra.py`, `test_kernel_truncation.py`, `test_cross_language_golden.py` — utility, kernel-precision, and MATLAB-vs-Python golden tests
 - `test_method_keyword.py`, `test_wrapper_routing.py`, `test_input_validation.py` — public API edge cases
 
 ## Memory-aware chunking

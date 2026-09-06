@@ -68,7 +68,7 @@ results = []
 
 for midi_pitches, label in chord_data:
     midi_sorted = sorted(midi_pitches)
-    p = mpt.convert_pitch(midi_sorted, 'midi', 'cents')
+    p = mpt.transform_attributes(midi_sorted, None, ('midi', 'cents'))
 
     vp_p, vp_w = mpt.virtual_pitches(
         p, None, sigma,
@@ -98,7 +98,7 @@ axes = axes.ravel()
 
 for i, res in enumerate(results):
     ax = axes[i]
-    vp_midi = mpt.convert_pitch(res['vp_p'], 'cents', 'midi')
+    vp_midi = mpt.transform_attributes(res['vp_p'], None, ('cents', 'midi'))
     vp_w = res['vp_w']
 
     ax.plot(vp_midi, vp_w, linewidth=0.8, color=(0.1, 0.3, 0.7))
@@ -145,7 +145,7 @@ print('-' * 60)
 for res in results:
     max_idx = np.argmax(res['vp_w'])
     best_cents = res['vp_p'][max_idx]
-    best_midi = mpt.convert_pitch(best_cents, 'cents', 'midi')
+    best_midi = mpt.transform_attributes(best_cents, None, ('cents', 'midi'))
     max_w = res['vp_w'][max_idx]
 
     print(f"{res['label']:<25s}  {best_cents:10.1f}  {best_midi:10.2f}  {max_w:10.3f}")

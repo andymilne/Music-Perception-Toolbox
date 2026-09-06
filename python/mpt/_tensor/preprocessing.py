@@ -9,6 +9,8 @@ This module hosts the small preprocessing layer that sits *before*
   sequence, emitting each window as an n-attribute super-event.
 * :func:`translate_attributes` --- shift every value of every attribute
   in selected groups by a per-group offset (rigid translation).
+* :func:`transform_attributes` (in :mod:`.transform`) --- map values
+  through named transforms, scale conversions, or user functions.
 
 It also exposes :func:`simplex_vertices`, the categorical-encoding
 helper for level-symmetric MAET inputs.

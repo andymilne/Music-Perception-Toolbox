@@ -86,7 +86,7 @@ for filename, label in audio_files:
         continue
 
     f, w, _ = mpt.audio_peaks(str(filepath), sigma=sigma_peaks)
-    p = mpt.convert_pitch(f, 'hz', 'cents')
+    p = mpt.transform_attributes(f, None, ('hz', 'cents'))
 
     smooth_results.append({
         'label': label,
@@ -174,7 +174,7 @@ for res in smooth_results:
     vp_p, vp_w = mpt.virtual_pitches(res['p'], res['w'], sigma)
     max_idx = np.argmax(vp_w)
     best_cents = vp_p[max_idx]
-    best_midi = mpt.convert_pitch(best_cents, 'cents', 'midi')
+    best_midi = mpt.transform_attributes(best_cents, None, ('cents', 'midi'))
 
     print(f"{res['label']:<25s}  {best_cents:10.1f}  {best_midi:10.2f}  "
           f"{vp_w[max_idx]:10.3f}")

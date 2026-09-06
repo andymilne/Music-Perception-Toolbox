@@ -28,7 +28,7 @@ The toolbox implements several original theoretical frameworks. Expectation tens
 
 These measures have proven effective predictors across a range of music cognition contexts, including tonal fit and stability in conventional and microtonal tuning systems (Milne, Laney, & Sharp, 2015, 2016; Homer, Harley, & Wiggins, 2024; Hearne, Dean, & Milne, 2025), perceived consonance and affect (Smit et al., 2019; Harrison & Pearce, 2020; Eerola & Lahdelma, 2021), individual differences in harmony perception (Eitel, Ruth, Harrison, Frieler, & Müllensiefen, 2024), and rhythmic complexity and tapping accuracy (Milne & Herff, 2020; Milne, Dean, & Bulger, 2023). They have also guided the design of music-computing interfaces (Sethares, Milne, Tiedje, Prechtl, & Plamondon, 2009; Milne & Dean, 2016; Milne, 2019). Published empirical validation is to date on the single-attribute case; MAETs enable a class of analyses for which existing single-attribute measures would be forced to either pool events into unordered multisets or abandon the framework entirely.
 
-The toolbox operates on weighted multisets of events, each event being characterised by one or more attributes (most commonly pitch, or a combination of pitch and time). Input can be entered directly (e.g., as cents values or integer pulse positions) or derived from audio recordings via the `audioPeaks` (`audio_peaks` in Python) function, which extracts spectral peaks and their amplitudes from audio files. The `convertPitch` (`convert_pitch`) function converts between seven pitch and frequency scales (Hz, MIDI, cents, mel, Bark, ERB-rate, Greenwood).
+The toolbox operates on weighted multisets of events, each event being characterised by one or more attributes (most commonly pitch, or a combination of pitch and time). Input can be entered directly (e.g., as cents values or integer pulse positions) or derived from audio recordings via the `audioPeaks` (`audio_peaks` in Python) function, which extracts spectral peaks and their amplitudes from audio files. The `transformAttributes` (`transform_attributes`) function converts between pitch and frequency scales (Hz, MIDI, cents, octaves, mel, Bark, ERB-rate, Greenwood) and applies logarithmic, power, affine, and user-supplied elementwise transforms to attribute values.
 
 The toolbox is organised around a **core framework** of expectation tensors (Section 3.1) and several **application areas** that build on it:
 
@@ -157,13 +157,13 @@ Within this structure, every attribute carries its own self-contained geometry �
 - **Per attribute**: σ (perceptual uncertainty), `isRel` (transposition invariance), `isPer` (periodicity), `period` (when periodic), and r (tuple size). Attributes that should behave as one kind simply take equal values (e.g. several voice attributes given the same σ, `isRel`, `isPer`, and `period`).
 - **Implicit**: the number of atoms per event (K) is read from the shape of the input.
 
-**Use cases.** A common MAET configuration is pitch combined with time — a pitch attribute (with a σ, isPer, and isRel each chosen to suit the analysis desired) and a time attribute carrying its own time σ and isPer=false. This unifies analyses of sequences of events over time with the rest of the toolbox: a sliding probe-tone analysis, a motif-recurrence search, and a pairwise similarity between two sequences all become ordinary `cosSimExpTens` operations on time-attributed tensors. Harmonic analyses occur when the pitch attribute has $K_a > 1$ pitches per event (exchangeable voices); polyphonic (voice-aware) analyses occur when voices are provided as several pitch attributes sharing the same parameters (non-exchangeable voices). But MAETs are not limited to pitch × time. Register can be added as an additional pitch-like attribute with a broader σ. Timbre can be attached as a numerical descriptor (e.g., spectral centroid) with its own σ, allowing two passages identical in pitch but different in instrumentation to be distinguished as such. Metrical position can be a periodic attribute with period equal to one bar. Spatial location in a stereo or surround context can be an angular (periodic) attribute with its own σ. Any quantity that can be represented as one or more values per event, and for which perceptual uncertainty is meaningful, can in principle become an attribute. Sliding-window analyses window the events before the density is built (§3.7.4 and §3.7.6), and Sections 7.4 and 7.5 show worked examples.
+**Use cases.** A common MAET configuration is pitch combined with time — a pitch attribute (with a σ, isPer, and isRel each chosen to suit the analysis desired) and a time attribute carrying its own time σ and isPer=false. This unifies analyses of sequences of events over time with the rest of the toolbox: a sliding probe-tone analysis, a motif-recurrence search, and a pairwise similarity between two sequences all become ordinary `cosSimExpTens` operations on time-attributed tensors. Harmonic analyses occur when the pitch attribute has $K_a > 1$ pitches per event (exchangeable voices); polyphonic (voice-aware) analyses occur when voices are provided as several pitch attributes sharing the same parameters (non-exchangeable voices). But MAETs are not limited to pitch × time. Register can be added as an additional pitch-like attribute with a broader σ. Timbre can be attached as a numerical descriptor (e.g., spectral centroid) with its own σ, allowing two passages identical in pitch but different in instrumentation to be distinguished as such. Metrical position can be a periodic attribute with period equal to one bar. Spatial location in a stereo or surround context can be an angular (periodic) attribute with its own σ. Any quantity that can be represented as one or more values per event, and for which perceptual uncertainty is meaningful, can in principle become an attribute. Sliding-window analyses window the events before the density is built (§3.7.4 and §3.7.7), and Sections 7.4 and 7.5 show worked examples.
 
 **Compatibility between multi-attribute densities.** Cosine similarity between two MAETs (via `cosSimExpTens`) requires the two densities to share the same attribute structure: the same number of attributes, the same per-attribute tuple order $r_a$, and the same per-attribute σ, isRel, isPer, and period (every attribute carries its own self-contained geometry). A mismatch on any of these raises an informative error (e.g., `cosSimExpTens:rMismatch`). What can differ between query and context are the per-event atom counts $K_a$ (so a monophonic query can be compared against a polyphonic context on the same pitch attribute) and of course the number of events itself. This is a stronger compatibility requirement than the single-attribute case, where the parameters are passed as scalar arguments at the call site and therefore trivially match; the MA form requires densities to be built with `buildExpTens` first, and the structural parameters are then read off the density objects.
 
 #### Preprocessing
 
-The MAET framework provides four preprocessing helpers that take the `(pAttr, w, specs)` carrier feeding `buildExpTens` and return a transformed carrier of the same shape: `differenceEvents` and `bindEvents` (cross-event), and `translateAttributes` and `weightEvents` (per-event). The `specs` carrier (synthesised flat with `flatSpecs`, or threaded through from a prior step) holds the per-attribute level geometry; it is optional and assumed flat when omitted. See §3.7 for details, including the canonical windowed-entropy and pre-tensor sliding-comparison constructions.
+The MAET framework provides five preprocessing helpers that take the `(pAttr, w, specs)` carrier feeding `buildExpTens` and return a transformed carrier of the same shape: `differenceEvents` and `bindEvents` (cross-event), and `translateAttributes`, `transformAttributes`, and `weightEvents` (per-event). The `specs` carrier (synthesised flat with `flatSpecs`, or threaded through from a prior step) holds the per-attribute level geometry; it is optional and assumed flat when omitted. See §3.7 for details, including the canonical windowed-entropy and pre-tensor sliding-comparison constructions.
 
 ### 3.2 Spectral enrichment
 
@@ -275,14 +275,14 @@ Direction continuity is defined only on linearly ordered domains — those where
 
 ### 3.7 Pre-MAET processing
 
-The MAET framework provides four preprocessing helpers that act on the `(pAttr, w, specs)` carrier feeding `buildExpTens`. They form a closed family — each takes one carrier, returns another in the same shape, and chains directly into further preprocessing or into MAET construction — organised by their scope of action:
+The MAET framework provides five preprocessing helpers that act on the `(pAttr, w, specs)` carrier feeding `buildExpTens`. They form a closed family — each takes one carrier, returns another in the same shape, and chains directly into further preprocessing or into MAET construction — organised by their scope of action:
 
 - **Cross-event** (each output entry depends on multiple input events; the event sequence is reshaped): `differenceEvents` replaces the sequence with inter-event differences; `bindEvents` gathers $L$ consecutive events into a single nested super-event.
-- **Per-event** (each event is updated independently; event count, ordering, and per-event correspondence are preserved): `translateAttributes` shifts selected attributes' values by a chosen offset; `weightEvents` multiplies a window factor into the per-event weights.
+- **Per-event** (each event is updated independently; event count, ordering, and per-event correspondence are preserved): `translateAttributes` shifts selected attributes' values by a chosen offset; `transformAttributes` maps selected attributes' values through a named transform, a scale conversion, or a user function; `weightEvents` multiplies a window factor into the per-event weights.
 
-All four act per attribute (every attribute carries its own self-contained geometry in `specs`; there is no separate group argument), with a scalar order/offset broadcasting across attributes as a common case. Per-event weights propagate consistently through all four under the toolbox's standard probability-of-perception reading. Multi-value attributes ($K_a > 1$) are accepted by `bindEvents`, `translateAttributes`, and `weightEvents`'s target attribute; `differenceEvents` requires $K_a = 1$ for the reasons given in §3.7.1, and `weightEvents`'s input attribute is similarly restricted to $K = 1$ (a multi-value driver would not yield a well-defined per-event scalar factor).
+All five act per attribute (every attribute carries its own self-contained geometry in `specs`; there is no separate group argument), with a scalar order/offset/transform broadcasting across attributes as a common case. Per-event weights propagate consistently through all five under the toolbox's standard probability-of-perception reading. Multi-value attributes ($K_a > 1$) are accepted by `bindEvents`, `translateAttributes`, `transformAttributes`, and `weightEvents`'s target attribute; `differenceEvents` requires $K_a = 1$ for the reasons given in §3.7.1, and `weightEvents`'s input attribute is similarly restricted to $K = 1$ (a multi-value driver would not yield a well-defined per-event scalar factor).
 
-Each operation is useful on its own, and the four compose freely. Operations targeting disjoint attribute sets commute by construction (each acts only on the slices of the per-attribute value and weight matrices corresponding to its targets), while operations on overlapping targets carry order-dependence that reflects different analytic readings of the same data. Two canonical compositions — *windowed entropy* (`weightEvents` followed by entropy of the resulting density) and *pre-tensor sliding comparison* (`translateAttributes` swept over a grid of offsets, paired with `cosSimExpTens`) — are described in §3.7.5, and the sliding-window functions that package them, `windowedSimilarity` and `windowedEntropy`, in §3.7.6.
+Each operation is useful on its own, and the five compose freely. Operations targeting disjoint attribute sets commute by construction (each acts only on the slices of the per-attribute value and weight matrices corresponding to its targets), while operations on overlapping targets carry order-dependence that reflects different analytic readings of the same data. Two canonical compositions — *windowed entropy* (`weightEvents` followed by entropy of the resulting density) and *pre-tensor sliding comparison* (`translateAttributes` swept over a grid of offsets, paired with `cosSimExpTens`) — are described in §3.7.6, and the sliding-window functions that package them, `windowedSimilarity` and `windowedEntropy`, in §3.7.7.
 
 #### 3.7.1 Event differencing
 
@@ -315,7 +315,7 @@ Binding alone, applied to the raw event values without a preceding differencing 
 
 `offsets` is a **length-$A$ list** (Python) / $1 \times A$ cell (MATLAB), one entry per attribute. Each entry is `None` / empty `[]` (skip this attribute), a scalar or length-1 vector (broadcast to every row — a global transposition), a length-$K_\text{total}$ vector (per-row), a $1 \times M$ row (a per-sweep global shift, one scalar per sweep index), or a $K_\text{total} \times M$ matrix (per-row by sweep index). `NaN` entries skip the corresponding row; $\pm\infty$ is rejected. All entries carrying $M > 1$ must agree on $M$; scalar, length-1, and single-column entries broadcast across the sweep.
 
-When any entry implies a sweep ($M > 1$), the output is a length-$M$ list (Python) / $1 \times M$ cell (MATLAB) of per-attribute value-lists, each a separate pre-MAET input; otherwise a single per-attribute value-list. The sweep output is the natural feed into the raw-MA scalar-vs-list mode of `cosSimExpTens` for a one-call sliding-comparison sweep (§3.7.5).
+When any entry implies a sweep ($M > 1$), the output is a length-$M$ list (Python) / $1 \times M$ cell (MATLAB) of per-attribute value-lists, each a separate pre-MAET input; otherwise a single per-attribute value-list. The sweep output is the natural feed into the raw-MA scalar-vs-list mode of `cosSimExpTens` for a one-call sliding-comparison sweep (§3.7.6).
 
 #### 3.7.4 Event weighting
 
@@ -332,25 +332,33 @@ The two extremes are the pure Gaussian ($\gamma = 0$: $h(\delta) = \exp(-\delta^
 
 For periodic input attributes, only the centred difference $\delta = v - c$ used inside $h$ is wrapped to $[-P/2, P/2]$; the stored values stay raw. The kernel in `buildExpTens` handles the value-axis periodicity downstream via the attribute's `[per]` flag.
 
-**`deleteInput` (mandatory keyword).** A boolean flag — keyword-only, no default — selects whether the input attribute is retained in the returned `(pAttr, wOut, specs)` carrier or removed. When `deleteInput = true` and `inputAttr != targetAttr`, the input attribute is dropped from all three output components and the higher attribute indices are decremented to keep numbering contiguous. When `deleteInput = false`, the input attribute is preserved unchanged in the output. `deleteInput = true` paired with `inputAttr == targetAttr` raises an error: deleting the input would discard the factor just written to it. The auto-delete pattern is the standard idiom for windowed-entropy and local-mass analyses where the input attribute (typically time) provides the scaffolding for the window and is no longer needed downstream once its positions have been transferred to the target's weights.
+**`dropInputAttr` (mandatory keyword).** A boolean flag — keyword-only, no default — selects whether the input attribute is retained in the returned `(pAttr, wOut, specs)` carrier or removed. When `dropInputAttr = true` and `inputAttr != targetAttr`, the input attribute is dropped from all three output components and the higher attribute indices are decremented to keep numbering contiguous. When `dropInputAttr = false`, the input attribute is preserved unchanged in the output. `dropInputAttr = true` paired with `inputAttr == targetAttr` raises an error: deleting the input would discard the factor just written to it. The auto-delete pattern is the standard idiom for windowed-entropy and local-mass analyses where the input attribute (typically time) provides the scaffolding for the window and is no longer needed downstream once its positions have been transferred to the target's weights.
 
-**Multi-axis windowing.** A single `weightEvents` call windows on one input attribute. To window on multiple axes simultaneously — say, time *and* register, both targeting pitch — call `weightEvents` twice in sequence with the same `targetAttr`. Each call's factor multiplies into the target's existing weights, so the composition naturally gives the product window. Set `deleteInput = false` on intermediate calls (so the next call's input is still present), and `deleteInput = true` on the last (to drop both inputs at once is then a matter of a final lookup or a separate composition step).
+**Multi-axis windowing.** A single `weightEvents` call windows on one input attribute. To window on multiple axes simultaneously — say, time *and* register, both targeting pitch — call `weightEvents` twice in sequence with the same `targetAttr`. Each call's factor multiplies into the target's existing weights, so the composition naturally gives the product window. Set `dropInputAttr = false` on intermediate calls (so the next call's input is still present), and `dropInputAttr = true` on the last (to drop both inputs at once is then a matter of a final lookup or a separate composition step).
 
-**Centre-shift identity.** When event weighting and attribute translation target overlapping attributes, the operations commute up to a shift of the window centre: applying `translateAttributes` by an offset $\mu$ after `weightEvents` centred at $c$ gives the same pre-MAET as applying `weightEvents` centred at $c + \mu$ after the translation. The factor evaluates on the same residual $v - c$ either way. This identity underlies the windowed-entropy and pre-tensor sliding-comparison constructions of §3.7.5.
+**Centre-shift identity.** When event weighting and attribute translation target overlapping attributes, the operations commute up to a shift of the window centre: applying `translateAttributes` by an offset $\mu$ after `weightEvents` centred at $c$ gives the same pre-MAET as applying `weightEvents` centred at $c + \mu$ after the translation. The factor evaluates on the same residual $v - c$ either way. This identity underlies the windowed-entropy and pre-tensor sliding-comparison constructions of §3.7.6.
 
-#### 3.7.5 Compositions and canonical uses
+#### 3.7.5 Attribute transformation
 
-The four preprocessing operations chain freely. Operations targeting disjoint attribute sets commute by construction, since each operation acts only on the slices of the per-attribute value and weight matrices corresponding to its targets. On overlapping targets, order dependence reflects different analytic questions about the data. Two compositions are canonical and named.
+`transformAttributes` maps every value of selected attributes through a transform, leaving non-selected attributes unchanged. The map is elementwise, so weights pass through unchanged (a monotone change of scale does not alter any event's probability of perception) and the operation is well-defined for any $K_a \ge 1$. Three kinds of transform are accepted, one per attribute or a single entry broadcast across attributes: a **named transform** — `'log'` (with a `base`, default $e$, and an `offset`, default 0: $\log(x + \text{offset})$), `'power'` (with an `exponent`), and `'affine'` (`scale`, `offset`); a **pitch-scale conversion** given as a pair from `'hz'`, `'midi'`, `'cents'`, `'octave'`, `'mel'`, `'bark'`, `'erb'`, `'greenwood'`, every pair routing through Hz; or a **user function** applied to the attribute's $K_	ext{total} 	imes N$ value matrix. A bare numeric array in place of the carrier is treated as a single attribute and returned as an array, which is the one-line form for converting a vector of frequencies to cents before any MAET call.
+
+The function is the toolbox's home for the choice of measurement scale, and that choice interacts with the rest of the pipeline in three ways worth stating. First, the scale is chosen *before* the kernel: the Gaussian of `buildExpTens` has a fixed width in whatever units the values carry, so a logarithmic transform of inter-onset intervals or a conversion of frequencies to cents is what makes a single $\sigma$ mean the same thing at every point of the range (the flat-metric point of §9). Second, the order relative to differencing carries meaning: `'log'` *then* `differenceEvents` gives log ratios (the natural representation of IOI ratios, and of intervals from frequencies in Hz), whereas `differenceEvents` *then* a compressive transform gives signed compressed magnitudes. Third, only `'affine'` is compatible with a periodic attribute (`isPer = true` at build); the other transforms change the metric and cannot be wrapped.
+
+Values outside a transform's domain are refused rather than silently mapped to $\pm\infty$ or `NaN`, with a message that names the attribute and events and lists the remedies. The commonest case is a zero under `'log'`, typically the inter-onset interval of a chord or grace note: bind simultaneous events first (`bindEvents`), drop those events deliberately, or admit them with an explicit `offset` — `{'log', 'offset', c}` computes $\log(x + c)$, which is defined at zero but not unit-free, so the unit of the input is then part of the model, and the constant is written down rather than hidden. Negative values under a magnitude transform (`'log'` or `'power'`) — melodic intervals after differencing, say — are handled by the `sign` option: the transform is applied to $|x|$ and a **sign attribute** with values in $\{-1, 0, +1\}$ is inserted immediately after the source attribute, carrying the source's spec with `rel` cleared and the name suffixed `'_sign'`; a small $\sigma$ on that attribute makes it effectively categorical. The insertion is explicit rather than automatic because it changes the attribute count, and every downstream per-attribute argument (`sigma`, `r`, `rel`, `sym`, `wrap`, `diffOrders`, …) must then include the new column. The set of named transforms is deliberately small: a change of unit or origin is `'affine'`, a compression is `'log'` or `'power'`, and anything else (a reciprocal, a modular reduction, a standardization against a fixed reference, which is an `'affine'` in disguise) is a one-line user function whose intent is then visible at the call site.
+
+#### 3.7.6 Compositions and canonical uses
+
+The five preprocessing operations chain freely. Operations targeting disjoint attribute sets commute by construction, since each operation acts only on the slices of the per-attribute value and weight matrices corresponding to its targets. On overlapping targets, order dependence reflects different analytic questions about the data. Two compositions are canonical and named.
 
 **Windowed entropy / local density characterisation.** `weightEvents` followed by `buildExpTens` produces a pre-MAET in which each tuple's contribution is scaled by the product of the per-event window factors at its constituent events. `entropyExpTens` on this windowed density gives the entropy of the local slice of the density visible through the window, useful for characterising how a passage's local pitch or time content compresses or spreads at different positions or registers. The window scale $w$ and shape $\gamma$ are chosen per call, and a multi-axis window is composed by chaining `weightEvents` calls with the same `targetAttr` — a tight Gaussian in time chained with a broad rectangular in register, both targeting pitch, picks out the rhythmic content of a notes-of-any-pitch window. Sweeping the centre $c$ over a grid of positions gives the corresponding local-entropy profile along the swept axis.
 
 **Pre-tensor sliding comparison.** `translateAttributes` is swept over a grid of offsets $\mu$, with `cosSimExpTens` against a fixed reference at each offset; the resulting similarity profile shows how the data's similarity to the reference varies along the swept attribute. The construction is symmetric and bounded in $[0, 1]$ (inheriting `cosSimExpTens`'s cosine semantics) and uses the query's intrinsic support as its locality, with no externally chosen window.
 
-Translation and windowing answer different questions. Pre-tensor translation is the natural choice when two whole densities are being aligned under an unknown transposition or time shift (e.g., cadence-progression comparison up to musical transposition): the query's own support is the matching scale, and the result is the symmetric cosine. A windowed sweep (§3.7.6) is the natural choice when a fixed query is being matched against a longer context with a controllable inspection scale (e.g., motif-finding within a chorale): an externally chosen window on the context decouples the comparison region's scale from the query. On periodic attributes both routes are well-defined and interchangeable for whole-density alignment; on relative attributes a uniform translation is a no-op, and a window on such an attribute would select in interval-size space, an unusual analytic move that is rarely the question one is asking.
+Translation and windowing answer different questions. Pre-tensor translation is the natural choice when two whole densities are being aligned under an unknown transposition or time shift (e.g., cadence-progression comparison up to musical transposition): the query's own support is the matching scale, and the result is the symmetric cosine. A windowed sweep (§3.7.7) is the natural choice when a fixed query is being matched against a longer context with a controllable inspection scale (e.g., motif-finding within a chorale): an externally chosen window on the context decouples the comparison region's scale from the query. On periodic attributes both routes are well-defined and interchangeable for whole-density alignment; on relative attributes a uniform translation is a no-op, and a window on such an attribute would select in interval-size space, an unusual analytic move that is rarely the question one is asking.
 
 Windowing in the toolbox is always event weighting of this kind: the window multiplies the per-event weights before the density is built, and the window axis is then marginalized (dropped) or compared as the analysis requires. It is not a multiplication of a finished density by a window function. Because the window acts on the events rather than on the kernel-smoothed density, no smoothed mass leaks across the window boundary, and the closed-form cosine similarity, every entropy estimator, and matrix-valued kernel covariances all apply to the windowed density unchanged.
 
-#### 3.7.6 Windowed similarity and windowed entropy
+#### 3.7.7 Windowed similarity and windowed entropy
 
 `windowedSimilarity` / `windowed_similarity` slides a query across a context and returns their similarity at each position — a cross-correlation on the raw `(pAttr, w)` carriers. One attribute is named as the *window axis* (`windowAttr`; typically time) and a set of *centres* along it is given (explicitly, or as `start` / `stop` / `step`; by default the range of the axis's values, stepped at the window width). At each centre the context's events are reweighted by a window centred there (`weightEvents` under the hood, targeting the first compared attribute unless `targetAttr` says otherwise), the query is translated along the axis so that its own locating value — the multiset centroid by default (`locate`), or its start, end, or midpoint — lands on the same centre, and the two are compared with `cosSimExpTens`. Centres are therefore absolute positions on the window axis, and a peak at centre $c$ means the query pattern is present in the context with its centroid at $c$. The window axis is either *compared* (`dropWindowAttr = false`: the events' positions along it enter the similarity, so the query's internal timing must match) or *placement only* (`dropWindowAttr = true`: the axis is marginalized after weighting, so only the content within the window is compared). A relative window axis needs no translation, being translation-invariant within its own effective space. `queryCentres` decouples the query's placement from the window's, giving a lagged correlogram surface, and the multi-axis form (`sweep` + `drop`) windows on several attributes at once, one output dimension per swept axis.
 
@@ -362,7 +370,11 @@ $$ s_{\text{one-sided}} = \frac{\langle h \cdot f_X, f_Y \rangle}{\langle f_Y, f
 
 This is *magnitude-aware*: self-similarity at full window coverage equals 1, the profile drops below 1 when the window does not cover all of the query's mass, and it rises above 1 when the windowed context carries more matching mass than the query does in total, which is what a sliding-motif or probe-tone analysis wants — a region with a large amount of matching content scores higher than a region with a little. The output is not bounded in $[-1, 1]$, and multiplying the query's weights by a constant rescales the profile. The alternative, `'cosine'`, is the strict shape-only cosine, $\langle h \cdot f_X, f_Y \rangle / \sqrt{\langle h \cdot f_X, h \cdot f_X \rangle \langle f_Y, f_Y \rangle}$, bounded in $[-1, 1]$ and invariant to a positive scalar on either operand: the same shape match scores the same regardless of how much mass falls inside the window. The one-sided default scores *how much of the query is present here*; the cosine option scores *how well the local shape matches, ignoring magnitude*.
 
-`windowedEntropy` / `windowed_entropy` shares the placement, window, `locate`, and drop machinery, but has no query: at each position the windowed (and, for a dropped axis, axis-reduced) density is built and its entropy taken with the chosen `method` (§4). Because there is no query to size a default window from, an explicit `contextWindow` width is required for every swept axis. This is the windowed-entropy construction of §3.7.5 packaged as a sweep; an out-of-support centre (a window that caught no event) returns `NaN` under `'renyi2'`.
+`windowedEntropy` / `windowed_entropy` shares the placement, window, `locate`, and drop machinery, but has no query: at each position the windowed (and, for a dropped axis, axis-reduced) density is built and its entropy taken with the chosen `method` (§4). Because there is no query to size a default window from, an explicit `contextWindow` width is required for every swept axis. This is the windowed-entropy construction of §3.7.6 packaged as a sweep; an out-of-support centre (a window that caught no event) returns `NaN` under `'renyi2'`.
+
+#### 3.7.8 Events from symbolic scores
+
+`readScore` / `read_score` parses a Standard MIDI File (format 0 or 1) or a MusicXML score (`.musicxml`, `.xml`, or compressed `.mxl`) into a *note table* — one row per sounding note with its onset and duration in quarter-note beats and in seconds (following the file's tempo map), its MIDI pitch, its velocity, its part, its channel or voice, and its bar — and `eventsFromScore` / `events_from_score` turns that table (or the path directly) into the `(pAttr, w, specs)` carrier. The attributes are chosen by name from pitch, onset, duration, velocity, part, and measure; the pitch scale is any pitch scale of `transformAttributes` (`'midi'` by default, `'cents'` for the toolbox's spectral functions); time is in seconds or beats; the weights are velocity / 127, ones, or the duration. Notes that start together are bound into one event by default (`chords = 'bind'`, with an onset tolerance), so that the pitch attribute carries one value per chord note (K = the largest chord, NaN-padded) and an `r = 2` reading of it gives the chords' dyads; `chords = 'separate'` makes every note its own event. Both parsers are self-contained — no toolbox, package, or Java dependency in either language — and read the same file to the same table. A MusicXML tie is merged into one note, a grace note is skipped, and a rest or unpitched note is not a note.
 
 For full API details on each primitive, see §6.1.
 
@@ -473,7 +485,7 @@ Four decompositions of the relevant tuple sums are available across the v3 surfa
 
 There is no timing probe: routing is decided from structure and the cost models alone, which is why the same call takes the same route on any machine (the hardware factor scales every route alike and cancels in the comparison). There is likewise no cancellation fallback: the Möbius method's agreement with enumeration is governed by `truncationSigmas`, and a small cosine is a legitimate value, not a symptom. Two rules sit outside the selector and apply whatever `method` says: an *ordered* attribute (`isSym = false` with $r_a > 1$) on either side routes the pair to Bulger's method, the only flat inner-product route that carries ordered tuples; and, after the Möbius arm has run, a **post-hoc guard** checks its output for an impossible value — a non-finite inner product, a negative self inner product, or $|\langle X, Y\rangle| > 1.000001\sqrt{\langle X, X\rangle\langle Y, Y\rangle}$ — and on finding one warns, discards the Möbius memo entries on both densities, and re-runs the call through Bulger's method. The guard has no threshold to tune; it is disabled by the `postHocGuards` default.
 
-**The `'auto'` rules on `evalExpTens`.** The eval selector chooses between the centres branch and the Möbius evaluator, again in order: an ordered attribute, a nested attribute, or every $r_a \le 1$ goes to centres; any $r_a > 10$ goes to centres after the same feasibility guard on the joint working set; then the measure rule above, on the first relative-periodic attribute over the threshold (`'single-image'` forces centres, `'full-image'` forces Möbius); otherwise the cost model prices both for the given number of query points and the Möbius evaluator is taken when it is predicted cheaper — by a safety factor of 1.5 when the centres working set exceeds 256 MiB, or outright below that. A forced `'mobius'` is rejected on a density with an ordered attribute. After the Möbius evaluator has run, a post-hoc guard re-runs any call whose output is non-finite through the centres branch, with a warning; it is disabled by the same `postHocGuards` default. Inside the centres branch the toolbox picks the shape of the sum for itself (the single-multiset kernel sum, the factored per-attribute form, or the joint materialization); none of these is user-selectable, and all compute the same value.
+**The `'auto'` rules on `evalExpTens`.** The eval selector chooses between the centres branch and the Möbius evaluator, again in order: an ordered attribute, a nested attribute, or every $r_a \le 1$ goes to centres; any $r_a > 10$ goes to centres after the same feasibility guard on the joint working set; then the measure rule above, on the first relative-periodic attribute over the threshold (`'single-image'` forces centres, `'full-image'` forces Möbius); otherwise the cost model prices both for the given number of query points and the Möbius evaluator is taken when it is predicted cheaper — by a safety factor of 1.5 when the centres working set exceeds 256 MiB, or outright below that. A forced `'mobius'` is rejected on a density with an ordered attribute; on a nested density it runs the per-level Möbius evaluator, which applies the Möbius set-partition sum at each symmetric level of the tag tree (and a dynamic programme at each ordered one) and so touches no tuple centre — on a density with thousands of nested tuple centres per event it is orders of magnitude faster than the centres branch, and `'auto'` will route to it once its cost row is fitted. After the Möbius evaluator has run, a post-hoc guard re-runs any call whose output is non-finite through the centres branch, with a warning; it is disabled by the same `postHocGuards` default. Inside the centres branch the toolbox picks the shape of the sum for itself (the single-multiset kernel sum, the factored per-attribute form, or the joint materialization); none of these is user-selectable, and all compute the same value.
 
 **Seeing the route before running.** `explain_dispatch(dens_x, dens_y)` / `explainDispatch(densX, densY)` (or, with a single density and a query count, the evaluation form) reports which route the call would take and why — the predicted time of each candidate, the accuracy floor in force, the σ/period limit that follows from it and which test set it, and where the call sits relative to them — without running the call. It invokes the very same selectors, so what it reports is what would happen. Pass `method` and `truncationSigmas` to see the effect of an override.
 
@@ -675,7 +687,9 @@ In MATLAB, query-point arguments (`X`, `x`) are row vectors or matrices whose co
 | `continuity` | `continuity` | Serial |
 | `seqWeights` | `seq_weights` | Serial |
 | `audioPeaks` | `audio_peaks` | Audio |
-| `convertPitch` | `convert_pitch` | Utility |
+| `readScore` | `read_score` | Score input |
+| `eventsFromScore` | `events_from_score` | Score input |
+| `transformAttributes` | `transform_attributes` | Tensor core (preprocessing) |
 
 ### Documentation
 
@@ -801,7 +815,7 @@ print(f'Balance = {b:.3f}, Evenness = {e:.3f}')
 **MATLAB:**
 ```matlab
 [f, w] = audioPeaks('audio/piano_Cmin_open.wav');
-p = convertPitch(f, 'hz', 'cents');
+p = transformAttributes(f, [], {'hz', 'cents'});
 H = spectralEntropy(p, w, 12);
 fprintf('Spectral entropy = %.3f\n', H);
 ```
@@ -809,7 +823,7 @@ fprintf('Spectral entropy = %.3f\n', H);
 **Python:**
 ```python
 f, w, detail = mpt.audio_peaks('audio/piano_Cmin_open.wav')
-p = mpt.convert_pitch(f, 'hz', 'cents')
+p = mpt.transform_attributes(f, None, ('hz', 'cents'))
 H = mpt.spectral_entropy(p, w, 12)
 print(f'Spectral entropy = {H:.3f}')
 ```
@@ -820,8 +834,8 @@ In the classic probe-tone paradigm a listener hears a context sequence followed 
 
 **MATLAB:**
 ```matlab
-context = convertPitch([60 64 67 72], 'midi', 'cents');   % C E G C
-probeE  = convertPitch(64, 'midi', 'cents');              % probe: E
+context = transformAttributes([60 64 67 72], [], {'midi', 'cents'});   % C E G C
+probeE  = transformAttributes(64, [], {'midi', 'cents'});              % probe: E
 
 % Recency decay: weights later events more heavily
 w = seqWeights([], 'exponentialFromEnd', 'N', 4, 'decayRate', 0.5);
@@ -838,8 +852,8 @@ fprintf('Probe-E fit (recency-weighted): %.3f\n', s);
 **Python:**
 ```python
 import numpy as np
-context = mpt.convert_pitch(np.array([60, 64, 67, 72]), 'midi', 'cents')
-probe_E = mpt.convert_pitch(np.array([64]), 'midi', 'cents')
+context = mpt.transform_attributes(np.array([60, 64, 67, 72]), None, ('midi', 'cents'))
+probe_E = mpt.transform_attributes(np.array([64]), None, ('midi', 'cents'))
 
 w = mpt.seq_weights(None, 'exponentialFromEnd', n=4, decay_rate=0.5)
 
@@ -856,16 +870,16 @@ This approach treats the context as an unordered pitch multiset with per-event s
 
 ### Finding where a pattern occurs within a melody
 
-The previous subsection returned a single similarity value — the fit of a probe against the whole context. For longer sequences, it is often useful to identify *where* a query pattern most closely matches the content of the sequence, returning one similarity per position — a similarity profile. With time as a second attribute, `windowedSimilarity` slides a time window along the context and returns a windowed similarity at each centre. At each centre the context's events are reweighted by the window and the query is translated so that its time centroid lands on the centre, so a peak at centre $c$ means the query pattern is present in the melody with its centroid at $c$ (see §3.7.6).
+The previous subsection returned a single similarity value — the fit of a probe against the whole context. For longer sequences, it is often useful to identify *where* a query pattern most closely matches the content of the sequence, returning one similarity per position — a similarity profile. With time as a second attribute, `windowedSimilarity` slides a time window along the context and returns a windowed similarity at each centre. At each centre the context's events are reweighted by the window and the query is translated so that its time centroid lands on the centre, so a peak at centre $c$ means the query pattern is present in the melody with its centroid at $c$ (see §3.7.7).
 
 **MATLAB:**
 ```matlab
 % Melody: C D E G C E G (in MIDI), with event times 0..6
-melody_p = convertPitch([60 62 64 67 60 64 67], 'midi', 'cents');
+melody_p = transformAttributes([60 62 64 67 60 64 67], [], {'midi', 'cents'});
 melody_t = 0:6;
 
 % Query: the 2-event pattern E G (centroid at t = 0.5)
-query_p = convertPitch([64 67], 'midi', 'cents');
+query_p = transformAttributes([64 67], [], {'midi', 'cents'});
 query_t = [0 1];
 
 % Pitch attribute: absolute periodic (sigma = 10 cents).
@@ -887,10 +901,10 @@ disp(S);
 **Python:**
 ```python
 import numpy as np
-melody_p = mpt.convert_pitch(np.array([60, 62, 64, 67, 60, 64, 67]), 'midi', 'cents')
+melody_p = mpt.transform_attributes(np.array([60, 62, 64, 67, 60, 64, 67]), None, ('midi', 'cents'))
 melody_t = np.arange(7, dtype=float)
 
-query_p = mpt.convert_pitch(np.array([64, 67]), 'midi', 'cents')
+query_p = mpt.transform_attributes(np.array([64, 67]), None, ('midi', 'cents'))
 query_t = np.array([0., 1.])
 
 centres = np.linspace(-0.5, 6.5, 29)
@@ -993,7 +1007,7 @@ Query points X should have `dim` rows, where $\mathrm{dim} = r - \mathrm{isRel}$
 
 **cosSimExpTens(dens_x, dens_y)** or **cosSimExpTens(p1, w1, p2, w2, sigma, r, isRel, isPer, period)**
 
-Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`. Accepts a `MaetDensity` of any shape, from a single multiset to the general multi-attribute case. Sliding-window comparisons are the province of `windowedSimilarity` (§3.7.6), which windows the raw events and calls `cosSimExpTens` at each position. For multi-attribute comparisons, the two densities must share the same attribute structure and per-attribute parameters; see the compatibility note at the end of Section 3.1. In the raw scalar form, `'spectrum'` is accepted as a name-value pair (a cell / list of `addSpectra` arguments) and applies the same partials to both `(p1, w1)` and `(p2, w2)` internally before density construction; the struct form rejects it because spectral enrichment must be baked in at construction time.
+Computes the cosine similarity between two expectation tensor densities analytically. The precomputed-struct calling convention avoids recomputing tuple indices on each call. Both conventions support `'verbose', false`. Accepts a `MaetDensity` of any shape, from a single multiset to the general multi-attribute case. Sliding-window comparisons are the province of `windowedSimilarity` (§3.7.7), which windows the raw events and calls `cosSimExpTens` at each position. For multi-attribute comparisons, the two densities must share the same attribute structure and per-attribute parameters; see the compatibility note at the end of Section 3.1. In the raw scalar form, `'spectrum'` is accepted as a name-value pair (a cell / list of `addSpectra` arguments) and applies the same partials to both `(p1, w1)` and `(p2, w2)` internally before density construction; the struct form rejects it because spectral enrichment must be baked in at construction time.
 
 The `normalize` keyword (also accepted as `normalise`) selects the denominator. The default, `'cosine'`, gives the strict shape-only cosine similarity $\langle X, Y\rangle / \sqrt{\langle X, X\rangle \langle Y, Y\rangle}$, bounded in $[-1, 1]$ and invariant to a positive scalar on either operand. The alternative, `'oneSidedDenom'`, divides only by the second operand's self inner product, $\langle X, Y\rangle / \langle Y, Y\rangle$; the result is magnitude-aware, taking the value 1 on a self-match ($X = Y$) but scaling linearly with positive rescalings of the first operand. Either spelling of the keyword is accepted; matching on the value is case-insensitive.
 
@@ -1015,7 +1029,7 @@ Entropy of the expectation tensor. Also accepts a precomputed struct as the firs
 
 *MAET preprocessing.*
 
-The preprocessing functions share a common shape: they take the canonical `(pAttr, w, specs)` carrier — the same triple `buildExpTens` consumes — apply a transform, and return a carrier of the same form. `specs` is keyword-only and optional; when omitted, a flat (one-level, `r = 1`, `[rel] = false`, `[sym] = true`) carrier is assumed. Because the output is again a `(pAttr, w, specs)` triple, the operators chain in any order and the final triple feeds directly into `buildExpTens`. Two further functions, `windowedSimilarity` and `windowedEntropy`, package the canonical sliding-window compositions of §3.7.5 as one-call sweeps over the raw carriers; they are listed at the end of this group.
+The preprocessing functions share a common shape: they take the canonical `(pAttr, w, specs)` carrier — the same triple `buildExpTens` consumes — apply a transform, and return a carrier of the same form. `specs` is keyword-only and optional; when omitted, a flat (one-level, `r = 1`, `[rel] = false`, `[sym] = true`) carrier is assumed. Because the output is again a `(pAttr, w, specs)` triple, the operators chain in any order and the final triple feeds directly into `buildExpTens`. Two further functions, `windowedSimilarity` and `windowedEntropy`, package the canonical sliding-window compositions of §3.7.6 as one-call sweeps over the raw carriers; they are listed at the end of this group.
 
 **flatSpecs(pAttr, 'r', r, 'rel', rel, 'sym', sym [, 'name', name])**
 
@@ -1039,9 +1053,15 @@ Per-attribute preprocessing for MAET input. Shifts selected attributes' values b
 
 Relative geometry is read per-attribute from `specs` (there is no separate `isRel` argument): a *uniform* finite offset on an attribute whose outermost level is relative is a structural no-op (it cancels in every within-tuple difference), so that attribute is left unchanged and a single `translateAttributes:noOpRelative` (MATLAB) / `TranslateAttributesNoOpWarning` (Python) is emitted per call; a *non-uniform* (per-row) offset is **not** a no-op even on a relative attribute and is applied. `isPer` / `period` are not consulted here — translation emits unwrapped values and the periodic kernel in `buildExpTens` wraps downstream.
 
-When any entry implies a sweep ($M > 1$), the output is a length-$M$ list (Python) / $1 \times M$ cell (MATLAB) of per-attribute value-lists, each a separate pre-MAET input to build and compare; otherwise a single per-attribute value-list. The sweep output is the natural input to the raw-MA scalar-vs-list mode of `cosSimExpTens` (above) for a one-call sliding-comparison sweep over $M$ offsets, with no explicit per-offset `buildExpTens` loop. See [§3.7.5](#375-compositions-and-canonical-uses) for the conceptual framing of translation versus windowed sliding.
+When any entry implies a sweep ($M > 1$), the output is a length-$M$ list (Python) / $1 \times M$ cell (MATLAB) of per-attribute value-lists, each a separate pre-MAET input to build and compare; otherwise a single per-attribute value-list. The sweep output is the natural input to the raw-MA scalar-vs-list mode of `cosSimExpTens` (above) for a one-call sliding-comparison sweep over $M$ offsets, with no explicit per-offset `buildExpTens` loop. See [§3.7.6](#376-compositions-and-canonical-uses) for the conceptual framing of translation versus windowed sliding.
 
-**weightEvents(pAttr, w, inputAttr, targetAttr, centre, shape, {'sd', s | 'width', L}, 'deleteInput', tf [, 'specs', specs] [, 'isPer', false] [, 'period', 0])**
+**transformAttributes(pAttr, w, transforms [, 'specs', specs] [, 'sign', false])**
+
+Per-attribute preprocessing for MAET input. Maps every value of selected attributes through a transform on the `(pAttr, w, specs)` carrier, returning a transformed carrier that feeds directly into `buildExpTens`; weights pass through. `transforms` is a length-$A$ list (Python) / $1 \times A$ cell (MATLAB), one entry per attribute, or a single entry broadcast to all. Each entry is `None` / `[]` (leave unchanged); a name, optionally with parameters — Python `('log', {'base': 2})` or `{'name': 'log', 'base': 2}`, MATLAB `{'log', 'base', 2}` or `struct('name', 'log', 'base', 2)` — from `'log'` (`base`, default $e$; `offset`, default 0: $\log(x + \text{offset})$), `'power'` (`exponent`), `'affine'` (`scale`, `offset`); a pitch-scale pair — Python `('hz', 'cents')`, MATLAB `{'hz', 'cents'}` (with $A = 2$ wrap the pair in its own cell) — from `'hz'`, `'midi'`, `'cents'` = 100 × MIDI, `'octave'` = MIDI / 12, `'mel'`, `'bark'`, `'erb'`, `'greenwood'`; or a callable / function handle applied to the $K_\text{total} \times N$ value matrix, which must return the same shape and finite values. A bare numeric array in place of `pAttr` is treated as one attribute and the transformed array is returned alone: `p = transformAttributes(f, [], {'hz', 'cents'})` / `p = mpt.transform_attributes(f, None, ('hz', 'cents'))`.
+
+Values outside a transform's domain raise with the attribute, the offending events, and the remedies (a zero under `'log'` is never mapped to $-\infty$). `sign` (bool or per-attribute) applies a magnitude transform to $|x|$ and inserts a sign attribute in $\{-1, 0, +1\}$ immediately after the source, extending `w` (when a per-attribute list) and `specs` (the source's spec with `rel` cleared and name suffixed `'_sign'`); the attribute count grows accordingly. See [§3.7.5](#375-attribute-transformation) for the choice of scale, its interaction with differencing, and periodicity.
+
+**weightEvents(pAttr, w, inputAttr, targetAttr, centre, shape, {'sd', s | 'width', L}, 'dropInputAttr', tf [, 'specs', specs] [, 'isPer', false] [, 'period', 0])**
 
 Per-event preprocessing for MAET input. Reads the $K = 1$ value at every event from `inputAttr`, evaluates a window factor centred at `centre` with shape parameter $\gamma$ = `shape`, and multiplies the resulting $(1, N)$ per-event factor into the weights of `targetAttr` (on top of any weight already there), returning a transformed `(pAttr, wOut, specs)` carrier that feeds directly into `buildExpTens`.
 
@@ -1049,9 +1069,9 @@ The window scale is given by **exactly one** of two keyword-only arguments, nami
 
 `inputAttr` and `targetAttr` are scalar attribute indices (1-based MATLAB / 0-based Python); they may be equal or distinct. `inputAttr` must reference an attribute with $K_{\text{input}} = 1$ (single value per event); the factor broadcasts across the target attribute's $K_{\text{target}}$ rows downstream. `isPer` is a scalar boolean that must mirror the `[per]` flag of `inputAttr` in the downstream `buildExpTens` call, with `period` the corresponding scalar (ignored when `isPer = false`); when `isPer = true` the difference $\delta = v - c$ is wrapped to $[-\text{period}/2, \text{period}/2]$ before the shape function is evaluated, and stored values are not wrapped.
 
-`deleteInput` is a mandatory keyword-only boolean (no default). When `true` and `inputAttr != targetAttr`, the input attribute is dropped from the returned carrier (its `specs` entry removed and higher indices renumbered). When `false`, the input attribute is preserved. `deleteInput = true` paired with `inputAttr == targetAttr` raises an error (the just-written factor would be discarded).
+`dropInputAttr` is a mandatory keyword-only boolean (no default). When `true` and `inputAttr != targetAttr`, the input attribute is dropped from the returned carrier (its `specs` entry removed and higher indices renumbered). When `false`, the input attribute is preserved. `dropInputAttr = true` paired with `inputAttr == targetAttr` raises an error (the just-written factor would be discarded).
 
-Multi-axis windowing is expressed as a sequence of `weightEvents` calls with the same `targetAttr`; each call's factor multiplies into the target's existing weights. The canonical composition `weightEvents` (with `deleteInput = true`, `inputAttr` typically time, `targetAttr` typically pitch) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction of [§3.7.5](#375-compositions-and-canonical-uses). `weightEvents` chains cleanly with `translateAttributes` under a centre-shift identity ($\mathcal{T}_\mu \circ \mathcal{W}_c = \mathcal{W}_{c+\mu} \circ \mathcal{T}_\mu$ on overlapping targets) and passes through `differenceEvents` / `bindEvents`.
+Multi-axis windowing is expressed as a sequence of `weightEvents` calls with the same `targetAttr`; each call's factor multiplies into the target's existing weights. The canonical composition `weightEvents` (with `dropInputAttr = true`, `inputAttr` typically time, `targetAttr` typically pitch) $\to$ `buildExpTens` $\to$ `entropyExpTens` is the windowed-entropy construction of [§3.7.6](#376-compositions-and-canonical-uses). `weightEvents` chains cleanly with `translateAttributes` under a centre-shift identity ($\mathcal{T}_\mu \circ \mathcal{W}_c = \mathcal{W}_{c+\mu} \circ \mathcal{T}_\mu$ on overlapping targets) and passes through `differenceEvents` / `bindEvents`.
 
 **simplexVertices(N [, edgeLength])**
 
@@ -1059,7 +1079,7 @@ Returns the $N$ vertices of a regular $(N-1)$-simplex centred at the origin in $
 
 **windowedSimilarity(pContext, wContext, pQuery, wQuery, sigma, r, isRel, isPer, period [, centres] [, 'windowAttr', a] [, 'dropWindowAttr', tf] [, 'contextWindow', {shape, width}] [, 'start', s] [, 'stop', e] [, 'step', d] [, 'queryCentres', Q] [, 'queryWindow', {shape, width}] [, 'sweep', {axis, positions; ...}] [, 'drop', {axis, tf; ...}] [, 'locate', l] [, 'targetAttr', t] [, 'normalize', n] [, 'specs', specs] [, 'isSym', sym] [, 'verbose', v])**
 
-Sliding-window similarity profile (a pre-MAET cross-correlation; §3.7.6). Takes the raw `(pAttr, w)` carriers of a context and a query together with the shared per-attribute geometry of `buildExpTens`'s raw form. In the single-axis form, `windowAttr` names the swept axis (default: the last attribute) and `centres` its positions (or `start` / `stop` / `step`; by default the range of the axis's values stepped at the window width). At each centre the context's events are reweighted by the window (via `weightEvents`, into `targetAttr`, default the first compared attribute), the query is translated so that its `locate` value on the axis — `'centroid'` (default), `'start'`, `'end'`, `'mid'`, or a function handle — lands on the centre, and the pair is scored with `cosSimExpTens`. `dropWindowAttr` (required) says whether the axis is compared (`false`) or marginalized after weighting (`true`). `contextWindow` is a `{shape, width}` pair — shape $\gamma \in [0, 1]$ or `'gaussian'` / `'rect'`, full rectangle-equivalent width $W$ with standard deviation $W / (2\sqrt{3})$ — defaulting to a rectangle of the query's own extent; `queryWindow` applies a window of the same form to the query itself. `queryCentres` ([] locks the query to the window; an $M \times T$ matrix, $M$ the number of centres, slides the query across `queryCentres(m, :)` while the window sits at `centres(m)`) returns the lagged correlogram surface. The multi-axis form replaces `windowAttr` / `centres` / `dropWindowAttr` with parallel `sweep` and `drop` maps, one output dimension per swept axis, with `contextWindow` then a map of per-axis `struct('shape', ., 'width' | 'sd', .)`. `normalize` is `'oneSidedDenom'` (default, magnitude-aware) or `'cosine'` (bounded shape-only cosine). `specs` carries nested geometry from `bindEvents`; `isSym` is the per-attribute symmetry vector of the flat surface (required for ordered attributes carrying a matrix-valued kernel covariance) and is mutually exclusive with `specs`. Returns a $1 \times M$ profile (or the $M \times T$ / multi-axis array).
+Sliding-window similarity profile (a pre-MAET cross-correlation; §3.7.7). Takes the raw `(pAttr, w)` carriers of a context and a query together with the shared per-attribute geometry of `buildExpTens`'s raw form. In the single-axis form, `windowAttr` names the swept axis (default: the last attribute) and `centres` its positions (or `start` / `stop` / `step`; by default the range of the axis's values stepped at the window width). At each centre the context's events are reweighted by the window (via `weightEvents`, into `targetAttr`, default the first compared attribute), the query is translated so that its `locate` value on the axis — `'centroid'` (default), `'start'`, `'end'`, `'mid'`, or a function handle — lands on the centre, and the pair is scored with `cosSimExpTens`. `dropWindowAttr` (required) says whether the axis is compared (`false`) or marginalized after weighting (`true`). `contextWindow` is a `{shape, width}` pair — shape $\gamma \in [0, 1]$ or `'gaussian'` / `'rect'`, full rectangle-equivalent width $W$ with standard deviation $W / (2\sqrt{3})$ — defaulting to a rectangle of the query's own extent; `queryWindow` applies a window of the same form to the query itself. `queryCentres` ([] locks the query to the window; an $M \times T$ matrix, $M$ the number of centres, slides the query across `queryCentres(m, :)` while the window sits at `centres(m)`) returns the lagged correlogram surface. The multi-axis form replaces `windowAttr` / `centres` / `dropWindowAttr` with parallel `sweep` and `drop` maps, one output dimension per swept axis, with `contextWindow` then a map of per-axis `struct('shape', ., 'width' | 'sd', .)`. `normalize` is `'oneSidedDenom'` (default, magnitude-aware) or `'cosine'` (bounded shape-only cosine). `specs` carries nested geometry from `bindEvents`; `isSym` is the per-attribute symmetry vector of the flat surface (required for ordered attributes carrying a matrix-valued kernel covariance) and is mutually exclusive with `specs`. Returns a $1 \times M$ profile (or the $M \times T$ / multi-axis array).
 
 **windowedEntropy(pAttr, w, sigma, r, isRel, isPer, period [, centres] [, 'windowAttr', a] [, 'dropWindowAttr', tf] [, 'contextWindow', {shape, width}] [, 'sweep', ...] [, 'drop', ...] [, 'locate', l] [, 'method', m] [, 'base', b] [, 'specs', specs] [, 'isSym', sym] [, ...])**
 
@@ -1091,13 +1111,13 @@ Output weights are the product of each pitch's original weight and the spectral 
 
 These functions take pitches in cents as absolute pitches (not pitch classes). The functions transpose internally so the lowest pitch is 0.
 
-**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `convertPitch(f, 'hz', 'cents')` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum. The discrete methods (`'shannon'`, `'normalized'`) are computed on the grid `0 : resolution : max + 4σ` with `resolution` in cents (default 1, the grid of Milne et al. 2017 and Smit et al. 2019); a discrete entropy depends on its grid, so change `resolution` only to change the measure.
+**spectralEntropy(p, w, sigma, ...)** — Entropy of the composite spectrum (lower entropy = greater consonance). Pitches must be in cents; when using empirical spectral peaks from `audioPeaks` (which returns Hz), convert via `transformAttributes(f, [], {'hz', 'cents'})` first. Can apply spectral enrichment via `'spectrum'`, but this is unnecessary when using empirical peaks since they already represent the full spectrum. The discrete methods (`'shannon'`, `'normalized'`) are computed on the grid `0 : resolution : max + 4σ` with `resolution` in cents (default 1, the grid of Milne et al. 2017 and Smit et al. 2019); a discrete entropy depends on its grid, so change `resolution` only to change the measure.
 
 **templateHarmonicity(p, w, sigma, ...)** — Cross-correlates the chord's spectrum with a harmonic template. Returns hMax (maximum cosine similarity; Milne, 2013) and hEntropy (entropy of the cross-correlation; Harrison, 2020). Separate `'spectrum'` (for the template) and `'chordSpectrum'` (for the chord) parameters. See the comparison with `tensorHarmonicity` below.
 
 **tensorHarmonicity(p, w, sigma, ...)** — Evaluates the relative r-ad expectation tensor of a harmonic series at the chord's intervals (measured from the lowest pitch to each of the remaining pitches). See the comparison with `templateHarmonicity` below.
 
-**roughness(f, w, ...)** — Frequencies must be in Hz (use `convertPitch` if needed). Optional name-value pairs: `'pNorm'` (default: 1), `'average'` (default: false).
+**roughness(f, w, ...)** — Frequencies must be in Hz (use `transformAttributes` if needed). Optional name-value pairs: `'pNorm'` (default: 1), `'average'` (default: false).
 
 **virtualPitches(p, w, sigma, ...)** — Returns the full cross-correlation profile (pitch-indexed weights) from which `templateHarmonicity` extracts summary statistics. Peaks in vp_w indicate strong virtual pitches (candidate fundamentals).
 
@@ -1204,10 +1224,16 @@ Utility functions for analyses of event sequences over time. Position-sensitive 
 
 | MATLAB | Python | Description |
 |:---|:---|:---|
-| `convertPitch` | `convert_pitch` | Convert between pitch/frequency scales |
+| `transformAttributes` | `transform_attributes` | Scale conversions and elementwise transforms (see §6.1) |
 | `audioPeaks` | `audio_peaks` | Extract spectral peaks from audio |
+| `readScore` | `read_score` | Parse a MIDI or MusicXML file into a note table |
+| `eventsFromScore` | `events_from_score` | Build the `(pAttr, w, specs)` carrier from a score |
 
-**convertPitch(values, fromScale, toScale)** — Converts between seven scales: `'hz'`, `'midi'`, `'cents'`, `'mel'`, `'bark'`, `'erb'`, `'greenwood'`. All conversions route through Hz. Vectorized: accepts scalars, vectors, or matrices. Note that the `'cents'` scale is absolute MIDI cents (A4 = 6900, middle C = 6000), not relative interval cents.
+Pitch and frequency scale conversion is the bare-array form of `transformAttributes` (§6.1): `transformAttributes(values, [], {fromScale, toScale})` converts between `'hz'`, `'midi'`, `'cents'`, `'octave'`, `'mel'`, `'bark'`, `'erb'`, and `'greenwood'`, routing through Hz. Vectorized: accepts scalars, vectors, or matrices. Note that the `'cents'` scale is absolute MIDI cents (A4 = 6900, middle C = 6000), not relative interval cents.
+
+**readScore(path)** — Parses a `.mid` / `.midi` (format 0 or 1), `.musicxml` / `.xml` (partwise or timewise), or `.mxl` file into a note table: a struct (Python: dict) of per-note columns `onsetBeats`, `onsetSeconds`, `durationBeats`, `durationSeconds`, `pitch` (MIDI number), `velocity` (0–127; MusicXML `dynamics` × 0.9, 90 where absent), `part` (1-based), `channel` (MIDI channel; MusicXML voice), `measure`, plus `partNames` and `source`; rows sorted by onset, part, pitch. A beat is a quarter note whatever the time signature; seconds follow every tempo change (120 bpm where a file gives none).
+
+**eventsFromScore(source, ...)** — `source` is a path or a note table. Name-value pairs: `'attributes'` (cell from `'pitch'`, `'onset'`, `'duration'`, `'velocity'`, `'part'`, `'measure'`; default pitch and onset), `'pitch'` (scale; default `'midi'`), `'time'` (`'seconds'` or `'beats'`), `'weights'` (`'velocity'`, `'ones'`, `'duration'`), `'parts'` (1-based parts to keep), `'chords'` (`'bind'` or `'separate'`), `'chordTolerance'`, `'names'`. Returns `pAttr` (K_a × N per attribute), `w` (matching weight matrices with 0 in NaN-padded slots, or `[]` under `'ones'`), and named flat `specs`; the carrier feeds `buildExpTens` or any pre-MAET preprocessor (`transformAttributes` for a log-time or cents view, `differenceEvents` for intervals and IOIs, `bindEvents` for n-grams). §3.7.8 has the conventions.
 
 **audioPeaks(audioFile, ...)** — Reads an audio file, computes the magnitude spectrum, and extracts peaks. Returns frequencies in Hz and normalized amplitudes in [0, 1]. Optional name-value pairs: `'sigma'` (smoothing in cents; default: 0), `'resolution'` (cents grid spacing; default: 1), `'rampDuration'` (onset/offset ramp in seconds; default: 0), `'fMin'`, `'fMax'`, `'minProminence'`, `'noiseFactor'`, `'plot'`.
 
@@ -1216,7 +1242,7 @@ When sigma > 0, the spectrum is resampled onto a uniform log-frequency (cents) g
 Typical workflow:
 ```matlab
 [f, w] = audioPeaks('audio/piano_C4.wav');
-p = convertPitch(f, 'hz', 'cents');
+p = transformAttributes(f, [], {'hz', 'cents'});
 H = spectralEntropy(p, w, 12);           % no addSpectra needed
 r = roughness(f, w);                      % roughness needs Hz
 [hMax, hEnt] = templateHarmonicity(p, w, 12);
@@ -1283,7 +1309,7 @@ R = NaN(size(X));
 for i = 1:numel(X)
     p = [0, X(i), Y(i)];
     [fp, fw] = addSpectra(p, [], spec{:});
-    f_hz = convertPitch(fp, 'cents', 'hz');
+    f_hz = transformAttributes(fp, [], {'cents', 'hz'});
     R(i) = roughness(f_hz, fw);
 end
 
@@ -1331,7 +1357,7 @@ The example below scans twelve chromatic probes against a short melodic line `C 
 **MATLAB:**
 ```matlab
 % Context: melodic line of a cadential progression
-context = convertPitch([60 65 67 60], 'midi', 'cents');   % C F G C
+context = transformAttributes([60 65 67 60], [], {'midi', 'cents'});   % C F G C
 
 % Irregular event times: final tonic held twice as long
 t_events = [0 1 2 4];
@@ -1349,7 +1375,7 @@ spec = {'harmonic', 12, 'powerlaw', 1};
 ctx_dens = buildExpTens(ctx_p, ctx_w, 10, 1, false, true, 1200);
 
 % Build all 12 chromatic probe densities up front
-probes     = convertPitch(60:71, 'midi', 'cents');
+probes     = transformAttributes(60:71, [], {'midi', 'cents'});
 probe_dens = cell(1, 12);
 for i = 1:12
     [probe_p, probe_w] = addSpectra(probes(i), [], spec{:});
@@ -1369,7 +1395,7 @@ title('Probe fit to C–F–G–C with time-aware, salience-weighted context');
 **Python:**
 ```python
 import numpy as np
-context  = mpt.convert_pitch(np.array([60, 65, 67, 60]), 'midi', 'cents')
+context  = mpt.transform_attributes(np.array([60, 65, 67, 60]), None, ('midi', 'cents'))
 t_events = np.array([0.0, 1.0, 2.0, 4.0])
 salience = np.array([1.0, 0.6, 0.6, 1.3])
 
@@ -1380,7 +1406,7 @@ spec = ('harmonic', 12, 'powerlaw', 1.0)
 ctx_p, ctx_w = mpt.add_spectra(context, w, *spec)
 ctx_dens = mpt.build_exp_tens(ctx_p, ctx_w, 10., 1, False, True, 1200.)
 
-probes = mpt.convert_pitch(np.arange(60, 72), 'midi', 'cents')
+probes = mpt.transform_attributes(np.arange(60, 72), None, ('midi', 'cents'))
 probe_dens = []
 for i in range(12):
     pp, pw = mpt.add_spectra(np.array([probes[i]]), None, *spec)
@@ -1400,7 +1426,7 @@ For a time-resolved view — how probe fit varies moment by moment along the con
 ```matlab
 % Same context as above, now with an explicit time attribute; w is the
 % per-event salience-and-decay weight vector computed above.
-probeC = convertPitch(60, 'midi', 'cents');
+probeC = transformAttributes(60, [], {'midi', 'cents'});
 
 % Sweep window centres along the context with a Gaussian window of
 % standard deviation 1 time unit (full width 2 * sqrt(3)).
@@ -1418,7 +1444,7 @@ title('Time-resolved probe fit');
 
 **Python:**
 ```python
-probe_C = mpt.convert_pitch(np.array([60]), 'midi', 'cents')
+probe_C = mpt.transform_attributes(np.array([60]), None, ('midi', 'cents'))
 
 t_centres = np.linspace(-0.5, 4.5, 51)
 profile = mpt.windowed_similarity(
@@ -1440,11 +1466,11 @@ The example below uses an eight-note melody, C D E♭ F A C D E♭, containing t
 **MATLAB:**
 ```matlab
 % Melody: C D Eb F A C D Eb, one event per time unit.
-melody_p = convertPitch([60 62 63 65 69 72 74 75], 'midi', 'cents');
+melody_p = transformAttributes([60 62 63 65 69 72 74 75], [], {'midi', 'cents'});
 melody_t = 0:7;
 
 % Query: G A Bb — same (+2, +1) pattern transposed.
-query_p = convertPitch([67 69 70], 'midi', 'cents');
+query_p = transformAttributes([67 69 70], [], {'midi', 'cents'});
 query_t = [0 1 2];
 
 % Convert each event sequence into inter-event differences: pitch gets
@@ -1481,10 +1507,10 @@ title('Transposition-invariant interval recurrence profile');
 **Python:**
 ```python
 import numpy as np
-melody_p = mpt.convert_pitch(np.array([60, 62, 63, 65, 69, 72, 74, 75]), 'midi', 'cents')
+melody_p = mpt.transform_attributes(np.array([60, 62, 63, 65, 69, 72, 74, 75]), None, ('midi', 'cents'))
 melody_t = np.arange(8, dtype=float)
 
-query_p = mpt.convert_pitch(np.array([67, 69, 70]), 'midi', 'cents')
+query_p = mpt.transform_attributes(np.array([67, 69, 70]), None, ('midi', 'cents'))
 query_t = np.arange(3, dtype=float)
 
 mel_pd, _, _ = mpt.difference_events([melody_p[None, :], melody_t[None, :]],
@@ -1522,13 +1548,13 @@ Identify the strongest virtual pitches of a chord.
 
 ```matlab
 % C major triad in absolute cents (MIDI 60, 64, 67)
-p = convertPitch([60 64 67], 'midi', 'cents');
+p = transformAttributes([60 64 67], [], {'midi', 'cents'});
 spec = {'harmonic', 36, 'powerlaw', 1};
 
 [vp_p, vp_w] = virtualPitches(p, [], 12, 'chordSpectrum', spec);
 
 % Plot with MIDI pitch axis
-vp_midi = convertPitch(vp_p, 'cents', 'midi');
+vp_midi = transformAttributes(vp_p, [], {'cents', 'midi'});
 plot(vp_midi, vp_w);
 xlabel('Virtual pitch (MIDI)');
 ylabel('Salience');
@@ -1552,7 +1578,7 @@ Extract peaks from audio and compute multiple features.
 [f, w] = audioPeaks('audio/music_sample.wav', 'sigma', 12, 'plot', true);
 
 % Convert to cents
-p = convertPitch(f, 'hz', 'cents');
+p = transformAttributes(f, [], {'hz', 'cents'});
 
 % Spectral entropy (no addSpectra — peaks are already the spectrum)
 H = spectralEntropy(p, w, 12);
@@ -1627,7 +1653,7 @@ Python equivalents of all demos are in `python/demos/`. They follow the same str
 
 The expectation tensor framework uses a locally flat (Euclidean) metric: the Gaussian kernel is defined in terms of Euclidean distances in pitch (or time) space. In the periodic case, the domain is topologically circular (differences are wrapped modulo the period), but the metric within each period is still Euclidean — there is no curvature. For pitch-class sets with period 1200 (one octave in cents), this is well justified because the cents scale has uniform spacing in log-frequency, which closely approximates equal perceptual spacing over the range where most musical pitch perception occurs.
 
-However, if one were to use a psychoacoustic pitch scale with non-constant spacing (e.g., mel, ERB-rate, or Bark — all available via `convertPitch`), the Euclidean metric would introduce a systematic approximation: the effective smoothing would vary across the frequency range. The correct treatment would involve a Riemannian metric that accounts for the non-constant Jacobian of the pitch-scale mapping. In one dimension, this can be handled exactly by converting to the psychoacoustic scale before calling the toolbox (the Gaussian then has the correct width at every point). In higher dimensions (r ≥ 2), the full Riemannian treatment would require architectural changes. This is documented as a potential future direction but is not implemented in v2.0.0.
+However, if one were to use a psychoacoustic pitch scale with non-constant spacing (e.g., mel, ERB-rate, or Bark — all available via `transformAttributes`), the Euclidean metric would introduce a systematic approximation: the effective smoothing would vary across the frequency range. The correct treatment would involve a Riemannian metric that accounts for the non-constant Jacobian of the pitch-scale mapping. In one dimension, this can be handled exactly by converting to the psychoacoustic scale before calling the toolbox (the Gaussian then has the correct width at every point). In higher dimensions (r ≥ 2), the full Riemannian treatment would require architectural changes. This is documented as a potential future direction but is not implemented in v2.0.0.
 
 ### Grid discretization for entropy
 

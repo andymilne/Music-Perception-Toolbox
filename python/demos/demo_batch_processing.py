@@ -169,7 +169,7 @@ u_tens_harm = mpt.tensor_harmonicity(
 # rows.
 u_rough = np.full(n_unique, np.nan)
 
-ref_cents = mpt.convert_pitch(f0, 'hz', 'cents')
+ref_cents = mpt.transform_attributes(f0, None, ('hz', 'cents'))
 
 for ui in range(n_unique):
     p = unique_chords[ui]
@@ -177,7 +177,7 @@ for ui in range(n_unique):
 
     # Roughness (needs Hz and enriched spectra)
     p_spec, w_spec = mpt.add_spectra(p, None, *spec)
-    f_hz = mpt.convert_pitch(p_spec + ref_cents, 'cents', 'hz')
+    f_hz = mpt.transform_attributes(p_spec + ref_cents, None, ('cents', 'hz'))
     u_rough[ui] = mpt.roughness(f_hz, w_spec)
 
 # --- Step 3: Map back to all rows ---

@@ -20,7 +20,8 @@ numbers print either way.
   music21 corpus (Riemenschneider 2) with the bars 1–4 repeat expanded,
   read with `mpt.read_score` and sampled on the sixteenth-note grid
   (`bwv347_grid`). The encoding is note-for-note the one the article
-  used from music21.
+  used from music21. `bwv347_fermata_spans` gives the spans the cadence
+  analysis weights, from the note table's `fermata` column.
 * **Reich, *Piano Phase*** (`piano_phase.py`): both voices rendered from
   the article's constants (the twelve-note cell, base inter-onset
   interval, peak tempo deviation, smoothstep accelerandi).
@@ -33,16 +34,16 @@ numbers print either way.
 | Demo | Article | Question | Toolbox functions |
 |:--|:--|:--|:--|
 | `demo_jmm_1_1_entropy.py` | Analysis 1.1 | Where is the chorale's spectral pitch content most and least concentrated, per event and under a smooth window? | `add_spectra`, `windowed_entropy` (`method='differential'`) |
+| `demo_jmm_1_2_similarity.py` | Analysis 1.2 | When do two chords count as alike? Six chord pairs under voice-aware, simplex-voice, and voice-agnostic encodings across the pitch–pitch-class blend (`--heatmaps` adds the N × N event-pair matrices). | `build_exp_tens`, `cos_sim_exp_tens` (density lists, `mode='pairwise'` / `'cartesian'`), `simplex_vertices` |
 | `demo_jmm_1_3_tonic_tuple_size.py` | Analysis 1.3 | How does raising the tuple size sharpen chord matching, across absolute/relative and periodic/non-periodic readings? | `build_exp_tens`, `cos_sim_exp_tens` |
+| `demo_jmm_1_4_cadence_nesting.py` | Analysis 1.4 | Where do cadences of each type occur, in any key? Nested two- and three-chord prototypes (chords unordered within an ordered, outer-relative succession) swept across the beat aggregates of the chorale, with pitch-derived inversion flags. Helper: `bwv_window.py`. | `bind_events`, `flat_specs`, `build_exp_tens`, `cos_sim_exp_tens` (`normalize='oneSidedDenom'`) |
 | `demo_jmm_3_1_diff.py` | Analysis 3.1 | Does joint differencing of pitch and time expose the accelerandi of the phasing voice at the timing JND? | `difference_events`, `build_exp_tens`, `eval_exp_tens`, windowed Rényi-2 entropy |
 | `demo_jmm_3_2_texture.py` | Analysis 3.2 | How does the pooled texture's local entropy track the phase, at a fusing and a resolving time kernel? | `windowed_entropy` (`method='renyi2'`) |
 | `demo_jmm_3_3_xcorr.py` | Analysis 3.3 | Can the running phase between the pianos be read as the ridge of a lag cross-correlogram? | `windowed_similarity` (one-sided matched filter) |
 
-Still to be added from the article's scripts: Analysis 1.2 (voice-aware
-versus voice-agnostic similarity under the helix blend, with the
-event-pair heat maps), Analysis 1.4 (cadence localization with nested
-three-chord queries and the metre-and-fermata weighting), and the
-*Acknowledgement* analyses 2.1–2.3 (motif recovery, joint pitch-and-time
-windowing, spectral augmentation). The corpus study of the Online
-Supplement (all 4/4 four-part chorales, mixed-effects models) depends on
-the music21 corpus and statsmodels and is not a demo.
+Still to be added from the article's scripts: the *Acknowledgement*
+analyses 2.1–2.3 (motif recovery, joint pitch-and-time windowing,
+spectral augmentation), which need the MIDI transcription described
+above. The corpus study of the Online Supplement (all 4/4 four-part
+chorales, mixed-effects models) depends on the music21 corpus and
+statsmodels and is not a demo.

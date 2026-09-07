@@ -58,9 +58,9 @@
 
 clear; close all;
 
-% Keep the one-shot kernel-controls tip out of the printed tables; the
-% tip and the controls it points to are covered in
-% demo_dispatchAndKernelControls.
+% Keep the dispatcher's per-call announcements out of the printed
+% tables (showHints gates only those; the one-time truncation notice
+% is not gated). The controls are covered in demo_dispatchAndKernelControls.
 prevDefaults = mptDefaults('showHints', false);
 
 % Kernel widths, one per attribute. The sign attribute is two points a

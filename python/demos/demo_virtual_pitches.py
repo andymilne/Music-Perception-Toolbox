@@ -12,7 +12,7 @@ The example chords include 12-TET triads and their just-intonation
 counterparts, illustrating how mistuning broadens and reduces virtual
 pitch peaks.
 
-Port of demo_virtualPitches.m from the MATLAB Music Perception Toolbox v2.
+Port of demo_virtualPitches.m from the MATLAB Music Perception Toolbox v3.
 
 Requires: matplotlib (pip install matplotlib)
 """
@@ -66,19 +66,22 @@ display_range = (24, 84)
 n_chords = len(chord_data)
 results = []
 
-for midi_pitches, label in chord_data:
-    midi_sorted = sorted(midi_pitches)
-    p = mpt.transform_attributes(midi_sorted, None, ('midi', 'cents'))
+# One batched call: the chords as rows of an (n_chords, 3) matrix in
+# cents. virtual_pitches builds the harmonic template once, deduplicates
+# rows that share a canonical chord, and returns one profile per row.
+midi_sorted = np.array([sorted(midi) for midi, _ in chord_data], dtype=float)
+p_mat = mpt.transform_attributes(midi_sorted, None, ('midi', 'cents'))
+vp_p_list, vp_w_list = mpt.virtual_pitches(
+    p_mat, None, sigma,
+    spectrum=spec,
+    chord_spectrum=chord_spec,
+    resolution=resolution,
+    verbose=False,
+)
 
-    vp_p, vp_w = mpt.virtual_pitches(
-        p, None, sigma,
-        spectrum=spec,
-        chord_spectrum=chord_spec,
-        resolution=resolution,
-    )
-
+for (midi_pitches, label), vp_p, vp_w in zip(chord_data, vp_p_list, vp_w_list):
     results.append({
-        'midi': midi_sorted,
+        'midi': sorted(midi_pitches),
         'label': label,
         'vp_p': vp_p,
         'vp_w': vp_w,

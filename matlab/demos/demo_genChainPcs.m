@@ -27,7 +27,10 @@
 %  ``isRel = 1`` they yield identical PCS values. The demo simply
 %  evaluates the full range and lets ``cosSimExpTens``'s canonical-form
 %  dedup collapse this redundancy internally — no manual half-range
-%  shortcut is needed.
+%  shortcut is needed. The canonical key is exact in floating point, so
+%  the two chains' pitch classes, which differ in their last bits after
+%  the modular reduction, collapse only when 'precision' rounds them;
+%  9 decimal places is far below any perceptual scale.
 %
 %  Uses: cosSimExpTens
 %  (from the Music Perception Toolbox).
@@ -37,7 +40,7 @@
 % Reference chord (in cents)
 %   4:5:6 JI major triad: [0, 386.31, 701.96] with period 1200
 %   Bohlen-Pierce "major" triad: [0, 884.36, 1466.87] with period 1902
-refPitches = [0, log2(3), log2(5)] * 1200;%[0, log2(3), log2(5), log2(7), log2(11)] * 1200;
+refPitches = [0, log2(3), log2(5)] * 1200; %[0, log2(3), log2(5), log2(7), log2(11)] * 1200;
 refWeights = [];   % weights for reference pitches (empty = all ones)
 refName    = '4:5:6 JI major triad';
 
@@ -79,7 +82,7 @@ fprintf('Computing PCS of %d-tone generator-chains (gen = 0 to %.1f, step %.2f) 
 % completion time; useful here because the sweep is slow.
 s = cosSimExpTens(refPitches, refWeights, pMatB, [], ...
     sigma, r, isRel, isPer, period, ...
-    'verbose', true);
+    'precision', 9, 'verbose', true);
 fprintf('Done.\n');
 
 % Round to 3 decimal places for display (avoids floating-point artifacts

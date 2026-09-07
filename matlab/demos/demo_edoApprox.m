@@ -17,7 +17,7 @@
 %  the expectation tensor is a one-dimensional density over intervals).
 %  This is what makes these "one-dimensional approximations."
 %
-%  Uses: batchCosSimExpTens, cosSimExpTens
+%  Uses: cosSimExpTens (batched-raw, broadcast form)
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===

@@ -59,23 +59,23 @@ nChords = size(chordData, 1);
 % Store results for plotting and summary
 results = struct('midi', {}, 'label', {}, 'vp_p', {}, 'vp_w', {});
 
+% One batched call: the chords as rows of an nChords x 3 matrix in
+% cents. virtualPitches builds the harmonic template once, deduplicates
+% rows that share a canonical chord, and returns one profile per row as
+% 1 x nChords cells.
+midiSorted = cell2mat(cellfun(@(c) sort(c(:)).', chordData(:, 1), 'UniformOutput', false));
+pMat = transformAttributes(midiSorted, [], {'midi', 'cents'});
+[vpP, vpW] = virtualPitches(pMat, [], sigma, ...
+    'spectrum', spec, ...
+    'chordSpectrum', chordSpec, ...
+    'resolution', resolution, ...
+    'verbose', false);
+
 for i = 1:nChords
-    midiPitches = sort(chordData{i, 1});
-    label       = chordData{i, 2};
-
-    % Convert MIDI to absolute cents
-    p = transformAttributes(midiPitches(:), [], {'midi', 'cents'});
-
-    % Compute virtual pitch salience profile
-    [vp_p, vp_w] = virtualPitches(p, [], sigma, ...
-        'spectrum', spec, ...
-        'chordSpectrum', chordSpec, ...
-        'resolution', resolution);
-
-    results(i).midi  = midiPitches;
-    results(i).label = label;
-    results(i).vp_p  = vp_p;
-    results(i).vp_w  = vp_w;
+    results(i).midi  = midiSorted(i, :);
+    results(i).label = chordData{i, 2};
+    results(i).vp_p  = vpP{i};
+    results(i).vp_w  = vpW{i};
 end
 
 %% === Plot ===

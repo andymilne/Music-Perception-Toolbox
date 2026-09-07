@@ -83,6 +83,17 @@ def bwv347_bar(t):
     return int((t - 1.0) // 4.0) + 1
 
 
+def bwv347_fermata_spans():
+    """``(start, end)`` quarter-note spans of the fermata-bearing notes of
+    the played-through chorale, from the ``fermata`` column of the note
+    table. Analysis 1.4 raises the weight of every eighth-note event under
+    a fermata by half."""
+    t = bwv347_notes()
+    f = t["fermata"] == 1
+    return sorted({(float(a), float(a + d))
+                   for a, d in zip(t["onset_beats"][f], t["duration_beats"][f])})
+
+
 # ---------------------------------------------------------------------------
 #  Coltrane, Acknowledgement (Theme 2)
 # ---------------------------------------------------------------------------

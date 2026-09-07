@@ -1,14 +1,14 @@
 %% demo_preprocessing.m
 % Pre-MAET preprocessing operations and their compositions.
 %
-% Demonstrates the five pre-MAET preprocessing helpers in MPT,
+% Demonstrates the pre-MAET preprocessing helpers in MPT,
 % applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,
 % lieber Herre"). The fragment is cadence 1's three-chord approach
 % (antepenult i, penult V, tonic I, at quarter-note positions
 % t = 5, 6, 7) reduced to the soprano line for clarity. Two
-% attributes are kept: the soprano pitch (group 1, treated as
+% attributes are kept: the soprano pitch (attribute 1, treated as
 % periodic mod 12 so it lives on the pitch-class circle) and the
-% event time in quarter-notes (group 2, non-periodic). Each
+% event time in quarter-notes (attribute 2, non-periodic). Each
 % subsequent section illustrates one operation or one composition;
 % the operations leave the source pAttr untouched.
 %
@@ -16,10 +16,10 @@
 %       differenceEvents  (D): per-attribute difference orders.
 %       bindEvents        (B): per-attribute bind orders (n-gram
 %                              expansion).
-%       translateAttributes (T): per-group translation of values.
-%       weightEvents      (W): per-event window via Design P (one
-%                              factor per input attribute, peak-
-%                              normalised fixed-variance family).
+%       translateAttributes (T): per-attribute translation of values.
+%       weightEvents      (W): per-event window (one factor per
+%                              input attribute, peak-normalised
+%                              fixed-variance family).
 %       transformAttributes (F): per-attribute elementwise maps
 %                              (log, scale conversion, user function)
 %                              and the sign attribute.
@@ -53,15 +53,14 @@ fprintf('=== 1. Inputs (BWV 347 cadence 1 soprano, three-chord approach) ===\n')
 pAttr   = { [67 66 64]; ...    % a_1: soprano pitch (G4, F#4, E4)
             [ 5  6  7] };      % a_2: event time in quarter-notes
 w       = [];                  % weights: default (uniform).
-groups  = [1 2];               % attribute a -> group g(a)
-isRel   = [false false];       % both groups are absolute
-isPer   = [true  false];       % group 1 is periodic (PC), group 2 isn't
+isRel   = [false false];       % both attributes are absolute
+isPer   = [true  false];       % attribute 1 is periodic (PC), attribute 2 isn't
 periods = [12 0];              % period 12 (semitones) for PC
 
 fprintf('  pitch (a_1):  [%g %g %g]\n', pAttr{1});
 fprintf('  time  (a_2):  [%g %g %g]\n', pAttr{2});
-fprintf('  group 1 (PC):  periodic, P = 12\n');
-fprintf('  group 2 (time): non-periodic\n\n');
+fprintf('  attribute 1 (PC):   periodic, P = 12\n');
+fprintf('  attribute 2 (time): non-periodic\n\n');
 
 
 %% ===================================================================
@@ -75,9 +74,16 @@ fprintf('=== 2. differenceEvents (D) ===\n');
 diffOrders   = [1 0];
 [pD, wD, sD] = differenceEvents(pAttr, w, diffOrders);
 
-fprintf('  diffOrders   = {1, 0}\n');
+fprintf('  diffOrders   = [1 0]\n');
 fprintf('  D(pitch)     = [%g %g]   (interval sequence: F#-G, E-F#)\n', pD{1});
-fprintf('  D(time)      = [%g %g]   (unchanged in value, leading event dropped)\n\n', pD{2});
+fprintf('  D(time)      = [%g %g]   (unchanged in value, leading event dropped)\n', pD{2});
+% The weights come back empty because none were supplied: [] means
+% uniform throughout the toolbox, and a uniform weighting differences to
+% a uniform weighting. Given weights, D propagates them as the rolling
+% product w'(n) = prod_{j=0..k} w(n-j), the probability that the k+1
+% contributing events are jointly perceived: with w = [1 0.5 0.25] the
+% first difference carries [0.5 0.125].
+fprintf('  D(w)         = %s   ([] = uniform; see the comment above)\n\n', mat2str(wD));
 
 
 %% ===================================================================
@@ -96,6 +102,11 @@ bindOrders      = [2 2];
 
 fprintf('  bindOrders = [2 2]\n');
 fprintf('  A'' = %d (each source attribute -> one nested attribute)\n', numel(pB));
+% As with D, the weights come back empty because none were supplied.
+% Given weights, B gathers each super-event's constituent weights
+% alongside its values: w = [1 0.5 0.25] binds at L = 2 to
+% [1 0.5 0.5 0.25], the two events of each 2-gram in order.
+fprintf('  B(w) = %s ([] = uniform)\n', mat2str(wB));
 fprintf('  pitch nest (stacked L*K x N''):\n');
 disp(pB{1});
 fprintf(['  spec{1}: r = [%d %d], sym = [%d %d], rel = [%d %d], ' ...
@@ -171,7 +182,7 @@ fprintf('=== 4. translateAttributes (T) ===\n');
 muPitch = 5;
 pT = translateAttributes(pAttr, w, {muPitch, 0});
 
-fprintf('  mu (per group) = {%g, %g}   (group 1: pitch; group 2: time)\n', muPitch, 0);
+fprintf('  mu (per attribute) = {%g, %g}   (attribute 1: pitch; attribute 2: time)\n', muPitch, 0);
 fprintf('  T(pitch)       = [%g %g %g]   (G->C, F#->B, E->A)\n', pT{1});
 fprintf('  T(time)        = [%g %g %g]   (unchanged)\n\n', pT{2});
 
@@ -342,7 +353,7 @@ fprintf('\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===\n'
 % cosSimExpTens, and the LIST form of cosSimExpTens, with parity
 % assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25];     % kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
-r     = [1, 1];          % single-value attributes (K_a = 1) in both groups
+r     = [1, 1];          % single-value attributes (K_a = 1)
 
 % --- 9a. entropyExpTens (raw MA form) ---
 % Signature:

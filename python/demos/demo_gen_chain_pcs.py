@@ -23,7 +23,7 @@ yield identical PCS values. The demo simply evaluates the full range
 and lets ``cos_sim_exp_tens``'s canonical-form dedup collapse this
 redundancy internally — no manual half-range shortcut is needed.
 
-Port of demo_genChainPcs.m from the MATLAB Music Perception Toolbox v2.
+Port of demo_genChainPcs.m from the MATLAB Music Perception Toolbox v3.
 
 Requires: matplotlib (pip install matplotlib)
 """

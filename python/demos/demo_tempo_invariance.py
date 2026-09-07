@@ -99,9 +99,9 @@ OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 FN_FIG_MAIN = os.path.join(OUT_DIR, 'demo_tempo_invariance.png')
 FN_FIG_LIMIT = os.path.join(OUT_DIR, 'demo_tempo_invariance_limit.png')
 
-# Keep the one-shot kernel-controls tip out of the printed tables; the
-# tip and the controls it points to are covered in
-# demo_dispatch_and_kernel_controls.
+# Keep the dispatcher's per-call announcements out of the printed
+# tables (show_hints gates only those; the one-time truncation notice
+# is not gated). The controls are covered in demo_dispatch_and_kernel_controls.
 _prev_defaults = mpt.set_default(show_hints=False)
 
 

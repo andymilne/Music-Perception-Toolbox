@@ -12,7 +12,7 @@
 %        edges, markovS
 %  (from the Music Perception Toolbox).
 
-%% === 1. Pitch / frequency conversion (User Guide §6.6) ===
+%% === 1. Pitch / frequency conversion (User Guide §6.7) ===
 
 fprintf('=== Pitch conversion ===\n');
 fprintf('  MIDI 60 = %.2f Hz\n', transformAttributes(60, [], {'midi', 'hz'}));
@@ -66,16 +66,15 @@ H = spectralEntropy(ji_triad, [], 12, 'spectrum', spec);
 fprintf('  Spectral entropy:                %.4f\n', H);
 
 fprintf('\n=== JI vs 12-EDO comparison ===\n');
+% Both features take a 2-D matrix, one chord per row, and return one
+% value per row (and deduplicate repeated rows internally).
 edo_triad = [0, 400, 700];
-for name = {"JI", "12-EDO"}
-    if strcmp(name{1}, 'JI')
-        triad = ji_triad;
-    else
-        triad = edo_triad;
-    end
-    [hMax, ~] = templateHarmonicity(triad, [], 12, 'chordSpectrum', spec);
-    H = spectralEntropy(triad, [], 12, 'spectrum', spec);
-    fprintf('  %-6s  hMax=%.4f  specEntropy=%.4f\n', name{1}, hMax, H);
+triads = [ji_triad; edo_triad];
+[hMaxBoth, ~] = templateHarmonicity(triads, [], 12, 'chordSpectrum', spec);
+HBoth = spectralEntropy(triads, [], 12, 'spectrum', spec);
+names = {'JI', '12-EDO'};
+for k = 1:2
+    fprintf('  %-6s  hMax=%.4f  specEntropy=%.4f\n', names{k}, hMaxBoth(k), HBoth(k));
 end
 
 fprintf('\n=== Roughness ===\n');

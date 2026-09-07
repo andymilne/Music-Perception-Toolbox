@@ -1,9 +1,9 @@
 function raw = parseMidi(path)
 %PARSEMIDI  Standard MIDI File (format 0 or 1) to note rows.
 %
-%   raw = internal.parseMidi(path) returns a struct with .rows (M x 9:
+%   raw = internal.parseMidi(path) returns a struct with .rows (M x 10:
 %   onsetBeats onsetSeconds durationBeats durationSeconds pitch velocity
-%   part channel measure), .partNames (1 x P cell), .source = 'midi'.
+%   part channel measure fermata, the last always 0), .partNames (1 x P cell), .source = 'midi'.
 %   Twin of the Python mpt.score._parse_midi; see readScore for the
 %   conventions.
 
@@ -62,7 +62,7 @@ function raw = parseMidi(path)
         sigMap = [0 4; sigMap];
     end
 
-    rows = zeros(0, 9);
+    rows = zeros(0, 10);
     partNames = {};
     partIndex = 0;
     for t = 1:ntrk
@@ -108,7 +108,7 @@ function raw = parseMidi(path)
             s1 = localSecondsAt(t1, tempoMap, tpq);
             rows(end + 1, :) = [t0 / tpq, s0, (t1 - t0) / tpq, s1 - s0, ...
                                 trackRows(i, 3), trackRows(i, 4), partIndex, ...
-                                trackRows(i, 5) + 1, localMeasureAt(t0, sigMap, tpq)]; %#ok<AGROW>
+                                trackRows(i, 5) + 1, localMeasureAt(t0, sigMap, tpq), 0]; %#ok<AGROW>
         end
     end
     raw = struct('rows', rows, 'partNames', {partNames}, 'source', 'midi');

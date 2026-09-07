@@ -8,7 +8,7 @@ Five measures are available (select which to plot below):
   'tmpl_max'   — Template harmonicity hMax (Milne 2013)
   'tmpl_ent'   — Template harmonicity -hEntropy (Harrison 2020)
   'tensor'     — Tensor harmonicity (Smit et al. 2019)
-  'spec_ent'   — -Spectral entropy (Milne et al. 2017)
+  'spec_ent'   — -Spectral Rényi-2 entropy (collision entropy, grid-free)
   'rough'      — -Roughness (Sethares 1993)
 
 Each plot has interval1 on the x-axis and interval2 on the y-axis.
@@ -26,12 +26,11 @@ Both gamma and eta have per-mode memory. A separate cmap-shift
 slider, also with per-mode memory, adjusts the colour scale.
 
 Port of demo_triadConsonance.m from the MATLAB Music Perception
-Toolbox v2.
+Toolbox v3.
 
 Requires: matplotlib (pip install matplotlib)
 """
 
-import math
 import time
 
 import numpy as np
@@ -50,7 +49,7 @@ plot_measures = [
     'tmpl_max',     # Template harmonicity: hMax (Milne 2013)
     'tmpl_ent',     # Template harmonicity: -hEntropy (Harrison 2020)
     'tensor',       # Tensor harmonicity (Smit et al. 2019)
-    'spec_ent',     # -Spectral entropy (Milne et al. 2017)
+    'spec_ent',     # -Spectral Rényi-2 entropy (collision entropy, grid-free)
     'rough',        # -Roughness (Sethares 1993)
 ]
 
@@ -158,8 +157,7 @@ if do_tensor:
     dup = dup_tens if dup_tens > 0 else 3
     print(f"Tensor harmonicity template setup (r=3, dup={dup})...")
     tp, tw = mpt.add_spectra(np.zeros(dup), np.ones(dup), *spec_tens)
-    nJ_template = math.factorial(3) * math.comb(len(tp), 3)
-    print(f"  Template: {len(tp)} partials, {nJ_template} ordered triples.")
+    print(f"  Template: {len(tp)} partials.")
 
 # ===================================================================
 #  Compute features
@@ -174,14 +172,14 @@ if do_tensor:
 # which has no batched-input dispatch and no internal dedup — every
 # iteration of its loop does the full computation from scratch, so
 # halving the iteration count halves the actual work. For the three
-# batched features (tensor harmonicity via eval_exp_tens, template
-# harmonicity, and spectral entropy), the upper triangle is a
-# code-organization choice only: passing the full (n_ints**2) grid
-# would do the same amount of internal ET work, because the
-# canonical-form dedup in the batched dispatch collapses permutation-
-# equivalent inputs (i, j) and (j, i) onto a single cached density.
-# Keeping the upper-triangle pattern across all four features makes
-# the unique-triad structure explicit in the demo code.
+# batched features (tensor harmonicity, template harmonicity, and
+# spectral entropy), the upper triangle is a code-organization choice
+# only: passing the full (n_ints**2) grid of chord rows would do the
+# same amount of internal work, because the canonical-form dedup in
+# the batched dispatch collapses permutation-equivalent chords (i, j)
+# and (j, i) onto a single cached result. Keeping the upper-triangle
+# pattern across all four features makes the unique-triad structure
+# explicit in the demo code.
 
 n_upper = n_ints * (n_ints + 1) // 2
 
@@ -209,6 +207,16 @@ t0_total = time.time()
 # (2, n_upper) query matrix. eval_exp_tens builds the template tensor
 # internally and prints its own time estimate via estimate_comp_time
 # when called with verbose=True.
+#
+# tensor_harmonicity(chord_mat, None, sigma_tens, spectrum=spec_tens,
+# duplicate=dup) computes exactly these values from the (n_upper, 3)
+# chord matrix and is the right call in general. It is not used here
+# because its batched mode first reduces every row to a canonical-form
+# key to deduplicate structurally identical chords, and this grid has
+# none: every upper-triangle triad is already canonically distinct, so
+# the reduction is overhead (slight in Python, about 2.5x the eval
+# itself in MATLAB). The two routes agree exactly and take the same
+# route through the dispatcher.
 if do_tensor:
     int_mat = np.vstack([int1_lin, int2_lin])    # (2, n_upper)
     t0 = time.time()
@@ -249,17 +257,29 @@ if do_tmpl:
 # --- Spectral entropy ---
 # One spectral_entropy call on a stacked chord matrix.
 #
-# Method choice: we pass method='normalized' explicitly to reproduce
-# the consonance ordering and absolute values reported in Smit et al.
-# (2019) and Milne et al. (2017), which use the normalised Shannon
-# entropy H / log_b(N) in [0, 1]. The toolbox default for
-# spectral_entropy is 'differential' (adaptive nested-grid differential
-# entropy h_hat) which gives the same ordering of chords by consonance
-# but in different units and at higher per-call cost (the adaptive
-# evaluator doubles the grid to convergence, which is several times
-# slower than a single discrete pass). method='renyi2' (analytical
-# Rényi-2 via the inner-product / Möbius machinery) is also available;
-# it agrees on ordering but, like differential, is in different units.
+# Method: 'renyi2', the analytical Rényi-2 (collision) entropy H2 = -log_b
+# <f, f>, closed form from the density's self inner product, with no grid.
+# It is a differential entropy in log base 'base' (2 by default, so bits),
+# unbounded, and lower where the spectrum is more concentrated, so it is
+# plotted negated and peaks mark consonance.
+#
+# Milne et al. (2017) and Smit et al. (2019) used the grid-normalised
+# Shannon entropy H / log_b(N) in [0, 1], available as method='normalized'
+# and required to reproduce their absolute values; it ranks these chords
+# similarly (Pearson 0.95, Spearman 0.81 over 1225 triads). On a
+# continuous domain that form is defined relative to its grid and does not
+# converge under refinement: H_disc and log N both grow like log(1/Delta)
+# as the cell width goes to zero, so the ratio tends to 1 for every
+# density. It is the apt measure where the values are inherently discrete
+# --- twelve pitch classes, sixteen metrical pulses, any fixed category
+# set --- since N is then fixed by the domain and H / log_b(N) is flatness
+# as a proportion of that domain's maximum.
+#
+# The third option, 'differential', converges (nested grids with
+# Richardson extrapolation) but is much slower and impractical at this
+# grid size. Rényi-2 is the fastest of the three and tracks the
+# differential entropy more closely than the normalised grid does
+# (Spearman 0.96 against 0.72).
 if do_spec_ent:
     chord_mat_se = np.column_stack([
         np.zeros(n_upper), int1_lin, int2_lin
@@ -267,9 +287,9 @@ if do_spec_ent:
     t0 = time.time()
     spec_ent_lin = mpt.spectral_entropy(
         chord_mat_se, None, sigma_ent,
-        spectrum=spec_ent, method='normalized', verbose=True,
+        spectrum=spec_ent, method='renyi2', verbose=True,
     )
-    print(f"  Spectral entropy:     {time.time() - t0:.2f} s actual "
+    print(f"  Spectral Renyi-2:     {time.time() - t0:.2f} s actual "
           f"({n_upper} triads, batched)")
     spec_ent_grid[j_lin, i_lin] = spec_ent_lin
     spec_ent_grid[i_lin, j_lin] = spec_ent_lin
@@ -326,7 +346,7 @@ if do_tensor:
     all_titles.append(f'Tensor harmonicity\n{spec_str}, σ={sigma_tens}, dup={dup}')
 if do_spec_ent:
     all_data.append(-spec_ent_grid)
-    all_titles.append(f'−Spectral entropy\n{spec_str}, σ={sigma_ent}')
+    all_titles.append(f'−Spectral Rényi-2 entropy\n{spec_str}, σ={sigma_ent}')
 if do_rough:
     all_data.append(-rough_grid)
     all_titles.append(f'−Roughness\n{spec_str}, f₀={f0:.1f} Hz')

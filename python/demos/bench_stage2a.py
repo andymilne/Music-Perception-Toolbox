@@ -1,6 +1,7 @@
 """Stage 2a benchmark: measure actual eval_exp_tens speedup on the
-demo-style tensor-harmonicity workload, at the demo's regime
-(harmonic-24 template, dup=3, sigma=12, r=3 rel, 4-cent grid).
+demo-style tensor-harmonicity workload, near the regime of
+demo_triad_consonance.py (harmonic-24 template, dup=3, r=3 rel;
+sigma = 12 here against the demo's 10, and a coarser grid, below).
 """
 
 import time
@@ -32,7 +33,7 @@ def main():
     print(f"Density: n_j = {dens.n_j}")
 
     # Query grid: upper-triangle of (0..1200) x (0..1200).
-    # Demo uses step=4, but exact path is slow (~1 hour on this workload);
+    # The demo uses step=10, but the exact path is slow (~1 hour on this workload);
     # benchmark at step=20 for a tractable comparison. Truncation speedup
     # scales identically.
     step = 20
@@ -46,9 +47,11 @@ def main():
     print(f"{'Mode':<40s} {'wall (s)':>10s} {'speedup':>10s}")
     print("-" * 65)
 
-    # Reference: exact, no truncation (default)
+    # Reference: the exact, untruncated computation. This is not the
+    # default (truncation_sigmas defaults to 6), so it is asked for.
     t0 = time.perf_counter()
-    v_ref = eval_exp_tens(dens, queries, method='centres', verbose=False)
+    v_ref = eval_exp_tens(dens, queries, method='centres',
+                          truncation_sigmas=float('inf'), verbose=False)
     t_ref = time.perf_counter() - t0
     print(f"{'exact (truncationSigmas=Inf)':<40s} {t_ref:>10.3f} {1.0:>10.2f}x")
 
@@ -73,7 +76,7 @@ def main():
     # Single precision (no truncation)
     t0 = time.perf_counter()
     v_single = eval_exp_tens(
-        dens, queries, method='centres',
+        dens, queries, method='centres', truncation_sigmas=float('inf'),
         kernel_precision='single', verbose=False,
     )
     t_single = time.perf_counter() - t0

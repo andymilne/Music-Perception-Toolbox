@@ -59,9 +59,9 @@ import mpt
 from mpt import (bind_events, build_exp_tens, cos_sim_exp_tens,
                  difference_events)
 
-# Keep the one-shot kernel-controls tip out of the printed tables; the
-# tip and the controls it points to are covered in
-# demo_dispatch_and_kernel_controls.
+# Keep the dispatcher's per-call announcements out of the printed
+# tables (show_hints gates only those; the one-time truncation notice
+# is not gated). The controls are covered in demo_dispatch_and_kernel_controls.
 _prev_defaults = mpt.set_default(show_hints=False)
 
 # Kernel widths, one per attribute. The sign attribute is two points a

@@ -14,7 +14,7 @@ import mpt
 np.set_printoptions(precision=3, suppress=True)
 
 # ===================================================================
-#  1. Pitch / frequency conversion  (User Guide §6.6)
+#  1. Pitch / frequency conversion  (User Guide §6.7)
 # ===================================================================
 
 print("=== Pitch conversion ===")
@@ -77,10 +77,13 @@ H = mpt.spectral_entropy(ji_triad, None, 12, spectrum=spec)
 print(f"  Spectral entropy:                {H:.4f}")
 
 print("\n=== JI vs 12-EDO comparison ===")
+# Both features take a 2-D matrix, one chord per row, and return one
+# value per row (and deduplicate repeated rows internally).
 edo_triad = [0, 400, 700]
-for name, triad in [("JI", ji_triad), ("12-EDO", edo_triad)]:
-    hMax, _ = mpt.template_harmonicity(triad, None, 12, chord_spectrum=spec)
-    H = mpt.spectral_entropy(triad, None, 12, spectrum=spec)
+triads = np.array([ji_triad, edo_triad])
+hMaxBoth, _ = mpt.template_harmonicity(triads, None, 12, chord_spectrum=spec)
+HBoth = mpt.spectral_entropy(triads, None, 12, spectrum=spec)
+for name, hMax, H in zip(("JI", "12-EDO"), hMaxBoth, HBoth):
     print(f"  {name:6s}  hMax={hMax:.4f}  specEntropy={H:.4f}")
 
 print("\n=== Roughness ===")

@@ -1,13 +1,13 @@
 """demo_preprocessing -- Pre-MAET preprocessing operations and compositions.
 
-Demonstrates the five pre-MAET preprocessing helpers in MPT,
+Demonstrates the pre-MAET preprocessing helpers in MPT,
 applied to a small fragment of J. S. Bach, BWV 347 ("Ich dank dir,
 lieber Herre"). The fragment is cadence 1's three-chord approach
 (antepenult i, penult V, tonic I, at quarter-note positions
 t = 5, 6, 7) reduced to the soprano line for clarity. Two
-attributes are kept: the soprano pitch (group 0, treated as periodic
+attributes are kept: the soprano pitch (attribute 0, treated as periodic
 mod 12 so it lives on the pitch-class circle) and the event time in
-quarter-notes (group 1, non-periodic). Each subsequent section
+quarter-notes (attribute 1, non-periodic). Each subsequent section
 illustrates one operation or one composition; the operations leave
 the source ``p_attr`` untouched.
 
@@ -15,10 +15,13 @@ Operations
     difference_events    (D): per-attribute difference orders.
     bind_events          (B): per-attribute bind orders (n-gram
                               expansion).
-    translate_attributes (T): per-group translation of values.
-    weight_events        (W): per-event window via Design P (one
-                              factor per input attribute, peak-
-                              normalised fixed-variance family).
+    translate_attributes (T): per-attribute translation of values.
+    weight_events        (W): per-event window (one factor per
+                              input attribute, peak-normalised
+                              fixed-variance family).
+    transform_attributes (F): per-attribute elementwise maps
+                              (log, scale conversion, user function)
+                              and the sign attribute.
 
 Compositions
     D o B == B o D       (n-tuple entropy pipeline commutation,
@@ -51,15 +54,14 @@ p_attr = [
     np.array([[ 5,  6,  7]], dtype=float),   # a_1: event time (quarter-notes)
 ]
 w       = None                # weights: default (uniform)
-groups  = [0, 1]              # attribute a -> group g(a)
-is_rel  = [False, False]      # both groups are absolute
-is_per  = [True, False]       # group 0 is periodic (PC), group 1 isn't
+is_rel  = [False, False]      # both attributes are absolute
+is_per  = [True, False]       # attribute 0 is periodic (PC), attribute 1 isn't
 periods = [12.0, 0.0]         # period 12 (semitones) for PC
 
 print(f"  pitch (a_0):  {p_attr[0].ravel().tolist()}")
 print(f"  time  (a_1):  {p_attr[1].ravel().tolist()}")
-print(f"  group 0 (PC):   periodic, P = 12")
-print(f"  group 1 (time): non-periodic\n")
+print(f"  attribute 0 (PC):   periodic, P = 12")
+print(f"  attribute 1 (time): non-periodic\n")
 
 
 # ===================================================================
@@ -77,7 +79,14 @@ print(f"  diff_orders = {diff_orders}")
 print(f"  D(pitch)    = {pD[0].ravel().tolist()}   "
       f"(interval sequence: F#-G, E-F#)")
 print(f"  D(time)     = {pD[1].ravel().tolist()}   "
-      f"(unchanged in value, leading event dropped)\n")
+      f"(unchanged in value, leading event dropped)")
+# The weights come back as None because none were supplied: None means
+# uniform throughout the toolbox, and a uniform weighting differences to
+# a uniform weighting. Given weights, D propagates them as the rolling
+# product w'(n) = prod_{j=0..k} w(n-j), the probability that the k+1
+# contributing events are jointly perceived: with w = [1, 0.5, 0.25] the
+# first difference carries [0.5, 0.125].
+print(f"  D(w)        = {wD}   (None = uniform; see the comment above)\n")
 
 
 # ===================================================================
@@ -96,6 +105,11 @@ pB, wB, specB = mpt.bind_events(p_attr, w, bind_orders)
 
 print(f"  bind_orders = {bind_orders}")
 print(f"  A' = {len(pB)} (each source attribute -> one nested attribute)")
+# As with D, the weights come back as None because none were supplied.
+# Given weights, B gathers each super-event's constituent weights
+# alongside its values: w = [1, 0.5, 0.25] binds at L = 2 to
+# [1, 0.5, 0.5, 0.25], the two events of each 2-gram in order.
+print(f"  B(w) = {wB} (None = uniform)")
 print(f"  pitch nest (stacked L*K x N'):\n{pB[0]}")
 s0 = specB[0]
 print(f"  spec[0]: r = {s0['r']}, sym = {s0['sym']}, rel = {s0['rel']}, "
@@ -163,7 +177,7 @@ mu_pitch = 5.0
 mu = [mu_pitch, 0.0]
 pT, _, _ = mpt.translate_attributes(p_attr, w, mu)
 
-print(f"  mu (per group) = {{0: {mu_pitch}, 1: 0.0}}   (group 0: pitch; group 1: time)")
+print(f"  mu (per attribute) = {mu}   (attribute 0: pitch; attribute 1: time)")
 print(f"  T(pitch)       = {pT[0].ravel().tolist()}   (G->C, F#->B, E->A)")
 print(f"  T(time)        = {pT[1].ravel().tolist()}   (unchanged)\n")
 
@@ -357,7 +371,7 @@ print("\n=== 9. Raw form: pre-MAET feeds directly into tensor functions ===")
 # cos_sim_exp_tens, and the LIST form of cos_sim_exp_tens, with parity
 # assertions confirming the two routes return identical values.
 sigma = [0.5, 0.25]   # kernel std: 0.5 semitones (PC), 0.25 quarter-notes (time)
-r     = [1, 1]        # single-value attributes (K_a = 1) in both groups
+r     = [1, 1]        # single-value attributes (K_a = 1)
 
 # --- 9a. entropy_exp_tens (raw MA form) ---
 # Signature:

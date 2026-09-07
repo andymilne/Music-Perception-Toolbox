@@ -17,8 +17,9 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 # The fixtures (see tools/gen_scores.py in the handover): a 3/4 MIDI file
 # at 120 bpm switching to 60 bpm at beat 4, with a melody track and a
 # chord track that uses running status and leaves two notes open; a
-# MusicXML score with a soprano (tie, rest, grace note, dynamics) and a
-# piano part (chord, backup into a second voice, tempo change).
+# MusicXML score with a soprano (tie, rest, grace note, dynamics, two
+# fermatas) and a piano part (chord, backup into a second voice, tempo
+# change).
 MIDI_TABLE = {
     "onset_beats":      [0, 0, 0, 0, 1, 2, 2, 2, 4],
     "onset_seconds":    [0, 0, 0, 0, 0.5, 1, 1, 1, 2],
@@ -29,6 +30,7 @@ MIDI_TABLE = {
     "part":             [1, 2, 2, 2, 1, 1, 2, 2, 1],
     "channel":          [1, 2, 2, 2, 1, 1, 2, 2, 1],
     "measure":          [1, 1, 1, 1, 1, 1, 1, 1, 2],
+    "fermata":          [0, 0, 0, 0, 0, 0, 0, 0, 0],
 }
 XML_TABLE = {
     "onset_beats":      [0, 0, 0, 0, 0, 1, 1, 2, 2, 3, 4],
@@ -40,6 +42,9 @@ XML_TABLE = {
     "part":             [1, 2, 2, 2, 2, 1, 2, 1, 2, 2, 1],
     "channel":          [1, 2, 1, 1, 1, 1, 2, 1, 2, 1, 1],
     "measure":          [1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2],
+    # The tied G4 carries its fermata on the tie's stop segment; the merged
+    # note keeps it. The final B-flat carries one directly.
+    "fermata":          [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1],
 }
 
 
@@ -62,6 +67,42 @@ def test_musicxml_table(name):
     assert t["source"] == "musicxml"
     assert t["part_names"] == ["Soprano", "Piano"]
     _check_table(t, XML_TABLE)
+
+
+def test_fermata_attribute():
+    """The fermata column enters events_from_score as an attribute (0/1
+    per note; in bound chords one value per note, NaN-padded)."""
+    p, w, specs = events_from_score(
+        os.path.join(DATA, "score_small.musicxml"),
+        attributes=("pitch", "fermata"), chords="separate", time="beats")
+    assert specs[1]["name"] == "fermata"
+    np.testing.assert_array_equal(p[1].ravel(), XML_TABLE["fermata"])
+
+
+def test_sequential_ties(tmp_path):
+    """Two ties in succession in one voice: the first tie's stop empties
+    the open-tie register, and the second must still merge (a 1 x 0 row
+    left behind by the first deletion once misaligned the MATLAB register;
+    both languages assert the same table)."""
+    xml = (
+        '<?xml version="1.0"?><score-partwise version="3.1">'
+        '<part-list><score-part id="P1"><part-name>V</part-name></score-part></part-list>'
+        '<part id="P1">'
+        '<measure number="1"><attributes><divisions>1</divisions></attributes>'
+        '<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="start"/></note>'
+        '<note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><tie type="stop"/></note>'
+        '<note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><tie type="start"/></note>'
+        '</measure><measure number="2">'
+        '<note><pitch><step>D</step><octave>4</octave></pitch><duration>2</duration><tie type="stop"/>'
+        '<notations><fermata/></notations></note>'
+        '</measure></part></score-partwise>')
+    path = tmp_path / "ties.musicxml"
+    path.write_text(xml)
+    t = read_score(str(path))
+    np.testing.assert_allclose(t["onset_beats"], [0, 2])
+    np.testing.assert_allclose(t["duration_beats"], [2, 3])
+    np.testing.assert_allclose(t["pitch"], [60, 62])
+    np.testing.assert_array_equal(t["fermata"], [0, 1])
 
 
 def test_unknown_extension():

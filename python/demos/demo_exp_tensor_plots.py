@@ -15,7 +15,7 @@ additionally include a colormap shift slider, also with per-mode
 memory.
 
 Port of demo_expTensorPlots.m from the MATLAB Music Perception
-Toolbox v2.
+Toolbox v3.
 
 Requires: matplotlib (pip install matplotlib)
 """

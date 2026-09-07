@@ -75,14 +75,15 @@ OFFSETS_2        = -0.5 : 0.02 : 8.5;
 
 fprintf('Part 1: synthetic motif at four registers.\n');
 [ctx1_midi, ctx1_t, q1_midi, q1_t, motif_idx1, motif_cent1] = buildPart1Stream();
-ctx1_cents = ctx1_midi * 100;
-q1_cents   = q1_midi   * 100;
+ctx1_cents = transformAttributes(ctx1_midi, [], {'midi', 'cents'});
+q1_cents   = transformAttributes(q1_midi,   [], {'midi', 'cents'});
 
 heat1 = sweepProfiles(q1_cents, q1_t, ctx1_cents, ctx1_t, ...
     SIG_PC, SIG_REG_SWEEP, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1);
 prof1 = sweepProfiles(q1_cents, q1_t, ctx1_cents, ctx1_t, ...
     SIG_PC, SIG_REG_PROFILES, SIG_TIME_1, WIN_SIZE_TIME_1, WIN_MIX, OFFSETS_1);
 peak1 = motif_cent1 - mean(q1_t);
+reportPeaks(prof1, OFFSETS_1, SIG_REG_PROFILES, peak1);
 
 figure('Name', 'Helix blend: synthetic', 'Position', [80, 80, 980, 800]);
 plotPart(gcf, 'Helix blend (synthetic): C-E-G at four registers', ...
@@ -94,14 +95,15 @@ plotPart(gcf, 'Helix blend (synthetic): C-E-G at four registers', ...
 
 fprintf('Part 2: fugal texture (BWV 847-inspired, stylised).\n');
 [ctx2_midi, ctx2_t, q2_midi, q2_t, subj_idx2, subj_cent2] = buildPart2Stream();
-ctx2_cents = ctx2_midi * 100;
-q2_cents   = q2_midi   * 100;
+ctx2_cents = transformAttributes(ctx2_midi, [], {'midi', 'cents'});
+q2_cents   = transformAttributes(q2_midi,   [], {'midi', 'cents'});
 
 heat2 = sweepProfiles(q2_cents, q2_t, ctx2_cents, ctx2_t, ...
     SIG_PC, SIG_REG_SWEEP, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
 prof2 = sweepProfiles(q2_cents, q2_t, ctx2_cents, ctx2_t, ...
     SIG_PC, SIG_REG_PROFILES, SIG_TIME_2, WIN_SIZE_TIME_2, WIN_MIX, OFFSETS_2);
 peak2 = subj_cent2 - mean(q2_t);
+reportPeaks(prof2, OFFSETS_2, SIG_REG_PROFILES, peak2);
 
 figure('Name', 'Helix blend: fugal texture', 'Position', [120, 120, 980, 800]);
 plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
@@ -113,6 +115,21 @@ plotPart(gcf, ['Helix blend (BWV 847-inspired, stylised): ' ...
 % =====================================================================
 %  Local functions
 % =====================================================================
+
+function reportPeaks(prof, offsets, sigma_regs, true_peaks)
+%REPORTPEAKS  Print, per profile sigma_reg, the similarity at each true
+%   statement offset: as sigma_reg widens, octave-displaced statements
+%   rise from near zero towards the same-register value of 1.
+    for i = 1:numel(sigma_regs)
+        vals = zeros(1, numel(true_peaks));
+        for k = 1:numel(true_peaks)
+            [~, j] = min(abs(offsets - true_peaks(k)));
+            vals(k) = prof(i, j);
+        end
+        fprintf('  sigma_reg = %6.0f cents: similarity at the statements = %s\n', ...
+            sigma_regs(i), strjoin(arrayfun(@(v) sprintf('%.4f', v), vals, 'UniformOutput', false), ', '));
+    end
+end
 
 function [pAttr, sigma] = helixSurface(pitch_cents, time_sec, sigma_pc, sigma_reg, sigma_time)
 %HELIXSURFACE  Pre-build (pAttr, sigma) with pitch routed through two attributes plus time.

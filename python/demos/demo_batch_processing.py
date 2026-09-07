@@ -1,25 +1,39 @@
 """demo_batch_processing.py
 
-Batch computation of perceptual features on experimental data with
-automatic deduplication of repeated weighted multisets.
+Analysing experimental data: perceptual features for a table of trials.
 
-Two complementary deduplication workflows are shown:
+A typical experiment presents a stimulus per trial and the analyst
+wants one or more perceptual predictors for every trial, aligned with
+the responses. This demo builds a synthetic trial table — 3 scales x 4
+chord types x 12 root transpositions = 144 trials — and computes, for
+every trial, a paired measure (the spectral pitch-class similarity of
+the chord to its scale, SPCS) and several single-set measures of the
+chord (spectral entropy, template harmonicity, tensor harmonicity, and
+roughness), then tabulates and plots them.
 
-  1. Paired measures (SPCS) — pass 2-D pitch matrices to
-     cos_sim_exp_tens, which dispatches to batched-raw mode and
-     handles deduplication internally.
+The point of method is that the trial table goes straight in. Every
+toolbox feature that accepts a 2-D pitch matrix (one row per trial,
+NaN-padded when the chords differ in size) — cos_sim_exp_tens in its
+batched-raw mode, spectral_entropy, template_harmonicity,
+tensor_harmonicity, virtual_pitches — deduplicates its rows internally
+by a canonical key, so the 144 chord rows here cost 4 chord-type
+computations, and the 144 (scale, chord) pairs only as many distinct
+pairs as there are. No manual unique() step is needed.
 
-  2. Single-set measures — two patterns illustrated:
-       2a. For functions with built-in batched input
-           (spectral_entropy, template_harmonicity, tensor_harmonicity,
-           ...): pass the 2-D matrix of unique chords directly.
-       2b. For functions without batched mode (roughness, ...): loop
-           manually after deduplication.
-
-The dataset is synthetic: 3 scales × 4 chord types × 12 root
-transpositions = 144 trials. Many trials share the same scale or
-chord pitch-class content, so deduplication avoids redundant
-computation.
+The deduplication is fully automatic in the sense that matters: the key
+is built from the density the call would form, so it follows the
+analysis parameters (sigma, r, is_rel, is_per, period) rather than
+guessing. Two rows collapse only when their densities are structurally
+identical under those settings. Here, with is_per = True and
+is_rel = False, the twelve transpositions of a chord type share a
+pitch-class multiset and collapse to one computation; under
+is_per = False they would be twelve distinct chords and none would
+collapse, and under is_rel = True every transposition would collapse
+whether periodic or not. The analyst changes the mode flags and the
+saving follows, with no change to the calling code. The one feature
+without a batched form, roughness (which depends on absolute frequency
+and so cannot share work across transpositions), is looped over the
+distinct rows.
 
 Requires: matplotlib (pip install matplotlib)
 """
@@ -102,8 +116,9 @@ print(f"Dataset: {n_pairs} trials "
 
 # ===================================================================
 #  WORKFLOW 1: Paired measure (SPCS) via batched cos_sim_exp_tens
-#  Dispatches to batched-raw mode for 2-D matrix inputs;
-#  deduplication is handled internally.
+#  Two 2-D matrices, one row per trial, dispatch to batched-raw mode;
+#  repeated rows and repeated (scale, chord) pairs are deduplicated
+#  internally, and the spectrum is applied inside the call.
 # ===================================================================
 
 print("=== Workflow 1: SPCS via batched cos_sim_exp_tens ===\n")
@@ -129,65 +144,43 @@ for si in range(n_scales):
         print(row)
 
 # ===================================================================
-#  WORKFLOW 2: Single-set measures via deduplication
+#  WORKFLOW 2: Single-set measures on the trial table
 #
-#  Two complementary patterns:
-#    A. For functions with built-in batched-input support
-#       (spectral_entropy, template_harmonicity, tensor_harmonicity,
-#       ...): pass the 2-D matrix of unique chords directly.
-#    B. For functions without batched mode (roughness, ...): loop
-#       manually after deduplication.
-#
-#  We demonstrate both here. The dedup step (np.unique on sorted rows)
-#  is shared.
+#  The batched features take the 144-row chord matrix as it is: each
+#  deduplicates its rows internally (a canonical key invariant to
+#  transposition and pitch order, so the 12 roots x 4 types collapse to
+#  4 computations) and returns one value per trial. Each applies the
+#  spectrum through its own argument; pre-enriching all pitches would
+#  be prohibitively expensive for tensor harmonicity with many partials.
 # ===================================================================
 
-print(f"\n=== Workflow 2: Single-set measures (chord features) ===")
+print(f"\n=== Workflow 2: Single-set measures (chord features) ===\n")
 
-# --- Step 1: Deduplicate ---
+spec_ent = mpt.spectral_entropy(p_mat_b, None, sigma, spectrum=spec)
+h_max, h_ent = mpt.template_harmonicity(
+    p_mat_b, None, sigma, chord_spectrum=spec)
+tens_harm = mpt.tensor_harmonicity(p_mat_b, None, sigma, spectrum=spec)
+
+# --- Roughness: the one feature without a batched form ---
+# roughness takes one multiset of partials in Hz and depends on their
+# absolute frequencies, so transpositions do not share work. Loop over
+# the distinct chord rows (transposition included) and map back.
 sorted_b = np.sort(p_mat_b, axis=1)
 unique_chords, inverse_map = np.unique(sorted_b, axis=0, return_inverse=True)
 n_unique = len(unique_chords)
+print(f"  {n_pairs} trials → {n_unique} distinct chords for the roughness loop.\n")
 
-print(f"\n  {n_pairs} trials → {n_unique} unique chord multisets.\n")
-
-# --- Step 2a: Batched calls for batch-capable functions ---
-# spectral_entropy, template_harmonicity, and tensor_harmonicity all
-# accept a 2-D pitch matrix directly, with NaN-padded rows handled
-# the same way as cos_sim_exp_tens batched-raw mode. Each function
-# handles spectral enrichment via its own parameter; pre-enriching
-# all pitches would be prohibitively expensive for tensor harmonicity
-# with many partials.
-u_spec_ent = mpt.spectral_entropy(unique_chords, None, sigma, spectrum=spec)
-u_h_max, u_h_ent = mpt.template_harmonicity(
-    unique_chords, None, sigma, chord_spectrum=spec)
-u_tens_harm = mpt.tensor_harmonicity(
-    unique_chords, None, sigma, spectrum=spec)
-
-# --- Step 2b: Manual loop for functions without batched mode ---
-# roughness does not yet accept 2-D matrix input; we loop over unique
-# rows.
 u_rough = np.full(n_unique, np.nan)
-
 ref_cents = mpt.transform_attributes(f0, None, ('hz', 'cents'))
-
 for ui in range(n_unique):
     p = unique_chords[ui]
     p = p[~np.isnan(p)]  # strip NaN padding (if any)
-
-    # Roughness (needs Hz and enriched spectra)
     p_spec, w_spec = mpt.add_spectra(p, None, *spec)
     f_hz = mpt.transform_attributes(p_spec + ref_cents, None, ('cents', 'hz'))
     u_rough[ui] = mpt.roughness(f_hz, w_spec)
-
-# --- Step 3: Map back to all rows ---
-spec_ent = u_spec_ent[inverse_map]
-h_max = u_h_max[inverse_map]
-h_ent = u_h_ent[inverse_map]
-tens_harm = u_tens_harm[inverse_map]
 rough = u_rough[inverse_map]
 
-# --- Display ---
+# --- Display: one line per distinct chord (its first trial) ---
 print(f"  {'Chord':<14s}  {'specEnt':>8s}  {'hMax':>8s}  {'hEnt':>8s}  "
       f"{'tensHarm':>8s}  {'Rough':>8s}")
 print('  ' + '-' * 56)
@@ -198,10 +191,12 @@ for ui in range(n_unique):
     ri = int(root_vals[first_idx])
     label = f'{chord_type_names[ci]} @ {ri}'
 
-    print(f"  {label:<14s}  {u_spec_ent[ui]:8.4f}  {u_h_max[ui]:8.4f}  "
-          f"{u_h_ent[ui]:8.4f}  {u_tens_harm[ui]:8.4f}  {u_rough[ui]:8.4f}")
+    print(f"  {label:<14s}  {spec_ent[first_idx]:8.4f}  {h_max[first_idx]:8.4f}  "
+          f"{h_ent[first_idx]:8.4f}  {tens_harm[first_idx]:8.4f}  "
+          f"{rough[first_idx]:8.4f}")
 
-print(f"\n  (Only {n_unique} unique computations needed instead of {n_pairs}.)")
+print(f"\n  (The batched features received all {n_pairs} rows and computed "
+      f"{n_chords} chord types; roughness ran {n_unique} times.)")
 
 # ===================================================================
 #  Plot: SPCS heatmaps

@@ -1,25 +1,38 @@
 %% demo_batchProcessing.m
-%  Demonstrates batch computation of perceptual features on experimental
-%  data with automatic deduplication of repeated weighted multisets.
+%  Analysing experimental data: perceptual features for a table of trials.
 %
-%  Two complementary deduplication workflows are shown:
+%  A typical experiment presents a stimulus per trial and the analyst
+%  wants one or more perceptual predictors for every trial, aligned with
+%  the responses. This demo builds a synthetic trial table — 3 scales x 4
+%  chord types x 12 root transpositions = 144 trials — and computes, for
+%  every trial, a paired measure (the spectral pitch-class similarity of
+%  the chord to its scale, SPCS) and several single-set measures of the
+%  chord (spectral entropy, template harmonicity, tensor harmonicity, and
+%  roughness), then tabulates and plots them.
 %
-%    1. Paired measures (SPCS) — pass 2-D pitch matrices to
-%       cosSimExpTens, which dispatches to batched-raw mode and handles
-%       deduplication internally.
+%  The point of method is that the trial table goes straight in. Every
+%  toolbox feature that accepts a 2-D pitch matrix (one row per trial,
+%  NaN-padded when the chords differ in size) — cosSimExpTens in its
+%  batched-raw mode, spectralEntropy, templateHarmonicity,
+%  tensorHarmonicity, virtualPitches — deduplicates its rows internally
+%  by a canonical key, so the 144 chord rows here cost 4 chord-type
+%  computations, and the 144 (scale, chord) pairs only as many distinct
+%  pairs as there are. No manual unique() step is needed.
 %
-%    2. Single-set measures — two patterns illustrated:
-%         2a. For functions with built-in batched-input support
-%             (spectralEntropy, templateHarmonicity, tensorHarmonicity):
-%             pass the 2-D matrix of unique chords directly.
-%         2b. For functions without batched mode (roughness): loop
-%             manually after deduplication.
-%
-%  The dataset is synthetic: 3 scales × 4 chord types × 12 root
-%  transpositions = 144 trials. Many trials share the same scale (3
-%  unique) or the same chord pitch-class content (4 unique chord types,
-%  regardless of transposition in the periodic case), so deduplication
-%  avoids redundant computation.
+%  The deduplication is fully automatic in the sense that matters: the
+%  key is built from the density the call would form, so it follows the
+%  analysis parameters (sigma, r, isRel, isPer, period) rather than
+%  guessing. Two rows collapse only when their densities are
+%  structurally identical under those settings. Here, with isPer = 1 and
+%  isRel = 0, the twelve transpositions of a chord type share a
+%  pitch-class multiset and collapse to one computation; under
+%  isPer = 0 they would be twelve distinct chords and none would
+%  collapse, and under isRel = 1 every transposition would collapse
+%  whether periodic or not. The analyst changes the mode flags and the
+%  saving follows, with no change to the calling code. The one feature
+%  without a batched form, roughness (which depends on absolute frequency
+%  and so cannot share work across transpositions), is looped over the
+%  distinct rows.
 %
 %  Uses: cosSimExpTens, spectralEntropy, templateHarmonicity,
 %        tensorHarmonicity, addSpectra, roughness, transformAttributes
@@ -90,8 +103,9 @@ fprintf('Dataset: %d trials (%d scales × %d chord types × %d roots).\n\n', ...
 
 %% =====================================================================
 %  WORKFLOW 1: Paired measure (SPCS) via batched cosSimExpTens
-%  cosSimExpTens dispatches to batched-raw mode when given 2-D pitch
-%  matrices, with internal deduplication and 'spectrum' enrichment.
+%  Two 2-D matrices, one row per trial, dispatch to batched-raw mode;
+%  repeated rows and repeated (scale, chord) pairs are deduplicated
+%  internally, and the spectrum is applied inside the call.
 %  =====================================================================
 
 fprintf('=== Workflow 1: SPCS via batched cosSimExpTens ===\n\n');
@@ -122,83 +136,61 @@ for si = 1:nScales
 end
 
 %% =====================================================================
-%  WORKFLOW 2: Single-set measures via deduplication
+%  WORKFLOW 2: Single-set measures on the trial table
 %
-%  Two complementary patterns:
-%    A. For functions with built-in batched-input support
-%       (spectralEntropy, templateHarmonicity, tensorHarmonicity, ...):
-%       pass the 2-D matrix of unique chords directly.
-%    B. For functions without batched mode (roughness, ...): loop
-%       manually after deduplication.
-%
-%  We demonstrate both here. The dedup step (unique on sorted rows)
-%  is shared.
+%  The batched features take the 144-row chord matrix as it is: each
+%  deduplicates its rows internally (a canonical key invariant to
+%  transposition and pitch order, so the 12 roots x 4 types collapse to
+%  4 computations) and returns one value per trial. Each applies the
+%  spectrum through its own argument; pre-enriching all pitches would
+%  be prohibitively expensive for tensor harmonicity with many partials.
 %  =====================================================================
 
-fprintf('\n=== Workflow 2: Single-set measures (chord features) ===\n');
+fprintf('\n=== Workflow 2: Single-set measures (chord features) ===\n\n');
 
-% --- Step 1: Deduplicate ---
+specEnt        = spectralEntropy(pMatB, [], sigma, 'spectrum', spec);
+[hMax, hEnt]   = templateHarmonicity(pMatB, [], sigma, 'chordSpectrum', spec);
+tensHarm       = tensorHarmonicity(pMatB, [], sigma, 'spectrum', spec);
+
+% --- Roughness: the one feature without a batched form ---
+% roughness takes one multiset of partials in Hz and depends on their
+% absolute frequencies, so transpositions do not share work. Loop over
+% the distinct chord rows (transposition included) and map back.
 sortedB = sort(pMatB, 2);
 [uniqueChords, ~, chordMap] = unique(sortedB, 'rows');
 nUnique = size(uniqueChords, 1);
-
-fprintf('\n  %d trials → %d unique chord multisets.\n\n', ...
+fprintf('  %d trials -> %d distinct chords for the roughness loop.\n\n', ...
     nPairs, nUnique);
 
-% --- Step 2a: Batched calls for batch-capable functions ---
-% spectralEntropy, templateHarmonicity, and tensorHarmonicity all
-% accept a 2-D pitch matrix directly, with NaN-padded rows handled
-% the same way as cosSimExpTens batched-raw mode. Each function
-% handles spectral enrichment via its own parameter; pre-enriching
-% all pitches would be prohibitively expensive for tensor harmonicity
-% with many partials.
-uSpecEnt = spectralEntropy(uniqueChords, [], sigma, 'spectrum', spec);
-[uHMax, uHEnt] = templateHarmonicity(uniqueChords, [], sigma, ...
-    'chordSpectrum', spec);
-uTensHarm = tensorHarmonicity(uniqueChords, [], sigma, 'spectrum', spec);
-
-% --- Step 2b: Manual loop for functions without batched mode ---
-% roughness does not yet accept 2-D matrix input; we loop over unique
-% rows.
-uRough = NaN(nUnique, 1);
-
+uRough   = NaN(nUnique, 1);
 refCents = transformAttributes(f0, [], {'hz', 'cents'});
-
 for ui = 1:nUnique
     p = uniqueChords(ui, :);
     p = p(~isnan(p));  % strip NaN padding (if any)
-
-    % Roughness (needs Hz and enriched spectra)
     [pSpec, wSpec] = addSpectra(p(:), [], spec{:});
     fHz = transformAttributes(pSpec + refCents, [], {'cents', 'hz'});
     uRough(ui) = roughness(fHz, wSpec);
 end
+rough = uRough(chordMap);
 
-% --- Step 3: Map back to all rows ---
-specEnt  = uSpecEnt(chordMap);
-hMax     = uHMax(chordMap);
-hEnt     = uHEnt(chordMap);
-tensHarm = uTensHarm(chordMap);
-rough    = uRough(chordMap);
-
-% --- Display ---
+% --- Display: one line per distinct chord (its first trial) ---
 fprintf('  %-8s  %8s  %8s  %8s  %8s  %8s\n', ...
     'Chord', 'specEnt', 'hMax', 'hEnt', 'tensHarm', 'Rough');
 fprintf('  %s\n', repmat('-', 1, 56));
 
 for ui = 1:nUnique
-    % Find first trial with this unique chord to get the chord name
     firstIdx = find(chordMap == ui, 1);
     ci = chordIdx(firstIdx);
     ri = find(roots == rootVals(firstIdx));
     label = sprintf('%s @ %d', chordTypeNames{ci}, roots(ri));
 
     fprintf('  %-14s  %8.4f  %8.4f  %8.4f  %8.4f  %8.4f\n', ...
-        label, uSpecEnt(ui), uHMax(ui), uHEnt(ui), uTensHarm(ui), uRough(ui));
+        label, specEnt(firstIdx), hMax(firstIdx), hEnt(firstIdx), ...
+        tensHarm(firstIdx), rough(firstIdx));
 end
 
-fprintf('\n  (Only %d unique computations needed instead of %d.)\n', ...
-    nUnique, nPairs);
+fprintf('\n  (The batched features received all %d rows and computed %d chord types; roughness ran %d times.)\n', ...
+    nPairs, nChords, nUnique);
 
 %% === Plot: SPCS heatmaps ===
 

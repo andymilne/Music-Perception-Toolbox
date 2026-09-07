@@ -1,0 +1,23 @@
+function dens = buildVoiceAgnostic(satbCents, sigmaPc, sigmaPh)
+%BUILDVOICEAGNOSTIC  Analysis 1.2, encoding (iii): the voice-agnostic density.
+%
+%   dens = jmm.buildVoiceAgnostic(satbCents, sigmaPc, sigmaPh)
+%
+%   Two attributes (pitch class, pitch height): the four sounding pitches
+%   as an unordered multiset (K = 4) at r = 1; voice identity is not
+%   encoded. satbCents is the chord's four pitches in cents.
+%
+%   Twin of build_voice_agnostic in demo_jmm_1_2_similarity.py.
+%
+%   See also JMM.BUILDVOICEAWARE, JMM.BUILDSIMPLEXVOICE, BUILDEXPTENS.
+    p4 = double(satbCents(:));                      % K = 4, N = 1
+    dens = buildExpTens( ...
+        {p4, p4}, [], ...
+        [sigmaPc, sigmaPh], ...
+        [1, 1], ...
+        [false, false], ...
+        [true, false], ...
+        [1200.0, 0.0], ...
+        [true, true], ...            % unordered (moot at r = 1)
+        'verbose', false);
+end

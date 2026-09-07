@@ -16,8 +16,10 @@ A tour of the toolbox's performance controls:
   5. Renyi-2 entropy — `method='renyi2'` on `entropy_exp_tens` for a
      closed-form alternative to the numerical Shannon path.
 
-All controls default to the toolbox's safe, exact behaviour.
-Opting into them is purely additive.
+The dispatcher and a kernel truncation at 6 sigma are on by default
+(`truncation_sigmas=6` drops contributions below exp(-18), about 1.5e-8
+of a kernel's peak); `kernel_precision` defaults to double. Every
+control can be set per call or toolbox-wide.
 """
 
 # ---- user-adjustable parameters ----
@@ -99,16 +101,22 @@ print(f"  method='bulger'  : {t_bulger*1000:6.1f} ms   cosine = {c_bulger:.10f}"
 print(f"  method='mobius'  : {t_mobius*1000:6.1f} ms   cosine = {c_mobius:.10f}")
 print(f"  (bulger and mobius agree to {abs(c_bulger - c_mobius):.2e})")
 
+# explain_dispatch reports the choice 'auto' makes, and why, without
+# computing anything.
+print("\n  explain_dispatch(dens_x, dens_y):")
+print(mpt.explain_dispatch(dens_x, dens_y))
+
 
 # ===================================================================
 #  2. Kernel truncation
 # ===================================================================
 #
-# truncation_sigmas affects the centres-array path used by
-# eval_exp_tens and (when the dispatcher selects it) the centres path
-# of cos_sim_exp_tens. The Möbius method evaluates the same density
+# truncation_sigmas affects the centres path of eval_exp_tens and
+# Bulger's method in cos_sim_exp_tens, both of which form a kernel over
+# tuple centres. The Möbius method evaluates the same density
 # analytically without a centres matrix, so the truncation control
-# does not apply to it.
+# does not apply to it. The default is 6 sigma; inf gives the exact,
+# untruncated computation.
 
 print(f"\n=== 2. Kernel truncation (N={N_BIG}, eval at 1000 query points) ===\n")
 
@@ -139,8 +147,8 @@ t_k4, v_k4 = time_call(
 rel_err_k6 = max_abs_err(v_k6, v_no_trunc)
 rel_err_k4 = max_abs_err(v_k4, v_no_trunc)
 
-print(f"  truncation_sigmas=inf  : {t_no_trunc*1000:6.1f} ms  (reference)")
-print(f"  truncation_sigmas=6    : {t_k6*1000:6.1f} ms  peak-normalised err = {rel_err_k6:.2e}")
+print(f"  truncation_sigmas=inf  : {t_no_trunc*1000:6.1f} ms  (exact reference)")
+print(f"  truncation_sigmas=6    : {t_k6*1000:6.1f} ms  peak-normalised err = {rel_err_k6:.2e}  (the default)")
 print(f"  truncation_sigmas=4    : {t_k4*1000:6.1f} ms  peak-normalised err = {rel_err_k4:.2e}")
 print(f"  (Truncating at k sigmas drops kernel contributions below exp(-k^2/2).")
 print(f"   k=6 ~ exp(-18) ~ 1.5e-8; k=4 ~ exp(-8) ~ 3e-4.)")
@@ -178,8 +186,8 @@ print(f"   retained: ~7 sig figs vs ~15.)")
 print(f"\n=== 4. Toolbox-wide defaults ===\n")
 
 print(f"  Current defaults: {mpt.get_defaults()}")
-print("  Setting global: truncation_sigmas=6, kernel_precision='single'")
-prev = mpt.set_default(truncation_sigmas=6, kernel_precision='single')
+print("  Setting global: truncation_sigmas=4, kernel_precision='single'")
+prev = mpt.set_default(truncation_sigmas=4, kernel_precision='single')
 print(f"  New defaults:     {mpt.get_defaults()}")
 
 t_global, _ = time_call(
@@ -187,13 +195,14 @@ t_global, _ = time_call(
 )
 print(f"  eval with global defaults active : {t_global*1000:6.1f} ms")
 
-# Per-call kwargs always override the global defaults:
+# Per-call kwargs always override the global defaults: here to the
+# exact, untruncated, double-precision computation.
 t_override, _ = time_call(
     lambda: mpt.eval_exp_tens(dens_big, queries, method='centres',
                               truncation_sigmas=float('inf'),
                               kernel_precision='double', verbose=False),
 )
-print(f"  per-call override back to defaults: {t_override*1000:6.1f} ms")
+print(f"  per-call override to exact/double : {t_override*1000:6.1f} ms")
 
 mpt.set_default(**prev)  # restore
 print(f"  Restored; defaults now: {mpt.get_defaults()}")
@@ -208,12 +217,10 @@ print(f"\n=== 5. Renyi-2 differential entropy ===\n")
 t_shannon, h_shannon = time_call(
     lambda: mpt.entropy_exp_tens(dens_x, method='shannon',
                                  x_min=0.0, x_max=1200.0,
-                                 n_points_per_dim=100,
-                                 normalize=False, verbose=False),
+                                 n_points_per_dim=100, verbose=False),
 )
 t_renyi2, h_renyi2 = time_call(
-    lambda: mpt.entropy_exp_tens(dens_x, method='renyi2',
-                                 normalize=False, verbose=False),
+    lambda: mpt.entropy_exp_tens(dens_x, method='renyi2', verbose=False),
 )
 
 print(f"  method='shannon' (numerical grid)  : {t_shannon*1000:7.1f} ms   H  = {h_shannon:.4f}")

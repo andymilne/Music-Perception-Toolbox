@@ -17,7 +17,9 @@
 % list as one operand and the reference pAttr as the other). The build
 % step is internalised: the reference is built once, each translated
 % query once. The sweep is specified as a 1-by-A offsets cell, one row
-% of M candidate shifts per attribute; Section 3 builds it.
+% of M candidate shifts per attribute; Section 3 builds it. Section 7
+% shows the same sweep as a single call to sweepCosSimExpTens, which
+% never builds the M translated queries at all.
 %
 % Compare windowedSimilarity (see demo_helixBlend and
 % demo_tempoInvariance), which windows the context by event weighting
@@ -27,8 +29,8 @@
 % similarity (bounded in [0, 1] for non-negative weights) and does not
 % require choosing a window family.
 %
-% See also TRANSLATEATTRIBUTES, COSSIMEXPTENS, BUILDEXPTENS,
-% WINDOWEDSIMILARITY.
+% See also TRANSLATEATTRIBUTES, COSSIMEXPTENS, SWEEPCOSSIMEXPTENS,
+% BUILDEXPTENS, WINDOWEDSIMILARITY.
 
 clear; clc;
 
@@ -51,12 +53,10 @@ qryPitch  = transformAttributes(qryMidi, [], {'midi', 'cents'});
 qryTime   = 0:2;
 qryPAttr  = {qryPitch, qryTime};
 
-% Per-group geometry. Two attributes -> two groups (pitch in group 1,
-% time in group 2). Pitch is periodic at the octave; time is absolute
-% non-periodic.
-sigma     = [50, 0.3];        % per-group sigma: cents, seconds
+% Per-attribute geometry: pitch (attribute 1) is periodic at the
+% octave; time (attribute 2) is absolute non-periodic.
+sigma     = [50, 0.3];        % per-attribute sigma: cents, seconds
 r         = [1, 1];           % single-value per attribute (K_a = 1)
-groups    = [1, 2];           % attribute -> group
 isRel     = [false, false];
 isPer     = [true,  false];
 periods   = [1200,  0];
@@ -107,7 +107,9 @@ fprintf('=== 3. translateAttributes (offset sweep) ===\n');
 % entry together defines the m-th translated copy. Reads naturally as
 % "sweep pitch by these values; sweep time by these values".
 offsetsCell   = {Pmesh(:).', Tmesh(:).'};
-qryPAttrSwept = translateAttributes(qryPAttr, [], offsetsCell);
+[qryPAttrSwept, ~, ~, sweep] = translateAttributes(qryPAttr, [], offsetsCell);
+% The fourth output records the per-attribute offsets (A x M) for
+% sweepCosSimExpTens; see Section 7.
 
 fprintf('  qryPAttrSwept: %s, length %d\n', class(qryPAttrSwept), ...
         numel(qryPAttrSwept));
@@ -195,5 +197,24 @@ discrepancy = max(abs(S(:) - S_manual(:)));
 fprintf('  max |S_raw - S_manual| = %.2e (floating-point parity)\n', ...
         discrepancy);
 assert(discrepancy < 1e-12, 'Raw-MA list mode disagrees with manual build loop.');
+
+%% ===================================================================
+%  7. The same sweep without building M queries: sweepCosSimExpTens
+%  ===================================================================
+
+fprintf('\n=== 7. sweepCosSimExpTens (one call, no translated copies) ===\n');
+fprintf('  A uniform translation of the query enters the inner product only\n');
+fprintf('  through the offset, so the whole sweep is one pass over the tuple\n');
+fprintf('  pairs and then one evaluation per offset. The pitch attribute is\n');
+fprintf('  periodic, which the mixture route refuses; under ''method'', ''auto''\n');
+fprintf('  the orbit route carries the sweep instead (the wrapped kernel\n');
+fprintf('  absorbs the periodicity), so the call is the same either way.\n');
+
+densQry = buildExpTens(qryPAttr, [], sigma, r, ...
+                       isRel, isPer, periods, 'verbose', false);
+S_sweep = sweepCosSimExpTens(densRef, densQry, sweep.offsets, 'verbose', false);
+discrepancySweep = max(abs(S(:).' - S_sweep(:).'));
+fprintf('  max |S_raw - S_sweep| = %.2e\n', discrepancySweep);
+assert(discrepancySweep < 1e-8, 'sweepCosSimExpTens disagrees with the per-offset route.');
 
 fprintf('\n=== Demo complete ===\n');

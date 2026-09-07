@@ -8,7 +8,7 @@ An example of this type of plot appears as Figure 3 in:
   Modelling the similarity of pitch collections with expectation tensors.
   Journal of Mathematics and Music, 5(1), 1-20.
 
-Port of demo_triadSpcsGrid.m from the MATLAB Music Perception Toolbox v2.
+Port of demo_triadSpcsGrid.m from the MATLAB Music Perception Toolbox v3.
 
 Requires: matplotlib (pip install matplotlib)
 """

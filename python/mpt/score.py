@@ -49,7 +49,7 @@ __all__ = ["read_score", "events_from_score"]
 
 _NOTE_FIELDS = ("onset_beats", "onset_seconds", "duration_beats",
                 "duration_seconds", "pitch", "velocity", "part", "channel",
-                "measure")
+                "measure", "fermata")
 _STEP_TO_SEMITONE = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 
@@ -71,10 +71,13 @@ def read_score(path):
     dict
         ``{'onset_beats', 'onset_seconds', 'duration_beats',
         'duration_seconds', 'pitch', 'velocity', 'part', 'channel',
-        'measure', 'part_names', 'source'}``: one float array per note
-        field (``part``, ``channel``, and ``measure`` are 1-based ints;
-        ``channel`` is 0 for MusicXML, where it carries the voice
-        number instead), ``part_names`` a list of the parts' names,
+        'measure', 'fermata', 'part_names', 'source'}``: one float
+        array per note field (``part``, ``channel``, and ``measure``
+        are 1-based ints; ``channel`` is 0 for MusicXML, where it
+        carries the voice number instead; ``fermata`` is 1 for a
+        MusicXML note carrying a fermata, a merged tied note counting
+        if any of its segments does, and 0 otherwise, MIDI having no
+        fermatas), ``part_names`` a list of the parts' names,
         ``source`` ``'midi'`` or ``'musicxml'``. Rows are sorted by
         onset, then part, then pitch.
     """
@@ -104,7 +107,7 @@ def _finish_table(notes):
     else:
         cols = [[] for _ in _NOTE_FIELDS]
     for name, col in zip(_NOTE_FIELDS, cols):
-        if name in ("part", "channel", "measure"):
+        if name in ("part", "channel", "measure", "fermata"):
             table[name] = np.asarray(col, dtype=np.intp)
         else:
             table[name] = np.asarray(col, dtype=np.float64)
@@ -216,7 +219,7 @@ def _parse_midi(data):
         for t0, t1, pitch, vel, ch in track_rows:
             rows.append((t0 / tpq, seconds_at(t0), (t1 - t0) / tpq,
                          seconds_at(t1) - seconds_at(t0), float(pitch),
-                         float(vel), part_index, ch + 1, measure_at(t0)))
+                         float(vel), part_index, ch + 1, measure_at(t0), 0))
     return {"rows": rows, "part_names": part_names, "source": "midi"}
 
 
@@ -347,10 +350,11 @@ def _parse_musicxml(data):
     for pi, part in enumerate(parts):
         notes, _ = _walk_part(part, collect_tempo=False)
         names.append(part_names.get(part.get("id"), "") or f"part {pi + 1}")
-        for onset_q, dur_q, pitch, vel, voice, measure in notes:
+        for onset_q, dur_q, pitch, vel, voice, measure, fermata in notes:
             rows.append((onset_q, seconds_at(onset_q), dur_q,
                          seconds_at(onset_q + dur_q) - seconds_at(onset_q),
-                         float(pitch), float(vel), pi + 1, voice, measure))
+                         float(pitch), float(vel), pi + 1, voice, measure,
+                         fermata))
     return {"rows": rows, "part_names": names, "source": "musicxml"}
 
 
@@ -411,16 +415,20 @@ def _walk_part(part, *, collect_tempo):
                     vel = 90.0 if dyn is None else float(dyn) * 0.9
                     vel = float(min(127.0, max(0.0, vel)))
                     ties = {t.get("type") for t in el.findall("tie")}
+                    notations = el.find("notations")
+                    fermata = int(notations is not None
+                                  and notations.find("fermata") is not None)
                     key = (voice, midi)
                     if "stop" in ties and key in open_ties:
                         idx = open_ties.pop(key)
-                        o, dq, p_, v_, vo, me = notes[idx]
-                        notes[idx] = (o, dq + dur_q, p_, v_, vo, me)
+                        o, dq, p_, v_, vo, me, fe = notes[idx]
+                        notes[idx] = (o, dq + dur_q, p_, v_, vo, me,
+                                      max(fe, fermata))
                         if "start" in ties:
                             open_ties[key] = idx
                     else:
                         notes.append((onset, dur_q, midi, vel, voice,
-                                      measure_no))
+                                      measure_no, fermata))
                         if "start" in ties:
                             open_ties[key] = len(notes) - 1
                 if not is_chord and not is_grace:
@@ -477,7 +485,7 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
     source : str or dict
         A file path (parsed with :func:`read_score`) or a note table.
     attributes : sequence of {'pitch', 'onset', 'duration', 'velocity',
-        'part', 'measure'}
+        'part', 'measure', 'fermata'}
         The attributes, in order (default pitch and onset).
     pitch : {'midi', 'cents', 'hz', 'octave', ...}
         Pitch scale (any pitch scale of :func:`transform_attributes`).
@@ -513,7 +521,8 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
     table = read_score(source) if isinstance(source, (str, os.PathLike)) \
         else source
     attributes = [str(a).lower() for a in attributes]
-    allowed = ("pitch", "onset", "duration", "velocity", "part", "measure")
+    allowed = ("pitch", "onset", "duration", "velocity", "part", "measure",
+               "fermata")
     for a in attributes:
         if a not in allowed:
             raise ValueError(
@@ -537,12 +546,14 @@ def events_from_score(source, *, attributes=("pitch", "onset"),
     vel = table["velocity"][keep]
     part = table["part"][keep].astype(np.float64)
     measure = table["measure"][keep].astype(np.float64)
+    fermata = table.get("fermata", np.zeros(len(table["pitch"]), dtype=np.intp))[keep].astype(np.float64)
     n_notes = int(midi.size)
 
     pitch_vals = (midi if pitch.lower() == "midi"
                   else _convert_scale(midi, "midi", pitch))
     per_note = {"pitch": pitch_vals, "onset": onset, "duration": dur,
-                "velocity": vel, "part": part, "measure": measure}
+                "velocity": vel, "part": part, "measure": measure,
+                "fermata": fermata}
     if weights == "velocity":
         w_note = vel / 127.0
     elif weights == "duration":

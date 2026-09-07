@@ -17,9 +17,12 @@
 %                  a harmonic series, evaluated at the chord's interval
 %                  vector.
 %
-%    'specEnt'   — Spectral entropy (Milne et al. 2017): entropy of the
-%                  smoothed composite spectrum. Plotted as -entropy so
-%                  that peaks = consonance.
+%    'specEnt'   — Spectral Rényi-2 entropy: the collision entropy of the
+%                  smoothed composite spectrum, in closed form from the
+%                  density's self inner product. Plotted as -entropy so
+%                  that peaks = consonance. (The normalised Shannon
+%                  entropy of Milne et al. 2017 and Smit et al. 2019 is
+%                  a keyword away; see the section that computes this.)
 %
 %    'rough'     — Sensory roughness (Sethares 1993 / Plomp-Levelt
 %                  1965): total pairwise roughness of the chord's
@@ -30,8 +33,8 @@
 %  The plots are symmetric about the diagonal (swapping the two
 %  intervals gives the same chord).
 %
-%  Uses: templateHarmonicity, tensorHarmonicity, spectralEntropy,
-%        roughness, addSpectra, evalExpTens, transformAttributes
+%  Uses: templateHarmonicity, spectralEntropy, roughness, addSpectra,
+%        evalExpTens, transformAttributes
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===
@@ -145,14 +148,14 @@ end
 % which has no batched-input dispatch and no internal dedup — every
 % iteration of its loop does the full computation from scratch, so
 % halving the iteration count halves the actual work. For the three
-% batched features (tensor harmonicity via evalExpTens, template
-% harmonicity, and spectral entropy), the upper triangle is a
-% code-organization choice only: passing the full (nInts^2) grid would
-% do the same amount of internal ET work, because the canonical-form
-% dedup in the batched dispatch collapses permutation-equivalent inputs
-% (i, j) and (j, i) onto a single cached density. Keeping the
-% upper-triangle pattern across all four features makes the unique-
-% triad structure explicit in the demo code.
+% batched features (tensor harmonicity, template harmonicity, and
+% spectral entropy), the upper triangle is a code-organization choice
+% only: passing the full (nInts^2) grid of chord rows would do the same
+% amount of internal work, because the canonical-form dedup in the
+% batched dispatch collapses permutation-equivalent chords (i, j) and
+% (j, i) onto a single cached result. Keeping the upper-triangle
+% pattern across all four features makes the unique-triad structure
+% explicit in the demo code.
 
 nUpper = nInts * (nInts + 1) / 2;
 
@@ -188,6 +191,16 @@ t0_total = tic;
 % query matrix. evalExpTens builds the template tensor internally and
 % prints its own time estimate via estimateCompTime when called with
 % 'verbose', true.
+%
+% tensorHarmonicity(chordMat, [], sigma_tens, 'spectrum', spec_tens,
+% 'duplicate', dup_tens) computes exactly these values from the
+% nUpper x 3 chord matrix and is the right call in general. It is not
+% used here because its batched mode first reduces every row to a
+% canonical-form key (a string per row) to deduplicate structurally
+% identical chords, and this grid has none: every upper-triangle triad
+% is already canonically distinct, so the reduction is pure overhead
+% (measured at about 2.5x the eval itself on this workload). The two
+% routes agree exactly and take the same route through the dispatcher.
 if doTensor
     intMat  = [int1Lin'; int2Lin'];   % 2 x nUpper
     t0 = tic;
@@ -226,24 +239,34 @@ end
 % --- Spectral entropy ---
 % One spectralEntropy call on a stacked chord matrix.
 %
-% Method choice: we pass 'method', 'normalized' explicitly to
-% reproduce the consonance ordering and absolute values reported in
-% Smit et al. (2019) and Milne et al. (2017), which use the
-% normalised Shannon entropy H / log_b(N) in [0, 1]. The toolbox
-% default for spectralEntropy is 'differential' (adaptive nested-
-% grid differential entropy h_hat) which gives the same ordering of
-% chords by consonance but in different units and at higher per-call
-% cost (the adaptive evaluator doubles the grid to convergence,
-% which is several times slower than a single discrete pass).
-% 'method', 'renyi2' (analytical Rényi-2 via the inner-product /
-% Möbius machinery) is also available; it agrees on ordering but,
-% like differential, is in different units.
+% Method: 'renyi2', the analytical Rényi-2 (collision) entropy H2 = -log_b
+% <f, f>, closed form from the density's self inner product, with no grid.
+% It is a differential entropy in log base 'base' (2 by default, so bits),
+% unbounded, and lower where the spectrum is more concentrated, so it is
+% plotted negated and peaks mark consonance.
+%
+% Milne et al. (2017) and Smit et al. (2019) used the grid-normalised
+% Shannon entropy H / log_b(N) in [0, 1], available as 'method',
+% 'normalized' and required to reproduce their absolute values; it ranks
+% these chords similarly (Pearson 0.95, Spearman 0.81 over 1225 triads).
+% On a continuous domain that form is defined relative to its grid and
+% does not converge under refinement: H_disc and log N both grow like
+% log(1/Delta) as the cell width goes to zero, so the ratio tends to 1 for
+% every density. It is the apt measure where the values are inherently
+% discrete --- twelve pitch classes, sixteen metrical pulses, any fixed
+% category set --- since N is then fixed by the domain and H / log_b(N) is
+% flatness as a proportion of that domain's maximum.
+%
+% The third option, 'differential', converges (nested grids with
+% Richardson extrapolation) but is much slower grid size. Rényi-2 is the 
+% fastest of the three and tracks the differential entropy more closely 
+% than the normalised grid does (Spearman 0.96 against 0.72).
 if doSpecEnt
     chordMatSE = [zeros(nUpper, 1), int1Lin, int2Lin];
     t0 = tic;
     specEntLin = spectralEntropy(chordMatSE, [], sigma_ent, ...
-        'spectrum', spec_ent, 'method', 'normalized', 'verbose', true);
-    fprintf('  Spectral entropy:     %.2f s actual (%d triads, batched)\n', ...
+        'spectrum', spec_ent, 'method', 'renyi2', 'verbose', true);
+    fprintf('  Spectral Renyi-2:     %.2f s actual (%d triads, batched)\n', ...
         toc(t0), nUpper);
     specEnt(linIdxUpper) = specEntLin;
     specEnt(linIdxLower) = specEntLin;
@@ -304,7 +327,7 @@ if doTensor
 end
 if doSpecEnt
     allData{end+1}   = -specEnt;
-    allTitles{end+1} = sprintf('-Spectral entropy (Milne et al. 2017)\n%s, \\sigma=%d', ...
+    allTitles{end+1} = sprintf('-Spectral Rényi-2 entropy\n%s, \\sigma=%d', ...
         strjoin(cellfun(@num2str, spec_ent, 'UniformOutput', false), ', '), sigma_ent);
 end
 if doRough

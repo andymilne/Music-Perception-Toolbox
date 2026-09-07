@@ -16,7 +16,7 @@
 %  the reference triad. The Euclidean distance between any two grid points
 %  equals the voice-leading distance between the corresponding triads.
 %
-%  Uses: batchCosSimExpTens, addSpectra, cosSimExpTens
+%  Uses: cosSimExpTens (batched-raw, broadcast form, with 'spectrum')
 %  (from the Music Perception Toolbox).
 
 %% === User-adjustable parameters ===

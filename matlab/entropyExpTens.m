@@ -985,11 +985,27 @@ function Mat = localPhiDiffAxis(centres, edgesLo, edgesHi, sigma)
 %   Phi((edgesHi(j) - centres(t))/sigma) - Phi((edgesLo(j) -
 %   centres(t))/sigma), the 1-D Gaussian probability mass in cell j
 %   for the coordinate at centres(t).
+%
+%   Adjacent cells share an edge --- localAxisEdges builds both bounds
+%   from the same midpoints, so edgesLo(2:end) and edgesHi(1:end-1) are
+%   the same array --- and evaluating Phi at every lower and every upper
+%   bound therefore computes each interior edge twice. Where the bounds
+%   are contiguous, the nCells + 1 distinct edges are evaluated once and
+%   differenced along the cell axis instead: the same arithmetic on the
+%   same values, at half the erf calls and half the temporaries. The
+%   output is bit-identical. A non-contiguous pair --- which no current
+%   caller produces, but which the signature admits --- falls through to
+%   the direct form. Twin of the Python _phi_diff_axis.
 
     centres = centres(:);   % (nJ x 1)
     edgesLo = edgesLo(:).'; % (1 x nCells)
     edgesHi = edgesHi(:).';
     inv = 1.0 / (sigma * sqrt(2));
+    if numel(edgesLo) > 1 && isequal(edgesLo(2:end), edgesHi(1:end-1))
+        edges = [edgesLo, edgesHi(end)];       % (1 x nCells+1)
+        Mat = 0.5 * diff(erf((edges - centres) * inv), 1, 2);
+        return;
+    end
     zHi = (edgesHi - centres) * inv;   % (nJ x nCells), broadcast
     zLo = (edgesLo - centres) * inv;
     Mat = 0.5 * (erf(zHi) - erf(zLo));

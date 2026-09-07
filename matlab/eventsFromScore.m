@@ -9,7 +9,7 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
 %
 %   Name-value pairs
 %       'attributes'     - cell of names from {'pitch', 'onset', 'duration',
-%                          'velocity', 'part', 'measure'}, in order
+%                          'velocity', 'part', 'measure', 'fermata'}, in order
 %                          (default {'pitch', 'onset'}).
 %       'pitch'          - pitch scale: 'midi' (default), 'cents', 'hz',
 %                          'octave', or any pitch scale of transformAttributes.
@@ -55,7 +55,7 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
         notes = source;
     end
     attributes = cellfun(@(a) lower(char(a)), cellstr(nvArgs.attributes), 'UniformOutput', false);
-    allowed = {'pitch', 'onset', 'duration', 'velocity', 'part', 'measure'};
+    allowed = {'pitch', 'onset', 'duration', 'velocity', 'part', 'measure', 'fermata'};
     for i = 1:numel(attributes)
         if ~any(strcmp(attributes{i}, allowed))
             error('eventsFromScore:attribute', ...
@@ -85,6 +85,11 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
     vel = notes.velocity(keep);
     part = notes.part(keep);
     measure = notes.measure(keep);
+    if isfield(notes, 'fermata')
+        fermata = notes.fermata(keep);
+    else
+        fermata = zeros(size(measure));
+    end
     nNotes = numel(midi);
 
     if strcmpi(nvArgs.pitch, 'midi')
@@ -93,7 +98,8 @@ function [pAttr, w, specs] = eventsFromScore(source, nvArgs)
         pitchVals = transformAttributes(midi, [], {'midi', nvArgs.pitch});
     end
     perNote = struct('pitch', pitchVals, 'onset', onset, 'duration', dur, ...
-                     'velocity', vel, 'part', part, 'measure', measure);
+                     'velocity', vel, 'part', part, 'measure', measure, ...
+                     'fermata', fermata);
     switch nvArgs.weights
         case 'velocity', wNote = vel / 127;
         case 'duration', wNote = dur;

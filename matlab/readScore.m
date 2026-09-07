@@ -15,6 +15,10 @@ function notes = readScore(path)
 %       .part                             1-based part (MIDI: track with notes)
 %       .channel                          MIDI channel (1-16); MusicXML voice
 %       .measure                          1-based bar number
+%       .fermata                          1 where a MusicXML note carries a
+%                                         fermata (a merged tied note counts
+%                                         if any segment does), else 0; MIDI
+%                                         has no fermatas, so always 0
 %       .partNames                        1 x P cell of part names
 %       .source                           'midi' or 'musicxml'
 %
@@ -61,11 +65,11 @@ end
 
 
 function notes = localFinishTable(raw)
-    % raw.rows is M x 9: onsetBeats onsetSeconds durationBeats
-    % durationSeconds pitch velocity part channel measure.
+    % raw.rows is M x 10: onsetBeats onsetSeconds durationBeats
+    % durationSeconds pitch velocity part channel measure fermata.
     rows = raw.rows;
     if isempty(rows)
-        rows = zeros(0, 9);
+        rows = zeros(0, 10);
     end
     [~, order] = sortrows(rows(:, [1 7 5]));
     rows = rows(order, :);
@@ -79,6 +83,7 @@ function notes = localFinishTable(raw)
     notes.part            = rows(:, 7);
     notes.channel         = rows(:, 8);
     notes.measure         = rows(:, 9);
+    notes.fermata         = rows(:, 10);
     notes.partNames       = raw.partNames;
     notes.source          = raw.source;
 end

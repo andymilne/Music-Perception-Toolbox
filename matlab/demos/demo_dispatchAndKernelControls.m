@@ -17,8 +17,10 @@
 %    5. Renyi-2 entropy -- 'method','renyi2' on entropyExpTens for a
 %       closed-form alternative to the numerical Shannon path.
 %
-%  All controls default to the toolbox's safe, exact behaviour.
-%  Opting into them is purely additive.
+%  The dispatcher and a kernel truncation at 6 sigma are on by default
+%  ('truncationSigmas', 6 drops contributions below exp(-18), about
+%  1.5e-8 of a kernel's peak); 'kernelPrecision' defaults to double.
+%  Every control can be set per call or toolbox-wide.
 
 %% User-adjustable parameters
 N_EVENTS = 20;          % source events per density
@@ -74,13 +76,19 @@ fprintf('  method=bulger  : %6.1f ms   cosine = %.10f\n', 1000*t_bulger, c_bulge
 fprintf('  method=mobius  : %6.1f ms   cosine = %.10f\n', 1000*t_mobius, c_mobius);
 fprintf('  (bulger and mobius agree to %.2e)\n', abs(c_bulger - c_mobius));
 
+% explainDispatch reports the choice 'auto' makes, and why, without
+% computing anything.
+fprintf('\n  explainDispatch(dens_x, dens_y):\n');
+explainDispatch(dens_x, dens_y);
+
 %% 2. Kernel truncation
 %
-%  truncationSigmas affects the centres-array path used by
-%  evalExpTens and (when the dispatcher selects it) the centres path
-%  of cosSimExpTens. The Möbius method evaluates the same density
+%  truncationSigmas affects the centres path of evalExpTens and
+%  Bulger's method in cosSimExpTens, both of which form a kernel over
+%  tuple centres. The Möbius method evaluates the same density
 %  analytically without a centres matrix, so the truncation control
-%  does not apply to it.
+%  does not apply to it. The default is 6 sigma; Inf gives the exact,
+%  untruncated computation.
 
 fprintf('\n=== 2. Kernel truncation (N=%d, eval at 1000 query points) ===\n\n', N_BIG);
 
@@ -96,8 +104,8 @@ queries = sort(1200 * rand(R, 1000));
 err_k6 = max(abs(v_k6(:) - v_no_trunc(:))) / (max(abs(v_no_trunc(:))) + 1e-30);
 err_k4 = max(abs(v_k4(:) - v_no_trunc(:))) / (max(abs(v_no_trunc(:))) + 1e-30);
 
-fprintf('  truncationSigmas=Inf  : %6.1f ms  (reference)\n', 1000*t_no_trunc);
-fprintf('  truncationSigmas=6    : %6.1f ms  peak-normalised err = %.2e\n', 1000*t_k6, err_k6);
+fprintf('  truncationSigmas=Inf  : %6.1f ms  (exact reference)\n', 1000*t_no_trunc);
+fprintf('  truncationSigmas=6    : %6.1f ms  peak-normalised err = %.2e  (the default)\n', 1000*t_k6, err_k6);
 fprintf('  truncationSigmas=4    : %6.1f ms  peak-normalised err = %.2e\n', 1000*t_k4, err_k4);
 fprintf('  (Truncating at k sigmas drops kernel contributions below exp(-k^2/2).\n');
 fprintf('   k=6 ~ exp(-18) ~ 1.5e-8; k=4 ~ exp(-8) ~ 3e-4.)\n');
@@ -124,8 +132,8 @@ fprintf('\n=== 4. Toolbox-wide defaults ===\n\n');
 
 fprintf('  Current defaults:\n');
 disp(mptDefaults());
-fprintf('  Setting global: truncationSigmas=6, kernelPrecision=single\n');
-prev = mptDefaults('truncationSigmas', 6, 'kernelPrecision', 'single');
+fprintf('  Setting global: truncationSigmas=4, kernelPrecision=single\n');
+prev = mptDefaults('truncationSigmas', 4, 'kernelPrecision', 'single');
 fprintf('  New defaults:\n');
 disp(mptDefaults());
 
@@ -133,11 +141,12 @@ disp(mptDefaults());
     'method', 'centres', 'verbose', false));
 fprintf('  eval with global defaults active : %6.1f ms\n', 1000*t_global);
 
-% Per-call kwargs always override the global defaults:
+% Per-call arguments always override the global defaults: here to the
+% exact, untruncated, double-precision computation.
 [t_override, ~] = timeCall(@() evalExpTens(dens_big, queries, ...
     'method', 'centres', 'truncationSigmas', Inf, ...
     'kernelPrecision', 'double', 'verbose', false));
-fprintf('  per-call override back to defaults: %6.1f ms\n', 1000*t_override);
+fprintf('  per-call override to exact/double : %6.1f ms\n', 1000*t_override);
 
 mptDefaults(prev);   % restore via the save/restore idiom
 fprintf('  Restored; defaults now:\n');

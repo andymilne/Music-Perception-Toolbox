@@ -16,23 +16,25 @@ The workflow is two function calls: one to ``translate_attributes``, one
 to ``cos_sim_exp_tens`` (raw-MA scalar-vs-list form, with the
 translated ``p_attr`` list as one operand and the reference
 ``p_attr`` as the other). The build step is internalised: the
-reference is built once, each translated query once. The sweep can
-be specified in either of two equivalent forms --- a single ``(A, M)``
-numeric matrix or a ``{group_index: sweep}`` dict --- and Section 3
-shows both with a parity check.
+reference is built once, each translated query once. The sweep is
+specified as a length-A offsets list, one row of M candidate shifts per
+attribute; Section 3 builds it. Section 7 shows the same sweep as a
+single call to ``sweep_cos_sim_exp_tens``, which never builds the M
+translated queries at all.
 
-Compare ``demo_maet_windowing`` (post-tensor sliding) and
-``demo_windowing_reference`` (reference-point options for
-``windowed_similarity``). The pre-tensor route used here returns a
+Compare ``windowed_similarity`` (see ``demo_helix_blend`` and
+``demo_tempo_invariance``), which windows the context by event
+weighting before each build --- the window multiplies per-event weights
+and the window axis is then marginalized --- so that locality is
+decoupled from the query's own support. The route used here returns a
 strict cosine similarity (bounded in [0, 1] for non-negative weights)
-and does not require choosing a window family; the post-tensor route
-returns a magnitude-aware windowed similarity and decouples locality
-from the query's own support.
+and does not require choosing a window family.
 
 See also
 --------
 mpt.translate_attributes
 mpt.cos_sim_exp_tens
+mpt.sweep_cos_sim_exp_tens
 mpt.build_exp_tens
 mpt.windowed_similarity
 """
@@ -62,12 +64,10 @@ qry_pitch = mpt.transform_attributes(qry_midi, None, ('midi', 'cents')).reshape(
 qry_time  = np.arange(3, dtype=float).reshape(1, -1)
 qry_pAttr = [qry_pitch, qry_time]
 
-# Per-group geometry. Two attributes -> two groups (pitch in group 0,
-# time in group 1). Pitch is periodic at the octave; time is absolute
-# non-periodic.
+# Per-attribute geometry: pitch (attribute 0) is periodic at the
+# octave; time (attribute 1) is absolute non-periodic.
 sigma   = [50.0, 0.3]
 r       = [1, 1]
-groups  = [0, 1]
 is_rel  = [False, False]
 is_per  = [True,  False]
 periods = [1200.0, 0.0]
@@ -94,8 +94,7 @@ time_grid  = np.arange(-1.0, 5.001, 0.25)
 
 P_mesh, T_mesh = np.meshgrid(pitch_grid, time_grid, indexing="ij")
 M = P_mesh.size
-# P_mesh and T_mesh are used in Section 3 to build the sweep in either
-# of the two equivalent offset forms.
+# P_mesh and T_mesh are used in Section 3 to build the offsets list.
 
 print(f"  pitch grid: {pitch_grid.size} transpositions over one octave "
       f"(100-cent steps)")
@@ -109,43 +108,22 @@ print()
 # 3. Pre-tensor translation: two equivalent offset forms
 # =====================================================================
 
-print("=== 3. translate_attributes (two equivalent offset forms) ===")
+print("=== 3. translate_attributes (offset sweep) ===")
 
-# Form A: numeric matrix. Rows index attributes, columns index sweep
-# positions. With A = 2 singleton groups here, row 0 is the pitch
-# attribute and row 1 is the time attribute.
-offsets_mat = np.vstack([P_mesh.ravel(),     # pitch shifts (attribute 0)
-                         T_mesh.ravel()])    # time  shifts (attribute 1)
+# offsets is a length-A list, one entry per attribute. Each entry here
+# is a (1, M) row, which the orientation grammar reads as a per-sweep
+# global shift: M candidate offsets broadcast across the attribute's
+# values (trivial here, as each attribute is single-value, K_a = 1). The
+# M sweep columns are shared across attributes, so column m of every
+# entry together defines the m-th translated copy. Reads naturally as
+# "sweep pitch by these values; sweep time by these values".
+offsets = [P_mesh.reshape(1, -1),     # pitch shifts (attribute 0)
+           T_mesh.reshape(1, -1)]     # time  shifts (attribute 1)
+qry_pAttr_swept, _, _ = mpt.translate_attributes(qry_pAttr, None, offsets)
 
-qry_pAttr_swept_mat = mpt.translate_attributes(
-    qry_pAttr, groups, offsets_mat, is_rel, is_per, periods,
-)
-
-# Form B: dict keyed by group index, with one group's sweep per entry.
-# Each value is a 1-D length-M row, which the orientation grammar
-# reads as "broadcast within group, M-position sweep" --- here that
-# coincides with per-attribute because each group is a singleton.
-# Reads naturally as "sweep pitch (group 0) by these values; sweep
-# time (group 1) by these values".
-offsets_dict = {
-    0: P_mesh.ravel(),   # pitch axis
-    1: T_mesh.ravel(),   # time axis
-}
-
-qry_pAttr_swept_dict = mpt.translate_attributes(
-    qry_pAttr, groups, offsets_dict, is_rel, is_per, periods,
-)
-
-# Parity check: the two forms must produce identical translated values.
-diff_max_forms = 0.0
-for entry_m, entry_d in zip(qry_pAttr_swept_mat, qry_pAttr_swept_dict):
-    for a, b in zip(entry_m, entry_d):
-        diff_max_forms = max(diff_max_forms, float(np.max(np.abs(a - b))))
-print(f"  matrix form vs dict form: max |diff| = {diff_max_forms:.2e}")
-assert diff_max_forms == 0.0, "Matrix form and dict form disagree."
-
-# Proceed with the matrix-form output for the downstream computation.
-qry_pAttr_swept = qry_pAttr_swept_mat
+# The returned list of translated copies carries its offsets with it (a
+# TranslatedSweep), so cos_sim_exp_tens below can recognise the sweep;
+# see Section 7.
 print(f"  qry_pAttr_swept: {type(qry_pAttr_swept).__name__}, "
       f"length {len(qry_pAttr_swept)}")
 print(f"  each entry is a length-{len(qry_pAttr)} list of K_a x N "
@@ -159,11 +137,11 @@ print()
 
 print("=== 4. cos_sim_exp_tens (raw-MA list mode) ===")
 
-S_flat = mpt.cos_sim_exp_tens(
+S_flat = np.asarray(mpt.cos_sim_exp_tens(
     ref_pAttr, None, qry_pAttr_swept, None,
-    sigma, r, groups, is_rel, is_per, periods,
+    sigma, r, is_rel, is_per, periods,
     verbose=False,
-)
+))
 S = S_flat.reshape(P_mesh.shape)         # (pitch, time) heatmap
 
 i, j = np.unravel_index(int(np.argmax(S)), S.shape)
@@ -227,14 +205,12 @@ print("  build_exp_tens, and cos_sim_exp_tens is transparent.")
 print()
 
 dens_ref = mpt.build_exp_tens(
-    ref_pAttr, None, sigma, r, groups,
-    is_rel, is_per, periods, verbose=False,
+    ref_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
 )
 S_manual = np.empty(M, dtype=np.float64)
 for m, pa in enumerate(qry_pAttr_swept):
     dens_q = mpt.build_exp_tens(
-        pa, None, sigma, r, groups, is_rel, is_per, periods,
-        verbose=False,
+        pa, None, sigma, r, is_rel, is_per, periods, verbose=False,
     )
     S_manual[m] = mpt.cos_sim_exp_tens(dens_ref, dens_q, verbose=False)
 
@@ -243,6 +219,30 @@ print(f"  max |S_raw - S_manual| = {discrepancy:.2e} "
       f"(floating-point parity)")
 assert discrepancy < 1e-12, \
     "Raw-MA list mode disagrees with manual build loop."
+
+
+# =====================================================================
+# 7. The same sweep without building M queries: sweep_cos_sim_exp_tens
+# =====================================================================
+
+print("\n=== 7. sweep_cos_sim_exp_tens (one call, no translated copies) ===")
+print("  A uniform translation of the query enters the inner product only")
+print("  through the offset, so the whole sweep is one pass over the tuple")
+print("  pairs and then one evaluation per offset. The pitch attribute is")
+print("  periodic, which the mixture route refuses; under method='auto'")
+print("  the orbit route carries the sweep instead (the wrapped kernel")
+print("  absorbs the periodicity), so the call is the same either way.")
+
+dens_qry = mpt.build_exp_tens(
+    qry_pAttr, None, sigma, r, is_rel, is_per, periods, verbose=False,
+)
+offsets_am = np.vstack([P_mesh.ravel(), T_mesh.ravel()])      # (A, M)
+S_sweep = mpt.sweep_cos_sim_exp_tens(dens_ref, dens_qry, offsets_am,
+                                     verbose=False)
+discrepancy_sweep = float(np.max(np.abs(S_flat - S_sweep)))
+print(f"  max |S_raw - S_sweep| = {discrepancy_sweep:.2e}")
+assert discrepancy_sweep < 1e-8, \
+    "sweep_cos_sim_exp_tens disagrees with the per-offset route."
 
 print("\n=== Demo complete ===")
 plt.show()

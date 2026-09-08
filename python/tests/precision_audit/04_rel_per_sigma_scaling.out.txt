@@ -1,9 +1,0 @@
-SA rel_per: σ/P scaling test (r=3, K=6, 5 seeds)
-If discrepancy vanishes at small σ, it's σ/P-induced pairwise approximation.
-     σ    σ/P |       med       p90       max
-  50.0 0.0417 |  3.55e-08  5.88e-08  6.25e-08
-  25.0 0.0208 |  4.44e-16  6.56e-16  7.29e-16
-  12.0 0.0100 |  1.12e-15  2.66e-15  3.30e-15
-   6.0 0.0050 |  3.08e-15  5.99e-15  7.31e-15
-   3.0 0.0025 |  7.11e-15  8.57e-14  1.35e-13
-   1.5 0.0013 |  2.72e-13  3.40e-10  5.16e-10

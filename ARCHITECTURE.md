@@ -2,7 +2,7 @@
 
 A developer-facing map of what is in the toolbox, how the pieces relate, and the design rationale for the parts that are not obvious from a casual reading of the source. For *user-facing* documentation – what the functions do and how to call them – see [USER_GUIDE.md](USER_GUIDE.md). This document assumes the reader has either read USER_GUIDE §3 or is comfortable with the expectation-tensor framework from the source papers (Milne et al. 2011, 2015, 2016, 2020).
 
-This document describes the toolbox as it currently exists. It was last verified line-by-line against the Python and MATLAB source in September 2026; the exhaustive, source-verified description of every routing decision is [ROUTING_MAP.md](ROUTING_MAP.md), which is the authoritative routing reference wherever this document and the map could be read differently.
+This document describes the toolbox as it currently exists. It was last verified line-by-line against the Python and MATLAB source in September 2026; the exhaustive, source-verified description of every routing decision is the routing map — `ROUTING_MAP.md` and its supporting material, kept in the companion `MPT-routing-notes/` folder outside this repository until the content is folded into the User Guide. It is the authoritative routing reference wherever this document and the map could be read differently.
 
 ## Contents
 
@@ -289,7 +289,7 @@ Tests are predominantly organized by feature rather than by module – e.g. the 
 
 ## 4. The dispatcher pattern
 
-The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §4 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; [ROUTING_MAP.md](ROUTING_MAP.md) gives every rule, guard, and constant in full and is the reference when a detail here is not enough.
+The dispatchers are the toolbox's most distinctive design feature. USER_GUIDE §4 ("Method selection") describes the user-facing API – the `method` keyword, the `wrap` declaration, `truncation_sigmas`, the kernel-evaluation controls, and when to override defaults. This section covers the *internals* that make `method='auto'` work, at architecture level; the routing map gives every rule, guard, and constant in full and is the reference when a detail here is not enough.
 
 Four points are useful to internalize before reading the dispatch code:
 
@@ -475,7 +475,7 @@ The MATLAB and Python implementations are intentionally parallel. USER_GUIDE §4
 
 ### The parity principle
 
-Parity is defined at the level of *decisions*, not of constants. Every selector, guard, override, and post-hoc check exists in both languages with the same predicate and fires in the same order; every route computes the same measure; and the leaf that finally does the arithmetic may differ in implementation (a vectorized kernel here, a log-kernel product there) provided the numbers agree within the accuracy floor. The fitted constants of the cost models are *per-language by design* – the two implementations amortize differently – but they are measured the same way, on the maintainer's machine by twin calibration scripts, and cross-validated on held-out routing regret so that they generalize to other hardware. A parity audit therefore compares rule structure first and constants last; ROUTING_MAP.md and `routing_parity.md` are the record of the most recent audit.
+Parity is defined at the level of *decisions*, not of constants. Every selector, guard, override, and post-hoc check exists in both languages with the same predicate and fires in the same order; every route computes the same measure; and the leaf that finally does the arithmetic may differ in implementation (a vectorized kernel here, a log-kernel product there) provided the numbers agree within the accuracy floor. The fitted constants of the cost models are *per-language by design* – the two implementations amortize differently – but they are measured the same way, on the maintainer's machine by twin calibration scripts, and cross-validated on held-out routing regret so that they generalize to other hardware. A parity audit therefore compares rule structure first and constants last; the routing map and its `routing_parity.md` are the record of the most recent audit.
 
 ### Naming
 
@@ -610,7 +610,7 @@ If the measure has obvious teaching value, add a demo to `matlab/demos/` (and a 
 
 ### 12. Architecture and routing documents
 
-If the new measure adds new structural patterns (e.g., a new selector, a new caching system, a new route through the primitives), update this document *and* ROUTING_MAP.md. Routine additions (consumer wrappers that compose existing primitives) need neither.
+If the new measure adds new structural patterns (e.g., a new selector, a new caching system, a new route through the primitives), update this document *and* the routing map. Routine additions (consumer wrappers that compose existing primitives) need neither.
 
 ---
 
@@ -670,4 +670,4 @@ A release includes:
 - Updated CHANGELOG and MIGRATION docs.
 - Updated CITATION.cff with the new version metadata.
 - USER_GUIDE updated for new features.
-- ARCHITECTURE and ROUTING_MAP updated if new structural patterns or routes are introduced.
+- ARCHITECTURE and the routing map updated if new structural patterns or routes are introduced.

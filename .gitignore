@@ -14,3 +14,15 @@ python/rel_ip_cost.csv
 python/py_bench.txt
 python/py_bench_ext.txt
 python/progress.txt
+
+# Benchmark, audit, and demo run outputs. Each is written by a script
+# that lives in the repository, so a committed copy is a stale run the
+# next invocation silently overwrites.
+bench_xlang/*.csv
+bench_xlang/*.log
+bench_xlang/bench_mobius_log.txt
+bench_mobius_*.csv
+python/tests/precision_audit/*.out.txt
+python/figures/
+python/demos/*.png
+python/dist/

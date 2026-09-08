@@ -54,7 +54,7 @@ function dens = buildExpTens(varargin)
 %     p         - Pitch or position values (vector of length N).
 %     w         - Weights (vector of length N, empty, or scalar — see
 %                 the toolbox's standard broadcast convention in
-%                 User Guide §4).
+%                 User Guide §5).
 %     sigma     - Standard deviation of the Gaussian kernel.
 %     r         - Tuple size (positive integer; r >= 2 if isRel = true).
 %     isRel     - If true, use transposition-invariant (relative)

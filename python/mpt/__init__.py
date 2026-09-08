@@ -16,7 +16,7 @@ __version__ = "3.0.0"
 from .spectra import add_spectra
 
 # --- Symbolic scores (MIDI, MusicXML) ---
-from .score import read_score, events_from_score
+from .score import read_score, pre_maet_from_score
 
 # --- Expectation tensors ---
 from .tensor import (
@@ -118,7 +118,7 @@ __all__ = [
     "transform_attributes",
     # score
     "read_score",
-    "events_from_score",
+    "pre_maet_from_score",
     "translate_attributes",
     "TranslatedSweep",
     "weight_events",

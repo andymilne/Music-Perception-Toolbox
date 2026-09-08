@@ -8,7 +8,7 @@ preprocessing layer before :func:`build_exp_tens`, and it absorbs the
 pitch and frequency scale conversions that ``convert_pitch`` used to
 provide on bare arrays.
 
-See USER_GUIDE §3.1 ("Cross-event preprocessing") for the conceptual
+See USER_GUIDE §7.3 ("Pre-MAET processing") for the conceptual
 introduction, including the order in which a transform composes with
 differencing.
 """

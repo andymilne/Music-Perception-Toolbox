@@ -21,7 +21,7 @@ The module also carries the small set of pure helpers
 ``_compute_Q``, ``_compute_Q_inner_blocks``) shared between
 :mod:`._tensor.cosine` and :mod:`._tensor.eval`.
 
-See USER_GUIDE §4 ("Method selection") for the user-facing description.
+See USER_GUIDE §5 ("Method selection") for the user-facing description.
 This module is imported by ``cosine`` and ``eval``, so it imports
 nothing from them at module load; the few lookups it needs from
 :mod:`._mobius_inner` and :mod:`.._defaults` are deferred to call time.

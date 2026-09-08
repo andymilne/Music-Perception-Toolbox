@@ -19,7 +19,7 @@ The cosine path reaches into :mod:`._tensor.dispatch` for path
 selection and into :mod:`._tensor.canonical` for the batched-mode
 dedup keys.
 
-See USER_GUIDE §4 ("Method selection") and :doc:`/ARCHITECTURE` §4
+See USER_GUIDE §5 ("Method selection") and :doc:`/ARCHITECTURE` §4
 ("Dispatcher pattern") for the conceptual description.
 """
 from __future__ import annotations

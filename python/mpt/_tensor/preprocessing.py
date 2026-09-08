@@ -15,7 +15,7 @@ This module hosts the small preprocessing layer that sits *before*
 It also exposes :func:`simplex_vertices`, the categorical-encoding
 helper for level-symmetric MAET inputs.
 
-See USER_GUIDE §3.1 ("Cross-event preprocessing") for the conceptual
+See USER_GUIDE §7.3 ("Pre-MAET processing") for the conceptual
 introduction and :doc:`/ARCHITECTURE` §2 for the layering.
 """
 from __future__ import annotations
@@ -460,7 +460,7 @@ def flat_specs(p_attr, *, r=1, rel=False, sym=True, name=None,
     flat dicts for ``build_exp_tens(..., specs=...)``.
 
     The kernel parameters are optional here and compulsory at the tensor
-    (§3.7.10). Given them, the specs are a complete pre-MAET geometry and
+    (§7.4.3). Given them, the specs are a complete pre-MAET geometry and
     nothing further need be supplied at the build::
 
         pm = pre_maet(p_attr, w_attr, flat_specs(

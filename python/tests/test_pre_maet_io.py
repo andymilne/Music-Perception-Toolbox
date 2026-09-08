@@ -159,7 +159,7 @@ class TestFromScore:
         import os
         src = os.path.join(os.path.dirname(__file__), "data",
                            "score_small.musicxml")
-        _, _, specs = mpt.unpack_pre_maet(mpt.events_from_score(
+        _, _, specs = mpt.unpack_pre_maet(mpt.pre_maet_from_score(
             src, attributes=("pitch",), chords="separate"))
         assert specs[0]["is_per"] is False
         assert specs[0]["period"] == 0.0

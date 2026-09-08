@@ -1,0 +1,94 @@
+% The four routing decision trees. Each is drawn by its own routing_r*.tex
+% driver; the prose that explains them is in ARCHITECTURE.md section 4.
+\newcommand{\figRone}{%
+\begin{forest} routing
+[{\textbf{cosine}(x, y, method, normalize)\\input forms: density pair; density lists;\\raw arrays; batched single-multiset rows}
+  [{empty operand} [{\textit{any side has no events}\\$0$}, leaf]]
+  [{ordered attribute ([sym]=0, $r>1$)\\on either side}
+    [{\textit{overrides 'bulger'/'mobius' silently}\\centres}, leaf]]
+  [{nested attribute present\\and method $\neq$ 'bulger'}
+    [{\textit{auto / contract / mobius / centres}\\\textbf{nested plan} (Figure R3)}]]
+  [{method $\neq$ 'auto' (flat)}
+    [{Bulger}, leaf, ovr={bulger}]
+    [{unrestricted centres\\(perm $\times$ perm)}, leaf, ovr={centres}]
+    [{M\"obius per-attribute\\(Figure R2)}, leaf, ovr={mobius}]
+    [{'contract' on a non-nested density}, err, ovr={contract}]]
+  [{\textbf{flat selector} ('auto'), rules in order}
+    [{1. $r_a = 1$ on every attribute} [{Bulger}, leaf]]
+    [{2. $r_{\max}>8$} [{Bulger; feasibility guard\\$n_J^x n_J^y\cdot 8 > $ budget $\to$ error}, leaf]]
+    [{3. working set $n_J\,2\Sigma r\cdot 8 > 256$\,MB} [{M\"obius}, leaf]]
+    [{4. rel-per and $\sigma/P > \mathrm{thr}(t_s)$}
+      [{\textit{wrap='single-image'}\\Bulger (minimum-image measure)}, leaf]
+      [{\textit{wrap='full-image'}\\M\"obius (all-image measure)}, leaf]
+      [{mixed wrap on one density}, err]]
+    [{5. cost race\\$c_\mathrm{B}=$ law(bulger, tuple-pair entries)\\$c_\mathrm{M}=\sum_a \max(\min(\mathrm{centres},\mathrm{grid}),\ \mathrm{floor})$}
+      [{\textit{$c_\mathrm{B}\le c_\mathrm{M}$}\\Bulger}, leaf]
+      [{\textit{$c_\mathrm{B}> c_\mathrm{M}$}\\M\"obius (Figure R2)\\post-hoc guard: impossible value $\to$ Bulger}, leaf]]]
+]
+\end{forest}}
+
+\newcommand{\figRtwo}{%
+\begin{forest} routing
+[{\textbf{per attribute} $a$}
+  [{$r_a = 1$} [{direct kernel sum (abs kernel;\\wrap honoured)}, leaf]]
+  [{absolute, $r_a\ge 2$}
+    [{\textit{non-per, $K_xK_y\ge 2\cdot10^5$, nnz $\le 0.2K_xK_y$}\\sparse orbit sub-matrix}, leaf]
+    [{\textit{else}\\dense orbit (pw-batched)}, leaf]]
+  [{relative, $r_a\ge 2$:\\centres-vs-grid gate\\(\texttt{\_ma\_rel\_attr\_prefers\_centres})}
+    [{\textit{admissible and $c_\mathrm{centres}<c_\mathrm{grid}$ (or rel\_attr\_route='centres')}\\tuple-centres closed form\\comb-side restriction; $L=0$ short-circuit}, leaf]
+    [{translation grid\\$N_u$ nodes; image sum on periodic}
+      [{\textit{$2\le r\le4$, grid $\le 4\cdot10^6$, grid $\le 1100\,K_x^2\,N_xN_y$}\\spectral (Fourier) contraction}, leaf]
+      [{\textit{else}\\lattice contraction\\(orbit grid / pw-batched)}, leaf]]
+    [{'centres' requested above $\sigma/P$ threshold\\on a full-image attribute}, err]]
+]
+\end{forest}}
+
+\newcommand{\figRthree}{%
+\begin{forest} routing
+[{\textbf{nested density}}
+  [{not covered: $A$ differs; per-level\\{[r]}/{[sym]} differ; inner {[rel]} unit}
+    [{\textit{'auto'}\\Bulger}, leaf] [{\textit{'contract'/'mobius'/'centres'}\\error}, err]]
+  [{\textbf{admissible routes} per attribute (measure rule)}
+    [{absolute} [{contract}, leaf]]
+    [{relative, non-periodic} [{centres | line grid: cheaper by cost law}, leaf]]
+    [{relative, periodic, $\sigma/P > \mathrm{thr}(t_s)$}
+      [{\textit{wrap='full-image'}\\$\tau$-grid (all-image)}, leaf]
+      [{\textit{wrap='single-image'}\\centres (minimum-image)}, leaf]]
+    [{relative, periodic, $\sigma/P \le \mathrm{thr}(t_s)$} [{centres | $\tau$-grid: cheaper by cost law\\(memory guard: centres working set $> 256$\,MB $\to$ excluded)}, leaf]]
+    [{forced 'centres' where only the $\tau$-grid carries the measure}, err, ovr={centres}]]
+  [{\textbf{plan vs enumeration}\\plan $=\sum_a$ route price $+$ flat companions;\\enum $=$ Bulger law on the joint pair size\\(inf if a full-image rel-per attribute is above threshold)}
+    [{\textit{$2\,\mathrm{enum} < \mathrm{plan}$ and 'auto'}\\Bulger}, leaf]
+    [{\textit{else}\\run the plan}
+      [{contract: per level, orbit reduction or enumeration\\(orbit cost model); accuracy guard $\to$ enumeration}, leaf]
+      [{materialised centres}, leaf]
+      [{$\tau$-grid / line grid contraction}, leaf]]]
+  [{nested-MA (nested $\otimes$ flat attributes)\\per attribute: nested $\to$ plan above; flat symmetric $\to$ M\"obius matrix (Figure R2);\\ordered flat $\to$ tuple-centres closed form}]
+]
+\end{forest}}
+
+\newcommand{\figRfour}{%
+\begin{forest} routing
+[{\textbf{eval}(dens, X, method)}
+  [{centres branch}, ovr={centres}]
+  [{M\"obius branch}, ovr={mobius} [{\textit{raises}\\ordered attribute}, err]]
+  [{\textbf{eval selector} ('auto'), rules in order}
+    [{1. ordered attribute} [{centres}, leaf]]
+    [{2. every attribute nested:\\nested cost row}
+      [{\textit{$c_\mathrm{M}<c_\mathrm{C}$}\\per-level M\"obius}, leaf]
+      [{\textit{else}\\tag-tree centres}, leaf]]
+    [{2b. \textit{mixed} (nested $\otimes$ flat):\\priced at rule 6}]
+    [{3. $r_a = 1$ on every attribute} [{centres}, leaf]]
+    [{4. $r>10$} [{centres; working-set guard $> 4$\,GB $\to$ error}, leaf]]
+    [{5. rel-per and $\sigma/P>\mathrm{thr}(t_s)$}
+      [{\textit{wrap='single-image'}\\centres}, leaf] [{\textit{wrap='full-image'}\\M\"obius}, leaf]]
+    [{6. cost: $c_\mathrm{M} < c_\mathrm{C}\cdot s$,\\$s=1.5$ if joint working set $> 256$\,MB else $1$}
+      [{\textit{yes}\\M\"obius}, leaf] [{\textit{no}\\centres}, leaf]]]
+  [{\textbf{centres branch}}
+    [{single multiset: kernel sum\\1-D vectorised | bucketed | circular | exact chunks\\chunk: $\theta$ product ($L>0$) | tabulated $\theta$ | nearest-image $Q$}, leaf]
+    [{MA, all $r\ge2$, no kernel covariance: factored\\(per-attribute kernel sums)}, leaf]
+    [{MA otherwise: joint tuple centres\\(tabulated $\theta$ when values repeat)}, leaf]]
+  [{\textbf{M\"obius branch}}
+    [{absolute: partition sum, reduction rule}, leaf]
+    [{relative: $u$-grid; direct | factored (non-per) | Fourier ($2\le r\le4$)}, leaf]]
+]
+\end{forest}}

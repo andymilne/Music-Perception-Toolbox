@@ -16,7 +16,7 @@ the normalisation helpers, etc.).
 The eval path reaches into :mod:`._tensor.dispatch` for path
 selection.
 
-See USER_GUIDE §4 ("Method selection") and :doc:`/ARCHITECTURE` §4
+See USER_GUIDE §5 ("Method selection") and :doc:`/ARCHITECTURE` §4
 ("Dispatcher pattern") for the conceptual description.
 """
 from __future__ import annotations

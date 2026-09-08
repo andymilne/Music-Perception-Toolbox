@@ -212,7 +212,7 @@ fprintf('=== 8. From a score ===\n\n');
 here = fileparts(mfilename('fullpath'));
 score = fullfile(here, 'jmm', 'data', 'bwv347.musicxml');
 if exist(score, 'file')
-    pmS = eventsFromScore(score, ...
+    pmS = preMaetFromScore(score, ...
         'attributes', {'pitch', 'onset'}, 'chords', 'bind');
     % A score determines periodicity and not kernel widths, so sigma is
     % left for the analyst; the table shows what is still missing.

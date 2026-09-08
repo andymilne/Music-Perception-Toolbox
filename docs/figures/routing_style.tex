@@ -1,0 +1,31 @@
+% Shared forest style for the routing figures. Loaded by routing_r*.tex.
+\usepackage[edges]{forest}
+\usepackage{xcolor}
+\usepackage{amsmath}
+
+\definecolor{dec}{RGB}{235,242,250}
+\definecolor{leaf}{RGB}{240,240,240}
+\definecolor{err}{RGB}{200,40,40}
+\definecolor{ovr}{RGB}{120,60,160}
+
+\forestset{
+  routing/.style={
+    for tree={
+      font=\scriptsize\sffamily,
+      draw, rounded corners=2pt, fill=dec,
+      align=left, anchor=west,
+      edge={-{Stealth[length=2mm]}, semithick},
+      grow'=east, child anchor=west, parent anchor=east,
+      l sep=10mm, s sep=1.6mm,
+      inner xsep=3pt, inner ysep=2pt,
+      edge path={\noexpand\path[\forestoption{edge}]
+        (!u.parent anchor) -- ++(4mm,0) |- (.child anchor)\forestoption{edge label};},
+    },
+  },
+  leaf/.style={rounded corners=0pt, fill=leaf, font=\scriptsize\ttfamily},
+  err/.style={rounded corners=0pt, fill=white, draw=err, thick, font=\scriptsize\sffamily\itshape},
+  ovr/.style={edge={dashed, draw=ovr}, edge label={node[pos=0.75,above,font=\tiny\sffamily,color=ovr,inner sep=1pt]{#1}}},
+  when/.style={edge label={node[pos=0.75,above,font=\tiny\sffamily,inner sep=1pt]{#1}}},
+}
+\usetikzlibrary{arrows.meta}
+

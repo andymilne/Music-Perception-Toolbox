@@ -22,7 +22,7 @@ function notes = readScore(path)
 %       .partNames                        1 x P cell of part names
 %       .source                           'midi' or 'musicxml'
 %
-%   eventsFromScore turns the table into the (pAttr, wAttr, specs) of
+%   preMaetFromScore turns the table into the (pAttr, wAttr, specs) of
 %   buildExpTens. Both parsers are self-contained (no toolbox or Java
 %   dependency) and mirror the Python mpt.read_score, which reads the same
 %   files to the same table.
@@ -43,7 +43,7 @@ function notes = readScore(path)
 %     - MusicXML velocity is the note's dynamics attribute (a percentage of
 %       forte, forte being 90), 90 where absent.
 %
-%   See also EVENTSFROMSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES.
+%   See also PREMAETFROMSCORE, BUILDEXPTENS, TRANSFORMATTRIBUTES.
 
     path = char(path);
     [~, ~, ext] = fileparts(path);

@@ -229,7 +229,7 @@ print("=== 8. From a score ===\n")
 score = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "jmm", "data", "bwv347.musicxml")
 if os.path.exists(score):
-    pm_s = mpt.events_from_score(
+    pm_s = mpt.pre_maet_from_score(
         score, attributes=("pitch", "onset"), chords="bind")
     # A score determines periodicity and not kernel widths, so sigma is
     # left for the analyst; the table shows what is still missing.

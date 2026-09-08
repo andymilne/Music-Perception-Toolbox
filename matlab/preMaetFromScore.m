@@ -1,7 +1,7 @@
-function pm = eventsFromScore(source, nvArgs)
-%EVENTSFROMSCORE  Build a pre-MAET from a score.
+function pm = preMaetFromScore(source, nvArgs)
+%PREMAETFROMSCORE  Build a pre-MAET from a score.
 %
-%   PM = eventsFromScore(source, ...)
+%   PM = preMaetFromScore(source, ...)
 %
 %   source is a file path (parsed with readScore: MIDI, MusicXML, or .mxl)
 %   or a note table from readScore. The output is the pre-MAET that
@@ -59,18 +59,18 @@ function pm = eventsFromScore(source, nvArgs)
     allowed = {'pitch', 'onset', 'duration', 'velocity', 'part', 'measure', 'fermata'};
     for i = 1:numel(attributes)
         if ~any(strcmp(attributes{i}, allowed))
-            error('eventsFromScore:attribute', ...
+            error('preMaetFromScore:attribute', ...
                   'Unknown attribute ''%s''; choose from %s.', attributes{i}, strjoin(allowed, ', '));
         end
     end
     if ~any(strcmp(nvArgs.time, {'seconds', 'beats'}))
-        error('eventsFromScore:time', 'time must be ''seconds'' or ''beats''.');
+        error('preMaetFromScore:time', 'time must be ''seconds'' or ''beats''.');
     end
     if ~any(strcmp(nvArgs.weights, {'velocity', 'ones', 'duration'}))
-        error('eventsFromScore:weights', 'weights must be ''velocity'', ''ones'', or ''duration''.');
+        error('preMaetFromScore:weights', 'weights must be ''velocity'', ''ones'', or ''duration''.');
     end
     if ~any(strcmp(nvArgs.chords, {'bind', 'separate'}))
-        error('eventsFromScore:chords', 'chords must be ''bind'' or ''separate''.');
+        error('preMaetFromScore:chords', 'chords must be ''bind'' or ''separate''.');
     end
 
     keep = true(numel(notes.pitch), 1);

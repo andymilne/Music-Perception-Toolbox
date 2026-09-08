@@ -14,7 +14,7 @@ function specs = flatSpecs(pAttr, nvArgs)
 %   buildExpTens(..., 'specs', specs).
 %
 %   The kernel parameters are optional here and compulsory at the tensor
-%   (User Guide 3.7.10). Given them, the specs are a complete pre-MAET
+%   (User Guide 7.4.3). Given them, the specs are a complete pre-MAET
 %   geometry and nothing further need be supplied at the build:
 %
 %     pm = preMaet(pAttr, wAttr, flatSpecs(pAttr, 'r', [2 1], ...

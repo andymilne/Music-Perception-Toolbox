@@ -19,7 +19,7 @@ of any lazy field (a closure invoked at most once per
 for instance a cosine similarity routed to the Möbius method — never
 trigger the build.
 
-See USER_GUIDE §3 ("Building densities") for the user-facing
+See USER_GUIDE §7.1 ("The density and its four modes") for the user-facing
 description and :doc:`/ARCHITECTURE` §2 for the layering.
 """
 from __future__ import annotations
@@ -361,7 +361,7 @@ def build_exp_tens(p, w=None, *args, specs=None, sigma=None,
     w : None, scalar, or array-like
         Weights. ``None`` or a scalar for all ones or a uniform
         broadcast; a length-*N* vector of per-event weights. See the
-        toolbox's standard broadcast convention in User Guide §4.
+        toolbox's standard broadcast convention in User Guide §5.
     sigma : float
         Standard deviation of the Gaussian kernel.
     r : int

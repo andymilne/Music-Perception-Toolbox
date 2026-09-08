@@ -4,14 +4,14 @@ Two functions. :func:`read_score` parses a Standard MIDI File (format 0
 or 1) or a MusicXML file (``.musicxml``, ``.xml``, or compressed
 ``.mxl``) into a *note table*: one row per sounding note with its onset
 and duration in beats and in seconds, its MIDI pitch, its velocity, and
-its part. :func:`events_from_score` turns a note table (or a path) into
+its part. :func:`pre_maet_from_score` turns a note table (or a path) into
 the ``(p_attr, w_attr, specs)`` that :func:`build_exp_tens` and the
 pre-MAET preprocessors consume, choosing the attributes, their units,
 the weights, and whether simultaneous notes are bound into one
 multi-value event.
 
 Both parsers are self-contained (no third-party dependency) and mirror
-``readScore`` / ``eventsFromScore`` in MATLAB, which read the same files
+``readScore`` / ``preMaetFromScore`` in MATLAB, which read the same files
 to the same table.
 
 Conventions
@@ -46,7 +46,7 @@ from ._tensor.premaet import pre_maet
 from ._tensor.preprocessing import flat_specs
 from ._tensor.transform import _convert_scale
 
-__all__ = ["read_score", "events_from_score"]
+__all__ = ["read_score", "pre_maet_from_score"]
 
 _NOTE_FIELDS = ("onset_beats", "onset_seconds", "duration_beats",
                 "duration_seconds", "pitch", "velocity", "part", "channel",
@@ -472,13 +472,13 @@ def _timewise_to_partwise(root):
 
 
 # ===================================================================
-#  events_from_score
+#  pre_maet_from_score
 # ===================================================================
 
-def events_from_score(source, *, attributes=("pitch", "onset"),
-                      pitch="midi", time="seconds", weights="velocity",
-                      parts=None, chords="bind", chord_tolerance=0.0,
-                      names=True):
+def pre_maet_from_score(source, *, attributes=("pitch", "onset"),
+                        pitch="midi", time="seconds", weights="velocity",
+                        parts=None, chords="bind", chord_tolerance=0.0,
+                        names=True):
     """Build the pre-MAET's parts from a score.
 
     Parameters
